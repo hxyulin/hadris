@@ -1,0 +1,13 @@
+[package]
+name = "hadris"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[features]
+default = ["fat", "write"]
+fat = ["hadris-fat"]
+write = ["hadris-fat/write"]
+
+[dependencies]
+hadris-fat = { workspace = true, optional = true }

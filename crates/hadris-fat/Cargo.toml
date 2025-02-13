@@ -1,0 +1,30 @@
+[package]
+name = "hadris-fat"
+description = "A library for working with FAT32 file systems, a standalone crate included in the hadris project"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[features]
+default = ["read", "write", "lfn"]
+alloc = []
+std = ["alloc", "byteorder/std"]
+read = []
+write = ["std"]
+lfn = []
+
+[dependencies]
+#hadris-core = { workspace = true }
+
+bitflags = "2.8.0"
+bytemuck = { version = "1.21.0", default-features = false, features = [
+    "derive",
+] }
+byteorder = { version = "1.5.0", default-features = false }
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+static_assertions = { version = "1.1.0", features = ["nightly"] }

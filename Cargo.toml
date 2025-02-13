@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [ "crates/hadris","crates/hadris-core", "crates/hadris-fat"]
+default-members = ["crates/hadris-core", "crates/hadris-fat"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+license-file = "LICENSE"
+authors = ["hxyulin"]
+repository = "https://github.com/hxyulin/hadris"
+homepage = "https://github.com/hxyulin/hadris"
+
+[workspace.dependencies]
+hadris-core = { path = "crates/hadris-core" }
+hadris-fat = { path = "crates/hadris-fat" }
