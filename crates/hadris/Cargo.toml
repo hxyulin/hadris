@@ -3,6 +3,8 @@ name = "hadris"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+description = "A filesystem library fully written in Rust"
+license.workspace = true
 
 [features]
 default = ["fat", "write"]
