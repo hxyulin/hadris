@@ -17,7 +17,7 @@ write = ["std"]
 lfn = []
 
 [dependencies]
-#hadris-core = { workspace = true }
+hadris-core = { workspace = true }
 
 bitflags = "2.8.0"
 bytemuck = { version = "1.21.0", default-features = false, features = [

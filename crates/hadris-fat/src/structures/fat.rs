@@ -32,7 +32,7 @@ pub struct Fat32 {
 }
 
 impl Fat32 {
-    pub fn from_bytes<'a>(bytes: &'a [u8]) -> &'a Self {
+    pub fn from_bytes(bytes: &[u8]) -> &Self {
         assert!(bytes.len() % 4 == 0);
         let entries = bytemuck::cast_slice::<u8, u32>(bytes);
         // SAFETY: 'Directory' is repr(transparent) over '[DirectoryEntry]'
@@ -40,7 +40,7 @@ impl Fat32 {
         unsafe { &*(entries as *const [u32] as *const Fat32) }
     }
 
-    pub fn from_bytes_mut<'a>(bytes: &'a mut [u8]) -> &'a mut Self {
+    pub fn from_bytes_mut(bytes: &mut [u8]) -> &mut Self {
         assert!(bytes.len() % 4 == 0);
         let entries = bytemuck::cast_slice_mut::<u8, u32>(bytes);
         // SAFETY: 'Directory' is repr(transparent) over '[DirectoryEntry]'

@@ -1,13 +1,21 @@
+//! Structures for the FAT32 file system
+//!
+//! Raw byte structures for the FAT32 file system are defined in the `raw` module.
+//! The `boot_sector` module defines the boot sector for FAT32 file systems.
+//! The `fat` module defines the FAT table for FAT32 file systems.
+//! The `fs_info` module defines the FsInfo structure for FAT32 file systems.
+//! The `directory` module defines the directory structure for FAT32 file systems.
+//! The `file` module defines the file structure for FAT32 file systems.
+//! Each module, which is now raw, has a strcture for reading and writing, and a info variant,
+//! which contains the info of that module, in the current endianness
+
 use core::str;
 
-use boot_sector::BpbExtended32;
-
-/// Raw structures for the FAT32 file system
-pub mod raw;
 pub mod boot_sector;
+pub mod directory;
 pub mod fat;
 pub mod fs_info;
-pub mod directory;
+pub mod raw;
 
 #[cfg(feature = "write")]
 #[derive(Debug, Clone)]
@@ -30,6 +38,18 @@ pub struct Fat32Ops {
 
 #[cfg(feature = "write")]
 impl Fat32Ops {
+    #[cfg(feature = "write")]
+    fn current_volume_id(seed: u32) -> u32 {
+        // TODO: Use an actual one, maybe from the MS-DOS FAT32 spec
+        // We get the current time in seconds since the epoch
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap();
+        let time_part = (now.as_secs() as u32) ^ (now.as_secs().wrapping_shr(32) as u32);
+        // We make it seem 'random' by xoring it with the seed
+        time_part ^ seed
+    }
+
     pub fn recommended_config_for(total_sectors: u32) -> Self {
         let sectors_per_cluster = Self::recommended_sectors_per_cluster(total_sectors);
         let total_clusters = total_sectors / sectors_per_cluster as u32;
@@ -38,7 +58,7 @@ impl Fat32Ops {
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as u32;
-        let volume_id = BpbExtended32::current_volume_id(current_time_secs);
+        let volume_id = Self::current_volume_id(current_time_secs);
 
         let mut ops = Self {
             sectors_per_cluster,

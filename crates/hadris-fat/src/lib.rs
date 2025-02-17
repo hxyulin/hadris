@@ -25,15 +25,17 @@ compile_error!("This crate only supports little endian systems");
 
 pub mod structures;
 
+use std::sync::RwLock;
+
 #[cfg(feature = "write")]
 use structures::Fat32Ops;
 
 use structures::{
-    boot_sector::{BootSector, BootSector32},
+    boot_sector::{BootSector, BootSectorConversionError, BootSectorInfo},
     directory::{Directory, FileAttributes, FileEntry},
     fat::Fat32,
     fs_info::FsInfo,
-    FatStr,
+    raw, FatStr,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,16 +61,30 @@ pub enum FatType {
 ///
 /// TODO: This currently only supports FAT32.
 pub struct FileSystem<'ctx> {
-    pub reserved: &'ctx mut [u8],
-    pub fat: &'ctx mut [u8],
-    pub data: &'ctx mut [u8],
+    pub(crate) reserved: &'ctx mut [u8],
+    pub(crate) fat: &'ctx mut [u8],
+    pub(crate) data: &'ctx mut [u8],
 
     // Store some metadata about the filesystem
-    pub bs: BootSector32,
+    pub(crate) bs: BootSectorInfo,
+    // To make this no-std compliant, we just have a list of clusters
+    pub(crate) descriptors: RwLock<[u32; MAX_OPEN]>,
 }
+
+impl core::fmt::Debug for FileSystem<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FileSystem")
+            .field("bs", &self.bs)
+            .field("descriptors", &self.descriptors)
+            .finish()
+    }
+}
+
+const MAX_OPEN: usize = 512;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilesystemError {
-    InvalidBootSector,
+    InvalidBootSector(BootSectorConversionError),
     FileTooSmall,
 }
 
@@ -78,9 +94,10 @@ impl<'ctx> FileSystem<'ctx> {
             return Err(FilesystemError::FileTooSmall);
         }
         let bs = {
-            let bs = unsafe { BootSector::from_bytes_unchecked(&bytes[0..512]) }
-                .try_as_fat32()
-                .map_err(|_| FilesystemError::InvalidBootSector)?;
+            let bs = BootSectorInfo::try_from(raw::boot_sector::RawBootSector::from_bytes(
+                &bytes[0..512].try_into().unwrap(),
+            ))
+            .map_err(|e| FilesystemError::InvalidBootSector(e))?;
             if bytes.len() < bs.bytes_per_sector() as usize * bs.total_sectors() as usize {
                 return Err(FilesystemError::FileTooSmall);
             }
@@ -98,13 +115,40 @@ impl<'ctx> FileSystem<'ctx> {
             data,
 
             bs,
+            descriptors: RwLock::new([0xFFFF_FFFF; MAX_OPEN]),
         })
+    }
+
+    fn create_file_descriptor(&self, path: &str) -> Result<u32, ()> {
+        let cluster_size =
+            self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
+        let root_cluster = self.bs.root_cluster();
+        // root directory
+        let cluster_start = (root_cluster as usize - 2) * cluster_size;
+        let directory =
+            Directory::from_bytes(&self.data[cluster_start..cluster_start + cluster_size]);
+        let path = path.split('.').collect::<Vec<_>>();
+        let index = directory
+            .find_by_name(
+                &FatStr::new_truncate(path[0]),
+                &FatStr::new_truncate(path[1]),
+            )
+            .unwrap();
+        let entry = &directory.entries[index];
+        let mut descriptors = self.descriptors.write().unwrap();
+        for i in 0..descriptors.len() {
+            if descriptors[i] == 0xFFFF_FFFF {
+                descriptors[i] = entry.cluster();
+                return Ok(i as u32);
+            }
+        }
+        Err(())
     }
 
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, FilesystemError> {
         let cluster_size =
             self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
-        let root_cluster = self.bs.root_sector();
+        let root_cluster = self.bs.root_cluster();
         // root directory
         let cluster_start = (root_cluster as usize - 2) * cluster_size;
         let directory =
@@ -133,6 +177,24 @@ impl<'ctx> FileSystem<'ctx> {
         let bytes_per_cluster =
             self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
         (size + bytes_per_cluster - 1) / bytes_per_cluster
+    }
+}
+
+impl hadris_core::FileSystem for FileSystem<'_> {
+    fn open(&self, path: &str, _mode: hadris_core::OpenMode) -> Result<hadris_core::File, ()> {
+        let descriptor = self.create_file_descriptor(path)?;
+        Ok(unsafe { hadris_core::File::with_descriptor(descriptor) })
+    }
+}
+
+impl hadris_core::FileSystemRead for FileSystem<'_> {
+    fn read(&self, file: &hadris_core::File, buffer: &mut [u8]) -> Result<usize, ()> {
+        let cluster_size =
+            self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
+        let cluster = self.descriptors.read().unwrap()[file.descriptor() as usize];
+        Fat32::from_bytes(self.fat).read_data(self.data, cluster_size, cluster, buffer);
+
+        Ok(buffer.len())
     }
 }
 
@@ -188,12 +250,18 @@ impl<'ctx> FileSystem<'ctx> {
             fs_info.next_free += 1;
         }
 
-        boot_sector.write(&mut data[0..bytes_per_sector]);
+        // We dont care about sector size, it is always 512 bytes
+        const BOOT_SECTOR_SIZE: usize = 512;
+        boot_sector.copy_to_bytes((&mut data[0..BOOT_SECTOR_SIZE]).try_into().unwrap());
         let fs_info_start = ops.fs_info_sector as usize * bytes_per_sector;
         fs_info.write(&mut data[fs_info_start..fs_info_start + bytes_per_sector]);
         if ops.boot_sector != 0 {
             let start = ops.boot_sector as usize * bytes_per_sector;
-            boot_sector.write(&mut data[start..start + bytes_per_sector]);
+            boot_sector.copy_to_bytes(
+                (&mut data[start..start + BOOT_SECTOR_SIZE])
+                    .try_into()
+                    .unwrap(),
+            );
             let start = start + bytes_per_sector;
             fs_info.write(&mut data[start..start + bytes_per_sector]);
         }
@@ -207,7 +275,8 @@ impl<'ctx> FileSystem<'ctx> {
             fat,
             data,
 
-            bs: *boot_sector.as_fat32(),
+            bs: boot_sector.info(),
+            descriptors: RwLock::new([0xFFFF_FFFF; MAX_OPEN]),
         }
     }
 
@@ -250,7 +319,7 @@ impl<'ctx> FileSystem<'ctx> {
         );
         let cluster_size =
             self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
-        let root_cluster = self.bs.root_sector();
+        let root_cluster = self.bs.root_cluster();
         // root directory
         let cluster_start = (root_cluster as usize - 2) * cluster_size;
         let directory =
@@ -276,12 +345,13 @@ mod tests {
 
     #[test]
     fn test_basic_file_read_write() {
-        let mut bytes = Vec::with_capacity(512 * 1024);
+        let mut bytes = Vec::with_capacity(512 * 8192);
         const CONTENTS: &[u8] = b"Hello, world!";
         bytes.resize(bytes.capacity(), 0);
-        let mut fs = FileSystem::new_f32(Fat32Ops::recommended_config_for(1024), &mut bytes);
+        let mut fs = FileSystem::new_f32(Fat32Ops::recommended_config_for(8192), &mut bytes);
         fs.create_file("test.txt", CONTENTS);
         let read_contents = fs.read_file("test.txt").unwrap();
         assert_eq!(read_contents.as_slice(), CONTENTS);
+        std::fs::write("test.img", bytes).unwrap();
     }
 }

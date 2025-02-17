@@ -1,7 +1,17 @@
 [workspace]
 resolver = "2"
-members = [ "crates/hadris","crates/hadris-core", "crates/hadris-fat"]
-default-members = ["crates/hadris-core", "crates/hadris-fat"]
+members = [
+    "crates/hadris",
+    "crates/hadris-cli",
+    "crates/hadris-core",
+    "crates/hadris-fat",
+]
+default-members = [
+    "crates/hadris",
+    "crates/hadris-cli",
+    "crates/hadris-core", 
+    "crates/hadris-fat"
+]
 
 [workspace.package]
 version = "0.1.0"

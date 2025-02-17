@@ -12,4 +12,5 @@ fat = ["hadris-fat"]
 write = ["hadris-fat/write"]
 
 [dependencies]
+hadris-core = { workspace = true }
 hadris-fat = { workspace = true, optional = true }

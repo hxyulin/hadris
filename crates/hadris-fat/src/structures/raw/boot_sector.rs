@@ -1,3 +1,5 @@
+use crate::FatType;
+
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct RawBpb {
@@ -186,6 +188,74 @@ pub union RawBpbExt {
 pub struct RawBootSector {
     pub bpb: RawBpb,
     pub bpb_ext: RawBpbExt,
+}
+
+impl RawBpb {
+    pub fn check_jump_boot(&self) -> bool {
+        (self.jump[0] == 0xEB && self.jump[2] == 0x90) || self.jump[0] == 0xE9
+    }
+
+    pub fn check_bytes_per_sector(&self) -> bool {
+        let bytes_per_sector = u16::from_le_bytes(self.bytes_per_sector);
+        matches!(bytes_per_sector, 512 | 1024 | 2048 | 4096)
+    }
+
+    pub fn check_sectors_per_cluster(&self) -> bool {
+        matches!(self.sectors_per_cluster, 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128)
+    }
+
+    pub fn check_reserved_sector_count(&self) -> bool {
+        // TODO: Maybe ensure it is aligned with data segment?
+        u16::from_le_bytes(self.reserved_sector_count) != 0
+    }
+
+    pub fn check_fat_count(&self) -> bool {
+        matches!(self.fat_count, 1 | 2)
+    }
+}
+
+#[cfg(any(feature = "read", feature = "write"))]
+impl RawBootSector {
+    pub fn get_type(&self) -> FatType {
+        let root_entry_count = u16::from_le_bytes(self.bpb.root_entry_count);
+        let bytes_per_sector = u16::from_le_bytes(self.bpb.bytes_per_sector);
+        let sectors_per_fat_16 = u16::from_le_bytes(self.bpb.sectors_per_fat_16);
+        let total_sectors_16 = u16::from_le_bytes(self.bpb.total_sectors_16);
+
+        // Based on FAT32 spec
+        let root_dir_sectors = ((root_entry_count * 32) + bytes_per_sector) / bytes_per_sector;
+        if root_dir_sectors == 0 || sectors_per_fat_16 == 0 {
+            return FatType::Fat32;
+        }
+
+        let total_sectors = if total_sectors_16 != 0 {
+            total_sectors_16 as u32
+        } else {
+            u32::from_le_bytes(self.bpb.total_sectors_32)
+        };
+
+        let data_sectors = total_sectors
+            - (u16::from_le_bytes(self.bpb.reserved_sector_count) as u32
+                + (self.bpb.fat_count as u32 * sectors_per_fat_16 as u32)
+                + root_entry_count as u32);
+
+        match data_sectors {
+            0..4085 => FatType::Fat12,
+            4085..65525 => FatType::Fat16,
+            65525.. => panic!("Fat16 partition exceeds maximum size"),
+        }
+    }
+
+}
+
+impl RawBootSector {
+    pub fn from_bytes(bytes: &[u8; 512]) -> &RawBootSector {
+        bytemuck::cast_ref(bytes)
+    }
+
+    pub fn from_bytes_mut(bytes: &mut [u8;512]) -> &RawBootSector {
+        bytemuck::cast_mut(bytes)
+    }
 }
 
 // TODO: Bytemuck should be an optional feature
