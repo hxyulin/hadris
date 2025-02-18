@@ -66,16 +66,46 @@ impl Fat32 {
         (self.entries.len() * 4 + (sector_size - 1)) / sector_size
     }
 
-    pub fn allocate_clusters(
+    /// Attempts to allocate at most 'max_clusters' contiguous clusters, returning the first
+    /// cluster index and allocated cluster count
+    pub fn allocate_contiguous_clusters(
+        &mut self,
+        free_count: &mut u32,
+        next_free: &mut u32,
+        max_clusters: u32,
+    ) -> (u32, u32) {
+        let mut counter = 1;
+        let first_cluster = *next_free as usize;
+        let mut cluster = first_cluster;
+        debug_assert!(cluster != 0xFFFF_FFFF);
+        debug_assert!(self.entries[cluster] == constants::FAT32_CLUSTER_FREE);
+        while counter < max_clusters {
+            // We preemptively link the next cluster to the current one
+            self.mark_cluster_as(cluster, cluster as u32 + 1);
+
+            if cluster + 1 >= self.entries.len()
+                || self.entries[cluster + 1] != constants::FAT32_CLUSTER_FREE
+            {
+                break;
+            }
+
+            cluster += 1;
+            counter += 1;
+        }
+        // We remark the cluster as allocated
+        self.mark_cluster_as(cluster, constants::FAT32_CLUSTER_LAST);
+        *free_count -= counter;
+        *next_free = self.find_free_cluster().unwrap() as u32;
+        (first_cluster as u32, counter)
+    }
+
+    /// Allocates the specified number of clusters
+    pub fn allocate_clusters_fragmented(
         &mut self,
         free_count: &mut u32,
         next_free: &mut u32,
         count: u32,
     ) -> u32 {
-        #[cfg(feature = "profiling")]
-        let span = tracing::span!(tracing::Level::INFO, "allocate_clusters");
-        #[cfg(feature = "profiling")]
-        let _guard = span.enter();
         assert!(*free_count > 0 && *free_count != 0xFFFF_FFFF);
         assert!(*next_free != 0xFFFF_FFFF);
         let mut free_cluster = next_free.clone();
@@ -94,12 +124,39 @@ impl Fat32 {
         *next_free
     }
 
+    pub fn allocate_clusters(
+        &mut self,
+        free_count: &mut u32,
+        next_free: &mut u32,
+        count: u32,
+    ) -> u32 {
+        // We choose between fragmented and contiguous allocation based on the count
+        const FRAGMENTED_THRESHOLD: u32 = 4;
+        if count <= FRAGMENTED_THRESHOLD {
+            self.allocate_clusters_fragmented(free_count, next_free, count)
+        } else {
+            let mut allocated = 0;
+            let mut first_cluster = 0;
+            let mut last_cluster = 0;
+            while allocated < count {
+                // TODO: Add testing for this case, because this is not tested when the loop is ran
+                // multiple times
+                let (cluster, allocated_this) =
+                    self.allocate_contiguous_clusters(free_count, next_free, count - allocated);
+                if first_cluster == 0 {
+                    first_cluster = cluster;
+                } else {
+                    self.link_cluster(last_cluster, cluster as usize);
+                }
+                last_cluster = cluster as usize;
+                allocated += allocated_this;
+            }
+            first_cluster
+        }
+    }
+
     #[inline]
     pub fn find_free_cluster(&self) -> Option<usize> {
-        #[cfg(feature = "profiling")]
-        let span = tracing::span!(tracing::Level::INFO, "find_free_cluster");
-        #[cfg(feature = "profiling")]
-        let _guard = span.enter();
         for (i, entry) in self.entries.iter().enumerate() {
             if *entry == constants::FAT32_CLUSTER_FREE {
                 return Some(i);
@@ -128,10 +185,6 @@ impl Fat32 {
         free_count: &mut u32,
         next_free: &mut u32,
     ) {
-        #[cfg(feature = "profiling")]
-        let span = tracing::span!(tracing::Level::INFO, "retain_cluster_chain");
-        #[cfg(feature = "profiling")]
-        let _guard = span.enter();
         let mut counter = 0;
         while counter < length {
             let value = self.entries[cluster];
@@ -156,10 +209,6 @@ impl Fat32 {
         offset: usize,
         data: &[u8],
     ) -> usize {
-        #[cfg(feature = "profiling")]
-        let span = tracing::span!(tracing::Level::INFO, "write_data");
-        #[cfg(feature = "profiling")]
-        let _guard = span.enter();
         let mut data_offset = 0;
         let mut bytes_written = 0;
 
@@ -201,10 +250,6 @@ impl Fat32 {
         offset: usize,
         data: &mut [u8],
     ) -> usize {
-        #[cfg(feature = "profiling")]
-        let span = tracing::span!(tracing::Level::INFO, "read_data");
-        #[cfg(feature = "profiling")]
-        let _guard = span.enter();
         let mut data_offset = 0;
         let mut bytes_read = 0;
 

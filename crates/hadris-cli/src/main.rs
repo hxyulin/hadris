@@ -82,16 +82,6 @@ impl Into<FileSystemType> for FsType {
 }
 
 fn main() {
-    #[cfg(feature = "profiling")]
-    let _guard = {
-        let subscriber = tracing_subscriber::FmtSubscriber::builder()
-            .with_max_level(tracing::Level::TRACE)
-            .finish();
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("setting default subscriber failed");
-        pprof::ProfilerGuard::new(100).unwrap()
-    };
-
     use hadris::FileSystem;
     let args = Arguments::parse();
     match args.command {
@@ -139,13 +129,5 @@ fn main() {
                 read = file.read(&fs, &mut buf).unwrap();
             }
         }
-    }
-
-    #[cfg(feature = "profiling")]
-    {
-        let mut file = std::fs::File::create("flamegraph.svg").unwrap();
-        let report = _guard.report().build().unwrap();
-        report.flamegraph(&mut file).unwrap();
-        println!("Flamegraph saved to flamegraph.svg");
     }
 }

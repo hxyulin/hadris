@@ -146,8 +146,6 @@ impl<'ctx> FileSystem<'ctx> {
             #[cfg(not(feature = "write"))]
             None => return Err(()),
         };
-        let info = entry.info();
-        dbg!(info);
         let descriptor = self
             .descriptors
             .iter_mut()
@@ -213,7 +211,6 @@ impl hadris_core::internal::FileSystemWrite for FileSystem<'_> {
         if fd.cluster == 0 {
             // It wasn't allocated previously, so we need to allocate it
             let clusters = self.to_clusters_rounded_up(buffer.len());
-            println!("Allocating {} clusters", clusters);
             let cluster = self.allocate_clusters(clusters as u32);
             fd.cluster = cluster;
             self.descriptors[file.descriptor() as usize].replace(fd);
@@ -222,7 +219,6 @@ impl hadris_core::internal::FileSystemWrite for FileSystem<'_> {
             self.retain_cluster_chain(fd.cluster as usize, clusters as u32);
         }
 
-        println!("Writing {} bytes", buffer.len());
         let written = Fat32::from_bytes_mut(self.fat).write_data(
             self.data,
             cluster_size,
@@ -230,7 +226,6 @@ impl hadris_core::internal::FileSystemWrite for FileSystem<'_> {
             file.seek() as usize,
             buffer,
         );
-        println!("Written {} bytes", written);
 
         // Round down the entry offset to the start of the directory entry
         let cluster_start = (fd.entry_offset / cluster_size) * cluster_size;
