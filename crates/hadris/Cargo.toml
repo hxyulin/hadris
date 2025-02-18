@@ -1,5 +1,6 @@
 [package]
 name = "hadris"
+readme = "../../README.md"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

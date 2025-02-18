@@ -1,8 +1,13 @@
 [package]
 name = "hadris-core"
+description = "Hadris core library"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
 
 [features]
 default = ["std"]
