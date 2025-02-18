@@ -146,6 +146,8 @@ impl<'ctx> FileSystem<'ctx> {
             #[cfg(not(feature = "write"))]
             None => return Err(()),
         };
+        let info = entry.info();
+        dbg!(info);
         let descriptor = self
             .descriptors
             .iter_mut()
@@ -190,38 +192,45 @@ impl hadris_core::internal::FileSystemRead for FileSystem<'_> {
         let cluster_size =
             self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
         let fd = self.descriptors[file.descriptor() as usize].unwrap();
-        Ok(Fat32::from_bytes(self.fat).read_data(
-            self.data,
-            cluster_size,
-            fd.cluster,
-            file.seek() as usize,
-            buffer,
-        ))
-    }
-}
-
-#[cfg(feature = "write")]
-impl hadris_core::internal::FileSystemWrite for FileSystem<'_> {
-    fn write(&mut self, file: &hadris_core::File, buffer: &[u8]) -> Result<usize, ()> {
-        // TODO: This is a super hacky implementation, we should probably use a better implementation
-        // FIXME: This also doesn't even work
-        let cluster_size =
-            self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
-        let mut fd = self.descriptors[file.descriptor() as usize].unwrap();
-        if fd.cluster == 0 {
-            // It wasn't allocated previously, so we need to allocate it
-            let clusters = self.to_clusters_rounded_up(buffer.len());
-            let cluster = self.allocate_clusters(clusters as u32);
-            fd.cluster = cluster;
-            self.descriptors[file.descriptor() as usize].replace(fd);
-        }
-        let written = Fat32::from_bytes(self.fat).write_data(
+        let read = Fat32::from_bytes(self.fat).read_data(
             self.data,
             cluster_size,
             fd.cluster,
             file.seek() as usize,
             buffer,
         );
+        file.set_seek(file.seek() + read as u32);
+        Ok(read)
+    }
+}
+
+#[cfg(feature = "write")]
+impl hadris_core::internal::FileSystemWrite for FileSystem<'_> {
+    fn write(&mut self, file: &hadris_core::File, buffer: &[u8]) -> Result<usize, ()> {
+        let cluster_size =
+            self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
+        let mut fd = self.descriptors[file.descriptor() as usize].unwrap();
+        if fd.cluster == 0 {
+            // It wasn't allocated previously, so we need to allocate it
+            let clusters = self.to_clusters_rounded_up(buffer.len());
+            println!("Allocating {} clusters", clusters);
+            let cluster = self.allocate_clusters(clusters as u32);
+            fd.cluster = cluster;
+            self.descriptors[file.descriptor() as usize].replace(fd);
+        } else {
+            let clusters = self.to_clusters_rounded_up(buffer.len());
+            self.retain_cluster_chain(fd.cluster as usize, clusters as u32);
+        }
+
+        println!("Writing {} bytes", buffer.len());
+        let written = Fat32::from_bytes_mut(self.fat).write_data(
+            self.data,
+            cluster_size,
+            fd.cluster,
+            file.seek() as usize,
+            buffer,
+        );
+        println!("Written {} bytes", written);
 
         // Round down the entry offset to the start of the directory entry
         let cluster_start = (fd.entry_offset / cluster_size) * cluster_size;
@@ -241,12 +250,13 @@ impl<'ctx> FileSystem<'ctx> {
     pub fn new_f32(mut ops: Fat32Ops, data: &'ctx mut [u8]) -> Self {
         let bytes_per_sector = ops.bytes_per_sector as usize;
         let usable_sectors = ops.total_sectors_32 as usize - ops.reserved_sector_count as usize;
-        let fat_size_sectors = usable_sectors / Fat32::entries_per_sector(bytes_per_sector) + 1;
+        let usable_clusters = (usable_sectors + 2) / ops.sectors_per_cluster as usize;
+        let fat_size_sectors = usable_clusters / Fat32::entries_per_sector(bytes_per_sector) + 1;
         assert!(
             fat_size_sectors == ops.sectors_per_fat_32 as usize,
             "Specified fat size in sectors does not match provided {} vs {}",
+            fat_size_sectors,
             ops.sectors_per_cluster,
-            fat_size_sectors
         );
         ops.sectors_per_fat_32 = fat_size_sectors as u32;
 
@@ -339,6 +349,23 @@ impl<'ctx> FileSystem<'ctx> {
         fs_info.next_free = next_free;
         fs_info.free_count = free_count;
         cluster
+    }
+
+    fn retain_cluster_chain(&mut self, cluster: usize, length: u32) {
+        let range = self.fs_info_range();
+        let (mut next_free, mut free_count) = {
+            let fs_info = FsInfo::from_bytes(&self.reserved[range.clone()]);
+            (fs_info.next_free, fs_info.free_count)
+        };
+        Fat32::from_bytes_mut(&mut self.fat).retain_cluster_chain(
+            cluster,
+            length,
+            &mut free_count,
+            &mut next_free,
+        );
+        let fs_info = FsInfo::from_bytes_mut(&mut self.reserved[range]);
+        fs_info.next_free = next_free;
+        fs_info.free_count = free_count;
     }
 
     pub fn create_file(&mut self, path: &str, data: &[u8]) {

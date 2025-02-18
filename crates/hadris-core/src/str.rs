@@ -51,11 +51,15 @@ impl<const N: usize> core::fmt::Display for FixedByteStr<N> {
 impl<const N: usize> core::fmt::Write for FixedByteStr<N> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         let len = s.len();
-        if len > N {
-            return Err(core::fmt::Error);
+        let remaining = N.saturating_sub(self.len); 
+
+        if len > remaining {
+            return Err(core::fmt::Error); 
         }
-        self.raw[..len].copy_from_slice(s.as_bytes());
-        self.len = len;
+
+        self.raw[self.len..self.len + len].copy_from_slice(s.as_bytes());
+
+        self.len += len;
         Ok(())
     }
 }

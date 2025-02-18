@@ -1,7 +1,7 @@
 use std::{path::PathBuf, str::FromStr};
 
 use clap::Parser;
-use hadris::FileSystemType;
+use hadris::{FileSystemType, OpenOptions};
 
 #[derive(Debug, Clone, Copy)]
 struct ByteSize(pub u64);
@@ -36,15 +36,15 @@ impl FromStr for ByteSize {
 #[derive(Debug, Parser)]
 struct Arguments {
     #[clap(value_parser)]
-    input: PathBuf,
+    image: PathBuf,
     #[clap(subcommand)]
     command: Subcommand,
 }
 
 #[derive(Debug, clap::Subcommand)]
 enum Subcommand {
-    Read,
-    Write,
+    Read(ReadCommand),
+    Write(WriteCommand),
     Create(CreateCommand),
 }
 
@@ -55,6 +55,16 @@ struct CreateCommand {
     size: ByteSize,
     #[clap(short = 't', long = "type")]
     ty: FsType,
+}
+
+#[derive(Debug, clap::Args)]
+struct WriteCommand {
+    file: PathBuf,
+}
+
+#[derive(Debug, clap::Args)]
+struct ReadCommand {
+    file: PathBuf,
 }
 
 #[derive(Debug, clap::ValueEnum, Clone, Copy)]
@@ -72,6 +82,16 @@ impl Into<FileSystemType> for FsType {
 }
 
 fn main() {
+    #[cfg(feature = "profiling")]
+    let _guard = {
+        let subscriber = tracing_subscriber::FmtSubscriber::builder()
+            .with_max_level(tracing::Level::TRACE)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("setting default subscriber failed");
+        pprof::ProfilerGuard::new(100).unwrap()
+    };
+
     use hadris::FileSystem;
     let args = Arguments::parse();
     match args.command {
@@ -80,8 +100,52 @@ fn main() {
             {
                 _ = FileSystem::create_with_bytes(ty.into(), &mut bytes)
             };
-            std::fs::write(args.input, bytes).unwrap();
+            std::fs::write(args.image, bytes).unwrap();
         }
-        _ => unimplemented!(),
+        Subcommand::Write(WriteCommand { file }) => {
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            if atty::isnt(atty::Stream::Stdin) {
+                let mut stdin = std::io::stdin();
+                stdin.read_to_end(&mut bytes).unwrap();
+            } else {
+                println!("Reading from stdin...");
+                std::io::stdin().read_to_end(&mut bytes).unwrap();
+            }
+
+            let mut fs_bytes = std::fs::read(&args.image).unwrap();
+            let mut fs = FileSystem::read_from_bytes(FileSystemType::Fat32, &mut fs_bytes);
+            let file = fs
+                .open_file(
+                    file.as_os_str().to_str().unwrap(),
+                    OpenOptions::WRITE | OpenOptions::CREATE,
+                )
+                .unwrap();
+            file.write(&mut fs, &bytes).unwrap();
+            drop(file);
+            drop(fs);
+            std::fs::write(&args.image, &fs_bytes).unwrap();
+        }
+        Subcommand::Read(ReadCommand { file }) => {
+            let mut fs_bytes = std::fs::read(&args.image).unwrap();
+            let mut fs = FileSystem::read_from_bytes(FileSystemType::Fat32, &mut fs_bytes);
+            let file = fs
+                .open_file(file.as_os_str().to_str().unwrap(), OpenOptions::READ)
+                .unwrap();
+            let mut buf = [0u8; 8192];
+            let mut read = file.read(&fs, &mut buf).unwrap();
+            while read != 0 {
+                print!("{}", std::str::from_utf8(&buf[..read]).unwrap());
+                read = file.read(&fs, &mut buf).unwrap();
+            }
+        }
+    }
+
+    #[cfg(feature = "profiling")]
+    {
+        let mut file = std::fs::File::create("flamegraph.svg").unwrap();
+        let report = _guard.report().build().unwrap();
+        report.flamegraph(&mut file).unwrap();
+        println!("Flamegraph saved to flamegraph.svg");
     }
 }

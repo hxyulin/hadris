@@ -26,5 +26,8 @@ homepage = "https://github.com/hxyulin/hadris"
 hadris-core = { path = "crates/hadris-core", version = "0.1.0", default-features = false }
 hadris-fat = { path = "crates/hadris-fat", version = "0.1.0", default-features = false }
 hadris = { path = "crates/hadris", version = "0.1.0" }
+pprof = { version = "0.14.0", features = ["flamegraph"] }
+tracing = { version = "0.1.41"}
+tracing-subscriber = { version = "0.3.19" }
 
 bitflags = "2.8.0"

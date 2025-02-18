@@ -55,4 +55,8 @@ impl File {
     pub fn seek(&self) -> u32 {
         *self.seek.lock()
     }
+
+    pub fn set_seek(&self, seek: u32) {
+        *self.seek.lock() = seek;
+    }
 }

@@ -16,17 +16,6 @@ impl FatTimeHighP {
     pub fn new(tenths: u8, time: u16, date: u16) -> Self {
         Self { tenths, time, date }
     }
-
-    #[cfg(feature = "std")]
-    pub fn from_instant(instant: std::time::Instant) -> Self {
-        let time = instant.as_secs() as u16;
-        let date = instant.as_nanos() as u16;
-        Self {
-            tenths: (instant.subsec_nanos() / 10) % 10,
-            time,
-            date,
-        }
-    }
 }
 
 impl core::fmt::Debug for FatTimeHighP {
@@ -36,8 +25,8 @@ impl core::fmt::Debug for FatTimeHighP {
         use core::fmt::Write;
         let mut str = FixedByteStr::<20>::new();
         let year = self.date / 512 + 1980;
-        let month = (self.date % 512) / 32;
-        let day = self.date % 32;
+        let month = (self.date % 512) / 32 + 1;
+        let day = self.date % 32 + 1;
         let hour = self.time / 2048;
         let minute = (self.time % 2048) / 32;
         let second = self.time % 32;
@@ -60,6 +49,12 @@ pub struct FatTime {
     date: u16,
 }
 
+impl FatTime {
+    pub fn new(time: u16, date: u16) -> Self {
+        Self { time, date }
+   }
+}
+
 impl core::fmt::Debug for FatTime {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // So we display in this format:
@@ -67,8 +62,8 @@ impl core::fmt::Debug for FatTime {
         use core::fmt::Write;
         let mut str = FixedByteStr::<20>::new();
         let year = self.date / 512 + 1980;
-        let month = (self.date % 512) / 32;
-        let day = self.date % 32;
+        let month = (self.date % 512) / 32 + 1;
+        let day = self.date % 32 + 1;
         let hour = self.time / 2048;
         let minute = (self.time % 2048) / 32;
         let second = self.time % 32;

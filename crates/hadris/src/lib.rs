@@ -23,12 +23,26 @@ impl<'ctx> FileSystem<'ctx> {
         }
     }
 
+    pub fn read_from_bytes(ty: FileSystemType, bytes: &'ctx mut [u8]) -> Self {
+        match ty {
+            #[cfg(feature = "fat")]
+            FileSystemType::Fat32 => Self::read_f32_from_bytes(bytes),
+        }
+    }
+
     #[cfg(feature = "fat")]
     pub fn new_f32_with_bytes(bytes: &'ctx mut [u8]) -> Self {
         let sectors = bytes.len() / 512;
         let ops = fat::structures::Fat32Ops::recommended_config_for(sectors as u32);
         Self {
             fs: Box::new(fat::FileSystem::new_f32(ops, bytes)),
+        }
+    }
+
+    #[cfg(feature = "fat")]
+    pub fn read_f32_from_bytes(bytes: &'ctx mut [u8]) -> Self {
+        Self {
+            fs: Box::new(fat::FileSystem::read_from_bytes(bytes).unwrap()),
         }
     }
 

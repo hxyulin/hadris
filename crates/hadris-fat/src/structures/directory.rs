@@ -1,6 +1,14 @@
-use core::{ops::{Index, IndexMut}, u16};
+use core::{
+    ops::{Index, IndexMut},
+    u16,
+};
 
 use crate::structures::FatStr;
+
+use super::{
+    raw::directory::RawFileEntry,
+    time::{FatTime, FatTimeHighP},
+};
 
 bitflags::bitflags! {
     /// File Attributes
@@ -36,32 +44,50 @@ impl TryFrom<hadris_core::file::FileAttributes> for FileAttributes {
 
 #[derive(Debug, Clone, Copy)]
 pub struct FileEntryInfo {
-    basename: FatStr<8>,
-    extension: FatStr<3>,
-    attributes: FileAttributes,
+    pub basename: FatStr<8>,
+    pub extension: FatStr<3>,
+    pub attributes: FileAttributes,
+    pub creation_time: FatTimeHighP,
+    pub modification_time: FatTime,
+    pub cluster: u32,
+    pub size: u32,
+}
+
+impl TryFrom<&RawFileEntry> for FileEntryInfo {
+    type Error = &'static str;
+
+    fn try_from(value: &RawFileEntry) -> Result<Self, Self::Error> {
+        let attributes =
+            FileAttributes::from_bits(value.attributes).ok_or("Unsupported file attribute")?;
+        let basename = FatStr::<8>::from_slice_unchecked(&value.name[0..8]);
+        let extension = FatStr::<3>::from_slice_unchecked(&value.name[8..11]);
+        let creation_time = FatTimeHighP::new(
+            value.creation_time_tenth,
+            u16::from_le_bytes(value.creation_time),
+            u16::from_le_bytes(value.creation_date),
+        );
+        let modification_time = FatTime::new(
+            u16::from_le_bytes(value.last_write_time),
+            u16::from_le_bytes(value.last_write_date),
+        );
+        // TODO: Access date
+        Ok(Self {
+            basename,
+            extension,
+            attributes,
+            creation_time,
+            modification_time,
+            cluster: ((u16::from_le_bytes(value.first_cluster_high) as u32) << 16)
+                | u16::from_le_bytes(value.first_cluster_low) as u32,
+            size: u32::from_le_bytes(value.size),
+        })
+    }
 }
 
 #[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct FileEntry {
-    /// DIR_Name
-    ///
-    /// "Short" filename limited to 11 characters (8.3 format)
-    filename: (FatStr<8>, FatStr<3>),
-    /// DIR_Attr
-    ///
-    /// see FileAttributes
-    attributes: FileAttributes,
-    reserved: u8,
-    creation_time_tenths: u8,
-    creation_time: u16,
-    creation_date: u16,
-    last_accessed_date: u16,
-    first_cluster_hi: u16,
-    modification_time: u16,
-    modification_date: u16,
-    first_cluster_lo: u16,
-    size: u32,
+    data: RawFileEntry,
 }
 
 impl FileEntry {
@@ -74,39 +100,61 @@ impl FileEntry {
     ) -> Self {
         assert!(filename.len() <= FatStr::<8>::MAX_LEN);
         assert!(extension.len() <= FatStr::<3>::MAX_LEN);
-        let filename = FatStr::new_truncate(filename);
-        let extension = FatStr::new_truncate(extension);
+        let filename = FatStr::<8>::new_truncate(filename);
+        let extension = FatStr::<3>::new_truncate(extension);
+        let mut name = [b' '; 11];
+        name[0..8].copy_from_slice(filename.as_slice());
+        name[8..11].copy_from_slice(extension.as_slice());
+
         Self {
-            filename: (filename, extension),
-            attributes,
-            reserved: 0,
-            creation_time_tenths: 0,
-            creation_time: 0,
-            creation_date: 0,
-            last_accessed_date: 0,
-            first_cluster_hi: (cluster >> 16) as u16,
-            modification_time: 0,
-            modification_date: 0,
-            first_cluster_lo: cluster as u16,
-            size,
+            data: RawFileEntry {
+                name,
+                attributes: attributes.bits(),
+                reserved: 0,
+                creation_time_tenth: 0,
+                creation_time: 0u16.to_le_bytes(),
+                creation_date: 0u16.to_le_bytes(),
+                last_write_time: 0u16.to_le_bytes(),
+                last_write_date: 0u16.to_le_bytes(),
+                last_access_date: 0u16.to_le_bytes(),
+                first_cluster_high: ((cluster >> 16) as u16).to_le_bytes(),
+                first_cluster_low: (cluster as u16).to_le_bytes(),
+                size: size.to_le_bytes(),
+            },
         }
     }
 
     pub fn size(&self) -> u32 {
-        self.size
+        u32::from_le_bytes(self.data.size)
     }
 
     pub fn cluster(&self) -> u32 {
-        (self.first_cluster_hi as u32) << 16 | self.first_cluster_lo as u32
+        let high = u16::from_le_bytes(self.data.first_cluster_high) as u32;
+        let low = u16::from_le_bytes(self.data.first_cluster_low) as u32;
+        (high << 16) | low
     }
 
     pub fn write_cluster(&mut self, cluster: u32) {
-        self.first_cluster_hi = ((cluster >> 16) & u16::MAX as u32) as u16;
-        self.first_cluster_lo = (cluster & u16::MAX as u32) as u16;
+        let high = (cluster >> 16) as u16;
+        let low = (cluster & u16::MAX as u32) as u16;
+        self.data.first_cluster_high = high.to_le_bytes();
+        self.data.first_cluster_low = low.to_le_bytes();
     }
 
     pub fn write_size(&mut self, size: u32) {
-        self.size = size;
+        self.data.size = size.to_le_bytes();
+    }
+
+    pub fn base_name(&self) -> FatStr<8> {
+        FatStr::from_slice_unchecked(&self.data.name[0..8])
+    }
+
+    pub fn extension(&self) -> FatStr<3> {
+        FatStr::from_slice_unchecked(&self.data.name[8..11])
+    }
+
+    pub fn info(&self) -> FileEntryInfo {
+        FileEntryInfo::try_from(&self.data).unwrap()
     }
 }
 
@@ -144,7 +192,8 @@ impl Directory {
         // According to the spec, the first 4 bytes are zero if the entry is unused
         let mut index = 0xFFFF_FFFF;
         for (i, entry) in self.entries.iter().enumerate() {
-            if entry.filename.0.raw == [0; 8] {
+            // TODO: We need to check for the deallocated state as well
+            if entry.base_name().raw == [0; 8] {
                 index = i;
                 break;
             }
@@ -159,7 +208,7 @@ impl Directory {
 
     pub fn find_by_name(&self, base: &FatStr<8>, extension: &FatStr<3>) -> Option<usize> {
         for (i, entry) in self.entries.iter().enumerate() {
-            if entry.filename.0 == *base && entry.filename.1 == *extension {
+            if entry.base_name() == *base && entry.extension() == *extension {
                 return Some(i);
             }
         }

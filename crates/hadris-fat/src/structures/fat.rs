@@ -72,6 +72,10 @@ impl Fat32 {
         next_free: &mut u32,
         count: u32,
     ) -> u32 {
+        #[cfg(feature = "profiling")]
+        let span = tracing::span!(tracing::Level::INFO, "allocate_clusters");
+        #[cfg(feature = "profiling")]
+        let _guard = span.enter();
         assert!(*free_count > 0 && *free_count != 0xFFFF_FFFF);
         assert!(*next_free != 0xFFFF_FFFF);
         let mut free_cluster = next_free.clone();
@@ -90,7 +94,12 @@ impl Fat32 {
         *next_free
     }
 
+    #[inline]
     pub fn find_free_cluster(&self) -> Option<usize> {
+        #[cfg(feature = "profiling")]
+        let span = tracing::span!(tracing::Level::INFO, "find_free_cluster");
+        #[cfg(feature = "profiling")]
+        let _guard = span.enter();
         for (i, entry) in self.entries.iter().enumerate() {
             if *entry == constants::FAT32_CLUSTER_FREE {
                 return Some(i);
@@ -109,6 +118,36 @@ impl Fat32 {
         self.entries[cluster] = value;
     }
 
+    /// Retains the cluster chain starting at the given cluster
+    ///
+    /// The cluster chain is retained until the length is reached, or allocates more space
+    pub fn retain_cluster_chain(
+        &mut self,
+        mut cluster: usize,
+        length: u32,
+        free_count: &mut u32,
+        next_free: &mut u32,
+    ) {
+        #[cfg(feature = "profiling")]
+        let span = tracing::span!(tracing::Level::INFO, "retain_cluster_chain");
+        #[cfg(feature = "profiling")]
+        let _guard = span.enter();
+        let mut counter = 0;
+        while counter < length {
+            let value = self.entries[cluster];
+            if value == constants::FAT32_CLUSTER_LAST {
+                let to_allocate = length - counter;
+                self.allocate_clusters(free_count, next_free, to_allocate);
+                cluster = self.find_free_cluster().unwrap();
+                break;
+            }
+            cluster = value as usize;
+            counter += 1;
+        }
+        *free_count -= length;
+        *next_free = cluster as u32;
+    }
+
     pub fn write_data(
         &self,
         cluster_data: &mut [u8],
@@ -117,16 +156,19 @@ impl Fat32 {
         offset: usize,
         data: &[u8],
     ) -> usize {
+        #[cfg(feature = "profiling")]
+        let span = tracing::span!(tracing::Level::INFO, "write_data");
+        #[cfg(feature = "profiling")]
+        let _guard = span.enter();
         let mut data_offset = 0;
-        let mut write_offset = 0;
+        let mut bytes_written = 0;
 
-        while data_offset < data.len() {
+        while bytes_written < data.len() {
             let new_offset = (cluster as usize - 2) * cluster_size;
-            let remaining_data = data.len() - write_offset;
+            let remaining_data = data.len() - bytes_written;
 
             // We only start reading if the current cluster contains the offset
             if data_offset + cluster_size >= offset {
-                debug_assert!(offset >= data_offset);
                 // This is the offset within the cluster
                 let cluster_offset = if data_offset >= offset {
                     0
@@ -135,8 +177,8 @@ impl Fat32 {
                 };
                 let write_size = (cluster_size - cluster_offset).min(remaining_data);
                 cluster_data[new_offset + cluster_offset..new_offset + cluster_offset + write_size]
-                    .copy_from_slice(&data[write_offset..write_offset + write_size]);
-                write_offset += write_size;
+                    .copy_from_slice(&data[bytes_written..bytes_written + write_size]);
+                bytes_written += write_size;
                 data_offset += write_size;
             } else {
                 // We can just skip this cluster
@@ -148,7 +190,7 @@ impl Fat32 {
             }
         }
 
-        write_offset
+        bytes_written
     }
 
     pub fn read_data(
@@ -159,16 +201,19 @@ impl Fat32 {
         offset: usize,
         data: &mut [u8],
     ) -> usize {
+        #[cfg(feature = "profiling")]
+        let span = tracing::span!(tracing::Level::INFO, "read_data");
+        #[cfg(feature = "profiling")]
+        let _guard = span.enter();
         let mut data_offset = 0;
-        let mut read_offset = 0;
+        let mut bytes_read = 0;
 
-        while data_offset < data.len() {
+        while bytes_read < data.len() {
             let new_offset = (cluster as usize - 2) * cluster_size;
-            let remaining_data = data.len() - read_offset;
+            let remaining_data = data.len() - bytes_read;
 
             // We only start reading if the current cluster contains the offset
             if data_offset + cluster_size >= offset {
-                debug_assert!(offset >= data_offset);
                 // This is the offset within the cluster
                 let cluster_offset = if data_offset >= offset {
                     0
@@ -176,22 +221,19 @@ impl Fat32 {
                     offset - data_offset
                 };
                 let read_size = (cluster_size - cluster_offset).min(remaining_data);
-                data[read_offset..read_offset + read_size].copy_from_slice(
+                data[bytes_read..bytes_read + read_size].copy_from_slice(
                     &cluster_data
                         [new_offset + cluster_offset..new_offset + cluster_offset + read_size],
                 );
-                read_offset += read_size;
-                data_offset += read_size;
-            } else {
-                // We can just skip this cluster
-                data_offset += cluster_size;
+                bytes_read += read_size;
             }
+            data_offset += cluster_size;
             cluster = self.entries[cluster as usize];
             if cluster == constants::FAT32_CLUSTER_LAST {
                 break;
             }
         }
 
-        read_offset
+        bytes_read
     }
 }
