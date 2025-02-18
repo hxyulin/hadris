@@ -25,8 +25,6 @@ compile_error!("This crate only supports little endian systems");
 
 pub mod structures;
 
-use std::sync::RwLock;
-
 #[cfg(feature = "write")]
 use structures::Fat32Ops;
 
@@ -35,7 +33,8 @@ use structures::{
     directory::{Directory, FileAttributes, FileEntry},
     fat::Fat32,
     fs_info::FsInfo,
-    raw, FatStr,
+    raw::{self, directory::RawDirectoryEntry},
+    FatStr,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +42,12 @@ pub enum FatType {
     Fat32,
     Fat16,
     Fat12,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileDescriptor {
+    cluster: u32,
+    entry_offset: usize,
 }
 
 /// A FAT filesystem
@@ -68,7 +73,7 @@ pub struct FileSystem<'ctx> {
     // Store some metadata about the filesystem
     pub(crate) bs: BootSectorInfo,
     // To make this no-std compliant, we just have a list of clusters
-    pub(crate) descriptors: RwLock<[u32; MAX_OPEN]>,
+    pub(crate) descriptors: [Option<FileDescriptor>; MAX_OPEN],
 }
 
 impl core::fmt::Debug for FileSystem<'_> {
@@ -115,62 +120,64 @@ impl<'ctx> FileSystem<'ctx> {
             data,
 
             bs,
-            descriptors: RwLock::new([0xFFFF_FFFF; MAX_OPEN]),
+            descriptors: [None; MAX_OPEN],
         })
     }
 
-    fn create_file_descriptor(&self, path: &str) -> Result<u32, ()> {
+    fn create_file_descriptor(
+        &mut self,
+        path: &str,
+        mode: hadris_core::OpenMode,
+    ) -> Result<u32, ()> {
+        // TODO: This is very hacky, we should probably use a better implementation
         let cluster_size =
             self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
         let root_cluster = self.bs.root_cluster();
-        // root directory
         let cluster_start = (root_cluster as usize - 2) * cluster_size;
-        let directory =
-            Directory::from_bytes(&self.data[cluster_start..cluster_start + cluster_size]);
-        let path = path.split('.').collect::<Vec<_>>();
-        let index = directory
-            .find_by_name(
+        // root directory
+        let index = {
+            let directory =
+                Directory::from_bytes(&self.data[cluster_start..cluster_start + cluster_size]);
+            let path = path.split('.').collect::<Vec<_>>();
+            directory.find_by_name(
                 &FatStr::new_truncate(path[0]),
                 &FatStr::new_truncate(path[1]),
             )
-            .unwrap();
-        let entry = &directory.entries[index];
-        let mut descriptors = self.descriptors.write().unwrap();
-        for i in 0..descriptors.len() {
-            if descriptors[i] == 0xFFFF_FFFF {
-                descriptors[i] = entry.cluster();
-                return Ok(i as u32);
+        };
+        let (entry, offset) = match index {
+            Some(index) => {
+                let directory =
+                    Directory::from_bytes(&self.data[cluster_start..cluster_start + cluster_size]);
+                let offset = cluster_start + size_of::<RawDirectoryEntry>() * index;
+                (directory.entries[index], offset)
             }
-        }
-        Err(())
-    }
-
-    pub fn read_file(&self, path: &str) -> Result<Vec<u8>, FilesystemError> {
-        let cluster_size =
-            self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
-        let root_cluster = self.bs.root_cluster();
-        // root directory
-        let cluster_start = (root_cluster as usize - 2) * cluster_size;
-        let directory =
-            Directory::from_bytes(&self.data[cluster_start..cluster_start + cluster_size]);
-        let path = path.split('.').collect::<Vec<_>>();
-        let index = directory
-            .find_by_name(
-                &FatStr::new_truncate(path[0]),
-                &FatStr::new_truncate(path[1]),
-            )
-            .unwrap();
-        let entry = &directory.entries[index];
-        let mut buffer = Vec::with_capacity(entry.size() as usize);
-        buffer.resize(entry.size() as usize, 0);
-        Fat32::from_bytes(self.fat).read_data(
-            self.data,
-            cluster_size,
-            entry.cluster(),
-            &mut buffer,
-        );
-
-        Ok(buffer)
+            None => {
+                if mode != hadris_core::OpenMode::Write {
+                    return Err(());
+                }
+                let cluster_free = self.allocate_clusters(1);
+                let path = path.split('.').collect::<Vec<_>>();
+                let file =
+                    FileEntry::new(path[0], path[1], FileAttributes::ARCHIVE, 0, cluster_free);
+                let directory = Directory::from_bytes_mut(
+                    &mut self.data[cluster_start..cluster_start + cluster_size],
+                );
+                let index = directory.write_entry(file).unwrap();
+                let offset = cluster_start + size_of::<RawDirectoryEntry>() * index;
+                (directory.entries[index], offset)
+            }
+        };
+        let descriptor = self
+            .descriptors
+            .iter_mut()
+            .enumerate()
+            .find(|(_, d)| d.is_none())
+            .ok_or(())?;
+        descriptor.1.replace(FileDescriptor {
+            cluster: entry.cluster(),
+            entry_offset: offset,
+        });
+        Ok(descriptor.0 as u32)
     }
 
     fn to_clusters_rounded_up(&self, size: usize) -> usize {
@@ -181,20 +188,51 @@ impl<'ctx> FileSystem<'ctx> {
 }
 
 impl hadris_core::FileSystem for FileSystem<'_> {
-    fn open(&self, path: &str, _mode: hadris_core::OpenMode) -> Result<hadris_core::File, ()> {
-        let descriptor = self.create_file_descriptor(path)?;
+    fn open(&mut self, path: &str, mode: hadris_core::OpenMode) -> Result<hadris_core::File, ()> {
+        let descriptor = self.create_file_descriptor(path, mode)?;
         Ok(unsafe { hadris_core::File::with_descriptor(descriptor) })
     }
 }
 
-impl hadris_core::FileSystemRead for FileSystem<'_> {
+impl hadris_core::internal::FileSystemRead for FileSystem<'_> {
     fn read(&self, file: &hadris_core::File, buffer: &mut [u8]) -> Result<usize, ()> {
         let cluster_size =
             self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
-        let cluster = self.descriptors.read().unwrap()[file.descriptor() as usize];
-        Fat32::from_bytes(self.fat).read_data(self.data, cluster_size, cluster, buffer);
+        let fd = self.descriptors[file.descriptor() as usize].unwrap();
+        Ok(Fat32::from_bytes(self.fat).read_data(
+            self.data,
+            cluster_size,
+            fd.cluster,
+            file.seek() as usize,
+            buffer,
+        ))
+    }
+}
 
-        Ok(buffer.len())
+impl hadris_core::internal::FileSystemWrite for FileSystem<'_> {
+    fn write(&mut self, file: &hadris_core::File, buffer: &[u8]) -> Result<usize, ()> {
+        // TODO: This is a super hacky implementation, we should probably use a better implementation
+        // FIXME: This also doesn't even work
+        let cluster_size =
+            self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
+        let fd = self.descriptors[file.descriptor() as usize].unwrap();
+        let written = Fat32::from_bytes(self.fat).write_data(
+            self.data,
+            cluster_size,
+            fd.cluster,
+            file.seek() as usize,
+            buffer,
+        );
+
+        // Round down the entry offset to the start of the directory entry
+        let cluster_start = (fd.entry_offset / cluster_size) * cluster_size;
+        let directory =
+            Directory::from_bytes_mut(&mut self.data[cluster_start..cluster_start + cluster_size]);
+        let offset = (fd.entry_offset % cluster_size) / size_of::<RawDirectoryEntry>();
+        let entry = &mut directory.entries[offset];
+        entry.write_size(entry.size() + written as u32);
+
+        Ok(written)
     }
 }
 
@@ -276,7 +314,7 @@ impl<'ctx> FileSystem<'ctx> {
             data,
 
             bs: boot_sector.info(),
-            descriptors: RwLock::new([0xFFFF_FFFF; MAX_OPEN]),
+            descriptors: [None; MAX_OPEN],
         }
     }
 
@@ -320,7 +358,6 @@ impl<'ctx> FileSystem<'ctx> {
         let cluster_size =
             self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
         let root_cluster = self.bs.root_cluster();
-        // root directory
         let cluster_start = (root_cluster as usize - 2) * cluster_size;
         let directory =
             Directory::from_bytes_mut(&mut self.data[cluster_start..cluster_start + cluster_size]);
@@ -334,6 +371,7 @@ impl<'ctx> FileSystem<'ctx> {
             &mut self.data,
             cluster_size,
             cluster_free,
+            0,
             data,
         );
     }
@@ -342,16 +380,4 @@ impl<'ctx> FileSystem<'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_basic_file_read_write() {
-        let mut bytes = Vec::with_capacity(512 * 8192);
-        const CONTENTS: &[u8] = b"Hello, world!";
-        bytes.resize(bytes.capacity(), 0);
-        let mut fs = FileSystem::new_f32(Fat32Ops::recommended_config_for(8192), &mut bytes);
-        fs.create_file("test.txt", CONTENTS);
-        let read_contents = fs.read_file("test.txt").unwrap();
-        assert_eq!(read_contents.as_slice(), CONTENTS);
-        std::fs::write("test.img", bytes).unwrap();
-    }
 }

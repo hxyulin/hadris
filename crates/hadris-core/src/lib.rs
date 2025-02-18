@@ -4,7 +4,9 @@ use std::sync::Mutex;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[derive(Debug, Clone, Copy)]
+pub mod internal;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpenMode {
     Read,
     Write,
@@ -12,15 +14,7 @@ pub enum OpenMode {
 }
 
 pub trait FileSystem {
-    fn open(&self, path: &str, mode: OpenMode) -> Result<File, ()>;
-}
-
-pub trait FileSystemRead: FileSystem {
-    fn read(&self, file: &File, buffer: &mut [u8]) -> Result<usize, ()>;
-}
-
-pub trait FileSystemWrite: FileSystem {
-    fn write(&self, file: &File, buffer: &[u8]) -> Result<usize, ()>;
+    fn open(&mut self, path: &str, mode: OpenMode) -> Result<File, ()>;
 }
 
 #[derive(Debug)]
@@ -40,15 +34,19 @@ impl File {
         }
     }
 
-    pub fn read(&self, fs: &dyn FileSystemRead, buffer: &mut [u8]) -> Result<usize, ()> {
+    pub fn read<T: internal::FileSystemRead + ?Sized>(&self, fs: &T, buffer: &mut [u8]) -> Result<usize, ()> {
         fs.read(self, buffer)
     }
 
-    pub fn write(&self, fs: &dyn FileSystemWrite, buffer: &[u8]) -> Result<usize, ()> {
+    pub fn write<T: internal::FileSystemWrite + ?Sized>(&self, fs: &mut T, buffer: &[u8]) -> Result<usize, ()> {
         fs.write(self, buffer)
     }
 
     pub fn descriptor(&self) -> u32 {
         self.descriptor
+    }
+
+    pub fn seek(&self) -> u32 {
+        *self.seek.lock().unwrap()
     }
 }

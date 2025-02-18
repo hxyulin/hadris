@@ -74,6 +74,10 @@ impl FileEntry {
     pub fn cluster(&self) -> u32 {
         (self.first_cluster_hi as u32) << 16 | self.first_cluster_lo as u32
     }
+
+    pub fn write_size(&mut self, size: u32) {
+        self.size = size;
+    }
 }
 
 unsafe impl bytemuck::Zeroable for FileEntry {}

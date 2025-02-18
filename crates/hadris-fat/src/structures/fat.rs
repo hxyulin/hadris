@@ -113,24 +113,49 @@ impl Fat32 {
         &self,
         cluster_data: &mut [u8],
         cluster_size: usize,
-        cluster: u32,
+        mut cluster: u32,
+        offset: usize,
         data: &[u8],
-    ) {
-        let mut next_cluster = cluster;
-        let mut offset = (cluster as usize - 2) * cluster_size;
+    ) -> usize {
         let mut data_offset = 0;
-        loop {
-            let len = data.len().min(cluster_size);
-            let data_len = len.min(data.len() - data_offset);
-            cluster_data[offset..offset + len]
-                .copy_from_slice(&data[data_offset..data_offset + data_len]);
-            next_cluster = self.entries[next_cluster as usize] as u32;
-            if next_cluster == constants::FAT32_CLUSTER_LAST {
+        let mut write_offset = 0;
+
+        while data_offset < data.len() {
+            let new_offset = (cluster as usize - 2) * cluster_size;
+            let remaining_data = data.len() - write_offset;
+            println!("Writing data: ");
+            println!("Cluster: {:?}", cluster);
+            println!("Offset: {:?}", offset);
+            println!("Data offset: {:?}", data_offset);
+            println!("Write offset: {:?}", write_offset);
+            println!("Remaining data: {:?}", remaining_data);
+            println!("New offset: {:?}", new_offset);
+
+            // We only start reading if the current cluster contains the offset
+            if data_offset + cluster_size >= offset {
+                debug_assert!(offset >= data_offset);
+                // This is the offset within the cluster
+                let cluster_offset = if data_offset >= offset {
+                    0
+                } else {
+                    offset - data_offset
+                };
+                let write_size = (cluster_size - cluster_offset).min(remaining_data);
+                cluster_data[new_offset + cluster_offset..new_offset + cluster_offset + write_size]
+                    .copy_from_slice(&data[write_offset..write_offset + write_size]);
+                write_offset += write_size;
+                data_offset += write_size;
+            } else {
+                // We can just skip this cluster
+                data_offset += cluster_size;
+            }
+            cluster = self.entries[cluster as usize];
+            if cluster == constants::FAT32_CLUSTER_LAST {
                 break;
             }
-            offset = (next_cluster as usize - 2) * cluster_size;
-            data_offset += len;
         }
+
+        write_offset
     }
 
     pub fn read_data(
@@ -138,23 +163,42 @@ impl Fat32 {
         cluster_data: &[u8],
         cluster_size: usize,
         mut cluster: u32,
+        offset: usize,
         data: &mut [u8],
-    ) {
+    ) -> usize {
         let mut data_offset = 0;
+        let mut read_offset = 0;
 
         while data_offset < data.len() {
-            let offset = (cluster as usize - 2) * cluster_size;
-            let remaining_data = data.len() - data_offset;
-            let read_size = cluster_size.min(remaining_data);
+            let new_offset = (cluster as usize - 2) * cluster_size;
+            let remaining_data = data.len() - read_offset;
 
-            data[data_offset..data_offset + read_size]
-                .copy_from_slice(&cluster_data[offset..offset + read_size]);
-
-            data_offset += read_size;
+            // We only start reading if the current cluster contains the offset
+            if data_offset + cluster_size >= offset {
+                debug_assert!(offset >= data_offset);
+                // This is the offset within the cluster
+                let cluster_offset = if data_offset >= offset {
+                    0
+                } else {
+                    offset - data_offset
+                };
+                let read_size = (cluster_size - cluster_offset).min(remaining_data);
+                data[read_offset..read_offset + read_size].copy_from_slice(
+                    &cluster_data
+                        [new_offset + cluster_offset..new_offset + cluster_offset + read_size],
+                );
+                read_offset += read_size;
+                data_offset += read_size;
+            } else {
+                // We can just skip this cluster
+                data_offset += cluster_size;
+            }
             cluster = self.entries[cluster as usize];
             if cluster == constants::FAT32_CLUSTER_LAST {
                 break;
             }
         }
+
+        read_offset
     }
 }
