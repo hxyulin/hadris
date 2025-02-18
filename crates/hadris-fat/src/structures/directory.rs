@@ -1,4 +1,4 @@
-use core::ops::{Index, IndexMut};
+use core::{ops::{Index, IndexMut}, u16};
 
 use crate::structures::FatStr;
 
@@ -14,6 +14,31 @@ bitflags::bitflags! {
         const DIRECTORY = 0x10;
         const ARCHIVE = 0x20;
     }
+}
+
+impl TryFrom<hadris_core::file::FileAttributes> for FileAttributes {
+    type Error = &'static str;
+
+    fn try_from(value: hadris_core::file::FileAttributes) -> Result<Self, Self::Error> {
+        use hadris_core::file::FileAttributes as Attributes;
+        let mut attributes = FileAttributes::empty();
+        if value.contains(Attributes::READ_ONLY) {
+            attributes.set(FileAttributes::READ_ONLY, true);
+        }
+        if value.contains(Attributes::HIDDEN) {
+            attributes.set(FileAttributes::HIDDEN, true);
+        }
+
+        //Err("Unsupported file attribute")
+        Ok(attributes)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FileEntryInfo {
+    basename: FatStr<8>,
+    extension: FatStr<3>,
+    attributes: FileAttributes,
 }
 
 #[repr(C, packed)]
@@ -73,6 +98,11 @@ impl FileEntry {
 
     pub fn cluster(&self) -> u32 {
         (self.first_cluster_hi as u32) << 16 | self.first_cluster_lo as u32
+    }
+
+    pub fn write_cluster(&mut self, cluster: u32) {
+        self.first_cluster_hi = ((cluster >> 16) & u16::MAX as u32) as u16;
+        self.first_cluster_lo = (cluster & u16::MAX as u32) as u16;
     }
 
     pub fn write_size(&mut self, size: u32) {

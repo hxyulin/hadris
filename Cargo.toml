@@ -9,8 +9,8 @@ members = [
 default-members = [
     "crates/hadris",
     "crates/hadris-cli",
-    "crates/hadris-core", 
-    "crates/hadris-fat"
+    "crates/hadris-core",
+    "crates/hadris-fat",
 ]
 
 [workspace.package]
@@ -23,5 +23,8 @@ repository = "https://github.com/hxyulin/hadris"
 homepage = "https://github.com/hxyulin/hadris"
 
 [workspace.dependencies]
-hadris-core = { path = "crates/hadris-core", version = "0.1.0" }
-hadris-fat = { path = "crates/hadris-fat", version = "0.1.0" }
+hadris-core = { path = "crates/hadris-core", version = "0.1.0", default-features = false }
+hadris-fat = { path = "crates/hadris-fat", version = "0.1.0", default-features = false }
+hadris = { path = "crates/hadris", version = "0.1.0" }
+
+bitflags = "2.8.0"

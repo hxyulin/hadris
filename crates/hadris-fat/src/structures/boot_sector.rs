@@ -360,7 +360,7 @@ impl BootSector {
                     bpb32: RawBpbExt32 {
                         sectors_per_fat_32: sectors_per_fat_32.to_le_bytes(),
                         ext_flags: ext_flags.0.to_le_bytes(),
-                        version: 0u16.to_le_bytes(),
+                        version: VERSION.to_le_bytes(),
                         root_cluster: root_cluster.to_le_bytes(),
                         fs_info_sector: fs_info_sector.to_le_bytes(),
                         boot_sector: boot_sector.to_le_bytes(),

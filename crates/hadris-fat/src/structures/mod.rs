@@ -11,11 +11,17 @@
 
 use core::str;
 
-pub mod boot_sector;
-pub mod directory;
-pub mod fat;
-pub mod fs_info;
 pub mod raw;
+
+#[cfg(feature = "read")]
+pub mod boot_sector;
+#[cfg(feature = "read")]
+pub mod directory;
+#[cfg(feature = "read")]
+pub mod fat;
+#[cfg(feature = "read")]
+pub mod time;
+pub mod fs_info;
 
 #[cfg(feature = "write")]
 #[derive(Debug, Clone)]
@@ -33,12 +39,12 @@ pub struct Fat32Ops {
     pub boot_sector: u16,
     pub drive_number: u8,
     pub volume_id: u32,
-    pub volume_label: Option<String>,
+    pub volume_label: Option<hadris_core::str::FixedByteStr<11>>,
 }
 
 #[cfg(feature = "write")]
 impl Fat32Ops {
-    #[cfg(feature = "write")]
+    #[cfg(feature = "std")]
     fn current_volume_id(seed: u32) -> u32 {
         // TODO: Use an actual one, maybe from the MS-DOS FAT32 spec
         // We get the current time in seconds since the epoch
@@ -50,15 +56,19 @@ impl Fat32Ops {
         time_part ^ seed
     }
 
+    #[cfg(not(feature = "std"))]
+    fn current_volume_id(seed: u32) -> u32 {
+        // We atttempt to make it seem random
+        let part_1 = seed ^ 0x12345678;
+        let part_2 = part_1 ^ (part_1 >> 3);
+        part_2 ^ (part_2 >> 5)
+    }
+
     pub fn recommended_config_for(total_sectors: u32) -> Self {
         let sectors_per_cluster = Self::recommended_sectors_per_cluster(total_sectors);
         let total_clusters = total_sectors / sectors_per_cluster as u32;
-        // TODO: Create a nostd version of this
-        let current_time_secs = std::time::SystemTime::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as u32;
-        let volume_id = Self::current_volume_id(current_time_secs);
+        // TODO: Make a proper seeding mechanism and volume id
+        let volume_id = Self::current_volume_id(0);
 
         let mut ops = Self {
             sectors_per_cluster,

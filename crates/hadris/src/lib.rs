@@ -1,4 +1,5 @@
-pub use hadris_core::OpenMode;
+pub use hadris_core::file::{FileAttributes, OpenOptions};
+
 #[cfg(feature = "fat")]
 pub use hadris_fat as fat;
 
@@ -7,7 +8,7 @@ compile_error!("No file system selected");
 
 pub enum FileSystemType {
     #[cfg(feature = "fat")]
-    Fat,
+    Fat32,
 }
 
 pub struct FileSystem<'ctx> {
@@ -15,10 +16,10 @@ pub struct FileSystem<'ctx> {
 }
 
 impl<'ctx> FileSystem<'ctx> {
-    pub fn with_bytes(ty: FileSystemType, bytes: &'ctx mut [u8]) -> Self {
+    pub fn create_with_bytes(ty: FileSystemType, bytes: &'ctx mut [u8]) -> Self {
         match ty {
             #[cfg(feature = "fat")]
-            FileSystemType::Fat => Self::new_f32_with_bytes(bytes),
+            FileSystemType::Fat32 => Self::new_f32_with_bytes(bytes),
         }
     }
 
@@ -31,9 +32,15 @@ impl<'ctx> FileSystem<'ctx> {
         }
     }
 
-    pub fn open_file(&mut self, path: &str, mode: OpenMode) -> Result<File, ()> {
+    pub fn open_file(&mut self, path: &str, options: OpenOptions) -> Result<File, ()> {
         Ok(File {
-            file: self.fs.open(path, mode)?,
+            file: self.fs.open(path, options)?,
+        })
+    }
+
+    pub fn create_file(&mut self, path: &str, attributes: FileAttributes) -> Result<File, ()> {
+        Ok(File {
+            file: self.fs.create(path, attributes)?,
         })
     }
 }

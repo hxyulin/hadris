@@ -123,13 +123,6 @@ impl Fat32 {
         while data_offset < data.len() {
             let new_offset = (cluster as usize - 2) * cluster_size;
             let remaining_data = data.len() - write_offset;
-            println!("Writing data: ");
-            println!("Cluster: {:?}", cluster);
-            println!("Offset: {:?}", offset);
-            println!("Data offset: {:?}", data_offset);
-            println!("Write offset: {:?}", write_offset);
-            println!("Remaining data: {:?}", remaining_data);
-            println!("New offset: {:?}", new_offset);
 
             // We only start reading if the current cluster contains the offset
             if data_offset + cluster_size >= offset {

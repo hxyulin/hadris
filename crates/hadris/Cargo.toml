@@ -9,6 +9,8 @@ license.workspace = true
 [features]
 default = ["fat", "write"]
 fat = ["hadris-fat"]
+alloc = ["hadris-core/alloc", "hadris-fat/alloc"]
+std = ["alloc", "hadris-core/std", "hadris-fat/std"]
 write = ["hadris-fat/write"]
 
 [dependencies]

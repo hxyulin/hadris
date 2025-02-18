@@ -1,5 +1,3 @@
-use crate::FatType;
-
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct RawBpb {
@@ -214,9 +212,10 @@ impl RawBpb {
     }
 }
 
-#[cfg(any(feature = "read", feature = "write"))]
+#[cfg(feature = "read")]
 impl RawBootSector {
-    pub fn get_type(&self) -> FatType {
+    pub fn get_type(&self) -> crate::FatType {
+        use crate::FatType::*;
         let root_entry_count = u16::from_le_bytes(self.bpb.root_entry_count);
         let bytes_per_sector = u16::from_le_bytes(self.bpb.bytes_per_sector);
         let sectors_per_fat_16 = u16::from_le_bytes(self.bpb.sectors_per_fat_16);
@@ -225,7 +224,7 @@ impl RawBootSector {
         // Based on FAT32 spec
         let root_dir_sectors = ((root_entry_count * 32) + bytes_per_sector) / bytes_per_sector;
         if root_dir_sectors == 0 || sectors_per_fat_16 == 0 {
-            return FatType::Fat32;
+            return Fat32;
         }
 
         let total_sectors = if total_sectors_16 != 0 {
@@ -240,12 +239,11 @@ impl RawBootSector {
                 + root_entry_count as u32);
 
         match data_sectors {
-            0..4085 => FatType::Fat12,
-            4085..65525 => FatType::Fat16,
+            0..4085 => Fat12,
+            4085..65525 => Fat16,
             65525.. => panic!("Fat16 partition exceeds maximum size"),
         }
     }
-
 }
 
 impl RawBootSector {
@@ -253,7 +251,7 @@ impl RawBootSector {
         bytemuck::cast_ref(bytes)
     }
 
-    pub fn from_bytes_mut(bytes: &mut [u8;512]) -> &RawBootSector {
+    pub fn from_bytes_mut(bytes: &mut [u8; 512]) -> &RawBootSector {
         bytemuck::cast_mut(bytes)
     }
 }

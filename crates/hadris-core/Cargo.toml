@@ -7,6 +7,8 @@ authors.workspace = true
 [features]
 default = ["std"]
 alloc = []
-std = ["alloc"]
+std = ["alloc", "spin/std"]
 
 [dependencies]
+bitflags = { workspace = true }
+spin = { version = "0.9.8" }

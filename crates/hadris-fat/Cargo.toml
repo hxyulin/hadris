@@ -10,20 +10,19 @@ repository.workspace = true
 
 [features]
 default = ["read", "write", "lfn"]
-alloc = []
-std = ["alloc", "byteorder/std"]
+alloc = ["hadris-core/alloc"]
+std = ["alloc", "hadris-core/std"]
 read = []
-write = ["std"]
+write = ["alloc", "read"]
 lfn = []
 
 [dependencies]
-hadris-core = { workspace = true }
+hadris-core = { workspace = true, default-features = false }
 
-bitflags = "2.8.0"
+bitflags = { workspace = true }
 bytemuck = { version = "1.21.0", default-features = false, features = [
     "derive",
 ] }
-byteorder = { version = "1.5.0", default-features = false }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
