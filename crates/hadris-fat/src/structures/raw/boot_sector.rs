@@ -1,5 +1,5 @@
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, bytemuck::NoUninit, bytemuck::AnyBitPattern)]
 pub struct RawBpb {
     /// BS_jmpBoot
     pub jump: [u8; 3],
@@ -67,7 +67,7 @@ pub struct RawBpb {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, bytemuck::NoUninit, bytemuck::AnyBitPattern)]
 pub struct RawBpbExt16 {
     /// BS_DrvNum
     pub drive_number: u8,
@@ -92,7 +92,11 @@ pub struct RawBpbExt16 {
     /// Must be set to the strings "FAT12   ","FAT16   ", or "FAT     "
     pub fs_type: [u8; 8],
     /// Zeros
-    pub padding1: [u8; 448],
+    /// To make it compatible with bytemuck, instead of using [u8; 448], we use 256 + 128 + 64
+    //pub padding1: [u8; 448],
+    pub padding1_1: [u8; 256],
+    pub padding1_2: [u8; 128],
+    pub padding1_3: [u8; 64],
     /// Signature_word
     ///
     /// The signature word, should be 0xAA55
@@ -101,7 +105,7 @@ pub struct RawBpbExt16 {
 
 /// BPB
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, bytemuck::NoUninit, bytemuck::AnyBitPattern)]
 pub struct RawBpbExt32 {
     /// BPB_FatSz32
     ///
@@ -167,7 +171,13 @@ pub struct RawBpbExt32 {
     /// Must be set to the string "FAT32   "
     pub fs_type: [u8; 8],
     /// Zeros
-    pub padding1: [u8; 420],
+    ///
+    /// To make it compatible with bytemuck, instead of using [u8; 420], we use 256 + 128 + 32 + 4
+    /// pub padding1: [u8; 420],
+    pub padding1_1: [u8; 256],
+    pub padding1_2: [u8; 128],
+    pub padding1_3: [u8; 32],
+    pub padding1_4: [u8; 4],
     /// Signature_word
     ///
     /// The signature word, should be 0xAA55
@@ -181,8 +191,13 @@ pub union RawBpbExt {
     pub bpb32: RawBpbExt32,
 }
 
+// This isn't technically unsafe, since it is repr(C, packed), and all the fields have impls for it
+unsafe impl bytemuck::Zeroable for RawBpbExt {}
+unsafe impl bytemuck::NoUninit for RawBpbExt {}
+unsafe impl bytemuck::AnyBitPattern for RawBpbExt {}
+
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, bytemuck::NoUninit, bytemuck::AnyBitPattern)]
 pub struct RawBootSector {
     pub bpb: RawBpb,
     pub bpb_ext: RawBpbExt,
@@ -256,11 +271,6 @@ impl RawBootSector {
     }
 }
 
-// TODO: Bytemuck should be an optional feature
-unsafe impl bytemuck::Zeroable for RawBootSector {}
-unsafe impl bytemuck::NoUninit for RawBootSector {}
-unsafe impl bytemuck::AnyBitPattern for RawBootSector {}
-
 /// Static assertions are placed in tests to that it doesn't need to be compiled when not needed
 #[cfg(test)]
 mod tests {
@@ -301,7 +311,8 @@ mod tests {
     const_assert_eq!(offset_of!(RawBpbExt16, volume_id), 39 - 36);
     const_assert_eq!(offset_of!(RawBpbExt16, volume_label), 43 - 36);
     const_assert_eq!(offset_of!(RawBpbExt16, fs_type), 54 - 36);
-    const_assert_eq!(offset_of!(RawBpbExt16, padding1), 62 - 36);
+    const_assert_eq!(offset_of!(RawBpbExt16, padding1_1), 62 - 36);
+    // We dont check the other padding fields, since it doesn't matter
     const_assert_eq!(offset_of!(RawBpbExt16, signature_word), 510 - 36);
 
     const_assert_eq!(offset_of!(RawBpbExt32, sectors_per_fat_32), 36 - 36);
@@ -317,9 +328,58 @@ mod tests {
     const_assert_eq!(offset_of!(RawBpbExt32, volume_id), 67 - 36);
     const_assert_eq!(offset_of!(RawBpbExt32, volume_label), 71 - 36);
     const_assert_eq!(offset_of!(RawBpbExt32, fs_type), 82 - 36);
-    const_assert_eq!(offset_of!(RawBpbExt32, padding1), 90 - 36);
+    const_assert_eq!(offset_of!(RawBpbExt32, padding1_1), 90 - 36);
+    // We dont check the other padding fields, since it doesn't matter
     const_assert_eq!(offset_of!(RawBpbExt32, signature_word), 510 - 36);
 
     const_assert_eq!(offset_of!(RawBootSector, bpb), 0);
     const_assert_eq!(offset_of!(RawBootSector, bpb_ext), 36);
+
+    /// A test to ensure that the RawBootSector struct works, by parsing a mkfs.fat generated boot sector
+    /// The boot sector generated from the mkfs.fat -F 32 command on a 100MB FAT32 partition
+    const MKFS_FAT_BOOT_SECTOR: [u8; 512] = [
+        235, 88, 144, 109, 107, 102, 115, 46, 102, 97, 116, 0, 2, 1, 32, 0, 2, 0, 0, 0, 0, 248, 0,
+        0, 32, 0, 8, 0, 0, 0, 0, 0, 0, 32, 3, 0, 40, 6, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 1, 0, 6, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 0, 41, 55, 51, 47, 125, 78, 79, 32, 78, 65, 77,
+        69, 32, 32, 32, 32, 70, 65, 84, 51, 50, 32, 32, 32, 14, 31, 190, 119, 124, 172, 34, 192,
+        116, 11, 86, 180, 14, 187, 7, 0, 205, 16, 94, 235, 240, 50, 228, 205, 22, 205, 25, 235,
+        254, 84, 104, 105, 115, 32, 105, 115, 32, 110, 111, 116, 32, 97, 32, 98, 111, 111, 116, 97,
+        98, 108, 101, 32, 100, 105, 115, 107, 46, 32, 32, 80, 108, 101, 97, 115, 101, 32, 105, 110,
+        115, 101, 114, 116, 32, 97, 32, 98, 111, 111, 116, 97, 98, 108, 101, 32, 102, 108, 111,
+        112, 112, 121, 32, 97, 110, 100, 13, 10, 112, 114, 101, 115, 115, 32, 97, 110, 121, 32,
+        107, 101, 121, 32, 116, 111, 32, 116, 114, 121, 32, 97, 103, 97, 105, 110, 32, 46, 46, 46,
+        32, 13, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 85, 170,
+    ];
+
+    #[test]
+    fn test_boot_sector() {
+        use crate::structures::{FatStr, boot_sector::MediaType};
+        let boot_sector = RawBootSector::from_bytes(&MKFS_FAT_BOOT_SECTOR);
+
+        // The bpb check
+        assert!(boot_sector.bpb.check_jump_boot(), "Jump boot signature is invalid");
+        assert!(boot_sector.bpb.check_bytes_per_sector(), "Bytes per sector is invalid");
+        assert!(boot_sector.bpb.check_sectors_per_cluster(), "Sectors per cluster is invalid");
+        assert!(boot_sector.bpb.check_reserved_sector_count(), "Reserved sector count is invalid");
+        assert!(boot_sector.bpb.check_fat_count(), "FAT count is invalid");
+        let oem_name: FatStr<8> = FatStr::from_bytes(boot_sector.bpb.oem_name);
+        assert_eq!(oem_name.as_str(), "mkfs.fat");
+        assert_eq!(boot_sector.bpb.media_type, MediaType::HardDisk as u8);
+
+        // The bpb_ext check
+        let bpb_ext = unsafe {boot_sector.bpb_ext.bpb32 };
+        assert_eq!(u16::from_le_bytes(bpb_ext.version), 0x00);
+        assert_eq!(bpb_ext.ext_boot_signature, 0x29);
+        assert_eq!(bpb_ext.drive_number, 0x80);
+        assert_eq!(u16::from_le_bytes(bpb_ext.signature_word), 0xAA55);
+    }
 }

@@ -97,7 +97,9 @@ impl FileEntry {
         attributes: FileAttributes,
         size: u32,
         cluster: u32,
+        time: FatTimeHighP,
     ) -> Self {
+        println!("Time: {:?}", time);
         assert!(filename.len() <= FatStr::<8>::MAX_LEN);
         assert!(extension.len() <= FatStr::<3>::MAX_LEN);
         let filename = FatStr::<8>::new_truncate(filename);
@@ -111,12 +113,12 @@ impl FileEntry {
                 name,
                 attributes: attributes.bits(),
                 reserved: 0,
-                creation_time_tenth: 0,
-                creation_time: 0u16.to_le_bytes(),
-                creation_date: 0u16.to_le_bytes(),
-                last_write_time: 0u16.to_le_bytes(),
-                last_write_date: 0u16.to_le_bytes(),
-                last_access_date: 0u16.to_le_bytes(),
+                creation_time_tenth: time.tenths,
+                creation_time: time.time.time.to_le_bytes(),
+                creation_date: time.time.date.to_le_bytes(),
+                last_write_time: time.time.time.to_le_bytes(),
+                last_write_date: time.time.date.to_le_bytes(),
+                last_access_date: time.time.date.to_le_bytes(),
                 first_cluster_high: ((cluster >> 16) as u16).to_le_bytes(),
                 first_cluster_low: (cluster as u16).to_le_bytes(),
                 size: size.to_le_bytes(),

@@ -17,6 +17,7 @@ impl<const N: usize> FixedByteStr<N> {
         }
     }
     pub fn from_str(s: &str) -> Self {
+        assert!(s.len() <= N, "String length exceeds maximum length");
         let mut str = Self {
             raw: [0; N],
             len: s.len(),
@@ -61,5 +62,43 @@ impl<const N: usize> core::fmt::Write for FixedByteStr<N> {
 
         self.len += len;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fmt::Write;
+
+    #[test]
+    fn test_str() {
+        let mut str = FixedByteStr::<11>::new();
+        str.write_str("Hello World").unwrap();
+        assert_eq!(str.as_str(), "Hello World");
+    }
+
+    #[test]
+    fn test_from_str() {
+        let str = FixedByteStr::<11>::from_str("Hello World");
+        assert_eq!(str.as_str(), "Hello World");
+    }
+
+    #[test]
+    fn test_str_overflow() {
+        let mut str = FixedByteStr::<11>::new();
+        str.write_str("Hello World").unwrap();
+        assert!(str.write_str("Hello World").is_err());
+    }
+
+    #[test]
+    fn test_str_display() {
+        let str = FixedByteStr::<11>::from_str("Hello World");
+        assert_eq!(format!("{}", str), "Hello World");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_str_from_str_overflow() {
+        _ = FixedByteStr::<11>::from_str("Hello World!");
     }
 }

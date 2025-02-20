@@ -370,7 +370,10 @@ impl BootSector {
                         fs_type: *b"FAT32   ",
 
                         ext_boot_signature: 0x29,
-                        padding1: [0u8; 420],
+                        padding1_1: [0u8; 256],
+                        padding1_2: [0u8; 128],
+                        padding1_3: [0u8; 32],
+                        padding1_4: [0u8; 4],
                         reserved: [0u8; 12],
                         reserved1: 0,
                         signature_word: 0xAA55u16.to_le_bytes(),

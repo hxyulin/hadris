@@ -10,8 +10,8 @@ repository.workspace = true
 
 [features]
 default = ["read", "write", "lfn"]
-alloc = ["hadris-core/alloc"]
-std = ["alloc", "hadris-core/std"]
+alloc = ["hadris-core/alloc", "chrono/alloc"]
+std = ["alloc", "hadris-core/std", "chrono/std", "chrono/clock"]
 read = []
 write = ["alloc", "read"]
 lfn = []
@@ -23,7 +23,8 @@ bitflags = { workspace = true }
 bytemuck = { version = "1.21.0", default-features = false, features = [
     "derive",
 ] }
+chrono = { version = "0.4.39", default-features = false }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
-static_assertions = { version = "1.1.0", features = ["nightly"] }
+static_assertions = "1.1.0"

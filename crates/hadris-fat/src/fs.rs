@@ -6,6 +6,7 @@ use crate::structures::{
     fat::Fat32,
     fs_info::FsInfo,
     raw::{self, directory::RawDirectoryEntry},
+    time::FatTimeHighP,
     FatStr,
 };
 use hadris_core::str::FixedByteStr;
@@ -135,7 +136,13 @@ impl<'ctx> FileSystem<'ctx> {
                 let mut path_iter = path.split('.');
                 let name = path_iter.next().unwrap();
                 let ext = path_iter.next().unwrap_or("");
-                let file = FileEntry::new(name, ext, FileAttributes::ARCHIVE, 0, 0);
+
+                let time = if cfg!(feature = "std") {
+                    FatTimeHighP::try_from(std::time::SystemTime::now()).unwrap()
+                } else {
+                    unimplemented!()
+                };
+                let file = FileEntry::new(name, ext, FileAttributes::ARCHIVE, 0, 0, time);
                 let directory = Directory::from_bytes_mut(
                     &mut self.data[cluster_start..cluster_start + cluster_size],
                 );
@@ -371,12 +378,18 @@ impl<'ctx> FileSystem<'ctx> {
         let name = path_iter.next().unwrap();
         let extension = path_iter.next().unwrap();
         let cluster_free = self.allocate_clusters(self.to_clusters_rounded_up(data.len()) as u32);
+        let time = if cfg!(feature = "std") {
+            FatTimeHighP::try_from(std::time::SystemTime::now()).unwrap()
+        } else {
+            unimplemented!()
+        };
         let file = FileEntry::new(
             name,
             extension,
             FileAttributes::ARCHIVE,
             data.len() as u32,
             cluster_free,
+            time,
         );
         let cluster_size =
             self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;

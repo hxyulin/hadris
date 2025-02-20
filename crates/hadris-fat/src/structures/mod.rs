@@ -179,6 +179,10 @@ impl<const N: usize> FatStr<N> {
         Ok(Self::from_slice_unchecked(s.as_bytes()))
     }
 
+    pub fn from_bytes(bytes: [u8; N]) -> Self {
+        Self::from_slice_unchecked(&bytes)
+    }
+
     pub fn from_slice_unchecked(slice: &[u8]) -> Self {
         let mut str = Self::default();
         str.raw[..slice.len()].copy_from_slice(slice);
