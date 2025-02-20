@@ -1,5 +1,8 @@
+use crate::{
+    internal::{FileSystemRead, FileSystemWrite},
+    UtcTime,
+};
 use spin::Mutex;
-use crate::internal::{FileSystemRead, FileSystemWrite};
 
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,12 +43,40 @@ impl File {
         }
     }
 
-    pub fn read<T: FileSystemRead + ?Sized>(&self, fs: &T, buffer: &mut [u8]) -> Result<usize, ()> {
-        fs.read(self, buffer)
+    pub fn read_with_timestamp<T: FileSystemRead + ?Sized>(
+        &self,
+        fs: &mut T,
+        buffer: &mut [u8],
+        time: UtcTime,
+    ) -> Result<usize, ()> {
+        fs.read(self, buffer, time)
     }
 
-    pub fn write<T: FileSystemWrite + ?Sized>(&self, fs: &mut T, buffer: &[u8]) -> Result<usize, ()> {
-        fs.write(self, buffer)
+    pub fn write_with_timestamp<T: FileSystemWrite + ?Sized>(
+        &self,
+        fs: &mut T,
+        buffer: &[u8],
+        time: UtcTime,
+    ) -> Result<usize, ()> {
+        fs.write(self, buffer, time)
+    }
+
+    #[cfg(feature = "std")]
+    pub fn read<T: FileSystemRead + ?Sized>(
+        &self,
+        fs: &mut T,
+        buffer: &mut [u8],
+    ) -> Result<usize, ()> {
+        fs.read(self, buffer, std::time::SystemTime::now().into())
+    }
+
+    #[cfg(feature = "std")]
+    pub fn write<T: FileSystemWrite + ?Sized>(
+        &self,
+        fs: &mut T,
+        buffer: &[u8],
+    ) -> Result<usize, ()> {
+        fs.write(self, buffer, std::time::SystemTime::now().into())
     }
 
     pub fn descriptor(&self) -> u32 {

@@ -6,10 +6,10 @@ use crate::structures::{
     fat::Fat32,
     fs_info::FsInfo,
     raw::{self, directory::RawDirectoryEntry},
-    time::FatTimeHighP,
+    time::{FatTime, FatTimeHighP},
     FatStr,
 };
-use hadris_core::str::FixedByteStr;
+use hadris_core::{str::FixedByteStr, UtcTime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FatType {
@@ -137,10 +137,15 @@ impl<'ctx> FileSystem<'ctx> {
                 let name = path_iter.next().unwrap();
                 let ext = path_iter.next().unwrap_or("");
 
-                let time = if cfg!(feature = "std") {
-                    FatTimeHighP::try_from(std::time::SystemTime::now()).unwrap()
-                } else {
-                    unimplemented!()
+                let time = {
+                    #[cfg(feature = "std")]
+                    {
+                        FatTimeHighP::try_from(std::time::SystemTime::now()).unwrap()
+                    }
+                    #[cfg(not(feature = "std"))]
+                    {
+                        todo!()
+                    }
                 };
                 let file = FileEntry::new(name, ext, FileAttributes::ARCHIVE, 0, 0, time);
                 let directory = Directory::from_bytes_mut(
@@ -193,7 +198,12 @@ impl hadris_core::FileSystem for FileSystem<'_> {
 }
 
 impl hadris_core::internal::FileSystemRead for FileSystem<'_> {
-    fn read(&self, file: &hadris_core::File, buffer: &mut [u8]) -> Result<usize, ()> {
+    fn read(
+        &mut self,
+        file: &hadris_core::File,
+        buffer: &mut [u8],
+        time: UtcTime,
+    ) -> Result<usize, ()> {
         let cluster_size =
             self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
         let fd = self.descriptors[file.descriptor() as usize].unwrap();
@@ -205,13 +215,26 @@ impl hadris_core::internal::FileSystemRead for FileSystem<'_> {
             buffer,
         );
         file.set_seek(file.seek() + read as u32);
+
+        let cluster_start = (fd.entry_offset / cluster_size) * cluster_size;
+        let directory =
+            Directory::from_bytes_mut(&mut self.data[cluster_start..cluster_start + cluster_size]);
+        let offset = (fd.entry_offset % cluster_size) / size_of::<RawDirectoryEntry>();
+        let entry = &mut directory.entries[offset];
+        entry.write_access_time(time.try_into().unwrap());
+
         Ok(read)
     }
 }
 
 #[cfg(feature = "write")]
 impl hadris_core::internal::FileSystemWrite for FileSystem<'_> {
-    fn write(&mut self, file: &hadris_core::File, buffer: &[u8]) -> Result<usize, ()> {
+    fn write(
+        &mut self,
+        file: &hadris_core::File,
+        buffer: &[u8],
+        time: UtcTime,
+    ) -> Result<usize, ()> {
         let cluster_size =
             self.bs.bytes_per_sector() as usize * self.bs.sectors_per_cluster() as usize;
         let mut fd = self.descriptors[file.descriptor() as usize].unwrap();
@@ -240,8 +263,11 @@ impl hadris_core::internal::FileSystemWrite for FileSystem<'_> {
             Directory::from_bytes_mut(&mut self.data[cluster_start..cluster_start + cluster_size]);
         let offset = (fd.entry_offset % cluster_size) / size_of::<RawDirectoryEntry>();
         let entry = &mut directory.entries[offset];
-        entry.write_size(entry.size() + written as u32);
+        entry.write_size(written as u32);
         entry.write_cluster(fd.cluster);
+        let time: FatTime = time.try_into().unwrap();
+        entry.write_access_time(time);
+        entry.write_modification_time(time);
 
         Ok(written)
     }
@@ -378,10 +404,15 @@ impl<'ctx> FileSystem<'ctx> {
         let name = path_iter.next().unwrap();
         let extension = path_iter.next().unwrap();
         let cluster_free = self.allocate_clusters(self.to_clusters_rounded_up(data.len()) as u32);
-        let time = if cfg!(feature = "std") {
-            FatTimeHighP::try_from(std::time::SystemTime::now()).unwrap()
-        } else {
-            unimplemented!()
+        let time = {
+            #[cfg(feature = "std")]
+            {
+                FatTimeHighP::try_from(std::time::SystemTime::now()).unwrap()
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                todo!()
+            }
         };
         let file = FileEntry::new(
             name,

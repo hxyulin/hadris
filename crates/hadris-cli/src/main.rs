@@ -65,6 +65,8 @@ struct WriteCommand {
 #[derive(Debug, clap::Args)]
 struct ReadCommand {
     file: PathBuf,
+    #[clap(short = 'b', long = "buffer-size", default_value = "8192")]
+    buf_size: usize,
 }
 
 #[derive(Debug, clap::ValueEnum, Clone, Copy)]
@@ -116,17 +118,18 @@ fn main() {
             drop(fs);
             std::fs::write(&args.image, &fs_bytes).unwrap();
         }
-        Subcommand::Read(ReadCommand { file }) => {
+        Subcommand::Read(ReadCommand { file, buf_size }) => {
             let mut fs_bytes = std::fs::read(&args.image).unwrap();
             let mut fs = FileSystem::read_from_bytes(FileSystemType::Fat32, &mut fs_bytes);
             let file = fs
                 .open_file(file.as_os_str().to_str().unwrap(), OpenOptions::READ)
                 .unwrap();
-            let mut buf = [0u8; 8192];
-            let mut read = file.read(&fs, &mut buf).unwrap();
+            let mut buf = Vec::with_capacity(buf_size);
+            buf.resize(buf_size, 0);
+            let mut read = file.read(&mut fs, &mut buf).unwrap();
             while read != 0 {
                 print!("{}", std::str::from_utf8(&buf[..read]).unwrap());
-                read = file.read(&fs, &mut buf).unwrap();
+                read = file.read(&mut fs, &mut buf).unwrap();
             }
         }
     }

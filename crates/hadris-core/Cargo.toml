@@ -12,8 +12,9 @@ readme = "README.md"
 [features]
 default = ["std"]
 alloc = []
-std = ["alloc", "spin/std"]
+std = ["alloc", "spin/std", "chrono/std"]
 
 [dependencies]
 bitflags = { workspace = true }
 spin = { version = "0.9.8" }
+chrono = { workspace = true }

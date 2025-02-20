@@ -64,8 +64,8 @@ pub struct File {
 }
 
 impl File {
-    pub fn read(&self, fs: &FileSystem, buffer: &mut [u8]) -> Result<usize, ()> {
-        self.file.read(fs.fs.as_ref(), buffer)
+    pub fn read(&self, fs: &mut FileSystem, buffer: &mut [u8]) -> Result<usize, ()> {
+        self.file.read(fs.fs.as_mut(), buffer)
     }
 
     pub fn write(&self, fs: &mut FileSystem, buffer: &[u8]) -> Result<usize, ()> {

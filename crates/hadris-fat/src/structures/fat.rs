@@ -186,18 +186,22 @@ impl Fat32 {
         next_free: &mut u32,
     ) {
         let mut counter = 0;
+        let mut allocated = 0;
+        // TODO: Maybe an off by one error here?
+        // TODO: Calling retain_cluster_chain results in a 2 cluster waste
         while counter < length {
             let value = self.entries[cluster];
             if value == constants::FAT32_CLUSTER_LAST {
                 let to_allocate = length - counter;
                 self.allocate_clusters(free_count, next_free, to_allocate);
                 cluster = self.find_free_cluster().unwrap();
+                allocated += 1;
                 break;
             }
             cluster = value as usize;
             counter += 1;
         }
-        *free_count -= length;
+        *free_count -= allocated;
         *next_free = cluster as u32;
     }
 

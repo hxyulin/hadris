@@ -14,7 +14,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 license-file = "LICENSE"
@@ -23,8 +23,9 @@ repository = "https://github.com/hxyulin/hadris"
 homepage = "https://github.com/hxyulin/hadris"
 
 [workspace.dependencies]
-hadris-core = { path = "crates/hadris-core", version = "0.1.0", default-features = false }
-hadris-fat = { path = "crates/hadris-fat", version = "0.1.0", default-features = false }
-hadris = { path = "crates/hadris", version = "0.1.0" }
+hadris-core = { path = "crates/hadris-core", version = "0.1.1", default-features = false }
+hadris-fat = { path = "crates/hadris-fat", version = "0.1.1", default-features = false }
+hadris = { path = "crates/hadris", version = "0.1.1" }
 
+chrono = { version = "0.4.39", default-features = false }
 bitflags = "2.8.0"

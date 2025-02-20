@@ -3,6 +3,8 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+pub type UtcTime = chrono::DateTime<chrono::Utc>;
+
 pub mod internal;
 pub mod str;
 pub mod file;

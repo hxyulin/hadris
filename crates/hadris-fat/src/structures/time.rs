@@ -1,4 +1,4 @@
-use hadris_core::str::FixedByteStr;
+use hadris_core::{str::FixedByteStr, UtcTime};
 
 /// High precision Fat Time
 /// Stores the time to the precision of a tenth of a second
@@ -148,12 +148,21 @@ mod std_impls {
             Self::try_from(date_time)
         }
     }
+
+    impl TryFrom<std::time::SystemTime> for FatTime {
+        type Error = &'static str;
+
+        fn try_from(value: std::time::SystemTime) -> Result<Self, Self::Error> {
+            let date_time: chrono::DateTime<chrono::Utc> = value.into();
+            Self::try_from(date_time)
+        }
+    }
 }
 
-impl TryFrom<chrono::DateTime<chrono::Utc>> for FatTimeHighP {
+impl TryFrom<UtcTime> for FatTimeHighP {
     type Error = &'static str;
 
-    fn try_from(value: chrono::DateTime<chrono::Utc>) -> Result<Self, Self::Error> {
+    fn try_from(value: UtcTime) -> Result<Self, Self::Error> {
         use chrono::{Datelike, Timelike};
 
         // Compute FAT date fields
@@ -177,5 +186,34 @@ impl TryFrom<chrono::DateTime<chrono::Utc>> for FatTimeHighP {
         let date = (year_fat << 9) | (month << 5) | day;
 
         Ok(Self::new(hundreths, time, date))
+    }
+}
+
+impl TryFrom<UtcTime> for FatTime {
+    type Error = &'static str;
+
+    fn try_from(value: UtcTime) -> Result<Self, Self::Error> {
+        use chrono::{Datelike, Timelike};
+
+        // Compute FAT date fields
+        let year = value.year();
+        if year < 1980 || year > 2107 {
+            return Err("Year out of FAT32 range (1980-2107)");
+        }
+
+        let year_fat = (year - 1980) as u16;
+        let month = value.month() as u16;
+        let day = value.day() as u16;
+
+        // Compute FAT time fields
+        let hour = value.hour() as u16;
+        let minute = value.minute() as u16;
+        let second = (value.second() / 2) as u16; // FAT stores seconds in 2-second increments
+
+        // Encode to FAT format
+        let time = (hour << 11) | (minute << 5) | second;
+        let date = (year_fat << 9) | (month << 5) | day;
+
+        Ok(Self::new(time, date))
     }
 }

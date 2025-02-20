@@ -99,7 +99,6 @@ impl FileEntry {
         cluster: u32,
         time: FatTimeHighP,
     ) -> Self {
-        println!("Time: {:?}", time);
         assert!(filename.len() <= FatStr::<8>::MAX_LEN);
         assert!(extension.len() <= FatStr::<3>::MAX_LEN);
         let filename = FatStr::<8>::new_truncate(filename);
@@ -141,6 +140,15 @@ impl FileEntry {
         let low = (cluster & u16::MAX as u32) as u16;
         self.data.first_cluster_high = high.to_le_bytes();
         self.data.first_cluster_low = low.to_le_bytes();
+    }
+
+    pub fn write_access_time(&mut self, time: FatTime) {
+        self.data.last_access_date = time.date.to_le_bytes();
+    }
+
+    pub fn write_modification_time(&mut self, time: FatTime) {
+        self.data.last_write_date = time.date.to_le_bytes();
+        self.data.last_write_time = time.time.to_le_bytes();
     }
 
     pub fn write_size(&mut self, size: u32) {
