@@ -164,11 +164,16 @@ impl<const N: usize> FatStr<N> {
     pub const MAX_LEN: usize = N;
 
     pub fn new_truncate(s: &str) -> Self {
+        // TODO: We need to convert everything to uppercase
         if s.len() > N {
             Self::from_slice_unchecked(&s.as_bytes()[..N])
         } else {
             Self::from_slice_unchecked(s.as_bytes())
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.raw = [b' '; N];
     }
 
     pub fn try_new(s: &str) -> Result<Self, ()> {
@@ -202,6 +207,10 @@ impl<const N: usize> FatStr<N> {
 
     pub fn as_slice(&self) -> &[u8; N] {
         &self.raw
+    }
+
+    pub fn copy_from_slice(&mut self, slice: &[u8]) {
+        self.raw[..slice.len()].copy_from_slice(slice);
     }
 }
 

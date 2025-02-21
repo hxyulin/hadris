@@ -40,6 +40,7 @@ pub mod fat16 {
 /// The top four bits must be preserved when reading and writing the cluster value
 pub mod fat32 {
     pub const CLUSTER_FREE: u32 = 0x00000000;
+    pub const CLUSTER_MAX: u32 = 0x0FFFFFF6;
     pub const CLUSTER_BAD: u32 = 0x0FFFFFF7;
     pub const CLUSTER_RESERVED: u32 = 0x0FFFFFF8;
     pub const CLUSTER_END: u32 = 0x0FFFFFFF;

@@ -59,6 +59,10 @@ pub struct RawFileEntry {
     pub size: [u8; 4],
 }
 
+unsafe impl bytemuck::NoUninit for RawFileEntry {}
+unsafe impl bytemuck::Zeroable for RawFileEntry {}
+unsafe impl bytemuck::AnyBitPattern for RawFileEntry {}
+
 /// A long file name entry
 /// The maximum length of a long file name is 255 characters, not including the null terminator
 /// The characters allowed extend these characters:
@@ -123,6 +127,17 @@ pub union RawDirectoryEntry {
     pub file: RawFileEntry,
     pub lfn: RawLfnEntry,
 }
+
+#[cfg(feature = "lfn")]
+#[doc(hidden)]
+/// A helper module for implementation of lfn Bytemuck features
+mod _lfn {
+    use super::RawDirectoryEntry;
+    unsafe impl bytemuck::NoUninit for RawDirectoryEntry {}
+    unsafe impl bytemuck::Zeroable for RawDirectoryEntry {}
+    unsafe impl bytemuck::AnyBitPattern for RawDirectoryEntry {}
+}
+
 #[cfg(not(feature = "lfn"))]
 pub type RawDirectoryEntry = RawFileEntry;
 

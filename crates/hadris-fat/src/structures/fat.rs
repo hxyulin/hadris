@@ -14,6 +14,8 @@ BPB_FATSz16 = LOWORD(FATSz);
 }
 */
 
+use hadris_core::{ReadWriteError, Reader};
+
 pub mod constants {
     pub const FAT16_CLUSTER_FREE: u16 = 0x0000;
     pub const FAT16_CLUSTER_BAD: u16 = 0xFFF7;
@@ -284,5 +286,70 @@ impl Fat32 {
         }
 
         bytes_read
+    }
+}
+
+pub struct Fat32Reader {
+    /// The offset of the FAT in bytes
+    offset: usize,
+    /// The size of the FAT in bytes
+    size: usize,
+    /// Number of fats
+    num: usize,
+}
+
+impl Fat32Reader {
+    pub fn new(offset: usize, size: usize, num: usize) -> Self {
+        Self { offset, size, num }
+    }
+
+    fn data_offset(&self) -> usize {
+        self.offset + self.num * self.size
+    }
+
+    pub fn next_cluster_index(
+        &self,
+        reader: &mut dyn Reader,
+        cluster: u32,
+    ) -> Result<u32, ReadWriteError> {
+        let offset = self.offset + cluster as usize * size_of::<u32>();
+        let mut buf = [0u8; 4];
+        reader.read_bytes(offset, &mut buf)?;
+        Ok(u32::from_le_bytes(buf))
+    }
+
+    /// Read data from a FAT
+    ///
+    /// The root_directory_offset is the offset of the root directory in bytes
+    pub fn read_data(
+        &self,
+        reader: &mut dyn Reader,
+        cluster_size: usize,
+        mut cluster: u32,
+        offset: usize,
+        buffer: &mut [u8],
+    ) -> Result<usize, ReadWriteError> {
+        let mut data_offset = 0;
+        let mut bytes_read = 0;
+
+        while data_offset < buffer.len() {
+            let new_offset = (cluster as usize - 2) * cluster_size + self.data_offset();
+            if data_offset + cluster_size > offset {
+                let cluster_offset = if offset > data_offset {
+                    offset - data_offset
+                } else {
+                    0
+                };
+                let read_size = (cluster_size - cluster_offset).min(buffer.len() - bytes_read);
+                reader.read_bytes(new_offset, &mut buffer[bytes_read..bytes_read + read_size])?;
+                bytes_read += read_size;
+            }
+            data_offset += cluster_size;
+            cluster = self.next_cluster_index(reader, cluster)?;
+            if cluster < 2 || cluster > 0x0FFF_FFF6 {
+                break;
+            }
+        }
+        Ok(bytes_read)
     }
 }

@@ -10,6 +10,15 @@ pub struct FatTimeHighP {
     pub(crate) time: FatTime,
 }
 
+impl Default for FatTimeHighP {
+    fn default() -> Self {
+        Self {
+            tenths: 0,
+            time: FatTime::default(),
+        }
+    }
+}
+
 impl FatTimeHighP {
     pub fn new(tenths: u8, time: u16, date: u16) -> Self {
         Self {
@@ -81,6 +90,12 @@ pub struct FatTime {
     /// Bits 11-15: Hours
     pub(crate) time: u16,
     pub(crate) date: u16,
+}
+
+impl Default for FatTime {
+    fn default() -> Self {
+        Self { time: 0, date: 0 }
+    }
 }
 
 impl FatTime {

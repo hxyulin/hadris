@@ -3,10 +3,13 @@ use core::{
     u16,
 };
 
+use hadris_core::{ReadWriteError, Reader};
+
 use crate::structures::FatStr;
 
 use super::{
-    raw::directory::RawFileEntry,
+    fat::Fat32Reader,
+    raw::directory::{RawDirectoryEntry, RawFileEntry},
     time::{FatTime, FatTimeHighP},
 };
 
@@ -85,12 +88,15 @@ impl TryFrom<&RawFileEntry> for FileEntryInfo {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, bytemuck::NoUninit, bytemuck::AnyBitPattern)]
 pub struct FileEntry {
     data: RawFileEntry,
 }
 
 impl FileEntry {
+    pub fn from_bytes(bytes: &[u8]) -> &FileEntry {
+        bytemuck::from_bytes(bytes)
+    }
     pub fn new(
         filename: &str,
         extension: &str,
@@ -166,11 +172,11 @@ impl FileEntry {
     pub fn info(&self) -> FileEntryInfo {
         FileEntryInfo::try_from(&self.data).unwrap()
     }
-}
 
-unsafe impl bytemuck::Zeroable for FileEntry {}
-unsafe impl bytemuck::NoUninit for FileEntry {}
-unsafe impl bytemuck::AnyBitPattern for FileEntry {}
+    pub fn attributes(&self) -> FileAttributes {
+        FileAttributes::from_bits(self.data.attributes).unwrap()
+    }
+}
 
 #[repr(transparent)]
 pub struct Directory {
@@ -238,4 +244,237 @@ impl IndexMut<usize> for Directory {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.entries[index]
     }
+}
+
+pub struct DirectoryReader {
+    /// The offset of directory in bytes (precomputed)
+    /// This is essentially the start of the data area
+    root_directory_offset: usize,
+    /// Size of each cluster in bytes
+    cluster_size: usize,
+}
+
+impl DirectoryReader {
+    pub fn new(root_directory_offset: usize, cluster_size: usize) -> DirectoryReader {
+        Self {
+            root_directory_offset,
+            cluster_size,
+        }
+    }
+
+    /// Finds a directory entry by name and extension.
+    /// Returns the **index of the entry** in the directory if found.
+    pub fn find_entry(
+        &self,
+        reader: &mut dyn Reader,
+        fat: &mut Fat32Reader,
+        mut current_cluster: u32,
+        name: FatStr<8>,
+        extension: FatStr<3>,
+    ) -> Result<Option<usize>, ReadWriteError> {
+        assert!(
+            current_cluster >= 2,
+            "Cluster number must be greater than 2"
+        );
+
+        let mut buffer = [0u8; 512];
+        let mut index = 0;
+        let entries_per_cluster = self.cluster_size / size_of::<RawDirectoryEntry>();
+
+        loop {
+            let cluster_offset =
+                (current_cluster as usize - 2) * self.cluster_size + self.root_directory_offset;
+            reader.read_bytes(cluster_offset, &mut buffer)?;
+
+            for (entry_index, entry_bytes) in buffer
+                .chunks_exact(size_of::<RawDirectoryEntry>())
+                .enumerate()
+            {
+                if entry_bytes[0] == 0x00 {
+                    return Ok(None);
+                }
+
+                let entry = FileEntry::from_bytes(entry_bytes);
+
+                if entry.base_name() == name && entry.extension() == extension {
+                    return Ok(Some(index * entries_per_cluster + entry_index));
+                }
+            }
+
+            index += 1;
+            current_cluster = fat.next_cluster_index(reader, current_cluster)?;
+            if current_cluster < 2 || current_cluster >= 0x0FFFFFF8 {
+                return Ok(None);
+            }
+        }
+    }
+
+    pub fn get_entry(&self, reader: &mut dyn Reader, cluster: u32, index: usize) -> FileEntry {
+        let mut buffer = [0u8; 32];
+        let cluster_offset =
+            (cluster as usize - 2) * self.cluster_size + self.root_directory_offset;
+        let offset = cluster_offset + size_of::<RawDirectoryEntry>() * index;
+        reader.read_bytes(offset, &mut buffer).unwrap();
+        bytemuck::cast(buffer)
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_find_entry_single_sector() {
+        let mut directory = [0u8; 1024];
+
+        // We need to create dummy fat
+        directory[0..4].copy_from_slice(&0xFFFF_FFF8_u32.to_le_bytes());
+        directory[4..8].copy_from_slice(&0xFFFF_FFFF_u32.to_le_bytes());
+        // We just mark the root cluster as EOC
+        directory[8..12].copy_from_slice(&0xFFFF_FFFF_u32.to_le_bytes());
+
+        let mut fat = Fat32Reader::new(0, 512, 1);
+        let reader = DirectoryReader::new(512, 512);
+
+        // One sector of fat and one sector of directory
+        let entry = FileEntry::new(
+            "test",
+            "txt",
+            FileAttributes::empty(),
+            0,
+            0,
+            FatTimeHighP::default(),
+        );
+        directory[512..512 + size_of::<FileEntry>()].copy_from_slice(bytemuck::bytes_of(&entry));
+
+        let entry = reader
+            .find_entry(
+                &mut directory.as_slice(),
+                &mut fat,
+                2,
+                FatStr::new_truncate("test"),
+                FatStr::new_truncate("txt"),
+            )
+            .unwrap();
+        assert_eq!(entry, Some(0));
+
+        let entry = reader
+            .find_entry(
+                &mut directory.as_slice(),
+                &mut fat,
+                2,
+                FatStr::new_truncate("unknown"),
+                FatStr::new_truncate("txt"),
+            )
+            .unwrap();
+        assert_eq!(entry, None);
+    }
+
+    #[test]
+    fn test_find_entry_multi_sector() {
+        let mut directory = [0u8; 512 * 4];
+
+        directory[0..4].copy_from_slice(&0xFFFF_FFF8_u32.to_le_bytes());
+        directory[4..8].copy_from_slice(&0xFFFF_FFFF_u32.to_le_bytes());
+        // We link to the next cluster
+        directory[8..12].copy_from_slice(&3_u32.to_le_bytes());
+        // Now we mark it as the last cluster
+        directory[12..16].copy_from_slice(&0xFFFF_FFFF_u32.to_le_bytes());
+
+        // We need to fill all the other entries because they can't be zeroes
+        let entry = FileEntry::new(
+            "dummy",
+            "txt",
+            FileAttributes::empty(),
+            0,
+            0,
+            FatTimeHighP::default(),
+        );
+        for i in 0..960 / size_of::<FileEntry>() {
+            directory[512 + i * size_of::<FileEntry>()
+                ..512 + i * size_of::<FileEntry>() + size_of::<FileEntry>()]
+                .copy_from_slice(bytemuck::bytes_of(&entry));
+        }
+        let entry = FileEntry::new(
+            "test",
+            "txt",
+            FileAttributes::empty(),
+            0,
+            0,
+            FatTimeHighP::default(),
+        );
+        directory[512 + 960..512 + 960 + size_of::<FileEntry>()]
+            .copy_from_slice(bytemuck::bytes_of(&entry));
+        let mut fat_reader = Fat32Reader::new(0, 512, 1);
+        let reader = DirectoryReader::new(512, 512);
+        let index = 960 / size_of::<FileEntry>();
+        let entry = reader
+            .find_entry(
+                &mut directory.as_slice(),
+                &mut fat_reader,
+                2,
+                FatStr::new_truncate("test"),
+                FatStr::new_truncate("txt"),
+            )
+            .unwrap();
+        assert_eq!(entry, Some(index));
+    }
+
+    #[test]
+    fn test_find_entry_multi_sector_fragmented() {
+        let mut directory = [0u8; 512 * 8];
+        // So the fat will be first sector,
+        // and the root directory will be the second sector
+        // The we link the next cluster of the root directory to cluster 6 for non contiguous test
+        directory[0..4].copy_from_slice(&0xFFFF_FFF8_u32.to_le_bytes());
+        directory[4..8].copy_from_slice(&0xFFFF_FFFF_u32.to_le_bytes());
+        directory[8..12].copy_from_slice(&6_u32.to_le_bytes());
+        directory[24..28].copy_from_slice(&0xFFFF_FFFF_u32.to_le_bytes());
+
+        // Now we fill the root cluster with dummy data
+        let entry = FileEntry::new(
+            "dummy",
+            "txt",
+            FileAttributes::empty(),
+            0,
+            0,
+            FatTimeHighP::default(),
+        );
+        for i in 0..512 / size_of::<RawDirectoryEntry>() {
+            let offset = i * size_of::<RawDirectoryEntry>() + 512;
+            directory[offset..offset + size_of::<RawDirectoryEntry>()]
+                .copy_from_slice(&bytemuck::bytes_of(&entry));
+        }
+
+        // Now we make it the first entry of cluster 6
+        let entry = FileEntry::new(
+            "test",
+            "txt",
+            FileAttributes::empty(),
+            0,
+            0,
+            FatTimeHighP::default(),
+        );
+
+        // We start root cluster (2) at cluster 1, so we need  to subtract 1 from the cluster number
+        let offset = (6 - 1) * 512;
+        directory[offset..offset + size_of::<RawDirectoryEntry>()]
+            .copy_from_slice(&bytemuck::bytes_of(&entry));
+
+        let reader = DirectoryReader::new(512, 512);
+        let mut fat_reader = Fat32Reader::new(0, 512, 1);
+        let entry = reader
+            .find_entry(
+                &mut directory.as_slice(),
+                &mut fat_reader,
+                2,
+                FatStr::new_truncate("test"),
+                FatStr::new_truncate("txt"),
+            )
+            .unwrap();
+        assert_eq!(Some(16), entry);
+    }
+
+    // TESTS: Maybe add tests for the last possible entry in a cluster, and maybe some with deleted
+    // entries (0xE5 marker)
 }

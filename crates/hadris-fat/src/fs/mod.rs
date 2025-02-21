@@ -9,7 +9,10 @@ use crate::structures::{
     time::{FatTime, FatTimeHighP},
     FatStr,
 };
-use hadris_core::{str::FixedByteStr, UtcTime};
+use hadris_core::{str::FixedByteStr, Reader, UtcTime, Writer};
+
+mod read;
+mod write;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FatType {
@@ -441,5 +444,30 @@ impl<'ctx> FileSystem<'ctx> {
             0,
             data,
         );
+    }
+}
+
+// TODO: We make this an optional feature
+pub struct FileSystemReadWrite<T: Reader + Writer> {
+    read: read::FileSystemRead,
+    write: write::FileSystemWrite,
+    rw: T,
+}
+
+impl<T: Reader + Writer> hadris_core::FileSystem for FileSystemReadWrite<T> {
+    fn open(
+        &mut self,
+        path: &str,
+        options: hadris_core::OpenOptions,
+    ) -> Result<hadris_core::File, ()> {
+        todo!()
+    }
+
+    fn create(
+        &mut self,
+        path: &str,
+        attributes: hadris_core::file::FileAttributes,
+    ) -> Result<hadris_core::File, ()> {
+        todo!()
     }
 }

@@ -1,3 +1,5 @@
+use bytemuck::Zeroable;
+
 use crate::{
     structures::raw::boot_sector::{RawBpb, RawBpbExt, RawBpbExt32},
     FatType,
@@ -235,12 +237,42 @@ pub struct BootSectorFat32 {
 }
 
 impl BootSectorFat32 {
+    pub fn create_from_bytes(bytes: [u8; 512]) -> Self {
+        Self {
+            data: bytemuck::cast(bytes),
+        }
+    }
+
     pub fn from_bytes(bytes: &[u8; 512]) -> &Self {
         bytemuck::cast_ref(bytes)
     }
 
     pub fn from_bytes_mut(bytes: &mut [u8; 512]) -> &mut Self {
         bytemuck::cast_mut(bytes)
+    }
+
+    pub fn bytes_per_sector(&self) -> u16 {
+        u16::from_le_bytes(self.data.bpb.bytes_per_sector)
+    }
+
+    pub fn sectors_per_cluster(&self) -> u8 {
+        self.data.bpb.sectors_per_cluster
+    }
+
+    pub fn reserved_sector_count(&self) -> u16 {
+        u16::from_le_bytes(self.data.bpb.reserved_sector_count)
+    }
+
+    pub fn sectors_per_fat(&self) -> u32 {
+        u32::from_le_bytes(unsafe { self.data.bpb_ext.bpb32 }.sectors_per_fat_32)
+    }
+
+    pub fn fat_count(&self) -> u8 {
+        self.data.bpb.fat_count
+    }
+
+    pub fn root_directory_cluster(&self) -> u32 {
+        u32::from_le_bytes(unsafe { self.data.bpb_ext.bpb32 }.root_cluster)
     }
 }
 
