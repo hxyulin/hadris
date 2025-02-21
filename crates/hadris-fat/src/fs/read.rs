@@ -1,3 +1,12 @@
+//! A reader for the FAT32 file system
+//! This module contains a read-only implementation of the FAT32 filesystem
+//! It is not entirely confroming to the specification for the following reasons:
+//! - The FAT32 filesystem is not case-sensitive (This is a future TODO)
+//! - The FAT32 filesystem does not support long file names (This is a future TODO)
+//! - The FAT32 filesystem doesn't update the last accessed time of a file - The read only
+//! implementation does not update the last accessed time, as it is not possible to update
+//! the time on a read-only media
+
 use hadris_core::{ReadWriteError, Reader};
 
 use crate::structures::{
@@ -7,6 +16,9 @@ use crate::structures::{
     FatStr,
 };
 
+/// Errors that can occur when interacting with the FAT32 file system
+/// It shouldn't be ignored, as it is possible to recover from these errors,
+/// and IO errors can happen at any time
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileSystemError {
     IOError(ReadWriteError),
@@ -21,19 +33,20 @@ impl From<ReadWriteError> for FileSystemError {
     }
 }
 
+/// A read-only implementation of the FAT32 file system
 pub struct FileSystemRead {}
 
 impl FileSystemRead {
     pub fn find_file_entry(
         &self,
         reader: &mut dyn Reader,
-        name: &str,
+        path: &str,
     ) -> Result<Option<FileEntry>, FileSystemError> {
         let mut temp_buffer = [0u8; 512];
         reader.read_sector(0, &mut temp_buffer)?;
         let bpb = BootSectorFat32::create_from_bytes(temp_buffer);
 
-        let bytes = name.as_bytes();
+        let bytes = path.as_bytes();
         let mut buf = FatStr::<8>::default();
         // We allow an optional leading slash
         let mut index = if bytes[0] == b'/' { 1 } else { 0 };
@@ -75,9 +88,11 @@ impl FileSystemRead {
                     // /test/folder/
                     return Ok(Some(entry));
                 }
-                if entry.cluster() == 0 || entry.size() == 0 {
+                if entry.cluster() == 0 {
                     return Err(FileSystemError::NotFound);
                 }
+                // If we are being strict, then the size must be 0
+                // assert_eq!(entry.size(), 0);
                 current_cluster = entry.cluster();
             } else {
                 let mut name = FatStr::<8>::default();
@@ -122,6 +137,19 @@ impl FileSystemRead {
         let cluster_size = bpb.sectors_per_cluster() as usize * bpb.bytes_per_sector() as usize;
 
         fat_reader.read_data(reader, cluster_size, cluster_start, offset as usize, buffer)
+    }
+
+    pub fn read_file(
+        &self,
+        reader: &mut dyn Reader,
+        path: &str,
+        offset: u32,
+        buffer: &mut [u8],
+    ) -> Result<usize, FileSystemError> {
+        let entry = self
+            .find_file_entry(reader, path)?
+            .ok_or(FileSystemError::NotFound)?;
+        Ok(self.read_file_raw(reader, entry.cluster(), offset, buffer)?)
     }
 }
 
@@ -241,7 +269,7 @@ mod tests {
             "dir",
             "",
             FileAttributes::DIRECTORY,
-            512,
+            0,
             3,
             FatTimeHighP::default(),
         );
@@ -276,7 +304,7 @@ mod tests {
         assert_eq!(entry.base_name().as_str(), "test    ");
         assert_eq!(entry.extension().as_str(), "txt");
     }
-    
+
     #[test]
     fn test_find_nested_directory() {
         let path1 = "test/test/";
@@ -294,7 +322,7 @@ mod tests {
             "test",
             "",
             FileAttributes::DIRECTORY,
-            512,
+            0,
             3,
             FatTimeHighP::default(),
         );

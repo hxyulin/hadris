@@ -107,6 +107,7 @@ impl FileEntry {
     ) -> Self {
         assert!(filename.len() <= FatStr::<8>::MAX_LEN);
         assert!(extension.len() <= FatStr::<3>::MAX_LEN);
+        assert!(!attributes.contains(FileAttributes::DIRECTORY) || size == 0, "Size must be zero for directories");
         let filename = FatStr::<8>::new_truncate(filename);
         let extension = FatStr::<3>::new_truncate(extension);
         let mut name = [b' '; 11];

@@ -19,9 +19,9 @@ pub mod boot_sector;
 pub mod directory;
 #[cfg(feature = "read")]
 pub mod fat;
+pub mod fs_info;
 #[cfg(feature = "read")]
 pub mod time;
-pub mod fs_info;
 
 #[cfg(feature = "write")]
 #[derive(Debug, Clone)]
@@ -84,6 +84,18 @@ impl Fat32Ops {
         );
 
         ops
+    }
+
+    pub fn with_reserved_sectors(mut self, reserved_sectors: u16) -> Self {
+        self.reserved_sector_count = reserved_sectors;
+        let total_clusters = self.total_sectors_32 / self.sectors_per_cluster as u32;
+        // Recalculate the sectors per FAT
+        self.sectors_per_fat_32 = Self::approximate_sectors_per_fat(
+            total_clusters,
+            self.bytes_per_sector as u32,
+            self.reserved_sector_count as u32,
+        );
+        self
     }
 
     fn approximate_sectors_per_fat(

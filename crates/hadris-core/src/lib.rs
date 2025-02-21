@@ -31,6 +31,13 @@ impl core::fmt::Display for ReadWriteError {
     }
 }
 
+impl core::error::Error for ReadWriteError {}
+
+/// A trait for reading data from a media
+/// This trait is used to read data from a media, for a fully functional filesystem,
+/// a reader and writer should be implemented
+///
+/// See `Writer` for more information
 pub trait Reader {
     /// Reads a sector from the file system, this can be called multiple times on the same sector
     /// to read the entire sector, so the implementation should be able to handle this.
@@ -50,6 +57,7 @@ pub trait Reader {
     }
 }
 
+/// A trait for writing data to a media
 pub trait Writer {
     /// Writes a sector to the file system, this can be called multiple times on the same sector
     /// to write the entire sector, so the implementation should be able to handle this.
@@ -66,6 +74,15 @@ pub trait Writer {
         let offset = offset % 512;
         sector_buf[offset..buffer.len() + offset].copy_from_slice(buffer);
         self.write_sector(sector as u32, &sector_buf)
+    }
+}
+
+pub trait WriterExt: Writer {
+    fn write_stream<T: core::iter::Iterator<Item = u8>>(&mut self, offset: usize, bytes: T) -> Result<(), ReadWriteError> {
+        for byte in bytes {
+            self.write_bytes(offset, &[byte])?;
+        }
+        Ok(())
     }
 }
 
