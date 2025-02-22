@@ -5,7 +5,7 @@ use crate::structures::{
     directory::{Directory, FileAttributes, FileEntry},
     fat::Fat32,
     fs_info::FsInfo,
-    raw::{self, directory::RawDirectoryEntry},
+    raw::{self, boot_sector::RawBootSector, directory::RawDirectoryEntry},
     time::{FatTime, FatTimeHighP},
     FatStr,
 };
@@ -13,6 +13,8 @@ use hadris_core::{str::FixedByteStr, Reader, UtcTime, Writer};
 
 mod read;
 mod write;
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FatType {
@@ -292,6 +294,7 @@ impl<'ctx> FileSystem<'ctx> {
         ops.sectors_per_fat_32 = fat_size_sectors as u32;
 
         let boot_sector = BootSector::create_fat32(
+            ops.jmp_boot_code,
             ops.bytes_per_sector,
             ops.sectors_per_cluster,
             ops.reserved_sector_count,
@@ -357,6 +360,38 @@ impl<'ctx> FileSystem<'ctx> {
             bs: boot_sector.info(),
             descriptors: [None; MAX_OPEN],
         }
+    }
+
+    pub fn set_bpb_code(&mut self, code: &[u8]) {
+        //  TODO: We need to test this
+        // The code that fits into the boot sector, which is 420 bytes or less
+        assert!(code.len() <= 420, "Code is too long");
+        assert!(code.len() != 0, "Code is empty");
+        let bpb_bytes = &mut self.reserved[0..512].try_into().unwrap();
+        let bpb = RawBootSector::from_bytes_mut(bpb_bytes);
+        let bpb_ext = unsafe { &mut bpb.bpb_ext.bpb32 };
+
+        let chunks = [
+            &mut bpb_ext.padding1_1[..256],
+            &mut bpb_ext.padding1_2[..128],
+            &mut bpb_ext.padding1_3[..32],
+            &mut bpb_ext.padding1_4[..4],
+        ];
+
+        let mut offset = 0;
+        for chunk in chunks {
+            let to_copy = (code.len() - offset).min(chunk.len());
+            chunk[..to_copy].copy_from_slice(&code[offset..offset + to_copy]);
+            offset += to_copy;
+
+            if offset >= code.len() {
+                break;
+            }
+        }
+    }
+
+    pub fn get_offset_of_sector(&self, sector: u32) -> usize {
+        self.bs.bytes_per_sector() as usize * sector as usize
     }
 
     fn fs_info_range(&mut self) -> core::ops::Range<usize> {

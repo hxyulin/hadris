@@ -1,5 +1,3 @@
-use bytemuck::Zeroable;
-
 use crate::{
     structures::raw::boot_sector::{RawBpb, RawBpbExt, RawBpbExt32},
     FatType,
@@ -293,6 +291,7 @@ impl BootSector {
 
     /// Create a new FAT32 boot sector
     pub fn create_fat32(
+        jump_instruction: [u8; 3],
         bytes_per_sector: u16,
         sectors_per_cluster: u8,
         reserved_sector_count: u16,
@@ -319,6 +318,7 @@ impl BootSector {
 
         // TODO: Add calculations for EXT flags
         Self::create_fat32_ext(
+            jump_instruction,
             bytes_per_sector,
             sectors_per_cluster,
             reserved_sector_count,
@@ -344,6 +344,7 @@ impl BootSector {
     /// Create a new FAT12 boot sector, with extended parameters
     /// To use a more simplified interface, see the create_fat32 function
     pub fn create_fat32_ext(
+        jump_instruction: [u8; 3],
         bytes_per_sector: u16,
         sectors_per_cluster: u8,
         reserved_sector_count: u16,
@@ -373,7 +374,7 @@ impl BootSector {
         let fat32 = BootSectorFat32 {
             data: RawBootSector {
                 bpb: RawBpb {
-                    jump: [0xEB, 0x00, 0x90],
+                    jump: jump_instruction,
                     oem_name: *b"HADRISRS",
                     bytes_per_sector: bytes_per_sector.to_le_bytes(),
                     sectors_per_cluster,

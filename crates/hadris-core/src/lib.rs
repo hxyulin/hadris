@@ -78,7 +78,11 @@ pub trait Writer {
 }
 
 pub trait WriterExt: Writer {
-    fn write_stream<T: core::iter::Iterator<Item = u8>>(&mut self, offset: usize, bytes: T) -> Result<(), ReadWriteError> {
+    fn write_stream<T: core::iter::Iterator<Item = u8>>(
+        &mut self,
+        offset: usize,
+        bytes: T,
+    ) -> Result<(), ReadWriteError> {
         for byte in bytes {
             self.write_bytes(offset, &[byte])?;
         }
@@ -122,5 +126,31 @@ impl Writer for &mut [u8] {
         }
         self[offset..offset + buffer.len()].copy_from_slice(buffer);
         Ok(())
+    }
+}
+
+pub enum JumpInstruction {
+    ShortJump(u8),
+    NearJump(u16),
+}
+
+impl JumpInstruction {
+    pub fn from_bytes(bytes: [u8; 3]) -> Result<Self, ()> {
+        if bytes[0] == 0xEB && bytes[2] == 0x90 {
+            Ok(Self::ShortJump(bytes[1]))
+        } else if bytes[0] == 0xE9 {
+            Ok(Self::NearJump(u16::from_le_bytes(
+                bytes[1..3].try_into().unwrap(),
+            )))
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn to_bytes(&self) -> [u8; 3] {
+        match self {
+            Self::ShortJump(byte) => [0xEB, *byte, 0x90],
+            Self::NearJump(word) => [0xE9, word.to_le_bytes()[0], word.to_le_bytes()[1]],
+        }
     }
 }

@@ -11,6 +11,8 @@
 
 use core::str;
 
+use hadris_core::{str::FixedByteStr, JumpInstruction};
+
 pub mod raw;
 
 #[cfg(feature = "read")]
@@ -26,6 +28,7 @@ pub mod time;
 #[cfg(feature = "write")]
 #[derive(Debug, Clone)]
 pub struct Fat32Ops {
+    pub jmp_boot_code: [u8; 3],
     pub bytes_per_sector: u16,
     pub sectors_per_cluster: u8,
     pub reserved_sector_count: u16,
@@ -39,7 +42,7 @@ pub struct Fat32Ops {
     pub boot_sector: u16,
     pub drive_number: u8,
     pub volume_id: u32,
-    pub volume_label: Option<hadris_core::str::FixedByteStr<11>>,
+    pub volume_label: Option<FixedByteStr<11>>,
 }
 
 #[cfg(feature = "write")]
@@ -126,7 +129,13 @@ impl Default for Fat32Ops {
     /// Create a new FAT32 file system with the recommended configuration (except for anything
     /// dependent on the total number of sectors)
     fn default() -> Self {
+        use core::mem::{offset_of, size_of};
         Self {
+            jmp_boot_code: JumpInstruction::ShortJump(
+                size_of::<raw::boot_sector::RawBpb>() as u8
+                    + offset_of!(raw::boot_sector::RawBpbExt32, padding1_1) as u8,
+            )
+            .to_bytes(),
             bytes_per_sector: 512,
             sectors_per_cluster: 1,
             reserved_sector_count: 32,
