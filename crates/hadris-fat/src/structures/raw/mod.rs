@@ -4,7 +4,7 @@
 //! They are also repr(C, packed) to ensure correct alignment
 
 pub mod boot_sector;
-pub mod fs_info;
 pub mod constants;
-pub mod fat;
 pub mod directory;
+pub mod fat;
+pub mod fs_info;

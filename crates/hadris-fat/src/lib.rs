@@ -24,9 +24,8 @@ extern crate alloc;
 #[cfg(not(target_endian = "little"))]
 compile_error!("This crate only supports little endian systems");
 
-pub mod structures;
 #[cfg(feature = "read")]
 pub mod fs;
+pub mod structures;
 #[cfg(feature = "read")]
 pub use fs::*;
-

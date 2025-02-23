@@ -481,6 +481,32 @@ impl<'ctx> FileSystem<'ctx> {
             data,
         );
     }
+
+    /// Write data to the reserved area of the filesystem
+    ///
+    /// This is used to write the BPB code, which is 420 bytes or less.
+    /// The data is written to the reserved area of the filesystem, which is
+    /// the first sector of the filesystem.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data is too large to fit in the reserved area.
+    pub fn write_data_in_reserved(
+        &mut self,
+        data: &[u8],
+        offset: usize,
+    ) -> Result<(), &'static str> {
+        // So we can only start at sector 8
+        let max_data =
+            (self.bs.bytes_per_sector() as usize) * (self.bs.reserved_sector_count() as usize - 8);
+        if offset + data.len() > max_data {
+            return Err("Data is too large");
+        }
+
+        let offset = offset + self.get_offset_of_sector(8);
+        self.reserved[offset..offset + data.len()].copy_from_slice(data);
+        Ok(())
+    }
 }
 
 // TODO: We make this an optional feature

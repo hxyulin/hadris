@@ -37,9 +37,7 @@ impl<const N: usize> FixedByteStr<N> {
 
 impl<const N: usize> core::fmt::Debug for FixedByteStr<N> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("FixedByteStr")
-            .field(&self.as_str())
-            .finish()
+        f.debug_tuple("FixedByteStr").field(&self.as_str()).finish()
     }
 }
 
@@ -52,10 +50,10 @@ impl<const N: usize> core::fmt::Display for FixedByteStr<N> {
 impl<const N: usize> core::fmt::Write for FixedByteStr<N> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         let len = s.len();
-        let remaining = N.saturating_sub(self.len); 
+        let remaining = N.saturating_sub(self.len);
 
         if len > remaining {
-            return Err(core::fmt::Error); 
+            return Err(core::fmt::Error);
         }
 
         self.raw[self.len..self.len + len].copy_from_slice(s.as_bytes());

@@ -27,6 +27,25 @@ pub enum FileSystemError {
     NotFound,
 }
 
+#[derive(Clone, Copy)]
+pub struct FileInfo {
+    entry: FileEntry,
+}
+
+impl FileInfo {
+    pub fn size(&self) -> u32 {
+        self.entry.size()
+    }
+}
+
+impl core::fmt::Debug for FileInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FileInfo")
+            .field("entry", &self.entry.info())
+            .finish()
+    }
+}
+
 impl From<ReadWriteError> for FileSystemError {
     fn from(value: ReadWriteError) -> Self {
         Self::IOError(value)
@@ -37,7 +56,14 @@ impl From<ReadWriteError> for FileSystemError {
 pub struct FileSystemRead {}
 
 impl FileSystemRead {
-    pub fn find_file_entry(
+    pub(crate) fn root_directory_cluster(&self, reader: &mut dyn Reader) -> u32 {
+        let mut temp_buffer = [0u8; 512];
+        reader.read_sector(0, &mut temp_buffer).unwrap();
+        let bpb = BootSectorFat32::create_from_bytes(temp_buffer);
+        bpb.root_directory_cluster()
+    }
+
+    pub(crate) fn find_file_entry(
         &self,
         reader: &mut dyn Reader,
         path: &str,
@@ -68,15 +94,17 @@ impl FileSystemRead {
                 buf.copy_from_slice(bytes.get(index..index + idx).unwrap());
                 index += idx + 1;
                 let directory = DirectoryReader::new(directory_offset, cluster_size);
-                let entry = directory
-                    .find_entry(
-                        reader,
-                        &mut fat_reader,
-                        current_cluster,
-                        buf,
-                        FatStr::default(),
-                    )?
-                    .ok_or(FileSystemError::NotFound)?;
+                let entry = match directory.find_entry(
+                    reader,
+                    &mut fat_reader,
+                    current_cluster,
+                    buf,
+                    FatStr::default(),
+                )? {
+                    Some(entry) => entry,
+                    None => return Ok(None),
+                };
+
                 let entry = directory.get_entry(reader, current_cluster, entry);
                 let remaining_bytes = &bytes[index..];
                 if !entry.attributes().contains(FileAttributes::DIRECTORY) {
@@ -89,7 +117,7 @@ impl FileSystemRead {
                     return Ok(Some(entry));
                 }
                 if entry.cluster() == 0 {
-                    return Err(FileSystemError::NotFound);
+                    return Ok(None);
                 }
                 // If we are being strict, then the size must be 0
                 // assert_eq!(entry.size(), 0);
@@ -117,8 +145,9 @@ impl FileSystemRead {
             }
         }
     }
+
     /// Read a file from the filesystem
-    pub fn read_file_raw(
+    pub(crate) fn read_file_raw(
         &self,
         reader: &mut dyn Reader,
         cluster_start: u32,
@@ -139,6 +168,27 @@ impl FileSystemRead {
         fat_reader.read_data(reader, cluster_size, cluster_start, offset as usize, buffer)
     }
 
+    pub fn get_file_info(
+        &self,
+        reader: &mut dyn Reader,
+        path: &str,
+    ) -> Result<FileInfo, FileSystemError> {
+        let entry = self
+            .find_file_entry(reader, path)?
+            .ok_or(FileSystemError::NotFound)?;
+        Ok(FileInfo { entry })
+    }
+
+    pub fn read_from_info(
+        &self,
+        reader: &mut dyn Reader,
+        info: &FileInfo,
+        offset: u32,
+        buffer: &mut [u8],
+    ) -> Result<usize, FileSystemError> {
+        Ok(self.read_file_raw(reader, info.entry.cluster(), offset, buffer)?)
+    }
+
     pub fn read_file(
         &self,
         reader: &mut dyn Reader,
@@ -155,6 +205,9 @@ impl FileSystemRead {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    compile_error!("This test requires the `std` feature");
+
     use crate::structures::{directory::FileAttributes, time::FatTimeHighP};
 
     use super::*;

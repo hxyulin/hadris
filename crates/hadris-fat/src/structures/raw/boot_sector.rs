@@ -362,21 +362,33 @@ mod tests {
 
     #[test]
     fn test_boot_sector() {
-        use crate::structures::{FatStr, boot_sector::MediaType};
+        use crate::structures::{boot_sector::MediaType, FatStr};
         let boot_sector = RawBootSector::from_bytes(&MKFS_FAT_BOOT_SECTOR);
 
         // The bpb check
-        assert!(boot_sector.bpb.check_jump_boot(), "Jump boot signature is invalid");
-        assert!(boot_sector.bpb.check_bytes_per_sector(), "Bytes per sector is invalid");
-        assert!(boot_sector.bpb.check_sectors_per_cluster(), "Sectors per cluster is invalid");
-        assert!(boot_sector.bpb.check_reserved_sector_count(), "Reserved sector count is invalid");
+        assert!(
+            boot_sector.bpb.check_jump_boot(),
+            "Jump boot signature is invalid"
+        );
+        assert!(
+            boot_sector.bpb.check_bytes_per_sector(),
+            "Bytes per sector is invalid"
+        );
+        assert!(
+            boot_sector.bpb.check_sectors_per_cluster(),
+            "Sectors per cluster is invalid"
+        );
+        assert!(
+            boot_sector.bpb.check_reserved_sector_count(),
+            "Reserved sector count is invalid"
+        );
         assert!(boot_sector.bpb.check_fat_count(), "FAT count is invalid");
         let oem_name: FatStr<8> = FatStr::from_bytes(boot_sector.bpb.oem_name);
         assert_eq!(oem_name.as_str(), "mkfs.fat");
         assert_eq!(boot_sector.bpb.media_type, MediaType::HardDisk as u8);
 
         // The bpb_ext check
-        let bpb_ext = unsafe {boot_sector.bpb_ext.bpb32 };
+        let bpb_ext = unsafe { boot_sector.bpb_ext.bpb32 };
         assert_eq!(u16::from_le_bytes(bpb_ext.version), 0x00);
         assert_eq!(bpb_ext.ext_boot_signature, 0x29);
         assert_eq!(bpb_ext.drive_number, 0x80);

@@ -3,7 +3,7 @@ use core::{
     u16,
 };
 
-use hadris_core::{ReadWriteError, Reader};
+use hadris_core::{ReadWriteError, Reader, Writer};
 
 use crate::structures::FatStr;
 
@@ -107,7 +107,10 @@ impl FileEntry {
     ) -> Self {
         assert!(filename.len() <= FatStr::<8>::MAX_LEN);
         assert!(extension.len() <= FatStr::<3>::MAX_LEN);
-        assert!(!attributes.contains(FileAttributes::DIRECTORY) || size == 0, "Size must be zero for directories");
+        assert!(
+            !attributes.contains(FileAttributes::DIRECTORY) || size == 0,
+            "Size must be zero for directories"
+        );
         let filename = FatStr::<8>::new_truncate(filename);
         let extension = FatStr::<3>::new_truncate(extension);
         let mut name = [b' '; 11];
@@ -317,6 +320,45 @@ impl DirectoryReader {
         let offset = cluster_offset + size_of::<RawDirectoryEntry>() * index;
         reader.read_bytes(offset, &mut buffer).unwrap();
         bytemuck::cast(buffer)
+    }
+}
+
+pub struct DirectoryWriter {
+    reader: DirectoryReader,
+}
+
+impl DirectoryWriter {
+    pub fn new(reader: DirectoryReader) -> Self {
+        Self { reader }
+    }
+
+    pub fn write_entry<T: Reader + Writer>(
+        &mut self,
+        reader: &mut T,
+        cluster: u32,
+        entry: FileEntry,
+    ) -> Result<usize, ReadWriteError> {
+        assert!(cluster >= 2, "Cluster number must be greater than 2");
+
+        let mut buffer = [0u8; 512];
+        let index = 0;
+        let entries_per_cluster = self.reader.cluster_size / size_of::<RawDirectoryEntry>();
+
+        let cluster_offset =
+            (cluster as usize - 2) * self.reader.cluster_size + self.reader.root_directory_offset;
+        reader.read_bytes(cluster_offset, &mut buffer)?;
+
+        for (entry_index, entry_bytes) in buffer
+            .chunks_exact_mut(size_of::<RawDirectoryEntry>())
+            .enumerate()
+        {
+            if entry_bytes[0] == 0x00 || entry_bytes[0] == 0xE5 {
+                entry_bytes.copy_from_slice(bytemuck::bytes_of(&entry));
+                return Ok(index * entries_per_cluster + entry_index);
+            }
+        }
+        // TODO: We should return an error, or at elast try to allocate a cluster
+        panic!("Could not find free entry");
     }
 }
 
