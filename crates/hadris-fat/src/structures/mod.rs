@@ -133,7 +133,8 @@ impl Default for Fat32Ops {
         Self {
             jmp_boot_code: JumpInstruction::ShortJump(
                 size_of::<raw::boot_sector::RawBpb>() as u8
-                    + offset_of!(raw::boot_sector::RawBpbExt32, padding1_1) as u8,
+                    + offset_of!(raw::boot_sector::RawBpbExt32, padding1_1) as u8
+                    - 2,
             )
             .to_bytes(),
             bytes_per_sector: 512,

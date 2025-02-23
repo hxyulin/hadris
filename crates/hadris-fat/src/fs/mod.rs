@@ -11,8 +11,9 @@ use crate::structures::{
 };
 use hadris_core::{str::FixedByteStr, Reader, UtcTime, Writer};
 
-mod read;
-mod write;
+pub mod read;
+pub mod write;
+
 #[cfg(test)]
 mod tests;
 
@@ -79,7 +80,7 @@ impl<'ctx> FileSystem<'ctx> {
         }
         let bs = {
             let bs = BootSectorInfo::try_from(raw::boot_sector::RawBootSector::from_bytes(
-                &bytes[0..512].try_into().unwrap(),
+                &bytes[0..512],
             ))
             .map_err(|e| FilesystemError::InvalidBootSector(e))?;
             if bytes.len() < bs.bytes_per_sector() as usize * bs.total_sectors() as usize {
@@ -367,7 +368,7 @@ impl<'ctx> FileSystem<'ctx> {
         // The code that fits into the boot sector, which is 420 bytes or less
         assert!(code.len() <= 420, "Code is too long");
         assert!(code.len() != 0, "Code is empty");
-        let bpb_bytes = &mut self.reserved[0..512].try_into().unwrap();
+        let bpb_bytes = &mut self.reserved[0..512];
         let bpb = RawBootSector::from_bytes_mut(bpb_bytes);
         let bpb_ext = unsafe { &mut bpb.bpb_ext.bpb32 };
 

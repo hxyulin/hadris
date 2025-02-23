@@ -272,6 +272,11 @@ impl BootSectorFat32 {
     pub fn root_directory_cluster(&self) -> u32 {
         u32::from_le_bytes(unsafe { self.data.bpb_ext.bpb32 }.root_cluster)
     }
+
+    pub fn info(&self) -> BootSectorInfoFat32 {
+        let raw_bs: &RawBootSector = bytemuck::cast_ref(self);
+        raw_bs.try_into().unwrap()
+    }
 }
 
 #[repr(C, packed)]

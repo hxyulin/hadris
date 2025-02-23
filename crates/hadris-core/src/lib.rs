@@ -45,12 +45,12 @@ pub trait Reader {
     /// Reads bytes from the file system, this can be called multiple times on the same sector
     /// This is ganranteed to be less than a sector
     fn read_bytes(&mut self, offset: usize, buffer: &mut [u8]) -> Result<(), ReadWriteError> {
+        let sector = offset / 512;
+        let offset = offset % 512;
         if offset + buffer.len() > 512 {
             return Err(ReadWriteError::OutOfBounds);
         }
         let mut sector_buf: [u8; 512] = [0; 512];
-        let sector = offset / 512;
-        let offset = offset % 512;
         self.read_sector(sector as u32, &mut sector_buf)?;
         buffer.copy_from_slice(&sector_buf[offset..buffer.len() + offset]);
         Ok(())
@@ -66,12 +66,12 @@ pub trait Writer {
     /// Writes bytes to the file system, this can be called multiple times on the same sector
     /// This is ganranteed to be less than a sector
     fn write_bytes(&mut self, offset: usize, buffer: &[u8]) -> Result<(), ReadWriteError> {
-        let mut sector_buf: [u8; 512] = [0; 512];
+        let sector = offset / 512;
+        let offset = offset % 512;
         if offset + buffer.len() > 512 {
             return Err(ReadWriteError::OutOfBounds);
         }
-        let sector = offset / 512;
-        let offset = offset % 512;
+        let mut sector_buf: [u8; 512] = [0; 512];
         sector_buf[offset..buffer.len() + offset].copy_from_slice(buffer);
         self.write_sector(sector as u32, &sector_buf)
     }

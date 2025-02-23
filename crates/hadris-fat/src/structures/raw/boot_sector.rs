@@ -262,12 +262,12 @@ impl RawBootSector {
 }
 
 impl RawBootSector {
-    pub fn from_bytes(bytes: &[u8; 512]) -> &RawBootSector {
-        bytemuck::cast_ref(bytes)
+    pub fn from_bytes(bytes: &[u8]) -> &RawBootSector {
+        bytemuck::from_bytes(bytes)
     }
 
-    pub fn from_bytes_mut(bytes: &mut [u8; 512]) -> &mut RawBootSector {
-        bytemuck::cast_mut(bytes)
+    pub fn from_bytes_mut(bytes: &mut [u8]) -> &mut RawBootSector {
+        bytemuck::from_bytes_mut(bytes)
     }
 }
 
