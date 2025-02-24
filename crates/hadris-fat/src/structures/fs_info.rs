@@ -58,6 +58,10 @@ impl FsInfo {
         bytemuck::from_bytes_mut::<Self>(bytes)
     }
 
+    pub fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
+    }
+
     pub fn with_ops(ops: &super::Fat32Ops, used_clusters: u32) -> Self {
         let clusters = ops.total_sectors_32 / ops.sectors_per_cluster as u32;
         const FIRST_FREE: u32 = 2;

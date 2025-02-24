@@ -10,7 +10,7 @@
 use hadris_core::{ReadWriteError, Reader};
 
 use crate::structures::{
-    boot_sector::BootSectorFat32,
+    boot_sector::{BootSectorFat32, BootSectorInfoFat32},
     directory::{DirectoryReader, FileAttributes, FileEntry},
     fat::Fat32Reader,
     FatStr,
@@ -56,12 +56,19 @@ impl From<ReadWriteError> for FileSystemError {
 pub struct FileSystemRead {}
 
 impl FileSystemRead {
+    pub(crate) fn boot_sector_info(&self, reader: &mut dyn Reader) -> BootSectorInfoFat32 {
+        let mut temp_buffer = [0u8; 512];
+        reader.read_sector(0, &mut temp_buffer).unwrap();
+        BootSectorFat32::create_from_bytes(temp_buffer).info()
+    }
+
     pub(crate) fn root_directory_cluster(&self, reader: &mut dyn Reader) -> u32 {
         let mut temp_buffer = [0u8; 512];
         reader.read_sector(0, &mut temp_buffer).unwrap();
         let bpb = BootSectorFat32::create_from_bytes(temp_buffer);
         bpb.root_directory_cluster()
     }
+
 
     pub(crate) fn find_file_entry(
         &self,
@@ -152,6 +159,7 @@ impl FileSystemRead {
         reader: &mut dyn Reader,
         cluster_start: u32,
         offset: u32,
+        file_size: u32,
         buffer: &mut [u8],
     ) -> Result<usize, ReadWriteError> {
         // We need to read BPB first for some important info
@@ -165,7 +173,14 @@ impl FileSystemRead {
         let fat_reader = Fat32Reader::new(fat_start, fat_size, bpb.fat_count() as usize);
         let cluster_size = bpb.sectors_per_cluster() as usize * bpb.bytes_per_sector() as usize;
 
-        fat_reader.read_data(reader, cluster_size, cluster_start, offset as usize, buffer)
+        let read_size = (file_size as usize - offset as usize).min(buffer.len());
+        fat_reader.read_data(
+            reader,
+            cluster_size,
+            cluster_start,
+            offset as usize,
+            &mut buffer[..read_size],
+        )
     }
 
     pub fn get_file_info(
@@ -186,7 +201,13 @@ impl FileSystemRead {
         offset: u32,
         buffer: &mut [u8],
     ) -> Result<usize, FileSystemError> {
-        Ok(self.read_file_raw(reader, info.entry.cluster(), offset, buffer)?)
+        Ok(self.read_file_raw(
+            reader,
+            info.entry.cluster(),
+            offset,
+            info.entry.size(),
+            buffer,
+        )?)
     }
 
     pub fn read_file(
@@ -199,12 +220,12 @@ impl FileSystemRead {
         let entry = self
             .find_file_entry(reader, path)?
             .ok_or(FileSystemError::NotFound)?;
-        Ok(self.read_file_raw(reader, entry.cluster(), offset, buffer)?)
+        Ok(self.read_file_raw(reader, entry.cluster(), offset, entry.size(), buffer)?)
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     #[cfg(not(feature = "std"))]
     compile_error!("This test requires the `std` feature");
 
@@ -212,13 +233,13 @@ mod tests {
 
     use super::*;
 
-    struct TestFs<'a> {
+    pub(crate) struct TestFs<'a> {
         fs: crate::FileSystem<'a>,
         ops: crate::structures::Fat32Ops,
     }
 
     impl<'a> TestFs<'a> {
-        fn new(data: &'a mut [u8]) -> Self {
+        pub fn new(data: &'a mut [u8]) -> Self {
             let sectors = data.len() / 512;
             let ops = crate::structures::Fat32Ops::recommended_config_for(sectors as u32);
             let fs = crate::FileSystem::new_f32(ops.clone(), data);
@@ -226,11 +247,11 @@ mod tests {
             Self { fs, ops }
         }
 
-        fn fat_offset(&self) -> usize {
+        pub fn fat_offset(&self) -> usize {
             self.ops.reserved_sector_count as usize * self.ops.bytes_per_sector as usize
         }
 
-        fn root_directory_offset(&self) -> usize {
+        pub fn root_directory_offset(&self) -> usize {
             (self.ops.reserved_sector_count as usize
                 + self.ops.sectors_per_fat_32 as usize * self.ops.fat_count as usize)
                 * self.ops.bytes_per_sector as usize

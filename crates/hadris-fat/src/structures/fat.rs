@@ -14,7 +14,7 @@ BPB_FATSz16 = LOWORD(FATSz);
 }
 */
 
-use hadris_core::{ReadWriteError, Reader};
+use hadris_core::{ReadWriteError, Reader, Writer};
 
 pub mod constants {
     pub const FAT16_CLUSTER_FREE: u16 = 0x0000;
@@ -296,6 +296,84 @@ pub struct Fat32Reader {
     size: usize,
     /// Number of fats
     num: usize,
+}
+
+pub struct Fat32Writer {
+    bytes_per_sector: usize,
+}
+
+impl Fat32Writer {
+    pub fn new(bytes_per_sector: usize) -> Self {
+        Self { bytes_per_sector }
+    }
+
+    pub fn allocate_clusters<T: Reader + Writer>(
+        &self,
+        fat_reader: &Fat32Reader,
+        writer: &mut T,
+        count: u32,
+        free_count: &mut u32,
+        next_free: &mut u32,
+    ) -> Result<u32, ReadWriteError> {
+        if count == 0 {
+            return Ok(0);
+        }
+
+        let mut start_cluster = next_free.clone();
+        if fat_reader.next_cluster_index(writer, start_cluster)? != constants::FAT32_CLUSTER_FREE {
+            start_cluster = self.find_free_cluster(fat_reader, writer)?;
+        }
+        let mut current_cluster = start_cluster;
+        for _ in 1..count {
+            let next_free_new = self.find_free_cluster(fat_reader, writer)?;
+            self.mark_cluster_as(fat_reader, writer, current_cluster, next_free_new)?;
+            current_cluster = next_free_new;
+        }
+        self.mark_cluster_as(
+            fat_reader,
+            writer,
+            current_cluster,
+            constants::FAT32_CLUSTER_LAST,
+        )?;
+
+        *next_free = self.find_free_cluster(fat_reader, writer)?;
+        *free_count -= count;
+        Ok(start_cluster)
+    }
+
+    fn mark_cluster_as<T: Reader + Writer>(
+        &self,
+        fat_reader: &Fat32Reader,
+        writer: &mut T,
+        cluster: u32,
+        value: u32,
+    ) -> Result<(), ReadWriteError> {
+        let entry_offset = fat_reader.offset + cluster as usize * size_of::<u32>();
+        let mut buffer = [0u8; 4];
+        buffer.copy_from_slice(&value.to_le_bytes());
+        writer.write_bytes(entry_offset, &buffer)
+    }
+
+    pub fn find_free_cluster<T: Reader + Writer>(
+        &self,
+        fat_reader: &Fat32Reader,
+        writer: &mut T,
+    ) -> Result<u32, ReadWriteError> {
+        let mut buffer = [0u8; 512];
+        let entries_per_sector = self.bytes_per_sector / size_of::<u32>();
+        for current_cluster in 0..fat_reader.size / self.bytes_per_sector {
+            let cluster_offset =
+                fat_reader.offset + current_cluster as usize * self.bytes_per_sector;
+            writer.read_bytes(cluster_offset, &mut buffer)?;
+            for i in 0..entries_per_sector {
+                let entry = u32::from_le_bytes(buffer[i * size_of::<u32>()..].try_into().unwrap());
+                if entry == constants::FAT32_CLUSTER_FREE {
+                    return Ok(current_cluster as u32);
+                }
+            }
+        }
+        Err(ReadWriteError::OutOfBounds)
+    }
 }
 
 impl Fat32Reader {

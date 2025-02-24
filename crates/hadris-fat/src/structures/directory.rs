@@ -332,9 +332,9 @@ impl DirectoryWriter {
         Self { reader }
     }
 
-    pub fn write_entry<T: Reader + Writer>(
+    pub fn write_entry(
         &mut self,
-        reader: &mut T,
+        writer: &mut dyn Writer,
         cluster: u32,
         entry: FileEntry,
     ) -> Result<usize, ReadWriteError> {
@@ -346,7 +346,7 @@ impl DirectoryWriter {
 
         let cluster_offset =
             (cluster as usize - 2) * self.reader.cluster_size + self.reader.root_directory_offset;
-        reader.read_bytes(cluster_offset, &mut buffer)?;
+        writer.read_bytes(cluster_offset, &mut buffer)?;
 
         for (entry_index, entry_bytes) in buffer
             .chunks_exact_mut(size_of::<RawDirectoryEntry>())
@@ -354,6 +354,7 @@ impl DirectoryWriter {
         {
             if entry_bytes[0] == 0x00 || entry_bytes[0] == 0xE5 {
                 entry_bytes.copy_from_slice(bytemuck::bytes_of(&entry));
+                writer.write_bytes(cluster_offset, &buffer)?;
                 return Ok(index * entries_per_cluster + entry_index);
             }
         }
@@ -520,4 +521,14 @@ mod test {
 
     // TESTS: Maybe add tests for the last possible entry in a cluster, and maybe some with deleted
     // entries (0xE5 marker)
+
+    #[test]
+    fn test_create_directory() {
+        let mut directory = [0u8; 512];
+        let reader = DirectoryReader { root_directory_offset: 0, cluster_size: 512 };
+        let mut writer = DirectoryWriter::new(reader);
+        let entry = FileEntry::new("test", "", FileAttributes::DIRECTORY, 0, 1, FatTimeHighP::default());
+        let result = writer.write_entry(&mut directory.as_mut_slice(), 2, entry).unwrap();
+        assert_eq!(result, 0);
+    }
 }
