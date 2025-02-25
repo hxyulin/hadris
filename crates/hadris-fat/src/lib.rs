@@ -29,3 +29,10 @@ pub mod fs;
 pub mod structures;
 #[cfg(feature = "read")]
 pub use fs::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FatType {
+    Fat32,
+    Fat16,
+    Fat12,
+}

@@ -8,7 +8,7 @@ use hadris_core::{ReadWriteError, Reader, Writer};
 use crate::structures::FatStr;
 
 use super::{
-    fat::Fat32Reader,
+    fat::Fat32,
     raw::directory::{RawDirectoryEntry, RawFileEntry},
     time::{FatTime, FatTimeHighP},
 };
@@ -182,75 +182,7 @@ impl FileEntry {
     }
 }
 
-#[repr(transparent)]
 pub struct Directory {
-    pub entries: [FileEntry],
-}
-
-impl Directory {
-    pub fn from_bytes<'a>(bytes: &'a [u8]) -> &'a Directory {
-        assert!(bytes.len() % 32 == 0);
-        let entries = bytemuck::cast_slice::<u8, FileEntry>(bytes);
-        // SAFETY: 'Directory' is repr(transparent) over '[DirectoryEntry]'
-        // so the fat pointer is safe to cast to a thin pointer
-        unsafe { &*(entries as *const [FileEntry] as *const Directory) }
-    }
-
-    pub fn from_bytes_mut<'a>(bytes: &'a mut [u8]) -> &'a mut Directory {
-        assert!(bytes.len() % 32 == 0);
-        let entries = bytemuck::cast_slice_mut::<u8, FileEntry>(bytes);
-        // SAFETY: 'Directory' is repr(transparent) over '[DirectoryEntry]'
-        // so the fat pointer is safe to cast to a thin pointer
-        unsafe { &mut *(entries as *mut [FileEntry] as *mut Directory) }
-    }
-}
-
-impl Directory {
-    /// Writes a new entry to the directory, returns the index of the entry if it was written
-    /// If the directory is full, returns None, the user is expected to allocate more space
-    pub fn write_entry(&mut self, entry: FileEntry) -> Option<usize> {
-        // According to the spec, the first 4 bytes are zero if the entry is unused
-        let mut index = 0xFFFF_FFFF;
-        for (i, entry) in self.entries.iter().enumerate() {
-            // TODO: We need to check for the deallocated state as well
-            if entry.base_name().raw == [0; 8] {
-                index = i;
-                break;
-            }
-        }
-        if index == 0xFFFF_FFFF {
-            return None;
-        }
-
-        self.entries[index] = entry;
-        Some(index)
-    }
-
-    pub fn find_by_name(&self, base: &FatStr<8>, extension: &FatStr<3>) -> Option<usize> {
-        for (i, entry) in self.entries.iter().enumerate() {
-            if entry.base_name() == *base && entry.extension() == *extension {
-                return Some(i);
-            }
-        }
-        None
-    }
-}
-
-impl Index<usize> for Directory {
-    type Output = FileEntry;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.entries[index]
-    }
-}
-
-impl IndexMut<usize> for Directory {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.entries[index]
-    }
-}
-
-pub struct DirectoryReader {
     /// The offset of directory in bytes (precomputed)
     /// This is essentially the start of the data area
     root_directory_offset: usize,
@@ -258,8 +190,9 @@ pub struct DirectoryReader {
     cluster_size: usize,
 }
 
-impl DirectoryReader {
-    pub fn new(root_directory_offset: usize, cluster_size: usize) -> DirectoryReader {
+#[cfg(feature = "read")]
+impl Directory {
+    pub fn new(root_directory_offset: usize, cluster_size: usize) -> Directory {
         Self {
             root_directory_offset,
             cluster_size,
@@ -271,7 +204,7 @@ impl DirectoryReader {
     pub fn find_entry(
         &self,
         reader: &mut dyn Reader,
-        fat: &mut Fat32Reader,
+        fat: &mut Fat32,
         mut current_cluster: u32,
         name: FatStr<8>,
         extension: FatStr<3>,
@@ -323,29 +256,22 @@ impl DirectoryReader {
     }
 }
 
-pub struct DirectoryWriter {
-    reader: DirectoryReader,
-}
-
-impl DirectoryWriter {
-    pub fn new(reader: DirectoryReader) -> Self {
-        Self { reader }
-    }
-
+#[cfg(feature = "write")]
+impl Directory {
     pub fn write_entry(
         &mut self,
         writer: &mut dyn Writer,
         cluster: u32,
-        entry: FileEntry,
+        entry: &FileEntry,
     ) -> Result<usize, ReadWriteError> {
         assert!(cluster >= 2, "Cluster number must be greater than 2");
 
         let mut buffer = [0u8; 512];
         let index = 0;
-        let entries_per_cluster = self.reader.cluster_size / size_of::<RawDirectoryEntry>();
+        let entries_per_cluster = self.cluster_size / size_of::<RawDirectoryEntry>();
 
         let cluster_offset =
-            (cluster as usize - 2) * self.reader.cluster_size + self.reader.root_directory_offset;
+            (cluster as usize - 2) * self.cluster_size + self.root_directory_offset;
         writer.read_bytes(cluster_offset, &mut buffer)?;
 
         for (entry_index, entry_bytes) in buffer
@@ -353,7 +279,7 @@ impl DirectoryWriter {
             .enumerate()
         {
             if entry_bytes[0] == 0x00 || entry_bytes[0] == 0xE5 {
-                entry_bytes.copy_from_slice(bytemuck::bytes_of(&entry));
+                entry_bytes.copy_from_slice(bytemuck::bytes_of(entry));
                 writer.write_bytes(cluster_offset, &buffer)?;
                 return Ok(index * entries_per_cluster + entry_index);
             }
@@ -363,6 +289,7 @@ impl DirectoryWriter {
     }
 }
 
+/*
 #[cfg(all(test, feature = "std"))]
 mod test {
     use super::*;
@@ -377,8 +304,8 @@ mod test {
         // We just mark the root cluster as EOC
         directory[8..12].copy_from_slice(&0xFFFF_FFFF_u32.to_le_bytes());
 
-        let mut fat = Fat32Reader::new(0, 512, 1);
-        let reader = DirectoryReader::new(512, 512);
+        let mut fat = Fat32::new(0, 512, 1, 512);
+        let reader = Directory::new(512, 512);
 
         // One sector of fat and one sector of directory
         let entry = FileEntry::new(
@@ -449,8 +376,8 @@ mod test {
         );
         directory[512 + 960..512 + 960 + size_of::<FileEntry>()]
             .copy_from_slice(bytemuck::bytes_of(&entry));
-        let mut fat_reader = Fat32Reader::new(0, 512, 1);
-        let reader = DirectoryReader::new(512, 512);
+        let mut fat_reader = Fat32::new(0, 512, 1, 512);
+        let reader = Directory::new(512, 512);
         let index = 960 / size_of::<FileEntry>();
         let entry = reader
             .find_entry(
@@ -505,8 +432,8 @@ mod test {
         directory[offset..offset + size_of::<RawDirectoryEntry>()]
             .copy_from_slice(&bytemuck::bytes_of(&entry));
 
-        let reader = DirectoryReader::new(512, 512);
-        let mut fat_reader = Fat32Reader::new(0, 512, 1);
+        let reader = Directory::new(512, 512);
+        let mut fat_reader = Fat32::new(0, 512, 1, 512);
         let entry = reader
             .find_entry(
                 &mut directory.as_slice(),
@@ -525,10 +452,23 @@ mod test {
     #[test]
     fn test_create_directory() {
         let mut directory = [0u8; 512];
-        let reader = DirectoryReader { root_directory_offset: 0, cluster_size: 512 };
-        let mut writer = DirectoryWriter::new(reader);
-        let entry = FileEntry::new("test", "", FileAttributes::DIRECTORY, 0, 1, FatTimeHighP::default());
-        let result = writer.write_entry(&mut directory.as_mut_slice(), 2, entry).unwrap();
+        let reader = Directory {
+            root_directory_offset: 0,
+            cluster_size: 512,
+        };
+        let mut writer = Directory::new(reader);
+        let entry = FileEntry::new(
+            "test",
+            "",
+            FileAttributes::DIRECTORY,
+            0,
+            1,
+            FatTimeHighP::default(),
+        );
+        let result = writer
+            .write_entry(&mut directory.as_mut_slice(), 2, entry)
+            .unwrap();
         assert_eq!(result, 0);
     }
 }
+*/

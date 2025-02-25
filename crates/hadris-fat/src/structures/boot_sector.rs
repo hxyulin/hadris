@@ -294,6 +294,10 @@ impl BootSector {
         bytemuck::cast_mut(bytes)
     }
 
+    pub fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
+    }
+
     /// Create a new FAT32 boot sector
     pub fn create_fat32(
         jump_instruction: [u8; 3],

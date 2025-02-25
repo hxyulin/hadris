@@ -8,6 +8,7 @@ pub type UtcTime = chrono::DateTime<chrono::Utc>;
 pub mod file;
 pub mod internal;
 pub mod str;
+pub mod path;
 use file::FileAttributes;
 pub use file::{File, OpenOptions};
 
@@ -55,6 +56,15 @@ pub trait Reader {
         buffer.copy_from_slice(&sector_buf[offset..buffer.len() + offset]);
         Ok(())
     }
+
+    /// A convenience function for reading a sector to a buffer
+    ///
+    /// This function doesn't need to be implemented, it is implemented for all Readers
+    fn read_to_sector(&mut self, sector: u32) -> Result<[u8; 512], ReadWriteError> {
+        let mut buffer: [u8; 512] = [0; 512];
+        self.read_sector(sector, &mut buffer)?;
+        Ok(buffer)
+    }
 }
 
 /// A trait for writing data to a media
@@ -74,19 +84,6 @@ pub trait Writer: Reader {
         let mut sector_buf: [u8; 512] = [0; 512];
         sector_buf[offset..buffer.len() + offset].copy_from_slice(buffer);
         self.write_sector(sector as u32, &sector_buf)
-    }
-}
-
-pub trait WriterExt: Writer {
-    fn write_stream<T: core::iter::Iterator<Item = u8>>(
-        &mut self,
-        offset: usize,
-        bytes: T,
-    ) -> Result<(), ReadWriteError> {
-        for byte in bytes {
-            self.write_bytes(offset, &[byte])?;
-        }
-        Ok(())
     }
 }
 
@@ -128,6 +125,7 @@ impl Reader for &mut [u8] {
         buffer.copy_from_slice(&self[offset..offset + buffer.len()]);
         Ok(())
     }
+
 }
 
 impl Writer for &mut [u8] {
@@ -172,30 +170,5 @@ impl JumpInstruction {
             Self::ShortJump(byte) => [0xEB, *byte, 0x90],
             Self::NearJump(word) => [0xE9, word.to_le_bytes()[0], word.to_le_bytes()[1]],
         }
-    }
-}
-
-/// A Utility struct for combining a reader and a writer
-pub struct TupleReadWrite<T: Reader, U: Writer> {
-    pub reader: T,
-    pub writer: U,
-}
-
-impl<T: Reader, U: Writer> Reader for TupleReadWrite<T, U> {
-    fn read_sector(&mut self, sector: u32, buffer: &mut [u8; 512]) -> Result<(), ReadWriteError> {
-        self.reader.read_sector(sector, buffer)
-    }
-
-    fn read_bytes(&mut self, offset: usize, buffer: &mut [u8]) -> Result<(), ReadWriteError> {
-        self.reader.read_bytes(offset, buffer)
-    }
-}
-impl<T: Reader, U: Writer> Writer for TupleReadWrite<T, U> {
-    fn write_sector(&mut self, sector: u32, buffer: &[u8; 512]) -> Result<(), ReadWriteError> {
-        self.writer.write_sector(sector, buffer)
-    }
-
-    fn write_bytes(&mut self, offset: usize, buffer: &[u8]) -> Result<(), ReadWriteError> {
-        self.writer.write_bytes(offset, buffer)
     }
 }

@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/hadris",
-    "crates/hadris-cli",
+    #"crates/hadris",
+    #"crates/hadris-cli",
     "crates/hadris-core",
     "crates/hadris-fat",
 ]
 default-members = [
-    "crates/hadris",
-    "crates/hadris-cli",
+    #"crates/hadris",
+    #"crates/hadris-cli",
     "crates/hadris-core",
     "crates/hadris-fat",
 ]
@@ -25,7 +25,7 @@ homepage = "https://github.com/hxyulin/hadris"
 [workspace.dependencies]
 hadris-core = { path = "crates/hadris-core", version = "0.1.1", default-features = false }
 hadris-fat = { path = "crates/hadris-fat", version = "0.1.1", default-features = false }
-hadris = { path = "crates/hadris", version = "0.1.1" }
+#hadris = { path = "crates/hadris", version = "0.1.1" }
 
 chrono = { version = "0.4.39", default-features = false }
 bitflags = "2.8.0"
