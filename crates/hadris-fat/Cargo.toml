@@ -9,7 +9,7 @@ homepage.workspace = true
 repository.workspace = true
 
 [features]
-default = ["read", "write", "lfn"]
+default = ["read", "write", "lfn", "std"]
 alloc = ["hadris-core/alloc", "chrono/alloc"]
 std = ["alloc", "hadris-core/std", "chrono/std", "chrono/clock"]
 read = []

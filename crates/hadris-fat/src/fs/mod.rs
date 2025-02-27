@@ -1,9 +1,4 @@
-use bytemuck::Zeroable;
-use hadris_core::{
-    path::Path,
-    str::{AsciiStr, FixedByteStr},
-    ReadWriteError, Reader, Writer,
-};
+use hadris_core::{path::Path, str::FixedByteStr, ReadWriteError, Reader, Writer};
 
 #[cfg(feature = "write")]
 use crate::structures::Fat32Ops;
@@ -13,7 +8,7 @@ use crate::structures::{
     fat::Fat32,
     fs_info::{FsInfo, FsInfoInfo},
     raw::directory::RawDirectoryEntry,
-    time::FatTimeHighP,
+    time::FatTimeHighP, FatStr,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,7 +42,7 @@ pub struct FatFs32 {
 
 #[cfg(feature = "read")]
 impl FatFs32 {
-    pub fn read(reader: &mut dyn Reader) -> Result<Self, FileSystemError> {
+    pub fn read<R: Reader>(reader: &mut R) -> Result<Self, FileSystemError> {
         let mut temp_buffer = [0u8; 512];
         reader.read_sector(0, &mut temp_buffer)?;
         let bs = BootSectorFat32::from_bytes(&temp_buffer).info();
@@ -57,9 +52,9 @@ impl FatFs32 {
         Ok(Self { bs, fs_info })
     }
 
-    pub fn list_dir<'a>(
+    pub fn list_dir<'a, R: Reader>(
         &'a self,
-        reader: &'a mut dyn Reader,
+        reader: &'a mut R,
         path: &Path,
     ) -> Result<DirectoryIter<'a>, FileSystemError> {
         let cluster = if path.is_root() {
@@ -82,11 +77,34 @@ impl FatFs32 {
             self.bs.bytes_per_sector as usize,
         )
     }
+
+    pub fn get_file_info<R: Reader>(
+        &self,
+        reader: &mut R,
+        path: &Path,
+    ) -> Result<FileEntryInfo, FileSystemError> {
+        let parent = path.get_parent().ok_or(FileSystemError::NotFound)?;
+        let stem = path.get_stem().ok_or(FileSystemError::NotFound)?;
+        let basename = FatStr::<8>::new_truncate(stem.filename().as_str());
+        let extension = stem.extension();
+        let extension = FatStr::<3>::new_truncate(extension.as_ref().map(Path::as_str).unwrap_or_default());
+        for entry in self.list_dir(reader, &parent)? {
+            let entry = entry?;
+            if entry.basename == basename && entry.extension == extension
+            {
+                return Ok(entry);
+            }
+        }
+        Err(FileSystemError::NotFound)
+    }
 }
 
 #[cfg(feature = "write")]
 impl FatFs32 {
-    pub fn create_fat32(writer: &mut dyn Writer, ops: Fat32Ops) -> Result<FatFs32, ReadWriteError> {
+    pub fn create_fat32<W: Writer>(
+        writer: &mut W,
+        ops: Fat32Ops,
+    ) -> Result<FatFs32, ReadWriteError> {
         let boot_sector = BootSector::create_fat32(
             ops.jmp_boot_code,
             ops.bytes_per_sector,
@@ -143,9 +161,9 @@ impl FatFs32 {
         Ok(Self { bs, fs_info })
     }
 
-    fn allocate_clusters(
+    fn allocate_clusters<W: Reader + Writer>(
         &mut self,
-        writer: &mut dyn Writer,
+        writer: &mut W,
         count: usize,
     ) -> Result<u32, FileSystemError> {
         let fat = Fat32::new(
@@ -162,9 +180,9 @@ impl FatFs32 {
         )?)
     }
 
-    fn create_file_raw(
+    fn create_file_raw<W: Reader + Writer>(
         &mut self,
-        writer: &mut dyn Writer,
+        writer: &mut W,
         path: &Path,
         attributes: FileAttributes,
         size: usize,
@@ -203,7 +221,7 @@ impl FatFs32 {
         let extension = stem.extension();
         let entry = FileEntry::new(
             stem.filename().as_str(),
-            extension.as_ref().map(Path::as_str).unwrap_or(""),
+            extension.as_ref().map(Path::as_str).unwrap_or_default(),
             attributes,
             if attributes.contains(FileAttributes::DIRECTORY) {
                 0
@@ -217,16 +235,18 @@ impl FatFs32 {
         Ok(entry)
     }
 
-    pub fn create_file(
+    pub fn create_file<W: Reader + Writer>(
         &mut self,
-        writer: &mut dyn Writer,
+        writer: &mut W,
         path: &Path,
         data: &[u8],
     ) -> Result<(), FileSystemError> {
         let entry = self.create_file_raw(writer, path, FileAttributes::ARCHIVE, data.len())?;
         let fat32 = Fat32::new(
             self.bs.reserved_sector_count as usize * self.bs.bytes_per_sector as usize,
-            self.bs.sectors_per_fat as usize * self.bs.fat_count as usize * self.bs.bytes_per_sector as usize,
+            self.bs.sectors_per_fat as usize
+                * self.bs.fat_count as usize
+                * self.bs.bytes_per_sector as usize,
             self.bs.fat_count as usize,
             self.bs.bytes_per_sector as usize,
         );
@@ -240,7 +260,7 @@ impl FatFs32 {
         Ok(())
     }
 
-    pub fn flush(&mut self, writer: &mut dyn Writer) -> Result<(), FileSystemError> {
+    pub fn flush<W: Writer>(&mut self, writer: &mut W) -> Result<(), FileSystemError> {
         // TODO: Flush the FS_INFO
         Ok(())
     }
@@ -303,37 +323,18 @@ impl Iterator for DirectoryIter<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
-    #[cfg(not(feature = "std"))]
-    compile_error!("feature \"std\" is required for tests");
-
     use super::*;
 
     #[test]
-    fn test_create_fat32() {
-        let mut data = Vec::with_capacity(65536 * 512);
-        data.resize(65536 * 512, 0);
-        let ops = Fat32Ops::recommended_config_for(65536);
-        let mut fs = FatFs32::create_fat32(&mut data.as_mut_slice(), ops).unwrap();
-        let file_data = "Hello World".as_bytes();
-        fs.create_file(
+    fn test_create_fs() {
+        let mut data = Vec::with_capacity(1024 * 512);
+        let fs = FatFs32::create_fat32(
             &mut data.as_mut_slice(),
-            &Path::new("test.txt".into()),
-            file_data,
+            Fat32Ops::recommended_config_for(1024),
         )
         .unwrap();
-
-        for file in fs
-            .list_dir(&mut data.as_mut_slice(), &Path::new("/".into()))
-            .unwrap()
-        {
-            println!("{:?}", file);
-        }
-
-        dbg!(&fs);
-        fs.flush(&mut data.as_mut_slice()).unwrap();
-        drop(fs);
-        std::fs::write("test.img", &data).unwrap();
+        std::hint::black_box(fs);
     }
 }

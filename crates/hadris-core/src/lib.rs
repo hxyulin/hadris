@@ -56,19 +56,10 @@ pub trait Reader {
         buffer.copy_from_slice(&sector_buf[offset..buffer.len() + offset]);
         Ok(())
     }
-
-    /// A convenience function for reading a sector to a buffer
-    ///
-    /// This function doesn't need to be implemented, it is implemented for all Readers
-    fn read_to_sector(&mut self, sector: u32) -> Result<[u8; 512], ReadWriteError> {
-        let mut buffer: [u8; 512] = [0; 512];
-        self.read_sector(sector, &mut buffer)?;
-        Ok(buffer)
-    }
 }
 
 /// A trait for writing data to a media
-pub trait Writer: Reader {
+pub trait Writer {
     /// Writes a sector to the file system, this can be called multiple times on the same sector
     /// to write the entire sector, so the implementation should be able to handle this.
     fn write_sector(&mut self, sector: u32, buffer: &[u8; 512]) -> Result<(), ReadWriteError>;
@@ -86,6 +77,10 @@ pub trait Writer: Reader {
         self.write_sector(sector as u32, &sector_buf)
     }
 }
+
+// ============================================================================
+// Implementations for slices
+// ============================================================================
 
 impl Reader for &[u8] {
     fn read_sector(&mut self, sector: u32, buffer: &mut [u8; 512]) -> Result<(), ReadWriteError> {

@@ -1,8 +1,3 @@
-use core::{
-    ops::{Index, IndexMut},
-    u16,
-};
-
 use hadris_core::{ReadWriteError, Reader, Writer};
 
 use crate::structures::FatStr;
@@ -201,9 +196,9 @@ impl Directory {
 
     /// Finds a directory entry by name and extension.
     /// Returns the **index of the entry** in the directory if found.
-    pub fn find_entry(
+    pub fn find_entry<R: Reader>(
         &self,
-        reader: &mut dyn Reader,
+        reader: &mut R,
         fat: &mut Fat32,
         mut current_cluster: u32,
         name: FatStr<8>,
@@ -246,7 +241,7 @@ impl Directory {
         }
     }
 
-    pub fn get_entry(&self, reader: &mut dyn Reader, cluster: u32, index: usize) -> FileEntry {
+    pub fn get_entry<R: Reader>(&self, reader: &mut R, cluster: u32, index: usize) -> FileEntry {
         let mut buffer = [0u8; 32];
         let cluster_offset =
             (cluster as usize - 2) * self.cluster_size + self.root_directory_offset;
@@ -258,9 +253,9 @@ impl Directory {
 
 #[cfg(feature = "write")]
 impl Directory {
-    pub fn write_entry(
+    pub fn write_entry<W: Reader + Writer>(
         &mut self,
-        writer: &mut dyn Writer,
+        writer: &mut W,
         cluster: u32,
         entry: &FileEntry,
     ) -> Result<usize, ReadWriteError> {
@@ -289,7 +284,6 @@ impl Directory {
     }
 }
 
-/*
 #[cfg(all(test, feature = "std"))]
 mod test {
     use super::*;
@@ -452,11 +446,7 @@ mod test {
     #[test]
     fn test_create_directory() {
         let mut directory = [0u8; 512];
-        let reader = Directory {
-            root_directory_offset: 0,
-            cluster_size: 512,
-        };
-        let mut writer = Directory::new(reader);
+        let mut writer = Directory::new(0, 512);
         let entry = FileEntry::new(
             "test",
             "",
@@ -466,9 +456,8 @@ mod test {
             FatTimeHighP::default(),
         );
         let result = writer
-            .write_entry(&mut directory.as_mut_slice(), 2, entry)
+            .write_entry(&mut directory.as_mut_slice(), 2, &entry)
             .unwrap();
         assert_eq!(result, 0);
     }
 }
-*/

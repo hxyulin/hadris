@@ -69,44 +69,6 @@ impl<const N: usize> core::fmt::Write for FixedByteStr<N> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fmt::Write;
-
-    #[test]
-    fn test_str() {
-        let mut str = FixedByteStr::<11>::new();
-        str.write_str("Hello World").unwrap();
-        assert_eq!(str.as_str(), "Hello World");
-    }
-
-    #[test]
-    fn test_from_str() {
-        let str = FixedByteStr::<11>::from_str("Hello World");
-        assert_eq!(str.as_str(), "Hello World");
-    }
-
-    #[test]
-    fn test_str_overflow() {
-        let mut str = FixedByteStr::<11>::new();
-        str.write_str("Hello World").unwrap();
-        assert!(str.write_str("Hello World").is_err());
-    }
-
-    #[test]
-    fn test_str_display() {
-        let str = FixedByteStr::<11>::from_str("Hello World");
-        assert_eq!(format!("{}", str), "Hello World");
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_str_from_str_overflow() {
-        _ = FixedByteStr::<11>::from_str("Hello World!");
-    }
-}
-
 #[cfg(feature = "alloc")]
 pub struct AsciiString {
     raw: alloc::vec::Vec<u8>,
@@ -116,10 +78,14 @@ pub struct AsciiString {
 impl AsciiString {}
 
 #[repr(transparent)]
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Hash)]
 pub struct AsciiStr([u8]);
 
 impl AsciiStr {
+    pub fn from_str<T: AsAsciiStr + ?Sized>(s: &T) -> &Self {
+        s.as_ascii_str()
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> &Self {
         unsafe { core::mem::transmute(bytes) }
     }
@@ -203,5 +169,157 @@ impl IndexMut<usize> for AsciiStr {
 impl AsciiStr {
     pub fn to_string(&self) -> AsciiString {
         todo!()
+    }
+}
+
+pub trait AsAsciiStr {
+    fn as_ascii_str(&self) -> &AsciiStr;
+}
+
+impl AsAsciiStr for AsciiStr {
+    #[inline]
+    fn as_ascii_str(&self) -> &AsciiStr {
+        self
+    }
+}
+
+impl<'a> AsAsciiStr for &'a AsciiStr {
+    #[inline]
+    fn as_ascii_str(&self) -> &AsciiStr {
+        self
+    }
+}
+
+impl<'a, const N: usize> AsAsciiStr for &FixedByteStr<N> {
+    #[inline]
+    fn as_ascii_str(&self) -> &AsciiStr {
+        AsciiStr::from_bytes(self.as_slice())
+    }
+}
+
+impl<const N: usize> AsAsciiStr for FixedByteStr<N> {
+    #[inline]
+    fn as_ascii_str(&self) -> &AsciiStr {
+        AsciiStr::from_bytes(self.as_slice())
+    }
+}
+
+impl<'a> AsAsciiStr for &'a str {
+    #[inline]
+    fn as_ascii_str(&self) -> &AsciiStr {
+        AsciiStr::from_bytes(self.as_bytes())
+    }
+}
+
+impl AsAsciiStr for str {
+    #[inline]
+    fn as_ascii_str(&self) -> &AsciiStr {
+        AsciiStr::from_bytes(self.as_bytes())
+    }
+}
+
+#[cfg(feature = "alloc")]
+mod _alloc_impls {
+    use super::*;
+
+    impl AsAsciiStr for alloc::string::String {
+        fn as_ascii_str(&self) -> &AsciiStr {
+            AsciiStr::from_str(self.as_str())
+        }
+    }
+
+    impl AsAsciiStr for alloc::borrow::Cow<'_, str> {
+        fn as_ascii_str(&self) -> &AsciiStr {
+            AsciiStr::from_str(self.as_ref())
+        }
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+    use std::fmt::Write;
+
+    #[test]
+    fn fixed_byte_test_str() {
+        let mut str = FixedByteStr::<11>::new();
+        str.write_str("Hello World").unwrap();
+        assert_eq!(str.as_str(), "Hello World");
+    }
+
+    #[test]
+    fn fixed_byte_str_from_str() {
+        let str = FixedByteStr::<11>::from_str("Hello World");
+        assert_eq!(str.as_str(), "Hello World");
+    }
+
+    #[test]
+    fn fixed_byte_str_str_overflow() {
+        let mut str = FixedByteStr::<11>::new();
+        str.write_str("Hello World").unwrap();
+        assert!(str.write_str("Hello World").is_err());
+    }
+
+    #[test]
+    fn fixed_byte_str_str_display() {
+        let str = FixedByteStr::<11>::from_str("Hello World");
+        assert_eq!(format!("{}", str), "Hello World");
+    }
+
+    #[test]
+    #[should_panic]
+    fn fixed_byte_str_str_from_str_overflow() {
+        _ = FixedByteStr::<11>::from_str("Hello World!");
+    }
+
+    #[test]
+    fn test_ascii_str_from_bytes() {
+        let str = AsciiStr::from_bytes(b"Hello World");
+        assert_eq!(str.as_str(), "Hello World");
+    }
+
+    #[test]
+    fn test_ascii_str_ends_with() {
+        let str = AsciiStr::from_bytes(b"Hello World");
+        assert!(str.ends_with(b'd'));
+        assert!(!str.ends_with(b'!'));
+    }
+
+    #[test]
+    fn test_ascii_str_is_empty() {
+        let str = AsciiStr::from_bytes(b"");
+        assert!(str.is_empty());
+
+        let str = AsciiStr::from_bytes(b"Hello World");
+        assert!(!str.is_empty());
+    }
+
+    #[test]
+    fn test_ascii_str_len() {
+        let str = AsciiStr::from_bytes(b"Hello World");
+        assert_eq!(str.len(), 11);
+    }
+
+    #[test]
+    fn test_ascii_str_substr() {
+        let str = AsciiStr::from_bytes(b"Hello World");
+        assert_eq!(str.substr(0..5), AsciiStr::from_bytes(b"Hello"));
+        assert_eq!(str.substr(5..11), AsciiStr::from_bytes(b" World"));
+    }
+
+    #[test]
+    fn test_ascii_str_rfind() {
+        let str = AsciiStr::from_bytes(b"Hello World");
+        assert_eq!(str.rfind(b'd'), Some(10));
+        assert_eq!(str.rfind(b'l'), Some(9));
+        assert_eq!(str.rfind(b'!'), None);
+    }
+
+    #[test]
+    fn test_ascii_str_find() {
+        let str = AsciiStr::from_bytes(b"Hello World");
+        assert_eq!(str.find(b'd'), Some(10));
+        assert_eq!(str.find(b'l'), Some(2));
+        assert_eq!(str.find(b'!'), None);
     }
 }
