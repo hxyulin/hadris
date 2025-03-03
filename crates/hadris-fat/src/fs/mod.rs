@@ -1,4 +1,4 @@
-use hadris_core::{path::Path, str::FixedByteStr, ReadWriteError, Reader, Writer};
+use hadris_core::{path::Path, str::FixedByteStr, File, ReadWriteError, Reader, Writer};
 
 #[cfg(feature = "write")]
 use crate::structures::Fat32Ops;
@@ -8,7 +8,8 @@ use crate::structures::{
     fat::Fat32,
     fs_info::{FsInfo, FsInfoInfo},
     raw::directory::RawDirectoryEntry,
-    time::FatTimeHighP, FatStr,
+    time::FatTimeHighP,
+    FatStr,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,15 +88,41 @@ impl FatFs32 {
         let stem = path.get_stem().ok_or(FileSystemError::NotFound)?;
         let basename = FatStr::<8>::new_truncate(stem.filename().as_str());
         let extension = stem.extension();
-        let extension = FatStr::<3>::new_truncate(extension.as_ref().map(Path::as_str).unwrap_or_default());
+        let extension =
+            FatStr::<3>::new_truncate(extension.as_ref().map(Path::as_str).unwrap_or_default());
         for entry in self.list_dir(reader, &parent)? {
             let entry = entry?;
-            if entry.basename == basename && entry.extension == extension
-            {
+            if entry.basename == basename && entry.extension == extension {
                 return Ok(entry);
             }
         }
         Err(FileSystemError::NotFound)
+    }
+
+    pub fn read_file<R: Reader>(
+        &self,
+        reader: &mut R,
+        path: &Path,
+        offset: usize,
+        buf: &mut [u8],
+    ) -> Result<usize, FileSystemError> {
+        let entry = self.get_file_info(reader, path)?;
+
+        let fat_offset = self.bs.reserved_sector_count as usize * self.bs.bytes_per_sector as usize;
+        let fat_size = self.bs.sectors_per_fat as usize * self.bs.bytes_per_sector as usize;
+        let fat = Fat32::new(
+            fat_offset,
+            fat_size,
+            self.bs.fat_count as usize,
+            self.bs.bytes_per_sector as usize,
+        );
+        Ok(fat.read_data(
+            reader,
+            self.bs.sectors_per_cluster as usize * self.bs.bytes_per_sector as usize,
+            entry.cluster,
+            offset,
+            buf,
+        )?)
     }
 }
 
@@ -211,6 +238,7 @@ impl FatFs32 {
             &mut self.fs_info.free_clusters,
             &mut self.fs_info.next_free_cluster,
         )?;
+        assert!(cluster >= 2, "Cluster number must be greater than 2");
 
         let mut directory = Directory::new(
             (self.bs.reserved_sector_count as usize
@@ -330,6 +358,7 @@ mod tests {
     #[test]
     fn test_create_fs() {
         let mut data = Vec::with_capacity(1024 * 512);
+        data.resize(1024 * 512, 0);
         let fs = FatFs32::create_fat32(
             &mut data.as_mut_slice(),
             Fat32Ops::recommended_config_for(1024),

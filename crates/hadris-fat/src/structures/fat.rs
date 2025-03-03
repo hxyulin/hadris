@@ -115,11 +115,11 @@ impl Fat32 {
                         .unwrap(),
                 );
                 if entry == constants::FAT32_CLUSTER_FREE {
-                    return Ok(current_cluster as u32);
+                    return Ok((current_cluster as u32) * self.bytes_per_sector as u32 + i as u32);
                 }
             }
         }
-        Err(ReadWriteError::OutOfBounds)
+        panic!("No free cluster found");
     }
 }
 
@@ -187,6 +187,7 @@ impl Fat32 {
         let mut bytes_written = 0;
 
         while data_offset < data.len() {
+            assert!(cluster >= 2, "Cluster number must be greater than 2");
             let new_offset = (cluster as usize - 2) * cluster_size + self.data_offset();
             if data_offset + cluster_size > offset {
                 let cluster_offset = if offset > data_offset {
