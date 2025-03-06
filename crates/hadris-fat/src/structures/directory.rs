@@ -1,4 +1,4 @@
-use hadris_core::{ReadWriteError, Reader, Writer};
+use hadris_core::disk::{DiskError, DiskReader, DiskWriter};
 
 use crate::structures::FatStr;
 
@@ -19,24 +19,6 @@ bitflags::bitflags! {
         const VOLUME_LABEL = 0x08;
         const DIRECTORY = 0x10;
         const ARCHIVE = 0x20;
-    }
-}
-
-impl TryFrom<hadris_core::file::FileAttributes> for FileAttributes {
-    type Error = &'static str;
-
-    fn try_from(value: hadris_core::file::FileAttributes) -> Result<Self, Self::Error> {
-        use hadris_core::file::FileAttributes as Attributes;
-        let mut attributes = FileAttributes::empty();
-        if value.contains(Attributes::READ_ONLY) {
-            attributes.set(FileAttributes::READ_ONLY, true);
-        }
-        if value.contains(Attributes::HIDDEN) {
-            attributes.set(FileAttributes::HIDDEN, true);
-        }
-
-        //Err("Unsupported file attribute")
-        Ok(attributes)
     }
 }
 
@@ -196,14 +178,14 @@ impl Directory {
 
     /// Finds a directory entry by name and extension.
     /// Returns the **index of the entry** in the directory if found.
-    pub fn find_entry<R: Reader>(
+    pub fn find_entry<R: DiskReader>(
         &self,
         reader: &mut R,
         fat: &mut Fat32,
         mut current_cluster: u32,
         name: FatStr<8>,
         extension: FatStr<3>,
-    ) -> Result<Option<usize>, ReadWriteError> {
+    ) -> Result<Option<usize>, DiskError> {
         assert!(
             current_cluster >= 2,
             "Cluster number must be greater than 2"
@@ -241,7 +223,12 @@ impl Directory {
         }
     }
 
-    pub fn get_entry<R: Reader>(&self, reader: &mut R, cluster: u32, index: usize) -> FileEntry {
+    pub fn get_entry<R: DiskReader>(
+        &self,
+        reader: &mut R,
+        cluster: u32,
+        index: usize,
+    ) -> FileEntry {
         let mut buffer = [0u8; 32];
         let cluster_offset =
             (cluster as usize - 2) * self.cluster_size + self.root_directory_offset;
@@ -253,12 +240,12 @@ impl Directory {
 
 #[cfg(feature = "write")]
 impl Directory {
-    pub fn write_entry<W: Reader + Writer>(
+    pub fn write_entry<W: DiskReader + DiskWriter>(
         &mut self,
         writer: &mut W,
         cluster: u32,
         entry: &FileEntry,
-    ) -> Result<usize, ReadWriteError> {
+    ) -> Result<usize, DiskError> {
         assert!(cluster >= 2, "Cluster number must be greater than 2");
 
         let mut buffer = [0u8; 512];

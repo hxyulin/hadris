@@ -1,4 +1,4 @@
-use hadris_core::{str::FixedByteStr, UtcTime};
+use hadris_core::{str::FixedByteStr, time::UtcTime};
 
 /// High precision Fat Time
 /// Stores the time to the precision of a tenth of a second
@@ -61,7 +61,7 @@ impl core::fmt::Debug for FatTimeHighP {
         // So we display in this format:
         // MM/DD/YY HH:MM:SS.mm
         use core::fmt::Write;
-        let mut str = FixedByteStr::<24>::new();
+        let mut str = FixedByteStr::<24>::empty();
         write!(
             str,
             "{:02}/{:02}/{:04} {:02}:{:02}:{:02}.{:02}",
@@ -133,7 +133,7 @@ impl core::fmt::Debug for FatTime {
         // So we display in this format:
         // MM/DD/YY HH:MM:SS, which is 17 characters, but we make a 20 byte string
         use core::fmt::Write;
-        let mut str = FixedByteStr::<20>::new();
+        let mut str = FixedByteStr::<20>::empty();
         let year = (self.date >> 9) & 0x7F + 1980;
         let month = (self.date >> 5) & 0x0F;
         let day = self.date & 0x1F;

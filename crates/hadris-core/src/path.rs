@@ -1,5 +1,12 @@
+//! This module contains structures and functions for working with paths.
+//! Mainly, the [`Path`] struct is used to represent a path on the filesystem.
+//! This is designed as a wrapper around an [`AsciiStr`], which is a string slice of ASCII characters.
+//! UTF-8 is not yet supported.
+//! TODO: Add support for UTF-8 paths
+
 use crate::str::{AsAsciiStr, AsciiStr};
 
+/// A path on the filesystem, which is a borrowed [`AsciiStr`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Path<'a>(&'a AsciiStr);
 
@@ -10,20 +17,35 @@ impl<'a> AsAsciiStr for Path<'a> {
     }
 }
 
+/// A wrapper around a Path, which represents the basename of the path
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PathBase<'a>(&'a AsciiStr);
+
 impl<'a> Path<'a> {
+    /// Creates a new [`Path`] from a borrowed [`AsciiStr`], or any type that implements [`AsAsciiStr`].
     pub fn new<T: AsAsciiStr + ?Sized>(path: &'a T) -> Self {
         Self(path.as_ascii_str())
     }
 
+    /// Returns true if the path has a trailing slash.
+    ///
+    /// The specification says that a path with a trailing slash is a directory
     pub fn has_trailing_slash(&self) -> bool {
         self.0.ends_with(b'/')
     }
 
-    // TODO: This is not correct, but we dont have a 'current directory' concept yet
-    pub fn is_root(&self) -> bool {
-        self.0.is_empty() || self.0.len() == 1 && self.0[0] == b'/'
+    pub fn is_absolute(&self) -> bool {
+        self.0.starts_with(b'/')
     }
 
+    /// Returns true if the path is the root directory.
+    pub fn is_root(&self) -> bool {
+        self.0.len() == 1 && self.0[0] == b'/'
+    }
+
+    /// Returns the parent directory of the path.
+    ///
+    /// If the path is the root directory, returns `None`.
     pub fn get_parent(&self) -> Option<Self> {
         if self.is_root() {
             return None;
@@ -41,7 +63,8 @@ impl<'a> Path<'a> {
         }
     }
 
-    pub fn get_stem(&self) -> Option<Self> {
+    /// Returns the basename of the path, which is the part of the path without the parent directory
+    pub fn basename(&self) -> Option<PathBase> {
         if self.is_root() {
             return None;
         }
@@ -51,15 +74,18 @@ impl<'a> Path<'a> {
             self.0
         };
         let index = path.rfind(b'/').map(|index| index + 1).unwrap_or(0);
-        Some(Path::new(path.substr(index..path.len())))
+        Some(PathBase(path.substr(index..path.len())))
     }
 
     /// Returns the filename of the path, should be called in stem paths
+    /// TODO: Rename or remove
     pub fn filename(&self) -> Self {
         let index = self.0.rfind(b'.').unwrap_or(self.0.len());
         Path::new(self.0.substr(0..index))
     }
 
+    /// Returns the extension of the path.
+    /// TODO: Rename or remove
     pub fn extension(&self) -> Option<Self> {
         let index = self.0.rfind(b'.')?;
         if index == self.0.len() - 1 {
@@ -68,16 +94,55 @@ impl<'a> Path<'a> {
         Some(Path::new(self.0.substr(index + 1..self.0.len())))
     }
 
+    /// Returns the underlying [`AsciiStr`].
     pub fn as_ascii_str(&self) -> &AsciiStr {
         self.0
     }
 
+    /// Returns the underlying string, converting the [`AsciiStr`] to a string slice.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl PathBase<'_> {
+    /// Gets the stem of the path.
+    ///
+    /// The stem is the part of the path without the extension.
+    pub fn stem(&self) -> Option<&AsciiStr> {
+        let dot_index = self.0.rfind(b'.').unwrap_or(self.0.len());
+        Some(self.0.substr(0..dot_index))
+    }
+
+    /// Gets the extension of the path.
+    ///
+    /// The extension is the part of the path after the last dot.
+    pub fn extension(&self) -> Option<&AsciiStr> {
+        let dot_index = self.0.rfind(b'.').unwrap_or(self.0.len());
+        if dot_index == self.0.len() - 1 {
+            return None;
+        }
+        Some(self.0.substr(dot_index + 1..self.0.len()))
+    }
+
+    /// Returns the underlying [`AsciiStr`].
+    pub fn as_ascii_str(&self) -> &AsciiStr {
+        self.0
+    }
+
+    /// Returns the underlying string, converting the [`AsciiStr`] to a string slice.
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
 }
 
 impl core::fmt::Display for Path<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl core::fmt::Display for PathBase<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -116,18 +181,18 @@ mod tests {
     }
 
     #[test]
-    fn test_path_get_stem() {
+    fn test_path_basename() {
         let path = Path::new("/");
-        assert_eq!(path.get_stem(), None);
+        assert_eq!(path.basename(), None);
         let path = Path::new("/test");
-        assert_eq!(path.get_stem(), Some(Path::new("test")));
+        assert_eq!(path.basename(), Some(PathBase("test".into())));
         let path = Path::new("/test/");
-        assert_eq!(path.get_stem(), Some(Path::new("test")));
+        assert_eq!(path.basename(), Some(PathBase("test".into())));
         let path = Path::new("/test/test");
-        assert_eq!(path.get_stem(), Some(Path::new("test")));
+        assert_eq!(path.basename(), Some(PathBase("test".into())));
         let path = Path::new("/test/test/");
-        assert_eq!(path.get_stem(), Some(Path::new("test")));
+        assert_eq!(path.basename(), Some(PathBase("test".into())));
         let path = Path::new("/test/boot/gluon.cfg");
-        assert_eq!(path.get_stem(), Some(Path::new("gluon.cfg")));
+        assert_eq!(path.basename(), Some(PathBase("gluon.cfg".into())));
     }
 }

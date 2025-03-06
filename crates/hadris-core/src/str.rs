@@ -1,3 +1,10 @@
+//! This module contains structures and functions for working with strings.
+//!
+//! This module contains the [`AsciiStr`] and [`FixedByteStr`] types, which are wrappers around
+//! byte slices of ASCII characters.
+//! If the `alloc` feature is enabled, the [`AsciiString`] type is also available, which is a
+//! wrapper around a `Vec<u8>`.
+
 use core::ops::{Index, IndexMut, Range};
 
 /// A no-std compatible string type
@@ -7,17 +14,22 @@ use core::ops::{Index, IndexMut, Range};
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FixedByteStr<const N: usize> {
+    /// The raw bytes of the string
     pub raw: [u8; N],
+    /// The used length of the string
     pub len: usize,
 }
 
 impl<const N: usize> FixedByteStr<N> {
-    pub fn new() -> Self {
+    /// Creates an empty string
+    pub fn empty() -> Self {
         Self {
             raw: [0; N],
             len: 0,
         }
     }
+
+    /// Creates a string from a string slice
     pub fn from_str(s: &str) -> Self {
         assert!(s.len() <= N, "String length exceeds maximum length");
         let mut str = Self {
@@ -28,14 +40,17 @@ impl<const N: usize> FixedByteStr<N> {
         str
     }
 
+    /// Returns the string as a string slice
     pub fn as_str(&self) -> &str {
         core::str::from_utf8(&self.raw[..self.len]).unwrap()
     }
 
+    /// Returns the string as an [`AsciiStr`]
     pub fn as_ascii_str(&self) -> &AsciiStr {
         AsciiStr::from_bytes(&self.raw[..self.len])
     }
 
+    /// Returns the string as a byte slice
     pub fn as_slice(&self) -> &[u8; N] {
         &self.raw
     }
@@ -69,57 +84,94 @@ impl<const N: usize> core::fmt::Write for FixedByteStr<N> {
     }
 }
 
+/// A heap allocated ASCII string, which is a wrapper around a `Vec<u8>`
 #[cfg(feature = "alloc")]
 pub struct AsciiString {
+    /// The raw bytes of the string, in a variable length array
     raw: alloc::vec::Vec<u8>,
 }
 
 #[cfg(feature = "alloc")]
-impl AsciiString {}
+impl AsciiString {
+    /// Creates an empty string
+    pub const fn default() -> Self {
+        Self {
+            raw: alloc::vec::Vec::new(),
+        }
+    }
 
+    /// Returns the string as a string slice
+    pub fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.raw).unwrap()
+    }
+}
+
+/// An ASCII string, which is a wrapper around a byte slice
 #[repr(transparent)]
 #[derive(PartialEq, Eq, Hash)]
 pub struct AsciiStr([u8]);
 
 impl AsciiStr {
-    pub fn from_str<T: AsAsciiStr + ?Sized>(s: &T) -> &Self {
+    /// Creates an ASCII string from a string slice
+    pub fn new<T: AsAsciiStr + ?Sized>(s: &T) -> &Self {
         s.as_ascii_str()
     }
 
+    pub fn from_str(s: &str) -> &Self {
+        AsciiStr::new(s)
+    }
+
+    /// Creates an ASCII string from a byte slice
     pub fn from_bytes(bytes: &[u8]) -> &Self {
         unsafe { core::mem::transmute(bytes) }
     }
 
+    /// Returns the string as a string slice
     pub fn as_str(&self) -> &str {
         core::str::from_utf8(&self.0).unwrap()
     }
 
+    /// Returns the string as a byte slice
     pub fn as_chars(&self) -> &[u8] {
         &self.0
     }
 
+    /// Returns whether the string starts with the given byte
+    pub fn starts_with(&self, c: u8) -> bool {
+        self.0.first().map(|l| l == &c).unwrap_or(false)
+    }
+
+    /// Returns whether the string ends with the given byte
     pub fn ends_with(&self, c: u8) -> bool {
         self.0.last().map(|l| l == &c).unwrap_or(false)
     }
 
+    /// Returns whether the string is empty
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
+    /// Returns the length of the string
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Returns a substring of the string
+    ///
+    /// # Panics
+    /// This function will panic if the range is out of bounds
     pub fn substr(&self, range: Range<usize>) -> &Self {
         assert!(range.start <= range.end);
         assert!(range.end <= self.len());
         unsafe { core::mem::transmute(&self.0[range]) }
     }
 
+    /// Returns the index of the last occurrence of the given byte
     pub fn rfind(&self, c: u8) -> Option<usize> {
         self.0.iter().rposition(|b| *b == c)
     }
 
+    /// Returns the index of the first occurrence of the given byte
     pub fn find(&self, c: u8) -> Option<usize> {
         self.0.iter().position(|b| *b == c)
     }
@@ -172,7 +224,9 @@ impl AsciiStr {
     }
 }
 
+/// A trait for converting a type to an [`AsciiStr`]
 pub trait AsAsciiStr {
+    /// Converts the type to an [`AsciiStr`]
     fn as_ascii_str(&self) -> &AsciiStr;
 }
 
@@ -218,8 +272,10 @@ impl AsAsciiStr for str {
     }
 }
 
+/// Implementations of [`AsAsciiStr`] for types in the `alloc` crate
+#[doc(hidden)]
 #[cfg(feature = "alloc")]
-mod _alloc_impls {
+mod alloc_impls {
     use super::*;
 
     impl AsAsciiStr for alloc::string::String {
@@ -242,7 +298,7 @@ mod tests {
 
     #[test]
     fn fixed_byte_test_str() {
-        let mut str = FixedByteStr::<11>::new();
+        let mut str = FixedByteStr::<11>::empty();
         str.write_str("Hello World").unwrap();
         assert_eq!(str.as_str(), "Hello World");
     }
@@ -255,7 +311,7 @@ mod tests {
 
     #[test]
     fn fixed_byte_str_str_overflow() {
-        let mut str = FixedByteStr::<11>::new();
+        let mut str = FixedByteStr::<11>::empty();
         str.write_str("Hello World").unwrap();
         assert!(str.write_str("Hello World").is_err());
     }
@@ -276,6 +332,13 @@ mod tests {
     fn test_ascii_str_from_bytes() {
         let str = AsciiStr::from_bytes(b"Hello World");
         assert_eq!(str.as_str(), "Hello World");
+    }
+
+    #[test]
+    fn test_ascii_str_starts_with() {
+        let str = AsciiStr::from_bytes(b"Hello World");
+        assert!(str.starts_with(b'H'));
+        assert!(!str.starts_with(b'!'));
     }
 
     #[test]

@@ -25,6 +25,7 @@ bytemuck = { version = "1.21.0", default-features = false, features = [
     "derive",
 ] }
 chrono = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

@@ -1,5 +1,14 @@
-#[repr(C, packed)]
-#[derive(Clone, Copy, bytemuck::NoUninit, bytemuck::AnyBitPattern)]
+use hadris_core::bpb::JumpInstruction;
+
+use crate::structures::FatStr;
+
+/// The RawBpb struct represents the boot sector of any FAT partition
+///
+/// This only contains the common fields of the boot sector, and is not meant to be used directly
+/// for reading or writing to the boot sector, for that, see [`RawBootSector`], which contains
+/// the boot sector and the extended boot sector
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RawBpb {
     /// BS_jmpBoot
     pub jump: [u8; 3],
@@ -66,8 +75,54 @@ pub struct RawBpb {
     pub total_sectors_32: [u8; 4],
 }
 
-#[repr(C, packed)]
-#[derive(Clone, Copy, bytemuck::NoUninit, bytemuck::AnyBitPattern)]
+impl RawBpb {
+    /// Returns the jump instruction, if any. It should return a valid jump instruction if the
+    /// boot sector is valid
+    pub fn jump(&self) -> Result<JumpInstruction, ()> {
+        JumpInstruction::from_bytes(self.jump)
+    }
+
+    /// Sets the jump instruction
+    /// This converts the jump instruction to x86 opcode bytes
+    pub fn set_jump(&mut self, jump: JumpInstruction) {
+        self.jump = jump.to_bytes();
+    }
+
+    /// Returns the OEM name
+    ///
+    /// See [`FatStr`] for more information
+    pub fn oem_name(&self) -> FatStr<8> {
+        FatStr::from_bytes(self.oem_name)
+    }
+
+    /// Sets the OEM name
+    ///
+    /// See [`FatStr`] for more information
+    pub fn set_oem_name(&mut self, oem_name: FatStr<8>) {
+        self.oem_name.copy_from_slice(oem_name.as_slice());
+    }
+
+    pub fn check_bytes_per_sector(&self) -> bool {
+        let bytes_per_sector = u16::from_le_bytes(self.bytes_per_sector);
+        matches!(bytes_per_sector, 512 | 1024 | 2048 | 4096)
+    }
+
+    pub fn check_sectors_per_cluster(&self) -> bool {
+        matches!(self.sectors_per_cluster, 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128)
+    }
+
+    pub fn check_reserved_sector_count(&self) -> bool {
+        // TODO: Maybe ensure it is aligned with data segment?
+        u16::from_le_bytes(self.reserved_sector_count) != 0
+    }
+
+    pub fn check_fat_count(&self) -> bool {
+        matches!(self.fat_count, 1 | 2)
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RawBpbExt16 {
     /// BS_DrvNum
     pub drive_number: u8,
@@ -104,8 +159,8 @@ pub struct RawBpbExt16 {
 }
 
 /// BPB
-#[repr(C, packed)]
-#[derive(Clone, Copy, bytemuck::NoUninit, bytemuck::AnyBitPattern)]
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RawBpbExt32 {
     /// BPB_FatSz32
     ///
@@ -184,47 +239,35 @@ pub struct RawBpbExt32 {
     pub signature_word: [u8; 2],
 }
 
-#[repr(C, packed)]
-#[derive(Clone, Copy)]
+impl RawBpbExt32 {
+    pub fn set_volume_label(&mut self, volume_label: FatStr<11>) {
+        self.volume_label.copy_from_slice(volume_label.as_slice());
+    }
+
+    pub fn get_volume_label(&self) -> FatStr<11> {
+        FatStr::from_bytes(self.volume_label)
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Zeroable)]
 pub union RawBpbExt {
     pub bpb16: RawBpbExt16,
     pub bpb32: RawBpbExt32,
 }
 
-// This isn't technically unsafe, since it is repr(C, packed), and all the fields have impls for it
-unsafe impl bytemuck::Zeroable for RawBpbExt {}
-unsafe impl bytemuck::NoUninit for RawBpbExt {}
-unsafe impl bytemuck::AnyBitPattern for RawBpbExt {}
+/// SAFETY: This is safe, since it is repr(C), and all the fields have impls for Pod.
+unsafe impl bytemuck::Pod for RawBpbExt {}
 
-#[repr(C, packed)]
+/// A FAT32 boot sector
+///
+/// This is the first sector of a FAT32 file system.
+/// It contains both the common BPB and the extended BPB
+#[repr(C)]
 #[derive(Clone, Copy, bytemuck::NoUninit, bytemuck::AnyBitPattern)]
 pub struct RawBootSector {
     pub bpb: RawBpb,
     pub bpb_ext: RawBpbExt,
-}
-
-impl RawBpb {
-    pub fn check_jump_boot(&self) -> bool {
-        (self.jump[0] == 0xEB && self.jump[2] == 0x90) || self.jump[0] == 0xE9
-    }
-
-    pub fn check_bytes_per_sector(&self) -> bool {
-        let bytes_per_sector = u16::from_le_bytes(self.bytes_per_sector);
-        matches!(bytes_per_sector, 512 | 1024 | 2048 | 4096)
-    }
-
-    pub fn check_sectors_per_cluster(&self) -> bool {
-        matches!(self.sectors_per_cluster, 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128)
-    }
-
-    pub fn check_reserved_sector_count(&self) -> bool {
-        // TODO: Maybe ensure it is aligned with data segment?
-        u16::from_le_bytes(self.reserved_sector_count) != 0
-    }
-
-    pub fn check_fat_count(&self) -> bool {
-        matches!(self.fat_count, 1 | 2)
-    }
 }
 
 #[cfg(feature = "read")]
@@ -367,7 +410,7 @@ mod tests {
 
         // The bpb check
         assert!(
-            boot_sector.bpb.check_jump_boot(),
+            boot_sector.bpb.jump().is_ok(),
             "Jump boot signature is invalid"
         );
         assert!(

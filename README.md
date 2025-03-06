@@ -11,14 +11,6 @@ See [Subcrates](##subcrates) for more information.
 - Portable
 - No-std
 
-## Roadmap
-
-- [x] Basic file system operations
-- [ ] Big endian support
-- [ ] Nested directories
-- [ ] File deletion
-- [ ] CLI checking commands
-
 ## Subcrates
 
 ### Hadris
@@ -29,11 +21,11 @@ If you want to use it in a no-std environment, you can disable default features,
 
 ### Hadris-core
 The core subcrate for Hadris. It contains the base traits and types for Hadris. You can also use this subcrate to create your own filesystem types.
-Contributions are welcome!
+Contributions are welcome! For more information see [Hadris-core](https://docs.rs/hadris-core)
 
 ### Hadris-fat
 A subcrate for the FAT filesystem.
-Currently, it is not fully implemented, but allows basic file reading and writing to the root directory. It also only supports little endian and FAT32.
+Currently, it is not fully implemented, but allows basic file reading and writing to a FAT32 filesystem. LFN support is planned.
 For more information see [Hadris-fat](https://docs.rs/hadris-fat)
 
 ### Hadris-cli

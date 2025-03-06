@@ -18,3 +18,4 @@ std = ["alloc", "spin/std", "chrono/std"]
 bitflags = { workspace = true }
 spin = { version = "0.9.8" }
 chrono = { workspace = true }
+thiserror = { workspace = true }

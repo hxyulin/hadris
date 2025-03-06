@@ -11,7 +11,7 @@
 
 use core::str;
 
-use hadris_core::{str::FixedByteStr, JumpInstruction};
+use hadris_core::{str::FixedByteStr, bpb::JumpInstruction};
 
 pub mod raw;
 

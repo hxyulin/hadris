@@ -61,6 +61,10 @@ impl FsInfo {
         u32::from_le_bytes(self.raw.free_count)
     }
 
+    pub fn next_free_cluster(&self) -> u32 {
+        u32::from_le_bytes(self.raw.next_free)
+    }
+
     pub fn info(&self) -> FsInfoInfo {
         FsInfoInfo {
             free_clusters: u32::from_le_bytes(self.raw.free_count),

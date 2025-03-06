@@ -1,3 +1,7 @@
+//! This module contains structures and types for working with the FAT32 boot sector.
+
+use hadris_core::bpb::JumpInstruction;
+
 use crate::{
     structures::raw::boot_sector::{RawBpb, RawBpbExt, RawBpbExt32},
     FatType,
@@ -5,7 +9,8 @@ use crate::{
 
 use super::{raw::boot_sector::RawBootSector, FatStr};
 
-/// BPB_Media
+/// A type representing the media type of the disk.
+/// This is compatible with the `BPB_Media` field in the FAT32 boot sector.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaType {
@@ -41,8 +46,9 @@ pub struct BpbExt32Flags(u16);
 ///
 /// Fields which aren't relevant for FAT32 are not included,
 /// for a raw and byte compatible representation, see the 'raw' module
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BootSectorInfoFat32 {
+    /// The OEM name of the partition, which is usually the name of the tool used to format it
     pub oem_name: FatStr<8>,
     pub bytes_per_sector: u16,
     pub sectors_per_cluster: u8,
@@ -63,19 +69,13 @@ pub struct BootSectorInfoFat32 {
     pub fs_type: FatStr<8>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// An error that can occur when converting a boot sector from a byte slice to a [`BootSectorInfoFat32`]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum BootSectorConversionError {
+    #[error("Invalid FAT type: {0}")]
     InvalidFatType(FatType),
+    #[error("Invalid value: {0}")]
     InvalidValue(&'static str),
-}
-
-impl core::fmt::Display for BootSectorConversionError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::InvalidFatType(ty) => write!(f, "Invalid FAT type: {:?}", ty),
-            Self::InvalidValue(val) => write!(f, "Invalid value: {}", val),
-        }
-    }
 }
 
 impl TryFrom<&RawBootSector> for BootSectorInfoFat32 {
@@ -87,7 +87,7 @@ impl TryFrom<&RawBootSector> for BootSectorInfoFat32 {
             ty => return Err(Self::Error::InvalidFatType(ty)),
         };
 
-        if !bpb.check_jump_boot() {
+        if !bpb.jump().is_ok() {
             return Err(Self::Error::InvalidValue("JumpBoot"));
         }
 
@@ -161,7 +161,7 @@ impl TryFrom<&RawBootSector> for BootSectorInfoFat32 {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootSectorInfo {
     Fat32(BootSectorInfoFat32),
 }
@@ -215,6 +215,13 @@ impl BootSectorInfo {
             BootSectorInfo::Fat32(info) => info.fs_info_sector,
         }
     }
+
+    #[inline]
+    pub fn fat_count(&self) -> u8 {
+        match self {
+            BootSectorInfo::Fat32(info) => info.fat_count,
+        }
+    }
 }
 
 impl TryFrom<&RawBootSector> for BootSectorInfo {
@@ -241,8 +248,8 @@ impl BootSectorFat32 {
         }
     }
 
-    pub fn from_bytes(bytes: &[u8; 512]) -> &Self {
-        bytemuck::cast_ref(bytes)
+    pub fn from_bytes(bytes: &[u8]) -> &Self {
+        bytemuck::from_bytes::<Self>(bytes)
     }
 
     pub fn from_bytes_mut(bytes: &mut [u8; 512]) -> &mut Self {
@@ -251,6 +258,14 @@ impl BootSectorFat32 {
 
     pub fn bytes_per_sector(&self) -> u16 {
         u16::from_le_bytes(self.data.bpb.bytes_per_sector)
+    }
+
+    pub fn jump(&self) -> Result<JumpInstruction, ()> {
+        self.data.bpb.jump()
+    }
+
+    pub fn oem_name(&self) -> FatStr<8> {
+        self.data.bpb.oem_name()
     }
 
     pub fn sectors_per_cluster(&self) -> u8 {

@@ -15,7 +15,7 @@
     }
 */
 
-use hadris_core::{ReadWriteError, Reader, Writer};
+use hadris_core::disk::{DiskError, DiskReader, DiskWriter};
 
 pub mod constants {
     pub const FAT16_CLUSTER_FREE: u16 = 0x0000;
@@ -56,11 +56,11 @@ impl Fat32 {
         self.offset + self.num * self.size
     }
 
-    pub fn next_cluster_index<R: Reader>(
+    pub fn next_cluster_index<R: DiskReader>(
         &self,
         reader: &mut R,
         cluster: u32,
-    ) -> Result<u32, ReadWriteError> {
+    ) -> Result<u32, DiskError> {
         let offset = self.offset + cluster as usize * size_of::<u32>();
         let mut buf = [0u8; 4];
         reader.read_bytes(offset, &mut buf)?;
@@ -70,14 +70,14 @@ impl Fat32 {
     /// Read data from a FAT
     ///
     /// The root_directory_offset is the offset of the root directory in bytes
-    pub fn read_data<R: Reader>(
+    pub fn read_data<R: DiskReader>(
         &self,
         reader: &mut R,
         cluster_size: usize,
         mut cluster: u32,
         offset: usize,
         buffer: &mut [u8],
-    ) -> Result<usize, ReadWriteError> {
+    ) -> Result<usize, DiskError> {
         let mut data_offset = 0;
         let mut bytes_read = 0;
 
@@ -102,7 +102,7 @@ impl Fat32 {
         Ok(bytes_read)
     }
 
-    pub fn find_free_cluster<R: Reader>(&self, reader: &mut R) -> Result<u32, ReadWriteError> {
+    pub fn find_free_cluster<R: DiskReader>(&self, reader: &mut R) -> Result<u32, DiskError> {
         let mut buffer = [0u8; 512];
         let entries_per_sector = self.bytes_per_sector / size_of::<u32>();
         for current_cluster in 0..self.size / self.bytes_per_sector {
@@ -125,7 +125,7 @@ impl Fat32 {
 
 #[cfg(feature = "write")]
 impl Fat32 {
-    pub fn init<W: Writer>(&self, writer: &mut W) {
+    pub fn init<W: DiskWriter>(&self, writer: &mut W) {
         // We need to write the first two entries
         let mut buffer = [0u8; 12];
         buffer[0..4].copy_from_slice(&0xFFFF_FFF8_u32.to_le_bytes());
@@ -135,13 +135,13 @@ impl Fat32 {
         writer.write_bytes(self.offset, &buffer).unwrap();
     }
 
-    pub fn allocate_clusters<W: Reader + Writer>(
+    pub fn allocate_clusters<W: DiskReader + DiskWriter>(
         &self,
         writer: &mut W,
         count: u32,
         free_count: &mut u32,
         next_free: &mut u32,
-    ) -> Result<u32, ReadWriteError> {
+    ) -> Result<u32, DiskError> {
         if count == 0 {
             return Ok(0);
         }
@@ -163,26 +163,26 @@ impl Fat32 {
         Ok(start_cluster)
     }
 
-    fn mark_cluster_as<W: Writer>(
+    fn mark_cluster_as<W: DiskWriter>(
         &self,
         writer: &mut W,
         cluster: u32,
         value: u32,
-    ) -> Result<(), ReadWriteError> {
+    ) -> Result<(), DiskError> {
         let entry_offset = self.offset + cluster as usize * size_of::<u32>();
         let mut buffer = [0u8; 4];
         buffer.copy_from_slice(&value.to_le_bytes());
         writer.write_bytes(entry_offset, &buffer)
     }
 
-    pub fn write_data<W: Reader + Writer>(
+    pub fn write_data<W: DiskReader + DiskWriter>(
         &self,
         writer: &mut W,
         cluster_size: usize,
         mut cluster: u32,
         offset: usize,
         data: &[u8],
-    ) -> Result<usize, ReadWriteError> {
+    ) -> Result<usize, DiskError> {
         let mut data_offset = 0;
         let mut bytes_written = 0;
 
