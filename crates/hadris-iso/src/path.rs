@@ -1,6 +1,6 @@
-use std::io::Read;
+use std::io::{Read, SeekFrom};
 
-use crate::types::EndianType;
+use crate::{ReadWriteSeek, types::EndianType};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -67,5 +67,42 @@ impl PathTableEntry {
     pub fn size(&self) -> usize {
         let size = (size_of::<PathTableEntryHeader>() + self.name.len() + 1) & !1;
         size
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PathTableRef {
+    pub(crate) lpath_table_offset: u64,
+    pub(crate) mpath_table_offset: u64,
+    pub(crate) size: u64,
+}
+
+pub struct IsoPathTable<'a, T: ReadWriteSeek> {
+    pub(crate) reader: &'a mut T,
+    pub(crate) path_table: PathTableRef,
+}
+
+impl<'a, T: ReadWriteSeek> IsoPathTable<'a, T> {
+    pub fn entries(&mut self) -> Result<Vec<PathTableEntry>, std::io::Error> {
+        // TODO: Some sort of strict check that checks both tables?
+
+        // We always read from the native endian table
+        let offset = if cfg!(target_endian = "little") {
+            self.path_table.lpath_table_offset
+        } else {
+            self.path_table.mpath_table_offset
+        };
+        self.reader.seek(SeekFrom::Start(offset * 2048))?;
+        let mut entries = Vec::new();
+        let mut idx = 0;
+        while idx < self.path_table.size as usize {
+            let entry = PathTableEntry::parse(self.reader, EndianType::NativeEndian)?;
+            if entry.length == 0 {
+                break;
+            }
+            idx += entry.size();
+            entries.push(entry);
+        }
+        Ok(entries)
     }
 }

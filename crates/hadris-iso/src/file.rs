@@ -150,6 +150,49 @@ impl FileInput {
     pub fn contains(&self, name: &str) -> bool {
         self.get(name).is_some()
     }
+
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    pub fn iter(&self) -> FileIter {
+        FileIter {
+            files: &self.files,
+            index: 0,
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a FileInput {
+    type Item = &'a File;
+    type IntoIter = FileIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+pub struct FileIter<'a> {
+    files: &'a [File],
+    index: usize,
+}
+
+impl<'a> Iterator for FileIter<'a> {
+    type Item = &'a File;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.files.len() {
+            None
+        } else {
+            let file = &self.files[self.index];
+            self.index += 1;
+            Some(file)
+        }
+    }
 }
 
 #[cfg(test)]

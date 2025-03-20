@@ -1,6 +1,6 @@
-use std::io::Write;
+use std::io::{SeekFrom, Write};
 
-use crate::types::{IsoStringFile, U16LsbMsb, U32LsbMsb};
+use crate::{types::{IsoStringFile, U16LsbMsb, U32LsbMsb}, ReadWriteSeek};
 
 /// The header of a directory record, because the identifier is variable length,
 #[repr(C)]
@@ -154,3 +154,94 @@ bitflags::bitflags! {
         const NOT_FINAL = 0b1000_0000;
     }
 }
+
+pub struct IsoDirectory<'a, T: ReadWriteSeek> {
+    pub(crate) reader: &'a mut T,
+    pub(crate) directory: DirectoryRef,
+}
+impl<'a, T: ReadWriteSeek> IsoDirectory<'a, T> {
+    // TODO: Make this private after testing
+    /// Returns a list of all entries in the directory, along with their offset in the directory
+    pub fn entries(&mut self) -> Result<Vec<(u64, DirectoryRecord)>, std::io::Error> {
+        self.reader
+            .seek(SeekFrom::Start(self.directory.offset * 2048))?;
+        // This is the easiest implementation, but it's not the most efficient
+        // because we are storing the entire directory in memory.
+        let mut bytes = vec![0; self.directory.size as usize];
+        self.reader.read_exact(&mut bytes)?;
+        let mut entries = Vec::new();
+        let mut idx = 0;
+        while idx < bytes.len() {
+            let entry = DirectoryRecordHeader::from_bytes(
+                &bytes[idx..idx + size_of::<DirectoryRecordHeader>()],
+            );
+            if entry.len == 0 {
+                break;
+            }
+            let name = IsoStringFile::from_bytes(
+                &bytes[idx + size_of::<DirectoryRecordHeader>()
+                    ..idx
+                        + size_of::<DirectoryRecordHeader>()
+                        + entry.file_identifier_len as usize],
+            );
+            entries.push((
+                idx as u64,
+                DirectoryRecord {
+                    header: *entry,
+                    name,
+                },
+            ));
+            idx += entry.len as usize;
+        }
+        Ok(entries)
+    }
+
+    pub fn find_directory(
+        &mut self,
+        name: &str,
+    ) -> Result<Option<IsoDirectory<T>>, std::io::Error> {
+        let entry = self.entries()?.iter().find_map(|(_offset, entry)| {
+            if entry.name.to_str() == name
+                && FileFlags::from_bits_retain(entry.header.flags).contains(FileFlags::DIRECTORY)
+            {
+                Some(entry.clone())
+            } else {
+                None
+            }
+        });
+        match entry {
+            Some(entry) => Ok(Some(IsoDirectory {
+                reader: self.reader,
+                directory: DirectoryRef {
+                    offset: entry.header.extent.read() as u64,
+                    size: entry.header.data_len.read() as u64,
+                },
+            })),
+            None => Ok(None),
+        }
+    }
+
+    pub fn read_file(&mut self, name: &str) -> Result<Vec<u8>, std::io::Error> {
+        let entry = self.entries()?.iter().find_map(|(_offset, entry)| {
+            if entry.name.to_str() == name {
+                Some(entry.clone())
+            } else {
+                None
+            }
+        });
+        match entry {
+            Some(entry) => {
+                let mut bytes = vec![0; entry.header.data_len.read() as usize];
+                self.reader
+                    .seek(SeekFrom::Start(entry.header.extent.read() as u64))?;
+                self.reader.read_exact(&mut bytes)?;
+                Ok(bytes)
+            }
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "File not found",
+            )),
+        }
+    }
+}
+

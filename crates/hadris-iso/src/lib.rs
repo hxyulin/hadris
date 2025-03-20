@@ -46,151 +46,50 @@ pub use volume::*;
 pub trait ReadWriteSeek: Read + Write + Seek {}
 impl<T: Read + Write + Seek> ReadWriteSeek for T {}
 
-fn to_sectors_ceil(size: usize) -> usize {
-    (size + 2047) / 2048
+#[derive(Debug, thiserror::Error)]
+pub enum IsoImageError {
+    /// The image is too small, check [`FormatOptions::image_len()`] for the minimum size
+    #[error("The image is too small, expected at least {0}b, got {1}b")]
+    ImageTooSmall(u64, u64),
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
 }
 
 #[derive(Debug)]
 pub struct IsoImage<'a, T: ReadWriteSeek> {
     data: &'a mut T,
-    size: u64,
 
     volume_descriptors: VolumeDescriptorList,
     root_directory: DirectoryRef,
     path_table: PathTableRef,
 }
 
-pub struct IsoDirectory<'a, T: ReadWriteSeek> {
-    reader: &'a mut T,
-    directory: DirectoryRef,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PathTableRef {
-    lpath_table_offset: u64,
-    mpath_table_offset: u64,
-    size: u64,
-}
-
-pub struct IsoPathTable<'a, T: ReadWriteSeek> {
-    reader: &'a mut T,
-    path_table: PathTableRef,
-}
-
-impl<'a, T: ReadWriteSeek> IsoPathTable<'a, T> {
-    pub fn entries(&mut self) -> Result<Vec<PathTableEntry>, std::io::Error> {
-        // TODO: Some sort of strict check that checks both tables?
-
-        // We always read from the native endian table
-        let offset = if cfg!(target_endian = "little") {
-            self.path_table.lpath_table_offset
-        } else {
-            self.path_table.mpath_table_offset
-        };
-        self.reader.seek(SeekFrom::Start(offset * 2048))?;
-        let mut entries = Vec::new();
-        let mut idx = 0;
-        while idx < self.path_table.size as usize {
-            let entry = PathTableEntry::parse(self.reader, types::EndianType::NativeEndian)?;
-            if entry.length == 0 {
-                break;
-            }
-            idx += entry.size();
-            entries.push(entry);
-        }
-        Ok(entries)
-    }
-}
-
-impl<'a, T: ReadWriteSeek> IsoDirectory<'a, T> {
-    // TODO: Make this private after testing
-    /// Returns a list of all entries in the directory, along with their offset in the directory
-    pub fn entries(&mut self) -> Result<Vec<(u64, DirectoryRecord)>, std::io::Error> {
-        self.reader
-            .seek(SeekFrom::Start(self.directory.offset * 2048))?;
-        // This is the easiest implementation, but it's not the most efficient
-        // because we are storing the entire directory in memory.
-        let mut bytes = vec![0; self.directory.size as usize];
-        self.reader.read_exact(&mut bytes)?;
-        let mut entries = Vec::new();
-        let mut idx = 0;
-        while idx < bytes.len() {
-            let entry = DirectoryRecordHeader::from_bytes(
-                &bytes[idx..idx + size_of::<DirectoryRecordHeader>()],
-            );
-            if entry.len == 0 {
-                break;
-            }
-            let name = IsoStringFile::from_bytes(
-                &bytes[idx + size_of::<DirectoryRecordHeader>()
-                    ..idx
-                        + size_of::<DirectoryRecordHeader>()
-                        + entry.file_identifier_len as usize],
-            );
-            entries.push((
-                idx as u64,
-                DirectoryRecord {
-                    header: *entry,
-                    name,
-                },
-            ));
-            idx += entry.len as usize;
-        }
-        Ok(entries)
-    }
-
-    pub fn find_directory(
-        &mut self,
-        name: &str,
-    ) -> Result<Option<IsoDirectory<T>>, std::io::Error> {
-        let entry = self.entries()?.iter().find_map(|(_offset, entry)| {
-            if entry.name.to_str() == name
-                && FileFlags::from_bits_retain(entry.header.flags).contains(FileFlags::DIRECTORY)
-            {
-                Some(entry.clone())
-            } else {
-                None
-            }
-        });
-        match entry {
-            Some(entry) => Ok(Some(IsoDirectory {
-                reader: self.reader,
-                directory: DirectoryRef {
-                    offset: entry.header.extent.read() as u64,
-                    size: entry.header.data_len.read() as u64,
-                },
-            })),
-            None => Ok(None),
-        }
-    }
-
-    pub fn read_file(&mut self, name: &str) -> Result<Vec<u8>, std::io::Error> {
-        let entry = self.entries()?.iter().find_map(|(_offset, entry)| {
-            if entry.name.to_str() == name {
-                Some(entry.clone())
-            } else {
-                None
-            }
-        });
-        match entry {
-            Some(entry) => {
-                let mut bytes = vec![0; entry.header.data_len.read() as usize];
-                self.reader
-                    .seek(SeekFrom::Start(entry.header.extent.read() as u64))?;
-                self.reader.read_exact(&mut bytes)?;
-                Ok(bytes)
-            }
-            None => Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "File not found",
-            )),
-        }
-    }
-}
-
 impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
-    pub fn format_new(data: &'a mut T, mut ops: FormatOptions) -> Result<(), std::io::Error> {
+    pub fn format_file<P>(path: P, options: FormatOptions) -> Result<(), IsoImageError>
+    where
+        P: AsRef<std::path::Path>,
+    {
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
+            .unwrap();
+        let (min, max) = options.image_len();
+        log::trace!("Calculate minimum and maximum size of image: {min}b to {max}b");
+        file.set_len(max).unwrap();
+        IsoImage::format_new(&mut file, options)
+    }
+    /// Formats a new ISO image,
+    /// for a more convenient API, see [`Self::format_file`] for [`std::fs::File`]
+    pub fn format_new(data: &'a mut T, mut ops: FormatOptions) -> Result<(), IsoImageError> {
         let size_bytes = data.seek(SeekFrom::End(0))?;
+        let min_size = ops.image_len().0;
+        if size_bytes < min_size {
+            return Err(IsoImageError::ImageTooSmall(min_size, size_bytes));
+        }
+
         let size_sectors = size_bytes / 2048;
         log::trace!(
             "Started formatting ISO image with {} sectors ({}) bytes)",
@@ -216,15 +115,9 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
                 BootRecordVolumeDescriptor::new(0),
             ));
             assert!(
-                boot_ops.entries.len() == 1,
-                "Only one boot entry is supported"
+                ops.files.contains(&boot_ops.default.boot_image_path),
+                "Boot image path not found in files"
             );
-            for entry in boot_ops.entries.iter() {
-                assert!(
-                    ops.files.contains(&entry.boot_image_path),
-                    "Boot image path not found in files"
-                );
-            }
 
             if boot_ops.write_boot_catalogue {
                 log::trace!("Appending boot catalogue to file list");
@@ -263,13 +156,13 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
                 directory: root_dir.clone(),
             };
 
+            // TODO: Support more than just the default entry
             let mut catalog = BootCatalogue::default();
 
-            let entry = boot_ops.entries.first().unwrap();
             let (_, file) = root_dir
                 .entries()?
                 .iter()
-                .find(|(_idx, e)| e.name.to_str() == entry.boot_image_path.as_str())
+                .find(|(_idx, e)| e.name.to_str() == boot_ops.default.boot_image_path.as_str())
                 .expect("Could not find the boot image path in ISO filesystem")
                 .clone();
             let (_, catalog_file) = root_dir
@@ -283,13 +176,13 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
 
             let boot_image_lba = file.header.extent.read();
             catalog.set_default_entry(BootSectionEntry::new(
-                EmulationType::NoEmulation,
+                boot_ops.default.emulation,
                 0,
-                entry.load_size,
+                boot_ops.default.load_size,
                 boot_image_lba,
             ));
 
-            if entry.boot_info_table {
+            if boot_ops.default.boot_info_table {
                 let mut checksum = 0u32;
                 let mut buffer = [0u8; 4];
                 data.seek(SeekFrom::Start(
@@ -312,6 +205,17 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
                 data.write_all(bytemuck::bytes_of(&table))?;
             }
 
+            // UNTESTED
+            if boot_ops.default.grub2_boot_info {
+                // The GRUB2 boot info wants the start of the image file in 512 blocks + 5
+                let value = file.header.extent.read() * 4 + 5;
+                // It is from byte 2548 to 2555
+                data.seek(SeekFrom::Start(
+                    file.header.extent.read() as u64 * 2048 + 2548,
+                ))?;
+                data.write_all(&value.to_le_bytes())?;
+            }
+
             data.seek(SeekFrom::Start(current_index))?;
 
             let catalogue_start = Self::align(data)? / 2048;
@@ -321,26 +225,28 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
                 .catalog_ptr
                 .set(catalogue_start as u32);
             catalog.write(data)?;
-            Self::align(data)?;
+            let end = Self::align(data)?;
 
             data.seek(SeekFrom::Start(
                 catalog_file.header.extent.read() as u64 * 2048,
             ))?;
             assert!(catalog_file.header.data_len.read() as usize >= catalog.size());
             catalog.write(data)?;
+            data.seek(SeekFrom::Start(end))?;
         }
-        Self::align(data)?;
+        let end = Self::align(data)?;
 
         data.seek(SeekFrom::Start(16 * 2048))?;
         volume_descriptors.write(data)?;
 
+        // We need to be at the end of the image
+        data.seek(SeekFrom::Start(end))?;
         Ok(())
     }
 
     pub fn new(data: &'a mut T) -> Result<Self, std::io::Error> {
         data.seek(SeekFrom::Start(16 * 2048))?;
         let volume_descriptors = VolumeDescriptorList::parse(data)?;
-        let size = data.seek(SeekFrom::End(0))?;
 
         let pvd = volume_descriptors.primary();
         #[cfg(feature = "el-torito")]
@@ -364,7 +270,6 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
 
         Ok(Self {
             data,
-            size,
 
             volume_descriptors,
             root_directory,

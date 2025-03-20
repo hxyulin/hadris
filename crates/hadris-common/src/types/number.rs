@@ -1,9 +1,14 @@
 use crate::types::endian::{BigEndian, Endian, Endianness, LittleEndian};
 use core::marker::PhantomData;
 
+/// A 16-bit unsigned integer with a specified endianness.
 #[repr(transparent)]
-#[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
-pub struct U16<E: Endianness> {
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
+pub struct U16<E>
+where
+    E: Endianness,
+{
     bytes: [u8; 2],
     _marker: PhantomData<E>,
 }
@@ -51,9 +56,14 @@ impl<E: Endianness> core::fmt::UpperHex for U16<E> {
     }
 }
 
+/// A 32-bit unsigned integer with a specified endianness.
 #[repr(transparent)]
-#[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
-pub struct U32<E: Endianness> {
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
+pub struct U32<E>
+where
+    E: Endianness,
+{
     bytes: [u8; 4],
     _marker: PhantomData<E>,
 }
@@ -101,9 +111,14 @@ impl<E: Endianness> core::fmt::UpperHex for U32<E> {
     }
 }
 
+/// A 64-bit unsigned integer with a specified endianness.
 #[repr(transparent)]
-#[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
-pub struct U64<E: Endianness> {
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
+pub struct U64<E>
+where
+    E: Endianness,
+{
     bytes: [u8; 8],
     _marker: PhantomData<E>,
 }
@@ -153,30 +168,33 @@ impl<E: Endianness> core::fmt::UpperHex for U64<E> {
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
+    //! Tests for the number types.
+    //!
+    //! We can't really test NativeEndian, so there are tests for LittleEndian and BigEndian.
+
     use super::*;
-    use crate::types::endian::NativeEndian;
 
     #[test]
-    fn test_u16() {
-        let mut value = U16::<NativeEndian>::new(0x1234);
-        assert_eq!(value.get(), 0x1234);
-        value.set(0x5678);
-        assert_eq!(value.get(), 0x5678);
+    fn test_u16_repr() {
+        let value = U16::<LittleEndian>::new(0x1234);
+        assert_eq!(value.bytes, [0x34, 0x12]);
+        let value = U16::<BigEndian>::new(0x1234);
+        assert_eq!(value.bytes, [0x12, 0x34]);
     }
 
     #[test]
-    fn test_u32() {
-        let mut value = U32::<NativeEndian>::new(0x12345678);
-        assert_eq!(value.get(), 0x12345678);
-        value.set(0x9abcdef0);
-        assert_eq!(value.get(), 0x9abcdef0);
+    fn test_u32_repr() {
+        let value = U32::<LittleEndian>::new(0x12345678);
+        assert_eq!(value.bytes, [0x78, 0x56, 0x34, 0x12]);
+        let value = U32::<BigEndian>::new(0x12345678);
+        assert_eq!(value.bytes, [0x12, 0x34, 0x56, 0x78]);
     }
 
     #[test]
-    fn test_u64() {
-        let mut value = U64::<NativeEndian>::new(0x123456789abcdef0);
-        assert_eq!(value.get(), 0x123456789abcdef0);
-        value.set(0x0123456789abcdef);
-        assert_eq!(value.get(), 0x0123456789abcdef);
+    fn test_u64_repr() {
+        let value = U64::<LittleEndian>::new(0x123456789abcdef0);
+        assert_eq!(value.bytes, [0x0f, 0xde, 0xbc, 0x9a, 0x78, 0x56, 0x34, 0x12]);
+        let value = U64::<BigEndian>::new(0x123456789abcdef0);
+        assert_eq!(value.bytes, [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0]);
     }
 }
