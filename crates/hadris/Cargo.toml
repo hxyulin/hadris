@@ -1,0 +1,18 @@
+[package]
+name = "hadris"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+description = "A collection of crates for working with various file formats."
+categories = ["filesystem", "encoding"]
+
+[features]
+default = ["iso9660"]
+iso9660 = ["hadris-iso"]
+# TODO: Support more file formats
+
+[dependencies]
+hadris-iso = { workspace = true, optional = true }

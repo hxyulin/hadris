@@ -1,0 +1,31 @@
+[package]
+name = "hadris-iso"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "A rust implementation of the ISO-9660 filesystem."
+keywords = ["el-torito", "iso", "iso9660", "cd", "dvd"]
+categories = ["filesystem", "encoding"]
+
+[features]
+default = ["el-torito"]
+el-torito = []
+# TODO: Add support for serialization
+serde = []
+
+[dependencies]
+bitflags = { workspace = true, features = ["bytemuck"] }
+bytemuck = { workspace = true, features = ["derive"] }
+log.workspace = true
+
+chrono = "0.4.40"
+tempfile = "3.19.1"
+thiserror = "2.0.12"
+
+hadris-common = { workspace = true }
+
+[dev-dependencies]
+static_assertions.workspace = true
