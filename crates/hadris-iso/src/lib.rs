@@ -65,7 +65,7 @@ pub struct IsoImage<'a, T: ReadWriteSeek> {
 }
 
 impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
-    pub fn format_file<P>(path: P, options: FormatOptions) -> Result<(), IsoImageError>
+    pub fn format_file<P>(path: P, options: FormatOptions) -> Result<std::fs::File, IsoImageError>
     where
         P: AsRef<std::path::Path>,
     {
@@ -79,7 +79,12 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         let (min, max) = options.image_len();
         log::trace!("Calculate minimum and maximum size of image: {min}b to {max}b");
         file.set_len(max).unwrap();
-        IsoImage::format_new(&mut file, options)
+        IsoImage::format_new(&mut file, options)?;
+        let written = file.stream_position()?;
+        log::debug!("Written {written}b to image, trimming...");
+        file.set_len(written)?;
+        file.flush()?;
+        Ok(file)
     }
     /// Formats a new ISO image,
     /// for a more convenient API, see [`Self::format_file`] for [`std::fs::File`]
@@ -114,17 +119,20 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
             volume_descriptors.push(VolumeDescriptor::BootRecord(
                 BootRecordVolumeDescriptor::new(0),
             ));
-            assert!(
-                ops.files.contains(&boot_ops.default.boot_image_path),
-                "Boot image path not found in files"
-            );
+
+            for entry in boot_ops.entries() {
+                assert!(
+                    ops.files.contains(&entry.boot_image_path),
+                    "Boot image path not found in files"
+                );
+            }
 
             if boot_ops.write_boot_catalogue {
                 log::trace!("Appending boot catalogue to file list");
+                let size = 96 + boot_ops.entries.len() * 64;
                 ops.files.append(file::File {
                     path: "boot.catalog".to_string(),
-                    // TODO: We need to make this dynamic
-                    data: file::FileData::Data(vec![0; 32 * 4]),
+                    data: file::FileData::Data(vec![0; size]),
                 });
             }
         }
@@ -151,69 +159,79 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         if let Some(boot_ops) = ops.boot {
             // TODO: If we support nested files, we need to find them from the Path table, and not
             // the root directory
-            let mut root_dir = IsoDirectory {
-                reader: data,
-                directory: root_dir.clone(),
-            };
 
             // TODO: Support more than just the default entry
             let mut catalog = BootCatalogue::default();
 
-            let (_, file) = root_dir
-                .entries()?
-                .iter()
-                .find(|(_idx, e)| e.name.to_str() == boot_ops.default.boot_image_path.as_str())
-                .expect("Could not find the boot image path in ISO filesystem")
-                .clone();
-            let (_, catalog_file) = root_dir
-                .entries()?
-                .iter()
-                .find(|(_idx, e)| e.name.to_str() == "boot.catalog")
-                .expect("Could not find the boot catalogue in ISO filesystem")
-                .clone();
+            let (_, catalog_file) = IsoDirectory {
+                reader: data,
+                directory: root_dir.clone(),
+            }
+            .entries()?
+            .iter()
+            .find(|(_idx, e)| e.name.to_str() == "boot.catalog")
+            .expect("Could not find the boot catalogue in ISO filesystem")
+            .clone();
 
             let current_index = Self::align(data)?;
 
-            let boot_image_lba = file.header.extent.read();
-            catalog.set_default_entry(BootSectionEntry::new(
-                boot_ops.default.emulation,
-                0,
-                boot_ops.default.load_size,
-                boot_image_lba,
-            ));
-
-            if boot_ops.default.boot_info_table {
-                let mut checksum = 0u32;
-                let mut buffer = [0u8; 4];
-                data.seek(SeekFrom::Start(
-                    file.header.extent.read() as u64 * 2048 + 64,
-                ))?;
-                for _ in (64..file.header.data_len.read()).step_by(4) {
-                    data.read_exact(&mut buffer)?;
-                    checksum = checksum.wrapping_add(u32::from_le_bytes(buffer));
+            for (section, mut entry) in boot_ops.sections() {
+                let (_, file) = IsoDirectory {
+                    reader: data,
+                    directory: root_dir.clone(),
                 }
-                let byte_offset = boot_image_lba * 2048;
-                let table = BootInfoTable {
-                    iso_start: U32::new(16),
-                    file_lba: U32::new(file.header.extent.read()),
-                    file_len: U32::new(file.header.data_len.read()),
-                    checksum: U32::new(checksum),
-                };
+                .entries()?
+                .iter()
+                .find(|(_idx, e)| e.name.to_str() == entry.boot_image_path)
+                .unwrap()
+                .clone();
 
-                const TABLE_OFFSET: u64 = 8;
-                data.seek(SeekFrom::Start(byte_offset as u64 + TABLE_OFFSET))?;
-                data.write_all(bytemuck::bytes_of(&table))?;
-            }
+                if entry.load_size == 0 {
+                    entry.load_size = ((file.header.data_len.read() + 2047) / 2048) as u16;
+                }
+                let boot_image_lba = file.header.extent.read();
+                let boot_entry =
+                    BootSectionEntry::new(entry.emulation, 0, entry.load_size, boot_image_lba);
 
-            // UNTESTED
-            if boot_ops.default.grub2_boot_info {
-                // The GRUB2 boot info wants the start of the image file in 512 blocks + 5
-                let value = file.header.extent.read() * 4 + 5;
-                // It is from byte 2548 to 2555
-                data.seek(SeekFrom::Start(
-                    file.header.extent.read() as u64 * 2048 + 2548,
-                ))?;
-                data.write_all(&value.to_le_bytes())?;
+                if let Some(section) = section {
+                    catalog.add_section(section.platform_id, vec![boot_entry]);
+                } else {
+                    catalog.set_default_entry(boot_entry);
+                }
+
+                if entry.boot_info_table {
+                    let mut checksum = 0u32;
+                    let mut buffer = [0u8; 4];
+                    data.seek(SeekFrom::Start(
+                        file.header.extent.read() as u64 * 2048 + 64,
+                    ))?;
+                    for _ in (64..file.header.data_len.read()).step_by(4) {
+                        data.read_exact(&mut buffer)?;
+                        checksum = checksum.wrapping_add(u32::from_le_bytes(buffer));
+                    }
+                    let byte_offset = boot_image_lba * 2048;
+                    let table = BootInfoTable {
+                        iso_start: U32::new(16),
+                        file_lba: U32::new(file.header.extent.read()),
+                        file_len: U32::new(file.header.data_len.read()),
+                        checksum: U32::new(checksum),
+                    };
+
+                    const TABLE_OFFSET: u64 = 8;
+                    data.seek(SeekFrom::Start(byte_offset as u64 + TABLE_OFFSET))?;
+                    data.write_all(bytemuck::bytes_of(&table))?;
+                }
+
+                // UNTESTED
+                if boot_ops.default.grub2_boot_info {
+                    // The GRUB2 boot info wants the start of the image file in 512 blocks + 5
+                    let value = file.header.extent.read() * 4 + 5;
+                    // It is from byte 2548 to 2555
+                    data.seek(SeekFrom::Start(
+                        file.header.extent.read() as u64 * 2048 + 2548,
+                    ))?;
+                    data.write_all(&value.to_le_bytes())?;
+                }
             }
 
             data.seek(SeekFrom::Start(current_index))?;
@@ -252,7 +270,8 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         #[cfg(feature = "el-torito")]
         if let Some(boot) = volume_descriptors.boot_record() {
             data.seek(SeekFrom::Start(boot.catalog_ptr.get() as u64 * 2048))?;
-            let _catalogue = BootCatalogue::parse(data)?;
+            let catalogue = BootCatalogue::parse(data)?;
+            log::trace!("Boot catalogue: {:?}", catalogue);
             // At the moment we dont support anything with a boot catalogue
         }
 

@@ -48,6 +48,22 @@ impl BootCatalogue {
         self.default_entry = entry;
     }
 
+    pub fn add_section(&mut self, platform_id: PlatformId, entries: Vec<BootSectionEntry>) {
+        if let Some((header, _entry)) = self.sections.last_mut() {
+            // No longer the last section
+            header.header_type = 0x90;
+        }
+
+        let header = BootSectionHeaderEntry {
+            header_type: 0x91,
+            platform_id: platform_id.to_u8(),
+            section_count: U16::new(1),
+            section_ident: [0; 28],
+        };
+
+        self.sections.push((header, entries));
+    }
+
     /// Parse the boot catalogue from the given reader,
     /// expects the reader to seek to the start of the catalogue
     pub fn parse<T: Read>(reader: &mut T) -> Result<Self, std::io::Error> {
@@ -345,7 +361,7 @@ impl BootSectionEntry {
 
 impl Debug for BootSectionEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BootSectionHeaderEntry")
+        f.debug_struct("BootSectionEntry")
             .field("boot_indicator", &format!("{:#x}", self.boot_indicator))
             .field(
                 "boot_media_type",

@@ -79,9 +79,9 @@ A volume descriptor is 2048 byte structure, which contains information about the
 There are many different volume descriptors, but they all follow the same header:
 
 | Offset | Size | Type | Description |
-| --- | --- | --- |
+| --- | --- | --- | -- |
 | 0 | 1 | u8 | Descriptor type, see [Volume Descriptor Type](#volume-descriptor-type) |
-| 1 | 5 | u8\[5\] | Standard identifier, see [Standard Identifier](#standard-identifier) |
+| 1 | 5 | u8 | \[5\] | Standard identifier, see [Standard Identifier](#standard-identifier) |
 | 6 | 1 | u8 | Version, currently always 1 |
 
 After the header, the volume descriptor they have different structures, but the size is always padded to 2048 bytes.

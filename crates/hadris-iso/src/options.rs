@@ -1,10 +1,8 @@
-use std::ops::Range;
-
 use bitflags::bitflags;
 
-use crate::FileInput;
 #[cfg(feature = "el-torito")]
 use crate::boot::EmulationType;
+use crate::{FileInput, PlatformId};
 
 bitflags! {
     /// The extra partition options that the image can have
@@ -140,7 +138,32 @@ pub struct BootOptions {
     pub write_boot_catalogue: bool,
 
     pub default: BootEntryOptions,
-    pub entries: Vec<BootEntryOptions>,
+    pub entries: Vec<(BootSectionOptions, BootEntryOptions)>,
+}
+
+impl BootOptions {
+    pub(crate) fn sections(&self) -> Vec<(Option<BootSectionOptions>, BootEntryOptions)> {
+        let mut sections = Vec::new();
+        sections.push((None, self.default.clone()));
+        for (section, entry) in &self.entries {
+            sections.push((Some(section.clone()), entry.clone()));
+        }
+        sections
+    }
+
+    pub(crate) fn entries(&self) -> Vec<BootEntryOptions> {
+        let mut entries = Vec::new();
+        entries.push(self.default.clone());
+        for (_, entry) in &self.entries {
+            entries.push(entry.clone());
+        }
+        entries
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BootSectionOptions {
+    pub platform_id: PlatformId,
 }
 
 #[derive(Debug, Clone)]
