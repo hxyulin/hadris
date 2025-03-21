@@ -3,10 +3,7 @@ use hadris_iso::{
     BootEntryOptions, BootOptions, BootSectionOptions, EmulationType, FileInput, FormatOptions,
     IsoImage, PartitionOptions, PlatformId,
 };
-use std::{
-    fs::OpenOptions,
-    path::PathBuf,
-};
+use std::{fs::OpenOptions, path::PathBuf};
 
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
@@ -89,6 +86,7 @@ fn write(isoroot: PathBuf, output: &PathBuf) {
             )],
         });
 
+    // TODO: Empty directories don't work
     IsoImage::<std::fs::File>::format_file(output, options).unwrap();
 }
 

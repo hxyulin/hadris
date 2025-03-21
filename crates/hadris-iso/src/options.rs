@@ -8,8 +8,29 @@ bitflags! {
     /// The extra partition options that the image can have
     #[derive(Debug, Clone, Copy)]
     pub struct PartitionOptions: u8 {
-        const PROTECTIVE_MBR = 0b00000001;
+        /// Use the MBR partition table
+        const MBR = 0b0000001;
+        /// Uses a protective MBR, which prevents MBR disks from overriding UEFI disk if they
+        /// didn't parse El-Torito. This is recommended if you are using a GPT partition table.
+        const PROTECTIVE_MBR = 0b0000011;
+        /// Use the GPT partition table
+        const GPT = 0b000000100;
     }
+}
+
+/// The strictness of the image
+///
+/// TODO: Make this a numberical value instead of an enum
+#[repr(u8)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Strictness {
+    /// There are no checks to validate the image
+    Relaxed,
+    /// There are no strict checks to validate the image
+    #[default]
+    Default,
+    /// There are strict checks to validate the image
+    Strict,
 }
 
 /// The options for formatting a new ISO image
@@ -18,6 +39,7 @@ bitflags! {
 pub struct FormatOptions {
     pub files: FileInput,
     pub format: PartitionOptions,
+    pub strictness: Strictness,
     #[cfg(feature = "el-torito")]
     pub boot: Option<BootOptions>,
 }
@@ -26,15 +48,12 @@ fn align_to_sector(size: usize) -> usize {
     (size + 2047) & !2047
 }
 
-fn to_sectors_ceil(size: usize) -> usize {
-    (size + 2047) / 2048
-}
-
 impl FormatOptions {
     pub const fn new() -> Self {
         FormatOptions {
             files: FileInput::empty(),
             format: PartitionOptions::empty(),
+            strictness: Strictness::Default,
             #[cfg(feature = "el-torito")]
             boot: None,
         }
@@ -47,6 +66,11 @@ impl FormatOptions {
 
     pub fn with_format_options(mut self, options: PartitionOptions) -> Self {
         self.format = options;
+        self
+    }
+
+    pub fn with_strictness(mut self, strictness: Strictness) -> Self {
+        self.strictness = strictness;
         self
     }
 

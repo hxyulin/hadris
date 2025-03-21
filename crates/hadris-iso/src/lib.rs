@@ -32,6 +32,10 @@ mod volume;
 
 pub use directory::*;
 pub use file::*;
+use hadris_common::part::{
+    gpt::GptPartitionTableHeader,
+    mbr::{Chs, MbrPartitionTable, MbrPartitionType},
+};
 pub use options::*;
 pub use path::*;
 
@@ -89,29 +93,23 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
     /// Formats a new ISO image,
     /// for a more convenient API, see [`Self::format_file`] for [`std::fs::File`]
     pub fn format_new(data: &'a mut T, mut ops: FormatOptions) -> Result<(), IsoImageError> {
-        let size_bytes = data.seek(SeekFrom::End(0))?;
-        let min_size = ops.image_len().0;
-        if size_bytes < min_size {
-            return Err(IsoImageError::ImageTooSmall(min_size, size_bytes));
-        }
+        if ops.strictness >= Strictness::Default {
+            let size_bytes = data.seek(SeekFrom::End(0))?;
+            let min_size = ops.image_len().0;
+            if size_bytes < min_size {
+                return Err(IsoImageError::ImageTooSmall(min_size, size_bytes));
+            }
 
-        let size_sectors = size_bytes / 2048;
-        log::trace!(
-            "Started formatting ISO image with {} sectors ({}) bytes)",
-            size_sectors,
-            size_bytes
-        );
-
-        if ops.format.contains(PartitionOptions::PROTECTIVE_MBR) {
-            data.seek(SeekFrom::Start(0))?;
-            data.write_all(bytemuck::bytes_of(&ProtectiveMBR::new(size_sectors as u32)))?;
+            log::trace!(
+                "Started formatting ISO image with {} sectors ({}) bytes)",
+                size_bytes / 2048,
+                size_bytes
+            );
         }
 
         let mut volume_descriptors = VolumeDescriptorList::empty();
 
-        volume_descriptors.push(VolumeDescriptor::Primary(PrimaryVolumeDescriptor::new(
-            size_sectors as u32,
-        )));
+        volume_descriptors.push(VolumeDescriptor::Primary(PrimaryVolumeDescriptor::new(0)));
 
         #[cfg(feature = "el-torito")]
         if let Some(boot_ops) = &ops.boot {
@@ -252,13 +250,72 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
             catalog.write(data)?;
             data.seek(SeekFrom::Start(end))?;
         }
-        let end = Self::align(data)?;
+        Self::align(data)?;
+        let size_bytes = data.stream_position()?;
+        let size_sectors = size_bytes / 2048;
+
+        if ops.format.contains(PartitionOptions::MBR) {
+            if ops.strictness >= Strictness::Default {
+                data.seek(SeekFrom::Start(446))?;
+                let mut buf: [u8; 66] = [0; 66];
+                data.read_exact(&mut buf)?;
+                for i in 0..66 {
+                    if buf[i] != 0 {
+                        log::warn!(
+                            "Found non-zero byte at offset {i}, this will be overwritten by the MBR"
+                        );
+                    }
+                }
+            }
+            data.seek(SeekFrom::Start(446))?;
+            let mut mbr = MbrPartitionTable::default();
+            let block_count = u32::try_from(size_sectors * 4).unwrap_or(u32::MAX);
+
+            mbr.partitions[0].start_head = Chs::new(1);
+            mbr.partitions[0].end_head = Chs::new(block_count);
+            let part_type = if ops.format.contains(PartitionOptions::PROTECTIVE_MBR) {
+                log::trace!("Using protective MBR");
+                MbrPartitionType::ProtectiveMbr
+            } else {
+                log::trace!("Using ISO9660 MBR");
+                MbrPartitionType::Iso9660
+            };
+
+            mbr.partitions[0].part_type = part_type.to_u8();
+            mbr.partitions[0].start_sector.set(1);
+            mbr.partitions[0].block_count.set(block_count);
+
+            data.write_all(bytemuck::bytes_of(&mbr))?;
+            data.write_all(&[0x55, 0xAA])?;
+        }
+
+        if ops.format.contains(PartitionOptions::GPT) {
+            data.seek(SeekFrom::Start(2048))?;
+            let mut buf: [u8; 2048] = [0; 2048];
+            data.read_exact(&mut buf)?;
+            data.seek(SeekFrom::Start(2048))?;
+            for i in 0..2048 {
+                if buf[i] != 0 {
+                    log::warn!(
+                        "Found non-zero byte at offset {i}, this will be overwritten by the GPT"
+                    );
+                }
+            }
+            let gpt = GptPartitionTableHeader::default();
+            // TODO: Implement GPT entries and partitions, which we can put at the end of the image
+            // 128 * 128 = 16KiB = 8 sectors
+            data.write_all(bytemuck::bytes_of(&gpt))?;
+        }
 
         data.seek(SeekFrom::Start(16 * 2048))?;
+        volume_descriptors
+            .primary_mut()
+            .volume_space_size
+            .write((size_bytes / 2048) as u32);
         volume_descriptors.write(data)?;
 
         // We need to be at the end of the image
-        data.seek(SeekFrom::Start(end))?;
+        data.seek(SeekFrom::Start(size_bytes))?;
         Ok(())
     }
 
@@ -551,46 +608,6 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
         assert_eq!(mtable_end - end, path_table_ref.size);
 
         Ok(path_table_ref)
-    }
-}
-
-#[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
-struct ProtectiveMBR {
-    boot_code: [u8; 446],      // Empty or boot code
-    partition_entry: [u8; 16], // Protective Partition
-    reserved: [u8; 48],        // Unused
-    boot_signature: [u8; 2],   // Must be [0x55, 0xAA]
-}
-
-unsafe impl bytemuck::Zeroable for ProtectiveMBR {}
-unsafe impl bytemuck::Pod for ProtectiveMBR {}
-
-impl ProtectiveMBR {
-    pub fn new(total_sectors: u32) -> Self {
-        ProtectiveMBR {
-            boot_code: [0; 446],
-            partition_entry: [
-                0x00,
-                0xFF,
-                0xFF,
-                0xFF, // Status & CHS Start
-                0x17, // Partition Type (Hidden NTFS / ISO)
-                0xFF,
-                0xFF,
-                0xFF, // CHS End
-                0x01,
-                0x00,
-                0x00,
-                0x00, // LBA Start (1 sector after MBR)
-                (total_sectors & 0xFF) as u8,
-                ((total_sectors >> 8) & 0xFF) as u8,
-                ((total_sectors >> 16) & 0xFF) as u8,
-                ((total_sectors >> 24) & 0xFF) as u8,
-            ],
-            reserved: [0; 48],
-            boot_signature: [0x55, 0xAA],
-        }
     }
 }
 

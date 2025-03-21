@@ -34,6 +34,16 @@ pub enum EndianType {
 }
 
 impl EndianType {
+    pub const fn is_le(&self) -> bool {
+        #[cfg(target_endian = "little")]
+        {
+            matches!(self, Self::LittleEndian | Self::NativeEndian)
+        }
+        #[cfg(target_endian = "big")]
+        {
+            matches!(self, Self::LittleEndian)
+        }
+    }
     /// Reads a `u16` from the given bytes in the specified endianness.
     pub fn read_u16(&self, bytes: [u8; 2]) -> u16 {
         match self {
