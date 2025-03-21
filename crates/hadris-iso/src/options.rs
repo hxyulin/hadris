@@ -140,13 +140,13 @@ impl FormatOptions {
             let max_catalog_size = align_to_sector(boot.entries.len() * 512 + 64) as u64;
             min += min_catalog_size;
             max += max_catalog_size;
+        }
 
-            // Additional size if we write the boot catalogue
-            // We need to write the data and the file entry
-            if boot.write_boot_catalogue {
-                min += min_catalog_size + 34;
-                max += max_catalog_size + 2048;
-            }
+        if self.format.contains(PartitionOptions::GPT) {
+            // We need to reserve space for the backup GPT
+            let gpt_size = 128 * 128 + 512;
+            min += gpt_size;
+            max += gpt_size;
         }
 
         // TODO: Minimum size is not correct, can be smaller

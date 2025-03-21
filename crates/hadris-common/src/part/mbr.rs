@@ -1,6 +1,11 @@
+use std::{
+    fmt::Debug,
+    ops::{Index, IndexMut},
+};
+
 use crate::types::{
     endian::{Endian, LittleEndian},
-    number::{U24, U32},
+    number::U32,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -63,9 +68,23 @@ impl MbrPartitionType {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 pub struct Chs([u8; 3]);
+
+impl Debug for Chs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let cylinder = self.cylinder();
+        let head = self.head();
+        let sector = self.sector();
+
+        f.debug_struct("Chs")
+            .field("c", &cylinder)
+            .field("h", &head)
+            .field("s", &sector)
+            .finish()
+    }
+}
 
 impl Chs {
     const SECTORS_PER_TRACK: u32 = 63;
@@ -88,19 +107,27 @@ impl Chs {
         ])
     }
 
+    pub fn head(&self) -> u8 {
+        self.0[0]
+    }
+
+    pub fn sector(&self) -> u8 {
+        self.0[1] & 0b00111111
+    }
+
+    pub fn cylinder(&self) -> u16 {
+        ((self.0[1] as u16 & 0b11000000) << 2) | (self.0[2] as u16)
+    }
+
     pub fn as_lba(&self) -> u32 {
         if self.0 == [0xFF, 0xFF, 0xFF] {
             return u32::MAX;
         }
 
-        self.0[0] as u32 * Self::SECTORS_PER_TRACK
-            + ((self.0[1] & 0b00111111) as u32 - 1)
-            + (((self.0[1] & 0b11000000) as u32) << 2)
-                * Self::SECTORS_PER_TRACK
-                * Self::HEADS_PER_CYLINDER
-            + self.0[2] as u32
-                * Self::HEADS_PER_CYLINDER
-                * Self::SECTORS_PER_TRACK
+        self.cylinder() as u32 * Self::SECTORS_PER_TRACK * Self::HEADS_PER_CYLINDER
+            + self.sector() as u32
+            - 1
+            + self.head() as u32 * Self::SECTORS_PER_TRACK
     }
 }
 
@@ -130,7 +157,18 @@ impl Default for MbrPartition {
     }
 }
 
-impl MbrPartition {}
+impl MbrPartition {
+    /// Returns whether the partition is empty
+    ///
+    /// This currently only checks for the partition type, and does not check for any other
+    /// properties. This is technically not spec compliant, but we want to account for user
+    /// error and not have a corrupted partition.
+    pub fn is_empty(&self) -> bool {
+        // We try to leniant when checking for empty partitions, because we rather miss some
+        // partitions than have a corrupt one
+        self.part_type == 0x00
+    }
+}
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
@@ -144,6 +182,54 @@ impl Default for MbrPartitionTable {
         Self {
             partitions: [MbrPartition::default(); 4],
         }
+    }
+}
+
+impl MbrPartitionTable {
+    pub fn len(&self) -> usize {
+        let mut count = 0;
+        for partition in self.partitions {
+            if partition.is_empty() {
+                break;
+            }
+            count += 1;
+        }
+        count
+    }
+
+    pub fn is_valid(&self) -> bool {
+        // FIXME: Implement a more robust validation
+
+        let mut empty = false;
+        for partition in self.partitions {
+            // Boot indicator is not 0x00, or 0x80
+            if (partition.boot_indicator & !0x80) != 0 {
+                return false;
+            }
+            let is_empty = partition.is_empty();
+            if empty && !is_empty {
+                // Bytes exist after an empty entry
+                return false;
+            }
+            if is_empty {
+                empty = true;
+            }
+        }
+        true
+    }
+}
+
+impl Index<usize> for MbrPartitionTable {
+    type Output = MbrPartition;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.partitions[index]
+    }
+}
+
+impl IndexMut<usize> for MbrPartitionTable {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.partitions[index]
     }
 }
 

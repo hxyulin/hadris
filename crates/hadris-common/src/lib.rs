@@ -1,8 +1,8 @@
-/// Types
-pub mod types;
+/// Algorithms
+pub mod alg;
 /// Partitions
 pub mod part;
 /// Strings
 pub mod str;
-/// Algorithms
-pub mod alg;
+/// Types
+pub mod types;

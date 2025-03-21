@@ -62,7 +62,7 @@ fn main() {
 fn write(isoroot: PathBuf, output: &PathBuf) {
     let options = FormatOptions::new()
         .with_files(FileInput::from_fs(isoroot).unwrap())
-        .with_format_options(PartitionOptions::PROTECTIVE_MBR)
+        .with_format_options(PartitionOptions::PROTECTIVE_MBR | PartitionOptions::GPT)
         .with_boot_options(BootOptions {
             write_boot_catalogue: true,
             default: BootEntryOptions {
@@ -87,13 +87,11 @@ fn write(isoroot: PathBuf, output: &PathBuf) {
         });
 
     // TODO: Empty directories don't work
-    IsoImage::<std::fs::File>::format_file(output, options).unwrap();
+    IsoImage::format_file(output, options).unwrap();
 }
 
 fn read(file: &PathBuf) {
     let mut file = OpenOptions::new().read(true).open(file).unwrap();
-    let mut iso = hadris_iso::IsoImage::new(&mut file).unwrap();
-    let mut root_dir = iso.root_directory();
-    println!("Root Directory: {:#?}", root_dir.entries());
-    println!("Path table: {:#?}", iso.path_table().entries());
+    let mut iso = hadris_iso::IsoImage::parse(&mut file).unwrap();
+    let mut _root_dir = iso.root_directory();
 }

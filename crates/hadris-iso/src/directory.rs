@@ -1,6 +1,9 @@
 use std::io::{SeekFrom, Write};
 
-use crate::{types::{IsoStringFile, U16LsbMsb, U32LsbMsb}, ReadWriteSeek};
+use crate::{
+    ReadWriteSeek,
+    types::{IsoStringFile, U16LsbMsb, U32LsbMsb},
+};
 
 /// The header of a directory record, because the identifier is variable length,
 #[repr(C)]
@@ -244,4 +247,3 @@ impl<'a, T: ReadWriteSeek> IsoDirectory<'a, T> {
         }
     }
 }
-

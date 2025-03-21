@@ -15,4 +15,6 @@ bytemuck = ["dep:bytemuck"]
 
 [dependencies]
 bytemuck = { workspace = true, optional = true, features = ["derive"] }
-crc32fast = "1.4.2"
+chrono = "0.4.40"
+crc = "3.2.1"
+rand = "0.9.0"

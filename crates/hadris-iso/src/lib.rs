@@ -30,10 +30,11 @@ mod path;
 mod types;
 mod volume;
 
+use bytemuck::Zeroable;
 pub use directory::*;
 pub use file::*;
 use hadris_common::part::{
-    gpt::GptPartitionTableHeader,
+    gpt::{GptPartitionEntry, GptPartitionTableHeader, Guid},
     mbr::{Chs, MbrPartitionTable, MbrPartitionType},
 };
 pub use options::*;
@@ -68,7 +69,7 @@ pub struct IsoImage<'a, T: ReadWriteSeek> {
     path_table: PathTableRef,
 }
 
-impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
+impl<'a> IsoImage<'a, std::fs::File> {
     pub fn format_file<P>(path: P, options: FormatOptions) -> Result<std::fs::File, IsoImageError>
     where
         P: AsRef<std::path::Path>,
@@ -90,6 +91,9 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         file.flush()?;
         Ok(file)
     }
+}
+
+impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
     /// Formats a new ISO image,
     /// for a more convenient API, see [`Self::format_file`] for [`std::fs::File`]
     pub fn format_new(data: &'a mut T, mut ops: FormatOptions) -> Result<(), IsoImageError> {
@@ -128,6 +132,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
             if boot_ops.write_boot_catalogue {
                 log::trace!("Appending boot catalogue to file list");
                 let size = 96 + boot_ops.entries.len() * 64;
+                let size = (size + 2047) & !2047;
                 ops.files.append(file::File {
                     path: "boot.catalog".to_string(),
                     data: file::FileData::Data(vec![0; size]),
@@ -161,16 +166,6 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
             // TODO: Support more than just the default entry
             let mut catalog = BootCatalogue::default();
 
-            let (_, catalog_file) = IsoDirectory {
-                reader: data,
-                directory: root_dir.clone(),
-            }
-            .entries()?
-            .iter()
-            .find(|(_idx, e)| e.name.to_str() == "boot.catalog")
-            .expect("Could not find the boot catalogue in ISO filesystem")
-            .clone();
-
             let current_index = Self::align(data)?;
 
             for (section, mut entry) in boot_ops.sections() {
@@ -185,7 +180,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
                 .clone();
 
                 if entry.load_size == 0 {
-                    entry.load_size = ((file.header.data_len.read() + 2047) / 2048) as u16;
+                    entry.load_size = ((file.header.data_len.read() + 511) / 512) as u16;
                 }
                 let boot_image_lba = file.header.extent.read();
                 let boot_entry =
@@ -232,25 +227,98 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
                 }
             }
 
-            data.seek(SeekFrom::Start(current_index))?;
+            let catalog_ptr = if boot_ops.write_boot_catalogue {
+                let (_, catalog_file) = IsoDirectory {
+                    reader: data,
+                    directory: root_dir.clone(),
+                }
+                .entries()?
+                .iter()
+                .find(|(_idx, e)| e.name.to_str() == "boot.catalog")
+                .expect("Could not find the boot catalogue in ISO filesystem")
+                .clone();
 
-            let catalogue_start = Self::align(data)? / 2048;
+                let catalog_start = catalog_file.header.extent.read() as u64;
+                data.seek(SeekFrom::Start(catalog_start * 2048))?;
+                assert!(catalog_file.header.data_len.read() as usize >= catalog.size());
+                catalog.write(data)?;
+                data.seek(SeekFrom::Start(current_index))?;
+
+                catalog_start as u32
+            } else {
+                data.seek(SeekFrom::Start(current_index))?;
+                catalog.write(data)?;
+                (Self::align(data)? / 2048) as u32
+            };
+
             volume_descriptors
                 .boot_record_mut()
                 .unwrap()
                 .catalog_ptr
-                .set(catalogue_start as u32);
-            catalog.write(data)?;
-            let end = Self::align(data)?;
-
-            data.seek(SeekFrom::Start(
-                catalog_file.header.extent.read() as u64 * 2048,
-            ))?;
-            assert!(catalog_file.header.data_len.read() as usize >= catalog.size());
-            catalog.write(data)?;
-            data.seek(SeekFrom::Start(end))?;
+                .set(catalog_ptr);
+            Self::align(data)?;
         }
-        Self::align(data)?;
+
+        if ops.format.contains(PartitionOptions::GPT) {
+            log::trace!("Writing Guid Partition Table at 512b");
+            // Current sector in terms of 512 byte sectors
+            let current_sector = data.stream_position()? / 512;
+
+            data.seek(SeekFrom::Start(512))?;
+            let mut buf: [u8; 512] = [0; 512];
+            data.read_exact(&mut buf)?;
+            data.seek(SeekFrom::Start(512))?;
+            for i in 0..512 {
+                if buf[i] != 0 {
+                    log::warn!(
+                        "Found non-zero byte at offset {i}, this will be overwritten by the GPT"
+                    );
+                }
+            }
+            let mut gpt = GptPartitionTableHeader::default();
+
+            // We need to be careful here, because the LBA is 512 bytes, but we are using 2048 byte sectors
+
+            gpt.current_lba.set(1);
+            let sectors_used_by_entries = 128 * 128 / 512;
+            let backup_sector = current_sector + sectors_used_by_entries;
+            assert!(
+                sectors_used_by_entries + 1 < 64,
+                "GPT partition overrides volume descriptors"
+            );
+            // The first non 'system area' / usable sector is at 16 * 2048b
+            gpt.first_usable_lba.set(64);
+            gpt.partition_entry_lba.set(2);
+            // Subtract 1 because GPT ranges are inclusive
+            gpt.last_usable_lba.set(current_sector - 1);
+            gpt.backup_lba.set(backup_sector);
+            gpt.disk_guid = Guid::generate_v4();
+            gpt.num_partition_entries.set(128);
+
+            let entries = [GptPartitionEntry::zeroed(); 128];
+            use hadris_common::alg::hash::crc::Crc32HasherIsoHdlc;
+            let checksum = Crc32HasherIsoHdlc::checksum(bytemuck::bytes_of(&entries));
+            gpt.partition_entry_array_crc32.set(checksum);
+
+            // We need to extend image size to include the backup entries and header
+            gpt.generate_crc32();
+
+            // Write primary GPT
+            data.write_all(bytemuck::bytes_of(&gpt))?;
+            data.write_all(bytemuck::bytes_of(&entries))?;
+
+            // Write backup GPT
+            data.seek(SeekFrom::Start(current_sector * 512))?;
+            gpt.partition_entry_lba
+                .set(backup_sector - sectors_used_by_entries);
+            gpt.generate_crc32();
+            data.write_all(bytemuck::bytes_of(&entries))?;
+            data.write_all(bytemuck::bytes_of(&gpt))?;
+
+            // GPT is aligned to 512 bytes, but we need 2048 bytes aligned
+            IsoImage::align(data)?;
+        }
+
         let size_bytes = data.stream_position()?;
         let size_sectors = size_bytes / 2048;
 
@@ -289,24 +357,6 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
             data.write_all(&[0x55, 0xAA])?;
         }
 
-        if ops.format.contains(PartitionOptions::GPT) {
-            data.seek(SeekFrom::Start(2048))?;
-            let mut buf: [u8; 2048] = [0; 2048];
-            data.read_exact(&mut buf)?;
-            data.seek(SeekFrom::Start(2048))?;
-            for i in 0..2048 {
-                if buf[i] != 0 {
-                    log::warn!(
-                        "Found non-zero byte at offset {i}, this will be overwritten by the GPT"
-                    );
-                }
-            }
-            let gpt = GptPartitionTableHeader::default();
-            // TODO: Implement GPT entries and partitions, which we can put at the end of the image
-            // 128 * 128 = 16KiB = 8 sectors
-            data.write_all(bytemuck::bytes_of(&gpt))?;
-        }
-
         data.seek(SeekFrom::Start(16 * 2048))?;
         volume_descriptors
             .primary_mut()
@@ -319,7 +369,107 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         Ok(())
     }
 
+    #[deprecated(since = "0.0.1", note = "Use `parse` instead")]
     pub fn new(data: &'a mut T) -> Result<Self, std::io::Error> {
+        Self::parse(data)
+    }
+
+    pub fn parse(data: &'a mut T) -> Result<Self, std::io::Error> {
+        {
+            data.seek(SeekFrom::Start(446))?;
+            let mut mbr = MbrPartitionTable::default();
+            data.read_exact(bytemuck::bytes_of_mut(&mut mbr))?;
+            if mbr.is_valid() {
+                let len = mbr.len();
+                log::trace!("Found MBR partition table with {} entries", len);
+                for i in 0..len {
+                    log::trace!("\tPartition {}:", i);
+                    log::trace!("\t\tStart sector: {}", mbr[i].start_sector);
+                    log::trace!("\t\tSector count: {}", mbr[i].block_count);
+                    log::trace!(
+                        "\t\tType: {:?}",
+                        MbrPartitionType::from_u8(mbr[i].part_type)
+                    );
+                }
+            }
+        }
+
+        {
+            data.seek(SeekFrom::Start(512))?;
+            let mut gpt_header = GptPartitionTableHeader::default();
+            data.read_exact(bytemuck::bytes_of_mut(&mut gpt_header))?;
+            if gpt_header.is_valid() {
+                log::trace!(
+                    "Found GPT partition table with {} entries",
+                    gpt_header.num_partition_entries
+                );
+                let checksum = gpt_header.crc32.get();
+                gpt_header.generate_crc32();
+                if checksum != gpt_header.crc32.get() {
+                    log::warn!(
+                        "GPT header CRC32 checksum mismatch, got {:#x}, expected {:#x}",
+                        gpt_header.crc32.get(),
+                        checksum
+                    );
+                }
+                log::trace!("\tRevision: {}", gpt_header.revision);
+                log::trace!("\tHeader size: {}", gpt_header.header_size);
+                log::trace!("\tCRC32: {}", gpt_header.crc32);
+                log::trace!("\tDisk GUID: {}", gpt_header.disk_guid);
+                log::trace!("\tCurrent LBA: {}", gpt_header.current_lba);
+                log::trace!("\tBackup LBA: {}", gpt_header.backup_lba);
+                log::trace!("\tFirst usable LBA: {}", gpt_header.first_usable_lba);
+                log::trace!("\tLast usable LBA: {}", gpt_header.last_usable_lba);
+                log::trace!("\tPartition entry LBA: {}", gpt_header.partition_entry_lba);
+                log::trace!(
+                    "\tNum partition entries: {}",
+                    gpt_header.num_partition_entries
+                );
+                log::trace!(
+                    "\tSize of partition entry: {}",
+                    gpt_header.size_of_partition_entry
+                );
+                log::trace!(
+                    "\tPartition entry array CRC32: {}",
+                    gpt_header.partition_entry_array_crc32
+                );
+
+                data.seek(SeekFrom::Start(
+                    gpt_header.partition_entry_lba.get() as u64 * 512,
+                ))?;
+                let mut entries = vec![
+                    GptPartitionEntry::zeroed();
+                    gpt_header.num_partition_entries.get() as usize
+                ];
+                data.read_exact(bytemuck::cast_slice_mut(&mut entries))?;
+                for entry in entries.iter_mut() {
+                    if entry.is_empty() {
+                        continue;
+                    }
+                    let name = entry
+                        .partition_name
+                        .to_string()
+                        .unwrap_or("Invalid UTF-8".to_string());
+                    log::trace!("\tPartition {}:", name);
+                    log::trace!("\t\tType GUID: {}", entry.type_guid);
+                    log::trace!("\t\tUnique GUID: {}", entry.unique_partition_guid);
+                    log::trace!("\t\tStarting LBA: {}", entry.starting_lba);
+                    log::trace!("\t\tEnding LBA: {}", entry.ending_lba);
+                    log::trace!("\t\tAttributes: {}", entry.attributes);
+                    log::trace!("\t\tPartition name: {}", name);
+                }
+
+                let backup = gpt_header.backup_lba.get() as u64 * 512;
+                data.seek(SeekFrom::Start(backup))?;
+                let mut backup_header = GptPartitionTableHeader::default();
+                data.read_exact(bytemuck::bytes_of_mut(&mut backup_header))?;
+                if !backup_header.is_valid() {
+                    log::warn!("Found invalid backup GPT header at LBA {}", backup);
+                }
+                // TODO: Calculate the checksum for backup
+            }
+        }
+
         data.seek(SeekFrom::Start(16 * 2048))?;
         let volume_descriptors = VolumeDescriptorList::parse(data)?;
 
