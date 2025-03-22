@@ -113,7 +113,10 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
 
         let mut volume_descriptors = VolumeDescriptorList::empty();
 
-        volume_descriptors.push(VolumeDescriptor::Primary(PrimaryVolumeDescriptor::new(0)));
+        volume_descriptors.push(VolumeDescriptor::Primary(PrimaryVolumeDescriptor::new(
+            ops.volume_name.as_str(),
+            0,
+        )));
 
         #[cfg(feature = "el-torito")]
         if let Some(boot_ops) = &ops.boot {
@@ -169,13 +172,17 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
             let current_index = Self::align(data)?;
 
             for (section, mut entry) in boot_ops.sections() {
-                let (_, file) = IsoDirectory {
+                // TODO: We need to abstract this, because this only allows searching root directory
+                let name = FileInterchange::L3
+                    .from_str(&entry.boot_image_path)
+                    .unwrap();
+                let (_, file) = IsoDir {
                     reader: data,
                     directory: root_dir.clone(),
                 }
                 .entries()?
                 .iter()
-                .find(|(_idx, e)| e.name.to_str() == entry.boot_image_path)
+                .find(|(_idx, e)| e.name == name)
                 .unwrap()
                 .clone();
 
@@ -227,14 +234,15 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
                 }
             }
 
+            let name = FileInterchange::L3.from_str("boot.catalog").unwrap();
             let catalog_ptr = if boot_ops.write_boot_catalogue {
-                let (_, catalog_file) = IsoDirectory {
+                let (_, catalog_file) = IsoDir {
                     reader: data,
                     directory: root_dir.clone(),
                 }
                 .entries()?
                 .iter()
-                .find(|(_idx, e)| e.name.to_str() == "boot.catalog")
+                .find(|(_idx, e)| e.name == name)
                 .expect("Could not find the boot catalogue in ISO filesystem")
                 .clone();
 
@@ -259,7 +267,18 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
             Self::align(data)?;
         }
 
-        if ops.format.contains(PartitionOptions::GPT) {
+        if let Some(system_area) = &ops.system_area {
+            let restore_pos = data.stream_position()?;
+            assert!(system_area.len() <= 16 * 2048);
+            data.seek(SeekFrom::Start(0))?;
+            data.write_all(system_area)?;
+            data.seek(SeekFrom::Start(restore_pos))?;
+        }
+
+        let write_format =
+            ops.system_area.is_none() || ops.format.contains(PartitionOptions::OVERWRITE_FORMAT);
+
+        if write_format && ops.format.contains(PartitionOptions::GPT) {
             log::trace!("Writing Guid Partition Table at 512b");
             // Current sector in terms of 512 byte sectors
             let current_sector = data.stream_position()? / 512;
@@ -322,7 +341,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         let size_bytes = data.stream_position()?;
         let size_sectors = size_bytes / 2048;
 
-        if ops.format.contains(PartitionOptions::MBR) {
+        if write_format && ops.format.contains(PartitionOptions::MBR) {
             if ops.strictness >= Strictness::Default {
                 data.seek(SeekFrom::Start(446))?;
                 let mut buf: [u8; 66] = [0; 66];
@@ -503,8 +522,8 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         })
     }
 
-    pub fn root_directory(&mut self) -> IsoDirectory<T> {
-        IsoDirectory {
+    pub fn root_directory(&mut self) -> IsoDir<T> {
+        IsoDir {
             reader: &mut self.data,
             directory: self.root_directory,
         }
@@ -565,6 +584,7 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
     /// Files with higher depth are written first
     fn sort_by_depth(files: &mut Vec<file::File>) {
         files.sort_by(|a, b| {
+            // PERF: We can probably pre-compute the depths here when generating the FileInput
             let a_depth = a.path.split('/').count();
             let b_depth = b.path.split('/').count();
             a_depth.cmp(&b_depth)
@@ -603,17 +623,14 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
 
     fn write_directory_data(&mut self) -> Result<DirectoryRef, std::io::Error> {
         log::trace!("Started writing directory data");
-        let current_dir_ent =
-            DirectoryRecord::new(&[0x00], DirectoryRef::default(), FileFlags::DIRECTORY);
-        let parent_dir_ent =
-            DirectoryRecord::new(&[0x01], DirectoryRef::default(), FileFlags::DIRECTORY);
+        let default_entry = DirectoryRecord::with_len(1);
 
         // In the first pass, we just write all of the directories from the leaves
         for file in &self.dirs {
             let start_sector = IsoImage::current_sector(self.writer);
             // We can just leave these as default, we modify them in a second pass
-            current_dir_ent.write(self.writer)?;
-            parent_dir_ent.write(self.writer)?;
+            default_entry.write(self.writer)?;
+            default_entry.write(self.writer)?;
 
             for entry in file.get_children() {
                 let fullname = if file.path.is_empty() {
@@ -630,7 +647,8 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
                     FileFlags::empty()
                 };
                 log::trace!("Writing directory record for {}", fullname);
-                DirectoryRecord::new(stem.as_bytes(), *file_ref, flags).write(self.writer)?;
+                let name = FileInterchange::L3.from_str(stem).unwrap();
+                DirectoryRecord::new(name, *file_ref, flags).write(self.writer)?;
             }
 
             let end = IsoImage::align(self.writer)?;
@@ -649,11 +667,20 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
             let start = dir_ref.offset * 2048;
             self.writer.seek(SeekFrom::Start(start))?;
 
-            DirectoryRecord::new(&[0x00], dir_ref, FileFlags::DIRECTORY).write(&mut self.writer)?;
-            DirectoryRecord::new(&[0x01], parent_ref, FileFlags::DIRECTORY)
-                .write(&mut self.writer)?;
+            DirectoryRecord::new(
+                IsoStringFile::from_bytes(&[0x00]),
+                dir_ref,
+                FileFlags::DIRECTORY,
+            )
+            .write(&mut self.writer)?;
+            DirectoryRecord::new(
+                IsoStringFile::from_bytes(&[0x01]),
+                parent_ref,
+                FileFlags::DIRECTORY,
+            )
+            .write(&mut self.writer)?;
 
-            let mut reader = IsoDirectory {
+            let mut reader = IsoDir {
                 reader: self.writer,
                 directory: dir_ref,
             };

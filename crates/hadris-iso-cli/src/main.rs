@@ -61,6 +61,7 @@ fn main() {
 
 fn write(isoroot: PathBuf, output: &PathBuf) {
     let options = FormatOptions::new()
+        .with_volume_name("LIMINEBOOT".to_string())
         .with_files(FileInput::from_fs(isoroot).unwrap())
         .with_format_options(PartitionOptions::PROTECTIVE_MBR | PartitionOptions::GPT)
         .with_boot_options(BootOptions {

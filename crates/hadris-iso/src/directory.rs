@@ -1,5 +1,7 @@
 use std::io::{SeekFrom, Write};
 
+use bytemuck::Zeroable;
+
 use crate::{
     ReadWriteSeek,
     types::{IsoStringFile, U16LsbMsb, U32LsbMsb},
@@ -60,6 +62,15 @@ pub struct DirectoryRecord {
     pub name: IsoStringFile,
 }
 
+impl Default for DirectoryRecord {
+    fn default() -> Self {
+        Self {
+            header: DirectoryRecordHeader::default(),
+            name: IsoStringFile::empty(),
+        }
+    }
+}
+
 impl DirectoryRecord {
     pub fn size(&self) -> usize {
         size_of::<DirectoryRecordHeader>() + self.name.len()
@@ -72,21 +83,32 @@ impl DirectoryRecord {
         bytes
     }
 
-    pub fn new(name: &[u8], dir_ref: DirectoryRef, flags: FileFlags) -> Self {
+    pub fn new(name: IsoStringFile, dir_ref: DirectoryRef, flags: FileFlags) -> Self {
         Self {
             header: DirectoryRecordHeader {
                 len: ((size_of::<DirectoryRecordHeader>() + name.len() + 1) & !1) as u8,
                 extended_attr_record: 0,
                 extent: U32LsbMsb::new(dir_ref.offset as u32),
                 data_len: U32LsbMsb::new(dir_ref.size as u32),
-                date_time: DirDateTime::default(),
+                date_time: DirDateTime::now(),
                 flags: flags.bits(),
                 file_unit_size: 0,
                 interleave_gap_size: 0,
                 volume_sequence_number: U16LsbMsb::new(1),
                 file_identifier_len: name.len() as u8,
             },
-            name: IsoStringFile::from_bytes(name),
+            name,
+        }
+    }
+
+    /// Creates a new directory record with a given name length
+    pub fn with_len(len: u8) -> Self {
+        Self {
+            header: DirectoryRecordHeader {
+                file_identifier_len: len,
+                ..Default::default()
+            },
+            name: IsoStringFile::with_size(len as usize),
         }
     }
 
@@ -141,6 +163,23 @@ impl Default for DirDateTime {
     }
 }
 
+impl DirDateTime {
+    pub fn now() -> Self {
+        use chrono::{Datelike, Timelike, Utc};
+        let now = Utc::now();
+        Self {
+            year: (now.year() - 1900) as u8,
+            month: now.month() as u8,
+            day: now.day() as u8,
+            hour: now.hour() as u8,
+            minute: now.minute() as u8,
+            second: now.second() as u8,
+            // UTC offset is always 0
+            offset: 0,
+        }
+    }
+}
+
 #[derive(Default, Debug, Clone, Copy)]
 pub struct DirectoryRef {
     pub offset: u64,
@@ -158,51 +197,46 @@ bitflags::bitflags! {
     }
 }
 
-pub struct IsoDirectory<'a, T: ReadWriteSeek> {
+pub struct IsoDir<'a, T: ReadWriteSeek> {
     pub(crate) reader: &'a mut T,
     pub(crate) directory: DirectoryRef,
 }
-impl<'a, T: ReadWriteSeek> IsoDirectory<'a, T> {
-    // TODO: Make this private after testing
+
+impl<'a, T: ReadWriteSeek> IsoDir<'a, T> {
+    // TODO: Refactor this, because we dont need the offset always
     /// Returns a list of all entries in the directory, along with their offset in the directory
-    pub fn entries(&mut self) -> Result<Vec<(u64, DirectoryRecord)>, std::io::Error> {
+    pub(crate) fn entries(&mut self) -> Result<Vec<(u64, DirectoryRecord)>, std::io::Error> {
+        const ENTRY_SIZE: usize = size_of::<DirectoryRecordHeader>();
         self.reader
             .seek(SeekFrom::Start(self.directory.offset * 2048))?;
-        // This is the easiest implementation, but it's not the most efficient
-        // because we are storing the entire directory in memory.
-        let mut bytes = vec![0; self.directory.size as usize];
-        self.reader.read_exact(&mut bytes)?;
+        let mut offset = 0;
         let mut entries = Vec::new();
-        let mut idx = 0;
-        while idx < bytes.len() {
-            let entry = DirectoryRecordHeader::from_bytes(
-                &bytes[idx..idx + size_of::<DirectoryRecordHeader>()],
-            );
-            if entry.len == 0 {
+        while offset < self.directory.size as usize {
+            let mut header = DirectoryRecordHeader::zeroed();
+            self.reader
+                .read_exact(bytemuck::bytes_of_mut(&mut header))?;
+            // SPEC: We should check if the flag for the NOT_FINAL bit instaed of checking the length (but probably check it as well)
+            if header.len == 0 {
                 break;
             }
-            let name = IsoStringFile::from_bytes(
-                &bytes[idx + size_of::<DirectoryRecordHeader>()
-                    ..idx
-                        + size_of::<DirectoryRecordHeader>()
-                        + entry.file_identifier_len as usize],
-            );
+            let mut bytes = vec![0; header.len as usize - ENTRY_SIZE];
+            self.reader.read_exact(&mut bytes)?;
+            // Truncate to string length, since we don't need the padding
+            _ = bytes.split_off(header.file_identifier_len as usize);
+            offset += header.len as usize;
+
             entries.push((
-                idx as u64,
+                offset as u64,
                 DirectoryRecord {
-                    header: *entry,
-                    name,
+                    header,
+                    name: bytes.into(),
                 },
             ));
-            idx += entry.len as usize;
         }
-        Ok(entries)
+        Ok(entries.into_iter().collect())
     }
 
-    pub fn find_directory(
-        &mut self,
-        name: &str,
-    ) -> Result<Option<IsoDirectory<T>>, std::io::Error> {
+    pub fn find_directory(&mut self, name: &str) -> Result<Option<IsoDir<T>>, std::io::Error> {
         let entry = self.entries()?.iter().find_map(|(_offset, entry)| {
             if entry.name.to_str() == name
                 && FileFlags::from_bits_retain(entry.header.flags).contains(FileFlags::DIRECTORY)
@@ -213,7 +247,7 @@ impl<'a, T: ReadWriteSeek> IsoDirectory<'a, T> {
             }
         });
         match entry {
-            Some(entry) => Ok(Some(IsoDirectory {
+            Some(entry) => Ok(Some(IsoDir {
                 reader: self.reader,
                 directory: DirectoryRef {
                     offset: entry.header.extent.read() as u64,

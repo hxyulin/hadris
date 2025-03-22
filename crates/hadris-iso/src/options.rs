@@ -14,7 +14,10 @@ bitflags! {
         /// didn't parse El-Torito. This is recommended if you are using a GPT partition table.
         const PROTECTIVE_MBR = 0b0000011;
         /// Use the GPT partition table
-        const GPT = 0b000000100;
+        const GPT = 0b00000100;
+        /// Overwrite the system area, even if another system area is provided
+        /// If not, this disables warning when overriding on zero bytes
+        const OVERWRITE_FORMAT = 0b10000000;
     }
 }
 
@@ -33,12 +36,20 @@ pub enum Strictness {
     Strict,
 }
 
+// TODO: Support multiple volume sets
+
 /// The options for formatting a new ISO image
-/// Currently, all the images must be provided in this structure
 #[derive(Debug, Clone)]
 pub struct FormatOptions {
+    pub volume_name: String,
     pub files: FileInput,
     pub format: PartitionOptions,
+    /// The user can provide an image as the system area
+    /// It should be less than 16 sectors (32KiB).
+    /// By default, this means that it will disable the formatting options,
+    /// and warn the user. If you want to write an MBR / GPT over the image,
+    /// you can use the OVERRIDE_FORMAT flag in [`PartitionOptions`].
+    pub system_area: Option<Vec<u8>>,
     pub strictness: Strictness,
     #[cfg(feature = "el-torito")]
     pub boot: Option<BootOptions>,
@@ -49,14 +60,21 @@ fn align_to_sector(size: usize) -> usize {
 }
 
 impl FormatOptions {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         FormatOptions {
+            volume_name: "ISOIMAGE".to_string(),
             files: FileInput::empty(),
             format: PartitionOptions::empty(),
+            system_area: None,
             strictness: Strictness::Default,
             #[cfg(feature = "el-torito")]
             boot: None,
         }
+    }
+
+    pub fn with_volume_name(mut self, name: String) -> Self {
+        self.volume_name = name;
+        self
     }
 
     pub fn with_files(mut self, files: FileInput) -> Self {
@@ -66,6 +84,11 @@ impl FormatOptions {
 
     pub fn with_format_options(mut self, options: PartitionOptions) -> Self {
         self.format = options;
+        self
+    }
+
+    pub fn with_system_area(mut self, system_area: Vec<u8>) -> Self {
+        self.system_area = Some(system_area);
         self
     }
 

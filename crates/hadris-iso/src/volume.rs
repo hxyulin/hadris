@@ -319,7 +319,7 @@ impl Debug for PrimaryVolumeDescriptor {
 }
 
 impl PrimaryVolumeDescriptor {
-    pub fn new(sectors: u32) -> Self {
+    pub fn new(name: &str, sectors: u32) -> Self {
         Self {
             header: VolumeDescriptorHeader {
                 descriptor_type: VolumeDescriptorType::PrimaryVolumeDescriptor.to_u8(),
@@ -328,7 +328,7 @@ impl PrimaryVolumeDescriptor {
             },
             unused0: 0,
             system_identifier: IsoStrA::empty(),
-            volume_identifier: IsoStrD::from_str("ISOIMAGE").unwrap(),
+            volume_identifier: IsoStrD::from_str(name).unwrap(),
             unused1: [0; 8],
             volume_space_size: U32LsbMsb::new(sectors),
             unused2: [0; 32],

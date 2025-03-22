@@ -127,10 +127,27 @@ pub struct IsoString<C: Charset> {
     _marker: PhantomData<C>,
 }
 
+impl From<Vec<u8>> for IsoString<CharsetFile> {
+    fn from(chars: Vec<u8>) -> Self {
+        Self {
+            chars,
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<C: Charset> IsoString<C> {
     pub const fn empty() -> Self {
         Self {
             chars: Vec::new(),
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn with_size(size: usize) -> Self {
+        Self {
+            // TODO: Does the spec want spaces or nulls?
+            chars: vec![b' '; size],
             _marker: PhantomData,
         }
     }
@@ -190,39 +207,6 @@ pub type IsoStrD<const N: usize> = IsoStr<CharsetD, N>;
 pub type IsoStrFile<const N: usize> = IsoStr<CharsetFile, N>;
 
 pub type IsoStringFile = IsoString<CharsetFile>;
-
-pub trait FileInterchange {
-    type Padding: Copy + Default;
-}
-
-/// A level 1 `microsoft` filename,
-/// which comes from the FAT 8.3 standard.
-pub struct InterchangeL1 {
-    basename: IsoStrD<8>,
-    extension: IsoStrD<3>,
-}
-
-impl FileInterchange for InterchangeL1 {
-    // If it is even, then we need to add a padding byte, because of the version byte.
-    type Padding = u8;
-}
-
-pub struct InterchangeL2 {
-    path: IsoStrFile<30>,
-}
-
-impl FileInterchange for InterchangeL2 {
-    type Padding = u8;
-}
-
-/// A filename, which can be either a level 1 or level 2 filename.
-/// And a padding byte if the filename is odd
-pub struct Filename<F: FileInterchange> {
-    file: F,
-    version: u8,
-}
-
-pub type FilenameL1 = Filename<InterchangeL1>;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -308,6 +292,46 @@ impl DecDateTime {
             second: IsoStrD::from_str(&now.second().to_string()).unwrap(),
             hundredths: IsoStrD::from_str(&(now.nanosecond() / 10_000_000).to_string()).unwrap(),
             timezone: 0,
+        }
+    }
+}
+
+/// The file interchange level
+///
+/// For the ISO specification,
+/// L1 is the 8.3 format with contiguous files,
+/// L2 is the 8.3 format with possibly interleaved files,
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileInterchange {
+    L1 = 1,
+    L2 = 2,
+    L3 = 3,
+}
+
+impl FileInterchange {
+    pub fn from_str(&self, s: &str) -> Result<IsoStringFile, ()> {
+        match self {
+            FileInterchange::L1 | FileInterchange::L2 => {
+                let (base, ext) = s.split_once('.').unwrap_or((s, ""));
+                // We dont want to truncate, because filenames are important (e.g. for booting)
+                assert!(base.len() <= 8);
+                assert!(ext.len() <= 3);
+                // 1 for the dot, 2 for semicolon and version
+                let mut bytes = Vec::with_capacity(base.len() + ext.len() + 3);
+                bytes.extend_from_slice(base.as_bytes());
+                bytes.push(b'.');
+                bytes.extend_from_slice(ext.as_bytes());
+                bytes.extend_from_slice(b";1");
+                Ok(bytes.into())
+            }
+            FileInterchange::L3 => {
+                assert!(s.len() <= 32);
+                let mut bytes = Vec::with_capacity(s.len() + 2);
+                bytes.extend_from_slice(s.as_bytes());
+                bytes.extend_from_slice(b";1");
+                Ok(bytes.into())
+            }
         }
     }
 }
