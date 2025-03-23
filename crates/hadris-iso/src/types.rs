@@ -300,19 +300,23 @@ impl DecDateTime {
 ///
 /// For the ISO specification,
 /// L1 is the 8.3 format with contiguous files,
-/// L2 is the 8.3 format with possibly interleaved files,
+/// L2 allows for 30 characters including the dot
+/// L3 allows for 30 characters including the dot, but allows for multiple extents
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileInterchange {
     L1 = 1,
     L2 = 2,
     L3 = 3,
+    // TODO: Add more unconformant variants, so that some can be 'semi-conformant'
+    /// Non-conformant, allows anything less than 32 characters
+    NonConformant = 255,
 }
 
 impl FileInterchange {
     pub fn from_str(&self, s: &str) -> Result<IsoStringFile, ()> {
         match self {
-            FileInterchange::L1 | FileInterchange::L2 => {
+            FileInterchange::L1 => {
                 let (base, ext) = s.split_once('.').unwrap_or((s, ""));
                 // We dont want to truncate, because filenames are important (e.g. for booting)
                 assert!(base.len() <= 8);
@@ -325,12 +329,16 @@ impl FileInterchange {
                 bytes.extend_from_slice(b";1");
                 Ok(bytes.into())
             }
-            FileInterchange::L3 => {
-                assert!(s.len() <= 32);
+            FileInterchange::L2 | FileInterchange::L3 => {
+                assert!(s.len() <= 30);
                 let mut bytes = Vec::with_capacity(s.len() + 2);
                 bytes.extend_from_slice(s.as_bytes());
                 bytes.extend_from_slice(b";1");
                 Ok(bytes.into())
+            }
+            FileInterchange::NonConformant => {
+                assert!(s.len() <= 32);
+                Ok(IsoStringFile::from_bytes(&s.as_bytes()))
             }
         }
     }

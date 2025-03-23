@@ -15,6 +15,7 @@ pub struct Args {
 pub enum Command {
     Read(ReadArgs),
     Write(WriteArgs),
+    Xorriso(XorrisoArgs),
 }
 
 impl Command {
@@ -22,8 +23,16 @@ impl Command {
         match self {
             Command::Read(args) => args.verbose,
             Command::Write(args) => args.verbose,
+            Command::Xorriso(_) => false,
         }
     }
+}
+
+/// A xorriso-like subcommand
+#[derive(Debug, Clone, Parser)]
+pub struct XorrisoArgs {
+    #[arg(short = 'V')]
+    volume_name: String,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -56,6 +65,9 @@ fn main() {
     match args.cmd {
         Command::Read(args) => read(&args.input),
         Command::Write(args) => write(args.isoroot, &args.output),
+        Command::Xorriso(args) => {
+            println!("xorriso {:?}", args);
+        }
     }
 }
 
@@ -94,5 +106,6 @@ fn write(isoroot: PathBuf, output: &PathBuf) {
 fn read(file: &PathBuf) {
     let mut file = OpenOptions::new().read(true).open(file).unwrap();
     let mut iso = hadris_iso::IsoImage::parse(&mut file).unwrap();
-    let mut _root_dir = iso.root_directory();
+    let mut root_dir = iso.root_directory();
+    println!("Files: {:#?}", root_dir.entries());
 }

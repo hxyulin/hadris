@@ -25,6 +25,7 @@ log = "0.4.26"
 bytemuck = "1.22.0"
 bitflags = "2.9.0"
 static_assertions = "1.1.0"
+criterion = "0.5.1"
 
 hadris-iso = { path = "crates/hadris-iso", version = "0.0.1" }
 hadris-common = { path = "crates/hadris-common", version = "0.0.1" }

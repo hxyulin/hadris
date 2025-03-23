@@ -205,7 +205,7 @@ pub struct IsoDir<'a, T: ReadWriteSeek> {
 impl<'a, T: ReadWriteSeek> IsoDir<'a, T> {
     // TODO: Refactor this, because we dont need the offset always
     /// Returns a list of all entries in the directory, along with their offset in the directory
-    pub(crate) fn entries(&mut self) -> Result<Vec<(u64, DirectoryRecord)>, std::io::Error> {
+    pub fn entries(&mut self) -> Result<Vec<(u64, DirectoryRecord)>, std::io::Error> {
         const ENTRY_SIZE: usize = size_of::<DirectoryRecordHeader>();
         self.reader
             .seek(SeekFrom::Start(self.directory.offset * 2048))?;
