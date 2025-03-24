@@ -1,34 +1,7 @@
-//! The iso-rs crate provides a library for creating and reading ISO images
-//! The library is designed to be flexible and easy to use, ideally supporting
-//! all the futures that xorriso will support.
-//! The library currently requires `std`, but it is planned to support no_std and even non-allocator
-//! environments in the future.
-//!
-//! To create a basic ISO image, you can use the `FormatOptions` struct:
-//! ```no_run
-//! use hadris_iso::{PartitionOptions, IsoImage, FileInput, FormatOptions};
-//! use std::fs::File;
-//! use std::io::Write;
-//!
-//! let options = FormatOptions::new()
-//!     .with_files(FileInput::from_fs(std::path::PathBuf::from("path/to/files")).unwrap())
-//!     .with_format_options(PartitionOptions::PROTECTIVE_MBR);
-//! let mut file = File::create("path/to/image.iso").unwrap();
-//! let mut iso = IsoImage::format_new(&mut file, options).unwrap();
-//! ```
-
-// We keep boot separate since it is a seperate specification
 #[cfg(feature = "el-torito")]
 pub mod boot;
 #[cfg(feature = "el-torito")]
 pub use boot::*;
-
-mod directory;
-mod file;
-mod options;
-mod path;
-mod types;
-mod volume;
 
 use bytemuck::Zeroable;
 pub use directory::*;
@@ -47,6 +20,13 @@ use std::{
 };
 pub use types::*;
 pub use volume::*;
+
+mod directory;
+mod file;
+mod options;
+mod path;
+mod types;
+mod volume;
 
 pub trait ReadWriteSeek: Read + Write + Seek {}
 impl<T: Read + Write + Seek> ReadWriteSeek for T {}
@@ -97,6 +77,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
     /// Formats a new ISO image,
     /// for a more convenient API, see [`Self::format_file`] for [`std::fs::File`]
     pub fn format_new(data: &'a mut T, mut ops: FormatOptions) -> Result<(), IsoImageError> {
+        #[cfg(feature = "extra-checks")]
         if ops.strictness >= Strictness::Default {
             let size_bytes = data.seek(SeekFrom::End(0))?;
             let min_size = ops.image_len().0;
@@ -115,39 +96,21 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
 
         volume_descriptors.push(VolumeDescriptor::Primary(PrimaryVolumeDescriptor::new(
             ops.volume_name.as_str(),
-            0,
+            0, // We populate the size later
         )));
 
+        // Add El-Torito catalog file and volume descriptor
         #[cfg(feature = "el-torito")]
         if let Some(boot_ops) = &ops.boot {
-            log::trace!("Adding boot record to volume descriptors");
-            volume_descriptors.push(VolumeDescriptor::BootRecord(
-                BootRecordVolumeDescriptor::new(0),
-            ));
-
-            for entry in boot_ops.entries() {
-                assert!(
-                    ops.files.contains(&entry.boot_image_path),
-                    "Boot image path not found in files"
-                );
-            }
-
-            if boot_ops.write_boot_catalogue {
-                log::trace!("Appending boot catalogue to file list");
-                let size = 96 + boot_ops.entries.len() * 64;
-                let size = (size + 2047) & !2047;
-                ops.files.append(file::File {
-                    path: "boot.catalog".to_string(),
-                    data: file::FileData::Data(vec![0; size]),
-                });
-            }
+            boot::ElToritoWriter::create_descriptor(boot_ops, &mut ops.files)?;
         }
 
         let mut current_index: u64 = 16 * 2048;
+        // We don't need to write it yet, since we have to write it later anyways
         current_index += volume_descriptors.size_required() as u64;
         data.seek(SeekFrom::Start(current_index as u64))?;
 
-        let mut file_writer = FileWriter::new(data, ops.files);
+        let mut file_writer = FileWriter::new(data, ops.level, ops.files);
         let (root_dir, path_table) = file_writer.write()?;
 
         {
@@ -173,9 +136,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
 
             for (section, mut entry) in boot_ops.sections() {
                 // TODO: We need to abstract this, because this only allows searching root directory
-                let name = FileInterchange::L3
-                    .from_str(&entry.boot_image_path)
-                    .unwrap();
+                let name = ops.level.from_str(&entry.boot_image_path).unwrap();
                 let (_, file) = IsoDir {
                     reader: data,
                     directory: root_dir.clone(),
@@ -234,7 +195,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
                 }
             }
 
-            let name = FileInterchange::L3.from_str("boot.catalog").unwrap();
+            let name = ops.level.from_str("boot.catalog").unwrap();
             let catalog_ptr = if boot_ops.write_boot_catalogue {
                 let (_, catalog_file) = IsoDir {
                     reader: data,
@@ -554,6 +515,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
 struct FileWriter<'a, W: ReadWriteSeek> {
     writer: &'a mut W,
 
+    level: FileInterchange,
     dirs: Vec<file::File>,
     files: Vec<file::File>,
 
@@ -562,17 +524,17 @@ struct FileWriter<'a, W: ReadWriteSeek> {
 }
 
 impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
-    pub fn new(writer: &'a mut W, files: FileInput) -> Self {
+    pub fn new(writer: &'a mut W, level: FileInterchange, files: FileInput) -> Self {
         log::trace!("Started writing files");
-        let (mut dirs, mut files) = files.split();
+        let (mut dirs, files) = files.split();
 
         log::trace!("Sorting directories by depth");
         Self::sort_by_depth(&mut dirs);
-        Self::sort_by_depth(&mut files);
 
         Self {
             writer,
 
+            level,
             dirs,
             files,
 
@@ -647,7 +609,7 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
                     FileFlags::empty()
                 };
                 log::trace!("Writing directory record for {}", fullname);
-                let name = FileInterchange::L3.from_str(stem).unwrap();
+                let name = self.level.from_str(stem).unwrap();
                 DirectoryRecord::new(name, *file_ref, flags).write(self.writer)?;
             }
 
@@ -788,8 +750,12 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
     }
 }
 
-#[cfg(all(test, feature = "el-torito"))]
-mod tests {}
+pub trait VolumeInternals {
+    fn get_volume_descriptors(&self) -> &VolumeDescriptorList;
+}
 
-#[cfg(all(test, not(feature = "el-torito")))]
-mod tests {}
+impl<'a, T: ReadWriteSeek> VolumeInternals for IsoImage<'a, T> {
+    fn get_volume_descriptors(&self) -> &VolumeDescriptorList {
+        &self.volume_descriptors
+    }
+}

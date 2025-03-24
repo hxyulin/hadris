@@ -2,7 +2,7 @@ use bitflags::bitflags;
 
 #[cfg(feature = "el-torito")]
 use crate::boot::EmulationType;
-use crate::{FileInput, PlatformId};
+use crate::{FileInput, FileInterchange, PlatformId};
 
 bitflags! {
     /// The extra partition options that the image can have
@@ -42,6 +42,7 @@ pub enum Strictness {
 #[derive(Debug, Clone)]
 pub struct FormatOptions {
     pub volume_name: String,
+    pub level: FileInterchange,
     pub files: FileInput,
     pub format: PartitionOptions,
     /// The user can provide an image as the system area
@@ -63,6 +64,7 @@ impl FormatOptions {
     pub fn new() -> Self {
         FormatOptions {
             volume_name: "ISOIMAGE".to_string(),
+            level: FileInterchange::L1,
             files: FileInput::empty(),
             format: PartitionOptions::empty(),
             system_area: None,
@@ -74,6 +76,11 @@ impl FormatOptions {
 
     pub fn with_volume_name(mut self, name: String) -> Self {
         self.volume_name = name;
+        self
+    }
+
+    pub fn with_level(mut self, level: FileInterchange) -> Self {
+        self.level = level;
         self
     }
 

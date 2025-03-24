@@ -11,10 +11,9 @@ keywords = ["el-torito", "iso", "iso9660", "cd", "dvd"]
 categories = ["filesystem", "encoding"]
 
 [features]
-default = ["el-torito"]
+default = ["el-torito", "extra-checks"]
 el-torito = []
-# TODO: Add support for serialization
-serde = []
+extra-checks = []
 
 [dependencies]
 bitflags = { workspace = true, features = ["bytemuck"] }

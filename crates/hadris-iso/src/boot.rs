@@ -7,7 +7,9 @@ use std::{
     io::{Read, Write},
 };
 
-use crate::types::{Endian, LittleEndian, U16, U32};
+use crate::{
+    types::{Endian, LittleEndian, U16, U32}, BootOptions, BootRecordVolumeDescriptor, FileData, FileInput, FormatOptions, PathTableRef, ReadWriteSeek
+};
 
 /// Types for El Torito boot catalogue
 /// The boot catalogue consists of a series of boot catalogue entries:
@@ -411,6 +413,40 @@ pub struct BootInfoTable {
     pub file_lba: U32<LittleEndian>,
     pub file_len: U32<LittleEndian>,
     pub checksum: U32<LittleEndian>,
+}
+
+pub struct ElToritoWriter;
+
+impl ElToritoWriter {
+    pub fn create_descriptor(
+        opts: &BootOptions,
+        files: &mut FileInput,
+    ) -> Result<BootRecordVolumeDescriptor, std::io::Error> {
+        log::trace!("Adding boot record to volume descriptors");
+        #[cfg(feature = "extra-checks")]
+        for entry in opts.entries() {
+            assert!(
+                files.contains(&entry.boot_image_path),
+                "Boot image path not found in files"
+            );
+        }
+
+        if opts.write_boot_catalogue {
+            log::trace!("Appending boot catalogue to file list");
+            let size = 96 + opts.entries.len() * 64;
+            let size = (size + 2047) & !2047;
+            files.append(crate::file::File {
+                path: "boot.catalog".to_string(),
+                data: FileData::Data(vec![0; size]),
+            });
+        }
+        Ok(BootRecordVolumeDescriptor::new(0))
+    }
+
+    /// Writes the boot catalogue and boot info table to the given writer
+    pub fn write_catalog_and_table<W: ReadWriteSeek>(writer: &mut W, opts: &BootOptions, path_table: &PathTableRef) -> Result<(), std::io::Error> {
+        todo!()
+    }
 }
 
 #[cfg(test)]

@@ -331,8 +331,8 @@ impl FileInterchange {
             }
             FileInterchange::L2 | FileInterchange::L3 => {
                 assert!(s.len() <= 30);
-                let mut bytes = Vec::with_capacity(s.len() + 2);
-                bytes.extend_from_slice(s.as_bytes());
+                let str = s.to_ascii_uppercase();
+                let mut bytes = str.into_bytes();
                 bytes.extend_from_slice(b";1");
                 Ok(bytes.into())
             }
