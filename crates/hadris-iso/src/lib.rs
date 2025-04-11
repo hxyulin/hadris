@@ -40,6 +40,45 @@ pub enum IsoImageError {
     IoError(#[from] std::io::Error),
 }
 
+/// An ISO image
+///
+/// This is the main struct for working with ISO images.
+///
+/// # Example
+/// To create a new ISO image, you can use the [`Self::format_file`] method. This example creates a
+/// hybrid bootable image with a BIOS boot entry and a UEFI boot entry:
+/// ```no_run
+/// use hadris_iso::{IsoImage, FormatOptions, FileInput, FileInterchange, BootOptions, BootEntryOptions, EmulationType, PlatformId, BootSectionOptions};
+/// use std::path::PathBuf;
+///
+/// let options = FormatOptions::new()
+/// .with_files(FileInput::from_fs(PathBuf::from("path/to/iso_root"))?)
+/// .with_level(FileInterchange::NonConformant)
+/// .with_boot_options(BootOptions {
+///     write_boot_catalogue: true,
+///     default: BootEntryOptions {
+///         boot_image_path: "boot.img".to_string(),
+///         load_size: 4,
+///         emulation: EmulationType::NoEmulation,
+///         boot_info_table: true,
+///         grub2_boot_info: false,
+///     },
+///     entries: vec![(
+///         BootSectionOptions {
+///             platform_id: PlatformId::UEFI,
+///         },
+///         BootEntryOptions {
+///             boot_image_path: "uefi-boot.img".to_string(),
+///             load_size: 0, // This means the size will be calculated
+///             emulation: EmulationType::NoEmulation,
+///             boot_info_table: false,
+///             grub2_boot_info: false,
+///         },
+///     )],
+/// });
+/// let file = IsoImage::format_file(PathBuf::from("my_image.iso"), options)?;
+/// # Ok::<(), hadris_iso::IsoImageError>(())
+/// ````
 #[derive(Debug)]
 pub struct IsoImage<'a, T: ReadWriteSeek> {
     data: &'a mut T,
@@ -76,6 +115,7 @@ impl<'a> IsoImage<'a, std::fs::File> {
 impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
     /// Formats a new ISO image,
     /// for a more convenient API, see [`Self::format_file`] for [`std::fs::File`]
+    /// Otherwise, resize the image using the minimum / maximum from [`FormatOptions::image_len`].
     pub fn format_new(data: &'a mut T, mut ops: FormatOptions) -> Result<(), IsoImageError> {
         #[cfg(feature = "extra-checks")]
         if ops.strictness >= Strictness::Default {
@@ -102,7 +142,8 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         // Add El-Torito catalog file and volume descriptor
         #[cfg(feature = "el-torito")]
         if let Some(boot_ops) = &ops.boot {
-            boot::ElToritoWriter::create_descriptor(boot_ops, &mut ops.files)?;
+            let boot_record = boot::ElToritoWriter::create_descriptor(boot_ops, &mut ops.files)?;
+            volume_descriptors.push(VolumeDescriptor::BootRecord(boot_record));
         }
 
         let mut current_index: u64 = 16 * 2048;
@@ -354,6 +395,8 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         Self::parse(data)
     }
 
+    /// Parses an ISO image from the given reader
+    /// Currently this is not fully supported, and only provides basic information
     pub fn parse(data: &'a mut T) -> Result<Self, std::io::Error> {
         {
             data.seek(SeekFrom::Start(446))?;
@@ -549,7 +592,10 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
             // PERF: We can probably pre-compute the depths here when generating the FileInput
             let a_depth = a.path.split('/').count();
             let b_depth = b.path.split('/').count();
-            a_depth.cmp(&b_depth)
+            if a_depth == b_depth {
+                return b.path.len().cmp(&a.path.len());
+            }
+            b_depth.cmp(&a_depth)
         });
     }
 
@@ -655,12 +701,18 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
                 if directory.name.bytes() == b"\x00" || directory.name.bytes() == b"\x01" {
                     continue;
                 }
-                let dirname = format!("{}/{}", cur_path, directory.name);
+                let dirname = if cur_path.is_empty() {
+                    directory.name.to_string()
+                } else {
+                    format!("{}/{}", cur_path, directory.name)
+                };
                 let dir_ref_inner = self.written_files.get(dirname.as_str()).unwrap().1;
                 let mut new_entry = directory.clone();
+                assert_eq!(new_entry.name, directory.name, "Directory name mismatch");
                 new_entry.header.extent.write(dir_ref_inner.offset as u32);
                 new_entry.header.data_len.write(dir_ref_inner.size as u32);
                 self.writer.seek(SeekFrom::Start(start + offset))?;
+
                 new_entry.write(&mut self.writer)?;
                 stack.push((dir_ref_inner, dir_ref, dirname));
             }

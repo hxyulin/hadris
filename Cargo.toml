@@ -14,7 +14,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 authors = ["hxyulin"]
 license = "MIT"
@@ -27,5 +27,5 @@ bitflags = "2.9.0"
 static_assertions = "1.1.0"
 criterion = "0.5.1"
 
-hadris-iso = { path = "crates/hadris-iso", version = "0.0.1" }
-hadris-common = { path = "crates/hadris-common", version = "0.0.1" }
+hadris-iso = { path = "crates/hadris-iso", version = "0.0.2" }
+hadris-common = { path = "crates/hadris-common", version = "0.0.2" }

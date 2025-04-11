@@ -112,7 +112,7 @@ impl DirectoryRecord {
         }
     }
 
-    pub fn write<W: Write>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
+    pub fn write<W: Write + std::io::Seek>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
         let mut written = 0;
         writer.write_all(&self.header.to_bytes())?;
         written += size_of::<DirectoryRecordHeader>();
@@ -223,10 +223,11 @@ impl<'a, T: ReadWriteSeek> IsoDir<'a, T> {
             self.reader.read_exact(&mut bytes)?;
             // Truncate to string length, since we don't need the padding
             _ = bytes.split_off(header.file_identifier_len as usize);
+            let old_offset = offset as u64;
             offset += header.len as usize;
 
             entries.push((
-                offset as u64,
+                old_offset,
                 DirectoryRecord {
                     header,
                     name: bytes.into(),

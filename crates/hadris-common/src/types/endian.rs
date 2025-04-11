@@ -255,6 +255,17 @@ impl Endianness for BigEndian {
     }
 }
 
+/// A trait that represents a type that can be bytemuck::Pod and bytemuck::Zeroable, if the
+/// `bytemuck` feature is enabled.
+#[cfg(feature = "bytemuck")]
+pub trait MaybePod: bytemuck::Pod + bytemuck::Zeroable {}
+#[cfg(feature = "bytemuck")]
+impl<T: bytemuck::Pod + bytemuck::Zeroable> MaybePod for T {}
+#[cfg(not(feature = "bytemuck"))]
+pub trait MaybePod {}
+#[cfg(not(feature = "bytemuck"))]
+impl<T> MaybePod for T {}
+
 /// A trait that represents a type with endianness.
 ///
 /// This trait is used to read and write data in the specified endianness.
@@ -274,36 +285,19 @@ pub trait Endian {
     /// `Zeroable` traits from the `bytemuck` crate, if the `bytemuck` feature is enabled.
     /// This type can be endianness-specific, for example, the `crate::types::number::U16` type is a struct that outputs
     /// a `u16` value in the specified endianness.
-    #[cfg(feature = "bytemuck")]
-    type Output: bytemuck::Pod + bytemuck::Zeroable;
-    #[cfg(not(feature = "bytemuck"))]
-    type Output;
+    type Output: MaybePod;
 
     /// The Little Endian variant of the type.
     ///
     /// This type should return a little-endian variant of the type, for example, the LSB type for
     /// a `crate::types::number::U16` is a `crate::types::number::U16<LittleEndian>` type.
-    #[cfg(feature = "bytemuck")]
-    type LsbType: bytemuck::Pod + bytemuck::Zeroable + Endian<Output = Self::Output>;
-    /// The Little Endian variant of the type.
-    ///
-    /// This type should return a little-endian variant of the type, for example, the LSB type for
-    /// a `crate::types::number::U16` is a `crate::types::number::U16<LittleEndian>` type.
-    #[cfg(not(feature = "bytemuck"))]
-    type LsbType: Endian<Output = Self::Output>;
+    type LsbType: MaybePod + Endian<Output = Self::Output>;
 
     /// The Big Endian variant of the type.
     ///
     /// This type should return a big-endian variant of the type, for example, the MSB type for
     /// a `crate::types::number::U16` is a `crate::types::number::U16<BigEndian>` type.
-    #[cfg(feature = "bytemuck")]
-    type MsbType: bytemuck::Pod + bytemuck::Zeroable + Endian<Output = Self::Output>;
-    /// The Big Endian variant of the type.
-    ///
-    /// This type should return a big-endian variant of the type, for example, the MSB type for
-    /// a `crate::types::number::U16` is a `crate::types::number::U16<BigEndian>` type.
-    #[cfg(not(feature = "bytemuck"))]
-    type MsbType: Endian<Output = Self::Output>;
+    type MsbType: MaybePod + Endian<Output = Self::Output>;
 
     /// Creates a new instance of the type with the given value.
     fn new(value: Self::Output) -> Self;
