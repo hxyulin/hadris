@@ -1,6 +1,6 @@
-use std::io::{Read, SeekFrom};
+use hadris_io::{Read, Seek, SeekFrom, Error};
 
-use crate::{ReadWriteSeek, types::EndianType};
+use crate::types::EndianType;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -27,7 +27,7 @@ pub struct PathTableEntry {
 }
 
 impl PathTableEntry {
-    pub fn parse<T: Read>(reader: &mut T, endian: EndianType) -> Result<Self, std::io::Error> {
+    pub fn parse<T: Read>(reader: &mut T, endian: EndianType) -> Result<Self, Error> {
         let mut buf = [0; size_of::<PathTableEntryHeader>()];
         reader.read_exact(&mut buf)?;
         let header = PathTableEntryHeader::from_bytes(&buf);
@@ -77,13 +77,13 @@ pub struct PathTableRef {
     pub(crate) size: u64,
 }
 
-pub struct IsoPathTable<'a, T: ReadWriteSeek> {
+pub struct IsoPathTable<'a, T: Read + Seek> {
     pub(crate) reader: &'a mut T,
     pub(crate) path_table: PathTableRef,
 }
 
-impl<'a, T: ReadWriteSeek> IsoPathTable<'a, T> {
-    pub fn entries(&mut self) -> Result<Vec<PathTableEntry>, std::io::Error> {
+impl<'a, T: Read + Seek> IsoPathTable<'a, T> {
+    pub fn entries(&mut self) -> Result<Vec<PathTableEntry>, Error> {
         // TODO: Some sort of strict check that checks both tables?
 
         // We always read from the native endian table

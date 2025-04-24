@@ -1,11 +1,7 @@
-use std::io::{SeekFrom, Write};
-
 use bytemuck::Zeroable;
+use hadris_io::{Error, Read, Seek, SeekFrom, Write};
 
-use crate::{
-    ReadWriteSeek,
-    types::{IsoStringFile, U16LsbMsb, U32LsbMsb},
-};
+use crate::types::{IsoStringFile, U16LsbMsb, U32LsbMsb};
 
 /// The header of a directory record, because the identifier is variable length,
 #[repr(C)]
@@ -112,7 +108,7 @@ impl DirectoryRecord {
         }
     }
 
-    pub fn write<W: Write + std::io::Seek>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
+    pub fn write<W: Write>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut written = 0;
         writer.write_all(&self.header.to_bytes())?;
         written += size_of::<DirectoryRecordHeader>();
@@ -197,15 +193,15 @@ bitflags::bitflags! {
     }
 }
 
-pub struct IsoDir<'a, T: ReadWriteSeek> {
+pub struct IsoDir<'a, T: Read + Write + Seek> {
     pub(crate) reader: &'a mut T,
     pub(crate) directory: DirectoryRef,
 }
 
-impl<'a, T: ReadWriteSeek> IsoDir<'a, T> {
+impl<'a, T: Read + Write + Seek> IsoDir<'a, T> {
     // TODO: Refactor this, because we dont need the offset always
     /// Returns a list of all entries in the directory, along with their offset in the directory
-    pub fn entries(&mut self) -> Result<Vec<(u64, DirectoryRecord)>, std::io::Error> {
+    pub fn entries(&mut self) -> Result<Vec<(u64, DirectoryRecord)>, Error> {
         const ENTRY_SIZE: usize = size_of::<DirectoryRecordHeader>();
         self.reader
             .seek(SeekFrom::Start(self.directory.offset * 2048))?;
@@ -237,9 +233,9 @@ impl<'a, T: ReadWriteSeek> IsoDir<'a, T> {
         Ok(entries.into_iter().collect())
     }
 
-    pub fn find_directory(&mut self, name: &str) -> Result<Option<IsoDir<T>>, std::io::Error> {
+    pub fn find_directory(&mut self, name: &str) -> Result<Option<IsoDir<T>>, Error> {
         let entry = self.entries()?.iter().find_map(|(_offset, entry)| {
-            if entry.name.to_str() == name
+            if entry.name.as_str() == name
                 && FileFlags::from_bits_retain(entry.header.flags).contains(FileFlags::DIRECTORY)
             {
                 Some(entry.clone())
@@ -259,9 +255,9 @@ impl<'a, T: ReadWriteSeek> IsoDir<'a, T> {
         }
     }
 
-    pub fn read_file(&mut self, name: &str) -> Result<Vec<u8>, std::io::Error> {
+    pub fn read_file(&mut self, name: &str) -> Result<Vec<u8>, Error> {
         let entry = self.entries()?.iter().find_map(|(_offset, entry)| {
-            if entry.name.to_str() == name {
+            if entry.name.as_str() == name {
                 Some(entry.clone())
             } else {
                 None
@@ -275,10 +271,7 @@ impl<'a, T: ReadWriteSeek> IsoDir<'a, T> {
                 self.reader.read_exact(&mut bytes)?;
                 Ok(bytes)
             }
-            None => Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "File not found",
-            )),
+            None => todo!("Custom not found error"),
         }
     }
 }

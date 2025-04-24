@@ -1,0 +1,14 @@
+[package]
+name = "hadris-io"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+cfg-if.workspace = true

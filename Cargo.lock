@@ -374,30 +374,39 @@ dependencies = [
 
 [[package]]
 name = "hadris"
-version = "0.0.2"
+version = "0.1.2"
 dependencies = [
  "hadris-iso",
 ]
 
 [[package]]
 name = "hadris-common"
-version = "0.0.2"
+version = "0.1.2"
 dependencies = [
  "bytemuck",
  "chrono",
  "crc",
  "criterion",
  "rand",
+ "static_assertions",
+]
+
+[[package]]
+name = "hadris-io"
+version = "0.1.2"
+dependencies = [
+ "cfg-if",
 ]
 
 [[package]]
 name = "hadris-iso"
-version = "0.0.2"
+version = "0.1.2"
 dependencies = [
  "bitflags",
  "bytemuck",
  "chrono",
  "hadris-common",
+ "hadris-io",
  "log",
  "static_assertions",
  "tempfile",
@@ -406,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso-cli"
-version = "0.0.2"
+version = "0.1.2"
 dependencies = [
  "clap",
  "hadris-iso",

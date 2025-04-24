@@ -15,13 +15,14 @@ use crate::{
 /// u16 - time_hi_and_version
 /// u8 - clock_seq_hi_and_reserved
 /// u8 - clock_seq_low
-/// [u8; 48] - node (should be displayed in Big Endian)
+/// [u8; 6] - node (should be displayed in Big Endian)
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 pub struct Guid([u8; 16]);
 
 impl Guid {
+    /// Generate a new GUID using the v4 algorithm.
     pub fn generate_v4() -> Self {
         use rand::RngCore;
 
@@ -67,16 +68,20 @@ impl Default for Guid {
 }
 
 impl Guid {
+    /// The GUID for the basic data partition
     pub const BASIC_DATA_PART: Self = Self([
         0xa2, 0xa0, 0xd0, 0xeb, 0xe5, 0xb9, 0x33, 0x44, 0x87, 0xc0, 0x68, 0xb6, 0xb7, 0x26, 0x99,
         0xc7,
     ]);
+    
+    /// The GUID for the EFI system partition
     pub const EFI_SYSTEM_PART: Self = Self([
         0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9,
         0x3b,
     ]);
 }
 
+/// The GPT header
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
@@ -102,12 +107,15 @@ pub struct GptPartitionTableHeader {
 }
 
 impl GptPartitionTableHeader {
+    /// The signature for the GPT header, must be "EFI PART".
     const SIGNATURE: [u8; 8] = *b"EFI PART";
 
+    /// Check if the GPT header is valid, by checking the signature.
     pub fn is_valid(&self) -> bool {
         self.signature == Self::SIGNATURE
     }
 
+    /// Generate the CRC32 checksum for the GPT header, discarding the current checksum.
     pub fn generate_crc32(&mut self) {
         use crate::alg::hash::crc::Crc32HasherIsoHdlc;
         self.crc32.set(0);

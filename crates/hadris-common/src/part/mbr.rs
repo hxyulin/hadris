@@ -67,6 +67,7 @@ impl MbrPartitionType {
     }
 }
 
+/// A 3-byte representation of a CHS address
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
@@ -87,6 +88,7 @@ impl Debug for Chs {
 }
 
 impl Chs {
+    pub const OUT_OF_RANGE: Chs = Chs([0xFF, 0xFF, 0xFF]);
     const SECTORS_PER_TRACK: u32 = 63;
     const HEADS_PER_CYLINDER: u32 = 255;
 
@@ -99,7 +101,10 @@ impl Chs {
         let tmp = lba % (Self::SECTORS_PER_TRACK * Self::HEADS_PER_CYLINDER);
         let head = tmp / Self::SECTORS_PER_TRACK;
         let sector = tmp % Self::SECTORS_PER_TRACK + 1;
-        assert!(sector <= 0b00111111);
+        assert!(
+            sector <= 0b00111111,
+            "Sector overflow, this should never happen, please report this bug"
+        );
         Self([
             (head & 0x00ff) as u8,
             (sector & 0b00111111) as u8 | ((cylinder & 0x0300) >> 2) as u8,
@@ -125,9 +130,9 @@ impl Chs {
         }
 
         self.cylinder() as u32 * Self::SECTORS_PER_TRACK * Self::HEADS_PER_CYLINDER
+            + self.head() as u32 * Self::SECTORS_PER_TRACK
             + self.sector() as u32
             - 1
-            + self.head() as u32 * Self::SECTORS_PER_TRACK
     }
 }
 
@@ -238,6 +243,7 @@ impl IndexMut<usize> for MbrPartitionTable {
 /// Available at https://thestarman.pcministry.com/asm/mbr/PartTypes.htm
 /// For a more useful struct, use [`MbrPartitionType`].
 #[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MbrPartitionTypeFull {
     /// Empty partition
     Empty = 0x00,
@@ -619,9 +625,14 @@ pub enum MbrPartitionTypeFull {
 }
 
 impl MbrPartitionTypeFull {
+    /// Create a new [`MbrPartitionTypeFull`] from a u8.
     pub fn from_u8(value: u8) -> Self {
         // SAFETY: This is safe because all the variants in an u8 are defined
         unsafe { std::mem::transmute(value) }
+    }
+
+    pub fn to_u8(&self) -> u8 {
+        *self as u8
     }
 }
 

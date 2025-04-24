@@ -177,7 +177,7 @@ impl<C: Charset> IsoString<C> {
         &self.chars
     }
 
-    pub fn to_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         if self.chars.len() == 1 {
             match self.chars[0] {
                 b'\x00' => return "\\x00",
@@ -192,13 +192,13 @@ impl<C: Charset> IsoString<C> {
 
 impl<C: Charset> core::fmt::Display for IsoString<C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.to_str())
+        write!(f, "{}", self.as_str())
     }
 }
 
 impl<C: Charset> core::fmt::Debug for IsoString<C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "\"{}\"", self.to_str())
+        write!(f, "\"{}\"", self.as_str())
     }
 }
 
@@ -331,8 +331,7 @@ impl FileInterchange {
             }
             FileInterchange::L2 | FileInterchange::L3 => {
                 assert!(s.len() <= 30);
-                let str = s.to_ascii_uppercase();
-                let mut bytes = str.into_bytes();
+                let mut bytes = s.as_bytes().to_vec();
                 bytes.extend_from_slice(b";1");
                 Ok(bytes.into())
             }
@@ -341,5 +340,19 @@ impl FileInterchange {
                 Ok(IsoStringFile::from_bytes(&s.as_bytes()))
             }
         }
+    }
+
+    pub fn original(&self, s: &IsoStringFile) -> String {
+        let mut chars = s.chars.iter();
+        let mut out = String::new();
+        while let Some(c) = chars.next() {
+            if *c == b';' {
+                // TODO: We need to check if the next character is a digit, otherwise it may be
+                // invalid, and maybe we can use rfind instead
+                break;
+            }
+            out.push(*c as char);
+        }
+        out
     }
 }

@@ -1,23 +1,30 @@
+//! Hadris ISO
+//! Terminology and spec are followed by the specifications described in
+//! the [non official ISO9660 specification included](https://github.com/hxyulin/hadris/tree/main/crates/hadris-iso/spec)
+
 #[cfg(feature = "el-torito")]
 pub mod boot;
 #[cfg(feature = "el-torito")]
 pub use boot::*;
 
 use bytemuck::Zeroable;
-pub use directory::*;
-pub use file::*;
 use hadris_common::part::{
     gpt::{GptPartitionEntry, GptPartitionTableHeader, Guid},
     mbr::{Chs, MbrPartitionTable, MbrPartitionType},
 };
+
+pub use directory::*;
+pub use file::*;
 pub use options::*;
 pub use path::*;
+// We expose these types because they are used in the public API,
+// but they are also just std::io types of hadris-io types (if in no-std mode)
+pub use hadris_io::{Error, Read, Seek, SeekFrom, Write};
 
-use std::{
-    collections::BTreeMap,
-    fmt::Debug,
-    io::{Read, Seek, SeekFrom, Write},
-};
+extern crate alloc;
+
+use alloc::collections::BTreeMap;
+use core::fmt::Debug;
 pub use types::*;
 pub use volume::*;
 
@@ -28,16 +35,20 @@ mod path;
 mod types;
 mod volume;
 
-pub trait ReadWriteSeek: Read + Write + Seek {}
-impl<T: Read + Write + Seek> ReadWriteSeek for T {}
-
+/// Errors that can occur when working with an ISO image
 #[derive(Debug, thiserror::Error)]
 pub enum IsoImageError {
+    #[cfg(feature = "extra-checks")]
     /// The image is too small, check [`FormatOptions::image_len()`] for the minimum size
     #[error("The image is too small, expected at least {0}b, got {1}b")]
     ImageTooSmall(u64, u64),
+
+    /// An IO error occurred
+    ///
+    /// When working with the `std` feature, this is an alias for [`std::io::Error`]
+    /// When working with the `no-std` feature, this is an alias for [`hadris_io::Error`]
     #[error(transparent)]
-    IoError(#[from] std::io::Error),
+    IoError(#[from] hadris_io::Error),
 }
 
 /// An ISO image
@@ -45,14 +56,24 @@ pub enum IsoImageError {
 /// This is the main struct for working with ISO images.
 ///
 /// # Example
-/// To create a new ISO image, you can use the [`Self::format_file`] method. This example creates a
-/// hybrid bootable image with a BIOS boot entry and a UEFI boot entry:
-/// ```no_run
+/// To create a new ISO image, you can use the [`Self::format_file`] method. \
+/// This example creates a hybrid bootable image with a BIOS boot entry and a UEFI boot entry:
+/// ```
 /// use hadris_iso::{IsoImage, FormatOptions, FileInput, FileInterchange, BootOptions, BootEntryOptions, EmulationType, PlatformId, BootSectionOptions};
 /// use std::path::PathBuf;
 ///
+/// let files = PathBuf::from("path/to/iso_root");
+/// # // Now we need to actually create a temporary directory
+/// # let files = tempfile::tempdir()?.into_path();
+/// # let mut tmpfile = std::fs::File::create(files.join("boot.img"))?;
+/// # use std::io::Write;
+/// # writeln!(tmpfile, "Hello, world!")?;
+/// # drop(tmpfile);
+/// # let mut tmpfile = std::fs::File::create(files.join("uefi-boot.img"))?;
+/// # writeln!(tmpfile, "Hello, world!")?;
+/// # drop(tmpfile);
 /// let options = FormatOptions::new()
-/// .with_files(FileInput::from_fs(PathBuf::from("path/to/iso_root"))?)
+/// .with_files(FileInput::from_fs(&files)?)
 /// .with_level(FileInterchange::NonConformant)
 /// .with_boot_options(BootOptions {
 ///     write_boot_catalogue: true,
@@ -76,11 +97,13 @@ pub enum IsoImageError {
 ///         },
 ///     )],
 /// });
-/// let file = IsoImage::format_file(PathBuf::from("my_image.iso"), options)?;
+/// let output_file = PathBuf::from("my_image.iso");
+/// # let output_file = files.join("my_image.iso");
+/// let file = IsoImage::format_file(output_file, options)?;
 /// # Ok::<(), hadris_iso::IsoImageError>(())
 /// ````
 #[derive(Debug)]
-pub struct IsoImage<'a, T: ReadWriteSeek> {
+pub struct IsoImage<'a, T: Read + Write + Seek> {
     data: &'a mut T,
 
     volume_descriptors: VolumeDescriptorList,
@@ -89,7 +112,14 @@ pub struct IsoImage<'a, T: ReadWriteSeek> {
 }
 
 impl<'a> IsoImage<'a, std::fs::File> {
-    pub fn format_file<P>(path: P, options: FormatOptions) -> Result<std::fs::File, IsoImageError>
+    /// Formats a new ISO image,
+    ///
+    /// This creates a new file, which may be too large for some cases,
+    /// but it will be truncated to the correct size when the image is written.
+    /// This may only be an issue when low on disk space or using an in-memory filesystem. 
+    /// Due to how many operating systems work with files, the pages should be mapped-on-demand,
+    /// and there shouldn't be a lot of performance penalty.
+    pub fn format_file<P>(path: P, options: FormatOption) -> Result<std::fs::File, IsoImageError>
     where
         P: AsRef<std::path::Path>,
     {
@@ -112,15 +142,15 @@ impl<'a> IsoImage<'a, std::fs::File> {
     }
 }
 
-impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
+impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
     /// Formats a new ISO image,
     /// for a more convenient API, see [`Self::format_file`] for [`std::fs::File`]
     /// Otherwise, resize the image using the minimum / maximum from [`FormatOptions::image_len`].
-    pub fn format_new(data: &'a mut T, mut ops: FormatOptions) -> Result<(), IsoImageError> {
+    pub fn format_new(data: &'a mut T, mut ops: FormatOption) -> Result<(), IsoImageError> {
         #[cfg(feature = "extra-checks")]
         if ops.strictness >= Strictness::Default {
             let size_bytes = data.seek(SeekFrom::End(0))?;
-            let min_size = ops.image_len().0;
+            let (min_size, _max_size) = ops.image_len();
             if size_bytes < min_size {
                 return Err(IsoImageError::ImageTooSmall(min_size, size_bytes));
             }
@@ -142,7 +172,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         // Add El-Torito catalog file and volume descriptor
         #[cfg(feature = "el-torito")]
         if let Some(boot_ops) = &ops.boot {
-            let boot_record = boot::ElToritoWriter::create_descriptor(boot_ops, &mut ops.files)?;
+            let boot_record = boot::ElToritoWriter::create_descriptor(boot_ops, &mut ops.files);
             volume_descriptors.push(VolumeDescriptor::BootRecord(boot_record));
         }
 
@@ -150,9 +180,11 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         // We don't need to write it yet, since we have to write it later anyways
         current_index += volume_descriptors.size_required() as u64;
         data.seek(SeekFrom::Start(current_index as u64))?;
+        // Current Pos: After volume descriptors
 
         let mut file_writer = FileWriter::new(data, ops.level, ops.files);
         let (root_dir, path_table) = file_writer.write()?;
+        // Current Pos: After file data + directory records
 
         {
             log::trace!("Updating primary volume descriptor");
@@ -163,6 +195,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
             pvd.type_l_path_table.set(path_table.offset as u32);
             pvd.type_m_path_table
                 .set(path_table.offset as u32 + (path_table.size / 2048) as u32);
+            // Current Pos: After Path Tables
         }
 
         #[cfg(feature = "el-torito")]
@@ -198,6 +231,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
                 if let Some(section) = section {
                     catalog.add_section(section.platform_id, vec![boot_entry]);
                 } else {
+                    // If it is the default entry, it doesn't have a section
                     catalog.set_default_entry(boot_entry);
                 }
 
@@ -208,6 +242,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
                         file.header.extent.read() as u64 * 2048 + 64,
                     ))?;
                     for _ in (64..file.header.data_len.read()).step_by(4) {
+                        // PERF: We might be able to use simd loading and operations here?
                         data.read_exact(&mut buffer)?;
                         checksum = checksum.wrapping_add(u32::from_le_bytes(buffer));
                     }
@@ -237,6 +272,7 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
             }
 
             let name = ops.level.from_str("boot.catalog").unwrap();
+            log::trace!("Searching for boot catalogue ({})", name);
             let catalog_ptr = if boot_ops.write_boot_catalogue {
                 let (_, catalog_file) = IsoDir {
                     reader: data,
@@ -292,7 +328,8 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
             for i in 0..512 {
                 if buf[i] != 0 {
                     log::warn!(
-                        "Found non-zero byte at offset {i}, this will be overwritten by the GPT"
+                        "Found non-zero byte at offset {}, this will be overwritten by the GPT",
+                        i + 512
                     );
                 }
             }
@@ -343,19 +380,35 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
         let size_bytes = data.stream_position()?;
         let size_sectors = size_bytes / 2048;
 
+        if write_format && ops.format.contains(PartitionOptions::INCLUDE_DEFAULT_BOOT) {
+            data.seek(SeekFrom::Start(0))?;
+            assert_eq!(hadris_common::BOOT_SECTOR_BIN.len(), 512);
+            data.write_all(hadris_common::BOOT_SECTOR_BIN)?;
+        }
+
         if write_format && ops.format.contains(PartitionOptions::MBR) {
             if ops.strictness >= Strictness::Default {
                 data.seek(SeekFrom::Start(446))?;
                 let mut buf: [u8; 66] = [0; 66];
                 data.read_exact(&mut buf)?;
-                for i in 0..66 {
+                for i in 0..64 {
                     if buf[i] != 0 {
                         log::warn!(
-                            "Found non-zero byte at offset {i}, this will be overwritten by the MBR"
+                            "Found non-zero byte at offset {}, this will be overwritten by the MBR",
+                            i + 446
                         );
                     }
                 }
+
+                if buf[64] != 0x55 || buf[65] != 0xAA && (buf[64] != 0 && buf[65] != 0) {
+                    log::warn!(
+                        "Expected boot signature 0x55AA at offset 64, got 0x{:x}{:x}",
+                        buf[64],
+                        buf[65]
+                    );
+                }
             }
+            // TODO: Maybe an option for the user to include the generic boot sector stub?
             data.seek(SeekFrom::Start(446))?;
             let mut mbr = MbrPartitionTable::default();
             let block_count = u32::try_from(size_sectors * 4).unwrap_or(u32::MAX);
@@ -391,13 +444,13 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
     }
 
     #[deprecated(since = "0.0.1", note = "Use `parse` instead")]
-    pub fn new(data: &'a mut T) -> Result<Self, std::io::Error> {
+    pub fn new(data: &'a mut T) -> Result<Self, Error> {
         Self::parse(data)
     }
 
     /// Parses an ISO image from the given reader
     /// Currently this is not fully supported, and only provides basic information
-    pub fn parse(data: &'a mut T) -> Result<Self, std::io::Error> {
+    pub fn parse(data: &'a mut T) -> Result<Self, Error> {
         {
             data.seek(SeekFrom::Start(446))?;
             let mut mbr = MbrPartitionTable::default();
@@ -541,21 +594,21 @@ impl<'a, T: ReadWriteSeek> IsoImage<'a, T> {
     }
 
     fn current_sector(data: &mut T) -> usize {
-        let seek = data.seek(std::io::SeekFrom::Current(0)).unwrap();
+        let seek = data.seek(SeekFrom::Current(0)).unwrap();
         assert!(seek % 2048 == 0, "Seek must be a multiple of 2048");
         (seek / 2048) as usize
     }
 
-    fn align(data: &mut T) -> Result<u64, std::io::Error> {
-        let current_seek = data.seek(std::io::SeekFrom::Current(0))?;
+    fn align(data: &mut T) -> Result<u64, Error> {
+        let current_seek = data.stream_position()?;
         let padded_end = (current_seek + 2047) & !2047;
-        data.seek(std::io::SeekFrom::Start(padded_end))?;
+        data.seek(SeekFrom::Start(padded_end))?;
         Ok(padded_end)
     }
 }
 
 #[derive(Debug)]
-struct FileWriter<'a, W: ReadWriteSeek> {
+struct FileWriter<'a, W: Read + Write + Seek> {
     writer: &'a mut W,
 
     level: FileInterchange,
@@ -566,7 +619,7 @@ struct FileWriter<'a, W: ReadWriteSeek> {
     written_files: BTreeMap<String, (bool, DirectoryRef)>,
 }
 
-impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
+impl<'a, W: Read + Write + Seek> FileWriter<'a, W> {
     pub fn new(writer: &'a mut W, level: FileInterchange, files: FileInput) -> Self {
         log::trace!("Started writing files");
         let (mut dirs, files) = files.split();
@@ -601,14 +654,14 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
 
     /// Writes the file data, directory data, and the path table to the given writer, returning a
     /// tuple containing the root directory and the path table.
-    pub fn write(&mut self) -> Result<(DirectoryRef, DirectoryRef), std::io::Error> {
+    pub fn write(&mut self) -> Result<(DirectoryRef, DirectoryRef), Error> {
         self.write_file_data()?;
         let root_dir = self.write_directory_data()?;
         let path_table = self.write_path_table(&root_dir)?;
         Ok((root_dir, path_table))
     }
 
-    fn write_file_data(&mut self) -> Result<(), std::io::Error> {
+    fn write_file_data(&mut self) -> Result<(), Error> {
         log::trace!("Started writing file data");
         for file in &self.files {
             let data = file.data.get_data();
@@ -629,7 +682,7 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
         Ok(())
     }
 
-    fn write_directory_data(&mut self) -> Result<DirectoryRef, std::io::Error> {
+    fn write_directory_data(&mut self) -> Result<DirectoryRef, Error> {
         log::trace!("Started writing directory data");
         let default_entry = DirectoryRecord::with_len(1);
 
@@ -680,13 +733,13 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
                 dir_ref,
                 FileFlags::DIRECTORY,
             )
-            .write(&mut self.writer)?;
+            .write(self.writer)?;
             DirectoryRecord::new(
                 IsoStringFile::from_bytes(&[0x01]),
                 parent_ref,
                 FileFlags::DIRECTORY,
             )
-            .write(&mut self.writer)?;
+            .write(self.writer)?;
 
             let mut reader = IsoDir {
                 reader: self.writer,
@@ -701,10 +754,11 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
                 if directory.name.bytes() == b"\x00" || directory.name.bytes() == b"\x01" {
                     continue;
                 }
+                let orig_name = self.level.original(&directory.name);
                 let dirname = if cur_path.is_empty() {
-                    directory.name.to_string()
+                    orig_name
                 } else {
-                    format!("{}/{}", cur_path, directory.name)
+                    format!("{}/{}", cur_path, orig_name)
                 };
                 let dir_ref_inner = self.written_files.get(dirname.as_str()).unwrap().1;
                 let mut new_entry = directory.clone();
@@ -713,7 +767,7 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
                 new_entry.header.data_len.write(dir_ref_inner.size as u32);
                 self.writer.seek(SeekFrom::Start(start + offset))?;
 
-                new_entry.write(&mut self.writer)?;
+                new_entry.write(self.writer)?;
                 stack.push((dir_ref_inner, dir_ref, dirname));
             }
         }
@@ -725,10 +779,7 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
         Ok(root_dir.1)
     }
 
-    fn write_path_table(
-        &mut self,
-        root_dir: &DirectoryRef,
-    ) -> Result<DirectoryRef, std::io::Error> {
+    fn write_path_table(&mut self, root_dir: &DirectoryRef) -> Result<DirectoryRef, Error> {
         log::trace!("Started writing path table");
         let start_sector = IsoImage::current_sector(self.writer);
         let mut entries = Vec::new();
@@ -776,7 +827,7 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
         // Write L-Table (Little-Endian)
         for entry in &entries {
             self.writer
-                .write_all(&entry.to_bytes(types::EndianType::LittleEndian))?;
+                .write_all(&entry.to_bytes(EndianType::LittleEndian))?;
         }
 
         // Align to sector boundary
@@ -792,22 +843,28 @@ impl<'a, W: ReadWriteSeek> FileWriter<'a, W> {
         // Write M-Table (Big-Endian)
         for entry in &entries {
             self.writer
-                .write_all(&entry.to_bytes(types::EndianType::BigEndian))?;
+                .write_all(&entry.to_bytes(EndianType::BigEndian))?;
         }
 
         let mtable_end = IsoImage::align(self.writer)?;
-        assert_eq!(mtable_end - end, path_table_ref.size);
+        // This is just a sanity check
+        debug_assert_eq!(mtable_end - end, path_table_ref.size);
 
         Ok(path_table_ref)
     }
 }
 
+/// Trait for internal methods of the `IsoImage` struct.
+///
+/// This trait provides a way to access some of the internal structures of the `IsoImage` struct,
+/// and not only the public API (files, boot entries, etc.).
 pub trait VolumeInternals {
-    fn get_volume_descriptors(&self) -> &VolumeDescriptorList;
+    /// Returns a reference to the volume descriptors.
+    fn get_volume_descriptors(&self) -> &[VolumeDescriptor];
 }
 
-impl<'a, T: ReadWriteSeek> VolumeInternals for IsoImage<'a, T> {
-    fn get_volume_descriptors(&self) -> &VolumeDescriptorList {
-        &self.volume_descriptors
+impl<'a, T: Read + Write + Seek> VolumeInternals for IsoImage<'a, T> {
+    fn get_volume_descriptors(&self) -> &[VolumeDescriptor] {
+        self.volume_descriptors.descriptors.as_slice()
     }
 }

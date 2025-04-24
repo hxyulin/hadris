@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "boot_sector"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1
+debug = false

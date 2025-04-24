@@ -71,13 +71,15 @@ impl FileInput {
         Self { files: Vec::new() }
     }
 
-    pub fn from_fs(root: PathBuf) -> Result<FileInput, std::io::Error> {
+    #[cfg(feature = "std")]
+    pub fn from_fs<P: AsRef<std::path::Path>>(root: P) -> Result<FileInput, std::io::Error> {
+        let root = root.as_ref();
         assert!(root.is_dir(), "File {} is not a directory", root.display());
         let mut files = vec![File {
             path: "".to_string(),
             data: FileData::Directory(Vec::new()),
         }];
-        let mut stack = vec![root.clone()];
+        let mut stack = vec![root.to_path_buf()];
         while let Some(dir) = stack.pop() {
             let mut childrens = Vec::new();
             let children = std::fs::read_dir(&dir)?;

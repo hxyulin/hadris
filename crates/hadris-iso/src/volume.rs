@@ -1,8 +1,5 @@
-use std::{
-    ffi::CStr,
-    fmt::Debug,
-    io::{Read, Write},
-};
+use core::{ffi::CStr, fmt::Debug};
+use hadris_io::{Error, Read, Write};
 
 use crate::{
     directory::RootDirectoryEntry,
@@ -113,7 +110,7 @@ impl VolumeDescriptorList {
     /// Parse the volume descriptor list from the given reader
     ///
     /// The caller should seek to the start of the volume descriptor list, which is usually at LBA 16
-    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, std::io::Error> {
+    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, Error> {
         let mut descriptors = Vec::new();
         let mut buffer = [0u8; 2048];
         loop {
@@ -173,7 +170,7 @@ impl VolumeDescriptorList {
         self.descriptors.push(descriptor);
     }
 
-    pub fn write<W: Write>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
+    pub fn write<W: Write>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut written = 0;
         for descriptor in &self.descriptors {
             writer.write_all(&descriptor.to_bytes())?;
@@ -198,7 +195,7 @@ pub struct VolumeDescriptorHeader {
 }
 
 impl Debug for VolumeDescriptorHeader {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("VolumeDescriptorHeader")
             .field(
                 "descriptor_type",
@@ -237,7 +234,7 @@ pub struct UnknownVolumeDescriptor {
 }
 
 impl Debug for UnknownVolumeDescriptor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("UnknownVolumeDescriptor")
             .field("header", &self.header)
             .finish_non_exhaustive()
@@ -284,7 +281,7 @@ pub struct PrimaryVolumeDescriptor {
 }
 
 impl Debug for PrimaryVolumeDescriptor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PrimaryVolumeDescriptor")
             .field("header", &self.header)
             .field("system_identifier", &self.system_identifier)
@@ -387,7 +384,7 @@ impl BootRecordVolumeDescriptor {
 }
 
 impl Debug for BootRecordVolumeDescriptor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let system_identifier = CStr::from_bytes_until_nul(&self.boot_system_identifier);
         f.debug_struct("BootRecordVolumeDescriptor")
             .field("header", &self.header)
@@ -425,7 +422,7 @@ impl VolumeDescriptorSetTerminator {
 }
 
 impl Debug for VolumeDescriptorSetTerminator {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("VolumeDescriptorSetTerminator")
             .field("header", &self.header)
             .finish_non_exhaustive()

@@ -1,6 +1,7 @@
 use clap::Parser;
 use hadris_iso::{
-    BootEntryOptions, BootOptions, BootSectionOptions, EmulationType, FileInput, FileInterchange, FormatOptions, IsoImage, PartitionOptions, PlatformId
+    BootEntryOptions, BootOptions, BootSectionOptions, EmulationType, FileInput, FileInterchange,
+    FormatOption, IsoImage, PartitionOptions, PlatformId,
 };
 use std::{fs::OpenOptions, path::PathBuf};
 
@@ -71,11 +72,11 @@ fn main() {
 }
 
 fn write(isoroot: PathBuf, output: &PathBuf) {
-    let options = FormatOptions::new()
+    let options = FormatOption::default()
         .with_volume_name("LIMINEBOOT".to_string())
-        .with_level(FileInterchange::NonConformant)
+        .with_level(FileInterchange::L3)
         .with_files(FileInput::from_fs(isoroot).unwrap())
-        .with_format_options(PartitionOptions::PROTECTIVE_MBR | PartitionOptions::GPT)
+        .with_format_options(PartitionOptions::PROTECTIVE_MBR | PartitionOptions::GPT | PartitionOptions::INCLUDE_DEFAULT_BOOT)
         .with_boot_options(BootOptions {
             write_boot_catalogue: true,
             default: BootEntryOptions {
@@ -99,7 +100,6 @@ fn write(isoroot: PathBuf, output: &PathBuf) {
             )],
         });
 
-    // TODO: Empty directories don't work
     IsoImage::format_file(output, options).unwrap();
 }
 

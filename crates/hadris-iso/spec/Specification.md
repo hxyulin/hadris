@@ -16,7 +16,8 @@ This is an unofficial specification for the ISO-9660 filesystem.
 ## Introduction
 
 The ISO-9660 filesystem is a file system standard for CD-ROM and DVD-ROM media. However, it is also commonly used for other types of media,
-like bootable USB drives and optical media.
+like bootable USB drives and optical media. It is designed to be read-only, as writing to the filesystem is inefficient and would require in some cases
+to rewrite the entire filesystem.
 
 The ISO-9660 filesystem is a hierarchical file system, with a root directory at the top level.
 
@@ -70,7 +71,7 @@ Furthermore, when implementing a ISO-9660 writer, it is recommended to use the f
 | F..D | Directory records |
 | D..P | Path table |
 
-This structures allow for the directories to be easier to write, as all the files are already written. Additionally, directories should be written in an order, so that the nested directories are written before the parents (depth-first sorting). More details for the implementation in the respective sections.
+This structures allow for the directories to be easier to write, as all the files are already written. Additionally, directories should be written in an order, so that the nested entries (files/directories) are written before the parents (depth-first sorting). More details for the implementation in the respective sections.
 
 ### Volume Descriptor
 
@@ -79,9 +80,9 @@ A volume descriptor is 2048 byte structure, which contains information about the
 There are many different volume descriptors, but they all follow the same header:
 
 | Offset | Size | Type | Description |
-| --- | --- | --- | -- |
+| --- | --- | --- | --- |
 | 0 | 1 | u8 | Descriptor type, see [Volume Descriptor Type](#volume-descriptor-type) |
-| 1 | 5 | u8 | \[5\] | Standard identifier, see [Standard Identifier](#standard-identifier) |
+| 1 | 5 | u8\[5\] | Standard identifier, see [Standard Identifier](#standard-identifier) |
 | 6 | 1 | u8 | Version, currently always 1 |
 
 After the header, the volume descriptor they have different structures, but the size is always padded to 2048 bytes.
@@ -92,7 +93,7 @@ There can be any number of other volume descriptors, which can be used to store 
 
 The following table describes the structure of the primary volume descriptor:
 | Offset | Size | Type | Description |
-| --- | --- | --- |
+| --- | --- | --- | --- |
 | 0 | 1 | u8 | Descriptor type |
 
 (WIP)
@@ -113,10 +114,6 @@ The volume descriptor type is an enum, which can be one of the following values:
 
 The standard identifier is a 5-byte ASCII string, which is used to identify the standard that the volume descriptor follows.
 It is the string "CD001".
-
-#### Standard Identifier
-
-The standard identifier is a 5-byte ASCII string, which is used to identify the standard that the volume descriptor follows.
 
 ## References
 

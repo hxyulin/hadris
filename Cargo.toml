@@ -5,6 +5,7 @@ members = [
     "crates/hadris-iso",
     "crates/hadris-common",
     "crates/hadris",
+    "crates/hadris-io",
 ]
 default-members = [
     "crates/hadris-iso-cli",
@@ -14,7 +15,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.0.2"
+version = "0.1.2"
 edition = "2024"
 authors = ["hxyulin"]
 license = "MIT"
@@ -26,6 +27,10 @@ bytemuck = "1.22.0"
 bitflags = "2.9.0"
 static_assertions = "1.1.0"
 criterion = "0.5.1"
+thiserror = "2.0.12"
+cfg-if = "1.0.0"
+tempfile = "3.19.1"
 
-hadris-iso = { path = "crates/hadris-iso", version = "0.0.2" }
-hadris-common = { path = "crates/hadris-common", version = "0.0.2" }
+hadris-io = { path = "crates/hadris-io", version = "0.1.2" }
+hadris-iso = { path = "crates/hadris-iso", version = "0.1.2" }
+hadris-common = { path = "crates/hadris-common", version = "0.1.2" }

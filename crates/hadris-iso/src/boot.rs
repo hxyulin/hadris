@@ -2,23 +2,23 @@
 //!
 //! This is used for booting from CDs and DVDs
 
-use std::{
-    fmt::Debug,
-    io::{Read, Write},
-};
+use core::fmt::Debug;
+use hadris_io::{Error, Read, Seek, Write};
 
 use crate::{
-    types::{Endian, LittleEndian, U16, U32}, BootOptions, BootRecordVolumeDescriptor, FileData, FileInput, FormatOptions, PathTableRef, ReadWriteSeek
+    BootOptions, BootRecordVolumeDescriptor, FileData, FileInput, PathTableRef,
+    types::{Endian, LittleEndian, U16, U32},
 };
 
-/// Types for El Torito boot catalogue
-/// The boot catalogue consists of a series of boot catalogue entries:
-/// First, the validation entry
-/// Next, the initial/default entry
-/// Section headers,
-/// Section entries,
-/// Section entry extensions
+// Types for El Torito boot catalogue
+// The boot catalogue consists of a series of boot catalogue entries:
+// First, the validation entry
+// Next, the initial/default entry
+// Section headers,
+// Section entries,
+// Section entry extensions
 
+/// Boot catalogue
 #[derive(Debug, Clone)]
 pub struct BootCatalogue {
     validation: BootValidationEntry,
@@ -68,7 +68,9 @@ impl BootCatalogue {
 
     /// Parse the boot catalogue from the given reader,
     /// expects the reader to seek to the start of the catalogue
-    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, std::io::Error> {
+    pub fn parse<T: Read + Seek>(reader: &mut T) -> Result<Self, Error> {
+        debug_assert!(reader.stream_position().unwrap() % 2048 == 0);
+
         let validation = BootValidationEntry::parse(reader)?;
         if !validation.is_valid() {
             panic!("Invalid boot catalogue: Validation entry is invalid");
@@ -124,7 +126,7 @@ impl BootCatalogue {
         })
     }
 
-    pub fn write<W: Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+    pub fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         writer.write_all(bytemuck::bytes_of(&self.validation))?;
         writer.write_all(bytemuck::bytes_of(&self.default_entry))?;
         for (header, entries) in self.sections.iter() {
@@ -236,7 +238,7 @@ impl BootValidationEntry {
 }
 
 impl Debug for BootValidationEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BootValidationEntry")
             .field("header_id", &format!("{:#x}", self.header_id))
             .field("platform_id", &PlatformId::from_u8(self.platform_id))
@@ -251,8 +253,8 @@ impl Debug for BootValidationEntry {
 }
 
 impl BootValidationEntry {
-    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, std::io::Error> {
-        let mut buf: [u8; 32] = [0; 32];
+    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, Error> {
+        let mut buf = [0u8; 32];
         reader.read_exact(&mut buf)?;
         Ok(bytemuck::cast(buf))
     }
@@ -261,8 +263,17 @@ impl BootValidationEntry {
         self.header_id == 0x01 && self.checksum.get() == self.calculate_checksum()
     }
 
+    /// Calculates the checksum of the boot catalogue
+    ///
+    /// The checksum works such that the checksum of the data (including checksum bytes) is 0.
+    /// We can do this by finding the sum of the data without the checksum bytes, and negating it
+    /// (using two's complement).
     pub fn calculate_checksum(&self) -> u16 {
-        let mut bytes = bytemuck::bytes_of(self).to_vec();
+        // We know the size of the struct, we we can just stack allocate a buffer and copy the data
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(bytemuck::bytes_of(self));
+        // Zero out the checksum bytes (we are basically just ignoring them), since we need to find
+        // what the data equal without them
         bytes[28] = 0;
         bytes[29] = 0;
         let mut checksum = 0u16;
@@ -270,6 +281,7 @@ impl BootValidationEntry {
             let value = u16::from_le_bytes([bytes[i], bytes[i + 1]]);
             checksum = checksum.wrapping_add(value);
         }
+        // We use two's complement to negate the checksum, so that the checksum + data = 0 (in 16-bit)
         (!checksum) + 1
     }
 }
@@ -286,7 +298,7 @@ pub struct BootSectionHeaderEntry {
 }
 
 impl Debug for BootSectionHeaderEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BootSectionHeaderEntry")
             .field("header_type", &format!("{:#x}", self.header_type))
             .field("platform_id", &PlatformId::from_u8(self.platform_id))
@@ -362,7 +374,7 @@ impl BootSectionEntry {
 }
 
 impl Debug for BootSectionEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BootSectionEntry")
             .field("boot_indicator", &format!("{:#x}", self.boot_indicator))
             .field(
@@ -379,7 +391,7 @@ impl Debug for BootSectionEntry {
 }
 
 impl BootSectionEntry {
-    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, std::io::Error> {
+    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, Error> {
         let mut buf: [u8; 32] = [0; 32];
         reader.read_exact(&mut buf)?;
         Ok(bytemuck::cast(buf))
@@ -406,22 +418,34 @@ pub struct BootSectionEntryExtension {
 unsafe impl bytemuck::Zeroable for BootSectionEntryExtension {}
 unsafe impl bytemuck::Pod for BootSectionEntryExtension {}
 
+/// Boot information table
+///
+/// This table is located in the boot binary and contains information about the
+/// ISO image and the boot binary.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct BootInfoTable {
+    /// The start LBA of the ISO image (This would 16 in most cases)
     pub iso_start: U32<LittleEndian>,
+    /// The start LBA of the boot binary
     pub file_lba: U32<LittleEndian>,
+    /// The length of the boot binary (in bytes)
     pub file_len: U32<LittleEndian>,
+    /// The checksum of the boot binary
     pub checksum: U32<LittleEndian>,
 }
 
 pub struct ElToritoWriter;
 
 impl ElToritoWriter {
+    /// Creates the El-Torito ovlume descriptor based on the given options and files
+    /// This will append a boot catalogue to the given files if the options require it
+    /// When extra checks are enabled, this will also check that the boot entry paths are valid
+    /// (included in the files)
     pub fn create_descriptor(
         opts: &BootOptions,
         files: &mut FileInput,
-    ) -> Result<BootRecordVolumeDescriptor, std::io::Error> {
+    ) -> BootRecordVolumeDescriptor {
         log::trace!("Adding boot record to volume descriptors");
         #[cfg(feature = "extra-checks")]
         for entry in opts.entries() {
@@ -440,11 +464,15 @@ impl ElToritoWriter {
                 data: FileData::Data(vec![0; size]),
             });
         }
-        Ok(BootRecordVolumeDescriptor::new(0))
+        BootRecordVolumeDescriptor::new(0)
     }
 
     /// Writes the boot catalogue and boot info table to the given writer
-    pub fn write_catalog_and_table<W: ReadWriteSeek>(writer: &mut W, opts: &BootOptions, path_table: &PathTableRef) -> Result<(), std::io::Error> {
+    pub fn write_catalog_and_table<W: Read + Write + Seek>(
+        _writer: &mut W,
+        _opts: &BootOptions,
+        _path_table: &PathTableRef,
+    ) -> Result<(), Error> {
         todo!()
     }
 }

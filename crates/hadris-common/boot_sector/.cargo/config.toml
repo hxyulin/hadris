@@ -1,0 +1,6 @@
+[build]
+target = "boot_sector.json"
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["compiler-builtins-mem"]

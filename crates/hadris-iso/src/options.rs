@@ -6,33 +6,56 @@ use crate::{FileInput, FileInterchange, PlatformId};
 
 bitflags! {
     /// The extra partition options that the image can have
+    ///
+    /// This includes specifying a partition table (MBR or GPT), and whether to include a default bootloader, or allow overwriting the system area
     #[derive(Debug, Clone, Copy)]
     pub struct PartitionOptions: u8 {
         /// Use the MBR partition table
+        ///
+        /// This places the MBR header in bytes 446-510 of the disk
         const MBR = 0b0000001;
+
         /// Uses a protective MBR, which prevents MBR disks from overriding UEFI disk if they
         /// didn't parse El-Torito. This is recommended if you are using a GPT partition table.
+        /// Enabling this will override the MBR flag
         const PROTECTIVE_MBR = 0b0000011;
+
         /// Use the GPT partition table
+        /// This places a GPT header in LBA 1, as well as any entries in the reserved area
+        /// A full backup GPT is placed at the very end of the disk, with the entries placed before the backup GPT header
         const GPT = 0b00000100;
-        /// Overwrite the system area, even if another system area is provided
-        /// If not, this disables warning when overriding on zero bytes
+
+        /// Includes a default bootloader in the boot sector
+        /// This is useful if the user loads the ISO image incorrectly,
+        /// or if the BIOS doesn't support El-Torito
+        const INCLUDE_DEFAULT_BOOT = 0b01000000;
+
+        /// Overwrite the system area, even if another system area is provided (for example a
+        /// custom boot sector, but still have GPT and MBR)
+        /// By definition, when enabling this, overwrites of non-zero bytes will not issue a warning
         const OVERWRITE_FORMAT = 0b10000000;
     }
 }
 
+// TODO: Make this a numberical value instead of an enum
+
 /// The strictness of the image
-///
-/// TODO: Make this a numberical value instead of an enum
 #[repr(u8)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Strictness {
     /// There are no checks to validate the image
+    /// Only checks are done that would cause the format to fail
+    /// In most cases this would panic on an assertion failure or unwrap
+    /// This is not recommended, and in most cases [`Default`](Strictness::Default) should be fast enough
     Relaxed,
-    /// There are no strict checks to validate the image
+
+    /// There are no strict checks to validate the image,
+    /// only checks that don't massively hurt the performance or would result in a broken image
     #[default]
     Default,
-    /// There are strict checks to validate the image
+
+    /// There are strict checks to validate the image, without any false positives
+    /// Use this if you want maximum compatibility with the ISO standard
     Strict,
 }
 
@@ -40,7 +63,7 @@ pub enum Strictness {
 
 /// The options for formatting a new ISO image
 #[derive(Debug, Clone)]
-pub struct FormatOptions {
+pub struct FormatOption {
     pub volume_name: String,
     pub level: FileInterchange,
     pub files: FileInput,
@@ -60,11 +83,11 @@ fn align_to_sector(size: usize) -> usize {
     (size + 2047) & !2047
 }
 
-impl FormatOptions {
-    pub fn new() -> Self {
-        FormatOptions {
+impl Default for FormatOption {
+    fn default() -> Self {
+        FormatOption {
             volume_name: "ISOIMAGE".to_string(),
-            level: FileInterchange::L1,
+            level: FileInterchange::L3,
             files: FileInput::empty(),
             format: PartitionOptions::empty(),
             system_area: None,
@@ -73,7 +96,17 @@ impl FormatOptions {
             boot: None,
         }
     }
+}
 
+impl FormatOption {
+    #[deprecated(since = "0.1.2", note = "Use `Default::default()` instead")]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the volume name, and returns a new FormatOption
+    ///
+    /// This is the name of the volume, and is used in the ISO 9660 volume descriptor
     pub fn with_volume_name(mut self, name: String) -> Self {
         self.volume_name = name;
         self
@@ -195,7 +228,31 @@ pub struct BootOptions {
     pub entries: Vec<(BootSectionOptions, BootEntryOptions)>,
 }
 
+impl Default for BootOptions {
+    fn default() -> Self {
+        Self {
+            write_boot_catalogue: false,
+            default: BootEntryOptions::default(),
+            entries: Vec::new(),
+        }
+    }
+}
+
 impl BootOptions {
+    /// Adds a new default entry to the boot catalogue
+    /// Returns a new BootOptions with the new entry
+    pub fn with_default(mut self, default: BootEntryOptions) -> Self {
+        self.default = default;
+        self
+    }
+
+    /// Adds a new entry to the boot catalogue
+    /// Returns a new BootOptions with the new entry
+    pub fn with_entry(mut self, section: BootSectionOptions, entry: BootEntryOptions) -> Self {
+        self.entries.push((section, entry));
+        self
+    }
+
     pub(crate) fn sections(&self) -> Vec<(Option<BootSectionOptions>, BootEntryOptions)> {
         let mut sections = Vec::new();
         sections.push((None, self.default.clone()));
@@ -219,6 +276,13 @@ impl BootOptions {
 pub struct BootSectionOptions {
     pub platform_id: PlatformId,
 }
+impl Default for BootSectionOptions {
+    fn default() -> Self {
+        Self {
+            platform_id: PlatformId::X80X86,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 #[cfg(feature = "el-torito")]
@@ -239,4 +303,16 @@ pub struct BootEntryOptions {
     /// What type of emulation to use
     /// see [`EmulationType`]
     pub emulation: EmulationType,
+}
+
+impl Default for BootEntryOptions {
+    fn default() -> Self {
+        Self {
+            load_size: 0,
+            boot_image_path: String::new(),
+            boot_info_table: false,
+            grub2_boot_info: false,
+            emulation: EmulationType::NoEmulation,
+        }
+    }
 }
