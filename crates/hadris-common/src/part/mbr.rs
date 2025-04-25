@@ -1,5 +1,7 @@
+// FIXME: Use hadris_io instead std::io
 use std::{
     fmt::Debug,
+    io::{Error, Read},
     ops::{Index, IndexMut},
 };
 
@@ -176,7 +178,7 @@ impl MbrPartition {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 pub struct MbrPartitionTable {
     pub partitions: [MbrPartition; 4],
@@ -190,7 +192,21 @@ impl Default for MbrPartitionTable {
     }
 }
 
+impl core::fmt::Debug for MbrPartitionTable {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MbrPartitionTable")
+            .field("partitions", &&self.partitions[..self.len()])
+            .finish()
+    }
+}
+
 impl MbrPartitionTable {
+    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, Error> {
+        let mut buf = [0u8; size_of::<Self>()];
+        reader.read_exact(&mut buf)?;
+        Ok(bytemuck::cast(buf))
+    }
+
     pub fn len(&self) -> usize {
         let mut count = 0;
         for partition in self.partitions {

@@ -30,6 +30,7 @@ criterion = "0.5.1"
 thiserror = "2.0.12"
 cfg-if = "1.0.0"
 tempfile = "3.19.1"
+chrono = "0.4.40"
 
 hadris-io = { path = "crates/hadris-io", version = "0.1.2" }
 hadris-iso = { path = "crates/hadris-iso", version = "0.1.2" }

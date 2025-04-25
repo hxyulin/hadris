@@ -39,24 +39,40 @@ bitflags! {
 
 // TODO: Make this a numberical value instead of an enum
 
+bitflags::bitflags! {
 /// The strictness of the image
-#[repr(u8)]
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Strictness {
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Strictness: u64 {
+    const SIZE_CHECK = 0x1;
+    const OVERWRITE_NONZERO = 0x2;
+}
+}
+
+impl Default for Strictness {
+    fn default() -> Self {
+        Strictness::RELAXED
+    }
+}
+
+impl Strictness {
     /// There are no checks to validate the image
     /// Only checks are done that would cause the format to fail
     /// In most cases this would panic on an assertion failure or unwrap
     /// This is not recommended, and in most cases [`Default`](Strictness::Default) should be fast enough
-    Relaxed,
-
-    /// There are no strict checks to validate the image,
-    /// only checks that don't massively hurt the performance or would result in a broken image
-    #[default]
-    Default,
+    pub const RELAXED: Self = Self::empty();
 
     /// There are strict checks to validate the image, without any false positives
     /// Use this if you want maximum compatibility with the ISO standard
-    Strict,
+    pub const STRICT: Self = Self::all();
+
+    pub const fn size_check(self) -> bool {
+        self.contains(Self::SIZE_CHECK)
+    }
+
+    pub const fn overwrite_nonzero(self) -> bool {
+        self.contains(Self::OVERWRITE_NONZERO)
+    }
 }
 
 // TODO: Support multiple volume sets
@@ -79,6 +95,7 @@ pub struct FormatOption {
     pub boot: Option<BootOptions>,
 }
 
+/// Aligns the number to the nearest sector (2048 bytes)
 fn align_to_sector(size: usize) -> usize {
     (size + 2047) & !2047
 }
@@ -91,7 +108,7 @@ impl Default for FormatOption {
             files: FileInput::empty(),
             format: PartitionOptions::empty(),
             system_area: None,
-            strictness: Strictness::Default,
+            strictness: Strictness::default(),
             #[cfg(feature = "el-torito")]
             boot: None,
         }

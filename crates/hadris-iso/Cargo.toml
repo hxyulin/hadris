@@ -9,6 +9,7 @@ readme = "README.md"
 description = "A rust implementation of the ISO-9660 filesystem."
 keywords = ["el-torito", "iso", "iso9660", "cd", "dvd"]
 categories = ["filesystem", "encoding"]
+exclude = ["/spec"]
 
 [features]
 default = ["std", "el-torito", "rock-ridge-full", "extra-checks"]
@@ -22,9 +23,7 @@ bitflags = { workspace = true, features = ["bytemuck"] }
 bytemuck = { workspace = true, features = ["derive"] }
 log.workspace = true
 thiserror.workspace = true
-
-chrono = "0.4.40"
-
+chrono.workspace = true
 hadris-io = { workspace = true }
 hadris-common = { workspace = true }
 

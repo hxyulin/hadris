@@ -28,7 +28,7 @@ impl Default for DirectoryRecordHeader {
             extended_attr_record: 0,
             extent: U32LsbMsb::new(0),
             data_len: U32LsbMsb::new(0),
-            date_time: DirDateTime::default(),
+            date_time: DirDateTime::now(),
             flags: 0,
             file_unit_size: 0,
             interleave_gap_size: 0,

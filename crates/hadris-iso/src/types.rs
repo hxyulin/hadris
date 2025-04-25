@@ -280,6 +280,7 @@ impl core::fmt::Debug for DecDateTime {
 }
 
 impl DecDateTime {
+    #[cfg(feature = "std")]
     pub fn now() -> Self {
         use chrono::{DateTime, Datelike, Timelike, Utc};
         let now: DateTime<Utc> = SystemTime::now().into();
@@ -314,7 +315,8 @@ pub enum FileInterchange {
 }
 
 impl FileInterchange {
-    pub fn from_str(&self, s: &str) -> Result<IsoStringFile, ()> {
+    /// Convert a string from the original format to the internal format
+    pub fn cvrt_from_orig(&self, s: &str) -> Result<IsoStringFile, ()> {
         match self {
             FileInterchange::L1 => {
                 let (base, ext) = s.split_once('.').unwrap_or((s, ""));
@@ -342,7 +344,8 @@ impl FileInterchange {
         }
     }
 
-    pub fn original(&self, s: &IsoStringFile) -> String {
+    /// Convert a string from the internal format to the original format (this may be lossy)
+    pub fn cvrt_to_orig(&self, s: &IsoStringFile) -> String {
         let mut chars = s.chars.iter();
         let mut out = String::new();
         while let Some(c) = chars.next() {

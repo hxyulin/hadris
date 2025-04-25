@@ -106,23 +106,25 @@ pub enum IsoImageError {
 pub struct IsoImage<'a, T: Read + Write + Seek> {
     data: &'a mut T,
 
-    volume_descriptors: VolumeDescriptorList,
     root_directory: DirectoryRef,
     path_table: PathTableRef,
 }
 
+#[cfg(feature = "std")]
 impl<'a> IsoImage<'a, std::fs::File> {
     /// Formats a new ISO image,
     ///
     /// This creates a new file, which may be too large for some cases,
     /// but it will be truncated to the correct size when the image is written.
-    /// This may only be an issue when low on disk space or using an in-memory filesystem. 
+    /// This may only be an issue when low on disk space or using an in-memory filesystem.
     /// Due to how many operating systems work with files, the pages should be mapped-on-demand,
     /// and there shouldn't be a lot of performance penalty.
     pub fn format_file<P>(path: P, options: FormatOption) -> Result<std::fs::File, IsoImageError>
     where
         P: AsRef<std::path::Path>,
     {
+        // We open a file with read, write, create, and truncate options,
+        // so that the old stale data is overwritten
         let mut file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -148,7 +150,7 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
     /// Otherwise, resize the image using the minimum / maximum from [`FormatOptions::image_len`].
     pub fn format_new(data: &'a mut T, mut ops: FormatOption) -> Result<(), IsoImageError> {
         #[cfg(feature = "extra-checks")]
-        if ops.strictness >= Strictness::Default {
+        if ops.strictness.size_check() {
             let size_bytes = data.seek(SeekFrom::End(0))?;
             let (min_size, _max_size) = ops.image_len();
             if size_bytes < min_size {
@@ -204,13 +206,13 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
             // the root directory
 
             // TODO: Support more than just the default entry
-            let mut catalog = BootCatalogue::default();
+            let mut catalog = BootCatalog::default();
 
             let current_index = Self::align(data)?;
 
             for (section, mut entry) in boot_ops.sections() {
                 // TODO: We need to abstract this, because this only allows searching root directory
-                let name = ops.level.from_str(&entry.boot_image_path).unwrap();
+                let name = ops.level.cvrt_from_orig(&entry.boot_image_path).unwrap();
                 let (_, file) = IsoDir {
                     reader: data,
                     directory: root_dir.clone(),
@@ -229,6 +231,8 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
                     BootSectionEntry::new(entry.emulation, 0, entry.load_size, boot_image_lba);
 
                 if let Some(section) = section {
+                    // TODO: If the section is an UEFI no emulation entry, we need to create a
+                    // virtual FAT partition for the UEFI boot image
                     catalog.add_section(section.platform_id, vec![boot_entry]);
                 } else {
                     // If it is the default entry, it doesn't have a section
@@ -271,7 +275,7 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
                 }
             }
 
-            let name = ops.level.from_str("boot.catalog").unwrap();
+            let name = ops.level.cvrt_from_orig("boot.catalog").unwrap();
             log::trace!("Searching for boot catalogue ({})", name);
             let catalog_ptr = if boot_ops.write_boot_catalogue {
                 let (_, catalog_file) = IsoDir {
@@ -317,6 +321,7 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
             ops.system_area.is_none() || ops.format.contains(PartitionOptions::OVERWRITE_FORMAT);
 
         if write_format && ops.format.contains(PartitionOptions::GPT) {
+            // TODO: Should GPT be at 2048 bytes?
             log::trace!("Writing Guid Partition Table at 512b");
             // Current sector in terms of 512 byte sectors
             let current_sector = data.stream_position()? / 512;
@@ -387,7 +392,7 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
         }
 
         if write_format && ops.format.contains(PartitionOptions::MBR) {
-            if ops.strictness >= Strictness::Default {
+            if ops.strictness.overwrite_nonzero() {
                 data.seek(SeekFrom::Start(446))?;
                 let mut buf: [u8; 66] = [0; 66];
                 data.read_exact(&mut buf)?;
@@ -451,25 +456,6 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
     /// Parses an ISO image from the given reader
     /// Currently this is not fully supported, and only provides basic information
     pub fn parse(data: &'a mut T) -> Result<Self, Error> {
-        {
-            data.seek(SeekFrom::Start(446))?;
-            let mut mbr = MbrPartitionTable::default();
-            data.read_exact(bytemuck::bytes_of_mut(&mut mbr))?;
-            if mbr.is_valid() {
-                let len = mbr.len();
-                log::trace!("Found MBR partition table with {} entries", len);
-                for i in 0..len {
-                    log::trace!("\tPartition {}:", i);
-                    log::trace!("\t\tStart sector: {}", mbr[i].start_sector);
-                    log::trace!("\t\tSector count: {}", mbr[i].block_count);
-                    log::trace!(
-                        "\t\tType: {:?}",
-                        MbrPartitionType::from_u8(mbr[i].part_type)
-                    );
-                }
-            }
-        }
-
         {
             data.seek(SeekFrom::Start(512))?;
             let mut gpt_header = GptPartitionTableHeader::default();
@@ -548,16 +534,7 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
 
         data.seek(SeekFrom::Start(16 * 2048))?;
         let volume_descriptors = VolumeDescriptorList::parse(data)?;
-
         let pvd = volume_descriptors.primary();
-        #[cfg(feature = "el-torito")]
-        if let Some(boot) = volume_descriptors.boot_record() {
-            data.seek(SeekFrom::Start(boot.catalog_ptr.get() as u64 * 2048))?;
-            let catalogue = BootCatalogue::parse(data)?;
-            log::trace!("Boot catalogue: {:?}", catalogue);
-            // At the moment we dont support anything with a boot catalogue
-        }
-
         let root_entry = pvd.dir_record;
         let root_directory = DirectoryRef {
             offset: root_entry.header.extent.read() as u64,
@@ -573,7 +550,6 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
         Ok(Self {
             data,
 
-            volume_descriptors,
             root_directory,
             path_table,
         })
@@ -591,6 +567,33 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
             reader: &mut self.data,
             path_table: self.path_table,
         }
+    }
+
+    /// Parses the ISO image and returns information about it
+    pub fn info(&mut self) -> Result<IsoImageInfo, Error> {
+        self.data.seek(SeekFrom::Start(446)).unwrap();
+        let mbr = MbrPartitionTable::parse(self.data)?;
+        let mbr = if mbr.is_valid() && mbr.len() > 0 {
+            Some(mbr)
+        } else {
+            None
+        };
+        // TODO: GPT
+
+        self.data.seek(SeekFrom::Start(16 * 2048))?;
+        let descriptor_list = VolumeDescriptorList::parse(&mut self.data)?;
+        let catalog = descriptor_list.boot_record().and_then(|boot| {
+            self.data
+                .seek(SeekFrom::Start(boot.catalog_ptr.get() as u64 * 2048))
+                .unwrap();
+            BootCatalog::parse(&mut self.data).ok()
+        });
+
+        Ok(IsoImageInfo {
+            mbr,
+            volume_descriptors: descriptor_list,
+            boot_catalog: catalog,
+        })
     }
 
     fn current_sector(data: &mut T) -> usize {
@@ -708,7 +711,8 @@ impl<'a, W: Read + Write + Seek> FileWriter<'a, W> {
                     FileFlags::empty()
                 };
                 log::trace!("Writing directory record for {}", fullname);
-                let name = self.level.from_str(stem).unwrap();
+                let name = self.level.cvrt_from_orig(stem).unwrap();
+                // FIXME: Directory name shouldn't have a version number
                 DirectoryRecord::new(name, *file_ref, flags).write(self.writer)?;
             }
 
@@ -754,7 +758,9 @@ impl<'a, W: Read + Write + Seek> FileWriter<'a, W> {
                 if directory.name.bytes() == b"\x00" || directory.name.bytes() == b"\x01" {
                     continue;
                 }
-                let orig_name = self.level.original(&directory.name);
+                // TODO: We shouldn't do this, we should just store the original name or do
+                // something else, because this is lossy
+                let orig_name = self.level.cvrt_to_orig(&directory.name);
                 let dirname = if cur_path.is_empty() {
                     orig_name
                 } else {
@@ -854,17 +860,34 @@ impl<'a, W: Read + Write + Seek> FileWriter<'a, W> {
     }
 }
 
-/// Trait for internal methods of the `IsoImage` struct.
+/// Information about the ISO image
 ///
-/// This trait provides a way to access some of the internal structures of the `IsoImage` struct,
-/// and not only the public API (files, boot entries, etc.).
-pub trait VolumeInternals {
-    /// Returns a reference to the volume descriptors.
-    fn get_volume_descriptors(&self) -> &[VolumeDescriptor];
+/// This can be parsed from an ISO Image using [`IsoImage::info`]
+#[derive(Debug)]
+pub struct IsoImageInfo {
+    /// The MBR partition table, if present and valid
+    mbr: Option<MbrPartitionTable>,
+
+    /// The volume descriptors
+    volume_descriptors: VolumeDescriptorList,
+
+    /// Boot catalogue, if present
+    boot_catalog: Option<BootCatalog>,
 }
 
-impl<'a, T: Read + Write + Seek> VolumeInternals for IsoImage<'a, T> {
-    fn get_volume_descriptors(&self) -> &[VolumeDescriptor] {
+impl IsoImageInfo {
+    /// Returns the MBR partition table, if present and valid
+    pub fn mbr(&self) -> Option<&MbrPartitionTable> {
+        self.mbr.as_ref()
+    }
+
+    /// Returns the volume descriptors
+    pub fn volume_descriptors(&self) -> &[VolumeDescriptor] {
         self.volume_descriptors.descriptors.as_slice()
+    }
+
+    /// Returns the boot catalogue
+    pub fn boot_catalog(&self) -> Option<&BootCatalog> {
+        self.boot_catalog.as_ref()
     }
 }

@@ -13,6 +13,7 @@ It includes many extensions, both official and nonofficial, here is a list of ex
 | El Torito | Yes | Allows booting from ISO9660 |
 | Rock Ridge | In Progress | Allows long file names, symlinks, and POSIX permissions |
 | Joliet | Planned | Support UTF-16 filenames |
+| ISO1999 | Planned | Not commonly used |
 
 Other than these official extensions, there are also many features that it supports:
 
@@ -38,7 +39,7 @@ To add the crate to your project, add the following to your Cargo.toml:
 
 ```toml
 [dependencies]
-hadris-iso = "0.0.1"
+hadris-iso = "0.1.2"
 ```
 
 ## Creating an ISO image

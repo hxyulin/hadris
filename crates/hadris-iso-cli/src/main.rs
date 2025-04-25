@@ -108,4 +108,7 @@ fn read(file: &PathBuf) {
     let mut iso = hadris_iso::IsoImage::parse(&mut file).unwrap();
     let mut root_dir = iso.root_directory();
     println!("Files: {:#?}", root_dir.entries());
+    let info = iso.info().unwrap();
+    println!("Info: {:#?}", info);
+
 }

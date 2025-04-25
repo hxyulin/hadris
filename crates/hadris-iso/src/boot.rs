@@ -20,19 +20,19 @@ use crate::{
 
 /// Boot catalogue
 #[derive(Debug, Clone)]
-pub struct BootCatalogue {
+pub struct BootCatalog {
     validation: BootValidationEntry,
     default_entry: BootSectionEntry,
     sections: Vec<(BootSectionHeaderEntry, Vec<BootSectionEntry>)>,
 }
 
-impl Default for BootCatalogue {
+impl Default for BootCatalog {
     fn default() -> Self {
         Self::new(EmulationType::NoEmulation, 0, 0, 0)
     }
 }
 
-impl BootCatalogue {
+impl BootCatalog {
     pub fn new(
         media_type: EmulationType,
         load_segment: u16,
