@@ -3,7 +3,7 @@ use hadris_iso::{
     BootEntryOptions, BootOptions, BootSectionOptions, EmulationType, FileInput, FileInterchange,
     FormatOption, IsoImage, PartitionOptions, PlatformId,
 };
-use std::{fs::OpenOptions, path::PathBuf};
+use std::{fs::OpenOptions, num::NonZeroU16, path::PathBuf};
 
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
@@ -81,7 +81,7 @@ fn write(isoroot: PathBuf, output: &PathBuf) {
             write_boot_catalogue: true,
             default: BootEntryOptions {
                 emulation: EmulationType::NoEmulation,
-                load_size: 4,
+                load_size: NonZeroU16::new(4),
                 boot_image_path: "limine-bios-cd.bin".to_string(),
                 boot_info_table: true,
                 grub2_boot_info: false,
@@ -92,7 +92,7 @@ fn write(isoroot: PathBuf, output: &PathBuf) {
                 },
                 BootEntryOptions {
                     emulation: EmulationType::NoEmulation,
-                    load_size: 0,
+                    load_size: None,
                     boot_image_path: "limine-uefi-cd.bin".to_string(),
                     boot_info_table: false,
                     grub2_boot_info: false,

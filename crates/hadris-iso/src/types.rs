@@ -209,10 +209,18 @@ pub type IsoStrFile<const N: usize> = IsoStr<CharsetFile, N>;
 pub type IsoStringFile = IsoString<CharsetFile>;
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct LsbMsb<T: Endian> {
     lsb: T::LsbType,
     msb: T::MsbType,
+}
+
+impl<T: Endian> core::fmt::Debug for LsbMsb<T> 
+    where T::Output: core::fmt::Debug
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        core::fmt::Debug::fmt(&self.read(), f)
+    }
 }
 
 unsafe impl<T: Endian> bytemuck::Zeroable for LsbMsb<T> {}

@@ -1,8 +1,9 @@
+use core::num::NonZeroU16;
 use bitflags::bitflags;
 
 #[cfg(feature = "el-torito")]
-use crate::boot::EmulationType;
-use crate::{FileInput, FileInterchange, PlatformId};
+use crate::{boot::EmulationType, PlatformId};
+use crate::{FileInput, FileInterchange};
 
 bitflags! {
     /// The extra partition options that the image can have
@@ -245,6 +246,7 @@ pub struct BootOptions {
     pub entries: Vec<(BootSectionOptions, BootEntryOptions)>,
 }
 
+#[cfg(feature = "el-torito")]
 impl Default for BootOptions {
     fn default() -> Self {
         Self {
@@ -255,6 +257,7 @@ impl Default for BootOptions {
     }
 }
 
+#[cfg(feature = "el-torito")]
 impl BootOptions {
     /// Adds a new default entry to the boot catalogue
     /// Returns a new BootOptions with the new entry
@@ -289,10 +292,13 @@ impl BootOptions {
     }
 }
 
+#[cfg(feature = "el-torito")]
 #[derive(Debug, Clone)]
 pub struct BootSectionOptions {
     pub platform_id: PlatformId,
 }
+
+#[cfg(feature = "el-torito")]
 impl Default for BootSectionOptions {
     fn default() -> Self {
         Self {
@@ -305,7 +311,7 @@ impl Default for BootSectionOptions {
 #[cfg(feature = "el-torito")]
 pub struct BootEntryOptions {
     /// The amount of sectors to load
-    pub load_size: u16,
+    pub load_size: Option<NonZeroU16>,
     // The path to the boot image,
     // Currently on root directory is supported
     pub boot_image_path: String,
@@ -322,10 +328,11 @@ pub struct BootEntryOptions {
     pub emulation: EmulationType,
 }
 
+#[cfg(feature = "el-torito")]
 impl Default for BootEntryOptions {
     fn default() -> Self {
         Self {
-            load_size: 0,
+            load_size: None,
             boot_image_path: String::new(),
             boot_info_table: false,
             grub2_boot_info: false,

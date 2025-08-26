@@ -18,7 +18,7 @@ pub use file::*;
 pub use options::*;
 pub use path::*;
 // We expose these types because they are used in the public API,
-// but they are also just std::io types of hadris-io types (if in no-std mode)
+// but they are also just std::io types or hadris-io types (if in no-std mode)
 pub use hadris_io::{Error, Read, Seek, SeekFrom, Write};
 
 extern crate alloc;
@@ -46,7 +46,7 @@ pub enum IsoImageError {
     /// An IO error occurred
     ///
     /// When working with the `std` feature, this is an alias for [`std::io::Error`]
-    /// When working with the `no-std` feature, this is an alias for [`hadris_io::Error`]
+    /// When working with the `no-std` feature, this is a [`hadris_io::Error`]
     #[error(transparent)]
     IoError(#[from] hadris_io::Error),
 }
@@ -72,31 +72,31 @@ pub enum IsoImageError {
 /// # let mut tmpfile = std::fs::File::create(files.join("uefi-boot.img"))?;
 /// # writeln!(tmpfile, "Hello, world!")?;
 /// # drop(tmpfile);
-/// let options = FormatOption::new()
-/// .with_files(FileInput::from_fs(&files)?)
-/// .with_level(FileInterchange::NonConformant)
-/// .with_boot_options(BootOptions {
-///     write_boot_catalogue: true,
-///     default: BootEntryOptions {
-///         boot_image_path: "boot.img".to_string(),
-///         load_size: 4,
-///         emulation: EmulationType::NoEmulation,
-///         boot_info_table: true,
-///         grub2_boot_info: false,
-///     },
-///     entries: vec![(
-///         BootSectionOptions {
-///             platform_id: PlatformId::UEFI,
-///         },
-///         BootEntryOptions {
-///             boot_image_path: "uefi-boot.img".to_string(),
-///             load_size: 0, // This means the size will be calculated
+/// let options = FormatOption::default()
+///     .with_files(FileInput::from_fs(&files)?)
+///     .with_level(FileInterchange::NonConformant)
+///     .with_boot_options(BootOptions {
+///         write_boot_catalogue: true,
+///         default: BootEntryOptions {
+///             boot_image_path: "boot.img".to_string(),
+///             load_size: 4,
 ///             emulation: EmulationType::NoEmulation,
-///             boot_info_table: false,
+///             boot_info_table: true,
 ///             grub2_boot_info: false,
 ///         },
-///     )],
-/// });
+///         entries: vec![(
+///             BootSectionOptions {
+///                 platform_id: PlatformId::UEFI,
+///             },
+///             BootEntryOptions {
+///                 boot_image_path: "uefi-boot.img".to_string(),
+///                 load_size: None, // This means the size will be calculated
+///                 emulation: EmulationType::NoEmulation,
+///                 boot_info_table: false,
+///                 grub2_boot_info: false,
+///             },
+///         )],
+///     });
 /// let output_file = PathBuf::from("my_image.iso");
 /// # let output_file = files.join("my_image.iso");
 /// let file = IsoImage::format_file(output_file, options)?;
@@ -227,12 +227,10 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
                 .unwrap()
                 .clone();
 
-                if entry.load_size == 0 {
-                    entry.load_size = ((file.header.data_len.read() + 511) / 512) as u16;
-                }
+                let load_size = entry.load_size.map(core::num::NonZeroU16::get).unwrap_or_else(|| ((file.header.data_len.read() + 511) / 512) as u16);
                 let boot_image_lba = file.header.extent.read();
                 let boot_entry =
-                    BootSectionEntry::new(entry.emulation, 0, entry.load_size, boot_image_lba);
+                    BootSectionEntry::new(entry.emulation, 0, load_size, boot_image_lba);
 
                 if let Some(section) = section {
                     // TODO: If the section is an UEFI no emulation entry, we need to create a
@@ -586,6 +584,8 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
 
         self.data.seek(SeekFrom::Start(16 * 2048))?;
         let descriptor_list = VolumeDescriptorList::parse(&mut self.data)?;
+
+        #[cfg(feature = "el-torito")]
         let catalog = descriptor_list.boot_record().and_then(|boot| {
             self.data
                 .seek(SeekFrom::Start(boot.catalog_ptr.get() as u64 * 2048))
@@ -596,6 +596,7 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
         Ok(IsoImageInfo {
             mbr,
             volume_descriptors: descriptor_list,
+            #[cfg(feature = "el-torito")]
             boot_catalog: catalog,
         })
     }

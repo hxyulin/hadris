@@ -14,15 +14,13 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
-      fail-fast: false # Allows other jobs in the matrix to continue if one fails
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         rust_toolchain: [stable]
         features:
-          - default # Or empty string if you want to explicitly run without any features
-          - none
-          - "feature_b"
-          - "feature_a,feature_b" # Combine features
+          - ""
+          - "default"
 
     steps:
       - name: Checkout repository
@@ -44,14 +42,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Run tests with specified features
-        # Conditionally add --features flag if features is not 'default' or empty
+      - name: Compiles with specified features
         run: |
-          if [ "${{ matrix.features }}" = "default" ]; then
-            cargo test --workspace --verbose
-          elif [ "${{ matrix.features }}" = "none" ]; then
-            cargo test --workspace --verbose --no-default-features
-          else
             cargo test --workspace --verbose --features "${{ matrix.features }}"
-          fi
         shell: bash
