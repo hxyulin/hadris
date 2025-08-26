@@ -59,7 +59,7 @@ pub enum IsoImageError {
 /// To create a new ISO image, you can use the [`Self::format_file`] method. \
 /// This example creates a hybrid bootable image with a BIOS boot entry and a UEFI boot entry:
 /// ```
-/// use hadris_iso::{IsoImage, FormatOptions, FileInput, FileInterchange, BootOptions, BootEntryOptions, EmulationType, PlatformId, BootSectionOptions};
+/// use hadris_iso::{IsoImage, FormatOption, FileInput, FileInterchange, BootOptions, BootEntryOptions, EmulationType, PlatformId, BootSectionOptions};
 /// use std::path::PathBuf;
 ///
 /// let files = PathBuf::from("path/to/iso_root");
@@ -72,7 +72,7 @@ pub enum IsoImageError {
 /// # let mut tmpfile = std::fs::File::create(files.join("uefi-boot.img"))?;
 /// # writeln!(tmpfile, "Hello, world!")?;
 /// # drop(tmpfile);
-/// let options = FormatOptions::new()
+/// let options = FormatOption::new()
 /// .with_files(FileInput::from_fs(&files)?)
 /// .with_level(FileInterchange::NonConformant)
 /// .with_boot_options(BootOptions {
@@ -149,6 +149,10 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
     /// for a more convenient API, see [`Self::format_file`] for [`std::fs::File`]
     /// Otherwise, resize the image using the minimum / maximum from [`FormatOptions::image_len`].
     pub fn format_new(data: &'a mut T, mut ops: FormatOption) -> Result<(), IsoImageError> {
+        // A 'block' is a 512 byte region (note that this is different from a sector in this
+        // usecase)
+        // A 'sector' is a ISO sector, currently only supports 4KiB sectors
+
         #[cfg(feature = "extra-checks")]
         if ops.strictness.size_check() {
             let size_bytes = data.seek(SeekFrom::End(0))?;
@@ -349,7 +353,7 @@ impl<'a, T: Read + Write + Seek> IsoImage<'a, T> {
                 sectors_used_by_entries + 1 < 64,
                 "GPT partition overrides volume descriptors"
             );
-            // The first non 'system area' / usable sector is at 16 * 2048b
+            // The first non 'system area' / usable sector is at 16 * 2048b = 64 * 512b
             gpt.first_usable_lba.set(64);
             gpt.partition_entry_lba.set(2);
             // Subtract 1 because GPT ranges are inclusive
@@ -872,6 +876,7 @@ pub struct IsoImageInfo {
     volume_descriptors: VolumeDescriptorList,
 
     /// Boot catalogue, if present
+    #[cfg(feature = "el-torito")]
     boot_catalog: Option<BootCatalog>,
 }
 
@@ -887,7 +892,44 @@ impl IsoImageInfo {
     }
 
     /// Returns the boot catalogue
+    #[cfg(feature = "el-torito")]
     pub fn boot_catalog(&self) -> Option<&BootCatalog> {
         self.boot_catalog.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_file_input_from_sratch() {
+        let mut file_input = FileInput::empty();
+        file_input.append(File {
+            path: "test".to_string(),
+            data: FileData::Data(vec![0xccu8; 256]),
+        });
+        file_input.append(File {
+            path: "efi".to_string(),
+            data: FileData::Directory(vec!["boot".to_string()]),
+        });
+        file_input.append(File {
+            path: "efi/boot".to_string(),
+            data: FileData::Data(Vec::new()),
+        });
+
+        // 3 entries + root entry
+        assert_eq!(file_input.len(), 4);
+        let mut data = Vec::new();
+        let options = FormatOption::default().with_files(file_input);
+        data.resize(options.image_len().1 as usize, 0u8);
+        let mut writer = std::io::Cursor::new(&mut data);
+        IsoImage::format_new(&mut writer, options).unwrap();
+
+        let mut reader = std::io::Cursor::new(&mut data);
+        let mut image = IsoImage::parse(&mut reader).unwrap();
+        let mut root = image.root_directory();
+        let data = root.read_file("test;1").unwrap();
+        assert_eq!(data, vec![0xccu8; 256]);
     }
 }

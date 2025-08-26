@@ -67,12 +67,16 @@ pub struct FileInput {
 }
 
 impl FileInput {
-    pub const fn empty() -> Self {
-        Self { files: Vec::new() }
+    pub fn empty() -> Self {
+        Self { files: vec![File {
+            path: "".to_string(),
+            data: FileData::Directory(Vec::new()),
+        }] }
     }
 
     #[cfg(feature = "std")]
     pub fn from_fs<P: AsRef<std::path::Path>>(root: P) -> Result<FileInput, std::io::Error> {
+        // FIXME: We need to normalize paths from windows '\' to '/'
         let root = root.as_ref();
         assert!(root.is_dir(), "File {} is not a directory", root.display());
         let mut files = vec![File {

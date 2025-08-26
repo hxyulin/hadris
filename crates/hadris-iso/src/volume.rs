@@ -341,7 +341,7 @@ impl PrimaryVolumeDescriptor {
             volume_set_identifier: IsoStrD::empty(),
             publisher_identifier: IsoStrA::empty(),
             preparer_identifier: IsoStrA::empty(),
-            application_identifier: IsoStrA::from_str("ISO-RS").unwrap(),
+            application_identifier: IsoStrA::from_str("HADRIS-ISO").unwrap(),
             copyright_file_identifier: IsoStrD::empty(),
             abstract_file_identifier: IsoStrD::empty(),
             bibliographic_file_identifier: IsoStrD::empty(),

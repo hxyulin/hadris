@@ -5,7 +5,7 @@ members = [
     "crates/hadris-iso",
     "crates/hadris-common",
     "crates/hadris",
-    "crates/hadris-io",
+    "crates/hadris-io", "crates/hadris-part",
 ]
 default-members = [
     "crates/hadris-iso-cli",
@@ -35,3 +35,4 @@ chrono = "0.4.40"
 hadris-io = { path = "crates/hadris-io", version = "0.1.2" }
 hadris-iso = { path = "crates/hadris-iso", version = "0.1.2" }
 hadris-common = { path = "crates/hadris-common", version = "0.1.2" }
+hadris-part = { path = "crates/hadris-part", version = "0.1.2" }
