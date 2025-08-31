@@ -1,4 +1,3 @@
 use core::fmt::Display;
 
-pub struct Error {
-}
+pub struct Error {}

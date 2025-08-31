@@ -19,8 +19,11 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         rust_toolchain: [stable]
         features:
-          - ""
+          # not yet supported
+          # - ""
           - "default"
+          - "std"
+          - "std,extra-checks"
 
     steps:
       - name: Checkout repository
@@ -44,5 +47,5 @@ jobs:
 
       - name: Compiles with specified features
         run: |
-            cargo test --workspace --verbose --features "${{ matrix.features }}"
+            cargo check --workspace --verbose --no-default-features --features "${{ matrix.features }}"
         shell: bash

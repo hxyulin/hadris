@@ -10,7 +10,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 #[cfg(feature = "std")]
-pub use std::io::{Error, ErrorKind, Result, Read, Write, Seek, SeekFrom};
+pub use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 
 #[cfg(not(feature = "std"))]
 mod error;
