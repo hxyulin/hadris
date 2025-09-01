@@ -208,33 +208,48 @@ pub type IsoStrFile<const N: usize> = IsoStr<CharsetFile, N>;
 
 pub type IsoStringFile = IsoString<CharsetFile>;
 
+pub trait StdNum: Copy {
+    type LsbType: bytemuck::Pod + bytemuck::Zeroable + Endian<Output = Self>;
+    type MsbType: bytemuck::Pod + bytemuck::Zeroable + Endian<Output = Self>;
+}
+
+impl StdNum for u16 {
+    type LsbType = U16<LittleEndian>;
+    type MsbType = U16<BigEndian>;
+}
+
+impl StdNum for u32 {
+    type LsbType = U32<LittleEndian>;
+    type MsbType = U32<BigEndian>;
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct LsbMsb<T: Endian> {
+pub struct LsbMsb<T: StdNum> {
     lsb: T::LsbType,
     msb: T::MsbType,
 }
 
-impl<T: Endian> core::fmt::Debug for LsbMsb<T> 
-    where T::Output: core::fmt::Debug
+impl<T> core::fmt::Debug for LsbMsb<T> 
+    where T: StdNum + core::fmt::Debug
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         core::fmt::Debug::fmt(&self.read(), f)
     }
 }
 
-unsafe impl<T: Endian> bytemuck::Zeroable for LsbMsb<T> {}
-unsafe impl<T: Endian + Copy + 'static> bytemuck::Pod for LsbMsb<T> {}
+unsafe impl<T: StdNum> bytemuck::Zeroable for LsbMsb<T> {}
+unsafe impl<T: StdNum + Copy + 'static> bytemuck::Pod for LsbMsb<T> {}
 
-impl<T: Endian> LsbMsb<T> {
-    pub fn new(value: T::Output) -> Self {
+impl<T: StdNum> LsbMsb<T> {
+    pub fn new(value: T) -> Self {
         Self {
             lsb: Endian::new(value),
             msb: Endian::new(value),
         }
     }
 
-    pub fn read(&self) -> T::Output {
+    pub fn read(&self) -> T {
         #[cfg(target_endian = "little")]
         {
             self.lsb.get()
@@ -245,15 +260,14 @@ impl<T: Endian> LsbMsb<T> {
         }
     }
 
-    pub fn write(&mut self, value: T::Output) {
+    pub fn write(&mut self, value: T) {
         self.lsb.set(value);
         self.msb.set(value);
     }
 }
 
-pub type U16LsbMsb = LsbMsb<U16<LittleEndian>>;
-pub type U32LsbMsb = LsbMsb<U32<LittleEndian>>;
-pub type U64LsbMsb = LsbMsb<U64<LittleEndian>>;
+pub type U16LsbMsb = LsbMsb<u16>;
+pub type U32LsbMsb = LsbMsb<u32>;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

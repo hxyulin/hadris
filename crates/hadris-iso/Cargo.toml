@@ -26,6 +26,7 @@ thiserror.workspace = true
 chrono.workspace = true
 hadris-io = { workspace = true }
 hadris-common = { workspace = true }
+spin = "0.10.0"
 
 [dev-dependencies]
 static_assertions.workspace = true

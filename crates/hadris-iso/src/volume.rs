@@ -45,6 +45,7 @@ impl VolumeDescriptorType {
 pub enum VolumeDescriptor {
     BootRecord(BootRecordVolumeDescriptor),
     Primary(PrimaryVolumeDescriptor),
+    Supplementary(SupplementaryVolumeDescriptor),
     End(VolumeDescriptorSetTerminator),
     Unknown(UnknownVolumeDescriptor),
 }
@@ -54,15 +55,7 @@ impl VolumeDescriptor {
         match self {
             VolumeDescriptor::BootRecord(entry) => bytemuck::bytes_of(entry),
             VolumeDescriptor::Primary(entry) => bytemuck::bytes_of(entry),
-            VolumeDescriptor::End(entry) => bytemuck::bytes_of(entry),
-            VolumeDescriptor::Unknown(entry) => bytemuck::bytes_of(entry),
-        }
-    }
-
-    pub fn to_bytes(&self) -> &[u8] {
-        match self {
-            VolumeDescriptor::BootRecord(entry) => bytemuck::bytes_of(entry),
-            VolumeDescriptor::Primary(entry) => bytemuck::bytes_of(entry),
+            VolumeDescriptor::Supplementary(entry) => bytemuck::bytes_of(entry),
             VolumeDescriptor::End(entry) => bytemuck::bytes_of(entry),
             VolumeDescriptor::Unknown(entry) => bytemuck::bytes_of(entry),
         }
@@ -72,6 +65,7 @@ impl VolumeDescriptor {
         match self {
             VolumeDescriptor::BootRecord(entry) => entry.header,
             VolumeDescriptor::Primary(entry) => entry.header,
+            VolumeDescriptor::Supplementary(entry) => entry.header,
             VolumeDescriptor::End(entry) => entry.header,
             VolumeDescriptor::Unknown(entry) => entry.header,
         }
@@ -86,6 +80,9 @@ impl VolumeDescriptor {
             }
             VolumeDescriptorType::PrimaryVolumeDescriptor => {
                 VolumeDescriptor::Primary(*bytemuck::from_bytes(data))
+            }
+            VolumeDescriptorType::SupplementaryVolumeDescriptor => {
+                VolumeDescriptor::Supplementary(*bytemuck::from_bytes(data))
             }
             VolumeDescriptorType::VolumeSetTerminator => {
                 VolumeDescriptor::End(*bytemuck::from_bytes(data))
@@ -173,7 +170,7 @@ impl VolumeDescriptorList {
     pub fn write<W: Write>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut written = 0;
         for descriptor in &self.descriptors {
-            writer.write_all(&descriptor.to_bytes())?;
+            writer.write_all(&descriptor.as_bytes())?;
             written += 2048;
         }
         writer.write_all(VolumeDescriptorSetTerminator::new().to_bytes())?;
@@ -396,6 +393,82 @@ impl Debug for BootRecordVolumeDescriptor {
 
 unsafe impl bytemuck::Zeroable for BootRecordVolumeDescriptor {}
 unsafe impl bytemuck::Pod for BootRecordVolumeDescriptor {}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SupplementaryVolumeDescriptor {
+    pub header: VolumeDescriptorHeader,
+    pub flags: u8,
+    pub system_identifier: IsoStrA<32>,
+    pub volume_identifier: IsoStrD<32>,
+    pub unused1: [u8; 8],
+    pub volume_space_size: U32LsbMsb,
+    pub escape_sequences: [u8; 32],
+    pub volume_set_size: U16LsbMsb,
+    pub volume_sequence_number: U16LsbMsb,
+    pub logical_block_size: U16LsbMsb,
+    pub path_table_size: U32LsbMsb,
+    pub type_l_path_table: U32<LittleEndian>,
+    pub opt_type_l_path_table: U32<LittleEndian>,
+    pub type_m_path_table: U32<BigEndian>,
+    pub opt_type_m_path_table: U32<BigEndian>,
+    pub dir_record: RootDirectoryEntry,
+    pub volume_set_identifier: IsoStrD<128>,
+    pub publisher_identifier: IsoStrA<128>,
+    pub preparer_identifier: IsoStrA<128>,
+    pub application_identifier: IsoStrA<128>,
+    pub copyright_file_identifier: IsoStrD<37>,
+    pub abstract_file_identifier: IsoStrD<37>,
+    pub bibliographic_file_identifier: IsoStrD<37>,
+    pub creation_date: DecDateTime,
+    pub modification_date: DecDateTime,
+    pub expiration_date: DecDateTime,
+    pub effective_date: DecDateTime,
+    pub file_structure_version: u8,
+    pub unused3: u8,
+    pub app_data: [u8; 512],
+    pub reserved: [u8; 653],
+}
+
+unsafe impl bytemuck::Zeroable for SupplementaryVolumeDescriptor {}
+unsafe impl bytemuck::Pod for SupplementaryVolumeDescriptor {}
+
+impl Debug for SupplementaryVolumeDescriptor {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SupplementaryVolumeDescriptor")
+            .field("header", &self.header)
+            .field("flags", &self.flags)
+            .field("system_identifier", &self.system_identifier)
+            .field("volume_identifier", &self.volume_identifier)
+            .field("volume_space_size", &self.volume_space_size)
+            .field("escape_sequences", &self.escape_sequences)
+            .field("volume_set_size", &self.volume_set_size)
+            .field("volume_sequence_number", &self.volume_sequence_number)
+            .field("logical_block_size", &self.logical_block_size)
+            .field("path_table_size", &self.path_table_size)
+            .field("type_l_path_table", &self.type_l_path_table)
+            .field("opt_type_l_path_table", &self.opt_type_l_path_table)
+            .field("type_m_path_table", &self.type_m_path_table)
+            .field("opt_type_m_path_table", &self.opt_type_m_path_table)
+            .field("dir_record", &self.dir_record)
+            .field("volume_set_identifier", &self.volume_set_identifier)
+            .field("publisher_identifier", &self.publisher_identifier)
+            .field("preparer_identifier", &self.preparer_identifier)
+            .field("application_identifier", &self.application_identifier)
+            .field("copyright_file_identifier", &self.copyright_file_identifier)
+            .field("abstract_file_identifier", &self.abstract_file_identifier)
+            .field(
+                "bibliographic_file_identifier",
+                &self.bibliographic_file_identifier,
+            )
+            .field("creation_date", &self.creation_date)
+            .field("modification_date", &self.modification_date)
+            .field("expiration_date", &self.expiration_date)
+            .field("effective_date", &self.effective_date)
+            .field("file_structure_version", &self.file_structure_version)
+            .finish_non_exhaustive()
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
