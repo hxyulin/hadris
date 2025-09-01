@@ -1,6 +1,7 @@
 use hadris_io::{Read, Seek, SeekFrom, Error};
 
 use crate::types::EndianType;
+use alloc::{vec::Vec, string::String, vec};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

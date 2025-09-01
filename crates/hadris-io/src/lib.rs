@@ -11,6 +11,8 @@ extern crate alloc;
 extern crate std;
 #[cfg(feature = "std")]
 pub use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
+#[cfg(feature = "std")]
+pub use std::path::{PathBuf, Path};
 
 #[cfg(not(feature = "std"))]
 mod error;

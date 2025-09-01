@@ -2,6 +2,13 @@ use core::marker::PhantomData;
 pub use hadris_common::types::{endian::*, number::*};
 use std::time::SystemTime;
 
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+
 pub trait Charset: Copy + PartialEq + Eq {
     fn is_valid(chars: &[u8]) -> bool;
 }
@@ -161,7 +168,14 @@ impl<C: Charset> IsoString<C> {
 
     pub fn from_bytes(bytes: &[u8]) -> Self {
         Self {
-            chars: bytes.iter().map(|&c| c).collect(),
+            chars: bytes.to_vec(),
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn from_utf8(str: &str) -> Self {
+        Self {
+            chars: str.as_bytes().to_vec(),
             _marker: PhantomData,
         }
     }
@@ -230,8 +244,9 @@ pub struct LsbMsb<T: StdNum> {
     msb: T::MsbType,
 }
 
-impl<T> core::fmt::Debug for LsbMsb<T> 
-    where T: StdNum + core::fmt::Debug
+impl<T> core::fmt::Debug for LsbMsb<T>
+where
+    T: StdNum + core::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         core::fmt::Debug::fmt(&self.read(), f)

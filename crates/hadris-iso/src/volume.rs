@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use core::{ffi::CStr, fmt::Debug};
 use hadris_io::{Error, Read, Write};
 
@@ -147,6 +148,20 @@ impl VolumeDescriptorList {
                 _ => None,
             })
             .expect("Primary volume descriptor not found")
+    }
+
+    pub fn supplementary(&self) -> impl Iterator<Item = &SupplementaryVolumeDescriptor> {
+        self.descriptors.iter().filter_map(|d| match d {
+            VolumeDescriptor::Supplementary(d) => Some(d),
+            _ => None,
+        })
+    }
+
+    pub fn supplementary_mut(&mut self) -> impl Iterator<Item = &mut SupplementaryVolumeDescriptor> {
+        self.descriptors.iter_mut().filter_map(|d| match d {
+            VolumeDescriptor::Supplementary(d) => Some(d),
+            _ => None,
+        })
     }
 
     pub fn boot_record(&self) -> Option<&BootRecordVolumeDescriptor> {

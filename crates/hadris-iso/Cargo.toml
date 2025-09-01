@@ -12,11 +12,10 @@ categories = ["filesystem", "encoding"]
 exclude = ["/spec"]
 
 [features]
-default = ["std", "el-torito", "rock-ridge-full", "extra-checks"]
-std = ["hadris-io/std"]
-el-torito = []
-extra-checks = []
-rock-ridge-full = []
+default = ["std", "write"]
+write = ["alloc"]
+alloc = []
+std = ["hadris-io/std", "alloc"]
 
 [dependencies]
 bitflags = { workspace = true, features = ["bytemuck"] }

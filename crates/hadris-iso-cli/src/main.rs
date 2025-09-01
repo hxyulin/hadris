@@ -1,6 +1,10 @@
 use clap::Parser;
-use hadris_iso::{directory::IsoDir, IsoImage};
-use std::{fs::{File, OpenOptions}, io::Read, num::NonZeroU16, path::PathBuf};
+use hadris_iso::{
+    options::FormatOptions,
+    read::{IsoDir, IsoImage, PathSeparator},
+    write::{File, InputFiles, IsoImageWriter},
+};
+use std::{fs::OpenOptions, path::PathBuf};
 
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
@@ -69,17 +73,48 @@ fn main() {
 }
 
 fn write(isoroot: PathBuf, output: &PathBuf) {
-    todo!()
+    let mut file = OpenOptions::new()
+        .truncate(true)
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(output)
+        .unwrap();
+    file.set_len(1_000_000).unwrap();
+    let input = InputFiles {
+        path_separator: PathSeparator::ForwardSlash,
+        files: vec![
+            File::File {
+                name: "test.txt".to_string(),
+                contents: vec![b'H'; 5000],
+            },
+            File::Directory {
+                name: "boot".to_string(),
+                children: vec![File::Directory {
+                    name: "efi".to_string(),
+                    children: vec![File::File {
+                        name: "BOOTX64.EFI".to_string(),
+                        contents: vec![b'a'; 300],
+                    }],
+                }],
+            },
+        ],
+    };
+    let ops = FormatOptions {
+        volume_name: "TESTISO".to_string(),
+        sector_size: 2048,
+    };
+    IsoImageWriter::format_new(&mut file, input, ops).unwrap();
 }
 
 fn read(file: &PathBuf) {
     let mut file = OpenOptions::new().read(true).open(file).unwrap();
-    let iso = hadris_iso::IsoImage::parse(&mut file).unwrap();
+    let iso = IsoImage::parse(&mut file).unwrap();
     let root = iso.root_dir();
     read_dir(&iso, root);
 }
 
-fn read_dir(iso: &IsoImage<&mut File>, dir: IsoDir<'_, &mut File>) {
+fn read_dir(iso: &IsoImage<&mut std::fs::File>, dir: IsoDir<'_, &mut std::fs::File>) {
     let mut entries = dir.entries();
     while let Some(entry) = entries.next() {
         let entry = entry.unwrap();
@@ -94,4 +129,4 @@ fn read_dir(iso: &IsoImage<&mut File>, dir: IsoDir<'_, &mut File>) {
             println!("File: {}", entry.name);
         }
     }
-} 
+}

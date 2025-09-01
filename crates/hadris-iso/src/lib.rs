@@ -2,124 +2,87 @@
 //! Terminology and spec are followed by the specifications described in
 //! the [non official ISO9660 specification included](https://github.com/hxyulin/hadris/tree/main/crates/hadris-iso/spec)
 
-extern crate alloc;
+#![no_std]
 
 pub mod directory;
+pub mod options;
+pub mod path;
 pub mod types;
 pub mod volume;
 
+pub mod read;
+
+#[cfg(feature = "write")]
+pub mod write;
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(feature = "std")]
+extern crate std;
+
 use core::fmt;
 
-use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
-use spin::Mutex;
-
-use crate::{
-    directory::{DirectoryRecord, DirectoryRef, IsoDir},
-    volume::VolumeDescriptorList,
-};
+pub use hadris_io as io;
+use hadris_io::{Read, Seek, SeekFrom};
+use spin::{Mutex, MutexGuard};
 
 /// A Logical Sector, size has to be 2^n and > 2048
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct LogicalSector(usize);
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LogicalSector(usize);
 
 /// A Logical Sector, size has to be 2^n and > 512
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct LogicalBlock(usize);
 
-struct IsoCursor<DATA: Seek> {
+struct LockedCursor<DATA: Seek> {
     data: Mutex<DATA>,
-}
-
-impl<DATA: Seek> fmt::Debug for IsoCursor<DATA> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IsoCursor").finish()
-    }
-}
-
-#[derive(Debug)]
-pub struct IsoImageInfo {
-    block_size: usize,
     sector_size: usize,
-    root_dir: DirectoryRef,
 }
 
-/// A struct representing an ISO9660 Image
-#[derive(Debug)]
-pub struct IsoImage<DATA: Seek> {
-    data: IsoCursor<DATA>,
-    info: IsoImageInfo,
+impl<DATA: Read + Seek> Read for LockedCursor<DATA> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.data.lock().read(buf)
+    }
+
+    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
+        self.data.lock().read_exact(buf)
+    }
 }
 
-impl<DATA: Read + Seek> IsoImage<DATA> {
-    pub fn parse(mut data: DATA) -> io::Result<Self> {
-        let sector_size = 2048;
-        let pvd_start = 16 * sector_size;
-        data.seek(SeekFrom::Start(pvd_start))?;
-        let volume_descriptors = VolumeDescriptorList::parse(&mut data)?;
-        let info = {
-            let pvd = volume_descriptors.primary();
-            let block_size = pvd.logical_block_size.read() as usize;
-            let root_dir = DirectoryRef {
-                offset: pvd.dir_record.header.extent.read() as usize,
-                size: pvd.dir_record.header.data_len.read() as usize,
-            };
-
-            IsoImageInfo {
-                block_size,
-                sector_size: sector_size as usize,
-                root_dir,
-            }
-        };
-
-        Ok(Self {
-            data: IsoCursor {
-                data: Mutex::new(data),
-            },
-            info,
-        })
+impl<DATA: Seek> Seek for LockedCursor<DATA> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.data.lock().seek(pos)
     }
 
-    pub fn root_dir(&self) -> IsoDir<'_, DATA> {
-        self.read_dir(self.info.root_dir)
+    fn stream_position(&mut self) -> io::Result<u64> {
+        self.data.lock().stream_position()
     }
 
-    pub fn read_dir(&self, directory: DirectoryRef) -> IsoDir<'_, DATA> {
-        IsoDir {
-            reader: &self.data.data,
-            directory,
+    fn seek_relative(&mut self, offset: i64) -> io::Result<()> {
+        self.data.lock().seek_relative(offset)
+    }
+}
+
+impl<DATA: Seek> LockedCursor<DATA> {
+    pub fn pad_align_sector(&self) -> io::Result<LogicalSector> {
+        let mut data = self.data.lock();
+        let stream_pos = data.stream_position()?;
+        let sector_size = self.sector_size as u64;
+        let aligned_pos = (stream_pos & !(sector_size - 1)) + sector_size;
+        if aligned_pos != stream_pos {
+            data.seek_relative((aligned_pos - sector_size) as i64)?;
         }
+        Ok(LogicalSector((aligned_pos / sector_size) as usize))
     }
 
-    pub fn read_file(&self, file: DirectoryRecord) -> FileReader<'_, DATA> {
-        // TODO: Support interleaved files
-        assert!(file.is_file(), "tried to read non-file!");
-        let start = file.header.extent.read() as usize * self.info.sector_size;
-        let end = file.header.data_len.read() as usize + start;
-        FileReader {
-            data: &self.data.data,
-            current: start,
-            end,
-        }
+    pub fn lock(&self) -> MutexGuard<'_, DATA> {
+        self.data.lock()
     }
 }
 
-pub struct FileReader<'a, T: Read + Seek> {
-    data: &'a Mutex<T>,
-    current: usize,
-    end: usize,
-}
-
-impl<T: Read + Seek> Read for FileReader<'_, T> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let mut reader = self.data.lock();
-        let read_max = (self.end - self.current).min(buf.len());
-        reader.seek(SeekFrom::Start(self.current as u64))?;
-        let read_bytes = if read_max > buf.len() {
-            reader.read(buf)?
-        } else {
-            reader.read(&mut buf[0..read_max])?
-        };
-        self.current += read_bytes;
-        Ok(read_bytes)
+impl<DATA: Seek> fmt::Debug for LockedCursor<DATA> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LockedCursor").finish()
     }
 }
