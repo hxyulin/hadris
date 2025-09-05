@@ -1,5 +1,7 @@
 use crate::{
-    directory::{DirectoryRecord, DirectoryRef}, volume::VolumeDescriptorList, LockedCursor, LogicalSector
+    LockedCursor, LogicalSector,
+    directory::{DirectoryRecord, DirectoryRef},
+    volume::VolumeDescriptorList,
 };
 use hadris_io::{self as io, Read, Seek, SeekFrom};
 use spin::Mutex;
@@ -47,7 +49,7 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         let pvd_start = 16 * sector_size;
         data.seek(SeekFrom::Start(pvd_start))?;
         let volume_descriptors = VolumeDescriptorList::parse(&mut data)?;
-        let info = {
+        let mut info = {
             let pvd = volume_descriptors.primary();
             let block_size = pvd.logical_block_size.read() as usize;
             let root_dir = DirectoryRef {
@@ -61,7 +63,11 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                 root_dir,
             }
         };
-        for _svd in volume_descriptors.supplementary() {
+        for svd in volume_descriptors.supplementary() {
+            info.root_dir = DirectoryRef {
+                extent: LogicalSector(svd.dir_record.header.extent.read() as usize),
+                size: svd.dir_record.header.data_len.read() as usize,
+            };
             // UNIMPLEMENTED
         }
 

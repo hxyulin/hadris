@@ -319,7 +319,6 @@ impl<DATA: Seek + Read> Read for FileReader<'_, DATA> {
                 Some(cluster) => self.cluster.0 = cluster as usize,
             }
             self.offset = 0;
-            std::dbg!(self.cluster);
         }
         let read_max = buf
             .len()
@@ -509,7 +508,6 @@ impl Fat32 {
         cluster: usize,
     ) -> io::Result<Option<u32>> {
         let next = self.read_clus(reader, cluster)?;
-        std::dbg!(cluster, next);
         if next == Self::END_OF_CLUSTER {
             return Ok(None);
         }

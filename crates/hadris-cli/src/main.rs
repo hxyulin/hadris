@@ -16,7 +16,6 @@ fn main() {
     while let Some(entry) = root.next().unwrap() {
         println!("{:#?}", entry);
         let mut reader = entry.handle().read(root.fs).unwrap();
-        dbg!(&reader);
         let mut contents = String::new();
         reader.read_to_string(&mut contents).unwrap();
         println!("Contents: {}", contents);

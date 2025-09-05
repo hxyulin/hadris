@@ -126,7 +126,7 @@ fn read_dir(iso: &IsoImage<&mut std::fs::File>, dir: IsoDir<'_, &mut std::fs::Fi
             let dir = iso.read_dir(entry.as_dir_ref().unwrap());
             read_dir(iso, dir);
         } else {
-            println!("File: {}", entry.name);
+            println!("File: {:?}", entry.name);
         }
     }
 }
