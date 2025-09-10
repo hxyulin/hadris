@@ -2,51 +2,37 @@ use core::marker::PhantomData;
 pub use hadris_common::types::{endian::*, number::*};
 use std::time::SystemTime;
 
-use alloc::{
-    format,
-    string::{String, ToString},
-    vec,
-    vec::Vec,
-};
+use alloc::{format, string::ToString, vec, vec::Vec};
 
-pub trait Charset: Copy + PartialEq + Eq {
-    fn is_valid(chars: &[u8]) -> bool;
+pub trait Charset: Copy {
+    fn is_valid<'a>(bytes: impl Iterator<Item = &'a u8>) -> bool;
 }
 
 /// The `a-characters` character set.
 /// This supports `a-z`, `A-Z`, `0-9` and `!"%$'()*+,-./:;<=>?`.
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct CharsetA;
+
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct CharsetD;
-#[derive(Copy, Clone, PartialEq, Eq)]
-/// The `file-name` character set, it is CharsetD with the following characters allowed:
-pub struct CharsetFile;
+
+impl CharsetA {
+    const VALID_SYMBOLS: &[u8] = b"!\"%$'()*+,-./:;<=>?";
+}
+
+impl CharsetD {
+    const SPECIAL_CHARS: &[u8] = b"0123456789_";
+}
 
 impl Charset for CharsetA {
-    fn is_valid(chars: &[u8]) -> bool {
-        const VALID_SYMBOLS: &[u8] = b"!\"%$'()*+,-./:;<=>?";
-        chars
-            .iter()
-            .all(|c| c.is_ascii_alphanumeric() || VALID_SYMBOLS.contains(c))
+    fn is_valid<'a>(mut bytes: impl Iterator<Item = &'a u8>) -> bool {
+        bytes.all(|b| b.is_ascii_alphanumeric() || Self::VALID_SYMBOLS.contains(b))
     }
 }
 
 impl Charset for CharsetD {
-    fn is_valid(chars: &[u8]) -> bool {
-        const SPECIAL_CHARS: &[u8] = b"0123456789_";
-        chars
-            .iter()
-            .all(|c| c.is_ascii_uppercase() || SPECIAL_CHARS.contains(c))
-    }
-}
-
-impl Charset for CharsetFile {
-    fn is_valid(chars: &[u8]) -> bool {
-        const SPECIAL_CHARS: &[u8] = b"./";
-        chars
-            .iter()
-            .all(|c| c.is_ascii_alphanumeric() || SPECIAL_CHARS.contains(c))
+    fn is_valid<'a>(mut bytes: impl Iterator<Item = &'a u8>) -> bool {
+        bytes.all(|b| b.is_ascii_uppercase() || Self::SPECIAL_CHARS.contains(b))
     }
 }
 
@@ -90,7 +76,7 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
             return Err(());
         }
 
-        if !C::is_valid(s.as_bytes()) {
+        if !C::is_valid(s.as_bytes().iter()) {
             return Err(());
         }
 
@@ -134,10 +120,12 @@ pub struct IsoString<C: Charset> {
     _marker: PhantomData<C>,
 }
 
-impl From<Vec<u8>> for IsoString<CharsetFile> {
-    fn from(chars: Vec<u8>) -> Self {
+impl<C: Charset> From<Vec<u8>> for IsoString<C> {
+    fn from(value: Vec<u8>) -> Self {
+        // TODO: We should probably check, but it can also be \x00, or \x01
+        //assert!(C::is_valid(value.iter()));
         Self {
-            chars,
+            chars: value,
             _marker: PhantomData,
         }
     }
@@ -217,10 +205,9 @@ impl<C: Charset> core::fmt::Debug for IsoString<C> {
 }
 
 pub type IsoStrA<const N: usize> = IsoStr<CharsetA, N>;
-pub type IsoStrD<const N: usize> = IsoStr<CharsetD, N>;
-pub type IsoStrFile<const N: usize> = IsoStr<CharsetFile, N>;
-
-pub type IsoStringFile = IsoString<CharsetFile>;
+pub type IsoStrD<const N: usize> = IsoStr<CharsetA, N>;
+pub type IsoStringA = IsoString<CharsetA>;
+pub type IsoStringD = IsoString<CharsetD>;
 
 pub trait StdNum: Copy {
     type LsbType: bytemuck::Pod + bytemuck::Zeroable + Endian<Output = Self>;
@@ -331,68 +318,5 @@ impl DecDateTime {
             hundredths: IsoStrD::from_str(&(now.nanosecond() / 10_000_000).to_string()).unwrap(),
             timezone: 0,
         }
-    }
-}
-
-/// The file interchange level
-///
-/// For the ISO specification,
-/// L1 is the 8.3 format with contiguous files,
-/// L2 allows for 30 characters including the dot
-/// L3 allows for 30 characters including the dot, but allows for multiple extents
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileInterchange {
-    L1 = 1,
-    L2 = 2,
-    L3 = 3,
-    // TODO: Add more unconformant variants, so that some can be 'semi-conformant'
-    /// Non-conformant, allows anything less than 32 characters
-    NonConformant = 255,
-}
-
-impl FileInterchange {
-    /// Convert a string from the original format to the internal format
-    pub fn cvrt_from_orig(&self, s: &str) -> Result<IsoStringFile, ()> {
-        match self {
-            FileInterchange::L1 => {
-                let (base, ext) = s.split_once('.').unwrap_or((s, ""));
-                // We dont want to truncate, because filenames are important (e.g. for booting)
-                assert!(base.len() <= 8);
-                assert!(ext.len() <= 3);
-                // 1 for the dot, 2 for semicolon and version
-                let mut bytes = Vec::with_capacity(base.len() + ext.len() + 3);
-                bytes.extend_from_slice(base.as_bytes());
-                bytes.push(b'.');
-                bytes.extend_from_slice(ext.as_bytes());
-                bytes.extend_from_slice(b";1");
-                Ok(bytes.into())
-            }
-            FileInterchange::L2 | FileInterchange::L3 => {
-                assert!(s.len() <= 30);
-                let mut bytes = s.as_bytes().to_vec();
-                bytes.extend_from_slice(b";1");
-                Ok(bytes.into())
-            }
-            FileInterchange::NonConformant => {
-                assert!(s.len() <= 32);
-                Ok(IsoStringFile::from_bytes(&s.as_bytes()))
-            }
-        }
-    }
-
-    /// Convert a string from the internal format to the original format (this may be lossy)
-    pub fn cvrt_to_orig(&self, s: &IsoStringFile) -> String {
-        let mut chars = s.chars.iter();
-        let mut out = String::new();
-        while let Some(c) = chars.next() {
-            if *c == b';' {
-                // TODO: We need to check if the next character is a digit, otherwise it may be
-                // invalid, and maybe we can use rfind instead
-                break;
-            }
-            out.push(*c as char);
-        }
-        out
     }
 }

@@ -2,19 +2,16 @@ use core::fmt;
 
 use crate::{
     LogicalSector,
-    directory::{
-        DirectoryRecord, DirectoryRecordHeader, DirectoryRef, FileFlags, RootDirectoryEntry,
-    },
+    directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef, FileFlags},
     options::FormatOptions,
-    read::{IsoDir, PathSeparator},
-    types::{IsoString, IsoStringFile},
+    read::PathSeparator,
+    types::IsoStringD,
     volume::{PrimaryVolumeDescriptor, VolumeDescriptor, VolumeDescriptorList},
 };
-use bytemuck::{Zeroable, bytes_of_mut};
+use bytemuck::Zeroable;
 use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
 
 use alloc::{collections::VecDeque, format, string::String, vec, vec::Vec};
-use spin::Mutex;
 
 struct Cursor<DATA: Seek> {
     data: DATA,
@@ -174,6 +171,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     fn write_files(&mut self) -> io::Result<DirectoryRef> {
+        let level = self.ops.features.filenames;
         let mut files = FileTreeWalker::new(&self.files);
         let mut prefix = String::new();
         while let Some(file) = files.next() {
@@ -237,18 +235,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let start = self.data.seek_sector(directory.extent)?;
 
         DirectoryRecord::new(
-            IsoStringFile::from_utf8("\x00"),
+            IsoStringD::from_utf8("\x00"),
             directory,
             FileFlags::DIRECTORY,
         )
         .write(&mut self.data)?;
 
-        DirectoryRecord::new(
-            IsoStringFile::from_utf8("\x01"),
-            parent,
-            FileFlags::DIRECTORY,
-        )
-        .write(&mut self.data)?;
+        DirectoryRecord::new(IsoStringD::from_utf8("\x01"), parent, FileFlags::DIRECTORY)
+            .write(&mut self.data)?;
         let end = self.data.stream_position()?;
         let mut offset = (end - start) as usize;
 
@@ -296,7 +290,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 flags |= FileFlags::DIRECTORY;
             }
             let record = DirectoryRecord::new(
-                IsoStringFile::from_utf8(basename),
+                IsoStringD::from_utf8(basename),
                 DirectoryRef {
                     extent: entry.start,
                     size: entry.size,

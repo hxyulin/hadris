@@ -1,6 +1,6 @@
 use clap::Parser;
 use hadris_iso::{
-    options::FormatOptions,
+    options::{CreationFeatures, FilenameLevel, FormatOptions},
     read::{IsoDir, IsoImage, PathSeparator},
     write::{File, InputFiles, IsoImageWriter},
 };
@@ -103,6 +103,9 @@ fn write(isoroot: PathBuf, output: &PathBuf) {
     let ops = FormatOptions {
         volume_name: "TESTISO".to_string(),
         sector_size: 2048,
+        features: CreationFeatures {
+            filenames: FilenameLevel::Level1,
+        }
     };
     IsoImageWriter::format_new(&mut file, input, ops).unwrap();
 }

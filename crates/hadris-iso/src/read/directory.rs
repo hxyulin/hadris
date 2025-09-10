@@ -1,4 +1,4 @@
-use crate::directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef};
+use crate::{directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef}, types::IsoStringD};
 use alloc::vec;
 use bytemuck::Zeroable;
 use hadris_io::{self as io, Read, Seek, SeekFrom};

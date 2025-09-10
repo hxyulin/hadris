@@ -2,8 +2,7 @@ use alloc::vec::Vec;
 use hadris_io::{self as io, Write};
 
 use crate::{
-    LogicalSector,
-    types::{IsoStringFile, U16LsbMsb, U32LsbMsb},
+    types::{IsoStringD, U16LsbMsb, U32LsbMsb}, LogicalSector
 };
 
 /// The header of a directory record, because the identifier is variable length,
@@ -58,14 +57,14 @@ impl DirectoryRecordHeader {
 #[derive(Debug, Clone)]
 pub struct DirectoryRecord {
     pub header: DirectoryRecordHeader,
-    pub name: IsoStringFile,
+    pub name: IsoStringD,
 }
 
 impl Default for DirectoryRecord {
     fn default() -> Self {
         Self {
             header: DirectoryRecordHeader::default(),
-            name: IsoStringFile::empty(),
+            name: IsoStringD::empty(),
         }
     }
 }
@@ -109,7 +108,7 @@ impl DirectoryRecord {
         bytes
     }
 
-    pub fn new(name: IsoStringFile, directory: DirectoryRef, flags: FileFlags) -> Self {
+    pub fn new(name: IsoStringD, directory: DirectoryRef, flags: FileFlags) -> Self {
         Self {
             header: DirectoryRecordHeader {
                 len: ((size_of::<DirectoryRecordHeader>() + name.len() + 1) & !1) as u8,
@@ -134,7 +133,7 @@ impl DirectoryRecord {
                 file_identifier_len: len,
                 ..Default::default()
             },
-            name: IsoStringFile::with_size(len as usize),
+            name: IsoStringD::with_size(len as usize),
         }
     }
 
