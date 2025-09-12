@@ -1,17 +1,20 @@
 use core::fmt;
 
+mod writer;
+
 use crate::{
     LogicalSector,
     directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef, FileFlags},
+    file::FilenameLevel,
     options::FormatOptions,
     read::PathSeparator,
-    types::IsoStringD,
     volume::{PrimaryVolumeDescriptor, VolumeDescriptor, VolumeDescriptorList},
+    write::writer::{WrittenDirectory, WrittenFile, WrittenFiles},
 };
 use bytemuck::Zeroable;
 use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
 
-use alloc::{collections::VecDeque, format, string::String, vec, vec::Vec};
+use alloc::{collections::VecDeque, string::String, vec, vec::Vec};
 
 struct Cursor<DATA: Seek> {
     data: DATA,
@@ -112,19 +115,9 @@ pub enum IsoCreationError {
 
 pub type IsoCreationResult<T> = Result<T, IsoCreationError>;
 
-#[derive(Debug)]
-pub struct WrittenFile {
-    original_name: String,
-    parent: String,
-    is_directory: bool,
-    start: LogicalSector,
-    size: usize,
-}
-
 pub struct IsoImageWriter<DATA: Read + Write + Seek> {
     data: Cursor<DATA>,
     files: InputFiles,
-    written_files: Vec<WrittenFile>,
     ops: FormatOptions,
 }
 
@@ -141,7 +134,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Self {
             data: Cursor::new(data, ops.sector_size),
             files,
-            written_files: Vec::new(),
             ops,
         }
     }
@@ -171,60 +163,50 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     fn write_files(&mut self) -> io::Result<DirectoryRef> {
-        let level = self.ops.features.filenames;
-        let mut files = FileTreeWalker::new(&self.files);
-        let mut prefix = String::new();
-        while let Some(file) = files.next() {
-            match file {
-                TreeWalkerItem::EnterDirectory(dir) => {
-                    if !prefix.is_empty() {
-                        prefix.push(self.files.path_separator.as_char());
+        let root = {
+            let mut written_files = WrittenFiles::new();
+            let level = self.ops.features.filenames;
+            let mut files = FileTreeWalker::new(&self.files);
+            let mut current_dir = written_files.root_dir();
+            while let Some(file) = files.next() {
+                match file {
+                    TreeWalkerItem::EnterDirectory(dir) => {
+                        let name = dir.name();
+                        let dir = written_files.get_mut(&current_dir);
+                        current_dir.push(dir.push_dir(name));
                     }
-                    prefix.push_str(dir.name());
-                }
-                TreeWalkerItem::ExitDirectory(dir) => {
-                    let dirname = prefix.clone();
-                    prefix.truncate(prefix.len() - dir.name().len());
-                    // We either pop the leading slash, or it is empty already, and we ignore the
-                    // None variant
-                    _ = prefix.pop();
-                    let parent = prefix.clone();
-                    Self::write_directory(
-                        &mut self.data,
-                        &mut self.written_files,
-                        dirname,
-                        parent,
-                    )?;
-                }
-                TreeWalkerItem::File(file) => {
-                    if let File::File { name, contents } = file {
-                        let parent = prefix.clone();
-
-                        let fullname = format!("{}/{}", prefix, name);
-                        let start = self.data.pad_align_sector()?;
-                        self.data.write_all(&contents)?;
-                        self.written_files.push(WrittenFile {
-                            original_name: fullname,
-                            parent,
-                            is_directory: false,
-                            start,
-                            size: contents.len(),
-                        });
+                    TreeWalkerItem::ExitDirectory(_dir) => {
+                        let dir = written_files.get_mut(&current_dir);
+                        Self::write_directory(&mut self.data, dir)?;
+                        current_dir.pop();
                     }
-                }
-            };
-        }
+                    TreeWalkerItem::File(file) => {
+                        if let File::File { name, contents } = file {
+                            let start = self.data.pad_align_sector()?;
+                            self.data.write_all(&contents)?;
+                            let dir = written_files.get_mut(&current_dir);
+                            dir.files.push(WrittenFile {
+                                name,
+                                entry: DirectoryRef {
+                                    extent: start,
+                                    size: contents.len(),
+                                },
+                            });
+                        }
+                    }
+                };
+            }
 
-        let dir_ref = Self::write_directory(
-            &mut self.data,
-            &mut self.written_files,
-            String::new(),
-            String::new(),
-        )?;
+            // Write root directory
+            let dir = written_files.get_mut(&current_dir);
+            Self::write_directory(&mut self.data, dir)?;
 
-        self.update_directory(dir_ref, dir_ref)?;
+            std::println!("Written Files: {:#?}", written_files);
+            written_files.root_ref()
+        };
+        self.update_directory(root, root)?;
 
-        Ok(dir_ref)
+        Ok(root)
     }
 
     fn update_directory(
@@ -234,15 +216,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     ) -> io::Result<()> {
         let start = self.data.seek_sector(directory.extent)?;
 
-        DirectoryRecord::new(
-            IsoStringD::from_utf8("\x00"),
-            directory,
-            FileFlags::DIRECTORY,
-        )
-        .write(&mut self.data)?;
+        DirectoryRecord::new(b"\x00", directory, FileFlags::DIRECTORY).write(&mut self.data)?;
+        DirectoryRecord::new(b"\x01", parent, FileFlags::DIRECTORY).write(&mut self.data)?;
 
-        DirectoryRecord::new(IsoStringD::from_utf8("\x01"), parent, FileFlags::DIRECTORY)
-            .write(&mut self.data)?;
         let end = self.data.stream_position()?;
         let mut offset = (end - start) as usize;
 
@@ -250,6 +226,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             if offset >= directory.size {
                 break;
             }
+            std::println!("offset: {}", self.data.stream_position()?);
             let mut header = DirectoryRecordHeader::zeroed();
             self.data.read_exact(bytemuck::bytes_of_mut(&mut header))?;
             if header.len == 0 {
@@ -259,6 +236,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             let mut bytes = vec![0; header.len as usize - size_of::<DirectoryRecordHeader>()];
             self.data.read_exact(&mut bytes)?;
             offset += header.len as usize;
+            std::println!("name: {}", core::str::from_utf8(&bytes).unwrap());
 
             if FileFlags::from_bits_truncate(header.flags).contains(FileFlags::DIRECTORY) {
                 let record = DirectoryRef {
@@ -272,47 +250,37 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
-    fn write_directory(
-        data: &mut Cursor<DATA>,
-        written_files: &mut Vec<WrittenFile>,
-        dirname: String,
-        parent: String,
-    ) -> io::Result<DirectoryRef> {
+    fn write_directory(data: &mut Cursor<DATA>, dir: &mut WrittenDirectory) -> io::Result<()> {
         let start = data.pad_align_sector()?;
         // Current Directory Entry (unfilled)
         DirectoryRecord::with_len(1).write(&mut *data)?;
         // Parent Directory Entry (unfilled)
         DirectoryRecord::with_len(1).write(&mut *data)?;
-        for entry in written_files.iter().filter(|f| f.parent == dirname) {
-            let basename = entry.original_name.strip_prefix(&dirname).unwrap();
-            let mut flags = FileFlags::empty();
-            if entry.is_directory {
-                flags |= FileFlags::DIRECTORY;
-            }
-            let record = DirectoryRecord::new(
-                IsoStringD::from_utf8(basename),
-                DirectoryRef {
-                    extent: entry.start,
-                    size: entry.size,
-                },
-                flags,
-            );
+
+        for directory in &dir.dirs {
+            let WrittenDirectory { name, entry, .. } = directory;
+            let flags = FileFlags::DIRECTORY;
+            let converted_name = FilenameLevel::Level1.convert(name);
+            std::println!("Converted Name: {}", converted_name.as_str());
+            let record = DirectoryRecord::new(converted_name.as_bytes(), entry.unwrap(), flags);
+            record.write(&mut *data)?;
+        }
+
+        for file in &dir.files {
+            let WrittenFile { name, entry } = file;
+            let flags = FileFlags::empty();
+            let converted_name = FilenameLevel::Level1.convert(name);
+            let record = DirectoryRecord::new(converted_name.as_bytes(), *entry, flags);
             record.write(&mut *data)?;
         }
 
         let end = data.pad_align_sector()?;
         let size = (end.0 - start.0) * data.sector_size;
-        written_files.push(WrittenFile {
-            original_name: dirname,
-            parent,
-            is_directory: true,
-            start: start,
-            size,
-        });
-        Ok(DirectoryRef {
+        dir.entry = Some(DirectoryRef {
             extent: start,
             size,
-        })
+        });
+        Ok(())
     }
 }
 

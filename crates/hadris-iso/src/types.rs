@@ -6,6 +6,7 @@ use alloc::{format, string::ToString, vec, vec::Vec};
 
 pub trait Charset: Copy {
     fn is_valid<'a>(bytes: impl Iterator<Item = &'a u8>) -> bool;
+    fn substitute_invalid<'a>(bytes: impl Iterator<Item = &'a mut u8>);
 }
 
 /// The `a-characters` character set.
@@ -17,22 +18,56 @@ pub struct CharsetA;
 pub struct CharsetD;
 
 impl CharsetA {
-    const VALID_SYMBOLS: &[u8] = b"!\"%$'()*+,-./:;<=>?";
+    const VALID_SYMBOLS: &[u8] = b"0123456789_!\"%$'()*+,-./:;<=>?";
+
+    fn valid_byte(b: u8) -> bool {
+        b.is_ascii_uppercase() || Self::VALID_SYMBOLS.contains(&b)
+    }
 }
 
 impl CharsetD {
     const SPECIAL_CHARS: &[u8] = b"0123456789_";
+
+    fn valid_byte(b: u8) -> bool {
+        b.is_ascii_uppercase() || Self::SPECIAL_CHARS.contains(&b)
+    }
 }
 
 impl Charset for CharsetA {
     fn is_valid<'a>(mut bytes: impl Iterator<Item = &'a u8>) -> bool {
-        bytes.all(|b| b.is_ascii_alphanumeric() || Self::VALID_SYMBOLS.contains(b))
+        bytes.all(|b| Self::valid_byte(*b))
+    }
+
+    fn substitute_invalid<'a>(bytes: impl Iterator<Item = &'a mut u8>) {
+        for byte in bytes {
+            if byte.is_ascii_lowercase() {
+                *byte = byte.to_ascii_uppercase();
+                continue;
+            }
+
+            if !Self::valid_byte(*byte) {
+                *byte = b'_';
+            }
+        }
     }
 }
 
 impl Charset for CharsetD {
     fn is_valid<'a>(mut bytes: impl Iterator<Item = &'a u8>) -> bool {
-        bytes.all(|b| b.is_ascii_uppercase() || Self::SPECIAL_CHARS.contains(b))
+        bytes.all(|b| Self::valid_byte(*b))
+    }
+
+    fn substitute_invalid<'a>(bytes: impl Iterator<Item = &'a mut u8>) {
+        for byte in bytes {
+            if byte.is_ascii_lowercase() {
+                *byte = byte.to_ascii_uppercase();
+                continue;
+            }
+
+            if !Self::valid_byte(*byte) {
+                *byte = b'_';
+            }
+        }
     }
 }
 
@@ -173,6 +208,10 @@ impl<C: Charset> IsoString<C> {
             .iter()
             .position(|&c| c == b' ')
             .unwrap_or(self.chars.len())
+    }
+
+    pub fn size(&self) -> usize {
+        self.chars.len()
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -318,5 +357,26 @@ impl DecDateTime {
             hundredths: IsoStrD::from_str(&(now.nanosecond() / 10_000_000).to_string()).unwrap(),
             timezone: 0,
         }
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_charset_a_substitute() {
+        let original = b"thisisatest\\";
+        let mut new = original.to_vec();
+        CharsetA::substitute_invalid(new.iter_mut());
+        assert_eq!(new, b"THISISATEST_");
+    }
+
+    #[test]
+    fn test_charset_d_substitute() {
+        let original = b"thisisatest?new";
+        let mut new = original.to_vec();
+        CharsetD::substitute_invalid(new.iter_mut());
+        assert_eq!(new, b"THISISATEST_NEW");
     }
 }

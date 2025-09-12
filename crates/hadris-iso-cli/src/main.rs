@@ -1,6 +1,7 @@
 use clap::Parser;
 use hadris_iso::{
-    options::{CreationFeatures, FilenameLevel, FormatOptions},
+    options::{CreationFeatures, FormatOptions},
+    file::FilenameLevel,
     read::{IsoDir, IsoImage, PathSeparator},
     write::{File, InputFiles, IsoImageWriter},
 };
@@ -125,7 +126,7 @@ fn read_dir(iso: &IsoImage<&mut std::fs::File>, dir: IsoDir<'_, &mut std::fs::Fi
             continue;
         }
         if entry.is_directory() {
-            println!("Directory: {}", entry.name);
+            println!("Directory: {}", core::str::from_utf8(&entry.name).unwrap());
             let dir = iso.read_dir(entry.as_dir_ref().unwrap());
             read_dir(iso, dir);
         } else {

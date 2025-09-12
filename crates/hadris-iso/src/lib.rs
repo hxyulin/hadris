@@ -9,6 +9,7 @@ pub mod options;
 pub mod path;
 pub mod types;
 pub mod volume;
+pub mod file;
 
 pub mod read;
 

@@ -64,11 +64,13 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             }
         };
         for svd in volume_descriptors.supplementary() {
+            /*
             info.root_dir = DirectoryRef {
                 extent: LogicalSector(svd.dir_record.header.extent.read() as usize),
                 size: svd.dir_record.header.data_len.read() as usize,
             };
             // UNIMPLEMENTED
+            */
         }
 
         Ok(Self {

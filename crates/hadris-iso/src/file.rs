@@ -1,234 +1,123 @@
-use std::path::PathBuf;
+use core::ops::Range;
 
-#[derive(Debug, Clone)]
-pub enum FileData {
-    Data(Vec<u8>),
-    File(PathBuf),
-    /// A list of files in the directory, relative to the directory
-    Directory(Vec<String>),
+use crate::types::{Charset, CharsetD};
+
+pub enum Filename {
+    L1(FilenameL1),
 }
 
-impl FileData {
-    pub fn get_data(&self) -> Vec<u8> {
+impl Filename {
+    pub fn as_str(&self) -> &str {
         match self {
-            Self::Data(data) => data.clone(),
-            Self::File(path) => std::fs::read(path).unwrap(),
-            Self::Directory(_) => panic!("Cannot get data from a directory"),
+            Self::L1(file) => file.as_str(),
         }
     }
 
-    pub fn get_children(&self) -> Vec<String> {
+    pub fn as_bytes(&self) -> &[u8] {
         match self {
-            Self::Directory(children) => children.clone(),
-            _ => panic!("Cannot get children of a file"),
-        }
-    }
-
-    pub fn add_child(&mut self, child: String) {
-        match self {
-            Self::Directory(children) => children.push(child),
-            _ => panic!("Cannot add child to a file"),
+            Self::L1(file) => file.as_bytes(),
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct File {
-    pub path: String,
-    pub data: FileData,
+#[derive(Clone)]
+pub struct FilenameL1 {
+    // The full data store:
+    // 8.3 format: 8 + 3 + 1
+    // ;1 version 12 + 2 = 14
+    data: [u8; 14],
+    len: usize,
 }
 
-impl File {
-    pub fn is_directory(&self) -> bool {
-        matches!(self.data, FileData::Directory(_))
-    }
-
-    pub fn get_data(&self) -> Vec<u8> {
-        self.data.get_data()
-    }
-
-    pub fn get_children(&self) -> Vec<String> {
-        self.data.get_children()
-    }
-
-    pub fn add_child(&mut self, child: String) {
-        self.data.add_child(child);
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct FileInput {
-    /// A flat list of files
-    /// nested files should be written with the parent directory path:
-    /// ```text
-    /// /path/to/file
-    /// ```
-    files: Vec<File>,
-}
-
-impl FileInput {
-    pub fn empty() -> Self {
-        Self { files: vec![File {
-            path: "".to_string(),
-            data: FileData::Directory(Vec::new()),
-        }] }
-    }
-
-    #[cfg(feature = "std")]
-    pub fn from_fs<P: AsRef<std::path::Path>>(root: P) -> Result<FileInput, std::io::Error> {
-        // FIXME: We need to normalize paths from windows '\' to '/'
-        let root = root.as_ref();
-        assert!(root.is_dir(), "File {} is not a directory", root.display());
-        let mut files = vec![File {
-            path: "".to_string(),
-            data: FileData::Directory(Vec::new()),
-        }];
-        let mut stack = vec![root.to_path_buf()];
-        while let Some(dir) = stack.pop() {
-            let mut childrens = Vec::new();
-            let children = std::fs::read_dir(&dir)?;
-            for child in children {
-                let child = child?;
-                childrens.push(child.file_name().to_str().unwrap().to_string());
-
-                let name = child
-                    .path()
-                    .strip_prefix(&root)
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_string();
-                if child.file_type()?.is_dir() {
-                    files.push(File {
-                        path: name,
-                        data: FileData::Directory(Vec::new()),
-                    });
-                    stack.push(child.path());
-                    continue;
-                }
-
-                let path = child.path();
-                files.push(File {
-                    path: name,
-                    data: FileData::File(path),
-                });
-            }
-            let dir = dir.strip_prefix(&root).unwrap();
-            let dir_name = dir.to_str().unwrap();
-            let dir = files.iter_mut().find(|f| f.path == dir_name).unwrap();
-            dir.data = FileData::Directory(childrens);
+impl FilenameL1 {
+    pub const fn empty() -> Self {
+        Self {
+            data: [0; 14],
+            len: 0,
         }
-
-        Ok(Self { files })
     }
 
-    /// Splits the files into two lists,
-    /// one containing files,
-    /// and one containing directories
-    pub fn split(mut self) -> (Vec<File>, Vec<File>) {
-        let mut dirs: Vec<File> = Vec::new();
-        self.files.retain(|f| {
-            if let FileData::Directory(_) = f.data {
-                dirs.push(f.clone());
-                false
-            } else {
-                true
-            }
-        });
-        (dirs, self.files)
+    pub fn as_str(&self) -> &str {
+        unsafe { core::str::from_utf8_unchecked(self.as_bytes()) }
     }
 
-    pub fn append(&mut self, file: File) {
-        // TODO: Support adding nested files
-        let parent = self.get_mut("").unwrap();
-        parent.add_child(file.path.clone());
-        self.files.push(file);
-    }
-
-    pub fn get(&self, name: &str) -> Option<&File> {
-        self.files.iter().find(|f| f.path == name)
-    }
-
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut File> {
-        self.files.iter_mut().find(|f| f.path == name)
-    }
-
-    pub fn contains(&self, name: &str) -> bool {
-        self.get(name).is_some()
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data[0..self.len]
     }
 
     pub fn len(&self) -> usize {
-        self.files.len()
+        self.len
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.files.is_empty()
+    pub fn push_slice(&mut self, slice: &[u8]) -> Range<usize> {
+        assert!(self.len + slice.len() <= self.data.len());
+        let start = self.len;
+        self.len += slice.len();
+        self.data[start..self.len].copy_from_slice(slice);
+        start..self.len
     }
 
-    pub fn iter(&self) -> FileIter {
-        FileIter {
-            files: &self.files,
-            index: 0,
+    pub fn push_byte(&mut self, b: u8) -> usize {
+        self.data[self.len] = b;
+        self.len += 1;
+        self.len - 1
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilenameLevel {
+    /// L1 Filenames
+    /// Supports only uppercase and useing the 8.3 format
+    Level1,
+    /// L2 Filenames
+    /// Supports up to 30 characters
+    Level2,
+    /// L3 Filenames
+    /// Supports up to 207 characters
+    Level3,
+}
+
+fn convert_l1(name: &str) -> FilenameL1 {
+    let mut l1 = FilenameL1::empty();
+    let name_bytes = name.as_bytes();
+    match name.find('.') {
+        Some(index) => {
+            // We copy the basename, at most 8 bytes
+            let basename = l1.push_slice(&name_bytes[0..index.min(8)]);
+            CharsetD::substitute_invalid(l1.data[basename].iter_mut());
+            let ext_len = (name.len() - index).min(3);
+            l1.push_byte(b'.');
+            let ext = l1.push_slice(&name_bytes[index + 1..index + 1 + ext_len]);
+            CharsetD::substitute_invalid(l1.data[ext].iter_mut());
+        }
+        None => {
+            let len = name.len().min(8);
+            let basename = l1.push_slice(&name_bytes[0..len]);
+            CharsetD::substitute_invalid(l1.data[basename].iter_mut());
+        }
+    }
+    l1.push_slice(b";1");
+    l1
+}
+
+impl FilenameLevel {
+    pub fn convert(self, name: &str) -> Filename {
+        match self {
+            Self::Level1 => Filename::L1(convert_l1(name)),
+            Self::Level2 => todo!(),
+            Self::Level3 => todo!(),
         }
     }
 }
 
-impl<'a> IntoIterator for &'a FileInput {
-    type Item = &'a File;
-    type IntoIter = FileIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-pub struct FileIter<'a> {
-    files: &'a [File],
-    index: usize,
-}
-
-impl<'a> Iterator for FileIter<'a> {
-    type Item = &'a File;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.files.len() {
-            None
-        } else {
-            let file = &self.files[self.index];
-            self.index += 1;
-            Some(file)
-        }
-    }
-}
-
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
-    fn test_file_input() {
-        let root = tempfile::tempdir().unwrap();
-        let root_path = root.path();
-        let boot_dir = root_path.join("BOOT/GRUB");
-        let efi_dir = root_path.join("EFI");
-        fs::create_dir_all(&boot_dir).unwrap();
-        fs::create_dir_all(&efi_dir).unwrap();
-        let grub_cfg = boot_dir.join("GRUB.CFG");
-        fs::write(&grub_cfg, "test").unwrap();
-        let efi_cfg = efi_dir.join("BOOTX64.EFI");
-        fs::write(&efi_cfg, "test2").unwrap();
-
-        let fs = FileInput::from_fs(root.into_path()).unwrap();
-        let grub_cfg = fs
-            .files
-            .iter()
-            .find(|f| f.path == "BOOT/GRUB/GRUB.CFG")
-            .unwrap();
-        let efi_cfg = fs
-            .files
-            .iter()
-            .find(|f| f.path == "EFI/BOOTX64.EFI")
-            .unwrap();
+    fn test_convert_l1() {
+        let orig = "this-is-the-original-file.@very-long-ext";
+        let converted = convert_l1(orig);
+        assert_eq!(converted.as_str(), "THIS_IS_._VE;1");
     }
 }

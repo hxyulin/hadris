@@ -57,14 +57,14 @@ impl DirectoryRecordHeader {
 #[derive(Debug, Clone)]
 pub struct DirectoryRecord {
     pub header: DirectoryRecordHeader,
-    pub name: IsoStringD,
+    pub name: Vec<u8>,
 }
 
 impl Default for DirectoryRecord {
     fn default() -> Self {
         Self {
             header: DirectoryRecordHeader::default(),
-            name: IsoStringD::empty(),
+            name: Vec::new(),
         }
     }
 }
@@ -75,7 +75,7 @@ pub struct NotADirectoryError;
 
 impl DirectoryRecord {
     pub fn is_special(&self) -> bool {
-        self.name.bytes() == b"\x00" || self.name.bytes() == b"\x01"
+        self.name.as_slice() == b"\x00" || self.name.as_slice() == b"\x01"
     }
 
     pub fn is_directory(&self) -> bool {
@@ -104,11 +104,11 @@ impl DirectoryRecord {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(bytemuck::bytes_of(&self.header));
-        bytes.extend_from_slice(self.name.bytes());
+        bytes.extend_from_slice(self.name.as_slice());
         bytes
     }
 
-    pub fn new(name: IsoStringD, directory: DirectoryRef, flags: FileFlags) -> Self {
+    pub fn new(name: &[u8], directory: DirectoryRef, flags: FileFlags) -> Self {
         Self {
             header: DirectoryRecordHeader {
                 len: ((size_of::<DirectoryRecordHeader>() + name.len() + 1) & !1) as u8,
@@ -122,7 +122,7 @@ impl DirectoryRecord {
                 volume_sequence_number: U16LsbMsb::new(1),
                 file_identifier_len: name.len() as u8,
             },
-            name,
+            name: name.to_vec(),
         }
     }
 
@@ -133,7 +133,7 @@ impl DirectoryRecord {
                 file_identifier_len: len,
                 ..Default::default()
             },
-            name: IsoStringD::with_size(len as usize),
+            name: alloc::vec![b' '; len as usize],
         }
     }
 
@@ -141,7 +141,7 @@ impl DirectoryRecord {
         let mut written = 0;
         writer.write_all(&self.header.to_bytes())?;
         written += size_of::<DirectoryRecordHeader>();
-        writer.write_all(&self.name.bytes())?;
+        writer.write_all(&self.name.as_slice())?;
         written += self.name.len();
         if written < self.header.len as usize {
             for _ in 0..(self.header.len as usize - written) {
