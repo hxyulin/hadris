@@ -6,9 +6,9 @@ use core::fmt::Debug;
 use hadris_io::{Error, Read, Seek, Write};
 
 use crate::{
-    BootOptions, BootRecordVolumeDescriptor, FileData, FileInput, PathTableRef,
     types::{Endian, LittleEndian, U16, U32},
 };
+use alloc::{vec::Vec, string::{ToString}};
 
 // Types for El Torito boot catalogue
 // The boot catalogue consists of a series of boot catalogue entries:
@@ -240,7 +240,7 @@ impl BootValidationEntry {
 impl Debug for BootValidationEntry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BootValidationEntry")
-            .field("header_id", &format!("{:#x}", self.header_id))
+            .field("header_id", &format_args!("{:#x}", self.header_id))
             .field("platform_id", &PlatformId::from_u8(self.platform_id))
             .field(
                 "manufacturer",
@@ -300,7 +300,7 @@ pub struct BootSectionHeaderEntry {
 impl Debug for BootSectionHeaderEntry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BootSectionHeaderEntry")
-            .field("header_type", &format!("{:#x}", self.header_type))
+            .field("header_type", &format_args!("{:#x}", self.header_type))
             .field("platform_id", &PlatformId::from_u8(self.platform_id))
             .field("section_count", &self.section_count.get())
             .field(
@@ -376,7 +376,7 @@ impl BootSectionEntry {
 impl Debug for BootSectionEntry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BootSectionEntry")
-            .field("boot_indicator", &format!("{:#x}", self.boot_indicator))
+            .field("boot_indicator", &format_args!("{:#x}", self.boot_indicator))
             .field(
                 "boot_media_type",
                 &EmulationType::from_u8(self.boot_media_type),
@@ -447,13 +447,6 @@ impl ElToritoWriter {
         files: &mut FileInput,
     ) -> BootRecordVolumeDescriptor {
         log::trace!("Adding boot record to volume descriptors");
-        #[cfg(feature = "extra-checks")]
-        for entry in opts.entries() {
-            assert!(
-                files.contains(&entry.boot_image_path),
-                "Boot image path not found in files"
-            );
-        }
 
         if opts.write_boot_catalogue {
             log::trace!("Appending boot catalogue to file list");

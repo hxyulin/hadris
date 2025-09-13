@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 description = "Common types and functions used by Hadris"
 readme = "README.md"
+include = ["src/boot_sector.bin"]
 
 [features]
 default = ["bytemuck", "std"]

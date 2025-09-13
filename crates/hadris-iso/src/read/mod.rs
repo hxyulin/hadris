@@ -9,11 +9,22 @@ use spin::Mutex;
 mod directory;
 pub use directory::{IsoDir, IsoDirIter};
 
+pub enum FilenameType {
+    Builtin,
+    Joliet,
+}
+
 #[derive(Debug)]
 pub struct IsoImageInfo {
     block_size: usize,
     sector_size: usize,
-    root_dir: DirectoryRef,
+    root_dirs: RootDirs,
+}
+
+#[derive(Debug)]
+struct RootDirs {
+    builtin: DirectoryRef,
+    joliet: Option<DirectoryRef>,
 }
 
 /// A struct representing an ISO9660 Image
@@ -60,17 +71,28 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             IsoImageInfo {
                 block_size,
                 sector_size: sector_size as usize,
-                root_dir,
+                root_dirs: RootDirs {
+                    builtin: root_dir,
+                    joliet: None,
+                },
             }
         };
         for svd in volume_descriptors.supplementary() {
-            /*
-            info.root_dir = DirectoryRef {
-                extent: LogicalSector(svd.dir_record.header.extent.read() as usize),
-                size: svd.dir_record.header.data_len.read() as usize,
-            };
-            // UNIMPLEMENTED
-            */
+            if svd.file_structure_version == 1 {
+                // Joliet Check
+                let seq = &svd.escape_sequences[0..3];
+                for escape_seq in crate::joliet::ESCAPE_SEQUNCES {
+                    if seq == escape_seq {
+                        info.root_dirs.joliet = Some(DirectoryRef {
+                            extent: LogicalSector(svd.dir_record.header.extent.read() as usize),
+                            size: svd.dir_record.header.data_len.read() as usize,
+                        })
+                    }
+                }
+            } else if svd.file_structure_version == 2 {
+                // TODO: EVD
+                continue;
+            }
         }
 
         Ok(Self {
@@ -83,7 +105,14 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
     }
 
     pub fn root_dir(&self) -> IsoDir<'_, DATA> {
-        self.read_dir(self.info.root_dir)
+        self.read_dir(self.info.root_dirs.builtin)
+    }
+
+    pub fn root_dir_for(&self, filename_ty: FilenameType) -> Option<IsoDir<'_, DATA>> {
+        match filename_ty {
+            FilenameType::Builtin => Some(self.root_dir()),
+            FilenameType::Joliet => self.info.root_dirs.joliet.map(|root| self.read_dir(root)),
+        }
     }
 
     pub fn read_dir(&self, directory: DirectoryRef) -> IsoDir<'_, DATA> {

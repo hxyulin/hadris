@@ -439,6 +439,8 @@ pub struct SupplementaryVolumeDescriptor {
     pub modification_date: DecDateTime,
     pub expiration_date: DecDateTime,
     pub effective_date: DecDateTime,
+    /// If set to 1, it is a SVD
+    /// If set to 2, it is a EVD
     pub file_structure_version: u8,
     pub unused3: u8,
     pub app_data: [u8; 512],

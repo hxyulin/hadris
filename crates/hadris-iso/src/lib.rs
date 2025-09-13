@@ -5,13 +5,12 @@
 #![no_std]
 
 pub mod directory;
-pub mod options;
 pub mod path;
 pub mod types;
 pub mod volume;
-pub mod file;
 
 pub mod read;
+//pub mod boot;
 
 #[cfg(feature = "write")]
 pub mod write;
@@ -21,6 +20,8 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 extern crate std;
+
+pub mod joliet;
 
 use core::fmt;
 

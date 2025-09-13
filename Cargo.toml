@@ -21,7 +21,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 authors = ["hxyulin"]
 license = "MIT"
@@ -37,9 +37,10 @@ thiserror = "2.0.12"
 cfg-if = "1.0.0"
 tempfile = "3.19.1"
 chrono = "0.4.40"
+tracing = "0.1.41"
 
-hadris-io = { path = "crates/hadris-io", version = "0.1.2" }
-hadris-iso = { path = "crates/hadris-iso", version = "0.1.2" }
-hadris-fat= { path = "crates/hadris-fat", version = "0.1.2" }
-hadris-common = { path = "crates/hadris-common", version = "0.1.2" }
-hadris-part = { path = "crates/hadris-part", version = "0.1.2" }
+hadris-io = { path = "crates/hadris-io", version = "0.2.0" }
+hadris-iso = { path = "crates/hadris-iso", version = "0.2.0" }
+hadris-fat= { path = "crates/hadris-fat", version = "0.2.0" }
+hadris-common = { path = "crates/hadris-common", version = "0.2.0" }
+hadris-part = { path = "crates/hadris-part", version = "0.2.0" }

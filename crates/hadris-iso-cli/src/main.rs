@@ -1,11 +1,12 @@
 use clap::Parser;
 use hadris_iso::{
-    options::{CreationFeatures, FormatOptions},
-    file::FilenameLevel,
     read::{IsoDir, IsoImage, PathSeparator},
-    write::{File, InputFiles, IsoImageWriter},
+    write::{
+        InputFiles, IsoImageWriter,
+        options::{BaseIsoLevel, CreationFeatures, FormatOptions},
+    },
 };
-use std::{fs::OpenOptions, path::PathBuf};
+use std::{fs::OpenOptions, path::PathBuf, str::FromStr};
 
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
@@ -44,6 +45,27 @@ pub struct ReadArgs {
     verbose: bool,
 }
 
+#[derive(Debug, Clone)]
+struct ArgLevel(BaseIsoLevel);
+
+impl Default for ArgLevel {
+    fn default() -> Self {
+        Self(BaseIsoLevel::Level1)
+    }
+}
+
+impl FromStr for ArgLevel {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "1" => Self(BaseIsoLevel::Level1),
+            "2" => Self(BaseIsoLevel::Level2),
+            _ => return Err("invalid level"),
+        })
+    }
+}
+
 #[derive(Debug, Clone, Parser)]
 pub struct WriteArgs {
     isoroot: PathBuf,
@@ -51,29 +73,21 @@ pub struct WriteArgs {
     output: PathBuf,
     #[arg(short, long)]
     verbose: bool,
+    #[arg(short, long, default_value = "1")]
+    level: ArgLevel,
 }
 
 fn main() {
     let args = Args::parse();
-    simple_logger::SimpleLogger::new()
-        .with_level(if args.cmd.verbose() {
-            log::LevelFilter::Trace
-        } else {
-            log::LevelFilter::Warn
-        })
-        .init()
-        .unwrap();
-
     match args.cmd {
         Command::Read(args) => read(&args.input),
-        Command::Write(args) => write(args.isoroot, &args.output),
+        Command::Write(args) => write(args.isoroot, &args.output, args.level.0),
         Command::Xorriso(args) => {
             println!("xorriso {:?}", args);
         }
     }
 }
-
-fn write(isoroot: PathBuf, output: &PathBuf) {
+fn write(isoroot: PathBuf, output: &PathBuf, level: BaseIsoLevel) {
     let mut file = OpenOptions::new()
         .truncate(true)
         .read(true)
@@ -81,32 +95,16 @@ fn write(isoroot: PathBuf, output: &PathBuf) {
         .create(true)
         .open(output)
         .unwrap();
-    file.set_len(1_000_000).unwrap();
-    let input = InputFiles {
-        path_separator: PathSeparator::ForwardSlash,
-        files: vec![
-            File::File {
-                name: "test.txt".to_string(),
-                contents: vec![b'H'; 5000],
-            },
-            File::Directory {
-                name: "boot".to_string(),
-                children: vec![File::Directory {
-                    name: "efi".to_string(),
-                    children: vec![File::File {
-                        name: "BOOTX64.EFI".to_string(),
-                        contents: vec![b'a'; 300],
-                    }],
-                }],
-            },
-        ],
-    };
+    file.set_len(10_000_000).unwrap();
+    let input = InputFiles::from_fs(&isoroot, PathSeparator::ForwardSlash).unwrap();
     let ops = FormatOptions {
         volume_name: "TESTISO".to_string(),
         sector_size: 2048,
+        path_seperator: PathSeparator::ForwardSlash,
         features: CreationFeatures {
-            filenames: FilenameLevel::Level1,
-        }
+            filenames: level,
+            ..Default::default()
+        },
     };
     IsoImageWriter::format_new(&mut file, input, ops).unwrap();
 }
@@ -130,7 +128,7 @@ fn read_dir(iso: &IsoImage<&mut std::fs::File>, dir: IsoDir<'_, &mut std::fs::Fi
             let dir = iso.read_dir(entry.as_dir_ref().unwrap());
             read_dir(iso, dir);
         } else {
-            println!("File: {:?}", entry.name);
+            println!("File: {:?}", core::str::from_utf8(&entry.name).unwrap());
         }
     }
 }

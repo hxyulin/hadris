@@ -1,20 +1,22 @@
 use core::fmt;
+use std::collections::HashMap;
 
 mod writer;
 
 use crate::{
     LogicalSector,
     directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef, FileFlags},
-    file::FilenameLevel,
-    options::FormatOptions,
     read::PathSeparator,
     volume::{PrimaryVolumeDescriptor, VolumeDescriptor, VolumeDescriptorList},
-    write::writer::{WrittenDirectory, WrittenFile, WrittenFiles},
+    write::writer::{EntryType, WrittenDirectory, WrittenFile, WrittenFiles},
 };
 use bytemuck::Zeroable;
 use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
 
 use alloc::{collections::VecDeque, string::String, vec, vec::Vec};
+
+pub mod options;
+use options::FormatOptions;
 
 struct Cursor<DATA: Seek> {
     data: DATA,
@@ -87,15 +89,96 @@ impl<DATA: Seek> fmt::Debug for Cursor<DATA> {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum FileConversionError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Path {0:?} is not a valid UTF-8 string")]
+    InvalidUtf8Path(std::path::PathBuf),
+}
+
+impl InputFiles {
+    pub fn from_fs(
+        root_path: &std::path::Path,
+        path_separator: PathSeparator,
+    ) -> Result<Self, FileConversionError> {
+        if !root_path.is_dir() {
+            return Err(FileConversionError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                alloc::format!("Root path '{:?}' is not a directory", root_path),
+            )));
+        }
+
+        let children = read_directory_recursively(root_path)?;
+
+        Ok(Self {
+            path_separator,
+            files: children,
+        })
+    }
+}
+
+/// Recursively reads a directory and converts its contents into a vector of `File` enums.
+fn read_directory_recursively(
+    current_path: &std::path::Path,
+) -> Result<Vec<File>, FileConversionError> {
+    use alloc::string::ToString;
+    let mut children_files: Vec<File> = Vec::new();
+
+    for entry_result in std::fs::read_dir(current_path)? {
+        let entry = entry_result?;
+        let path = entry.path();
+        let name = path
+            .file_name()
+            .and_then(|os_str| os_str.to_str())
+            .ok_or_else(|| FileConversionError::InvalidUtf8Path(path.clone()))?
+            .to_string();
+
+        if path.is_file() {
+            let contents = std::fs::read(&path)?;
+            children_files.push(File::File { name, contents });
+        } else if path.is_dir() {
+            let grand_children = read_directory_recursively(&path)?;
+            children_files.push(File::Directory {
+                name,
+                children: grand_children,
+            });
+        }
+        // Else: ignore other file types (e.g., symlinks, pipes) for now
+    }
+
+    // Sort files and directories for consistent ISO ordering (optional, but good practice)
+    children_files.sort_by_key(|f| f.name().to_ascii_lowercase());
+
+    Ok(children_files)
+}
+
 pub struct InputFiles {
     pub path_separator: PathSeparator,
     pub files: Vec<File>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum File {
     File { name: String, contents: Vec<u8> },
     Directory { name: String, children: Vec<File> },
+}
+
+impl core::fmt::Debug for File {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut dbg = f.debug_struct("File");
+        match self {
+            Self::Directory { name, children } => {
+                dbg.field("name", name);
+                dbg.field("children", children);
+            }
+            Self::File { name, contents } => {
+                dbg.field("name", name);
+                dbg.field("data_len", &contents.len());
+            }
+        }
+        dbg.finish()
+    }
 }
 
 impl File {
@@ -118,6 +201,7 @@ pub type IsoCreationResult<T> = Result<T, IsoCreationError>;
 pub struct IsoImageWriter<DATA: Read + Write + Seek> {
     data: Cursor<DATA>,
     files: InputFiles,
+    entry_types: Vec<EntryType>,
     ops: FormatOptions,
 }
 
@@ -131,10 +215,20 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     fn new(data: DATA, files: InputFiles, ops: FormatOptions) -> Self {
+        let mut entry_types = Vec::new();
+        entry_types.push(ops.features.filenames.into());
+        if ops.features.long_filenames {
+            entry_types.push(EntryType::Level3);
+        }
+        if let Some(joliet) = ops.features.joliet {
+            entry_types.push(joliet.into());
+        }
+
         Self {
             data: Cursor::new(data, ops.sector_size),
             files,
             ops,
+            entry_types,
         }
     }
 
@@ -149,7 +243,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
-    fn finalize_volume_descriptors(&mut self, root_dir: DirectoryRef) -> io::Result<()> {
+    fn finalize_volume_descriptors(
+        &mut self,
+        root_dirs: HashMap<EntryType, DirectoryRef>,
+    ) -> io::Result<()> {
+        let base_type = self
+            .entry_types
+            .iter()
+            .find(|ty| **ty == EntryType::Level1 || **ty == EntryType::Level2)
+            .expect("failed to find base Level");
+        let root_dir = root_dirs.get(base_type).unwrap();
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START)?;
         let mut pvd = PrimaryVolumeDescriptor::zeroed();
         self.data.read_exact(bytemuck::bytes_of_mut(&mut pvd))?;
@@ -162,8 +265,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
-    fn write_files(&mut self) -> io::Result<DirectoryRef> {
-        let root = {
+    fn write_files(&mut self) -> io::Result<HashMap<EntryType, DirectoryRef>> {
+        let roots = {
             let mut written_files = WrittenFiles::new();
             let level = self.ops.features.filenames;
             let mut files = FileTreeWalker::new(&self.files);
@@ -177,7 +280,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     }
                     TreeWalkerItem::ExitDirectory(_dir) => {
                         let dir = written_files.get_mut(&current_dir);
-                        Self::write_directory(&mut self.data, dir)?;
+                        Self::write_directory(&mut self.data, level.into(), dir)?;
                         current_dir.pop();
                     }
                     TreeWalkerItem::File(file) => {
@@ -199,14 +302,17 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
             // Write root directory
             let dir = written_files.get_mut(&current_dir);
-            Self::write_directory(&mut self.data, dir)?;
+            for ty in &self.entry_types {
+                Self::write_directory(&mut self.data, *ty, dir)?;
+            }
 
-            std::println!("Written Files: {:#?}", written_files);
-            written_files.root_ref()
+            written_files.root_refs().clone()
         };
-        self.update_directory(root, root)?;
+        for (_, root) in &roots {
+            self.update_directory(*root, *root)?;
+        }
 
-        Ok(root)
+        Ok(roots)
     }
 
     fn update_directory(
@@ -226,7 +332,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             if offset >= directory.size {
                 break;
             }
-            std::println!("offset: {}", self.data.stream_position()?);
+            self.data.seek(SeekFrom::Start(start + offset as u64))?;
             let mut header = DirectoryRecordHeader::zeroed();
             self.data.read_exact(bytemuck::bytes_of_mut(&mut header))?;
             if header.len == 0 {
@@ -236,7 +342,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             let mut bytes = vec![0; header.len as usize - size_of::<DirectoryRecordHeader>()];
             self.data.read_exact(&mut bytes)?;
             offset += header.len as usize;
-            std::println!("name: {}", core::str::from_utf8(&bytes).unwrap());
 
             if FileFlags::from_bits_truncate(header.flags).contains(FileFlags::DIRECTORY) {
                 let record = DirectoryRef {
@@ -250,7 +355,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
-    fn write_directory(data: &mut Cursor<DATA>, dir: &mut WrittenDirectory) -> io::Result<()> {
+    fn write_directory(
+        data: &mut Cursor<DATA>,
+        ty: EntryType,
+        dir: &mut WrittenDirectory,
+    ) -> io::Result<()> {
         let start = data.pad_align_sector()?;
         // Current Directory Entry (unfilled)
         DirectoryRecord::with_len(1).write(&mut *data)?;
@@ -258,32 +367,36 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         DirectoryRecord::with_len(1).write(&mut *data)?;
 
         for directory in &dir.dirs {
-            let WrittenDirectory { name, entry, .. } = directory;
+            let WrittenDirectory { name, entries, .. } = directory;
             let flags = FileFlags::DIRECTORY;
-            let converted_name = FilenameLevel::Level1.convert(name);
-            std::println!("Converted Name: {}", converted_name.as_str());
-            let record = DirectoryRecord::new(converted_name.as_bytes(), entry.unwrap(), flags);
+            let converted_name = ty.convert_name(name);
+            let record =
+                DirectoryRecord::new(converted_name.as_bytes(), *entries.get(&ty).unwrap(), flags);
             record.write(&mut *data)?;
         }
 
         for file in &dir.files {
             let WrittenFile { name, entry } = file;
             let flags = FileFlags::empty();
-            let converted_name = FilenameLevel::Level1.convert(name);
+            let converted_name = ty.convert_name(name);
             let record = DirectoryRecord::new(converted_name.as_bytes(), *entry, flags);
             record.write(&mut *data)?;
         }
 
         let end = data.pad_align_sector()?;
         let size = (end.0 - start.0) * data.sector_size;
-        dir.entry = Some(DirectoryRef {
-            extent: start,
-            size,
-        });
+        dir.entries.insert(
+            ty,
+            DirectoryRef {
+                extent: start,
+                size,
+            },
+        );
         Ok(())
     }
 }
 
+#[allow(dead_code)]
 struct FileTreeWalker<'a> {
     input_files: &'a InputFiles,
     stack: VecDeque<StackFrame<'a>>,

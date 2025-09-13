@@ -13,16 +13,18 @@ exclude = ["/spec"]
 
 [features]
 default = ["std", "write"]
-write = ["alloc"]
 alloc = []
 std = ["hadris-io/std", "alloc"]
+
+write = ["alloc"]
+joliet = ["alloc"]
 
 [dependencies]
 bitflags = { workspace = true, features = ["bytemuck"] }
 bytemuck = { workspace = true, features = ["derive"] }
-log.workspace = true
 thiserror.workspace = true
 chrono.workspace = true
+tracing.workspace = true
 hadris-io = { workspace = true }
 hadris-common = { workspace = true }
 spin = "0.10.0"

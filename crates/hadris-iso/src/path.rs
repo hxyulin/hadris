@@ -1,7 +1,7 @@
-use hadris_io::{Read, Seek, SeekFrom, Error};
+use hadris_io::{Error, Read, Seek, SeekFrom};
 
 use crate::types::EndianType;
-use alloc::{vec::Vec, string::String, vec};
+use alloc::{vec, vec::Vec};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -24,7 +24,7 @@ pub struct PathTableEntry {
     pub extended_attr_record: u8,
     pub parent_lba: u32,
     pub parent_index: u16,
-    pub name: String,
+    pub name: Vec<u8>,
 }
 
 impl PathTableEntry {
@@ -44,7 +44,7 @@ impl PathTableEntry {
             extended_attr_record: header.extended_attr_record,
             parent_lba: endian.read_u32(header.parent_lba),
             parent_index: endian.read_u16(header.parent_directory_number),
-            name: String::from_utf8(name).unwrap(),
+            name,
         })
     }
 
@@ -57,7 +57,7 @@ impl PathTableEntry {
             parent_directory_number: endian.u16_bytes(self.parent_index),
         };
         bytes.extend_from_slice(bytemuck::bytes_of(&header));
-        bytes.extend_from_slice(self.name.as_bytes());
+        bytes.extend_from_slice(self.name.as_slice());
         assert_eq!(header.len as usize, self.name.len());
         if header.len % 2 == 1 {
             bytes.push(0);

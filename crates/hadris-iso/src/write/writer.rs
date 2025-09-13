@@ -1,6 +1,11 @@
-use std::vec::Vec;
+use std::{collections::HashMap, vec::Vec};
 
-use crate::directory::DirectoryRef;
+use core::ops::Range;
+
+use crate::types::{Charset, CharsetD};
+
+use crate::write::options::JolietLevel;
+use crate::{directory::DirectoryRef, write::options::BaseIsoLevel};
 
 pub struct DirectoryId {
     indices: Vec<usize>,
@@ -22,7 +27,7 @@ pub struct WrittenFiles<'a> {
 }
 
 impl<'a> WrittenFiles<'a> {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         static ROOT: &'static str = "";
         Self {
             root: WrittenDirectory::new(ROOT),
@@ -35,8 +40,8 @@ impl<'a> WrittenFiles<'a> {
         }
     }
 
-    pub fn root_ref(&self) -> DirectoryRef {
-        self.root.entry.expect("did not write root directory!")
+    pub fn root_refs(&self) -> &HashMap<EntryType, DirectoryRef> {
+        &self.root.entries
     }
 
     pub fn get_parent(&self, id: &DirectoryId) -> &WrittenDirectory<'a> {
@@ -56,19 +61,66 @@ impl<'a> WrittenFiles<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EntryType {
+    Level1,
+    Level2,
+    Level3,
+    Joliet(JolietLevel),
+}
+
+impl From<BaseIsoLevel> for EntryType {
+    fn from(value: BaseIsoLevel) -> Self {
+        match value {
+            BaseIsoLevel::Level1 => Self::Level1,
+            BaseIsoLevel::Level2 => Self::Level2,
+        }
+    }
+}
+
+impl From<JolietLevel> for EntryType {
+    fn from(value: JolietLevel) -> Self {
+        Self::Joliet(value)
+    }
+}
+
+pub enum ConvertedName {
+    Level1(FilenameL1),
+    Level2(FilenameL2),
+}
+
+impl ConvertedName {
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Level1(name) => name.as_bytes(),
+            Self::Level2(name) => name.as_bytes(),
+        }
+    }
+}
+
+impl EntryType {
+    pub fn convert_name(self, name: &str) -> ConvertedName {
+        match self {
+            Self::Level1 => ConvertedName::Level1(convert_l1(name)),
+            Self::Level2 => ConvertedName::Level2(convert_l2(name)),
+            _ => unimplemented!(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct WrittenDirectory<'a> {
     pub name: &'a str,
-    pub entry: Option<DirectoryRef>,
+    pub entries: HashMap<EntryType, DirectoryRef>,
     pub dirs: Vec<WrittenDirectory<'a>>,
     pub files: Vec<WrittenFile<'a>>,
 }
 
 impl<'a> WrittenDirectory<'a> {
-    pub const fn new(name: &'a str) -> Self {
+    pub fn new(name: &'a str) -> Self {
         Self {
             name,
-            entry: None,
+            entries: HashMap::new(),
             dirs: Vec::new(),
             files: Vec::new(),
         }
@@ -84,4 +136,103 @@ impl<'a> WrittenDirectory<'a> {
 pub struct WrittenFile<'a> {
     pub name: &'a str,
     pub entry: DirectoryRef,
+}
+
+#[derive(Clone)]
+pub struct FixedFilename<const N: usize> {
+    data: [u8; N],
+    len: usize,
+}
+
+impl<const N: usize> FixedFilename<N> {
+    pub const fn empty() -> Self {
+        Self {
+            data: [0; N],
+            len: 0,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        unsafe { core::str::from_utf8_unchecked(self.as_bytes()) }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data[0..self.len]
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn push_slice(&mut self, slice: &[u8]) -> Range<usize> {
+        assert!(self.len + slice.len() <= self.data.len());
+        let start = self.len;
+        self.len += slice.len();
+        self.data[start..self.len].copy_from_slice(slice);
+        start..self.len
+    }
+
+    pub fn push_byte(&mut self, b: u8) -> usize {
+        self.data[self.len] = b;
+        self.len += 1;
+        self.len - 1
+    }
+}
+
+pub type FilenameL1 = FixedFilename<14>;
+pub type FilenameL2 = FixedFilename<32>;
+
+pub fn convert_l1(name: &str) -> FixedFilename<14> {
+    let mut l1 = FixedFilename::empty();
+    let name_bytes = name.as_bytes();
+    match name.find('.') {
+        Some(index) => {
+            // We copy the basename, at most 8 bytes
+            let basename = l1.push_slice(&name_bytes[0..index.min(8)]);
+            CharsetD::substitute_invalid(l1.data[basename].iter_mut());
+            let ext_len = (name.len() - index).min(3);
+            l1.push_byte(b'.');
+            let ext = l1.push_slice(&name_bytes[index + 1..name.len().min(index + 1 + ext_len)]);
+            CharsetD::substitute_invalid(l1.data[ext].iter_mut());
+        }
+        None => {
+            let len = name.len().min(8);
+            let basename = l1.push_slice(&name_bytes[0..len]);
+            CharsetD::substitute_invalid(l1.data[basename].iter_mut());
+        }
+    }
+    l1.push_slice(b";1");
+    l1
+}
+
+pub fn convert_l2(name: &str) -> FixedFilename<32> {
+    let mut l2 = FixedFilename::empty();
+    let name_bytes = name.as_bytes();
+    match name.find('.') {
+        Some(index) => {
+            let basename = l2.push_slice(&name_bytes[0..index]);
+            CharsetD::substitute_invalid(l2.data[basename].iter_mut());
+            l2.push_byte(b'.');
+            let ext = l2.push_slice(&name_bytes[index + 1..]);
+            CharsetD::substitute_invalid(l2.data[ext].iter_mut());
+        }
+        None => {
+            let basename = l2.push_slice(&name_bytes[0..name.len()]);
+            CharsetD::substitute_invalid(l2.data[basename].iter_mut());
+        }
+    }
+    l2.push_slice(b";1");
+    l2
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_convert_l1() {
+        let orig = "this-is-the-original-file.@very-long-ext";
+        let converted = convert_l1(orig);
+        assert_eq!(converted.as_str(), "THIS_IS_._VE;1");
+    }
 }
