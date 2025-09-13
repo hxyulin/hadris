@@ -25,6 +25,21 @@ pub enum JolietLevel {
     Level1,
 }
 
+impl JolietLevel {
+    pub fn all() -> &'static [JolietLevel] {
+        static LEVELS: [JolietLevel; 1] = [
+            JolietLevel::Level1,
+        ];
+        &LEVELS
+    }
+
+    pub fn escape_sequence(self) -> [u8; 32] {
+        match self {
+            Self::Level1 => *b"%/C                             "
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct CreationFeatures {
     /// The base Filename Level

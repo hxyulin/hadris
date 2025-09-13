@@ -87,6 +87,8 @@ impl From<JolietLevel> for EntryType {
 pub enum ConvertedName {
     Level1(FilenameL1),
     Level2(FilenameL2),
+    Level3(FilenameL3),
+    Joliet1(FixedFilename<207>),
 }
 
 impl ConvertedName {
@@ -94,6 +96,8 @@ impl ConvertedName {
         match self {
             Self::Level1(name) => name.as_bytes(),
             Self::Level2(name) => name.as_bytes(),
+            Self::Level3(name) => name.as_bytes(),
+            Self::Joliet1(name) => name.as_bytes(),
         }
     }
 }
@@ -103,6 +107,8 @@ impl EntryType {
         match self {
             Self::Level1 => ConvertedName::Level1(convert_l1(name)),
             Self::Level2 => ConvertedName::Level2(convert_l2(name)),
+            Self::Level3 => ConvertedName::Level3(convert_l3(name)),
+            Self::Joliet(JolietLevel::Level1) => ConvertedName::Joliet1(convert_joliet1(name)),
             _ => unimplemented!(),
         }
     }
@@ -181,6 +187,7 @@ impl<const N: usize> FixedFilename<N> {
 
 pub type FilenameL1 = FixedFilename<14>;
 pub type FilenameL2 = FixedFilename<32>;
+pub type FilenameL3 = FixedFilename<207>;
 
 pub fn convert_l1(name: &str) -> FixedFilename<14> {
     let mut l1 = FixedFilename::empty();
@@ -205,8 +212,8 @@ pub fn convert_l1(name: &str) -> FixedFilename<14> {
     l1
 }
 
-pub fn convert_l2(name: &str) -> FixedFilename<32> {
-    let mut l2 = FixedFilename::empty();
+pub fn convert_l2(name: &str) -> FilenameL2 {
+    let mut l2 = FilenameL2::empty();
     let name_bytes = name.as_bytes();
     match name.find('.') {
         Some(index) => {
@@ -223,6 +230,41 @@ pub fn convert_l2(name: &str) -> FixedFilename<32> {
     }
     l2.push_slice(b";1");
     l2
+}
+
+pub fn convert_l3(name: &str) -> FilenameL3 {
+    let mut l3 = FilenameL3::empty();
+    let name_bytes = name.as_bytes();
+    match name.find('.') {
+        Some(index) => {
+            let basename = l3.push_slice(&name_bytes[0..index]);
+            CharsetD::substitute_invalid(l3.data[basename].iter_mut());
+            l3.push_byte(b'.');
+            let ext = l3.push_slice(&name_bytes[index + 1..]);
+            CharsetD::substitute_invalid(l3.data[ext].iter_mut());
+        }
+        None => {
+            let basename = l3.push_slice(&name_bytes[0..name.len()]);
+            CharsetD::substitute_invalid(l3.data[basename].iter_mut());
+        }
+    }
+    l3
+}
+
+pub fn convert_joliet1(name: &str) -> FixedFilename<207> {
+    let mut j1 = FixedFilename::empty();
+    let mut written = 0;
+    for c in name.encode_utf16() {
+        if written >= 206 / 2 {
+            // We reached the maximum we can write
+            break;
+        }
+        let bytes = c.to_be_bytes();
+        j1.push_slice(&bytes);
+        written += 1;
+    }
+
+    j1
 }
 
 #[cfg(all(test, feature = "std"))]

@@ -78,7 +78,7 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             }
         };
         for svd in volume_descriptors.supplementary() {
-            if svd.file_structure_version == 1 {
+            if svd.header.version == 1 {
                 // Joliet Check
                 let seq = &svd.escape_sequences[0..3];
                 for escape_seq in crate::joliet::ESCAPE_SEQUNCES {

@@ -7,8 +7,14 @@ use crate::{
     LogicalSector,
     directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef, FileFlags},
     read::PathSeparator,
-    volume::{PrimaryVolumeDescriptor, VolumeDescriptor, VolumeDescriptorList},
-    write::writer::{EntryType, WrittenDirectory, WrittenFile, WrittenFiles},
+    volume::{
+        PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor, VolumeDescriptor,
+        VolumeDescriptorHeader, VolumeDescriptorList, VolumeDescriptorType,
+    },
+    write::{
+        options::JolietLevel,
+        writer::{EntryType, WrittenDirectory, WrittenFile, WrittenFiles},
+    },
 };
 use bytemuck::Zeroable;
 use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
@@ -237,8 +243,27 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     fn write_volume_descriptors(&mut self) -> io::Result<()> {
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START)?;
         let mut volume_descriptors = VolumeDescriptorList::empty();
-        let pvd = PrimaryVolumeDescriptor::new(&self.ops.volume_name, 0);
-        volume_descriptors.push(VolumeDescriptor::Primary(pvd));
+        for &entry in &self.entry_types {
+            match entry {
+                EntryType::Level1 | EntryType::Level2 => {
+                    let pvd = PrimaryVolumeDescriptor::new(&self.ops.volume_name, 0);
+                    volume_descriptors.push(VolumeDescriptor::Primary(pvd));
+                }
+                EntryType::Level3 => {
+                    // Version 2 for EVD
+                    let evd = SupplementaryVolumeDescriptor::new_evd(&self.ops.volume_name, 0);
+                    volume_descriptors.push(VolumeDescriptor::Supplementary(evd));
+                }
+                EntryType::Joliet(level) => {
+                    let svd = SupplementaryVolumeDescriptor::new_svd(
+                        &self.ops.volume_name,
+                        0,
+                        level.escape_sequence(),
+                    );
+                    volume_descriptors.push(VolumeDescriptor::Supplementary(svd));
+                }
+            }
+        }
         volume_descriptors.write(&mut self.data)?;
         Ok(())
     }
@@ -247,28 +272,81 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         &mut self,
         root_dirs: HashMap<EntryType, DirectoryRef>,
     ) -> io::Result<()> {
-        let base_type = self
-            .entry_types
-            .iter()
-            .find(|ty| **ty == EntryType::Level1 || **ty == EntryType::Level2)
-            .expect("failed to find base Level");
-        let root_dir = root_dirs.get(base_type).unwrap();
+        let end_sector = self.data.pad_align_sector()?;
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START)?;
-        let mut pvd = PrimaryVolumeDescriptor::zeroed();
-        self.data.read_exact(bytemuck::bytes_of_mut(&mut pvd))?;
-        pvd.dir_record.header.extent.write(root_dir.extent.0 as u32);
-        pvd.dir_record.header.data_len.write(root_dir.size as u32);
-        let sector = self.data.pad_align_sector()?;
-        pvd.volume_space_size.write(sector.0 as u32);
-        self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START)?;
-        self.data.write_all(bytemuck::bytes_of(&pvd))?;
+
+        // TODO: How do we handle non-2048 byte sector sizes?
+        let mut buffer = [0u8; 2048];
+        loop {
+            self.data.read_exact(&mut buffer)?;
+            let header = VolumeDescriptorHeader::from_bytes(&buffer[0..7]);
+            let ty = VolumeDescriptorType::from_u8(header.descriptor_type);
+            if let VolumeDescriptorType::VolumeSetTerminator = ty {
+                break;
+            }
+            assert!(header.is_valid());
+
+            match ty {
+                VolumeDescriptorType::PrimaryVolumeDescriptor => {
+                    let base_type = self
+                        .entry_types
+                        .iter()
+                        .find(|ty| **ty == EntryType::Level1 || **ty == EntryType::Level2)
+                        .expect("failed to find base Level");
+                    let root_dir = root_dirs.get(base_type).unwrap();
+                    let pvd = bytemuck::from_bytes_mut::<PrimaryVolumeDescriptor>(&mut buffer);
+                    pvd.dir_record.header.extent.write(root_dir.extent.0 as u32);
+                    pvd.dir_record.header.data_len.write(root_dir.size as u32);
+                    pvd.volume_space_size.write(end_sector.0 as u32);
+                    self.data.seek_relative(-(buffer.len() as i64))?;
+                    self.data.write(&buffer)?;
+                }
+                VolumeDescriptorType::SupplementaryVolumeDescriptor => {
+                    let svd =
+                        bytemuck::from_bytes_mut::<SupplementaryVolumeDescriptor>(&mut buffer);
+                    match svd.header.version {
+                        1 => {
+                            for &level in JolietLevel::all() {
+                                if svd.escape_sequences == level.escape_sequence() {
+                                    let root_dir =
+                                        root_dirs.get(&EntryType::Joliet(level)).unwrap();
+                                    svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
+                                    svd.dir_record.header.data_len.write(root_dir.size as u32);
+                                    svd.volume_space_size.write(end_sector.0 as u32);
+                                    self.data.seek_relative(-(buffer.len() as i64))?;
+                                    self.data.write(&buffer)?;
+                                    break;
+                                }
+                            }
+                        }
+                        2 => {
+                            if svd.escape_sequences != [b' '; 32] {
+                                // We don't recognize this EVD
+                                continue;
+                            }
+
+                            let root_dir = root_dirs.get(&EntryType::Level3).unwrap();
+                            svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
+                            svd.dir_record.header.data_len.write(root_dir.size as u32);
+                            svd.volume_space_size.write(end_sector.0 as u32);
+                            self.data.seek_relative(-(buffer.len() as i64))?;
+                            self.data.write(&buffer)?;
+                        }
+
+                        // Unknown version
+                        _ => {}
+                    }
+                }
+                // We don't do anything
+                _ => {}
+            }
+        }
         Ok(())
     }
 
     fn write_files(&mut self) -> io::Result<HashMap<EntryType, DirectoryRef>> {
         let roots = {
             let mut written_files = WrittenFiles::new();
-            let level = self.ops.features.filenames;
             let mut files = FileTreeWalker::new(&self.files);
             let mut current_dir = written_files.root_dir();
             while let Some(file) = files.next() {
@@ -280,7 +358,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     }
                     TreeWalkerItem::ExitDirectory(_dir) => {
                         let dir = written_files.get_mut(&current_dir);
-                        Self::write_directory(&mut self.data, level.into(), dir)?;
+                        for &level in &self.entry_types {
+                            Self::write_directory(&mut self.data, level, dir)?;
+                        }
                         current_dir.pop();
                     }
                     TreeWalkerItem::File(file) => {

@@ -3,7 +3,7 @@ use hadris_iso::{
     read::{IsoDir, IsoImage, PathSeparator},
     write::{
         InputFiles, IsoImageWriter,
-        options::{BaseIsoLevel, CreationFeatures, FormatOptions},
+        options::{BaseIsoLevel, CreationFeatures, FormatOptions, JolietLevel},
     },
 };
 use std::{fs::OpenOptions, path::PathBuf, str::FromStr};
@@ -66,6 +66,32 @@ impl FromStr for ArgLevel {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct IsoExtensions {
+    level3: bool,
+    joliet: bool,
+}
+
+impl FromStr for IsoExtensions {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut exts = Self {
+            level3: false,
+            joliet: false,
+        };
+        for ext in s.split(',') {
+            let ext = ext.trim();
+            match ext {
+                "l3" | "level3" => exts.level3 = true,
+                "joliet" => exts.joliet = true,
+                _ => return Err("invalid extension"),
+            }
+        }
+        Ok(exts)
+    }
+}
+
 #[derive(Debug, Clone, Parser)]
 pub struct WriteArgs {
     isoroot: PathBuf,
@@ -75,19 +101,21 @@ pub struct WriteArgs {
     verbose: bool,
     #[arg(short, long, default_value = "1")]
     level: ArgLevel,
+    #[arg(long = "ex")]
+    extensions: IsoExtensions,
 }
 
 fn main() {
     let args = Args::parse();
     match args.cmd {
         Command::Read(args) => read(&args.input),
-        Command::Write(args) => write(args.isoroot, &args.output, args.level.0),
+        Command::Write(args) => write(args.isoroot, &args.output, args.level.0, args.extensions),
         Command::Xorriso(args) => {
             println!("xorriso {:?}", args);
         }
     }
 }
-fn write(isoroot: PathBuf, output: &PathBuf, level: BaseIsoLevel) {
+fn write(isoroot: PathBuf, output: &PathBuf, level: BaseIsoLevel, exts: IsoExtensions) {
     let mut file = OpenOptions::new()
         .truncate(true)
         .read(true)
@@ -103,6 +131,12 @@ fn write(isoroot: PathBuf, output: &PathBuf, level: BaseIsoLevel) {
         path_seperator: PathSeparator::ForwardSlash,
         features: CreationFeatures {
             filenames: level,
+            long_filenames: exts.level3,
+            joliet: if exts.joliet {
+                Some(JolietLevel::Level1)
+            } else {
+                None
+            },
             ..Default::default()
         },
     };
@@ -112,6 +146,7 @@ fn write(isoroot: PathBuf, output: &PathBuf, level: BaseIsoLevel) {
 fn read(file: &PathBuf) {
     let mut file = OpenOptions::new().read(true).open(file).unwrap();
     let iso = IsoImage::parse(&mut file).unwrap();
+    dbg!(&iso);
     let root = iso.root_dir();
     read_dir(&iso, root);
 }

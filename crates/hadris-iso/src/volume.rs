@@ -157,7 +157,9 @@ impl VolumeDescriptorList {
         })
     }
 
-    pub fn supplementary_mut(&mut self) -> impl Iterator<Item = &mut SupplementaryVolumeDescriptor> {
+    pub fn supplementary_mut(
+        &mut self,
+    ) -> impl Iterator<Item = &mut SupplementaryVolumeDescriptor> {
         self.descriptors.iter_mut().filter_map(|d| match d {
             VolumeDescriptor::Supplementary(d) => Some(d),
             _ => None,
@@ -445,6 +447,88 @@ pub struct SupplementaryVolumeDescriptor {
     pub unused3: u8,
     pub app_data: [u8; 512],
     pub reserved: [u8; 653],
+}
+
+impl SupplementaryVolumeDescriptor {
+    pub fn new_svd(name: &str, sectors: u32, escape_sequences: [u8; 32]) -> Self {
+        Self {
+            header: VolumeDescriptorHeader {
+                descriptor_type: VolumeDescriptorType::SupplementaryVolumeDescriptor.to_u8(),
+                standard_identifier: IsoStrA::from_str("CD001").unwrap(),
+                version: 1,
+            },
+            flags: 0,
+            system_identifier: IsoStrA::empty(),
+            volume_identifier: IsoStrD::from_str(name).unwrap(),
+            unused1: [0; 8],
+            volume_space_size: U32LsbMsb::new(sectors),
+            escape_sequences,
+            volume_set_size: U16LsbMsb::new(1),
+            volume_sequence_number: U16LsbMsb::new(1),
+            logical_block_size: U16LsbMsb::new(2048),
+            path_table_size: U32LsbMsb::new(0),
+            type_l_path_table: U32::<LittleEndian>::new(0),
+            opt_type_l_path_table: U32::<LittleEndian>::new(0),
+            type_m_path_table: U32::<BigEndian>::new(0),
+            opt_type_m_path_table: U32::<BigEndian>::new(0),
+            dir_record: RootDirectoryEntry::default(),
+            volume_set_identifier: IsoStrD::empty(),
+            publisher_identifier: IsoStrA::empty(),
+            preparer_identifier: IsoStrA::empty(),
+            application_identifier: IsoStrA::from_str("HADRIS-ISO").unwrap(),
+            copyright_file_identifier: IsoStrD::empty(),
+            abstract_file_identifier: IsoStrD::empty(),
+            bibliographic_file_identifier: IsoStrD::empty(),
+            creation_date: DecDateTime::now(),
+            modification_date: DecDateTime::now(),
+            expiration_date: DecDateTime::now(),
+            effective_date: DecDateTime::now(),
+            file_structure_version: 1,
+            unused3: 0,
+            app_data: [0; 512],
+            reserved: [0; 653],
+        }
+    }
+
+    pub fn new_evd(name: &str, sectors: u32) -> Self {
+        Self {
+            header: VolumeDescriptorHeader {
+                descriptor_type: VolumeDescriptorType::SupplementaryVolumeDescriptor.to_u8(),
+                standard_identifier: IsoStrA::from_str("CD001").unwrap(),
+                version: 2,
+            },
+            flags: 0,
+            system_identifier: IsoStrA::empty(),
+            volume_identifier: IsoStrD::from_str(name).unwrap(),
+            unused1: [0; 8],
+            volume_space_size: U32LsbMsb::new(sectors),
+            escape_sequences: [b' '; 32],
+            volume_set_size: U16LsbMsb::new(1),
+            volume_sequence_number: U16LsbMsb::new(1),
+            logical_block_size: U16LsbMsb::new(2048),
+            path_table_size: U32LsbMsb::new(0),
+            type_l_path_table: U32::<LittleEndian>::new(0),
+            opt_type_l_path_table: U32::<LittleEndian>::new(0),
+            type_m_path_table: U32::<BigEndian>::new(0),
+            opt_type_m_path_table: U32::<BigEndian>::new(0),
+            dir_record: RootDirectoryEntry::default(),
+            volume_set_identifier: IsoStrD::empty(),
+            publisher_identifier: IsoStrA::empty(),
+            preparer_identifier: IsoStrA::empty(),
+            application_identifier: IsoStrA::from_str("HADRIS-ISO").unwrap(),
+            copyright_file_identifier: IsoStrD::empty(),
+            abstract_file_identifier: IsoStrD::empty(),
+            bibliographic_file_identifier: IsoStrD::empty(),
+            creation_date: DecDateTime::now(),
+            modification_date: DecDateTime::now(),
+            expiration_date: DecDateTime::now(),
+            effective_date: DecDateTime::now(),
+            file_structure_version: 2,
+            unused3: 0,
+            app_data: [0; 512],
+            reserved: [0; 653],
+        }
+    }
 }
 
 unsafe impl bytemuck::Zeroable for SupplementaryVolumeDescriptor {}
