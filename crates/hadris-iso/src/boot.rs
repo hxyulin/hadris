@@ -6,9 +6,13 @@ use core::fmt::Debug;
 use hadris_io::{Error, Read, Seek, Write};
 
 use crate::{
+    boot::options::BootOptions,
+    path::PathTableRef,
     types::{Endian, LittleEndian, U16, U32},
+    volume::BootRecordVolumeDescriptor,
+    write::{File, InputFiles},
 };
-use alloc::{vec::Vec, string::{ToString}};
+use alloc::{string::ToString, vec::Vec};
 
 // Types for El Torito boot catalogue
 // The boot catalogue consists of a series of boot catalogue entries:
@@ -128,6 +132,7 @@ impl BootCatalog {
 
     pub fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         writer.write_all(bytemuck::bytes_of(&self.validation))?;
+        std::dbg!(bytemuck::bytes_of(&self.default_entry));
         writer.write_all(bytemuck::bytes_of(&self.default_entry))?;
         for (header, entries) in self.sections.iter() {
             writer.write_all(bytemuck::bytes_of(header))?;
@@ -156,20 +161,20 @@ impl BootCatalog {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum BootCatalogueEntry {
+pub enum BootCatalogEntry {
     Validation(BootValidationEntry),
     SectionHeader(BootSectionHeaderEntry),
     SectionEntry(BootSectionEntry),
     SectionEntryExtension(BootSectionEntryExtension),
 }
 
-impl BootCatalogueEntry {
+impl BootCatalogEntry {
     pub fn as_bytes(&self) -> &[u8] {
         match self {
-            BootCatalogueEntry::Validation(entry) => bytemuck::bytes_of(entry),
-            BootCatalogueEntry::SectionHeader(entry) => bytemuck::bytes_of(entry),
-            BootCatalogueEntry::SectionEntry(entry) => bytemuck::bytes_of(entry),
-            BootCatalogueEntry::SectionEntryExtension(entry) => bytemuck::bytes_of(entry),
+            BootCatalogEntry::Validation(entry) => bytemuck::bytes_of(entry),
+            BootCatalogEntry::SectionHeader(entry) => bytemuck::bytes_of(entry),
+            BootCatalogEntry::SectionEntry(entry) => bytemuck::bytes_of(entry),
+            BootCatalogEntry::SectionEntryExtension(entry) => bytemuck::bytes_of(entry),
         }
     }
 
@@ -376,7 +381,10 @@ impl BootSectionEntry {
 impl Debug for BootSectionEntry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("BootSectionEntry")
-            .field("boot_indicator", &format_args!("{:#x}", self.boot_indicator))
+            .field(
+                "boot_indicator",
+                &format_args!("{:#x}", self.boot_indicator),
+            )
             .field(
                 "boot_media_type",
                 &EmulationType::from_u8(self.boot_media_type),
@@ -444,18 +452,23 @@ impl ElToritoWriter {
     /// (included in the files)
     pub fn create_descriptor(
         opts: &BootOptions,
-        files: &mut FileInput,
+        files: &mut InputFiles,
     ) -> BootRecordVolumeDescriptor {
-        log::trace!("Adding boot record to volume descriptors");
-
-        if opts.write_boot_catalogue {
-            log::trace!("Appending boot catalogue to file list");
+        if opts.write_boot_catalog {
             let size = 96 + opts.entries.len() * 64;
             let size = (size + 2047) & !2047;
-            files.append(crate::file::File {
-                path: "boot.catalog".to_string(),
-                data: FileData::Data(vec![0; size]),
-            });
+            let dir_pos = files
+                .files
+                .iter()
+                .position(|f| matches!(f, File::Directory { .. }))
+                .unwrap_or(0);
+            files.files.insert(
+                dir_pos.checked_sub(1).unwrap_or(0),
+                File::File {
+                    name: "boot.catalog".to_string(),
+                    contents: alloc::vec![0; size],
+                },
+            );
         }
         BootRecordVolumeDescriptor::new(0)
     }
@@ -467,6 +480,68 @@ impl ElToritoWriter {
         _path_table: &PathTableRef,
     ) -> Result<(), Error> {
         todo!()
+    }
+}
+
+pub mod options {
+    use alloc::string::String;
+    use core::num::NonZeroU16;
+    use std::vec::Vec;
+
+    use crate::boot::{EmulationType, PlatformId};
+
+    #[derive(Debug, Clone)]
+    pub struct BootOptions {
+        pub write_boot_catalog: bool,
+        pub default: BootEntryOptions,
+        pub entries: Vec<(BootSectionOptions, BootEntryOptions)>,
+    }
+
+    impl BootOptions {
+        pub fn sections(&self) -> Vec<(Option<BootSectionOptions>, BootEntryOptions)> {
+            let mut sections = Vec::with_capacity(self.entries.len() + 1);
+            sections.push((None, self.default.clone()));
+            for (section_ops, ops) in &self.entries {
+                sections.push((Some(section_ops.clone()), ops.clone()));
+            }
+            sections
+        }
+    }
+
+    impl Default for BootOptions {
+        fn default() -> Self {
+            Self {
+                write_boot_catalog: false,
+                default: BootEntryOptions::default(),
+                entries: Vec::new(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct BootSectionOptions {
+        pub platform: PlatformId,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct BootEntryOptions {
+        pub load_size: Option<NonZeroU16>,
+        pub boot_image_path: String,
+        pub boot_info_table: bool,
+        pub grub2_boot_info: bool,
+        pub emulation: EmulationType,
+    }
+
+    impl Default for BootEntryOptions {
+        fn default() -> Self {
+            Self {
+                load_size: None,
+                boot_image_path: String::new(),
+                boot_info_table: false,
+                grub2_boot_info: false,
+                emulation: EmulationType::NoEmulation,
+            }
+        }
     }
 }
 

@@ -14,8 +14,11 @@ pub trait Charset: Copy {
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct CharsetA;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct CharsetD;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct CharsetD1;
 
 impl CharsetA {
     const VALID_SYMBOLS: &[u8] = b"0123456789_!\"%$'()*+,-./:;<=>?";
@@ -30,6 +33,14 @@ impl CharsetD {
 
     fn valid_byte(b: u8) -> bool {
         b.is_ascii_uppercase() || Self::SPECIAL_CHARS.contains(&b)
+    }
+}
+
+impl CharsetD1 {
+    const SPECIAL_CHARS: &[u8] = CharsetD::SPECIAL_CHARS;
+
+    fn valid_byte(b: u8) -> bool {
+        b.is_ascii_alphabetic() || Self::SPECIAL_CHARS.contains(&b)
     }
 }
 
@@ -64,6 +75,20 @@ impl Charset for CharsetD {
                 continue;
             }
 
+            if !Self::valid_byte(*byte) {
+                *byte = b'_';
+            }
+        }
+    }
+}
+
+impl Charset for CharsetD1 {
+    fn is_valid<'a>(mut bytes: impl Iterator<Item = &'a u8>) -> bool {
+        bytes.all(|b| Self::valid_byte(*b))
+    }
+
+    fn substitute_invalid<'a>(bytes: impl Iterator<Item = &'a mut u8>) {
+        for byte in bytes {
             if !Self::valid_byte(*byte) {
                 *byte = b'_';
             }

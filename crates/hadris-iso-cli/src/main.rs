@@ -1,12 +1,12 @@
 use clap::Parser;
 use hadris_iso::{
+    boot::{options::{BootEntryOptions, BootOptions, BootSectionOptions}, EmulationType},
     read::{IsoDir, IsoImage, PathSeparator},
     write::{
-        InputFiles, IsoImageWriter,
-        options::{BaseIsoLevel, CreationFeatures, FormatOptions, JolietLevel},
+        options::{BaseIsoLevel, CreationFeatures, FormatOptions, JolietLevel}, InputFiles, IsoImageWriter
     },
 };
-use std::{fs::OpenOptions, path::PathBuf, str::FromStr};
+use std::{fs::OpenOptions, io::Read, num::NonZeroU16, path::PathBuf, str::FromStr};
 
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
@@ -50,7 +50,9 @@ struct ArgLevel(BaseIsoLevel);
 
 impl Default for ArgLevel {
     fn default() -> Self {
-        Self(BaseIsoLevel::Level1)
+        Self(BaseIsoLevel::Level1 {
+            supports_lowercase: false,
+        })
     }
 }
 
@@ -59,8 +61,18 @@ impl FromStr for ArgLevel {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
-            "1" => Self(BaseIsoLevel::Level1),
-            "2" => Self(BaseIsoLevel::Level2),
+            "1" => Self(BaseIsoLevel::Level1 {
+                supports_lowercase: false,
+            }),
+            "2" => Self(BaseIsoLevel::Level2 {
+                supports_lowercase: false,
+            }),
+            "1l" => Self(BaseIsoLevel::Level1 {
+                supports_lowercase: true,
+            }),
+            "2l" => Self(BaseIsoLevel::Level2 {
+                supports_lowercase: true,
+            }),
             _ => return Err("invalid level"),
         })
     }
@@ -101,21 +113,29 @@ pub struct WriteArgs {
     verbose: bool,
     #[arg(short, long, default_value = "1")]
     level: ArgLevel,
-    #[arg(long = "ex")]
+    #[arg(long = "ex", default_value = "")]
     extensions: IsoExtensions,
+    #[arg(short, long)]
+    boot: Option<String>,
 }
 
 fn main() {
     let args = Args::parse();
     match args.cmd {
         Command::Read(args) => read(&args.input),
-        Command::Write(args) => write(args.isoroot, &args.output, args.level.0, args.extensions),
+        Command::Write(args) => write(args.isoroot, &args.output, args.level.0, args.extensions, args.boot),
         Command::Xorriso(args) => {
             println!("xorriso {:?}", args);
         }
     }
 }
-fn write(isoroot: PathBuf, output: &PathBuf, level: BaseIsoLevel, exts: IsoExtensions) {
+fn write(
+    isoroot: PathBuf,
+    output: &PathBuf,
+    level: BaseIsoLevel,
+    exts: IsoExtensions,
+    boot: Option<String>,
+) {
     let mut file = OpenOptions::new()
         .truncate(true)
         .read(true)
@@ -125,7 +145,7 @@ fn write(isoroot: PathBuf, output: &PathBuf, level: BaseIsoLevel, exts: IsoExten
         .unwrap();
     file.set_len(10_000_000).unwrap();
     let input = InputFiles::from_fs(&isoroot, PathSeparator::ForwardSlash).unwrap();
-    let ops = FormatOptions {
+    let mut ops = FormatOptions {
         volume_name: "TESTISO".to_string(),
         sector_size: 2048,
         path_seperator: PathSeparator::ForwardSlash,
@@ -140,6 +160,30 @@ fn write(isoroot: PathBuf, output: &PathBuf, level: BaseIsoLevel, exts: IsoExten
             ..Default::default()
         },
     };
+    ops.features.el_torito = Some(BootOptions {
+        write_boot_catalog: true,
+        default: BootEntryOptions {
+            load_size: NonZeroU16::new(4),
+            boot_image_path: "limine-bios-cd.bin".to_string(),
+            boot_info_table: true,
+            grub2_boot_info: false,
+            emulation: EmulationType::NoEmulation,
+        },
+        entries: vec![
+            (
+            BootSectionOptions {
+                platform: hadris_iso::boot::PlatformId::UEFI,
+            },
+                BootEntryOptions {
+                    load_size: None,
+                    boot_image_path: "limine-uefi-cd.bin".to_string(),
+                    boot_info_table: false,
+                    grub2_boot_info: false,
+                    emulation: EmulationType::NoEmulation,
+                },
+        )
+        ]
+    });
     IsoImageWriter::format_new(&mut file, input, ops).unwrap();
 }
 
@@ -163,7 +207,8 @@ fn read_dir(iso: &IsoImage<&mut std::fs::File>, dir: IsoDir<'_, &mut std::fs::Fi
             let dir = iso.read_dir(entry.as_dir_ref().unwrap());
             read_dir(iso, dir);
         } else {
-            println!("File: {:?}", core::str::from_utf8(&entry.name).unwrap());
+            let name = core::str::from_utf8(&entry.name).unwrap();
+            println!("File: {:?}", name);
         }
     }
 }

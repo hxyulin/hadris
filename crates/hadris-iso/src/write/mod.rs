@@ -1,15 +1,16 @@
 use core::fmt;
-use std::collections::HashMap;
+use std::{collections::HashMap, string::ToString};
 
 mod writer;
 
 use crate::{
     LogicalSector,
+    boot::{BootCatalog, BootInfoTable, BootSectionEntry, ElToritoWriter},
     directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef, FileFlags},
     read::PathSeparator,
     volume::{
-        PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor, VolumeDescriptor,
-        VolumeDescriptorHeader, VolumeDescriptorList, VolumeDescriptorType,
+        BootRecordVolumeDescriptor, PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor,
+        VolumeDescriptor, VolumeDescriptorHeader, VolumeDescriptorList, VolumeDescriptorType,
     },
     write::{
         options::JolietLevel,
@@ -17,6 +18,7 @@ use crate::{
     },
 };
 use bytemuck::Zeroable;
+use hadris_common::types::{endian::Endian, number::U32};
 use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
 
 use alloc::{collections::VecDeque, string::String, vec, vec::Vec};
@@ -66,7 +68,7 @@ impl<DATA: Seek> Cursor<DATA> {
             self.seek(SeekFrom::Start(aligned_pos))?;
         }
         Ok(LogicalSector(
-            (aligned_pos / sector_size_minus_one) as usize,
+            (aligned_pos / self.sector_size as u64) as usize,
         ))
     }
 
@@ -209,6 +211,7 @@ pub struct IsoImageWriter<DATA: Read + Write + Seek> {
     files: InputFiles,
     entry_types: Vec<EntryType>,
     ops: FormatOptions,
+    record_cache: HashMap<String, DirectoryRef>,
 }
 
 impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
@@ -216,6 +219,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let mut writer = Self::new(data, files, ops);
         writer.write_volume_descriptors()?;
         let root_dir = writer.write_files()?;
+
         writer.finalize_volume_descriptors(root_dir)?;
         Ok(())
     }
@@ -224,7 +228,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let mut entry_types = Vec::new();
         entry_types.push(ops.features.filenames.into());
         if ops.features.long_filenames {
-            entry_types.push(EntryType::Level3);
+            entry_types.push(EntryType::Level3 {
+                supports_lowercase: true,
+            });
         }
         if let Some(joliet) = ops.features.joliet {
             entry_types.push(joliet.into());
@@ -235,6 +241,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             files,
             ops,
             entry_types,
+            record_cache: HashMap::new(),
         }
     }
 
@@ -245,11 +252,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let mut volume_descriptors = VolumeDescriptorList::empty();
         for &entry in &self.entry_types {
             match entry {
-                EntryType::Level1 | EntryType::Level2 => {
+                EntryType::Level1 { .. } | EntryType::Level2 { .. } => {
                     let pvd = PrimaryVolumeDescriptor::new(&self.ops.volume_name, 0);
                     volume_descriptors.push(VolumeDescriptor::Primary(pvd));
                 }
-                EntryType::Level3 => {
+                EntryType::Level3 { .. } => {
                     // Version 2 for EVD
                     let evd = SupplementaryVolumeDescriptor::new_evd(&self.ops.volume_name, 0);
                     volume_descriptors.push(VolumeDescriptor::Supplementary(evd));
@@ -264,6 +271,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 }
             }
         }
+
+        if let Some(boot) = &self.ops.features.el_torito {
+            let boot_record = ElToritoWriter::create_descriptor(boot, &mut self.files);
+            volume_descriptors.push(VolumeDescriptor::BootRecord(boot_record));
+        }
+
         volume_descriptors.write(&mut self.data)?;
         Ok(())
     }
@@ -272,6 +285,77 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         &mut self,
         root_dirs: HashMap<EntryType, DirectoryRef>,
     ) -> io::Result<()> {
+        // Write boot catalog
+        let catalog_ptr = if let Some(boot) = &self.ops.features.el_torito {
+            let mut catalog = BootCatalog::default();
+            let current_sector = self.data.pad_align_sector()?;
+
+            for (section, entry) in boot.sections() {
+                let dir_ref = self
+                    .record_cache
+                    .get(&entry.boot_image_path)
+                    .expect("didn't find boot entry in cache");
+                let load_size = entry
+                    .load_size
+                    .map(core::num::NonZeroU16::get)
+                    .unwrap_or_else(|| ((dir_ref.size + 511) / 512) as u16);
+                let boot_image_lba = dir_ref.extent.0 as u32;
+                let boot_entry =
+                    BootSectionEntry::new(entry.emulation, 0, load_size, boot_image_lba);
+                if let Some(section) = section {
+                    // TODO: Create Virtual FAT
+                    catalog.add_section(section.platform, vec![boot_entry]);
+                } else {
+                    catalog.set_default_entry(boot_entry);
+                }
+
+                if entry.boot_info_table {
+                    let mut checksum = 0u32;
+                    let mut buffer = [0u8; 4];
+                    self.data.seek_sector(dir_ref.extent)?;
+                    for _ in (64..dir_ref.size).step_by(4) {
+                        // PERF: We might be able to use simd loading and operations here?
+                        self.data.read_exact(&mut buffer)?;
+                        checksum = checksum.wrapping_add(u32::from_le_bytes(buffer));
+                    }
+                    let byte_offset = (boot_image_lba as u64) * self.ops.sector_size as u64;
+                    let table = BootInfoTable {
+                        iso_start: U32::new(16),
+                        file_lba: U32::new(dir_ref.extent.0 as u32),
+                        file_len: U32::new(dir_ref.size as u32),
+                        checksum: U32::new(checksum),
+                    };
+
+                    const TABLE_OFFSET: u64 = 8;
+                    self.data
+                        .seek(SeekFrom::Start(byte_offset + TABLE_OFFSET))?;
+                    self.data.write_all(bytemuck::bytes_of(&table))?;
+                }
+
+                // TODO: Support GRUB2 Boot Info
+            }
+
+            if boot.write_boot_catalog {
+                let dir_ref = self
+                    .record_cache
+                    .get("boot.catalog")
+                    .expect("failed to find boot.catalog in cache");
+                self.data.seek_sector(dir_ref.extent)?;
+                assert!(dir_ref.size >= catalog.size());
+                catalog.write(&mut self.data)?;
+                self.data.seek_sector(current_sector)?;
+
+                Some(dir_ref.extent.0 as u32)
+            } else {
+                self.data.seek_sector(current_sector)?;
+                catalog.write(&mut self.data)?;
+                self.data.pad_align_sector()?;
+                Some(current_sector.0 as u32)
+            }
+        } else {
+            None
+        };
+
         let end_sector = self.data.pad_align_sector()?;
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START)?;
 
@@ -291,7 +375,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     let base_type = self
                         .entry_types
                         .iter()
-                        .find(|ty| **ty == EntryType::Level1 || **ty == EntryType::Level2)
+                        .find(|e| matches!(e, EntryType::Level1 { .. } | EntryType::Level2 { .. }))
                         .expect("failed to find base Level");
                     let root_dir = root_dirs.get(base_type).unwrap();
                     let pvd = bytemuck::from_bytes_mut::<PrimaryVolumeDescriptor>(&mut buffer);
@@ -308,8 +392,13 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                         1 => {
                             for &level in JolietLevel::all() {
                                 if svd.escape_sequences == level.escape_sequence() {
+                                    let joliet = self.entry_types.iter().find(
+                                        |e| matches!(e, EntryType::Joliet(jl) if *jl == level),
+                                    );
+                                    assert!(joliet.is_some(), "joliet not found in entries!");
                                     let root_dir =
                                         root_dirs.get(&EntryType::Joliet(level)).unwrap();
+
                                     svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
                                     svd.dir_record.header.data_len.write(root_dir.size as u32);
                                     svd.volume_space_size.write(end_sector.0 as u32);
@@ -325,7 +414,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                                 continue;
                             }
 
-                            let root_dir = root_dirs.get(&EntryType::Level3).unwrap();
+                            let l3 = self
+                                .entry_types
+                                .iter()
+                                .find(|e| matches!(e, EntryType::Level3 { .. }))
+                                .unwrap();
+                            let root_dir = root_dirs.get(l3).unwrap();
                             svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
                             svd.dir_record.header.data_len.write(root_dir.size as u32);
                             svd.volume_space_size.write(end_sector.0 as u32);
@@ -336,6 +430,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                         // Unknown version
                         _ => {}
                     }
+                }
+                VolumeDescriptorType::BootRecord => {
+                    let catalog_ptr =
+                        catalog_ptr.expect("image with boot record should have a catalog");
+                    std::println!("catalog_ptr: {}", catalog_ptr);
+                    let boot_record =
+                        bytemuck::from_bytes_mut::<BootRecordVolumeDescriptor>(&mut buffer);
+                    boot_record.catalog_ptr.set(catalog_ptr);
                 }
                 // We don't do anything
                 _ => {}
@@ -386,11 +488,34 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 Self::write_directory(&mut self.data, *ty, dir)?;
             }
 
+            let pos = self.data.stream_position()?;
+            std::println!("pos: {}", pos);
+
+            if let Some(boot) = &self.ops.features.el_torito {
+                let dir_ref = written_files
+                    .find_file("boot.catalog", self.ops.path_seperator)
+                    .expect("failed to find boot image file");
+                self.record_cache
+                    .insert("boot.catalog".to_string(), dir_ref);
+                for (_, entry) in boot.sections() {
+                    let dir_ref = written_files
+                        .find_file(&entry.boot_image_path, self.ops.path_seperator)
+                        .expect("failed to find boot image file");
+                    self.record_cache.insert(entry.boot_image_path, dir_ref);
+                }
+            }
+
             written_files.root_refs().clone()
         };
-        for (_, root) in &roots {
+
+        let pos = self.data.stream_position()?;
+        std::println!("pos: {}", pos);
+        for (_ty, root) in &roots {
+            std::println!("updating {:?}", _ty);
             self.update_directory(*root, *root)?;
         }
+        // We need to seek back to this position
+        self.data.seek(SeekFrom::Start(pos))?;
 
         Ok(roots)
     }
@@ -400,19 +525,20 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         parent: DirectoryRef,
         directory: DirectoryRef,
     ) -> io::Result<()> {
+        std::println!("parent {:?}, dir: {:?}", parent, directory);
         let start = self.data.seek_sector(directory.extent)?;
 
         DirectoryRecord::new(b"\x00", directory, FileFlags::DIRECTORY).write(&mut self.data)?;
         DirectoryRecord::new(b"\x01", parent, FileFlags::DIRECTORY).write(&mut self.data)?;
 
         let end = self.data.stream_position()?;
-        let mut offset = (end - start) as usize;
+        let mut offset = end - start;
 
         loop {
-            if offset >= directory.size {
+            if offset >= directory.size as u64 {
                 break;
             }
-            self.data.seek(SeekFrom::Start(start + offset as u64))?;
+            self.data.seek(SeekFrom::Start(start + offset))?;
             let mut header = DirectoryRecordHeader::zeroed();
             self.data.read_exact(bytemuck::bytes_of_mut(&mut header))?;
             if header.len == 0 {
@@ -421,7 +547,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
             let mut bytes = vec![0; header.len as usize - size_of::<DirectoryRecordHeader>()];
             self.data.read_exact(&mut bytes)?;
-            offset += header.len as usize;
+            std::println!("filename: {}", core::str::from_utf8(&bytes).unwrap());
+            offset += header.len as u64;
 
             if FileFlags::from_bits_truncate(header.flags).contains(FileFlags::DIRECTORY) {
                 let record = DirectoryRef {
@@ -463,7 +590,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             record.write(&mut *data)?;
         }
 
+        std::println!("start: {}", start.0);
         let end = data.pad_align_sector()?;
+        std::println!("cur_pos: {}", data.stream_position()?);
         let size = (end.0 - start.0) * data.sector_size;
         dir.entries.insert(
             ty,

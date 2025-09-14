@@ -2,6 +2,11 @@
 //! Terminology and spec are followed by the specifications described in
 //! the [non official ISO9660 specification included](https://github.com/hxyulin/hadris/tree/main/crates/hadris-iso/spec)
 
+// Known Bugs:
+//  - Zero size files causes a lot of issues
+//
+//  TODO: There is a lot of bugs with mixing file interchanges!!!
+
 #![no_std]
 
 pub mod directory;
@@ -10,7 +15,7 @@ pub mod types;
 pub mod volume;
 
 pub mod read;
-//pub mod boot;
+pub mod boot;
 
 #[cfg(feature = "write")]
 pub mod write;

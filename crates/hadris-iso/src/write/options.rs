@@ -1,6 +1,6 @@
 use alloc::string::String;
 
-use crate::read::PathSeparator;
+use crate::{boot::options::BootOptions, read::PathSeparator};
 
 #[derive(Debug, Clone)]
 pub struct FormatOptions {
@@ -14,10 +14,14 @@ pub struct FormatOptions {
 pub enum BaseIsoLevel {
     /// L1 Filenames
     /// Supports only uppercase and useing the 8.3 format
-    Level1,
+    Level1 {
+        supports_lowercase: bool,
+    },
     /// L2 Filenames
     /// Supports up to 30 characters
-    Level2,
+    Level2 {
+        supports_lowercase: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -40,7 +44,7 @@ impl JolietLevel {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct CreationFeatures {
     /// The base Filename Level
     /// This only supports ASCII uppercase, numbers, and '_' for compatibility reasons.
@@ -50,18 +54,15 @@ pub struct CreationFeatures {
     pub long_filenames: bool,
     /// The Joliet Extension
     pub joliet: Option<JolietLevel>,
-    pub el_torito: Option<ElToritoOptions>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ElToritoOptions {
-
+    pub el_torito: Option<BootOptions>,
 }
 
 impl Default for CreationFeatures {
     fn default() -> Self {
         Self {
-            filenames: BaseIsoLevel::Level1,
+            filenames: BaseIsoLevel::Level1 {
+                supports_lowercase: false,
+            },
             long_filenames: false,
             joliet: None,
             el_torito: None,
