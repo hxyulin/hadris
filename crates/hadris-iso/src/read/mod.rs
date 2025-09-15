@@ -1,8 +1,12 @@
+use core::ops::DerefMut;
+
 use crate::{
     LockedCursor, LogicalSector,
+    boot::BootCatalog,
     directory::{DirectoryRecord, DirectoryRef},
     volume::VolumeDescriptorList,
 };
+use hadris_common::types::endian::Endian;
 use hadris_io::{self as io, Read, Seek, SeekFrom};
 use spin::Mutex;
 
@@ -19,6 +23,7 @@ pub struct IsoImageInfo {
     block_size: usize,
     sector_size: usize,
     root_dirs: RootDirs,
+    boot_catalog: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -75,6 +80,7 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                     builtin: root_dir,
                     joliet: None,
                 },
+                boot_catalog: None,
             }
         };
         for svd in volume_descriptors.supplementary() {
@@ -95,6 +101,10 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             }
         }
 
+        if let Some(boot_record) = volume_descriptors.boot_record() {
+            info.boot_catalog = Some(boot_record.catalog_ptr.get());
+        }
+
         Ok(Self {
             data: LockedCursor {
                 data: Mutex::new(data),
@@ -102,6 +112,16 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             },
             info,
         })
+    }
+
+    pub fn boot_catalog(&self) -> io::Result<Option<BootCatalog>> {
+        let catalog_ptr = match self.info.boot_catalog {
+            None => return Ok(None),
+            Some(ptr) => LogicalSector(ptr as usize),
+        };
+        self.data.seek_sector(catalog_ptr)?;
+        let mut data = self.data.lock();
+        Ok(Some(BootCatalog::parse(data.deref_mut())?))
     }
 
     pub fn root_dir(&self) -> IsoDir<'_, DATA> {

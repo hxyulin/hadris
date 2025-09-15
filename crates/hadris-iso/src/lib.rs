@@ -14,8 +14,8 @@ pub mod path;
 pub mod types;
 pub mod volume;
 
-pub mod read;
 pub mod boot;
+pub mod read;
 
 #[cfg(feature = "write")]
 pub mod write;
@@ -45,6 +45,14 @@ struct LogicalBlock(usize);
 struct LockedCursor<DATA: Seek> {
     data: Mutex<DATA>,
     sector_size: usize,
+}
+
+impl<DATA: Seek> LockedCursor<DATA> {
+    pub fn seek_sector(&self, sector: LogicalSector) -> io::Result<u64> {
+        self.data.lock().seek(SeekFrom::Start(
+            (sector.0 as u64) * (self.sector_size as u64),
+        ))
+    }
 }
 
 impl<DATA: Read + Seek> Read for LockedCursor<DATA> {

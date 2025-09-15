@@ -132,7 +132,6 @@ impl BootCatalog {
 
     pub fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
         writer.write_all(bytemuck::bytes_of(&self.validation))?;
-        std::dbg!(bytemuck::bytes_of(&self.default_entry));
         writer.write_all(bytemuck::bytes_of(&self.default_entry))?;
         for (header, entries) in self.sections.iter() {
             writer.write_all(bytemuck::bytes_of(header))?;

@@ -382,8 +382,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     pvd.dir_record.header.extent.write(root_dir.extent.0 as u32);
                     pvd.dir_record.header.data_len.write(root_dir.size as u32);
                     pvd.volume_space_size.write(end_sector.0 as u32);
-                    self.data.seek_relative(-(buffer.len() as i64))?;
-                    self.data.write(&buffer)?;
                 }
                 VolumeDescriptorType::SupplementaryVolumeDescriptor => {
                     let svd =
@@ -402,9 +400,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                                     svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
                                     svd.dir_record.header.data_len.write(root_dir.size as u32);
                                     svd.volume_space_size.write(end_sector.0 as u32);
-                                    self.data.seek_relative(-(buffer.len() as i64))?;
-                                    self.data.write(&buffer)?;
-                                    break;
                                 }
                             }
                         }
@@ -423,8 +418,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                             svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
                             svd.dir_record.header.data_len.write(root_dir.size as u32);
                             svd.volume_space_size.write(end_sector.0 as u32);
-                            self.data.seek_relative(-(buffer.len() as i64))?;
-                            self.data.write(&buffer)?;
                         }
 
                         // Unknown version
@@ -434,14 +427,17 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 VolumeDescriptorType::BootRecord => {
                     let catalog_ptr =
                         catalog_ptr.expect("image with boot record should have a catalog");
-                    std::println!("catalog_ptr: {}", catalog_ptr);
                     let boot_record =
                         bytemuck::from_bytes_mut::<BootRecordVolumeDescriptor>(&mut buffer);
                     boot_record.catalog_ptr.set(catalog_ptr);
                 }
                 // We don't do anything
-                _ => {}
+                _ => continue,
             }
+
+            // Write the new data
+            self.data.seek_relative(-(buffer.len() as i64))?;
+            self.data.write(&buffer)?;
         }
         Ok(())
     }
@@ -488,15 +484,15 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 Self::write_directory(&mut self.data, *ty, dir)?;
             }
 
-            let pos = self.data.stream_position()?;
-            std::println!("pos: {}", pos);
-
             if let Some(boot) = &self.ops.features.el_torito {
-                let dir_ref = written_files
-                    .find_file("boot.catalog", self.ops.path_seperator)
-                    .expect("failed to find boot image file");
-                self.record_cache
-                    .insert("boot.catalog".to_string(), dir_ref);
+                if boot.write_boot_catalog {
+                    let dir_ref = written_files
+                        .find_file("boot.catalog", self.ops.path_seperator)
+                        .expect("failed to find boot image file");
+                    self.record_cache
+                        .insert("boot.catalog".to_string(), dir_ref);
+                }
+
                 for (_, entry) in boot.sections() {
                     let dir_ref = written_files
                         .find_file(&entry.boot_image_path, self.ops.path_seperator)
@@ -509,9 +505,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         };
 
         let pos = self.data.stream_position()?;
-        std::println!("pos: {}", pos);
         for (_ty, root) in &roots {
-            std::println!("updating {:?}", _ty);
             self.update_directory(*root, *root)?;
         }
         // We need to seek back to this position
@@ -525,7 +519,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         parent: DirectoryRef,
         directory: DirectoryRef,
     ) -> io::Result<()> {
-        std::println!("parent {:?}, dir: {:?}", parent, directory);
         let start = self.data.seek_sector(directory.extent)?;
 
         DirectoryRecord::new(b"\x00", directory, FileFlags::DIRECTORY).write(&mut self.data)?;
@@ -547,7 +540,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
             let mut bytes = vec![0; header.len as usize - size_of::<DirectoryRecordHeader>()];
             self.data.read_exact(&mut bytes)?;
-            std::println!("filename: {}", core::str::from_utf8(&bytes).unwrap());
             offset += header.len as u64;
 
             if FileFlags::from_bits_truncate(header.flags).contains(FileFlags::DIRECTORY) {
@@ -590,9 +582,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             record.write(&mut *data)?;
         }
 
-        std::println!("start: {}", start.0);
         let end = data.pad_align_sector()?;
-        std::println!("cur_pos: {}", data.stream_position()?);
         let size = (end.0 - start.0) * data.sector_size;
         dir.entries.insert(
             ty,

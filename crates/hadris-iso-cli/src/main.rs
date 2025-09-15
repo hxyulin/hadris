@@ -190,9 +190,12 @@ fn write(
 fn read(file: &PathBuf) {
     let mut file = OpenOptions::new().read(true).open(file).unwrap();
     let iso = IsoImage::parse(&mut file).unwrap();
-    dbg!(&iso);
     let root = iso.root_dir();
     read_dir(&iso, root);
+
+    if let Some(boot_catalog) = iso.boot_catalog().unwrap() {
+        std::dbg!(boot_catalog);
+    }
 }
 
 fn read_dir(iso: &IsoImage<&mut std::fs::File>, dir: IsoDir<'_, &mut std::fs::File>) {
