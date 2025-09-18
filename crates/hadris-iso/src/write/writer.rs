@@ -1,13 +1,16 @@
-use std::{collections::HashMap, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
+use hadris_common::types::endian::EndianType;
+use hadris_io::{self as io, Write};
 
-use core::ops::Range;
-
+use crate::file::{FilenameL1, FilenameL2, FilenameL3, FixedFilename};
+use crate::path::{PathTableEntry, PathTableEntryHeader};
 use crate::read::PathSeparator;
 use crate::types::{Charset, CharsetD, CharsetD1};
 
 use crate::write::options::JolietLevel;
 use crate::{directory::DirectoryRef, write::options::BaseIsoLevel};
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DirectoryId {
     indices: Vec<usize>,
 }
@@ -23,15 +26,14 @@ impl DirectoryId {
 }
 
 #[derive(Debug)]
-pub struct WrittenFiles<'a> {
-    root: WrittenDirectory<'a>,
+pub struct WrittenFiles {
+    root: WrittenDirectory,
 }
 
-impl<'a> WrittenFiles<'a> {
+impl WrittenFiles {
     pub fn new() -> Self {
-        static ROOT: &'static str = "";
         Self {
-            root: WrittenDirectory::new(ROOT),
+            root: WrittenDirectory::new(Arc::new(String::new())),
         }
     }
 
@@ -45,17 +47,20 @@ impl<'a> WrittenFiles<'a> {
         'outer: for part in parts {
             let dir = self.get(&current_dir);
             for (idx, dir) in dir.dirs.iter().enumerate() {
-                if dir.name == part {
+                if dir.name.as_str() == part {
                     current_dir.push(idx);
                     continue 'outer;
-                } 
-            } 
+                }
+            }
             // didn't find
             return None;
         }
 
         let dir = self.get(&current_dir);
-        dir.files.iter().find(|f| f.name == filename).map(|f| f.entry)
+        dir.files
+            .iter()
+            .find(|f| f.name.as_str() == filename)
+            .map(|f| f.entry)
     }
 
     pub fn root_dir(&self) -> DirectoryId {
@@ -64,19 +69,11 @@ impl<'a> WrittenFiles<'a> {
         }
     }
 
-    pub fn root_refs(&self) -> &HashMap<EntryType, DirectoryRef> {
+    pub fn root_refs(&self) -> &BTreeMap<EntryType, DirectoryRef> {
         &self.root.entries
     }
 
-    pub fn get_parent(&self, id: &DirectoryId) -> &WrittenDirectory<'a> {
-        let mut dir = &self.root;
-        for index in &id.indices[0..id.indices.len() - 1] {
-            dir = &dir.dirs[*index];
-        }
-        dir
-    }
-
-    pub fn get(&self, id: &DirectoryId) -> &WrittenDirectory<'a> {
+    pub fn get(&self, id: &DirectoryId) -> &WrittenDirectory {
         let mut dir = &self.root;
         for index in &id.indices {
             dir = &dir.dirs[*index];
@@ -84,7 +81,7 @@ impl<'a> WrittenFiles<'a> {
         dir
     }
 
-    pub fn get_mut(&mut self, id: &DirectoryId) -> &mut WrittenDirectory<'a> {
+    pub fn get_mut(&mut self, id: &DirectoryId) -> &mut WrittenDirectory {
         let mut dir = &mut self.root;
         for index in &id.indices {
             dir = &mut dir.dirs[*index];
@@ -93,7 +90,7 @@ impl<'a> WrittenFiles<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum EntryType {
     Level1 { supports_lowercase: bool },
     Level2 { supports_lowercase: bool },
@@ -152,79 +149,34 @@ impl EntryType {
 }
 
 #[derive(Debug)]
-pub struct WrittenDirectory<'a> {
-    pub name: &'a str,
-    pub entries: HashMap<EntryType, DirectoryRef>,
-    pub dirs: Vec<WrittenDirectory<'a>>,
-    pub files: Vec<WrittenFile<'a>>,
+pub struct WrittenDirectory {
+    pub name: Arc<String>,
+    pub entries: BTreeMap<EntryType, DirectoryRef>,
+    pub dirs: Vec<WrittenDirectory>,
+    pub files: Vec<WrittenFile>,
 }
 
-impl<'a> WrittenDirectory<'a> {
-    pub fn new(name: &'a str) -> Self {
+impl WrittenDirectory {
+    pub fn new(name: Arc<String>) -> Self {
         Self {
             name,
-            entries: HashMap::new(),
+            entries: BTreeMap::new(),
             dirs: Vec::new(),
             files: Vec::new(),
         }
     }
 
-    pub fn push_dir(&mut self, name: &'a str) -> usize {
+    pub fn push_dir(&mut self, name: Arc<String>) -> usize {
         self.dirs.push(Self::new(name));
         self.dirs.len() - 1
     }
 }
 
 #[derive(Debug)]
-pub struct WrittenFile<'a> {
-    pub name: &'a str,
+pub struct WrittenFile {
+    pub name: Arc<String>,
     pub entry: DirectoryRef,
 }
-
-#[derive(Clone)]
-pub struct FixedFilename<const N: usize> {
-    data: [u8; N],
-    len: usize,
-}
-
-impl<const N: usize> FixedFilename<N> {
-    pub const fn empty() -> Self {
-        Self {
-            data: [0; N],
-            len: 0,
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        unsafe { core::str::from_utf8_unchecked(self.as_bytes()) }
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.data[0..self.len]
-    }
-
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    pub fn push_slice(&mut self, slice: &[u8]) -> Range<usize> {
-        assert!(self.len + slice.len() <= self.data.len());
-        let start = self.len;
-        self.len += slice.len();
-        self.data[start..self.len].copy_from_slice(slice);
-        start..self.len
-    }
-
-    pub fn push_byte(&mut self, b: u8) -> usize {
-        self.data[self.len] = b;
-        self.len += 1;
-        self.len - 1
-    }
-}
-
-pub type FilenameL1 = FixedFilename<14>;
-pub type FilenameL2 = FixedFilename<32>;
-pub type FilenameL3 = FixedFilename<207>;
 
 pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedFilename<14> {
     let mut l1 = FixedFilename::empty();
@@ -348,6 +300,35 @@ pub fn convert_joliet1(name: &str) -> FixedFilename<207> {
     }
 
     j1
+}
+
+pub(crate) struct PathTableWriter<'a> {
+    pub written_files: &'a mut WrittenFiles,
+    pub ty: EntryType,
+    pub endian: EndianType,
+}
+
+impl PathTableWriter<'_> {
+    pub fn write<DATA: Write>(&mut self, data: &mut DATA) -> io::Result<()> {
+        let mut current_number = 1;
+        let mut dir_id = self.written_files.root_dir();
+        {
+            // Write root directory
+            let dir = self.written_files.get(&dir_id);
+            let header = PathTableEntryHeader {
+                len: 1,
+                extended_attr_record: 0,
+                parent_directory_number: self.endian.u16_bytes(current_number),
+                parent_lba: self
+                    .endian
+                    .u32_bytes(dir.entries.get(&self.ty).unwrap().extent.0 as u32),
+            };
+            data.write_all(bytemuck::bytes_of(&header))?;
+            // '\x00' for the root directory, and one byte for padding
+            data.write_all(&[0x00, 0x00])?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(all(test, feature = "std"))]

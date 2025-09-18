@@ -2,15 +2,18 @@ use core::ops::DerefMut;
 
 use crate::{
     LockedCursor, LogicalSector,
-    boot::BootCatalog,
+    boot::{BaseBootCatalog, BootCatalog},
     directory::{DirectoryRecord, DirectoryRef},
+    path::{PathTableInfo, PathTableRef},
     volume::VolumeDescriptorList,
 };
 use hadris_common::types::endian::Endian;
 use hadris_io::{self as io, Read, Seek, SeekFrom};
 use spin::Mutex;
 
+mod boot;
 mod directory;
+pub use boot::*;
 pub use directory::{IsoDir, IsoDirIter};
 
 pub enum FilenameType {
@@ -24,6 +27,7 @@ pub struct IsoImageInfo {
     sector_size: usize,
     root_dirs: RootDirs,
     boot_catalog: Option<u32>,
+    path_table: PathTableRef,
 }
 
 #[derive(Debug)]
@@ -35,8 +39,8 @@ struct RootDirs {
 /// A struct representing an ISO9660 Image
 #[derive(Debug)]
 pub struct IsoImage<DATA: Seek> {
-    data: LockedCursor<DATA>,
-    info: IsoImageInfo,
+    pub(crate) data: LockedCursor<DATA>,
+    pub(crate) info: IsoImageInfo,
 }
 
 bitflags::bitflags! {
@@ -72,6 +76,12 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                 extent: LogicalSector(pvd.dir_record.header.extent.read() as usize),
                 size: pvd.dir_record.header.data_len.read() as usize,
             };
+            
+            let path_table = PathTableRef {
+                lpt: LogicalSector(pvd.type_l_path_table.get() as usize),
+                mpt: LogicalSector(pvd.type_m_path_table.get() as usize),
+                size: pvd.path_table_size.read() as u64,
+            };
 
             IsoImageInfo {
                 block_size,
@@ -81,6 +91,7 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                     joliet: None,
                 },
                 boot_catalog: None,
+                path_table,
             }
         };
         for svd in volume_descriptors.supplementary() {
@@ -114,14 +125,27 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         })
     }
 
-    pub fn boot_catalog(&self) -> io::Result<Option<BootCatalog>> {
+    pub fn boot_info(&self) -> io::Result<Option<BootInfo>> {
         let catalog_ptr = match self.info.boot_catalog {
             None => return Ok(None),
             Some(ptr) => LogicalSector(ptr as usize),
         };
         self.data.seek_sector(catalog_ptr)?;
-        let mut data = self.data.lock();
-        Ok(Some(BootCatalog::parse(data.deref_mut())?))
+        let catalog = {
+            let mut data = self.data.lock();
+            BaseBootCatalog::parse(data.deref_mut())?
+        };
+
+        Ok(Some(BootInfo {
+            catalog,
+            catalog_ptr,
+        }))
+    }
+
+    pub fn path_table(&self) -> PathTableInfo {
+        PathTableInfo {
+            path_table: self.info.path_table,
+        }
     }
 
     pub fn root_dir(&self) -> IsoDir<'_, DATA> {
@@ -145,8 +169,8 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
     pub fn read_file(&self, file: DirectoryRecord) -> FileReader<'_, DATA> {
         // TODO: Support interleaved files
         assert!(file.is_file(), "tried to read non-file!");
-        let start = file.header.extent.read() as usize * self.info.sector_size;
-        let end = file.header.data_len.read() as usize + start;
+        let start = file.header().extent.read() as usize * self.info.sector_size;
+        let end = file.header().data_len.read() as usize + start;
         FileReader {
             data: &self.data.data,
             current: start,

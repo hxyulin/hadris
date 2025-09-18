@@ -238,7 +238,10 @@ enum FileHandleInner {
 }
 
 impl FileHandle {
-    pub fn entries<'a, DATA: Seek + Read>(&self, fs: &'a mut FatFs<DATA>) -> io::Result<DirectoryIter<'a, DATA>> {
+    pub fn entries<'a, DATA: Seek + Read>(
+        &self,
+        fs: &'a mut FatFs<DATA>,
+    ) -> io::Result<DirectoryIter<'a, DATA>> {
         let cluster = match self.0 {
             FileHandleInner::RootDir(cluster) => cluster,
             FileHandleInner::Entry {
@@ -259,7 +262,11 @@ impl FileHandle {
             }
         };
 
-        Ok(DirectoryIter { fs, cluster, offset: 0 })
+        Ok(DirectoryIter {
+            fs,
+            cluster,
+            offset: 0,
+        })
     }
 
     pub fn read<'a, DATA: Seek + Read>(
@@ -346,12 +353,14 @@ pub struct DirectoryIter<'a, DATA: Seek + Read> {
 impl<DATA: Seek + Read> DirectoryIter<'_, DATA> {
     // FIXME:We don't have a guarantee here that the directory doesn't change at the type level, so
     // we will need some sort of lock guard here, maybe using spin::RwLock?
-    pub fn next(
-        &mut self,
-    ) -> io::Result<Option<DirectoryEntry>> {
+    pub fn next(&mut self) -> io::Result<Option<DirectoryEntry>> {
         loop {
             if self.offset > self.fs.info.cluster_size {
-                match self.fs.fat.next_cluster(&mut self.fs.data, self.cluster.0)? {
+                match self
+                    .fs
+                    .fat
+                    .next_cluster(&mut self.fs.data, self.cluster.0)?
+                {
                     None => return Ok(None),
                     Some(clus) => self.cluster = Cluster(clus as usize),
                 }

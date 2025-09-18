@@ -1,7 +1,9 @@
-use hadris_io::{Error, Read, Seek, SeekFrom};
+use core::ops::DerefMut;
 
-use crate::types::EndianType;
-use alloc::{vec, vec::Vec};
+use hadris_io::{self as io, Error, Read, Seek, SeekFrom, Write};
+use spin::Mutex;
+
+use crate::{LogicalSector, file::FixedFilename, read::IsoImage, types::EndianType};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -19,12 +21,12 @@ impl PathTableEntryHeader {
 }
 
 #[derive(Debug, Clone)]
-pub struct PathTableEntry {
+pub struct PathTableEntry<const N: usize = 256> {
     pub length: u8,
     pub extended_attr_record: u8,
     pub parent_lba: u32,
     pub parent_index: u16,
-    pub name: Vec<u8>,
+    pub name: FixedFilename<N>,
 }
 
 impl PathTableEntry {
@@ -32,8 +34,8 @@ impl PathTableEntry {
         let mut buf = [0; size_of::<PathTableEntryHeader>()];
         reader.read_exact(&mut buf)?;
         let header = PathTableEntryHeader::from_bytes(&buf);
-        let mut name = vec![0; header.len as usize];
-        reader.read_exact(&mut name)?;
+        let mut name = FixedFilename::with_size(header.len as usize);
+        reader.read_exact(name.as_bytes_mut())?;
         if header.len % 2 == 1 {
             // Read the padding byte
             reader.read_exact(&mut [0])?;
@@ -48,23 +50,22 @@ impl PathTableEntry {
         })
     }
 
-    pub fn to_bytes(&self, endian: EndianType) -> Vec<u8> {
-        let mut bytes = Vec::new();
+    pub fn write<W: Write>(&self, writer: &mut W, endian: EndianType) -> io::Result<()> {
         let header = PathTableEntryHeader {
             len: self.name.len() as u8,
             extended_attr_record: 0,
             parent_lba: endian.u32_bytes(self.parent_lba),
             parent_directory_number: endian.u16_bytes(self.parent_index),
         };
-        bytes.extend_from_slice(bytemuck::bytes_of(&header));
-        bytes.extend_from_slice(self.name.as_slice());
+        writer.write_all(bytemuck::bytes_of(&header))?;
+        writer.write_all(self.name.as_bytes())?;
         assert_eq!(header.len as usize, self.name.len());
         if header.len % 2 == 1 {
-            bytes.push(0);
+            writer.write_all(&[0])?;
         }
-
-        bytes
+        Ok(())
     }
+
     pub fn size(&self) -> usize {
         let size = (size_of::<PathTableEntryHeader>() + self.name.len() + 1) & !1;
         size
@@ -73,37 +74,57 @@ impl PathTableEntry {
 
 #[derive(Debug, Clone, Copy)]
 pub struct PathTableRef {
-    pub(crate) lpath_table_offset: u64,
-    pub(crate) mpath_table_offset: u64,
+    pub(crate) lpt: LogicalSector,
+    pub(crate) mpt: LogicalSector,
     pub(crate) size: u64,
 }
 
-pub struct IsoPathTable<'a, T: Read + Seek> {
-    pub(crate) reader: &'a mut T,
+pub struct PathTableInfo {
     pub(crate) path_table: PathTableRef,
 }
 
-impl<'a, T: Read + Seek> IsoPathTable<'a, T> {
-    pub fn entries(&mut self) -> Result<Vec<PathTableEntry>, Error> {
-        // TODO: Some sort of strict check that checks both tables?
-
-        // We always read from the native endian table
-        let offset = if cfg!(target_endian = "little") {
-            self.path_table.lpath_table_offset
+impl PathTableInfo {
+    pub fn entries<'a, DATA: Read + Seek>(
+        &self,
+        image: &'a IsoImage<DATA>,
+    ) -> PathTableEntryIter<'a, DATA> {
+        let start = if cfg!(target_endian = "little") {
+            self.path_table.lpt
         } else {
-            self.path_table.mpath_table_offset
+            self.path_table.mpt
         };
-        self.reader.seek(SeekFrom::Start(offset * 2048))?;
-        let mut entries = Vec::new();
-        let mut idx = 0;
-        while idx < self.path_table.size as usize {
-            let entry = PathTableEntry::parse(self.reader, EndianType::NativeEndian)?;
-            if entry.length == 0 {
-                break;
-            }
-            idx += entry.size();
-            entries.push(entry);
+        let start = start.0 as u64 * image.data.sector_size as u64;
+        PathTableEntryIter {
+            data: &image.data.data,
+            current: start,
+            end: start + self.path_table.size,
         }
-        Ok(entries)
+    }
+}
+
+pub struct PathTableEntryIter<'a, DATA: Read + Seek> {
+    data: &'a Mutex<DATA>,
+    current: u64,
+    end: u64,
+}
+
+impl<DATA: Read + Seek> Iterator for PathTableEntryIter<'_, DATA> {
+    type Item = io::Result<PathTableEntry>;
+
+    /// Undefined if continued reading after IO error
+    fn next(&mut self) -> Option<Self::Item> {
+        use hadris_io::try_io_result_option as try_io;
+        if self.current >= self.end {
+            return None;
+        }
+        let mut data = self.data.lock();
+        try_io!(data.seek(SeekFrom::Start(self.current)));
+        let entry = try_io!(PathTableEntry::parse(
+            data.deref_mut(),
+            EndianType::NativeEndian,
+        ));
+        self.current += entry.size() as u64;
+
+        Some(Ok(entry))
     }
 }

@@ -15,6 +15,7 @@ pub mod types;
 pub mod volume;
 
 pub mod boot;
+pub mod file;
 pub mod read;
 
 #[cfg(feature = "write")]
@@ -27,6 +28,8 @@ extern crate alloc;
 extern crate std;
 
 pub mod joliet;
+pub mod susp;
+pub mod rrip;
 
 use core::fmt;
 

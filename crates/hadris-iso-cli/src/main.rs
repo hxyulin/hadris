@@ -1,12 +1,12 @@
 use clap::Parser;
 use hadris_iso::{
-    boot::{options::{BootEntryOptions, BootOptions, BootSectionOptions}, EmulationType},
-    read::{IsoDir, IsoImage, PathSeparator},
-    write::{
+    boot::{
+        options::{BootEntryOptions, BootOptions, BootSectionOptions}, EmulationType
+    }, read::{IsoDir, IsoImage, PathSeparator}, write::{
         options::{BaseIsoLevel, CreationFeatures, FormatOptions, JolietLevel}, InputFiles, IsoImageWriter
-    },
+    }
 };
-use std::{fs::OpenOptions, io::Read, num::NonZeroU16, path::PathBuf, str::FromStr};
+use std::{fs::OpenOptions, io::{Read, Seek}, num::NonZeroU16, path::PathBuf, str::FromStr};
 
 #[derive(Debug, Clone, Parser)]
 pub struct Args {
@@ -92,6 +92,9 @@ impl FromStr for IsoExtensions {
             level3: false,
             joliet: false,
         };
+        if s.is_empty() {
+            return Ok(exts);
+        }
         for ext in s.split(',') {
             let ext = ext.trim();
             match ext {
@@ -123,7 +126,13 @@ fn main() {
     let args = Args::parse();
     match args.cmd {
         Command::Read(args) => read(&args.input),
-        Command::Write(args) => write(args.isoroot, &args.output, args.level.0, args.extensions, args.boot),
+        Command::Write(args) => write(
+            args.isoroot,
+            &args.output,
+            args.level.0,
+            args.extensions,
+            args.boot,
+        ),
         Command::Xorriso(args) => {
             println!("xorriso {:?}", args);
         }
@@ -169,22 +178,22 @@ fn write(
             grub2_boot_info: false,
             emulation: EmulationType::NoEmulation,
         },
-        entries: vec![
-            (
+        entries: vec![(
             BootSectionOptions {
                 platform: hadris_iso::boot::PlatformId::UEFI,
             },
-                BootEntryOptions {
-                    load_size: None,
-                    boot_image_path: "limine-uefi-cd.bin".to_string(),
-                    boot_info_table: false,
-                    grub2_boot_info: false,
-                    emulation: EmulationType::NoEmulation,
-                },
-        )
-        ]
+            BootEntryOptions {
+                load_size: None,
+                boot_image_path: "limine-uefi-cd.bin".to_string(),
+                boot_info_table: false,
+                grub2_boot_info: false,
+                emulation: EmulationType::NoEmulation,
+            },
+        )],
     });
-    IsoImageWriter::format_new(&mut file, input, ops).unwrap();
+    if let Err(err) = IsoImageWriter::format_new(&mut file, input, ops) {
+        eprintln!("error occured at: {:?} - {}", file.stream_position(), err);
+    }
 }
 
 fn read(file: &PathBuf) {
@@ -193,8 +202,22 @@ fn read(file: &PathBuf) {
     let root = iso.root_dir();
     read_dir(&iso, root);
 
-    if let Some(boot_catalog) = iso.boot_catalog().unwrap() {
-        std::dbg!(boot_catalog);
+    if let Some(boot_catalog) = iso.boot_info().unwrap() {
+        let default_entry = boot_catalog.default_entry();
+        std::println!("default_entry: {:#?}", default_entry);
+        let mut contents = Vec::new();
+        default_entry.read(&iso).read_to_end(&mut contents).unwrap();
+
+        for section in boot_catalog.sections(&iso) {
+            let section = section.unwrap();
+            std::println!("section: {:?}", section);
+        }
+    }
+
+    let mut pt_iter = iso.path_table().entries(&iso);
+    while let Some(pte) = pt_iter.next() {
+        let pte = pte.unwrap();
+        std::println!("pte: {:#?}", pte);
     }
 }
 
@@ -202,16 +225,19 @@ fn read_dir(iso: &IsoImage<&mut std::fs::File>, dir: IsoDir<'_, &mut std::fs::Fi
     let mut entries = dir.entries();
     while let Some(entry) = entries.next() {
         let entry = entry.unwrap();
+        if !entry.system_use().is_empty() {
+        }
         if entry.is_special() {
             continue;
         }
         if entry.is_directory() {
-            println!("Directory: {}", core::str::from_utf8(&entry.name).unwrap());
+            println!("Directory: {}", core::str::from_utf8(entry.name()).unwrap());
             let dir = iso.read_dir(entry.as_dir_ref().unwrap());
             read_dir(iso, dir);
         } else {
-            let name = core::str::from_utf8(&entry.name).unwrap();
+            let name = core::str::from_utf8(entry.name()).unwrap();
             println!("File: {:?}", name);
         }
+
     }
 }

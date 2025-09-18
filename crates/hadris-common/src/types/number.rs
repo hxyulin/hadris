@@ -1,5 +1,6 @@
 use crate::types::endian::{BigEndian, Endian, Endianness, LittleEndian};
 use core::marker::PhantomData;
+use std::ops::{Add, BitAnd, Not, Rem, Sub};
 
 /// A 16-bit unsigned integer with a specified endianness.
 #[repr(transparent)]
@@ -269,6 +270,11 @@ impl<E: Endianness> Endian for U24<E> {
     }
 }
 
+pub fn align_up<T: Add<Output = T> + Sub<Output = T> + BitAnd<Output = T> + Not<Output = T> + From<u8> + Copy>(num: T, alignment: T) -> T {
+    let temp = alignment.sub(T::from(1u8));
+    (num + temp) & !temp
+}
+
 #[cfg(all(test, feature = "std"))]
 mod tests {
     //! Tests for the number types.
@@ -319,5 +325,65 @@ mod tests {
             value.bytes,
             [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0]
         );
+    }
+
+    #[test]
+    fn test_align_up_u8() {
+        let a = 7u8;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 16);
+
+        let a = 17u8;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 32);
+
+        let a = 16u8;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 16);
+    }
+
+    #[test]
+    fn test_align_up_u16() {
+        let a = 7u16;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 16);
+
+        let a = 17u16;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 32);
+
+        let a = 16u16;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 16);
+    }
+
+    #[test]
+    fn test_align_up_u32() {
+        let a = 7u32;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 16);
+
+        let a = 17u32;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 32);
+
+        let a = 16u32;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 16);
+    }
+
+    #[test]
+    fn test_align_up_u64() {
+        let a = 7u64;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 16);
+
+        let a = 17u64;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 32);
+
+        let a = 16u64;
+        let aligned = align_up(a, 16);
+        assert_eq!(aligned, 16);
     }
 }

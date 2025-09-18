@@ -4,6 +4,7 @@
 
 use core::fmt::Debug;
 use hadris_io::{Error, Read, Seek, Write};
+use std::io;
 
 use crate::{
     boot::options::BootOptions,
@@ -12,6 +13,7 @@ use crate::{
     volume::BootRecordVolumeDescriptor,
     write::{File, InputFiles},
 };
+#[cfg(feature = "alloc")]
 use alloc::{string::ToString, vec::Vec};
 
 // Types for El Torito boot catalogue
@@ -22,11 +24,62 @@ use alloc::{string::ToString, vec::Vec};
 // Section entries,
 // Section entry extensions
 
+/// The base of the boot catalog
+/// This is the minimum required specified by the El-Torito specification
+#[derive(Debug, Clone)]
+pub struct BaseBootCatalog {
+    pub validation: BootValidationEntry,
+    pub default_entry: BootSectionEntry,
+}
+
+impl Default for BaseBootCatalog {
+    fn default() -> Self {
+        Self::new(EmulationType::NoEmulation, 0, 0, 0)
+    }
+}
+
+impl BaseBootCatalog {
+    pub fn new(
+        media_type: EmulationType,
+        load_segment: u16,
+        sector_count: u16,
+        load_rba: u32,
+    ) -> Self {
+        Self {
+            validation: BootValidationEntry::new(),
+            default_entry: BootSectionEntry::new(media_type, load_segment, sector_count, load_rba),
+        }
+    }
+
+    pub fn parse<R: Read + Seek>(reader: &mut R) -> io::Result<Self> {
+        debug_assert!(reader.stream_position().unwrap() % 2048 == 0);
+
+        let validation = BootValidationEntry::parse(reader)?;
+        if !validation.is_valid() {
+            panic!("Invalid boot catalogue: Validation entry is invalid");
+        }
+        let default_entry = BootSectionEntry::parse(reader)?;
+        if !default_entry.is_valid() {
+            panic!("Invalid boot catalogue: Default boot entry is invalid");
+        }
+
+        Ok(Self {
+            validation,
+            default_entry,
+        })
+    }
+
+    pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(bytemuck::bytes_of(&self.validation))?;
+        writer.write_all(bytemuck::bytes_of(&self.default_entry))?;
+        Ok(())
+    }
+}
+
 /// Boot catalogue
 #[derive(Debug, Clone)]
 pub struct BootCatalog {
-    validation: BootValidationEntry,
-    default_entry: BootSectionEntry,
+    base: BaseBootCatalog,
     sections: Vec<(BootSectionHeaderEntry, Vec<BootSectionEntry>)>,
 }
 
@@ -44,14 +97,13 @@ impl BootCatalog {
         load_rba: u32,
     ) -> Self {
         Self {
-            validation: BootValidationEntry::new(),
-            default_entry: BootSectionEntry::new(media_type, load_segment, sector_count, load_rba),
+            base: BaseBootCatalog::new(media_type, load_segment, sector_count, load_rba),
             sections: Vec::new(),
         }
     }
 
     pub fn set_default_entry(&mut self, entry: BootSectionEntry) {
-        self.default_entry = entry;
+        self.base.default_entry = entry;
     }
 
     pub fn add_section(&mut self, platform_id: PlatformId, entries: Vec<BootSectionEntry>) {
@@ -73,17 +125,7 @@ impl BootCatalog {
     /// Parse the boot catalogue from the given reader,
     /// expects the reader to seek to the start of the catalogue
     pub fn parse<T: Read + Seek>(reader: &mut T) -> Result<Self, Error> {
-        debug_assert!(reader.stream_position().unwrap() % 2048 == 0);
-
-        let validation = BootValidationEntry::parse(reader)?;
-        if !validation.is_valid() {
-            panic!("Invalid boot catalogue: Validation entry is invalid");
-        }
-        let default_entry = BootSectionEntry::parse(reader)?;
-        if !default_entry.is_valid() {
-            panic!("Invalid boot catalogue: Default boot entry is invalid");
-        }
-
+        let base = BaseBootCatalog::parse(reader)?;
         let mut sections = Vec::new();
         let mut buffer = [0u8; 32];
         let mut has_more = false;
@@ -123,16 +165,11 @@ impl BootCatalog {
             sections.push((header, entries));
         }
 
-        Ok(Self {
-            validation,
-            default_entry,
-            sections,
-        })
+        Ok(Self { base, sections })
     }
 
-    pub fn write<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
-        writer.write_all(bytemuck::bytes_of(&self.validation))?;
-        writer.write_all(bytemuck::bytes_of(&self.default_entry))?;
+    pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.base.write(writer)?;
         for (header, entries) in self.sections.iter() {
             writer.write_all(bytemuck::bytes_of(header))?;
             for entry in entries {
@@ -442,8 +479,10 @@ pub struct BootInfoTable {
     pub checksum: U32<LittleEndian>,
 }
 
+#[cfg(feature = "write")]
 pub struct ElToritoWriter;
 
+#[cfg(feature = "write")]
 impl ElToritoWriter {
     /// Creates the El-Torito ovlume descriptor based on the given options and files
     /// This will append a boot catalogue to the given files if the options require it
@@ -454,6 +493,8 @@ impl ElToritoWriter {
         files: &mut InputFiles,
     ) -> BootRecordVolumeDescriptor {
         if opts.write_boot_catalog {
+            use std::sync::Arc;
+
             let size = 96 + opts.entries.len() * 64;
             let size = (size + 2047) & !2047;
             let dir_pos = files
@@ -464,7 +505,7 @@ impl ElToritoWriter {
             files.files.insert(
                 dir_pos.checked_sub(1).unwrap_or(0),
                 File::File {
-                    name: "boot.catalog".to_string(),
+                    name: Arc::new("boot.catalog".to_string()),
                     contents: alloc::vec![0; size],
                 },
             );

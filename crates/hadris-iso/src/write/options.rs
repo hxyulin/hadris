@@ -14,33 +14,29 @@ pub struct FormatOptions {
 pub enum BaseIsoLevel {
     /// L1 Filenames
     /// Supports only uppercase and useing the 8.3 format
-    Level1 {
-        supports_lowercase: bool,
-    },
+    Level1 { supports_lowercase: bool },
     /// L2 Filenames
     /// Supports up to 30 characters
-    Level2 {
-        supports_lowercase: bool,
-    },
+    Level2 { supports_lowercase: bool },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum JolietLevel {
     Level1,
 }
 
 impl JolietLevel {
     pub fn all() -> &'static [JolietLevel] {
-        static LEVELS: [JolietLevel; 1] = [
-            JolietLevel::Level1,
-        ];
+        static LEVELS: [JolietLevel; 1] = [JolietLevel::Level1];
         &LEVELS
     }
 
     pub fn escape_sequence(self) -> [u8; 32] {
+        let mut output = [0u8; 32];
         match self {
-            Self::Level1 => *b"%/C                             "
+            Self::Level1 => output[0..3].copy_from_slice(b"%/@"),
         }
+        output
     }
 }
 
@@ -66,6 +62,6 @@ impl Default for CreationFeatures {
             long_filenames: false,
             joliet: None,
             el_torito: None,
-        } 
+        }
     }
 }

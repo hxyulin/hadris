@@ -1,8 +1,11 @@
-use alloc::vec::Vec;
+use std::io::Read;
+
+use bytemuck::Zeroable;
 use hadris_io::{self as io, Write};
 
 use crate::{
-    types::{IsoStringD, U16LsbMsb, U32LsbMsb}, LogicalSector
+    LogicalSector,
+    types::{U16LsbMsb, U32LsbMsb},
 };
 
 /// The header of a directory record, because the identifier is variable length,
@@ -54,18 +57,15 @@ impl DirectoryRecordHeader {
     }
 }
 
-#[derive(Debug, Clone)]
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct DirectoryRecord {
-    pub header: DirectoryRecordHeader,
-    pub name: Vec<u8>,
+    data: [u8; 256],
 }
 
 impl Default for DirectoryRecord {
     fn default() -> Self {
-        Self {
-            header: DirectoryRecordHeader::default(),
-            name: Vec::new(),
-        }
+        bytemuck::Zeroable::zeroed()
     }
 }
 
@@ -74,16 +74,42 @@ impl Default for DirectoryRecord {
 pub struct NotADirectoryError;
 
 impl DirectoryRecord {
-    pub fn is_special(&self) -> bool {
-        self.name.as_slice() == b"\x00" || self.name.as_slice() == b"\x01"
+    const DATA_START: usize = size_of::<DirectoryRecordHeader>();
+
+    #[inline]
+    pub fn header(&self) -> &DirectoryRecordHeader {
+        bytemuck::from_bytes(&self.data[0..Self::DATA_START])
     }
 
+    #[inline]
+    pub fn header_mut(&mut self) -> &mut DirectoryRecordHeader {
+        bytemuck::from_bytes_mut(&mut self.data[0..size_of::<DirectoryRecordHeader>()])
+    }
+
+    #[inline]
+    pub fn name(&self) -> &[u8] {
+        let len = self.header().file_identifier_len as usize;
+        &self.data[Self::DATA_START..Self::DATA_START + len]
+    }
+
+    #[inline]
+    pub fn system_use(&self) -> &[u8] {
+        let header = self.header();
+        &self.data[Self::DATA_START + header.file_identifier_len as usize..header.len as usize]
+    }
+
+    #[inline]
+    pub fn is_special(&self) -> bool {
+        self.name() == b"\x00" || self.name() == b"\x01"
+    }
+
+    #[inline]
     pub fn is_directory(&self) -> bool {
-        self.header.is_directory()
+        self.header().is_directory()
     }
 
     pub fn is_file(&self) -> bool {
-        !self.header.is_directory()
+        !self.header().is_directory()
     }
 
     pub fn as_dir_ref(&self) -> Result<DirectoryRef, NotADirectoryError> {
@@ -91,64 +117,63 @@ impl DirectoryRecord {
             return Err(NotADirectoryError);
         }
 
+        let header = self.header();
         Ok(DirectoryRef {
-            extent: LogicalSector(self.header.extent.read() as usize),
-            size: self.header.data_len.read() as usize,
+            extent: LogicalSector(header.extent.read() as usize),
+            size: header.data_len.read() as usize,
         })
     }
 
     pub fn size(&self) -> usize {
-        size_of::<DirectoryRecordHeader>() + self.name.len()
+        self.header().len as usize
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(bytemuck::bytes_of(&self.header));
-        bytes.extend_from_slice(self.name.as_slice());
-        bytes
+    pub fn to_bytes(&self) -> &[u8] {
+        &self.data[0..self.size()]
     }
 
-    pub fn new(name: &[u8], directory: DirectoryRef, flags: FileFlags) -> Self {
-        Self {
-            header: DirectoryRecordHeader {
-                len: ((size_of::<DirectoryRecordHeader>() + name.len() + 1) & !1) as u8,
-                extended_attr_record: 0,
-                extent: U32LsbMsb::new(directory.extent.0 as u32),
-                data_len: U32LsbMsb::new(directory.size as u32),
-                date_time: DirDateTime::now(),
-                flags: flags.bits(),
-                file_unit_size: 0,
-                interleave_gap_size: 0,
-                volume_sequence_number: U16LsbMsb::new(1),
-                file_identifier_len: name.len() as u8,
-            },
-            name: name.to_vec(),
+    pub fn new(name: &[u8], system_use: &[u8], directory: DirectoryRef, flags: FileFlags) -> Self {
+        let mut sel = Self::zeroed();
+        let name_len_padded = (name.len() + 1) & !1;
+        let len = Self::DATA_START + name_len_padded + system_use.len();
+        *sel.header_mut() = DirectoryRecordHeader {
+            len: len as u8,
+            extended_attr_record: 0,
+            extent: U32LsbMsb::new(directory.extent.0 as u32),
+            data_len: U32LsbMsb::new(directory.size as u32),
+            date_time: DirDateTime::now(),
+            flags: flags.bits(),
+            file_unit_size: 0,
+            interleave_gap_size: 0,
+            volume_sequence_number: U16LsbMsb::new(1),
+            file_identifier_len: name.len() as u8,
+        };
+        sel.data[Self::DATA_START..Self::DATA_START + name.len()].copy_from_slice(name);
+        sel.data[Self::DATA_START + name_len_padded..len].copy_from_slice(system_use);
+        sel
+    }
+
+    pub fn with_len(name_len: usize, su_len: usize) -> Self {
+        let mut sel = Self::zeroed();
+        let len = Self::DATA_START + name_len + su_len;
+        sel.header_mut().len = len as u8;
+        sel
+    }
+
+    pub fn parse<R: Read>(reader: &mut R) -> io::Result<Self> {
+        let mut sel = Self::zeroed();
+        reader.read_exact(&mut sel.data[0..Self::DATA_START])?;
+        let size = sel.size();
+        if size > Self::DATA_START {
+            reader.read_exact(&mut sel.data[Self::DATA_START..size])?;
         }
-    }
-
-    /// Creates a new directory record with a given name length
-    pub fn with_len(len: u8) -> Self {
-        Self {
-            header: DirectoryRecordHeader {
-                file_identifier_len: len,
-                ..Default::default()
-            },
-            name: alloc::vec![b' '; len as usize],
-        }
+        Ok(sel)
     }
 
     pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
-        let mut written = 0;
-        writer.write_all(&self.header.to_bytes())?;
-        written += size_of::<DirectoryRecordHeader>();
-        writer.write_all(&self.name.as_slice())?;
-        written += self.name.len();
-        if written < self.header.len as usize {
-            for _ in 0..(self.header.len as usize - written) {
-                writer.write_all(&[0])?;
-            }
-        }
-        Ok(written)
+        let size = self.size();
+        writer.write_all(&self.data[0..size])?;
+        Ok(size)
     }
 }
 

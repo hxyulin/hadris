@@ -2,3 +2,4 @@
 
 pub mod endian;
 pub mod number;
+pub mod vec;

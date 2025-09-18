@@ -12,3 +12,4 @@ std = []
 
 [dependencies]
 cfg-if.workspace = true
+bytemuck.workspace = true

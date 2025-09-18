@@ -184,6 +184,10 @@ impl VolumeDescriptorList {
         self.descriptors.push(descriptor);
     }
 
+    pub fn insert(&mut self, index: usize, descriptor: VolumeDescriptor) {
+        self.descriptors.insert(index, descriptor);
+    }
+
     pub fn write<W: Write>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut written = 0;
         for descriptor in &self.descriptors {

@@ -30,7 +30,7 @@ fn read_bs() {
 fn read_fs_info() {
     let fs_info_sector = &FILE_CONTENTS[512..1024];
     let fs_info = FsInfo::from_bytes(fs_info_sector);
-    // 201615 comes from 204800 - 
+    // 201615 comes from 204800 -
     assert_eq!(fs_info.free_clusters(), 201615);
     assert_eq!(fs_info.next_free_cluster(), 2);
 }
