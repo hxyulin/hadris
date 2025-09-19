@@ -1,20 +1,19 @@
-use core::ops::DerefMut;
-
-use crate::{
-    LockedCursor, LogicalSector,
-    boot::{BaseBootCatalog, BootCatalog},
-    directory::{DirectoryRecord, DirectoryRef},
-    path::{PathTableInfo, PathTableRef},
-    volume::VolumeDescriptorList,
-};
+use crate::file::EntryType;
+use crate::io::{self, IsoCursor, LogicalSector, Read, Seek};
+use crate::joliet::JolietLevel;
+use crate::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
+use crate::{directory::DirectoryRef, path::PathTableRef, volume::VolumeDescriptorList};
 use hadris_common::types::endian::Endian;
-use hadris_io::{self as io, Read, Seek, SeekFrom};
-use spin::Mutex;
+use hadris_common::types::no_alloc::ArrayVec;
+use volume::VolumeDescriptorIter;
 
 mod boot;
 mod directory;
 pub use boot::*;
 pub use directory::{IsoDir, IsoDirIter};
+use spin::Mutex;
+
+mod volume;
 
 pub enum FilenameType {
     Builtin,
@@ -31,16 +30,48 @@ pub struct IsoImageInfo {
 }
 
 #[derive(Debug)]
-struct RootDirs {
-    builtin: DirectoryRef,
-    joliet: Option<DirectoryRef>,
+pub struct RootDirs {
+    #[cfg(not(feature = "alloc"))]
+    dirs: ArrayVec<RootDir, 8>,
+    #[cfg(feature = "alloc")]
+    dirs: alloc::vec::Vec<RootDir>,
 }
 
-/// A struct representing an ISO9660 Image
-#[derive(Debug)]
-pub struct IsoImage<DATA: Seek> {
-    pub(crate) data: LockedCursor<DATA>,
-    pub(crate) info: IsoImageInfo,
+impl RootDirs {
+    fn new() -> Self {
+        Self {
+            #[cfg(not(feature = "alloc"))]
+            dirs: ArrayVec::new(),
+            #[cfg(feature = "alloc")]
+            dirs: alloc::vec::Vec::new(),
+        }
+    }
+
+    pub fn best_choice(&self) -> RootDir {
+        assert!(!self.dirs.is_empty(), "ISO image contains no directory trees!");
+        let mut best = (0, EntryType::default());
+        for (idx, dir) in self.dirs.iter().enumerate() {
+            if dir.ty > best.1 {
+                best.0 = idx;
+            }
+        }
+        self.dirs[best.0]
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct RootDir {
+    ty: EntryType,
+    dir_ref: DirectoryRef,
+}
+
+impl RootDir {
+    pub fn iter<'a, DATA: Read + Seek>(&self, iso: &'a IsoImage<DATA>) -> IsoDir<'a, DATA> {
+        IsoDir {
+            reader: &iso.data,
+            directory: self.dir_ref,
+        }
+    }
 }
 
 bitflags::bitflags! {
@@ -63,11 +94,22 @@ impl PathSeparator {
     }
 }
 
+/// A struct representing an open ISO9660 Image
+///
+/// This struct is interior mutable.
+#[derive(Debug)]
+pub struct IsoImage<DATA: Seek> {
+    pub(crate) data: Mutex<IsoCursor<DATA>>,
+    pub(crate) info: IsoImageInfo,
+}
+
 impl<DATA: Read + Seek> IsoImage<DATA> {
-    pub fn parse(mut data: DATA) -> io::Result<Self> {
+    /// Opens a ISO9660 Image
+    pub fn open(data: DATA) -> io::Result<Self> {
         let sector_size = 2048;
-        let pvd_start = 16 * sector_size;
-        data.seek(SeekFrom::Start(pvd_start))?;
+        let mut data = IsoCursor::new(data, sector_size);
+        data.seek_sector(LogicalSector(16))?;
+        let mut root_dirs = RootDirs::new();
         let volume_descriptors = VolumeDescriptorList::parse(&mut data)?;
         let mut info = {
             let pvd = volume_descriptors.primary();
@@ -76,7 +118,14 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                 extent: LogicalSector(pvd.dir_record.header.extent.read() as usize),
                 size: pvd.dir_record.header.data_len.read() as usize,
             };
-            
+            root_dirs.dirs.push(RootDir {
+                ty: EntryType::Level1 {
+                    supports_lowercase: false,
+                    supports_rrip: false,
+                },
+                dir_ref: root_dir,
+            });
+
             let path_table = PathTableRef {
                 lpt: LogicalSector(pvd.type_l_path_table.get() as usize),
                 mpt: LogicalSector(pvd.type_m_path_table.get() as usize),
@@ -86,10 +135,7 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             IsoImageInfo {
                 block_size,
                 sector_size: sector_size as usize,
-                root_dirs: RootDirs {
-                    builtin: root_dir,
-                    joliet: None,
-                },
+                root_dirs,
                 boot_catalog: None,
                 path_table,
             }
@@ -97,13 +143,18 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         for svd in volume_descriptors.supplementary() {
             if svd.header.version == 1 {
                 // Joliet Check
-                let seq = &svd.escape_sequences[0..3];
-                for escape_seq in crate::joliet::ESCAPE_SEQUNCES {
-                    if seq == escape_seq {
-                        info.root_dirs.joliet = Some(DirectoryRef {
-                            extent: LogicalSector(svd.dir_record.header.extent.read() as usize),
-                            size: svd.dir_record.header.data_len.read() as usize,
-                        })
+                for &level in JolietLevel::all() {
+                    if svd.escape_sequences == level.escape_sequence() {
+                        info.root_dirs.dirs.push(RootDir {
+                            ty: EntryType::Joliet {
+                                level,
+                                supports_rrip: false,
+                            },
+                            dir_ref: DirectoryRef {
+                                extent: LogicalSector(svd.dir_record.header.extent.read() as usize),
+                                size: svd.dir_record.header.data_len.read() as usize,
+                            },
+                        });
                     }
                 }
             } else if svd.file_structure_version == 2 {
@@ -117,84 +168,35 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         }
 
         Ok(Self {
-            data: LockedCursor {
-                data: Mutex::new(data),
-                sector_size: sector_size as usize,
-            },
+            data: Mutex::new(data),
             info,
         })
     }
 
-    pub fn boot_info(&self) -> io::Result<Option<BootInfo>> {
-        let catalog_ptr = match self.info.boot_catalog {
-            None => return Ok(None),
-            Some(ptr) => LogicalSector(ptr as usize),
-        };
-        self.data.seek_sector(catalog_ptr)?;
-        let catalog = {
-            let mut data = self.data.lock();
-            BaseBootCatalog::parse(data.deref_mut())?
-        };
-
-        Ok(Some(BootInfo {
-            catalog,
-            catalog_ptr,
-        }))
-    }
-
-    pub fn path_table(&self) -> PathTableInfo {
-        PathTableInfo {
-            path_table: self.info.path_table,
+    pub fn read_volume_descriptors(&self) -> VolumeDescriptorIter<'_, DATA> {
+        VolumeDescriptorIter {
+            data: &self.data,
+            current_sector: LogicalSector(16),
         }
     }
 
-    pub fn root_dir(&self) -> IsoDir<'_, DATA> {
-        self.read_dir(self.info.root_dirs.builtin)
+    pub fn read_pvd(&self) -> PrimaryVolumeDescriptor {
+        self.read_volume_descriptors()
+            .find_map(|vd| {
+                if let Ok(VolumeDescriptor::Primary(vd)) = vd {
+                    Some(vd)
+                } else {
+                    None
+                }
+            })
+            .expect("could not find PVD!")
     }
 
-    pub fn root_dir_for(&self, filename_ty: FilenameType) -> Option<IsoDir<'_, DATA>> {
-        match filename_ty {
-            FilenameType::Builtin => Some(self.root_dir()),
-            FilenameType::Joliet => self.info.root_dirs.joliet.map(|root| self.read_dir(root)),
-        }
+    pub fn root_dir(&self) -> RootDir {
+        self.root_dirs().best_choice()
     }
 
-    pub fn read_dir(&self, directory: DirectoryRef) -> IsoDir<'_, DATA> {
-        IsoDir {
-            reader: &self.data.data,
-            directory,
-        }
-    }
-
-    pub fn read_file(&self, file: DirectoryRecord) -> FileReader<'_, DATA> {
-        // TODO: Support interleaved files
-        assert!(file.is_file(), "tried to read non-file!");
-        let start = file.header().extent.read() as usize * self.info.sector_size;
-        let end = file.header().data_len.read() as usize + start;
-        FileReader {
-            data: &self.data.data,
-            current: start,
-            end,
-        }
-    }
-}
-pub struct FileReader<'a, T: Read + Seek> {
-    data: &'a Mutex<T>,
-    current: usize,
-    end: usize,
-}
-
-impl<T: Read + Seek> Read for FileReader<'_, T> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut reader = self.data.lock();
-        let read_max = (self.end - self.current).min(buf.len());
-        reader.seek(SeekFrom::Start(self.current as u64))?;
-        let read_bytes = if read_max > buf.len() {
-            reader.read(buf)?
-        } else {
-            reader.read(&mut buf[0..read_max])?
-        };
-        self.current += read_bytes;
-        Ok(read_bytes)
+    pub fn root_dirs(&self) -> &RootDirs {
+        &self.info.root_dirs
     }
 }

@@ -1,6 +1,6 @@
 use alloc::string::String;
 
-use crate::{boot::options::BootOptions, read::PathSeparator};
+use crate::{boot::options::BootOptions, joliet::JolietLevel, read::PathSeparator};
 
 #[derive(Debug, Clone)]
 pub struct FormatOptions {
@@ -14,30 +14,16 @@ pub struct FormatOptions {
 pub enum BaseIsoLevel {
     /// L1 Filenames
     /// Supports only uppercase and useing the 8.3 format
-    Level1 { supports_lowercase: bool },
+    Level1 {
+        supports_lowercase: bool,
+        supports_rrip: bool,
+    },
     /// L2 Filenames
     /// Supports up to 30 characters
-    Level2 { supports_lowercase: bool },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum JolietLevel {
-    Level1,
-}
-
-impl JolietLevel {
-    pub fn all() -> &'static [JolietLevel] {
-        static LEVELS: [JolietLevel; 1] = [JolietLevel::Level1];
-        &LEVELS
-    }
-
-    pub fn escape_sequence(self) -> [u8; 32] {
-        let mut output = [0u8; 32];
-        match self {
-            Self::Level1 => output[0..3].copy_from_slice(b"%/@"),
-        }
-        output
-    }
+    Level2 {
+        supports_lowercase: bool,
+        supports_rrip: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +44,7 @@ impl Default for CreationFeatures {
         Self {
             filenames: BaseIsoLevel::Level1 {
                 supports_lowercase: false,
+                supports_rrip: false,
             },
             long_filenames: false,
             joliet: None,

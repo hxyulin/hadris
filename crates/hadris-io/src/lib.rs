@@ -9,6 +9,7 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 extern crate std;
+use core::ops::{Index, IndexMut};
 #[cfg(feature = "std")]
 pub use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 #[cfg(feature = "std")]
@@ -56,5 +57,25 @@ impl<T: Read> ReadExt for T {
 
     fn parse<S: Parsable>(&mut self) -> Result<S> {
         S::parse(self)
+    }
+}
+
+pub struct Cursor<'a> {
+    data: &'a [u8],
+    cursor: usize,
+}
+
+impl<'a> Cursor<'a> {
+    pub fn new(data: &'a [u8]) -> Self {
+        Self { data, cursor: 0 }
+    }
+}
+
+impl Read for Cursor<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let to_read = buf.len().min(self.data.len() - self.cursor);
+        buf[0..to_read].copy_from_slice(&self.data[self.cursor..self.cursor + to_read]);
+        self.cursor += to_read;
+        Ok(to_read)
     }
 }

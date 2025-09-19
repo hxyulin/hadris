@@ -1,11 +1,12 @@
 use crate::{
-    LockedCursor, LogicalSector,
     boot::{BaseBootCatalog, BootSectionHeaderEntry},
-    read::{FileReader, IsoImage},
+    io::LogicalSector,
+    read::IsoImage,
 };
 use bytemuck::Zeroable;
 use hadris_common::types::endian::Endian;
 use hadris_io::{self as io, Read, Seek, SeekFrom};
+use spin::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct BootInfo {
@@ -22,12 +23,7 @@ impl BootInfo {
         &'a self,
         image: &'a IsoImage<R>,
     ) -> BootSectionIter<'a, R> {
-        let sector_size = image.data.sector_size as u64;
-        BootSectionIter {
-            data: &image.data,
-            current_seek: self.catalog_ptr.0 as u64 * sector_size,
-            has_more: true,
-        }
+        todo!()
     }
 
     pub fn default_entry(&self) -> BootEntryInfo {
@@ -52,19 +48,8 @@ pub struct BootEntryInfo {
     pub load_rba: u32,
 }
 
-impl BootEntryInfo {
-    pub fn read<'a, R: Read + Seek>(&'a self, iso: &'a IsoImage<R>) -> FileReader<'a, R> {
-        let start = iso.data.sector_size * self.load_rba as usize;
-        FileReader {
-            data: &iso.data.data,
-            current: start,
-            end: start + 512 * self.sector_count as usize,
-        }
-    }
-}
-
 pub struct BootSectionIter<'data, DATA: Read + Seek> {
-    data: &'data LockedCursor<DATA>,
+    data: &'data Mutex<DATA>,
     current_seek: u64,
     has_more: bool,
 }

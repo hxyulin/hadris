@@ -1,21 +1,21 @@
 use core::ops::DerefMut;
 
 use crate::{
+    io::{self, Read, Seek, SeekFrom, IsoCursor},
     directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef},
     file::FixedFilename,
 };
 use alloc::vec;
 use bytemuck::Zeroable;
-use hadris_io::{self as io, Read, Seek, SeekFrom};
 use spin::Mutex;
 
 pub struct IsoDir<'a, T: Seek> {
-    pub(crate) reader: &'a Mutex<T>,
+    pub(crate) reader: &'a Mutex<IsoCursor<T>>,
     pub(crate) directory: DirectoryRef,
 }
 
 pub struct IsoDirIter<'a, T: Read + Seek> {
-    pub(crate) reader: &'a Mutex<T>,
+    pub(crate) reader: &'a Mutex<IsoCursor<T>>,
     pub(crate) directory: DirectoryRef,
     pub(crate) offset: usize,
 }

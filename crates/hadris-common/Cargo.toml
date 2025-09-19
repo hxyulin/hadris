@@ -19,6 +19,7 @@ bytemuck = { workspace = true, optional = true, features = ["derive"] }
 chrono = "0.4.40"
 crc = "3.2.1"
 rand = "0.9.0"
+noalloc = "0.0.1"
 
 [dev-dependencies]
 criterion.workspace = true

@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use core::{ffi::CStr, fmt::Debug};
-use hadris_io::{Error, Read, Write};
+use hadris_io::{Error, Parsable, Read, Write};
 
 use crate::{
     directory::RootDirectoryEntry,
@@ -51,6 +51,21 @@ pub enum VolumeDescriptor {
     Unknown(UnknownVolumeDescriptor),
 }
 
+impl Parsable for VolumeDescriptor {
+    fn parse<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        let mut buf = [0u8; 2048];
+        reader.read_exact(&mut buf)?;
+        let header = VolumeDescriptorHeader::from_bytes(&buf[0..7]);
+        if !header.is_valid() {
+            // Invalid, which means either we are at the wrong place, or the writer didn't
+            // write an end record
+            panic!("Invalid volume descriptor header, did you forget to seek to LBA 16?");
+        }
+
+        Ok(VolumeDescriptor::new(buf))
+    }
+}
+
 impl VolumeDescriptor {
     pub fn as_bytes(&self) -> &[u8] {
         match self {
@@ -72,23 +87,20 @@ impl VolumeDescriptor {
         }
     }
 
-    pub fn new(data: &[u8]) -> Self {
-        assert!(data.len() == 2048);
+    pub fn new(data: [u8; 2048]) -> Self {
         let ty = VolumeDescriptorType::from_u8(data[0]);
         match ty {
-            VolumeDescriptorType::BootRecord => {
-                VolumeDescriptor::BootRecord(*bytemuck::from_bytes(data))
-            }
+            VolumeDescriptorType::BootRecord => VolumeDescriptor::BootRecord(bytemuck::cast(data)),
             VolumeDescriptorType::PrimaryVolumeDescriptor => {
-                VolumeDescriptor::Primary(*bytemuck::from_bytes(data))
+                VolumeDescriptor::Primary(bytemuck::cast(data))
             }
             VolumeDescriptorType::SupplementaryVolumeDescriptor => {
-                VolumeDescriptor::Supplementary(*bytemuck::from_bytes(data))
+                VolumeDescriptor::Supplementary(bytemuck::cast(data))
             }
             VolumeDescriptorType::VolumeSetTerminator => {
-                VolumeDescriptor::End(*bytemuck::from_bytes(data))
+                VolumeDescriptor::End(bytemuck::cast(data))
             }
-            _ => VolumeDescriptor::Unknown(*bytemuck::from_bytes(data)),
+            _ => VolumeDescriptor::Unknown(bytemuck::cast(data)),
         }
     }
 }
@@ -124,7 +136,7 @@ impl VolumeDescriptorList {
                 panic!("Invalid volume descriptor header, did you forget to seek to LBA 16?");
             }
 
-            descriptors.push(VolumeDescriptor::new(&buffer));
+            descriptors.push(VolumeDescriptor::new(buffer));
         }
 
         Ok(Self { descriptors })
@@ -247,8 +259,8 @@ impl VolumeDescriptorHeader {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct UnknownVolumeDescriptor {
-    header: VolumeDescriptorHeader,
-    data: [u8; 2041],
+    pub header: VolumeDescriptorHeader,
+    pub data: [u8; 2041],
 }
 
 impl Debug for UnknownVolumeDescriptor {
@@ -587,7 +599,7 @@ impl VolumeDescriptorSetTerminator {
         Self {
             header: VolumeDescriptorHeader {
                 descriptor_type: VolumeDescriptorType::VolumeSetTerminator.to_u8(),
-                standard_identifier: IsoStrA::empty(),
+                standard_identifier: VolumeDescriptorHeader::IDENTIFIER,
                 version: 1,
             },
             padding: [0; 2041],

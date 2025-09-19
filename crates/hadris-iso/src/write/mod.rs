@@ -4,21 +4,19 @@ use core::fmt;
 mod writer;
 
 use crate::{
-    LogicalSector,
     boot::{BootCatalog, BootInfoTable, BootSectionEntry, ElToritoWriter},
-    directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef, FileFlags},
+    directory::{DirectoryRecord, DirectoryRef, FileFlags},
+    file::EntryType,
+    io::{IsoCursor, LogicalSector},
+    joliet::JolietLevel,
     path::{PathTableEntryHeader, PathTableRef},
     read::PathSeparator,
     volume::{
         BootRecordVolumeDescriptor, PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor,
         VolumeDescriptor, VolumeDescriptorHeader, VolumeDescriptorList, VolumeDescriptorType,
     },
-    write::{
-        options::JolietLevel,
-        writer::{EntryType, PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles},
-    },
+    write::writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles},
 };
-use bytemuck::Zeroable;
 use hadris_common::{
     part::mbr::{Chs, MbrPartition, MbrPartitionTable, MbrPartitionType},
     types::{
@@ -32,77 +30,6 @@ use alloc::{collections::VecDeque, string::String, vec, vec::Vec};
 
 pub mod options;
 use options::FormatOptions;
-
-struct Cursor<DATA: Seek> {
-    data: DATA,
-    sector_size: usize,
-}
-
-impl<DATA: Read + Seek> Read for Cursor<DATA> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.data.read(buf)
-    }
-
-    fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
-        self.data.read_exact(buf)
-    }
-}
-
-impl<DATA: Seek> Seek for Cursor<DATA> {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        self.data.seek(pos)
-    }
-
-    fn stream_position(&mut self) -> io::Result<u64> {
-        self.data.stream_position()
-    }
-
-    fn seek_relative(&mut self, offset: i64) -> io::Result<()> {
-        self.data.seek_relative(offset)
-    }
-}
-
-impl<DATA: Seek> Cursor<DATA> {
-    pub fn new(data: DATA, sector_size: usize) -> Self {
-        Self { data, sector_size }
-    }
-
-    pub fn pad_align_sector(&mut self) -> io::Result<LogicalSector> {
-        let stream_pos = self.stream_position()?;
-        let sector_size_minus_one = self.sector_size as u64 - 1;
-        let aligned_pos = (stream_pos + sector_size_minus_one) & !sector_size_minus_one;
-        if aligned_pos != stream_pos {
-            self.seek(SeekFrom::Start(aligned_pos))?;
-        }
-        Ok(LogicalSector(
-            (aligned_pos / self.sector_size as u64) as usize,
-        ))
-    }
-
-    pub fn seek_sector(&mut self, sector: LogicalSector) -> io::Result<u64> {
-        self.seek(SeekFrom::Start(sector.0 as u64 * self.sector_size as u64))
-    }
-}
-
-impl<DATA: Write + Seek> Write for Cursor<DATA> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.data.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.data.flush()
-    }
-
-    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        self.data.write_all(buf)
-    }
-}
-
-impl<DATA: Seek> fmt::Debug for Cursor<DATA> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Cursor").finish()
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileConversionError {
@@ -223,7 +150,7 @@ pub enum IsoCreationError {
 pub type IsoCreationResult<T> = Result<T, IsoCreationError>;
 
 pub struct IsoImageWriter<DATA: Read + Write + Seek> {
-    data: Cursor<DATA>,
+    data: IsoCursor<DATA>,
     entry_types: Vec<EntryType>,
     ops: FormatOptions,
     written_files: WrittenFiles,
@@ -250,6 +177,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         if ops.features.long_filenames {
             entry_types.push(EntryType::Level3 {
                 supports_lowercase: true,
+                supports_rrip: false,
             });
         }
         if let Some(joliet) = ops.features.joliet {
@@ -257,7 +185,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         }
 
         Self {
-            data: Cursor::new(data, ops.sector_size),
+            data: IsoCursor::new(data, ops.sector_size),
             ops,
             entry_types,
             written_files: WrittenFiles::new(),
@@ -285,7 +213,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     evd.volume_sequence_number.write(1);
                     volume_descriptors.push(VolumeDescriptor::Supplementary(evd));
                 }
-                EntryType::Joliet(level) => {
+                EntryType::Joliet { level, .. } => {
                     let mut svd = SupplementaryVolumeDescriptor::new_svd(
                         &self.ops.volume_name,
                         0,
@@ -424,7 +352,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                                         .entry_types
                                         .iter()
                                         .find(
-                                            |e| matches!(e, EntryType::Joliet(jl) if *jl == level),
+                                            |e| matches!(e, EntryType::Joliet{ level: jl, ..} if *jl == level),
                                         )
                                         .expect("joliet not found in entries!");
                                     let root_dir = root_dirs.get(joliet).unwrap();
@@ -635,7 +563,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             }
 
             if record.name() == b"\x00" || record.name() == b"\x01" {
-                std::println!("name: {}, record: {:#?}", record.name()[0], record.header(),);
                 let dir_ref = [directory, parent][record.name()[0] as usize];
                 let header = record.header_mut();
                 header.extent.write(dir_ref.extent.0 as u32);
@@ -660,7 +587,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     fn write_directory(
-        data: &mut Cursor<DATA>,
+        data: &mut IsoCursor<DATA>,
         ty: EntryType,
         dir: &mut WrittenDirectory,
     ) -> io::Result<()> {
@@ -673,7 +600,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         DirectoryRecord::new(b"\x01", &[], DirectoryRef::default(), FileFlags::DIRECTORY)
             .write(&mut *data)?;
 
-        let mut buf = [0u8; 255];
         for directory in &dir.dirs {
             let WrittenDirectory { name, entries, .. } = directory;
             let flags = FileFlags::DIRECTORY;

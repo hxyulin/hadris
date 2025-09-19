@@ -6,7 +6,8 @@ Hadris is a unified package containing different implementations for file system
 
 Currently, Hadris supports the following file systems:
 
-- [`Iso`](https://github.com/hxyulin/hadris/tree/main/crates/hadris-iso)
+- [`ISO9660`](crates/hadris-iso)
+- [`FAT`](crates/hadris-fat)
 
 ## License
 

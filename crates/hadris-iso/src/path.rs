@@ -1,9 +1,13 @@
 use core::ops::DerefMut;
 
-use hadris_io::{self as io, Error, Read, Seek, SeekFrom, Write};
 use spin::Mutex;
 
-use crate::{LogicalSector, file::FixedFilename, read::IsoImage, types::EndianType};
+use crate::{
+    file::FixedFilename,
+    io::{self, Error, LogicalSector, Read, Seek, SeekFrom, Write},
+    read::IsoImage,
+    types::EndianType,
+};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -93,12 +97,7 @@ impl PathTableInfo {
         } else {
             self.path_table.mpt
         };
-        let start = start.0 as u64 * image.data.sector_size as u64;
-        PathTableEntryIter {
-            data: &image.data.data,
-            current: start,
-            end: start + self.path_table.size,
-        }
+        todo!()
     }
 }
 

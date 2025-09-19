@@ -2,12 +2,12 @@ use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use hadris_common::types::endian::EndianType;
 use hadris_io::{self as io, Write};
 
-use crate::file::{FilenameL1, FilenameL2, FilenameL3, FixedFilename};
+use crate::file::{EntryType, FilenameL1, FilenameL2, FilenameL3, FixedFilename};
 use crate::path::{PathTableEntry, PathTableEntryHeader};
 use crate::read::PathSeparator;
 use crate::types::{Charset, CharsetD, CharsetD1};
 
-use crate::write::options::JolietLevel;
+use crate::joliet::JolietLevel;
 use crate::{directory::DirectoryRef, write::options::BaseIsoLevel};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -90,26 +90,33 @@ impl WrittenFiles {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum EntryType {
-    Level1 { supports_lowercase: bool },
-    Level2 { supports_lowercase: bool },
-    Level3 { supports_lowercase: bool },
-    Joliet(JolietLevel),
-}
-
 impl From<BaseIsoLevel> for EntryType {
     fn from(value: BaseIsoLevel) -> Self {
         match value {
-            BaseIsoLevel::Level1 { supports_lowercase } => Self::Level1 { supports_lowercase },
-            BaseIsoLevel::Level2 { supports_lowercase } => Self::Level2 { supports_lowercase },
+            BaseIsoLevel::Level1 {
+                supports_lowercase,
+                supports_rrip,
+            } => Self::Level1 {
+                supports_lowercase,
+                supports_rrip,
+            },
+            BaseIsoLevel::Level2 {
+                supports_lowercase,
+                supports_rrip,
+            } => Self::Level2 {
+                supports_lowercase,
+                supports_rrip,
+            },
         }
     }
 }
 
 impl From<JolietLevel> for EntryType {
     fn from(value: JolietLevel) -> Self {
-        Self::Joliet(value)
+        Self::Joliet {
+            level: value,
+            supports_rrip: false,
+        }
     }
 }
 
@@ -117,7 +124,7 @@ pub enum ConvertedName {
     Level1(FilenameL1),
     Level2(FilenameL2),
     Level3(FilenameL3),
-    Joliet1(FixedFilename<207>),
+    Joliet(FixedFilename<207>),
 }
 
 impl ConvertedName {
@@ -126,7 +133,7 @@ impl ConvertedName {
             Self::Level1(name) => name.as_bytes(),
             Self::Level2(name) => name.as_bytes(),
             Self::Level3(name) => name.as_bytes(),
-            Self::Joliet1(name) => name.as_bytes(),
+            Self::Joliet(name) => name.as_bytes(),
         }
     }
 }
@@ -134,16 +141,18 @@ impl ConvertedName {
 impl EntryType {
     pub fn convert_name(self, name: &str) -> ConvertedName {
         match self {
-            Self::Level1 { supports_lowercase } => {
-                ConvertedName::Level1(convert_l1(name, supports_lowercase))
-            }
-            Self::Level2 { supports_lowercase } => {
-                ConvertedName::Level2(convert_l2(name, supports_lowercase))
-            }
-            Self::Level3 { supports_lowercase } => {
-                ConvertedName::Level3(convert_l3(name, supports_lowercase))
-            }
-            Self::Joliet(JolietLevel::Level1) => ConvertedName::Joliet1(convert_joliet1(name)),
+            Self::Level1 {
+                supports_lowercase, ..
+            } => ConvertedName::Level1(convert_l1(name, supports_lowercase)),
+            Self::Level2 {
+                supports_lowercase, ..
+            } => ConvertedName::Level2(convert_l2(name, supports_lowercase)),
+            Self::Level3 {
+                supports_lowercase, ..
+            } => ConvertedName::Level3(convert_l3(name, supports_lowercase)),
+            Self::Joliet { level, .. } => match level {
+                JolietLevel::Level3 => ConvertedName::Joliet(convert_joliet3(name)),
+            },
         }
     }
 }
@@ -286,7 +295,7 @@ pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
     l3
 }
 
-pub fn convert_joliet1(name: &str) -> FixedFilename<207> {
+pub fn convert_joliet3(name: &str) -> FixedFilename<207> {
     let mut j1 = FixedFilename::empty();
     let mut written = 0;
     for c in name.encode_utf16() {

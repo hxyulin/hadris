@@ -1,5 +1,6 @@
 //! Rock Ridege Interchange Protocol
 
+/*
 use crate::susp::{SystemUseEntry, SystemUseHeader};
 use hadris_common::types::{endian::LittleEndian, number::U64};
 use hadris_io::{self as io, Writable, Write};
@@ -191,3 +192,4 @@ impl Iterator for SystemUseIter<'_> {
         Some(ret)
     }
 }
+*/

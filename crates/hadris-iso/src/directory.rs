@@ -4,7 +4,7 @@ use bytemuck::Zeroable;
 use hadris_io::{self as io, Write};
 
 use crate::{
-    LogicalSector,
+    io::LogicalSector,
     types::{U16LsbMsb, U32LsbMsb},
 };
 
@@ -134,10 +134,9 @@ impl DirectoryRecord {
 
     pub fn new(name: &[u8], system_use: &[u8], directory: DirectoryRef, flags: FileFlags) -> Self {
         let mut sel = Self::zeroed();
-        let name_len_padded = (name.len() + 1) & !1;
-        let len = Self::DATA_START + name_len_padded + system_use.len();
+        let len = Self::DATA_START + name.len() + system_use.len();
         *sel.header_mut() = DirectoryRecordHeader {
-            len: len as u8,
+            len: (len as u8 + 1) & !1,
             extended_attr_record: 0,
             extent: U32LsbMsb::new(directory.extent.0 as u32),
             data_len: U32LsbMsb::new(directory.size as u32),
@@ -149,7 +148,7 @@ impl DirectoryRecord {
             file_identifier_len: name.len() as u8,
         };
         sel.data[Self::DATA_START..Self::DATA_START + name.len()].copy_from_slice(name);
-        sel.data[Self::DATA_START + name_len_padded..len].copy_from_slice(system_use);
+        sel.data[Self::DATA_START + name.len()..len].copy_from_slice(system_use);
         sel
     }
 

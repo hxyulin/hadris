@@ -2,4 +2,4 @@
 
 pub mod endian;
 pub mod number;
-pub mod vec;
+pub mod no_alloc;
