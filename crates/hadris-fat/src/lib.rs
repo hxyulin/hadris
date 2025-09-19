@@ -6,6 +6,9 @@ extern crate std;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+pub mod io;
+use io::{Read, Seek, SeekFrom, Write, Sector, SectorLike, Cluster, ClusterLike, SectorCursor, ReadExt};
+
 use core::{
     fmt,
     ops::{Index, IndexMut},
@@ -15,114 +18,6 @@ use hadris_common::types::{
     endian::{Endian, LittleEndian},
     number::{U16, U32},
 };
-use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
-
-/// A Type Representing a FAT Sector
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Sector<T = usize>(pub T);
-
-pub trait SectorLike {
-    fn to_bytes(self, bytes_per_sector: usize) -> usize;
-}
-
-macro_rules! sector_impl {
-    ($ty:ty) => {
-        impl SectorLike for Sector<$ty> {
-            fn to_bytes(self, bytes_per_sector: usize) -> usize {
-                (self.0 as usize) * bytes_per_sector
-            }
-        }
-    };
-}
-sector_impl!(u8);
-sector_impl!(u16);
-sector_impl!(u32);
-sector_impl!(u64);
-sector_impl!(usize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Cluster<T = usize>(pub T);
-
-pub(crate) trait ClusterLike {
-    fn to_bytes(self, data_start: usize, bytes_per_cluster: usize) -> usize;
-}
-
-macro_rules! cluster_impl {
-    ($ty:ty) => {
-        impl ClusterLike for Cluster<$ty> {
-            fn to_bytes(self, data_start: usize, bytes_per_cluster: usize) -> usize {
-                data_start + (self.0 as usize - 2) * bytes_per_cluster
-            }
-        }
-    };
-}
-cluster_impl!(u8);
-cluster_impl!(u16);
-cluster_impl!(u32);
-cluster_impl!(u64);
-cluster_impl!(usize);
-
-pub struct SectorCursor<DATA: Seek> {
-    data: DATA,
-    sector_size: usize,
-}
-
-impl<DATA: Seek> SectorCursor<DATA> {
-    pub const fn new(data: DATA, sector_size: usize) -> Self {
-        Self { data, sector_size }
-    }
-
-    pub fn seek_sector(&mut self, sector: impl SectorLike) -> io::Result<u64> {
-        self.seek(SeekFrom::Start(sector.to_bytes(self.sector_size) as u64))
-    }
-}
-
-pub trait ReadHelper: Read {
-    fn read_struct<R: bytemuck::AnyBitPattern + bytemuck::NoUninit + bytemuck::Zeroable>(
-        &mut self,
-    ) -> io::Result<R> {
-        let mut data = R::zeroed();
-        self.read_exact(bytemuck::bytes_of_mut(&mut data))?;
-        Ok(data)
-    }
-}
-
-impl<T> ReadHelper for T where T: Read {}
-
-impl<T> Seek for SectorCursor<T>
-where
-    T: Seek,
-{
-    fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::Result<u64> {
-        self.data.seek(pos)
-    }
-
-    fn rewind(&mut self) -> hadris_io::Result<()> {
-        self.data.rewind()
-    }
-
-    fn seek_relative(&mut self, offset: i64) -> hadris_io::Result<()> {
-        self.data.seek_relative(offset)
-    }
-
-    fn stream_position(&mut self) -> hadris_io::Result<u64> {
-        self.data.stream_position()
-    }
-}
-
-impl<T> Read for SectorCursor<T>
-where
-    T: Read + Seek,
-{
-    fn read(&mut self, buf: &mut [u8]) -> hadris_io::Result<usize> {
-        self.data.read(buf)
-    }
-
-    fn read_exact(&mut self, buf: &mut [u8]) -> hadris_io::Result<()> {
-        self.data.read_exact(buf)
-    }
-}
-
 pub struct FatFs<DATA: Seek> {
     data: SectorCursor<DATA>,
     info: FatInfo,
@@ -177,7 +72,7 @@ impl<DATA> FatFs<DATA>
 where
     DATA: Read + Seek,
 {
-    pub fn parse(mut data: DATA) -> io::Result<Self> {
+    pub fn open(mut data: DATA) -> io::Result<Self> {
         let bpb = data.read_struct::<RawBpb>()?;
         let mut data = SectorCursor::new(data, bpb.bytes_per_sector.get() as usize);
         let cluster_size = (bpb.sectors_per_cluster as usize) * data.sector_size;
@@ -351,7 +246,7 @@ pub struct DirectoryIter<'a, DATA: Seek + Read> {
 }
 
 impl<DATA: Seek + Read> DirectoryIter<'_, DATA> {
-    // FIXME:We don't have a guarantee here that the directory doesn't change at the type level, so
+    // FIXME: We don't have a guarantee here that the directory doesn't change at the type level, so
     // we will need some sort of lock guard here, maybe using spin::RwLock?
     pub fn next(&mut self) -> io::Result<Option<DirectoryEntry>> {
         loop {
@@ -625,10 +520,7 @@ pub struct RawBpbExt16 {
     pub fs_type: [u8; 8],
     /// Zeros
     /// To make it compatible with bytemuck, instead of using [u8; 448], we use 256 + 128 + 64
-    //pub padding1: [u8; 448],
-    pub padding1_1: [u8; 256],
-    pub padding1_2: [u8; 128],
-    pub padding1_3: [u8; 64],
+    pub padding1: [u8; 448],
     /// Signature_word
     ///
     /// The signature word, should be 0xAA55
@@ -702,13 +594,7 @@ pub struct RawBpbExt32 {
     /// Must be set to the string "FAT32   "
     pub fs_type: [u8; 8],
     /// Zeros
-    ///
-    /// To make it compatible with bytemuck, instead of using [u8; 420], we use 256 + 128 + 32 + 4
-    /// pub padding1: [u8; 420],
-    pub padding1_1: [u8; 256],
-    pub padding1_2: [u8; 128],
-    pub padding1_3: [u8; 32],
-    pub padding1_4: [u8; 4],
+    pub padding1: [u8; 420],
     /// Signature_word
     ///
     /// The signature word, should be 0xAA55
@@ -880,10 +766,7 @@ pub struct RawFsInfo {
     /// The lead signature, this have to be 0x41615252, or 'RRaA'
     pub signature: [u8; 4],
     /// FSI_Reserved1
-    pub reserved1_1: [u8; 256],
-    pub reserved1_2: [u8; 128],
-    pub reserved1_3: [u8; 64],
-    pub reserved1_4: [u8; 32],
+    pub reserved1: [u8; 480],
     /// FSI_StrucSig
     ///
     /// The structure signature, this have to be 0x61417272, or 'rrAa'

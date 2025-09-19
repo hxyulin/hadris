@@ -10,9 +10,11 @@ description = "A collection of crates for working with various file formats."
 categories = ["filesystem", "encoding"]
 
 [features]
-default = ["iso9660"]
-iso9660 = ["hadris-iso"]
+default = ["iso9660", "fat"]
+iso9660 = ["dep:hadris-iso"]
+fat = ["dep:hadris-fat"]
 # TODO: Support more file formats
 
 [dependencies]
 hadris-iso = { workspace = true, optional = true }
+hadris-fat = { workspace = true, optional = true }

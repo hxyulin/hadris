@@ -363,6 +363,7 @@ dependencies = [
 name = "hadris"
 version = "0.2.0"
 dependencies = [
+ "hadris-fat",
  "hadris-iso",
 ]
 

@@ -1,6 +1,6 @@
 [package]
 name = "hadris-fat"
-description = "A library for working with FAT32 file systems, a standalone crate included in the hadris project"
+description = "A library for working with FAT12, FAT16, FAT32, vFAT, and exFAT file systems"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -22,6 +22,7 @@ hadris-io = { workspace = true }
 bitflags = { workspace = true }
 bytemuck = { workspace = true, features = [
   "derive",
+  "min_const_generics",
 ] }
 chrono = { workspace = true }
 thiserror = { workspace = true }
