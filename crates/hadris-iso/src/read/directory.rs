@@ -3,7 +3,6 @@ use core::ops::DerefMut;
 use crate::{
     io::{self, Read, Seek, SeekFrom, IsoCursor},
     directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef},
-    file::FixedFilename,
 };
 use alloc::vec;
 use bytemuck::Zeroable;

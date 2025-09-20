@@ -3,3 +3,4 @@
 pub mod endian;
 pub mod number;
 pub mod no_alloc;
+pub mod file;

@@ -6,24 +6,24 @@ extern crate std;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-pub mod io;
-use io::{Read, Seek, SeekFrom, Write, Sector, SectorLike, Cluster, ClusterLike, SectorCursor, ReadExt};
+pub mod read;
+pub mod write;
 
-use core::{
-    fmt,
-    ops::{Index, IndexMut},
+pub mod file;
+pub mod io;
+
+use core::{fmt, ops::DerefMut};
+use io::{
+    Cluster, ClusterLike, Read, ReadExt, Sector, SectorCursor, SectorLike, Seek, SeekFrom, Write,
 };
+use spin::Mutex;
 
 use hadris_common::types::{
     endian::{Endian, LittleEndian},
     number::{U16, U32},
 };
-pub struct FatFs<DATA: Seek> {
-    data: SectorCursor<DATA>,
-    info: FatInfo,
-    fat: Fat,
-    ext: FatFsExt,
-}
+
+use crate::file::ShortFileName;
 
 #[derive(Debug)]
 struct FatInfo {
@@ -34,15 +34,6 @@ struct FatInfo {
 impl FatInfo {
     fn cluster_start(&self, cluster: impl ClusterLike) -> usize {
         cluster.to_bytes(self.data_start, self.cluster_size)
-    }
-}
-
-impl<DATA: Seek> fmt::Debug for FatFs<DATA> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FatFs")
-            .field("info", &self.info)
-            .field("ext", &self.ext)
-            .finish_non_exhaustive()
     }
 }
 
@@ -67,6 +58,22 @@ struct Fat32FsExt {
     next_free: Cluster<u32>,
 }
 
+pub struct FatFs<DATA: Seek> {
+    data: Mutex<SectorCursor<DATA>>,
+    info: FatInfo,
+    fat: Fat,
+    ext: FatFsExt,
+}
+
+impl<DATA: Seek> fmt::Debug for FatFs<DATA> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FatFs")
+            .field("info", &self.info)
+            .field("ext", &self.ext)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Implementations for Read APIs
 impl<DATA> FatFs<DATA>
 where
@@ -74,8 +81,9 @@ where
 {
     pub fn open(mut data: DATA) -> io::Result<Self> {
         let bpb = data.read_struct::<RawBpb>()?;
-        let mut data = SectorCursor::new(data, bpb.bytes_per_sector.get() as usize);
-        let cluster_size = (bpb.sectors_per_cluster as usize) * data.sector_size;
+        let sector_size = bpb.bytes_per_sector.get() as usize;
+        let cluster_size = (bpb.sectors_per_cluster as usize) * sector_size;
+        let mut data = SectorCursor::new(data, sector_size, cluster_size);
         let bpb_ext32 = data.read_struct::<RawBpbExt32>()?;
         if bpb_ext32.signature_word.get() != 0xAA55 {
             panic!("invalid boot signature");
@@ -108,62 +116,86 @@ where
         };
 
         Ok(Self {
-            data,
+            data: Mutex::new(data),
             info,
             fat,
             ext,
         })
     }
 
-    pub fn root_dir(&mut self) -> FileHandle {
-        FileHandle(FileHandleInner::RootDir(self.ext.root_clus()))
+    pub fn root_dir(&self) -> FatDir<'_, DATA> {
+        FatDir {
+            data: self,
+            cluster: self.ext.root_clus(),
+        }
     }
 }
 
-pub struct FileHandle(FileHandleInner);
-
-enum FileHandleInner {
-    /// The Root Cluster
-    RootDir(Cluster<usize>),
-    /// An Entry, storing the index of the entry
-    Entry {
-        parent_cluster: Cluster<usize>,
-        entry_offset_within_cluster: usize,
-    },
+pub struct FatDir<'a, DATA: Read + Seek> {
+    data: &'a FatFs<DATA>,
+    cluster: Cluster,
 }
 
-impl FileHandle {
-    pub fn entries<'a, DATA: Seek + Read>(
-        &self,
-        fs: &'a mut FatFs<DATA>,
-    ) -> io::Result<DirectoryIter<'a, DATA>> {
-        let cluster = match self.0 {
-            FileHandleInner::RootDir(cluster) => cluster,
-            FileHandleInner::Entry {
-                parent_cluster,
-                entry_offset_within_cluster,
-            } => {
-                let offset = fs.info.cluster_start(parent_cluster) + entry_offset_within_cluster;
-                fs.data.seek(SeekFrom::Start(offset as u64))?;
-                let entry = fs.data.read_struct::<RawFileEntry>()?;
-                assert!(
-                    DirEntryAttrFlags::from_bits_retain(entry.attributes)
-                        .contains(DirEntryAttrFlags::DIRECTORY),
-                    "FileHandle is not a directory"
-                );
-                let cluster = (u32::from(entry.first_cluster_high.get()) << 16)
-                    | u32::from(entry.first_cluster_low.get());
-                Cluster(cluster as usize)
-            }
-        };
-
-        Ok(DirectoryIter {
-            fs,
-            cluster,
+impl<DATA: Read + Seek> FatDir<'_, DATA> {
+    pub fn entries(&self) -> FatDirIter<'_, DATA> {
+        FatDirIter {
+            data: self.data,
+            cluster: self.cluster,
             offset: 0,
-        })
+        }
     }
+}
 
+pub struct FatDirIter<'a, DATA: Read + Seek> {
+    data: &'a FatFs<DATA>,
+    cluster: Cluster,
+    offset: usize,
+}
+
+impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
+    type Item = io::Result<DirectoryEntry>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use hadris_io::try_io_result_option as try_io;
+        let mut data = self.data.data.lock();
+        loop {
+            if self.offset >= data.cluster_size {
+                let next = try_io!(self.data.fat.next_cluster(data.deref_mut(), self.cluster.0))?;
+                self.cluster.0 = next as usize;
+                self.offset = 0;
+            }
+
+            try_io!(
+                data.seek(SeekFrom::Start(
+                    self.cluster
+                        .to_bytes(self.data.info.data_start, self.data.info.cluster_size)
+                        as u64
+                ))
+            );
+            let entry = try_io!(data.read_struct::<RawFileEntry>());
+            if entry.name[0] == 0 {
+                return None;
+            }
+            if entry.name[0] == 0xE5 {
+                continue;
+            }
+            self.offset += size_of::<RawFileEntry>();
+            return Some(Ok(DirectoryEntry::Entry(FileEntry {
+                name: ShortFileName::new(entry.name).expect("invalid filename"),
+                attr: DirEntryAttrFlags::from_bits_retain(entry.attributes),
+                size: entry.size.get() as usize,
+                parent_clus: self.cluster,
+                offset_within_cluster: self.offset,
+                cluster: Cluster::from_parts(
+                    entry.first_cluster_high.get(),
+                    entry.first_cluster_low.get(),
+                ),
+            })));
+        }
+    }
+}
+
+/*
     pub fn read<'a, DATA: Seek + Read>(
         &self,
         fs: &'a mut FatFs<DATA>,
@@ -294,7 +326,7 @@ impl<DATA: Seek + Read> DirectoryIter<'_, DATA> {
             })));
         }
     }
-}
+*/
 
 #[derive(Debug)]
 pub enum DirectoryEntry {
@@ -306,15 +338,7 @@ pub enum DirectoryEntry {
 impl DirectoryEntry {
     pub fn name(&self) -> &str {
         match self {
-            Self::Entry(ent) => unsafe { core::str::from_utf8_unchecked(&ent.name.bytes) },
-            #[cfg(feature = "lfn")]
-            Self::Lfn(_lfn) => unimplemented!(),
-        }
-    }
-
-    pub fn handle(&self) -> FileHandle {
-        match self {
-            Self::Entry(ent) => ent.handle(),
+            Self::Entry(ent) => &ent.name.as_str(),
             #[cfg(feature = "lfn")]
             Self::Lfn(_lfn) => unimplemented!(),
         }
@@ -348,15 +372,6 @@ pub struct FileEntry {
     parent_clus: Cluster<usize>,
     offset_within_cluster: usize,
     cluster: Cluster<usize>,
-}
-
-impl FileEntry {
-    pub fn handle(&self) -> FileHandle {
-        FileHandle(FileHandleInner::Entry {
-            parent_cluster: self.parent_clus,
-            entry_offset_within_cluster: self.offset_within_cluster,
-        })
-    }
 }
 
 #[cfg(feature = "lfn")]
@@ -805,70 +820,4 @@ impl DirEntryAttrFlags {
     pub const LONG_NAME: Self = Self::from_bits_truncate(
         Self::READ_ONLY.bits() | Self::HIDDEN.bits() | Self::SYSTEM.bits() | Self::VOLUME_ID.bits(),
     );
-}
-
-/// A type representing a short filename
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ShortFileName {
-    bytes: [u8; 12],
-}
-
-impl fmt::Debug for ShortFileName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ShortFileName")
-            .field(&self.as_str())
-            .finish()
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("disallowed characters in short file name")]
-pub struct CreateShortFileNameError;
-
-impl ShortFileName {
-    pub const ALLOWED_SYMBOLS: &'static [u8] = b"$%'-_@~`!(){}^#&";
-
-    pub fn new(bytes: [u8; 11]) -> Result<Self, CreateShortFileNameError> {
-        for byte in &bytes {
-            if byte.is_ascii_uppercase()
-                || Self::ALLOWED_SYMBOLS.contains(byte)
-                || byte.is_ascii_digit()
-                || *byte == b' '
-                || *byte > 127
-            {
-                continue;
-            }
-            return Err(CreateShortFileNameError);
-        }
-        let mut local_bytes = [0u8; 12];
-        local_bytes[0..8].copy_from_slice(&bytes[0..8]);
-        local_bytes[8] = b'.';
-        local_bytes[9..12].copy_from_slice(&bytes[8..11]);
-        Ok(Self { bytes: local_bytes })
-    }
-
-    pub fn as_str(&self) -> &str {
-        core::str::from_utf8(&self.bytes).expect("ShortFileName is not UTF-8")
-    }
-}
-
-impl Index<usize> for ShortFileName {
-    type Output = u8;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.bytes[index]
-    }
-}
-
-impl IndexMut<usize> for ShortFileName {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.bytes[index]
-    }
-}
-
-impl AsRef<[u8]> for ShortFileName {
-    fn as_ref(&self) -> &[u8] {
-        &self.bytes
-    }
 }

@@ -18,6 +18,7 @@ lfn = []
 [dependencies]
 hadris-common = { workspace = true }
 hadris-io = { workspace = true }
+spin.workspace = true
 
 bitflags = { workspace = true }
 bytemuck = { workspace = true, features = [

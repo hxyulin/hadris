@@ -398,6 +398,7 @@ dependencies = [
  "hadris-common",
  "hadris-io",
  "pretty_assertions",
+ "spin",
  "static_assertions",
  "thiserror",
 ]

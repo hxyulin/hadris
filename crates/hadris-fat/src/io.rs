@@ -26,6 +26,12 @@ sector_impl!(usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Cluster<T = usize>(pub T);
 
+impl Cluster<usize> {
+    pub fn from_parts(high: u16, low: u16) -> Self {
+        Self((high as usize) << 16 | (low as usize))
+    }
+}
+
 pub(crate) trait ClusterLike {
     fn to_bytes(self, data_start: usize, bytes_per_cluster: usize) -> usize;
 }
@@ -48,11 +54,12 @@ cluster_impl!(usize);
 pub struct SectorCursor<DATA: Seek> {
     pub(crate) data: DATA,
     pub(crate) sector_size: usize,
+    pub(crate) cluster_size: usize,
 }
 
 impl<DATA: Seek> SectorCursor<DATA> {
-    pub const fn new(data: DATA, sector_size: usize) -> Self {
-        Self { data, sector_size }
+    pub const fn new(data: DATA, sector_size: usize, cluster_size: usize) -> Self {
+        Self { data, sector_size, cluster_size }
     }
 
     pub fn seek_sector(&mut self, sector: impl SectorLike) -> Result<u64> {

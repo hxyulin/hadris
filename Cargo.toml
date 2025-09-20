@@ -38,6 +38,7 @@ cfg-if = "1.0.0"
 tempfile = "3.19.1"
 chrono = "0.4.40"
 tracing = "0.1.41"
+spin = "0.10.0"
 
 hadris-io = { path = "crates/hadris-io", version = "0.2.0" }
 hadris-iso = { path = "crates/hadris-iso", version = "0.2.0" }

@@ -1,8 +1,9 @@
 use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use hadris_common::types::endian::EndianType;
+use hadris_common::types::file::FixedFilename;
 use hadris_io::{self as io, Write};
 
-use crate::file::{EntryType, FilenameL1, FilenameL2, FilenameL3, FixedFilename};
+use crate::file::{EntryType, FilenameL1, FilenameL2, FilenameL3};
 use crate::path::{PathTableEntry, PathTableEntryHeader};
 use crate::read::PathSeparator;
 use crate::types::{Charset, CharsetD, CharsetD1};

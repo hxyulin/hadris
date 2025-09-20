@@ -10,15 +10,10 @@ pub struct Args {
 fn main() {
     let args = Args::parse();
     let mut file = OpenOptions::new().read(true).open(args.input).unwrap();
-    let mut fat_fs = FatFs::open(&mut file).unwrap();
+    let fat_fs = FatFs::open(&mut file).unwrap();
     let root = fat_fs.root_dir();
-    let mut root = root.entries(&mut fat_fs).unwrap();
-    while let Some(entry) = root.next().unwrap() {
+    for entry in root.entries() {
+        let entry = entry.unwrap();
         println!("{:#?}", entry);
-        let mut reader = entry.handle().read(root.fs).unwrap();
-        let mut contents = String::new();
-        reader.read_to_string(&mut contents).unwrap();
-        println!("Contents: {}", contents);
-        println!("Len: {}", contents.len());
     }
 }

@@ -1,9 +1,9 @@
 use core::ops::DerefMut;
 
+use hadris_common::types::file::FixedFilename;
 use spin::Mutex;
 
 use crate::{
-    file::FixedFilename,
     io::{self, Error, LogicalSector, Read, Seek, SeekFrom, Write},
     read::IsoImage,
     types::EndianType,
