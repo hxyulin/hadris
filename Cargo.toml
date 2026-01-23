@@ -7,7 +7,8 @@ members = [
   "crates/hadris",
   "crates/hadris-io",
   "crates/hadris-part",
-  "crates/hadris-fat", 
+  "crates/hadris-fat",
+  "crates/hadris-fat-cli",
   "crates/hadris-cli",
 ]
 default-members = [
@@ -40,8 +41,8 @@ chrono = "0.4.40"
 tracing = "0.1.41"
 spin = "0.10.0"
 
-hadris-io = { path = "crates/hadris-io", version = "0.2.0" }
-hadris-iso = { path = "crates/hadris-iso", version = "0.2.0" }
-hadris-fat= { path = "crates/hadris-fat", version = "0.2.0" }
-hadris-common = { path = "crates/hadris-common", version = "0.2.0" }
-hadris-part = { path = "crates/hadris-part", version = "0.2.0" }
+hadris-io = { path = "crates/hadris-io", version = "0.2.0", default-features = false }
+hadris-iso = { path = "crates/hadris-iso", version = "0.2.0", default-features = false }
+hadris-fat = { path = "crates/hadris-fat", version = "0.2.0", default-features = false }
+hadris-common = { path = "crates/hadris-common", version = "0.2.0", default-features = false }
+hadris-part = { path = "crates/hadris-part", version = "0.2.0", default-features = false }

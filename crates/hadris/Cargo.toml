@@ -16,5 +16,5 @@ fat = ["dep:hadris-fat"]
 # TODO: Support more file formats
 
 [dependencies]
-hadris-iso = { workspace = true, optional = true }
-hadris-fat = { workspace = true, optional = true }
+hadris-iso = { workspace = true, optional = true, features = ["std", "write"] }
+hadris-fat = { workspace = true, optional = true, features = ["std", "read", "write", "lfn"] }

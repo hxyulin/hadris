@@ -83,6 +83,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.100"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
+
+[[package]]
 name = "autocfg"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -404,6 +410,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-fat-cli"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hadris-fat",
+]
+
+[[package]]
 name = "hadris-io"
 version = "0.2.0"
 dependencies = [
@@ -418,8 +433,10 @@ dependencies = [
  "bitflags",
  "bytemuck",
  "chrono",
+ "criterion",
  "hadris-common",
  "hadris-io",
+ "hadris-part",
  "spin",
  "static_assertions",
  "tempfile",
@@ -441,7 +458,10 @@ dependencies = [
 name = "hadris-part"
 version = "0.2.0"
 dependencies = [
- "hadris-common",
+ "bytemuck",
+ "crc",
+ "hadris-io",
+ "rand",
 ]
 
 [[package]]

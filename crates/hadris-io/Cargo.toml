@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "No-std I/O traits and utilities for the Hadris filesystem crates"
 
 [features]
 default = ["std"]

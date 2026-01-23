@@ -10,7 +10,7 @@ repository.workspace = true
 [features]
 default = ["read", "write", "lfn", "std"]
 alloc = ["chrono/alloc"]
-std = ["alloc", "chrono/std", "chrono/clock"]
+std = ["alloc", "chrono/std", "chrono/clock", "hadris-io/std", "hadris-common/std"]
 read = []
 write = ["alloc", "read"]
 lfn = []

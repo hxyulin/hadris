@@ -5,8 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "CLI utility for filesystem operations"
 
 [dependencies]
-hadris-fat.workspace = true
+hadris-fat = { workspace = true, features = ["std", "read", "write", "lfn"] }
 
 clap = { version = "4.5.32", features = ["derive"] }
