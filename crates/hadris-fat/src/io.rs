@@ -1,4 +1,17 @@
-pub use hadris_io::{Result, Error, Read, Seek, SeekFrom, Write, ReadExt};
+pub use hadris_io::{Result, Error, ErrorKind, Read, Seek, SeekFrom, Write, ReadExt};
+
+/// Create an I/O error from an ErrorKind.
+///
+/// This helper works in both std and no-std modes.
+#[cfg(feature = "std")]
+pub fn error_from_kind(kind: ErrorKind) -> Error {
+    Error::new(kind, "")
+}
+
+#[cfg(not(feature = "std"))]
+pub fn error_from_kind(kind: ErrorKind) -> Error {
+    Error::from_kind(kind)
+}
 
 /// A Type Representing a FAT Sector
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -23,8 +36,10 @@ sector_impl!(u32);
 sector_impl!(u64);
 sector_impl!(usize);
 
+/// Represents a cluster number in a FAT filesystem.
+/// Clusters are the allocation units for file data, starting at cluster 2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Cluster<T = usize>(pub T);
+pub struct Cluster<T = usize>(pub T);
 
 impl Cluster<usize> {
     pub fn from_parts(high: u16, low: u16) -> Self {
@@ -75,16 +90,12 @@ where
         self.data.seek(pos)
     }
 
-    fn rewind(&mut self) -> hadris_io::Result<()> {
-        self.data.rewind()
+    fn stream_position(&mut self) -> hadris_io::Result<u64> {
+        self.data.stream_position()
     }
 
     fn seek_relative(&mut self, offset: i64) -> hadris_io::Result<()> {
         self.data.seek_relative(offset)
-    }
-
-    fn stream_position(&mut self) -> hadris_io::Result<u64> {
-        self.data.stream_position()
     }
 }
 
@@ -98,6 +109,24 @@ where
 
     fn read_exact(&mut self, buf: &mut [u8]) -> hadris_io::Result<()> {
         self.data.read_exact(buf)
+    }
+}
+
+#[cfg(feature = "write")]
+impl<T> Write for SectorCursor<T>
+where
+    T: Write + Seek,
+{
+    fn write(&mut self, buf: &[u8]) -> hadris_io::Result<usize> {
+        self.data.write(buf)
+    }
+
+    fn flush(&mut self) -> hadris_io::Result<()> {
+        self.data.flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> hadris_io::Result<()> {
+        self.data.write_all(buf)
     }
 }
 

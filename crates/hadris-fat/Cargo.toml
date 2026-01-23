@@ -1,6 +1,6 @@
 [package]
 name = "hadris-fat"
-description = "A library for working with FAT12, FAT16, FAT32, vFAT, and exFAT file systems"
+description = "A library for working with FAT32 file systems (FAT12/16/exFAT planned)"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -14,6 +14,12 @@ std = ["alloc", "chrono/std", "chrono/clock"]
 read = []
 write = ["alloc", "read"]
 lfn = []
+# FAT sector caching for reduced I/O operations
+cache = ["alloc"]
+# Analysis and diagnostic APIs
+tool = ["alloc", "read"]
+# exFAT filesystem support
+exfat = ["alloc"]
 
 [dependencies]
 hadris-common = { workspace = true }

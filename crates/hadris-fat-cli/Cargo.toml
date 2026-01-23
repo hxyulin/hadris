@@ -1,0 +1,17 @@
+[package]
+name = "hadris-fat-cli"
+description = "CLI utility for FAT filesystem analysis and management"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "fatutil"
+path = "src/main.rs"
+
+[dependencies]
+hadris-fat = { workspace = true, features = ["std", "read", "write", "lfn", "tool"] }
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
