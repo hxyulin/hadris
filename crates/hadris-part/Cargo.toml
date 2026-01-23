@@ -5,6 +5,17 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Partition table support for MBR, GPT, and Hybrid MBR"
+
+[features]
+default = ["std"]
+std = ["alloc", "hadris-io/std"]
+alloc = []
+read = []
+write = ["alloc", "read"]
 
 [dependencies]
-hadris-common.workspace = true
+hadris-io = { workspace = true, default-features = false }
+bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
+crc = { version = "3", default-features = false, optional = true }
+rand = { version = "0.9", default-features = false, optional = true, features = ["thread_rng"] }
