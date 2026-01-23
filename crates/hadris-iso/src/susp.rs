@@ -1,6 +1,6 @@
 //! System Use Sharing Protocol
 
-use hadris_io::{self as io, Parsable, Read, Seek, ReadExt, Writable};
+use hadris_io::{self as io, Read, ReadExt, Writable};
 
 use crate::types::U32LsbMsb;
 
@@ -240,7 +240,6 @@ pub enum SystemUseField {
 pub struct SystemUseIter<'a> {
     data: &'a [u8],
     offset: usize,
-    bytes_to_skip: usize,
 }
 
 impl<'a> SystemUseIter<'a> {
@@ -253,7 +252,6 @@ impl<'a> SystemUseIter<'a> {
         Self {
             data,
             offset: bytes_to_skip,
-            bytes_to_skip,
         }
     }
 }

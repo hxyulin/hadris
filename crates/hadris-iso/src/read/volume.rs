@@ -8,12 +8,17 @@ use crate::{
 pub struct VolumeDescriptorIter<'ctx, DATA: Read + Seek> {
     pub(crate) data: &'ctx Mutex<IsoCursor<DATA>>,
     pub(crate) current_sector: LogicalSector,
+    pub(crate) done: bool,
 }
 
 impl<DATA: Read + Seek> Iterator for VolumeDescriptorIter<'_, DATA> {
     type Item = io::Result<VolumeDescriptor>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
         let mut data = self.data.lock();
         let _current_offset = try_io!(data.seek_sector(self.current_sector));
         self.current_sector += 1;
@@ -28,9 +33,10 @@ impl<DATA: Read + Seek> Iterator for VolumeDescriptorIter<'_, DATA> {
         let mut buf = [0u8; 2048];
         try_io!(data.read_exact(&mut buf));
 
-        match VolumeDescriptor::new(buf) {
-            VolumeDescriptor::End(_) => None,
-            other => Some(Ok(other)),
+        let descriptor = VolumeDescriptor::new(buf);
+        if matches!(descriptor, VolumeDescriptor::End(_)) {
+            self.done = true;
         }
+        Some(Ok(descriptor))
     }
 }

@@ -22,7 +22,7 @@ impl AddAssign<usize> for LogicalSector {
 
 /// A Logical Sector, size has to be 2^n and > 512
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct LogicalBlock(pub usize);
+struct _LogicalBlock(pub usize);
 
 pub struct IsoCursor<DATA: Seek> {
     pub data: DATA,

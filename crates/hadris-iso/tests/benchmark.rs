@@ -2,8 +2,8 @@
 //!
 //! Run with: cargo test --release -p hadris-iso --test benchmark -- --nocapture
 
-use std::fs::{self, File};
-use std::io::{Cursor, Read};
+use std::fs;
+use std::io::Cursor;
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;

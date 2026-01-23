@@ -12,7 +12,6 @@ use std::path::Path;
 
 use hadris_iso::directory::FileFlags;
 use hadris_iso::read::IsoImage;
-use hadris_iso::types::Endian as _;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

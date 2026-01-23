@@ -738,7 +738,7 @@ fn test_hadris_bootable_iso_creation() {
     assert_eq!(sector_count, 4, "Sector count should be 4");
 
     // Find the boot image file to verify LBA
-    let mut boot_image_lba: Option<u32> = None;
+    let _boot_image_lba: Option<u32> = None;
     let pvd_offset = 16 * 2048;
     let root_dir_lba = u32::from_le_bytes([
         iso_data[pvd_offset + 158],

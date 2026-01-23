@@ -1,6 +1,6 @@
 # Hadris ISO
 
-A comprehensive Rust implementation of the ISO 9660 filesystem with support for Joliet, Rock Ridge (RRIP), El-Torito booting, and no-std environments.
+A comprehensive Rust implementation of the ISO 9660 filesystem with support for Joliet, Rock Ridge (RRIP), SUSP, El-Torito booting, and no-std environments.
 
 ## Features
 
@@ -8,8 +8,9 @@ A comprehensive Rust implementation of the ISO 9660 filesystem with support for 
 - **No-std Compatible** - Use in bootloaders and custom kernels
 - **El-Torito Boot** - Create bootable CD/DVD images for BIOS systems
 - **Joliet Extension** - UTF-16 Unicode filenames (up to 64 characters)
-- **Rock Ridge Extension** - POSIX filesystem semantics (long names, permissions, symlinks)
-- **ISO 9660:1999** - Long filenames up to 207 characters
+- **Rock Ridge (RRIP) Extension** - POSIX filesystem semantics (long names, permissions, symlinks)
+- **SUSP (System Use Sharing Protocol)** - Standardized extension framework
+- **ISO 9660:1999** - Long filenames up to 207 characters with proper Level 2/3 compliance
 
 ## Quick Start
 
@@ -123,10 +124,11 @@ hadris-iso = { version = "0.2" }  # Uses default features
 
 | Extension | Read | Write | Notes |
 |-----------|------|-------|-------|
-| ISO 9660 Level 1-3 | Yes | Yes | 8.3 to 31 character filenames |
-| ISO 9660:1999 | Yes | Yes | Long filenames up to 207 chars |
+| ISO 9660 Level 1-3 | Yes | Yes | 8.3 to 31 character filenames, proper truncation handling |
+| ISO 9660:1999 | Yes | Yes | Long filenames up to 207 chars (Level 2/3 compliance) |
+| SUSP | Yes | Yes | System Use Sharing Protocol for extension framework |
 | Joliet | Yes | Yes | UTF-16 BE, up to 64 characters |
-| Rock Ridge (RRIP) | Yes | Yes | POSIX semantics, symlinks |
+| Rock Ridge (RRIP) | Yes | Yes | POSIX semantics, symlinks, uses SUSP |
 | El-Torito | Yes | Yes | BIOS bootable images |
 | Hybrid Boot (MBR/GPT) | - | Yes | USB bootable images (MBR, GPT, or dual) |
 
@@ -168,8 +170,9 @@ ISOs created with this crate are compatible with:
 ## Specification References
 
 - ECMA-119 (ISO 9660)
+- IEEE P1281 (System Use Sharing Protocol / SUSP)
+- IEEE P1282 (Rock Ridge Interchange Protocol / RRIP)
 - Joliet Specification (Microsoft)
-- IEEE P1282 (Rock Ridge / RRIP)
 - El-Torito Bootable CD-ROM Format Specification
 
 ## License

@@ -22,6 +22,7 @@ pub enum FilenameType {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct IsoImageInfo {
     block_size: usize,
     sector_size: usize,
@@ -178,6 +179,7 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         VolumeDescriptorIter {
             data: &self.data,
             current_sector: LogicalSector(16),
+            done: false,
         }
     }
 

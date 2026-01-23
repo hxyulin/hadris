@@ -186,7 +186,7 @@
 //!
 //! - [`boot`] - El-Torito boot catalog structures and options
 //! - [`directory`] - Directory record parsing and creation
-//! - [`file`] - File entry types and filename handling
+//! - [`mod@file`] - File entry types and filename handling
 //! - [`io`] - Sector-based I/O abstractions
 //! - [`joliet`] - Joliet UTF-16 extension support
 //! - [`path`] - Path table structures
@@ -195,7 +195,7 @@
 //! - [`susp`] - System Use Sharing Protocol (base for Rock Ridge)
 //! - [`types`] - Common types (endian values, strings, dates)
 //! - [`volume`] - Volume descriptor structures
-//! - [`write`] - ISO image creation
+//! - [`mod@write`] - ISO image creation
 //!
 //! ## Compatibility
 //!
@@ -232,7 +232,7 @@ extern crate std;
 
 /// Directory record structures for parsing and creating directory entries.
 ///
-/// This module provides the [`DirectoryRecord`] type which represents a single
+/// This module provides the `DirectoryRecord` type which represents a single
 /// entry in an ISO 9660 directory. Each record contains metadata about a file
 /// or subdirectory including its location, size, timestamps, and flags.
 ///
@@ -256,14 +256,14 @@ pub mod directory;
 /// - **Level 2**: Up to 31 characters
 /// - **Level 3**: Up to 207 characters
 ///
-/// This module also handles the [`EntryType`] enum which tracks which
+/// This module also handles the `EntryType` enum which tracks which
 /// extensions (Joliet, Rock Ridge) are available for a given entry.
 pub mod file;
 
 /// Sector-based I/O abstractions for reading and writing ISOs.
 ///
 /// ISO 9660 uses 2048-byte sectors as its fundamental unit. This module
-/// provides [`IsoCursor`] which wraps any `Read + Seek` type and provides
+/// provides `IsoCursor` which wraps any `Read + Seek` type and provides
 /// sector-aligned operations.
 pub mod io;
 
@@ -277,18 +277,18 @@ pub mod path;
 /// Common types used throughout the crate.
 ///
 /// This includes:
-/// - Endian-aware integer types ([`U16`], [`U32`], [`BothEndian`])
+/// - Endian-aware integer types (`U16`, `U32`, `BothEndian`)
 /// - ISO 9660 string types with character set restrictions
-/// - Date/time structures ([`DecDateTime`], [`BinDateTime`])
+/// - Date/time structures (`DecDateTime`, `BinDateTime`)
 pub mod types;
 
 /// Volume descriptor structures.
 ///
 /// Volume descriptors are located starting at sector 16 and describe the
 /// overall structure of the ISO image. Types include:
-/// - [`PrimaryVolumeDescriptor`] - Required, contains basic image info
-/// - [`SupplementaryVolumeDescriptor`] - For Joliet and other extensions
-/// - [`BootRecordVolumeDescriptor`] - For El-Torito boot support
+/// - `PrimaryVolumeDescriptor` - Required, contains basic image info
+/// - `SupplementaryVolumeDescriptor` - For Joliet and other extensions
+/// - `BootRecordVolumeDescriptor` - For El-Torito boot support
 pub mod volume;
 
 /// El-Torito boot support.
@@ -354,7 +354,7 @@ pub mod susp;
 
 /// ISO image reading and navigation.
 ///
-/// This module provides the main [`IsoImage`] type for opening and
+/// This module provides the main `IsoImage` type for opening and
 /// navigating ISO 9660 images.
 ///
 /// # Example
@@ -381,7 +381,7 @@ pub mod read;
 
 /// ISO image creation and formatting.
 ///
-/// This module provides [`IsoImageWriter`] for creating new ISO images
+/// This module provides `IsoImageWriter` for creating new ISO images
 /// with full support for El-Torito boot, Joliet, and Rock Ridge extensions.
 ///
 /// # Example

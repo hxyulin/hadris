@@ -11,10 +11,9 @@ use crate::susp::{SystemUseEntry, SystemUseHeader};
 use crate::types::U32LsbMsb;
 use hadris_io::{self as io, Read, Writable, Write};
 
-/// POSIX file mode bits
 #[cfg(feature = "alloc")]
 bitflags::bitflags! {
-    /// POSIX file mode for PX entries
+    /// POSIX file mode bits for PX entries
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct PosixFileMode: u32 {
         // File type bits (high nibble of mode)
@@ -219,10 +218,9 @@ impl Writable for PnEntry {
     }
 }
 
-/// Flags for NM (alternate name) entries
 #[cfg(feature = "alloc")]
 bitflags::bitflags! {
-    /// Flags for NM entries
+    /// Flags for NM (alternate name) entries
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct NmFlags: u8 {
         /// Name continues in next NM entry
@@ -320,10 +318,9 @@ impl Writable for NmEntry {
     }
 }
 
-/// Flags for SL (symbolic link) component records
 #[cfg(feature = "alloc")]
 bitflags::bitflags! {
-    /// Flags for symbolic link components
+    /// Flags for SL (symbolic link) component records
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct SlComponentFlags: u8 {
         /// Component continues in next record
@@ -486,10 +483,9 @@ impl Writable for SlEntry {
     }
 }
 
-/// Flags for TF (timestamp) entries
 #[cfg(feature = "alloc")]
 bitflags::bitflags! {
-    /// Flags indicating which timestamps are present
+    /// Flags for TF (timestamp) entries indicating which timestamps are present
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct TfFlags: u8 {
         /// Creation time present

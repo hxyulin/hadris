@@ -4,7 +4,7 @@ use hadris_common::types::file::FixedFilename;
 use hadris_io::{self as io, Write};
 
 use crate::file::{EntryType, FilenameL1, FilenameL2, FilenameL3};
-use crate::path::{PathTableEntry, PathTableEntryHeader};
+use crate::path::PathTableEntryHeader;
 use crate::read::PathSeparator;
 use crate::types::{Charset, CharsetD, CharsetD1};
 
@@ -236,9 +236,13 @@ pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedFilename<14> {
 pub fn convert_l2(name: &str, supports_lowercase: bool) -> FilenameL2 {
     let mut l2 = FilenameL2::empty();
     let name_bytes = name.as_bytes();
+    // Max: 30 bytes for name (reserve 2 for ";1")
+    const MAX_NAME_LEN: usize = 30;
+
     match name.find('.') {
         Some(index) => {
-            let basename = l2.push_slice(&name_bytes[0..index]);
+            let basename_end = index.min(MAX_NAME_LEN);
+            let basename = l2.push_slice(&name_bytes[0..basename_end]);
             let basename = l2.data[basename].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(basename);
@@ -246,17 +250,23 @@ pub fn convert_l2(name: &str, supports_lowercase: bool) -> FilenameL2 {
                 CharsetD::substitute_invalid(basename);
             }
 
-            l2.push_byte(b'.');
-            let ext = l2.push_slice(&name_bytes[index + 1..]);
-            let ext = l2.data[ext].iter_mut();
-            if supports_lowercase {
-                CharsetD1::substitute_invalid(ext);
-            } else {
-                CharsetD::substitute_invalid(ext);
+            // Calculate remaining space for extension (subtract basename length and 1 for dot)
+            let remaining = MAX_NAME_LEN.saturating_sub(basename_end + 1);
+            if remaining > 0 {
+                l2.push_byte(b'.');
+                let ext_end = (index + 1 + remaining).min(name.len());
+                let ext = l2.push_slice(&name_bytes[index + 1..ext_end]);
+                let ext = l2.data[ext].iter_mut();
+                if supports_lowercase {
+                    CharsetD1::substitute_invalid(ext);
+                } else {
+                    CharsetD::substitute_invalid(ext);
+                }
             }
         }
         None => {
-            let basename = l2.push_slice(&name_bytes[0..name.len()]);
+            let len = name.len().min(MAX_NAME_LEN);
+            let basename = l2.push_slice(&name_bytes[0..len]);
             let basename = l2.data[basename].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(basename);
@@ -272,26 +282,37 @@ pub fn convert_l2(name: &str, supports_lowercase: bool) -> FilenameL2 {
 pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
     let mut l3 = FilenameL3::empty();
     let name_bytes = name.as_bytes();
+    // Max: 207 bytes for name (no version suffix in L3)
+    const MAX_NAME_LEN: usize = 207;
+
     match name.find('.') {
         Some(index) => {
-            let basename = l3.push_slice(&name_bytes[0..index]);
+            let basename_end = index.min(MAX_NAME_LEN);
+            let basename = l3.push_slice(&name_bytes[0..basename_end]);
             let basename = l3.data[basename].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(basename);
             } else {
                 CharsetD::substitute_invalid(basename);
             }
-            l3.push_byte(b'.');
-            let ext = l3.push_slice(&name_bytes[index + 1..]);
-            let ext = l3.data[ext].iter_mut();
-            if supports_lowercase {
-                CharsetD1::substitute_invalid(ext);
-            } else {
-                CharsetD::substitute_invalid(ext);
+
+            // Calculate remaining space for extension (subtract basename length and 1 for dot)
+            let remaining = MAX_NAME_LEN.saturating_sub(basename_end + 1);
+            if remaining > 0 {
+                l3.push_byte(b'.');
+                let ext_end = (index + 1 + remaining).min(name.len());
+                let ext = l3.push_slice(&name_bytes[index + 1..ext_end]);
+                let ext = l3.data[ext].iter_mut();
+                if supports_lowercase {
+                    CharsetD1::substitute_invalid(ext);
+                } else {
+                    CharsetD::substitute_invalid(ext);
+                }
             }
         }
         None => {
-            let basename = l3.push_slice(&name_bytes[0..name.len()]);
+            let len = name.len().min(MAX_NAME_LEN);
+            let basename = l3.push_slice(&name_bytes[0..len]);
             let basename = l3.data[basename].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(basename);
@@ -327,8 +348,8 @@ pub(crate) struct PathTableWriter<'a> {
 
 impl PathTableWriter<'_> {
     pub fn write<DATA: Write>(&mut self, data: &mut DATA) -> io::Result<()> {
-        let mut current_number = 1;
-        let mut dir_id = self.written_files.root_dir();
+        let current_number = 1;
+        let dir_id = self.written_files.root_dir();
         {
             // Write root directory
             let dir = self.written_files.get(&dir_id);
@@ -350,6 +371,7 @@ impl PathTableWriter<'_> {
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
+    use alloc::format;
     use super::*;
 
     #[test]
@@ -359,5 +381,57 @@ mod tests {
         assert_eq!(converted.as_str(), "THIS_IS_._VE;1");
         let converted = convert_l1(orig, true);
         assert_eq!(converted.as_str(), "this_is_._ve;1");
+    }
+
+    #[test]
+    fn test_convert_l2_short_name() {
+        let orig = "readme.txt";
+        let converted = convert_l2(orig, false);
+        assert_eq!(converted.as_str(), "README.TXT;1");
+    }
+
+    #[test]
+    fn test_convert_l2_long_name_truncation() {
+        // Max is 30 bytes for name + 2 for ";1" = 32 total
+        let orig = "this-is-a-very-long-filename-that-should-be-truncated.extension";
+        let converted = convert_l2(orig, false);
+        // Should be truncated to 30 bytes total (basename + dot + ext) + ";1"
+        assert!(converted.len() <= 32, "L2 name too long: {}", converted.len());
+        assert!(converted.as_str().ends_with(";1"));
+    }
+
+    #[test]
+    fn test_convert_l2_no_extension() {
+        let orig = "this-is-a-very-long-directory-name-without-extension";
+        let converted = convert_l2(orig, false);
+        assert!(converted.len() <= 32, "L2 name too long: {}", converted.len());
+        assert!(converted.as_str().ends_with(";1"));
+        // First 30 characters + ";1"
+        assert_eq!(converted.as_str(), "THIS_IS_A_VERY_LONG_DIRECTORY_;1");
+    }
+
+    #[test]
+    fn test_convert_l3_short_name() {
+        let orig = "readme.txt";
+        let converted = convert_l3(orig, false);
+        assert_eq!(converted.as_str(), "README.TXT");
+    }
+
+    #[test]
+    fn test_convert_l3_long_name_truncation() {
+        // Max is 207 bytes for L3
+        let long_name = "a".repeat(250);
+        let converted = convert_l3(&long_name, false);
+        assert!(converted.len() <= 207, "L3 name too long: {}", converted.len());
+        assert_eq!(converted.len(), 207);
+    }
+
+    #[test]
+    fn test_convert_l3_with_extension() {
+        // Create a name that exceeds 207 bytes with extension
+        let basename = "a".repeat(200);
+        let orig = format!("{}.txt", basename);
+        let converted = convert_l3(&orig, false);
+        assert!(converted.len() <= 207, "L3 name too long: {}", converted.len());
     }
 }

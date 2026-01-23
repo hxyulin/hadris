@@ -513,7 +513,7 @@ impl MasterBootRecord {
 
 /// An enum representing the full list of MBR partition types.
 ///
-/// Based on the comprehensive list at https://thestarman.pcministry.com/asm/mbr/PartTypes.htm
+/// Based on the comprehensive list at <https://thestarman.pcministry.com/asm/mbr/PartTypes.htm>
 /// For a simpler interface, use [`MbrPartitionType`].
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

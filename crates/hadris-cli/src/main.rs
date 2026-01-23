@@ -1,4 +1,4 @@
-use std::{fs::OpenOptions, io::Read, path::PathBuf};
+use std::{fs::OpenOptions, path::PathBuf};
 
 use clap::Parser;
 use hadris_fat::FatFs;

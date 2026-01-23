@@ -1723,7 +1723,7 @@ impl Fat32 {
 /// The RawBpb struct represents the boot sector of any FAT partition
 ///
 /// This only contains the common fields of the boot sector, and is not meant to be used directly
-/// for reading or writing to the boot sector, for that, see [`RawBootSector`], which contains
+/// for reading or writing to the boot sector, for that, see `RawBootSector`, which contains
 /// the boot sector and the extended boot sector
 #[repr(C)]
 #[derive(Clone, Copy)]

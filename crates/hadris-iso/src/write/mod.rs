@@ -495,6 +495,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn write_pt_entry(
         &mut self,
         path: &Vec<Arc<String>>,
