@@ -1,51 +1,137 @@
-name: Rust Tests
+name: Rust CI
 
 on:
   push:
     branches:
       - main
+      - dev
   pull_request:
     branches:
       - main
 
-jobs:
-  test:
-    name: Test on ${{ matrix.os }} with Rust ${{ matrix.rust_toolchain }} and features ${{ matrix.features || 'default' }}
-    runs-on: ${{ matrix.os }}
+env:
+  CARGO_TERM_COLOR: always
 
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check workspace (default features)
+        run: cargo check --workspace
+
+  check-features:
+    name: Check feature combinations
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # hadris-io
+          - crate: hadris-io
+            features: ""
+          - crate: hadris-io
+            features: "std"
+
+          # hadris-common
+          - crate: hadris-common
+            features: ""
+          - crate: hadris-common
+            features: "alloc"
+          - crate: hadris-common
+            features: "std"
+          - crate: hadris-common
+            features: "bytemuck"
+
+          # hadris-part
+          - crate: hadris-part
+            features: ""
+          - crate: hadris-part
+            features: "alloc"
+          - crate: hadris-part
+            features: "std"
+          - crate: hadris-part
+            features: "read"
+          - crate: hadris-part
+            features: "std,write"
+
+          # hadris-fat
+          - crate: hadris-fat
+            features: "read"
+          - crate: hadris-fat
+            features: "std,read"
+          - crate: hadris-fat
+            features: "std,read,write"
+          - crate: hadris-fat
+            features: "std,read,write,lfn"
+          - crate: hadris-fat
+            features: "std,read,write,lfn,cache"
+          - crate: hadris-fat
+            features: "std,read,write,lfn,tool"
+
+          # hadris-iso
+          - crate: hadris-iso
+            features: "read"
+          - crate: hadris-iso
+            features: "std"
+          - crate: hadris-iso
+            features: "std,write"
+          - crate: hadris-iso
+            features: "std,write,joliet"
+
+          # hadris (meta-crate)
+          - crate: hadris
+            features: ""
+          - crate: hadris
+            features: "iso9660"
+          - crate: hadris
+            features: "fat"
+          - crate: hadris
+            features: "iso9660,fat"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check ${{ matrix.crate }} with features "${{ matrix.features }}"
+        run: cargo check -p ${{ matrix.crate }} --no-default-features --features "${{ matrix.features }}"
+
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust_toolchain: [stable]
-        features:
-          # not yet supported
-          # - ""
-          - "default"
-          - "std"
-          - "std,extra-checks"
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cargo test --workspace
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.rust_toolchain }}
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v4
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Compiles with specified features
-        run: |
-            cargo check --workspace --verbose --no-default-features --features "${{ matrix.features }}"
-        shell: bash
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Run clippy
+        run: cargo clippy --workspace -- -D warnings
