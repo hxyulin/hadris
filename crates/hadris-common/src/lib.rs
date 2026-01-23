@@ -1,8 +1,18 @@
-/// Algorithms
+//! Common types and functions used by Hadris
+
+#![no_std]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(feature = "std")]
+extern crate std;
+
+/// Algorithms (requires std for CRC and random)
+#[cfg(feature = "std")]
 pub mod alg;
-/// Partitions
-pub mod part;
-/// Strings
+/// Strings (requires alloc for String/Vec)
+#[cfg(feature = "alloc")]
 pub mod str;
 /// Types
 pub mod types;

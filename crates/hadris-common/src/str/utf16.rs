@@ -1,3 +1,6 @@
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use crate::types::{
     endian::{Endian, LittleEndian},
     number::U16,

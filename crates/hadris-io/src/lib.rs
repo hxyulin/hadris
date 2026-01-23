@@ -5,20 +5,25 @@
 
 #![no_std]
 
-extern crate alloc;
-
 #[cfg(feature = "std")]
 extern crate std;
-use core::ops::{Index, IndexMut};
+
+// Re-export std types when std feature is enabled
 #[cfg(feature = "std")]
 pub use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 #[cfg(feature = "std")]
 pub use std::path::{Path, PathBuf};
 
+// No-std implementations
 #[cfg(not(feature = "std"))]
 mod error;
 #[cfg(not(feature = "std"))]
-pub use error::Error;
+pub use error::{Error, ErrorKind, Result};
+
+#[cfg(not(feature = "std"))]
+mod traits;
+#[cfg(not(feature = "std"))]
+pub use traits::{Read, Seek, SeekFrom, Write};
 
 #[macro_export]
 macro_rules! try_io_result_option {
@@ -60,6 +65,7 @@ impl<T: Read> ReadExt for T {
     }
 }
 
+/// A no-std compatible Cursor for reading from byte slices
 pub struct Cursor<'a> {
     data: &'a [u8],
     cursor: usize,
@@ -69,6 +75,18 @@ impl<'a> Cursor<'a> {
     pub fn new(data: &'a [u8]) -> Self {
         Self { data, cursor: 0 }
     }
+
+    pub fn position(&self) -> usize {
+        self.cursor
+    }
+
+    pub fn set_position(&mut self, pos: usize) {
+        self.cursor = pos;
+    }
+
+    pub fn get_ref(&self) -> &'a [u8] {
+        self.data
+    }
 }
 
 impl Read for Cursor<'_> {
@@ -77,5 +95,25 @@ impl Read for Cursor<'_> {
         buf[0..to_read].copy_from_slice(&self.data[self.cursor..self.cursor + to_read]);
         self.cursor += to_read;
         Ok(to_read)
+    }
+}
+
+impl Seek for Cursor<'_> {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+        let new_pos = match pos {
+            SeekFrom::Start(offset) => offset as i64,
+            SeekFrom::End(offset) => self.data.len() as i64 + offset,
+            SeekFrom::Current(offset) => self.cursor as i64 + offset,
+        };
+
+        if new_pos < 0 {
+            #[cfg(feature = "std")]
+            return Err(Error::new(ErrorKind::InvalidInput, "invalid seek to negative position"));
+            #[cfg(not(feature = "std"))]
+            return Err(Error::new(ErrorKind::InvalidInput, "invalid seek to negative position"));
+        }
+
+        self.cursor = new_pos as usize;
+        Ok(self.cursor as u64)
     }
 }

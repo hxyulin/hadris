@@ -1,6 +1,6 @@
 use crate::types::endian::{BigEndian, Endian, Endianness, LittleEndian};
 use core::marker::PhantomData;
-use std::ops::{Add, BitAnd, Not, Rem, Sub};
+use core::ops::{Add, BitAnd, Not, Sub};
 
 /// A 16-bit unsigned integer with a specified endianness.
 #[repr(transparent)]
