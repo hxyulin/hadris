@@ -1,7 +1,9 @@
 use hadris_common::types::file::FixedFilename;
 
+#[cfg(feature = "alloc")]
 use crate::joliet::JolietLevel;
 
+/// The type of directory entry, indicating the ISO interchange level and features
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord)]
 pub enum EntryType {
     Level1 {
@@ -16,6 +18,7 @@ pub enum EntryType {
         supports_lowercase: bool,
         supports_rrip: bool,
     },
+    #[cfg(feature = "alloc")]
     Joliet {
         level: JolietLevel,
         supports_rrip: bool,
@@ -49,6 +52,7 @@ impl EntryType {
                 supports_lowercase,
                 supports_rrip,
             } => 0x02 | (supports_lowercase as u8) << 2 | (supports_rrip as u8) << 4,
+            #[cfg(feature = "alloc")]
             Self::Joliet {
                 level,
                 supports_rrip,

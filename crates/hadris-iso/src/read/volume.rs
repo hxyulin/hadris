@@ -1,6 +1,3 @@
-use core::ops::DerefMut;
-
-use hadris_io::Parsable;
 use spin::Mutex;
 
 use crate::{
@@ -20,12 +17,18 @@ impl<DATA: Read + Seek> Iterator for VolumeDescriptorIter<'_, DATA> {
         let mut data = self.data.lock();
         let _current_offset = try_io!(data.seek_sector(self.current_sector));
         self.current_sector += 1;
+
+        #[cfg(feature = "std")]
         tracing::trace!(
             "attempting to read volume descriptor at offset: {:#x}",
             _current_offset
         );
 
-        match try_io!(VolumeDescriptor::parse(data.deref_mut())) {
+        // Read the raw sector data and parse into VolumeDescriptor
+        let mut buf = [0u8; 2048];
+        try_io!(data.read_exact(&mut buf));
+
+        match VolumeDescriptor::new(buf) {
             VolumeDescriptor::End(_) => None,
             other => Some(Ok(other)),
         }

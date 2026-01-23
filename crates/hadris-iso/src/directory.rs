@@ -1,7 +1,5 @@
-use std::io::Read;
-
 use bytemuck::Zeroable;
-use hadris_io::{self as io, Write};
+use hadris_io::{self as io, Read, Write};
 
 use crate::{
     io::LogicalSector,
@@ -69,9 +67,18 @@ impl Default for DirectoryRecord {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("not a directory")]
+/// Error returned when trying to access a file as a directory
+#[derive(Debug, Clone, Copy)]
 pub struct NotADirectoryError;
+
+impl core::fmt::Display for NotADirectoryError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "not a directory")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for NotADirectoryError {}
 
 impl DirectoryRecord {
     const DATA_START: usize = size_of::<DirectoryRecordHeader>();
@@ -90,6 +97,21 @@ impl DirectoryRecord {
     pub fn name(&self) -> &[u8] {
         let len = self.header().file_identifier_len as usize;
         &self.data[Self::DATA_START..Self::DATA_START + len]
+    }
+
+    /// Get the filename decoded from Joliet (UTF-16 BE) encoding
+    ///
+    /// This is useful when reading from a Joliet supplementary volume descriptor.
+    /// Returns the decoded Unicode string.
+    #[cfg(feature = "alloc")]
+    pub fn joliet_name(&self) -> alloc::string::String {
+        crate::joliet::decode_joliet_name(self.name())
+    }
+
+    /// Check if this entry's name appears to be Joliet-encoded (UTF-16 BE)
+    #[cfg(feature = "alloc")]
+    pub fn is_joliet_name(&self) -> bool {
+        crate::joliet::is_likely_joliet_name(self.name())
     }
 
     #[inline]
@@ -213,6 +235,7 @@ impl Default for DirDateTime {
 }
 
 impl DirDateTime {
+    #[cfg(feature = "std")]
     pub fn now() -> Self {
         use chrono::{Datelike, Timelike, Utc};
         let now = Utc::now();
@@ -226,6 +249,12 @@ impl DirDateTime {
             // UTC offset is always 0
             offset: 0,
         }
+    }
+
+    /// Creates a zeroed datetime for no-std environments
+    #[cfg(not(feature = "std"))]
+    pub fn now() -> Self {
+        Self::default()
     }
 }
 

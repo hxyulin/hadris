@@ -1,6 +1,6 @@
 use crate::{
     boot::{BaseBootCatalog, BootSectionHeaderEntry},
-    io::LogicalSector,
+    io::{IsoCursor, LogicalSector},
     read::IsoImage,
 };
 use bytemuck::Zeroable;
@@ -23,19 +23,34 @@ impl BootInfo {
         &'a self,
         image: &'a IsoImage<R>,
     ) -> BootSectionIter<'a, R> {
-        todo!()
+        // Boot catalog structure:
+        // - Validation Entry (32 bytes) at sector start
+        // - Default/Initial Entry (32 bytes)
+        // - Section Headers and Entries follow (32 bytes each)
+        // We start reading section headers after the first 64 bytes
+        let catalog_byte_offset = (self.catalog_ptr.0 as u64) * 2048 + 64;
+        BootSectionIter {
+            data: &image.data,
+            current_seek: catalog_byte_offset,
+            has_more: true,
+        }
     }
 
-    pub fn default_entry(&self) -> BootEntryInfo {
+    /// Returns the default boot entry information.
+    ///
+    /// Returns `None` if the default entry is not valid (malformed boot catalog).
+    pub fn default_entry(&self) -> Option<BootEntryInfo> {
         let entry = &self.catalog.default_entry;
-        assert!(entry.is_valid());
-        BootEntryInfo {
+        if !entry.is_valid() {
+            return None;
+        }
+        Some(BootEntryInfo {
             bootable: entry.boot_indicator == 0x88,
             meadia_type: entry.boot_media_type,
             load_segment: entry.load_segment.get(),
             sector_count: entry.sector_count.get(),
             load_rba: entry.load_rba.get(),
-        }
+        })
     }
 }
 
@@ -49,7 +64,7 @@ pub struct BootEntryInfo {
 }
 
 pub struct BootSectionIter<'data, DATA: Read + Seek> {
-    data: &'data Mutex<DATA>,
+    data: &'data Mutex<IsoCursor<DATA>>,
     current_seek: u64,
     has_more: bool,
 }
@@ -64,22 +79,36 @@ impl<DATA: Read + Seek> Iterator for BootSectionIter<'_, DATA> {
         use hadris_io::try_io_result_option as try_io;
         try_io!(data.seek(SeekFrom::Start(self.current_seek)));
         let mut header = BootSectionHeaderEntry::zeroed();
-        loop {
+
+        // Limit iterations to prevent infinite loop on malformed data
+        const MAX_ENTRIES_PER_SECTOR: usize = 64; // 2048 / 32 = 64 entries max per sector
+        for _ in 0..MAX_ENTRIES_PER_SECTOR {
             try_io!(data.read_exact(bytemuck::bytes_of_mut(&mut header)));
+            self.current_seek += 32; // Each entry is 32 bytes
 
             match header.header_type {
-                0x00 => panic!("should have stopped reading!"),
+                0x00 => {
+                    // Terminator entry - no more sections
+                    self.has_more = false;
+                    return None;
+                }
                 0x90 => {
+                    // Section header with more sections following
                     self.has_more = true;
                     return Some(Ok(header));
                 }
                 0x91 => {
+                    // Final section header
                     self.has_more = false;
                     return Some(Ok(header));
                 }
-                // We skip past entries
+                // Skip past boot entries (not section headers)
                 _ => continue,
             }
         }
+
+        // Exceeded max iterations - malformed boot catalog
+        self.has_more = false;
+        None
     }
 }

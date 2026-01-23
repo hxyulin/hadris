@@ -5,9 +5,11 @@ use spin::Mutex;
 
 use crate::{
     io::{self, Error, LogicalSector, Read, Seek, SeekFrom, Write},
-    read::IsoImage,
     types::EndianType,
 };
+
+#[cfg(feature = "alloc")]
+use crate::read::IsoImage;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -83,10 +85,13 @@ pub struct PathTableRef {
     pub(crate) size: u64,
 }
 
+/// Path table information (requires alloc for iterator support)
+#[cfg(feature = "alloc")]
 pub struct PathTableInfo {
     pub(crate) path_table: PathTableRef,
 }
 
+#[cfg(feature = "alloc")]
 impl PathTableInfo {
     pub fn entries<'a, DATA: Read + Seek>(
         &self,
@@ -97,16 +102,25 @@ impl PathTableInfo {
         } else {
             self.path_table.mpt
         };
-        todo!()
+        // Path table starts at the given sector, convert to byte offset
+        let start_byte = (start.0 as u64) * 2048;
+        let end_byte = start_byte + self.path_table.size;
+        PathTableEntryIter {
+            data: &image.data,
+            current: start_byte,
+            end: end_byte,
+        }
     }
 }
 
+#[cfg(feature = "alloc")]
 pub struct PathTableEntryIter<'a, DATA: Read + Seek> {
-    data: &'a Mutex<DATA>,
+    data: &'a Mutex<crate::io::IsoCursor<DATA>>,
     current: u64,
     end: u64,
 }
 
+#[cfg(feature = "alloc")]
 impl<DATA: Read + Seek> Iterator for PathTableEntryIter<'_, DATA> {
     type Item = io::Result<PathTableEntry>;
 

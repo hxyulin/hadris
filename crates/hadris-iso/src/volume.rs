@@ -1,6 +1,9 @@
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 use core::{ffi::CStr, fmt::Debug};
-use hadris_io::{Error, Parsable, Read, Write};
+use hadris_io::{self as io, Read, Write};
+#[cfg(feature = "std")]
+use hadris_io::Parsable;
 
 use crate::{
     directory::RootDirectoryEntry,
@@ -8,6 +11,30 @@ use crate::{
         BigEndian, DecDateTime, Endian, IsoStrA, IsoStrD, LittleEndian, U16LsbMsb, U32, U32LsbMsb,
     },
 };
+
+/// Errors that can occur when parsing volume descriptors
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VolumeError {
+    /// I/O error occurred
+    Io,
+    /// Invalid volume descriptor header (missing CD001 signature)
+    InvalidHeader,
+    /// Primary volume descriptor not found
+    PrimaryNotFound,
+}
+
+impl core::fmt::Display for VolumeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Io => write!(f, "I/O error"),
+            Self::InvalidHeader => write!(f, "invalid volume descriptor header (missing CD001 signature)"),
+            Self::PrimaryNotFound => write!(f, "primary volume descriptor not found"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for VolumeError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VolumeDescriptorType {
@@ -51,15 +78,19 @@ pub enum VolumeDescriptor {
     Unknown(UnknownVolumeDescriptor),
 }
 
+#[cfg(feature = "std")]
 impl Parsable for VolumeDescriptor {
-    fn parse<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+    fn parse<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut buf = [0u8; 2048];
         reader.read_exact(&mut buf)?;
         let header = VolumeDescriptorHeader::from_bytes(&buf[0..7]);
         if !header.is_valid() {
             // Invalid, which means either we are at the wrong place, or the writer didn't
             // write an end record
-            panic!("Invalid volume descriptor header, did you forget to seek to LBA 16?");
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid volume descriptor header (missing CD001 signature)",
+            ));
         }
 
         Ok(VolumeDescriptor::new(buf))
@@ -105,11 +136,13 @@ impl VolumeDescriptor {
     }
 }
 
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
 pub struct VolumeDescriptorList {
     pub descriptors: Vec<VolumeDescriptor>,
 }
 
+#[cfg(feature = "alloc")]
 impl VolumeDescriptorList {
     pub fn empty() -> Self {
         Self {
@@ -120,7 +153,12 @@ impl VolumeDescriptorList {
     /// Parse the volume descriptor list from the given reader
     ///
     /// The caller should seek to the start of the volume descriptor list, which is usually at LBA 16
-    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, Error> {
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - I/O error occurs
+    /// - Volume descriptor header is invalid (missing CD001 signature)
+    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
         let mut descriptors = Vec::new();
         let mut buffer = [0u8; 2048];
         loop {
@@ -133,7 +171,10 @@ impl VolumeDescriptorList {
             if !header.is_valid() {
                 // Invalid, which means either we are at the wrong place, or the writer didn't
                 // write an end record
-                panic!("Invalid volume descriptor header, did you forget to seek to LBA 16?");
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Invalid volume descriptor header (missing CD001 signature)",
+                ));
             }
 
             descriptors.push(VolumeDescriptor::new(buffer));
@@ -200,7 +241,7 @@ impl VolumeDescriptorList {
         self.descriptors.insert(index, descriptor);
     }
 
-    pub fn write<W: Write>(&self, writer: &mut W) -> Result<usize, Error> {
+    pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
         let mut written = 0;
         for descriptor in &self.descriptors {
             writer.write_all(&descriptor.as_bytes())?;

@@ -1,8 +1,11 @@
 use core::marker::PhantomData;
 pub use hadris_common::types::{endian::*, number::*};
+
+#[cfg(feature = "std")]
 use std::time::SystemTime;
 
-use alloc::{format, string::ToString, vec, vec::Vec};
+#[cfg(feature = "alloc")]
+use alloc::{string::ToString, vec::Vec};
 
 pub trait Charset: Copy {
     fn is_valid<'a>(bytes: impl Iterator<Item = &'a u8>) -> bool;
@@ -174,12 +177,15 @@ impl<C: Charset, const N: usize> core::fmt::Debug for IsoStr<C, N> {
     }
 }
 
+/// A dynamically-sized ISO string (requires alloc feature)
+#[cfg(feature = "alloc")]
 #[derive(Clone, PartialEq, Eq)]
 pub struct IsoString<C: Charset> {
     chars: Vec<u8>,
     _marker: PhantomData<C>,
 }
 
+#[cfg(feature = "alloc")]
 impl<C: Charset> From<Vec<u8>> for IsoString<C> {
     fn from(value: Vec<u8>) -> Self {
         // TODO: We should probably check, but it can also be \x00, or \x01
@@ -191,6 +197,7 @@ impl<C: Charset> From<Vec<u8>> for IsoString<C> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<C: Charset> IsoString<C> {
     pub const fn empty() -> Self {
         Self {
@@ -200,6 +207,7 @@ impl<C: Charset> IsoString<C> {
     }
 
     pub fn with_size(size: usize) -> Self {
+        use alloc::vec;
         Self {
             // TODO: Does the spec want spaces or nulls?
             chars: vec![b' '; size],
@@ -256,12 +264,14 @@ impl<C: Charset> IsoString<C> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<C: Charset> core::fmt::Display for IsoString<C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<C: Charset> core::fmt::Debug for IsoString<C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "\"{}\"", self.as_str())
@@ -270,7 +280,9 @@ impl<C: Charset> core::fmt::Debug for IsoString<C> {
 
 pub type IsoStrA<const N: usize> = IsoStr<CharsetA, N>;
 pub type IsoStrD<const N: usize> = IsoStr<CharsetA, N>;
+#[cfg(feature = "alloc")]
 pub type IsoStringA = IsoString<CharsetA>;
+#[cfg(feature = "alloc")]
 pub type IsoStringD = IsoString<CharsetD>;
 
 pub trait StdNum: Copy {
@@ -299,7 +311,7 @@ impl<T> core::fmt::Debug for LsbMsb<T>
 where
     T: StdNum + core::fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         core::fmt::Debug::fmt(&self.read(), f)
     }
 }
@@ -349,21 +361,32 @@ pub struct DecDateTime {
 }
 
 impl core::fmt::Debug for DecDateTime {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("DecDateTime")
-            .field(
-                "date",
-                &format!("{}-{}-{}", self.year, self.month, self.day),
-            )
-            .field(
-                "time",
-                &format!(
-                    "{}:{}:{}.{:.3}",
-                    self.hour, self.minute, self.second, self.hundredths
-                ),
-            )
+            .field("year", &self.year)
+            .field("month", &self.month)
+            .field("day", &self.day)
+            .field("hour", &self.hour)
+            .field("minute", &self.minute)
+            .field("second", &self.second)
+            .field("hundredths", &self.hundredths)
             .field("timezone", &self.timezone)
             .finish_non_exhaustive()
+    }
+}
+
+impl Default for DecDateTime {
+    fn default() -> Self {
+        Self {
+            year: IsoStrD::from_bytes_exact(*b"0000"),
+            month: IsoStrD::from_bytes_exact(*b"00"),
+            day: IsoStrD::from_bytes_exact(*b"00"),
+            hour: IsoStrD::from_bytes_exact(*b"00"),
+            minute: IsoStrD::from_bytes_exact(*b"00"),
+            second: IsoStrD::from_bytes_exact(*b"00"),
+            hundredths: IsoStrD::from_bytes_exact(*b"00"),
+            timezone: 0,
+        }
     }
 }
 
@@ -382,6 +405,12 @@ impl DecDateTime {
             hundredths: IsoStrD::from_str(&(now.nanosecond() / 10_000_000).to_string()).unwrap(),
             timezone: 0,
         }
+    }
+
+    /// Creates a default datetime for no-std environments
+    #[cfg(not(feature = "std"))]
+    pub fn now() -> Self {
+        Self::default()
     }
 }
 

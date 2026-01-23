@@ -13,22 +13,32 @@ exclude = ["/spec"]
 
 [features]
 default = ["std", "write"]
+# No-std + no-alloc read support (minimal, for bootloaders)
+read = ["hadris-common/bytemuck"]
+# Heap allocation without full std
 alloc = []
-std = ["hadris-io/std", "alloc"]
+# Standard library support (includes alloc)
+std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "dep:tracing", "dep:chrono"]
 
-write = ["alloc"]
+write = ["alloc", "std", "hadris-part/write"]
 joliet = ["alloc"]
 
 [dependencies]
 bitflags = { workspace = true, features = ["bytemuck"] }
 bytemuck = { workspace = true, features = ["derive"] }
-thiserror.workspace = true
-chrono.workspace = true
-tracing.workspace = true
+thiserror = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 hadris-io = { workspace = true }
 hadris-common = { workspace = true }
+hadris-part = { workspace = true, default-features = false }
 spin.workspace = true
 
 [dev-dependencies]
 static_assertions.workspace = true
 tempfile.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "iso_benchmarks"
+harness = false

@@ -4,6 +4,7 @@ use crate::joliet::JolietLevel;
 use crate::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
 use crate::{directory::DirectoryRef, path::PathTableRef, volume::VolumeDescriptorList};
 use hadris_common::types::endian::Endian;
+#[cfg(not(feature = "alloc"))]
 use hadris_common::types::no_alloc::ArrayVec;
 use volume::VolumeDescriptorIter;
 

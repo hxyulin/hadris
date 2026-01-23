@@ -38,11 +38,15 @@ impl WrittenFiles {
         }
     }
 
-    pub fn find_file(&self, name: &str, sep: PathSeparator) -> Option<DirectoryRef> {
+    pub fn find_file(&self, name: &str, _sep: PathSeparator) -> Option<DirectoryRef> {
         let mut current_dir = DirectoryId {
             indices: Vec::new(),
         };
-        let mut parts = name.split(sep.as_char()).collect::<Vec<_>>();
+        // Split on both separators for cross-platform compatibility
+        let mut parts: Vec<&str> = name
+            .split(|c| c == '/' || c == '\\')
+            .filter(|s| !s.is_empty())
+            .collect();
         // Empty path, not a valid file
         let filename = parts.pop()?;
         'outer: for part in parts {
@@ -152,7 +156,10 @@ impl EntryType {
                 supports_lowercase, ..
             } => ConvertedName::Level3(convert_l3(name, supports_lowercase)),
             Self::Joliet { level, .. } => match level {
-                JolietLevel::Level3 => ConvertedName::Joliet(convert_joliet3(name)),
+                // All Joliet levels use UTF-16 BE encoding
+                JolietLevel::Level1 | JolietLevel::Level2 | JolietLevel::Level3 => {
+                    ConvertedName::Joliet(convert_joliet3(name))
+                }
             },
         }
     }

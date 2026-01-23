@@ -10,6 +10,6 @@ publish = false
 [dependencies]
 clap = { version = "4.5.32", features = ["derive"] }
 
-hadris-iso.workspace = true
+hadris-iso = { workspace = true, features = ["std", "write", "joliet"] }
 tracing.workspace = true
 tracing-subscriber = "0.3.20"

@@ -3,18 +3,54 @@
 //! This is used for booting from CDs and DVDs
 
 use core::fmt::Debug;
-use hadris_io::{Error, Read, Seek, Write};
-use std::io;
+use hadris_io::{self as io, Read, Seek, Write};
 
+use crate::types::{Endian, LittleEndian, U16, U32};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
+#[cfg(feature = "write")]
 use crate::{
     boot::options::BootOptions,
-    path::PathTableRef,
-    types::{Endian, LittleEndian, U16, U32},
     volume::BootRecordVolumeDescriptor,
     write::{File, InputFiles},
 };
-#[cfg(feature = "alloc")]
-use alloc::{string::ToString, vec::Vec};
+
+/// Errors that can occur during boot catalog operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootError {
+    /// I/O error occurred
+    Io,
+    /// Validation entry checksum is invalid
+    InvalidValidationChecksum,
+    /// Validation entry header ID is invalid (expected 0x01)
+    InvalidValidationHeader,
+    /// Validation entry key bytes are invalid (expected 0x55, 0xAA)
+    InvalidValidationKey,
+    /// Default boot entry is not marked as bootable
+    InvalidDefaultEntry,
+    /// Expected a section header but got something else
+    ExpectedSectionHeader(u8),
+    /// Boot catalog ended unexpectedly (more sections expected)
+    UnexpectedEndOfCatalog,
+}
+
+impl core::fmt::Display for BootError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Io => write!(f, "I/O error"),
+            Self::InvalidValidationChecksum => write!(f, "invalid boot catalog validation checksum"),
+            Self::InvalidValidationHeader => write!(f, "invalid boot catalog validation header (expected 0x01)"),
+            Self::InvalidValidationKey => write!(f, "invalid boot catalog validation key (expected 0x55, 0xAA)"),
+            Self::InvalidDefaultEntry => write!(f, "default boot entry is not marked as bootable"),
+            Self::ExpectedSectionHeader(id) => write!(f, "expected section header, got: {:#x}", id),
+            Self::UnexpectedEndOfCatalog => write!(f, "boot catalog ended unexpectedly"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BootError {}
 
 // Types for El Torito boot catalogue
 // The boot catalogue consists of a series of boot catalogue entries:
@@ -51,16 +87,20 @@ impl BaseBootCatalog {
         }
     }
 
-    pub fn parse<R: Read + Seek>(reader: &mut R) -> io::Result<Self> {
-        debug_assert!(reader.stream_position().unwrap() % 2048 == 0);
+    /// Parse the base boot catalog from the reader
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - I/O error occurs
+    /// - Validation entry checksum is invalid
+    /// - Default entry is not marked as bootable
+    pub fn parse<R: Read + Seek>(reader: &mut R) -> Result<Self, BootError> {
+        let validation = BootValidationEntry::parse(reader).map_err(|_| BootError::Io)?;
+        validation.validate()?;
 
-        let validation = BootValidationEntry::parse(reader)?;
-        if !validation.is_valid() {
-            panic!("Invalid boot catalogue: Validation entry is invalid");
-        }
-        let default_entry = BootSectionEntry::parse(reader)?;
-        if !default_entry.is_valid() {
-            panic!("Invalid boot catalogue: Default boot entry is invalid");
+        let default_entry = BootSectionEntry::parse(reader).map_err(|_| BootError::Io)?;
+        if !default_entry.is_bootable() {
+            return Err(BootError::InvalidDefaultEntry);
         }
 
         Ok(Self {
@@ -69,26 +109,29 @@ impl BaseBootCatalog {
         })
     }
 
-    pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+    pub fn write<W: Write>(&self, writer: &mut W) -> hadris_io::Result<()> {
         writer.write_all(bytemuck::bytes_of(&self.validation))?;
         writer.write_all(bytemuck::bytes_of(&self.default_entry))?;
         Ok(())
     }
 }
 
-/// Boot catalogue
+/// Boot catalogue (requires alloc feature for dynamic sections)
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
 pub struct BootCatalog {
     base: BaseBootCatalog,
     sections: Vec<(BootSectionHeaderEntry, Vec<BootSectionEntry>)>,
 }
 
+#[cfg(feature = "alloc")]
 impl Default for BootCatalog {
     fn default() -> Self {
         Self::new(EmulationType::NoEmulation, 0, 0, 0)
     }
 }
 
+#[cfg(feature = "alloc")]
 impl BootCatalog {
     pub fn new(
         media_type: EmulationType,
@@ -124,7 +167,10 @@ impl BootCatalog {
 
     /// Parse the boot catalogue from the given reader,
     /// expects the reader to seek to the start of the catalogue
-    pub fn parse<T: Read + Seek>(reader: &mut T) -> Result<Self, Error> {
+    ///
+    /// # Errors
+    /// Returns an error if the boot catalog is malformed or an I/O error occurs.
+    pub fn parse<T: Read + Seek>(reader: &mut T) -> Result<Self, BootError> {
         let base = BaseBootCatalog::parse(reader)?;
         let mut sections = Vec::new();
         let mut buffer = [0u8; 32];
@@ -132,7 +178,7 @@ impl BootCatalog {
         let mut header = None;
         let mut entries = Vec::new();
         loop {
-            reader.read_exact(&mut buffer)?;
+            reader.read_exact(&mut buffer).map_err(|_| BootError::Io)?;
             match buffer[0] {
                 0x00 if !has_more => break,
                 0x90 => {
@@ -153,14 +199,16 @@ impl BootCatalog {
                 }
                 id => {
                     if header.is_none() {
-                        panic!("Boot catalogue: expected header, got: {:#x}", id);
+                        return Err(BootError::ExpectedSectionHeader(id));
                     }
                     entries.push(bytemuck::cast(buffer));
                 }
             }
         }
 
-        assert!(!has_more, "Boot catalogue: expected more sections");
+        if has_more {
+            return Err(BootError::UnexpectedEndOfCatalog);
+        }
         if let Some(header) = header {
             sections.push((header, entries));
         }
@@ -181,18 +229,24 @@ impl BootCatalog {
         Ok(())
     }
 
+    /// Returns the total size of the boot catalog in bytes
+    ///
+    /// This includes:
+    /// - 32 bytes for the validation entry
+    /// - 32 bytes for the default/initial entry
+    /// - 32 bytes for each section header
+    /// - 32 bytes for each section entry
+    /// - 32 bytes for the terminator entry
     pub fn size(&self) -> usize {
-        // 32 for the validation entry
-        // 32 for the default entry
-        // For each section:
-        // 32 for header
-        // and 32 for each entry
-        64 + self
+        // Base: validation (32) + default entry (32) = 64 bytes
+        // Each section: header (32) + entries (32 each)
+        // Terminator: 32 bytes
+        let sections_size: usize = self
             .sections
             .iter()
-            .map(|(_, entries)| entries.len() + 1)
-            .sum::<usize>()
-            * 32
+            .map(|(_, entries)| (entries.len() + 1) * 32)
+            .sum();
+        64 + sections_size + 32 // +32 for terminator
     }
 }
 
@@ -294,14 +348,31 @@ impl Debug for BootValidationEntry {
 }
 
 impl BootValidationEntry {
-    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, Error> {
+    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
         let mut buf = [0u8; 32];
         reader.read_exact(&mut buf)?;
         Ok(bytemuck::cast(buf))
     }
 
+    /// Check if the validation entry is valid (legacy method)
     pub fn is_valid(&self) -> bool {
-        self.header_id == 0x01 && self.checksum.get() == self.calculate_checksum()
+        self.header_id == 0x01
+            && self.key == [0x55, 0xAA]
+            && self.checksum.get() == self.calculate_checksum()
+    }
+
+    /// Validate the entry and return a detailed error if invalid
+    pub fn validate(&self) -> Result<(), BootError> {
+        if self.header_id != 0x01 {
+            return Err(BootError::InvalidValidationHeader);
+        }
+        if self.key != [0x55, 0xAA] {
+            return Err(BootError::InvalidValidationKey);
+        }
+        if self.checksum.get() != self.calculate_checksum() {
+            return Err(BootError::InvalidValidationChecksum);
+        }
+        Ok(())
     }
 
     /// Calculates the checksum of the boot catalogue
@@ -435,14 +506,20 @@ impl Debug for BootSectionEntry {
 }
 
 impl BootSectionEntry {
-    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, Error> {
+    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
         let mut buf: [u8; 32] = [0; 32];
         reader.read_exact(&mut buf)?;
         Ok(bytemuck::cast(buf))
     }
 
-    pub fn is_valid(&self) -> bool {
+    /// Check if this entry is marked as bootable (0x88)
+    pub fn is_bootable(&self) -> bool {
         self.boot_indicator == 0x88
+    }
+
+    /// Legacy alias for is_bootable
+    pub fn is_valid(&self) -> bool {
+        self.is_bootable()
     }
 }
 
@@ -493,6 +570,7 @@ impl ElToritoWriter {
         files: &mut InputFiles,
     ) -> BootRecordVolumeDescriptor {
         if opts.write_boot_catalog {
+            use alloc::string::ToString;
             use std::sync::Arc;
 
             let size = 96 + opts.entries.len() * 64;
@@ -512,21 +590,13 @@ impl ElToritoWriter {
         }
         BootRecordVolumeDescriptor::new(0)
     }
-
-    /// Writes the boot catalogue and boot info table to the given writer
-    pub fn write_catalog_and_table<W: Read + Write + Seek>(
-        _writer: &mut W,
-        _opts: &BootOptions,
-        _path_table: &PathTableRef,
-    ) -> Result<(), Error> {
-        todo!()
-    }
 }
 
+#[cfg(feature = "write")]
 pub mod options {
     use alloc::string::String;
+    use alloc::vec::Vec;
     use core::num::NonZeroU16;
-    use std::vec::Vec;
 
     use crate::boot::{EmulationType, PlatformId};
 
@@ -585,9 +655,11 @@ pub mod options {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
 
     static_assertions::assert_eq_size!(BootValidationEntry, [u8; 32]);
     static_assertions::assert_eq_size!(BootSectionHeaderEntry, [u8; 32]);
@@ -596,4 +668,134 @@ mod tests {
     static_assertions::assert_eq_align!(BootValidationEntry, u8);
     static_assertions::assert_eq_align!(BootSectionHeaderEntry, u8);
     static_assertions::assert_eq_align!(BootSectionEntry, u8);
+
+    #[test]
+    fn test_validation_entry_new() {
+        let entry = BootValidationEntry::new();
+        assert_eq!(entry.header_id, 0x01);
+        assert_eq!(entry.key, [0x55, 0xAA]);
+        assert!(entry.is_valid());
+        assert!(entry.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validation_entry_checksum() {
+        let entry = BootValidationEntry::new();
+        // Checksum should be calculated so that sum of all 16-bit words = 0
+        let bytes = bytemuck::bytes_of(&entry);
+        let mut sum = 0u16;
+        for i in (0..32).step_by(2) {
+            let value = u16::from_le_bytes([bytes[i], bytes[i + 1]]);
+            sum = sum.wrapping_add(value);
+        }
+        assert_eq!(sum, 0, "checksum should make total sum equal to 0");
+    }
+
+    #[test]
+    fn test_validation_entry_invalid_header() {
+        let mut entry = BootValidationEntry::new();
+        entry.header_id = 0x00;
+        assert!(!entry.is_valid());
+        assert_eq!(entry.validate(), Err(BootError::InvalidValidationHeader));
+    }
+
+    #[test]
+    fn test_validation_entry_invalid_key() {
+        let mut entry = BootValidationEntry::new();
+        entry.key = [0x00, 0x00];
+        assert!(!entry.is_valid());
+        assert_eq!(entry.validate(), Err(BootError::InvalidValidationKey));
+    }
+
+    #[test]
+    fn test_validation_entry_invalid_checksum() {
+        let mut entry = BootValidationEntry::new();
+        entry.checksum.set(0x1234);
+        assert!(!entry.is_valid());
+        assert_eq!(entry.validate(), Err(BootError::InvalidValidationChecksum));
+    }
+
+    #[test]
+    fn test_section_entry_new() {
+        let entry = BootSectionEntry::new(EmulationType::NoEmulation, 0x07C0, 4, 20);
+        assert!(entry.is_bootable());
+        assert!(entry.is_valid());
+        assert_eq!(entry.boot_indicator, 0x88);
+        assert_eq!(entry.boot_media_type, 0x00);
+        assert_eq!(entry.load_segment.get(), 0x07C0);
+        assert_eq!(entry.sector_count.get(), 4);
+        assert_eq!(entry.load_rba.get(), 20);
+    }
+
+    #[test]
+    fn test_section_entry_not_bootable() {
+        let mut entry = BootSectionEntry::new(EmulationType::NoEmulation, 0, 1, 20);
+        entry.boot_indicator = 0x00;
+        assert!(!entry.is_bootable());
+    }
+
+    #[test]
+    fn test_base_boot_catalog_size() {
+        let catalog = BaseBootCatalog::default();
+        let mut buf = Vec::new();
+        catalog.write(&mut buf).unwrap();
+        assert_eq!(buf.len(), 64, "base catalog should be 64 bytes (validation + default entry)");
+    }
+
+    #[test]
+    fn test_boot_catalog_size() {
+        let catalog = BootCatalog::default();
+        // Default catalog: validation (32) + default entry (32) + terminator (32) = 96
+        assert_eq!(catalog.size(), 96);
+    }
+
+    #[test]
+    fn test_boot_catalog_with_section() {
+        let mut catalog = BootCatalog::default();
+        catalog.add_section(
+            PlatformId::X80X86,
+            vec![BootSectionEntry::new(EmulationType::NoEmulation, 0, 1, 30)],
+        );
+        // validation (32) + default (32) + section header (32) + 1 entry (32) + terminator (32) = 160
+        assert_eq!(catalog.size(), 160);
+    }
+
+    #[test]
+    fn test_boot_catalog_roundtrip() {
+        use std::io::Cursor;
+
+        let mut catalog = BootCatalog::default();
+        catalog.add_section(
+            PlatformId::X80X86,
+            vec![BootSectionEntry::new(EmulationType::NoEmulation, 0, 1, 30)],
+        );
+
+        let mut buf = Vec::new();
+        catalog.write(&mut buf).unwrap();
+
+        let mut cursor = Cursor::new(buf);
+        let parsed = BootCatalog::parse(&mut cursor).unwrap();
+
+        assert_eq!(parsed.sections.len(), 1);
+        assert_eq!(parsed.sections[0].1.len(), 1);
+    }
+
+    #[test]
+    fn test_platform_id_roundtrip() {
+        for id in [PlatformId::X80X86, PlatformId::PowerPC, PlatformId::Macintosh, PlatformId::UEFI] {
+            let byte = id.to_u8();
+            let recovered = PlatformId::from_u8(byte);
+            assert_eq!(recovered.to_u8(), byte);
+        }
+    }
+
+    #[test]
+    fn test_emulation_type_roundtrip() {
+        let no_emul = EmulationType::NoEmulation;
+        assert_eq!(no_emul.to_u8(), 0x00);
+        assert!(matches!(EmulationType::from_u8(0x00), EmulationType::NoEmulation));
+
+        let unknown = EmulationType::Unknown(0x42);
+        assert_eq!(unknown.to_u8(), 0x42);
+    }
 }

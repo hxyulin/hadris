@@ -1,57 +1,177 @@
 # Hadris ISO
 
-# About
-Hadris ISO is a library for creating and reading ISO images.
+A comprehensive Rust implementation of the ISO 9660 filesystem with support for Joliet, Rock Ridge (RRIP), El-Torito booting, and no-std environments.
 
 ## Features
-Hadris ISO is designed to be feature rich (with rust `features`), while being usable with minimal dependencies.
-Currently, Hadris ISO supportss reading with `no-std` but also without any allocations (`alloc` crate not needed).
-However, writing currently requires allocations, but attempts are being made to reduce allocations, and perhaps in the future without any allocations.
 
-A full list of features are described below:
- - `no-std` support, using `hadris_io` types for IO
- - suport for ISO9660-1999 filenames ('level 3' or 'long file names'), up to 207 characters, but with restricted character set
- - ISO Reading
-    - no `alloc` support, requiring no allocations for reading
-    - reading the base extent of ISO Level 1 or 2 filenames
- - ISO Writing
-    - basic file writing with Iso Level 1 or 2 filenames
-    - directories can be arbituary nested (ignoring ISO specification of 8)
-    - support for UTF-16 Big Endian Filenames ('Joliet'), up to 128 bytes (64 characters)
+- **Read & Write Support** - Full-featured ISO creation and extraction
+- **No-std Compatible** - Use in bootloaders and custom kernels
+- **El-Torito Boot** - Create bootable CD/DVD images for BIOS systems
+- **Joliet Extension** - UTF-16 Unicode filenames (up to 64 characters)
+- **Rock Ridge Extension** - POSIX filesystem semantics (long names, permissions, symlinks)
+- **ISO 9660:1999** - Long filenames up to 207 characters
 
-## Details
+## Quick Start
 
-Despite the name, it is actually an implementation of the ECMA-119 standard, which includes ISO9660, but also ISO1999.
+### Reading an ISO
 
-It includes many extensions, both official and non-official, here is a list of extensions and their support:
-| Name | Supported | Notes |
-|------|-----------|-------|
-| El Torito | Yes | Allows booting from ISO9660 |
-| Rock Ridge | In Progress | Allows long file names, symlinks, and POSIX permissions |
-| Joliet | Yes | Only supports Level 1 |
-| ISO1999 | Yes | Enable with `long_file_names` option (up to 207 characters) |
+```rust
+use std::fs::File;
+use std::io::BufReader;
+use hadris_iso::read::IsoImage;
 
-Other than these official extensions, there are also many features that it supports:
+let file = File::open("image.iso")?;
+let reader = BufReader::new(file);
+let image = IsoImage::open(reader)?;
 
-- Hybrid Booting (MBR / GPT / APM) (WIP)
-- Custom Filename Specifications (WIP)
+// Iterate through root directory
+let root = image.root_dir();
+for entry in root.iter(&image).entries() {
+    let entry = entry?;
+    println!("File: {:?}", String::from_utf8_lossy(entry.name()));
+}
+```
 
-## Goals
+### Creating a Bootable ISO
 
-The goal of this library is to provide a conformant and feature-rich ISO image library, with the following goals:
+```rust
+use std::io::Cursor;
+use std::sync::Arc;
+use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
+use hadris_iso::boot::EmulationType;
+use hadris_iso::read::PathSeparator;
+use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
+use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
 
-- Be as feature-rich as possible
-- Be as strict as possible, but also allow users to override certain settings to be non-strict
-- Be as compatible as possible, implementing extensions
-- Be as easy to use as possible (provide a simple API, CLI, and examples)
-- Be as fast as possible (for now, it is not optimized for speed, as it is still in development)
-- Safety is not specifically a goal, but it is a requirement, and is mostly achieved through the use of rust and the `bytemuck` crate
+// Prepare files
+let files = InputFiles {
+    path_separator: PathSeparator::ForwardSlash,
+    files: vec![
+        IsoFile::File {
+            name: Arc::new("boot.bin".to_string()),
+            contents: boot_image_bytes,
+        },
+    ],
+};
 
-# Contributing
+// Configure boot options
+let boot_options = BootOptions {
+    write_boot_catalog: true,
+    default: BootEntryOptions {
+        boot_image_path: "boot.bin".to_string(),
+        load_size: Some(std::num::NonZeroU16::new(4).unwrap()),
+        boot_info_table: false,
+        grub2_boot_info: false,
+        emulation: EmulationType::NoEmulation,
+    },
+    entries: vec![],
+};
 
-Contributions are welcome! Please feel free to open an issue or submit a pull request. Feature requests are also welcome, but please open an issue first to discuss the feature, as it could be outside the scope of this project.
+// Create ISO
+let format_options = FormatOptions {
+    volume_name: "BOOTABLE".to_string(),
+    sector_size: 2048,
+    path_seperator: PathSeparator::ForwardSlash,
+    features: CreationFeatures {
+        filenames: BaseIsoLevel::Level1 {
+            supports_lowercase: false,
+            supports_rrip: false,
+        },
+        long_filenames: false,
+        joliet: None,
+        rock_ridge: None,
+        el_torito: Some(boot_options),
+    },
+};
 
-# License
+let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
+IsoImageWriter::format_new(&mut buffer, files, format_options)?;
+```
+
+## Feature Flags
+
+| Feature | Description | Dependencies |
+|---------|-------------|--------------|
+| `read` | Minimal read support (no-std, no-alloc) | None |
+| `alloc` | Heap allocation without full std | `alloc` crate |
+| `std` | Full standard library support | `std`, `alloc` |
+| `write` | ISO creation/formatting | `std`, `alloc` |
+| `joliet` | UTF-16 Unicode filename support | `alloc` |
+
+### For Bootloaders (minimal footprint)
+
+```toml
+[dependencies]
+hadris-iso = { version = "0.2", default-features = false, features = ["read"] }
+```
+
+### For Kernels with Heap (no-std + alloc)
+
+```toml
+[dependencies]
+hadris-iso = { version = "0.2", default-features = false, features = ["read", "alloc"] }
+```
+
+### For Desktop Applications (full features)
+
+```toml
+[dependencies]
+hadris-iso = { version = "0.2" }  # Uses default features
+```
+
+## Extension Support
+
+| Extension | Read | Write | Notes |
+|-----------|------|-------|-------|
+| ISO 9660 Level 1-3 | Yes | Yes | 8.3 to 31 character filenames |
+| ISO 9660:1999 | Yes | Yes | Long filenames up to 207 chars |
+| Joliet | Yes | Yes | UTF-16 BE, up to 64 characters |
+| Rock Ridge (RRIP) | Yes | Yes | POSIX semantics, symlinks |
+| El-Torito | Yes | Yes | BIOS bootable images |
+| Hybrid Boot (MBR/GPT) | - | Yes | USB bootable images (MBR, GPT, or dual) |
+
+## Comparison with Other Tools
+
+| Feature | hadris-iso | cdfs | iso9660-rs | xorriso |
+|---------|------------|------|------------|---------|
+| Read | Yes | Yes | Yes | Yes |
+| Write | Yes | No | No | Yes |
+| No-std | Yes | No | No | No |
+| El-Torito | Yes | No | No | Yes |
+| Rock Ridge | Yes | Yes | Partial | Yes |
+| Joliet | Yes | Yes | Yes | Yes |
+| Language | Rust | Rust | Rust | C |
+
+## Examples
+
+Run the examples with:
+
+```bash
+# Read an ISO and display its contents
+cargo run --example read_iso -- path/to/image.iso
+
+# Extract files from an ISO
+cargo run --example extract_files -- path/to/image.iso ./output
+
+# Create a bootable ISO
+cargo run --example create_bootable_iso
+```
+
+## Compatibility
+
+ISOs created with this crate are compatible with:
+- Linux (`mount`, `isoinfo`, `xorriso`)
+- Windows (built-in ISO support)
+- macOS (built-in ISO support)
+- QEMU/VirtualBox (bootable ISOs)
+
+## Specification References
+
+- ECMA-119 (ISO 9660)
+- Joliet Specification (Microsoft)
+- IEEE P1282 (Rock Ridge / RRIP)
+- El-Torito Bootable CD-ROM Format Specification
+
+## License
 
 This project is licensed under the [MIT license](LICENSE-MIT).
-This means that you are free to use the source code and the resulting binaries for any purpose, including commercial use.

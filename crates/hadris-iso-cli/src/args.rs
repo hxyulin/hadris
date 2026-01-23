@@ -3,6 +3,8 @@ use hadris_iso::write::options::BaseIsoLevel;
 use std::{path::PathBuf, str::FromStr};
 
 #[derive(Debug, Clone, Parser)]
+#[command(name = "hadris-iso")]
+#[command(author, version, about = "ISO 9660 filesystem utility", long_about = None)]
 pub struct Args {
     #[command(subcommand)]
     pub cmd: Command,
@@ -10,39 +12,166 @@ pub struct Args {
 
 #[derive(Debug, Clone, clap::Subcommand)]
 pub enum Command {
-    Read(ReadArgs),
-    Write(WriteArgs),
-    Xorriso(XorrisoArgs),
+    /// Display information about an ISO image
+    Info(InfoArgs),
+    /// List directory contents
+    Ls(LsArgs),
+    /// Display directory tree
+    Tree(TreeArgs),
+    /// Extract files from an ISO image
+    Extract(ExtractArgs),
+    /// Create a new ISO image
+    Create(CreateArgs),
+    /// Verify ISO image integrity
+    Verify(VerifyArgs),
+    /// xorriso-compatible mkisofs mode
+    #[command(name = "mkisofs", alias = "xorriso")]
+    Mkisofs(MkisofsArgs),
 }
 
-impl Command {
-    pub fn verbose(&self) -> bool {
-        match self {
-            Command::Read(args) => args.verbose,
-            Command::Write(args) => args.verbose,
-            Command::Xorriso(_) => false,
-        }
-    }
-}
-
-/// A xorriso-like subcommand
+/// Display information about an ISO image
 #[derive(Debug, Clone, Parser)]
-pub struct XorrisoArgs {
-    #[arg(short = 'V')]
-    pub volume_name: String,
-}
-
-#[derive(Debug, Clone, Parser)]
-pub struct ReadArgs {
+pub struct InfoArgs {
+    /// Path to ISO image
     pub input: PathBuf,
+    /// Show detailed volume descriptor information
     #[arg(short, long)]
     pub verbose: bool,
-    #[arg(short)]
-    pub display_info: bool,
+}
+
+/// List directory contents
+#[derive(Debug, Clone, Parser)]
+pub struct LsArgs {
+    /// Path to ISO image
+    pub input: PathBuf,
+    /// Directory path within ISO (default: root)
+    #[arg(default_value = "/")]
+    pub path: String,
+    /// Use long listing format
+    #[arg(short, long)]
+    pub long: bool,
+    /// Show all entries including . and ..
+    #[arg(short, long)]
+    pub all: bool,
+}
+
+/// Display directory tree
+#[derive(Debug, Clone, Parser)]
+pub struct TreeArgs {
+    /// Path to ISO image
+    pub input: PathBuf,
+    /// Starting directory path within ISO
+    #[arg(default_value = "/")]
+    pub path: String,
+    /// Maximum depth to display
+    #[arg(short, long)]
+    pub depth: Option<usize>,
+}
+
+/// Extract files from an ISO image
+#[derive(Debug, Clone, Parser)]
+pub struct ExtractArgs {
+    /// Path to ISO image
+    pub input: PathBuf,
+    /// Output directory for extracted files
+    #[arg(short, long, default_value = ".")]
+    pub output: PathBuf,
+    /// Path within ISO to extract (default: extract all)
+    #[arg(short, long)]
+    pub path: Option<String>,
+    /// Verbose output
+    #[arg(short, long)]
+    pub verbose: bool,
+}
+
+/// Create a new ISO image
+#[derive(Debug, Clone, Parser)]
+pub struct CreateArgs {
+    /// Directory containing files to include
+    pub source: PathBuf,
+    /// Output ISO file path
+    #[arg(short, long)]
+    pub output: PathBuf,
+    /// Volume name (max 32 characters)
+    #[arg(short = 'V', long, default_value = "CDROM")]
+    pub volume_name: String,
+    /// ISO level (1, 2, 1l, 2l for lowercase support)
+    #[arg(short, long, default_value = "1")]
+    pub level: ArgLevel,
+    /// Enable Joliet extension for Windows compatibility
+    #[arg(short = 'J', long)]
+    pub joliet: bool,
+    /// Enable Rock Ridge extension for Unix compatibility
+    #[arg(short = 'R', long)]
+    pub rock_ridge: bool,
+    /// Boot image path for BIOS boot (El-Torito)
+    #[arg(short, long)]
+    pub boot: Option<String>,
+    /// Boot image path for UEFI boot
     #[arg(long)]
-    pub extract: Option<PathBuf>,
-    #[arg(long = "ls")]
-    pub list: Option<String>,
+    pub efi_boot: Option<String>,
+    /// Number of 512-byte sectors to load for boot image
+    #[arg(long, default_value = "4")]
+    pub boot_load_size: u16,
+    /// Enable boot info table in boot image
+    #[arg(long)]
+    pub boot_info_table: bool,
+    /// Enable MBR hybrid boot for USB booting
+    #[arg(long)]
+    pub hybrid_mbr: bool,
+    /// Enable GPT hybrid boot for UEFI USB booting
+    #[arg(long)]
+    pub hybrid_gpt: bool,
+    /// Verbose output
+    #[arg(short, long)]
+    pub verbose: bool,
+}
+
+/// Verify ISO image integrity
+#[derive(Debug, Clone, Parser)]
+pub struct VerifyArgs {
+    /// Path to ISO image
+    pub input: PathBuf,
+    /// Verbose output
+    #[arg(short, long)]
+    pub verbose: bool,
+}
+
+/// xorriso-compatible mkisofs mode
+#[derive(Debug, Clone, Parser)]
+pub struct MkisofsArgs {
+    /// Source directory
+    pub source: PathBuf,
+    /// Output file
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
+    /// Volume name
+    #[arg(short = 'V')]
+    pub volume_name: Option<String>,
+    /// Enable Joliet extension
+    #[arg(short = 'J')]
+    pub joliet: bool,
+    /// Enable Rock Ridge extension
+    #[arg(short = 'R')]
+    pub rock_ridge: bool,
+    /// Boot image (El-Torito)
+    #[arg(short = 'b')]
+    pub boot_image: Option<String>,
+    /// No emulation boot
+    #[arg(long = "no-emul-boot")]
+    pub no_emul_boot: bool,
+    /// Boot load size in sectors
+    #[arg(long = "boot-load-size")]
+    pub boot_load_size: Option<u16>,
+    /// Boot info table
+    #[arg(long = "boot-info-table")]
+    pub boot_info_table: bool,
+    /// EFI boot image
+    #[arg(short = 'e', long = "efi-boot")]
+    pub efi_boot: Option<String>,
+    /// Hybrid MBR
+    #[arg(long = "isohybrid-mbr")]
+    pub isohybrid_mbr: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,51 +207,11 @@ impl FromStr for ArgLevel {
                 supports_lowercase: true,
                 supports_rrip: false,
             }),
-            _ => return Err("invalid level"),
+            "3" => Self(BaseIsoLevel::Level2 {
+                supports_lowercase: true,
+                supports_rrip: false,
+            }),
+            _ => return Err("invalid level (use 1, 2, 1l, 2l, or 3)"),
         })
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct IsoExtensions {
-    pub level3: bool,
-    pub joliet: bool,
-}
-
-impl FromStr for IsoExtensions {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut exts = Self {
-            level3: false,
-            joliet: false,
-        };
-        if s.is_empty() {
-            return Ok(exts);
-        }
-        for ext in s.split(',') {
-            let ext = ext.trim();
-            match ext {
-                "l3" | "level3" => exts.level3 = true,
-                "joliet" => exts.joliet = true,
-                _ => return Err("invalid extension"),
-            }
-        }
-        Ok(exts)
-    }
-}
-
-#[derive(Debug, Clone, Parser)]
-pub struct WriteArgs {
-    pub isoroot: PathBuf,
-    #[arg(short, long)]
-    pub output: PathBuf,
-    #[arg(short, long)]
-    pub verbose: bool,
-    #[arg(short, long, default_value = "1")]
-    pub level: ArgLevel,
-    #[arg(long = "ex", default_value = "")]
-    pub extensions: IsoExtensions,
-    #[arg(short, long)]
-    pub boot: Option<String>,
 }
