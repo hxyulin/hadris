@@ -55,7 +55,7 @@ Add dependencies to your `Cargo.toml`:
 ```toml
 [dependencies]
 hadris-iso = "0.2"
-hadris-fat = "0.2"
+hadris-fat = "0.3"
 hadris-part = "0.2"
 ```
 
@@ -64,7 +64,7 @@ For no-std environments:
 ```toml
 [dependencies]
 hadris-iso = { version = "0.2", default-features = false, features = ["read"] }
-hadris-fat = { version = "0.2", default-features = false, features = ["read"] }
+hadris-fat = { version = "0.3", default-features = false, features = ["read"] }
 ```
 
 ## Building

@@ -82,35 +82,36 @@ impl UpcaseTable {
         self.data.reserve(65536);
 
         let mut i = 0;
-        let mut code_point: u16 = 0;
+        // Use u32 to avoid wrapping issues at 65536
+        let mut code_point: u32 = 0;
 
-        while i + 1 < raw.len() && (code_point as usize) < 65536 {
+        while i + 1 < raw.len() && code_point < 65536 {
             let value = u16::from_le_bytes([raw[i], raw[i + 1]]);
             i += 2;
 
             if value == Self::COMPRESSION_MARKER && i + 1 < raw.len() {
                 // Compressed range: next count values map to themselves
-                let count = u16::from_le_bytes([raw[i], raw[i + 1]]);
+                let count = u16::from_le_bytes([raw[i], raw[i + 1]]) as u32;
                 i += 2;
 
                 for _ in 0..count {
-                    if (code_point as usize) >= 65536 {
+                    if code_point >= 65536 {
                         break;
                     }
-                    self.data.push(code_point);
-                    code_point = code_point.wrapping_add(1);
+                    self.data.push(code_point as u16);
+                    code_point += 1;
                 }
             } else {
                 // Direct mapping
                 self.data.push(value);
-                code_point = code_point.wrapping_add(1);
+                code_point += 1;
             }
         }
 
         // Fill remaining entries with identity mapping
-        while (code_point as usize) < 65536 {
-            self.data.push(code_point);
-            code_point = code_point.wrapping_add(1);
+        while code_point < 65536 {
+            self.data.push(code_point as u16);
+            code_point += 1;
         }
 
         // Truncate to exactly 65536 entries
@@ -203,6 +204,62 @@ pub fn compute_upcase_checksum(data: &[u8]) -> u32 {
     }
 
     checksum
+}
+
+/// Generate a compressed up-case table for exFAT formatting.
+///
+/// Returns the compressed table data and its checksum.
+/// This generates a minimal compressed up-case table that covers ASCII
+/// and uses identity mapping for other characters. For a more comprehensive
+/// table, a pre-generated binary table could be embedded.
+#[cfg(feature = "write")]
+pub fn generate_compressed_upcase_table() -> (Vec<u8>, u32) {
+    // Build a minimal compressed upcase table
+    // Format: 0xFFFF followed by count means "next N code points map to themselves"
+    let mut data = Vec::with_capacity(5000);
+
+    // Code points 0x0000 - 0x0060: identity (97 entries)
+    data.extend_from_slice(&UpcaseTable::COMPRESSION_MARKER.to_le_bytes());
+    data.extend_from_slice(&97u16.to_le_bytes());
+
+    // Code points 0x0061 - 0x007A: a-z -> A-Z (26 entries)
+    for i in 0x0041u16..=0x005A {
+        data.extend_from_slice(&i.to_le_bytes());
+    }
+
+    // Code points 0x007B - 0x00DF: identity (101 entries)
+    data.extend_from_slice(&UpcaseTable::COMPRESSION_MARKER.to_le_bytes());
+    data.extend_from_slice(&101u16.to_le_bytes());
+
+    // Code points 0x00E0 - 0x00F6: à-ö -> À-Ö (23 entries)
+    for i in 0x00C0u16..=0x00D6 {
+        data.extend_from_slice(&i.to_le_bytes());
+    }
+
+    // Code point 0x00F7 (÷): identity
+    data.extend_from_slice(&0x00F7u16.to_le_bytes());
+
+    // Code points 0x00F8 - 0x00FE: ø-þ -> Ø-Þ (7 entries)
+    for i in 0x00D8u16..=0x00DE {
+        data.extend_from_slice(&i.to_le_bytes());
+    }
+
+    // Code point 0x00FF: ÿ -> Ÿ
+    data.extend_from_slice(&0x0178u16.to_le_bytes());
+
+    // Remaining code points 0x0100 - 0xFFFF: identity mapping (65280 entries)
+    // Split into multiple runs to avoid overflow issues in decompressor
+    // (decompressor uses u16 for code_point which wraps at 65536)
+    // 65280 entries = 0x100 to 0xFFFF
+    // Split: first 32768 entries (0x100 to 0x80FF), then remaining 32512 (0x8100 to 0xFFFF)
+    data.extend_from_slice(&UpcaseTable::COMPRESSION_MARKER.to_le_bytes());
+    data.extend_from_slice(&32768u16.to_le_bytes());
+
+    data.extend_from_slice(&UpcaseTable::COMPRESSION_MARKER.to_le_bytes());
+    data.extend_from_slice(&32512u16.to_le_bytes());
+
+    let checksum = compute_upcase_checksum(&data);
+    (data, checksum)
 }
 
 #[cfg(test)]

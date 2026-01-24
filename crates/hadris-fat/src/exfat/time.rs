@@ -160,6 +160,19 @@ impl ExFatTimestamp {
         )
     }
 
+    /// Create a timestamp representing the current time (no-std fallback).
+    #[cfg(not(feature = "std"))]
+    pub fn now() -> Self {
+        Self::dos_epoch()
+    }
+
+    /// Convert to raw values for writing to disk.
+    ///
+    /// Returns (timestamp, 10ms_increment, utc_offset_byte).
+    pub fn to_raw(&self) -> (u32, u8, u8) {
+        (self.timestamp, self.increment_10ms, self.raw_utc_offset())
+    }
+
     /// Create a timestamp for DOS epoch (January 1, 1980, 00:00:00).
     pub fn dos_epoch() -> Self {
         Self::from_components(1980, 1, 1, 0, 0, 0, 0, None)

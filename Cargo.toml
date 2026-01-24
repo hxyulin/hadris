@@ -22,7 +22,6 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
 edition = "2024"
 authors = ["hxyulin"]
 license = "MIT"
@@ -41,8 +40,9 @@ chrono = "0.4.40"
 tracing = "0.1.41"
 spin = "0.10.0"
 
-hadris-io = { path = "crates/hadris-io", version = "0.2.0", default-features = false }
-hadris-iso = { path = "crates/hadris-iso", version = "0.2.0", default-features = false }
-hadris-fat = { path = "crates/hadris-fat", version = "0.2.0", default-features = false }
-hadris-common = { path = "crates/hadris-common", version = "0.2.0", default-features = false }
-hadris-part = { path = "crates/hadris-part", version = "0.2.0", default-features = false }
+# Internal crates - path-only for local development, version specified in each crate
+hadris-io = { path = "crates/hadris-io", default-features = false }
+hadris-iso = { path = "crates/hadris-iso", default-features = false }
+hadris-fat = { path = "crates/hadris-fat", default-features = false }
+hadris-common = { path = "crates/hadris-common", default-features = false }
+hadris-part = { path = "crates/hadris-part", default-features = false }

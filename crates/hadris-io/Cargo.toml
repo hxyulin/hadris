@@ -1,11 +1,12 @@
 [package]
 name = "hadris-io"
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "No-std I/O traits and utilities for the Hadris filesystem crates"
+readme = "README.md"
 
 [features]
 default = ["std"]

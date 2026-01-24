@@ -1,7 +1,8 @@
 [package]
 name = "hadris-fat"
-description = "A library for working with FAT32 file systems (FAT12/16/exFAT planned)"
-version.workspace = true
+version = "0.3.0"
+description = "A library for working with FAT filesystems (FAT12/FAT16/FAT32/exFAT)"
+readme = "README.md"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true

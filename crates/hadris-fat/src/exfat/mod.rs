@@ -13,9 +13,13 @@
 mod boot;
 mod bitmap;
 mod entry;
+#[cfg(feature = "write")]
+mod entry_writer;
 mod fat;
 mod dir;
 mod file;
+#[cfg(feature = "write")]
+mod format;
 mod fs;
 mod time;
 mod upcase;
@@ -32,3 +36,5 @@ pub use upcase::UpcaseTable;
 
 #[cfg(feature = "write")]
 pub use file::ExFatFileWriter;
+#[cfg(feature = "write")]
+pub use format::{format_exfat, ExFatFormatOptions, ExFatLayoutParams};

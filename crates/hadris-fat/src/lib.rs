@@ -21,12 +21,17 @@ pub mod tool;
 #[cfg(feature = "exfat")]
 pub mod exfat;
 
+#[cfg(feature = "write")]
+pub mod format;
+
 pub use error::{FatError, Result};
 pub use io::Cluster;
 // FatType is already public since it's defined with `pub enum`
 pub use read::{FatFsReadExt, FileReader};
 #[cfg(feature = "write")]
 pub use write::{FatDateTime, FatFsWriteExt, FileWriter};
+#[cfg(feature = "write")]
+pub use format::{FatVolumeFormatter, FormatOptions, FormatParams};
 #[cfg(feature = "cache")]
 pub use cache::{CachedFat, CacheStats, FatSectorCache, DEFAULT_CACHE_CAPACITY};
 #[cfg(feature = "tool")]

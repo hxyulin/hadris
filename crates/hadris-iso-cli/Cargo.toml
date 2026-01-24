@@ -1,11 +1,12 @@
 [package]
 name = "hadris-iso-cli"
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+readme = "README.md"
 
 [dependencies]
 clap = { version = "4.5.32", features = ["derive"] }

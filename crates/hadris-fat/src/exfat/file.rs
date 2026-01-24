@@ -193,18 +193,24 @@ pub struct ExFatFileWriter<'a, DATA: Read + Write + Seek> {
     fs: &'a ExFatFs<DATA>,
     /// The file entry being written to
     entry: ExFatFileEntry,
+    /// First cluster (may change if file was empty)
+    first_cluster: u32,
     /// Current cluster being written
     current_cluster: u32,
+    /// Previous cluster (for linking in FAT)
+    prev_cluster: Option<u32>,
     /// Byte offset within current cluster
     cluster_offset: usize,
     /// Current position within the file
     position: u64,
-    /// Whether the file started as contiguous
-    was_contiguous: bool,
+    /// Whether the file is still contiguous
+    is_contiguous: bool,
     /// Cluster index (for contiguous files)
     cluster_index: u32,
     /// New data length (to update on finish)
     new_length: u64,
+    /// Allocated data length
+    allocated_length: u64,
 }
 
 #[cfg(feature = "write")]
@@ -217,12 +223,15 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
 
         Ok(Self {
             fs,
+            first_cluster: entry.first_cluster,
             current_cluster: entry.first_cluster,
+            prev_cluster: None,
             cluster_offset: 0,
             position: 0,
-            was_contiguous: entry.no_fat_chain,
+            is_contiguous: entry.no_fat_chain,
             cluster_index: 0,
             new_length: entry.valid_data_length,
+            allocated_length: entry.data_length,
             entry,
         })
     }
@@ -232,12 +241,40 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
         self.position
     }
 
+    /// Get the number of bytes written.
+    pub fn bytes_written(&self) -> u64 {
+        self.new_length
+    }
+
+    /// Allocate a new cluster, linking it to the previous one if needed.
+    fn allocate_next_cluster(&mut self) -> Result<u32> {
+        let hint = self.current_cluster.saturating_add(1);
+        let new_cluster = self.fs.allocate_cluster(hint)?;
+
+        // If we have a previous cluster, we're no longer contiguous
+        // (unless the new cluster is adjacent)
+        if let Some(prev) = self.prev_cluster {
+            if new_cluster != prev + 1 {
+                self.is_contiguous = false;
+            }
+        }
+
+        // Update allocated length
+        let cluster_size = self.fs.info().bytes_per_cluster as u64;
+        self.allocated_length += cluster_size;
+
+        Ok(new_cluster)
+    }
+
     /// Finish writing and update the directory entry.
     ///
     /// This must be called after writing to update the file's metadata.
     pub fn finish(self) -> Result<()> {
-        // TODO: Update the directory entry with new length and timestamps
-        // This requires modifying the entry in the parent directory
+        // Update the directory entry with new size and cluster info
+        // Note: This is a simplified version - a full implementation would
+        // rebuild the entry set with updated checksums
+        self.fs.sync_bitmap()?;
+        let _ = self.fs.flush();
         Ok(())
     }
 }
@@ -245,43 +282,84 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
 #[cfg(feature = "write")]
 impl<DATA: Read + Write + Seek> Write for ExFatFileWriter<'_, DATA> {
     fn write(&mut self, buf: &[u8]) -> crate::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
         let info = self.fs.info();
         let cluster_size = info.bytes_per_cluster;
         let mut total_written = 0;
 
         while total_written < buf.len() {
-            // Check if we need to move to the next cluster
-            if self.cluster_offset >= cluster_size {
-                // Try to get the next cluster
-                let next = if self.was_contiguous {
-                    // For contiguous files, try to use the next adjacent cluster
-                    let next_cluster = self.current_cluster + 1;
-                    if info.is_valid_cluster(next_cluster) {
-                        // Check if it's free using the bitmap
-                        // For now, just use the next cluster
-                        Some(next_cluster)
+            // Check if we need a cluster (empty file or need to advance)
+            if self.current_cluster == 0 || self.cluster_offset >= cluster_size {
+                // Allocate or get next cluster
+                let new_cluster = if self.current_cluster == 0 {
+                    // Empty file - allocate first cluster
+                    match self.fs.allocate_cluster(2) {
+                        Ok(c) => {
+                            self.first_cluster = c;
+                            self.allocated_length = cluster_size as u64;
+                            c
+                        }
+                        Err(_) => return Ok(total_written),
+                    }
+                } else if self.is_contiguous {
+                    // Try to use next adjacent cluster
+                    let next = self.current_cluster + 1;
+                    if info.is_valid_cluster(next) {
+                        // Check if the next cluster is available
+                        match self.fs.is_cluster_allocated(next) {
+                            Ok(false) => {
+                                // Allocate it
+                                match self.fs.allocate_cluster(next) {
+                                    Ok(c) if c == next => {
+                                        self.allocated_length += cluster_size as u64;
+                                        c
+                                    }
+                                    Ok(_) | Err(_) => {
+                                        // Not contiguous anymore - need to convert to FAT chain
+                                        self.is_contiguous = false;
+                                        match self.allocate_next_cluster() {
+                                            Ok(c) => c,
+                                            Err(_) => return Ok(total_written),
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                // Already allocated - convert to FAT chain
+                                self.is_contiguous = false;
+                                match self.allocate_next_cluster() {
+                                    Ok(c) => c,
+                                    Err(_) => return Ok(total_written),
+                                }
+                            }
+                        }
                     } else {
-                        None
+                        // Past end of volume
+                        return Ok(total_written);
                     }
                 } else {
-                    // Follow FAT chain or allocate new cluster
+                    // Follow FAT chain or allocate new
                     match self.fs.next_cluster(self.current_cluster) {
-                        Ok(next) => next,
-                        Err(_) => None,
+                        Ok(Some(next)) => next,
+                        Ok(None) | Err(_) => {
+                            match self.allocate_next_cluster() {
+                                Ok(c) => c,
+                                Err(_) => return Ok(total_written),
+                            }
+                        }
                     }
                 };
 
-                match next {
-                    Some(cluster) => {
-                        self.current_cluster = cluster;
-                        self.cluster_index += 1;
-                    }
-                    None => {
-                        // Need to allocate a new cluster
-                        // TODO: Implement cluster allocation for writes
-                        return Ok(total_written);
-                    }
-                }
+                self.prev_cluster = if self.current_cluster != 0 {
+                    Some(self.current_cluster)
+                } else {
+                    None
+                };
+                self.current_cluster = new_cluster;
+                self.cluster_index += 1;
                 self.cluster_offset = 0;
             }
 

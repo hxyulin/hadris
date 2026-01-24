@@ -5,6 +5,7 @@ A comprehensive Rust implementation of the FAT filesystem family with support fo
 ## Features
 
 - **FAT12/16/32 Support** - Full read and write support for all FAT variants
+- **Volume Formatting** - Create new FAT12/16/32 volumes with automatic type selection
 - **Long Filenames (VFAT/LFN)** - Support for filenames beyond 8.3 format
 - **No-std Compatible** - Use in bootloaders and custom kernels
 - **FAT Caching** - Optional sector caching for improved performance
@@ -45,16 +46,27 @@ let mut file = root.create_file("newfile.txt")?;
 file.write_all(b"Hello, FAT!")?;
 ```
 
-### Creating a New FAT Volume
+### Formatting a New FAT Volume
 
 ```rust
-use hadris_fat::{Fat, FatType};
+use hadris_fat::format::{FatVolumeFormatter, FormatOptions, FatTypeSelection};
 use std::io::Cursor;
 
-let mut buffer = vec![0u8; 32 * 1024 * 1024]; // 32 MB
-let cursor = Cursor::new(&mut buffer);
+// Create a 64 MB in-memory volume
+let mut buffer = vec![0u8; 64 * 1024 * 1024];
+let cursor = Cursor::new(&mut buffer[..]);
 
-Fat::format(cursor, FatType::Fat32, "MYDISK")?;
+// Format with automatic FAT type selection
+let options = FormatOptions::new(64 * 1024 * 1024)
+    .with_label("MYDISK");
+
+let fs = FatVolumeFormatter::format(cursor, options)?;
+println!("Created {} volume", fs.fat_type());
+
+// Or force a specific FAT type
+let options = FormatOptions::new(64 * 1024 * 1024)
+    .with_fat_type(FatTypeSelection::Fat32)
+    .with_label("FAT32VOL");
 ```
 
 ## Feature Flags
@@ -72,25 +84,50 @@ Fat::format(cursor, FatType::Fat32, "MYDISK")?;
 
 Default features: `read`, `write`, `lfn`, `std`
 
+## Volume Formatting
+
+The `format` module (requires `write` feature) provides volume formatting capabilities:
+
+```rust
+use hadris_fat::format::{FatVolumeFormatter, FormatOptions};
+
+let options = FormatOptions::new(volume_size)
+    .with_label("VOLUME")
+    .with_sector_size(SectorSize::S512)
+    .with_fat_copies(2);
+
+// Calculate parameters without formatting (for validation)
+let params = FatVolumeFormatter::calculate_params(&options)?;
+println!("Will create {} with {} clusters", params.fat_type, params.cluster_count);
+
+// Format the volume
+let fs = FatVolumeFormatter::format(data, options)?;
+```
+
+Automatic FAT type selection follows Microsoft recommendations:
+- < 16 MB: FAT12
+- 16 MB - 512 MB: FAT16
+- \> 512 MB: FAT32
+
 ### For Bootloaders (minimal footprint)
 
 ```toml
 [dependencies]
-hadris-fat = { version = "0.2", default-features = false, features = ["read"] }
+hadris-fat = { version = "0.3", default-features = false, features = ["read"] }
 ```
 
 ### For Embedded Systems with Heap
 
 ```toml
 [dependencies]
-hadris-fat = { version = "0.2", default-features = false, features = ["read", "write", "alloc", "lfn"] }
+hadris-fat = { version = "0.3", default-features = false, features = ["read", "write", "alloc", "lfn"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-fat = { version = "0.2" }  # Uses default features
+hadris-fat = { version = "0.3" }  # Uses default features
 ```
 
 ## FAT Variant Support

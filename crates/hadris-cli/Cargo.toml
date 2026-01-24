@@ -1,11 +1,12 @@
 [package]
 name = "hadris-cli"
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "CLI utility for filesystem operations"
+readme = "README.md"
 
 [dependencies]
 hadris-fat = { workspace = true, features = ["std", "read", "write", "lfn"] }

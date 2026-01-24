@@ -2,6 +2,9 @@
 //!
 //! The main entry point for working with exFAT filesystems.
 
+use alloc::string::ToString;
+use alloc::vec::Vec;
+
 use hadris_common::types::endian::Endian;
 use spin::Mutex;
 
@@ -14,8 +17,14 @@ use super::bitmap::AllocationBitmap;
 use super::boot::{ExFatBootSector, ExFatInfo};
 use super::dir::ExFatDir;
 use super::entry::{entry_type, ExFatFileEntry, RawDirectoryEntry};
+#[cfg(feature = "write")]
+use super::entry::FileAttributes;
+#[cfg(feature = "write")]
+use super::entry_writer::EntrySetBuilder;
 use super::fat::ExFatTable;
 use super::file::ExFatFileReader;
+#[cfg(feature = "write")]
+use super::file::ExFatFileWriter;
 use super::upcase::UpcaseTable;
 
 /// exFAT filesystem handle.
@@ -26,8 +35,8 @@ pub struct ExFatFs<DATA: Seek> {
     data: Mutex<SectorCursor<DATA>>,
     /// Computed filesystem information
     info: ExFatInfo,
-    /// Allocation bitmap for tracking cluster usage
-    bitmap: AllocationBitmap,
+    /// Allocation bitmap for tracking cluster usage (uses Mutex for write support)
+    bitmap: Mutex<AllocationBitmap>,
     /// FAT table for fragmented files
     fat: ExFatTable,
     /// Up-case table for case-insensitive comparisons
@@ -133,7 +142,7 @@ where
         Ok(Self {
             data,
             info,
-            bitmap,
+            bitmap: Mutex::new(bitmap),
             fat,
             upcase,
             root_cluster,
@@ -186,7 +195,7 @@ where
             return Err(FatError::InvalidPath);
         }
 
-        let components: alloc::vec::Vec<&str> = path
+        let components: Vec<&str> = path
             .split('/')
             .filter(|s| !s.is_empty())
             .collect();
@@ -254,12 +263,17 @@ where
 
     /// Get the number of free clusters.
     pub fn free_cluster_count(&self) -> u32 {
-        self.bitmap.free_cluster_count()
+        self.bitmap.lock().free_cluster_count()
     }
 
     /// Check if a cluster is allocated.
     pub fn is_cluster_allocated(&self, cluster: u32) -> Result<bool> {
-        self.bitmap.is_allocated(cluster)
+        self.bitmap.lock().is_allocated(cluster)
+    }
+
+    /// Get a reference to the upcase table.
+    pub(crate) fn upcase(&self) -> &UpcaseTable {
+        &self.upcase
     }
 
     /// Get the volume serial number.
@@ -287,19 +301,365 @@ where
         guard.flush()
     }
 
-    /// Allocate a cluster using the bitmap.
+    /// Allocate a single cluster.
+    ///
+    /// The cluster is marked as allocated in the bitmap and as end-of-chain in the FAT.
     pub fn allocate_cluster(&self, hint: u32) -> Result<u32> {
-        // First, find a free cluster in the bitmap
-        let cluster = {
-            self.bitmap.find_free_cluster(hint)?
-                .ok_or(FatError::NoFreeSpace)?
-        };
+        let mut bitmap = self.bitmap.lock();
+        let cluster = bitmap.find_free_cluster(hint)?
+            .ok_or(FatError::NoFreeSpace)?;
 
-        // Mark it as allocated in the bitmap
-        // Note: This requires mutable access to bitmap, which we'd need to handle
-        // with interior mutability in a real implementation
+        // Mark as allocated in bitmap
+        bitmap.set_allocated(cluster, true)?;
+
+        // Mark as end-of-chain in FAT
+        let mut data = self.data.lock();
+        self.fat.write_entry(&mut data.data, cluster, ExFatTable::END_OF_CHAIN)?;
 
         Ok(cluster)
+    }
+
+    /// Allocate contiguous clusters for an exFAT file.
+    ///
+    /// Returns (first_cluster, is_contiguous). If contiguous allocation fails,
+    /// falls back to FAT chain allocation.
+    pub fn allocate_clusters(&self, count: u32, hint: u32) -> Result<(u32, bool)> {
+        if count == 0 {
+            return Ok((0, true));
+        }
+
+        let mut bitmap = self.bitmap.lock();
+
+        // Try to allocate contiguously first
+        if let Some(first) = bitmap.find_contiguous_free(count, hint)? {
+            // Mark all clusters as allocated
+            for i in 0..count {
+                bitmap.set_allocated(first + i, true)?;
+            }
+            return Ok((first, true));
+        }
+
+        // Fall back to FAT chain allocation
+        drop(bitmap); // Release bitmap lock before FAT operations
+
+        let mut data = self.data.lock();
+        let first = self.fat.allocate_chain(&mut data.data, count, hint)?;
+
+        // Also mark in bitmap
+        drop(data);
+        let mut bitmap = self.bitmap.lock();
+        let mut current = first;
+        let mut data = self.data.lock();
+        for _ in 0..count {
+            bitmap.set_allocated(current, true)?;
+            if let Some(next) = self.fat.next_cluster(&mut data.data, current)? {
+                current = next;
+            } else {
+                break;
+            }
+        }
+
+        Ok((first, false))
+    }
+
+    /// Free clusters.
+    ///
+    /// If `is_contiguous` is true, frees `count` contiguous clusters starting from `first`.
+    /// Otherwise, follows the FAT chain to free all clusters.
+    pub fn free_clusters(&self, first: u32, count: u32, is_contiguous: bool) -> Result<()> {
+        if first < 2 {
+            return Ok(());
+        }
+
+        let mut bitmap = self.bitmap.lock();
+
+        if is_contiguous {
+            // Free contiguous clusters
+            for i in 0..count {
+                bitmap.set_allocated(first + i, false)?;
+            }
+        } else {
+            // Follow FAT chain
+            let mut current = first;
+            let mut data = self.data.lock();
+
+            loop {
+                bitmap.set_allocated(current, false)?;
+                let next = self.fat.read_entry(&mut data.data, current)?;
+                self.fat.write_entry(&mut data.data, current, ExFatTable::FREE_CLUSTER)?;
+
+                if next == ExFatTable::END_OF_CHAIN || next >= ExFatTable::MEDIA_DESCRIPTOR {
+                    break;
+                }
+                current = next;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Sync the allocation bitmap to disk.
+    pub fn sync_bitmap(&self) -> Result<()> {
+        let bitmap = self.bitmap.lock();
+        let mut data = self.data.lock();
+        bitmap.flush(&mut data.data, &self.info)
+    }
+
+    /// Find free entry slots in a directory.
+    ///
+    /// Returns (cluster, offset_within_cluster) for the first slot.
+    fn find_free_entry_slots(
+        &self,
+        dir: &ExFatDir<'_, DATA>,
+        slots_needed: usize,
+    ) -> Result<(u32, u64)> {
+        let cluster_size = self.info.bytes_per_cluster;
+        let mut current_cluster = dir.first_cluster;
+        let mut consecutive_free = 0;
+        let mut first_free_cluster = current_cluster;
+        let mut first_free_offset = 0u64;
+
+        loop {
+            let cluster_offset = self.info.cluster_to_offset(current_cluster);
+
+            // Scan this cluster for free entries
+            for entry_idx in 0..(cluster_size / 32) {
+                let offset = cluster_offset + (entry_idx as u64 * 32);
+                let entry = self.read_entry_at(offset)?;
+                let entry_type_byte = unsafe { entry.entry_type };
+
+                // Check if this is a free entry (0x00 = end, 0x05 = deleted)
+                if entry_type_byte == entry_type::END_OF_DIRECTORY
+                    || entry_type_byte == entry_type::DELETED_FILE
+                    || entry_type_byte == 0x00
+                {
+                    if consecutive_free == 0 {
+                        first_free_cluster = current_cluster;
+                        first_free_offset = entry_idx as u64 * 32;
+                    }
+                    consecutive_free += 1;
+
+                    if consecutive_free >= slots_needed {
+                        return Ok((first_free_cluster, first_free_offset));
+                    }
+                } else {
+                    consecutive_free = 0;
+                }
+            }
+
+            // Move to next cluster
+            if dir.is_contiguous {
+                current_cluster += 1;
+                // Check if we've exceeded the directory size
+                if (current_cluster - dir.first_cluster) as u64 * cluster_size as u64 >= dir.size
+                    && dir.size > 0
+                {
+                    break;
+                }
+            } else {
+                match self.next_cluster(current_cluster)? {
+                    Some(next) => current_cluster = next,
+                    None => break,
+                }
+            }
+        }
+
+        // Need to extend the directory
+        // For now, return an error - directory extension is more complex
+        Err(FatError::DirectoryFull)
+    }
+
+    /// Write a directory entry set to disk.
+    fn write_entry_set(
+        &self,
+        cluster: u32,
+        offset_in_cluster: u64,
+        entries: &[RawDirectoryEntry],
+    ) -> Result<()> {
+        let cluster_offset = self.info.cluster_to_offset(cluster);
+        let base_offset = cluster_offset + offset_in_cluster;
+
+        for (i, entry) in entries.iter().enumerate() {
+            let entry_offset = base_offset + (i as u64 * 32);
+            self.write_at(entry_offset, unsafe { &entry.bytes })?;
+        }
+
+        Ok(())
+    }
+
+    /// Create a new file in the given directory.
+    pub fn create_file(&self, parent: &ExFatDir<'_, DATA>, name: &str) -> Result<ExFatFileEntry> {
+        // Check if entry already exists
+        if parent.find(name)?.is_some() {
+            return Err(FatError::AlreadyExists);
+        }
+
+        // Build the entry set
+        let builder = EntrySetBuilder::file(name)?;
+        let entries = builder.build(&self.upcase);
+        let entry_count = entries.len();
+
+        // Find free slots in the directory
+        let (slot_cluster, slot_offset) = self.find_free_entry_slots(parent, entry_count)?;
+
+        // Write the entry set
+        self.write_entry_set(slot_cluster, slot_offset, &entries)?;
+
+        // Return the new entry
+        let now = super::time::ExFatTimestamp::now();
+        Ok(ExFatFileEntry {
+            name: name.to_string(),
+            attributes: FileAttributes::ARCHIVE,
+            first_cluster: 0,
+            data_length: 0,
+            valid_data_length: 0,
+            no_fat_chain: true,
+            name_hash: self.upcase.name_hash(name),
+            created: now.clone(),
+            modified: now.clone(),
+            accessed: now,
+            parent_cluster: slot_cluster,
+            entry_offset: self.info.cluster_to_offset(slot_cluster) + slot_offset,
+        })
+    }
+
+    /// Create a new directory.
+    ///
+    /// Note: Unlike FAT, exFAT directories don't have . and .. entries.
+    pub fn create_dir(&self, parent: &ExFatDir<'_, DATA>, name: &str) -> Result<ExFatDir<'_, DATA>> {
+        // Check if entry already exists
+        if parent.find(name)?.is_some() {
+            return Err(FatError::AlreadyExists);
+        }
+
+        // Allocate a cluster for the directory contents
+        let dir_cluster = self.allocate_cluster(2)?;
+
+        // Zero out the directory cluster
+        let cluster_offset = self.info.cluster_to_offset(dir_cluster);
+        let zeros = alloc::vec![0u8; self.info.bytes_per_cluster];
+        self.write_at(cluster_offset, &zeros)?;
+
+        // Build the entry set
+        let builder = EntrySetBuilder::directory(name)?
+            .with_cluster(dir_cluster)
+            .with_size(0, self.info.bytes_per_cluster as u64)
+            .with_contiguous(true);
+        let entries = builder.build(&self.upcase);
+        let entry_count = entries.len();
+
+        // Find free slots in parent directory
+        let (slot_cluster, slot_offset) = self.find_free_entry_slots(parent, entry_count)?;
+
+        // Write the entry set
+        self.write_entry_set(slot_cluster, slot_offset, &entries)?;
+
+        Ok(ExFatDir {
+            fs: self,
+            first_cluster: dir_cluster,
+            is_contiguous: true,
+            size: self.info.bytes_per_cluster as u64,
+        })
+    }
+
+    /// Delete a file or empty directory.
+    pub fn delete(&self, entry: &ExFatFileEntry) -> Result<()> {
+        // If it's a directory, check if it's empty
+        if entry.is_directory() {
+            let dir = ExFatDir {
+                fs: self,
+                first_cluster: entry.first_cluster,
+                is_contiguous: entry.no_fat_chain,
+                size: entry.data_length,
+            };
+
+            // Check for any entries in the directory
+            for item in dir.entries() {
+                let _ = item?;
+                return Err(FatError::DirectoryNotEmpty);
+            }
+        }
+
+        // Free the cluster chain if there is one
+        if entry.first_cluster >= 2 {
+            let cluster_count = if entry.no_fat_chain {
+                let cluster_size = self.info.bytes_per_cluster as u64;
+                ((entry.data_length + cluster_size - 1) / cluster_size) as u32
+            } else {
+                0 // Will follow FAT chain
+            };
+
+            self.free_clusters(entry.first_cluster, cluster_count, entry.no_fat_chain)?;
+        }
+
+        // Mark the directory entry as deleted (0x05)
+        let deleted_marker = [entry_type::DELETED_FILE];
+        self.write_at(entry.entry_offset, &deleted_marker)?;
+
+        Ok(())
+    }
+
+    /// Open a file for writing.
+    pub fn write_file(&self, entry: &ExFatFileEntry) -> Result<ExFatFileWriter<'_, DATA>> {
+        ExFatFileWriter::new(self, entry.clone())
+    }
+
+    /// Truncate a file to the specified size.
+    pub fn truncate(&self, entry: &ExFatFileEntry, new_size: u64) -> Result<()> {
+        if entry.is_directory() {
+            return Err(FatError::NotAFile);
+        }
+
+        if new_size >= entry.valid_data_length {
+            return Ok(()); // Nothing to do
+        }
+
+        let cluster_size = self.info.bytes_per_cluster as u64;
+
+        if new_size == 0 {
+            // Free all clusters
+            if entry.first_cluster >= 2 {
+                let cluster_count = if entry.no_fat_chain {
+                    ((entry.data_length + cluster_size - 1) / cluster_size) as u32
+                } else {
+                    0
+                };
+                self.free_clusters(entry.first_cluster, cluster_count, entry.no_fat_chain)?;
+            }
+            // TODO: Update directory entry
+        } else {
+            // Calculate clusters to keep
+            let clusters_to_keep = (new_size + cluster_size - 1) / cluster_size;
+
+            if entry.no_fat_chain {
+                // For contiguous files, just free the excess clusters
+                let total_clusters = (entry.data_length + cluster_size - 1) / cluster_size;
+                let clusters_to_free = total_clusters - clusters_to_keep;
+
+                if clusters_to_free > 0 {
+                    let first_to_free = entry.first_cluster + clusters_to_keep as u32;
+                    self.free_clusters(first_to_free, clusters_to_free as u32, true)?;
+                }
+            } else {
+                // For fragmented files, walk the chain and truncate
+                let mut current = entry.first_cluster;
+                for _ in 1..clusters_to_keep {
+                    let mut data = self.data.lock();
+                    if let Some(next) = self.fat.next_cluster(&mut data.data, current)? {
+                        current = next;
+                    } else {
+                        break;
+                    }
+                }
+
+                // Truncate after this cluster
+                let mut data = self.data.lock();
+                self.fat.truncate_chain(&mut data.data, current)?;
+            }
+            // TODO: Update directory entry
+        }
+
+        Ok(())
     }
 }
 

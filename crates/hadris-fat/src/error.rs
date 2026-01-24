@@ -66,6 +66,33 @@ pub enum FatError {
     #[cfg(feature = "write")]
     DirectoryNotEmpty,
 
+    /// Volume is too small for the requested format
+    #[cfg(feature = "write")]
+    VolumeTooSmall {
+        /// Requested volume size
+        size: u64,
+        /// Minimum required size
+        min_size: u64,
+    },
+
+    /// Volume is too large for the requested FAT type
+    #[cfg(feature = "write")]
+    VolumeTooLarge {
+        /// Requested volume size
+        size: u64,
+        /// Maximum supported size
+        max_size: u64,
+    },
+
+    /// Invalid format option
+    #[cfg(feature = "write")]
+    InvalidFormatOption {
+        /// The option that was invalid
+        option: &'static str,
+        /// The reason it was invalid
+        reason: &'static str,
+    },
+
     // exFAT-specific errors
     /// Invalid exFAT filesystem signature
     #[cfg(feature = "exfat")]
@@ -158,6 +185,26 @@ impl fmt::Display for FatError {
             #[cfg(feature = "write")]
             Self::DirectoryNotEmpty => {
                 write!(f, "cannot delete non-empty directory")
+            }
+            #[cfg(feature = "write")]
+            Self::VolumeTooSmall { size, min_size } => {
+                write!(
+                    f,
+                    "volume size {} bytes is too small (minimum: {} bytes)",
+                    size, min_size
+                )
+            }
+            #[cfg(feature = "write")]
+            Self::VolumeTooLarge { size, max_size } => {
+                write!(
+                    f,
+                    "volume size {} bytes is too large (maximum: {} bytes)",
+                    size, max_size
+                )
+            }
+            #[cfg(feature = "write")]
+            Self::InvalidFormatOption { option, reason } => {
+                write!(f, "invalid format option '{}': {}", option, reason)
             }
             #[cfg(feature = "exfat")]
             Self::ExFatInvalidSignature { expected, found } => {
