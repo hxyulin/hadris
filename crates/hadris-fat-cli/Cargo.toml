@@ -1,6 +1,6 @@
 [package]
 name = "hadris-fat-cli"
-version = "0.2.0"
+version = "0.2.1"
 description = "CLI utility for FAT filesystem analysis and management"
 readme = "README.md"
 edition.workspace = true

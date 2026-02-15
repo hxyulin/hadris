@@ -44,11 +44,11 @@ chrono = "0.4.40"
 tracing = "0.1.41"
 spin = "0.10.0"
 
-# Internal crates - path-only for local development, version specified in each crate
-hadris-io = { path = "crates/hadris-io", default-features = false }
-hadris-iso = { path = "crates/hadris-iso", default-features = false }
-hadris-udf = { path = "crates/hadris-udf", default-features = false }
-hadris-cd = { path = "crates/hadris-cd", default-features = false }
-hadris-fat = { path = "crates/hadris-fat", default-features = false }
-hadris-common = { path = "crates/hadris-common", default-features = false }
-hadris-part = { path = "crates/hadris-part", default-features = false }
+# Internal crates
+hadris-io = { version = "0.2.1", path = "crates/hadris-io", default-features = false }
+hadris-iso = { version = "0.2.1", path = "crates/hadris-iso", default-features = false }
+hadris-udf = { version = "0.1.0", path = "crates/hadris-udf", default-features = false }
+hadris-cd = { version = "0.1.0", path = "crates/hadris-cd", default-features = false }
+hadris-fat = { version = "0.3.1", path = "crates/hadris-fat", default-features = false }
+hadris-common = { version = "0.2.1", path = "crates/hadris-common", default-features = false }
+hadris-part = { version = "0.2.1", path = "crates/hadris-part", default-features = false }
