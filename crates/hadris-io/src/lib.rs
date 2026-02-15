@@ -108,9 +108,15 @@ impl Seek for Cursor<'_> {
 
         if new_pos < 0 {
             #[cfg(feature = "std")]
-            return Err(Error::new(ErrorKind::InvalidInput, "invalid seek to negative position"));
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "invalid seek to negative position",
+            ));
             #[cfg(not(feature = "std"))]
-            return Err(Error::new(ErrorKind::InvalidInput, "invalid seek to negative position"));
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "invalid seek to negative position",
+            ));
         }
 
         self.cursor = new_pos as usize;

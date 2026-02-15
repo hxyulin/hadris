@@ -6,9 +6,9 @@ use alloc::vec::Vec;
 use core::ops::DerefMut;
 
 use crate::{
+    DirectoryEntry, Fat, FatFs, FatType,
     error::Result,
     io::{Read, Seek},
-    DirectoryEntry, Fat, FatFs, FatType,
 };
 
 /// Statistics about a FAT filesystem.

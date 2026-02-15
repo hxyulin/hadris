@@ -119,7 +119,6 @@ pub fn is_likely_joliet_name(bytes: &[u8]) -> bool {
     ascii_count * 2 > bytes.len() / 2
 }
 
-
 #[cfg(all(feature = "std", test))]
 mod tests {
     use super::*;
@@ -153,13 +152,22 @@ mod tests {
         let mut seq = [b' '; 32];
 
         seq[0..3].copy_from_slice(b"%/@");
-        assert_eq!(JolietLevel::from_escape_sequence(&seq), Some(JolietLevel::Level1));
+        assert_eq!(
+            JolietLevel::from_escape_sequence(&seq),
+            Some(JolietLevel::Level1)
+        );
 
         seq[0..3].copy_from_slice(b"%/C");
-        assert_eq!(JolietLevel::from_escape_sequence(&seq), Some(JolietLevel::Level2));
+        assert_eq!(
+            JolietLevel::from_escape_sequence(&seq),
+            Some(JolietLevel::Level2)
+        );
 
         seq[0..3].copy_from_slice(b"%/E");
-        assert_eq!(JolietLevel::from_escape_sequence(&seq), Some(JolietLevel::Level3));
+        assert_eq!(
+            JolietLevel::from_escape_sequence(&seq),
+            Some(JolietLevel::Level3)
+        );
 
         seq[0..3].copy_from_slice(b"XXX");
         assert_eq!(JolietLevel::from_escape_sequence(&seq), None);
@@ -178,7 +186,7 @@ mod tests {
     fn test_encode_joliet_name_ascii() {
         let encoded = encode_joliet_name("test.txt");
         // Each ASCII char becomes 2 bytes: 0x00, char
-        assert_eq!(encoded.len(), 16);  // 8 chars * 2 bytes
+        assert_eq!(encoded.len(), 16); // 8 chars * 2 bytes
         assert_eq!(&encoded[0..2], &[0x00, b't']);
         assert_eq!(&encoded[2..4], &[0x00, b'e']);
         assert_eq!(&encoded[4..6], &[0x00, b's']);
@@ -189,7 +197,7 @@ mod tests {
     fn test_encode_joliet_name_unicode() {
         let encoded = encode_joliet_name("日本語");
         // 3 characters, each is a single BMP code point
-        assert_eq!(encoded.len(), 6);  // 3 chars * 2 bytes
+        assert_eq!(encoded.len(), 6); // 3 chars * 2 bytes
 
         // 日 = U+65E5 = [0x65, 0xE5] in UTF-16 BE
         assert_eq!(&encoded[0..2], &[0x65, 0xE5]);
@@ -215,11 +223,10 @@ mod tests {
     fn test_decode_joliet_name_with_version_suffix() {
         // "test;1" in UTF-16 BE
         let bytes: &[u8] = &[
-            0x00, b't', 0x00, b'e', 0x00, b's', 0x00, b't',
-            0x00, b';', 0x00, b'1'
+            0x00, b't', 0x00, b'e', 0x00, b's', 0x00, b't', 0x00, b';', 0x00, b'1',
         ];
         let decoded = decode_joliet_name(bytes);
-        assert_eq!(decoded, "test");  // Version suffix should be stripped
+        assert_eq!(decoded, "test"); // Version suffix should be stripped
     }
 
     #[test]
@@ -227,7 +234,7 @@ mod tests {
         let decoded = decode_joliet_name(&[]);
         assert_eq!(decoded, "");
 
-        let decoded = decode_joliet_name(&[0x00]);  // Single byte (invalid)
+        let decoded = decode_joliet_name(&[0x00]); // Single byte (invalid)
         assert_eq!(decoded, "");
     }
 

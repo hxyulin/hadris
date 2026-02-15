@@ -100,11 +100,15 @@ fn extract_directory<R: hadris_io::Read + hadris_io::Seek, C: Read + Seek>(
 
             // Seek to file content
             let offset = extent * 2048;
-            content_reader.seek(SeekFrom::Start(offset)).expect("Failed to seek");
+            content_reader
+                .seek(SeekFrom::Start(offset))
+                .expect("Failed to seek");
 
             // Read and write content
             let mut content = vec![0u8; size];
-            content_reader.read_exact(&mut content).expect("Failed to read file content");
+            content_reader
+                .read_exact(&mut content)
+                .expect("Failed to read file content");
 
             let mut out_file = File::create(&file_path).expect("Failed to create output file");
             out_file.write_all(&content).expect("Failed to write file");

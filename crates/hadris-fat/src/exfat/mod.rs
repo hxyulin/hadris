@@ -10,13 +10,13 @@
 //! - 64-bit file sizes
 //! - UTC timestamps with timezone offsets
 
-mod boot;
 mod bitmap;
+mod boot;
+mod dir;
 mod entry;
 #[cfg(feature = "write")]
 mod entry_writer;
 mod fat;
-mod dir;
 mod file;
 #[cfg(feature = "write")]
 mod format;
@@ -24,10 +24,13 @@ mod fs;
 mod time;
 mod upcase;
 
-pub use boot::{ExFatBootSector, ExFatInfo};
 pub use bitmap::AllocationBitmap;
+pub use boot::{ExFatBootSector, ExFatInfo};
 pub use dir::{ExFatDir, ExFatDirIter};
-pub use entry::{ExFatFileEntry, FileAttributes, RawFileDirectoryEntry, RawStreamExtensionEntry, RawFileNameEntry};
+pub use entry::{
+    ExFatFileEntry, FileAttributes, RawFileDirectoryEntry, RawFileNameEntry,
+    RawStreamExtensionEntry,
+};
 pub use fat::ExFatTable;
 pub use file::ExFatFileReader;
 pub use fs::ExFatFs;
@@ -37,4 +40,4 @@ pub use upcase::UpcaseTable;
 #[cfg(feature = "write")]
 pub use file::ExFatFileWriter;
 #[cfg(feature = "write")]
-pub use format::{format_exfat, ExFatFormatOptions, ExFatLayoutParams};
+pub use format::{ExFatFormatOptions, ExFatLayoutParams, format_exfat};

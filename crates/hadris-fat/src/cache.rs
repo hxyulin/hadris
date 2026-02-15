@@ -109,7 +109,13 @@ impl FatSectorCache {
         fat_count: usize,
         sector_size: usize,
     ) -> Self {
-        Self::new(fat_start, fat_size, fat_count, sector_size, DEFAULT_CACHE_CAPACITY)
+        Self::new(
+            fat_start,
+            fat_size,
+            fat_count,
+            sector_size,
+            DEFAULT_CACHE_CAPACITY,
+        )
     }
 
     /// Get cache statistics.
@@ -363,8 +369,7 @@ impl FatSectorCache {
                 data[offset_in_sector + 1] =
                     (data[offset_in_sector + 1] & 0xF0) | ((value >> 8) as u8 & 0x0F);
             } else {
-                data[offset_in_sector] =
-                    (data[offset_in_sector] & 0x0F) | ((value << 4) as u8);
+                data[offset_in_sector] = (data[offset_in_sector] & 0x0F) | ((value << 4) as u8);
                 data[offset_in_sector + 1] = (value >> 4) as u8;
             }
         } else {
@@ -374,8 +379,7 @@ impl FatSectorCache {
                 if cluster % 2 == 0 {
                     data[offset_in_sector] = value as u8;
                 } else {
-                    data[offset_in_sector] =
-                        (data[offset_in_sector] & 0x0F) | ((value << 4) as u8);
+                    data[offset_in_sector] = (data[offset_in_sector] & 0x0F) | ((value << 4) as u8);
                 }
             }
 
@@ -516,7 +520,9 @@ impl<'a> CachedFat<'a> {
                 if entry >= 0x0FF8 {
                     Ok(None) // End of chain
                 } else if entry == 0x0FF7 {
-                    Err(FatError::BadCluster { cluster: cluster as u32 })
+                    Err(FatError::BadCluster {
+                        cluster: cluster as u32,
+                    })
                 } else if entry < 2 || entry as u32 > self.max_cluster {
                     Err(FatError::ClusterOutOfBounds {
                         cluster: entry as u32,
@@ -531,7 +537,9 @@ impl<'a> CachedFat<'a> {
                 if entry >= 0xFFF8 {
                     Ok(None) // End of chain
                 } else if entry == 0xFFF7 {
-                    Err(FatError::BadCluster { cluster: cluster as u32 })
+                    Err(FatError::BadCluster {
+                        cluster: cluster as u32,
+                    })
                 } else if entry < 2 || entry as u32 > self.max_cluster {
                     Err(FatError::ClusterOutOfBounds {
                         cluster: entry as u32,
@@ -546,7 +554,9 @@ impl<'a> CachedFat<'a> {
                 if entry >= 0x0FFF_FFF8 {
                     Ok(None) // End of chain
                 } else if entry == 0x0FFF_FFF7 {
-                    Err(FatError::BadCluster { cluster: cluster as u32 })
+                    Err(FatError::BadCluster {
+                        cluster: cluster as u32,
+                    })
                 } else if entry < 2 || entry > self.max_cluster {
                     Err(FatError::ClusterOutOfBounds {
                         cluster: entry,

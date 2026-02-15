@@ -1,6 +1,11 @@
-use core::{fmt, ops::{Add, AddAssign}};
+use core::{
+    fmt,
+    ops::{Add, AddAssign},
+};
 
-pub use hadris_io::{Error, Parsable, Read, ReadExt, Result, Seek, SeekFrom, Writable, Write, try_io_result_option};
+pub use hadris_io::{
+    Error, Parsable, Read, ReadExt, Result, Seek, SeekFrom, Writable, Write, try_io_result_option,
+};
 
 /// A Logical Sector, size has to be 2^n and > 2048
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

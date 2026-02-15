@@ -6,9 +6,9 @@ use core::ops::DerefMut;
 use alloc::vec::Vec;
 
 use crate::{
+    FatFs, FileEntry,
     error::{FatError, Result},
     io::{Cluster, ClusterLike, Read, Seek, SeekFrom},
-    FatFs, FileEntry,
 };
 
 /// A reader for file content in a FAT filesystem.
@@ -125,7 +125,11 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
                 break;
             }
 
-            match self.fs.fat.next_cluster(data.deref_mut(), current as usize)? {
+            match self
+                .fs
+                .fat
+                .next_cluster(data.deref_mut(), current as usize)?
+            {
                 Some(next) => current = next,
                 None => break,
             }
@@ -223,9 +227,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
             read_max
         } else {
             // Direct read (no buffering)
-            let seek_pos = self
-                .cluster
-                .to_bytes(self.fs.info.data_start, cluster_size)
+            let seek_pos = self.cluster.to_bytes(self.fs.info.data_start, cluster_size)
                 + self.offset_in_cluster;
             data.seek(SeekFrom::Start(seek_pos as u64))?;
             data.read(&mut buf[..read_max])?
@@ -233,9 +235,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
 
         #[cfg(not(feature = "alloc"))]
         let bytes_read = {
-            let seek_pos = self
-                .cluster
-                .to_bytes(self.fs.info.data_start, cluster_size)
+            let seek_pos = self.cluster.to_bytes(self.fs.info.data_start, cluster_size)
                 + self.offset_in_cluster;
             data.seek(SeekFrom::Start(seek_pos as u64))?;
             data.read(&mut buf[..read_max])?

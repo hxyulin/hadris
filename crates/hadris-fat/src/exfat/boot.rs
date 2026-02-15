@@ -237,10 +237,7 @@ impl ExFatBootSector {
     ///
     /// The checksum is computed over sectors 0-10 and stored in sector 11.
     /// This validates both the main boot region and optionally the backup.
-    pub fn validate_checksum<DATA: Read + Seek>(
-        data: &mut DATA,
-        sector_size: usize,
-    ) -> Result<()> {
+    pub fn validate_checksum<DATA: Read + Seek>(data: &mut DATA, sector_size: usize) -> Result<()> {
         // Read sectors 0-10 and compute checksum
         let mut checksum: u32 = 0;
 

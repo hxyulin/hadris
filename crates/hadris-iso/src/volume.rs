@@ -1,9 +1,9 @@
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 use core::{ffi::CStr, fmt::Debug};
-use hadris_io::{self as io, Read, Write};
 #[cfg(feature = "std")]
 use hadris_io::Parsable;
+use hadris_io::{self as io, Read, Write};
 
 use crate::{
     directory::RootDirectoryEntry,
@@ -27,7 +27,10 @@ impl core::fmt::Display for VolumeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Io => write!(f, "I/O error"),
-            Self::InvalidHeader => write!(f, "invalid volume descriptor header (missing CD001 signature)"),
+            Self::InvalidHeader => write!(
+                f,
+                "invalid volume descriptor header (missing CD001 signature)"
+            ),
             Self::PrimaryNotFound => write!(f, "primary volume descriptor not found"),
         }
     }

@@ -27,23 +27,25 @@ pub mod format;
 pub use error::{FatError, Result};
 pub use io::Cluster;
 // FatType is already public since it's defined with `pub enum`
-pub use read::{FatFsReadExt, FileReader};
-#[cfg(feature = "write")]
-pub use write::{FatDateTime, FatFsWriteExt, FileWriter};
+#[cfg(feature = "cache")]
+pub use cache::{CacheStats, CachedFat, DEFAULT_CACHE_CAPACITY, FatSectorCache};
 #[cfg(feature = "write")]
 pub use format::{FatVolumeFormatter, FormatOptions, FormatParams};
-#[cfg(feature = "cache")]
-pub use cache::{CachedFat, CacheStats, FatSectorCache, DEFAULT_CACHE_CAPACITY};
+pub use read::{FatFsReadExt, FileReader};
 #[cfg(feature = "tool")]
 pub use tool::{
-    analysis::{ClusterState, FatAnalysisExt, FatStatistics, FileFragmentInfo, FragmentationReport},
+    analysis::{
+        ClusterState, FatAnalysisExt, FatStatistics, FileFragmentInfo, FragmentationReport,
+    },
     verify::{FatVerifyExt, VerificationIssue, VerificationReport},
 };
+#[cfg(feature = "write")]
+pub use write::{FatDateTime, FatFsWriteExt, FileWriter};
 
 use core::{cell::Cell, fmt, mem::size_of, ops::DerefMut};
-use io::{ClusterLike, Read, ReadExt, Sector, SectorCursor, SectorLike, Seek, SeekFrom};
 #[cfg(feature = "write")]
 use io::Write;
+use io::{ClusterLike, Read, ReadExt, Sector, SectorCursor, SectorLike, Seek, SeekFrom};
 use spin::Mutex;
 
 use hadris_common::types::{
@@ -125,7 +127,6 @@ pub(crate) struct FatInfo {
     pub(crate) max_cluster: u32,
 }
 
-
 /// Extension info for FAT12/16 filesystems (fixed root directory)
 #[derive(Debug)]
 struct Fat12_16FsExt {
@@ -198,8 +199,8 @@ impl<DATA: Seek> fmt::Debug for FatFs<DATA> {
 }
 
 /// FSInfo signature constants
-const FSINFO_LEAD_SIG: u32 = 0x41615252;    // "RRaA"
-const FSINFO_STRUC_SIG: u32 = 0x61417272;   // "rrAa"
+const FSINFO_LEAD_SIG: u32 = 0x41615252; // "RRaA"
+const FSINFO_STRUC_SIG: u32 = 0x61417272; // "rrAa"
 const FSINFO_TRAIL_SIG: u32 = 0xAA550000;
 
 /// Implementations for Read APIs
@@ -372,7 +373,8 @@ where
 
         let cluster_size = data.cluster_size;
         let fat_start = Sector(bpb.reserved_sector_count.get()).to_bytes(data.sector_size);
-        let fat_size_per_fat = Sector(bpb_ext32.sectors_per_fat_32.get()).to_bytes(data.sector_size);
+        let fat_size_per_fat =
+            Sector(bpb_ext32.sectors_per_fat_32.get()).to_bytes(data.sector_size);
         let fat_size = bpb.fat_count as usize * fat_size_per_fat;
 
         // Calculate total data sectors and max cluster
@@ -386,7 +388,12 @@ where
         let data_sectors = total_sectors.saturating_sub(reserved_sectors + fat_sectors);
         let max_cluster = (data_sectors / bpb.sectors_per_cluster as u32) + 1; // +1 because clusters start at 2
 
-        let fat = Fat::Fat32(Fat32::new(fat_start, fat_size_per_fat, bpb.fat_count as usize, max_cluster));
+        let fat = Fat::Fat32(Fat32::new(
+            fat_start,
+            fat_size_per_fat,
+            bpb.fat_count as usize,
+            max_cluster,
+        ));
 
         let info = FatInfo {
             cluster_size,
@@ -457,8 +464,7 @@ where
             return Err(FatError::InvalidPath);
         }
 
-        let components: alloc::vec::Vec<&str> =
-            path.split('/').filter(|s| !s.is_empty()).collect();
+        let components: alloc::vec::Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
         if components.is_empty() {
             return Err(FatError::InvalidPath);
         }
@@ -699,7 +705,8 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                         start as u64
                     } else {
                         self.cluster
-                            .to_bytes(self.data.info.data_start, cluster_size) as u64
+                            .to_bytes(self.data.info.data_start, cluster_size)
+                            as u64
                     };
 
                     if let Err(e) = data.seek(SeekFrom::Start(seek_pos)) {
@@ -733,9 +740,7 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                     continue;
                 }
 
-                let entry_bytes: [u8; 32] = buffer[offset..offset + entry_size]
-                    .try_into()
-                    .unwrap();
+                let entry_bytes: [u8; 32] = buffer[offset..offset + entry_size].try_into().unwrap();
 
                 // Safety: RawDirectoryEntry is a union of properly aligned types
                 // and entry_bytes has the correct size
@@ -750,7 +755,8 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                     (start + self.offset) as u64
                 } else {
                     self.cluster
-                        .to_bytes(self.data.info.data_start, cluster_size) as u64
+                        .to_bytes(self.data.info.data_start, cluster_size)
+                        as u64
                         + self.offset as u64
                 };
 
@@ -1011,11 +1017,7 @@ impl Fat {
 
     /// Free a cluster chain starting at `start`, returns count of freed clusters.
     #[cfg(feature = "write")]
-    pub fn free_chain<T: Read + Write + Seek>(
-        &self,
-        rw: &mut T,
-        cluster: usize,
-    ) -> Result<u32> {
+    pub fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: usize) -> Result<u32> {
         match self {
             Self::Fat12(fat12) => fat12.free_chain(rw, cluster as u16),
             Self::Fat16(fat16) => fat16.free_chain(rw, cluster as u16),
@@ -1055,7 +1057,12 @@ impl Fat12 {
 
     pub fn new(start: usize, size: usize, count: usize, max_cluster: u16) -> Self {
         debug_assert!(count == 1 || count == 2);
-        Self { start, size, count, max_cluster }
+        Self {
+            start,
+            size,
+            count,
+            max_cluster,
+        }
     }
 
     /// Calculate byte offset for a FAT12 entry.
@@ -1122,7 +1129,9 @@ impl Fat12 {
         }
 
         if Self::is_bad_cluster(entry) {
-            return Err(FatError::BadCluster { cluster: cluster as u32 });
+            return Err(FatError::BadCluster {
+                cluster: cluster as u32,
+            });
         }
 
         self.validate_cluster(entry)?;
@@ -1173,7 +1182,12 @@ impl Fat12 {
 
     /// Write a cluster entry to all FAT table copies
     #[cfg(feature = "write")]
-    pub fn write_clus<T: Read + Write + Seek>(&self, rw: &mut T, cluster: usize, value: u16) -> Result<()> {
+    pub fn write_clus<T: Read + Write + Seek>(
+        &self,
+        rw: &mut T,
+        cluster: usize,
+        value: u16,
+    ) -> Result<()> {
         for i in 0..self.count {
             self.write_clus_at(rw, cluster, value, i)?;
         }
@@ -1182,11 +1196,7 @@ impl Fat12 {
 
     /// Allocate a single cluster, returns the allocated cluster number.
     #[cfg(feature = "write")]
-    pub fn allocate_cluster<T: Read + Write + Seek>(
-        &self,
-        rw: &mut T,
-        hint: u16,
-    ) -> Result<u16> {
+    pub fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u16) -> Result<u16> {
         let start = if hint >= Self::FIRST_DATA_CLUSTER && hint <= self.max_cluster {
             hint
         } else {
@@ -1229,7 +1239,10 @@ impl Fat12 {
             self.write_clus(rw, current as usize, Self::FREE_CLUSTER)?;
             count += 1;
 
-            if Self::is_end_of_chain(next) || Self::is_bad_cluster(next) || next == Self::FREE_CLUSTER {
+            if Self::is_end_of_chain(next)
+                || Self::is_bad_cluster(next)
+                || next == Self::FREE_CLUSTER
+            {
                 break;
             }
 
@@ -1258,7 +1271,10 @@ impl Fat12 {
         self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
 
         // Free the rest of the chain if there is one
-        if !Self::is_end_of_chain(next) && next >= Self::FIRST_DATA_CLUSTER && next <= self.max_cluster {
+        if !Self::is_end_of_chain(next)
+            && next >= Self::FIRST_DATA_CLUSTER
+            && next <= self.max_cluster
+        {
             self.free_chain(rw, next)
         } else {
             Ok(0)
@@ -1285,7 +1301,12 @@ impl Fat16 {
 
     pub fn new(start: usize, size: usize, count: usize, max_cluster: u16) -> Self {
         debug_assert!(count == 1 || count == 2);
-        Self { start, size, count, max_cluster }
+        Self {
+            start,
+            size,
+            count,
+            max_cluster,
+        }
     }
 
     fn entry_offset(&self, cluster: usize) -> usize {
@@ -1339,7 +1360,9 @@ impl Fat16 {
         }
 
         if Self::is_bad_cluster(entry) {
-            return Err(FatError::BadCluster { cluster: cluster as u32 });
+            return Err(FatError::BadCluster {
+                cluster: cluster as u32,
+            });
         }
 
         self.validate_cluster(entry)?;
@@ -1371,7 +1394,12 @@ impl Fat16 {
 
     /// Write a cluster entry to all FAT table copies
     #[cfg(feature = "write")]
-    pub fn write_clus<T: Write + Seek>(&self, writer: &mut T, cluster: usize, value: u16) -> Result<()> {
+    pub fn write_clus<T: Write + Seek>(
+        &self,
+        writer: &mut T,
+        cluster: usize,
+        value: u16,
+    ) -> Result<()> {
         for i in 0..self.count {
             self.write_clus_at(writer, cluster, value, i)?;
         }
@@ -1380,11 +1408,7 @@ impl Fat16 {
 
     /// Allocate a single cluster, returns the allocated cluster number.
     #[cfg(feature = "write")]
-    pub fn allocate_cluster<T: Read + Write + Seek>(
-        &self,
-        rw: &mut T,
-        hint: u16,
-    ) -> Result<u16> {
+    pub fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u16) -> Result<u16> {
         let start = if hint >= Self::FIRST_DATA_CLUSTER && hint <= self.max_cluster {
             hint
         } else {
@@ -1427,7 +1451,10 @@ impl Fat16 {
             self.write_clus(rw, current as usize, Self::FREE_CLUSTER)?;
             count += 1;
 
-            if Self::is_end_of_chain(next) || Self::is_bad_cluster(next) || next == Self::FREE_CLUSTER {
+            if Self::is_end_of_chain(next)
+                || Self::is_bad_cluster(next)
+                || next == Self::FREE_CLUSTER
+            {
                 break;
             }
 
@@ -1456,7 +1483,10 @@ impl Fat16 {
         self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
 
         // Free the rest of the chain if there is one
-        if !Self::is_end_of_chain(next) && next >= Self::FIRST_DATA_CLUSTER && next <= self.max_cluster {
+        if !Self::is_end_of_chain(next)
+            && next >= Self::FIRST_DATA_CLUSTER
+            && next <= self.max_cluster
+        {
             self.free_chain(rw, next)
         } else {
             Ok(0)
@@ -1484,7 +1514,12 @@ impl Fat32 {
 
     pub fn new(start: usize, size: usize, count: usize, max_cluster: u32) -> Self {
         debug_assert!(count == 1 || count == 2);
-        Self { start, size, count, max_cluster }
+        Self {
+            start,
+            size,
+            count,
+            max_cluster,
+        }
     }
 
     fn entry_offset(&self, cluster: usize) -> usize {
@@ -1542,7 +1577,9 @@ impl Fat32 {
 
         // Check for bad cluster
         if Self::is_bad_cluster(entry) {
-            return Err(FatError::BadCluster { cluster: cluster as u32 });
+            return Err(FatError::BadCluster {
+                cluster: cluster as u32,
+            });
         }
 
         // Validate the next cluster is in bounds
@@ -1568,7 +1605,12 @@ impl Fat32 {
 
     /// Write a cluster entry to all FAT table copies
     #[cfg(feature = "write")]
-    pub fn write_clus<T: Write + Seek>(&self, writer: &mut T, cluster: usize, value: u32) -> Result<()> {
+    pub fn write_clus<T: Write + Seek>(
+        &self,
+        writer: &mut T,
+        cluster: usize,
+        value: u32,
+    ) -> Result<()> {
         for i in 0..self.count {
             self.write_clus_at(writer, cluster, value, i)?;
         }
@@ -1585,11 +1627,7 @@ impl Fat32 {
     /// Allocate a single cluster, returns the allocated cluster number.
     /// Searches starting from `hint` for a free cluster.
     #[cfg(feature = "write")]
-    pub fn allocate_cluster<T: Read + Write + Seek>(
-        &self,
-        rw: &mut T,
-        hint: u32,
-    ) -> Result<u32> {
+    pub fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u32) -> Result<u32> {
         // Start searching from hint, wrapping around if needed
         let start = if hint >= Self::FIRST_DATA_CLUSTER && hint <= self.max_cluster {
             hint
@@ -1667,7 +1705,10 @@ impl Fat32 {
             count += 1;
 
             // Check if this was the end of chain
-            if Self::is_end_of_chain(next) || Self::is_bad_cluster(next) || next == Self::FREE_CLUSTER {
+            if Self::is_end_of_chain(next)
+                || Self::is_bad_cluster(next)
+                || next == Self::FREE_CLUSTER
+            {
                 break;
             }
 
@@ -1697,7 +1738,10 @@ impl Fat32 {
         self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
 
         // Free the rest of the chain if there is one
-        if !Self::is_end_of_chain(next) && next >= Self::FIRST_DATA_CLUSTER && next <= self.max_cluster {
+        if !Self::is_end_of_chain(next)
+            && next >= Self::FIRST_DATA_CLUSTER
+            && next <= self.max_cluster
+        {
             self.free_chain(rw, next)
         } else {
             Ok(0)

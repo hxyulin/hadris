@@ -9,14 +9,14 @@ use hadris_iso::boot::{EmulationType, PlatformId};
 use hadris_iso::directory::FileFlags;
 use hadris_iso::joliet::JolietLevel;
 use hadris_iso::read::{IsoImage, PathSeparator};
+use hadris_iso::rrip::RripOptions;
+use hadris_iso::susp::SystemUseIter;
 use hadris_iso::types::Endian;
 use hadris_iso::volume::VolumeDescriptor;
 use hadris_iso::write::options::{CreationFeatures, FormatOptions, HybridBootOptions};
 use hadris_iso::write::{InputFiles, IsoImageWriter};
 
-use crate::args::{
-    CreateArgs, ExtractArgs, InfoArgs, LsArgs, MkisofsArgs, TreeArgs, VerifyArgs,
-};
+use crate::args::{CreateArgs, ExtractArgs, InfoArgs, LsArgs, MkisofsArgs, TreeArgs, VerifyArgs};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -32,7 +32,7 @@ pub fn info(args: InfoArgs) -> Result<()> {
     // Read and display volume descriptors
     let mut has_boot = false;
     let mut has_joliet = false;
-    let has_rockridge = false; // TODO: detect Rock Ridge from SUSP entries
+    let has_rockridge = detect_rock_ridge(&iso);
 
     for vd in iso.read_volume_descriptors() {
         let vd = vd?;
@@ -45,14 +45,25 @@ pub fn info(args: InfoArgs) -> Result<()> {
                 println!("  Publisher ID:     {}", pvd.publisher_identifier);
                 println!("  Preparer ID:      {}", pvd.preparer_identifier);
                 println!("  Application ID:   {}", pvd.application_identifier);
-                println!("  Volume Size:      {} sectors ({} bytes)",
+                println!(
+                    "  Volume Size:      {} sectors ({} bytes)",
                     pvd.volume_space_size.read(),
-                    pvd.volume_space_size.read() as u64 * 2048);
-                println!("  Block Size:       {} bytes", pvd.logical_block_size.read());
+                    pvd.volume_space_size.read() as u64 * 2048
+                );
+                println!(
+                    "  Block Size:       {} bytes",
+                    pvd.logical_block_size.read()
+                );
                 println!("  Path Table Size:  {} bytes", pvd.path_table_size.read());
                 if args.verbose {
-                    println!("  Root Extent:      sector {}", pvd.dir_record.header.extent.read());
-                    println!("  Root Size:        {} bytes", pvd.dir_record.header.data_len.read());
+                    println!(
+                        "  Root Extent:      sector {}",
+                        pvd.dir_record.header.extent.read()
+                    );
+                    println!(
+                        "  Root Size:        {} bytes",
+                        pvd.dir_record.header.data_len.read()
+                    );
                 }
             }
             VolumeDescriptor::BootRecord(boot) => {
@@ -96,9 +107,18 @@ pub fn info(args: InfoArgs) -> Result<()> {
     // Summary
     println!();
     println!("Features:");
-    println!("  El-Torito Boot:   {}", if has_boot { "Yes" } else { "No" });
-    println!("  Joliet:           {}", if has_joliet { "Yes" } else { "No" });
-    println!("  Rock Ridge:       {}", if has_rockridge { "Yes" } else { "No" });
+    println!(
+        "  El-Torito Boot:   {}",
+        if has_boot { "Yes" } else { "No" }
+    );
+    println!(
+        "  Joliet:           {}",
+        if has_joliet { "Yes" } else { "No" }
+    );
+    println!(
+        "  Rock Ridge:       {}",
+        if has_rockridge { "Yes" } else { "No" }
+    );
 
     Ok(())
 }
@@ -154,10 +174,7 @@ pub fn ls(args: LsArgs) -> Result<()> {
 
             println!(
                 "{}  {:>10}  {:>8}  {}",
-                type_char,
-                size,
-                extent,
-                display_name
+                type_char, size, extent, display_name
             );
         } else {
             if flags.contains(FileFlags::DIRECTORY) {
@@ -211,7 +228,11 @@ fn print_tree_recursive<R: Read + Seek>(
 
     for (idx, entry) in entries.iter().enumerate() {
         let is_last_entry = idx == entries.len() - 1;
-        let connector = if is_last_entry { "└── " } else { "├── " };
+        let connector = if is_last_entry {
+            "└── "
+        } else {
+            "├── "
+        };
         let name = String::from_utf8_lossy(entry.name());
 
         // Strip version number
@@ -283,7 +304,11 @@ pub fn extract(args: ExtractArgs) -> Result<()> {
         let output_path = args.output.join(filename);
 
         if args.verbose {
-            println!("Extracting: {} ({} bytes)", filename, entry.header().data_len.read());
+            println!(
+                "Extracting: {} ({} bytes)",
+                filename,
+                entry.header().data_len.read()
+            );
         }
 
         // Read file content from ISO
@@ -301,7 +326,11 @@ pub fn extract(args: ExtractArgs) -> Result<()> {
         extracted_count += 1;
     }
 
-    println!("Extracted {} files to {}", extracted_count, args.output.display());
+    println!(
+        "Extracted {} files to {}",
+        extracted_count,
+        args.output.display()
+    );
     Ok(())
 }
 
@@ -365,20 +394,38 @@ pub fn create(args: CreateArgs) -> Result<()> {
         None
     };
 
+    // Configure Rock Ridge
+    let mut filenames = args.level.0.clone();
+    if args.rock_ridge {
+        // Set supports_rrip on the base ISO level
+        match &mut filenames {
+            hadris_iso::write::options::BaseIsoLevel::Level1 { supports_rrip, .. } => {
+                *supports_rrip = true
+            }
+            hadris_iso::write::options::BaseIsoLevel::Level2 { supports_rrip, .. } => {
+                *supports_rrip = true
+            }
+        }
+    }
+
     // Configure format options
     let format_options = FormatOptions {
         volume_name: args.volume_name.clone(),
         sector_size: 2048,
         path_seperator: PathSeparator::ForwardSlash,
         features: CreationFeatures {
-            filenames: args.level.0.clone(),
+            filenames,
             long_filenames: false,
             joliet: if args.joliet {
                 Some(JolietLevel::Level3)
             } else {
                 None
             },
-            rock_ridge: None, // TODO: implement rock ridge options
+            rock_ridge: if args.rock_ridge {
+                Some(RripOptions::default())
+            } else {
+                None
+            },
             el_torito,
             hybrid_boot,
         },
@@ -409,7 +456,11 @@ pub fn create(args: CreateArgs) -> Result<()> {
     file.write_all(&data[..actual_size])?;
 
     if args.verbose {
-        println!("Created ISO: {} ({} bytes)", args.output.display(), actual_size);
+        println!(
+            "Created ISO: {} ({} bytes)",
+            args.output.display(),
+            actual_size
+        );
     } else {
         println!("Created: {}", args.output.display());
     }
@@ -583,7 +634,11 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
             } else {
                 None
             },
-            rock_ridge: None,
+            rock_ridge: if args.rock_ridge {
+                Some(RripOptions::default())
+            } else {
+                None
+            },
             el_torito,
             hybrid_boot,
         },
@@ -612,7 +667,11 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
     let mut file = File::create(&output_path)?;
     file.write_all(&data[..actual_size])?;
 
-    println!("Written to {} ({} bytes)", output_path.display(), actual_size);
+    println!(
+        "Written to {} ({} bytes)",
+        output_path.display(),
+        actual_size
+    );
 
     Ok(())
 }
@@ -631,11 +690,86 @@ fn count_files(input: &InputFiles) -> usize {
             .iter()
             .map(|f| match f {
                 hadris_iso::write::File::File { .. } => 1,
-                hadris_iso::write::File::Directory { children, .. } => 1 + count_recursive(children),
+                hadris_iso::write::File::Directory { children, .. } => {
+                    1 + count_recursive(children)
+                }
             })
             .sum()
     }
     count_recursive(&input.files)
+}
+
+/// Detect Rock Ridge support by reading the root directory's dot entry
+/// and looking for SUSP SP + RRIP ER entries, following CE if needed.
+fn detect_rock_ridge<R: Read + Seek>(iso: &IsoImage<R>) -> bool {
+    let root = iso.root_dir();
+    let dir = root.iter(iso);
+    let mut entries = dir.entries();
+
+    // The first entry should be the dot entry (current directory)
+    let dot_entry = match entries.next() {
+        Some(Ok(entry)) if entry.name() == b"\x00" => entry,
+        _ => return false,
+    };
+
+    let su_data = dot_entry.system_use();
+    if su_data.len() < 7 {
+        return false;
+    }
+
+    let mut found_sp = false;
+    let mut found_rrip_er = false;
+
+    // Parse inline system use entries
+    for field in SystemUseIter::new(su_data, 0) {
+        match field {
+            hadris_iso::susp::SystemUseField::SuspIdentifier(sp) => {
+                if sp.is_valid() {
+                    found_sp = true;
+                }
+            }
+            hadris_iso::susp::SystemUseField::ExtensionReference(er) => {
+                let id_start = 4usize; // after id_len, desc_len, src_len, version
+                let id_end = id_start + er.identifier_len as usize;
+                if id_end <= er.buf.len() {
+                    let id = &er.buf[id_start..id_end];
+                    if id == b"RRIP_1991A" {
+                        found_rrip_er = true;
+                    }
+                }
+            }
+            hadris_iso::susp::SystemUseField::ContinuationArea(ce) => {
+                // Follow the CE to read the continuation area
+                let sector = ce.sector.read() as u64;
+                let offset = ce.offset.read() as u64;
+                let length = ce.length.read() as usize;
+                if length > 0 {
+                    let byte_pos = sector * 2048 + offset;
+                    let mut buf = vec![0u8; length];
+                    if iso.read_bytes_at(byte_pos, &mut buf).is_ok() {
+                        // Parse continuation area entries
+                        for ce_field in SystemUseIter::new(&buf, 0) {
+                            if let hadris_iso::susp::SystemUseField::ExtensionReference(er) =
+                                ce_field
+                            {
+                                let id_start = 4usize;
+                                let id_end = id_start + er.identifier_len as usize;
+                                if id_end <= er.buf.len() {
+                                    let id = &er.buf[id_start..id_end];
+                                    if id == b"RRIP_1991A" {
+                                        found_rrip_er = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    found_sp && found_rrip_er
 }
 
 fn estimate_iso_size(input: &InputFiles) -> u64 {

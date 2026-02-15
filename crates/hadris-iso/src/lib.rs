@@ -14,13 +14,33 @@
 //!
 //! ### Reading an ISO Image
 //!
-//! ```rust,no_run
-//! use std::fs::File;
-//! use std::io::BufReader;
+//! ```rust
+//! # use std::io::Cursor;
+//! # use std::sync::Arc;
+//! # use hadris_iso::read::PathSeparator;
+//! # use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+//! # use hadris_iso::write::options::{FormatOptions, CreationFeatures};
 //! use hadris_iso::read::IsoImage;
 //!
-//! let file = File::open("image.iso").unwrap();
-//! let reader = BufReader::new(file);
+//! # // Create a minimal ISO image for the example
+//! # let files = InputFiles {
+//! #     path_separator: PathSeparator::ForwardSlash,
+//! #     files: vec![
+//! #         IsoFile::File {
+//! #             name: Arc::new("readme.txt".to_string()),
+//! #             contents: b"Hello, World!".to_vec(),
+//! #         },
+//! #     ],
+//! # };
+//! # let options = FormatOptions {
+//! #     volume_name: "TEST".to_string(),
+//! #     sector_size: 2048,
+//! #     path_seperator: PathSeparator::ForwardSlash,
+//! #     features: CreationFeatures::default(),
+//! # };
+//! # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
+//! # IsoImageWriter::format_new(&mut buffer, files, options).unwrap();
+//! # let reader = Cursor::new(buffer.into_inner());
 //! let image = IsoImage::open(reader).unwrap();
 //!
 //! // Get the root directory
@@ -35,7 +55,7 @@
 //!
 //! ### Creating a Bootable ISO
 //!
-//! ```rust,no_run
+//! ```rust
 //! use std::io::Cursor;
 //! use std::sync::Arc;
 //! use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
@@ -44,8 +64,8 @@
 //! use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
 //! use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
 //!
-//! // Prepare files to include
-//! let boot_image = std::fs::read("boot.bin").unwrap();
+//! // Prepare files to include (use dummy boot image for example)
+//! # let boot_image = vec![0u8; 2048]; // Minimal boot image
 //! let files = InputFiles {
 //!     path_separator: PathSeparator::ForwardSlash,
 //!     files: vec![
@@ -87,9 +107,10 @@
 //!     },
 //! };
 //!
-//! let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]); // 1MB buffer
+//! let mut buffer = Cursor::new(vec![0u8; 2 * 1024 * 1024]); // 2MB buffer
 //! IsoImageWriter::format_new(&mut buffer, files, format_options).unwrap();
-//! std::fs::write("bootable.iso", buffer.into_inner()).unwrap();
+//! # // In real code you would write to a file:
+//! # // std::fs::write("bootable.iso", buffer.into_inner()).unwrap();
 //! ```
 //!
 //! ## Feature Flags
@@ -131,7 +152,7 @@
 //! Joliet provides Unicode filename support using UTF-16 encoding. It allows
 //! filenames up to 64 characters and preserves case. Enable with the `joliet` feature.
 //!
-//! ```rust,ignore
+//! ```rust
 //! use hadris_iso::joliet::JolietLevel;
 //! use hadris_iso::write::options::CreationFeatures;
 //!
@@ -164,8 +185,8 @@
 //! - **GPT mode** - For UEFI systems
 //! - **Hybrid MBR+GPT** - For dual BIOS/UEFI compatibility
 //!
-//! ```rust,ignore
-//! use hadris_iso::write::options::{HybridBootOptions, PartitionScheme};
+//! ```rust
+//! use hadris_iso::write::options::{CreationFeatures, HybridBootOptions, PartitionScheme};
 //!
 //! // Enable MBR-based hybrid boot for USB
 //! let features = CreationFeatures {
@@ -217,10 +238,9 @@
 //! For detailed specification documentation, see the
 //! [spec directory](https://github.com/hxyulin/hadris/tree/main/crates/hadris-iso/spec).
 
-// Known Bugs:
-//  - Zero size files causes a lot of issues
-//
-//  TODO: There is a lot of bugs with mixing file interchanges!!!
+// Known Limitations:
+//  - Rock Ridge write support is not yet implemented (read support works)
+//  - When reading ISOs with both Joliet and Rock Ridge, only one is used
 
 #![no_std]
 
@@ -238,11 +258,11 @@ extern crate std;
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use hadris_iso::directory::{DirectoryRecord, FileFlags};
+/// ```rust
+/// use hadris_iso::directory::FileFlags;
 ///
-/// // Check if a record is a directory
-/// let flags = FileFlags::from_bits_truncate(record.header().flags);
+/// // Check if flags indicate a directory
+/// let flags = FileFlags::from_bits_truncate(0x02); // DIRECTORY flag
 /// if flags.contains(FileFlags::DIRECTORY) {
 ///     println!("This is a directory");
 /// }
@@ -306,8 +326,8 @@ pub mod volume;
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use hadris_iso::boot::{BootCatalog, EmulationType, PlatformId};
+/// ```rust
+/// use hadris_iso::boot::{BootCatalog, EmulationType};
 ///
 /// let catalog = BootCatalog::new(
 ///     EmulationType::NoEmulation,
@@ -359,12 +379,32 @@ pub mod susp;
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use std::fs::File;
+/// ```rust
+/// # use std::io::Cursor;
+/// # use std::sync::Arc;
+/// # use hadris_iso::read::PathSeparator;
+/// # use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+/// # use hadris_iso::write::options::{FormatOptions, CreationFeatures};
 /// use hadris_iso::read::IsoImage;
 ///
-/// let file = File::open("image.iso")?;
-/// let image = IsoImage::open(file)?;
+/// # // Create a minimal ISO for the example
+/// # let files = InputFiles {
+/// #     path_separator: PathSeparator::ForwardSlash,
+/// #     files: vec![IsoFile::File {
+/// #         name: Arc::new("test.txt".to_string()),
+/// #         contents: b"test".to_vec(),
+/// #     }],
+/// # };
+/// # let options = FormatOptions {
+/// #     volume_name: "TEST".to_string(),
+/// #     sector_size: 2048,
+/// #     path_seperator: PathSeparator::ForwardSlash,
+/// #     features: CreationFeatures::default(),
+/// # };
+/// # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
+/// # IsoImageWriter::format_new(&mut buffer, files, options).unwrap();
+/// # let file = Cursor::new(buffer.into_inner());
+/// let image = IsoImage::open(file).unwrap();
 ///
 /// // Read the primary volume descriptor
 /// let pvd = image.read_pvd();
@@ -374,6 +414,7 @@ pub mod susp;
 /// let root = image.root_dir();
 /// for entry in root.iter(&image).entries() {
 ///     // Process each entry
+/// #   let _ = entry;
 /// }
 /// ```
 #[cfg(feature = "alloc")]
@@ -386,14 +427,54 @@ pub mod read;
 ///
 /// # Example
 ///
-/// ```rust,ignore
-/// use hadris_iso::write::{IsoImageWriter, InputFiles, FormatOptions};
+/// ```rust
+/// use std::io::Cursor;
+/// use std::sync::Arc;
+/// use hadris_iso::read::PathSeparator;
+/// use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+/// use hadris_iso::write::options::{FormatOptions, CreationFeatures};
 ///
-/// let files = InputFiles::from_fs(&path, PathSeparator::ForwardSlash)?;
-/// let options = FormatOptions::default();
+/// // Create files to include in the ISO
+/// let files = InputFiles {
+///     path_separator: PathSeparator::ForwardSlash,
+///     files: vec![
+///         IsoFile::File {
+///             name: Arc::new("hello.txt".to_string()),
+///             contents: b"Hello, World!".to_vec(),
+///         },
+///     ],
+/// };
+/// let options = FormatOptions {
+///     volume_name: "MY_ISO".to_string(),
+///     sector_size: 2048,
+///     path_seperator: PathSeparator::ForwardSlash,
+///     features: CreationFeatures::default(),
+/// };
 ///
-/// let mut output = File::create("output.iso")?;
-/// IsoImageWriter::format_new(&mut output, files, options)?;
+/// let mut output = Cursor::new(vec![0u8; 1024 * 1024]);
+/// IsoImageWriter::format_new(&mut output, files, options).unwrap();
+/// # // In real code, write to a file instead of a Cursor
 /// ```
 #[cfg(feature = "write")]
 pub mod write;
+
+/// ISO image modification and append support.
+///
+/// This module provides `IsoModifier` for appending files to existing ISO images
+/// and marking files for deletion. Changes are committed as a new session.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use hadris_iso::modify::IsoModifier;
+///
+/// let file = std::fs::OpenOptions::new()
+///     .read(true).write(true)
+///     .open("image.iso")?;
+///
+/// let mut modifier = IsoModifier::open(file)?;
+/// modifier.append_file("new_file.txt", b"Hello, world!".to_vec());
+/// modifier.commit()?;
+/// ```
+#[cfg(feature = "write")]
+pub mod modify;

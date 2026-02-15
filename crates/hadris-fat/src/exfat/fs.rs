@@ -9,16 +9,16 @@ use hadris_common::types::endian::Endian;
 use spin::Mutex;
 
 use crate::error::{FatError, Result};
-use crate::io::{Read, ReadExt, Seek, SeekFrom, SectorCursor};
 #[cfg(feature = "write")]
 use crate::io::Write;
+use crate::io::{Read, ReadExt, SectorCursor, Seek, SeekFrom};
 
 use super::bitmap::AllocationBitmap;
 use super::boot::{ExFatBootSector, ExFatInfo};
 use super::dir::ExFatDir;
-use super::entry::{entry_type, ExFatFileEntry, RawDirectoryEntry};
 #[cfg(feature = "write")]
 use super::entry::FileAttributes;
+use super::entry::{ExFatFileEntry, RawDirectoryEntry, entry_type};
 #[cfg(feature = "write")]
 use super::entry_writer::EntrySetBuilder;
 use super::fat::ExFatTable;
@@ -195,10 +195,7 @@ where
             return Err(FatError::InvalidPath);
         }
 
-        let components: Vec<&str> = path
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .collect();
+        let components: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
 
         if components.is_empty() {
             return Err(FatError::InvalidPath);
@@ -207,7 +204,9 @@ where
         let mut current_dir = self.root_dir();
 
         for (i, component) in components.iter().enumerate() {
-            let entry = current_dir.find(component)?.ok_or(FatError::EntryNotFound)?;
+            let entry = current_dir
+                .find(component)?
+                .ok_or(FatError::EntryNotFound)?;
 
             if i < components.len() - 1 {
                 // Not the last component, must be a directory
@@ -306,7 +305,8 @@ where
     /// The cluster is marked as allocated in the bitmap and as end-of-chain in the FAT.
     pub fn allocate_cluster(&self, hint: u32) -> Result<u32> {
         let mut bitmap = self.bitmap.lock();
-        let cluster = bitmap.find_free_cluster(hint)?
+        let cluster = bitmap
+            .find_free_cluster(hint)?
             .ok_or(FatError::NoFreeSpace)?;
 
         // Mark as allocated in bitmap
@@ -314,7 +314,8 @@ where
 
         // Mark as end-of-chain in FAT
         let mut data = self.data.lock();
-        self.fat.write_entry(&mut data.data, cluster, ExFatTable::END_OF_CHAIN)?;
+        self.fat
+            .write_entry(&mut data.data, cluster, ExFatTable::END_OF_CHAIN)?;
 
         Ok(cluster)
     }
@@ -386,7 +387,8 @@ where
             loop {
                 bitmap.set_allocated(current, false)?;
                 let next = self.fat.read_entry(&mut data.data, current)?;
-                self.fat.write_entry(&mut data.data, current, ExFatTable::FREE_CLUSTER)?;
+                self.fat
+                    .write_entry(&mut data.data, current, ExFatTable::FREE_CLUSTER)?;
 
                 if next == ExFatTable::END_OF_CHAIN || next >= ExFatTable::MEDIA_DESCRIPTOR {
                     break;
@@ -526,7 +528,11 @@ where
     /// Create a new directory.
     ///
     /// Note: Unlike FAT, exFAT directories don't have . and .. entries.
-    pub fn create_dir(&self, parent: &ExFatDir<'_, DATA>, name: &str) -> Result<ExFatDir<'_, DATA>> {
+    pub fn create_dir(
+        &self,
+        parent: &ExFatDir<'_, DATA>,
+        name: &str,
+    ) -> Result<ExFatDir<'_, DATA>> {
         // Check if entry already exists
         if parent.find(name)?.is_some() {
             return Err(FatError::AlreadyExists);

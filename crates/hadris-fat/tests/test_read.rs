@@ -167,7 +167,9 @@ mod file_tests {
     #[test]
     fn test_short_filename_special_chars() {
         // Test allowed special characters
-        let result = ShortFileName::new([b'$', b'%', b'\'', b'-', b'_', b'@', b'~', b' ', b' ', b' ', b' ']);
+        let result = ShortFileName::new([
+            b'$', b'%', b'\'', b'-', b'_', b'@', b'~', b' ', b' ', b' ', b' ',
+        ]);
         assert!(result.is_ok());
     }
 }
@@ -214,9 +216,7 @@ mod lfn_tests {
         let mut lfn = LongFileName::new();
 
         // Second part: "file.txt"
-        let name1_2: [u8; 10] = [
-            b'f', 0, b'i', 0, b'l', 0, b'e', 0, b'.', 0,
-        ];
+        let name1_2: [u8; 10] = [b'f', 0, b'i', 0, b'l', 0, b'e', 0, b'.', 0];
         let name2_2: [u8; 12] = [
             b't', 0, b'x', 0, b't', 0, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
         ];
@@ -225,9 +225,7 @@ mod lfn_tests {
         lfn.prepend_lfn_entry(&name1_2, &name2_2, &name3_2);
 
         // First part: "long_"
-        let name1_1: [u8; 10] = [
-            b'l', 0, b'o', 0, b'n', 0, b'g', 0, b'_', 0,
-        ];
+        let name1_1: [u8; 10] = [b'l', 0, b'o', 0, b'n', 0, b'g', 0, b'_', 0];
         let name2_1: [u8; 12] = [0xFF; 12];
         let name3_1: [u8; 4] = [0xFF; 4];
 

@@ -230,9 +230,7 @@ pub struct LongFileName {
 #[cfg(feature = "lfn")]
 impl fmt::Debug for LongFileName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("LongFileName")
-            .field(&self.as_str())
-            .finish()
+        f.debug_tuple("LongFileName").field(&self.as_str()).finish()
     }
 }
 

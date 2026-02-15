@@ -38,6 +38,19 @@ impl EntryType {
     // Usefulness coefficient:
     // bits 0-3 = base level (lowercase = 4,5,6 Joliet = level 12, 13, 14)
     // bit 4 = rrip
+    pub fn supports_rrip(&self) -> bool {
+        match self {
+            Self::Level1 { supports_rrip, .. } => *supports_rrip,
+            Self::Level2 { supports_rrip, .. } => *supports_rrip,
+            Self::Level3 { supports_rrip, .. } => *supports_rrip,
+            #[cfg(feature = "alloc")]
+            Self::Joliet { supports_rrip, .. } => *supports_rrip,
+        }
+    }
+
+    // Usefulness coefficient:
+    // bits 0-3 = base level (lowercase = 4,5,6 Joliet = level 12, 13, 14)
+    // bit 4 = rrip
     fn usefulness(self) -> u8 {
         match self {
             Self::Level1 {

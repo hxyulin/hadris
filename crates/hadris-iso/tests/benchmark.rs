@@ -33,7 +33,11 @@ fn create_nested_dirs(dir: &Path, depth: usize, breadth: usize) {
         for i in 0..breadth {
             let subdir = dir.join(format!("{}dir_{}", prefix, i));
             fs::create_dir_all(&subdir).unwrap();
-            fs::write(subdir.join("data.txt"), format!("Depth {} index {}", depth, i)).unwrap();
+            fs::write(
+                subdir.join("data.txt"),
+                format!("Depth {} index {}", depth, i),
+            )
+            .unwrap();
             create_recursive(&subdir, depth - 1, breadth, &format!("{}_{}", prefix, i));
         }
     }
@@ -43,10 +47,14 @@ fn create_nested_dirs(dir: &Path, depth: usize, breadth: usize) {
 fn create_iso_with_xorriso(content_dir: &Path, iso_path: &Path) -> bool {
     let output = Command::new("xorriso")
         .args([
-            "-as", "mkisofs",
-            "-o", iso_path.to_str().unwrap(),
-            "-V", "BENCHMARK",
-            "-J", "-R",
+            "-as",
+            "mkisofs",
+            "-o",
+            iso_path.to_str().unwrap(),
+            "-V",
+            "BENCHMARK",
+            "-J",
+            "-R",
             content_dir.to_str().unwrap(),
         ])
         .output()
@@ -118,7 +126,11 @@ fn bench_iso_open_large() {
     let elapsed = start.elapsed();
 
     println!("\n=== Large ISO Open Benchmark ===");
-    println!("ISO size: {} bytes ({:.2} MB)", iso_size, iso_size as f64 / 1024.0 / 1024.0);
+    println!(
+        "ISO size: {} bytes ({:.2} MB)",
+        iso_size,
+        iso_size as f64 / 1024.0 / 1024.0
+    );
     println!("Iterations: {}", iterations);
     println!("Total time: {:?}", elapsed);
     println!("Average time per open: {:?}", elapsed / iterations);
@@ -167,7 +179,10 @@ fn bench_directory_traversal() {
     println!("Total entries read: {}", total_entries);
     println!("Entries per iteration: {}", total_entries / iterations);
     println!("Total time: {:?}", elapsed);
-    println!("Average time per traversal: {:?}", elapsed / iterations as u32);
+    println!(
+        "Average time per traversal: {:?}",
+        elapsed / iterations as u32
+    );
 }
 
 #[test]
@@ -250,8 +265,14 @@ fn bench_joliet_encoding_decoding() {
     println!("Total encodes: {}", iterations * test_strings.len());
     println!("Encode time: {:?}", encode_elapsed);
     println!("Decode time: {:?}", decode_elapsed);
-    println!("Avg encode per string: {:?}", encode_elapsed / (iterations * test_strings.len()) as u32);
-    println!("Avg decode per string: {:?}", decode_elapsed / (iterations * test_strings.len()) as u32);
+    println!(
+        "Avg encode per string: {:?}",
+        encode_elapsed / (iterations * test_strings.len()) as u32
+    );
+    println!(
+        "Avg decode per string: {:?}",
+        decode_elapsed / (iterations * test_strings.len()) as u32
+    );
 }
 
 #[test]
@@ -323,7 +344,12 @@ fn bench_boot_catalog_roundtrip() {
         let mut catalog = BootCatalog::default();
         catalog.add_section(
             PlatformId::X80X86,
-            vec![BootSectionEntry::new(EmulationType::NoEmulation, 0x07C0, 4, 20)],
+            vec![BootSectionEntry::new(
+                EmulationType::NoEmulation,
+                0x07C0,
+                4,
+                20,
+            )],
         );
 
         let mut buf = Vec::new();
@@ -379,10 +405,17 @@ fn stress_test_many_files() {
 
     println!("\n=== Stress Test: Many Files ===");
     println!("Files created: {}", file_count);
-    println!("ISO size: {} bytes ({:.2} KB)", iso_size, iso_size as f64 / 1024.0);
+    println!(
+        "ISO size: {} bytes ({:.2} KB)",
+        iso_size,
+        iso_size as f64 / 1024.0
+    );
     println!("Root directory extent: sector {}", root_extent);
     println!("Root directory size: {} bytes", root_size);
-    println!("Expected entries (approx): {} per 2048-byte sector", 2048 / 40); // ~40 bytes per entry
+    println!(
+        "Expected entries (approx): {} per 2048-byte sector",
+        2048 / 40
+    ); // ~40 bytes per entry
 
     // Count all files
     let start = Instant::now();

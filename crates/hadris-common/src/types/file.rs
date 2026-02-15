@@ -16,6 +16,7 @@ impl<const N: usize> FixedFilename<N> {
     }
 
     pub const fn with_size(size: usize) -> Self {
+        assert!(size <= N);
         Self {
             data: [0; N],
             len: size,
@@ -28,7 +29,7 @@ impl<const N: usize> FixedFilename<N> {
 
     pub fn allocate(&mut self, bytes: usize) {
         let len = self.len;
-        assert!(bytes + len < N);
+        assert!(bytes + len <= N);
         self.len += bytes;
         //self.data[len..self.len]
     }
@@ -59,9 +60,28 @@ impl<const N: usize> FixedFilename<N> {
     }
 
     pub fn push_byte(&mut self, b: u8) -> usize {
+        assert!(self.len < N);
         self.data[self.len] = b;
         self.len += 1;
         self.len - 1
+    }
+
+    pub fn try_push_slice(&mut self, slice: &[u8]) -> Option<Range<usize>> {
+        if self.len + slice.len() > N {
+            return None;
+        }
+        Some(self.push_slice(slice))
+    }
+
+    pub fn try_push_byte(&mut self, b: u8) -> Option<usize> {
+        if self.len >= N {
+            return None;
+        }
+        Some(self.push_byte(b))
+    }
+
+    pub fn remaining_capacity(&self) -> usize {
+        N - self.len
     }
 }
 

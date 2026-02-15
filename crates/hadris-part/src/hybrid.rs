@@ -202,7 +202,12 @@ impl HybridMbrBuilder {
     }
 
     /// Adds a GPT partition to mirror in the MBR.
-    pub fn mirror_partition(self, gpt_index: u32, mbr_type: MbrPartitionType, bootable: bool) -> Self {
+    pub fn mirror_partition(
+        self,
+        gpt_index: u32,
+        mbr_type: MbrPartitionType,
+        bootable: bool,
+    ) -> Self {
         let partition = MirroredPartition::new(gpt_index, mbr_type).with_bootable(bootable);
         Self {
             config: self.config.add_mirrored(partition),
@@ -360,7 +365,10 @@ mod tests {
         }
 
         let result = config.validate();
-        assert!(matches!(result, Err(PartitionError::TooManyPartitions { .. })));
+        assert!(matches!(
+            result,
+            Err(PartitionError::TooManyPartitions { .. })
+        ));
     }
 
     #[test]

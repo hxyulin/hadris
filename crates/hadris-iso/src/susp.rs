@@ -342,8 +342,8 @@ impl SystemUseBuilder {
         let sp = SuspIdentifier::new(bytes_skipped);
         let mut buf = alloc::vec![0u8; 7];
         buf[0..2].copy_from_slice(b"SP");
-        buf[2] = 7;  // length
-        buf[3] = 1;  // version
+        buf[2] = 7; // length
+        buf[3] = 1; // version
         buf[4..7].copy_from_slice(bytemuck::bytes_of(&sp));
         self.entries.push(buf);
         self
@@ -378,7 +378,13 @@ impl SystemUseBuilder {
     }
 
     /// Add an ER (Extension Reference) entry
-    pub fn add_er(&mut self, identifier: &str, descriptor: &str, source: &str, version: u8) -> &mut Self {
+    pub fn add_er(
+        &mut self,
+        identifier: &str,
+        descriptor: &str,
+        source: &str,
+        version: u8,
+    ) -> &mut Self {
         let id_bytes = identifier.as_bytes();
         let desc_bytes = descriptor.as_bytes();
         let src_bytes = source.as_bytes();
@@ -429,6 +435,110 @@ impl SystemUseBuilder {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+
+    /// Split entries across inline and overflow areas.
+    ///
+    /// Walks entries in order, keeping as many complete entries inline as
+    /// possible. Remaining entries go to a continuation area, and a CE
+    /// pointer is appended to the inline portion.
+    pub fn build_split(&self, max_inline: usize) -> SplitSu {
+        let total = self.size();
+        if total <= max_inline {
+            return SplitSu {
+                inline: self.build(),
+                overflow: alloc::vec::Vec::new(),
+                ce_offset: None,
+            };
+        }
+
+        const CE_SIZE: usize = 28;
+        let budget = max_inline.saturating_sub(CE_SIZE);
+
+        // Find split point: largest prefix of entries fitting in budget
+        let mut accumulated = 0;
+        let mut split_at = 0;
+        for (i, entry) in self.entries.iter().enumerate() {
+            if accumulated + entry.len() > budget {
+                split_at = i;
+                break;
+            }
+            accumulated += entry.len();
+            split_at = i + 1;
+        }
+
+        // Build inline = entries[..split_at] + CE placeholder
+        let mut inline = alloc::vec::Vec::with_capacity(accumulated + CE_SIZE);
+        for entry in &self.entries[..split_at] {
+            inline.extend_from_slice(entry);
+        }
+        let ce_offset = inline.len();
+        // CE placeholder: header (sig+len+ver) + 24 zeroed bytes for sector/offset/length
+        let mut ce_buf = alloc::vec![0u8; CE_SIZE];
+        ce_buf[0..2].copy_from_slice(b"CE");
+        ce_buf[2] = CE_SIZE as u8;
+        ce_buf[3] = 1;
+        inline.extend_from_slice(&ce_buf);
+
+        // Build overflow = entries[split_at..]
+        let overflow_size: usize = self.entries[split_at..].iter().map(|e| e.len()).sum();
+        let mut overflow = alloc::vec::Vec::with_capacity(overflow_size);
+        for entry in &self.entries[split_at..] {
+            overflow.extend_from_slice(entry);
+        }
+
+        SplitSu {
+            inline,
+            overflow,
+            ce_offset: Some(ce_offset),
+        }
+    }
+}
+
+/// Result of splitting a system use area into inline and overflow portions.
+#[cfg(feature = "alloc")]
+pub struct SplitSu {
+    /// Bytes that fit inline in the directory record's SU area.
+    pub inline: alloc::vec::Vec<u8>,
+    /// Bytes that go in the continuation area (may be empty).
+    pub overflow: alloc::vec::Vec<u8>,
+    /// Byte offset of the CE entry within `inline`, for patching.
+    ce_offset: Option<usize>,
+}
+
+#[cfg(feature = "alloc")]
+impl SplitSu {
+    /// Create an empty SplitSu with no inline or overflow data.
+    pub fn empty() -> Self {
+        Self {
+            inline: alloc::vec::Vec::new(),
+            overflow: alloc::vec::Vec::new(),
+            ce_offset: None,
+        }
+    }
+
+    /// Returns true if there is overflow data requiring a continuation area.
+    pub fn has_overflow(&self) -> bool {
+        !self.overflow.is_empty()
+    }
+
+    /// Patch the CE entry with the actual continuation area location.
+    pub fn patch_ce(&mut self, sector: u32, byte_offset: u32) {
+        if let Some(off) = self.ce_offset {
+            let data_start = off + 4; // skip header (sig+len+ver)
+            let length = self.overflow.len() as u32;
+            // Write sector as U32LsbMsb (4 LE + 4 BE = 8 bytes)
+            self.inline[data_start..data_start + 4].copy_from_slice(&sector.to_le_bytes());
+            self.inline[data_start + 4..data_start + 8].copy_from_slice(&sector.to_be_bytes());
+            // Write offset as U32LsbMsb
+            self.inline[data_start + 8..data_start + 12]
+                .copy_from_slice(&byte_offset.to_le_bytes());
+            self.inline[data_start + 12..data_start + 16]
+                .copy_from_slice(&byte_offset.to_be_bytes());
+            // Write length as U32LsbMsb
+            self.inline[data_start + 16..data_start + 20].copy_from_slice(&length.to_le_bytes());
+            self.inline[data_start + 20..data_start + 24].copy_from_slice(&length.to_be_bytes());
+        }
+    }
 }
 
 #[cfg(feature = "alloc")]
@@ -476,8 +586,8 @@ mod tests {
     fn test_system_use_iter_sp_entry() {
         // SP entry: sig='SP', length=7, version=1, check_bytes=[0xBE, 0xEF], bytes_skipped=0
         let data: &[u8] = &[
-            b'S', b'P', 7, 1,  // header
-            0xBE, 0xEF, 0,     // data
+            b'S', b'P', 7, 1, // header
+            0xBE, 0xEF, 0, // data
         ];
         let mut iter = SystemUseIter::new(data, 0);
         match iter.next() {
@@ -508,7 +618,7 @@ mod tests {
         let mut data = vec![b'C', b'E', 28, 1];
         // sector (8 bytes), offset (8 bytes), length (8 bytes)
         data.extend_from_slice(&[10, 0, 0, 0, 10, 0, 0, 0]); // sector = 10
-        data.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);   // offset = 0
+        data.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]); // offset = 0
         data.extend_from_slice(&[100, 0, 0, 0, 100, 0, 0, 0]); // length = 100
 
         let mut iter = SystemUseIter::new(&data, 0);
@@ -557,11 +667,14 @@ mod tests {
     fn test_system_use_iter_multiple_entries() {
         // SP followed by ST
         let data: &[u8] = &[
-            b'S', b'P', 7, 1, 0xBE, 0xEF, 0,  // SP
-            b'S', b'T', 4, 1,                  // ST
+            b'S', b'P', 7, 1, 0xBE, 0xEF, 0, // SP
+            b'S', b'T', 4, 1, // ST
         ];
         let mut iter = SystemUseIter::new(data, 0);
-        assert!(matches!(iter.next(), Some(SystemUseField::SuspIdentifier(_))));
+        assert!(matches!(
+            iter.next(),
+            Some(SystemUseField::SuspIdentifier(_))
+        ));
         assert!(matches!(iter.next(), Some(SystemUseField::Terminator)));
         assert!(iter.next().is_none());
     }
@@ -570,8 +683,8 @@ mod tests {
     fn test_system_use_iter_with_skip() {
         // First 3 bytes should be skipped
         let data: &[u8] = &[
-            0xFF, 0xFF, 0xFF,                 // skip these
-            b'S', b'T', 4, 1,                 // ST
+            0xFF, 0xFF, 0xFF, // skip these
+            b'S', b'T', 4, 1, // ST
         ];
         let mut iter = SystemUseIter::new(data, 3);
         assert!(matches!(iter.next(), Some(SystemUseField::Terminator)));
@@ -580,7 +693,7 @@ mod tests {
 
     #[test]
     fn test_system_use_iter_zero_length_terminates() {
-        let data: &[u8] = &[0, 0, 0, 0];  // zero-length header
+        let data: &[u8] = &[0, 0, 0, 0]; // zero-length header
         let mut iter = SystemUseIter::new(data, 0);
         assert!(iter.next().is_none());
     }
@@ -602,10 +715,10 @@ mod tests {
 
         let data = builder.build();
         assert_eq!(&data[0..2], b"SP");
-        assert_eq!(data[2], 7);  // length
-        assert_eq!(data[3], 1);  // version
-        assert_eq!(&data[4..6], &[0xBE, 0xEF]);  // check bytes
-        assert_eq!(data[6], 0);  // bytes_skipped
+        assert_eq!(data[2], 7); // length
+        assert_eq!(data[3], 1); // version
+        assert_eq!(&data[4..6], &[0xBE, 0xEF]); // check bytes
+        assert_eq!(data[6], 0); // bytes_skipped
     }
 
     #[test]
@@ -626,8 +739,8 @@ mod tests {
 
         let data = builder.build();
         assert_eq!(&data[0..2], b"PD");
-        assert_eq!(data[2], 8);  // length = 4 + padding
-        assert_eq!(data[3], 1);  // version
+        assert_eq!(data[2], 8); // length = 4 + padding
+        assert_eq!(data[3], 1); // version
     }
 
     #[test]
@@ -638,12 +751,12 @@ mod tests {
         let data = builder.build();
         assert_eq!(&data[0..2], b"ER");
         let len = data[2] as usize;
-        assert_eq!(len, 8 + 4 + 10 + 4);  // header(8) + id(4) + desc(10) + src(4)
-        assert_eq!(data[3], 1);  // version
-        assert_eq!(data[4], 4);  // id_len
+        assert_eq!(len, 8 + 4 + 10 + 4); // header(8) + id(4) + desc(10) + src(4)
+        assert_eq!(data[3], 1); // version
+        assert_eq!(data[4], 4); // id_len
         assert_eq!(data[5], 10); // desc_len
-        assert_eq!(data[6], 4);  // src_len
-        assert_eq!(data[7], 1);  // ext_version
+        assert_eq!(data[6], 4); // src_len
+        assert_eq!(data[7], 1); // ext_version
 
         let id = &data[8..12];
         assert_eq!(id, b"RRIP");
@@ -657,8 +770,67 @@ mod tests {
         let data = builder.build();
         let mut iter = SystemUseIter::new(&data, 0);
 
-        assert!(matches!(iter.next(), Some(SystemUseField::SuspIdentifier(_))));
+        assert!(matches!(
+            iter.next(),
+            Some(SystemUseField::SuspIdentifier(_))
+        ));
         assert!(matches!(iter.next(), Some(SystemUseField::Terminator)));
         assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_build_split_no_overflow() {
+        // SP(7) + ST(4) = 11 bytes, fits in 100 bytes inline
+        let mut builder = SystemUseBuilder::new();
+        builder.add_sp(0).add_st();
+        let split = builder.build_split(100);
+        assert!(!split.has_overflow());
+        assert!(split.overflow.is_empty());
+        assert_eq!(split.inline, builder.build());
+    }
+
+    #[test]
+    fn test_build_split_with_overflow() {
+        // SP(7) + a large ER entry. SP should stay inline, ER should overflow.
+        let mut builder = SystemUseBuilder::new();
+        builder.add_sp(0);
+        builder.add_er(
+            "RRIP_1991A",
+            "THE ROCK RIDGE INTERCHANGE PROTOCOL PROVIDES SUPPORT FOR POSIX FILE SYSTEM SEMANTICS",
+            "PLEASE CONTACT DISC PUBLISHER FOR SPECIFICATION SOURCE. SEE PUBLISHER IDENTIFIER IN PRIMARY VOLUME DESCRIPTOR FOR CONTACT INFORMATION.",
+            1,
+        );
+        let total = builder.size();
+        assert!(total > 100); // ER is ~236 bytes
+
+        // Give enough budget for SP(7) + CE(28) = 35 bytes inline
+        let mut split = builder.build_split(40);
+        assert!(split.has_overflow());
+        // Inline should be: SP(7) + CE(28) = 35 bytes
+        assert_eq!(split.inline.len(), 7 + 28);
+        // Overflow should contain the ER entry
+        assert_eq!(&split.overflow[0..2], b"ER");
+        // Inline starts with SP
+        assert_eq!(&split.inline[0..2], b"SP");
+        // CE is at offset 7
+        assert_eq!(&split.inline[7..9], b"CE");
+        assert_eq!(split.inline[9], 28); // CE length
+
+        // Patch CE and verify the fields are set correctly
+        split.patch_ce(42, 100);
+        let ce_data = &split.inline[7..35];
+        // Header is 4 bytes (sig+len+ver), then sector(8), offset(8), length(8)
+        let sector_le = u32::from_le_bytes(ce_data[4..8].try_into().unwrap());
+        let sector_be = u32::from_be_bytes(ce_data[8..12].try_into().unwrap());
+        assert_eq!(sector_le, 42);
+        assert_eq!(sector_be, 42);
+        let offset_le = u32::from_le_bytes(ce_data[12..16].try_into().unwrap());
+        let offset_be = u32::from_be_bytes(ce_data[16..20].try_into().unwrap());
+        assert_eq!(offset_le, 100);
+        assert_eq!(offset_be, 100);
+        let length_le = u32::from_le_bytes(ce_data[20..24].try_into().unwrap());
+        let length_be = u32::from_be_bytes(ce_data[24..28].try_into().unwrap());
+        assert_eq!(length_le, split.overflow.len() as u32);
+        assert_eq!(length_be, split.overflow.len() as u32);
     }
 }

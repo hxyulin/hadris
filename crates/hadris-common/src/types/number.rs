@@ -270,7 +270,12 @@ impl<E: Endianness> Endian for U24<E> {
     }
 }
 
-pub fn align_up<T: Add<Output = T> + Sub<Output = T> + BitAnd<Output = T> + Not<Output = T> + From<u8> + Copy>(num: T, alignment: T) -> T {
+pub fn align_up<
+    T: Add<Output = T> + Sub<Output = T> + BitAnd<Output = T> + Not<Output = T> + From<u8> + Copy,
+>(
+    num: T,
+    alignment: T,
+) -> T {
     let temp = alignment.sub(T::from(1u8));
     (num + temp) & !temp
 }

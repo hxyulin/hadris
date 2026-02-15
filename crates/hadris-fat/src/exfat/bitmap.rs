@@ -9,9 +9,9 @@
 use alloc::vec::Vec;
 
 use crate::error::{FatError, Result};
-use crate::io::{Read, Seek, SeekFrom};
 #[cfg(feature = "write")]
 use crate::io::Write;
+use crate::io::{Read, Seek, SeekFrom};
 
 use super::ExFatInfo;
 
@@ -139,7 +139,9 @@ impl AllocationBitmap {
 
         // Wrap around: search from beginning to hint
         if start > Self::FIRST_DATA_CLUSTER {
-            if let Some(found) = self.find_contiguous_in_range(Self::FIRST_DATA_CLUSTER, start, count)? {
+            if let Some(found) =
+                self.find_contiguous_in_range(Self::FIRST_DATA_CLUSTER, start, count)?
+            {
                 return Ok(Some(found));
             }
         }
@@ -172,7 +174,11 @@ impl AllocationBitmap {
 
     /// Write the bitmap back to disk.
     #[cfg(feature = "write")]
-    pub fn flush<DATA: Read + Write + Seek>(&self, data: &mut DATA, info: &ExFatInfo) -> Result<()> {
+    pub fn flush<DATA: Read + Write + Seek>(
+        &self,
+        data: &mut DATA,
+        info: &ExFatInfo,
+    ) -> Result<()> {
         let offset = info.cluster_to_offset(self.first_cluster);
         data.seek(SeekFrom::Start(offset))?;
         data.write_all(&self.data)?;
@@ -244,8 +250,8 @@ mod tests {
 
         // Cluster 2 maps to bit 0 of byte 0
         assert!(!bitmap.is_allocated(2).unwrap()); // bit 0 = 0
-        assert!(bitmap.is_allocated(3).unwrap());  // bit 1 = 1
+        assert!(bitmap.is_allocated(3).unwrap()); // bit 1 = 1
         assert!(!bitmap.is_allocated(4).unwrap()); // bit 2 = 0
-        assert!(bitmap.is_allocated(5).unwrap());  // bit 3 = 1
+        assert!(bitmap.is_allocated(5).unwrap()); // bit 3 = 1
     }
 }

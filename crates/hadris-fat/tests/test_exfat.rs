@@ -23,26 +23,34 @@
 
 #![cfg(feature = "exfat")]
 
-use hadris_fat::exfat::{ExFatFs, ExFatBootSector, FileAttributes};
 use hadris_fat::FatError;
+use hadris_fat::exfat::{ExFatBootSector, ExFatFs, FileAttributes};
 use std::fs::File;
 use std::io::{Cursor, Read as StdRead};
 
 /// Load the exFAT boot sectors fixture
 fn load_boot_sectors() -> Vec<u8> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/exfat_boot_sectors.bin");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/exfat_boot_sectors.bin"
+    );
     let mut file = File::open(path).expect("Failed to open exfat_boot_sectors.bin");
     let mut data = Vec::new();
-    file.read_to_end(&mut data).expect("Failed to read boot sectors");
+    file.read_to_end(&mut data)
+        .expect("Failed to read boot sectors");
     data
 }
 
 /// Load the full exFAT partition image
 fn load_partition_image() -> Vec<u8> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/exfat_partition.img");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/exfat_partition.img"
+    );
     let mut file = File::open(path).expect("Failed to open exfat_partition.img");
     let mut data = Vec::new();
-    file.read_to_end(&mut data).expect("Failed to read partition image");
+    file.read_to_end(&mut data)
+        .expect("Failed to read partition image");
     data
 }
 
@@ -65,8 +73,7 @@ mod boot_sector_tests {
         let data = load_boot_sectors();
         let mut cursor = Cursor::new(data);
 
-        let boot = ExFatBootSector::read(&mut cursor)
-            .expect("Failed to parse exFAT boot sector");
+        let boot = ExFatBootSector::read(&mut cursor).expect("Failed to parse exFAT boot sector");
 
         let info = boot.info();
 
@@ -85,8 +92,7 @@ mod boot_sector_tests {
         let data = load_boot_sectors();
         let mut cursor = Cursor::new(data);
 
-        let boot = ExFatBootSector::read(&mut cursor)
-            .expect("Failed to parse boot sector");
+        let boot = ExFatBootSector::read(&mut cursor).expect("Failed to parse boot sector");
 
         // Check that info was computed correctly
         let info = boot.info();
@@ -105,7 +111,10 @@ mod boot_sector_tests {
         let mut cursor = Cursor::new(data);
         let result = ExFatBootSector::read(&mut cursor);
 
-        assert!(matches!(result, Err(FatError::ExFatInvalidSignature { .. })));
+        assert!(matches!(
+            result,
+            Err(FatError::ExFatInvalidSignature { .. })
+        ));
     }
 
     #[test]
@@ -126,8 +135,7 @@ mod boot_sector_tests {
         let data = load_boot_sectors();
         let mut cursor = Cursor::new(data);
 
-        let boot = ExFatBootSector::read(&mut cursor)
-            .expect("Failed to parse boot sector");
+        let boot = ExFatBootSector::read(&mut cursor).expect("Failed to parse boot sector");
 
         let info = boot.info();
 
@@ -137,7 +145,10 @@ mod boot_sector_tests {
 
         // Cluster 3 should be one cluster size further
         let offset_3 = info.cluster_to_offset(3);
-        assert_eq!(offset_3, info.cluster_heap_offset + info.bytes_per_cluster as u64);
+        assert_eq!(
+            offset_3,
+            info.cluster_heap_offset + info.bytes_per_cluster as u64
+        );
     }
 }
 
@@ -176,7 +187,12 @@ mod filesystem_tests {
         let free = fs.free_cluster_count();
         let total = fs.info().cluster_count;
 
-        assert!(free <= total, "Free clusters ({}) exceeds total ({})", free, total);
+        assert!(
+            free <= total,
+            "Free clusters ({}) exceeds total ({})",
+            free,
+            total
+        );
     }
 }
 
@@ -226,7 +242,9 @@ mod directory_tests {
             Ok(None) => {
                 // File might not exist if fixture wasn't created properly
                 // List what's actually in the directory
-                let entries: Vec<_> = fs.root_dir().entries()
+                let entries: Vec<_> = fs
+                    .root_dir()
+                    .entries()
                     .filter_map(|e| e.ok())
                     .map(|e| e.name.clone())
                     .collect();
@@ -250,7 +268,9 @@ mod directory_tests {
                 assert!(entry.is_directory());
             }
             Ok(None) => {
-                let entries: Vec<_> = fs.root_dir().entries()
+                let entries: Vec<_> = fs
+                    .root_dir()
+                    .entries()
                     .filter_map(|e| e.ok())
                     .map(|e| e.name.clone())
                     .collect();
@@ -324,11 +344,16 @@ mod navigation_tests {
             }
             Err(e) => {
                 // Might be a fixture issue
-                let entries: Vec<_> = fs.root_dir().entries()
+                let entries: Vec<_> = fs
+                    .root_dir()
+                    .entries()
                     .filter_map(|e| e.ok())
                     .map(|e| e.name.clone())
                     .collect();
-                panic!("Failed to open subdir: {:?}. Root entries: {:?}", e, entries);
+                panic!(
+                    "Failed to open subdir: {:?}. Root entries: {:?}",
+                    e, entries
+                );
             }
         }
     }
@@ -404,11 +429,14 @@ mod file_reading_tests {
 
                 assert!(bytes_read > 0, "File appears empty");
 
-                let content = std::str::from_utf8(&buf[..bytes_read])
-                    .expect("Invalid UTF-8 in file");
+                let content =
+                    std::str::from_utf8(&buf[..bytes_read]).expect("Invalid UTF-8 in file");
 
-                assert!(content.contains("Hello") || content.contains("exFAT"),
-                    "Unexpected content: {}", content);
+                assert!(
+                    content.contains("Hello") || content.contains("exFAT"),
+                    "Unexpected content: {}",
+                    content
+                );
             }
             Err(e) => {
                 eprintln!("Note: Could not open hello.txt: {:?}", e);
@@ -460,11 +488,17 @@ mod attribute_tests {
             if let Ok(e) = entry {
                 // Check attribute consistency
                 if e.is_directory() {
-                    assert!(e.attributes.contains(FileAttributes::DIRECTORY),
-                        "Directory {} missing DIRECTORY attribute", e.name);
+                    assert!(
+                        e.attributes.contains(FileAttributes::DIRECTORY),
+                        "Directory {} missing DIRECTORY attribute",
+                        e.name
+                    );
                 } else {
-                    assert!(!e.attributes.contains(FileAttributes::DIRECTORY),
-                        "File {} has DIRECTORY attribute", e.name);
+                    assert!(
+                        !e.attributes.contains(FileAttributes::DIRECTORY),
+                        "File {} has DIRECTORY attribute",
+                        e.name
+                    );
                 }
             }
         }
@@ -477,7 +511,11 @@ mod attribute_tests {
         if let Ok(Some(entry)) = fs.root_dir().find("hello.txt") {
             // hello.txt contains "Hello, exFAT!\n" = 15 bytes
             assert!(entry.data_length > 0, "File size should be > 0");
-            assert!(entry.data_length < 1000, "File size seems too large: {}", entry.data_length);
+            assert!(
+                entry.data_length < 1000,
+                "File size seems too large: {}",
+                entry.data_length
+            );
         }
     }
 }

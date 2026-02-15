@@ -23,10 +23,10 @@ use hadris_common::types::{
 use crate::error::{FatError, Result};
 use crate::io::{Read, Seek, SeekFrom, Write};
 
-use super::boot::{RawExFatBootSector, BOOT_REGION_SECTORS, BOOT_SIGNATURE, EXFAT_SIGNATURE};
+use super::boot::{BOOT_REGION_SECTORS, BOOT_SIGNATURE, EXFAT_SIGNATURE, RawExFatBootSector};
 use super::entry::{
-    entry_type, RawAllocationBitmapEntry, RawDirectoryEntry, RawUpcaseTableEntry,
-    RawVolumeLabelEntry,
+    RawAllocationBitmapEntry, RawDirectoryEntry, RawUpcaseTableEntry, RawVolumeLabelEntry,
+    entry_type,
 };
 use super::fs::ExFatFs;
 use super::upcase::generate_compressed_upcase_table;
@@ -163,7 +163,10 @@ pub struct ExFatLayoutParams {
 }
 
 /// Calculate the layout parameters for an exFAT volume.
-pub fn calculate_layout(volume_size: u64, options: &ExFatFormatOptions) -> Result<ExFatLayoutParams> {
+pub fn calculate_layout(
+    volume_size: u64,
+    options: &ExFatFormatOptions,
+) -> Result<ExFatLayoutParams> {
     // Validate volume size
     if volume_size < MIN_VOLUME_SIZE {
         return Err(FatError::VolumeTooSmall {
@@ -220,8 +223,13 @@ pub fn calculate_layout(volume_size: u64, options: &ExFatFormatOptions) -> Resul
 
     // Calculate cluster heap offset and cluster count
     // We need to iterate because FAT size depends on cluster count
-    let (cluster_heap_offset, fat_length, cluster_count) =
-        calculate_fat_and_heap(volume_length, fat_offset, bytes_per_sector, sectors_per_cluster, options.fat_count)?;
+    let (cluster_heap_offset, fat_length, cluster_count) = calculate_fat_and_heap(
+        volume_length,
+        fat_offset,
+        bytes_per_sector,
+        sectors_per_cluster,
+        options.fat_count,
+    )?;
 
     // Generate volume serial number
     let volume_serial = options.volume_serial.unwrap_or_else(|| generate_serial());
@@ -283,7 +291,8 @@ fn calculate_fat_and_heap(
 
     // Calculate FAT size needed for this many clusters (+2 for reserved entries)
     let fat_entries_needed = cluster_count_estimate + 2;
-    let fat_length = ((fat_entries_needed as usize + entries_per_sector - 1) / entries_per_sector) as u32;
+    let fat_length =
+        ((fat_entries_needed as usize + entries_per_sector - 1) / entries_per_sector) as u32;
 
     // Recalculate with actual FAT size
     let cluster_heap_offset = fat_offset + fat_length * fat_count as u32;
@@ -354,7 +363,13 @@ where
         initialize_root_directory(&mut data, &params, &options.label)?;
 
     // Initialize allocation bitmap (mark used clusters)
-    initialize_allocation_bitmap(&mut data, &params, bitmap_cluster, upcase_cluster, upcase_size)?;
+    initialize_allocation_bitmap(
+        &mut data,
+        &params,
+        bitmap_cluster,
+        upcase_cluster,
+        upcase_size,
+    )?;
 
     // Write boot region checksums
     write_boot_checksum(&mut data, &params, 0)?;
@@ -427,7 +442,7 @@ fn create_boot_sector(params: &ExFatLayoutParams) -> RawExFatBootSector {
         bytes_per_sector_shift: params.bytes_per_sector_shift,
         sectors_per_cluster_shift: params.sectors_per_cluster_shift,
         number_of_fats: params.fat_count,
-        drive_select: 0x80, // Hard disk
+        drive_select: 0x80,   // Hard disk
         percent_in_use: 0xFF, // Unknown
         reserved: [0; 7],
         boot_code: [0; 390],
@@ -447,7 +462,9 @@ fn write_boot_checksum<DATA: Read + Write + Seek>(
     let mut checksum: u32 = 0;
 
     for sector in 0..11 {
-        data.seek(SeekFrom::Start((sector_offset + sector) * sector_size as u64))?;
+        data.seek(SeekFrom::Start(
+            (sector_offset + sector) * sector_size as u64,
+        ))?;
 
         for byte_idx in 0..sector_size {
             let mut byte = [0u8; 1];
@@ -542,7 +559,9 @@ fn initialize_root_directory<DATA: Write + Seek>(
     data.seek(SeekFrom::Start(0))?;
     data.write_all(bytemuck::bytes_of(&boot_sector))?;
     // Also update backup
-    data.seek(SeekFrom::Start(BOOT_REGION_SECTORS as u64 * sector_size as u64))?;
+    data.seek(SeekFrom::Start(
+        BOOT_REGION_SECTORS as u64 * sector_size as u64,
+    ))?;
     data.write_all(bytemuck::bytes_of(&boot_sector))?;
 
     // Write upcase table to cluster heap

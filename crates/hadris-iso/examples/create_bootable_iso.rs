@@ -9,8 +9,8 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
 use hadris_iso::boot::EmulationType;
+use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
 use hadris_iso::read::PathSeparator;
 use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
 use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
@@ -82,8 +82,7 @@ fn main() {
 
     // Create the ISO in memory
     let mut buffer = Cursor::new(vec![0u8; 512 * 1024]); // 512KB buffer
-    IsoImageWriter::format_new(&mut buffer, files, format_options)
-        .expect("Failed to create ISO");
+    IsoImageWriter::format_new(&mut buffer, files, format_options).expect("Failed to create ISO");
 
     // Write to file
     let iso_data = buffer.into_inner();

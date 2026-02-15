@@ -7,9 +7,9 @@
 use core::mem::size_of;
 
 use crate::error::{FatError, Result};
-use crate::io::{Read, Seek, SeekFrom};
 #[cfg(feature = "write")]
 use crate::io::Write;
+use crate::io::{Read, Seek, SeekFrom};
 
 use super::ExFatInfo;
 
@@ -198,8 +198,11 @@ impl ExFatTable {
             self.write_entry(data, current, Self::FREE_CLUSTER)?;
             count += 1;
 
-            if next == Self::END_OF_CHAIN || next >= Self::MEDIA_DESCRIPTOR
-                || next == Self::BAD_CLUSTER || next == Self::FREE_CLUSTER {
+            if next == Self::END_OF_CHAIN
+                || next >= Self::MEDIA_DESCRIPTOR
+                || next == Self::BAD_CLUSTER
+                || next == Self::FREE_CLUSTER
+            {
                 break;
             }
 
@@ -248,8 +251,11 @@ impl ExFatTable {
         let next = self.read_entry(data, cluster)?;
         self.write_entry(data, cluster, Self::END_OF_CHAIN)?;
 
-        if next != Self::END_OF_CHAIN && next < Self::MEDIA_DESCRIPTOR
-            && next >= Self::FIRST_DATA_CLUSTER && next <= self.max_cluster {
+        if next != Self::END_OF_CHAIN
+            && next < Self::MEDIA_DESCRIPTOR
+            && next >= Self::FIRST_DATA_CLUSTER
+            && next <= self.max_cluster
+        {
             self.free_chain(data, next)
         } else {
             Ok(0)

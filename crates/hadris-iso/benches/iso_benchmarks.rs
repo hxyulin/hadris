@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo bench -p hadris-iso
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
@@ -36,10 +36,14 @@ fn create_test_files(dir: &Path, count: usize, size: usize) {
 fn create_iso_with_xorriso(content_dir: &Path, iso_path: &Path) -> bool {
     Command::new("xorriso")
         .args([
-            "-as", "mkisofs",
-            "-o", iso_path.to_str().unwrap(),
-            "-V", "BENCHMARK",
-            "-J", "-R",
+            "-as",
+            "mkisofs",
+            "-o",
+            iso_path.to_str().unwrap(),
+            "-V",
+            "BENCHMARK",
+            "-J",
+            "-R",
             content_dir.to_str().unwrap(),
         ])
         .output()
@@ -144,7 +148,9 @@ fn bench_susp_iterator(c: &mut Criterion) {
     let small_data = builder.build();
 
     let mut builder = SystemUseBuilder::new();
-    builder.add_sp(0).add_er("RRIP_1991A", "Rock Ridge", "IEEE P1282", 1);
+    builder
+        .add_sp(0)
+        .add_er("RRIP_1991A", "Rock Ridge", "IEEE P1282", 1);
     for _ in 0..10 {
         builder.add_padding(8);
     }
@@ -157,22 +163,30 @@ fn bench_susp_iterator(c: &mut Criterion) {
     let mut group = c.benchmark_group("susp_iterator");
 
     group.throughput(Throughput::Bytes(small_data.len() as u64));
-    group.bench_with_input(BenchmarkId::new("small", small_data.len()), &small_data, |b, data| {
-        b.iter(|| {
-            let iter = SystemUseIter::new(black_box(data), 0);
-            let count: usize = iter.count();
-            count
-        });
-    });
+    group.bench_with_input(
+        BenchmarkId::new("small", small_data.len()),
+        &small_data,
+        |b, data| {
+            b.iter(|| {
+                let iter = SystemUseIter::new(black_box(data), 0);
+                let count: usize = iter.count();
+                count
+            });
+        },
+    );
 
     group.throughput(Throughput::Bytes(large_data.len() as u64));
-    group.bench_with_input(BenchmarkId::new("large", large_data.len()), &large_data, |b, data| {
-        b.iter(|| {
-            let iter = SystemUseIter::new(black_box(data), 0);
-            let count: usize = iter.count();
-            count
-        });
-    });
+    group.bench_with_input(
+        BenchmarkId::new("large", large_data.len()),
+        &large_data,
+        |b, data| {
+            b.iter(|| {
+                let iter = SystemUseIter::new(black_box(data), 0);
+                let count: usize = iter.count();
+                count
+            });
+        },
+    );
 
     group.finish();
 }
@@ -182,9 +196,7 @@ fn bench_boot_catalog(c: &mut Criterion) {
     let mut group = c.benchmark_group("boot_catalog");
 
     group.bench_function("create_default", |b| {
-        b.iter(|| {
-            BootCatalog::default()
-        });
+        b.iter(|| BootCatalog::default());
     });
 
     group.bench_function("create_with_section", |b| {
@@ -192,7 +204,12 @@ fn bench_boot_catalog(c: &mut Criterion) {
             let mut catalog = BootCatalog::default();
             catalog.add_section(
                 PlatformId::X80X86,
-                vec![BootSectionEntry::new(EmulationType::NoEmulation, 0x07C0, 4, 20)],
+                vec![BootSectionEntry::new(
+                    EmulationType::NoEmulation,
+                    0x07C0,
+                    4,
+                    20,
+                )],
             );
             catalog
         });
@@ -202,7 +219,12 @@ fn bench_boot_catalog(c: &mut Criterion) {
         let mut catalog = BootCatalog::default();
         catalog.add_section(
             PlatformId::X80X86,
-            vec![BootSectionEntry::new(EmulationType::NoEmulation, 0x07C0, 4, 20)],
+            vec![BootSectionEntry::new(
+                EmulationType::NoEmulation,
+                0x07C0,
+                4,
+                20,
+            )],
         );
 
         b.iter(|| {
@@ -216,7 +238,12 @@ fn bench_boot_catalog(c: &mut Criterion) {
         let mut catalog = BootCatalog::default();
         catalog.add_section(
             PlatformId::X80X86,
-            vec![BootSectionEntry::new(EmulationType::NoEmulation, 0x07C0, 4, 20)],
+            vec![BootSectionEntry::new(
+                EmulationType::NoEmulation,
+                0x07C0,
+                4,
+                20,
+            )],
         );
         let mut buf = Vec::new();
         catalog.write(&mut buf).unwrap();
@@ -340,9 +367,7 @@ fn bench_directory_traversal(c: &mut Criterion) {
     });
 
     group.bench_function("read_pvd", |b| {
-        b.iter(|| {
-            image.read_pvd()
-        });
+        b.iter(|| image.read_pvd());
     });
 
     group.bench_function("volume_descriptors", |b| {
@@ -366,9 +391,7 @@ fn bench_checksum(c: &mut Criterion) {
     let entry = BootValidationEntry::new();
 
     c.bench_function("validation_checksum", |b| {
-        b.iter(|| {
-            entry.calculate_checksum()
-        });
+        b.iter(|| entry.calculate_checksum());
     });
 }
 

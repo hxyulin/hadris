@@ -3,6 +3,8 @@ resolver = "2"
 members = [
   "crates/hadris-iso-cli",
   "crates/hadris-iso",
+  "crates/hadris-udf",
+  "crates/hadris-cd",
   "crates/hadris-common",
   "crates/hadris",
   "crates/hadris-io",
@@ -13,11 +15,13 @@ members = [
 ]
 default-members = [
   "crates/hadris-iso",
+  "crates/hadris-udf",
+  "crates/hadris-cd",
   "crates/hadris-common",
   "crates/hadris",
   "crates/hadris-io",
   "crates/hadris-part",
-  "crates/hadris-fat", 
+  "crates/hadris-fat",
   "crates/hadris-cli",
 ]
 
@@ -43,6 +47,8 @@ spin = "0.10.0"
 # Internal crates - path-only for local development, version specified in each crate
 hadris-io = { path = "crates/hadris-io", default-features = false }
 hadris-iso = { path = "crates/hadris-iso", default-features = false }
+hadris-udf = { path = "crates/hadris-udf", default-features = false }
+hadris-cd = { path = "crates/hadris-cd", default-features = false }
 hadris-fat = { path = "crates/hadris-fat", default-features = false }
 hadris-common = { path = "crates/hadris-common", default-features = false }
 hadris-part = { path = "crates/hadris-part", default-features = false }

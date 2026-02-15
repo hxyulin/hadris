@@ -208,9 +208,10 @@ pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedFilename<14> {
             } else {
                 CharsetD::substitute_invalid(basename);
             }
-            let ext_len = (name.len() - index).min(3);
+            // Extension length excluding the dot character
+            let ext_len = (name.len() - index - 1).min(3);
             l1.push_byte(b'.');
-            let ext = l1.push_slice(&name_bytes[index + 1..name.len().min(index + 1 + ext_len)]);
+            let ext = l1.push_slice(&name_bytes[index + 1..(index + 1 + ext_len).min(name.len())]);
             let ext = l1.data[ext].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(ext);
@@ -371,8 +372,8 @@ impl PathTableWriter<'_> {
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
-    use alloc::format;
     use super::*;
+    use alloc::format;
 
     #[test]
     fn test_convert_l1() {
@@ -396,7 +397,11 @@ mod tests {
         let orig = "this-is-a-very-long-filename-that-should-be-truncated.extension";
         let converted = convert_l2(orig, false);
         // Should be truncated to 30 bytes total (basename + dot + ext) + ";1"
-        assert!(converted.len() <= 32, "L2 name too long: {}", converted.len());
+        assert!(
+            converted.len() <= 32,
+            "L2 name too long: {}",
+            converted.len()
+        );
         assert!(converted.as_str().ends_with(";1"));
     }
 
@@ -404,7 +409,11 @@ mod tests {
     fn test_convert_l2_no_extension() {
         let orig = "this-is-a-very-long-directory-name-without-extension";
         let converted = convert_l2(orig, false);
-        assert!(converted.len() <= 32, "L2 name too long: {}", converted.len());
+        assert!(
+            converted.len() <= 32,
+            "L2 name too long: {}",
+            converted.len()
+        );
         assert!(converted.as_str().ends_with(";1"));
         // First 30 characters + ";1"
         assert_eq!(converted.as_str(), "THIS_IS_A_VERY_LONG_DIRECTORY_;1");
@@ -422,7 +431,11 @@ mod tests {
         // Max is 207 bytes for L3
         let long_name = "a".repeat(250);
         let converted = convert_l3(&long_name, false);
-        assert!(converted.len() <= 207, "L3 name too long: {}", converted.len());
+        assert!(
+            converted.len() <= 207,
+            "L3 name too long: {}",
+            converted.len()
+        );
         assert_eq!(converted.len(), 207);
     }
 
@@ -432,6 +445,141 @@ mod tests {
         let basename = "a".repeat(200);
         let orig = format!("{}.txt", basename);
         let converted = convert_l3(&orig, false);
-        assert!(converted.len() <= 207, "L3 name too long: {}", converted.len());
+        assert!(
+            converted.len() <= 207,
+            "L3 name too long: {}",
+            converted.len()
+        );
+    }
+
+    // Edge-case tests for convert_l1
+
+    #[test]
+    fn test_convert_l1_empty_extension() {
+        let converted = convert_l1("file.", false);
+        assert_eq!(converted.as_str(), "FILE.;1");
+    }
+
+    #[test]
+    fn test_convert_l1_dot_only() {
+        let converted = convert_l1(".", false);
+        assert_eq!(converted.as_str(), ".;1");
+    }
+
+    #[test]
+    fn test_convert_l1_dot_dot() {
+        // ".." → basename empty, dot, ext "." substituted to "_"
+        let converted = convert_l1("..", false);
+        assert_eq!(converted.as_str(), "._;1");
+    }
+
+    #[test]
+    fn test_convert_l1_no_dot() {
+        let converted = convert_l1("README", false);
+        assert_eq!(converted.as_str(), "README;1");
+    }
+
+    #[test]
+    fn test_convert_l1_no_dot_long() {
+        let converted = convert_l1("LONGFILENAME", false);
+        assert_eq!(converted.as_str(), "LONGFILE;1");
+    }
+
+    #[test]
+    fn test_convert_l1_exact_8_3() {
+        let converted = convert_l1("12345678.abc", false);
+        assert_eq!(converted.as_str(), "12345678.ABC;1");
+    }
+
+    #[test]
+    fn test_convert_l1_oversized() {
+        let converted = convert_l1("longname1.longext", false);
+        assert_eq!(converted.as_str(), "LONGNAME.LON;1");
+    }
+
+    #[test]
+    fn test_convert_l1_single_char() {
+        let converted = convert_l1("a.b", false);
+        assert_eq!(converted.as_str(), "A.B;1");
+    }
+
+    #[test]
+    fn test_convert_l1_multibyte_utf8() {
+        // "café.txt" — 'é' is 2 bytes in UTF-8, basename "café" = 5 bytes
+        let converted = convert_l1("café.txt", false);
+        // Should not panic; multi-byte chars get substituted by CharsetD
+        assert!(converted.len() <= 14, "L1 overflow: {}", converted.len());
+        assert!(converted.as_str().ends_with(";1"));
+    }
+
+    // Edge-case tests for convert_l2
+
+    #[test]
+    fn test_convert_l2_empty_extension() {
+        let converted = convert_l2("file.", false);
+        assert_eq!(converted.as_str(), "FILE.;1");
+    }
+
+    #[test]
+    fn test_convert_l2_no_dot() {
+        let converted = convert_l2("README", false);
+        assert_eq!(converted.as_str(), "README;1");
+    }
+
+    #[test]
+    fn test_convert_l2_single_char() {
+        let converted = convert_l2("a.b", false);
+        assert_eq!(converted.as_str(), "A.B;1");
+    }
+
+    // Edge-case tests for convert_l3
+
+    #[test]
+    fn test_convert_l3_empty_extension() {
+        let converted = convert_l3("file.", false);
+        assert_eq!(converted.as_str(), "FILE.");
+    }
+
+    #[test]
+    fn test_convert_l3_no_dot() {
+        let converted = convert_l3("README", false);
+        assert_eq!(converted.as_str(), "README");
+    }
+
+    #[test]
+    fn test_convert_l3_single_char() {
+        let converted = convert_l3("a.b", false);
+        assert_eq!(converted.as_str(), "A.B");
+    }
+
+    // Edge-case tests for convert_joliet3
+
+    #[test]
+    fn test_convert_joliet3_short_name() {
+        let converted = convert_joliet3("readme.txt");
+        // UTF-16 BE: each char is 2 bytes, "readme.txt" = 10 chars = 20 bytes
+        assert_eq!(converted.len(), 20);
+    }
+
+    #[test]
+    fn test_convert_joliet3_long_name_truncation() {
+        // 207 bytes / 2 = 103 UTF-16 code units max
+        let long_name = "a".repeat(150);
+        let converted = convert_joliet3(&long_name);
+        // 103 code units * 2 bytes = 206 bytes
+        assert!(
+            converted.len() <= 207,
+            "Joliet overflow: {}",
+            converted.len()
+        );
+        assert_eq!(converted.len(), 206);
+    }
+
+    #[test]
+    fn test_convert_joliet3_multibyte_utf8() {
+        // "café.txt" — 'é' is one UTF-16 code unit, 8 code units total
+        let converted = convert_joliet3("café.txt");
+        // 8 code units * 2 bytes = 16 bytes
+        assert_eq!(converted.len(), 16);
     }
 }

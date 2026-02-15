@@ -1,6 +1,8 @@
 use alloc::string::String;
 
-use crate::{boot::options::BootOptions, joliet::JolietLevel, read::PathSeparator, rrip::RripOptions};
+use crate::{
+    boot::options::BootOptions, joliet::JolietLevel, read::PathSeparator, rrip::RripOptions,
+};
 
 /// Hybrid boot options for creating bootable ISO images from USB/disk.
 ///
@@ -130,6 +132,10 @@ impl CreationFeatures {
     /// Create features with Rock Ridge enabled (default settings)
     pub fn with_rock_ridge() -> Self {
         Self {
+            filenames: BaseIsoLevel::Level1 {
+                supports_lowercase: false,
+                supports_rrip: true,
+            },
             rock_ridge: Some(RripOptions::default()),
             ..Default::default()
         }
@@ -146,6 +152,10 @@ impl CreationFeatures {
     /// Create features with both Rock Ridge and Joliet enabled
     pub fn with_extensions() -> Self {
         Self {
+            filenames: BaseIsoLevel::Level1 {
+                supports_lowercase: false,
+                supports_rrip: true,
+            },
             joliet: Some(JolietLevel::Level3),
             rock_ridge: Some(RripOptions::default()),
             ..Default::default()

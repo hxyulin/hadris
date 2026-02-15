@@ -13,8 +13,9 @@ categories = ["filesystem", "encoding"]
 default = ["iso9660", "fat"]
 iso9660 = ["dep:hadris-iso"]
 fat = ["dep:hadris-fat"]
-# TODO: Support more file formats
+udf = ["dep:hadris-udf"]
 
 [dependencies]
 hadris-iso = { workspace = true, optional = true, features = ["std", "write"] }
 hadris-fat = { workspace = true, optional = true, features = ["std", "read", "write", "lfn"] }
+hadris-udf = { workspace = true, optional = true, features = ["std", "read"] }

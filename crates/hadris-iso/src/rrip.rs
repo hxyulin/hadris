@@ -416,7 +416,10 @@ impl SlEntry {
             }
         }
 
-        Self { flags: 0, components }
+        Self {
+            flags: 0,
+            components,
+        }
     }
 
     /// Calculate the size of this entry
@@ -853,7 +856,8 @@ impl RripBuilder {
         for component in &sl.components {
             buf[offset] = component.flags.bits();
             buf[offset + 1] = component.content.len() as u8;
-            buf[offset + 2..offset + 2 + component.content.len()].copy_from_slice(&component.content);
+            buf[offset + 2..offset + 2 + component.content.len()]
+                .copy_from_slice(&component.content);
             offset += 2 + component.content.len();
         }
 
@@ -905,6 +909,12 @@ impl RripBuilder {
         self
     }
 
+    /// Add a CE entry pointing to a continuation area
+    pub fn add_ce(&mut self, ce: crate::susp::ContinuationArea) -> &mut Self {
+        self.builder.add_ce(ce);
+        self
+    }
+
     /// Add the ST terminator
     pub fn add_st(&mut self) -> &mut Self {
         self.builder.add_st();
@@ -919,6 +929,13 @@ impl RripBuilder {
     /// Build the system use area
     pub fn build(&self) -> alloc::vec::Vec<u8> {
         self.builder.build()
+    }
+
+    /// Split entries across inline and overflow areas.
+    ///
+    /// Delegates to [`SystemUseBuilder::build_split`].
+    pub fn build_split(&self, max_inline: usize) -> crate::susp::SplitSu {
+        self.builder.build_split(max_inline)
     }
 
     /// Check if the builder is empty
@@ -1084,7 +1101,7 @@ mod tests {
     #[test]
     fn test_sl_entry_from_path_absolute() {
         let sl = SlEntry::from_path("/usr/bin/test");
-        assert_eq!(sl.components.len(), 4);  // root + usr + bin + test
+        assert_eq!(sl.components.len(), 4); // root + usr + bin + test
         assert!(sl.components[0].flags.contains(SlComponentFlags::ROOT));
         assert_eq!(sl.components[1].content, b"usr");
         assert_eq!(sl.components[2].content, b"bin");
@@ -1094,7 +1111,7 @@ mod tests {
     #[test]
     fn test_sl_entry_from_path_relative() {
         let sl = SlEntry::from_path("../lib/libtest.so");
-        assert_eq!(sl.components.len(), 3);  // .. + lib + libtest.so
+        assert_eq!(sl.components.len(), 3); // .. + lib + libtest.so
         assert!(sl.components[0].flags.contains(SlComponentFlags::PARENT));
         assert_eq!(sl.components[1].content, b"lib");
         assert_eq!(sl.components[2].content, b"libtest.so");
@@ -1103,15 +1120,15 @@ mod tests {
     #[test]
     fn test_sl_entry_from_path_current() {
         let sl = SlEntry::from_path("./local");
-        assert_eq!(sl.components.len(), 2);  // . + local
+        assert_eq!(sl.components.len(), 2); // . + local
         assert!(sl.components[0].flags.contains(SlComponentFlags::CURRENT));
         assert_eq!(sl.components[1].content, b"local");
     }
 
     #[test]
     fn test_tf_entry_new_short() {
-        let mtime = [126, 1, 15, 10, 30, 0, 0];  // 2026-01-15 10:30:00 UTC
-        let atime = [126, 1, 15, 12, 0, 0, 0];   // 2026-01-15 12:00:00 UTC
+        let mtime = [126, 1, 15, 10, 30, 0, 0]; // 2026-01-15 10:30:00 UTC
+        let atime = [126, 1, 15, 12, 0, 0, 0]; // 2026-01-15 12:00:00 UTC
         let tf = TfEntry::new_short(&mtime, &atime);
         assert!(tf.flags.contains(TfFlags::MODIFY));
         assert!(tf.flags.contains(TfFlags::ACCESS));
@@ -1154,8 +1171,8 @@ mod tests {
 
         let data = builder.build();
         assert_eq!(&data[0..2], b"PX");
-        assert_eq!(data[2], 44);  // length
-        assert_eq!(data[3], 1);   // version
+        assert_eq!(data[2], 44); // length
+        assert_eq!(data[3], 1); // version
     }
 
     #[test]
@@ -1173,11 +1190,11 @@ mod tests {
     fn test_rrip_builder_nm() {
         let mut builder = RripBuilder::new();
         builder.add_nm(b"test.txt");
-        assert_eq!(builder.size(), 5 + 8);  // header(5) + name(8)
+        assert_eq!(builder.size(), 5 + 8); // header(5) + name(8)
 
         let data = builder.build();
         assert_eq!(&data[0..2], b"NM");
-        assert_eq!(data[4], 0);  // no flags
+        assert_eq!(data[4], 0); // no flags
         assert_eq!(&data[5..], b"test.txt");
     }
 
@@ -1186,12 +1203,12 @@ mod tests {
         let mut builder = RripBuilder::new();
         builder.add_nm_current();
         let data = builder.build();
-        assert_eq!(data[4], 0x02);  // CURRENT flag
+        assert_eq!(data[4], 0x02); // CURRENT flag
 
         let mut builder = RripBuilder::new();
         builder.add_nm_parent();
         let data = builder.build();
-        assert_eq!(data[4], 0x04);  // PARENT flag
+        assert_eq!(data[4], 0x04); // PARENT flag
     }
 
     #[test]

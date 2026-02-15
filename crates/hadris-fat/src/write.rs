@@ -5,10 +5,10 @@ use core::ops::DerefMut;
 
 #[cfg(feature = "write")]
 use crate::{
+    DirEntryAttrFlags, Fat, FatDir, FatFs, FileEntry, RawDirectoryEntry, RawFileEntry,
     error::{FatError, Result},
     file::ShortFileName,
     io::{Cluster, ClusterLike, Read, ReadExt, Seek, SeekFrom, Write},
-    DirEntryAttrFlags, Fat, FatDir, FatFs, FileEntry, RawDirectoryEntry, RawFileEntry,
 };
 
 #[cfg(feature = "write")]
@@ -32,8 +32,14 @@ impl FatDateTime {
     pub fn new(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> Self {
         let year_offset = year.saturating_sub(1980).min(127);
         let date = (year_offset << 9) | ((month as u16 & 0x0F) << 5) | (day as u16 & 0x1F);
-        let time = ((hour as u16 & 0x1F) << 11) | ((minute as u16 & 0x3F) << 5) | ((second as u16 / 2) & 0x1F);
-        Self { date, time, time_tenth: 0 }
+        let time = ((hour as u16 & 0x1F) << 11)
+            | ((minute as u16 & 0x3F) << 5)
+            | ((second as u16 / 2) & 0x1F);
+        Self {
+            date,
+            time,
+            time_tenth: 0,
+        }
     }
 
     /// Get current date/time (requires std feature).
@@ -148,8 +154,12 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
                 // Need to allocate a new cluster
                 let hint = self.current_cluster.map(|c| c.0 as u32 + 1).unwrap_or(2);
                 let new_cluster = match &self.fs.fat {
-                    Fat::Fat12(fat12) => fat12.allocate_cluster(data.deref_mut(), hint as u16)? as u32,
-                    Fat::Fat16(fat16) => fat16.allocate_cluster(data.deref_mut(), hint as u16)? as u32,
+                    Fat::Fat12(fat12) => {
+                        fat12.allocate_cluster(data.deref_mut(), hint as u16)? as u32
+                    }
+                    Fat::Fat16(fat16) => {
+                        fat16.allocate_cluster(data.deref_mut(), hint as u16)? as u32
+                    }
                     Fat::Fat32(fat32) => fat32.allocate_cluster(data.deref_mut(), hint)?,
                 };
 
@@ -186,8 +196,8 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             let to_write = (buf.len() - written).min(bytes_left_in_cluster);
 
             // Seek to the correct position
-            let seek_pos = cluster.to_bytes(self.fs.info.data_start, cluster_size)
-                + self.offset_in_cluster;
+            let seek_pos =
+                cluster.to_bytes(self.fs.info.data_start, cluster_size) + self.offset_in_cluster;
             data.seek(SeekFrom::Start(seek_pos as u64))?;
 
             // Write the data
@@ -220,7 +230,8 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             root_start + self.entry_offset
         } else {
             // Cluster-based directory
-            self.entry_parent.to_bytes(self.fs.info.data_start, cluster_size)
+            self.entry_parent
+                .to_bytes(self.fs.info.data_start, cluster_size)
                 + self.entry_offset
         };
 
@@ -231,7 +242,8 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
         let file_entry = unsafe { &mut raw_entry.file };
 
         // Update size
-        file_entry.size = hadris_common::types::number::U32::<LittleEndian>::new(self.total_written as u32);
+        file_entry.size =
+            hadris_common::types::number::U32::<LittleEndian>::new(self.total_written as u32);
 
         // Update first cluster - for FAT12/16, only use low 16 bits
         if let Some(cluster) = self.first_cluster {
@@ -239,11 +251,15 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
                 Fat::Fat12(_) | Fat::Fat16(_) => (0u16, cluster.0 as u16),
                 Fat::Fat32(_) => ((cluster.0 >> 16) as u16, cluster.0 as u16),
             };
-            file_entry.first_cluster_high = hadris_common::types::number::U16::<LittleEndian>::new(high);
-            file_entry.first_cluster_low = hadris_common::types::number::U16::<LittleEndian>::new(low);
+            file_entry.first_cluster_high =
+                hadris_common::types::number::U16::<LittleEndian>::new(high);
+            file_entry.first_cluster_low =
+                hadris_common::types::number::U16::<LittleEndian>::new(low);
         } else {
-            file_entry.first_cluster_high = hadris_common::types::number::U16::<LittleEndian>::new(0);
-            file_entry.first_cluster_low = hadris_common::types::number::U16::<LittleEndian>::new(0);
+            file_entry.first_cluster_high =
+                hadris_common::types::number::U16::<LittleEndian>::new(0);
+            file_entry.first_cluster_low =
+                hadris_common::types::number::U16::<LittleEndian>::new(0);
         }
 
         // Update write time
@@ -420,7 +436,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             // Search this cluster for a free entry
             for i in 0..entries_per_cluster {
                 let offset = i * entry_size;
-                let seek_pos = current_cluster.to_bytes(self.info.data_start, cluster_size) + offset;
+                let seek_pos =
+                    current_cluster.to_bytes(self.info.data_start, cluster_size) + offset;
                 data.seek(SeekFrom::Start(seek_pos as u64))?;
 
                 let raw_entry = data.read_struct::<RawDirectoryEntry>()?;
@@ -470,8 +487,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                     self.update_next_free_hint(new_cluster);
 
                     // Zero out the new cluster
-                    let new_cluster_pos = Cluster(new_cluster as usize)
-                        .to_bytes(self.info.data_start, cluster_size);
+                    let new_cluster_pos =
+                        Cluster(new_cluster as usize).to_bytes(self.info.data_start, cluster_size);
                     data.seek(SeekFrom::Start(new_cluster_pos as u64))?;
                     let zeros = alloc::vec![0u8; cluster_size];
                     data.write_all(&zeros)?;
@@ -520,8 +537,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         }
 
         // Generate short filename (suffix=0 means no ~N suffix)
-        let short_name = ShortFileName::from_long_name(name, 0)
-            .map_err(|_| FatError::InvalidFilename)?;
+        let short_name =
+            ShortFileName::from_long_name(name, 0).map_err(|_| FatError::InvalidFilename)?;
 
         // Find a free slot
         let (slot_cluster, slot_offset) = self.find_free_entry_slot_in_dir(parent)?;
@@ -562,15 +579,19 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     /// Create a new directory.
     ///
     /// Returns a FatDir handle for the newly created directory.
-    pub fn create_dir<'a>(&'a self, parent: &FatDir<'a, DATA>, name: &str) -> Result<FatDir<'a, DATA>> {
+    pub fn create_dir<'a>(
+        &'a self,
+        parent: &FatDir<'a, DATA>,
+        name: &str,
+    ) -> Result<FatDir<'a, DATA>> {
         // Check if entry already exists
         if parent.find(name)?.is_some() {
             return Err(FatError::AlreadyExists);
         }
 
         // Generate short filename (suffix=0 means no ~N suffix)
-        let short_name = ShortFileName::from_long_name(name, 0)
-            .map_err(|_| FatError::InvalidFilename)?;
+        let short_name =
+            ShortFileName::from_long_name(name, 0).map_err(|_| FatError::InvalidFilename)?;
 
         // Allocate a cluster for the directory contents
         let new_cluster = {
@@ -607,7 +628,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             creation_time: time.to_le_bytes(),
             creation_date: date.to_le_bytes(),
             last_access_date: date.to_le_bytes(),
-            first_cluster_high: hadris_common::types::number::U16::<LittleEndian>::new(cluster_high),
+            first_cluster_high: hadris_common::types::number::U16::<LittleEndian>::new(
+                cluster_high,
+            ),
             last_write_time: time.to_le_bytes(),
             last_write_date: date.to_le_bytes(),
             first_cluster_low: hadris_common::types::number::U16::<LittleEndian>::new(cluster_low),
@@ -620,7 +643,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         {
             let mut data = self.data.lock();
             let cluster_size = data.cluster_size;
-            let dir_pos = Cluster(new_cluster as usize).to_bytes(self.info.data_start, cluster_size);
+            let dir_pos =
+                Cluster(new_cluster as usize).to_bytes(self.info.data_start, cluster_size);
 
             // Zero out the cluster first
             data.seek(SeekFrom::Start(dir_pos as u64))?;
@@ -636,10 +660,14 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                 creation_time: time.to_le_bytes(),
                 creation_date: date.to_le_bytes(),
                 last_access_date: date.to_le_bytes(),
-                first_cluster_high: hadris_common::types::number::U16::<LittleEndian>::new(cluster_high),
+                first_cluster_high: hadris_common::types::number::U16::<LittleEndian>::new(
+                    cluster_high,
+                ),
                 last_write_time: time.to_le_bytes(),
                 last_write_date: date.to_le_bytes(),
-                first_cluster_low: hadris_common::types::number::U16::<LittleEndian>::new(cluster_low),
+                first_cluster_low: hadris_common::types::number::U16::<LittleEndian>::new(
+                    cluster_low,
+                ),
                 size: hadris_common::types::number::U32::<LittleEndian>::new(0),
             };
             data.seek(SeekFrom::Start(dir_pos as u64))?;
@@ -662,10 +690,14 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                 creation_time: time.to_le_bytes(),
                 creation_date: date.to_le_bytes(),
                 last_access_date: date.to_le_bytes(),
-                first_cluster_high: hadris_common::types::number::U16::<LittleEndian>::new(parent_high),
+                first_cluster_high: hadris_common::types::number::U16::<LittleEndian>::new(
+                    parent_high,
+                ),
                 last_write_time: time.to_le_bytes(),
                 last_write_date: date.to_le_bytes(),
-                first_cluster_low: hadris_common::types::number::U16::<LittleEndian>::new(parent_low),
+                first_cluster_low: hadris_common::types::number::U16::<LittleEndian>::new(
+                    parent_low,
+                ),
                 size: hadris_common::types::number::U32::<LittleEndian>::new(0),
             };
             let dotdot_pos = dir_pos + core::mem::size_of::<RawDirectoryEntry>();
@@ -732,12 +764,15 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             // Calculate entry position - handle fixed root directory
             let entry_pos = if entry.parent_clus.0 == 0 {
                 // Fixed root directory (FAT12/16)
-                let (root_start, _) = self.fixed_root_dir_info()
+                let (root_start, _) = self
+                    .fixed_root_dir_info()
                     .expect("Fixed root info required for cluster 0");
                 root_start + entry.offset_within_cluster
             } else {
                 // Cluster-based directory
-                entry.parent_clus.to_bytes(self.info.data_start, cluster_size)
+                entry
+                    .parent_clus
+                    .to_bytes(self.info.data_start, cluster_size)
                     + entry.offset_within_cluster
             };
 
@@ -771,7 +806,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             root_start + entry.offset_within_cluster
         } else {
             // Cluster-based directory
-            entry.parent_clus.to_bytes(self.info.data_start, cluster_size)
+            entry
+                .parent_clus
+                .to_bytes(self.info.data_start, cluster_size)
                 + entry.offset_within_cluster
         };
 
@@ -793,7 +830,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         } else {
             (0u16, 0u16)
         };
-        file_entry.first_cluster_high = hadris_common::types::number::U16::<LittleEndian>::new(high);
+        file_entry.first_cluster_high =
+            hadris_common::types::number::U16::<LittleEndian>::new(high);
         file_entry.first_cluster_low = hadris_common::types::number::U16::<LittleEndian>::new(low);
 
         // Update modification time
@@ -847,8 +885,10 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let mut fs_info = data.read_struct::<RawFsInfo>()?;
 
         // Update the mutable fields
-        fs_info.free_count = hadris_common::types::number::U32::<LittleEndian>::new(ext.free_count.get());
-        fs_info.next_free = hadris_common::types::number::U32::<LittleEndian>::new(ext.next_free.get().0);
+        fs_info.free_count =
+            hadris_common::types::number::U32::<LittleEndian>::new(ext.free_count.get());
+        fs_info.next_free =
+            hadris_common::types::number::U32::<LittleEndian>::new(ext.next_free.get().0);
 
         // Write back
         data.seek_sector(ext.fs_info_sec)?;

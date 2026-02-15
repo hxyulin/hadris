@@ -8,9 +8,7 @@ use core::mem::size_of;
 use crate::error::{FatError, Result};
 use crate::io::{Read, Seek};
 
-use super::entry::{
-    entry_type, parse_entry_set, ExFatFileEntry, RawDirectoryEntry,
-};
+use super::entry::{ExFatFileEntry, RawDirectoryEntry, entry_type, parse_entry_set};
 use super::fs::ExFatFs;
 
 /// A directory in an exFAT filesystem.

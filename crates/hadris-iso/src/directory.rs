@@ -117,7 +117,13 @@ impl DirectoryRecord {
     #[inline]
     pub fn system_use(&self) -> &[u8] {
         let header = self.header();
-        &self.data[Self::DATA_START + header.file_identifier_len as usize..header.len as usize]
+        // ISO 9660 requires a padding byte after the file identifier when its
+        // length is even, so the system use area always starts at an even offset.
+        let su_start = (Self::DATA_START + header.file_identifier_len as usize + 1) & !1;
+        if su_start >= header.len as usize {
+            return &[];
+        }
+        &self.data[su_start..header.len as usize]
     }
 
     #[inline]
@@ -156,9 +162,21 @@ impl DirectoryRecord {
 
     pub fn new(name: &[u8], system_use: &[u8], directory: DirectoryRef, flags: FileFlags) -> Self {
         let mut sel = Self::zeroed();
-        let len = Self::DATA_START + name.len() + system_use.len();
+        // ISO 9660 (ECMA-119 9.1): a padding byte follows the file identifier
+        // when its length is even, so the system use area starts at an even offset.
+        let su_start = (Self::DATA_START + name.len() + 1) & !1;
+        let total = su_start + system_use.len();
+        // Record length must be even (ECMA-119 7.1.1).
+        let record_len = (total + 1) & !1;
+        debug_assert!(
+            record_len <= 255,
+            "DirectoryRecord too large: {} bytes (name={}, su={})",
+            record_len,
+            name.len(),
+            system_use.len()
+        );
         *sel.header_mut() = DirectoryRecordHeader {
-            len: (len as u8 + 1) & !1,
+            len: record_len as u8,
             extended_attr_record: 0,
             extent: U32LsbMsb::new(directory.extent.0 as u32),
             data_len: U32LsbMsb::new(directory.size as u32),
@@ -170,14 +188,17 @@ impl DirectoryRecord {
             file_identifier_len: name.len() as u8,
         };
         sel.data[Self::DATA_START..Self::DATA_START + name.len()].copy_from_slice(name);
-        sel.data[Self::DATA_START + name.len()..len].copy_from_slice(system_use);
+        // Padding byte (if any) is already zero from zeroed().
+        sel.data[su_start..su_start + system_use.len()].copy_from_slice(system_use);
         sel
     }
 
     pub fn with_len(name_len: usize, su_len: usize) -> Self {
         let mut sel = Self::zeroed();
-        let len = Self::DATA_START + name_len + su_len;
-        sel.header_mut().len = len as u8;
+        let su_start = (Self::DATA_START + name_len + 1) & !1;
+        let total = su_start + su_len;
+        let record_len = (total + 1) & !1;
+        sel.header_mut().len = record_len as u8;
         sel
     }
 
@@ -265,6 +286,7 @@ pub struct DirectoryRef {
 }
 
 bitflags::bitflags! {
+    #[derive(Clone, Copy)]
     pub struct FileFlags: u8 {
         const HIDDEN = 0b0000_0001;
         const DIRECTORY = 0b0000_0010;

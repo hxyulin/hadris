@@ -1,8 +1,8 @@
 use core::ops::DerefMut;
 
 use crate::{
-    io::{self, Read, Seek, SeekFrom, IsoCursor},
     directory::{DirectoryRecord, DirectoryRef},
+    io::{self, IsoCursor, Read, Seek, SeekFrom},
 };
 use spin::Mutex;
 

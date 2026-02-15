@@ -128,12 +128,19 @@ impl fmt::Display for FatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidBootSignature { found } => {
-                write!(f, "invalid boot signature: expected 0xAA55, found {found:#06x}")
+                write!(
+                    f,
+                    "invalid boot signature: expected 0xAA55, found {found:#06x}"
+                )
             }
             Self::UnsupportedFatType(ty) => {
                 write!(f, "unsupported FAT type: {ty}")
             }
-            Self::InvalidFsInfoSignature { field, expected, found } => {
+            Self::InvalidFsInfoSignature {
+                field,
+                expected,
+                found,
+            } => {
                 write!(
                     f,
                     "invalid FSInfo signature: {field} expected {expected:#010x}, found {found:#010x}"

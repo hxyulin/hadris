@@ -9,8 +9,8 @@ use crate::error::Result;
 use crate::io::{Read, Seek, SeekFrom, Write};
 use crate::write::FatDateTime;
 use crate::{
-    DirEntryAttrFlags, FatType, RawBpb, RawBpbExt16, RawBpbExt32, RawFileEntry, RawFsInfo,
-    FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG,
+    DirEntryAttrFlags, FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG, FatType, RawBpb,
+    RawBpbExt16, RawBpbExt32, RawFileEntry, RawFsInfo,
 };
 
 use hadris_common::types::endian::{Endian, LittleEndian};
@@ -212,10 +212,7 @@ fn write_backup_boot_sector<DATA: Read + Write + Seek>(
 }
 
 /// Initialize the FAT tables with media type marker and end-of-chain markers.
-fn initialize_fat_tables<DATA: Write + Seek>(
-    data: &mut DATA,
-    params: &FormatParams,
-) -> Result<()> {
+fn initialize_fat_tables<DATA: Write + Seek>(data: &mut DATA, params: &FormatParams) -> Result<()> {
     let fat_start = params.reserved_sectors as u64 * params.sector_size as u64;
     let fat_bytes = params.sectors_per_fat as usize * params.sector_size;
 
@@ -278,7 +275,9 @@ fn initialize_root_directory<DATA: Write + Seek>(
         FatType::Fat12 | FatType::Fat16 => {
             // Fixed root directory after FAT tables
             let fat_end = params.reserved_sectors as u64 * params.sector_size as u64
-                + params.fat_count as u64 * params.sectors_per_fat as u64 * params.sector_size as u64;
+                + params.fat_count as u64
+                    * params.sectors_per_fat as u64
+                    * params.sector_size as u64;
             fat_end
         }
         FatType::Fat32 => {

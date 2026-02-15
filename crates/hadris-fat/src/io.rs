@@ -1,4 +1,4 @@
-pub use hadris_io::{Result, Error, ErrorKind, Read, Seek, SeekFrom, Write, ReadExt};
+pub use hadris_io::{Error, ErrorKind, Read, ReadExt, Result, Seek, SeekFrom, Write};
 
 /// Create an I/O error from an ErrorKind.
 ///
@@ -74,7 +74,11 @@ pub struct SectorCursor<DATA: Seek> {
 
 impl<DATA: Seek> SectorCursor<DATA> {
     pub const fn new(data: DATA, sector_size: usize, cluster_size: usize) -> Self {
-        Self { data, sector_size, cluster_size }
+        Self {
+            data,
+            sector_size,
+            cluster_size,
+        }
     }
 
     pub fn seek_sector(&mut self, sector: impl SectorLike) -> Result<u64> {
@@ -129,4 +133,3 @@ where
         self.data.write_all(buf)
     }
 }
-

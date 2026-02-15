@@ -71,7 +71,7 @@ pub mod scheme;
 // Re-export commonly used types at the crate root
 pub use error::{PartitionError, Result};
 pub use geometry::{DiskGeometry, validate_partition_alignment};
-pub use gpt::{Guid, GptHeader, GptPartitionEntry};
+pub use gpt::{GptHeader, GptPartitionEntry, Guid};
 pub use mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionTable, MbrPartitionType};
 pub use scheme::{PartitionInfo, PartitionSchemeType, PartitionType};
 

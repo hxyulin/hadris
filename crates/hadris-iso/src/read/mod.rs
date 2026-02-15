@@ -50,7 +50,10 @@ impl RootDirs {
     }
 
     pub fn best_choice(&self) -> RootDir {
-        assert!(!self.dirs.is_empty(), "ISO image contains no directory trees!");
+        assert!(
+            !self.dirs.is_empty(),
+            "ISO image contains no directory trees!"
+        );
         let mut best = (0, EntryType::default());
         for (idx, dir) in self.dirs.iter().enumerate() {
             if dir.ty > best.1 {
@@ -201,5 +204,13 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
 
     pub fn root_dirs(&self) -> &RootDirs {
         &self.info.root_dirs
+    }
+
+    /// Read raw bytes from an absolute byte position in the image.
+    pub fn read_bytes_at(&self, byte_offset: u64, buf: &mut [u8]) -> io::Result<()> {
+        let mut data = self.data.lock();
+        data.seek(crate::io::SeekFrom::Start(byte_offset))?;
+        data.read_exact(buf)?;
+        Ok(())
     }
 }

@@ -98,8 +98,7 @@ impl MbrPartitionType {
 /// Modern systems use LBA addressing, and values exceeding the CHS limit (approximately
 /// 8GB with 255 heads, 63 sectors, and 1024 cylinders) are represented as 0xFF, 0xFF, 0xFF.
 #[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq)]
-#[derive(bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Chs([u8; 3]);
 
 impl Debug for Chs {
@@ -183,8 +182,7 @@ impl Chs {
 
 /// An MBR partition entry (16 bytes).
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
-#[derive(bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MbrPartition {
     /// Boot indicator: 0x00 = non-bootable, 0x80 = bootable.
     pub boot_indicator: u8,
@@ -279,8 +277,7 @@ impl MbrPartition {
 
 /// The MBR partition table (4 primary partition entries).
 #[repr(transparent)]
-#[derive(Clone, Copy)]
-#[derive(bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MbrPartitionTable {
     /// The four primary partition entries.
     pub partitions: [MbrPartition; 4],
@@ -349,8 +346,7 @@ impl MbrPartitionTable {
 
     /// Returns whether this is a protective MBR (indicating a GPT disk).
     pub fn is_protective(&self) -> bool {
-        !self.partitions[0].is_empty()
-            && self.partitions[0].partition_type().is_protective()
+        !self.partitions[0].is_empty() && self.partitions[0].partition_type().is_protective()
     }
 
     /// Returns an iterator over non-empty partitions.
@@ -471,7 +467,10 @@ impl Debug for MasterBootRecord {
         let pt = self.get_partition_table();
         f.debug_struct("MasterBootRecord")
             .field("partition_table", &pt)
-            .field("signature", &format_args!("0x{:02X}{:02X}", self.signature[0], self.signature[1]))
+            .field(
+                "signature",
+                &format_args!("0x{:02X}{:02X}", self.signature[0], self.signature[1]),
+            )
             .finish()
     }
 }
@@ -486,7 +485,9 @@ impl MasterBootRecord {
     /// Returns an error if reading fails or if the MBR signature is invalid.
     pub fn read_from<R: hadris_io::Read>(reader: &mut R) -> crate::error::Result<Self> {
         let mut buf = [0u8; 512];
-        reader.read_exact(&mut buf).map_err(|_| crate::error::PartitionError::Io)?;
+        reader
+            .read_exact(&mut buf)
+            .map_err(|_| crate::error::PartitionError::Io)?;
         let mbr: Self = bytemuck::cast(buf);
         if !mbr.has_valid_signature() {
             return Err(crate::error::PartitionError::InvalidMbrSignature {

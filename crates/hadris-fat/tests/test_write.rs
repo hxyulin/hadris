@@ -308,8 +308,9 @@ mod fat16_image {
     pub fn create_fat16_image() -> Cursor<Vec<u8>> {
         // Calculate layout
         let root_dir_sectors = (ROOT_ENTRY_COUNT as usize * 32 + SECTOR_SIZE - 1) / SECTOR_SIZE;
-        let data_start_sector =
-            RESERVED_SECTORS as usize + FAT_COUNT as usize * SECTORS_PER_FAT as usize + root_dir_sectors;
+        let data_start_sector = RESERVED_SECTORS as usize
+            + FAT_COUNT as usize * SECTORS_PER_FAT as usize
+            + root_dir_sectors;
 
         // Need enough clusters to be FAT16 (>= 4085 clusters)
         let total_data_clusters: usize = 8192; // Well into FAT16 range
@@ -459,8 +460,9 @@ mod fat12_image {
     pub fn create_fat12_image() -> Cursor<Vec<u8>> {
         // Calculate layout
         let root_dir_sectors = (ROOT_ENTRY_COUNT as usize * 32 + SECTOR_SIZE - 1) / SECTOR_SIZE;
-        let _data_start_sector =
-            RESERVED_SECTORS as usize + FAT_COUNT as usize * SECTORS_PER_FAT as usize + root_dir_sectors;
+        let _data_start_sector = RESERVED_SECTORS as usize
+            + FAT_COUNT as usize * SECTORS_PER_FAT as usize
+            + root_dir_sectors;
 
         // Use 2880 sectors total (1.44MB floppy size) - results in ~2847 clusters (FAT12)
         let total_sectors: usize = 2880;
@@ -596,7 +598,9 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create a new file
-        let entry = fs.create_file(&root, "TEST.TXT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "TEST.TXT")
+            .expect("Failed to create file");
 
         assert!(entry.is_file());
         assert_eq!(entry.size(), 0);
@@ -615,7 +619,8 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create a file
-        fs.create_file(&root, "TEST.TXT").expect("Failed to create file");
+        fs.create_file(&root, "TEST.TXT")
+            .expect("Failed to create file");
 
         // Try to create again - should fail
         let result = fs.create_file(&root, "TEST.TXT");
@@ -633,7 +638,9 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create a file
-        let entry = fs.create_file(&root, "HELLO.TXT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "HELLO.TXT")
+            .expect("Failed to create file");
 
         // Write content
         let content = b"Hello, FAT32 World!";
@@ -645,7 +652,10 @@ mod integration_tests {
 
         // Re-find the file to get updated size
         let root = fs.root_dir();
-        let entry = root.find("HELLO.TXT").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("HELLO.TXT")
+            .expect("Find failed")
+            .expect("File not found");
         assert_eq!(entry.size(), content.len());
 
         // Read back the content
@@ -671,7 +681,9 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create a file
-        let entry = fs.create_file(&root, "BIG.DAT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "BIG.DAT")
+            .expect("Failed to create file");
 
         // Write content larger than one cluster
         let cluster_sz = cluster_size();
@@ -685,7 +697,10 @@ mod integration_tests {
 
         // Read back and verify
         let root = fs.root_dir();
-        let entry = root.find("BIG.DAT").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("BIG.DAT")
+            .expect("Find failed")
+            .expect("File not found");
         assert_eq!(entry.size(), content.len());
 
         use hadris_fat::FatFsReadExt;
@@ -702,7 +717,9 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create a directory
-        let subdir = fs.create_dir(&root, "SUBDIR").expect("Failed to create directory");
+        let subdir = fs
+            .create_dir(&root, "SUBDIR")
+            .expect("Failed to create directory");
 
         // Verify . and .. entries exist
         let entries: Vec<_> = subdir.entries().collect();
@@ -732,10 +749,14 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create a directory
-        let subdir = fs.create_dir(&root, "MYDIR").expect("Failed to create directory");
+        let subdir = fs
+            .create_dir(&root, "MYDIR")
+            .expect("Failed to create directory");
 
         // Create a file in the subdirectory
-        let entry = fs.create_file(&subdir, "FILE.TXT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&subdir, "FILE.TXT")
+            .expect("Failed to create file");
         assert!(entry.is_file());
 
         // Verify file exists in subdirectory
@@ -756,7 +777,9 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create and write a file
-        let entry = fs.create_file(&root, "DELETE.ME").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "DELETE.ME")
+            .expect("Failed to create file");
         {
             let mut writer = fs.write_file(&entry).expect("Failed to get writer");
             writer.write(b"temporary data").expect("Failed to write");
@@ -765,7 +788,10 @@ mod integration_tests {
 
         // Re-find and delete
         let root = fs.root_dir();
-        let entry = root.find("DELETE.ME").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("DELETE.ME")
+            .expect("Find failed")
+            .expect("File not found");
         fs.delete(&entry).expect("Failed to delete");
 
         // Verify file no longer exists
@@ -782,11 +808,16 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create a directory
-        let _subdir = fs.create_dir(&root, "EMPTYDIR").expect("Failed to create directory");
+        let _subdir = fs
+            .create_dir(&root, "EMPTYDIR")
+            .expect("Failed to create directory");
 
         // Find and delete it
         let root = fs.root_dir();
-        let entry = root.find("EMPTYDIR").expect("Find failed").expect("Dir not found");
+        let entry = root
+            .find("EMPTYDIR")
+            .expect("Find failed")
+            .expect("Dir not found");
         fs.delete(&entry).expect("Failed to delete empty directory");
 
         // Verify directory no longer exists
@@ -803,12 +834,18 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create a directory with a file inside
-        let subdir = fs.create_dir(&root, "HASFILE").expect("Failed to create directory");
-        fs.create_file(&subdir, "INSIDE.TXT").expect("Failed to create file");
+        let subdir = fs
+            .create_dir(&root, "HASFILE")
+            .expect("Failed to create directory");
+        fs.create_file(&subdir, "INSIDE.TXT")
+            .expect("Failed to create file");
 
         // Try to delete the directory - should fail
         let root = fs.root_dir();
-        let entry = root.find("HASFILE").expect("Find failed").expect("Dir not found");
+        let entry = root
+            .find("HASFILE")
+            .expect("Find failed")
+            .expect("Dir not found");
         let result = fs.delete(&entry);
 
         match result {
@@ -845,7 +882,8 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create a file
-        fs.create_file(&root, "MYFILE.TXT").expect("Failed to create file");
+        fs.create_file(&root, "MYFILE.TXT")
+            .expect("Failed to create file");
 
         // Should find it with different cases
         let root = fs.root_dir();
@@ -862,7 +900,9 @@ mod integration_tests {
         let root = fs.root_dir();
 
         // Create and write initial content
-        let entry = fs.create_file(&root, "APPEND.TXT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "APPEND.TXT")
+            .expect("Failed to create file");
         {
             let mut writer = fs.write_file(&entry).expect("Failed to get writer");
             writer.write(b"First part. ").expect("Failed to write");
@@ -874,7 +914,10 @@ mod integration_tests {
         // For now, we just verify the basic write/read cycle works.
 
         let root = fs.root_dir();
-        let entry = root.find("APPEND.TXT").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("APPEND.TXT")
+            .expect("Find failed")
+            .expect("File not found");
 
         use hadris_fat::FatFsReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
@@ -916,7 +959,9 @@ mod fat16_integration_tests {
         let root = fs.root_dir();
 
         // Create a new file
-        let entry = fs.create_file(&root, "TEST.TXT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "TEST.TXT")
+            .expect("Failed to create file");
 
         assert!(entry.is_file());
         assert_eq!(entry.size(), 0);
@@ -935,7 +980,9 @@ mod fat16_integration_tests {
         let root = fs.root_dir();
 
         // Create a file
-        let entry = fs.create_file(&root, "HELLO.TXT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "HELLO.TXT")
+            .expect("Failed to create file");
 
         // Write content
         let content = b"Hello, FAT16 World!";
@@ -947,7 +994,10 @@ mod fat16_integration_tests {
 
         // Re-find the file to get updated size
         let root = fs.root_dir();
-        let entry = root.find("HELLO.TXT").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("HELLO.TXT")
+            .expect("Find failed")
+            .expect("File not found");
         assert_eq!(entry.size(), content.len());
 
         // Read back the content
@@ -973,7 +1023,9 @@ mod fat16_integration_tests {
         let root = fs.root_dir();
 
         // Create a file
-        let entry = fs.create_file(&root, "BIG.DAT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "BIG.DAT")
+            .expect("Failed to create file");
 
         // Write content larger than one cluster
         let cluster_sz = cluster_size();
@@ -987,7 +1039,10 @@ mod fat16_integration_tests {
 
         // Read back and verify
         let root = fs.root_dir();
-        let entry = root.find("BIG.DAT").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("BIG.DAT")
+            .expect("Find failed")
+            .expect("File not found");
         assert_eq!(entry.size(), content.len());
 
         use hadris_fat::FatFsReadExt;
@@ -1004,7 +1059,9 @@ mod fat16_integration_tests {
         let root = fs.root_dir();
 
         // Create a directory
-        let subdir = fs.create_dir(&root, "SUBDIR").expect("Failed to create directory");
+        let subdir = fs
+            .create_dir(&root, "SUBDIR")
+            .expect("Failed to create directory");
 
         // Verify . and .. entries exist
         let entries: Vec<_> = subdir.entries().collect();
@@ -1034,10 +1091,14 @@ mod fat16_integration_tests {
         let root = fs.root_dir();
 
         // Create a directory
-        let subdir = fs.create_dir(&root, "MYDIR").expect("Failed to create directory");
+        let subdir = fs
+            .create_dir(&root, "MYDIR")
+            .expect("Failed to create directory");
 
         // Create a file in the subdirectory
-        let entry = fs.create_file(&subdir, "FILE.TXT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&subdir, "FILE.TXT")
+            .expect("Failed to create file");
         assert!(entry.is_file());
 
         // Verify file exists in subdirectory
@@ -1058,7 +1119,9 @@ mod fat16_integration_tests {
         let root = fs.root_dir();
 
         // Create and write a file
-        let entry = fs.create_file(&root, "DELETE.ME").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "DELETE.ME")
+            .expect("Failed to create file");
         {
             let mut writer = fs.write_file(&entry).expect("Failed to get writer");
             writer.write(b"temporary data").expect("Failed to write");
@@ -1067,7 +1130,10 @@ mod fat16_integration_tests {
 
         // Re-find and delete
         let root = fs.root_dir();
-        let entry = root.find("DELETE.ME").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("DELETE.ME")
+            .expect("Find failed")
+            .expect("File not found");
         fs.delete(&entry).expect("Failed to delete");
 
         // Verify file no longer exists
@@ -1103,7 +1169,8 @@ mod fat16_integration_tests {
         let root = fs.root_dir();
 
         // Create a file
-        fs.create_file(&root, "TEST.TXT").expect("Failed to create file");
+        fs.create_file(&root, "TEST.TXT")
+            .expect("Failed to create file");
 
         // Try to create again - should fail
         let result = fs.create_file(&root, "TEST.TXT");
@@ -1147,7 +1214,9 @@ mod fat12_integration_tests {
         let root = fs.root_dir();
 
         // Create a new file
-        let entry = fs.create_file(&root, "TEST.TXT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "TEST.TXT")
+            .expect("Failed to create file");
 
         assert!(entry.is_file());
         assert_eq!(entry.size(), 0);
@@ -1166,7 +1235,9 @@ mod fat12_integration_tests {
         let root = fs.root_dir();
 
         // Create a file
-        let entry = fs.create_file(&root, "HELLO.TXT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "HELLO.TXT")
+            .expect("Failed to create file");
 
         // Write content
         let content = b"Hello, FAT12 World!";
@@ -1178,7 +1249,10 @@ mod fat12_integration_tests {
 
         // Re-find the file to get updated size
         let root = fs.root_dir();
-        let entry = root.find("HELLO.TXT").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("HELLO.TXT")
+            .expect("Find failed")
+            .expect("File not found");
         assert_eq!(entry.size(), content.len());
 
         // Read back the content
@@ -1204,7 +1278,9 @@ mod fat12_integration_tests {
         let root = fs.root_dir();
 
         // Create a file
-        let entry = fs.create_file(&root, "BIG.DAT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "BIG.DAT")
+            .expect("Failed to create file");
 
         // Write content larger than one cluster
         let cluster_sz = cluster_size();
@@ -1218,7 +1294,10 @@ mod fat12_integration_tests {
 
         // Read back and verify
         let root = fs.root_dir();
-        let entry = root.find("BIG.DAT").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("BIG.DAT")
+            .expect("Find failed")
+            .expect("File not found");
         assert_eq!(entry.size(), content.len());
 
         use hadris_fat::FatFsReadExt;
@@ -1235,7 +1314,9 @@ mod fat12_integration_tests {
         let root = fs.root_dir();
 
         // Create a directory
-        let subdir = fs.create_dir(&root, "SUBDIR").expect("Failed to create directory");
+        let subdir = fs
+            .create_dir(&root, "SUBDIR")
+            .expect("Failed to create directory");
 
         // Verify . and .. entries exist
         let entries: Vec<_> = subdir.entries().collect();
@@ -1265,10 +1346,14 @@ mod fat12_integration_tests {
         let root = fs.root_dir();
 
         // Create a directory
-        let subdir = fs.create_dir(&root, "MYDIR").expect("Failed to create directory");
+        let subdir = fs
+            .create_dir(&root, "MYDIR")
+            .expect("Failed to create directory");
 
         // Create a file in the subdirectory
-        let entry = fs.create_file(&subdir, "FILE.TXT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&subdir, "FILE.TXT")
+            .expect("Failed to create file");
         assert!(entry.is_file());
 
         // Verify file exists in subdirectory
@@ -1289,7 +1374,9 @@ mod fat12_integration_tests {
         let root = fs.root_dir();
 
         // Create and write a file
-        let entry = fs.create_file(&root, "DELETE.ME").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "DELETE.ME")
+            .expect("Failed to create file");
         {
             let mut writer = fs.write_file(&entry).expect("Failed to get writer");
             writer.write(b"temporary data").expect("Failed to write");
@@ -1298,7 +1385,10 @@ mod fat12_integration_tests {
 
         // Re-find and delete
         let root = fs.root_dir();
-        let entry = root.find("DELETE.ME").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("DELETE.ME")
+            .expect("Find failed")
+            .expect("File not found");
         fs.delete(&entry).expect("Failed to delete");
 
         // Verify file no longer exists
@@ -1334,7 +1424,8 @@ mod fat12_integration_tests {
         let root = fs.root_dir();
 
         // Create a file
-        fs.create_file(&root, "TEST.TXT").expect("Failed to create file");
+        fs.create_file(&root, "TEST.TXT")
+            .expect("Failed to create file");
 
         // Try to create again - should fail
         let result = fs.create_file(&root, "TEST.TXT");
@@ -1357,7 +1448,9 @@ mod fat12_integration_tests {
         // Use 5 clusters to test both even and odd cluster number handling
         let content: Vec<u8> = (0..cluster_sz * 5).map(|i| (i % 256) as u8).collect();
 
-        let entry = fs.create_file(&root, "CHAIN.DAT").expect("Failed to create file");
+        let entry = fs
+            .create_file(&root, "CHAIN.DAT")
+            .expect("Failed to create file");
         {
             let mut writer = fs.write_file(&entry).expect("Failed to get writer");
             writer.write(&content).expect("Failed to write");
@@ -1366,7 +1459,10 @@ mod fat12_integration_tests {
 
         // Read back and verify
         let root = fs.root_dir();
-        let entry = root.find("CHAIN.DAT").expect("Find failed").expect("File not found");
+        let entry = root
+            .find("CHAIN.DAT")
+            .expect("Find failed")
+            .expect("File not found");
         assert_eq!(entry.size(), content.len());
 
         use hadris_fat::FatFsReadExt;

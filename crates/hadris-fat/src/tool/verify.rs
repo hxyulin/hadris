@@ -7,9 +7,9 @@ use alloc::vec::Vec;
 use core::ops::DerefMut;
 
 use crate::{
+    DirectoryEntry, FatFs,
     error::Result,
     io::{Read, Seek},
-    DirectoryEntry, FatFs,
 };
 
 /// Types of verification issues that can be detected.
@@ -86,7 +86,11 @@ impl core::fmt::Display for VerificationIssue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::ClusterLoop { path, cluster } => {
-                write!(f, "Cluster loop detected at cluster {} in '{}'", cluster, path)
+                write!(
+                    f,
+                    "Cluster loop detected at cluster {} in '{}'",
+                    cluster, path
+                )
             }
             Self::CrossLinkedCluster { cluster, paths } => {
                 write!(
@@ -96,14 +100,21 @@ impl core::fmt::Display for VerificationIssue {
                     paths.join(", ")
                 )
             }
-            Self::OrphanedChain { start_cluster, chain_length } => {
+            Self::OrphanedChain {
+                start_cluster,
+                chain_length,
+            } => {
                 write!(
                     f,
                     "Orphaned cluster chain starting at {} ({} clusters)",
                     start_cluster, chain_length
                 )
             }
-            Self::SizeMismatch { path, recorded_size, chain_size } => {
+            Self::SizeMismatch {
+                path,
+                recorded_size,
+                chain_size,
+            } => {
                 write!(
                     f,
                     "Size mismatch for '{}': recorded {} bytes, chain suggests {} bytes",
@@ -113,14 +124,21 @@ impl core::fmt::Display for VerificationIssue {
             Self::InvalidFirstCluster { path, cluster } => {
                 write!(f, "Invalid first cluster {} for '{}'", cluster, path)
             }
-            Self::BadClusterInChain { path, position, cluster } => {
+            Self::BadClusterInChain {
+                path,
+                position,
+                cluster,
+            } => {
                 write!(
                     f,
                     "Bad cluster {} at position {} in chain for '{}'",
                     cluster, position, path
                 )
             }
-            Self::InvalidEntryName { parent_path, raw_name: _ } => {
+            Self::InvalidEntryName {
+                parent_path,
+                raw_name: _,
+            } => {
                 write!(f, "Invalid entry name in directory '{}'", parent_path)
             }
             Self::LostClusters { count } => {
@@ -229,7 +247,9 @@ impl<DATA: Read + Seek> FatVerifyExt<DATA> for FatFs<DATA> {
         drop(data);
 
         if orphaned_count > 0 {
-            issues.push(VerificationIssue::LostClusters { count: orphaned_count });
+            issues.push(VerificationIssue::LostClusters {
+                count: orphaned_count,
+            });
         }
 
         Ok(VerificationReport {
@@ -336,7 +356,9 @@ impl<DATA: Read + Seek> FatFs<DATA> {
                         0
                     };
 
-                    if recorded_size > chain_size || (recorded_size > 0 && recorded_size < min_chain_size) {
+                    if recorded_size > chain_size
+                        || (recorded_size > 0 && recorded_size < min_chain_size)
+                    {
                         issues.push(VerificationIssue::SizeMismatch {
                             path: full_path,
                             recorded_size,

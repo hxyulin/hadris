@@ -6,9 +6,9 @@
 use core::cmp::min;
 
 use crate::error::{FatError, Result};
-use crate::io::{error_from_kind, ErrorKind, Read, Seek, SeekFrom};
 #[cfg(feature = "write")]
 use crate::io::Write;
+use crate::io::{ErrorKind, Read, Seek, SeekFrom, error_from_kind};
 
 use super::entry::ExFatFileEntry;
 use super::fs::ExFatFs;
@@ -104,7 +104,10 @@ impl<DATA: Read + Seek> Read for ExFatFileReader<'_, DATA> {
             let remaining_in_cluster = cluster_size - self.cluster_offset;
             let remaining_in_file = (self.valid_length - self.position) as usize;
             let remaining_in_buf = buf.len() - total_read;
-            let to_read = min(remaining_in_cluster, min(remaining_in_file, remaining_in_buf));
+            let to_read = min(
+                remaining_in_cluster,
+                min(remaining_in_file, remaining_in_buf),
+            );
 
             if to_read == 0 {
                 break;
@@ -112,7 +115,8 @@ impl<DATA: Read + Seek> Read for ExFatFileReader<'_, DATA> {
 
             // Read from the cluster
             let offset = info.cluster_to_offset(self.current_cluster) + self.cluster_offset as u64;
-            self.fs.read_at(offset, &mut buf[total_read..total_read + to_read])
+            self.fs
+                .read_at(offset, &mut buf[total_read..total_read + to_read])
                 .map_err(|_| error_from_kind(ErrorKind::Other))?;
 
             total_read += to_read;
@@ -344,12 +348,10 @@ impl<DATA: Read + Write + Seek> Write for ExFatFileWriter<'_, DATA> {
                     // Follow FAT chain or allocate new
                     match self.fs.next_cluster(self.current_cluster) {
                         Ok(Some(next)) => next,
-                        Ok(None) | Err(_) => {
-                            match self.allocate_next_cluster() {
-                                Ok(c) => c,
-                                Err(_) => return Ok(total_written),
-                            }
-                        }
+                        Ok(None) | Err(_) => match self.allocate_next_cluster() {
+                            Ok(c) => c,
+                            Err(_) => return Ok(total_written),
+                        },
                     }
                 };
 
@@ -374,7 +376,8 @@ impl<DATA: Read + Write + Seek> Write for ExFatFileWriter<'_, DATA> {
 
             // Write to the cluster
             let offset = info.cluster_to_offset(self.current_cluster) + self.cluster_offset as u64;
-            self.fs.write_at(offset, &buf[total_written..total_written + to_write])
+            self.fs
+                .write_at(offset, &buf[total_written..total_written + to_write])
                 .map_err(|_| error_from_kind(ErrorKind::Other))?;
 
             total_written += to_write;

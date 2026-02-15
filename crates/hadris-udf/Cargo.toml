@@ -1,0 +1,34 @@
+[package]
+name = "hadris-udf"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "A rust implementation of the UDF (Universal Disk Format) filesystem."
+keywords = ["udf", "dvd", "blu-ray", "optical", "filesystem"]
+categories = ["filesystem", "encoding"]
+
+[features]
+default = ["std", "read"]
+# Read support
+read = ["hadris-common/bytemuck"]
+# Heap allocation without full std
+alloc = []
+# Standard library support (includes alloc)
+std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror"]
+# Write/format support (requires std)
+write = ["alloc", "std", "read"]
+
+[dependencies]
+bitflags = { workspace = true, features = ["bytemuck"] }
+bytemuck = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true, optional = true }
+hadris-io = { workspace = true }
+hadris-common = { workspace = true, features = ["alloc"] }
+spin.workspace = true
+
+[dev-dependencies]
+static_assertions.workspace = true
+tempfile.workspace = true

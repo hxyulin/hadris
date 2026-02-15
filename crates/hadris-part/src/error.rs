@@ -109,28 +109,69 @@ impl Display for PartitionError {
         match self {
             Self::Io => write!(f, "I/O error"),
             Self::InvalidMbrSignature { found } => {
-                write!(f, "invalid MBR signature: expected 0x55AA, found 0x{:02X}{:02X}", found[0], found[1])
+                write!(
+                    f,
+                    "invalid MBR signature: expected 0x55AA, found 0x{:02X}{:02X}",
+                    found[0], found[1]
+                )
             }
             Self::InvalidGptSignature { found } => {
-                write!(f, "invalid GPT signature: expected 'EFI PART', found {:?}", found)
+                write!(
+                    f,
+                    "invalid GPT signature: expected 'EFI PART', found {:?}",
+                    found
+                )
             }
             Self::GptHeaderCrcMismatch { expected, actual } => {
-                write!(f, "GPT header CRC mismatch: expected 0x{:08X}, got 0x{:08X}", expected, actual)
+                write!(
+                    f,
+                    "GPT header CRC mismatch: expected 0x{:08X}, got 0x{:08X}",
+                    expected, actual
+                )
             }
             Self::GptEntriesCrcMismatch { expected, actual } => {
-                write!(f, "GPT entries CRC mismatch: expected 0x{:08X}, got 0x{:08X}", expected, actual)
+                write!(
+                    f,
+                    "GPT entries CRC mismatch: expected 0x{:08X}, got 0x{:08X}",
+                    expected, actual
+                )
             }
-            Self::PartitionOverlap { index1, index2, overlap_start, overlap_end } => {
-                write!(f, "partitions {} and {} overlap (LBA {}-{})", index1, index2, overlap_start, overlap_end)
+            Self::PartitionOverlap {
+                index1,
+                index2,
+                overlap_start,
+                overlap_end,
+            } => {
+                write!(
+                    f,
+                    "partitions {} and {} overlap (LBA {}-{})",
+                    index1, index2, overlap_start, overlap_end
+                )
             }
             Self::TooManyPartitions { max, requested } => {
-                write!(f, "too many partitions: maximum is {}, requested {}", max, requested)
+                write!(
+                    f,
+                    "too many partitions: maximum is {}, requested {}",
+                    max, requested
+                )
             }
-            Self::PartitionOutOfBounds { index, partition_end, disk_end } => {
-                write!(f, "partition {} extends beyond disk (ends at LBA {}, disk ends at {})", index, partition_end, disk_end)
+            Self::PartitionOutOfBounds {
+                index,
+                partition_end,
+                disk_end,
+            } => {
+                write!(
+                    f,
+                    "partition {} extends beyond disk (ends at LBA {}, disk ends at {})",
+                    index, partition_end, disk_end
+                )
             }
             Self::InvalidPartitionEntrySize { size } => {
-                write!(f, "invalid partition entry size: {} (must be 128 * 2^n)", size)
+                write!(
+                    f,
+                    "invalid partition entry size: {} (must be 128 * 2^n)",
+                    size
+                )
             }
             Self::BackupHeaderMismatch => {
                 write!(f, "backup GPT header does not match primary")
@@ -141,13 +182,23 @@ impl Display for PartitionError {
             Self::InvalidHybridMbr { reason } => {
                 write!(f, "invalid hybrid MBR: {}", reason)
             }
-            Self::DiskTooSmall { required, available } => {
-                write!(f, "disk too small: requires {} sectors, only {} available", required, available)
+            Self::DiskTooSmall {
+                required,
+                available,
+            } => {
+                write!(
+                    f,
+                    "disk too small: requires {} sectors, only {} available",
+                    required, available
+                )
             }
             Self::FeatureNotAvailable(feature) => {
                 write!(f, "feature not available: {}", feature)
             }
-            Self::MisalignedPartition { lba, required_alignment } => {
+            Self::MisalignedPartition {
+                lba,
+                required_alignment,
+            } => {
                 write!(
                     f,
                     "partition at LBA {} is not aligned to {} sectors",

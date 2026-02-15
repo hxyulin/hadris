@@ -17,6 +17,10 @@ pub mod str;
 /// Types
 pub mod types;
 
+/// Optical media types (requires `optical` feature)
+#[cfg(feature = "optical")]
+pub mod optical;
+
 /// A generic boot sector that informs the user they are loading the image incorrectly.
 ///
 /// This is generated using the code in the `boot_sector` directory. See the README for more information.

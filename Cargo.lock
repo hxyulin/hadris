@@ -371,6 +371,17 @@ version = "0.2.0"
 dependencies = [
  "hadris-fat",
  "hadris-iso",
+ "hadris-udf",
+]
+
+[[package]]
+name = "hadris-cd"
+version = "0.1.0"
+dependencies = [
+ "hadris-io",
+ "hadris-iso",
+ "hadris-udf",
+ "thiserror",
 ]
 
 [[package]]
@@ -389,6 +400,7 @@ dependencies = [
  "chrono",
  "crc",
  "criterion",
+ "hadris-io",
  "noalloc",
  "rand",
  "static_assertions",
@@ -406,6 +418,7 @@ dependencies = [
  "pretty_assertions",
  "spin",
  "static_assertions",
+ "tempfile",
  "thiserror",
 ]
 
@@ -428,7 +441,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bitflags",
  "bytemuck",
@@ -446,7 +459,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "hadris-iso",
@@ -462,6 +475,20 @@ dependencies = [
  "crc",
  "hadris-io",
  "rand",
+]
+
+[[package]]
+name = "hadris-udf"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "bytemuck",
+ "hadris-common",
+ "hadris-io",
+ "spin",
+ "static_assertions",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

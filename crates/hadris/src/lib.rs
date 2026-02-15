@@ -5,3 +5,6 @@ pub use hadris_iso as iso;
 
 #[cfg(feature = "fat")]
 pub use hadris_fat as fat;
+
+#[cfg(feature = "udf")]
+pub use hadris_udf as udf;

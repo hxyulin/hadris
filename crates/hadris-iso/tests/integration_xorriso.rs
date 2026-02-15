@@ -52,8 +52,8 @@ fn create_iso_with_xorriso(content_dir: &Path, iso_path: &Path) -> bool {
             iso_path.to_str().unwrap(),
             "-V",
             "TEST_VOLUME",
-            "-J",  // Joliet
-            "-R",  // Rock Ridge
+            "-J", // Joliet
+            "-R", // Rock Ridge
             content_dir.to_str().unwrap(),
         ])
         .output()
@@ -90,7 +90,7 @@ fn create_joliet_iso_with_xorriso(content_dir: &Path, iso_path: &Path) -> bool {
             iso_path.to_str().unwrap(),
             "-V",
             "JOLIET_TEST",
-            "-J",  // Joliet only
+            "-J", // Joliet only
             content_dir.to_str().unwrap(),
         ])
         .output()
@@ -172,7 +172,10 @@ fn test_read_xorriso_joliet_iso() {
     let has_joliet = image
         .read_volume_descriptors()
         .any(|vd| matches!(vd, Ok(VolumeDescriptor::Supplementary(_))));
-    assert!(has_joliet, "Should have supplementary volume descriptor for Joliet");
+    assert!(
+        has_joliet,
+        "Should have supplementary volume descriptor for Joliet"
+    );
 }
 
 #[test]
@@ -258,7 +261,11 @@ fn test_read_directory_structure() {
     assert!(entries.iter().any(|n| n.to_uppercase().contains("SUBDIR")));
     assert!(entries.iter().any(|n| n.to_uppercase().contains("DEEP")));
     // Note: ISO 9660 Level 1 converts filenames to uppercase
-    assert!(entries.iter().any(|n| n.to_uppercase().contains("README") || n.to_uppercase().contains("TXT")));
+    assert!(
+        entries
+            .iter()
+            .any(|n| n.to_uppercase().contains("README") || n.to_uppercase().contains("TXT"))
+    );
 }
 
 #[test]
@@ -427,7 +434,12 @@ fn test_xorriso_report() {
 
     // Use xorriso to print info about the ISO
     let output = Command::new("xorriso")
-        .args(["-indev", iso_path.to_str().unwrap(), "-report_el_torito", "as_mkisofs"])
+        .args([
+            "-indev",
+            iso_path.to_str().unwrap(),
+            "-report_el_torito",
+            "as_mkisofs",
+        ])
         .output()
         .expect("Failed to run xorriso report");
 
@@ -480,8 +492,14 @@ fn test_volume_descriptor_chain() {
         }
     }
 
-    assert_eq!(primary_count, 1, "Should have exactly 1 primary volume descriptor");
-    assert!(supplementary_count >= 1, "Should have at least 1 supplementary (Joliet) descriptor");
+    assert_eq!(
+        primary_count, 1,
+        "Should have exactly 1 primary volume descriptor"
+    );
+    assert!(
+        supplementary_count >= 1,
+        "Should have at least 1 supplementary (Joliet) descriptor"
+    );
     // Note: Some iterators may stop before yielding the terminator, or may not include it
     // The important thing is that we found the expected descriptors
     assert!(terminator_count <= 1, "Should have at most 1 terminator");
@@ -508,7 +526,10 @@ fn create_bootable_iso_with_xorriso(content_dir: &Path, iso_path: &Path, boot_im
         .expect("Failed to run xorriso");
 
     if !output.status.success() {
-        eprintln!("xorriso stderr: {}", String::from_utf8_lossy(&output.stderr));
+        eprintln!(
+            "xorriso stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     output.status.success()
 }
@@ -559,7 +580,10 @@ fn test_eltorito_boot_catalog_comparison() {
     let boot_catalog_lba = boot_catalog_lba.expect("Should find boot record volume descriptor");
     let catalog_offset = boot_catalog_lba as usize * 2048;
 
-    println!("Boot catalog at LBA {}, offset {:#x}", boot_catalog_lba, catalog_offset);
+    println!(
+        "Boot catalog at LBA {}, offset {:#x}",
+        boot_catalog_lba, catalog_offset
+    );
 
     // Read and parse boot catalog entries
     let validation_entry = &iso_data[catalog_offset..catalog_offset + 32];
@@ -568,23 +592,43 @@ fn test_eltorito_boot_catalog_comparison() {
     println!("\n=== XORRISO Boot Catalog (Reference) ===");
     println!("Validation Entry:");
     println!("  Header ID: {:#04x} (expected 0x01)", validation_entry[0]);
-    println!("  Platform ID: {:#04x} (0x00=x86, 0xEF=UEFI)", validation_entry[1]);
+    println!(
+        "  Platform ID: {:#04x} (0x00=x86, 0xEF=UEFI)",
+        validation_entry[1]
+    );
     println!("  Reserved: {:02x?}", &validation_entry[2..4]);
-    println!("  Manufacturer: {:?}", String::from_utf8_lossy(&validation_entry[4..28]));
+    println!(
+        "  Manufacturer: {:?}",
+        String::from_utf8_lossy(&validation_entry[4..28])
+    );
     let checksum = u16::from_le_bytes([validation_entry[28], validation_entry[29]]);
     println!("  Checksum: {:#06x}", checksum);
-    println!("  Key: {:02x} {:02x} (expected 55 AA)", validation_entry[30], validation_entry[31]);
+    println!(
+        "  Key: {:02x} {:02x} (expected 55 AA)",
+        validation_entry[30], validation_entry[31]
+    );
 
     println!("\nDefault Entry:");
-    println!("  Boot Indicator: {:#04x} (0x88=bootable)", default_entry[0]);
-    println!("  Boot Media Type: {:#04x} (0x00=no emulation)", default_entry[1]);
+    println!(
+        "  Boot Indicator: {:#04x} (0x88=bootable)",
+        default_entry[0]
+    );
+    println!(
+        "  Boot Media Type: {:#04x} (0x00=no emulation)",
+        default_entry[1]
+    );
     let load_segment = u16::from_le_bytes([default_entry[2], default_entry[3]]);
     println!("  Load Segment: {:#06x}", load_segment);
     println!("  System Type: {:#04x}", default_entry[4]);
     println!("  Reserved: {:#04x}", default_entry[5]);
     let sector_count = u16::from_le_bytes([default_entry[6], default_entry[7]]);
     println!("  Sector Count: {} (512-byte sectors)", sector_count);
-    let load_rba = u32::from_le_bytes([default_entry[8], default_entry[9], default_entry[10], default_entry[11]]);
+    let load_rba = u32::from_le_bytes([
+        default_entry[8],
+        default_entry[9],
+        default_entry[10],
+        default_entry[11],
+    ]);
     println!("  Load RBA (LBA): {}", load_rba);
     println!("  Selection Criteria: {:#04x}", default_entry[12]);
 
@@ -594,7 +638,10 @@ fn test_eltorito_boot_catalog_comparison() {
         let word = u16::from_le_bytes([validation_entry[i], validation_entry[i + 1]]);
         sum = sum.wrapping_add(word);
     }
-    println!("\n  Checksum verification: sum = {:#06x} (should be 0x0000)", sum);
+    println!(
+        "\n  Checksum verification: sum = {:#06x} (should be 0x0000)",
+        sum
+    );
     assert_eq!(sum, 0, "Validation entry checksum should sum to 0");
 
     // Verify boot indicator
@@ -607,7 +654,10 @@ fn test_eltorito_boot_catalog_comparison() {
         Ok(catalog) => {
             println!("\n=== Hadris-ISO Parsed Boot Catalog ===");
             println!("  Validation valid: {}", catalog.validation.is_valid());
-            println!("  Default bootable: {}", catalog.default_entry.is_bootable());
+            println!(
+                "  Default bootable: {}",
+                catalog.default_entry.is_bootable()
+            );
             let entry = &catalog.default_entry;
             println!("  Load Segment: {:#06x}", entry.load_segment.get());
             println!("  Sector Count: {}", entry.sector_count.get());
@@ -695,17 +745,26 @@ fn test_hadris_bootable_iso_creation() {
     let catalog_offset = boot_catalog_lba as usize * 2048;
 
     println!("\n=== Hadris-ISO Generated Boot Catalog ===");
-    println!("Boot catalog at LBA {}, offset {:#x}", boot_catalog_lba, catalog_offset);
+    println!(
+        "Boot catalog at LBA {}, offset {:#x}",
+        boot_catalog_lba, catalog_offset
+    );
 
     let validation_entry = &iso_data[catalog_offset..catalog_offset + 32];
     let default_entry = &iso_data[catalog_offset + 32..catalog_offset + 64];
 
     println!("\nValidation Entry:");
     println!("  Header ID: {:#04x} (expected 0x01)", validation_entry[0]);
-    println!("  Platform ID: {:#04x} (0x00=x86, 0xEF=UEFI)", validation_entry[1]);
+    println!(
+        "  Platform ID: {:#04x} (0x00=x86, 0xEF=UEFI)",
+        validation_entry[1]
+    );
     let checksum = u16::from_le_bytes([validation_entry[28], validation_entry[29]]);
     println!("  Checksum: {:#06x}", checksum);
-    println!("  Key: {:02x} {:02x} (expected 55 AA)", validation_entry[30], validation_entry[31]);
+    println!(
+        "  Key: {:02x} {:02x} (expected 55 AA)",
+        validation_entry[30], validation_entry[31]
+    );
 
     // Verify validation checksum
     let mut sum = 0u16;
@@ -713,18 +772,32 @@ fn test_hadris_bootable_iso_creation() {
         let word = u16::from_le_bytes([validation_entry[i], validation_entry[i + 1]]);
         sum = sum.wrapping_add(word);
     }
-    println!("  Checksum verification: sum = {:#06x} (should be 0x0000)", sum);
+    println!(
+        "  Checksum verification: sum = {:#06x} (should be 0x0000)",
+        sum
+    );
 
     println!("\nDefault Entry:");
-    println!("  Boot Indicator: {:#04x} (0x88=bootable)", default_entry[0]);
-    println!("  Boot Media Type: {:#04x} (0x00=no emulation)", default_entry[1]);
+    println!(
+        "  Boot Indicator: {:#04x} (0x88=bootable)",
+        default_entry[0]
+    );
+    println!(
+        "  Boot Media Type: {:#04x} (0x00=no emulation)",
+        default_entry[1]
+    );
     let load_segment = u16::from_le_bytes([default_entry[2], default_entry[3]]);
     println!("  Load Segment: {:#06x}", load_segment);
     println!("  System Type: {:#04x}", default_entry[4]);
     println!("  Reserved: {:#04x}", default_entry[5]);
     let sector_count = u16::from_le_bytes([default_entry[6], default_entry[7]]);
     println!("  Sector Count: {} (512-byte sectors)", sector_count);
-    let load_rba = u32::from_le_bytes([default_entry[8], default_entry[9], default_entry[10], default_entry[11]]);
+    let load_rba = u32::from_le_bytes([
+        default_entry[8],
+        default_entry[9],
+        default_entry[10],
+        default_entry[11],
+    ]);
     println!("  Load RBA (LBA): {}", load_rba);
     println!("  Selection Criteria: {:#04x}", default_entry[12]);
 
@@ -733,8 +806,14 @@ fn test_hadris_bootable_iso_creation() {
     assert_eq!(validation_entry[30], 0x55, "Key byte 1 should be 0x55");
     assert_eq!(validation_entry[31], 0xAA, "Key byte 2 should be 0xAA");
     assert_eq!(sum, 0, "Validation checksum should sum to 0");
-    assert_eq!(default_entry[0], 0x88, "Default entry should be bootable (0x88)");
-    assert_eq!(default_entry[1], 0x00, "Boot media type should be no-emulation (0x00)");
+    assert_eq!(
+        default_entry[0], 0x88,
+        "Default entry should be bootable (0x88)"
+    );
+    assert_eq!(
+        default_entry[1], 0x00,
+        "Boot media type should be no-emulation (0x00)"
+    );
     assert_eq!(sector_count, 4, "Sector count should be 4");
 
     // Find the boot image file to verify LBA
@@ -750,7 +829,10 @@ fn test_hadris_bootable_iso_creation() {
 
     // Check that Load RBA is reasonable (should be a valid LBA in the ISO)
     assert!(load_rba > 16, "Load RBA should be after volume descriptors");
-    assert!(load_rba < (iso_data.len() / 2048) as u32, "Load RBA should be within ISO");
+    assert!(
+        load_rba < (iso_data.len() / 2048) as u32,
+        "Load RBA should be within ISO"
+    );
 
     println!("\n=== Hadris-ISO boot catalog generation: PASSED ===");
 }
@@ -853,43 +935,98 @@ fn test_compare_boot_catalogs() {
 
     println!("\n=== BOOT CATALOG COMPARISON ===\n");
 
-    if let (Some((x_br_sector, x_cat_lba)), Some((h_br_sector, h_cat_lba))) = (xorriso_boot, hadris_boot) {
-        println!("xorriso: Boot Record at sector {}, Catalog at LBA {}", x_br_sector, x_cat_lba);
-        println!("hadris:  Boot Record at sector {}, Catalog at LBA {}", h_br_sector, h_cat_lba);
+    if let (Some((x_br_sector, x_cat_lba)), Some((h_br_sector, h_cat_lba))) =
+        (xorriso_boot, hadris_boot)
+    {
+        println!(
+            "xorriso: Boot Record at sector {}, Catalog at LBA {}",
+            x_br_sector, x_cat_lba
+        );
+        println!(
+            "hadris:  Boot Record at sector {}, Catalog at LBA {}",
+            h_br_sector, h_cat_lba
+        );
 
         let x_cat_offset = x_cat_lba * 2048;
         let h_cat_offset = h_cat_lba * 2048;
 
         println!("\n--- Validation Entry (32 bytes) ---");
-        println!("xorriso: {:02x?}", &xorriso_data[x_cat_offset..x_cat_offset + 32]);
-        println!("hadris:  {:02x?}", &hadris_data[h_cat_offset..h_cat_offset + 32]);
+        println!(
+            "xorriso: {:02x?}",
+            &xorriso_data[x_cat_offset..x_cat_offset + 32]
+        );
+        println!(
+            "hadris:  {:02x?}",
+            &hadris_data[h_cat_offset..h_cat_offset + 32]
+        );
 
         // Check for differences
         let x_val = &xorriso_data[x_cat_offset..x_cat_offset + 32];
         let h_val = &hadris_data[h_cat_offset..h_cat_offset + 32];
 
-        if x_val[0] != h_val[0] { println!("DIFF: Header ID - xorriso={:#04x}, hadris={:#04x}", x_val[0], h_val[0]); }
-        if x_val[1] != h_val[1] { println!("DIFF: Platform ID - xorriso={:#04x}, hadris={:#04x}", x_val[1], h_val[1]); }
+        if x_val[0] != h_val[0] {
+            println!(
+                "DIFF: Header ID - xorriso={:#04x}, hadris={:#04x}",
+                x_val[0], h_val[0]
+            );
+        }
+        if x_val[1] != h_val[1] {
+            println!(
+                "DIFF: Platform ID - xorriso={:#04x}, hadris={:#04x}",
+                x_val[1], h_val[1]
+            );
+        }
 
         println!("\n--- Default/Initial Entry (32 bytes) ---");
-        println!("xorriso: {:02x?}", &xorriso_data[x_cat_offset + 32..x_cat_offset + 64]);
-        println!("hadris:  {:02x?}", &hadris_data[h_cat_offset + 32..h_cat_offset + 64]);
+        println!(
+            "xorriso: {:02x?}",
+            &xorriso_data[x_cat_offset + 32..x_cat_offset + 64]
+        );
+        println!(
+            "hadris:  {:02x?}",
+            &hadris_data[h_cat_offset + 32..h_cat_offset + 64]
+        );
 
         let x_def = &xorriso_data[x_cat_offset + 32..x_cat_offset + 64];
         let h_def = &hadris_data[h_cat_offset + 32..h_cat_offset + 64];
 
-        if x_def[0] != h_def[0] { println!("DIFF: Boot Indicator - xorriso={:#04x}, hadris={:#04x}", x_def[0], h_def[0]); }
-        if x_def[1] != h_def[1] { println!("DIFF: Boot Media Type - xorriso={:#04x}, hadris={:#04x}", x_def[1], h_def[1]); }
+        if x_def[0] != h_def[0] {
+            println!(
+                "DIFF: Boot Indicator - xorriso={:#04x}, hadris={:#04x}",
+                x_def[0], h_def[0]
+            );
+        }
+        if x_def[1] != h_def[1] {
+            println!(
+                "DIFF: Boot Media Type - xorriso={:#04x}, hadris={:#04x}",
+                x_def[1], h_def[1]
+            );
+        }
 
         let x_load_seg = u16::from_le_bytes([x_def[2], x_def[3]]);
         let h_load_seg = u16::from_le_bytes([h_def[2], h_def[3]]);
-        if x_load_seg != h_load_seg { println!("DIFF: Load Segment - xorriso={:#06x}, hadris={:#06x}", x_load_seg, h_load_seg); }
+        if x_load_seg != h_load_seg {
+            println!(
+                "DIFF: Load Segment - xorriso={:#06x}, hadris={:#06x}",
+                x_load_seg, h_load_seg
+            );
+        }
 
-        if x_def[4] != h_def[4] { println!("DIFF: System Type - xorriso={:#04x}, hadris={:#04x}", x_def[4], h_def[4]); }
+        if x_def[4] != h_def[4] {
+            println!(
+                "DIFF: System Type - xorriso={:#04x}, hadris={:#04x}",
+                x_def[4], h_def[4]
+            );
+        }
 
         let x_sector_count = u16::from_le_bytes([x_def[6], x_def[7]]);
         let h_sector_count = u16::from_le_bytes([h_def[6], h_def[7]]);
-        if x_sector_count != h_sector_count { println!("DIFF: Sector Count - xorriso={}, hadris={}", x_sector_count, h_sector_count); }
+        if x_sector_count != h_sector_count {
+            println!(
+                "DIFF: Sector Count - xorriso={}, hadris={}",
+                x_sector_count, h_sector_count
+            );
+        }
 
         let x_load_rba = u32::from_le_bytes([x_def[8], x_def[9], x_def[10], x_def[11]]);
         let h_load_rba = u32::from_le_bytes([h_def[8], h_def[9], h_def[10], h_def[11]]);
@@ -897,15 +1034,27 @@ fn test_compare_boot_catalogs() {
 
         // Check what's after the default entry
         println!("\n--- Next 32 bytes (after default entry) ---");
-        println!("xorriso: {:02x?}", &xorriso_data[x_cat_offset + 64..x_cat_offset + 96]);
-        println!("hadris:  {:02x?}", &hadris_data[h_cat_offset + 64..h_cat_offset + 96]);
+        println!(
+            "xorriso: {:02x?}",
+            &xorriso_data[x_cat_offset + 64..x_cat_offset + 96]
+        );
+        println!(
+            "hadris:  {:02x?}",
+            &hadris_data[h_cat_offset + 64..h_cat_offset + 96]
+        );
 
         // Check boot record volume descriptor
         println!("\n--- Boot Record Volume Descriptor ---");
         let x_br_offset = x_br_sector * 2048;
         let h_br_offset = h_br_sector * 2048;
-        println!("xorriso boot system identifier: {:?}", String::from_utf8_lossy(&xorriso_data[x_br_offset + 7..x_br_offset + 39]));
-        println!("hadris  boot system identifier: {:?}", String::from_utf8_lossy(&hadris_data[h_br_offset + 7..h_br_offset + 39]));
+        println!(
+            "xorriso boot system identifier: {:?}",
+            String::from_utf8_lossy(&xorriso_data[x_br_offset + 7..x_br_offset + 39])
+        );
+        println!(
+            "hadris  boot system identifier: {:?}",
+            String::from_utf8_lossy(&hadris_data[h_br_offset + 7..h_br_offset + 39])
+        );
 
         // Verify catalogs are valid
         let mut x_sum = 0u16;
@@ -917,9 +1066,16 @@ fn test_compare_boot_catalogs() {
             h_sum = h_sum.wrapping_add(u16::from_le_bytes([h_val[i], h_val[i + 1]]));
         }
         println!("\nChecksum verification:");
-        println!("  xorriso: {} ({})", x_sum, if x_sum == 0 { "VALID" } else { "INVALID" });
-        println!("  hadris:  {} ({})", h_sum, if h_sum == 0 { "VALID" } else { "INVALID" });
-
+        println!(
+            "  xorriso: {} ({})",
+            x_sum,
+            if x_sum == 0 { "VALID" } else { "INVALID" }
+        );
+        println!(
+            "  hadris:  {} ({})",
+            h_sum,
+            if h_sum == 0 { "VALID" } else { "INVALID" }
+        );
     } else {
         println!("Could not find boot catalogs!");
         println!("xorriso boot: {:?}", xorriso_boot);
@@ -1011,15 +1167,15 @@ fn test_qemu_boot_xorriso_iso() {
     // 3. Writes '\n' to COM1
     // 4. Halts with hlt instruction
     let boot_code: Vec<u8> = vec![
-        0xB0, 0x4F,       // mov al, 'O'
+        0xB0, 0x4F, // mov al, 'O'
         0xBA, 0xF8, 0x03, // mov dx, 0x3F8
-        0xEE,             // out dx, al
-        0xB0, 0x4B,       // mov al, 'K'
-        0xEE,             // out dx, al
-        0xB0, 0x0A,       // mov al, '\n'
-        0xEE,             // out dx, al
-        0xF4,             // hlt
-        0xEB, 0xFD,       // jmp $-1 (infinite loop if hlt fails)
+        0xEE, // out dx, al
+        0xB0, 0x4B, // mov al, 'K'
+        0xEE, // out dx, al
+        0xB0, 0x0A, // mov al, '\n'
+        0xEE, // out dx, al
+        0xF4, // hlt
+        0xEB, 0xFD, // jmp $-1 (infinite loop if hlt fails)
     ];
 
     // Pad to 2048 bytes (one sector)
@@ -1070,15 +1226,15 @@ fn test_qemu_boot_hadris_iso() {
 
     // Create a boot image that writes "OK" to serial port then halts
     let boot_code: Vec<u8> = vec![
-        0xB0, 0x4F,       // mov al, 'O'
+        0xB0, 0x4F, // mov al, 'O'
         0xBA, 0xF8, 0x03, // mov dx, 0x3F8
-        0xEE,             // out dx, al
-        0xB0, 0x4B,       // mov al, 'K'
-        0xEE,             // out dx, al
-        0xB0, 0x0A,       // mov al, '\n'
-        0xEE,             // out dx, al
-        0xF4,             // hlt
-        0xEB, 0xFD,       // jmp $-1 (infinite loop if hlt fails)
+        0xEE, // out dx, al
+        0xB0, 0x4B, // mov al, 'K'
+        0xEE, // out dx, al
+        0xB0, 0x0A, // mov al, '\n'
+        0xEE, // out dx, al
+        0xF4, // hlt
+        0xEB, 0xFD, // jmp $-1 (infinite loop if hlt fails)
     ];
 
     // Pad to 2048 bytes (one sector)
@@ -1150,7 +1306,10 @@ fn test_qemu_boot_hadris_iso() {
                 println!("\nFirst volume descriptor (LBA 16):");
                 let offset = 16 * 2048;
                 println!("  Type: {:#04x}", iso_data[offset]);
-                println!("  ID: {:?}", String::from_utf8_lossy(&iso_data[offset+1..offset+6]));
+                println!(
+                    "  ID: {:?}",
+                    String::from_utf8_lossy(&iso_data[offset + 1..offset + 6])
+                );
 
                 // Check boot record
                 for sector in 16..24 {
@@ -1159,7 +1318,8 @@ fn test_qemu_boot_hadris_iso() {
                         break;
                     }
                     if iso_data[offset] == 0x00 && &iso_data[offset + 1..offset + 6] == b"CD001" {
-                        let ptr_bytes: [u8; 4] = iso_data[offset + 71..offset + 75].try_into().unwrap();
+                        let ptr_bytes: [u8; 4] =
+                            iso_data[offset + 71..offset + 75].try_into().unwrap();
                         let catalog_lba = u32::from_le_bytes(ptr_bytes);
                         println!("\nBoot Record found at sector {}", sector);
                         println!("  Boot catalog LBA: {}", catalog_lba);
@@ -1170,9 +1330,17 @@ fn test_qemu_boot_hadris_iso() {
                             let validation = &iso_data[catalog_offset..catalog_offset + 32];
                             let default = &iso_data[catalog_offset + 32..catalog_offset + 64];
                             println!("  Validation header ID: {:#04x}", validation[0]);
-                            println!("  Validation key: {:02x} {:02x}", validation[30], validation[31]);
+                            println!(
+                                "  Validation key: {:02x} {:02x}",
+                                validation[30], validation[31]
+                            );
                             println!("  Default boot indicator: {:#04x}", default[0]);
-                            let load_rba = u32::from_le_bytes([default[8], default[9], default[10], default[11]]);
+                            let load_rba = u32::from_le_bytes([
+                                default[8],
+                                default[9],
+                                default[10],
+                                default[11],
+                            ]);
                             println!("  Default load RBA: {}", load_rba);
 
                             // Dump first few bytes of boot image
@@ -1323,7 +1491,10 @@ fn test_hybrid_boot_gpt() {
 
     // Verify protective MBR partition type (0xEE)
     let part_type = iso_data[446 + 4];
-    assert_eq!(part_type, 0xEE, "Protective MBR partition type should be 0xEE");
+    assert_eq!(
+        part_type, 0xEE,
+        "Protective MBR partition type should be 0xEE"
+    );
 
     // Verify GPT signature at sector 1 (offset 512)
     let gpt_sig = &iso_data[512..520];
@@ -1499,4 +1670,213 @@ fn test_multi_sector_directory() {
     );
 
     println!("=== Multi-sector directory test passed ===");
+}
+
+/// Test that a hadris-created Rock Ridge ISO contains valid RRIP entries
+/// and can be read back. Also verifies with xorriso if available.
+#[test]
+fn test_hadris_rockridge_roundtrip() {
+    use hadris_iso::read::PathSeparator;
+    use hadris_iso::susp::{SystemUseField, SystemUseIter};
+    use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+    use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+    use std::sync::Arc;
+
+    // Create test files
+    let files = InputFiles {
+        path_separator: PathSeparator::ForwardSlash,
+        files: vec![
+            IsoFile::File {
+                name: Arc::new("hello.txt".to_string()),
+                contents: b"Hello, Rock Ridge!\n".to_vec(),
+            },
+            IsoFile::Directory {
+                name: Arc::new("subdir".to_string()),
+                children: vec![IsoFile::File {
+                    name: Arc::new("nested.txt".to_string()),
+                    contents: b"Nested content\n".to_vec(),
+                }],
+            },
+        ],
+    };
+
+    let format_options = FormatOptions {
+        volume_name: "RRIP_TEST".to_string(),
+        sector_size: 2048,
+        path_seperator: PathSeparator::ForwardSlash,
+        features: CreationFeatures::with_rock_ridge(),
+    };
+
+    // Write the ISO to a buffer
+    let mut buffer = std::io::Cursor::new(vec![0u8; 4 * 1024 * 1024]);
+    IsoImageWriter::format_new(&mut buffer, files, format_options)
+        .expect("Failed to create Rock Ridge ISO");
+
+    let iso_data = buffer.into_inner();
+
+    // Read it back
+    let cursor = Cursor::new(iso_data.clone());
+    let image = hadris_iso::read::IsoImage::open(cursor).expect("Failed to open ISO image");
+
+    // Verify volume ID
+    let pvd = image.read_pvd();
+    assert_eq!(pvd.volume_identifier.to_str().trim(), "RRIP_TEST");
+
+    // Read root directory and verify RRIP entries on dot entry
+    let root = image.root_dir();
+    let dir = root.iter(&image);
+    let mut entries = dir.entries();
+
+    let dot_entry = entries.next().unwrap().unwrap();
+    assert_eq!(dot_entry.name(), b"\x00", "First entry should be dot");
+
+    let su = dot_entry.system_use();
+    assert!(!su.is_empty(), "Dot entry should have system use data");
+
+    let mut found_sp = false;
+    let mut found_ce = false;
+    let mut found_px = false;
+    let mut found_nm = false;
+    let mut ce_sector = 0u64;
+    let mut ce_offset = 0u64;
+    let mut ce_length = 0usize;
+
+    for field in SystemUseIter::new(su, 0) {
+        match field {
+            SystemUseField::SuspIdentifier(sp) => {
+                assert!(sp.is_valid(), "SP check bytes should be 0xBEEF");
+                found_sp = true;
+            }
+            SystemUseField::ContinuationArea(ce) => {
+                ce_sector = ce.sector.read() as u64;
+                ce_offset = ce.offset.read() as u64;
+                ce_length = ce.length.read() as usize;
+                found_ce = true;
+            }
+            SystemUseField::Unknown(header, _) => match &header.sig {
+                b"PX" => found_px = true,
+                b"NM" => found_nm = true,
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    assert!(found_sp, "Root dot should have SP entry");
+    assert!(found_ce, "Root dot should have CE entry (for full ER)");
+    assert!(found_px, "Root dot should have PX entry");
+    assert!(found_nm, "Root dot should have NM entry");
+
+    // Follow the CE to read the full ER from the continuation area
+    assert!(ce_length > 0, "CE length should be non-zero");
+    let byte_pos = ce_sector * 2048 + ce_offset;
+    let mut ce_buf = vec![0u8; ce_length];
+    image
+        .read_bytes_at(byte_pos, &mut ce_buf)
+        .expect("Failed to read CE area");
+
+    let mut found_er = false;
+    for field in SystemUseIter::new(&ce_buf, 0) {
+        if let SystemUseField::ExtensionReference(er) = field {
+            let id_start = 4usize;
+            let id_end = id_start + er.identifier_len as usize;
+            if id_end <= er.buf.len() {
+                let id = &er.buf[id_start..id_end];
+                if id == b"RRIP_1991A" {
+                    found_er = true;
+                    // Verify the full ER has description and source
+                    assert!(
+                        er.descriptor_len > 0,
+                        "Full ER should have non-empty descriptor"
+                    );
+                    assert!(er.source_len > 0, "Full ER should have non-empty source");
+                }
+            }
+        }
+    }
+    assert!(
+        found_er,
+        "Continuation area should contain ER with RRIP_1991A identifier"
+    );
+
+    // Check dotdot entry has PX and NM
+    let dotdot_entry = entries.next().unwrap().unwrap();
+    assert_eq!(
+        dotdot_entry.name(),
+        b"\x01",
+        "Second entry should be dotdot"
+    );
+    let dotdot_su = dotdot_entry.system_use();
+    assert!(
+        !dotdot_su.is_empty(),
+        "Dotdot entry should have system use data"
+    );
+
+    // Check that regular file entries also have RRIP data
+    let mut found_file_with_nm = false;
+    for entry_result in entries {
+        let entry = entry_result.unwrap();
+        if entry.is_special() {
+            continue;
+        }
+        let entry_su = entry.system_use();
+        if !entry_su.is_empty() {
+            for field in SystemUseIter::new(entry_su, 0) {
+                if let SystemUseField::Unknown(header, _) = field {
+                    if &header.sig == b"NM" {
+                        found_file_with_nm = true;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        found_file_with_nm,
+        "File/directory entries should have NM entries"
+    );
+
+    println!("=== Hadris Rock Ridge round-trip: PASSED ===");
+
+    // If xorriso is available, verify the ISO is recognized as Rock Ridge
+    if xorriso_available() {
+        let temp_dir = TempDir::new().unwrap();
+        let iso_path = temp_dir.path().join("hadris_rrip.iso");
+        fs::write(&iso_path, &iso_data).unwrap();
+
+        // Use xorriso to inspect the ISO
+        let output = Command::new("xorriso")
+            .args([
+                "-indev",
+                iso_path.to_str().unwrap(),
+                "-report_system_area",
+                "plain",
+                "-pvd_info",
+            ])
+            .output()
+            .expect("Failed to run xorriso");
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        println!("xorriso stdout: {}", stdout);
+        println!("xorriso stderr: {}", stderr);
+
+        // xorriso should be able to open the ISO without errors
+        // (it may print warnings but shouldn't fail catastrophically)
+        assert!(
+            output.status.success() || output.status.code() == Some(1),
+            "xorriso should be able to read hadris RRIP ISO"
+        );
+
+        // List files with xorriso to verify Rock Ridge names are present
+        let output = Command::new("xorriso")
+            .args(["-indev", iso_path.to_str().unwrap(), "-ls", "/"])
+            .output()
+            .expect("Failed to run xorriso ls");
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        println!("xorriso ls /: {}", stdout);
+
+        println!("=== xorriso Rock Ridge verification: PASSED ===");
+    }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "hadris-iso"
-version = "0.2.0"
+version = "0.2.1"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -30,7 +30,7 @@ thiserror = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 hadris-io = { workspace = true }
-hadris-common = { workspace = true }
+hadris-common = { workspace = true, features = ["alloc"] }
 hadris-part = { workspace = true, default-features = false }
 spin.workspace = true
 

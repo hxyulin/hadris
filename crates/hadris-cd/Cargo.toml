@@ -1,0 +1,21 @@
+[package]
+name = "hadris-cd"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "Hybrid ISO+UDF optical disc image creation (UDF Bridge format)"
+keywords = ["iso", "udf", "optical", "cd", "dvd"]
+categories = ["filesystem", "encoding"]
+
+[features]
+default = ["std"]
+std = ["hadris-io/std", "hadris-iso/std", "hadris-udf/std"]
+
+[dependencies]
+hadris-io = { workspace = true, features = ["std"] }
+hadris-iso = { workspace = true, features = ["std", "write"] }
+hadris-udf = { workspace = true, features = ["std", "write"] }
+thiserror = { workspace = true }

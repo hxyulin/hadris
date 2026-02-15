@@ -15,8 +15,8 @@ use hadris_common::types::endian::{Endian, LittleEndian};
 use hadris_common::types::number::{U16, U32, U64};
 
 use super::entry::{
-    entry_type, compute_entry_set_checksum, FileAttributes, RawDirectoryEntry,
-    RawFileDirectoryEntry, RawFileNameEntry, RawStreamExtensionEntry,
+    FileAttributes, RawDirectoryEntry, RawFileDirectoryEntry, RawFileNameEntry,
+    RawStreamExtensionEntry, compute_entry_set_checksum, entry_type,
 };
 use super::time::ExFatTimestamp;
 use super::upcase::UpcaseTable;
@@ -231,7 +231,10 @@ impl EntrySetBuilder {
 
 /// Check if a character is invalid for exFAT filenames.
 fn is_invalid_char(c: char) -> bool {
-    matches!(c, '\0'..='\x1F' | '"' | '*' | '/' | ':' | '<' | '>' | '?' | '\\' | '|')
+    matches!(
+        c,
+        '\0'..='\x1F' | '"' | '*' | '/' | ':' | '<' | '>' | '?' | '\\' | '|'
+    )
 }
 
 /// Convert a typed entry to a raw directory entry union.
@@ -259,7 +262,10 @@ mod tests {
 
         // Check entry types
         assert_eq!(unsafe { entries[0].entry_type }, entry_type::FILE_DIRECTORY);
-        assert_eq!(unsafe { entries[1].entry_type }, entry_type::STREAM_EXTENSION);
+        assert_eq!(
+            unsafe { entries[1].entry_type },
+            entry_type::STREAM_EXTENSION
+        );
         assert_eq!(unsafe { entries[2].entry_type }, entry_type::FILE_NAME);
     }
 

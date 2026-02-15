@@ -39,9 +39,16 @@ impl core::fmt::Display for BootError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Io => write!(f, "I/O error"),
-            Self::InvalidValidationChecksum => write!(f, "invalid boot catalog validation checksum"),
-            Self::InvalidValidationHeader => write!(f, "invalid boot catalog validation header (expected 0x01)"),
-            Self::InvalidValidationKey => write!(f, "invalid boot catalog validation key (expected 0x55, 0xAA)"),
+            Self::InvalidValidationChecksum => {
+                write!(f, "invalid boot catalog validation checksum")
+            }
+            Self::InvalidValidationHeader => {
+                write!(f, "invalid boot catalog validation header (expected 0x01)")
+            }
+            Self::InvalidValidationKey => write!(
+                f,
+                "invalid boot catalog validation key (expected 0x55, 0xAA)"
+            ),
             Self::InvalidDefaultEntry => write!(f, "default boot entry is not marked as bootable"),
             Self::ExpectedSectionHeader(id) => write!(f, "expected section header, got: {:#x}", id),
             Self::UnexpectedEndOfCatalog => write!(f, "boot catalog ended unexpectedly"),
@@ -539,10 +546,10 @@ pub struct BootSectionEntryExtension {
 unsafe impl bytemuck::Zeroable for BootSectionEntryExtension {}
 unsafe impl bytemuck::Pod for BootSectionEntryExtension {}
 
-/// Boot information table
+/// Boot information table (16 bytes)
 ///
 /// This table is located in the boot binary and contains information about the
-/// ISO image and the boot binary.
+/// ISO image and the boot binary. It is written at offset 8 in the boot image.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct BootInfoTable {
@@ -554,6 +561,26 @@ pub struct BootInfoTable {
     pub file_len: U32<LittleEndian>,
     /// The checksum of the boot binary
     pub checksum: U32<LittleEndian>,
+}
+
+/// GRUB2/ISOLINUX boot information table (56 bytes)
+///
+/// This is the extended boot info table format used by GRUB2 and ISOLINUX.
+/// It is the same as BootInfoTable but includes 40 bytes of reserved space.
+/// Written at offset 8 in the boot image.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
+pub struct Grub2BootInfoTable {
+    /// The start LBA of the primary volume descriptor (usually 16)
+    pub pvd_lba: U32<LittleEndian>,
+    /// The start LBA of the boot binary
+    pub file_lba: U32<LittleEndian>,
+    /// The length of the boot binary (in bytes)
+    pub file_len: U32<LittleEndian>,
+    /// The checksum of the boot binary (sum of 32-bit words from offset 64 to EOF)
+    pub checksum: U32<LittleEndian>,
+    /// Reserved bytes (must be zero)
+    pub reserved: [u8; 40],
 }
 
 #[cfg(feature = "write")]
@@ -739,7 +766,11 @@ mod tests {
         let catalog = BaseBootCatalog::default();
         let mut buf = Vec::new();
         catalog.write(&mut buf).unwrap();
-        assert_eq!(buf.len(), 64, "base catalog should be 64 bytes (validation + default entry)");
+        assert_eq!(
+            buf.len(),
+            64,
+            "base catalog should be 64 bytes (validation + default entry)"
+        );
     }
 
     #[test]
@@ -782,7 +813,12 @@ mod tests {
 
     #[test]
     fn test_platform_id_roundtrip() {
-        for id in [PlatformId::X80X86, PlatformId::PowerPC, PlatformId::Macintosh, PlatformId::UEFI] {
+        for id in [
+            PlatformId::X80X86,
+            PlatformId::PowerPC,
+            PlatformId::Macintosh,
+            PlatformId::UEFI,
+        ] {
             let byte = id.to_u8();
             let recovered = PlatformId::from_u8(byte);
             assert_eq!(recovered.to_u8(), byte);
@@ -793,7 +829,10 @@ mod tests {
     fn test_emulation_type_roundtrip() {
         let no_emul = EmulationType::NoEmulation;
         assert_eq!(no_emul.to_u8(), 0x00);
-        assert!(matches!(EmulationType::from_u8(0x00), EmulationType::NoEmulation));
+        assert!(matches!(
+            EmulationType::from_u8(0x00),
+            EmulationType::NoEmulation
+        ));
 
         let unknown = EmulationType::Unknown(0x42);
         assert_eq!(unknown.to_u8(), 0x42);

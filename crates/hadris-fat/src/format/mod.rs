@@ -35,9 +35,9 @@ mod options;
 pub use calc::FormatParams;
 pub use options::{FatTypeSelection, FormatOptions, MediaType, OemName, SectorSize, VolumeLabel};
 
+use crate::FatFs;
 use crate::error::Result;
 use crate::io::{Read, Seek, Write};
-use crate::FatFs;
 
 /// FAT volume formatter.
 ///

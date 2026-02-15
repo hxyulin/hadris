@@ -3,8 +3,8 @@
 //! This module provides types and utilities for working with disk geometry
 //! and partition alignment, including support for modern Advanced Format disks.
 
-use crate::error::{PartitionError, Result};
 use crate::PartitionInfoTrait;
+use crate::error::{PartitionError, Result};
 
 /// Disk geometry information.
 ///
@@ -228,11 +228,7 @@ impl DiskGeometry {
     pub const fn gpt_usable_sectors(&self, num_entries: u32, entry_size: u32) -> u64 {
         let first = self.gpt_first_usable_lba(num_entries, entry_size);
         let last = self.gpt_last_usable_lba(num_entries, entry_size);
-        if last > first {
-            last - first + 1
-        } else {
-            0
-        }
+        if last > first { last - first + 1 } else { 0 }
     }
 }
 

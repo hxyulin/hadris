@@ -101,9 +101,13 @@ impl GptDisk {
 
         let disk_guid = {
             #[cfg(feature = "rand")]
-            { Guid::generate_v4() }
+            {
+                Guid::generate_v4()
+            }
             #[cfg(not(feature = "rand"))]
-            { Guid::UNUSED }
+            {
+                Guid::UNUSED
+            }
         };
 
         #[cfg_attr(not(feature = "crc"), allow(unused_mut))]
@@ -159,7 +163,10 @@ impl GptDisk {
 
     /// Returns an iterator over non-empty partition entries.
     pub fn partitions(&self) -> impl Iterator<Item = (usize, &GptPartitionEntry)> {
-        self.entries.iter().enumerate().filter(|(_, e)| !e.is_unused())
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| !e.is_unused())
     }
 
     /// Adds a partition to the first available slot.
@@ -314,7 +321,9 @@ impl GptDisk {
 
         for entry in entries.iter_mut() {
             let mut buf = [0u8; 128];
-            reader.read_exact(&mut buf).map_err(|_| PartitionError::Io)?;
+            reader
+                .read_exact(&mut buf)
+                .map_err(|_| PartitionError::Io)?;
             *entry = bytemuck::cast(buf);
         }
 
@@ -331,15 +340,16 @@ impl GptDisk {
         }
 
         // Try to read backup header
-        let backup_header = GptHeader::read_from_lba(reader, primary_header.alternate_lba, block_size)
-            .unwrap_or_else(|_| {
-                // If backup header read fails, construct it from primary
-                GptHeader {
-                    my_lba: primary_header.alternate_lba,
-                    alternate_lba: primary_header.my_lba,
-                    ..primary_header
-                }
-            });
+        let backup_header =
+            GptHeader::read_from_lba(reader, primary_header.alternate_lba, block_size)
+                .unwrap_or_else(|_| {
+                    // If backup header read fails, construct it from primary
+                    GptHeader {
+                        my_lba: primary_header.alternate_lba,
+                        alternate_lba: primary_header.my_lba,
+                        ..primary_header
+                    }
+                });
 
         Ok(Self {
             primary_header,
@@ -377,7 +387,8 @@ impl GptDisk {
         protective_mbr.write_to(writer)?;
 
         // Write primary header at LBA 1
-        self.primary_header.write_to_lba(writer, 1, self.block_size)?;
+        self.primary_header
+            .write_to_lba(writer, 1, self.block_size)?;
 
         // Write primary partition entries starting at partition_entry_lba
         writer
@@ -436,7 +447,8 @@ impl GptDisk {
         mbr.write_to(writer)?;
 
         // Write primary header at LBA 1
-        self.primary_header.write_to_lba(writer, 1, self.block_size)?;
+        self.primary_header
+            .write_to_lba(writer, 1, self.block_size)?;
 
         // Write primary partition entries
         writer
@@ -505,7 +517,10 @@ impl DiskPartitionScheme {
     pub fn new_gpt(disk_sectors: u64, block_size: u32) -> Self {
         let gpt = GptDisk::new(disk_sectors, block_size);
         let protective_mbr = gpt.create_protective_mbr();
-        Self::Gpt { protective_mbr, gpt }
+        Self::Gpt {
+            protective_mbr,
+            gpt,
+        }
     }
 
     /// Returns the partition scheme type.
@@ -536,18 +551,17 @@ impl DiskPartitionScheme {
                     })
                     .collect()
             }
-            Self::Gpt { gpt, .. } | Self::Hybrid { gpt, .. } => {
-                gpt.partitions()
-                    .map(|(i, e)| PartitionInfo {
-                        index: i,
-                        start_lba: e.first_lba,
-                        end_lba: e.last_lba,
-                        size_sectors: e.size_sectors(),
-                        bootable: e.attributes.is_legacy_bios_bootable(),
-                        partition_type: PartitionType::Gpt(e.type_guid),
-                    })
-                    .collect()
-            }
+            Self::Gpt { gpt, .. } | Self::Hybrid { gpt, .. } => gpt
+                .partitions()
+                .map(|(i, e)| PartitionInfo {
+                    index: i,
+                    start_lba: e.first_lba,
+                    end_lba: e.last_lba,
+                    size_sectors: e.size_sectors(),
+                    bootable: e.attributes.is_legacy_bios_bootable(),
+                    partition_type: PartitionType::Gpt(e.type_guid),
+                })
+                .collect(),
         }
     }
 
@@ -568,7 +582,10 @@ impl DiskPartitionScheme {
                 }
                 Ok(())
             }
-            Self::Gpt { protective_mbr, gpt } => {
+            Self::Gpt {
+                protective_mbr,
+                gpt,
+            } => {
                 if !protective_mbr.has_valid_signature() {
                     return Err(PartitionError::InvalidMbrSignature {
                         found: protective_mbr.signature,
@@ -715,16 +732,15 @@ mod tests {
 
         // Protective MBR (GPT)
         let protective = MasterBootRecord::protective(1000000);
-        assert_eq!(detect_scheme_from_mbr(&protective), PartitionSchemeType::Gpt);
+        assert_eq!(
+            detect_scheme_from_mbr(&protective),
+            PartitionSchemeType::Gpt
+        );
 
         // Hybrid MBR
         let mut hybrid = protective;
         hybrid.with_partition_table(|pt| {
-            pt[1] = MbrPartition::new(
-                crate::mbr::MbrPartitionType::Fat32,
-                2048,
-                100000,
-            );
+            pt[1] = MbrPartition::new(crate::mbr::MbrPartitionType::Fat32, 2048, 100000);
         });
         assert_eq!(detect_scheme_from_mbr(&hybrid), PartitionSchemeType::Hybrid);
     }

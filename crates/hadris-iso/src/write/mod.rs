@@ -1,16 +1,18 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::fmt;
 
-mod writer;
+pub mod writer;
 
 use crate::{
-    boot::{BootCatalog, BootInfoTable, BootSectionEntry, ElToritoWriter},
+    boot::{BootCatalog, BootInfoTable, BootSectionEntry, ElToritoWriter, Grub2BootInfoTable},
     directory::{DirectoryRecord, DirectoryRef, FileFlags},
     file::EntryType,
     io::{IsoCursor, LogicalSector},
     joliet::JolietLevel,
     path::{PathTableEntryHeader, PathTableRef},
     read::PathSeparator,
+    rrip::RripBuilder,
+    susp::SplitSu,
     volume::{
         BootRecordVolumeDescriptor, PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor,
         VolumeDescriptor, VolumeDescriptorHeader, VolumeDescriptorList, VolumeDescriptorType,
@@ -21,13 +23,13 @@ use hadris_common::types::{
     endian::{Endian, EndianType},
     number::U32,
 };
+use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
 use hadris_part::{
-    gpt::{Guid, GptPartitionEntry},
+    gpt::{GptPartitionEntry, Guid},
     hybrid::HybridMbrBuilder,
     mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionType},
 };
 use options::PartitionScheme;
-use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
 
 use alloc::{collections::VecDeque, string::String, vec, vec::Vec};
 
@@ -158,6 +160,79 @@ pub struct IsoImageWriter<DATA: Read + Write + Seek> {
     ops: FormatOptions,
     written_files: WrittenFiles,
     path_tables: BTreeMap<EntryType, PathTableRef>,
+    inode_counter: u32,
+}
+
+/// The kind of directory entry, used to select which RRIP entries to emit.
+enum RripEntryKind<'a> {
+    /// Root directory's "." entry — needs SP + ER + PX + NM(CURRENT)
+    RootDot,
+    /// Root directory's ".." entry — needs PX + NM(PARENT)
+    RootDotDot,
+    /// Non-root "." entry — needs PX + NM(CURRENT)
+    Dot,
+    /// Non-root ".." entry — needs PX + NM(PARENT)
+    DotDot,
+    /// A named directory entry
+    Directory { original_name: &'a str },
+    /// A named file entry
+    File { original_name: &'a str },
+}
+
+/// Compute the available system use space in a DirectoryRecord given
+/// the ISO name length. The record is 256 bytes max; the fixed header
+/// is 33 bytes, followed by the name (padded to even).
+fn available_su_space(iso_name_len: usize) -> usize {
+    let used = (33 + iso_name_len + 1) & !1; // pad to even boundary
+    256usize.saturating_sub(used)
+}
+
+/// Build complete RRIP entries for a directory record.
+///
+/// Entries are ordered by priority (most important first, largest last),
+/// so that `build_split` keeps the important ones inline and overflows
+/// the rest via a CE pointer.
+fn build_rrip_entries(kind: RripEntryKind<'_>, inode: u32) -> RripBuilder {
+    let mut builder = RripBuilder::new();
+
+    match &kind {
+        RripEntryKind::RootDot => {
+            builder.add_sp(0);
+            builder.add_px(0o040755, 2, 0, 0, inode);
+            builder.add_nm_current();
+            builder.add_rrip_er(); // full ER, last (largest)
+        }
+        RripEntryKind::RootDotDot => {
+            builder.add_px(0o040755, 2, 0, 0, inode);
+            builder.add_nm_parent();
+        }
+        RripEntryKind::Dot => {
+            builder.add_px(0o040755, 2, 0, 0, inode);
+            builder.add_nm_current();
+        }
+        RripEntryKind::DotDot => {
+            builder.add_px(0o040755, 2, 0, 0, inode);
+            builder.add_nm_parent();
+        }
+        RripEntryKind::Directory { original_name } => {
+            builder.add_px(0o040755, 2, 0, 0, inode);
+            builder.add_nm(original_name.as_bytes());
+        }
+        RripEntryKind::File { original_name } => {
+            builder.add_px(0o100644, 1, 0, 0, inode);
+            builder.add_nm(original_name.as_bytes());
+        }
+    }
+
+    builder
+}
+
+/// A pending directory record, built in phase 1 and written in phases 2-3.
+struct PendingRecord {
+    name: Vec<u8>,
+    split: SplitSu,
+    dir_ref: DirectoryRef,
+    flags: FileFlags,
 }
 
 impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
@@ -176,6 +251,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
     fn new(data: DATA, ops: FormatOptions) -> Self {
         let mut entry_types = Vec::new();
+        // The base (PVD) entry type inherits supports_rrip from the filenames config
         entry_types.push(ops.features.filenames.into());
         if ops.features.long_filenames {
             entry_types.push(EntryType::Level3 {
@@ -193,6 +269,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             entry_types,
             written_files: WrittenFiles::new(),
             path_tables: BTreeMap::new(),
+            inode_counter: 1,
         }
     }
 
@@ -266,9 +343,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     catalog.set_default_entry(boot_entry);
                 }
 
-                if entry.boot_info_table {
+                // Handle boot info table (standard El-Torito) or GRUB2 boot info
+                // Both use similar format at offset 8 in the boot image
+                if entry.boot_info_table || entry.grub2_boot_info {
                     // Boot info table requires at least 64 bytes in the boot image
-                    // (header is at offset 8-56, checksum covers bytes 64+)
+                    // (header is at offset 8-56/64, checksum covers bytes 64+)
                     if dir_ref.size < 64 {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidInput,
@@ -286,20 +365,32 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                         self.data.read_exact(&mut buffer)?;
                         checksum = checksum.wrapping_add(u32::from_le_bytes(buffer));
                     }
-                    let table = BootInfoTable {
-                        iso_start: U32::new(16),
-                        file_lba: U32::new(dir_ref.extent.0 as u32),
-                        file_len: U32::new(dir_ref.size as u32),
-                        checksum: U32::new(checksum),
-                    };
 
                     const TABLE_OFFSET: u64 = 8;
                     self.data
                         .seek(SeekFrom::Start(byte_offset + TABLE_OFFSET))?;
-                    self.data.write_all(bytemuck::bytes_of(&table))?;
-                }
 
-                // TODO: Support GRUB2 Boot Info
+                    if entry.grub2_boot_info {
+                        // GRUB2/ISOLINUX uses extended 56-byte format with reserved bytes
+                        let table = Grub2BootInfoTable {
+                            pvd_lba: U32::new(16),
+                            file_lba: U32::new(dir_ref.extent.0 as u32),
+                            file_len: U32::new(dir_ref.size as u32),
+                            checksum: U32::new(checksum),
+                            reserved: [0u8; 40],
+                        };
+                        self.data.write_all(bytemuck::bytes_of(&table))?;
+                    } else {
+                        // Standard El-Torito 16-byte format
+                        let table = BootInfoTable {
+                            iso_start: U32::new(16),
+                            file_lba: U32::new(dir_ref.extent.0 as u32),
+                            file_len: U32::new(dir_ref.size as u32),
+                            checksum: U32::new(checksum),
+                        };
+                        self.data.write_all(bytemuck::bytes_of(&table))?;
+                    }
+                }
             }
 
             if boot.write_boot_catalog {
@@ -437,21 +528,38 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     TreeWalkerItem::ExitDirectory(_dir) => {
                         let dir = self.written_files.get_mut(&current_dir);
                         for &level in &self.entry_types {
-                            Self::write_directory(&mut self.data, level, dir)?;
+                            Self::write_directory(
+                                &mut self.data,
+                                level,
+                                dir,
+                                false,
+                                &mut self.inode_counter,
+                            )?;
                         }
                         current_dir.pop();
                     }
                     TreeWalkerItem::File(file) => {
                         if let File::File { name, contents } = file {
-                            let start = self.data.pad_align_sector()?;
-                            self.data.write_all(&contents)?;
+                            // Handle zero-size files specially:
+                            // Per ISO 9660, empty files should have extent location of 0
+                            // since there is no data to reference.
+                            let entry = if contents.is_empty() {
+                                DirectoryRef {
+                                    extent: LogicalSector(0),
+                                    size: 0,
+                                }
+                            } else {
+                                let start = self.data.pad_align_sector()?;
+                                self.data.write_all(&contents)?;
+                                DirectoryRef {
+                                    extent: start,
+                                    size: contents.len(),
+                                }
+                            };
                             let dir = self.written_files.get_mut(&current_dir);
                             dir.files.push(WrittenFile {
                                 name: name.clone(),
-                                entry: DirectoryRef {
-                                    extent: start,
-                                    size: contents.len(),
-                                },
+                                entry,
                             });
                         }
                     }
@@ -461,7 +569,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             // Write root directory
             let dir = self.written_files.get_mut(&current_dir);
             for ty in &self.entry_types {
-                Self::write_directory(&mut self.data, *ty, dir)?;
+                Self::write_directory(&mut self.data, *ty, dir, true, &mut self.inode_counter)?;
             }
 
             self.written_files.root_refs().clone()
@@ -549,7 +657,13 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         // Calculate disk size in 512-byte sectors (for MBR/GPT compatibility)
         let disk_size_512 = (end_sector.0 * self.data.sector_size / 512) as u64;
 
-        match self.ops.features.hybrid_boot.as_ref().map(|h| h.partition_scheme) {
+        match self
+            .ops
+            .features
+            .hybrid_boot
+            .as_ref()
+            .map(|h| h.partition_scheme)
+        {
             None | Some(PartitionScheme::None) => {
                 // No partition table - write a minimal MBR for basic compatibility
                 // This is the legacy behavior
@@ -656,7 +770,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         // Create a deterministic partition GUID based on the volume name
         let partition_guid = Self::generate_guid_from_string(&self.ops.volume_name);
-        let disk_guid = Self::generate_guid_from_string(&alloc::format!("disk-{}", self.ops.volume_name));
+        let disk_guid =
+            Self::generate_guid_from_string(&alloc::format!("disk-{}", self.ops.volume_name));
 
         let mut entries = [GptPartitionEntry::default(); 4];
         entries[0] = GptPartitionEntry::new(
@@ -673,12 +788,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         // Create and write primary GPT header
         let header_bytes = Self::write_gpt_header_bytes(
             disk_guid,
-            1,                  // my_lba (primary is at sector 1)
-            disk_size_512 - 1,  // alternate_lba (backup at last sector)
-            iso_start_lba,      // first_usable_lba
-            iso_end_lba,        // last_usable_lba
-            2,                  // partition_entry_lba
-            4,                  // num_partition_entries
+            1,                 // my_lba (primary is at sector 1)
+            disk_size_512 - 1, // alternate_lba (backup at last sector)
+            iso_start_lba,     // first_usable_lba
+            iso_end_lba,       // last_usable_lba
+            2,                 // partition_entry_lba
+            4,                 // num_partition_entries
             entries_crc,
         );
 
@@ -697,7 +812,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     /// Writes a Hybrid MBR + GPT for dual BIOS/UEFI boot.
-    fn write_hybrid_boot(&mut self, _end_sector: LogicalSector, disk_size_512: u64) -> io::Result<()> {
+    fn write_hybrid_boot(
+        &mut self,
+        _end_sector: LogicalSector,
+        disk_size_512: u64,
+    ) -> io::Result<()> {
         let hybrid_opts = self.ops.features.hybrid_boot.as_ref();
         let bootable = hybrid_opts.map(|h| h.bootable).unwrap_or(true);
 
@@ -707,15 +826,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         // Create deterministic GUIDs
         let partition_guid = Self::generate_guid_from_string(&self.ops.volume_name);
-        let disk_guid = Self::generate_guid_from_string(&alloc::format!("disk-{}", self.ops.volume_name));
+        let disk_guid =
+            Self::generate_guid_from_string(&alloc::format!("disk-{}", self.ops.volume_name));
 
         let gpt_entries = [
-            GptPartitionEntry::new(
-                Guid::BASIC_DATA,
-                partition_guid,
-                iso_start_lba,
-                iso_end_lba,
-            ),
+            GptPartitionEntry::new(Guid::BASIC_DATA, partition_guid, iso_start_lba, iso_end_lba),
             GptPartitionEntry::default(),
         ];
 
@@ -896,44 +1011,144 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
+    /// Write a directory using a three-phase approach:
+    ///
+    /// 1. Build all RRIP entries and split each against available inline space
+    /// 2. If any have overflow: write a shared continuation area, patch CE entries
+    /// 3. Write directory records with the inline SU bytes
     fn write_directory(
         data: &mut IsoCursor<DATA>,
         ty: EntryType,
         dir: &mut WrittenDirectory,
+        is_root: bool,
+        inode_counter: &mut u32,
     ) -> io::Result<()> {
-        let start = data.pad_align_sector()?;
-        // Current Directory Entry
-        DirectoryRecord::new(b"\x00", &[], DirectoryRef::default(), FileFlags::DIRECTORY)
-            .write(&mut *data)?;
+        let has_rrip = ty.supports_rrip();
 
-        // Parent Directory Entry
-        DirectoryRecord::new(b"\x01", &[], DirectoryRef::default(), FileFlags::DIRECTORY)
-            .write(&mut *data)?;
+        // ── Phase 1: Build all pending records ──
 
+        let mut records: Vec<PendingRecord> = Vec::new();
+
+        // Dot entry (".")
+        let dot_split = if has_rrip {
+            let kind = if is_root {
+                RripEntryKind::RootDot
+            } else {
+                RripEntryKind::Dot
+            };
+            let max = available_su_space(1); // name is b"\x00"
+            build_rrip_entries(kind, 0).build_split(max)
+        } else {
+            SplitSu::empty()
+        };
+        records.push(PendingRecord {
+            name: vec![0x00],
+            split: dot_split,
+            dir_ref: DirectoryRef::default(),
+            flags: FileFlags::DIRECTORY,
+        });
+
+        // Dotdot entry ("..")
+        let dotdot_split = if has_rrip {
+            let kind = if is_root {
+                RripEntryKind::RootDotDot
+            } else {
+                RripEntryKind::DotDot
+            };
+            let max = available_su_space(1); // name is b"\x01"
+            build_rrip_entries(kind, 0).build_split(max)
+        } else {
+            SplitSu::empty()
+        };
+        records.push(PendingRecord {
+            name: vec![0x01],
+            split: dotdot_split,
+            dir_ref: DirectoryRef::default(),
+            flags: FileFlags::DIRECTORY,
+        });
+
+        // Directory entries
         for directory in &dir.dirs {
             let WrittenDirectory { name, entries, .. } = directory;
-            let flags = FileFlags::DIRECTORY;
             let converted_name = ty.convert_name(name);
-            let record = DirectoryRecord::new(
-                converted_name.as_bytes(),
-                &[],
-                *entries.get(&ty).unwrap(),
-                flags,
-            );
-            record.write(&mut *data)?;
+            let split = if has_rrip {
+                let inode = *inode_counter;
+                *inode_counter += 1;
+                let max = available_su_space(converted_name.as_bytes().len());
+                build_rrip_entries(
+                    RripEntryKind::Directory {
+                        original_name: name,
+                    },
+                    inode,
+                )
+                .build_split(max)
+            } else {
+                SplitSu::empty()
+            };
+            records.push(PendingRecord {
+                name: converted_name.as_bytes().to_vec(),
+                split,
+                dir_ref: *entries.get(&ty).unwrap(),
+                flags: FileFlags::DIRECTORY,
+            });
         }
 
+        // File entries
         for file in &dir.files {
             let WrittenFile { name, entry } = file;
-            let flags = FileFlags::empty();
             let converted_name = ty.convert_name(name);
-            let su: &[u8] = &[];
-            let record = DirectoryRecord::new(converted_name.as_bytes(), su, *entry, flags);
-            record.write(&mut *data)?;
+            let split = if has_rrip {
+                let inode = *inode_counter;
+                *inode_counter += 1;
+                let max = available_su_space(converted_name.as_bytes().len());
+                build_rrip_entries(
+                    RripEntryKind::File {
+                        original_name: name,
+                    },
+                    inode,
+                )
+                .build_split(max)
+            } else {
+                SplitSu::empty()
+            };
+            records.push(PendingRecord {
+                name: converted_name.as_bytes().to_vec(),
+                split,
+                dir_ref: *entry,
+                flags: FileFlags::empty(),
+            });
         }
 
+        // ── Phase 2: Write continuation area if any records have overflow ──
+
+        let has_overflow = records.iter().any(|r| r.split.has_overflow());
+        if has_overflow {
+            let ca_sector = data.pad_align_sector()?;
+            let mut offset = 0u32;
+            for record in &mut records {
+                if record.split.has_overflow() {
+                    record.split.patch_ce(ca_sector.0 as u32, offset);
+                    data.write_all(&record.split.overflow)?;
+                    offset += record.split.overflow.len() as u32;
+                }
+            }
+        }
+
+        // ── Phase 3: Write directory records with inline SU bytes ──
+
+        let start = data.pad_align_sector()?;
+        for record in &records {
+            DirectoryRecord::new(
+                &record.name,
+                &record.split.inline,
+                record.dir_ref,
+                record.flags,
+            )
+            .write(&mut *data)?;
+        }
         let end = data.pad_align_sector()?;
         let size = (end.0 - start.0) * data.sector_size;
+
         dir.entries.insert(
             ty,
             DirectoryRef {

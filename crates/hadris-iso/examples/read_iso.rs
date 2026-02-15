@@ -33,16 +33,16 @@ fn main() {
     // Display volume information
     println!("=== Volume Information ===");
     let pvd = image.read_pvd();
-    println!("Volume Identifier: {}", pvd.volume_identifier.to_str().trim());
+    println!(
+        "Volume Identifier: {}",
+        pvd.volume_identifier.to_str().trim()
+    );
     println!(
         "Volume Set Identifier: {}",
         pvd.volume_set_identifier.to_str().trim()
     );
     println!("Publisher: {}", pvd.publisher_identifier.to_str().trim());
-    println!(
-        "Data Preparer: {}",
-        pvd.preparer_identifier.to_str().trim()
-    );
+    println!("Data Preparer: {}", pvd.preparer_identifier.to_str().trim());
     println!("Volume Size: {} sectors", pvd.volume_space_size.read());
     println!(
         "Logical Block Size: {} bytes",
