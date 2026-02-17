@@ -2,7 +2,11 @@ use crate::file::EntryType;
 use crate::io::{self, IsoCursor, LogicalSector, Read, Seek};
 use crate::joliet::JolietLevel;
 use crate::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
-use crate::{directory::DirectoryRef, path::PathTableRef, volume::VolumeDescriptorList};
+use crate::{
+    directory::DirectoryRef,
+    path::{PathTableInfo, PathTableRef},
+    volume::VolumeDescriptorList,
+};
 use hadris_common::types::endian::Endian;
 #[cfg(not(feature = "alloc"))]
 use hadris_common::types::no_alloc::ArrayVec;
@@ -11,8 +15,12 @@ use volume::VolumeDescriptorIter;
 mod boot;
 mod directory;
 pub use boot::*;
-pub use directory::{IsoDir, IsoDirIter};
+pub use directory::{DirEntry, IsoDir, IsoDirIter, RawDirIter};
 use spin::Mutex;
+
+mod rrip;
+pub use rrip::*;
+pub(crate) use rrip::SuspInfo;
 
 mod volume;
 
@@ -29,6 +37,7 @@ pub struct IsoImageInfo {
     root_dirs: RootDirs,
     boot_catalog: Option<u32>,
     path_table: PathTableRef,
+    pub(crate) susp_info: SuspInfo,
 }
 
 #[derive(Debug)]
@@ -73,9 +82,14 @@ pub struct RootDir {
 impl RootDir {
     pub fn iter<'a, DATA: Read + Seek>(&self, iso: &'a IsoImage<DATA>) -> IsoDir<'a, DATA> {
         IsoDir {
-            reader: &iso.data,
+            image: iso,
             directory: self.dir_ref,
         }
+    }
+
+    /// Returns the underlying `DirectoryRef` for this root directory.
+    pub fn dir_ref(&self) -> DirectoryRef {
+        self.dir_ref
     }
 }
 
@@ -116,35 +130,42 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         data.seek_sector(LogicalSector(16))?;
         let mut root_dirs = RootDirs::new();
         let volume_descriptors = VolumeDescriptorList::parse(&mut data)?;
-        let mut info = {
-            let pvd = volume_descriptors.primary();
-            let block_size = pvd.logical_block_size.read() as usize;
-            let root_dir = DirectoryRef {
-                extent: LogicalSector(pvd.dir_record.header.extent.read() as usize),
-                size: pvd.dir_record.header.data_len.read() as usize,
-            };
-            root_dirs.dirs.push(RootDir {
-                ty: EntryType::Level1 {
-                    supports_lowercase: false,
-                    supports_rrip: false,
-                },
-                dir_ref: root_dir,
-            });
-
-            let path_table = PathTableRef {
-                lpt: LogicalSector(pvd.type_l_path_table.get() as usize),
-                mpt: LogicalSector(pvd.type_m_path_table.get() as usize),
-                size: pvd.path_table_size.read() as u64,
-            };
-
-            IsoImageInfo {
-                block_size,
-                sector_size: sector_size as usize,
-                root_dirs,
-                boot_catalog: None,
-                path_table,
-            }
+        let pvd = volume_descriptors.primary();
+        let block_size = pvd.logical_block_size.read() as usize;
+        let root_extent = LogicalSector(pvd.dir_record.header.extent.read() as usize);
+        let root_size = pvd.dir_record.header.data_len.read() as usize;
+        let root_dir = DirectoryRef {
+            extent: root_extent,
+            size: root_size,
         };
+
+        // Detect SUSP/RRIP from root directory's "." entry
+        let susp_info = rrip::detect_susp_rrip(&mut data, root_extent)?;
+        let supports_rrip = susp_info.rrip_detected;
+
+        root_dirs.dirs.push(RootDir {
+            ty: EntryType::Level1 {
+                supports_lowercase: false,
+                supports_rrip,
+            },
+            dir_ref: root_dir,
+        });
+
+        let path_table = PathTableRef {
+            lpt: LogicalSector(pvd.type_l_path_table.get() as usize),
+            mpt: LogicalSector(pvd.type_m_path_table.get() as usize),
+            size: pvd.path_table_size.read() as u64,
+        };
+
+        let mut info = IsoImageInfo {
+            block_size,
+            sector_size,
+            root_dirs,
+            boot_catalog: None,
+            path_table,
+            susp_info,
+        };
+
         for svd in volume_descriptors.supplementary() {
             if svd.header.version == 1 {
                 // Joliet Check
@@ -204,6 +225,26 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
 
     pub fn root_dirs(&self) -> &RootDirs {
         &self.info.root_dirs
+    }
+
+    /// Returns whether RRIP (Rock Ridge) extensions were detected in the image.
+    pub fn supports_rrip(&self) -> bool {
+        self.info.susp_info.rrip_detected
+    }
+
+    /// Open a directory by its `DirectoryRef`, enabling navigation into subdirectories.
+    pub fn open_dir(&self, dir_ref: DirectoryRef) -> IsoDir<'_, DATA> {
+        IsoDir {
+            image: self,
+            directory: dir_ref,
+        }
+    }
+
+    /// Returns the path table information for this image.
+    pub fn path_table(&self) -> PathTableInfo {
+        PathTableInfo {
+            path_table: self.info.path_table,
+        }
     }
 
     /// Read raw bytes from an absolute byte position in the image.

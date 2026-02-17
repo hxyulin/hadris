@@ -338,7 +338,7 @@ impl FatSectorCache {
         // FAT12 entry layout:
         // If cluster N is even: entry = (bytes[1] & 0x0F) << 8 | bytes[0]
         // If cluster N is odd:  entry = bytes[1] << 4 | (bytes[0] >> 4)
-        let value = if cluster % 2 == 0 {
+        let value = if cluster.is_multiple_of(2) {
             u16::from(bytes[0]) | (u16::from(bytes[1] & 0x0F) << 8)
         } else {
             (u16::from(bytes[0]) >> 4) | (u16::from(bytes[1]) << 4)
@@ -364,7 +364,7 @@ impl FatSectorCache {
             // Entry is within one sector
             let data = self.get_sector_mut(reader, sector)?;
 
-            if cluster % 2 == 0 {
+            if cluster.is_multiple_of(2) {
                 data[offset_in_sector] = value as u8;
                 data[offset_in_sector + 1] =
                     (data[offset_in_sector + 1] & 0xF0) | ((value >> 8) as u8 & 0x0F);
@@ -376,7 +376,7 @@ impl FatSectorCache {
             // Entry spans two sectors
             {
                 let data = self.get_sector_mut(reader, sector)?;
-                if cluster % 2 == 0 {
+                if cluster.is_multiple_of(2) {
                     data[offset_in_sector] = value as u8;
                 } else {
                     data[offset_in_sector] = (data[offset_in_sector] & 0x0F) | ((value << 4) as u8);
@@ -385,7 +385,7 @@ impl FatSectorCache {
 
             {
                 let data = self.get_sector_mut(reader, sector + 1)?;
-                if cluster % 2 == 0 {
+                if cluster.is_multiple_of(2) {
                     data[0] = (data[0] & 0xF0) | ((value >> 8) as u8 & 0x0F);
                 } else {
                     data[0] = (value >> 4) as u8;

@@ -29,14 +29,14 @@ impl Extent {
     /// Returns the end sector (exclusive) based on the given sector size.
     #[inline]
     pub const fn end_sector(&self, sector_size: u32) -> u32 {
-        let sectors = (self.length + sector_size as u64 - 1) / sector_size as u64;
+        let sectors = self.length.div_ceil(sector_size as u64);
         self.sector + sectors as u32
     }
 
     /// Returns the number of sectors this extent spans.
     #[inline]
     pub const fn sector_count(&self, sector_size: u32) -> u32 {
-        ((self.length + sector_size as u64 - 1) / sector_size as u64) as u32
+        self.length.div_ceil(sector_size as u64) as u32
     }
 
     /// Checks if this extent overlaps with another.

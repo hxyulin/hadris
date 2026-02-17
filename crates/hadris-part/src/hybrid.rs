@@ -53,7 +53,7 @@ impl MirroredPartition {
 /// - A protective MBR entry (type 0xEE) covering either the entire disk or the
 ///   area not covered by mirrored partitions
 /// - Up to 3 mirrored partition entries (MBR can only have 4 entries total)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct HybridMbrConfig {
     /// Index of the MBR slot for the protective partition (0-3).
     /// Usually 0 or 3 (first or last).
@@ -67,20 +67,6 @@ pub struct HybridMbrConfig {
     /// Number of mirrored partitions (used in no-alloc mode).
     #[cfg(not(feature = "alloc"))]
     pub mirrored_count: usize,
-}
-
-impl Default for HybridMbrConfig {
-    fn default() -> Self {
-        Self {
-            protective_slot: 0,
-            #[cfg(feature = "alloc")]
-            mirrored: Vec::new(),
-            #[cfg(not(feature = "alloc"))]
-            mirrored: [None; 3],
-            #[cfg(not(feature = "alloc"))]
-            mirrored_count: 0,
-        }
-    }
 }
 
 impl HybridMbrConfig {
@@ -279,9 +265,9 @@ impl HybridMbrBuilder {
         let protective_end = if mirror_count > 0 {
             // Find the start of the first mirrored partition
             let mut first_start = u64::MAX;
-            for i in 0..mirror_count {
-                if mirrored_ranges[i].0 < first_start && mirrored_ranges[i].0 > 1 {
-                    first_start = mirrored_ranges[i].0;
+            for range in mirrored_ranges.iter().take(mirror_count) {
+                if range.0 < first_start && range.0 > 1 {
+                    first_start = range.0;
                 }
             }
             if first_start == u64::MAX {

@@ -96,7 +96,7 @@ impl FileFragmentInfo {
         if self.size == 0 {
             return 1.0;
         }
-        let ideal_clusters = (self.size + cluster_size - 1) / cluster_size;
+        let ideal_clusters = self.size.div_ceil(cluster_size);
         if ideal_clusters == 0 {
             return 1.0;
         }
@@ -414,7 +414,7 @@ impl crate::Fat12 {
         let mut bytes = [0u8; 2];
         reader.read_exact(&mut bytes)?;
 
-        let value = if cluster % 2 == 0 {
+        let value = if cluster.is_multiple_of(2) {
             u16::from(bytes[0]) | (u16::from(bytes[1] & 0x0F) << 8)
         } else {
             (u16::from(bytes[0]) >> 4) | (u16::from(bytes[1]) << 4)

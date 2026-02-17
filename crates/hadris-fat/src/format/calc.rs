@@ -92,8 +92,7 @@ pub fn calculate_params(options: &FormatOptions) -> Result<FormatParams> {
     };
 
     // Root directory sectors (FAT12/16 only)
-    let root_dir_sectors =
-        ((root_entry_count as u32 * 32) + sector_size as u32 - 1) / sector_size as u32;
+    let root_dir_sectors = (root_entry_count as u32 * 32).div_ceil(sector_size as u32);
 
     // Calculate FAT size
     let (sectors_per_fat, cluster_count) = calculate_fat_size(
@@ -247,7 +246,7 @@ fn calculate_sectors_per_cluster(volume_size: u64, fat_type: FatType, sector_siz
                 }
             } else {
                 // Adjust for larger sector sizes
-                (32768 / sector_size).max(1).min(128) as u8
+                (32768 / sector_size).clamp(1, 128) as u8
             }
         }
         FatType::Fat32 => {
@@ -271,7 +270,7 @@ fn calculate_sectors_per_cluster(volume_size: u64, fat_type: FatType, sector_siz
                 }
             } else {
                 // Adjust for larger sector sizes
-                (32768 / sector_size).max(1).min(128) as u8
+                (32768 / sector_size).clamp(1, 128) as u8
             }
         }
     }
@@ -309,9 +308,8 @@ fn calculate_fat_size(
             loop {
                 let data_sectors = data_and_fat_sectors.saturating_sub(fat_count * fat_sectors);
                 let clusters = data_sectors / sectors_per_cluster;
-                let needed_fat_bytes = ((clusters + 2) * 3 + 1) / 2; // Round up
-                let needed_fat_sectors =
-                    (needed_fat_bytes + sector_size as u32 - 1) / sector_size as u32;
+                let needed_fat_bytes = ((clusters + 2) * 3).div_ceil(2);
+                let needed_fat_sectors = needed_fat_bytes.div_ceil(sector_size as u32);
 
                 if needed_fat_sectors <= fat_sectors {
                     break (fat_sectors, clusters);
@@ -332,8 +330,7 @@ fn calculate_fat_size(
                 let data_sectors = data_and_fat_sectors.saturating_sub(fat_count * fat_sectors);
                 let clusters = data_sectors / sectors_per_cluster;
                 let needed_fat_bytes = (clusters + 2) * 2;
-                let needed_fat_sectors =
-                    (needed_fat_bytes + sector_size as u32 - 1) / sector_size as u32;
+                let needed_fat_sectors = needed_fat_bytes.div_ceil(sector_size as u32);
 
                 if needed_fat_sectors <= fat_sectors {
                     break (fat_sectors, clusters);
@@ -354,8 +351,7 @@ fn calculate_fat_size(
                 let data_sectors = data_and_fat_sectors.saturating_sub(fat_count * fat_sectors);
                 let clusters = data_sectors / sectors_per_cluster;
                 let needed_fat_bytes = (clusters + 2) * 4;
-                let needed_fat_sectors =
-                    (needed_fat_bytes + sector_size as u32 - 1) / sector_size as u32;
+                let needed_fat_sectors = needed_fat_bytes.div_ceil(sector_size as u32);
 
                 if needed_fat_sectors <= fat_sectors {
                     break (fat_sectors, clusters);

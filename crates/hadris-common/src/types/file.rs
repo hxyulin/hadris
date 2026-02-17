@@ -51,6 +51,10 @@ impl<const N: usize> FixedFilename<N> {
         self.len
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     pub fn push_slice(&mut self, slice: &[u8]) -> Range<usize> {
         assert!(self.len + slice.len() <= self.data.len());
         let start = self.len;
@@ -98,6 +102,6 @@ impl<const N: usize> From<&[u8]> for FixedFilename<N> {
         assert!(value.len() <= N);
         let mut str = FixedFilename::with_size(value.len());
         str.data[0..value.len()].copy_from_slice(value);
-        return str;
+        str
     }
 }

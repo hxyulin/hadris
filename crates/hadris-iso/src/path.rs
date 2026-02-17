@@ -73,8 +73,7 @@ impl PathTableEntry {
     }
 
     pub fn size(&self) -> usize {
-        let size = (size_of::<PathTableEntryHeader>() + self.name.len() + 1) & !1;
-        size
+        (size_of::<PathTableEntryHeader>() + self.name.len() + 1) & !1
     }
 }
 

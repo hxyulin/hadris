@@ -206,12 +206,10 @@ fn cmd_ls(image: PathBuf, path: &str, long: bool) -> Result<()> {
                 },
                 name
             );
+        } else if file_entry.is_directory() {
+            println!("{}/", name);
         } else {
-            if file_entry.is_directory() {
-                println!("{}/", name);
-            } else {
-                println!("{}", name);
-            }
+            println!("{}", name);
         }
     }
 
@@ -241,10 +239,10 @@ fn print_tree<DATA: std::io::Read + std::io::Seek>(
     max_depth: Option<usize>,
     current_depth: usize,
 ) -> Result<()> {
-    if let Some(max) = max_depth {
-        if current_depth >= max {
-            return Ok(());
-        }
+    if let Some(max) = max_depth
+        && current_depth >= max
+    {
+        return Ok(());
     }
 
     let entries: Vec<_> = dir

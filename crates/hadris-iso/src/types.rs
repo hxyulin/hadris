@@ -7,6 +7,26 @@ use std::time::SystemTime;
 #[cfg(feature = "alloc")]
 use alloc::{string::ToString, vec::Vec};
 
+/// Error type for `IsoStr::from_str()` conversion failures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IsoStrError {
+    /// The input string exceeds the maximum length.
+    TooLong { max: usize, got: usize },
+    /// The input contains characters not valid in the target charset.
+    InvalidCharset,
+}
+
+impl core::fmt::Display for IsoStrError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TooLong { max, got } => {
+                write!(f, "string too long: max {} bytes, got {}", max, got)
+            }
+            Self::InvalidCharset => write!(f, "string contains invalid charset characters"),
+        }
+    }
+}
+
 pub trait Charset: Copy {
     fn is_valid<'a>(bytes: impl Iterator<Item = &'a u8>) -> bool;
     fn substitute_invalid<'a>(bytes: impl Iterator<Item = &'a mut u8>);
@@ -125,6 +145,10 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
         self.chars.iter().position(|&c| c == b' ').unwrap_or(N)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub const fn from_bytes_exact(bytes: [u8; N]) -> Self {
         Self {
             chars: bytes,
@@ -132,15 +156,18 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
         }
     }
 
-    // TODO: Error type
-    pub fn from_str(s: &str) -> Result<Self, ()> {
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Result<Self, IsoStrError> {
         let mut chars = [b' '; N];
         if s.len() > N {
-            return Err(());
+            return Err(IsoStrError::TooLong {
+                max: N,
+                got: s.len(),
+            });
         }
 
         if !C::is_valid(s.as_bytes().iter()) {
-            return Err(());
+            return Err(IsoStrError::InvalidCharset);
         }
 
         for (i, c) in s.bytes().enumerate() {
@@ -188,8 +215,15 @@ pub struct IsoString<C: Charset> {
 #[cfg(feature = "alloc")]
 impl<C: Charset> From<Vec<u8>> for IsoString<C> {
     fn from(value: Vec<u8>) -> Self {
-        // TODO: We should probably check, but it can also be \x00, or \x01
-        //assert!(C::is_valid(value.iter()));
+        // Single-byte values \x00 and \x01 are valid ISO 9660 directory identifiers
+        // representing "." (current) and ".." (parent) respectively.
+        if !(value.len() == 1 && (value[0] == 0x00 || value[0] == 0x01)) {
+            debug_assert!(
+                C::is_valid(value.iter()),
+                "IsoString contains invalid charset characters: {:?}",
+                value
+            );
+        }
         Self {
             chars: value,
             _marker: PhantomData,
@@ -209,7 +243,7 @@ impl<C: Charset> IsoString<C> {
     pub fn with_size(size: usize) -> Self {
         use alloc::vec;
         Self {
-            // TODO: Does the spec want spaces or nulls?
+            // ECMA-119 7.4.4: a-characters and d-characters are padded with spaces (0x20)
             chars: vec![b' '; size],
             _marker: PhantomData,
         }
@@ -241,6 +275,10 @@ impl<C: Charset> IsoString<C> {
             .iter()
             .position(|&c| c == b' ')
             .unwrap_or(self.chars.len())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn size(&self) -> usize {

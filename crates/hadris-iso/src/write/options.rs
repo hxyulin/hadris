@@ -74,7 +74,7 @@ pub struct FormatOptions {
     pub volume_name: String,
     pub sector_size: usize,
     pub features: CreationFeatures,
-    pub path_seperator: PathSeparator,
+    pub path_separator: PathSeparator,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

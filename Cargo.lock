@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "hadris"
-version = "0.2.1"
+version = "1.0.0"
 dependencies = [
  "hadris-fat",
  "hadris-iso",
@@ -376,7 +376,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-cd"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "hadris-io",
  "hadris-iso",
@@ -386,7 +386,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-cli"
-version = "0.2.1"
+version = "1.0.0"
 dependencies = [
  "clap",
  "hadris-fat",
@@ -394,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-common"
-version = "0.2.1"
+version = "1.0.0"
 dependencies = [
  "bytemuck",
  "chrono",
@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fat"
-version = "0.3.1"
+version = "1.0.0"
 dependencies = [
  "bitflags",
  "bytemuck",
@@ -424,7 +424,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fat-cli"
-version = "0.2.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-io"
-version = "0.2.1"
+version = "1.0.0"
 dependencies = [
  "bytemuck",
  "cfg-if",
@@ -441,7 +441,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso"
-version = "0.2.1"
+version = "1.0.0"
 dependencies = [
  "bitflags",
  "bytemuck",
@@ -459,7 +459,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso-cli"
-version = "0.2.1"
+version = "1.0.0"
 dependencies = [
  "clap",
  "hadris-iso",
@@ -469,7 +469,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-part"
-version = "0.2.1"
+version = "1.0.0"
 dependencies = [
  "bytemuck",
  "crc",
@@ -479,7 +479,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-udf"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "bitflags",
  "bytemuck",

@@ -119,6 +119,28 @@ pub trait Endianness: Copy + Sized {
     fn get_u64(bytes: [u8; 8]) -> u64;
     /// Writes a `u64` to the given bytes in the specified endianness.
     fn set_u64(value: u64, bytes: &mut [u8; 8]);
+
+    /// Reads a `u24` (stored in 3 bytes) as a `u32` in the specified endianness.
+    fn get_u24(bytes: [u8; 3]) -> u32 {
+        let mut buf = [0u8; 4];
+        if Self::get().is_le() {
+            buf[..3].copy_from_slice(&bytes);
+        } else {
+            buf[1..].copy_from_slice(&bytes);
+        }
+        Self::get_u32(buf)
+    }
+
+    /// Writes a `u24` value (as `u32`) to 3 bytes in the specified endianness.
+    fn set_u24(value: u32, bytes: &mut [u8; 3]) {
+        let mut buf = [0u8; 4];
+        Self::set_u32(value, &mut buf);
+        if Self::get().is_le() {
+            bytes.copy_from_slice(&buf[..3]);
+        } else {
+            bytes.copy_from_slice(&buf[1..]);
+        }
+    }
 }
 
 /// A type that represents the native endianness.

@@ -27,6 +27,8 @@ pub enum Command {
     /// xorriso-compatible mkisofs mode
     #[command(name = "mkisofs", alias = "xorriso")]
     Mkisofs(MkisofsArgs),
+    /// Print file contents to stdout
+    Cat(CatArgs),
 }
 
 /// Display information about an ISO image
@@ -125,6 +127,9 @@ pub struct CreateArgs {
     /// Verbose output
     #[arg(short, long)]
     pub verbose: bool,
+    /// Dry run: estimate size without creating the ISO
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 /// Verify ISO image integrity
@@ -135,6 +140,9 @@ pub struct VerifyArgs {
     /// Verbose output
     #[arg(short, long)]
     pub verbose: bool,
+    /// Enable strict checks (path table consistency, extent bounds, RRIP field validation)
+    #[arg(short, long)]
+    pub strict: bool,
 }
 
 /// xorriso-compatible mkisofs mode
@@ -172,6 +180,15 @@ pub struct MkisofsArgs {
     /// Hybrid MBR
     #[arg(long = "isohybrid-mbr")]
     pub isohybrid_mbr: Option<PathBuf>,
+}
+
+/// Print file contents to stdout
+#[derive(Debug, Clone, Parser)]
+pub struct CatArgs {
+    /// Path to ISO image
+    pub input: PathBuf,
+    /// File path within ISO (e.g., /SUBDIR/FILE.TXT)
+    pub path: String,
 }
 
 #[derive(Debug, Clone)]

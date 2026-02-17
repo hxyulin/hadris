@@ -102,7 +102,7 @@ pub fn encode_joliet_name(name: &str) -> alloc::vec::Vec<u8> {
 /// Returns true if the bytes appear to be valid UTF-16 BE text
 pub fn is_likely_joliet_name(bytes: &[u8]) -> bool {
     // Must be even length for UTF-16
-    if bytes.len() % 2 != 0 || bytes.is_empty() {
+    if !bytes.len().is_multiple_of(2) || bytes.is_empty() {
         return false;
     }
 

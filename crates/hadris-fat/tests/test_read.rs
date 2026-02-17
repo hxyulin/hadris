@@ -235,69 +235,224 @@ mod lfn_tests {
     }
 }
 
-// Integration tests that require full FAT32 images
-// These tests are marked as ignored because they require external tools
-// to create the test images. To run them:
-//
-// 1. Install dosfstools and mtools:
-//    brew install dosfstools mtools  # macOS
-//    apt install dosfstools mtools   # Debian/Ubuntu
-//
-// 2. Create the test images:
-//    cd crates/hadris-fat/tests/fixtures
-//    ./create_fixtures.sh
-//
-// 3. Run the ignored tests:
-//    cargo test -p hadris-fat -- --ignored
+// Integration tests using in-memory FAT32 images
 
-#[test]
-#[ignore = "Requires fat32_with_files.img fixture - see test comments for setup"]
-fn test_read_directory_entries() {
-    // This test would read a FAT32 image and verify directory entries
-    todo!("Implement with proper test fixture")
-}
+#[cfg(feature = "write")]
+mod integration_tests {
+    use hadris_fat::format::{FatVolumeFormatter, FormatOptions};
+    use hadris_fat::{FatFs, FatFsWriteExt};
+    use std::io::Cursor;
 
-#[test]
-#[ignore = "Requires fat32_with_files.img fixture - see test comments for setup"]
-fn test_read_file_contents() {
-    // This test would read file contents from a FAT32 image
-    todo!("Implement with proper test fixture")
-}
+    /// Create a test FAT32 image with known directory structure:
+    /// /
+    /// ├── HELLO.TXT     (content: "Hello, World!")
+    /// ├── DATA.BIN      (content: 1024 bytes of 0xAA)
+    /// ├── SUBDIR/
+    /// │   ├── NESTED.TXT (content: "Nested file content")
+    /// │   └── DEEP/
+    /// │       └── FILE.TXT (content: "Deep file")
+    pub fn create_test_fat32_image() -> Cursor<Vec<u8>> {
+        // Use a 4MB volume (small but sufficient for FAT32)
+        let volume_size: u64 = 4 * 1024 * 1024;
+        let buffer = vec![0u8; volume_size as usize];
+        let mut cursor = Cursor::new(buffer);
 
-#[test]
-#[ignore = "Requires fat32_lfn.img fixture - see test comments for setup"]
-#[cfg(feature = "lfn")]
-fn test_read_lfn_entries() {
-    // This test would read long file names from a FAT32 image
-    todo!("Implement with proper test fixture")
+        let opts = FormatOptions::new(volume_size);
+        let fs =
+            FatVolumeFormatter::format(&mut cursor, opts).expect("Failed to format FAT32 volume");
+
+        // Get root directory
+        let root = fs.root_dir();
+
+        // Create HELLO.TXT
+        let hello_entry = fs.create_file(&root, "HELLO.TXT").unwrap();
+        let mut hello_writer = fs.write_file(&hello_entry).unwrap();
+        hello_writer.write(b"Hello, World!").unwrap();
+        hello_writer.finish().unwrap();
+
+        // Create DATA.BIN with 1024 bytes of 0xAA
+        let data_entry = fs.create_file(&root, "DATA.BIN").unwrap();
+        let mut data_writer = fs.write_file(&data_entry).unwrap();
+        let data_content = vec![0xAA; 1024];
+        data_writer.write(&data_content).unwrap();
+        data_writer.finish().unwrap();
+
+        // Create SUBDIR
+        let subdir = fs.create_dir(&root, "SUBDIR").unwrap();
+
+        // Create SUBDIR/NESTED.TXT
+        let nested_entry = fs.create_file(&subdir, "NESTED.TXT").unwrap();
+        let mut nested_writer = fs.write_file(&nested_entry).unwrap();
+        nested_writer.write(b"Nested file content").unwrap();
+        nested_writer.finish().unwrap();
+
+        // Create SUBDIR/DEEP
+        let deep_dir = fs.create_dir(&subdir, "DEEP").unwrap();
+
+        // Create SUBDIR/DEEP/FILE.TXT
+        let file_entry = fs.create_file(&deep_dir, "FILE.TXT").unwrap();
+        let mut file_writer = fs.write_file(&file_entry).unwrap();
+        file_writer.write(b"Deep file").unwrap();
+        file_writer.finish().unwrap();
+
+        // Sync to ensure all changes are written
+        fs.sync().unwrap();
+
+        cursor
+    }
+
+    #[test]
+    fn test_read_directory_entries() {
+        use hadris_io::Seek;
+
+        let mut cursor = create_test_fat32_image();
+        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let root = fs.root_dir();
+
+        // Collect all entries (excluding . and ..)
+        let entries: Vec<_> = root
+            .entries()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.name();
+                name != "." && name != ".."
+            })
+            .collect();
+
+        // Should have 3 entries: HELLO.TXT, DATA.BIN, SUBDIR
+        assert_eq!(entries.len(), 3, "Expected 3 entries in root directory");
+
+        // Verify file names
+        let names: Vec<_> = entries.iter().map(|e| e.name()).collect();
+        assert!(
+            names.iter().any(|n| n.starts_with("HELLO")),
+            "Should find HELLO.TXT"
+        );
+        assert!(
+            names.iter().any(|n| n.starts_with("DATA")),
+            "Should find DATA.BIN"
+        );
+        assert!(
+            names.iter().any(|n| n.starts_with("SUBDIR")),
+            "Should find SUBDIR"
+        );
+    }
+
+    #[test]
+    fn test_read_file_contents() {
+        use hadris_io::Seek;
+
+        let mut cursor = create_test_fat32_image();
+        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let root = fs.root_dir();
+
+        // Read HELLO.TXT
+        let mut hello_reader = root.open_file("HELLO.TXT").unwrap();
+        let hello_content = hello_reader.read_to_vec().unwrap();
+        assert_eq!(String::from_utf8(hello_content).unwrap(), "Hello, World!");
+
+        // Read DATA.BIN
+        let mut data_reader = root.open_file("DATA.BIN").unwrap();
+        let data_content = data_reader.read_to_vec().unwrap();
+        assert_eq!(data_content.len(), 1024);
+        assert!(data_content.iter().all(|&b| b == 0xAA));
+    }
+
+    #[test]
+    #[cfg(feature = "lfn")]
+    fn test_read_lfn_entries() {
+        use hadris_io::Seek;
+
+        // Note: The current write API only creates short filenames (8.3 format).
+        // The LFN feature is primarily for reading existing LFN entries created
+        // by other tools. This test verifies that the LFN parsing infrastructure
+        // compiles and works correctly by testing with short filenames.
+        let mut cursor = create_test_fat32_image();
+        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let root = fs.root_dir();
+
+        // Verify we can read the short filenames (8.3 format)
+        let result = root.find("HELLO.TXT");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_some(), "Should find HELLO.TXT");
+
+        // Verify directory iteration works with LFN feature enabled
+        let entries: Vec<_> = root
+            .entries()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.name();
+                name != "." && name != ".."
+            })
+            .collect();
+
+        // Should have 3 entries: HELLO.TXT, DATA.BIN, SUBDIR
+        assert_eq!(entries.len(), 3, "Expected 3 entries in root directory");
+    }
 }
 
 #[cfg(test)]
+#[cfg(feature = "write")]
 mod navigation_tests {
-    use hadris_fat::FatError;
+    use super::integration_tests::create_test_fat32_image;
+    use hadris_fat::{FatError, FatFs};
+    use hadris_io::Seek;
 
     /// Test that find() returns None for non-existent entries
     #[test]
-    #[ignore = "Requires fat32_with_files.img fixture - see test comments for setup"]
     fn test_find_nonexistent_returns_none() {
-        // This would test that find() returns Ok(None) for entries that don't exist
-        todo!("Implement with proper test fixture")
+        let mut cursor = create_test_fat32_image();
+        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let root = fs.root_dir();
+
+        // Try to find a non-existent file
+        let result = root.find("NONEXISTENT.TXT");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
     }
 
     /// Test that open_dir() returns NotADirectory error for files
     #[test]
-    #[ignore = "Requires fat32_with_files.img fixture - see test comments for setup"]
     fn test_open_dir_on_file_returns_error() {
-        // This would test that open_dir() returns NotADirectory for files
-        todo!("Implement with proper test fixture")
+        let mut cursor = create_test_fat32_image();
+        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let root = fs.root_dir();
+
+        // Try to open a file as a directory
+        let result = root.open_dir("HELLO.TXT");
+        assert!(result.is_err());
+        match result {
+            Err(FatError::NotADirectory) => {}
+            _ => panic!("Expected NotADirectory error"),
+        }
     }
 
     /// Test that open_file() returns NotAFile error for directories
     #[test]
-    #[ignore = "Requires fat32_with_files.img fixture - see test comments for setup"]
     fn test_open_file_on_directory_returns_error() {
-        // This would test that open_file() returns NotAFile for directories
-        todo!("Implement with proper test fixture")
+        let mut cursor = create_test_fat32_image();
+        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let root = fs.root_dir();
+
+        // Try to open a directory as a file
+        let result = root.open_file("SUBDIR");
+        assert!(result.is_err());
+        match result {
+            Err(FatError::NotAFile) => {}
+            _ => panic!("Expected NotAFile error"),
+        }
     }
 
     /// Test error variants display correctly
@@ -324,38 +479,114 @@ mod navigation_tests {
         }
 
         #[test]
-        #[ignore = "Requires fat32_with_files.img fixture"]
+        #[cfg(feature = "write")]
         fn test_open_path_empty_returns_invalid() {
-            // This would test that open_path("") returns InvalidPath error
-            todo!("Implement with proper test fixture")
+            use super::super::integration_tests::create_test_fat32_image;
+            use hadris_fat::FatFs;
+            use hadris_io::Seek;
+
+            let mut cursor = create_test_fat32_image();
+            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+            let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+
+            // Try to open an empty path
+            let result = fs.open_path("");
+            assert!(result.is_err());
+            match result {
+                Err(FatError::InvalidPath) => {}
+                _ => panic!("Expected InvalidPath error"),
+            }
         }
 
         #[test]
-        #[ignore = "Requires fat32_with_files.img fixture"]
+        #[cfg(feature = "write")]
         fn test_open_path_slash_only_returns_invalid() {
-            // This would test that open_path("/") returns InvalidPath error
-            todo!("Implement with proper test fixture")
+            use super::super::integration_tests::create_test_fat32_image;
+            use hadris_fat::FatFs;
+            use hadris_io::Seek;
+
+            let mut cursor = create_test_fat32_image();
+            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+            let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+
+            // Try to open a slash-only path
+            let result = fs.open_path("/");
+            assert!(result.is_err());
+            match result {
+                Err(FatError::InvalidPath) => {}
+                _ => panic!("Expected InvalidPath error"),
+            }
         }
 
         #[test]
-        #[ignore = "Requires fat32_with_files.img fixture"]
+        #[cfg(feature = "write")]
         fn test_open_path_traversal() {
-            // This would test that open_path("/dir/subdir/file.txt") works
-            todo!("Implement with proper test fixture")
+            use super::super::integration_tests::create_test_fat32_image;
+            use hadris_fat::FatFs;
+            use hadris_io::Seek;
+
+            let mut cursor = create_test_fat32_image();
+            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+            let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+
+            // Test multi-level path navigation
+            let result = fs.open_path("SUBDIR/DEEP/FILE.TXT");
+            assert!(result.is_ok(), "Path traversal should work");
+
+            let entry = result.unwrap();
+            assert!(entry.is_file());
+            assert_eq!(entry.size(), 9); // "Deep file" is 9 bytes
         }
 
         #[test]
-        #[ignore = "Requires fat32_with_files.img fixture"]
+        #[cfg(feature = "write")]
         fn test_open_file_path() {
-            // This would test open_file_path() returns a FileReader
-            todo!("Implement with proper test fixture")
+            use super::super::integration_tests::create_test_fat32_image;
+            use hadris_fat::FatFs;
+            use hadris_io::Seek;
+
+            let mut cursor = create_test_fat32_image();
+            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+            let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+
+            // Test opening a file by path
+            let mut reader = fs.open_file_path("SUBDIR/NESTED.TXT").unwrap();
+            let content = reader.read_to_vec().unwrap();
+            assert_eq!(String::from_utf8(content).unwrap(), "Nested file content");
         }
 
         #[test]
-        #[ignore = "Requires fat32_with_files.img fixture"]
+        #[cfg(feature = "write")]
         fn test_open_dir_path() {
-            // This would test open_dir_path() returns a FatDir
-            todo!("Implement with proper test fixture")
+            use super::super::integration_tests::create_test_fat32_image;
+            use hadris_fat::FatFs;
+            use hadris_io::Seek;
+
+            let mut cursor = create_test_fat32_image();
+            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+            let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+
+            // Test opening a directory by path
+            let dir = fs.open_dir_path("SUBDIR/DEEP").unwrap();
+
+            // Verify we can list entries in the directory
+            let entries: Vec<_> = dir
+                .entries()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    let name = e.name();
+                    name != "." && name != ".."
+                })
+                .collect();
+
+            // Should have 1 entry: FILE.TXT
+            assert_eq!(entries.len(), 1);
+            assert!(entries[0].name().starts_with("FILE"));
         }
     }
 }

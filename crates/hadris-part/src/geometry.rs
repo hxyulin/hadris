@@ -157,7 +157,7 @@ impl DiskGeometry {
         if alignment_sectors == 0 {
             return true;
         }
-        lba % alignment_sectors == 0
+        lba.is_multiple_of(alignment_sectors)
     }
 
     /// Calculates the first usable LBA for GPT partitions.
@@ -173,7 +173,7 @@ impl DiskGeometry {
     /// * `entry_size` - Size of each entry in bytes (typically 128)
     pub const fn gpt_first_usable_lba(&self, num_entries: u32, entry_size: u32) -> u64 {
         let entry_bytes = num_entries as u64 * entry_size as u64;
-        let entry_sectors = (entry_bytes + self.block_size as u64 - 1) / self.block_size as u64;
+        let entry_sectors = entry_bytes.div_ceil(self.block_size as u64);
         // MBR (LBA 0) + GPT header (LBA 1) + partition entries
         2 + entry_sectors
     }
@@ -201,7 +201,7 @@ impl DiskGeometry {
     /// * `entry_size` - Size of each entry in bytes (typically 128)
     pub const fn gpt_last_usable_lba(&self, num_entries: u32, entry_size: u32) -> u64 {
         let entry_bytes = num_entries as u64 * entry_size as u64;
-        let entry_sectors = (entry_bytes + self.block_size as u64 - 1) / self.block_size as u64;
+        let entry_sectors = entry_bytes.div_ceil(self.block_size as u64);
         // Last LBA is total_blocks - 1
         // Backup header at last LBA, backup entries before that
         self.total_blocks - 1 - entry_sectors - 1

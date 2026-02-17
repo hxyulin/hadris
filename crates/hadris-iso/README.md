@@ -72,7 +72,7 @@ let boot_options = BootOptions {
 let format_options = FormatOptions {
     volume_name: "BOOTABLE".to_string(),
     sector_size: 2048,
-    path_seperator: PathSeparator::ForwardSlash,
+    path_separator: PathSeparator::ForwardSlash,
     features: CreationFeatures {
         filenames: BaseIsoLevel::Level1 {
             supports_lowercase: false,

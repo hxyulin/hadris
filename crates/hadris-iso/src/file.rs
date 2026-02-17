@@ -4,7 +4,7 @@ use hadris_common::types::file::FixedFilename;
 use crate::joliet::JolietLevel;
 
 /// The type of directory entry, indicating the ISO interchange level and features
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntryType {
     Level1 {
         supports_lowercase: bool,
@@ -56,7 +56,7 @@ impl EntryType {
             Self::Level1 {
                 supports_lowercase,
                 supports_rrip,
-            } => 0x00 | (supports_lowercase as u8) << 2 | (supports_rrip as u8) << 4,
+            } => (supports_lowercase as u8) << 2 | (supports_rrip as u8) << 4,
             Self::Level2 {
                 supports_lowercase,
                 supports_rrip,
@@ -74,9 +74,15 @@ impl EntryType {
     }
 }
 
+impl Ord for EntryType {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.usefulness().cmp(&other.usefulness())
+    }
+}
+
 impl PartialOrd for EntryType {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        PartialOrd::partial_cmp(&self.usefulness(), &other.usefulness())
+        Some(self.cmp(other))
     }
 }
 

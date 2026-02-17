@@ -92,7 +92,7 @@ impl GptDisk {
         let entry_count = Self::DEFAULT_ENTRY_COUNT;
         let entry_size = core::mem::size_of::<GptPartitionEntry>() as u32;
         let entries_per_sector = block_size / entry_size;
-        let entry_sectors = (entry_count + entries_per_sector - 1) / entries_per_sector;
+        let entry_sectors = entry_count.div_ceil(entries_per_sector);
 
         // First usable LBA is after: MBR (1) + GPT header (1) + entries
         let first_usable = 2 + entry_sectors as u64;
@@ -341,15 +341,14 @@ impl GptDisk {
 
         // Try to read backup header
         let backup_header =
-            GptHeader::read_from_lba(reader, primary_header.alternate_lba, block_size)
-                .unwrap_or_else(|_| {
+            GptHeader::read_from_lba(reader, primary_header.alternate_lba, block_size).unwrap_or(
+                GptHeader {
                     // If backup header read fails, construct it from primary
-                    GptHeader {
-                        my_lba: primary_header.alternate_lba,
-                        alternate_lba: primary_header.my_lba,
-                        ..primary_header
-                    }
-                });
+                    my_lba: primary_header.alternate_lba,
+                    alternate_lba: primary_header.my_lba,
+                    ..primary_header
+                },
+            );
 
         Ok(Self {
             primary_header,

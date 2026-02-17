@@ -35,7 +35,7 @@
 //! # let options = FormatOptions {
 //! #     volume_name: "TEST".to_string(),
 //! #     sector_size: 2048,
-//! #     path_seperator: PathSeparator::ForwardSlash,
+//! #     path_separator: PathSeparator::ForwardSlash,
 //! #     features: CreationFeatures::default(),
 //! # };
 //! # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
@@ -93,7 +93,7 @@
 //! let format_options = FormatOptions {
 //!     volume_name: "MY_BOOTABLE_ISO".to_string(),
 //!     sector_size: 2048,
-//!     path_seperator: PathSeparator::ForwardSlash,
+//!     path_separator: PathSeparator::ForwardSlash,
 //!     features: CreationFeatures {
 //!         filenames: BaseIsoLevel::Level1 {
 //!             supports_lowercase: false,
@@ -362,14 +362,14 @@ pub mod joliet;
 /// - `SL` - Symbolic link
 /// - `TF` - Timestamps (creation, modification, access)
 /// - `CL`/`PL`/`RE` - Directory relocation
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub mod rrip;
 
 /// System Use Sharing Protocol (SUSP).
 ///
 /// SUSP provides a framework for extending ISO 9660 directory records
 /// with additional system-specific information. Rock Ridge is built on SUSP.
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub mod susp;
 
 /// ISO image reading and navigation.
@@ -398,7 +398,7 @@ pub mod susp;
 /// # let options = FormatOptions {
 /// #     volume_name: "TEST".to_string(),
 /// #     sector_size: 2048,
-/// #     path_seperator: PathSeparator::ForwardSlash,
+/// #     path_separator: PathSeparator::ForwardSlash,
 /// #     features: CreationFeatures::default(),
 /// # };
 /// # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
@@ -447,7 +447,7 @@ pub mod read;
 /// let options = FormatOptions {
 ///     volume_name: "MY_ISO".to_string(),
 ///     sector_size: 2048,
-///     path_seperator: PathSeparator::ForwardSlash,
+///     path_separator: PathSeparator::ForwardSlash,
 ///     features: CreationFeatures::default(),
 /// };
 ///

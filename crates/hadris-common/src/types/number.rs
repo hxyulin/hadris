@@ -191,7 +191,10 @@ impl<E: Endianness> core::fmt::UpperHex for U64<E> {
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
-pub struct U24<E: Endianness> {
+pub struct U24<E>
+where
+    E: Endianness,
+{
     bytes: [u8; 3],
     _marker: PhantomData<E>,
 }
@@ -234,14 +237,8 @@ impl<E: Endianness> Endian for U24<E> {
 
     fn new(value: u32) -> Self {
         assert!(value <= Self::MAX);
-        let mut bytes = [0; 4];
-        // TODO: Make this pat of Endianness instead of the number
-        E::set_u32(value, &mut bytes);
-        let bytes = if E::get().is_le() {
-            bytes[..3].try_into().unwrap()
-        } else {
-            bytes[1..].try_into().unwrap()
-        };
+        let mut bytes = [0u8; 3];
+        E::set_u24(value, &mut bytes);
         Self {
             bytes,
             _marker: PhantomData,
@@ -249,24 +246,12 @@ impl<E: Endianness> Endian for U24<E> {
     }
 
     fn get(&self) -> u32 {
-        let mut bytes = [0; 4];
-        if E::get().is_le() {
-            bytes[..3].copy_from_slice(&self.bytes);
-        } else {
-            bytes[1..].copy_from_slice(&self.bytes);
-        }
-        u32::from_le_bytes(bytes)
+        E::get_u24(self.bytes)
     }
 
     fn set(&mut self, value: u32) {
         assert!(value <= Self::MAX);
-        let mut bytes = [0; 4];
-        E::set_u32(value, &mut bytes);
-        if E::get().is_le() {
-            self.bytes.copy_from_slice(&bytes[..3]);
-        } else {
-            self.bytes.copy_from_slice(&bytes[1..]);
-        }
+        E::set_u24(value, &mut self.bytes);
     }
 }
 

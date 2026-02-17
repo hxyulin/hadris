@@ -247,7 +247,7 @@ impl VolumeDescriptorList {
     pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
         let mut written = 0;
         for descriptor in &self.descriptors {
-            writer.write_all(&descriptor.as_bytes())?;
+            writer.write_all(descriptor.as_bytes())?;
             written += 2048;
         }
         writer.write_all(VolumeDescriptorSetTerminator::new().to_bytes())?;
@@ -636,6 +636,12 @@ impl Debug for SupplementaryVolumeDescriptor {
 pub struct VolumeDescriptorSetTerminator {
     header: VolumeDescriptorHeader,
     padding: [u8; 2041],
+}
+
+impl Default for VolumeDescriptorSetTerminator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VolumeDescriptorSetTerminator {

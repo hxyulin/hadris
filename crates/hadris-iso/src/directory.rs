@@ -229,7 +229,7 @@ pub struct RootDirectoryEntry {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Default, Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct DirDateTime {
     /// Number of years since 1900
     year: u8,
@@ -239,20 +239,6 @@ pub struct DirDateTime {
     minute: u8,
     second: u8,
     offset: u8,
-}
-
-impl Default for DirDateTime {
-    fn default() -> Self {
-        Self {
-            year: 0,
-            month: 0,
-            day: 0,
-            hour: 0,
-            minute: 0,
-            second: 0,
-            offset: 0,
-        }
-    }
 }
 
 impl DirDateTime {

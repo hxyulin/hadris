@@ -803,7 +803,7 @@ impl GptHeaderRaw {
 
 impl GptHeader {
     /// Converts this header to its on-disk packed representation.
-    fn to_raw(&self) -> GptHeaderRaw {
+    fn to_raw(self) -> GptHeaderRaw {
         GptHeaderRaw {
             signature: self.signature,
             revision: self.revision.to_le_bytes(),

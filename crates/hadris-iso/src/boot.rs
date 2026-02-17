@@ -324,6 +324,12 @@ pub struct BootValidationEntry {
     pub key: [u8; 2],
 }
 
+impl Default for BootValidationEntry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BootValidationEntry {
     pub fn new() -> Self {
         let mut entry = Self {
@@ -608,7 +614,7 @@ impl ElToritoWriter {
                 .position(|f| matches!(f, File::Directory { .. }))
                 .unwrap_or(0);
             files.files.insert(
-                dir_pos.checked_sub(1).unwrap_or(0),
+                dir_pos.saturating_sub(1),
                 File::File {
                     name: Arc::new("boot.catalog".to_string()),
                     contents: alloc::vec![0; size],
@@ -627,7 +633,7 @@ pub mod options {
 
     use crate::boot::{EmulationType, PlatformId};
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Default)]
     pub struct BootOptions {
         pub write_boot_catalog: bool,
         pub default: BootEntryOptions,
@@ -642,16 +648,6 @@ pub mod options {
                 sections.push((Some(section_ops.clone()), ops.clone()));
             }
             sections
-        }
-    }
-
-    impl Default for BootOptions {
-        fn default() -> Self {
-            Self {
-                write_boot_catalog: false,
-                default: BootEntryOptions::default(),
-                entries: Vec::new(),
-            }
         }
     }
 

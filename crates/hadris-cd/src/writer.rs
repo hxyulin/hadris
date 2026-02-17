@@ -130,7 +130,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             volume_name: self.options.volume_id.clone(),
             sector_size: self.options.sector_size,
             features,
-            path_seperator: PathSeparator::ForwardSlash,
+            path_separator: PathSeparator::ForwardSlash,
         };
 
         // Reset position and write ISO

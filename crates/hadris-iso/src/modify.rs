@@ -127,7 +127,7 @@ impl FileData {
         match self {
             FileData::Buffer(data) => Ok(data.clone()),
             #[cfg(feature = "std")]
-            FileData::Path(path) => std::fs::read(path).map_err(Into::into),
+            FileData::Path(path) => std::fs::read(path),
         }
     }
 }
@@ -166,10 +166,12 @@ pub struct IsoModifier<RW: Read + Write + Seek> {
     /// Parsed from existing image.
     existing_layout: DirectoryLayout,
     /// Tracks used sectors.
+    #[allow(dead_code)]
     allocation_map: AllocationMap,
     /// Pending operations.
     pending_ops: Vec<ModifyOp>,
     /// Options for the new session.
+    #[allow(dead_code)]
     options: IsoModifyOptions,
     /// Entry types from the existing image.
     entry_types: Vec<EntryType>,
@@ -291,6 +293,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     }
 
     /// Recursively reads a directory and its contents.
+    #[allow(clippy::only_used_in_recursion)]
     fn read_directory_recursive(
         cursor: &mut IsoCursor<&mut RW>,
         dir_ref: DirectoryRef,
@@ -536,7 +539,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     ) -> IsoModifyResult<()> {
         // Build WrittenFiles structure from layout
         let mut written_files = WrittenFiles::new();
-        self.build_written_files(&layout, &file_extents, &mut written_files, "")?;
+        self.build_written_files(layout, &file_extents, &mut written_files, "")?;
 
         // Write directory records for all entry types
         let mut root_dirs = BTreeMap::new();
@@ -728,17 +731,16 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                         .find(|e| matches!(e, EntryType::Level1 { .. } | EntryType::Level2 { .. }))
                         .expect("no base level found");
 
-                    if let Some(root_dir) = root_dirs.get(base_type) {
-                        if let Some(pt) = path_tables.get(base_type) {
-                            let pvd =
-                                bytemuck::from_bytes_mut::<PrimaryVolumeDescriptor>(&mut buffer);
-                            pvd.dir_record.header.extent.write(root_dir.extent.0 as u32);
-                            pvd.dir_record.header.data_len.write(root_dir.size as u32);
-                            pvd.type_l_path_table.set(pt.lpt.0 as u32);
-                            pvd.type_m_path_table.set(pt.mpt.0 as u32);
-                            pvd.path_table_size.write(pt.size as u32);
-                            pvd.volume_space_size.write(end_sector.0 as u32);
-                        }
+                    if let Some(root_dir) = root_dirs.get(base_type)
+                        && let Some(pt) = path_tables.get(base_type)
+                    {
+                        let pvd = bytemuck::from_bytes_mut::<PrimaryVolumeDescriptor>(&mut buffer);
+                        pvd.dir_record.header.extent.write(root_dir.extent.0 as u32);
+                        pvd.dir_record.header.data_len.write(root_dir.size as u32);
+                        pvd.type_l_path_table.set(pt.lpt.0 as u32);
+                        pvd.type_m_path_table.set(pt.mpt.0 as u32);
+                        pvd.path_table_size.write(pt.size as u32);
+                        pvd.volume_space_size.write(end_sector.0 as u32);
                     }
                 }
                 VolumeDescriptorType::SupplementaryVolumeDescriptor => {
@@ -753,23 +755,16 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                                     .iter()
                                     .find(|e| matches!(e, EntryType::Joliet { level: jl, .. } if *jl == level));
 
-                                if let Some(joliet) = joliet {
-                                    if let Some(root_dir) = root_dirs.get(joliet) {
-                                        if let Some(pt) = path_tables.get(joliet) {
-                                            svd.dir_record
-                                                .header
-                                                .extent
-                                                .write(root_dir.extent.0 as u32);
-                                            svd.dir_record
-                                                .header
-                                                .data_len
-                                                .write(root_dir.size as u32);
-                                            svd.type_l_path_table.set(pt.lpt.0 as u32);
-                                            svd.type_m_path_table.set(pt.mpt.0 as u32);
-                                            svd.path_table_size.write(pt.size as u32);
-                                            svd.volume_space_size.write(end_sector.0 as u32);
-                                        }
-                                    }
+                                if let Some(joliet) = joliet
+                                    && let Some(root_dir) = root_dirs.get(joliet)
+                                    && let Some(pt) = path_tables.get(joliet)
+                                {
+                                    svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
+                                    svd.dir_record.header.data_len.write(root_dir.size as u32);
+                                    svd.type_l_path_table.set(pt.lpt.0 as u32);
+                                    svd.type_m_path_table.set(pt.mpt.0 as u32);
+                                    svd.path_table_size.write(pt.size as u32);
+                                    svd.volume_space_size.write(end_sector.0 as u32);
                                 }
                             }
                         }
@@ -780,7 +775,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
 
             // Write back the modified descriptor
             self.inner.seek_relative(-(buffer.len() as i64))?;
-            self.inner.write(&buffer)?;
+            self.inner.write_all(&buffer)?;
         }
 
         Ok(())
@@ -788,19 +783,8 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
 
     /// Splits a path into (directory, filename).
     fn split_path(path: &str) -> IsoModifyResult<(String, String)> {
-        let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-        if parts.is_empty() {
-            return Err(IsoModifyError::InvalidPath(path.to_string()));
-        }
-
-        let filename = parts.last().unwrap().to_string();
-        let dir_path = if parts.len() > 1 {
-            parts[..parts.len() - 1].join("/")
-        } else {
-            String::new()
-        };
-
-        Ok((dir_path, filename))
+        hadris_common::path::split_path(path)
+            .ok_or_else(|| IsoModifyError::InvalidPath(path.to_string()))
     }
 }
 

@@ -332,7 +332,7 @@ pub struct AllocationMap {
 impl AllocationMap {
     /// Creates a new allocation map for the given number of sectors.
     pub fn new(total_sectors: u32) -> Self {
-        let bitmap_size = (total_sectors as usize + 7) / 8;
+        let bitmap_size = (total_sectors as usize).div_ceil(8);
         Self {
             bitmap: alloc::vec![0u8; bitmap_size],
             total_sectors,
@@ -357,7 +357,7 @@ impl AllocationMap {
             return Some(Extent::new(self.next_free, 0));
         }
 
-        let sectors_needed = ((size_bytes + sector_size as u64 - 1) / sector_size as u64) as u32;
+        let sectors_needed = size_bytes.div_ceil(sector_size as u64) as u32;
 
         // Start searching from next_free hint
         let mut start = self.next_free;

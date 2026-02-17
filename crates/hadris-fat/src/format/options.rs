@@ -180,9 +180,10 @@ impl Default for OemName {
 }
 
 /// Sector size options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SectorSize {
     /// 512 bytes per sector (most common)
+    #[default]
     S512 = 512,
     /// 1024 bytes per sector
     S1024 = 1024,
@@ -196,12 +197,6 @@ impl SectorSize {
     /// Get the size in bytes.
     pub fn bytes(self) -> usize {
         self as usize
-    }
-}
-
-impl Default for SectorSize {
-    fn default() -> Self {
-        Self::S512
     }
 }
 
@@ -256,9 +251,10 @@ impl From<FatType> for FatTypeSelection {
 }
 
 /// Media type descriptor byte.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MediaType {
     /// Fixed disk (0xF8)
+    #[default]
     FixedDisk,
     /// Removable media (0xF0)
     Removable,
@@ -274,11 +270,5 @@ impl MediaType {
             Self::Removable => 0xF0,
             Self::Custom(v) => v,
         }
-    }
-}
-
-impl Default for MediaType {
-    fn default() -> Self {
-        Self::FixedDisk
     }
 }

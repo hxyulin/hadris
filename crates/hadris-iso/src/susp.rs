@@ -1,6 +1,8 @@
 //! System Use Sharing Protocol
 
-use hadris_io::{self as io, Read, ReadExt, Writable};
+use hadris_io::{self as io, Read, ReadExt};
+#[cfg(feature = "std")]
+use hadris_io::Writable;
 
 use crate::types::U32LsbMsb;
 
@@ -12,6 +14,7 @@ pub struct SystemUseHeader {
     pub version: u8,
 }
 
+#[cfg(feature = "std")]
 impl Writable for SystemUseHeader {
     fn write<R: io::Write>(&self, writer: &mut R) -> io::Result<()> {
         writer.write_all(bytemuck::bytes_of(self))?;
@@ -19,6 +22,7 @@ impl Writable for SystemUseHeader {
     }
 }
 
+#[cfg(feature = "std")]
 pub trait SystemUseEntry: Writable {
     const SIG: &'static [u8; 2];
 
@@ -39,6 +43,7 @@ pub struct ContinuationArea {
     pub length: U32LsbMsb,
 }
 
+#[cfg(feature = "std")]
 impl SystemUseEntry for ContinuationArea {
     const SIG: &'static [u8; 2] = b"CE";
     fn header(&self) -> SystemUseHeader {
@@ -55,6 +60,7 @@ impl SystemUseEntry for ContinuationArea {
     }
 }
 
+#[cfg(feature = "std")]
 impl Writable for ContinuationArea {
     fn write<R: std::io::Write>(&self, writer: &mut R) -> io::Result<()> {
         self.header().write(writer)?;
@@ -68,6 +74,7 @@ pub struct PaddingField {
     pub length: u8,
 }
 
+#[cfg(feature = "std")]
 impl SystemUseEntry for PaddingField {
     const SIG: &'static [u8; 2] = b"PD";
 
@@ -89,13 +96,12 @@ impl SystemUseEntry for PaddingField {
     }
 }
 
+#[cfg(feature = "std")]
 impl Writable for PaddingField {
     fn write<R: std::io::Write>(&self, writer: &mut R) -> io::Result<()> {
         self.header().write(writer)?;
-        // TODO: Maybe use buffered writer here
-        for _ in 0..self.length {
-            writer.write_all(&[0x00])?;
-        }
+        let zeros = alloc::vec![0u8; self.length as usize];
+        writer.write_all(&zeros)?;
         Ok(())
     }
 }
@@ -120,6 +126,7 @@ impl SuspIdentifier {
     }
 }
 
+#[cfg(feature = "std")]
 impl SystemUseEntry for SuspIdentifier {
     const SIG: &'static [u8; 2] = b"SP";
     fn header(&self) -> SystemUseHeader {
@@ -136,6 +143,7 @@ impl SystemUseEntry for SuspIdentifier {
     }
 }
 
+#[cfg(feature = "std")]
 impl Writable for SuspIdentifier {
     fn write<R: std::io::Write>(&self, writer: &mut R) -> std::io::Result<()> {
         self.header().write(writer)?;
@@ -147,6 +155,7 @@ impl Writable for SuspIdentifier {
 #[derive(Debug, Clone, Copy)]
 pub struct SuspTerminator;
 
+#[cfg(feature = "std")]
 impl SystemUseEntry for SuspTerminator {
     const SIG: &'static [u8; 2] = b"ST";
     fn header(&self) -> SystemUseHeader {
@@ -162,6 +171,7 @@ impl SystemUseEntry for SuspTerminator {
     }
 }
 
+#[cfg(feature = "std")]
 impl Writable for SuspTerminator {
     fn write<R: std::io::Write>(&self, writer: &mut R) -> std::io::Result<()> {
         self.header().write(writer)
@@ -178,6 +188,7 @@ pub struct ExtensionReference {
     pub buf: [u8; 252],
 }
 
+#[cfg(feature = "std")]
 impl SystemUseEntry for ExtensionReference {
     const SIG: &'static [u8; 2] = b"ER";
     fn header(&self) -> SystemUseHeader {
@@ -203,6 +214,7 @@ impl SystemUseEntry for ExtensionReference {
     }
 }
 
+#[cfg(feature = "std")]
 impl Writable for ExtensionReference {
     fn write<R: std::io::Write>(&self, writer: &mut R) -> std::io::Result<()> {
         self.header().write(writer)?;
@@ -232,8 +244,85 @@ pub enum SystemUseField {
     Padding(PaddingField),
     /// ER - Extension Reference entry
     ExtensionReference(ExtensionReference),
+
+    // --- RRIP variants ---
+    /// PX - POSIX file attributes
+    PosixAttributes(crate::rrip::PxEntry),
+    /// PN - POSIX device numbers
+    DeviceNumber(crate::rrip::PnEntry),
+    /// NM - Alternate name (real filename)
+    AlternateName(crate::rrip::NmEntry),
+    /// SL - Symbolic link
+    SymbolicLink(crate::rrip::SlEntry),
+    /// TF - Timestamps
+    Timestamps(crate::rrip::TfEntry),
+    /// CL - Child link (relocated directory)
+    ChildLink(crate::rrip::ClEntry),
+    /// PL - Parent link (relocated directory)
+    ParentLink(crate::rrip::PlEntry),
+    /// RE - Relocated directory marker
+    Relocated,
+
+    /// ES - Extension Selector
+    ExtensionSelector { extension_sequence: u8 },
+
     /// Unknown entry (not recognized)
     Unknown(SystemUseHeader, [u8; 252]),
+}
+
+impl SystemUseField {
+    /// Returns the 2-byte signature for this field.
+    pub fn signature(&self) -> [u8; 2] {
+        match self {
+            Self::SuspIdentifier(_) => *b"SP",
+            Self::Terminator => *b"ST",
+            Self::ContinuationArea(_) => *b"CE",
+            Self::Padding(_) => *b"PD",
+            Self::ExtensionReference(_) => *b"ER",
+            Self::PosixAttributes(_) => *b"PX",
+            Self::DeviceNumber(_) => *b"PN",
+            Self::AlternateName(_) => *b"NM",
+            Self::SymbolicLink(_) => *b"SL",
+            Self::Timestamps(_) => *b"TF",
+            Self::ChildLink(_) => *b"CL",
+            Self::ParentLink(_) => *b"PL",
+            Self::Relocated => *b"RE",
+            Self::ExtensionSelector { .. } => *b"ES",
+            Self::Unknown(header, _) => header.sig,
+        }
+    }
+
+    /// Returns the PX entry if this is a `PosixAttributes` variant.
+    pub fn as_posix_attributes(&self) -> Option<&crate::rrip::PxEntry> {
+        match self {
+            Self::PosixAttributes(px) => Some(px),
+            _ => None,
+        }
+    }
+
+    /// Returns the NM entry if this is an `AlternateName` variant.
+    pub fn as_alternate_name(&self) -> Option<&crate::rrip::NmEntry> {
+        match self {
+            Self::AlternateName(nm) => Some(nm),
+            _ => None,
+        }
+    }
+
+    /// Returns the TF entry if this is a `Timestamps` variant.
+    pub fn as_timestamps(&self) -> Option<&crate::rrip::TfEntry> {
+        match self {
+            Self::Timestamps(tf) => Some(tf),
+            _ => None,
+        }
+    }
+
+    /// Returns the SL entry if this is a `SymbolicLink` variant.
+    pub fn as_symbolic_link(&self) -> Option<&crate::rrip::SlEntry> {
+        match self {
+            Self::SymbolicLink(sl) => Some(sl),
+            _ => None,
+        }
+    }
 }
 
 /// Iterator over system use entries in a byte slice
@@ -307,6 +396,76 @@ impl Iterator for SystemUseIter<'_> {
                     version: entry_data[3],
                     buf,
                 })
+            }
+            // --- RRIP entries ---
+            b"PX" if entry_data.len() >= 32 => {
+                let len = entry_data.len().min(40);
+                let px = crate::rrip::PxEntry {
+                    file_mode: *bytemuck::from_bytes(&entry_data[0..8]),
+                    file_links: *bytemuck::from_bytes(&entry_data[8..16]),
+                    file_uid: *bytemuck::from_bytes(&entry_data[16..24]),
+                    file_gid: *bytemuck::from_bytes(&entry_data[24..32]),
+                    file_serial: if len >= 40 {
+                        *bytemuck::from_bytes(&entry_data[32..40])
+                    } else {
+                        crate::types::U32LsbMsb::new(0)
+                    },
+                };
+                SystemUseField::PosixAttributes(px)
+            }
+            b"PN" if entry_data.len() >= 16 => {
+                let pn = crate::rrip::PnEntry {
+                    dev_high: *bytemuck::from_bytes(&entry_data[0..8]),
+                    dev_low: *bytemuck::from_bytes(&entry_data[8..16]),
+                };
+                SystemUseField::DeviceNumber(pn)
+            }
+            b"NM" if !entry_data.is_empty() => {
+                let flags = crate::rrip::NmFlags::from_bits_truncate(entry_data[0]);
+                let name = entry_data[1..].to_vec();
+                SystemUseField::AlternateName(crate::rrip::NmEntry { flags, name })
+            }
+            b"SL" if !entry_data.is_empty() => {
+                let flags = entry_data[0];
+                let mut components = alloc::vec::Vec::new();
+                let mut pos = 1;
+                while pos + 2 <= entry_data.len() {
+                    let comp_flags =
+                        crate::rrip::SlComponentFlags::from_bits_truncate(entry_data[pos]);
+                    let comp_len = entry_data[pos + 1] as usize;
+                    pos += 2;
+                    let end = (pos + comp_len).min(entry_data.len());
+                    let content = entry_data[pos..end].to_vec();
+                    pos = end;
+                    components.push(crate::rrip::SlComponent {
+                        flags: comp_flags,
+                        content,
+                    });
+                }
+                SystemUseField::SymbolicLink(crate::rrip::SlEntry { flags, components })
+            }
+            b"TF" if !entry_data.is_empty() => {
+                let flags = crate::rrip::TfFlags::from_bits_truncate(entry_data[0]);
+                let timestamps = entry_data[1..].to_vec();
+                SystemUseField::Timestamps(crate::rrip::TfEntry { flags, timestamps })
+            }
+            b"CL" if entry_data.len() >= 8 => {
+                let cl = crate::rrip::ClEntry {
+                    child_directory_location: *bytemuck::from_bytes(&entry_data[0..8]),
+                };
+                SystemUseField::ChildLink(cl)
+            }
+            b"PL" if entry_data.len() >= 8 => {
+                let pl = crate::rrip::PlEntry {
+                    parent_directory_location: *bytemuck::from_bytes(&entry_data[0..8]),
+                };
+                SystemUseField::ParentLink(pl)
+            }
+            b"RE" => SystemUseField::Relocated,
+            b"ES" if !entry_data.is_empty() => {
+                SystemUseField::ExtensionSelector {
+                    extension_sequence: entry_data[0],
+                }
             }
             _ => {
                 let mut buf = [0u8; 252];
@@ -832,5 +991,209 @@ mod tests {
         let length_be = u32::from_be_bytes(ce_data[24..28].try_into().unwrap());
         assert_eq!(length_le, split.overflow.len() as u32);
         assert_eq!(length_be, split.overflow.len() as u32);
+    }
+
+    // ── RRIP parsing tests ──
+
+    /// Helper: build a U32LsbMsb as 8 raw bytes (4 LE + 4 BE).
+    fn u32_lsb_msb_bytes(v: u32) -> [u8; 8] {
+        let mut buf = [0u8; 8];
+        buf[0..4].copy_from_slice(&v.to_le_bytes());
+        buf[4..8].copy_from_slice(&v.to_be_bytes());
+        buf
+    }
+
+    #[test]
+    fn test_iter_px_entry() {
+        // PX entry: 44 bytes total (header 4 + 40 data bytes)
+        let mut data = vec![b'P', b'X', 44, 1];
+        data.extend_from_slice(&u32_lsb_msb_bytes(0o100644)); // file_mode
+        data.extend_from_slice(&u32_lsb_msb_bytes(1)); // file_links
+        data.extend_from_slice(&u32_lsb_msb_bytes(1000)); // file_uid
+        data.extend_from_slice(&u32_lsb_msb_bytes(2000)); // file_gid
+        data.extend_from_slice(&u32_lsb_msb_bytes(42)); // file_serial
+
+        let mut iter = SystemUseIter::new(&data, 0);
+        match iter.next() {
+            Some(SystemUseField::PosixAttributes(px)) => {
+                assert_eq!(px.file_mode.read(), 0o100644);
+                assert_eq!(px.file_links.read(), 1);
+                assert_eq!(px.file_uid.read(), 1000);
+                assert_eq!(px.file_gid.read(), 2000);
+                assert_eq!(px.file_serial.read(), 42);
+            }
+            other => panic!("expected PX entry, got {:?}", other),
+        }
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_iter_nm_entry() {
+        // NM entry: header(4) + flags(1) + name bytes
+        let name = b"hello.txt";
+        let total_len = 4 + 1 + name.len();
+        let mut data = vec![b'N', b'M', total_len as u8, 1];
+        data.push(0x00); // flags: no special flags
+        data.extend_from_slice(name);
+
+        let mut iter = SystemUseIter::new(&data, 0);
+        match iter.next() {
+            Some(SystemUseField::AlternateName(nm)) => {
+                assert!(nm.flags.is_empty());
+                assert_eq!(nm.name, b"hello.txt");
+            }
+            other => panic!("expected NM entry, got {:?}", other),
+        }
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_iter_tf_entry() {
+        // TF with MODIFY(0x02) + ACCESS(0x04) flags = 0x06, short form (7 bytes each)
+        let total_len = 4 + 1 + 14; // header + flags + 2*7 timestamps
+        let mut data = vec![b'T', b'F', total_len as u8, 1];
+        data.push(0x06); // MODIFY | ACCESS
+        // Modify timestamp: 2026-01-15 10:30:00 UTC
+        data.extend_from_slice(&[126, 1, 15, 10, 30, 0, 0]);
+        // Access timestamp: 2026-01-15 12:00:00 UTC
+        data.extend_from_slice(&[126, 1, 15, 12, 0, 0, 0]);
+
+        let mut iter = SystemUseIter::new(&data, 0);
+        match iter.next() {
+            Some(SystemUseField::Timestamps(tf)) => {
+                use crate::rrip::TfFlags;
+                assert!(tf.flags.contains(TfFlags::MODIFY));
+                assert!(tf.flags.contains(TfFlags::ACCESS));
+                assert!(!tf.flags.contains(TfFlags::LONG_FORM));
+                assert_eq!(tf.timestamps.len(), 14);
+            }
+            other => panic!("expected TF entry, got {:?}", other),
+        }
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_iter_sl_entry() {
+        // SL for "/usr/bin": root component + "usr" + "bin"
+        let mut data = vec![b'S', b'L', 0, 1]; // length patched below
+        data.push(0x00); // SL flags
+        // Root component: flags=ROOT(0x08), len=0
+        data.push(0x08);
+        data.push(0x00);
+        // "usr" component: flags=0, len=3
+        data.push(0x00);
+        data.push(0x03);
+        data.extend_from_slice(b"usr");
+        // "bin" component: flags=0, len=3
+        data.push(0x00);
+        data.push(0x03);
+        data.extend_from_slice(b"bin");
+        // Patch total length
+        data[2] = data.len() as u8;
+
+        let mut iter = SystemUseIter::new(&data, 0);
+        match iter.next() {
+            Some(SystemUseField::SymbolicLink(sl)) => {
+                assert_eq!(sl.flags, 0);
+                assert_eq!(sl.components.len(), 3);
+                assert!(
+                    sl.components[0]
+                        .flags
+                        .contains(crate::rrip::SlComponentFlags::ROOT)
+                );
+                assert!(sl.components[0].content.is_empty());
+                assert_eq!(sl.components[1].content, b"usr");
+                assert_eq!(sl.components[2].content, b"bin");
+            }
+            other => panic!("expected SL entry, got {:?}", other),
+        }
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_iter_cl_pl_re() {
+        let mut data = Vec::new();
+        // CL entry: header(4) + location(8) = 12
+        data.extend_from_slice(&[b'C', b'L', 12, 1]);
+        data.extend_from_slice(&u32_lsb_msb_bytes(100));
+        // PL entry: header(4) + location(8) = 12
+        data.extend_from_slice(&[b'P', b'L', 12, 1]);
+        data.extend_from_slice(&u32_lsb_msb_bytes(50));
+        // RE entry: header(4) = 4
+        data.extend_from_slice(&[b'R', b'E', 4, 1]);
+
+        let mut iter = SystemUseIter::new(&data, 0);
+        match iter.next() {
+            Some(SystemUseField::ChildLink(cl)) => {
+                assert_eq!(cl.child_directory_location.read(), 100);
+            }
+            other => panic!("expected CL entry, got {:?}", other),
+        }
+        match iter.next() {
+            Some(SystemUseField::ParentLink(pl)) => {
+                assert_eq!(pl.parent_directory_location.read(), 50);
+            }
+            other => panic!("expected PL entry, got {:?}", other),
+        }
+        match iter.next() {
+            Some(SystemUseField::Relocated) => {}
+            other => panic!("expected RE entry, got {:?}", other),
+        }
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_iter_pn_entry() {
+        // PN entry: header(4) + dev_high(8) + dev_low(8) = 20
+        let mut data = vec![b'P', b'N', 20, 1];
+        data.extend_from_slice(&u32_lsb_msb_bytes(8)); // major
+        data.extend_from_slice(&u32_lsb_msb_bytes(1)); // minor
+
+        let mut iter = SystemUseIter::new(&data, 0);
+        match iter.next() {
+            Some(SystemUseField::DeviceNumber(pn)) => {
+                assert_eq!(pn.dev_high.read(), 8);
+                assert_eq!(pn.dev_low.read(), 1);
+            }
+            other => panic!("expected PN entry, got {:?}", other),
+        }
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_iter_mixed_susp_rrip() {
+        let mut data = Vec::new();
+        // SP entry
+        data.extend_from_slice(&[b'S', b'P', 7, 1, 0xBE, 0xEF, 0]);
+        // PX entry (44 bytes)
+        data.extend_from_slice(&[b'P', b'X', 44, 1]);
+        data.extend_from_slice(&u32_lsb_msb_bytes(0o040755)); // dir mode
+        data.extend_from_slice(&u32_lsb_msb_bytes(2));
+        data.extend_from_slice(&u32_lsb_msb_bytes(0));
+        data.extend_from_slice(&u32_lsb_msb_bytes(0));
+        data.extend_from_slice(&u32_lsb_msb_bytes(1));
+        // NM entry for "mydir"
+        data.extend_from_slice(&[b'N', b'M', 10, 1, 0x00]);
+        data.extend_from_slice(b"mydir");
+        // TF entry with MODIFY flag (7 bytes timestamp)
+        data.extend_from_slice(&[b'T', b'F', 12, 1, 0x02]);
+        data.extend_from_slice(&[126, 2, 16, 8, 0, 0, 0]);
+        // ST terminator
+        data.extend_from_slice(&[b'S', b'T', 4, 1]);
+
+        let fields: Vec<_> = SystemUseIter::new(&data, 0).collect();
+        assert_eq!(fields.len(), 5);
+        assert!(matches!(fields[0], SystemUseField::SuspIdentifier(_)));
+        assert!(matches!(fields[1], SystemUseField::PosixAttributes(_)));
+        assert!(matches!(fields[2], SystemUseField::AlternateName(_)));
+        assert!(matches!(fields[3], SystemUseField::Timestamps(_)));
+        assert!(matches!(fields[4], SystemUseField::Terminator));
+
+        // Verify signature() method
+        assert_eq!(fields[0].signature(), *b"SP");
+        assert_eq!(fields[1].signature(), *b"PX");
+        assert_eq!(fields[2].signature(), *b"NM");
+        assert_eq!(fields[3].signature(), *b"TF");
+        assert_eq!(fields[4].signature(), *b"ST");
     }
 }

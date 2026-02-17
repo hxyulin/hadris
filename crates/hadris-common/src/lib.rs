@@ -11,6 +11,9 @@ extern crate std;
 /// Algorithms (requires std for CRC and random)
 #[cfg(feature = "std")]
 pub mod alg;
+/// Path utilities
+#[cfg(feature = "alloc")]
+pub mod path;
 /// Strings (requires alloc for String/Vec)
 #[cfg(feature = "alloc")]
 pub mod str;

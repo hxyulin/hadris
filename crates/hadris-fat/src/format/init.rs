@@ -274,11 +274,10 @@ fn initialize_root_directory<DATA: Write + Seek>(
     let root_dir_offset = match params.fat_type {
         FatType::Fat12 | FatType::Fat16 => {
             // Fixed root directory after FAT tables
-            let fat_end = params.reserved_sectors as u64 * params.sector_size as u64
+            params.reserved_sectors as u64 * params.sector_size as u64
                 + params.fat_count as u64
                     * params.sectors_per_fat as u64
-                    * params.sector_size as u64;
-            fat_end
+                    * params.sector_size as u64
         }
         FatType::Fat32 => {
             // Root directory in cluster 2

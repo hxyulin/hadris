@@ -7,9 +7,14 @@
 //! - Device files (PN entries)
 //! - Deep directory relocation (CL, PL, RE entries)
 
-use crate::susp::{SystemUseEntry, SystemUseHeader};
+use crate::susp::SystemUseHeader;
 use crate::types::U32LsbMsb;
-use hadris_io::{self as io, Read, Writable, Write};
+#[cfg(feature = "std")]
+use {
+    crate::susp::SystemUseEntry,
+    hadris_io::{Writable, Write},
+};
+use hadris_io::{self as io, Read};
 
 #[cfg(feature = "alloc")]
 bitflags::bitflags! {
@@ -122,6 +127,7 @@ impl PxEntry {
     }
 }
 
+#[cfg(feature = "std")]
 impl SystemUseEntry for PxEntry {
     const SIG: &'static [u8; 2] = b"PX";
 
@@ -153,6 +159,7 @@ impl SystemUseEntry for PxEntry {
     }
 }
 
+#[cfg(feature = "std")]
 impl Writable for PxEntry {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         self.header().write(writer)?;
@@ -188,6 +195,7 @@ impl PnEntry {
     }
 }
 
+#[cfg(feature = "std")]
 impl SystemUseEntry for PnEntry {
     const SIG: &'static [u8; 2] = b"PN";
 
@@ -210,6 +218,7 @@ impl SystemUseEntry for PnEntry {
     }
 }
 
+#[cfg(feature = "std")]
 impl Writable for PnEntry {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         self.header().write(writer)?;
@@ -282,7 +291,7 @@ impl NmEntry {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 impl SystemUseEntry for NmEntry {
     const SIG: &'static [u8; 2] = b"NM";
 
@@ -308,7 +317,7 @@ impl SystemUseEntry for NmEntry {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 impl Writable for NmEntry {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         self.header().write(writer)?;
@@ -428,7 +437,7 @@ impl SlEntry {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 impl SystemUseEntry for SlEntry {
     const SIG: &'static [u8; 2] = b"SL";
 
@@ -473,7 +482,7 @@ impl SystemUseEntry for SlEntry {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 impl Writable for SlEntry {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         self.header().write(writer)?;
@@ -540,7 +549,7 @@ impl TfEntry {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 impl SystemUseEntry for TfEntry {
     const SIG: &'static [u8; 2] = b"TF";
 
@@ -566,7 +575,7 @@ impl SystemUseEntry for TfEntry {
     }
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 impl Writable for TfEntry {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         self.header().write(writer)?;
@@ -593,6 +602,7 @@ impl ClEntry {
     }
 }
 
+#[cfg(feature = "std")]
 impl SystemUseEntry for ClEntry {
     const SIG: &'static [u8; 2] = b"CL";
 
@@ -614,6 +624,7 @@ impl SystemUseEntry for ClEntry {
     }
 }
 
+#[cfg(feature = "std")]
 impl Writable for ClEntry {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         self.header().write(writer)?;
@@ -639,6 +650,7 @@ impl PlEntry {
     }
 }
 
+#[cfg(feature = "std")]
 impl SystemUseEntry for PlEntry {
     const SIG: &'static [u8; 2] = b"PL";
 
@@ -660,6 +672,7 @@ impl SystemUseEntry for PlEntry {
     }
 }
 
+#[cfg(feature = "std")]
 impl Writable for PlEntry {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         self.header().write(writer)?;
@@ -674,6 +687,7 @@ impl Writable for PlEntry {
 #[derive(Debug, Clone, Copy)]
 pub struct ReEntry;
 
+#[cfg(feature = "std")]
 impl SystemUseEntry for ReEntry {
     const SIG: &'static [u8; 2] = b"RE";
 
@@ -690,6 +704,7 @@ impl SystemUseEntry for ReEntry {
     }
 }
 
+#[cfg(feature = "std")]
 impl Writable for ReEntry {
     fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         self.header().write(writer)

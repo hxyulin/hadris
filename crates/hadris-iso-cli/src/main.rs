@@ -15,6 +15,7 @@ fn main() {
         Command::Create(args) => commands::create(args),
         Command::Verify(args) => commands::verify(args),
         Command::Mkisofs(args) => commands::mkisofs(args),
+        Command::Cat(args) => commands::cat(args),
     };
 
     if let Err(e) = result {

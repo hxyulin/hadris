@@ -335,7 +335,7 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
             self.update_entry_size_and_cluster(entry, 0, Cluster(0), fixed_root)?;
         } else {
             // Calculate which cluster to keep
-            let clusters_needed = (new_size + cluster_size - 1) / cluster_size;
+            let clusters_needed = new_size.div_ceil(cluster_size);
 
             // Walk chain to find the last cluster to keep
             let mut current = first_cluster;
@@ -869,7 +869,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     /// This updates the free cluster count and next free cluster hint in the
     /// FSInfo sector. For FAT12/16 filesystems, this is a no-op.
     fn write_fsinfo(&self) -> Result<()> {
-        use crate::{FatFsExt, RawFsInfo};
+        use crate::fs::FatFsExt;
+        use crate::raw::RawFsInfo;
 
         let ext = match &self.ext {
             FatFsExt::Fat32(ext) => ext,
@@ -901,7 +902,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// This only affects FAT32 filesystems.
     pub(crate) fn decrement_free_count(&self) {
-        use crate::FatFsExt;
+        use crate::fs::FatFsExt;
 
         if let FatFsExt::Fat32(ext) = &self.ext {
             let count = ext.free_count.get();
@@ -915,7 +916,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// This only affects FAT32 filesystems.
     pub(crate) fn increment_free_count(&self, amount: u32) {
-        use crate::FatFsExt;
+        use crate::fs::FatFsExt;
 
         if let FatFsExt::Fat32(ext) = &self.ext {
             let count = ext.free_count.get();
@@ -929,7 +930,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// This only affects FAT32 filesystems.
     pub(crate) fn update_next_free_hint(&self, cluster: u32) {
-        use crate::FatFsExt;
+        use crate::fs::FatFsExt;
 
         if let FatFsExt::Fat32(ext) = &self.ext {
             // Set hint to the cluster after the one just allocated
@@ -941,7 +942,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// Returns `None` for FAT12/16 filesystems or if the count is unknown (0xFFFFFFFF).
     pub fn free_cluster_count(&self) -> Option<u32> {
-        use crate::FatFsExt;
+        use crate::fs::FatFsExt;
 
         match &self.ext {
             FatFsExt::Fat32(ext) => {
@@ -960,7 +961,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// Returns `None` for FAT12/16 filesystems or if the hint is unknown.
     pub fn next_free_cluster_hint(&self) -> Option<u32> {
-        use crate::FatFsExt;
+        use crate::fs::FatFsExt;
 
         match &self.ext {
             FatFsExt::Fat32(ext) => {

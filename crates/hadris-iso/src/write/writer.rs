@@ -1,9 +1,10 @@
-use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
+use alloc::{collections::BTreeMap, collections::VecDeque, string::String, sync::Arc, vec::Vec};
 use hadris_common::types::endian::EndianType;
 use hadris_common::types::file::FixedFilename;
 use hadris_io::{self as io, Write};
 
 use crate::file::{EntryType, FilenameL1, FilenameL2, FilenameL3};
+use crate::io::LogicalSector;
 use crate::path::PathTableEntryHeader;
 use crate::read::PathSeparator;
 use crate::types::{Charset, CharsetD, CharsetD1};
@@ -31,6 +32,12 @@ pub struct WrittenFiles {
     root: WrittenDirectory,
 }
 
+impl Default for WrittenFiles {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WrittenFiles {
     pub fn new() -> Self {
         Self {
@@ -43,10 +50,7 @@ impl WrittenFiles {
             indices: Vec::new(),
         };
         // Split on both separators for cross-platform compatibility
-        let mut parts: Vec<&str> = name
-            .split(|c| c == '/' || c == '\\')
-            .filter(|s| !s.is_empty())
-            .collect();
+        let mut parts: Vec<&str> = name.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
         // Empty path, not a valid file
         let filename = parts.pop()?;
         'outer: for part in parts {
@@ -327,44 +331,69 @@ pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
 
 pub fn convert_joliet3(name: &str) -> FixedFilename<207> {
     let mut j1 = FixedFilename::empty();
-    let mut written = 0;
-    for c in name.encode_utf16() {
+    for (written, c) in name.encode_utf16().enumerate() {
         if written >= 206 / 2 {
             // We reached the maximum we can write
             break;
         }
         let bytes = c.to_be_bytes();
         j1.push_slice(&bytes);
-        written += 1;
     }
 
     j1
 }
 
 pub(crate) struct PathTableWriter<'a> {
-    pub written_files: &'a mut WrittenFiles,
+    pub written_files: &'a WrittenFiles,
     pub ty: EntryType,
     pub endian: EndianType,
 }
 
+/// Write a single path table record.
+fn write_pt_record<DATA: Write>(
+    data: &mut DATA,
+    endian: &EndianType,
+    parent_number: u16,
+    extent: LogicalSector,
+    name: &[u8],
+) -> io::Result<()> {
+    let header = PathTableEntryHeader {
+        len: name.len() as u8,
+        extended_attr_record: 0,
+        parent_directory_number: endian.u16_bytes(parent_number),
+        parent_lba: endian.u32_bytes(extent.0 as u32),
+    };
+    data.write_all(bytemuck::bytes_of(&header))?;
+    data.write_all(name)?;
+    if !name.len().is_multiple_of(2) {
+        data.write_all(&[0x00])?; // padding to even
+    }
+    Ok(())
+}
+
 impl PathTableWriter<'_> {
     pub fn write<DATA: Write>(&mut self, data: &mut DATA) -> io::Result<()> {
-        let current_number = 1;
-        let dir_id = self.written_files.root_dir();
-        {
-            // Write root directory
-            let dir = self.written_files.get(&dir_id);
-            let header = PathTableEntryHeader {
-                len: 1,
-                extended_attr_record: 0,
-                parent_directory_number: self.endian.u16_bytes(current_number),
-                parent_lba: self
-                    .endian
-                    .u32_bytes(dir.entries.get(&self.ty).unwrap().extent.0 as u32),
-            };
-            data.write_all(bytemuck::bytes_of(&header))?;
-            // '\x00' for the root directory, and one byte for padding
-            data.write_all(&[0x00, 0x00])?;
+        // BFS queue: (directory_ref, parent_number)
+        // ISO 9660 requires path table entries in breadth-first order.
+        let mut queue: VecDeque<(&WrittenDirectory, u16)> = VecDeque::new();
+        let mut current_number: u16 = 1;
+
+        // Root entry (parent = 1, i.e. itself)
+        let root = &self.written_files.root;
+        let root_extent = *root.entries.get(&self.ty).unwrap();
+        write_pt_record(data, &self.endian, 1, root_extent.extent, &[0x00])?;
+        queue.push_back((root, 1));
+
+        while let Some((dir, parent_num)) = queue.pop_front() {
+            let my_number = parent_num;
+            for child_dir in &dir.dirs {
+                current_number += 1;
+                let name = self.ty.convert_name(&child_dir.name);
+                let name_bytes = name.as_bytes();
+                let extent = child_dir.entries.get(&self.ty).unwrap().extent;
+                write_pt_record(data, &self.endian, my_number, extent, name_bytes)?;
+                queue.push_back((child_dir, current_number));
+            }
         }
         Ok(())
     }

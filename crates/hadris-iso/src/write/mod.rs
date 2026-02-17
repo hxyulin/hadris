@@ -1,6 +1,7 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::fmt;
 
+pub mod estimator;
 pub mod writer;
 
 use crate::{
@@ -9,7 +10,7 @@ use crate::{
     file::EntryType,
     io::{IsoCursor, LogicalSector},
     joliet::JolietLevel,
-    path::{PathTableEntryHeader, PathTableRef},
+    path::PathTableRef,
     read::PathSeparator,
     rrip::RripBuilder,
     susp::SplitSu,
@@ -193,38 +194,120 @@ fn available_su_space(iso_name_len: usize) -> usize {
 /// so that `build_split` keeps the important ones inline and overflows
 /// the rest via a CE pointer.
 fn build_rrip_entries(kind: RripEntryKind<'_>, inode: u32) -> RripBuilder {
+    use crate::directory::DirDateTime;
+
     let mut builder = RripBuilder::new();
+    let now = DirDateTime::now();
+    let now_bytes: &[u8; 7] = bytemuck::bytes_of(&now).try_into().unwrap();
 
     match &kind {
         RripEntryKind::RootDot => {
             builder.add_sp(0);
             builder.add_px(0o040755, 2, 0, 0, inode);
             builder.add_nm_current();
+            builder.add_tf_short(now_bytes, now_bytes);
             builder.add_rrip_er(); // full ER, last (largest)
         }
         RripEntryKind::RootDotDot => {
             builder.add_px(0o040755, 2, 0, 0, inode);
             builder.add_nm_parent();
+            builder.add_tf_short(now_bytes, now_bytes);
         }
         RripEntryKind::Dot => {
             builder.add_px(0o040755, 2, 0, 0, inode);
             builder.add_nm_current();
+            builder.add_tf_short(now_bytes, now_bytes);
         }
         RripEntryKind::DotDot => {
             builder.add_px(0o040755, 2, 0, 0, inode);
             builder.add_nm_parent();
+            builder.add_tf_short(now_bytes, now_bytes);
         }
         RripEntryKind::Directory { original_name } => {
             builder.add_px(0o040755, 2, 0, 0, inode);
             builder.add_nm(original_name.as_bytes());
+            builder.add_tf_short(now_bytes, now_bytes);
         }
         RripEntryKind::File { original_name } => {
             builder.add_px(0o100644, 1, 0, 0, inode);
             builder.add_nm(original_name.as_bytes());
+            builder.add_tf_short(now_bytes, now_bytes);
         }
     }
 
     builder
+}
+
+/// Apply a deduplication suffix to a name, producing e.g. `READM_1.TXT;1`.
+///
+/// The suffix `_N` is inserted before the extension (and before any `;1` version
+/// suffix). The basename is truncated if needed to stay within format limits.
+fn apply_dedup_suffix(name: &[u8], n: usize, ty: EntryType) -> Vec<u8> {
+    let suffix = alloc::format!("_{}", n);
+    let suffix_bytes = suffix.as_bytes();
+
+    match ty {
+        EntryType::Joliet { .. } => {
+            // Joliet: UTF-16 BE, find the dot (0x00 0x2E) or end
+            let mut dot_pos = None;
+            let mut i = 0;
+            while i + 1 < name.len() {
+                if name[i] == 0x00 && name[i + 1] == 0x2E {
+                    dot_pos = Some(i);
+                }
+                i += 2;
+            }
+            let (basename, ext) = match dot_pos {
+                Some(pos) => (&name[..pos], &name[pos..]),
+                None => (name, &[][..]),
+            };
+            // Convert suffix to UTF-16 BE
+            let suffix_u16: Vec<u8> = suffix
+                .encode_utf16()
+                .flat_map(|c| c.to_be_bytes())
+                .collect();
+            // Max 206 bytes (103 code units) for Joliet
+            let max_basename = 206usize.saturating_sub(ext.len() + suffix_u16.len());
+            let trunc_basename = &basename[..basename.len().min(max_basename) & !1];
+            let mut result =
+                Vec::with_capacity(trunc_basename.len() + suffix_u16.len() + ext.len());
+            result.extend_from_slice(trunc_basename);
+            result.extend_from_slice(&suffix_u16);
+            result.extend_from_slice(ext);
+            result
+        }
+        _ => {
+            // ASCII-based names (L1, L2, L3)
+            // Strip ";1" version suffix if present
+            let (base_name, version) = if name.ends_with(b";1") {
+                (&name[..name.len() - 2], &b";1"[..])
+            } else {
+                (name, &[][..])
+            };
+            // Find the dot separator
+            let dot_pos = base_name.iter().rposition(|&b| b == b'.');
+            let (basename, ext) = match dot_pos {
+                Some(pos) => (&base_name[..pos], &base_name[pos..]),
+                None => (base_name, &[][..]),
+            };
+            // Determine max basename length based on level
+            let max_total = match ty {
+                EntryType::Level1 { .. } => 8,
+                EntryType::Level2 { .. } => 30usize.saturating_sub(ext.len()),
+                _ => 207usize.saturating_sub(ext.len() + version.len()),
+            };
+            let max_basename = max_total.saturating_sub(suffix_bytes.len());
+            let trunc_basename = &basename[..basename.len().min(max_basename)];
+            let mut result = Vec::with_capacity(
+                trunc_basename.len() + suffix_bytes.len() + ext.len() + version.len(),
+            );
+            result.extend_from_slice(trunc_basename);
+            result.extend_from_slice(suffix_bytes);
+            result.extend_from_slice(ext);
+            result.extend_from_slice(version);
+            result
+        }
+    }
 }
 
 /// A pending directory record, built in phase 1 and written in phases 2-3.
@@ -327,12 +410,20 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             for (section, entry) in boot.sections() {
                 let dir_ref = self
                     .written_files
-                    .find_file(&entry.boot_image_path, self.ops.path_seperator)
-                    .expect("failed to find boot image file");
+                    .find_file(&entry.boot_image_path, self.ops.path_separator)
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::NotFound,
+                            alloc::format!(
+                                "boot image file not found: {}",
+                                entry.boot_image_path
+                            ),
+                        )
+                    })?;
                 let load_size = entry
                     .load_size
                     .map(core::num::NonZeroU16::get)
-                    .unwrap_or_else(|| ((dir_ref.size + 511) / 512) as u16);
+                    .unwrap_or_else(|| dir_ref.size.div_ceil(512) as u16);
                 let boot_image_lba = dir_ref.extent.0 as u32;
                 let boot_entry =
                     BootSectionEntry::new(entry.emulation, 0, load_size, boot_image_lba);
@@ -396,10 +487,24 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             if boot.write_boot_catalog {
                 let dir_ref = self
                     .written_files
-                    .find_file("boot.catalog", self.ops.path_seperator)
-                    .expect("failed to find boot image file");
+                    .find_file("boot.catalog", self.ops.path_separator)
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::NotFound,
+                            "boot.catalog file not found in written files",
+                        )
+                    })?;
                 self.data.seek_sector(dir_ref.extent)?;
-                assert!(dir_ref.size >= catalog.size());
+                if dir_ref.size < catalog.size() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        alloc::format!(
+                            "boot.catalog file too small: {} bytes, need {}",
+                            dir_ref.size,
+                            catalog.size()
+                        ),
+                    ));
+                }
                 catalog.write(&mut self.data)?;
                 self.data.seek_sector(current_sector)?;
 
@@ -417,8 +522,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let end_sector = self.data.pad_align_sector()?;
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START)?;
 
-        // TODO: How do we handle non-2048 byte sector sizes?
-        let mut buffer = [0u8; 2048];
+        let mut buffer = vec![0u8; self.ops.sector_size];
         loop {
             self.data.read_exact(&mut buffer)?;
             let header = VolumeDescriptorHeader::from_bytes(&buffer[0..7]);
@@ -426,7 +530,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             if let VolumeDescriptorType::VolumeSetTerminator = ty {
                 break;
             }
-            assert!(header.is_valid());
+            if !header.is_valid() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid volume descriptor header during finalization",
+                ));
+            }
 
             match ty {
                 VolumeDescriptorType::PrimaryVolumeDescriptor => {
@@ -434,9 +543,24 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                         .entry_types
                         .iter()
                         .find(|e| matches!(e, EntryType::Level1 { .. } | EntryType::Level2 { .. }))
-                        .expect("failed to find base Level");
-                    let root_dir = root_dirs.get(base_type).unwrap();
-                    let pt = self.path_tables.get(base_type).unwrap();
+                        .ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "no base Level entry type found for PVD",
+                            )
+                        })?;
+                    let root_dir = root_dirs.get(base_type).ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "root directory not found for PVD entry type",
+                        )
+                    })?;
+                    let pt = self.path_tables.get(base_type).ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "path table not found for PVD entry type",
+                        )
+                    })?;
                     let pvd = bytemuck::from_bytes_mut::<PrimaryVolumeDescriptor>(&mut buffer);
                     pvd.dir_record.header.extent.write(root_dir.extent.0 as u32);
                     pvd.dir_record.header.data_len.write(root_dir.size as u32);
@@ -452,15 +576,21 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                         1 => {
                             for &level in JolietLevel::all() {
                                 if svd.escape_sequences == level.escape_sequence() {
-                                    let joliet = self
+                                    let Some(joliet) = self
                                         .entry_types
                                         .iter()
                                         .find(
                                             |e| matches!(e, EntryType::Joliet{ level: jl, ..} if *jl == level),
                                         )
-                                        .expect("joliet not found in entries!");
-                                    let root_dir = root_dirs.get(joliet).unwrap();
-                                    let pt = self.path_tables.get(joliet).unwrap();
+                                    else {
+                                        continue;
+                                    };
+                                    let Some(root_dir) = root_dirs.get(joliet) else {
+                                        continue;
+                                    };
+                                    let Some(pt) = self.path_tables.get(joliet) else {
+                                        continue;
+                                    };
 
                                     svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
                                     svd.dir_record.header.data_len.write(root_dir.size as u32);
@@ -477,12 +607,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                                 continue;
                             }
 
-                            let l3 = self
+                            let Some(l3) = self
                                 .entry_types
                                 .iter()
                                 .find(|e| matches!(e, EntryType::Level3 { .. }))
-                                .unwrap();
-                            let root_dir = root_dirs.get(l3).unwrap();
+                            else {
+                                continue;
+                            };
+                            let Some(root_dir) = root_dirs.get(l3) else {
+                                continue;
+                            };
                             svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
                             svd.dir_record.header.data_len.write(root_dir.size as u32);
                             svd.volume_space_size.write(end_sector.0 as u32);
@@ -493,8 +627,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     }
                 }
                 VolumeDescriptorType::BootRecord => {
-                    let catalog_ptr =
-                        catalog_ptr.expect("image with boot record should have a catalog");
+                    let Some(catalog_ptr) = catalog_ptr else {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "boot record found but no boot catalog was written",
+                        ));
+                    };
                     let boot_record =
                         bytemuck::from_bytes_mut::<BootRecordVolumeDescriptor>(&mut buffer);
                     boot_record.catalog_ptr.set(catalog_ptr);
@@ -505,7 +643,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
             // Write the new data
             self.data.seek_relative(-(buffer.len() as i64))?;
-            self.data.write(&buffer)?;
+            self.data.write_all(&buffer)?;
         }
 
         // Now we finalize the partition tables based on hybrid boot options
@@ -516,16 +654,28 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
     fn write_files(&mut self, files: &InputFiles) -> io::Result<BTreeMap<EntryType, DirectoryRef>> {
         let roots = {
-            let mut files = FileTreeWalker::new(files);
+            let files = FileTreeWalker::new(files);
             let mut current_dir = self.written_files.root_dir();
-            while let Some(file) = files.next() {
+            let mut depth: u32 = 1; // root = level 1
+            for file in files {
                 match file {
                     TreeWalkerItem::EnterDirectory(dir) => {
+                        depth += 1;
+                        if depth > 8 {
+                            return Err(io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                alloc::format!(
+                                    "Directory depth {} exceeds ISO 9660 limit of 8",
+                                    depth
+                                ),
+                            ));
+                        }
                         let name = dir.name();
                         let dir = self.written_files.get_mut(&current_dir);
                         current_dir.push(dir.push_dir(name));
                     }
                     TreeWalkerItem::ExitDirectory(_dir) => {
+                        depth -= 1;
                         let dir = self.written_files.get_mut(&current_dir);
                         for &level in &self.entry_types {
                             Self::write_directory(
@@ -550,7 +700,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                                 }
                             } else {
                                 let start = self.data.pad_align_sector()?;
-                                self.data.write_all(&contents)?;
+                                self.data.write_all(contents)?;
                                 DirectoryRef {
                                     extent: start,
                                     size: contents.len(),
@@ -576,7 +726,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         };
 
         let pos = self.data.stream_position()?;
-        for (_ty, root) in &roots {
+        for root in roots.values() {
             self.update_directory(*root, *root)?;
         }
         // We need to seek back to this position
@@ -603,43 +753,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    fn write_pt_entry(
-        &mut self,
-        path: &Vec<Arc<String>>,
-        parent_ref: &DirectoryRef,
-        parent_number: u16,
-        endian: EndianType,
-    ) -> io::Result<()> {
-        // We add 1 for each path component for the leading slash, but we don't start with one, so
-        // we remove 1
-        let total_len: usize = path.iter().map(|s| s.len() + 1).sum::<usize>() - 1;
-        let header = PathTableEntryHeader {
-            len: total_len as u8,
-            extended_attr_record: 0,
-            parent_directory_number: endian.u16_bytes(parent_number),
-            parent_lba: endian.u32_bytes(parent_ref.extent.0 as u32),
-        };
-        self.data.write_all(bytemuck::bytes_of(&header))?;
-        let mut is_first = true;
-        for part in path {
-            if !is_first {
-                self.data.write_all(&[b'/'])?;
-            } else {
-                is_first = false;
-            }
-            self.data.write_all(part.as_bytes())?;
-        }
-        if total_len % 2 == 1 {
-            self.data.write_all(&[0])?;
-        }
-        Ok(())
-    }
-
     fn write_path_table(&mut self, ty: EntryType, endian: EndianType) -> io::Result<DirectoryRef> {
         let start = self.data.pad_align_sector()?;
         PathTableWriter {
-            written_files: &mut self.written_files,
+            written_files: &self.written_files,
             ty,
             endian,
         }
@@ -702,11 +819,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         });
 
         // Inject bootstrap code if provided
-        if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot {
-            if let Some(ref bootstrap) = hybrid_opts.mbr_bootstrap {
-                let len = bootstrap.len().min(446);
-                mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
-            }
+        if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot
+            && let Some(ref bootstrap) = hybrid_opts.mbr_bootstrap
+        {
+            let len = bootstrap.len().min(446);
+            mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
         }
 
         self.data.seek(SeekFrom::Start(0))?;
@@ -737,11 +854,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         });
 
         // Inject bootstrap code if provided
-        if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot {
-            if let Some(ref bootstrap) = hybrid_opts.mbr_bootstrap {
-                let len = bootstrap.len().min(446);
-                mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
-            }
+        if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot
+            && let Some(ref bootstrap) = hybrid_opts.mbr_bootstrap
+        {
+            let len = bootstrap.len().min(446);
+            mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
         }
 
         self.data.seek(SeekFrom::Start(0))?;
@@ -842,11 +959,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, alloc::format!("{:?}", e)))?;
 
         // Inject bootstrap code if provided
-        if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot {
-            if let Some(ref bootstrap) = hybrid_opts.mbr_bootstrap {
-                let len = bootstrap.len().min(446);
-                mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
-            }
+        if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot
+            && let Some(ref bootstrap) = hybrid_opts.mbr_bootstrap
+        {
+            let len = bootstrap.len().min(446);
+            mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
         }
 
         // Write hybrid MBR
@@ -1119,6 +1236,26 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             });
         }
 
+        // ── Phase 1.5: Deduplicate names ──
+        // Name mangling can map different original names to the same ISO name.
+        // e.g., "readme.txt" and "README.txt" both become "README.TXT;1".
+        // Resolve collisions with underscore-based suffixes.
+        {
+            use std::collections::HashMap;
+            let mut seen: HashMap<Vec<u8>, usize> = HashMap::new();
+            for record in &mut records {
+                // Skip dot/dotdot entries
+                if record.name.len() == 1 && (record.name[0] == 0x00 || record.name[0] == 0x01) {
+                    continue;
+                }
+                let count = seen.entry(record.name.clone()).or_insert(0);
+                *count += 1;
+                if *count > 1 {
+                    record.name = apply_dedup_suffix(&record.name, *count - 1, ty);
+                }
+            }
+        }
+
         // ── Phase 2: Write continuation area if any records have overflow ──
 
         let has_overflow = records.iter().any(|r| r.split.has_overflow());
@@ -1195,35 +1332,27 @@ impl<'a> Iterator for FileTreeWalker<'a> {
     type Item = TreeWalkerItem<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(frame) = self.stack.pop_back() {
-            match frame {
-                StackFrame::Node(file) => {
-                    match file {
-                        File::File { .. } => {
-                            return Some(TreeWalkerItem::File(file));
-                        }
-                        File::Directory { children, .. } => {
-                            // Yield that we are entering this directory (pre-order event)
-                            let current_dir = file;
+        let frame = self.stack.pop_back()?;
+        match frame {
+            StackFrame::Node(file) => match file {
+                File::File { .. } => Some(TreeWalkerItem::File(file)),
+                File::Directory { children, .. } => {
+                    // Yield that we are entering this directory (pre-order event)
+                    let current_dir = file;
 
-                            // Push an Exit frame to signal leaving this directory later
-                            self.stack.push_back(StackFrame::DirExit(current_dir));
+                    // Push an Exit frame to signal leaving this directory later
+                    self.stack.push_back(StackFrame::DirExit(current_dir));
 
-                            // Push children in reverse order for DFS
-                            for child in children.iter().rev() {
-                                self.stack.push_back(StackFrame::Node(child));
-                            }
-
-                            return Some(TreeWalkerItem::EnterDirectory(current_dir));
-                        }
+                    // Push children in reverse order for DFS
+                    for child in children.iter().rev() {
+                        self.stack.push_back(StackFrame::Node(child));
                     }
+
+                    Some(TreeWalkerItem::EnterDirectory(current_dir))
                 }
-                StackFrame::DirExit(dir) => {
-                    return Some(TreeWalkerItem::ExitDirectory(dir));
-                }
-            }
+            },
+            StackFrame::DirExit(dir) => Some(TreeWalkerItem::ExitDirectory(dir)),
         }
-        None
     }
 }
 
@@ -1304,5 +1433,59 @@ mod tests {
 
         // Assert that the actual sequence matches the expected sequence
         assert_eq!(actual_sequence, expected_sequence);
+    }
+
+    #[test]
+    fn test_dedup_suffix_l1_with_ext() {
+        let ty = EntryType::Level1 {
+            supports_lowercase: false,
+            supports_rrip: false,
+        };
+        let result = apply_dedup_suffix(b"README.TXT;1", 1, ty);
+        assert_eq!(result, b"README_1.TXT;1");
+    }
+
+    #[test]
+    fn test_dedup_suffix_l1_no_ext() {
+        let ty = EntryType::Level1 {
+            supports_lowercase: false,
+            supports_rrip: false,
+        };
+        let result = apply_dedup_suffix(b"FILENAME;1", 1, ty);
+        assert_eq!(result, b"FILENA_1;1");
+    }
+
+    #[test]
+    fn test_dedup_suffix_l2() {
+        let ty = EntryType::Level2 {
+            supports_lowercase: false,
+            supports_rrip: false,
+        };
+        let result = apply_dedup_suffix(b"LONGFILENAME.EXT;1", 2, ty);
+        assert_eq!(result, b"LONGFILENAME_2.EXT;1");
+    }
+
+    #[test]
+    fn test_dedup_suffix_l3_no_version() {
+        let ty = EntryType::Level3 {
+            supports_lowercase: false,
+            supports_rrip: false,
+        };
+        let result = apply_dedup_suffix(b"README.TXT", 1, ty);
+        assert_eq!(result, b"README_1.TXT");
+    }
+
+    #[test]
+    fn test_dedup_suffix_distinct() {
+        let ty = EntryType::Level1 {
+            supports_lowercase: false,
+            supports_rrip: false,
+        };
+        let r1 = apply_dedup_suffix(b"README.TXT;1", 1, ty);
+        let r2 = apply_dedup_suffix(b"README.TXT;1", 2, ty);
+        let r3 = apply_dedup_suffix(b"README.TXT;1", 3, ty);
+        assert_ne!(r1, r2);
+        assert_ne!(r2, r3);
+        assert_ne!(r1, r3);
     }
 }
