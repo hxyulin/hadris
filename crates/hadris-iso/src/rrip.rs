@@ -7,14 +7,11 @@
 //! - Device files (PN entries)
 //! - Deep directory relocation (CL, PL, RE entries)
 
-use crate::susp::SystemUseHeader;
+use super::susp::SystemUseHeader;
 use crate::types::U32LsbMsb;
 #[cfg(feature = "std")]
-use {
-    crate::susp::SystemUseEntry,
-    hadris_io::{Writable, Write},
-};
-use hadris_io::{self as io, Read};
+use super::io::{Writable, Write};
+use super::io::{self, Read};
 
 #[cfg(feature = "alloc")]
 bitflags::bitflags! {
@@ -128,43 +125,13 @@ impl PxEntry {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for PxEntry {
-    const SIG: &'static [u8; 2] = b"PX";
-
-    fn header(&self) -> SystemUseHeader {
+impl PxEntry {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
-            length: 44, // 4 + 8*5 = 44 bytes with serial, 36 without
+            sig: *b"PX",
+            length: 44,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
-        debug_assert_eq!(&header.sig, Self::SIG);
-        let mut buf = [0u8; 40];
-        let len = (header.length as usize).saturating_sub(4).min(40);
-        data.read_exact(&mut buf[..len])?;
-
-        Ok(Self {
-            file_mode: *bytemuck::from_bytes(&buf[0..8]),
-            file_links: *bytemuck::from_bytes(&buf[8..16]),
-            file_uid: *bytemuck::from_bytes(&buf[16..24]),
-            file_gid: *bytemuck::from_bytes(&buf[24..32]),
-            file_serial: if len >= 40 {
-                *bytemuck::from_bytes(&buf[32..40])
-            } else {
-                U32LsbMsb::new(0)
-            },
-        })
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for PxEntry {
-    fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        self.header().write(writer)?;
-        writer.write_all(bytemuck::bytes_of(self))?;
-        Ok(())
     }
 }
 
@@ -196,34 +163,13 @@ impl PnEntry {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for PnEntry {
-    const SIG: &'static [u8; 2] = b"PN";
-
-    fn header(&self) -> SystemUseHeader {
+impl PnEntry {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
-            length: 20, // 4 + 8 + 8
+            sig: *b"PN",
+            length: 20,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
-        debug_assert_eq!(&header.sig, Self::SIG);
-        let mut buf = [0u8; 16];
-        data.read_exact(&mut buf)?;
-        Ok(Self {
-            dev_high: *bytemuck::from_bytes(&buf[0..8]),
-            dev_low: *bytemuck::from_bytes(&buf[8..16]),
-        })
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for PnEntry {
-    fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        self.header().write(writer)?;
-        writer.write_all(bytemuck::bytes_of(self))?;
-        Ok(())
     }
 }
 
@@ -292,38 +238,13 @@ impl NmEntry {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for NmEntry {
-    const SIG: &'static [u8; 2] = b"NM";
-
-    fn header(&self) -> SystemUseHeader {
+impl NmEntry {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"NM",
             length: self.size() as u8,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
-        debug_assert_eq!(&header.sig, Self::SIG);
-        let mut flags_byte = [0u8; 1];
-        data.read_exact(&mut flags_byte)?;
-        let name_len = (header.length as usize).saturating_sub(5);
-        let mut name = alloc::vec![0u8; name_len];
-        data.read_exact(&mut name)?;
-        Ok(Self {
-            flags: NmFlags::from_bits_truncate(flags_byte[0]),
-            name,
-        })
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for NmEntry {
-    fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        self.header().write(writer)?;
-        writer.write_all(&[self.flags.bits()])?;
-        writer.write_all(&self.name)?;
-        Ok(())
     }
 }
 
@@ -438,60 +359,13 @@ impl SlEntry {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for SlEntry {
-    const SIG: &'static [u8; 2] = b"SL";
-
-    fn header(&self) -> SystemUseHeader {
+impl SlEntry {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"SL",
             length: self.size() as u8,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
-        debug_assert_eq!(&header.sig, Self::SIG);
-        let mut flags = [0u8; 1];
-        data.read_exact(&mut flags)?;
-
-        let mut remaining = (header.length as usize).saturating_sub(5);
-        let mut components = alloc::vec::Vec::new();
-
-        while remaining >= 2 {
-            let mut comp_header = [0u8; 2];
-            data.read_exact(&mut comp_header)?;
-            remaining -= 2;
-
-            let comp_flags = SlComponentFlags::from_bits_truncate(comp_header[0]);
-            let comp_len = comp_header[1] as usize;
-
-            let mut content = alloc::vec![0u8; comp_len.min(remaining)];
-            data.read_exact(&mut content)?;
-            remaining -= content.len();
-
-            components.push(SlComponent {
-                flags: comp_flags,
-                content,
-            });
-        }
-
-        Ok(Self {
-            flags: flags[0],
-            components,
-        })
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for SlEntry {
-    fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        self.header().write(writer)?;
-        writer.write_all(&[self.flags])?;
-        for component in &self.components {
-            writer.write_all(&[component.flags.bits(), component.content.len() as u8])?;
-            writer.write_all(&component.content)?;
-        }
-        Ok(())
     }
 }
 
@@ -550,38 +424,13 @@ impl TfEntry {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for TfEntry {
-    const SIG: &'static [u8; 2] = b"TF";
-
-    fn header(&self) -> SystemUseHeader {
+impl TfEntry {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"TF",
             length: self.size() as u8,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
-        debug_assert_eq!(&header.sig, Self::SIG);
-        let mut flags_byte = [0u8; 1];
-        data.read_exact(&mut flags_byte)?;
-        let flags = TfFlags::from_bits_truncate(flags_byte[0]);
-
-        let ts_len = (header.length as usize).saturating_sub(5);
-        let mut timestamps = alloc::vec![0u8; ts_len];
-        data.read_exact(&mut timestamps)?;
-
-        Ok(Self { flags, timestamps })
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for TfEntry {
-    fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        self.header().write(writer)?;
-        writer.write_all(&[self.flags.bits()])?;
-        writer.write_all(&self.timestamps)?;
-        Ok(())
     }
 }
 
@@ -603,33 +452,13 @@ impl ClEntry {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for ClEntry {
-    const SIG: &'static [u8; 2] = b"CL";
-
-    fn header(&self) -> SystemUseHeader {
+impl ClEntry {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"CL",
             length: 12,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
-        debug_assert_eq!(&header.sig, Self::SIG);
-        let mut buf = [0u8; 8];
-        data.read_exact(&mut buf)?;
-        Ok(Self {
-            child_directory_location: *bytemuck::from_bytes(&buf),
-        })
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for ClEntry {
-    fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        self.header().write(writer)?;
-        writer.write_all(bytemuck::bytes_of(&self.child_directory_location))?;
-        Ok(())
     }
 }
 
@@ -651,33 +480,13 @@ impl PlEntry {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for PlEntry {
-    const SIG: &'static [u8; 2] = b"PL";
-
-    fn header(&self) -> SystemUseHeader {
+impl PlEntry {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"PL",
             length: 12,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
-        debug_assert_eq!(&header.sig, Self::SIG);
-        let mut buf = [0u8; 8];
-        data.read_exact(&mut buf)?;
-        Ok(Self {
-            parent_directory_location: *bytemuck::from_bytes(&buf),
-        })
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for PlEntry {
-    fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        self.header().write(writer)?;
-        writer.write_all(bytemuck::bytes_of(&self.parent_directory_location))?;
-        Ok(())
     }
 }
 
@@ -688,28 +497,212 @@ impl Writable for PlEntry {
 pub struct ReEntry;
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for ReEntry {
-    const SIG: &'static [u8; 2] = b"RE";
-
-    fn header(&self) -> SystemUseHeader {
+impl ReEntry {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"RE",
             length: 4,
             version: 1,
         }
     }
+}
 
-    fn parse_data<R: Read>(_header: SystemUseHeader, _data: &mut R) -> io::Result<Self> {
-        Ok(Self)
+io_transform! {
+#[cfg(feature = "std")]
+impl Writable for PxEntry {
+    async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.header().write(writer).await?;
+        writer.write_all(bytemuck::bytes_of(self)).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl PxEntry {
+    pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        let mut buf = [0u8; 40];
+        let len = (header.length as usize).saturating_sub(4).min(40);
+        data.read_exact(&mut buf[..len]).await?;
+
+        Ok(Self {
+            file_mode: *bytemuck::from_bytes(&buf[0..8]),
+            file_links: *bytemuck::from_bytes(&buf[8..16]),
+            file_uid: *bytemuck::from_bytes(&buf[16..24]),
+            file_gid: *bytemuck::from_bytes(&buf[24..32]),
+            file_serial: if len >= 40 {
+                *bytemuck::from_bytes(&buf[32..40])
+            } else {
+                U32LsbMsb::new(0)
+            },
+        })
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for PnEntry {
+    async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.header().write(writer).await?;
+        writer.write_all(bytemuck::bytes_of(self)).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl PnEntry {
+    pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        let mut buf = [0u8; 16];
+        data.read_exact(&mut buf).await?;
+        Ok(Self {
+            dev_high: *bytemuck::from_bytes(&buf[0..8]),
+            dev_low: *bytemuck::from_bytes(&buf[8..16]),
+        })
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for NmEntry {
+    async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.header().write(writer).await?;
+        writer.write_all(&[self.flags.bits()]).await?;
+        writer.write_all(&self.name).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl NmEntry {
+    pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        let mut flags_byte = [0u8; 1];
+        data.read_exact(&mut flags_byte).await?;
+        let name_len = (header.length as usize).saturating_sub(5);
+        let mut name = alloc::vec![0u8; name_len];
+        data.read_exact(&mut name).await?;
+        Ok(Self {
+            flags: NmFlags::from_bits_truncate(flags_byte[0]),
+            name,
+        })
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for SlEntry {
+    async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.header().write(writer).await?;
+        writer.write_all(&[self.flags]).await?;
+        for component in &self.components {
+            writer.write_all(&[component.flags.bits(), component.content.len() as u8]).await?;
+            writer.write_all(&component.content).await?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl SlEntry {
+    pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        let mut flags = [0u8; 1];
+        data.read_exact(&mut flags).await?;
+
+        let mut remaining = (header.length as usize).saturating_sub(5);
+        let mut components = alloc::vec::Vec::new();
+
+        while remaining >= 2 {
+            let mut comp_header = [0u8; 2];
+            data.read_exact(&mut comp_header).await?;
+            remaining -= 2;
+
+            let comp_flags = SlComponentFlags::from_bits_truncate(comp_header[0]);
+            let comp_len = comp_header[1] as usize;
+
+            let mut content = alloc::vec![0u8; comp_len.min(remaining)];
+            data.read_exact(&mut content).await?;
+            remaining -= content.len();
+
+            components.push(SlComponent {
+                flags: comp_flags,
+                content,
+            });
+        }
+
+        Ok(Self {
+            flags: flags[0],
+            components,
+        })
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for TfEntry {
+    async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.header().write(writer).await?;
+        writer.write_all(&[self.flags.bits()]).await?;
+        writer.write_all(&self.timestamps).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl TfEntry {
+    pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        let mut flags_byte = [0u8; 1];
+        data.read_exact(&mut flags_byte).await?;
+        let flags = TfFlags::from_bits_truncate(flags_byte[0]);
+
+        let ts_len = (header.length as usize).saturating_sub(5);
+        let mut timestamps = alloc::vec![0u8; ts_len];
+        data.read_exact(&mut timestamps).await?;
+
+        Ok(Self { flags, timestamps })
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for ClEntry {
+    async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.header().write(writer).await?;
+        writer.write_all(bytemuck::bytes_of(&self.child_directory_location)).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl ClEntry {
+    pub async fn parse_data<R: Read>(_header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        let mut buf = [0u8; 8];
+        data.read_exact(&mut buf).await?;
+        Ok(Self {
+            child_directory_location: *bytemuck::from_bytes(&buf),
+        })
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for PlEntry {
+    async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.header().write(writer).await?;
+        writer.write_all(bytemuck::bytes_of(&self.parent_directory_location)).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl PlEntry {
+    pub async fn parse_data<R: Read>(_header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        let mut buf = [0u8; 8];
+        data.read_exact(&mut buf).await?;
+        Ok(Self {
+            parent_directory_location: *bytemuck::from_bytes(&buf),
+        })
     }
 }
 
 #[cfg(feature = "std")]
 impl Writable for ReEntry {
-    fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        self.header().write(writer)
+    async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.header().write(writer).await
     }
 }
+} // io_transform!
 
 /// Options for Rock Ridge extension support
 #[derive(Debug, Clone, Copy)]
@@ -765,7 +758,7 @@ impl RripOptions {
 /// Builder for Rock Ridge system use entries
 #[cfg(feature = "alloc")]
 pub struct RripBuilder {
-    builder: crate::susp::SystemUseBuilder,
+    builder: super::susp::SystemUseBuilder,
 }
 
 #[cfg(feature = "alloc")]
@@ -773,7 +766,7 @@ impl RripBuilder {
     /// Create a new RRIP builder
     pub fn new() -> Self {
         Self {
-            builder: crate::susp::SystemUseBuilder::new(),
+            builder: super::susp::SystemUseBuilder::new(),
         }
     }
 
@@ -925,7 +918,7 @@ impl RripBuilder {
     }
 
     /// Add a CE entry pointing to a continuation area
-    pub fn add_ce(&mut self, ce: crate::susp::ContinuationArea) -> &mut Self {
+    pub fn add_ce(&mut self, ce: super::susp::ContinuationArea) -> &mut Self {
         self.builder.add_ce(ce);
         self
     }
@@ -949,7 +942,7 @@ impl RripBuilder {
     /// Split entries across inline and overflow areas.
     ///
     /// Delegates to [`SystemUseBuilder::build_split`].
-    pub fn build_split(&self, max_inline: usize) -> crate::susp::SplitSu {
+    pub fn build_split(&self, max_inline: usize) -> super::susp::SplitSu {
         self.builder.build_split(max_inline)
     }
 

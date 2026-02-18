@@ -10,13 +10,16 @@ readme = "README.md"
 
 [features]
 default = ["std"]
-std = ["alloc", "hadris-io/std"]
+std = ["sync", "alloc", "hadris-io/std"]
+sync = ["hadris-io/sync"]
+async = ["hadris-io/async"]
 alloc = []
 read = []
 write = ["alloc", "read"]
 
 [dependencies]
 hadris-io = { workspace = true, default-features = false }
+hadris-macros = { workspace = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
 crc = { version = "3", default-features = false, optional = true }
 rand = { version = "0.9", default-features = false, optional = true, features = ["thread_rng"] }

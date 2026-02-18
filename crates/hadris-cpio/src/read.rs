@@ -1,7 +1,7 @@
-use crate::entry::CpioEntryHeader;
+use super::entry::CpioEntryHeader;
 use crate::error::{CpioError, Result};
-use crate::header::{CpioMagic, RawNewcHeader, HEADER_SIZE, TRAILER_NAME};
-use hadris_io::Read;
+use super::header::{CpioMagic, RawNewcHeader, HEADER_SIZE, TRAILER_NAME};
+use super::super::Read;
 
 #[cfg(feature = "alloc")]
 use alloc::vec;
@@ -128,6 +128,8 @@ pub struct CpioReader<R> {
     finished: bool,
 }
 
+io_transform! {
+
 impl<R: Read> CpioReader<R> {
     /// Create a new reader wrapping the given source.
     pub fn new(reader: R) -> Self {
@@ -147,7 +149,7 @@ impl<R: Read> CpioReader<R> {
     ///
     /// Returns `Ok(None)` when the TRAILER!!! sentinel is reached.
     /// The `name_buf` must be large enough to hold the filename (without NUL terminator).
-    pub fn next_entry_with_buf<'buf>(
+    pub async fn next_entry_with_buf<'buf>(
         &mut self,
         name_buf: &'buf mut [u8],
     ) -> Result<Option<CpioEntry<'buf>>> {
@@ -158,7 +160,7 @@ impl<R: Read> CpioReader<R> {
         let entry_offset = self.offset;
 
         // Read the 110-byte header
-        let raw = RawNewcHeader::parse(&mut self.reader)?;
+        let raw = RawNewcHeader::parse(&mut self.reader).await?;
         self.offset += HEADER_SIZE as u64;
 
         let magic = raw.magic().ok_or_else(|| {
@@ -188,19 +190,19 @@ impl<R: Read> CpioReader<R> {
         }
 
         // Read the name portion
-        self.reader.read_exact(&mut name_buf[..name_len])?;
+        self.reader.read_exact(&mut name_buf[..name_len]).await?;
         self.offset += name_len as u64;
 
         // Read and discard the NUL terminator
         let mut nul = [0u8; 1];
-        self.reader.read_exact(&mut nul)?;
+        self.reader.read_exact(&mut nul).await?;
         self.offset += 1;
 
         // Skip padding to align (header + namesize) to 4-byte boundary
         let header_plus_name = HEADER_SIZE as u64 + namesize as u64;
         let pad = align4_padding(header_plus_name);
         if pad > 0 {
-            self.skip_bytes(pad)?;
+            self.skip_bytes(pad).await?;
         }
 
         // Check for TRAILER!!!
@@ -219,43 +221,43 @@ impl<R: Read> CpioReader<R> {
 
     /// Read entry data into `buf`. The buffer must be exactly `entry.file_size()` bytes.
     /// After reading, skips any padding to align to 4-byte boundary.
-    pub fn read_entry_data(&mut self, entry: &CpioEntry<'_>, buf: &mut [u8]) -> Result<()> {
+    pub async fn read_entry_data(&mut self, entry: &CpioEntry<'_>, buf: &mut [u8]) -> Result<()> {
         let size = entry.file_size() as usize;
         assert_eq!(buf.len(), size, "buffer size must match entry file size");
         if size > 0 {
-            self.reader.read_exact(&mut buf[..size])?;
+            self.reader.read_exact(&mut buf[..size]).await?;
             self.offset += size as u64;
         }
         // Skip data padding
         let pad = align4_padding(entry.file_size() as u64);
         if pad > 0 {
-            self.skip_bytes(pad)?;
+            self.skip_bytes(pad).await?;
         }
         Ok(())
     }
 
     /// Skip over entry data without reading it.
-    pub fn skip_entry_data(&mut self, entry: &CpioEntry<'_>) -> Result<()> {
+    pub async fn skip_entry_data(&mut self, entry: &CpioEntry<'_>) -> Result<()> {
         let size = entry.file_size() as u64;
         let pad = align4_padding(size);
-        self.skip_bytes(size + pad)?;
+        self.skip_bytes(size + pad).await?;
         Ok(())
     }
 
     /// Skip over entry data for an owned entry.
     #[cfg(feature = "alloc")]
-    pub fn skip_entry_data_owned(&mut self, entry: &CpioEntryOwned) -> Result<()> {
+    pub async fn skip_entry_data_owned(&mut self, entry: &CpioEntryOwned) -> Result<()> {
         let size = entry.file_size() as u64;
         let pad = align4_padding(size);
-        self.skip_bytes(size + pad)?;
+        self.skip_bytes(size + pad).await?;
         Ok(())
     }
 
-    fn skip_bytes(&mut self, mut n: u64) -> Result<()> {
+    async fn skip_bytes(&mut self, mut n: u64) -> Result<()> {
         let mut discard = [0u8; 256];
         while n > 0 {
             let chunk = n.min(discard.len() as u64) as usize;
-            self.reader.read_exact(&mut discard[..chunk])?;
+            self.reader.read_exact(&mut discard[..chunk]).await?;
             self.offset += chunk as u64;
             n -= chunk as u64;
         }
@@ -268,14 +270,14 @@ impl<R: Read> CpioReader<R> {
     /// After obtaining an entry, call [`read_entry_data_alloc`](Self::read_entry_data_alloc)
     /// or [`skip_entry_data_owned`](Self::skip_entry_data_owned) before calling this again.
     #[cfg(feature = "alloc")]
-    pub fn next_entry_alloc(&mut self) -> Result<Option<CpioEntryOwned>> {
+    pub async fn next_entry_alloc(&mut self) -> Result<Option<CpioEntryOwned>> {
         if self.finished {
             return Ok(None);
         }
 
         let entry_offset = self.offset;
 
-        let raw = RawNewcHeader::parse(&mut self.reader)?;
+        let raw = RawNewcHeader::parse(&mut self.reader).await?;
         self.offset += HEADER_SIZE as u64;
 
         let magic = raw.magic().ok_or_else(|| {
@@ -293,19 +295,19 @@ impl<R: Read> CpioReader<R> {
 
         let name_len = namesize - 1;
         let mut name = vec![0u8; name_len];
-        self.reader.read_exact(&mut name)?;
+        self.reader.read_exact(&mut name).await?;
         self.offset += name_len as u64;
 
         // Read and discard NUL
         let mut nul = [0u8; 1];
-        self.reader.read_exact(&mut nul)?;
+        self.reader.read_exact(&mut nul).await?;
         self.offset += 1;
 
         // Skip name padding
         let header_plus_name = HEADER_SIZE as u64 + namesize as u64;
         let pad = align4_padding(header_plus_name);
         if pad > 0 {
-            self.skip_bytes(pad)?;
+            self.skip_bytes(pad).await?;
         }
 
         // Check for TRAILER!!!
@@ -326,28 +328,31 @@ impl<R: Read> CpioReader<R> {
     ///
     /// After reading, the reader is positioned at the next entry's header.
     #[cfg(feature = "alloc")]
-    pub fn read_entry_data_alloc(&mut self, entry: &CpioEntryOwned) -> Result<Vec<u8>> {
+    pub async fn read_entry_data_alloc(&mut self, entry: &CpioEntryOwned) -> Result<Vec<u8>> {
         let size = entry.file_size() as usize;
         let mut buf = vec![0u8; size];
         if size > 0 {
-            self.reader.read_exact(&mut buf)?;
+            self.reader.read_exact(&mut buf).await?;
             self.offset += size as u64;
         }
         let pad = align4_padding(entry.file_size() as u64);
         if pad > 0 {
-            self.skip_bytes(pad)?;
+            self.skip_bytes(pad).await?;
         }
         Ok(buf)
     }
 }
 
 /// Seek support: when the reader supports seeking, allow jumping to recorded offsets.
-impl<R: Read + hadris_io::Seek> CpioReader<R> {
+impl<R: Read + super::super::Seek> CpioReader<R> {
     /// Seek to a previously-recorded entry offset to re-read that entry.
-    pub fn seek_to_entry(&mut self, offset: u64) -> Result<()> {
-        self.reader.seek(hadris_io::SeekFrom::Start(offset))?;
+    pub async fn seek_to_entry(&mut self, offset: u64) -> Result<()> {
+        use super::super::SeekFrom;
+        self.reader.seek(SeekFrom::Start(offset)).await?;
         self.offset = offset;
         self.finished = false;
         Ok(())
     }
 }
+
+} // io_transform!

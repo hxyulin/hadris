@@ -1,16 +1,13 @@
 use alloc::{collections::BTreeMap, collections::VecDeque, string::String, sync::Arc, vec::Vec};
 use hadris_common::types::endian::EndianType;
-use hadris_common::types::file::FixedFilename;
-use hadris_io::{self as io, Write};
+use super::super::io::{self, Write};
 
-use crate::file::{EntryType, FilenameL1, FilenameL2, FilenameL3};
-use crate::io::LogicalSector;
-use crate::path::PathTableEntryHeader;
-use crate::read::PathSeparator;
-use crate::types::{Charset, CharsetD, CharsetD1};
+use crate::file::{EntryType, ConvertedName, convert_l1, convert_l2, convert_l3, convert_joliet3};
+use super::super::io::LogicalSector;
+use super::super::path::PathTableEntryHeader;
+use super::super::read::PathSeparator;
 
-use crate::joliet::JolietLevel;
-use crate::{directory::DirectoryRef, write::options::BaseIsoLevel};
+use super::super::directory::DirectoryRef;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DirectoryId {
@@ -99,76 +96,6 @@ impl WrittenFiles {
     }
 }
 
-impl From<BaseIsoLevel> for EntryType {
-    fn from(value: BaseIsoLevel) -> Self {
-        match value {
-            BaseIsoLevel::Level1 {
-                supports_lowercase,
-                supports_rrip,
-            } => Self::Level1 {
-                supports_lowercase,
-                supports_rrip,
-            },
-            BaseIsoLevel::Level2 {
-                supports_lowercase,
-                supports_rrip,
-            } => Self::Level2 {
-                supports_lowercase,
-                supports_rrip,
-            },
-        }
-    }
-}
-
-impl From<JolietLevel> for EntryType {
-    fn from(value: JolietLevel) -> Self {
-        Self::Joliet {
-            level: value,
-            supports_rrip: false,
-        }
-    }
-}
-
-pub enum ConvertedName {
-    Level1(FilenameL1),
-    Level2(FilenameL2),
-    Level3(FilenameL3),
-    Joliet(FixedFilename<207>),
-}
-
-impl ConvertedName {
-    pub fn as_bytes(&self) -> &[u8] {
-        match self {
-            Self::Level1(name) => name.as_bytes(),
-            Self::Level2(name) => name.as_bytes(),
-            Self::Level3(name) => name.as_bytes(),
-            Self::Joliet(name) => name.as_bytes(),
-        }
-    }
-}
-
-impl EntryType {
-    pub fn convert_name(self, name: &str) -> ConvertedName {
-        match self {
-            Self::Level1 {
-                supports_lowercase, ..
-            } => ConvertedName::Level1(convert_l1(name, supports_lowercase)),
-            Self::Level2 {
-                supports_lowercase, ..
-            } => ConvertedName::Level2(convert_l2(name, supports_lowercase)),
-            Self::Level3 {
-                supports_lowercase, ..
-            } => ConvertedName::Level3(convert_l3(name, supports_lowercase)),
-            Self::Joliet { level, .. } => match level {
-                // All Joliet levels use UTF-16 BE encoding
-                JolietLevel::Level1 | JolietLevel::Level2 | JolietLevel::Level3 => {
-                    ConvertedName::Joliet(convert_joliet3(name))
-                }
-            },
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct WrittenDirectory {
     pub name: Arc<String>,
@@ -199,158 +126,16 @@ pub struct WrittenFile {
     pub entry: DirectoryRef,
 }
 
-pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedFilename<14> {
-    let mut l1 = FixedFilename::empty();
-    let name_bytes = name.as_bytes();
-    match name.find('.') {
-        Some(index) => {
-            // We copy the basename, at most 8 bytes
-            let basename = l1.push_slice(&name_bytes[0..index.min(8)]);
-            let basename = l1.data[basename].iter_mut();
-            if supports_lowercase {
-                CharsetD1::substitute_invalid(basename);
-            } else {
-                CharsetD::substitute_invalid(basename);
-            }
-            // Extension length excluding the dot character
-            let ext_len = (name.len() - index - 1).min(3);
-            l1.push_byte(b'.');
-            let ext = l1.push_slice(&name_bytes[index + 1..(index + 1 + ext_len).min(name.len())]);
-            let ext = l1.data[ext].iter_mut();
-            if supports_lowercase {
-                CharsetD1::substitute_invalid(ext);
-            } else {
-                CharsetD::substitute_invalid(ext);
-            }
-        }
-        None => {
-            let len = name.len().min(8);
-            let basename = l1.push_slice(&name_bytes[0..len]);
-            let basename = l1.data[basename].iter_mut();
-            if supports_lowercase {
-                CharsetD1::substitute_invalid(basename);
-            } else {
-                CharsetD::substitute_invalid(basename);
-            }
-        }
-    }
-    l1.push_slice(b";1");
-    l1
-}
-
-pub fn convert_l2(name: &str, supports_lowercase: bool) -> FilenameL2 {
-    let mut l2 = FilenameL2::empty();
-    let name_bytes = name.as_bytes();
-    // Max: 30 bytes for name (reserve 2 for ";1")
-    const MAX_NAME_LEN: usize = 30;
-
-    match name.find('.') {
-        Some(index) => {
-            let basename_end = index.min(MAX_NAME_LEN);
-            let basename = l2.push_slice(&name_bytes[0..basename_end]);
-            let basename = l2.data[basename].iter_mut();
-            if supports_lowercase {
-                CharsetD1::substitute_invalid(basename);
-            } else {
-                CharsetD::substitute_invalid(basename);
-            }
-
-            // Calculate remaining space for extension (subtract basename length and 1 for dot)
-            let remaining = MAX_NAME_LEN.saturating_sub(basename_end + 1);
-            if remaining > 0 {
-                l2.push_byte(b'.');
-                let ext_end = (index + 1 + remaining).min(name.len());
-                let ext = l2.push_slice(&name_bytes[index + 1..ext_end]);
-                let ext = l2.data[ext].iter_mut();
-                if supports_lowercase {
-                    CharsetD1::substitute_invalid(ext);
-                } else {
-                    CharsetD::substitute_invalid(ext);
-                }
-            }
-        }
-        None => {
-            let len = name.len().min(MAX_NAME_LEN);
-            let basename = l2.push_slice(&name_bytes[0..len]);
-            let basename = l2.data[basename].iter_mut();
-            if supports_lowercase {
-                CharsetD1::substitute_invalid(basename);
-            } else {
-                CharsetD::substitute_invalid(basename);
-            }
-        }
-    }
-    l2.push_slice(b";1");
-    l2
-}
-
-pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
-    let mut l3 = FilenameL3::empty();
-    let name_bytes = name.as_bytes();
-    // Max: 207 bytes for name (no version suffix in L3)
-    const MAX_NAME_LEN: usize = 207;
-
-    match name.find('.') {
-        Some(index) => {
-            let basename_end = index.min(MAX_NAME_LEN);
-            let basename = l3.push_slice(&name_bytes[0..basename_end]);
-            let basename = l3.data[basename].iter_mut();
-            if supports_lowercase {
-                CharsetD1::substitute_invalid(basename);
-            } else {
-                CharsetD::substitute_invalid(basename);
-            }
-
-            // Calculate remaining space for extension (subtract basename length and 1 for dot)
-            let remaining = MAX_NAME_LEN.saturating_sub(basename_end + 1);
-            if remaining > 0 {
-                l3.push_byte(b'.');
-                let ext_end = (index + 1 + remaining).min(name.len());
-                let ext = l3.push_slice(&name_bytes[index + 1..ext_end]);
-                let ext = l3.data[ext].iter_mut();
-                if supports_lowercase {
-                    CharsetD1::substitute_invalid(ext);
-                } else {
-                    CharsetD::substitute_invalid(ext);
-                }
-            }
-        }
-        None => {
-            let len = name.len().min(MAX_NAME_LEN);
-            let basename = l3.push_slice(&name_bytes[0..len]);
-            let basename = l3.data[basename].iter_mut();
-            if supports_lowercase {
-                CharsetD1::substitute_invalid(basename);
-            } else {
-                CharsetD::substitute_invalid(basename);
-            }
-        }
-    }
-    l3
-}
-
-pub fn convert_joliet3(name: &str) -> FixedFilename<207> {
-    let mut j1 = FixedFilename::empty();
-    for (written, c) in name.encode_utf16().enumerate() {
-        if written >= 206 / 2 {
-            // We reached the maximum we can write
-            break;
-        }
-        let bytes = c.to_be_bytes();
-        j1.push_slice(&bytes);
-    }
-
-    j1
-}
-
 pub(crate) struct PathTableWriter<'a> {
     pub written_files: &'a WrittenFiles,
     pub ty: EntryType,
     pub endian: EndianType,
 }
 
+io_transform! {
+
 /// Write a single path table record.
-fn write_pt_record<DATA: Write>(
+async fn write_pt_record<DATA: Write>(
     data: &mut DATA,
     endian: &EndianType,
     parent_number: u16,
@@ -363,16 +148,16 @@ fn write_pt_record<DATA: Write>(
         parent_directory_number: endian.u16_bytes(parent_number),
         parent_lba: endian.u32_bytes(extent.0 as u32),
     };
-    data.write_all(bytemuck::bytes_of(&header))?;
-    data.write_all(name)?;
+    data.write_all(bytemuck::bytes_of(&header)).await?;
+    data.write_all(name).await?;
     if !name.len().is_multiple_of(2) {
-        data.write_all(&[0x00])?; // padding to even
+        data.write_all(&[0x00]).await?; // padding to even
     }
     Ok(())
 }
 
 impl PathTableWriter<'_> {
-    pub fn write<DATA: Write>(&mut self, data: &mut DATA) -> io::Result<()> {
+    pub async fn write<DATA: Write>(&mut self, data: &mut DATA) -> io::Result<()> {
         // BFS queue: (directory_ref, parent_number)
         // ISO 9660 requires path table entries in breadth-first order.
         let mut queue: VecDeque<(&WrittenDirectory, u16)> = VecDeque::new();
@@ -381,7 +166,7 @@ impl PathTableWriter<'_> {
         // Root entry (parent = 1, i.e. itself)
         let root = &self.written_files.root;
         let root_extent = *root.entries.get(&self.ty).unwrap();
-        write_pt_record(data, &self.endian, 1, root_extent.extent, &[0x00])?;
+        write_pt_record(data, &self.endian, 1, root_extent.extent, &[0x00]).await?;
         queue.push_back((root, 1));
 
         while let Some((dir, parent_num)) = queue.pop_front() {
@@ -391,13 +176,15 @@ impl PathTableWriter<'_> {
                 let name = self.ty.convert_name(&child_dir.name);
                 let name_bytes = name.as_bytes();
                 let extent = child_dir.entries.get(&self.ty).unwrap().extent;
-                write_pt_record(data, &self.endian, my_number, extent, name_bytes)?;
+                write_pt_record(data, &self.endian, my_number, extent, name_bytes).await?;
                 queue.push_back((child_dir, current_number));
             }
         }
         Ok(())
     }
 }
+
+} // io_transform!
 
 #[cfg(all(test, feature = "std"))]
 mod tests {

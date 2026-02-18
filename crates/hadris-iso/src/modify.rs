@@ -37,19 +37,19 @@ use alloc::vec::Vec;
 use hadris_common::types::endian::Endian;
 use hadris_common::types::extent::{Extent, FileType};
 use hadris_common::types::layout::{AllocationMap, DirectoryLayout, FileLayout};
-use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
+use super::io::{self, Read, Seek, SeekFrom, Write};
 
-use crate::directory::{DirectoryRecord, DirectoryRef, FileFlags};
+use super::directory::{DirectoryRecord, DirectoryRef, FileFlags};
 use crate::file::EntryType;
-use crate::io::{IsoCursor, LogicalSector};
+use super::io::{IsoCursor, LogicalSector};
 use crate::joliet::JolietLevel;
-use crate::path::PathTableRef;
-use crate::read::PathSeparator;
-use crate::volume::{
+use super::path::PathTableRef;
+use super::read::PathSeparator;
+use super::volume::{
     PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor, VolumeDescriptorHeader,
     VolumeDescriptorList, VolumeDescriptorType,
 };
-use crate::write::writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
+use super::write::writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
 
 /// Operations that can be performed on an ISO image.
 #[derive(Debug, Clone)]
@@ -199,21 +199,22 @@ impl Default for IsoModifyOptions {
     }
 }
 
+io_transform! {
 impl<RW: Read + Write + Seek> IsoModifier<RW> {
     /// Opens an existing ISO image for modification.
-    pub fn open(inner: RW) -> IsoModifyResult<Self> {
-        Self::open_with_options(inner, IsoModifyOptions::default())
+    pub async fn open(inner: RW) -> IsoModifyResult<Self> {
+        Self::open_with_options(inner, IsoModifyOptions::default()).await
     }
 
     /// Opens an existing ISO image for modification with custom options.
-    pub fn open_with_options(mut inner: RW, options: IsoModifyOptions) -> IsoModifyResult<Self> {
+    pub async fn open_with_options(mut inner: RW, options: IsoModifyOptions) -> IsoModifyResult<Self> {
         // Parse existing image
         let sector_size = 2048;
         let mut cursor = IsoCursor::new(&mut inner, sector_size);
 
         // Read volume descriptors to get image info
-        cursor.seek_sector(LogicalSector(16))?;
-        let volume_descriptors = VolumeDescriptorList::parse(&mut cursor)?;
+        cursor.seek_sector(LogicalSector(16)).await?;
+        let volume_descriptors = VolumeDescriptorList::parse(&mut cursor).await?;
 
         // Get primary volume descriptor info
         let pvd = volume_descriptors.primary();
@@ -247,7 +248,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         };
 
         let (existing_layout, used_extents) =
-            Self::build_layout_from_directory(&mut cursor, root_ref, sector_size)?;
+            Self::build_layout_from_directory(&mut cursor, root_ref, sector_size).await?;
 
         // Build allocation map
         let total_sectors = end_sector as u32;
@@ -270,7 +271,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     }
 
     /// Builds a DirectoryLayout from an existing ISO directory structure.
-    fn build_layout_from_directory(
+    async fn build_layout_from_directory(
         cursor: &mut IsoCursor<&mut RW>,
         root_ref: DirectoryRef,
         sector_size: usize,
@@ -287,14 +288,14 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             &mut layout,
             &mut used_extents,
             sector_size,
-        )?;
+        ).await?;
 
         Ok((layout, used_extents))
     }
 
     /// Recursively reads a directory and its contents.
     #[allow(clippy::only_used_in_recursion)]
-    fn read_directory_recursive(
+    async fn read_directory_recursive(
         cursor: &mut IsoCursor<&mut RW>,
         dir_ref: DirectoryRef,
         layout: &mut DirectoryLayout,
@@ -304,11 +305,11 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         // Mark directory extent as used
         used_extents.push(Extent::new(dir_ref.extent.0 as u32, dir_ref.size as u64));
 
-        cursor.seek_sector(dir_ref.extent)?;
+        cursor.seek_sector(dir_ref.extent).await?;
         let mut offset = 0;
 
         while offset < dir_ref.size {
-            let record = DirectoryRecord::parse(&mut *cursor)?;
+            let record = DirectoryRecord::parse(&mut *cursor).await?;
             if record.header().len == 0 {
                 break;
             }
@@ -344,7 +345,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                 subdir.extent = Some(extent);
 
                 // Save current position
-                let current_pos = cursor.stream_position()?;
+                let current_pos = cursor.stream_position().await?;
 
                 Self::read_directory_recursive(
                     cursor,
@@ -352,10 +353,10 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                     &mut subdir,
                     used_extents,
                     sector_size,
-                )?;
+                ).await?;
 
                 // Restore position
-                cursor.seek(SeekFrom::Start(current_pos))?;
+                cursor.seek(SeekFrom::Start(current_pos)).await?;
 
                 layout.add_subdir(subdir);
             } else {
@@ -415,7 +416,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     }
 
     /// Commits all pending changes by writing a new session.
-    pub fn commit(mut self) -> IsoModifyResult<()> {
+    pub async fn commit(mut self) -> IsoModifyResult<()> {
         if self.pending_ops.is_empty() {
             return Ok(());
         }
@@ -424,10 +425,10 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         let new_layout = self.apply_ops()?;
 
         // 2. Write new file data and allocate sectors
-        let written_files = self.write_new_data(&new_layout)?;
+        let written_files = self.write_new_data(&new_layout).await?;
 
         // 3. Write new session metadata
-        self.write_new_session(&new_layout, written_files)?;
+        self.write_new_session(&new_layout, written_files).await?;
 
         Ok(())
     }
@@ -487,7 +488,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     }
 
     /// Writes new file data and returns a map of paths to extents.
-    fn write_new_data(
+    async fn write_new_data(
         &mut self,
         _layout: &DirectoryLayout,
     ) -> IsoModifyResult<BTreeMap<String, Extent>> {
@@ -513,9 +514,9 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
 
                     // Write data
                     self.inner
-                        .seek_sector(LogicalSector(current_sector as usize))?;
+                        .seek_sector(LogicalSector(current_sector as usize)).await?;
                     let content = data.read_all()?;
-                    self.inner.write_all(&content)?;
+                    self.inner.write_all(&content).await?;
 
                     // Update current sector
                     current_sector += extent.sector_count(sector_size);
@@ -525,14 +526,14 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         }
 
         // Pad to sector boundary
-        self.inner.pad_align_sector()?;
+        self.inner.pad_align_sector().await?;
         self.end_sector = LogicalSector(current_sector as usize);
 
         Ok(file_extents)
     }
 
     /// Writes the new session metadata.
-    fn write_new_session(
+    async fn write_new_session(
         &mut self,
         layout: &DirectoryLayout,
         file_extents: BTreeMap<String, Extent>,
@@ -546,7 +547,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         for &ty in &self.entry_types {
             let root_id = written_files.root_dir();
             let dir = written_files.get_mut(&root_id);
-            Self::write_directory_static(&mut self.inner, ty, dir)?;
+            Self::write_directory_static(&mut self.inner, ty, dir).await?;
             if let Some(dir_ref) = dir.entries.get(&ty) {
                 root_dirs.insert(ty, *dir_ref);
             }
@@ -560,12 +561,12 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                 ty,
                 hadris_common::types::endian::EndianType::LittleEndian,
                 &mut written_files,
-            )?;
+            ).await?;
             let m_ref = self.write_path_table(
                 ty,
                 hadris_common::types::endian::EndianType::BigEndian,
                 &mut written_files,
-            )?;
+            ).await?;
             path_tables.insert(
                 ty,
                 PathTableRef {
@@ -577,8 +578,8 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         }
 
         // Update volume descriptors with new root directories and path tables
-        let end_sector = self.inner.pad_align_sector()?;
-        self.update_volume_descriptors(&root_dirs, &path_tables, end_sector)?;
+        let end_sector = self.inner.pad_align_sector().await?;
+        self.update_volume_descriptors(&root_dirs, &path_tables, end_sector).await?;
 
         Ok(())
     }
@@ -634,20 +635,20 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     }
 
     /// Writes a directory (static version for use in new session).
-    fn write_directory_static<W: Read + Write + Seek>(
+    async fn write_directory_static<W: Read + Write + Seek>(
         data: &mut IsoCursor<W>,
         ty: EntryType,
         dir: &mut WrittenDirectory,
     ) -> io::Result<()> {
-        let start = data.pad_align_sector()?;
+        let start = data.pad_align_sector().await?;
 
         // Current Directory Entry
         DirectoryRecord::new(b"\x00", &[], DirectoryRef::default(), FileFlags::DIRECTORY)
-            .write(&mut *data)?;
+            .write(&mut *data).await?;
 
         // Parent Directory Entry
         DirectoryRecord::new(b"\x01", &[], DirectoryRef::default(), FileFlags::DIRECTORY)
-            .write(&mut *data)?;
+            .write(&mut *data).await?;
 
         for directory in &dir.dirs {
             let WrittenDirectory { name, entries, .. } = directory;
@@ -659,7 +660,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                 *entries.get(&ty).unwrap_or(&DirectoryRef::default()),
                 flags,
             );
-            record.write(&mut *data)?;
+            record.write(&mut *data).await?;
         }
 
         for file in &dir.files {
@@ -667,10 +668,10 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             let flags = FileFlags::empty();
             let converted_name = ty.convert_name(name);
             let record = DirectoryRecord::new(converted_name.as_bytes(), &[], *entry, flags);
-            record.write(&mut *data)?;
+            record.write(&mut *data).await?;
         }
 
-        let end = data.pad_align_sector()?;
+        let end = data.pad_align_sector().await?;
         let size = (end.0 - start.0) * data.sector_size;
         dir.entries.insert(
             ty,
@@ -683,21 +684,21 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     }
 
     /// Writes a path table.
-    fn write_path_table(
+    async fn write_path_table(
         &mut self,
         ty: EntryType,
         endian: hadris_common::types::endian::EndianType,
         written_files: &mut WrittenFiles,
     ) -> io::Result<DirectoryRef> {
-        let start = self.inner.pad_align_sector()?;
+        let start = self.inner.pad_align_sector().await?;
         PathTableWriter {
             written_files,
             ty,
             endian,
         }
-        .write(&mut self.inner)?;
-        let size = self.inner.stream_position()? as usize - (start.0 * self.sector_size);
-        let _end = self.inner.pad_align_sector()?;
+        .write(&mut self.inner).await?;
+        let size = self.inner.stream_position().await? as usize - (start.0 * self.sector_size);
+        let _end = self.inner.pad_align_sector().await?;
         Ok(DirectoryRef {
             extent: start,
             size,
@@ -705,17 +706,17 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     }
 
     /// Updates volume descriptors with new root directories and path tables.
-    fn update_volume_descriptors(
+    async fn update_volume_descriptors(
         &mut self,
         root_dirs: &BTreeMap<EntryType, DirectoryRef>,
         path_tables: &BTreeMap<EntryType, PathTableRef>,
         end_sector: LogicalSector,
     ) -> io::Result<()> {
-        self.inner.seek_sector(LogicalSector(16))?;
+        self.inner.seek_sector(LogicalSector(16)).await?;
 
         let mut buffer = [0u8; 2048];
         loop {
-            self.inner.read_exact(&mut buffer)?;
+            self.inner.read_exact(&mut buffer).await?;
             let header = VolumeDescriptorHeader::from_bytes(&buffer[0..7]);
             let ty = VolumeDescriptorType::from_u8(header.descriptor_type);
 
@@ -774,8 +775,8 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             }
 
             // Write back the modified descriptor
-            self.inner.seek_relative(-(buffer.len() as i64))?;
-            self.inner.write_all(&buffer)?;
+            self.inner.seek_relative(-(buffer.len() as i64)).await?;
+            self.inner.write_all(&buffer).await?;
         }
 
         Ok(())
@@ -787,6 +788,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             .ok_or_else(|| IsoModifyError::InvalidPath(path.to_string()))
     }
 }
+} // io_transform!
 
 #[cfg(test)]
 mod tests {

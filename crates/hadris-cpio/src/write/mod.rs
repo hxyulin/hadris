@@ -10,10 +10,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::error::{CpioError, Result};
-use crate::header::{CpioMagic, RawNewcHeader, HEADER_SIZE, TRAILER_NAME};
+use super::header::{CpioMagic, RawNewcHeader, HEADER_SIZE, TRAILER_NAME};
 use crate::mode::{self, FileType};
 use file_tree::{FileNode, FileTree};
-use hadris_io::Write;
+use super::super::Write;
 
 /// Options for writing a CPIO archive.
 pub struct CpioWriteOptions {
@@ -35,6 +35,8 @@ pub struct CpioWriter {
     options: CpioWriteOptions,
 }
 
+io_transform! {
+
 impl CpioWriter {
     /// Create a new writer with the given options.
     pub fn new(options: CpioWriteOptions) -> Self {
@@ -45,7 +47,7 @@ impl CpioWriter {
     ///
     /// The tree is flattened depth-first, inodes are assigned sequentially,
     /// and a `TRAILER!!!` entry is appended at the end.
-    pub fn write<W: Write>(&self, writer: &mut W, tree: &FileTree) -> Result<()> {
+    pub async fn write<W: Write>(&self, writer: &mut W, tree: &FileTree) -> Result<()> {
         let magic = if self.options.use_crc {
             CpioMagic::NewcCrc
         } else {
@@ -90,16 +92,16 @@ impl CpioWriter {
         // Second pass: write entries
         for (i, (path, node)) in entries.iter().enumerate() {
             let ino = assigned_inos[i];
-            self.write_entry(writer, magic, ino, path, node, &hard_links)?;
+            self.write_entry(writer, magic, ino, path, node, &hard_links).await?;
         }
 
         // Write TRAILER!!!
-        self.write_trailer(writer, magic)?;
+        self.write_trailer(writer, magic).await?;
 
         Ok(())
     }
 
-    fn write_entry<W: Write>(
+    async fn write_entry<W: Write>(
         &self,
         writer: &mut W,
         magic: CpioMagic,
@@ -249,53 +251,55 @@ impl CpioWriter {
             rdevmajor, rdevminor, namesize, check,
         );
 
-        raw.write(writer)?;
+        raw.write(writer).await?;
 
         // Write filename + NUL
-        writer.write_all(name_bytes)?;
-        writer.write_all(&[0])?;
+        writer.write_all(name_bytes).await?;
+        writer.write_all(&[0]).await?;
 
         // Pad to 4-byte boundary after header + namesize
         let header_plus_name = HEADER_SIZE as u64 + namesize as u64;
         let pad = align4_padding(header_plus_name);
         if pad > 0 {
-            writer.write_all(&[0u8; 3][..pad as usize])?;
+            writer.write_all(&[0u8; 3][..pad as usize]).await?;
         }
 
         // Write file data
         if filesize > 0 {
-            writer.write_all(data)?;
+            writer.write_all(data).await?;
 
             // Pad data to 4-byte boundary
             let data_pad = align4_padding(filesize as u64);
             if data_pad > 0 {
-                writer.write_all(&[0u8; 3][..data_pad as usize])?;
+                writer.write_all(&[0u8; 3][..data_pad as usize]).await?;
             }
         }
 
         Ok(())
     }
 
-    fn write_trailer<W: Write>(&self, writer: &mut W, magic: CpioMagic) -> Result<()> {
+    async fn write_trailer<W: Write>(&self, writer: &mut W, magic: CpioMagic) -> Result<()> {
         let namesize = (TRAILER_NAME.len() + 1) as u32;
         let raw = RawNewcHeader::build(
             magic, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, namesize, 0,
         );
-        raw.write(writer)?;
+        raw.write(writer).await?;
 
-        writer.write_all(TRAILER_NAME)?;
-        writer.write_all(&[0])?;
+        writer.write_all(TRAILER_NAME).await?;
+        writer.write_all(&[0]).await?;
 
         // Pad name
         let header_plus_name = HEADER_SIZE as u64 + namesize as u64;
         let pad = align4_padding(header_plus_name);
         if pad > 0 {
-            writer.write_all(&[0u8; 3][..pad as usize])?;
+            writer.write_all(&[0u8; 3][..pad as usize]).await?;
         }
 
         Ok(())
     }
 }
+
+} // io_transform!
 
 /// Flatten a file tree depth-first into a list of (path, node) pairs.
 fn flatten_tree<'a>(node: &'a FileNode, prefix: String, out: &mut Vec<(String, &'a FileNode)>) {

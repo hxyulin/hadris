@@ -12,10 +12,13 @@ categories = ["filesystem", "encoding"]
 
 [features]
 default = ["std"]
-std = ["hadris-io/std", "hadris-iso/std", "hadris-udf/std"]
+sync = ["hadris-io/sync", "hadris-iso/sync", "hadris-udf/sync"]
+async = ["hadris-io/async", "hadris-iso/async", "hadris-udf/async"]
+std = ["sync", "hadris-io/std", "hadris-iso/std", "hadris-udf/std"]
 
 [dependencies]
 hadris-io = { workspace = true, features = ["std"] }
 hadris-iso = { workspace = true, features = ["std", "write"] }
 hadris-udf = { workspace = true, features = ["std", "write"] }
+hadris-macros = { workspace = true }
 thiserror = { workspace = true }

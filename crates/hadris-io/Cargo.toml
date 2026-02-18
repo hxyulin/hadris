@@ -9,8 +9,10 @@ description = "No-std I/O traits and utilities for the Hadris filesystem crates"
 readme = "README.md"
 
 [features]
-default = ["std"]
-std = []
+default = ["sync", "std"]
+sync = []
+async = []
+std = ["sync"]
 
 [dependencies]
 cfg-if.workspace = true

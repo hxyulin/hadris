@@ -5,8 +5,9 @@
 
 use alloc::vec::Vec;
 
-use crate::io::{Read, Seek, SeekFrom, Write};
-use crate::{Fat, Fat12, Fat16, Fat32, FatError, FatType, Result};
+use super::io::{Read, Seek, SeekFrom, Write};
+use crate::error::{FatError, Result};
+use super::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
 
 /// Default number of sectors to cache.
 pub const DEFAULT_CACHE_CAPACITY: usize = 16;

@@ -6,9 +6,10 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::ops::DerefMut;
 
-use crate::{
-    DirectoryEntry, FatFs,
-    error::Result,
+use crate::error::Result;
+use super::super::{
+    dir::{DirectoryEntry, FatDir},
+    fs::FatFs,
     io::{Read, Seek},
 };
 
@@ -265,7 +266,7 @@ impl<DATA: Read + Seek> FatVerifyExt<DATA> for FatFs<DATA> {
 impl<DATA: Read + Seek> FatFs<DATA> {
     fn verify_directory_recursive<'a>(
         &'a self,
-        dir: &crate::FatDir<'a, DATA>,
+        dir: &FatDir<'a, DATA>,
         path_prefix: String,
         issues: &mut Vec<VerificationIssue>,
         files_checked: &mut u32,
@@ -317,7 +318,7 @@ impl<DATA: Read + Seek> FatFs<DATA> {
                 }
 
                 // Recurse into subdirectory
-                let subdir = crate::FatDir {
+                let subdir = FatDir {
                     data: self,
                     cluster: file_entry.cluster(),
                     fixed_root: None,

@@ -53,6 +53,7 @@
 //! ```
 
 #![no_std]
+#![allow(async_fn_in_trait)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "alloc")]
@@ -61,12 +62,95 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+// ---------------------------------------------------------------------------
+// Shared types (compiled once, not duplicated by sync/async modules)
+// ---------------------------------------------------------------------------
+
 pub mod error;
 pub mod geometry;
 pub mod gpt;
 pub mod hybrid;
 pub mod mbr;
 pub mod scheme;
+
+// ---------------------------------------------------------------------------
+// Sync module
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "sync")]
+#[path = ""]
+pub mod sync {
+    //! Synchronous partition table API.
+    //!
+    //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
+
+    pub use hadris_io::sync::{Read, Write, Seek, ReadExt, Parsable, Writable};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::Result as IoResult;
+
+    macro_rules! io_transform {
+        ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
+    }
+
+    macro_rules! sync_only {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    macro_rules! async_only {
+        ($($item:tt)*) => { };
+    }
+
+    #[path = "."]
+    mod __inner {
+        pub mod gpt_io;
+        pub mod mbr_io;
+        pub mod scheme_io;
+    }
+    pub use __inner::*;
+}
+
+// ---------------------------------------------------------------------------
+// Async module
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "async")]
+#[path = ""]
+pub mod r#async {
+    //! Asynchronous partition table API.
+    //!
+    //! All I/O operations use async `Read`/`Write`/`Seek` traits.
+
+    pub use hadris_io::r#async::{Read, Write, Seek, ReadExt, Parsable, Writable};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::Result as IoResult;
+
+    macro_rules! io_transform {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    macro_rules! sync_only {
+        ($($item:tt)*) => { };
+    }
+
+    macro_rules! async_only {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    #[path = "."]
+    mod __inner {
+        pub mod gpt_io;
+        pub mod mbr_io;
+        pub mod scheme_io;
+    }
+    pub use __inner::*;
+}
+
+// ---------------------------------------------------------------------------
+// Default re-exports for backwards compatibility (sync)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "sync")]
+pub use sync::*;
 
 // Re-export commonly used types at the crate root
 pub use error::{PartitionError, Result};

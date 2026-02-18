@@ -774,7 +774,7 @@ impl GptHeader {
 /// have padding, so this packed representation is used for serialization.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-struct GptHeaderRaw {
+pub(crate) struct GptHeaderRaw {
     signature: [u8; 8],
     revision: [u8; 4],
     header_size: [u8; 4],
@@ -798,12 +798,12 @@ unsafe impl bytemuck::Zeroable for GptHeaderRaw {}
 
 impl GptHeaderRaw {
     /// Size of the raw header on disk.
-    const SIZE: usize = 92;
+    pub(crate) const SIZE: usize = 92;
 }
 
 impl GptHeader {
     /// Converts this header to its on-disk packed representation.
-    fn to_raw(self) -> GptHeaderRaw {
+    pub(crate) fn to_raw(self) -> GptHeaderRaw {
         GptHeaderRaw {
             signature: self.signature,
             revision: self.revision.to_le_bytes(),
@@ -823,7 +823,7 @@ impl GptHeader {
     }
 
     /// Creates a header from its on-disk packed representation.
-    fn from_raw(raw: &GptHeaderRaw) -> Self {
+    pub(crate) fn from_raw(raw: &GptHeaderRaw) -> Self {
         Self {
             signature: raw.signature,
             revision: u32::from_le_bytes(raw.revision),
@@ -843,98 +843,6 @@ impl GptHeader {
     }
 }
 
-// I/O operations for GptHeader
-#[cfg(feature = "read")]
-impl GptHeader {
-    /// Reads a GPT header from a reader.
-    ///
-    /// The reader should be positioned at the start of the header (typically LBA 1).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if reading fails or if the signature is invalid.
-    pub fn read_from<R: hadris_io::Read>(reader: &mut R) -> crate::error::Result<Self> {
-        let mut buf = [0u8; GptHeaderRaw::SIZE];
-        reader
-            .read_exact(&mut buf)
-            .map_err(|_| crate::error::PartitionError::Io)?;
-        let raw: GptHeaderRaw = bytemuck::cast(buf);
-        let header = Self::from_raw(&raw);
-
-        if !header.has_valid_signature() {
-            return Err(crate::error::PartitionError::InvalidGptSignature {
-                found: header.signature,
-            });
-        }
-
-        Ok(header)
-    }
-
-    /// Reads a GPT header from a specific LBA.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if seeking/reading fails or if the signature is invalid.
-    pub fn read_from_lba<R: hadris_io::Read + hadris_io::Seek>(
-        reader: &mut R,
-        lba: u64,
-        block_size: u32,
-    ) -> crate::error::Result<Self> {
-        reader
-            .seek(hadris_io::SeekFrom::Start(lba * block_size as u64))
-            .map_err(|_| crate::error::PartitionError::Io)?;
-        Self::read_from(reader)
-    }
-}
-
-#[cfg(feature = "write")]
-impl GptHeader {
-    /// Writes this GPT header to a writer.
-    ///
-    /// Only writes the 92-byte header, not padding to sector size.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if writing fails.
-    pub fn write_to<W: hadris_io::Write>(&self, writer: &mut W) -> crate::error::Result<()> {
-        let raw = self.to_raw();
-        writer
-            .write_all(bytemuck::bytes_of(&raw))
-            .map_err(|_| crate::error::PartitionError::Io)
-    }
-
-    /// Writes this GPT header to a specific LBA, padded to block size.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if seeking/writing fails.
-    pub fn write_to_lba<W: hadris_io::Write + hadris_io::Seek>(
-        &self,
-        writer: &mut W,
-        lba: u64,
-        block_size: u32,
-    ) -> crate::error::Result<()> {
-        writer
-            .seek(hadris_io::SeekFrom::Start(lba * block_size as u64))
-            .map_err(|_| crate::error::PartitionError::Io)?;
-
-        let raw = self.to_raw();
-        writer
-            .write_all(bytemuck::bytes_of(&raw))
-            .map_err(|_| crate::error::PartitionError::Io)?;
-
-        // Pad to block size
-        let padding_size = block_size as usize - GptHeaderRaw::SIZE;
-        if padding_size > 0 {
-            let padding = [0u8; 512]; // Use 512 as max typical block size
-            writer
-                .write_all(&padding[..padding_size.min(512)])
-                .map_err(|_| crate::error::PartitionError::Io)?;
-        }
-
-        Ok(())
-    }
-}
 
 /// GPT partition entry (128 bytes by default).
 #[repr(C)]

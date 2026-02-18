@@ -52,14 +52,87 @@
 //! - El-Torito bootable images
 //! - Hybrid MBR+GPT for USB booting
 
+#![allow(async_fn_in_trait)]
+
+// ---------------------------------------------------------------------------
+// Shared types (compiled once)
+// ---------------------------------------------------------------------------
+
 pub mod error;
 pub mod layout;
 pub mod options;
 pub mod tree;
-pub mod writer;
 
+// ---------------------------------------------------------------------------
+// Sync module
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "sync")]
+#[path = ""]
+pub mod sync {
+    pub use hadris_io::sync::{Read, Write, Seek};
+    pub use hadris_io::SeekFrom;
+
+    macro_rules! io_transform {
+        ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
+    }
+
+    macro_rules! sync_only {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    macro_rules! async_only {
+        ($($item:tt)*) => { };
+    }
+
+    #[path = "."]
+    mod __inner {
+        pub mod writer;
+    }
+    pub use __inner::*;
+
+    // Convenience re-exports
+    pub use __inner::writer::CdWriter;
+}
+
+// ---------------------------------------------------------------------------
+// Async module
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "async")]
+#[path = ""]
+pub mod r#async {
+    pub use hadris_io::r#async::{Read, Write, Seek};
+    pub use hadris_io::SeekFrom;
+
+    macro_rules! io_transform {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    macro_rules! sync_only {
+        ($($item:tt)*) => { };
+    }
+
+    macro_rules! async_only {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    #[path = "."]
+    mod __inner {
+        pub mod writer;
+    }
+    pub use __inner::*;
+}
+
+// ---------------------------------------------------------------------------
+// Default re-exports for backwards compatibility (sync)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "sync")]
+pub use sync::*;
+
+// Re-exports from shared types
 pub use error::{CdError, CdResult};
 pub use layout::{LayoutInfo, LayoutManager};
 pub use options::{CdOptions, IsoOptions, UdfOptions};
 pub use tree::{Directory, FileData, FileEntry, FileExtent, FileTree};
-pub use writer::CdWriter;

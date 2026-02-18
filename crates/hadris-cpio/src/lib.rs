@@ -104,6 +104,7 @@
 //! - RPM file format specification — CPIO payload format
 
 #![no_std]
+#![allow(async_fn_in_trait)]
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -111,36 +112,116 @@ extern crate std;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+// ---------------------------------------------------------------------------
+// Shared types (compiled once, not duplicated by sync/async modules)
+// ---------------------------------------------------------------------------
+
 /// Error types for CPIO operations.
 pub mod error;
-/// Raw 110-byte ASCII newc header parsing and construction.
-pub mod header;
-/// Decoded entry header with typed fields.
-pub mod entry;
 /// Unix file type constants and mode bit manipulation.
 pub mod mode;
 
-/// Streaming CPIO archive reader.
-#[cfg(feature = "read")]
-pub mod read;
+// ---------------------------------------------------------------------------
+// Sync module
+// ---------------------------------------------------------------------------
 
-/// CPIO archive writer and in-memory file tree.
-#[cfg(feature = "write")]
-pub mod write;
+#[cfg(feature = "sync")]
+#[path = ""]
+pub mod sync {
+    //! Synchronous CPIO archive API.
+    //!
+    //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
 
+    pub use hadris_io::sync::{Read, Write, Seek, ReadExt, Parsable, Writable};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::Result as IoResult;
+
+    macro_rules! io_transform {
+        ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
+    }
+
+    macro_rules! sync_only {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    macro_rules! async_only {
+        ($($item:tt)*) => { };
+    }
+
+    #[path = "."]
+    mod __inner {
+        /// Raw 110-byte ASCII newc header parsing and construction.
+        pub mod header;
+        /// Decoded entry header with typed fields.
+        pub mod entry;
+        /// Streaming CPIO archive reader.
+        #[cfg(feature = "read")]
+        pub mod read;
+        /// CPIO archive writer and in-memory file tree.
+        #[cfg(feature = "write")]
+        pub mod write;
+    }
+    pub use __inner::*;
+
+    // Convenience re-exports
+    pub use __inner::header::{CpioMagic, RawNewcHeader, HEADER_SIZE, MAGIC_NEWC, MAGIC_NEWC_CRC, TRAILER_NAME};
+    pub use __inner::entry::CpioEntryHeader;
+    #[cfg(feature = "read")]
+    pub use __inner::read::{CpioEntry, CpioReader};
+    #[cfg(all(feature = "read", feature = "alloc"))]
+    pub use __inner::read::CpioEntryOwned;
+    #[cfg(feature = "write")]
+    pub use __inner::write::{CpioWriteOptions, CpioWriter};
+    #[cfg(feature = "write")]
+    pub use __inner::write::file_tree::{FileNode, FileTree};
+}
+
+// ---------------------------------------------------------------------------
+// Async module
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "async")]
+#[path = ""]
+pub mod r#async {
+    //! Asynchronous CPIO archive API.
+    //!
+    //! All I/O operations use async `Read`/`Write`/`Seek` traits.
+
+    pub use hadris_io::r#async::{Read, Write, Seek, ReadExt, Parsable, Writable};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::Result as IoResult;
+
+    macro_rules! io_transform {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    macro_rules! sync_only {
+        ($($item:tt)*) => { };
+    }
+
+    macro_rules! async_only {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    #[path = "."]
+    mod __inner {
+        pub mod header;
+        pub mod entry;
+        #[cfg(feature = "read")]
+        pub mod read;
+        #[cfg(feature = "write")]
+        pub mod write;
+    }
+    pub use __inner::*;
+}
+
+// ---------------------------------------------------------------------------
+// Default re-exports for backwards compatibility (sync)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "sync")]
+pub use sync::*;
+
+// Re-exports from shared types
 pub use error::{CpioError, Result};
-pub use header::{CpioMagic, RawNewcHeader, HEADER_SIZE, MAGIC_NEWC, MAGIC_NEWC_CRC, TRAILER_NAME};
-pub use entry::CpioEntryHeader;
 pub use mode::FileType;
-
-#[cfg(feature = "read")]
-pub use read::{CpioEntry, CpioReader};
-
-#[cfg(all(feature = "read", feature = "alloc"))]
-pub use read::CpioEntryOwned;
-
-#[cfg(feature = "write")]
-pub use write::{CpioWriteOptions, CpioWriter};
-
-#[cfg(feature = "write")]
-pub use write::file_tree::{FileNode, FileTree};

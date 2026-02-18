@@ -18,7 +18,7 @@ pub use primary::PrimaryVolumeDescriptor;
 pub use tag::{DescriptorTag, TagIdentifier};
 
 use crate::error::{UdfError, UdfResult};
-use hadris_io::{Read, Seek, SeekFrom};
+use super::super::{Read, Seek, SeekFrom};
 
 /// Extent descriptor (ECMA-167 3/7.1)
 #[repr(C)]
@@ -233,12 +233,14 @@ pub mod vrs {
     pub const CD001: &[u8; 5] = b"CD001";
 }
 
+io_transform! {
+
 /// Parse the Volume Recognition Sequence to detect UDF
 ///
 /// Returns the UDF NSR version found, or an error if not UDF
-pub fn parse_vrs<R: Read + Seek>(reader: &mut R) -> UdfResult<VrsType> {
+pub async fn parse_vrs<R: Read + Seek>(reader: &mut R) -> UdfResult<VrsType> {
     // VRS starts at sector 16
-    reader.seek(SeekFrom::Start(16 * 2048))?;
+    reader.seek(SeekFrom::Start(16 * 2048)).await?;
 
     let mut buffer = [0u8; 2048];
     let mut found_bea = false;
@@ -246,7 +248,7 @@ pub fn parse_vrs<R: Read + Seek>(reader: &mut R) -> UdfResult<VrsType> {
 
     // Scan up to 16 sectors for VRS
     for _ in 0..16 {
-        reader.read_exact(&mut buffer)?;
+        reader.read_exact(&mut buffer).await?;
 
         // Check structure type (byte 0) and version (byte 6)
         if buffer[0] != 0 || buffer[6] != 1 {
@@ -269,6 +271,8 @@ pub fn parse_vrs<R: Read + Seek>(reader: &mut R) -> UdfResult<VrsType> {
         None => Err(UdfError::InvalidVrs),
     }
 }
+
+} // io_transform!
 
 /// VRS type detected
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

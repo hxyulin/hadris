@@ -2,14 +2,12 @@
 use alloc::vec::Vec;
 use core::{ffi::CStr, fmt::Debug};
 #[cfg(feature = "std")]
-use hadris_io::Parsable;
-use hadris_io::{self as io, Read, Write};
+use super::io::Parsable;
+use super::io::{self, Read, Write};
 
-use crate::{
-    directory::RootDirectoryEntry,
-    types::{
-        BigEndian, DecDateTime, Endian, IsoStrA, IsoStrD, LittleEndian, U16LsbMsb, U32, U32LsbMsb,
-    },
+use super::directory::RootDirectoryEntry;
+use crate::types::{
+    BigEndian, DecDateTime, Endian, IsoStrA, IsoStrD, LittleEndian, U16LsbMsb, U32, U32LsbMsb,
 };
 
 /// Errors that can occur when parsing volume descriptors
@@ -81,11 +79,12 @@ pub enum VolumeDescriptor {
     Unknown(UnknownVolumeDescriptor),
 }
 
+io_transform! {
 #[cfg(feature = "std")]
 impl Parsable for VolumeDescriptor {
-    fn parse<R: Read>(reader: &mut R) -> io::Result<Self> {
+    async fn parse<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut buf = [0u8; 2048];
-        reader.read_exact(&mut buf)?;
+        reader.read_exact(&mut buf).await?;
         let header = VolumeDescriptorHeader::from_bytes(&buf[0..7]);
         if !header.is_valid() {
             // Invalid, which means either we are at the wrong place, or the writer didn't
@@ -99,6 +98,7 @@ impl Parsable for VolumeDescriptor {
         Ok(VolumeDescriptor::new(buf))
     }
 }
+} // io_transform!
 
 impl VolumeDescriptor {
     pub fn as_bytes(&self) -> &[u8] {
@@ -151,39 +151,6 @@ impl VolumeDescriptorList {
         Self {
             descriptors: Vec::new(),
         }
-    }
-
-    /// Parse the volume descriptor list from the given reader
-    ///
-    /// The caller should seek to the start of the volume descriptor list, which is usually at LBA 16
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - I/O error occurs
-    /// - Volume descriptor header is invalid (missing CD001 signature)
-    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
-        let mut descriptors = Vec::new();
-        let mut buffer = [0u8; 2048];
-        loop {
-            reader.read_exact(&mut buffer)?;
-            let header = VolumeDescriptorHeader::from_bytes(&buffer[0..7]);
-            let ty = VolumeDescriptorType::from_u8(header.descriptor_type);
-            if let VolumeDescriptorType::VolumeSetTerminator = ty {
-                break;
-            }
-            if !header.is_valid() {
-                // Invalid, which means either we are at the wrong place, or the writer didn't
-                // write an end record
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Invalid volume descriptor header (missing CD001 signature)",
-                ));
-            }
-
-            descriptors.push(VolumeDescriptor::new(buffer));
-        }
-
-        Ok(Self { descriptors })
     }
 
     pub fn primary(&self) -> &PrimaryVolumeDescriptor {
@@ -244,21 +211,59 @@ impl VolumeDescriptorList {
         self.descriptors.insert(index, descriptor);
     }
 
-    pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
-        let mut written = 0;
-        for descriptor in &self.descriptors {
-            writer.write_all(descriptor.as_bytes())?;
-            written += 2048;
-        }
-        writer.write_all(VolumeDescriptorSetTerminator::new().to_bytes())?;
-        written += 2048;
-        Ok(written)
-    }
-
     pub fn size_required(&self) -> usize {
         (self.descriptors.len() + 1) * 2048
     }
 }
+
+io_transform! {
+#[cfg(feature = "alloc")]
+impl VolumeDescriptorList {
+    /// Parse the volume descriptor list from the given reader
+    ///
+    /// The caller should seek to the start of the volume descriptor list, which is usually at LBA 16
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - I/O error occurs
+    /// - Volume descriptor header is invalid (missing CD001 signature)
+    pub async fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
+        let mut descriptors = Vec::new();
+        let mut buffer = [0u8; 2048];
+        loop {
+            reader.read_exact(&mut buffer).await?;
+            let header = VolumeDescriptorHeader::from_bytes(&buffer[0..7]);
+            let ty = VolumeDescriptorType::from_u8(header.descriptor_type);
+            if let VolumeDescriptorType::VolumeSetTerminator = ty {
+                break;
+            }
+            if !header.is_valid() {
+                // Invalid, which means either we are at the wrong place, or the writer didn't
+                // write an end record
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Invalid volume descriptor header (missing CD001 signature)",
+                ));
+            }
+
+            descriptors.push(VolumeDescriptor::new(buffer));
+        }
+
+        Ok(Self { descriptors })
+    }
+
+    pub async fn write<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
+        let mut written = 0;
+        for descriptor in &self.descriptors {
+            writer.write_all(descriptor.as_bytes()).await?;
+            written += 2048;
+        }
+        writer.write_all(VolumeDescriptorSetTerminator::new().to_bytes()).await?;
+        written += 2048;
+        Ok(written)
+    }
+}
+} // io_transform!
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

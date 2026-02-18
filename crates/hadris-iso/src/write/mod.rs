@@ -4,27 +4,25 @@ use core::fmt;
 pub mod estimator;
 pub mod writer;
 
-use crate::{
-    boot::{BootCatalog, BootInfoTable, BootSectionEntry, ElToritoWriter, Grub2BootInfoTable},
-    directory::{DirectoryRecord, DirectoryRef, FileFlags},
-    file::EntryType,
-    io::{IsoCursor, LogicalSector},
-    joliet::JolietLevel,
-    path::PathTableRef,
-    read::PathSeparator,
-    rrip::RripBuilder,
-    susp::SplitSu,
-    volume::{
-        BootRecordVolumeDescriptor, PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor,
-        VolumeDescriptor, VolumeDescriptorHeader, VolumeDescriptorList, VolumeDescriptorType,
-    },
-    write::writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles},
+use super::super::boot::{BootCatalog, BootInfoTable, BootSectionEntry, ElToritoWriter, Grub2BootInfoTable};
+use super::super::directory::{DirectoryRecord, DirectoryRef, FileFlags};
+use crate::file::EntryType;
+use super::super::io::{IsoCursor, LogicalSector};
+use crate::joliet::JolietLevel;
+use super::super::path::PathTableRef;
+use super::super::read::PathSeparator;
+use super::super::rrip::RripBuilder;
+use super::super::susp::SplitSu;
+use super::super::volume::{
+    BootRecordVolumeDescriptor, PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor,
+    VolumeDescriptor, VolumeDescriptorHeader, VolumeDescriptorList, VolumeDescriptorType,
 };
+use writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
 use hadris_common::types::{
     endian::{Endian, EndianType},
     number::U32,
 };
-use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
+use super::super::io::{self, Read, Seek, SeekFrom, Write};
 use hadris_part::{
     gpt::{GptPartitionEntry, Guid},
     hybrid::HybridMbrBuilder,
@@ -194,7 +192,7 @@ fn available_su_space(iso_name_len: usize) -> usize {
 /// so that `build_split` keeps the important ones inline and overflows
 /// the rest via a CE pointer.
 fn build_rrip_entries(kind: RripEntryKind<'_>, inode: u32) -> RripBuilder {
-    use crate::directory::DirDateTime;
+    use super::super::directory::DirDateTime;
 
     let mut builder = RripBuilder::new();
     let now = DirDateTime::now();
@@ -318,17 +316,18 @@ struct PendingRecord {
     flags: FileFlags,
 }
 
+io_transform! {
 impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
-    pub fn format_new(
+    pub async fn format_new(
         data: DATA,
         mut files: InputFiles,
         ops: FormatOptions,
     ) -> IsoCreationResult<()> {
         let mut writer = Self::new(data, ops);
-        writer.write_volume_descriptors(&mut files)?;
-        let root_dirs = writer.write_files(&files)?;
-        writer.write_path_tables()?;
-        writer.finalize_volume_descriptors(root_dirs)?;
+        writer.write_volume_descriptors(&mut files).await?;
+        let root_dirs = writer.write_files(&files).await?;
+        writer.write_path_tables().await?;
+        writer.finalize_volume_descriptors(root_dirs).await?;
         Ok(())
     }
 
@@ -358,8 +357,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
     const VOLUME_DESCRIPTOR_SET_START: LogicalSector = LogicalSector(16);
 
-    fn write_volume_descriptors(&mut self, files: &mut InputFiles) -> io::Result<()> {
-        self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START)?;
+    async fn write_volume_descriptors(&mut self, files: &mut InputFiles) -> io::Result<()> {
+        self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START).await?;
         let mut volume_descriptors = VolumeDescriptorList::empty();
         for &entry in &self.entry_types {
             match entry {
@@ -394,18 +393,18 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             volume_descriptors.insert(1, VolumeDescriptor::BootRecord(boot_record));
         }
 
-        volume_descriptors.write(&mut self.data)?;
+        volume_descriptors.write(&mut self.data).await?;
         Ok(())
     }
 
-    fn finalize_volume_descriptors(
+    async fn finalize_volume_descriptors(
         &mut self,
         root_dirs: BTreeMap<EntryType, DirectoryRef>,
     ) -> io::Result<()> {
         // Write boot catalog
         let catalog_ptr = if let Some(boot) = &self.ops.features.el_torito {
             let mut catalog = BootCatalog::default();
-            let current_sector = self.data.pad_align_sector()?;
+            let current_sector = self.data.pad_align_sector().await?;
 
             for (section, entry) in boot.sections() {
                 let dir_ref = self
@@ -449,17 +448,17 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     let mut checksum = 0u32;
                     let mut buffer = [0u8; 4];
                     let byte_offset = (boot_image_lba as u64) * self.ops.sector_size as u64;
-                    self.data.seek(SeekFrom::Start(byte_offset + 64))?;
+                    self.data.seek(SeekFrom::Start(byte_offset + 64)).await?;
                     // Calculate checksum for all 4-byte chunks from offset 64 to end
                     let checksum_bytes = dir_ref.size - 64;
                     for _ in 0..(checksum_bytes / 4) {
-                        self.data.read_exact(&mut buffer)?;
+                        self.data.read_exact(&mut buffer).await?;
                         checksum = checksum.wrapping_add(u32::from_le_bytes(buffer));
                     }
 
                     const TABLE_OFFSET: u64 = 8;
                     self.data
-                        .seek(SeekFrom::Start(byte_offset + TABLE_OFFSET))?;
+                        .seek(SeekFrom::Start(byte_offset + TABLE_OFFSET)).await?;
 
                     if entry.grub2_boot_info {
                         // GRUB2/ISOLINUX uses extended 56-byte format with reserved bytes
@@ -470,7 +469,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                             checksum: U32::new(checksum),
                             reserved: [0u8; 40],
                         };
-                        self.data.write_all(bytemuck::bytes_of(&table))?;
+                        self.data.write_all(bytemuck::bytes_of(&table)).await?;
                     } else {
                         // Standard El-Torito 16-byte format
                         let table = BootInfoTable {
@@ -479,7 +478,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                             file_len: U32::new(dir_ref.size as u32),
                             checksum: U32::new(checksum),
                         };
-                        self.data.write_all(bytemuck::bytes_of(&table))?;
+                        self.data.write_all(bytemuck::bytes_of(&table)).await?;
                     }
                 }
             }
@@ -494,7 +493,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                             "boot.catalog file not found in written files",
                         )
                     })?;
-                self.data.seek_sector(dir_ref.extent)?;
+                self.data.seek_sector(dir_ref.extent).await?;
                 if dir_ref.size < catalog.size() {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -505,26 +504,26 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                         ),
                     ));
                 }
-                catalog.write(&mut self.data)?;
-                self.data.seek_sector(current_sector)?;
+                catalog.write(&mut self.data).await?;
+                self.data.seek_sector(current_sector).await?;
 
                 Some(dir_ref.extent.0 as u32)
             } else {
-                self.data.seek_sector(current_sector)?;
-                catalog.write(&mut self.data)?;
-                self.data.pad_align_sector()?;
+                self.data.seek_sector(current_sector).await?;
+                catalog.write(&mut self.data).await?;
+                self.data.pad_align_sector().await?;
                 Some(current_sector.0 as u32)
             }
         } else {
             None
         };
 
-        let end_sector = self.data.pad_align_sector()?;
-        self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START)?;
+        let end_sector = self.data.pad_align_sector().await?;
+        self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START).await?;
 
         let mut buffer = vec![0u8; self.ops.sector_size];
         loop {
-            self.data.read_exact(&mut buffer)?;
+            self.data.read_exact(&mut buffer).await?;
             let header = VolumeDescriptorHeader::from_bytes(&buffer[0..7]);
             let ty = VolumeDescriptorType::from_u8(header.descriptor_type);
             if let VolumeDescriptorType::VolumeSetTerminator = ty {
@@ -642,17 +641,17 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             }
 
             // Write the new data
-            self.data.seek_relative(-(buffer.len() as i64))?;
-            self.data.write_all(&buffer)?;
+            self.data.seek_relative(-(buffer.len() as i64)).await?;
+            self.data.write_all(&buffer).await?;
         }
 
         // Now we finalize the partition tables based on hybrid boot options
-        self.write_partition_tables(end_sector)?;
+        self.write_partition_tables(end_sector).await?;
 
         Ok(())
     }
 
-    fn write_files(&mut self, files: &InputFiles) -> io::Result<BTreeMap<EntryType, DirectoryRef>> {
+    async fn write_files(&mut self, files: &InputFiles) -> io::Result<BTreeMap<EntryType, DirectoryRef>> {
         let roots = {
             let files = FileTreeWalker::new(files);
             let mut current_dir = self.written_files.root_dir();
@@ -684,7 +683,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                                 dir,
                                 false,
                                 &mut self.inode_counter,
-                            )?;
+                            ).await?;
                         }
                         current_dir.pop();
                     }
@@ -699,8 +698,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                                     size: 0,
                                 }
                             } else {
-                                let start = self.data.pad_align_sector()?;
-                                self.data.write_all(contents)?;
+                                let start = self.data.pad_align_sector().await?;
+                                self.data.write_all(contents).await?;
                                 DirectoryRef {
                                     extent: start,
                                     size: contents.len(),
@@ -719,27 +718,27 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             // Write root directory
             let dir = self.written_files.get_mut(&current_dir);
             for ty in &self.entry_types {
-                Self::write_directory(&mut self.data, *ty, dir, true, &mut self.inode_counter)?;
+                Self::write_directory(&mut self.data, *ty, dir, true, &mut self.inode_counter).await?;
             }
 
             self.written_files.root_refs().clone()
         };
 
-        let pos = self.data.stream_position()?;
+        let pos = self.data.stream_position().await?;
         for root in roots.values() {
-            self.update_directory(*root, *root)?;
+            self.update_directory(*root, *root).await?;
         }
         // We need to seek back to this position
-        self.data.seek(SeekFrom::Start(pos))?;
+        self.data.seek(SeekFrom::Start(pos)).await?;
 
         Ok(roots)
     }
 
-    fn write_path_tables(&mut self) -> io::Result<()> {
+    async fn write_path_tables(&mut self) -> io::Result<()> {
         for i in 0..self.entry_types.len() {
             let ty = self.entry_types[i];
-            let l_ref = self.write_path_table(ty, EndianType::LittleEndian)?;
-            let m_ref = self.write_path_table(ty, EndianType::BigEndian)?;
+            let l_ref = self.write_path_table(ty, EndianType::LittleEndian).await?;
+            let m_ref = self.write_path_table(ty, EndianType::BigEndian).await?;
             assert_eq!(l_ref.size, m_ref.size);
             self.path_tables.insert(
                 ty,
@@ -753,16 +752,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
-    fn write_path_table(&mut self, ty: EntryType, endian: EndianType) -> io::Result<DirectoryRef> {
-        let start = self.data.pad_align_sector()?;
+    async fn write_path_table(&mut self, ty: EntryType, endian: EndianType) -> io::Result<DirectoryRef> {
+        let start = self.data.pad_align_sector().await?;
         PathTableWriter {
             written_files: &self.written_files,
             ty,
             endian,
         }
-        .write(&mut self.data)?;
-        let size = self.data.stream_position()? as usize - (start.0 * self.data.sector_size);
-        let _end = self.data.pad_align_sector()?;
+        .write(&mut self.data).await?;
+        let size = self.data.stream_position().await? as usize - (start.0 * self.data.sector_size);
+        let _end = self.data.pad_align_sector().await?;
         Ok(DirectoryRef {
             extent: start,
             size,
@@ -770,7 +769,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     /// Writes the partition tables (MBR, GPT, or Hybrid) based on configuration.
-    fn write_partition_tables(&mut self, end_sector: LogicalSector) -> io::Result<()> {
+    async fn write_partition_tables(&mut self, end_sector: LogicalSector) -> io::Result<()> {
         // Calculate disk size in 512-byte sectors (for MBR/GPT compatibility)
         let disk_size_512 = (end_sector.0 * self.data.sector_size / 512) as u64;
 
@@ -784,16 +783,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             None | Some(PartitionScheme::None) => {
                 // No partition table - write a minimal MBR for basic compatibility
                 // This is the legacy behavior
-                self.write_legacy_mbr(end_sector)?;
+                self.write_legacy_mbr(end_sector).await?;
             }
             Some(PartitionScheme::Mbr) => {
-                self.write_mbr_boot(end_sector)?;
+                self.write_mbr_boot(end_sector).await?;
             }
             Some(PartitionScheme::Gpt) => {
-                self.write_gpt_boot(end_sector, disk_size_512)?;
+                self.write_gpt_boot(end_sector, disk_size_512).await?;
             }
             Some(PartitionScheme::Hybrid) => {
-                self.write_hybrid_boot(end_sector, disk_size_512)?;
+                self.write_hybrid_boot(end_sector, disk_size_512).await?;
             }
         }
 
@@ -801,7 +800,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     /// Writes a legacy MBR with a protective partition (current behavior).
-    fn write_legacy_mbr(&mut self, end_sector: LogicalSector) -> io::Result<()> {
+    async fn write_legacy_mbr(&mut self, end_sector: LogicalSector) -> io::Result<()> {
         let start_sector = LogicalSector(16);
         let start_block = (start_sector.0 * (self.data.sector_size / 512)) as u32;
         let end_block = (end_sector.0 * (self.data.sector_size / 512)) as u32;
@@ -826,14 +825,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
         }
 
-        self.data.seek(SeekFrom::Start(0))?;
-        self.data.write_all(bytemuck::bytes_of(&mbr))?;
+        self.data.seek(SeekFrom::Start(0)).await?;
+        self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
 
         Ok(())
     }
 
     /// Writes an MBR partition table for BIOS USB boot (isohybrid-style).
-    fn write_mbr_boot(&mut self, end_sector: LogicalSector) -> io::Result<()> {
+    async fn write_mbr_boot(&mut self, end_sector: LogicalSector) -> io::Result<()> {
         let end_block = (end_sector.0 * (self.data.sector_size / 512)) as u32;
 
         let hybrid_opts = self.ops.features.hybrid_boot.as_ref();
@@ -861,14 +860,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
         }
 
-        self.data.seek(SeekFrom::Start(0))?;
-        self.data.write_all(bytemuck::bytes_of(&mbr))?;
+        self.data.seek(SeekFrom::Start(0)).await?;
+        self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
 
         Ok(())
     }
 
     /// Writes a GPT partition table for UEFI boot.
-    fn write_gpt_boot(&mut self, _end_sector: LogicalSector, disk_size_512: u64) -> io::Result<()> {
+    async fn write_gpt_boot(&mut self, _end_sector: LogicalSector, disk_size_512: u64) -> io::Result<()> {
         // For GPT, we need:
         // 1. Protective MBR at sector 0
         // 2. Primary GPT header at sector 1
@@ -877,8 +876,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         // Write protective MBR
         let mbr = MasterBootRecord::protective(disk_size_512);
-        self.data.seek(SeekFrom::Start(0))?;
-        self.data.write_all(bytemuck::bytes_of(&mbr))?;
+        self.data.seek(SeekFrom::Start(0)).await?;
+        self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
 
         // Create GPT partition entry for the ISO data
         // Start after GPT structures (sector 34 in 512-byte sectors)
@@ -915,12 +914,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         );
 
         // Write primary GPT header
-        self.data.seek(SeekFrom::Start(512))?; // Sector 1
-        self.data.write_all(&header_bytes)?;
+        self.data.seek(SeekFrom::Start(512)).await?; // Sector 1
+        self.data.write_all(&header_bytes).await?;
 
         // Write partition entries (starting at sector 2)
-        self.data.seek(SeekFrom::Start(1024))?; // Sector 2
-        self.data.write_all(entries_bytes)?;
+        self.data.seek(SeekFrom::Start(1024)).await?; // Sector 2
+        self.data.write_all(entries_bytes).await?;
 
         // Note: In a full implementation, we'd also write the backup GPT at the end
         // For now, we skip this as ISOs are typically read-only
@@ -929,7 +928,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     /// Writes a Hybrid MBR + GPT for dual BIOS/UEFI boot.
-    fn write_hybrid_boot(
+    async fn write_hybrid_boot(
         &mut self,
         _end_sector: LogicalSector,
         disk_size_512: u64,
@@ -967,8 +966,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         }
 
         // Write hybrid MBR
-        self.data.seek(SeekFrom::Start(0))?;
-        self.data.write_all(bytemuck::bytes_of(&mbr))?;
+        self.data.seek(SeekFrom::Start(0)).await?;
+        self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
 
         // Calculate CRC32 of partition entries
         let entries_bytes = bytemuck::bytes_of(&gpt_entries);
@@ -987,12 +986,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         );
 
         // Write primary GPT header
-        self.data.seek(SeekFrom::Start(512))?;
-        self.data.write_all(&header_bytes)?;
+        self.data.seek(SeekFrom::Start(512)).await?;
+        self.data.write_all(&header_bytes).await?;
 
         // Write partition entries
-        self.data.seek(SeekFrom::Start(1024))?;
-        self.data.write_all(entries_bytes)?;
+        self.data.seek(SeekFrom::Start(1024)).await?;
+        self.data.write_all(entries_bytes).await?;
 
         Ok(())
     }
@@ -1087,19 +1086,19 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         buf
     }
 
-    fn update_directory(
+    async fn update_directory(
         &mut self,
         parent: DirectoryRef,
         directory: DirectoryRef,
     ) -> io::Result<()> {
-        let start = self.data.seek_sector(directory.extent)?;
+        let start = self.data.seek_sector(directory.extent).await?;
         let mut offset = 0;
         loop {
             if offset >= directory.size as u64 {
                 break;
             }
-            self.data.seek(SeekFrom::Start(start + offset))?;
-            let mut record = DirectoryRecord::parse(&mut self.data)?;
+            self.data.seek(SeekFrom::Start(start + offset)).await?;
+            let mut record = DirectoryRecord::parse(&mut self.data).await?;
             if record.header().len == 0 {
                 break;
             }
@@ -1109,8 +1108,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 let header = record.header_mut();
                 header.extent.write(dir_ref.extent.0 as u32);
                 header.data_len.write(dir_ref.size as u32);
-                self.data.seek(SeekFrom::Start(start + offset))?;
-                record.write(&mut self.data)?;
+                self.data.seek(SeekFrom::Start(start + offset)).await?;
+                record.write(&mut self.data).await?;
                 offset += record.header().len as u64;
                 continue;
             }
@@ -1121,7 +1120,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     extent: LogicalSector(record.header().extent.read() as usize),
                     size: record.header().data_len.read() as usize,
                 };
-                self.update_directory(directory, record)?;
+                self.update_directory(directory, record).await?;
             }
         }
 
@@ -1133,7 +1132,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     /// 1. Build all RRIP entries and split each against available inline space
     /// 2. If any have overflow: write a shared continuation area, patch CE entries
     /// 3. Write directory records with the inline SU bytes
-    fn write_directory(
+    async fn write_directory(
         data: &mut IsoCursor<DATA>,
         ty: EntryType,
         dir: &mut WrittenDirectory,
@@ -1260,12 +1259,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         let has_overflow = records.iter().any(|r| r.split.has_overflow());
         if has_overflow {
-            let ca_sector = data.pad_align_sector()?;
+            let ca_sector = data.pad_align_sector().await?;
             let mut offset = 0u32;
             for record in &mut records {
                 if record.split.has_overflow() {
                     record.split.patch_ce(ca_sector.0 as u32, offset);
-                    data.write_all(&record.split.overflow)?;
+                    data.write_all(&record.split.overflow).await?;
                     offset += record.split.overflow.len() as u32;
                 }
             }
@@ -1273,7 +1272,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         // ── Phase 3: Write directory records with inline SU bytes ──
 
-        let start = data.pad_align_sector()?;
+        let start = data.pad_align_sector().await?;
         for record in &records {
             DirectoryRecord::new(
                 &record.name,
@@ -1281,9 +1280,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 record.dir_ref,
                 record.flags,
             )
-            .write(&mut *data)?;
+            .write(&mut *data).await?;
         }
-        let end = data.pad_align_sector()?;
+        let end = data.pad_align_sector().await?;
         let size = (end.0 - start.0) * data.sector_size;
 
         dir.entries.insert(
@@ -1296,6 +1295,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 }
+} // io_transform!
 
 #[allow(dead_code)]
 struct FileTreeWalker<'a> {

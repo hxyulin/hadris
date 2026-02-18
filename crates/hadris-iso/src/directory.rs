@@ -1,10 +1,8 @@
 use bytemuck::Zeroable;
-use hadris_io::{self as io, Read, Write};
+use super::io::{self, Read, Write};
 
-use crate::{
-    io::LogicalSector,
-    types::{U16LsbMsb, U32LsbMsb},
-};
+use super::io::LogicalSector;
+use crate::types::{U16LsbMsb, U32LsbMsb};
 
 /// The header of a directory record, because the identifier is variable length,
 #[repr(C)]
@@ -202,22 +200,27 @@ impl DirectoryRecord {
         sel
     }
 
-    pub fn parse<R: Read>(reader: &mut R) -> io::Result<Self> {
+}
+
+io_transform! {
+impl DirectoryRecord {
+    pub async fn parse<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut sel = Self::zeroed();
-        reader.read_exact(&mut sel.data[0..Self::DATA_START])?;
+        reader.read_exact(&mut sel.data[0..Self::DATA_START]).await?;
         let size = sel.size();
         if size > Self::DATA_START {
-            reader.read_exact(&mut sel.data[Self::DATA_START..size])?;
+            reader.read_exact(&mut sel.data[Self::DATA_START..size]).await?;
         }
         Ok(sel)
     }
 
-    pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
+    pub async fn write<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
         let size = self.size();
-        writer.write_all(&self.data[0..size])?;
+        writer.write_all(&self.data[0..size]).await?;
         Ok(size)
     }
 }
+} // io_transform!
 
 /// The root directory entry
 #[repr(C)]

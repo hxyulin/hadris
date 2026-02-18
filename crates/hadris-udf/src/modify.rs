@@ -31,9 +31,10 @@ use alloc::vec::Vec;
 
 use hadris_common::types::extent::{Extent, FileType};
 use hadris_common::types::layout::{AllocationMap, DirectoryLayout, FileLayout};
-use hadris_io::{self as io, Read, Seek, SeekFrom, Write};
+use hadris_io as io;
+use super::super::{Read, Write, Seek, SeekFrom};
 
-use crate::descriptor::AnchorVolumeDescriptorPointer;
+use super::descriptor::AnchorVolumeDescriptorPointer;
 use crate::{AVDP_LOCATION, SECTOR_SIZE, UdfError, UdfRevision};
 
 /// Operations that can be performed on a UDF image.

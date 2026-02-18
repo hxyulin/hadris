@@ -11,8 +11,10 @@ include = ["src/**/*", "Cargo.toml"]
 
 [features]
 default = ["bytemuck", "std"]
+sync = ["hadris-io/sync"]
+async = ["hadris-io/async"]
 alloc = []
-std = ["dep:chrono", "dep:crc", "dep:rand", "alloc"]
+std = ["sync", "dep:chrono", "dep:crc", "dep:rand", "alloc"]
 bytemuck = ["dep:bytemuck"]
 optical = ["alloc"]  # Optical media types (SessionInfo, OpticalMetadataWriter)
 

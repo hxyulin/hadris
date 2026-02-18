@@ -6,10 +6,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::directory::{DirectoryRecord, DirectoryRef};
-use crate::io::{self, IsoCursor, LogicalSector, Read, Seek, SeekFrom};
-use crate::rrip::{NmFlags, PnEntry, PxEntry, SlComponentFlags, TfFlags};
-use crate::susp::{ContinuationArea, SystemUseField, SystemUseIter};
+use super::super::directory::{DirectoryRecord, DirectoryRef};
+use super::super::io::{self, IsoCursor, LogicalSector, Read, Seek, SeekFrom};
+use super::super::rrip::{NmFlags, PnEntry, PxEntry, SlComponentFlags, TfFlags};
+use super::super::susp::{ContinuationArea, SystemUseField, SystemUseIter};
 
 use super::IsoImage;
 
@@ -24,20 +24,22 @@ pub(crate) struct SuspInfo {
     pub rrip_detected: bool,
 }
 
+io_transform! {
+
 /// Detect SUSP and RRIP presence by examining the root directory's "." entry.
 ///
 /// According to the SUSP spec, the SP entry (if present) must appear in the
 /// system use area of the root directory's "." entry. The ER entry declaring
 /// RRIP should also be present (possibly in a CE continuation area).
-pub(crate) fn detect_susp_rrip<DATA: Read + Seek>(
+pub(crate) async fn detect_susp_rrip<DATA: Read + Seek>(
     data: &mut IsoCursor<DATA>,
     root_extent: LogicalSector,
 ) -> io::Result<SuspInfo> {
     let mut info = SuspInfo::default();
 
     // Seek to root directory and parse the first record ("." entry)
-    data.seek(SeekFrom::Start(root_extent.0 as u64 * 2048))?;
-    let dot_record = DirectoryRecord::parse(data)?;
+    data.seek(SeekFrom::Start(root_extent.0 as u64 * 2048)).await?;
+    let dot_record = DirectoryRecord::parse(data).await?;
     let su = dot_record.system_use();
     if su.is_empty() {
         return Ok(info);
@@ -84,8 +86,8 @@ pub(crate) fn detect_susp_rrip<DATA: Read + Seek>(
             }
 
             let mut ce_buf = alloc::vec![0u8; ce_len];
-            data.seek(SeekFrom::Start(ce_offset))?;
-            data.read_exact(&mut ce_buf)?;
+            data.seek(SeekFrom::Start(ce_offset)).await?;
+            data.read_exact(&mut ce_buf).await?;
 
             for field in SystemUseIter::new(&ce_buf, 0) {
                 match &field {
@@ -108,8 +110,10 @@ pub(crate) fn detect_susp_rrip<DATA: Read + Seek>(
     Ok(info)
 }
 
+} // io_transform!
+
 /// Check if an ExtensionReference entry identifies RRIP.
-fn is_rrip_identifier(er: &crate::susp::ExtensionReference) -> bool {
+fn is_rrip_identifier(er: &super::super::susp::ExtensionReference) -> bool {
     let id_len = er.identifier_len as usize;
     if id_len == 0 || 4 + id_len > er.buf.len() {
         return false;
@@ -127,7 +131,9 @@ fn is_rrip_identifier(er: &crate::susp::ExtensionReference) -> bool {
 /// This function parses the inline system use area and then reads any
 /// continuation areas referenced by CE entries. CE chains are followed
 /// with a depth limit of 16 and a size limit of 1MB per allocation.
-pub fn collect_su_entries<DATA: Read + Seek>(
+io_transform! {
+
+pub async fn collect_su_entries<DATA: Read + Seek>(
     record: &DirectoryRecord,
     image: &IsoImage<DATA>,
     bytes_to_skip: u8,
@@ -165,7 +171,7 @@ pub fn collect_su_entries<DATA: Read + Seek>(
         }
 
         let mut ce_buf = alloc::vec![0u8; ce_len];
-        image.read_bytes_at(ce_offset, &mut ce_buf)?;
+        image.read_bytes_at(ce_offset, &mut ce_buf).await?;
 
         for field in SystemUseIter::new(&ce_buf, 0) {
             match &field {
@@ -239,7 +245,7 @@ impl RripMetadata {
         let mut nm_is_parent = false;
 
         // Collect SL components across entries
-        let mut sl_components: Vec<&crate::rrip::SlComponent> = Vec::new();
+        let mut sl_components: Vec<&super::super::rrip::SlComponent> = Vec::new();
         let mut has_sl = false;
 
         for field in fields {
@@ -305,7 +311,7 @@ impl RripMetadata {
 }
 
 /// Parse TF timestamps from raw bytes based on flags.
-fn parse_tf_timestamps(tf: &crate::rrip::TfEntry) -> RripTimestamps {
+fn parse_tf_timestamps(tf: &super::super::rrip::TfEntry) -> RripTimestamps {
     let mut ts = RripTimestamps::default();
     let long_form = tf.flags.contains(TfFlags::LONG_FORM);
     let stamp_size = if long_form { 17 } else { 7 };
@@ -380,7 +386,7 @@ fn parse_long_timestamp(data: &[u8]) -> RripDateTime {
 }
 
 /// Assemble a symlink path from SL components.
-fn assemble_symlink_path(components: &[&crate::rrip::SlComponent]) -> String {
+fn assemble_symlink_path(components: &[&super::super::rrip::SlComponent]) -> String {
     let mut path = String::new();
     let mut pending_content: Vec<u8> = Vec::new();
     let mut first = true;
@@ -432,18 +438,20 @@ fn assemble_symlink_path(components: &[&crate::rrip::SlComponent]) -> String {
 }
 
 /// Read the data_len of a directory by reading its "." entry.
-pub(crate) fn read_dir_size<DATA: Read + Seek>(
+pub(crate) async fn read_dir_size<DATA: Read + Seek>(
     image: &IsoImage<DATA>,
     sector: LogicalSector,
 ) -> io::Result<DirectoryRef> {
     let byte_offset = sector.0 as u64 * 2048;
     let mut buf = [0u8; 34];
-    image.read_bytes_at(byte_offset, &mut buf)?;
-    let header: &crate::directory::DirectoryRecordHeader =
-        bytemuck::from_bytes(&buf[..core::mem::size_of::<crate::directory::DirectoryRecordHeader>()]);
+    image.read_bytes_at(byte_offset, &mut buf).await?;
+    let header: &super::super::directory::DirectoryRecordHeader =
+        bytemuck::from_bytes(&buf[..core::mem::size_of::<super::super::directory::DirectoryRecordHeader>()]);
     Ok(DirectoryRef {
         extent: sector,
         size: header.data_len.read() as usize,
     })
 }
+
+} // io_transform!
 

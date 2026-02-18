@@ -3,14 +3,14 @@
 //! This is used for booting from CDs and DVDs
 
 use core::fmt::Debug;
-use hadris_io::{self as io, Read, Seek, Write};
+use super::io::{self, Read, Seek, Write};
 
 use crate::types::{Endian, LittleEndian, U16, U32};
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
 #[cfg(feature = "write")]
-use crate::{
+use super::{
     boot::options::BootOptions,
     volume::BootRecordVolumeDescriptor,
     write::{File, InputFiles},
@@ -94,33 +94,6 @@ impl BaseBootCatalog {
         }
     }
 
-    /// Parse the base boot catalog from the reader
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - I/O error occurs
-    /// - Validation entry checksum is invalid
-    /// - Default entry is not marked as bootable
-    pub fn parse<R: Read + Seek>(reader: &mut R) -> Result<Self, BootError> {
-        let validation = BootValidationEntry::parse(reader).map_err(|_| BootError::Io)?;
-        validation.validate()?;
-
-        let default_entry = BootSectionEntry::parse(reader).map_err(|_| BootError::Io)?;
-        if !default_entry.is_bootable() {
-            return Err(BootError::InvalidDefaultEntry);
-        }
-
-        Ok(Self {
-            validation,
-            default_entry,
-        })
-    }
-
-    pub fn write<W: Write>(&self, writer: &mut W) -> hadris_io::Result<()> {
-        writer.write_all(bytemuck::bytes_of(&self.validation))?;
-        writer.write_all(bytemuck::bytes_of(&self.default_entry))?;
-        Ok(())
-    }
 }
 
 /// Boot catalogue (requires alloc feature for dynamic sections)
@@ -170,70 +143,6 @@ impl BootCatalog {
         };
 
         self.sections.push((header, entries));
-    }
-
-    /// Parse the boot catalogue from the given reader,
-    /// expects the reader to seek to the start of the catalogue
-    ///
-    /// # Errors
-    /// Returns an error if the boot catalog is malformed or an I/O error occurs.
-    pub fn parse<T: Read + Seek>(reader: &mut T) -> Result<Self, BootError> {
-        let base = BaseBootCatalog::parse(reader)?;
-        let mut sections = Vec::new();
-        let mut buffer = [0u8; 32];
-        let mut has_more = false;
-        let mut header = None;
-        let mut entries = Vec::new();
-        loop {
-            reader.read_exact(&mut buffer).map_err(|_| BootError::Io)?;
-            match buffer[0] {
-                0x00 if !has_more => break,
-                0x90 => {
-                    has_more = true;
-                    if let Some(header) = header.take() {
-                        sections.push((header, entries));
-                        entries = Vec::new();
-                    }
-                    header = Some(bytemuck::cast(buffer));
-                }
-                0x91 => {
-                    has_more = false;
-                    if let Some(header) = header.take() {
-                        sections.push((header, entries));
-                        entries = Vec::new();
-                    }
-                    header = Some(bytemuck::cast(buffer));
-                }
-                id => {
-                    if header.is_none() {
-                        return Err(BootError::ExpectedSectionHeader(id));
-                    }
-                    entries.push(bytemuck::cast(buffer));
-                }
-            }
-        }
-
-        if has_more {
-            return Err(BootError::UnexpectedEndOfCatalog);
-        }
-        if let Some(header) = header {
-            sections.push((header, entries));
-        }
-
-        Ok(Self { base, sections })
-    }
-
-    pub fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        self.base.write(writer)?;
-        for (header, entries) in self.sections.iter() {
-            writer.write_all(bytemuck::bytes_of(header))?;
-            for entry in entries {
-                writer.write_all(bytemuck::bytes_of(entry))?;
-            }
-        }
-        // End of entries
-        writer.write_all(&[0; 32])?;
-        Ok(())
     }
 
     /// Returns the total size of the boot catalog in bytes
@@ -361,12 +270,6 @@ impl Debug for BootValidationEntry {
 }
 
 impl BootValidationEntry {
-    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
-        let mut buf = [0u8; 32];
-        reader.read_exact(&mut buf)?;
-        Ok(bytemuck::cast(buf))
-    }
-
     /// Check if the validation entry is valid (legacy method)
     pub fn is_valid(&self) -> bool {
         self.header_id == 0x01
@@ -519,12 +422,6 @@ impl Debug for BootSectionEntry {
 }
 
 impl BootSectionEntry {
-    pub fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
-        let mut buf: [u8; 32] = [0; 32];
-        reader.read_exact(&mut buf)?;
-        Ok(bytemuck::cast(buf))
-    }
-
     /// Check if this entry is marked as bootable (0x88)
     pub fn is_bootable(&self) -> bool {
         self.boot_indicator == 0x88
@@ -589,6 +486,121 @@ pub struct Grub2BootInfoTable {
     pub reserved: [u8; 40],
 }
 
+io_transform! {
+impl BaseBootCatalog {
+    /// Parse the base boot catalog from the reader
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - I/O error occurs
+    /// - Validation entry checksum is invalid
+    /// - Default entry is not marked as bootable
+    pub async fn parse<R: Read + Seek>(reader: &mut R) -> Result<Self, BootError> {
+        let validation = BootValidationEntry::parse(reader).await.map_err(|_| BootError::Io)?;
+        validation.validate()?;
+
+        let default_entry = BootSectionEntry::parse(reader).await.map_err(|_| BootError::Io)?;
+        if !default_entry.is_bootable() {
+            return Err(BootError::InvalidDefaultEntry);
+        }
+
+        Ok(Self {
+            validation,
+            default_entry,
+        })
+    }
+
+    pub async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        writer.write_all(bytemuck::bytes_of(&self.validation)).await?;
+        writer.write_all(bytemuck::bytes_of(&self.default_entry)).await?;
+        Ok(())
+    }
+}
+
+impl BootValidationEntry {
+    pub async fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
+        let mut buf = [0u8; 32];
+        reader.read_exact(&mut buf).await?;
+        Ok(bytemuck::cast(buf))
+    }
+}
+
+impl BootSectionEntry {
+    pub async fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
+        let mut buf: [u8; 32] = [0; 32];
+        reader.read_exact(&mut buf).await?;
+        Ok(bytemuck::cast(buf))
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl BootCatalog {
+    /// Parse the boot catalogue from the given reader,
+    /// expects the reader to seek to the start of the catalogue
+    ///
+    /// # Errors
+    /// Returns an error if the boot catalog is malformed or an I/O error occurs.
+    pub async fn parse<T: Read + Seek>(reader: &mut T) -> Result<Self, BootError> {
+        let base = BaseBootCatalog::parse(reader).await?;
+        let mut sections = Vec::new();
+        let mut buffer = [0u8; 32];
+        let mut has_more = false;
+        let mut header = None;
+        let mut entries = Vec::new();
+        loop {
+            reader.read_exact(&mut buffer).await.map_err(|_| BootError::Io)?;
+            match buffer[0] {
+                0x00 if !has_more => break,
+                0x90 => {
+                    has_more = true;
+                    if let Some(header) = header.take() {
+                        sections.push((header, entries));
+                        entries = Vec::new();
+                    }
+                    header = Some(bytemuck::cast(buffer));
+                }
+                0x91 => {
+                    has_more = false;
+                    if let Some(header) = header.take() {
+                        sections.push((header, entries));
+                        entries = Vec::new();
+                    }
+                    header = Some(bytemuck::cast(buffer));
+                }
+                id => {
+                    if header.is_none() {
+                        return Err(BootError::ExpectedSectionHeader(id));
+                    }
+                    entries.push(bytemuck::cast(buffer));
+                }
+            }
+        }
+
+        if has_more {
+            return Err(BootError::UnexpectedEndOfCatalog);
+        }
+        if let Some(header) = header {
+            sections.push((header, entries));
+        }
+
+        Ok(Self { base, sections })
+    }
+
+    pub async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        self.base.write(writer).await?;
+        for (header, entries) in self.sections.iter() {
+            writer.write_all(bytemuck::bytes_of(header)).await?;
+            for entry in entries {
+                writer.write_all(bytemuck::bytes_of(entry)).await?;
+            }
+        }
+        // End of entries
+        writer.write_all(&[0; 32]).await?;
+        Ok(())
+    }
+}
+} // io_transform!
+
 #[cfg(feature = "write")]
 pub struct ElToritoWriter;
 
@@ -631,7 +643,7 @@ pub mod options {
     use alloc::vec::Vec;
     use core::num::NonZeroU16;
 
-    use crate::boot::{EmulationType, PlatformId};
+    use super::{EmulationType, PlatformId};
 
     #[derive(Debug, Clone, Default)]
     pub struct BootOptions {

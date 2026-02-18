@@ -381,6 +381,7 @@ version = "1.0.0"
 dependencies = [
  "hadris-io",
  "hadris-iso",
+ "hadris-macros",
  "hadris-udf",
  "thiserror",
 ]
@@ -413,6 +414,7 @@ version = "1.0.0"
 dependencies = [
  "hadris-common",
  "hadris-io",
+ "hadris-macros",
  "tempfile",
 ]
 
@@ -434,6 +436,7 @@ dependencies = [
  "chrono",
  "hadris-common",
  "hadris-io",
+ "hadris-macros",
  "pretty_assertions",
  "spin",
  "static_assertions",
@@ -468,6 +471,7 @@ dependencies = [
  "criterion",
  "hadris-common",
  "hadris-io",
+ "hadris-macros",
  "hadris-part",
  "spin",
  "static_assertions",
@@ -487,12 +491,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-macros"
+version = "1.0.0"
+dependencies = [
+ "proc-macro2",
+]
+
+[[package]]
 name = "hadris-part"
 version = "1.0.0"
 dependencies = [
  "bytemuck",
  "crc",
  "hadris-io",
+ "hadris-macros",
  "rand",
 ]
 
@@ -504,6 +516,7 @@ dependencies = [
  "bytemuck",
  "hadris-common",
  "hadris-io",
+ "hadris-macros",
  "spin",
  "static_assertions",
  "tempfile",

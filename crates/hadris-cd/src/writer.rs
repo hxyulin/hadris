@@ -7,7 +7,7 @@
 //! 4. Writing UDF metadata
 //! 5. Finalizing the image
 
-use std::io::{Read, Seek, SeekFrom, Write};
+use super::super::{Read, Write, Seek, SeekFrom};
 
 use hadris_iso::read::PathSeparator;
 use hadris_udf::descriptor::{
@@ -27,6 +27,8 @@ pub struct CdWriter<W: Read + Write + Seek> {
     options: CdOptions,
 }
 
+io_transform! {
+
 impl<W: Read + Write + Seek> CdWriter<W> {
     /// Create a new CD writer
     pub fn new(writer: W, options: CdOptions) -> Self {
@@ -34,7 +36,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     }
 
     /// Create a hybrid image from a file tree
-    pub fn write(mut self, mut tree: FileTree) -> CdResult<()> {
+    pub async fn write(mut self, mut tree: FileTree) -> CdResult<()> {
         // Sort the tree for consistent output
         tree.sort();
 
@@ -43,28 +45,28 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         let layout_info = layout_manager.layout_files(&mut tree, &self.options)?;
 
         // Phase 2: Write file data to their assigned sectors
-        self.write_file_data(&tree, &layout_info)?;
+        self.write_file_data(&tree, &layout_info).await?;
 
         // Phase 3: Write ISO 9660 structures (if enabled)
         if self.options.iso.enabled {
-            self.write_iso_structures(&tree, &layout_info)?;
+            self.write_iso_structures(&tree, &layout_info).await?;
         }
 
         // Phase 4: Write UDF structures (if enabled)
         if self.options.udf.enabled {
-            self.write_udf_structures(&tree, &layout_info)?;
+            self.write_udf_structures(&tree, &layout_info).await?;
         }
 
         Ok(())
     }
 
     /// Write all file data to their pre-assigned sectors
-    fn write_file_data(&mut self, tree: &FileTree, _layout_info: &LayoutInfo) -> CdResult<()> {
-        self.write_directory_file_data(&tree.root)?;
+    async fn write_file_data(&mut self, tree: &FileTree, _layout_info: &LayoutInfo) -> CdResult<()> {
+        self.write_directory_file_data(&tree.root).await?;
         Ok(())
     }
 
-    fn write_directory_file_data(&mut self, dir: &Directory) -> CdResult<()> {
+    async fn write_directory_file_data(&mut self, dir: &Directory) -> CdResult<()> {
         for file in &dir.files {
             if file.extent.length == 0 {
                 continue; // Skip zero-size files
@@ -72,16 +74,16 @@ impl<W: Read + Write + Seek> CdWriter<W> {
 
             // Seek to the file's assigned sector
             let offset = (file.extent.sector as u64) * self.options.sector_size as u64;
-            self.writer.seek(SeekFrom::Start(offset))?;
+            self.writer.seek(SeekFrom::Start(offset)).await?;
 
             // Write the file data
             match &file.data {
                 FileData::Buffer(data) => {
-                    self.writer.write_all(data)?;
+                    self.writer.write_all(data).await?;
                 }
                 FileData::Path(path) => {
                     let data = std::fs::read(path)?;
-                    self.writer.write_all(&data)?;
+                    self.writer.write_all(&data).await?;
                 }
             }
 
@@ -91,20 +93,20 @@ impl<W: Read + Write + Seek> CdWriter<W> {
                 * self.options.sector_size;
             if padded > written {
                 let padding = vec![0u8; padded - written];
-                self.writer.write_all(&padding)?;
+                self.writer.write_all(&padding).await?;
             }
         }
 
         // Recursively write subdirectory files
         for subdir in &dir.subdirs {
-            self.write_directory_file_data(subdir)?;
+            self.write_directory_file_data(subdir).await?;
         }
 
         Ok(())
     }
 
     /// Write ISO 9660 structures
-    fn write_iso_structures(&mut self, tree: &FileTree, _layout_info: &LayoutInfo) -> CdResult<()> {
+    async fn write_iso_structures(&mut self, tree: &FileTree, _layout_info: &LayoutInfo) -> CdResult<()> {
         use hadris_iso::write::options::{CreationFeatures, FormatOptions};
         use hadris_iso::write::{InputFiles, IsoImageWriter};
 
@@ -134,7 +136,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         };
 
         // Reset position and write ISO
-        self.writer.seek(SeekFrom::Start(0))?;
+        self.writer.seek(SeekFrom::Start(0)).await?;
         IsoImageWriter::format_new(&mut self.writer, input_files, format_options)?;
 
         Ok(())
@@ -166,7 +168,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     }
 
     /// Write UDF structures
-    fn write_udf_structures(&mut self, tree: &FileTree, layout_info: &LayoutInfo) -> CdResult<()> {
+    async fn write_udf_structures(&mut self, tree: &FileTree, layout_info: &LayoutInfo) -> CdResult<()> {
         let udf_options = UdfWriteOptions {
             volume_id: self.options.volume_id.clone(),
             revision: self.options.udf.revision,
@@ -360,6 +362,8 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         Ok(())
     }
 }
+
+} // io_transform!
 
 #[cfg(test)]
 mod tests {

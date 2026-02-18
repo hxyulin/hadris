@@ -11,21 +11,26 @@ keywords = ["udf", "dvd", "blu-ray", "optical", "filesystem"]
 categories = ["filesystem", "encoding"]
 
 [features]
-default = ["std", "read"]
+default = ["std", "read", "sync"]
 # Read support
 read = ["hadris-common/bytemuck"]
 # Heap allocation without full std
 alloc = []
 # Standard library support (includes alloc)
-std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror"]
+std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "sync"]
 # Write/format support (requires std)
 write = ["alloc", "std", "read"]
+# Synchronous API
+sync = ["hadris-io/sync", "hadris-common/sync"]
+# Asynchronous API
+async = ["hadris-io/async", "hadris-common/async"]
 
 [dependencies]
 bitflags = { workspace = true, features = ["bytemuck"] }
 bytemuck = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true, optional = true }
 hadris-io = { workspace = true }
+hadris-macros = { workspace = true }
 hadris-common = { workspace = true, features = ["alloc"] }
 spin.workspace = true
 

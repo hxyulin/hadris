@@ -1,13 +1,19 @@
 //! Write operations for FAT filesystems.
 
+io_transform! {
+
 #[cfg(feature = "write")]
 use core::ops::DerefMut;
 
 #[cfg(feature = "write")]
 use crate::{
-    DirEntryAttrFlags, Fat, FatDir, FatFs, FileEntry, RawDirectoryEntry, RawFileEntry,
+    raw::{DirEntryAttrFlags, RawDirectoryEntry, RawFileEntry},
     error::{FatError, Result},
     file::ShortFileName,
+};
+#[cfg(feature = "write")]
+use super::{
+    fat_table::Fat, dir::{FatDir, FileEntry}, fs::FatFs,
     io::{Cluster, ClusterLike, Read, ReadExt, Seek, SeekFrom, Write},
 };
 
@@ -139,7 +145,7 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
     /// Write data to the file.
     ///
     /// Allocates new clusters as needed.
-    pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -155,12 +161,12 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
                 let hint = self.current_cluster.map(|c| c.0 as u32 + 1).unwrap_or(2);
                 let new_cluster = match &self.fs.fat {
                     Fat::Fat12(fat12) => {
-                        fat12.allocate_cluster(data.deref_mut(), hint as u16)? as u32
+                        fat12.allocate_cluster(data.deref_mut(), hint as u16).await? as u32
                     }
                     Fat::Fat16(fat16) => {
-                        fat16.allocate_cluster(data.deref_mut(), hint as u16)? as u32
+                        fat16.allocate_cluster(data.deref_mut(), hint as u16).await? as u32
                     }
-                    Fat::Fat32(fat32) => fat32.allocate_cluster(data.deref_mut(), hint)?,
+                    Fat::Fat32(fat32) => fat32.allocate_cluster(data.deref_mut(), hint).await?,
                 };
 
                 // Update FSInfo tracking (FAT32 only)
@@ -171,13 +177,13 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
                 if let Some(prev) = self.current_cluster {
                     match &self.fs.fat {
                         Fat::Fat12(fat12) => {
-                            fat12.write_clus(data.deref_mut(), prev.0, new_cluster as u16)?;
+                            fat12.write_clus(data.deref_mut(), prev.0, new_cluster as u16).await?;
                         }
                         Fat::Fat16(fat16) => {
-                            fat16.write_clus(data.deref_mut(), prev.0, new_cluster as u16)?;
+                            fat16.write_clus(data.deref_mut(), prev.0, new_cluster as u16).await?;
                         }
                         Fat::Fat32(fat32) => {
-                            fat32.write_clus(data.deref_mut(), prev.0, new_cluster)?;
+                            fat32.write_clus(data.deref_mut(), prev.0, new_cluster).await?;
                         }
                     }
                 }
@@ -198,10 +204,10 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             // Seek to the correct position
             let seek_pos =
                 cluster.to_bytes(self.fs.info.data_start, cluster_size) + self.offset_in_cluster;
-            data.seek(SeekFrom::Start(seek_pos as u64))?;
+            data.seek(SeekFrom::Start(seek_pos as u64)).await?;
 
             // Write the data
-            data.write_all(&buf[written..written + to_write])?;
+            data.write_all(&buf[written..written + to_write]).await?;
 
             self.offset_in_cluster += to_write;
             self.total_written += to_write;
@@ -219,7 +225,7 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
     /// Finish writing and update the directory entry with the new size.
     ///
     /// This must be called after writing to persist the file size.
-    pub fn finish(self) -> Result<()> {
+    pub async fn finish(self) -> Result<()> {
         let mut data = self.fs.data.lock();
         let cluster_size = data.cluster_size;
 
@@ -236,9 +242,9 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
         };
 
         // Read the current directory entry
-        data.seek(SeekFrom::Start(entry_pos as u64))?;
+        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
 
-        let mut raw_entry = data.read_struct::<RawDirectoryEntry>()?;
+        let mut raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
         let file_entry = unsafe { &mut raw_entry.file };
 
         // Update size
@@ -269,9 +275,9 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
         file_entry.last_access_date = now.date.to_le_bytes();
 
         // Write back the entry
-        data.seek(SeekFrom::Start(entry_pos as u64))?;
-        data.write_all(bytemuck::bytes_of(&raw_entry))?;
-        data.flush()?;
+        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+        data.write_all(bytemuck::bytes_of(&raw_entry)).await?;
+        data.flush().await?;
 
         Ok(())
     }
@@ -292,7 +298,7 @@ pub trait FatFsWriteExt<DATA: Read + Write + Seek> {
     /// # Errors
     ///
     /// Returns [`FatError::NotAFile`] if the entry is a directory.
-    fn truncate(&self, entry: &FileEntry, new_size: usize) -> Result<()>;
+    async fn truncate(&self, entry: &FileEntry, new_size: usize) -> Result<()>;
 }
 
 #[cfg(feature = "write")]
@@ -301,7 +307,7 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
         FileWriter::new(self, entry)
     }
 
-    fn truncate(&self, entry: &FileEntry, new_size: usize) -> Result<()> {
+    async fn truncate(&self, entry: &FileEntry, new_size: usize) -> Result<()> {
         if !entry.is_file() {
             return Err(FatError::NotAFile);
         }
@@ -325,14 +331,14 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
             // Free entire chain
             let freed_count = if first_cluster.0 >= 2 {
                 let mut data = self.data.lock();
-                self.fat.free_chain(data.deref_mut(), first_cluster.0)?
+                self.fat.free_chain(data.deref_mut(), first_cluster.0).await?
             } else {
                 0
             };
             // Update FSInfo tracking (FAT32 only)
             self.increment_free_count(freed_count);
             // Update directory entry: size=0, first_cluster=0
-            self.update_entry_size_and_cluster(entry, 0, Cluster(0), fixed_root)?;
+            self.update_entry_size_and_cluster(entry, 0, Cluster(0), fixed_root).await?;
         } else {
             // Calculate which cluster to keep
             let clusters_needed = new_size.div_ceil(cluster_size);
@@ -341,7 +347,7 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
             let mut current = first_cluster;
             for _ in 1..clusters_needed {
                 let mut data = self.data.lock();
-                if let Some(next) = self.fat.next_cluster(data.deref_mut(), current.0)? {
+                if let Some(next) = self.fat.next_cluster(data.deref_mut(), current.0).await? {
                     current = Cluster(next as usize);
                 } else {
                     break;
@@ -351,13 +357,13 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
             // Truncate after this cluster
             let freed_count = {
                 let mut data = self.data.lock();
-                self.fat.truncate_chain(data.deref_mut(), current.0)?
+                self.fat.truncate_chain(data.deref_mut(), current.0).await?
             };
             // Update FSInfo tracking (FAT32 only)
             self.increment_free_count(freed_count);
 
             // Update directory entry with new size (keep first_cluster)
-            self.update_entry_size_and_cluster(entry, new_size, first_cluster, fixed_root)?;
+            self.update_entry_size_and_cluster(entry, new_size, first_cluster, fixed_root).await?;
         }
 
         Ok(())
@@ -374,23 +380,23 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// For cluster-based directories, searches the cluster chain and allocates
     /// a new cluster if needed.
-    fn find_free_entry_slot_in_dir(
+    async fn find_free_entry_slot_in_dir(
         &self,
         dir: &FatDir<'_, DATA>,
     ) -> Result<(Cluster<usize>, usize)> {
         if let Some((root_start, root_size)) = dir.fixed_root {
             // Fixed root directory (FAT12/16) - cannot be expanded
-            self.find_free_entry_in_fixed_root(root_start, root_size)
+            self.find_free_entry_in_fixed_root(root_start, root_size).await
         } else {
             // Cluster-based directory
-            self.find_free_entry_in_cluster_chain(dir.cluster)
+            self.find_free_entry_in_cluster_chain(dir.cluster).await
         }
     }
 
     /// Find a free entry in a fixed root directory (FAT12/16).
     ///
     /// Returns DirectoryFull if the fixed root directory is full.
-    fn find_free_entry_in_fixed_root(
+    async fn find_free_entry_in_fixed_root(
         &self,
         root_start: usize,
         root_size: usize,
@@ -402,9 +408,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         for i in 0..max_entries {
             let offset = i * entry_size;
             let seek_pos = root_start + offset;
-            data.seek(SeekFrom::Start(seek_pos as u64))?;
+            data.seek(SeekFrom::Start(seek_pos as u64)).await?;
 
-            let raw_entry = data.read_struct::<RawDirectoryEntry>()?;
+            let raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
             let first_byte = unsafe { raw_entry.bytes[0] };
 
             // 0x00 = free entry and all following are free
@@ -422,7 +428,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     /// Find a free entry slot in a cluster-based directory.
     ///
     /// If no free slot is found in the existing chain, allocates a new cluster.
-    fn find_free_entry_in_cluster_chain(
+    async fn find_free_entry_in_cluster_chain(
         &self,
         dir_cluster: Cluster<usize>,
     ) -> Result<(Cluster<usize>, usize)> {
@@ -438,9 +444,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                 let offset = i * entry_size;
                 let seek_pos =
                     current_cluster.to_bytes(self.info.data_start, cluster_size) + offset;
-                data.seek(SeekFrom::Start(seek_pos as u64))?;
+                data.seek(SeekFrom::Start(seek_pos as u64)).await?;
 
-                let raw_entry = data.read_struct::<RawDirectoryEntry>()?;
+                let raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
                 let first_byte = unsafe { raw_entry.bytes[0] };
 
                 // 0x00 = free entry and all following are free
@@ -451,7 +457,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             }
 
             // Try to get next cluster
-            let next = self.fat.next_cluster(data.deref_mut(), current_cluster.0)?;
+            let next = self.fat.next_cluster(data.deref_mut(), current_cluster.0).await?;
             match next {
                 Some(cluster) => {
                     current_cluster = Cluster(cluster as usize);
@@ -461,23 +467,23 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                     let new_cluster = match &self.fat {
                         Fat::Fat12(fat12) => {
                             let hint = (current_cluster.0 as u16).saturating_add(1);
-                            let new = fat12.allocate_cluster(data.deref_mut(), hint)?;
+                            let new = fat12.allocate_cluster(data.deref_mut(), hint).await?;
                             // Link the last cluster to the new one
-                            fat12.write_clus(data.deref_mut(), current_cluster.0, new)?;
+                            fat12.write_clus(data.deref_mut(), current_cluster.0, new).await?;
                             new as u32
                         }
                         Fat::Fat16(fat16) => {
                             let hint = (current_cluster.0 as u16).saturating_add(1);
-                            let new = fat16.allocate_cluster(data.deref_mut(), hint)?;
+                            let new = fat16.allocate_cluster(data.deref_mut(), hint).await?;
                             // Link the last cluster to the new one
-                            fat16.write_clus(data.deref_mut(), current_cluster.0, new)?;
+                            fat16.write_clus(data.deref_mut(), current_cluster.0, new).await?;
                             new as u32
                         }
                         Fat::Fat32(fat32) => {
                             let hint = current_cluster.0 as u32 + 1;
-                            let new = fat32.allocate_cluster(data.deref_mut(), hint)?;
+                            let new = fat32.allocate_cluster(data.deref_mut(), hint).await?;
                             // Link the last cluster to the new one
-                            fat32.write_clus(data.deref_mut(), current_cluster.0, new)?;
+                            fat32.write_clus(data.deref_mut(), current_cluster.0, new).await?;
                             new
                         }
                     };
@@ -489,9 +495,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                     // Zero out the new cluster
                     let new_cluster_pos =
                         Cluster(new_cluster as usize).to_bytes(self.info.data_start, cluster_size);
-                    data.seek(SeekFrom::Start(new_cluster_pos as u64))?;
+                    data.seek(SeekFrom::Start(new_cluster_pos as u64)).await?;
                     let zeros = alloc::vec![0u8; cluster_size];
-                    data.write_all(&zeros)?;
+                    data.write_all(&zeros).await?;
 
                     return Ok((Cluster(new_cluster as usize), 0));
                 }
@@ -502,7 +508,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     /// Write a raw directory entry at the specified location.
     ///
     /// For fixed root directory entries (cluster == 0), uses the fixed root offset.
-    fn write_raw_entry(
+    async fn write_raw_entry(
         &self,
         cluster: Cluster<usize>,
         offset: usize,
@@ -522,17 +528,17 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             cluster.to_bytes(self.info.data_start, cluster_size) + offset
         };
 
-        data.seek(SeekFrom::Start(seek_pos as u64))?;
-        data.write_all(bytemuck::bytes_of(entry))?;
+        data.seek(SeekFrom::Start(seek_pos as u64)).await?;
+        data.write_all(bytemuck::bytes_of(entry)).await?;
         Ok(())
     }
 
     /// Create a new file in the given directory.
     ///
     /// Returns the FileEntry for the newly created file.
-    pub fn create_file(&self, parent: &FatDir<'_, DATA>, name: &str) -> Result<FileEntry> {
+    pub async fn create_file(&self, parent: &FatDir<'_, DATA>, name: &str) -> Result<FileEntry> {
         // Check if entry already exists
-        if parent.find(name)?.is_some() {
+        if parent.find(name).await?.is_some() {
             return Err(FatError::AlreadyExists);
         }
 
@@ -541,7 +547,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             ShortFileName::from_long_name(name, 0).map_err(|_| FatError::InvalidFilename)?;
 
         // Find a free slot
-        let (slot_cluster, slot_offset) = self.find_free_entry_slot_in_dir(parent)?;
+        let (slot_cluster, slot_offset) = self.find_free_entry_slot_in_dir(parent).await?;
 
         // Create the directory entry
         let now = FatDateTime::now();
@@ -562,7 +568,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             size: hadris_common::types::number::U32::<LittleEndian>::new(0),
         };
 
-        self.write_raw_entry(slot_cluster, slot_offset, &entry, parent.fixed_root)?;
+        self.write_raw_entry(slot_cluster, slot_offset, &entry, parent.fixed_root).await?;
 
         Ok(FileEntry {
             short_name,
@@ -579,13 +585,13 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     /// Create a new directory.
     ///
     /// Returns a FatDir handle for the newly created directory.
-    pub fn create_dir<'a>(
+    pub async fn create_dir<'a>(
         &'a self,
         parent: &FatDir<'a, DATA>,
         name: &str,
     ) -> Result<FatDir<'a, DATA>> {
         // Check if entry already exists
-        if parent.find(name)?.is_some() {
+        if parent.find(name).await?.is_some() {
             return Err(FatError::AlreadyExists);
         }
 
@@ -597,9 +603,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let new_cluster = {
             let mut data = self.data.lock();
             match &self.fat {
-                Fat::Fat12(fat12) => fat12.allocate_cluster(data.deref_mut(), 2)? as u32,
-                Fat::Fat16(fat16) => fat16.allocate_cluster(data.deref_mut(), 2)? as u32,
-                Fat::Fat32(fat32) => fat32.allocate_cluster(data.deref_mut(), 2)?,
+                Fat::Fat12(fat12) => fat12.allocate_cluster(data.deref_mut(), 2).await? as u32,
+                Fat::Fat16(fat16) => fat16.allocate_cluster(data.deref_mut(), 2).await? as u32,
+                Fat::Fat32(fat32) => fat32.allocate_cluster(data.deref_mut(), 2).await?,
             }
         };
 
@@ -608,7 +614,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         self.update_next_free_hint(new_cluster);
 
         // Find a free slot in parent
-        let (slot_cluster, slot_offset) = self.find_free_entry_slot_in_dir(parent)?;
+        let (slot_cluster, slot_offset) = self.find_free_entry_slot_in_dir(parent).await?;
 
         // Create the directory entry in parent
         let now = FatDateTime::now();
@@ -637,7 +643,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             size: hadris_common::types::number::U32::<LittleEndian>::new(0),
         };
 
-        self.write_raw_entry(slot_cluster, slot_offset, &entry, parent.fixed_root)?;
+        self.write_raw_entry(slot_cluster, slot_offset, &entry, parent.fixed_root).await?;
 
         // Initialize the new directory with . and .. entries
         {
@@ -647,9 +653,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                 Cluster(new_cluster as usize).to_bytes(self.info.data_start, cluster_size);
 
             // Zero out the cluster first
-            data.seek(SeekFrom::Start(dir_pos as u64))?;
+            data.seek(SeekFrom::Start(dir_pos as u64)).await?;
             let zeros = alloc::vec![0u8; cluster_size];
-            data.write_all(&zeros)?;
+            data.write_all(&zeros).await?;
 
             // Write "." entry (points to self)
             let dot_entry = RawFileEntry {
@@ -670,8 +676,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                 ),
                 size: hadris_common::types::number::U32::<LittleEndian>::new(0),
             };
-            data.seek(SeekFrom::Start(dir_pos as u64))?;
-            data.write_all(bytemuck::bytes_of(&dot_entry))?;
+            data.seek(SeekFrom::Start(dir_pos as u64)).await?;
+            data.write_all(bytemuck::bytes_of(&dot_entry)).await?;
 
             // Write ".." entry (points to parent)
             // For FAT12/16 root directory (cluster 0), ".." should point to cluster 0
@@ -701,8 +707,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                 size: hadris_common::types::number::U32::<LittleEndian>::new(0),
             };
             let dotdot_pos = dir_pos + core::mem::size_of::<RawDirectoryEntry>();
-            data.seek(SeekFrom::Start(dotdot_pos as u64))?;
-            data.write_all(bytemuck::bytes_of(&dotdot_entry))?;
+            data.seek(SeekFrom::Start(dotdot_pos as u64)).await?;
+            data.write_all(bytemuck::bytes_of(&dotdot_entry)).await?;
         }
 
         Ok(FatDir {
@@ -713,7 +719,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     }
 
     /// Delete a file or empty directory.
-    pub fn delete(&self, entry: &FileEntry) -> Result<()> {
+    pub async fn delete(&self, entry: &FileEntry) -> Result<()> {
         // If it's a directory, check if it's empty (only . and ..)
         if entry.is_directory() {
             let dir = FatDir {
@@ -723,7 +729,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             };
 
             let mut count = 0;
-            for item in dir.entries() {
+            let mut iter = dir.entries();
+            while let Some(item) = iter.next_entry().await {
                 let item = item?;
                 let name = item.name();
                 if name != "." && name != ".." {
@@ -742,13 +749,13 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                 let mut data = self.data.lock();
                 match &self.fat {
                     Fat::Fat12(fat12) => {
-                        fat12.free_chain(data.deref_mut(), entry.cluster().0 as u16)?
+                        fat12.free_chain(data.deref_mut(), entry.cluster().0 as u16).await?
                     }
                     Fat::Fat16(fat16) => {
-                        fat16.free_chain(data.deref_mut(), entry.cluster().0 as u16)?
+                        fat16.free_chain(data.deref_mut(), entry.cluster().0 as u16).await?
                     }
                     Fat::Fat32(fat32) => {
-                        fat32.free_chain(data.deref_mut(), entry.cluster().0 as u32)?
+                        fat32.free_chain(data.deref_mut(), entry.cluster().0 as u32).await?
                     }
                 }
             };
@@ -776,9 +783,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                     + entry.offset_within_cluster
             };
 
-            data.seek(SeekFrom::Start(entry_pos as u64))?;
+            data.seek(SeekFrom::Start(entry_pos as u64)).await?;
             // Write 0xE5 as the first byte to mark as deleted
-            data.write_all(&[0xE5])?;
+            data.write_all(&[0xE5]).await?;
         }
 
         Ok(())
@@ -787,14 +794,14 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     /// Update a directory entry's size and first cluster fields.
     ///
     /// This is used by truncate and other operations that need to modify these fields.
-    fn update_entry_size_and_cluster(
+    async fn update_entry_size_and_cluster(
         &self,
         entry: &FileEntry,
         new_size: usize,
         first_cluster: Cluster<usize>,
         fixed_root: Option<(usize, usize)>,
     ) -> Result<()> {
-        use crate::Fat;
+        use super::fat_table::Fat;
 
         let mut data = self.data.lock();
         let cluster_size = data.cluster_size;
@@ -813,9 +820,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         };
 
         // Read the current directory entry
-        data.seek(SeekFrom::Start(entry_pos as u64))?;
+        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
 
-        let mut raw_entry = data.read_struct::<RawDirectoryEntry>()?;
+        let mut raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
         let file_entry = unsafe { &mut raw_entry.file };
 
         // Update size
@@ -841,8 +848,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         file_entry.last_access_date = now.date.to_le_bytes();
 
         // Write back the entry
-        data.seek(SeekFrom::Start(entry_pos as u64))?;
-        data.write_all(bytemuck::bytes_of(&raw_entry))?;
+        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+        data.write_all(bytemuck::bytes_of(&raw_entry)).await?;
 
         Ok(())
     }
@@ -856,11 +863,11 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     /// For FAT32 filesystems, this updates the FSInfo sector with the current
     /// free cluster count and next free cluster hint. For FAT12/16 filesystems,
     /// this only flushes pending writes.
-    pub fn sync(&self) -> Result<()> {
-        self.write_fsinfo()?;
+    pub async fn sync(&self) -> Result<()> {
+        self.write_fsinfo().await?;
 
         let mut data = self.data.lock();
-        data.flush()?;
+        data.flush().await?;
         Ok(())
     }
 
@@ -868,8 +875,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// This updates the free cluster count and next free cluster hint in the
     /// FSInfo sector. For FAT12/16 filesystems, this is a no-op.
-    fn write_fsinfo(&self) -> Result<()> {
-        use crate::fs::FatFsExt;
+    async fn write_fsinfo(&self) -> Result<()> {
+        use super::fs::FatFsExt;
         use crate::raw::RawFsInfo;
 
         let ext = match &self.ext {
@@ -880,10 +887,10 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let mut data = self.data.lock();
 
         // Seek to FSInfo sector
-        data.seek_sector(ext.fs_info_sec)?;
+        data.seek_sector(ext.fs_info_sec).await?;
 
         // Read current FSInfo to preserve other fields
-        let mut fs_info = data.read_struct::<RawFsInfo>()?;
+        let mut fs_info = data.read_struct::<RawFsInfo>().await?;
 
         // Update the mutable fields
         fs_info.free_count =
@@ -892,8 +899,8 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             hadris_common::types::number::U32::<LittleEndian>::new(ext.next_free.get().0);
 
         // Write back
-        data.seek_sector(ext.fs_info_sec)?;
-        data.write_all(bytemuck::bytes_of(&fs_info))?;
+        data.seek_sector(ext.fs_info_sec).await?;
+        data.write_all(bytemuck::bytes_of(&fs_info)).await?;
 
         Ok(())
     }
@@ -902,7 +909,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// This only affects FAT32 filesystems.
     pub(crate) fn decrement_free_count(&self) {
-        use crate::fs::FatFsExt;
+        use super::fs::FatFsExt;
 
         if let FatFsExt::Fat32(ext) = &self.ext {
             let count = ext.free_count.get();
@@ -916,7 +923,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// This only affects FAT32 filesystems.
     pub(crate) fn increment_free_count(&self, amount: u32) {
-        use crate::fs::FatFsExt;
+        use super::fs::FatFsExt;
 
         if let FatFsExt::Fat32(ext) = &self.ext {
             let count = ext.free_count.get();
@@ -930,7 +937,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// This only affects FAT32 filesystems.
     pub(crate) fn update_next_free_hint(&self, cluster: u32) {
-        use crate::fs::FatFsExt;
+        use super::fs::FatFsExt;
 
         if let FatFsExt::Fat32(ext) = &self.ext {
             // Set hint to the cluster after the one just allocated
@@ -942,7 +949,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// Returns `None` for FAT12/16 filesystems or if the count is unknown (0xFFFFFFFF).
     pub fn free_cluster_count(&self) -> Option<u32> {
-        use crate::fs::FatFsExt;
+        use super::fs::FatFsExt;
 
         match &self.ext {
             FatFsExt::Fat32(ext) => {
@@ -961,7 +968,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ///
     /// Returns `None` for FAT12/16 filesystems or if the hint is unknown.
     pub fn next_free_cluster_hint(&self) -> Option<u32> {
-        use crate::fs::FatFsExt;
+        use super::fs::FatFsExt;
 
         match &self.ext {
             FatFsExt::Fat32(ext) => {
@@ -976,3 +983,5 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         }
     }
 }
+
+} // end io_transform!

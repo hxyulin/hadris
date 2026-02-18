@@ -1,8 +1,8 @@
 //! System Use Sharing Protocol
 
-use hadris_io::{self as io, Read, ReadExt};
+use super::io::{self, Read, ReadExt};
 #[cfg(feature = "std")]
-use hadris_io::Writable;
+use super::io::Writable;
 
 use crate::types::U32LsbMsb;
 
@@ -12,22 +12,6 @@ pub struct SystemUseHeader {
     pub sig: [u8; 2],
     pub length: u8,
     pub version: u8,
-}
-
-#[cfg(feature = "std")]
-impl Writable for SystemUseHeader {
-    fn write<R: io::Write>(&self, writer: &mut R) -> io::Result<()> {
-        writer.write_all(bytemuck::bytes_of(self))?;
-        Ok(())
-    }
-}
-
-#[cfg(feature = "std")]
-pub trait SystemUseEntry: Writable {
-    const SIG: &'static [u8; 2];
-
-    fn header(&self) -> SystemUseHeader;
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self>;
 }
 
 /// SPEC: SUSP 5.1 Description of the CE System Use Field
@@ -44,28 +28,13 @@ pub struct ContinuationArea {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for ContinuationArea {
-    const SIG: &'static [u8; 2] = b"CE";
-    fn header(&self) -> SystemUseHeader {
+impl ContinuationArea {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"CE",
             length: 28,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
-        assert_eq!(&header.sig, Self::SIG);
-        data.read_struct()
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for ContinuationArea {
-    fn write<R: std::io::Write>(&self, writer: &mut R) -> io::Result<()> {
-        self.header().write(writer)?;
-        writer.write_all(bytemuck::bytes_of(self))?;
-        Ok(())
     }
 }
 
@@ -75,34 +44,13 @@ pub struct PaddingField {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for PaddingField {
-    const SIG: &'static [u8; 2] = b"PD";
-
-    fn header(&self) -> SystemUseHeader {
+impl PaddingField {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"PD",
             length: 4 + self.length,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
-        let len = header.length - 4;
-        let mut buf = [0];
-        for _ in 0..len {
-            data.read_exact(&mut buf)?;
-        }
-        Ok(Self { length: len })
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for PaddingField {
-    fn write<R: std::io::Write>(&self, writer: &mut R) -> io::Result<()> {
-        self.header().write(writer)?;
-        let zeros = alloc::vec![0u8; self.length as usize];
-        writer.write_all(&zeros)?;
-        Ok(())
     }
 }
 
@@ -127,28 +75,13 @@ impl SuspIdentifier {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for SuspIdentifier {
-    const SIG: &'static [u8; 2] = b"SP";
-    fn header(&self) -> SystemUseHeader {
+impl SuspIdentifier {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"SP",
             length: 7,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
-        assert_eq!(&header.sig, Self::SIG);
-        data.read_struct()
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for SuspIdentifier {
-    fn write<R: std::io::Write>(&self, writer: &mut R) -> std::io::Result<()> {
-        self.header().write(writer)?;
-        writer.write_all(bytemuck::bytes_of(self))?;
-        Ok(())
     }
 }
 
@@ -156,25 +89,13 @@ impl Writable for SuspIdentifier {
 pub struct SuspTerminator;
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for SuspTerminator {
-    const SIG: &'static [u8; 2] = b"ST";
-    fn header(&self) -> SystemUseHeader {
+impl SuspTerminator {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"ST",
             length: 4,
             version: 1,
         }
-    }
-
-    fn parse_data<R: Read>(_header: SystemUseHeader, _data: &mut R) -> hadris_io::Result<Self> {
-        Ok(Self)
-    }
-}
-
-#[cfg(feature = "std")]
-impl Writable for SuspTerminator {
-    fn write<R: std::io::Write>(&self, writer: &mut R) -> std::io::Result<()> {
-        self.header().write(writer)
     }
 }
 
@@ -189,21 +110,119 @@ pub struct ExtensionReference {
 }
 
 #[cfg(feature = "std")]
-impl SystemUseEntry for ExtensionReference {
-    const SIG: &'static [u8; 2] = b"ER";
-    fn header(&self) -> SystemUseHeader {
+impl ExtensionReference {
+    pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
-            sig: *Self::SIG,
+            sig: *b"ER",
             length: 8 + self.identifier_len + self.descriptor_len + self.source_len,
             version: 1,
         }
     }
+}
 
-    fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> hadris_io::Result<Self> {
-        assert_eq!(&header.sig, Self::SIG);
+io_transform! {
+#[cfg(feature = "std")]
+impl Writable for SystemUseHeader {
+    async fn write<R: io::Write>(&self, writer: &mut R) -> io::Result<()> {
+        writer.write_all(bytemuck::bytes_of(self)).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for ContinuationArea {
+    async fn write<R: io::Write>(&self, writer: &mut R) -> io::Result<()> {
+        self.header().write(writer).await?;
+        writer.write_all(bytemuck::bytes_of(self)).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl ContinuationArea {
+    pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        assert_eq!(&header.sig, b"CE");
+        data.read_struct().await
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for PaddingField {
+    async fn write<R: io::Write>(&self, writer: &mut R) -> io::Result<()> {
+        self.header().write(writer).await?;
+        let zeros = alloc::vec![0u8; self.length as usize];
+        writer.write_all(&zeros).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl PaddingField {
+    pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        let len = header.length - 4;
+        let mut buf = [0];
+        for _ in 0..len {
+            data.read_exact(&mut buf).await?;
+        }
+        Ok(Self { length: len })
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for SuspIdentifier {
+    async fn write<R: io::Write>(&self, writer: &mut R) -> io::Result<()> {
+        self.header().write(writer).await?;
+        writer.write_all(bytemuck::bytes_of(self)).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl SuspIdentifier {
+    pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        assert_eq!(&header.sig, b"SP");
+        data.read_struct().await
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for SuspTerminator {
+    async fn write<R: io::Write>(&self, writer: &mut R) -> io::Result<()> {
+        self.header().write(writer).await
+    }
+}
+
+#[cfg(feature = "std")]
+impl SuspTerminator {
+    pub async fn parse_data<R: Read>(_header: SystemUseHeader, _data: &mut R) -> io::Result<Self> {
+        Ok(Self)
+    }
+}
+
+#[cfg(feature = "std")]
+impl Writable for ExtensionReference {
+    async fn write<R: io::Write>(&self, writer: &mut R) -> io::Result<()> {
+        self.header().write(writer).await?;
+        let meta = [
+            self.identifier_len,
+            self.descriptor_len,
+            self.source_len,
+            self.version,
+        ];
+        writer.write_all(&meta).await?;
+        let total_len = self.identifier_len + self.descriptor_len + self.source_len;
+        writer.write_all(&self.buf[0..total_len as usize]).await?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "std")]
+impl ExtensionReference {
+    pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+        assert_eq!(&header.sig, b"ER");
         let mut buf = [0u8; 252];
-        let meta: [u8; 4] = data.read_struct()?;
-        data.read_exact(&mut buf[0..header.length as usize - size_of::<SystemUseHeader>()])?;
+        let meta: [u8; 4] = data.read_struct().await?;
+        data.read_exact(&mut buf[0..header.length as usize - size_of::<SystemUseHeader>()]).await?;
         Ok(Self {
             identifier_len: meta[0],
             descriptor_len: meta[1],
@@ -213,23 +232,7 @@ impl SystemUseEntry for ExtensionReference {
         })
     }
 }
-
-#[cfg(feature = "std")]
-impl Writable for ExtensionReference {
-    fn write<R: std::io::Write>(&self, writer: &mut R) -> std::io::Result<()> {
-        self.header().write(writer)?;
-        let meta = [
-            self.identifier_len,
-            self.descriptor_len,
-            self.source_len,
-            self.version,
-        ];
-        writer.write_all(&meta)?;
-        let total_len = self.identifier_len + self.descriptor_len + self.source_len;
-        writer.write_all(&self.buf[0..total_len as usize])?;
-        Ok(())
-    }
-}
+} // io_transform!
 
 /// A parsed system use field
 #[derive(Debug, Clone)]
@@ -247,19 +250,19 @@ pub enum SystemUseField {
 
     // --- RRIP variants ---
     /// PX - POSIX file attributes
-    PosixAttributes(crate::rrip::PxEntry),
+    PosixAttributes(super::rrip::PxEntry),
     /// PN - POSIX device numbers
-    DeviceNumber(crate::rrip::PnEntry),
+    DeviceNumber(super::rrip::PnEntry),
     /// NM - Alternate name (real filename)
-    AlternateName(crate::rrip::NmEntry),
+    AlternateName(super::rrip::NmEntry),
     /// SL - Symbolic link
-    SymbolicLink(crate::rrip::SlEntry),
+    SymbolicLink(super::rrip::SlEntry),
     /// TF - Timestamps
-    Timestamps(crate::rrip::TfEntry),
+    Timestamps(super::rrip::TfEntry),
     /// CL - Child link (relocated directory)
-    ChildLink(crate::rrip::ClEntry),
+    ChildLink(super::rrip::ClEntry),
     /// PL - Parent link (relocated directory)
-    ParentLink(crate::rrip::PlEntry),
+    ParentLink(super::rrip::PlEntry),
     /// RE - Relocated directory marker
     Relocated,
 
@@ -293,7 +296,7 @@ impl SystemUseField {
     }
 
     /// Returns the PX entry if this is a `PosixAttributes` variant.
-    pub fn as_posix_attributes(&self) -> Option<&crate::rrip::PxEntry> {
+    pub fn as_posix_attributes(&self) -> Option<&super::rrip::PxEntry> {
         match self {
             Self::PosixAttributes(px) => Some(px),
             _ => None,
@@ -301,7 +304,7 @@ impl SystemUseField {
     }
 
     /// Returns the NM entry if this is an `AlternateName` variant.
-    pub fn as_alternate_name(&self) -> Option<&crate::rrip::NmEntry> {
+    pub fn as_alternate_name(&self) -> Option<&super::rrip::NmEntry> {
         match self {
             Self::AlternateName(nm) => Some(nm),
             _ => None,
@@ -309,7 +312,7 @@ impl SystemUseField {
     }
 
     /// Returns the TF entry if this is a `Timestamps` variant.
-    pub fn as_timestamps(&self) -> Option<&crate::rrip::TfEntry> {
+    pub fn as_timestamps(&self) -> Option<&super::rrip::TfEntry> {
         match self {
             Self::Timestamps(tf) => Some(tf),
             _ => None,
@@ -317,7 +320,7 @@ impl SystemUseField {
     }
 
     /// Returns the SL entry if this is a `SymbolicLink` variant.
-    pub fn as_symbolic_link(&self) -> Option<&crate::rrip::SlEntry> {
+    pub fn as_symbolic_link(&self) -> Option<&super::rrip::SlEntry> {
         match self {
             Self::SymbolicLink(sl) => Some(sl),
             _ => None,
@@ -400,7 +403,7 @@ impl Iterator for SystemUseIter<'_> {
             // --- RRIP entries ---
             b"PX" if entry_data.len() >= 32 => {
                 let len = entry_data.len().min(40);
-                let px = crate::rrip::PxEntry {
+                let px = super::rrip::PxEntry {
                     file_mode: *bytemuck::from_bytes(&entry_data[0..8]),
                     file_links: *bytemuck::from_bytes(&entry_data[8..16]),
                     file_uid: *bytemuck::from_bytes(&entry_data[16..24]),
@@ -414,16 +417,16 @@ impl Iterator for SystemUseIter<'_> {
                 SystemUseField::PosixAttributes(px)
             }
             b"PN" if entry_data.len() >= 16 => {
-                let pn = crate::rrip::PnEntry {
+                let pn = super::rrip::PnEntry {
                     dev_high: *bytemuck::from_bytes(&entry_data[0..8]),
                     dev_low: *bytemuck::from_bytes(&entry_data[8..16]),
                 };
                 SystemUseField::DeviceNumber(pn)
             }
             b"NM" if !entry_data.is_empty() => {
-                let flags = crate::rrip::NmFlags::from_bits_truncate(entry_data[0]);
+                let flags = super::rrip::NmFlags::from_bits_truncate(entry_data[0]);
                 let name = entry_data[1..].to_vec();
-                SystemUseField::AlternateName(crate::rrip::NmEntry { flags, name })
+                SystemUseField::AlternateName(super::rrip::NmEntry { flags, name })
             }
             b"SL" if !entry_data.is_empty() => {
                 let flags = entry_data[0];
@@ -431,32 +434,32 @@ impl Iterator for SystemUseIter<'_> {
                 let mut pos = 1;
                 while pos + 2 <= entry_data.len() {
                     let comp_flags =
-                        crate::rrip::SlComponentFlags::from_bits_truncate(entry_data[pos]);
+                        super::rrip::SlComponentFlags::from_bits_truncate(entry_data[pos]);
                     let comp_len = entry_data[pos + 1] as usize;
                     pos += 2;
                     let end = (pos + comp_len).min(entry_data.len());
                     let content = entry_data[pos..end].to_vec();
                     pos = end;
-                    components.push(crate::rrip::SlComponent {
+                    components.push(super::rrip::SlComponent {
                         flags: comp_flags,
                         content,
                     });
                 }
-                SystemUseField::SymbolicLink(crate::rrip::SlEntry { flags, components })
+                SystemUseField::SymbolicLink(super::rrip::SlEntry { flags, components })
             }
             b"TF" if !entry_data.is_empty() => {
-                let flags = crate::rrip::TfFlags::from_bits_truncate(entry_data[0]);
+                let flags = super::rrip::TfFlags::from_bits_truncate(entry_data[0]);
                 let timestamps = entry_data[1..].to_vec();
-                SystemUseField::Timestamps(crate::rrip::TfEntry { flags, timestamps })
+                SystemUseField::Timestamps(super::rrip::TfEntry { flags, timestamps })
             }
             b"CL" if entry_data.len() >= 8 => {
-                let cl = crate::rrip::ClEntry {
+                let cl = super::rrip::ClEntry {
                     child_directory_location: *bytemuck::from_bytes(&entry_data[0..8]),
                 };
                 SystemUseField::ChildLink(cl)
             }
             b"PL" if entry_data.len() >= 8 => {
-                let pl = crate::rrip::PlEntry {
+                let pl = super::rrip::PlEntry {
                     parent_directory_location: *bytemuck::from_bytes(&entry_data[0..8]),
                 };
                 SystemUseField::ParentLink(pl)
@@ -1061,7 +1064,7 @@ mod tests {
         let mut iter = SystemUseIter::new(&data, 0);
         match iter.next() {
             Some(SystemUseField::Timestamps(tf)) => {
-                use crate::rrip::TfFlags;
+                use super::super::rrip::TfFlags;
                 assert!(tf.flags.contains(TfFlags::MODIFY));
                 assert!(tf.flags.contains(TfFlags::ACCESS));
                 assert!(!tf.flags.contains(TfFlags::LONG_FORM));
@@ -1099,7 +1102,7 @@ mod tests {
                 assert!(
                     sl.components[0]
                         .flags
-                        .contains(crate::rrip::SlComponentFlags::ROOT)
+                        .contains(super::super::rrip::SlComponentFlags::ROOT)
                 );
                 assert!(sl.components[0].content.is_empty());
                 assert_eq!(sl.components[1].content, b"usr");

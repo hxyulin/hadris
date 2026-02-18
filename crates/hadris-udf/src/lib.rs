@@ -52,6 +52,7 @@
 //! - OSTA UDF Specification (udf260.pdf)
 
 #![no_std]
+#![allow(async_fn_in_trait)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -59,23 +60,17 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-pub mod descriptor;
+// ---------------------------------------------------------------------------
+// Shared types (compiled once, not duplicated by sync/async modules)
+// ---------------------------------------------------------------------------
+
 mod error;
 mod time;
 
 #[cfg(feature = "alloc")]
-mod dir;
+pub mod dir;
 #[cfg(feature = "alloc")]
-mod file;
-#[cfg(feature = "alloc")]
-mod fs;
-
-#[cfg(feature = "write")]
-pub mod write;
-
-/// UDF image modification and append support.
-#[cfg(feature = "write")]
-pub mod modify;
+pub mod file;
 
 pub use error::{UdfError, UdfResult};
 pub use time::UdfTimestamp;
@@ -84,8 +79,104 @@ pub use time::UdfTimestamp;
 pub use dir::UdfDir;
 #[cfg(feature = "alloc")]
 pub use file::{FileType, UdfFile};
-#[cfg(feature = "alloc")]
-pub use fs::{UdfFs, UdfInfo};
+
+// ---------------------------------------------------------------------------
+// Sync module
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "sync")]
+#[path = ""]
+pub mod sync {
+    //! Synchronous UDF filesystem API.
+    //!
+    //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
+
+    pub use hadris_io::sync::{Read, Write, Seek, ReadExt, Parsable, Writable};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::Result as IoResult;
+
+    macro_rules! io_transform {
+        ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
+    }
+
+    macro_rules! sync_only {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    macro_rules! async_only {
+        ($($item:tt)*) => { };
+    }
+
+    #[path = "."]
+    mod __inner {
+        pub mod descriptor;
+        #[cfg(feature = "alloc")]
+        pub mod fs;
+        #[cfg(feature = "write")]
+        pub mod write;
+        /// UDF image modification and append support.
+        #[cfg(feature = "write")]
+        pub mod modify;
+    }
+    pub use __inner::*;
+
+    // Convenience re-exports for backwards compatibility
+    #[cfg(feature = "alloc")]
+    pub use __inner::fs::{UdfFs, UdfInfo};
+}
+
+// ---------------------------------------------------------------------------
+// Async module
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "async")]
+#[path = ""]
+pub mod r#async {
+    //! Asynchronous UDF filesystem API.
+    //!
+    //! All I/O operations use async `Read`/`Write`/`Seek` traits.
+
+    pub use hadris_io::r#async::{Read, Write, Seek, ReadExt, Parsable, Writable};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::Result as IoResult;
+
+    macro_rules! io_transform {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    macro_rules! sync_only {
+        ($($item:tt)*) => { };
+    }
+
+    macro_rules! async_only {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    #[path = "."]
+    mod __inner {
+        pub mod descriptor;
+        #[cfg(feature = "alloc")]
+        pub mod fs;
+        #[cfg(feature = "write")]
+        pub mod write;
+        /// UDF image modification and append support.
+        #[cfg(feature = "write")]
+        pub mod modify;
+    }
+    pub use __inner::*;
+}
+
+// ---------------------------------------------------------------------------
+// Default re-exports for backwards compatibility (sync)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "sync")]
+pub use sync::*;
+
+// When only async is enabled (no sync), re-export async module contents
+// so that shared modules (dir.rs, file.rs) can use `crate::descriptor::*`.
+#[cfg(all(feature = "async", not(feature = "sync")))]
+pub use r#async::*;
 
 /// UDF revision numbers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -1,21 +1,24 @@
 use crate::file::EntryType;
-use crate::io::{self, IsoCursor, LogicalSector, Read, Seek};
+use super::io::{self, IsoCursor, LogicalSector, Read, Seek};
 use crate::joliet::JolietLevel;
-use crate::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
-use crate::{
-    directory::DirectoryRef,
-    path::{PathTableInfo, PathTableRef},
-    volume::VolumeDescriptorList,
-};
+use super::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
+use super::directory::DirectoryRef;
+use super::path::{PathTableInfo, PathTableRef};
+use super::volume::VolumeDescriptorList;
 use hadris_common::types::endian::Endian;
 #[cfg(not(feature = "alloc"))]
 use hadris_common::types::no_alloc::ArrayVec;
-use volume::VolumeDescriptorIter;
+sync_only! {
+    use volume::VolumeDescriptorIter;
+}
 
 mod boot;
 mod directory;
 pub use boot::*;
-pub use directory::{DirEntry, IsoDir, IsoDirIter, RawDirIter};
+pub use directory::{DirEntry, IsoDir};
+sync_only! {
+    pub use directory::{IsoDirIter, RawDirIter};
+}
 use spin::Mutex;
 
 mod rrip;
@@ -122,14 +125,15 @@ pub struct IsoImage<DATA: Seek> {
     pub(crate) info: IsoImageInfo,
 }
 
+io_transform! {
 impl<DATA: Read + Seek> IsoImage<DATA> {
     /// Opens a ISO9660 Image
-    pub fn open(data: DATA) -> io::Result<Self> {
+    pub async fn open(data: DATA) -> io::Result<Self> {
         let sector_size = 2048;
         let mut data = IsoCursor::new(data, sector_size);
-        data.seek_sector(LogicalSector(16))?;
+        data.seek_sector(LogicalSector(16)).await?;
         let mut root_dirs = RootDirs::new();
-        let volume_descriptors = VolumeDescriptorList::parse(&mut data)?;
+        let volume_descriptors = VolumeDescriptorList::parse(&mut data).await?;
         let pvd = volume_descriptors.primary();
         let block_size = pvd.logical_block_size.read() as usize;
         let root_extent = LogicalSector(pvd.dir_record.header.extent.read() as usize);
@@ -140,7 +144,7 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         };
 
         // Detect SUSP/RRIP from root directory's "." entry
-        let susp_info = rrip::detect_susp_rrip(&mut data, root_extent)?;
+        let susp_info = rrip::detect_susp_rrip(&mut data, root_extent).await?;
         let supports_rrip = susp_info.rrip_detected;
 
         root_dirs.dirs.push(RootDir {
@@ -199,26 +203,17 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         })
     }
 
-    pub fn read_volume_descriptors(&self) -> VolumeDescriptorIter<'_, DATA> {
-        VolumeDescriptorIter {
-            data: &self.data,
-            current_sector: LogicalSector(16),
-            done: false,
-        }
+    /// Read raw bytes from an absolute byte position in the image.
+    pub async fn read_bytes_at(&self, byte_offset: u64, buf: &mut [u8]) -> io::Result<()> {
+        let mut data = self.data.lock();
+        data.seek(super::io::SeekFrom::Start(byte_offset)).await?;
+        data.read_exact(buf).await?;
+        Ok(())
     }
+}
+} // io_transform!
 
-    pub fn read_pvd(&self) -> PrimaryVolumeDescriptor {
-        self.read_volume_descriptors()
-            .find_map(|vd| {
-                if let Ok(VolumeDescriptor::Primary(vd)) = vd {
-                    Some(vd)
-                } else {
-                    None
-                }
-            })
-            .expect("could not find PVD!")
-    }
-
+impl<DATA: Read + Seek> IsoImage<DATA> {
     pub fn root_dir(&self) -> RootDir {
         self.root_dirs().best_choice()
     }
@@ -246,12 +241,28 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             path_table: self.info.path_table,
         }
     }
+}
 
-    /// Read raw bytes from an absolute byte position in the image.
-    pub fn read_bytes_at(&self, byte_offset: u64, buf: &mut [u8]) -> io::Result<()> {
-        let mut data = self.data.lock();
-        data.seek(crate::io::SeekFrom::Start(byte_offset))?;
-        data.read_exact(buf)?;
-        Ok(())
+sync_only! {
+impl<DATA: Read + Seek> IsoImage<DATA> {
+    pub fn read_volume_descriptors(&self) -> VolumeDescriptorIter<'_, DATA> {
+        VolumeDescriptorIter {
+            data: &self.data,
+            current_sector: LogicalSector(16),
+            done: false,
+        }
+    }
+
+    pub fn read_pvd(&self) -> PrimaryVolumeDescriptor {
+        self.read_volume_descriptors()
+            .find_map(|vd| {
+                if let Ok(VolumeDescriptor::Primary(vd)) = vd {
+                    Some(vd)
+                } else {
+                    None
+                }
+            })
+            .expect("could not find PVD!")
     }
 }
+} // sync_only!

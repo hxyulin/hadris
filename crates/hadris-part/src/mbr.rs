@@ -475,43 +475,6 @@ impl Debug for MasterBootRecord {
     }
 }
 
-// I/O operations
-#[cfg(feature = "read")]
-impl MasterBootRecord {
-    /// Reads an MBR from the beginning of a reader.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if reading fails or if the MBR signature is invalid.
-    pub fn read_from<R: hadris_io::Read>(reader: &mut R) -> crate::error::Result<Self> {
-        let mut buf = [0u8; 512];
-        reader
-            .read_exact(&mut buf)
-            .map_err(|_| crate::error::PartitionError::Io)?;
-        let mbr: Self = bytemuck::cast(buf);
-        if !mbr.has_valid_signature() {
-            return Err(crate::error::PartitionError::InvalidMbrSignature {
-                found: mbr.signature,
-            });
-        }
-        Ok(mbr)
-    }
-}
-
-#[cfg(feature = "write")]
-impl MasterBootRecord {
-    /// Writes this MBR to a writer.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if writing fails.
-    pub fn write_to<W: hadris_io::Write>(&self, writer: &mut W) -> crate::error::Result<()> {
-        writer
-            .write_all(bytemuck::bytes_of(self))
-            .map_err(|_| crate::error::PartitionError::Io)
-    }
-}
-
 /// An enum representing the full list of MBR partition types.
 ///
 /// Based on the comprehensive list at <https://thestarman.pcministry.com/asm/mbr/PartTypes.htm>

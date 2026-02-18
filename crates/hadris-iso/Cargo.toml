@@ -18,7 +18,10 @@ read = ["hadris-common/bytemuck"]
 # Heap allocation without full std
 alloc = []
 # Standard library support (includes alloc)
-std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "dep:tracing", "dep:chrono"]
+std = ["sync", "hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "dep:tracing", "dep:chrono"]
+
+sync = ["hadris-io/sync", "hadris-common/sync", "hadris-part/sync"]
+async = ["hadris-io/async", "hadris-common/async", "hadris-part/async"]
 
 write = ["alloc", "std", "hadris-part/write"]
 joliet = ["alloc"]
@@ -30,6 +33,7 @@ thiserror = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 hadris-io = { workspace = true }
+hadris-macros = { workspace = true }
 hadris-common = { workspace = true, features = ["alloc"] }
 hadris-part = { workspace = true, default-features = false }
 spin.workspace = true

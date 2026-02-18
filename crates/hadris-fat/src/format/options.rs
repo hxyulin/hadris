@@ -2,7 +2,7 @@
 //!
 //! This module provides configuration types for formatting FAT12/16/32 volumes.
 
-use crate::FatType;
+use super::super::fat_table::FatType;
 
 /// FAT volume formatting options.
 #[derive(Debug, Clone)]

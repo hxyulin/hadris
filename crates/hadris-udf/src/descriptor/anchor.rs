@@ -2,7 +2,7 @@
 
 use super::{DescriptorTag, ExtentDescriptor, TagIdentifier};
 use crate::error::{UdfError, UdfResult};
-use hadris_io::{Read, Seek, SeekFrom};
+use super::super::super::{Read, Seek, SeekFrom};
 
 /// Anchor Volume Descriptor Pointer (AVDP)
 ///
@@ -23,16 +23,18 @@ pub struct AnchorVolumeDescriptorPointer {
 unsafe impl bytemuck::Zeroable for AnchorVolumeDescriptorPointer {}
 unsafe impl bytemuck::Pod for AnchorVolumeDescriptorPointer {}
 
+io_transform! {
+
 impl AnchorVolumeDescriptorPointer {
     /// Standard location for the first AVDP (sector 256)
     pub const LOCATION_256: u32 = 256;
 
     /// Read and parse an AVDP from the given location
-    pub fn read<R: Read + Seek>(reader: &mut R, location: u32) -> UdfResult<Self> {
-        reader.seek(SeekFrom::Start((location as u64) * 2048))?;
+    pub async fn read<R: Read + Seek>(reader: &mut R, location: u32) -> UdfResult<Self> {
+        reader.seek(SeekFrom::Start((location as u64) * 2048)).await?;
 
         let mut buffer = [0u8; 512];
-        reader.read_exact(&mut buffer)?;
+        reader.read_exact(&mut buffer).await?;
 
         let avdp: Self = *bytemuck::from_bytes(&buffer);
         avdp.validate(location)?;
@@ -42,20 +44,20 @@ impl AnchorVolumeDescriptorPointer {
     /// Find and read the AVDP from standard locations
     ///
     /// Tries sector 256 first, then N-256, then N (last sector)
-    pub fn find<R: Read + Seek>(reader: &mut R, total_sectors: Option<u64>) -> UdfResult<Self> {
+    pub async fn find<R: Read + Seek>(reader: &mut R, total_sectors: Option<u64>) -> UdfResult<Self> {
         // Try sector 256 first (always present)
-        if let Ok(avdp) = Self::read(reader, Self::LOCATION_256) {
+        if let Ok(avdp) = Self::read(reader, Self::LOCATION_256).await {
             return Ok(avdp);
         }
 
         // Try N-256 and N if we know the disk size
         if let Some(n) = total_sectors {
             if n > 256 {
-                if let Ok(avdp) = Self::read(reader, (n - 256) as u32) {
+                if let Ok(avdp) = Self::read(reader, (n - 256) as u32).await {
                     return Ok(avdp);
                 }
             }
-            if let Ok(avdp) = Self::read(reader, (n - 1) as u32) {
+            if let Ok(avdp) = Self::read(reader, (n - 1) as u32).await {
                 return Ok(avdp);
             }
         }
@@ -82,6 +84,8 @@ impl AnchorVolumeDescriptorPointer {
         Ok(())
     }
 }
+
+} // io_transform!
 
 #[cfg(test)]
 mod tests {

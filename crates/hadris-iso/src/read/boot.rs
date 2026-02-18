@@ -1,11 +1,9 @@
-use crate::{
-    boot::{BaseBootCatalog, BootSectionHeaderEntry},
-    io::{IsoCursor, LogicalSector},
-    read::IsoImage,
-};
+use super::super::boot::{BaseBootCatalog, BootSectionHeaderEntry};
+use super::super::io::{IsoCursor, LogicalSector};
+use super::IsoImage;
 use bytemuck::Zeroable;
 use hadris_common::types::endian::Endian;
-use hadris_io::{self as io, Read, Seek, SeekFrom};
+use super::super::io::{self, Read, Seek, SeekFrom};
 use spin::Mutex;
 
 #[derive(Debug, Clone)]
@@ -19,6 +17,7 @@ pub struct BootInfo {
 }
 
 impl BootInfo {
+    sync_only! {
     pub fn sections<'a, R: Read + Seek>(
         &'a self,
         image: &'a IsoImage<R>,
@@ -35,6 +34,7 @@ impl BootInfo {
             has_more: true,
         }
     }
+    } // sync_only!
 
     /// Returns the default boot entry information.
     ///
@@ -63,6 +63,8 @@ pub struct BootEntryInfo {
     pub load_rba: u32,
 }
 
+sync_only! {
+
 pub struct BootSectionIter<'data, DATA: Read + Seek> {
     data: &'data Mutex<IsoCursor<DATA>>,
     current_seek: u64,
@@ -76,7 +78,7 @@ impl<DATA: Read + Seek> Iterator for BootSectionIter<'_, DATA> {
         if !self.has_more {
             return None;
         }
-        use hadris_io::try_io_result_option as try_io;
+        use super::super::io::try_io_result_option as try_io;
         try_io!(data.seek(SeekFrom::Start(self.current_seek)));
         let mut header = BootSectionHeaderEntry::zeroed();
 
@@ -112,3 +114,5 @@ impl<DATA: Read + Seek> Iterator for BootSectionIter<'_, DATA> {
         None
     }
 }
+
+} // sync_only!

@@ -41,7 +41,7 @@ pub enum FatError {
         cluster: u32,
     },
     /// I/O error from the underlying storage
-    Io(crate::io::Error),
+    Io(hadris_io::Error),
     /// File is not a regular file (e.g., is a directory)
     NotAFile,
     /// Entry is not a directory
@@ -244,8 +244,8 @@ impl fmt::Display for FatError {
 #[cfg(feature = "std")]
 impl std::error::Error for FatError {}
 
-impl From<crate::io::Error> for FatError {
-    fn from(e: crate::io::Error) -> Self {
+impl From<hadris_io::Error> for FatError {
+    fn from(e: hadris_io::Error) -> Self {
         Self::Io(e)
     }
 }

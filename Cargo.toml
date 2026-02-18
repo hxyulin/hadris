@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/hadris-macros",
   "crates/hadris-iso-cli",
   "crates/hadris-iso",
   "crates/hadris-udf",
@@ -51,6 +52,7 @@ clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 
 # Internal crates
+hadris-macros = { version = "1.0.0", path = "crates/hadris-macros" }
 hadris-io = { version = "1.0.0", path = "crates/hadris-io", default-features = false }
 hadris-iso = { version = "1.0.0", path = "crates/hadris-iso", default-features = false }
 hadris-udf = { version = "1.0.0", path = "crates/hadris-udf", default-features = false }

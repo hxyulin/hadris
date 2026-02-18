@@ -3,15 +3,19 @@
 //! This module handles writing the boot sector, FAT tables, and root directory
 //! when formatting a new FAT volume.
 
+io_transform! {
+
 use alloc::vec;
 
 use crate::error::Result;
-use crate::io::{Read, Seek, SeekFrom, Write};
-use crate::write::FatDateTime;
-use crate::{
-    DirEntryAttrFlags, FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG, FatType, RawBpb,
+use crate::raw::{
+    DirEntryAttrFlags, RawBpb,
     RawBpbExt16, RawBpbExt32, RawFileEntry, RawFsInfo,
 };
+use super::super::io::{Read, Seek, SeekFrom, Write};
+use super::super::write::FatDateTime;
+use super::super::fat_table::FatType;
+use super::super::fs::{FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG};
 
 use hadris_common::types::endian::{Endian, LittleEndian};
 use hadris_common::types::number::{U16, U32};
@@ -20,43 +24,43 @@ use super::calc::FormatParams;
 use super::options::FormatOptions;
 
 /// Write all required structures to format a FAT volume.
-pub fn initialize_volume<DATA: Read + Write + Seek>(
+pub async fn initialize_volume<DATA: Read + Write + Seek>(
     data: &mut DATA,
     options: &FormatOptions,
     params: &FormatParams,
 ) -> Result<()> {
     // Zero out reserved area
-    zero_reserved_area(data, params)?;
+    zero_reserved_area(data, params).await?;
 
     // Write boot sector
-    write_boot_sector(data, options, params)?;
+    write_boot_sector(data, options, params).await?;
 
     // Write FSInfo and backup boot sector (FAT32 only)
     if params.fat_type == FatType::Fat32 {
-        write_fsinfo(data, params)?;
-        write_backup_boot_sector(data, options, params)?;
+        write_fsinfo(data, params).await?;
+        write_backup_boot_sector(data, options, params).await?;
     }
 
     // Initialize FAT tables
-    initialize_fat_tables(data, params)?;
+    initialize_fat_tables(data, params).await?;
 
     // Initialize root directory
-    initialize_root_directory(data, options, params)?;
+    initialize_root_directory(data, options, params).await?;
 
     Ok(())
 }
 
 /// Zero out the reserved area.
-fn zero_reserved_area<DATA: Write + Seek>(data: &mut DATA, params: &FormatParams) -> Result<()> {
+async fn zero_reserved_area<DATA: Write + Seek>(data: &mut DATA, params: &FormatParams) -> Result<()> {
     let reserved_bytes = params.reserved_sectors as usize * params.sector_size;
-    data.seek(SeekFrom::Start(0))?;
+    data.seek(SeekFrom::Start(0)).await?;
 
     // Write zeros in chunks
     let zeros = vec![0u8; params.sector_size.min(4096)];
     let mut remaining = reserved_bytes;
     while remaining > 0 {
         let to_write = remaining.min(zeros.len());
-        data.write_all(&zeros[..to_write])?;
+        data.write_all(&zeros[..to_write]).await?;
         remaining -= to_write;
     }
 
@@ -64,12 +68,12 @@ fn zero_reserved_area<DATA: Write + Seek>(data: &mut DATA, params: &FormatParams
 }
 
 /// Write the boot sector (sector 0).
-fn write_boot_sector<DATA: Write + Seek>(
+async fn write_boot_sector<DATA: Write + Seek>(
     data: &mut DATA,
     options: &FormatOptions,
     params: &FormatParams,
 ) -> Result<()> {
-    data.seek(SeekFrom::Start(0))?;
+    data.seek(SeekFrom::Start(0)).await?;
 
     // Build the common BPB
     let total_sectors_16 = if params.total_sectors < 0x10000 && params.fat_type != FatType::Fat32 {
@@ -105,7 +109,7 @@ fn write_boot_sector<DATA: Write + Seek>(
         total_sectors_32: total_sectors_32.to_le_bytes(),
     };
 
-    data.write_all(bytemuck::bytes_of(&bpb))?;
+    data.write_all(bytemuck::bytes_of(&bpb)).await?;
 
     // Generate volume ID if not provided
     let volume_id = options.volume_id.unwrap_or_else(generate_volume_id);
@@ -129,7 +133,7 @@ fn write_boot_sector<DATA: Write + Seek>(
                 padding1: [0; 448],
                 signature_word: 0xAA55u16.to_le_bytes(),
             };
-            data.write_all(bytemuck::bytes_of(&bpb_ext16))?;
+            data.write_all(bytemuck::bytes_of(&bpb_ext16)).await?;
         }
         FatType::Fat32 => {
             let bpb_ext32 = RawBpbExt32 {
@@ -149,7 +153,7 @@ fn write_boot_sector<DATA: Write + Seek>(
                 padding1: [0; 420],
                 signature_word: U16::<LittleEndian>::new(0xAA55),
             };
-            data.write_all(bytemuck::bytes_of(&bpb_ext32))?;
+            data.write_all(bytemuck::bytes_of(&bpb_ext32)).await?;
         }
     }
 
@@ -157,8 +161,8 @@ fn write_boot_sector<DATA: Write + Seek>(
 }
 
 /// Write the FSInfo sector (FAT32 only, sector 1).
-fn write_fsinfo<DATA: Write + Seek>(data: &mut DATA, params: &FormatParams) -> Result<()> {
-    data.seek(SeekFrom::Start(params.sector_size as u64))?;
+async fn write_fsinfo<DATA: Write + Seek>(data: &mut DATA, params: &FormatParams) -> Result<()> {
+    data.seek(SeekFrom::Start(params.sector_size as u64)).await?;
 
     // Free clusters = total - 1 (root directory takes cluster 2)
     let free_count = params.cluster_count.saturating_sub(1);
@@ -173,60 +177,60 @@ fn write_fsinfo<DATA: Write + Seek>(data: &mut DATA, params: &FormatParams) -> R
         trail_signature: U32::<LittleEndian>::new(FSINFO_TRAIL_SIG),
     };
 
-    data.write_all(bytemuck::bytes_of(&fsinfo))?;
+    data.write_all(bytemuck::bytes_of(&fsinfo)).await?;
 
     // Pad to sector size
     let written = core::mem::size_of::<RawFsInfo>();
     let padding = params.sector_size - written;
     if padding > 0 {
-        data.write_all(&vec![0u8; padding])?;
+        data.write_all(&vec![0u8; padding]).await?;
     }
 
     Ok(())
 }
 
 /// Write the backup boot sector (FAT32 only, sector 6).
-fn write_backup_boot_sector<DATA: Read + Write + Seek>(
+async fn write_backup_boot_sector<DATA: Read + Write + Seek>(
     data: &mut DATA,
     _options: &FormatOptions,
     params: &FormatParams,
 ) -> Result<()> {
     // Read the primary boot sector
-    data.seek(SeekFrom::Start(0))?;
+    data.seek(SeekFrom::Start(0)).await?;
     let mut boot_sector = vec![0u8; params.sector_size];
-    data.read_exact(&mut boot_sector)?;
+    data.read_exact(&mut boot_sector).await?;
 
     // Write to sector 6
-    data.seek(SeekFrom::Start(6 * params.sector_size as u64))?;
-    data.write_all(&boot_sector)?;
+    data.seek(SeekFrom::Start(6 * params.sector_size as u64)).await?;
+    data.write_all(&boot_sector).await?;
 
     // Also write backup FSInfo to sector 7
-    data.seek(SeekFrom::Start(params.sector_size as u64))?;
+    data.seek(SeekFrom::Start(params.sector_size as u64)).await?;
     let mut fsinfo_sector = vec![0u8; params.sector_size];
-    data.read_exact(&mut fsinfo_sector)?;
+    data.read_exact(&mut fsinfo_sector).await?;
 
-    data.seek(SeekFrom::Start(7 * params.sector_size as u64))?;
-    data.write_all(&fsinfo_sector)?;
+    data.seek(SeekFrom::Start(7 * params.sector_size as u64)).await?;
+    data.write_all(&fsinfo_sector).await?;
 
     Ok(())
 }
 
 /// Initialize the FAT tables with media type marker and end-of-chain markers.
-fn initialize_fat_tables<DATA: Write + Seek>(data: &mut DATA, params: &FormatParams) -> Result<()> {
+async fn initialize_fat_tables<DATA: Write + Seek>(data: &mut DATA, params: &FormatParams) -> Result<()> {
     let fat_start = params.reserved_sectors as u64 * params.sector_size as u64;
     let fat_bytes = params.sectors_per_fat as usize * params.sector_size;
 
     // Initialize each FAT copy
     for fat_idx in 0..params.fat_count {
         let fat_offset = fat_start + (fat_idx as u64 * fat_bytes as u64);
-        data.seek(SeekFrom::Start(fat_offset))?;
+        data.seek(SeekFrom::Start(fat_offset)).await?;
 
         // Zero the FAT first
         let zeros = vec![0u8; fat_bytes];
-        data.write_all(&zeros)?;
+        data.write_all(&zeros).await?;
 
         // Write the reserved entries (entries 0 and 1)
-        data.seek(SeekFrom::Start(fat_offset))?;
+        data.seek(SeekFrom::Start(fat_offset)).await?;
 
         match params.fat_type {
             FatType::Fat12 => {
@@ -241,23 +245,23 @@ fn initialize_fat_tables<DATA: Write + Seek>(data: &mut DATA, params: &FormatPar
                     ((entry0 >> 8) as u8 & 0x0F) | ((entry1 << 4) as u8),
                     (entry1 >> 4) as u8,
                 ];
-                data.write_all(&bytes)?;
+                data.write_all(&bytes).await?;
             }
             FatType::Fat16 => {
                 // FAT16: 4 bytes for entries 0 and 1
                 let entry0 = 0xFF00u16 | params.media_type as u16;
                 let entry1 = 0xFFFFu16;
-                data.write_all(&entry0.to_le_bytes())?;
-                data.write_all(&entry1.to_le_bytes())?;
+                data.write_all(&entry0.to_le_bytes()).await?;
+                data.write_all(&entry1.to_le_bytes()).await?;
             }
             FatType::Fat32 => {
                 // FAT32: 8 bytes for entries 0 and 1, plus entry 2 (root dir)
                 let entry0 = 0x0FFFFF00u32 | params.media_type as u32;
                 let entry1 = 0x0FFFFFFFu32;
                 let entry2 = 0x0FFFFFF8u32; // End of chain for root directory
-                data.write_all(&entry0.to_le_bytes())?;
-                data.write_all(&entry1.to_le_bytes())?;
-                data.write_all(&entry2.to_le_bytes())?;
+                data.write_all(&entry0.to_le_bytes()).await?;
+                data.write_all(&entry1.to_le_bytes()).await?;
+                data.write_all(&entry2.to_le_bytes()).await?;
             }
         }
     }
@@ -266,7 +270,7 @@ fn initialize_fat_tables<DATA: Write + Seek>(data: &mut DATA, params: &FormatPar
 }
 
 /// Initialize the root directory.
-fn initialize_root_directory<DATA: Write + Seek>(
+async fn initialize_root_directory<DATA: Write + Seek>(
     data: &mut DATA,
     options: &FormatOptions,
     params: &FormatParams,
@@ -285,7 +289,7 @@ fn initialize_root_directory<DATA: Write + Seek>(
         }
     };
 
-    data.seek(SeekFrom::Start(root_dir_offset))?;
+    data.seek(SeekFrom::Start(root_dir_offset)).await?;
 
     // Zero the root directory
     let root_dir_size = match params.fat_type {
@@ -293,11 +297,11 @@ fn initialize_root_directory<DATA: Write + Seek>(
         FatType::Fat32 => params.sectors_per_cluster as usize * params.sector_size,
     };
     let zeros = vec![0u8; root_dir_size];
-    data.write_all(&zeros)?;
+    data.write_all(&zeros).await?;
 
     // Write volume label entry if provided and not "NO NAME"
     if options.volume_label.as_bytes() != b"NO NAME    " {
-        data.seek(SeekFrom::Start(root_dir_offset))?;
+        data.seek(SeekFrom::Start(root_dir_offset)).await?;
 
         let now = FatDateTime::now();
         let (date, time, _) = now.to_raw();
@@ -317,7 +321,7 @@ fn initialize_root_directory<DATA: Write + Seek>(
             size: U32::<LittleEndian>::new(0),
         };
 
-        data.write_all(bytemuck::bytes_of(&label_entry))?;
+        data.write_all(bytemuck::bytes_of(&label_entry)).await?;
     }
 
     Ok(())
@@ -341,3 +345,5 @@ fn generate_volume_id() -> u32 {
         0x12345678
     }
 }
+
+} // end io_transform!

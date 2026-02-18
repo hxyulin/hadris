@@ -1,8 +1,9 @@
 use alloc::string::String;
 
-use crate::{
-    boot::options::BootOptions, joliet::JolietLevel, read::PathSeparator, rrip::RripOptions,
-};
+use super::super::boot::options::BootOptions;
+use crate::joliet::JolietLevel;
+use super::super::read::PathSeparator;
+use super::super::rrip::RripOptions;
 
 /// Hybrid boot options for creating bootable ISO images from USB/disk.
 ///
@@ -171,6 +172,27 @@ impl CreationFeatures {
                 bootable: true,
             }),
             ..Default::default()
+        }
+    }
+}
+
+impl From<BaseIsoLevel> for crate::file::EntryType {
+    fn from(value: BaseIsoLevel) -> Self {
+        match value {
+            BaseIsoLevel::Level1 {
+                supports_lowercase,
+                supports_rrip,
+            } => Self::Level1 {
+                supports_lowercase,
+                supports_rrip,
+            },
+            BaseIsoLevel::Level2 {
+                supports_lowercase,
+                supports_rrip,
+            } => Self::Level2 {
+                supports_lowercase,
+                supports_rrip,
+            },
         }
     }
 }

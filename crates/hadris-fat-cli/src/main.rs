@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use hadris_fat::{FatAnalysisExt, FatFs, FatVerifyExt};
+use hadris_fat::{DirectoryEntry, FatDir, DirEntryAttrFlags};
 
 #[derive(Parser)]
 #[command(name = "fatutil")]
@@ -161,7 +162,7 @@ fn cmd_ls(image: PathBuf, path: &str, long: bool) -> Result<()> {
 
     for entry in dir.entries() {
         let entry = entry.context("Failed to read directory entry")?;
-        let hadris_fat::DirectoryEntry::Entry(file_entry) = entry;
+        let DirectoryEntry::Entry(file_entry) = entry;
 
         let name = file_entry.name();
         if name == "." || name == ".." {
@@ -171,22 +172,22 @@ fn cmd_ls(image: PathBuf, path: &str, long: bool) -> Result<()> {
         if long {
             let type_char = if file_entry.is_directory() { 'd' } else { '-' };
             let attrs = file_entry.attributes();
-            let r = if attrs.contains(hadris_fat::DirEntryAttrFlags::READ_ONLY) {
+            let r = if attrs.contains(DirEntryAttrFlags::READ_ONLY) {
                 'r'
             } else {
                 '-'
             };
-            let h = if attrs.contains(hadris_fat::DirEntryAttrFlags::HIDDEN) {
+            let h = if attrs.contains(DirEntryAttrFlags::HIDDEN) {
                 'h'
             } else {
                 '-'
             };
-            let s = if attrs.contains(hadris_fat::DirEntryAttrFlags::SYSTEM) {
+            let s = if attrs.contains(DirEntryAttrFlags::SYSTEM) {
                 's'
             } else {
                 '-'
             };
-            let a = if attrs.contains(hadris_fat::DirEntryAttrFlags::ARCHIVE) {
+            let a = if attrs.contains(DirEntryAttrFlags::ARCHIVE) {
                 'a'
             } else {
                 '-'
@@ -234,7 +235,7 @@ fn cmd_tree(image: PathBuf, path: &str, max_depth: Option<usize>) -> Result<()> 
 
 fn print_tree<DATA: std::io::Read + std::io::Seek>(
     fs: &FatFs<DATA>,
-    dir: &hadris_fat::FatDir<'_, DATA>,
+    dir: &FatDir<'_, DATA>,
     prefix: &str,
     max_depth: Option<usize>,
     current_depth: usize,
@@ -249,7 +250,7 @@ fn print_tree<DATA: std::io::Read + std::io::Seek>(
         .entries()
         .filter_map(|e| e.ok())
         .filter_map(|e| {
-            let hadris_fat::DirectoryEntry::Entry(fe) = e;
+            let DirectoryEntry::Entry(fe) = e;
             let name = fe.name().to_string();
             if name == "." || name == ".." {
                 None

@@ -3,8 +3,8 @@
 //! This module calculates the optimal parameters for formatting a FAT volume
 //! based on the volume size and user options.
 
-use crate::FatType;
 use crate::error::{FatError, Result};
+use super::super::fat_table::FatType;
 
 use super::options::{FatTypeSelection, FormatOptions};
 

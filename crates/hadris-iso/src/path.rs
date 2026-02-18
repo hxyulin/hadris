@@ -3,13 +3,11 @@ use core::ops::DerefMut;
 use hadris_common::types::file::FixedFilename;
 use spin::Mutex;
 
-use crate::{
-    io::{self, Error, LogicalSector, Read, Seek, SeekFrom, Write},
-    types::EndianType,
-};
+use super::io::{self, Error, LogicalSector, Read, Seek, SeekFrom, Write};
+use crate::types::EndianType;
 
 #[cfg(feature = "alloc")]
-use crate::read::IsoImage;
+use super::read::IsoImage;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -36,15 +34,22 @@ pub struct PathTableEntry<const N: usize = 256> {
 }
 
 impl PathTableEntry {
-    pub fn parse<T: Read>(reader: &mut T, endian: EndianType) -> Result<Self, Error> {
+    pub fn size(&self) -> usize {
+        (size_of::<PathTableEntryHeader>() + self.name.len() + 1) & !1
+    }
+}
+
+io_transform! {
+impl PathTableEntry {
+    pub async fn parse<T: Read>(reader: &mut T, endian: EndianType) -> Result<Self, Error> {
         let mut buf = [0; size_of::<PathTableEntryHeader>()];
-        reader.read_exact(&mut buf)?;
+        reader.read_exact(&mut buf).await?;
         let header = PathTableEntryHeader::from_bytes(&buf);
         let mut name = FixedFilename::with_size(header.len as usize);
-        reader.read_exact(name.as_bytes_mut())?;
+        reader.read_exact(name.as_bytes_mut()).await?;
         if header.len % 2 == 1 {
             // Read the padding byte
-            reader.read_exact(&mut [0])?;
+            reader.read_exact(&mut [0]).await?;
         }
 
         Ok(Self {
@@ -56,26 +61,23 @@ impl PathTableEntry {
         })
     }
 
-    pub fn write<W: Write>(&self, writer: &mut W, endian: EndianType) -> io::Result<()> {
+    pub async fn write<W: Write>(&self, writer: &mut W, endian: EndianType) -> io::Result<()> {
         let header = PathTableEntryHeader {
             len: self.name.len() as u8,
             extended_attr_record: 0,
             parent_lba: endian.u32_bytes(self.parent_lba),
             parent_directory_number: endian.u16_bytes(self.parent_index),
         };
-        writer.write_all(bytemuck::bytes_of(&header))?;
-        writer.write_all(self.name.as_bytes())?;
+        writer.write_all(bytemuck::bytes_of(&header)).await?;
+        writer.write_all(self.name.as_bytes()).await?;
         assert_eq!(header.len as usize, self.name.len());
         if header.len % 2 == 1 {
-            writer.write_all(&[0])?;
+            writer.write_all(&[0]).await?;
         }
         Ok(())
     }
-
-    pub fn size(&self) -> usize {
-        (size_of::<PathTableEntryHeader>() + self.name.len() + 1) & !1
-    }
 }
+} // io_transform!
 
 #[derive(Debug, Clone, Copy)]
 pub struct PathTableRef {
@@ -90,6 +92,7 @@ pub struct PathTableInfo {
     pub(crate) path_table: PathTableRef,
 }
 
+sync_only! {
 #[cfg(feature = "alloc")]
 impl PathTableInfo {
     pub fn entries<'a, DATA: Read + Seek>(
@@ -114,7 +117,7 @@ impl PathTableInfo {
 
 #[cfg(feature = "alloc")]
 pub struct PathTableEntryIter<'a, DATA: Read + Seek> {
-    data: &'a Mutex<crate::io::IsoCursor<DATA>>,
+    data: &'a Mutex<super::io::IsoCursor<DATA>>,
     current: u64,
     end: u64,
 }
@@ -125,7 +128,7 @@ impl<DATA: Read + Seek> Iterator for PathTableEntryIter<'_, DATA> {
 
     /// Undefined if continued reading after IO error
     fn next(&mut self) -> Option<Self::Item> {
-        use hadris_io::try_io_result_option as try_io;
+        use super::io::try_io_result_option as try_io;
         if self.current >= self.end {
             return None;
         }
@@ -140,3 +143,4 @@ impl<DATA: Read + Seek> Iterator for PathTableEntryIter<'_, DATA> {
         Some(Ok(entry))
     }
 }
+} // sync_only!

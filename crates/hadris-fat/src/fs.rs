@@ -1,15 +1,17 @@
+io_transform! {
+
 use core::{cell::Cell, fmt};
 
 use spin::Mutex;
 
 use hadris_common::types::endian::Endian;
 
-use crate::dir::{FatDir, FileEntry};
 use crate::error::{FatError, Result};
-use crate::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
-use crate::io::{Cluster, Read, ReadExt, Sector, SectorCursor, SectorLike, Seek};
 use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
-use crate::read::FileReader;
+use super::dir::{FatDir, FileEntry};
+use super::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
+use super::io::{Cluster, Read, ReadExt, Sector, SectorCursor, SectorLike, Seek};
+use super::read::FileReader;
 
 /// Volume metadata from the boot sector.
 ///
@@ -165,8 +167,8 @@ where
     /// Open a FAT filesystem from a data source.
     ///
     /// Automatically detects FAT12, FAT16, or FAT32 based on the BPB fields.
-    pub fn open(mut data: DATA) -> Result<Self> {
-        let bpb = data.read_struct::<RawBpb>()?;
+    pub async fn open(mut data: DATA) -> Result<Self> {
+        let bpb = data.read_struct::<RawBpb>().await?;
         let sector_size = bpb.bytes_per_sector.get() as usize;
         let cluster_size = (bpb.sectors_per_cluster as usize) * sector_size;
         let data = SectorCursor::new(data, sector_size, cluster_size);
@@ -178,17 +180,17 @@ where
 
         if root_entry_count == 0 && sectors_per_fat_16 == 0 {
             // FAT32
-            Self::open_fat32(data, bpb)
+            Self::open_fat32(data, bpb).await
         } else {
             // FAT12 or FAT16
-            Self::open_fat12_16(data, bpb)
+            Self::open_fat12_16(data, bpb).await
         }
     }
 
     /// Open a FAT12/16 filesystem.
-    fn open_fat12_16(mut data: SectorCursor<DATA>, bpb: RawBpb) -> Result<Self> {
+    async fn open_fat12_16(mut data: SectorCursor<DATA>, bpb: RawBpb) -> Result<Self> {
         // Read FAT12/16 extended boot sector
-        let bpb_ext16 = data.read_struct::<RawBpbExt16>()?;
+        let bpb_ext16 = data.read_struct::<RawBpbExt16>().await?;
 
         // Validate boot signature
         let signature = u16::from_le_bytes(bpb_ext16.signature_word);
@@ -276,8 +278,8 @@ where
     }
 
     /// Open a FAT32 filesystem.
-    fn open_fat32(mut data: SectorCursor<DATA>, bpb: RawBpb) -> Result<Self> {
-        let bpb_ext32 = data.read_struct::<RawBpbExt32>()?;
+    async fn open_fat32(mut data: SectorCursor<DATA>, bpb: RawBpb) -> Result<Self> {
+        let bpb_ext32 = data.read_struct::<RawBpbExt32>().await?;
 
         // Validate boot signature
         let signature = bpb_ext32.signature_word.get();
@@ -287,8 +289,8 @@ where
 
         // Read and validate FSInfo
         let fs_info_sec = Sector(bpb_ext32.fs_info_sector.get());
-        data.seek_sector(fs_info_sec)?;
-        let fs_info = data.read_struct::<RawFsInfo>()?;
+        data.seek_sector(fs_info_sec).await?;
+        let fs_info = data.read_struct::<RawFsInfo>().await?;
 
         // Validate FSInfo signatures
         let lead_sig = u32::from_le_bytes(fs_info.signature);
@@ -412,7 +414,7 @@ where
     /// Paths can use forward slashes as separators. Leading slashes are optional.
     /// Empty path components are ignored.
     #[cfg(feature = "alloc")]
-    pub fn open_path(&self, path: &str) -> Result<FileEntry> {
+    pub async fn open_path(&self, path: &str) -> Result<FileEntry> {
         let path = path.trim_start_matches('/');
         if path.is_empty() {
             return Err(FatError::InvalidPath);
@@ -427,12 +429,12 @@ where
 
         // Navigate to parent directories
         for component in &components[..components.len() - 1] {
-            current_dir = current_dir.open_dir(component)?;
+            current_dir = current_dir.open_dir(component).await?;
         }
 
         // Find the final entry
         let final_name = components.last().unwrap();
-        current_dir.find(final_name)?.ok_or(FatError::EntryNotFound)
+        current_dir.find(final_name).await?.ok_or(FatError::EntryNotFound)
     }
 
     /// Open a file by path for reading.
@@ -440,8 +442,8 @@ where
     /// This is a convenience method that combines [`open_path`](Self::open_path)
     /// with opening a file reader.
     #[cfg(feature = "alloc")]
-    pub fn open_file_path(&self, path: &str) -> Result<FileReader<'_, DATA>> {
-        let entry = self.open_path(path)?;
+    pub async fn open_file_path(&self, path: &str) -> Result<FileReader<'_, DATA>> {
+        let entry = self.open_path(path).await?;
         FileReader::new(self, &entry)
     }
 
@@ -450,8 +452,8 @@ where
     /// This is a convenience method that combines [`open_path`](Self::open_path)
     /// with validating the entry is a directory.
     #[cfg(feature = "alloc")]
-    pub fn open_dir_path(&self, path: &str) -> Result<FatDir<'_, DATA>> {
-        let entry = self.open_path(path)?;
+    pub async fn open_dir_path(&self, path: &str) -> Result<FatDir<'_, DATA>> {
+        let entry = self.open_path(path).await?;
         if !entry.is_directory() {
             return Err(FatError::NotADirectory);
         }
@@ -477,3 +479,5 @@ where
         })
     }
 }
+
+} // end io_transform!

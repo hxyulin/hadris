@@ -1,13 +1,15 @@
 //! Read operations for FAT filesystems.
 
+io_transform! {
+
 use core::ops::DerefMut;
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
-use crate::{
-    FatFs, FileEntry,
-    error::{FatError, Result},
+use crate::error::{FatError, Result};
+use super::{
+    fs::FatFs, dir::FileEntry,
     io::{Cluster, ClusterLike, Read, Seek, SeekFrom},
 };
 
@@ -101,7 +103,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     ///
     /// Memory usage: 4 bytes per cluster in the file.
     #[cfg(feature = "alloc")]
-    pub fn with_cached_chain(mut self) -> Result<Self> {
+    pub async fn with_cached_chain(mut self) -> Result<Self> {
         if self.cluster.0 < 2 {
             // Empty file, no chain to cache
             self.cached_chain = Some(Vec::new());
@@ -128,7 +130,8 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
             match self
                 .fs
                 .fat
-                .next_cluster(data.deref_mut(), current as usize)?
+                .next_cluster(data.deref_mut(), current as usize)
+                .await?
             {
                 Some(next) => current = next,
                 None => break,
@@ -145,7 +148,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     ///
     /// This method follows the FAT cluster chain to read file contents.
     /// If buffering is enabled, reads are served from the buffer when possible.
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         // Check if we've reached the end of the file
         if self.total_read >= self.size {
             return Ok(0);
@@ -172,7 +175,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
                     }
                 } else {
                     // Fall back to FAT lookup
-                    let next = self.fs.fat.next_cluster(data.deref_mut(), self.cluster.0)?;
+                    let next = self.fs.fat.next_cluster(data.deref_mut(), self.cluster.0).await?;
                     match next {
                         Some(cluster) => {
                             self.cluster.0 = cluster as usize;
@@ -189,7 +192,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
 
             #[cfg(not(feature = "alloc"))]
             {
-                let next = self.fs.fat.next_cluster(data.deref_mut(), self.cluster.0)?;
+                let next = self.fs.fat.next_cluster(data.deref_mut(), self.cluster.0).await?;
                 match next {
                     Some(cluster) => {
                         self.cluster.0 = cluster as usize;
@@ -215,10 +218,10 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
             // Fill buffer if empty
             if buffer.is_empty() {
                 let cluster_start = self.cluster.to_bytes(self.fs.info.data_start, cluster_size);
-                data.seek(SeekFrom::Start(cluster_start as u64))?;
+                data.seek(SeekFrom::Start(cluster_start as u64)).await?;
 
                 buffer.resize(cluster_size, 0);
-                data.read_exact(buffer)?;
+                data.read_exact(buffer).await?;
             }
 
             // Read from buffer
@@ -229,16 +232,16 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
             // Direct read (no buffering)
             let seek_pos = self.cluster.to_bytes(self.fs.info.data_start, cluster_size)
                 + self.offset_in_cluster;
-            data.seek(SeekFrom::Start(seek_pos as u64))?;
-            data.read(&mut buf[..read_max])?
+            data.seek(SeekFrom::Start(seek_pos as u64)).await?;
+            data.read(&mut buf[..read_max]).await?
         };
 
         #[cfg(not(feature = "alloc"))]
         let bytes_read = {
             let seek_pos = self.cluster.to_bytes(self.fs.info.data_start, cluster_size)
                 + self.offset_in_cluster;
-            data.seek(SeekFrom::Start(seek_pos as u64))?;
-            data.read(&mut buf[..read_max])?
+            data.seek(SeekFrom::Start(seek_pos as u64)).await?;
+            data.read(&mut buf[..read_max]).await?
         };
 
         self.offset_in_cluster += bytes_read;
@@ -249,11 +252,11 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
 
     /// Read the entire file contents into a vector.
     #[cfg(feature = "alloc")]
-    pub fn read_to_vec(&mut self) -> Result<Vec<u8>> {
+    pub async fn read_to_vec(&mut self) -> Result<Vec<u8>> {
         let mut buf = alloc::vec![0u8; self.remaining()];
         let mut total = 0;
         while total < buf.len() {
-            let n = self.read(&mut buf[total..])?;
+            let n = self.read(&mut buf[total..]).await?;
             if n == 0 {
                 break;
             }
@@ -275,3 +278,5 @@ impl<DATA: Read + Seek> FatFsReadExt<DATA> for FatFs<DATA> {
         FileReader::new(self, entry)
     }
 }
+
+} // end io_transform!

@@ -1,5 +1,5 @@
 use crate::error::{CpioError, Result};
-use hadris_io::{Read, Write};
+use super::super::{Read, Write};
 
 /// Magic bytes for the newc format (`070701`).
 pub const MAGIC_NEWC: &[u8; 6] = b"070701";
@@ -53,20 +53,26 @@ pub struct RawNewcHeader {
     data: [u8; HEADER_SIZE],
 }
 
+io_transform! {
+
 impl RawNewcHeader {
     /// Read and parse a 110-byte header from the given reader.
-    pub fn parse<R: Read>(reader: &mut R) -> Result<Self> {
+    pub async fn parse<R: Read>(reader: &mut R) -> Result<Self> {
         let mut data = [0u8; HEADER_SIZE];
-        reader.read_exact(&mut data)?;
+        reader.read_exact(&mut data).await?;
         Ok(Self { data })
     }
 
     /// Write this header to the given writer.
-    pub fn write<W: Write>(&self, writer: &mut W) -> Result<()> {
-        writer.write_all(&self.data)?;
+    pub async fn write<W: Write>(&self, writer: &mut W) -> Result<()> {
+        writer.write_all(&self.data).await?;
         Ok(())
     }
+}
 
+} // io_transform!
+
+impl RawNewcHeader {
     /// Parse the magic bytes, returning `None` if they are not recognized.
     pub fn magic(&self) -> Option<CpioMagic> {
         let magic = &self.data[0..6];

@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::header::RawNewcHeader;
+use super::header::RawNewcHeader;
 use crate::mode::FileType;
 
 /// Decoded CPIO entry header with all fields parsed from hex to `u32`.

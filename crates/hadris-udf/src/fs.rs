@@ -4,9 +4,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use hadris_io::{Read, Seek, SeekFrom};
+use super::super::{Read, Seek, SeekFrom};
 
-use crate::descriptor::{
+use super::descriptor::{
     self, AnchorVolumeDescriptorPointer, ExtentDescriptor, FileSetDescriptor,
     LogicalVolumeDescriptor, LongAllocationDescriptor, PartitionDescriptor,
     PrimaryVolumeDescriptor, TagIdentifier, parse_vrs,
@@ -40,17 +40,19 @@ pub struct UdfFs<DATA: Read + Seek> {
     root_icb: LongAllocationDescriptor,
 }
 
+io_transform! {
+
 impl<DATA: Read + Seek> UdfFs<DATA> {
     /// Open a UDF filesystem
-    pub fn open(mut data: DATA) -> UdfResult<Self> {
+    pub async fn open(mut data: DATA) -> UdfResult<Self> {
         // Parse Volume Recognition Sequence
-        let vrs_type = parse_vrs(&mut data)?;
+        let vrs_type = parse_vrs(&mut data).await?;
 
         // Find the Anchor Volume Descriptor Pointer
-        let avdp = AnchorVolumeDescriptorPointer::find(&mut data, None)?;
+        let avdp = AnchorVolumeDescriptorPointer::find(&mut data, None).await?;
 
         // Read the Main Volume Descriptor Sequence
-        let (pvd, partition, lvd, fsd) = Self::read_vds(&mut data, &avdp.main_vds_extent)?;
+        let (pvd, partition, lvd, fsd) = Self::read_vds(&mut data, &avdp.main_vds_extent).await?;
 
         let udf_revision = match vrs_type {
             descriptor::VrsType::Nsr02 => UdfRevision::V1_02,
@@ -75,7 +77,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
     }
 
     /// Read the Volume Descriptor Sequence
-    fn read_vds(
+    async fn read_vds(
         data: &mut DATA,
         extent: &ExtentDescriptor,
     ) -> UdfResult<(
@@ -95,8 +97,8 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
 
         for i in 0..num_sectors {
             let sector = start_sector + i;
-            data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64))?;
-            data.read_exact(&mut buffer)?;
+            data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
+            data.read_exact(&mut buffer).await?;
 
             let tag: &descriptor::DescriptorTag = bytemuck::from_bytes(&buffer[..16]);
 
@@ -124,22 +126,22 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
 
         // Read File Set Descriptor from the location in LVD
         let fsd_location = lvd.file_set_location();
-        let fsd = Self::read_file_set_descriptor(data, &partition, &fsd_location)?;
+        let fsd = Self::read_file_set_descriptor(data, &partition, &fsd_location).await?;
 
         Ok((pvd, partition, lvd, fsd))
     }
 
     /// Read the File Set Descriptor
-    fn read_file_set_descriptor(
+    async fn read_file_set_descriptor(
         data: &mut DATA,
         partition: &PartitionDescriptor,
         icb: &LongAllocationDescriptor,
     ) -> UdfResult<FileSetDescriptor> {
         let sector = partition.partition_starting_location as u64 + icb.logical_block_num as u64;
-        data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64))?;
+        data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
 
         let mut buffer = [0u8; SECTOR_SIZE];
-        data.read_exact(&mut buffer)?;
+        data.read_exact(&mut buffer).await?;
 
         let fsd: FileSetDescriptor = *bytemuck::from_bytes(&buffer);
         Ok(fsd)
@@ -151,21 +153,21 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
     }
 
     /// Get the root directory
-    pub fn root_dir(&self) -> UdfResult<UdfDir> {
-        self.read_directory(&self.root_icb)
+    pub async fn root_dir(&self) -> UdfResult<UdfDir> {
+        self.read_directory(&self.root_icb).await
     }
 
     /// Read a directory from its ICB
-    pub fn read_directory(&self, icb: &LongAllocationDescriptor) -> UdfResult<UdfDir> {
+    pub async fn read_directory(&self, icb: &LongAllocationDescriptor) -> UdfResult<UdfDir> {
         let mut data = self.data.lock();
 
         // Calculate absolute sector
         let sector = self.info.partition_start as u64 + icb.logical_block_num as u64;
-        data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64))?;
+        data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
 
         // Read the file entry
         let mut buffer = [0u8; SECTOR_SIZE];
-        data.read_exact(&mut buffer)?;
+        data.read_exact(&mut buffer).await?;
 
         let tag: &descriptor::DescriptorTag = bytemuck::from_bytes(&buffer[..16]);
 
@@ -205,13 +207,13 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
             allocation_type,
             alloc_offset,
             alloc_length,
-        )?;
+        ).await?;
 
         Ok(UdfDir::new(entries))
     }
 
     /// Parse directory entries from allocation descriptors
-    fn parse_directory_entries(
+    async fn parse_directory_entries(
         &self,
         data: &mut DATA,
         buffer: &[u8],
@@ -244,7 +246,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
                         }
 
                         let sector = self.info.partition_start as u64 + sad.extent_position as u64;
-                        let extent_data = self.read_extent(data, sector, sad.length() as usize)?;
+                        let extent_data = self.read_extent(data, sector, sad.length() as usize).await?;
                         self.parse_fids(&extent_data, &mut entries)?;
                     }
                 } else {
@@ -260,7 +262,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
 
                         let sector =
                             self.info.partition_start as u64 + lad.logical_block_num as u64;
-                        let extent_data = self.read_extent(data, sector, lad.length() as usize)?;
+                        let extent_data = self.read_extent(data, sector, lad.length() as usize).await?;
                         self.parse_fids(&extent_data, &mut entries)?;
                     }
                 }
@@ -275,10 +277,10 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
     }
 
     /// Read an extent from disk
-    fn read_extent(&self, data: &mut DATA, sector: u64, length: usize) -> UdfResult<Vec<u8>> {
-        data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64))?;
+    async fn read_extent(&self, data: &mut DATA, sector: u64, length: usize) -> UdfResult<Vec<u8>> {
+        data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
         let mut buffer = alloc::vec![0u8; length];
-        data.read_exact(&mut buffer)?;
+        data.read_exact(&mut buffer).await?;
         Ok(buffer)
     }
 
@@ -342,6 +344,8 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         Ok(())
     }
 }
+
+} // io_transform!
 
 #[cfg(test)]
 mod tests {

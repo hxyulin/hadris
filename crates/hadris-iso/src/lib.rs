@@ -243,6 +243,7 @@
 //  - When reading ISOs with both Joliet and Rock Ridge, only one is used
 
 #![no_std]
+#![allow(async_fn_in_trait)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -250,24 +251,9 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-/// Directory record structures for parsing and creating directory entries.
-///
-/// This module provides the `DirectoryRecord` type which represents a single
-/// entry in an ISO 9660 directory. Each record contains metadata about a file
-/// or subdirectory including its location, size, timestamps, and flags.
-///
-/// # Example
-///
-/// ```rust
-/// use hadris_iso::directory::FileFlags;
-///
-/// // Check if flags indicate a directory
-/// let flags = FileFlags::from_bits_truncate(0x02); // DIRECTORY flag
-/// if flags.contains(FileFlags::DIRECTORY) {
-///     println!("This is a directory");
-/// }
-/// ```
-pub mod directory;
+// ---------------------------------------------------------------------------
+// Shared types (compiled once, not duplicated by sync/async modules)
+// ---------------------------------------------------------------------------
 
 /// File entry types and interchange levels.
 ///
@@ -280,20 +266,6 @@ pub mod directory;
 /// extensions (Joliet, Rock Ridge) are available for a given entry.
 pub mod file;
 
-/// Sector-based I/O abstractions for reading and writing ISOs.
-///
-/// ISO 9660 uses 2048-byte sectors as its fundamental unit. This module
-/// provides `IsoCursor` which wraps any `Read + Seek` type and provides
-/// sector-aligned operations.
-pub mod io;
-
-/// Path table structures for fast directory lookup.
-///
-/// The path table provides an alternative to traversing the directory
-/// hierarchy for locating directories. It's a flat list of all directories
-/// in the image, useful for quick lookups.
-pub mod path;
-
 /// Common types used throughout the crate.
 ///
 /// This includes:
@@ -301,42 +273,6 @@ pub mod path;
 /// - ISO 9660 string types with character set restrictions
 /// - Date/time structures (`DecDateTime`, `BinDateTime`)
 pub mod types;
-
-/// Volume descriptor structures.
-///
-/// Volume descriptors are located starting at sector 16 and describe the
-/// overall structure of the ISO image. Types include:
-/// - `PrimaryVolumeDescriptor` - Required, contains basic image info
-/// - `SupplementaryVolumeDescriptor` - For Joliet and other extensions
-/// - `BootRecordVolumeDescriptor` - For El-Torito boot support
-pub mod volume;
-
-/// El-Torito boot support.
-///
-/// This module provides structures and utilities for creating and parsing
-/// bootable ISO images according to the El-Torito specification.
-///
-/// # Boot Catalog Structure
-///
-/// The boot catalog consists of:
-/// 1. **Validation Entry** - Identifies the catalog as valid
-/// 2. **Default/Initial Entry** - The primary boot image
-/// 3. **Section Headers** - For additional boot images (optional)
-/// 4. **Section Entries** - Additional boot images (UEFI, etc.)
-///
-/// # Example
-///
-/// ```rust
-/// use hadris_iso::boot::{BootCatalog, EmulationType};
-///
-/// let catalog = BootCatalog::new(
-///     EmulationType::NoEmulation,
-///     0,      // load_segment (0 = default 0x07C0)
-///     4,      // sector_count (512-byte sectors to load)
-///     20,     // load_rba (LBA of boot image)
-/// );
-/// ```
-pub mod boot;
 
 /// Joliet extension for Unicode filenames.
 ///
@@ -350,131 +286,292 @@ pub mod boot;
 #[cfg(feature = "alloc")]
 pub mod joliet;
 
-/// Rock Ridge Interchange Protocol (RRIP) extension.
-///
-/// Rock Ridge provides POSIX filesystem semantics on top of ISO 9660,
-/// including long filenames, Unix permissions, symbolic links, and more.
-///
-/// # Supported Extensions
-///
-/// - `PX` - POSIX file attributes (mode, nlink, uid, gid)
-/// - `NM` - Alternate (long) filename
-/// - `SL` - Symbolic link
-/// - `TF` - Timestamps (creation, modification, access)
-/// - `CL`/`PL`/`RE` - Directory relocation
-#[cfg(feature = "alloc")]
-pub mod rrip;
+// ---------------------------------------------------------------------------
+// Sync module
+// ---------------------------------------------------------------------------
 
-/// System Use Sharing Protocol (SUSP).
-///
-/// SUSP provides a framework for extending ISO 9660 directory records
-/// with additional system-specific information. Rock Ridge is built on SUSP.
-#[cfg(feature = "alloc")]
-pub mod susp;
+#[cfg(feature = "sync")]
+#[path = ""]
+pub mod sync {
+    //! Synchronous ISO 9660 API.
+    //!
+    //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
 
-/// ISO image reading and navigation.
-///
-/// This module provides the main `IsoImage` type for opening and
-/// navigating ISO 9660 images.
-///
-/// # Example
-///
-/// ```rust
-/// # use std::io::Cursor;
-/// # use std::sync::Arc;
-/// # use hadris_iso::read::PathSeparator;
-/// # use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
-/// # use hadris_iso::write::options::{FormatOptions, CreationFeatures};
-/// use hadris_iso::read::IsoImage;
-///
-/// # // Create a minimal ISO for the example
-/// # let files = InputFiles {
-/// #     path_separator: PathSeparator::ForwardSlash,
-/// #     files: vec![IsoFile::File {
-/// #         name: Arc::new("test.txt".to_string()),
-/// #         contents: b"test".to_vec(),
-/// #     }],
-/// # };
-/// # let options = FormatOptions {
-/// #     volume_name: "TEST".to_string(),
-/// #     sector_size: 2048,
-/// #     path_separator: PathSeparator::ForwardSlash,
-/// #     features: CreationFeatures::default(),
-/// # };
-/// # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
-/// # IsoImageWriter::format_new(&mut buffer, files, options).unwrap();
-/// # let file = Cursor::new(buffer.into_inner());
-/// let image = IsoImage::open(file).unwrap();
-///
-/// // Read the primary volume descriptor
-/// let pvd = image.read_pvd();
-/// println!("Volume: {}", pvd.volume_identifier.to_str().trim());
-///
-/// // Navigate directories
-/// let root = image.root_dir();
-/// for entry in root.iter(&image).entries() {
-///     // Process each entry
-/// #   let _ = entry;
-/// }
-/// ```
-#[cfg(feature = "alloc")]
-pub mod read;
+    pub use hadris_io::sync::{Read, Write, Seek, ReadExt, Parsable, Writable};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::Result as IoResult;
 
-/// ISO image creation and formatting.
-///
-/// This module provides `IsoImageWriter` for creating new ISO images
-/// with full support for El-Torito boot, Joliet, and Rock Ridge extensions.
-///
-/// # Example
-///
-/// ```rust
-/// use std::io::Cursor;
-/// use std::sync::Arc;
-/// use hadris_iso::read::PathSeparator;
-/// use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
-/// use hadris_iso::write::options::{FormatOptions, CreationFeatures};
-///
-/// // Create files to include in the ISO
-/// let files = InputFiles {
-///     path_separator: PathSeparator::ForwardSlash,
-///     files: vec![
-///         IsoFile::File {
-///             name: Arc::new("hello.txt".to_string()),
-///             contents: b"Hello, World!".to_vec(),
-///         },
-///     ],
-/// };
-/// let options = FormatOptions {
-///     volume_name: "MY_ISO".to_string(),
-///     sector_size: 2048,
-///     path_separator: PathSeparator::ForwardSlash,
-///     features: CreationFeatures::default(),
-/// };
-///
-/// let mut output = Cursor::new(vec![0u8; 1024 * 1024]);
-/// IsoImageWriter::format_new(&mut output, files, options).unwrap();
-/// # // In real code, write to a file instead of a Cursor
-/// ```
-#[cfg(feature = "write")]
-pub mod write;
+    macro_rules! io_transform {
+        ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
+    }
 
-/// ISO image modification and append support.
-///
-/// This module provides `IsoModifier` for appending files to existing ISO images
-/// and marking files for deletion. Changes are committed as a new session.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use hadris_iso::modify::IsoModifier;
-///
-/// let file = std::fs::OpenOptions::new()
-///     .read(true).write(true)
-///     .open("image.iso")?;
-///
-/// let mut modifier = IsoModifier::open(file)?;
-/// modifier.append_file("new_file.txt", b"Hello, world!".to_vec());
-/// modifier.commit()?;
-/// ```
-#[cfg(feature = "write")]
-pub mod modify;
+    macro_rules! sync_only {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    macro_rules! async_only {
+        ($($item:tt)*) => { };
+    }
+
+    #[path = "."]
+    mod __inner {
+        /// Sector-based I/O abstractions for reading and writing ISOs.
+        ///
+        /// ISO 9660 uses 2048-byte sectors as its fundamental unit. This module
+        /// provides `IsoCursor` which wraps any `Read + Seek` type and provides
+        /// sector-aligned operations.
+        pub mod io;
+
+        /// Directory record structures for parsing and creating directory entries.
+        ///
+        /// This module provides the `DirectoryRecord` type which represents a single
+        /// entry in an ISO 9660 directory. Each record contains metadata about a file
+        /// or subdirectory including its location, size, timestamps, and flags.
+        ///
+        /// # Example
+        ///
+        /// ```rust
+        /// use hadris_iso::directory::FileFlags;
+        ///
+        /// // Check if flags indicate a directory
+        /// let flags = FileFlags::from_bits_truncate(0x02); // DIRECTORY flag
+        /// if flags.contains(FileFlags::DIRECTORY) {
+        ///     println!("This is a directory");
+        /// }
+        /// ```
+        pub mod directory;
+
+        /// Volume descriptor structures.
+        ///
+        /// Volume descriptors are located starting at sector 16 and describe the
+        /// overall structure of the ISO image. Types include:
+        /// - `PrimaryVolumeDescriptor` - Required, contains basic image info
+        /// - `SupplementaryVolumeDescriptor` - For Joliet and other extensions
+        /// - `BootRecordVolumeDescriptor` - For El-Torito boot support
+        pub mod volume;
+
+        /// Path table structures for fast directory lookup.
+        ///
+        /// The path table provides an alternative to traversing the directory
+        /// hierarchy for locating directories. It's a flat list of all directories
+        /// in the image, useful for quick lookups.
+        pub mod path;
+
+        /// El-Torito boot support.
+        ///
+        /// This module provides structures and utilities for creating and parsing
+        /// bootable ISO images according to the El-Torito specification.
+        ///
+        /// # Boot Catalog Structure
+        ///
+        /// The boot catalog consists of:
+        /// 1. **Validation Entry** - Identifies the catalog as valid
+        /// 2. **Default/Initial Entry** - The primary boot image
+        /// 3. **Section Headers** - For additional boot images (optional)
+        /// 4. **Section Entries** - Additional boot images (UEFI, etc.)
+        ///
+        /// # Example
+        ///
+        /// ```rust
+        /// use hadris_iso::boot::{BootCatalog, EmulationType};
+        ///
+        /// let catalog = BootCatalog::new(
+        ///     EmulationType::NoEmulation,
+        ///     0,      // load_segment (0 = default 0x07C0)
+        ///     4,      // sector_count (512-byte sectors to load)
+        ///     20,     // load_rba (LBA of boot image)
+        /// );
+        /// ```
+        pub mod boot;
+
+        /// System Use Sharing Protocol (SUSP).
+        ///
+        /// SUSP provides a framework for extending ISO 9660 directory records
+        /// with additional system-specific information. Rock Ridge is built on SUSP.
+        #[cfg(feature = "alloc")]
+        pub mod susp;
+
+        /// Rock Ridge Interchange Protocol (RRIP) extension.
+        ///
+        /// Rock Ridge provides POSIX filesystem semantics on top of ISO 9660,
+        /// including long filenames, Unix permissions, symbolic links, and more.
+        ///
+        /// # Supported Extensions
+        ///
+        /// - `PX` - POSIX file attributes (mode, nlink, uid, gid)
+        /// - `NM` - Alternate (long) filename
+        /// - `SL` - Symbolic link
+        /// - `TF` - Timestamps (creation, modification, access)
+        /// - `CL`/`PL`/`RE` - Directory relocation
+        #[cfg(feature = "alloc")]
+        pub mod rrip;
+
+        /// ISO image reading and navigation.
+        ///
+        /// This module provides the main `IsoImage` type for opening and
+        /// navigating ISO 9660 images.
+        ///
+        /// # Example
+        ///
+        /// ```rust
+        /// # use std::io::Cursor;
+        /// # use std::sync::Arc;
+        /// # use hadris_iso::read::PathSeparator;
+        /// # use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+        /// # use hadris_iso::write::options::{FormatOptions, CreationFeatures};
+        /// use hadris_iso::read::IsoImage;
+        ///
+        /// # // Create a minimal ISO for the example
+        /// # let files = InputFiles {
+        /// #     path_separator: PathSeparator::ForwardSlash,
+        /// #     files: vec![IsoFile::File {
+        /// #         name: Arc::new("test.txt".to_string()),
+        /// #         contents: b"test".to_vec(),
+        /// #     }],
+        /// # };
+        /// # let options = FormatOptions {
+        /// #     volume_name: "TEST".to_string(),
+        /// #     sector_size: 2048,
+        /// #     path_separator: PathSeparator::ForwardSlash,
+        /// #     features: CreationFeatures::default(),
+        /// # };
+        /// # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
+        /// # IsoImageWriter::format_new(&mut buffer, files, options).unwrap();
+        /// # let file = Cursor::new(buffer.into_inner());
+        /// let image = IsoImage::open(file).unwrap();
+        ///
+        /// // Read the primary volume descriptor
+        /// let pvd = image.read_pvd();
+        /// println!("Volume: {}", pvd.volume_identifier.to_str().trim());
+        ///
+        /// // Navigate directories
+        /// let root = image.root_dir();
+        /// for entry in root.iter(&image).entries() {
+        ///     // Process each entry
+        /// #   let _ = entry;
+        /// }
+        /// ```
+        #[cfg(feature = "alloc")]
+        pub mod read;
+
+        /// ISO image creation and formatting.
+        ///
+        /// This module provides `IsoImageWriter` for creating new ISO images
+        /// with full support for El-Torito boot, Joliet, and Rock Ridge extensions.
+        ///
+        /// # Example
+        ///
+        /// ```rust
+        /// use std::io::Cursor;
+        /// use std::sync::Arc;
+        /// use hadris_iso::read::PathSeparator;
+        /// use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+        /// use hadris_iso::write::options::{FormatOptions, CreationFeatures};
+        ///
+        /// // Create files to include in the ISO
+        /// let files = InputFiles {
+        ///     path_separator: PathSeparator::ForwardSlash,
+        ///     files: vec![
+        ///         IsoFile::File {
+        ///             name: Arc::new("hello.txt".to_string()),
+        ///             contents: b"Hello, World!".to_vec(),
+        ///         },
+        ///     ],
+        /// };
+        /// let options = FormatOptions {
+        ///     volume_name: "MY_ISO".to_string(),
+        ///     sector_size: 2048,
+        ///     path_separator: PathSeparator::ForwardSlash,
+        ///     features: CreationFeatures::default(),
+        /// };
+        ///
+        /// let mut output = Cursor::new(vec![0u8; 1024 * 1024]);
+        /// IsoImageWriter::format_new(&mut output, files, options).unwrap();
+        /// # // In real code, write to a file instead of a Cursor
+        /// ```
+        #[cfg(feature = "write")]
+        pub mod write;
+
+        /// ISO image modification and append support.
+        ///
+        /// This module provides `IsoModifier` for appending files to existing ISO images
+        /// and marking files for deletion. Changes are committed as a new session.
+        ///
+        /// # Example
+        ///
+        /// ```rust,ignore
+        /// use hadris_iso::modify::IsoModifier;
+        ///
+        /// let file = std::fs::OpenOptions::new()
+        ///     .read(true).write(true)
+        ///     .open("image.iso")?;
+        ///
+        /// let mut modifier = IsoModifier::open(file)?;
+        /// modifier.append_file("new_file.txt", b"Hello, world!".to_vec());
+        /// modifier.commit()?;
+        /// ```
+        #[cfg(feature = "write")]
+        pub mod modify;
+    }
+    pub use __inner::*;
+
+    // Convenience re-exports for backwards compatibility
+    pub use __inner::io::IsoCursor;
+    #[cfg(feature = "alloc")]
+    pub use __inner::read::IsoImage;
+}
+
+// ---------------------------------------------------------------------------
+// Async module
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "async")]
+#[path = ""]
+pub mod r#async {
+    //! Asynchronous ISO 9660 API.
+    //!
+    //! All I/O operations use async `Read`/`Write`/`Seek` traits.
+
+    pub use hadris_io::r#async::{Read, Write, Seek, ReadExt, Parsable, Writable};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::Result as IoResult;
+
+    macro_rules! io_transform {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    macro_rules! sync_only {
+        ($($item:tt)*) => { };
+    }
+
+    macro_rules! async_only {
+        ($($item:tt)*) => { $($item)* };
+    }
+
+    #[path = "."]
+    mod __inner {
+        pub mod io;
+        pub mod directory;
+        pub mod volume;
+        pub mod path;
+        pub mod boot;
+        #[cfg(feature = "alloc")]
+        pub mod susp;
+        #[cfg(feature = "alloc")]
+        pub mod rrip;
+        #[cfg(feature = "alloc")]
+        pub mod read;
+        #[cfg(feature = "write")]
+        pub mod write;
+        #[cfg(feature = "write")]
+        pub mod modify;
+    }
+    pub use __inner::*;
+}
+
+// ---------------------------------------------------------------------------
+// Default re-exports for backwards compatibility (sync)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "sync")]
+pub use sync::*;

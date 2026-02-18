@@ -1,4 +1,9 @@
-pub use hadris_io::{Error, ErrorKind, Read, ReadExt, Result, Seek, SeekFrom, Write};
+io_transform! {
+
+// Re-export I/O traits from the parent sync/async module.
+// Other I/O files use `super::io::Read` etc. which resolves through these re-exports.
+pub use super::super::{Read, Write, Seek, ReadExt, Error, ErrorKind, SeekFrom, Parsable, Writable};
+pub use super::super::IoResult;
 
 /// Create an I/O error from an ErrorKind.
 ///
@@ -81,8 +86,8 @@ impl<DATA: Seek> SectorCursor<DATA> {
         }
     }
 
-    pub fn seek_sector(&mut self, sector: impl SectorLike) -> Result<u64> {
-        self.seek(SeekFrom::Start(sector.to_bytes(self.sector_size) as u64))
+    pub async fn seek_sector(&mut self, sector: impl SectorLike) -> hadris_io::Result<u64> {
+        self.seek(SeekFrom::Start(sector.to_bytes(self.sector_size) as u64)).await
     }
 }
 
@@ -90,16 +95,16 @@ impl<T> Seek for SectorCursor<T>
 where
     T: Seek,
 {
-    fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::Result<u64> {
-        self.data.seek(pos)
+    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::Result<u64> {
+        self.data.seek(pos).await
     }
 
-    fn stream_position(&mut self) -> hadris_io::Result<u64> {
-        self.data.stream_position()
+    async fn stream_position(&mut self) -> hadris_io::Result<u64> {
+        self.data.stream_position().await
     }
 
-    fn seek_relative(&mut self, offset: i64) -> hadris_io::Result<()> {
-        self.data.seek_relative(offset)
+    async fn seek_relative(&mut self, offset: i64) -> hadris_io::Result<()> {
+        self.data.seek_relative(offset).await
     }
 }
 
@@ -107,12 +112,12 @@ impl<T> Read for SectorCursor<T>
 where
     T: Read + Seek,
 {
-    fn read(&mut self, buf: &mut [u8]) -> hadris_io::Result<usize> {
-        self.data.read(buf)
+    async fn read(&mut self, buf: &mut [u8]) -> hadris_io::Result<usize> {
+        self.data.read(buf).await
     }
 
-    fn read_exact(&mut self, buf: &mut [u8]) -> hadris_io::Result<()> {
-        self.data.read_exact(buf)
+    async fn read_exact(&mut self, buf: &mut [u8]) -> hadris_io::Result<()> {
+        self.data.read_exact(buf).await
     }
 }
 
@@ -121,15 +126,17 @@ impl<T> Write for SectorCursor<T>
 where
     T: Write + Seek,
 {
-    fn write(&mut self, buf: &[u8]) -> hadris_io::Result<usize> {
-        self.data.write(buf)
+    async fn write(&mut self, buf: &[u8]) -> hadris_io::Result<usize> {
+        self.data.write(buf).await
     }
 
-    fn flush(&mut self) -> hadris_io::Result<()> {
-        self.data.flush()
+    async fn flush(&mut self) -> hadris_io::Result<()> {
+        self.data.flush().await
     }
 
-    fn write_all(&mut self, buf: &[u8]) -> hadris_io::Result<()> {
-        self.data.write_all(buf)
+    async fn write_all(&mut self, buf: &[u8]) -> hadris_io::Result<()> {
+        self.data.write_all(buf).await
     }
 }
+
+} // end io_transform!

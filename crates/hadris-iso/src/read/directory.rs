@@ -3,11 +3,8 @@ use core::ops::DerefMut;
 use alloc::borrow::Cow;
 use alloc::string::String;
 
-use crate::{
-    directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef},
-    io::{self, IsoCursor, LogicalSector, Read, Seek, SeekFrom},
-};
-use hadris_io::ErrorKind;
+use super::super::directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef};
+use super::super::io::{self, IsoCursor, LogicalSector, Read, Seek, SeekFrom, ErrorKind};
 use spin::Mutex;
 
 use super::IsoImage;
@@ -20,6 +17,7 @@ pub struct IsoDir<'a, T: Read + Seek> {
     pub(crate) directory: DirectoryRef,
 }
 
+sync_only! {
 impl<'a, T: Read + Seek> IsoDir<'a, T> {
     /// Iterate directory entries with automatic RRIP enrichment when detected.
     pub fn entries(&self) -> IsoDirIter<'_, T> {
@@ -45,6 +43,7 @@ impl<'a, T: Read + Seek> IsoDir<'a, T> {
         }
     }
 }
+} // sync_only!
 
 // ── DirEntry ──
 
@@ -108,17 +107,21 @@ impl DirEntry {
         self.record.system_use()
     }
 
+}
+
+io_transform! {
+impl DirEntry {
     /// Get a `DirectoryRef` for navigating into this directory.
     ///
     /// For CL entries, this follows the child link to the relocated directory.
     /// For regular directories, it uses the ISO 9660 extent/size.
-    pub fn as_dir_ref<DATA: Read + Seek>(
+    pub async fn as_dir_ref<DATA: Read + Seek>(
         &self,
         image: &IsoImage<DATA>,
     ) -> io::Result<DirectoryRef> {
         if let Some(ref rrip) = self.rrip {
             if let Some(cl_sector) = rrip.child_link {
-                return rrip::read_dir_size(image, LogicalSector(cl_sector as usize));
+                return rrip::read_dir_size(image, LogicalSector(cl_sector as usize)).await;
             }
         }
         self.record
@@ -126,8 +129,11 @@ impl DirEntry {
             .map_err(|_| io::Error::new(ErrorKind::Other, "not a directory"))
     }
 }
+} // io_transform!
 
 // ── IsoDirIter (RRIP-aware) ──
+
+sync_only! {
 
 /// Iterator over directory entries with automatic RRIP enrichment.
 ///
@@ -148,7 +154,7 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
 
     /// Read the next raw DirectoryRecord from the directory data.
     fn next_raw_record(&mut self) -> Option<io::Result<DirectoryRecord>> {
-        use hadris_io::try_io_result_option;
+        use super::super::io::try_io_result_option;
         let reader = &self.image.data;
         let mut reader = reader.lock();
 
@@ -244,7 +250,7 @@ impl<T: Read + Seek> RawDirIter<'_, T> {
 impl<T: Read + Seek> Iterator for RawDirIter<'_, T> {
     type Item = io::Result<DirectoryRecord>;
     fn next(&mut self) -> Option<Self::Item> {
-        use hadris_io::try_io_result_option;
+        use super::super::io::try_io_result_option;
         let mut reader = self.reader.lock();
 
         const SECTOR_SIZE: usize = 2048;
@@ -282,3 +288,5 @@ impl<T: Read + Seek> Iterator for RawDirIter<'_, T> {
         }
     }
 }
+
+} // sync_only!

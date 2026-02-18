@@ -28,6 +28,8 @@
 //! # }
 //! ```
 
+io_transform! {
+
 mod calc;
 mod init;
 mod options;
@@ -35,9 +37,9 @@ mod options;
 pub use calc::FormatParams;
 pub use options::{FatTypeSelection, FormatOptions, MediaType, OemName, SectorSize, VolumeLabel};
 
-use crate::FatFs;
 use crate::error::Result;
-use crate::io::{Read, Seek, Write};
+use super::fs::FatFs;
+use super::io::{Read, Seek, Write};
 
 /// FAT volume formatter.
 ///
@@ -87,23 +89,23 @@ impl FatVolumeFormatter {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn format<DATA>(mut data: DATA, options: FormatOptions) -> Result<FatFs<DATA>>
+    pub async fn format<DATA>(mut data: DATA, options: FormatOptions) -> Result<FatFs<DATA>>
     where
         DATA: Read + Write + Seek,
     {
-        use crate::io::SeekFrom;
+        use super::super::io::SeekFrom;
 
         // Calculate formatting parameters
         let params = calc::calculate_params(&options)?;
 
         // Initialize the volume structures
-        init::initialize_volume(&mut data, &options, &params)?;
+        init::initialize_volume(&mut data, &options, &params).await?;
 
         // Seek back to the beginning before opening
-        data.seek(SeekFrom::Start(0))?;
+        data.seek(SeekFrom::Start(0)).await?;
 
         // Open and return the newly formatted filesystem
-        FatFs::open(data)
+        FatFs::open(data).await
     }
 
     /// Calculate formatting parameters without actually formatting.
@@ -127,6 +129,8 @@ impl FatVolumeFormatter {
     }
 }
 
+} // end io_transform!
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,7 +146,7 @@ mod tests {
         let options = FormatOptions::new(2 * 1024 * 1024).with_label("FAT12TEST");
 
         let fs = FatVolumeFormatter::format(cursor, options).unwrap();
-        assert_eq!(fs.fat_type(), crate::FatType::Fat12);
+        assert_eq!(fs.fat_type(), super::super::fat_table::FatType::Fat12);
         assert_eq!(fs.volume_info().volume_label(), "FAT12TEST");
     }
 
@@ -155,7 +159,7 @@ mod tests {
         let options = FormatOptions::new(64 * 1024 * 1024).with_label("FAT16TEST");
 
         let fs = FatVolumeFormatter::format(cursor, options).unwrap();
-        assert_eq!(fs.fat_type(), crate::FatType::Fat16);
+        assert_eq!(fs.fat_type(), super::super::fat_table::FatType::Fat16);
         assert_eq!(fs.volume_info().volume_label(), "FAT16TEST");
     }
 
@@ -171,7 +175,7 @@ mod tests {
             .with_fat_type(FatTypeSelection::Fat32);
 
         let fs = FatVolumeFormatter::format(cursor, options).unwrap();
-        assert_eq!(fs.fat_type(), crate::FatType::Fat32);
+        assert_eq!(fs.fat_type(), super::super::fat_table::FatType::Fat32);
         assert_eq!(fs.volume_info().volume_label(), "FAT32TEST");
     }
 

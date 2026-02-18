@@ -16,13 +16,18 @@ read = []
 # Heap allocation without full std
 alloc = []
 # Standard library support (includes alloc)
-std = ["hadris-io/std", "hadris-common/std", "alloc"]
+std = ["hadris-io/std", "hadris-common/std", "alloc", "sync"]
 # Write/format support (requires alloc + read)
 write = ["alloc", "read"]
+# Synchronous API (uses hadris-io sync traits)
+sync = ["hadris-io/sync"]
+# Asynchronous API (uses hadris-io async traits)
+async = ["hadris-io/async"]
 
 [dependencies]
 hadris-io = { workspace = true }
 hadris-common = { workspace = true }
+hadris-macros = { workspace = true }
 
 [dev-dependencies]
 tempfile.workspace = true

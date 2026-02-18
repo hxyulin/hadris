@@ -5,9 +5,11 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::DerefMut;
 
-use crate::{
-    DirectoryEntry, Fat, FatFs, FatType,
-    error::Result,
+use crate::error::Result;
+use super::super::{
+    dir::{DirectoryEntry, FatDir, FileEntry},
+    fat_table::{Fat, Fat12, Fat16, Fat32, FatType},
+    fs::FatFs,
     io::{Read, Seek},
 };
 
@@ -339,7 +341,7 @@ impl<DATA: Read + Seek> FatFs<DATA> {
 
     fn count_entries_recursive<'a>(
         &'a self,
-        dir: &crate::FatDir<'a, DATA>,
+        dir: &FatDir<'a, DATA>,
         files: &mut u32,
         dirs: &mut u32,
     ) -> Result<()> {
@@ -354,7 +356,7 @@ impl<DATA: Read + Seek> FatFs<DATA> {
 
             if file_entry.is_directory() {
                 *dirs += 1;
-                let subdir = crate::FatDir {
+                let subdir = FatDir {
                     data: self,
                     cluster: file_entry.cluster(),
                     fixed_root: None,
@@ -370,9 +372,9 @@ impl<DATA: Read + Seek> FatFs<DATA> {
     /// Collect all files recursively with their paths.
     fn collect_files_recursive<'a>(
         &'a self,
-        dir: &crate::FatDir<'a, DATA>,
+        dir: &FatDir<'a, DATA>,
         path_prefix: String,
-        files: &mut Vec<(String, crate::FileEntry)>,
+        files: &mut Vec<(String, FileEntry)>,
     ) -> Result<()> {
         for entry in dir.entries() {
             let entry = entry?;
@@ -390,7 +392,7 @@ impl<DATA: Read + Seek> FatFs<DATA> {
             };
 
             if file_entry.is_directory() {
-                let subdir = crate::FatDir {
+                let subdir = FatDir {
                     data: self,
                     cluster: file_entry.cluster(),
                     fixed_root: None,
@@ -405,11 +407,11 @@ impl<DATA: Read + Seek> FatFs<DATA> {
 }
 
 // FAT entry readers - these need to be added to the Fat12/16/32 implementations
-impl crate::Fat12 {
+impl Fat12 {
     /// Read a raw FAT12 entry.
     pub fn read_entry<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u16> {
         let byte_offset = self.entry_byte_offset(cluster);
-        reader.seek(crate::io::SeekFrom::Start(byte_offset as u64))?;
+        reader.seek(super::super::io::SeekFrom::Start(byte_offset as u64))?;
 
         let mut bytes = [0u8; 2];
         reader.read_exact(&mut bytes)?;
@@ -424,11 +426,11 @@ impl crate::Fat12 {
     }
 }
 
-impl crate::Fat16 {
+impl Fat16 {
     /// Read a raw FAT16 entry.
     pub fn read_entry<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u16> {
         let offset = self.entry_offset(cluster);
-        reader.seek(crate::io::SeekFrom::Start(offset as u64))?;
+        reader.seek(super::super::io::SeekFrom::Start(offset as u64))?;
 
         let mut bytes = [0u8; 2];
         reader.read_exact(&mut bytes)?;
@@ -437,11 +439,11 @@ impl crate::Fat16 {
     }
 }
 
-impl crate::Fat32 {
+impl Fat32 {
     /// Read a raw FAT32 entry.
     pub fn read_entry<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u32> {
         let offset = self.entry_offset(cluster);
-        reader.seek(crate::io::SeekFrom::Start(offset as u64))?;
+        reader.seek(super::super::io::SeekFrom::Start(offset as u64))?;
 
         let mut bytes = [0u8; 4];
         reader.read_exact(&mut bytes)?;

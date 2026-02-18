@@ -1,9 +1,9 @@
 use spin::Mutex;
 
-use crate::{
-    io::{self, IsoCursor, LogicalSector, Read, Seek, try_io_result_option as try_io},
-    volume::VolumeDescriptor,
-};
+use super::super::io::{self, IsoCursor, LogicalSector, Read, Seek, try_io_result_option as try_io};
+use super::super::volume::VolumeDescriptor;
+
+sync_only! {
 
 pub struct VolumeDescriptorIter<'ctx, DATA: Read + Seek> {
     pub(crate) data: &'ctx Mutex<IsoCursor<DATA>>,
@@ -40,3 +40,5 @@ impl<DATA: Read + Seek> Iterator for VolumeDescriptorIter<'_, DATA> {
         Some(Ok(descriptor))
     }
 }
+
+} // sync_only!

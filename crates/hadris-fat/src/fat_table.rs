@@ -1,9 +1,11 @@
+io_transform! {
+
 use core::mem::size_of;
 
 use crate::error::{FatError, Result};
 #[cfg(feature = "write")]
-use crate::io::Write;
-use crate::io::{Read, Seek, SeekFrom};
+use super::io::Write;
+use super::io::{Read, Seek, SeekFrom};
 
 pub enum Fat {
     Fat12(Fat12),
@@ -12,15 +14,15 @@ pub enum Fat {
 }
 
 impl Fat {
-    pub fn next_cluster<T: Read + Seek>(
+    pub async fn next_cluster<T: Read + Seek>(
         &self,
         reader: &mut T,
         cluster: usize,
     ) -> Result<Option<u32>> {
         match self {
-            Self::Fat12(fat12) => fat12.next_cluster(reader, cluster),
-            Self::Fat16(fat16) => fat16.next_cluster(reader, cluster),
-            Self::Fat32(fat32) => fat32.next_cluster(reader, cluster),
+            Self::Fat12(fat12) => fat12.next_cluster(reader, cluster).await,
+            Self::Fat16(fat16) => fat16.next_cluster(reader, cluster).await,
+            Self::Fat32(fat32) => fat32.next_cluster(reader, cluster).await,
         }
     }
 
@@ -40,25 +42,25 @@ impl Fat {
     ///
     /// Returns the number of clusters freed.
     #[cfg(feature = "write")]
-    pub fn truncate_chain<T: Read + Write + Seek>(
+    pub async fn truncate_chain<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
         cluster: usize,
     ) -> Result<u32> {
         match self {
-            Self::Fat12(fat12) => fat12.truncate_chain(rw, cluster as u16),
-            Self::Fat16(fat16) => fat16.truncate_chain(rw, cluster as u16),
-            Self::Fat32(fat32) => fat32.truncate_chain(rw, cluster as u32),
+            Self::Fat12(fat12) => fat12.truncate_chain(rw, cluster as u16).await,
+            Self::Fat16(fat16) => fat16.truncate_chain(rw, cluster as u16).await,
+            Self::Fat32(fat32) => fat32.truncate_chain(rw, cluster as u32).await,
         }
     }
 
     /// Free a cluster chain starting at `start`, returns count of freed clusters.
     #[cfg(feature = "write")]
-    pub fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: usize) -> Result<u32> {
+    pub async fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: usize) -> Result<u32> {
         match self {
-            Self::Fat12(fat12) => fat12.free_chain(rw, cluster as u16),
-            Self::Fat16(fat16) => fat16.free_chain(rw, cluster as u16),
-            Self::Fat32(fat32) => fat32.free_chain(rw, cluster as u32),
+            Self::Fat12(fat12) => fat12.free_chain(rw, cluster as u16).await,
+            Self::Fat16(fat16) => fat16.free_chain(rw, cluster as u16).await,
+            Self::Fat32(fat32) => fat32.free_chain(rw, cluster as u32).await,
         }
     }
 }
@@ -108,12 +110,12 @@ impl Fat12 {
         self.start + (cluster * 3) / 2
     }
 
-    fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u16> {
+    async fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u16> {
         let byte_offset = self.entry_byte_offset(cluster);
-        reader.seek(SeekFrom::Start(byte_offset as u64))?;
+        reader.seek(SeekFrom::Start(byte_offset as u64)).await?;
 
         let mut bytes = [0u8; 2];
-        reader.read_exact(&mut bytes)?;
+        reader.read_exact(&mut bytes).await?;
 
         // FAT12 entry layout:
         // If cluster N is even: entry = (bytes[1] & 0x0F) << 8 | bytes[0]
@@ -154,12 +156,12 @@ impl Fat12 {
         Ok(())
     }
 
-    pub fn next_cluster<T: Read + Seek>(
+    pub async fn next_cluster<T: Read + Seek>(
         &self,
         reader: &mut T,
         cluster: usize,
     ) -> Result<Option<u32>> {
-        let entry = self.read_clus(reader, cluster)? & Self::ENTRY_MASK;
+        let entry = self.read_clus(reader, cluster).await? & Self::ENTRY_MASK;
 
         if Self::is_end_of_chain(entry) {
             return Ok(None);
@@ -185,7 +187,7 @@ impl Fat12 {
 
     /// Write a FAT12 entry at the specified cluster index to a specific FAT copy.
     #[cfg(feature = "write")]
-    fn write_clus_at<T: Read + Write + Seek>(
+    async fn write_clus_at<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
         cluster: usize,
@@ -193,11 +195,11 @@ impl Fat12 {
         fat_index: usize,
     ) -> Result<()> {
         let byte_offset = self.start + fat_index * self.size + (cluster * 3) / 2;
-        rw.seek(SeekFrom::Start(byte_offset as u64))?;
+        rw.seek(SeekFrom::Start(byte_offset as u64)).await?;
 
         // Read existing bytes (we need to preserve the other half)
         let mut bytes = [0u8; 2];
-        rw.read_exact(&mut bytes)?;
+        rw.read_exact(&mut bytes).await?;
 
         // Modify the appropriate bits
         if cluster.is_multiple_of(2) {
@@ -211,29 +213,29 @@ impl Fat12 {
         }
 
         // Write back
-        rw.seek(SeekFrom::Start(byte_offset as u64))?;
-        rw.write_all(&bytes)?;
+        rw.seek(SeekFrom::Start(byte_offset as u64)).await?;
+        rw.write_all(&bytes).await?;
 
         Ok(())
     }
 
     /// Write a cluster entry to all FAT table copies
     #[cfg(feature = "write")]
-    pub fn write_clus<T: Read + Write + Seek>(
+    pub async fn write_clus<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
         cluster: usize,
         value: u16,
     ) -> Result<()> {
         for i in 0..self.count {
-            self.write_clus_at(rw, cluster, value, i)?;
+            self.write_clus_at(rw, cluster, value, i).await?;
         }
         Ok(())
     }
 
     /// Allocate a single cluster, returns the allocated cluster number.
     #[cfg(feature = "write")]
-    pub fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u16) -> Result<u16> {
+    pub async fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u16) -> Result<u16> {
         let start = if hint >= Self::FIRST_DATA_CLUSTER && hint <= self.max_cluster {
             hint
         } else {
@@ -242,18 +244,18 @@ impl Fat12 {
 
         // Search from hint to max_cluster
         for cluster in start..=self.max_cluster {
-            let entry = self.read_clus(rw, cluster as usize)? & Self::ENTRY_MASK;
+            let entry = self.read_clus(rw, cluster as usize).await? & Self::ENTRY_MASK;
             if entry == Self::FREE_CLUSTER {
-                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
+                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN).await?;
                 return Ok(cluster);
             }
         }
 
         // Wrap around: search from first cluster to hint
         for cluster in Self::FIRST_DATA_CLUSTER..start {
-            let entry = self.read_clus(rw, cluster as usize)? & Self::ENTRY_MASK;
+            let entry = self.read_clus(rw, cluster as usize).await? & Self::ENTRY_MASK;
             if entry == Self::FREE_CLUSTER {
-                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
+                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN).await?;
                 return Ok(cluster);
             }
         }
@@ -263,7 +265,7 @@ impl Fat12 {
 
     /// Free a cluster chain starting at `start`, returns count of freed clusters.
     #[cfg(feature = "write")]
-    pub fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, start: u16) -> Result<u32> {
+    pub async fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, start: u16) -> Result<u32> {
         let mut count = 0u32;
         let mut current = start;
 
@@ -272,8 +274,8 @@ impl Fat12 {
                 break;
             }
 
-            let next = self.read_clus(rw, current as usize)? & Self::ENTRY_MASK;
-            self.write_clus(rw, current as usize, Self::FREE_CLUSTER)?;
+            let next = self.read_clus(rw, current as usize).await? & Self::ENTRY_MASK;
+            self.write_clus(rw, current as usize, Self::FREE_CLUSTER).await?;
             count += 1;
 
             if Self::is_end_of_chain(next)
@@ -296,23 +298,23 @@ impl Fat12 {
     ///
     /// Returns the number of clusters freed.
     #[cfg(feature = "write")]
-    pub fn truncate_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u16) -> Result<u32> {
+    pub async fn truncate_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u16) -> Result<u32> {
         if cluster < Self::FIRST_DATA_CLUSTER || cluster > self.max_cluster {
             return Ok(0);
         }
 
         // Read the next cluster in chain
-        let next = self.read_clus(rw, cluster as usize)? & Self::ENTRY_MASK;
+        let next = self.read_clus(rw, cluster as usize).await? & Self::ENTRY_MASK;
 
         // Mark this cluster as end of chain
-        self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
+        self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN).await?;
 
         // Free the rest of the chain if there is one
         if !Self::is_end_of_chain(next)
             && next >= Self::FIRST_DATA_CLUSTER
             && next <= self.max_cluster
         {
-            self.free_chain(rw, next)
+            self.free_chain(rw, next).await
         } else {
             Ok(0)
         }
@@ -351,10 +353,10 @@ impl Fat16 {
         self.start + cluster * size_of::<u16>()
     }
 
-    fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u16> {
-        reader.seek(SeekFrom::Start(self.entry_offset(cluster) as u64))?;
+    async fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u16> {
+        reader.seek(SeekFrom::Start(self.entry_offset(cluster) as u64)).await?;
         let mut data = 0u16;
-        reader.read_exact(bytemuck::bytes_of_mut(&mut data))?;
+        reader.read_exact(bytemuck::bytes_of_mut(&mut data)).await?;
         Ok(u16::from_le(data))
     }
 
@@ -385,12 +387,12 @@ impl Fat16 {
         Ok(())
     }
 
-    pub fn next_cluster<T: Read + Seek>(
+    pub async fn next_cluster<T: Read + Seek>(
         &self,
         reader: &mut T,
         cluster: usize,
     ) -> Result<Option<u32>> {
-        let entry = self.read_clus(reader, cluster)?;
+        let entry = self.read_clus(reader, cluster).await?;
 
         if Self::is_end_of_chain(entry) {
             return Ok(None);
@@ -416,7 +418,7 @@ impl Fat16 {
 
     /// Write a cluster entry to the FAT table at the specified FAT copy
     #[cfg(feature = "write")]
-    fn write_clus_at<T: Write + Seek>(
+    async fn write_clus_at<T: Write + Seek>(
         &self,
         writer: &mut T,
         cluster: usize,
@@ -424,28 +426,28 @@ impl Fat16 {
         fat_index: usize,
     ) -> Result<()> {
         let offset = self.start + fat_index * self.size + cluster * size_of::<u16>();
-        writer.seek(SeekFrom::Start(offset as u64))?;
-        writer.write_all(&value.to_le_bytes())?;
+        writer.seek(SeekFrom::Start(offset as u64)).await?;
+        writer.write_all(&value.to_le_bytes()).await?;
         Ok(())
     }
 
     /// Write a cluster entry to all FAT table copies
     #[cfg(feature = "write")]
-    pub fn write_clus<T: Write + Seek>(
+    pub async fn write_clus<T: Write + Seek>(
         &self,
         writer: &mut T,
         cluster: usize,
         value: u16,
     ) -> Result<()> {
         for i in 0..self.count {
-            self.write_clus_at(writer, cluster, value, i)?;
+            self.write_clus_at(writer, cluster, value, i).await?;
         }
         Ok(())
     }
 
     /// Allocate a single cluster, returns the allocated cluster number.
     #[cfg(feature = "write")]
-    pub fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u16) -> Result<u16> {
+    pub async fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u16) -> Result<u16> {
         let start = if hint >= Self::FIRST_DATA_CLUSTER && hint <= self.max_cluster {
             hint
         } else {
@@ -454,18 +456,18 @@ impl Fat16 {
 
         // Search from hint to max_cluster
         for cluster in start..=self.max_cluster {
-            let entry = self.read_clus(rw, cluster as usize)?;
+            let entry = self.read_clus(rw, cluster as usize).await?;
             if entry == Self::FREE_CLUSTER {
-                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
+                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN).await?;
                 return Ok(cluster);
             }
         }
 
         // Wrap around: search from first cluster to hint
         for cluster in Self::FIRST_DATA_CLUSTER..start {
-            let entry = self.read_clus(rw, cluster as usize)?;
+            let entry = self.read_clus(rw, cluster as usize).await?;
             if entry == Self::FREE_CLUSTER {
-                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
+                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN).await?;
                 return Ok(cluster);
             }
         }
@@ -475,7 +477,7 @@ impl Fat16 {
 
     /// Free a cluster chain starting at `start`, returns count of freed clusters.
     #[cfg(feature = "write")]
-    pub fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, start: u16) -> Result<u32> {
+    pub async fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, start: u16) -> Result<u32> {
         let mut count = 0u32;
         let mut current = start;
 
@@ -484,8 +486,8 @@ impl Fat16 {
                 break;
             }
 
-            let next = self.read_clus(rw, current as usize)?;
-            self.write_clus(rw, current as usize, Self::FREE_CLUSTER)?;
+            let next = self.read_clus(rw, current as usize).await?;
+            self.write_clus(rw, current as usize, Self::FREE_CLUSTER).await?;
             count += 1;
 
             if Self::is_end_of_chain(next)
@@ -508,23 +510,23 @@ impl Fat16 {
     ///
     /// Returns the number of clusters freed.
     #[cfg(feature = "write")]
-    pub fn truncate_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u16) -> Result<u32> {
+    pub async fn truncate_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u16) -> Result<u32> {
         if cluster < Self::FIRST_DATA_CLUSTER || cluster > self.max_cluster {
             return Ok(0);
         }
 
         // Read the next cluster in chain
-        let next = self.read_clus(rw, cluster as usize)?;
+        let next = self.read_clus(rw, cluster as usize).await?;
 
         // Mark this cluster as end of chain
-        self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
+        self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN).await?;
 
         // Free the rest of the chain if there is one
         if !Self::is_end_of_chain(next)
             && next >= Self::FIRST_DATA_CLUSTER
             && next <= self.max_cluster
         {
-            self.free_chain(rw, next)
+            self.free_chain(rw, next).await
         } else {
             Ok(0)
         }
@@ -564,10 +566,10 @@ impl Fat32 {
         self.start + cluster * size_of::<u32>()
     }
 
-    fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u32> {
-        reader.seek(SeekFrom::Start(self.entry_offset(cluster) as u64))?;
+    async fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u32> {
+        reader.seek(SeekFrom::Start(self.entry_offset(cluster) as u64)).await?;
         let mut data = 0u32;
-        reader.read_exact(bytemuck::bytes_of_mut(&mut data))?;
+        reader.read_exact(bytemuck::bytes_of_mut(&mut data)).await?;
         Ok(data)
     }
 
@@ -598,13 +600,13 @@ impl Fat32 {
         Ok(())
     }
 
-    pub fn next_cluster<T: Read + Seek>(
+    pub async fn next_cluster<T: Read + Seek>(
         &self,
         reader: &mut T,
         cluster: usize,
     ) -> Result<Option<u32>> {
         // Read the FAT entry for this cluster
-        let raw_entry = self.read_clus(reader, cluster)?;
+        let raw_entry = self.read_clus(reader, cluster).await?;
         let entry = raw_entry & Self::ENTRY_MASK;
 
         // Check for end of chain
@@ -627,7 +629,7 @@ impl Fat32 {
 
     /// Write a cluster entry to the FAT table at the specified FAT copy
     #[cfg(feature = "write")]
-    fn write_clus_at<T: Write + Seek>(
+    async fn write_clus_at<T: Write + Seek>(
         &self,
         writer: &mut T,
         cluster: usize,
@@ -635,21 +637,21 @@ impl Fat32 {
         fat_index: usize,
     ) -> Result<()> {
         let offset = self.start + fat_index * self.size + cluster * size_of::<u32>();
-        writer.seek(SeekFrom::Start(offset as u64))?;
-        writer.write_all(&value.to_le_bytes())?;
+        writer.seek(SeekFrom::Start(offset as u64)).await?;
+        writer.write_all(&value.to_le_bytes()).await?;
         Ok(())
     }
 
     /// Write a cluster entry to all FAT table copies
     #[cfg(feature = "write")]
-    pub fn write_clus<T: Write + Seek>(
+    pub async fn write_clus<T: Write + Seek>(
         &self,
         writer: &mut T,
         cluster: usize,
         value: u32,
     ) -> Result<()> {
         for i in 0..self.count {
-            self.write_clus_at(writer, cluster, value, i)?;
+            self.write_clus_at(writer, cluster, value, i).await?;
         }
         Ok(())
     }
@@ -664,7 +666,7 @@ impl Fat32 {
     /// Allocate a single cluster, returns the allocated cluster number.
     /// Searches starting from `hint` for a free cluster.
     #[cfg(feature = "write")]
-    pub fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u32) -> Result<u32> {
+    pub async fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u32) -> Result<u32> {
         // Start searching from hint, wrapping around if needed
         let start = if hint >= Self::FIRST_DATA_CLUSTER && hint <= self.max_cluster {
             hint
@@ -674,20 +676,20 @@ impl Fat32 {
 
         // Search from hint to max_cluster
         for cluster in start..=self.max_cluster {
-            let entry = self.read_clus(rw, cluster as usize)? & Self::ENTRY_MASK;
+            let entry = self.read_clus(rw, cluster as usize).await? & Self::ENTRY_MASK;
             if entry == Self::FREE_CLUSTER {
                 // Mark as end of chain
-                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
+                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN).await?;
                 return Ok(cluster);
             }
         }
 
         // Wrap around: search from first cluster to hint
         for cluster in Self::FIRST_DATA_CLUSTER..start {
-            let entry = self.read_clus(rw, cluster as usize)? & Self::ENTRY_MASK;
+            let entry = self.read_clus(rw, cluster as usize).await? & Self::ENTRY_MASK;
             if entry == Self::FREE_CLUSTER {
                 // Mark as end of chain
-                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
+                self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN).await?;
                 return Ok(cluster);
             }
         }
@@ -698,7 +700,7 @@ impl Fat32 {
     /// Allocate a chain of clusters, linking them together.
     /// Returns the first cluster of the allocated chain.
     #[cfg(feature = "write")]
-    pub fn allocate_chain<T: Read + Write + Seek>(
+    pub async fn allocate_chain<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
         count: usize,
@@ -708,13 +710,13 @@ impl Fat32 {
             return Err(FatError::NoFreeSpace);
         }
 
-        let first = self.allocate_cluster(rw, hint)?;
+        let first = self.allocate_cluster(rw, hint).await?;
         let mut prev = first;
 
         for _ in 1..count {
-            let next = self.allocate_cluster(rw, prev + 1)?;
+            let next = self.allocate_cluster(rw, prev + 1).await?;
             // Link previous cluster to this one
-            self.write_clus(rw, prev as usize, next)?;
+            self.write_clus(rw, prev as usize, next).await?;
             prev = next;
         }
 
@@ -723,7 +725,7 @@ impl Fat32 {
 
     /// Free a cluster chain starting at `start`, returns count of freed clusters.
     #[cfg(feature = "write")]
-    pub fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, start: u32) -> Result<u32> {
+    pub async fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, start: u32) -> Result<u32> {
         let mut count = 0;
         let mut current = start;
 
@@ -734,11 +736,11 @@ impl Fat32 {
             }
 
             // Read the next cluster before freeing
-            let raw_entry = self.read_clus(rw, current as usize)?;
+            let raw_entry = self.read_clus(rw, current as usize).await?;
             let next = raw_entry & Self::ENTRY_MASK;
 
             // Free this cluster
-            self.write_clus(rw, current as usize, Self::FREE_CLUSTER)?;
+            self.write_clus(rw, current as usize, Self::FREE_CLUSTER).await?;
             count += 1;
 
             // Check if this was the end of chain
@@ -762,24 +764,24 @@ impl Fat32 {
     ///
     /// Returns the number of clusters freed.
     #[cfg(feature = "write")]
-    pub fn truncate_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u32) -> Result<u32> {
+    pub async fn truncate_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u32) -> Result<u32> {
         if cluster < Self::FIRST_DATA_CLUSTER || cluster > self.max_cluster {
             return Ok(0);
         }
 
         // Read the next cluster in chain
-        let raw_entry = self.read_clus(rw, cluster as usize)?;
+        let raw_entry = self.read_clus(rw, cluster as usize).await?;
         let next = raw_entry & Self::ENTRY_MASK;
 
         // Mark this cluster as end of chain
-        self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN)?;
+        self.write_clus(rw, cluster as usize, Self::END_OF_CHAIN).await?;
 
         // Free the rest of the chain if there is one
         if !Self::is_end_of_chain(next)
             && next >= Self::FIRST_DATA_CLUSTER
             && next <= self.max_cluster
         {
-            self.free_chain(rw, next)
+            self.free_chain(rw, next).await
         } else {
             Ok(0)
         }
@@ -788,7 +790,7 @@ impl Fat32 {
     /// Extend a cluster chain by appending new clusters.
     /// Returns the first cluster of the newly allocated portion.
     #[cfg(feature = "write")]
-    pub fn extend_chain<T: Read + Write + Seek>(
+    pub async fn extend_chain<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
         last: u32,
@@ -799,9 +801,11 @@ impl Fat32 {
             return Ok(last);
         }
 
-        let first_new = self.allocate_chain(rw, count, hint)?;
+        let first_new = self.allocate_chain(rw, count, hint).await?;
         // Link the last cluster of existing chain to the new chain
-        self.write_clus(rw, last as usize, first_new)?;
+        self.write_clus(rw, last as usize, first_new).await?;
         Ok(first_new)
     }
 }
+
+} // end io_transform!
