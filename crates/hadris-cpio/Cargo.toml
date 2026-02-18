@@ -1,0 +1,28 @@
+[package]
+name = "hadris-cpio"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A rust implementation of the CPIO archive format (newc/SVR4)."
+keywords = ["cpio", "archive", "initramfs", "linux", "filesystem"]
+categories = ["filesystem", "encoding"]
+
+[features]
+default = ["std", "read", "write"]
+# Read support
+read = []
+# Heap allocation without full std
+alloc = []
+# Standard library support (includes alloc)
+std = ["hadris-io/std", "hadris-common/std", "alloc"]
+# Write/format support (requires alloc + read)
+write = ["alloc", "read"]
+
+[dependencies]
+hadris-io = { workspace = true }
+hadris-common = { workspace = true }
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -369,6 +369,7 @@ dependencies = [
 name = "hadris"
 version = "1.0.0"
 dependencies = [
+ "hadris-cpio",
  "hadris-fat",
  "hadris-iso",
  "hadris-udf",
@@ -404,6 +405,24 @@ dependencies = [
  "noalloc",
  "rand",
  "static_assertions",
+]
+
+[[package]]
+name = "hadris-cpio"
+version = "1.0.0"
+dependencies = [
+ "hadris-common",
+ "hadris-io",
+ "tempfile",
+]
+
+[[package]]
+name = "hadris-cpio-cli"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hadris-cpio",
 ]
 
 [[package]]

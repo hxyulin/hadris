@@ -1,0 +1,18 @@
+[package]
+name = "hadris-cpio-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI utility for CPIO archive operations"
+publish = false
+
+[[bin]]
+name = "cpioutil"
+path = "src/main.rs"
+
+[dependencies]
+hadris-cpio = { workspace = true, features = ["std", "read", "write"] }
+clap.workspace = true
+anyhow.workspace = true

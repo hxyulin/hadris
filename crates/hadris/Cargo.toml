@@ -10,12 +10,14 @@ description = "A collection of crates for working with various file formats."
 categories = ["filesystem", "encoding"]
 
 [features]
-default = ["iso9660", "fat"]
+default = ["iso9660", "fat", "cpio"]
 iso9660 = ["dep:hadris-iso"]
 fat = ["dep:hadris-fat"]
 udf = ["dep:hadris-udf"]
+cpio = ["dep:hadris-cpio"]
 
 [dependencies]
 hadris-iso = { workspace = true, optional = true, features = ["std", "write"] }
 hadris-fat = { workspace = true, optional = true, features = ["std", "read", "write", "lfn"] }
 hadris-udf = { workspace = true, optional = true, features = ["std", "read"] }
+hadris-cpio = { workspace = true, optional = true, features = ["std", "read", "write"] }

@@ -8,3 +8,6 @@ pub use hadris_fat as fat;
 
 #[cfg(feature = "udf")]
 pub use hadris_udf as udf;
+
+#[cfg(feature = "cpio")]
+pub use hadris_cpio as cpio;

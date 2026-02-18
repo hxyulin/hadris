@@ -12,6 +12,8 @@ members = [
   "crates/hadris-fat",
   "crates/hadris-fat-cli",
   "crates/hadris-cli",
+  "crates/hadris-cpio",
+  "crates/hadris-cpio-cli",
 ]
 default-members = [
   "crates/hadris-iso",
@@ -23,6 +25,7 @@ default-members = [
   "crates/hadris-part",
   "crates/hadris-fat",
   "crates/hadris-cli",
+  "crates/hadris-cpio",
 ]
 
 [workspace.package]
@@ -44,6 +47,8 @@ tempfile = "3.19.1"
 chrono = "0.4.40"
 tracing = "0.1.41"
 spin = "0.10.0"
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
 
 # Internal crates
 hadris-io = { version = "1.0.0", path = "crates/hadris-io", default-features = false }
@@ -53,3 +58,4 @@ hadris-cd = { version = "1.0.0", path = "crates/hadris-cd", default-features = f
 hadris-fat = { version = "1.0.0", path = "crates/hadris-fat", default-features = false }
 hadris-common = { version = "1.0.0", path = "crates/hadris-common", default-features = false }
 hadris-part = { version = "1.0.0", path = "crates/hadris-part", default-features = false }
+hadris-cpio = { version = "1.0.0", path = "crates/hadris-cpio", default-features = false }
