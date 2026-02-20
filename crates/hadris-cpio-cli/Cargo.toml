@@ -6,7 +6,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "CLI utility for CPIO archive operations"
-publish = false
+readme = "README.md"
+keywords = ["cpio", "archive", "cli", "disk"]
+categories = ["command-line-utilities", "filesystem"]
 
 [[bin]]
 name = "cpioutil"
