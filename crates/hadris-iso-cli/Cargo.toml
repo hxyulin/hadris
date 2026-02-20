@@ -5,11 +5,13 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+description = "CLI utility for ISO 9660 image operations"
 readme = "README.md"
+keywords = ["iso9660", "iso", "cli", "optical", "disk"]
+categories = ["command-line-utilities", "filesystem"]
 
 [dependencies]
-clap = { version = "4.5.32", features = ["derive"] }
+clap.workspace = true
 
 hadris-iso = { workspace = true, features = ["std", "write", "joliet"] }
 tracing.workspace = true

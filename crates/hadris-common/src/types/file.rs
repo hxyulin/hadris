@@ -1,6 +1,21 @@
 use core::{fmt, ops::Range};
 
-/// A Fixed-Length Filename
+/// A fixed-length, stack-allocated filename buffer.
+///
+/// Stores up to `N` bytes of filename data on the stack without
+/// heap allocation. Useful for no-std filesystem implementations
+/// where filenames have a known maximum length.
+///
+/// # Example
+///
+/// ```rust
+/// use hadris_common::types::file::FixedFilename;
+///
+/// let name = FixedFilename::<64>::from(b"readme.txt".as_slice());
+/// assert_eq!(name.len(), 10);
+/// assert_eq!(name.as_str(), "readme.txt");
+/// assert!(!name.is_empty());
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct FixedFilename<const N: usize> {
     pub data: [u8; N],
@@ -94,6 +109,12 @@ impl<const N: usize> fmt::Debug for FixedFilename<N> {
         f.debug_tuple("FixedFilename")
             .field(&self.as_str())
             .finish()
+    }
+}
+
+impl<const N: usize> fmt::Display for FixedFilename<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

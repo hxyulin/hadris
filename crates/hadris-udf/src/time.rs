@@ -75,6 +75,16 @@ impl UdfTimestamp {
     }
 }
 
+impl core::fmt::Display for UdfTimestamp {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            self.year, self.month, self.day, self.hour, self.minute, self.second
+        )
+    }
+}
+
 /// Timezone type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimezoneType {
@@ -86,6 +96,17 @@ pub enum TimezoneType {
     Agreement,
     /// Reserved for future use
     Reserved,
+}
+
+impl core::fmt::Display for TimezoneType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Utc => write!(f, "UTC"),
+            Self::Local => write!(f, "Local"),
+            Self::Agreement => write!(f, "Agreement"),
+            Self::Reserved => write!(f, "Reserved"),
+        }
+    }
 }
 
 #[cfg(test)]

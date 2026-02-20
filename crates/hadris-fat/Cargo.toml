@@ -3,6 +3,8 @@ name = "hadris-fat"
 version.workspace = true
 description = "A library for working with FAT filesystems (FAT12/FAT16/FAT32/exFAT)"
 readme = "README.md"
+keywords = ["fat", "fat32", "filesystem", "no-std", "vfat"]
+categories = ["no-std", "filesystem"]
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -12,8 +14,8 @@ repository.workspace = true
 default = ["read", "write", "lfn", "std"]
 sync = ["hadris-io/sync", "hadris-common/sync"]
 async = ["hadris-io/async", "hadris-common/async"]
-alloc = ["chrono/alloc"]
-std = ["sync", "alloc", "chrono/std", "chrono/clock", "hadris-io/std", "hadris-common/std"]
+alloc = ["chrono?/alloc"]
+std = ["sync", "alloc", "dep:chrono", "chrono/std", "chrono/clock", "hadris-io/std", "hadris-common/std"]
 read = []
 write = ["alloc", "read"]
 lfn = []
@@ -35,8 +37,7 @@ bytemuck = { workspace = true, features = [
   "derive",
   "min_const_generics",
 ] }
-chrono = { workspace = true }
-thiserror = { workspace = true }
+chrono = { workspace = true, optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

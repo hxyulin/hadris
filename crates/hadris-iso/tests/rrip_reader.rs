@@ -5,9 +5,9 @@
 //! directory iterator.
 
 use hadris_iso::read::IsoImage;
+use hadris_iso::read::PathSeparator;
 use hadris_iso::write::options::{CreationFeatures, FormatOptions};
 use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
-use hadris_iso::read::PathSeparator;
 use std::io::Cursor;
 use std::sync::Arc;
 
@@ -40,7 +40,10 @@ fn test_rrip_detection_with_rock_ridge() {
     }];
     let iso_data = create_iso(files, CreationFeatures::with_rock_ridge());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
-    assert!(image.supports_rrip(), "RRIP should be detected for Rock Ridge ISO");
+    assert!(
+        image.supports_rrip(),
+        "RRIP should be detected for Rock Ridge ISO"
+    );
 }
 
 #[test]
@@ -51,7 +54,10 @@ fn test_rrip_detection_without_rock_ridge() {
     }];
     let iso_data = create_iso(files, CreationFeatures::default());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
-    assert!(!image.supports_rrip(), "RRIP should NOT be detected for plain ISO");
+    assert!(
+        !image.supports_rrip(),
+        "RRIP should NOT be detected for plain ISO"
+    );
 }
 
 // =============================================================================
@@ -82,7 +88,10 @@ fn test_rrip_nm_names() {
         .collect();
 
     // Collect RRIP names
-    let names: Vec<String> = entries.iter().map(|e| e.display_name().into_owned()).collect();
+    let names: Vec<String> = entries
+        .iter()
+        .map(|e| e.display_name().into_owned())
+        .collect();
 
     assert!(
         names.contains(&"readme.txt".to_string()),
@@ -123,7 +132,11 @@ fn test_rrip_tf_timestamps() {
     if let Some(ref ts) = entry.rrip.as_ref().unwrap().timestamps {
         // The writer should produce at least MODIFY and ACCESS timestamps
         if let Some(ref modify) = ts.modify {
-            assert!(modify.year >= 2024, "Modify year should be recent: {}", modify.year);
+            assert!(
+                modify.year >= 2024,
+                "Modify year should be recent: {}",
+                modify.year
+            );
             assert!(modify.month >= 1 && modify.month <= 12);
         }
     }
@@ -228,17 +241,13 @@ fn test_rrip_directory_iteration() {
 
 #[test]
 fn test_rrip_subdirectory_navigation() {
-    let files = vec![
-        IsoFile::Directory {
-            name: Arc::new("mydir".to_string()),
-            children: vec![
-                IsoFile::File {
-                    name: Arc::new("inner.txt".to_string()),
-                    contents: b"inner content".to_vec(),
-                },
-            ],
-        },
-    ];
+    let files = vec![IsoFile::Directory {
+        name: Arc::new("mydir".to_string()),
+        children: vec![IsoFile::File {
+            name: Arc::new("inner.txt".to_string()),
+            contents: b"inner content".to_vec(),
+        }],
+    }];
     let iso_data = create_iso(files, CreationFeatures::with_rock_ridge());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
 
@@ -273,7 +282,11 @@ fn test_rrip_subdirectory_navigation() {
     );
 
     let inner_name = sub_entries[0].display_name();
-    assert_eq!(inner_name, "inner.txt", "Inner file should be 'inner.txt', got '{}'", inner_name);
+    assert_eq!(
+        inner_name, "inner.txt",
+        "Inner file should be 'inner.txt', got '{}'",
+        inner_name
+    );
 }
 
 // =============================================================================
@@ -288,9 +301,7 @@ fn test_es_parsing() {
     let data: &[u8] = &[b'E', b'S', 5, 1, 42];
     let mut iter = SystemUseIter::new(data, 0);
     match iter.next() {
-        Some(SystemUseField::ExtensionSelector {
-            extension_sequence,
-        }) => {
+        Some(SystemUseField::ExtensionSelector { extension_sequence }) => {
             assert_eq!(extension_sequence, 42);
         }
         other => panic!("expected ES entry, got {:?}", other),
@@ -305,16 +316,25 @@ fn test_es_parsing() {
 #[test]
 fn test_sl_absolute_path_assembly() {
     use hadris_iso::read::RripMetadata;
-    use hadris_iso::susp::SystemUseField;
     use hadris_iso::rrip::{SlComponent, SlComponentFlags, SlEntry};
+    use hadris_iso::susp::SystemUseField;
 
     // Build SL for "/usr/bin"
     let sl = SlEntry {
         flags: 0,
         components: vec![
-            SlComponent { flags: SlComponentFlags::ROOT, content: vec![] },
-            SlComponent { flags: SlComponentFlags::empty(), content: b"usr".to_vec() },
-            SlComponent { flags: SlComponentFlags::empty(), content: b"bin".to_vec() },
+            SlComponent {
+                flags: SlComponentFlags::ROOT,
+                content: vec![],
+            },
+            SlComponent {
+                flags: SlComponentFlags::empty(),
+                content: b"usr".to_vec(),
+            },
+            SlComponent {
+                flags: SlComponentFlags::empty(),
+                content: b"bin".to_vec(),
+            },
         ],
     };
     let fields = vec![SystemUseField::SymbolicLink(sl)];
@@ -325,16 +345,25 @@ fn test_sl_absolute_path_assembly() {
 #[test]
 fn test_sl_relative_path_assembly() {
     use hadris_iso::read::RripMetadata;
-    use hadris_iso::susp::SystemUseField;
     use hadris_iso::rrip::{SlComponent, SlComponentFlags, SlEntry};
+    use hadris_iso::susp::SystemUseField;
 
     // Build SL for "../lib/libfoo.so"
     let sl = SlEntry {
         flags: 0,
         components: vec![
-            SlComponent { flags: SlComponentFlags::PARENT, content: vec![] },
-            SlComponent { flags: SlComponentFlags::empty(), content: b"lib".to_vec() },
-            SlComponent { flags: SlComponentFlags::empty(), content: b"libfoo.so".to_vec() },
+            SlComponent {
+                flags: SlComponentFlags::PARENT,
+                content: vec![],
+            },
+            SlComponent {
+                flags: SlComponentFlags::empty(),
+                content: b"lib".to_vec(),
+            },
+            SlComponent {
+                flags: SlComponentFlags::empty(),
+                content: b"libfoo.so".to_vec(),
+            },
         ],
     };
     let fields = vec![SystemUseField::SymbolicLink(sl)];
@@ -345,8 +374,8 @@ fn test_sl_relative_path_assembly() {
 #[test]
 fn test_sl_continue_component_assembly() {
     use hadris_iso::read::RripMetadata;
-    use hadris_iso::susp::SystemUseField;
     use hadris_iso::rrip::{SlComponent, SlComponentFlags, SlEntry};
+    use hadris_iso::susp::SystemUseField;
 
     // Build SL where a component is split across entries using CONTINUE
     let sl = SlEntry {
@@ -374,8 +403,8 @@ fn test_sl_continue_component_assembly() {
 #[test]
 fn test_nm_multi_entry_concatenation() {
     use hadris_iso::read::RripMetadata;
-    use hadris_iso::susp::SystemUseField;
     use hadris_iso::rrip::{NmEntry, NmFlags};
+    use hadris_iso::susp::SystemUseField;
 
     // Two NM entries that should concatenate
     let fields = vec![
@@ -398,8 +427,8 @@ fn test_nm_multi_entry_concatenation() {
 #[test]
 fn test_nm_current_directory() {
     use hadris_iso::read::RripMetadata;
-    use hadris_iso::susp::SystemUseField;
     use hadris_iso::rrip::{NmEntry, NmFlags};
+    use hadris_iso::susp::SystemUseField;
 
     let fields = vec![SystemUseField::AlternateName(NmEntry {
         flags: NmFlags::CURRENT,
@@ -412,8 +441,8 @@ fn test_nm_current_directory() {
 #[test]
 fn test_nm_parent_directory() {
     use hadris_iso::read::RripMetadata;
-    use hadris_iso::susp::SystemUseField;
     use hadris_iso::rrip::{NmEntry, NmFlags};
+    use hadris_iso::susp::SystemUseField;
 
     let fields = vec![SystemUseField::AlternateName(NmEntry {
         flags: NmFlags::PARENT,
@@ -430,8 +459,8 @@ fn test_nm_parent_directory() {
 #[test]
 fn test_tf_short_form_timestamps() {
     use hadris_iso::read::RripMetadata;
-    use hadris_iso::susp::SystemUseField;
     use hadris_iso::rrip::{TfEntry, TfFlags};
+    use hadris_iso::susp::SystemUseField;
 
     // TF with MODIFY(0x02) + ACCESS(0x04) flags, short form
     let mut timestamps = Vec::new();
@@ -467,8 +496,8 @@ fn test_tf_short_form_timestamps() {
 #[test]
 fn test_tf_long_form_timestamps() {
     use hadris_iso::read::RripMetadata;
-    use hadris_iso::susp::SystemUseField;
     use hadris_iso::rrip::{TfEntry, TfFlags};
+    use hadris_iso::susp::SystemUseField;
 
     // TF with CREATION flag, long form
     let mut timestamps = Vec::new();

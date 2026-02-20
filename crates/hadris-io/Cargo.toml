@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 description = "No-std I/O traits and utilities for the Hadris filesystem crates"
 readme = "README.md"
+keywords = ["io", "no-std", "read", "write", "seek"]
+categories = ["no-std", "filesystem"]
 
 [features]
 default = ["sync", "std"]

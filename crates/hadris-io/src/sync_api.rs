@@ -4,9 +4,9 @@
 //! re-exported from `std::io` (so any `std::io` implementor works).
 //! In no-std mode, minimal custom trait definitions are provided.
 
+use crate::Result;
 #[cfg(not(feature = "std"))]
 use crate::{Error, ErrorKind, SeekFrom};
-use crate::Result;
 
 // ---------------------------------------------------------------------------
 // Traits
@@ -89,11 +89,33 @@ cfg_if::cfg_if! {
 // ---------------------------------------------------------------------------
 
 /// Read extension: structured reads and parsing.
+///
+/// Provides [`read_struct`](ReadExt::read_struct) for zero-copy deserialization
+/// via [`bytemuck`], and [`parse`](ReadExt::parse) for types implementing
+/// [`Parsable`].
+///
+/// This trait is automatically implemented for all types implementing [`Read`].
+///
+/// # Example
+///
+/// ```rust
+/// use hadris_io::{Cursor, ReadExt};
+///
+/// let bytes = 42u32.to_ne_bytes();
+/// let mut cursor = Cursor::new(&bytes);
+/// let value: u32 = cursor.read_struct().unwrap();
+/// assert_eq!(value, 42);
+/// ```
 pub trait ReadExt {
+    /// Reads a `T` from the stream using zero-copy deserialization.
+    ///
+    /// The type `T` must implement [`bytemuck::AnyBitPattern`] so any
+    /// byte pattern is a valid value.
     fn read_struct<T: bytemuck::Zeroable + bytemuck::NoUninit + bytemuck::AnyBitPattern>(
         &mut self,
     ) -> Result<T>;
 
+    /// Parses a `T` from the stream using the [`Parsable`] trait.
     fn parse<T: Parsable>(&mut self) -> Result<T>;
 }
 
@@ -112,11 +134,39 @@ impl<T: Read> ReadExt for T {
 }
 
 /// Parse a type from a reader.
+///
+/// Implement this trait for types that have a custom binary format
+/// that cannot be expressed as a simple `bytemuck` cast.
+///
+/// # Example
+///
+/// ```rust
+/// use hadris_io::{Cursor, Result, sync::{Read, Parsable, ReadExt}};
+///
+/// struct Magic(u16);
+///
+/// impl Parsable for Magic {
+///     fn parse<R: Read>(reader: &mut R) -> Result<Self> {
+///         let mut buf = [0u8; 2];
+///         reader.read_exact(&mut buf)?;
+///         Ok(Magic(u16::from_le_bytes(buf)))
+///     }
+/// }
+///
+/// let data = [0x34, 0x12];
+/// let mut cursor = Cursor::new(&data);
+/// let magic: Magic = cursor.parse().unwrap();
+/// assert_eq!(magic.0, 0x1234);
+/// ```
 pub trait Parsable: Sized {
+    /// Parse this type from the given reader.
     fn parse<R: Read>(reader: &mut R) -> Result<Self>;
 }
 
 /// Write a type to a writer.
+///
+/// Implement this trait for types that need custom binary serialization.
 pub trait Writable: Sized {
+    /// Write this type to the given writer.
     fn write<W: Write>(&self, writer: &mut W) -> Result<()>;
 }

@@ -2,7 +2,22 @@
 //!
 //! These types are no-std compatible and don't require allocation.
 
-/// A contiguous region on disk.
+use core::fmt;
+
+/// A contiguous region on disk, identified by a starting sector and byte length.
+///
+/// # Example
+///
+/// ```rust
+/// use hadris_common::types::extent::Extent;
+///
+/// let extent = Extent::new(100, 4096);
+/// assert_eq!(extent.sector, 100);
+/// assert_eq!(extent.length, 4096);
+/// assert_eq!(extent.sector_count(2048), 2);
+/// assert_eq!(extent.end_sector(2048), 102);
+/// assert!(!extent.is_empty());
+/// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Pod, bytemuck::Zeroable))]
 #[repr(C)]
@@ -54,6 +69,12 @@ impl Extent {
     }
 }
 
+impl fmt::Display for Extent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "sector {} ({} bytes)", self.sector, self.length)
+    }
+}
+
 /// File type classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
@@ -84,6 +105,16 @@ impl FileType {
     #[inline]
     pub const fn is_symlink(&self) -> bool {
         matches!(self, FileType::Symlink)
+    }
+}
+
+impl fmt::Display for FileType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FileType::RegularFile => write!(f, "file"),
+            FileType::Directory => write!(f, "directory"),
+            FileType::Symlink => write!(f, "symlink"),
+        }
     }
 }
 

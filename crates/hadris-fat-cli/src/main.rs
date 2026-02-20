@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use hadris_fat::{DirEntryAttrFlags, DirectoryEntry, FatDir};
 use hadris_fat::{FatAnalysisExt, FatFs, FatVerifyExt};
-use hadris_fat::{DirectoryEntry, FatDir, DirEntryAttrFlags};
 
 #[derive(Parser)]
 #[command(name = "fatutil")]

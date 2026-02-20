@@ -3,6 +3,8 @@ name = "hadris-fat-cli"
 version.workspace = true
 description = "CLI utility for FAT filesystem analysis and management"
 readme = "README.md"
+keywords = ["fat", "fat32", "filesystem", "cli", "disk"]
+categories = ["command-line-utilities", "filesystem"]
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -14,5 +16,5 @@ path = "src/main.rs"
 
 [dependencies]
 hadris-fat = { workspace = true, features = ["std", "read", "write", "lfn", "tool"] }
-clap = { version = "4.5", features = ["derive"] }
-anyhow = "1.0"
+clap.workspace = true
+anyhow.workspace = true

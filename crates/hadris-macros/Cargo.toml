@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 description = "Proc macros for dual sync/async code generation in Hadris"
 readme = "README.md"
+keywords = ["macro", "async", "sync", "proc-macro"]
+categories = ["development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

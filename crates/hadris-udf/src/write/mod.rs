@@ -35,6 +35,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::mem::size_of;
 
+use super::super::{Seek, SeekFrom, Write};
 use super::descriptor::{
     DescriptorTag, ExtentDescriptor, LongAllocationDescriptor, ShortAllocationDescriptor,
     TagIdentifier,
@@ -44,7 +45,6 @@ use crate::error::UdfResult;
 use crate::file::FileType;
 use crate::time::UdfTimestamp;
 use crate::{AVDP_LOCATION, SECTOR_SIZE, UdfRevision};
-use super::super::{Seek, SeekFrom, Write};
 
 // =============================================================================
 // High-Level Types for Simple UDF Creation

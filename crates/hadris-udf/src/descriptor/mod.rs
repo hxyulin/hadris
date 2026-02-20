@@ -17,8 +17,8 @@ pub use partition::{PartitionContents, PartitionDescriptor};
 pub use primary::PrimaryVolumeDescriptor;
 pub use tag::{DescriptorTag, TagIdentifier};
 
-use crate::error::{UdfError, UdfResult};
 use super::super::{Read, Seek, SeekFrom};
+use crate::error::{UdfError, UdfResult};
 
 /// Extent descriptor (ECMA-167 3/7.1)
 #[repr(C)]

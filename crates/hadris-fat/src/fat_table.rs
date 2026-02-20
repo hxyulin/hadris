@@ -73,6 +73,16 @@ pub enum FatType {
     Fat32,
 }
 
+impl core::fmt::Display for FatType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Fat12 => write!(f, "FAT12"),
+            Self::Fat16 => write!(f, "FAT16"),
+            Self::Fat32 => write!(f, "FAT32"),
+        }
+    }
+}
+
 /// FAT12 table implementation.
 ///
 /// FAT12 uses 12-bit entries packed into 3 bytes for every 2 clusters.

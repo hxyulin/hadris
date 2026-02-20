@@ -7,11 +7,11 @@
 //! - Device files (PN entries)
 //! - Deep directory relocation (CL, PL, RE entries)
 
-use super::susp::SystemUseHeader;
-use crate::types::U32LsbMsb;
+use super::io::{self, Read};
 #[cfg(feature = "std")]
 use super::io::{Writable, Write};
-use super::io::{self, Read};
+use super::susp::SystemUseHeader;
+use crate::types::U32LsbMsb;
 
 #[cfg(feature = "alloc")]
 bitflags::bitflags! {
@@ -549,7 +549,7 @@ impl Writable for PnEntry {
 
 #[cfg(feature = "std")]
 impl PnEntry {
-    pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
+    pub async fn parse_data<R: Read>(_header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         let mut buf = [0u8; 16];
         data.read_exact(&mut buf).await?;
         Ok(Self {
@@ -941,7 +941,7 @@ impl RripBuilder {
 
     /// Split entries across inline and overflow areas.
     ///
-    /// Delegates to [`SystemUseBuilder::build_split`].
+    /// Delegates to [`super::susp::SystemUseBuilder::build_split`].
     pub fn build_split(&self, max_inline: usize) -> super::susp::SplitSu {
         self.builder.build_split(max_inline)
     }

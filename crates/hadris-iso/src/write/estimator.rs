@@ -5,9 +5,9 @@
 
 use alloc::vec::Vec;
 
-use crate::file::EntryType;
 use super::options::{CreationFeatures, FormatOptions};
 use super::{File, InputFiles};
+use crate::file::EntryType;
 
 /// Breakdown of the estimated size by component.
 #[derive(Debug, Clone, Default)]

@@ -217,6 +217,16 @@ pub struct LayoutInfo {
     pub total_sectors: u32,
 }
 
+impl core::fmt::Display for LayoutInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "layout: {} total sectors (files at sectors {}-{})",
+            self.total_sectors, self.file_data_start, self.file_data_end
+        )
+    }
+}
+
 impl LayoutInfo {
     /// Get the UDF partition length in sectors
     pub fn udf_partition_length(&self) -> u32 {

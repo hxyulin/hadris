@@ -843,7 +843,6 @@ impl GptHeader {
     }
 }
 
-
 /// GPT partition entry (128 bytes by default).
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

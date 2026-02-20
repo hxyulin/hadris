@@ -25,9 +25,8 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
 
         match ft {
             FileType::Directory => {
-                fs::create_dir_all(&dest).with_context(|| {
-                    format!("Failed to create directory: {}", dest.display())
-                })?;
+                fs::create_dir_all(&dest)
+                    .with_context(|| format!("Failed to create directory: {}", dest.display()))?;
                 let perms = fs::Permissions::from_mode(header.permissions());
                 fs::set_permissions(&dest, perms).ok();
                 reader.skip_entry_data_owned(&entry)?;
@@ -57,15 +56,11 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
                 if dest.exists() || dest.symlink_metadata().is_ok() {
                     fs::remove_file(&dest).ok();
                 }
-                std::os::unix::fs::symlink(target, &dest).with_context(|| {
-                    format!("Failed to create symlink: {}", dest.display())
-                })?;
+                std::os::unix::fs::symlink(target, &dest)
+                    .with_context(|| format!("Failed to create symlink: {}", dest.display()))?;
             }
             _ => {
-                eprintln!(
-                    "warning: skipping {} ({})",
-                    name, ft
-                );
+                eprintln!("warning: skipping {} ({})", name, ft);
                 reader.skip_entry_data_owned(&entry)?;
             }
         }

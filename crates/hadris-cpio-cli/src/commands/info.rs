@@ -78,7 +78,11 @@ pub fn info(archive: PathBuf) -> Result<()> {
     println!("========================");
     println!("Format:       {}", format_str);
     println!("Entries:      {}", entry_count);
-    println!("Total data:   {} ({} bytes)", format_size(total_data_size), total_data_size);
+    println!(
+        "Total data:   {} ({} bytes)",
+        format_size(total_data_size),
+        total_data_size
+    );
     println!();
 
     if !entries.is_empty() {

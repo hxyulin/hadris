@@ -169,6 +169,42 @@ impl TagIdentifier {
     }
 }
 
+impl core::fmt::Display for TagIdentifier {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::PrimaryVolumeDescriptor => write!(f, "Primary Volume Descriptor"),
+            Self::AnchorVolumeDescriptorPointer => {
+                write!(f, "Anchor Volume Descriptor Pointer")
+            }
+            Self::VolumeDescriptorPointer => write!(f, "Volume Descriptor Pointer"),
+            Self::ImplementationUseVolumeDescriptor => {
+                write!(f, "Implementation Use Volume Descriptor")
+            }
+            Self::PartitionDescriptor => write!(f, "Partition Descriptor"),
+            Self::LogicalVolumeDescriptor => write!(f, "Logical Volume Descriptor"),
+            Self::UnallocatedSpaceDescriptor => write!(f, "Unallocated Space Descriptor"),
+            Self::TerminatingDescriptor => write!(f, "Terminating Descriptor"),
+            Self::LogicalVolumeIntegrityDescriptor => {
+                write!(f, "Logical Volume Integrity Descriptor")
+            }
+            Self::FileSetDescriptor => write!(f, "File Set Descriptor"),
+            Self::FileIdentifierDescriptor => write!(f, "File Identifier Descriptor"),
+            Self::AllocationExtentDescriptor => write!(f, "Allocation Extent Descriptor"),
+            Self::IndirectEntry => write!(f, "Indirect Entry"),
+            Self::TerminalEntry => write!(f, "Terminal Entry"),
+            Self::FileEntry => write!(f, "File Entry"),
+            Self::ExtendedAttributeHeaderDescriptor => {
+                write!(f, "Extended Attribute Header Descriptor")
+            }
+            Self::UnallocatedSpaceEntry => write!(f, "Unallocated Space Entry"),
+            Self::SpaceBitmapDescriptor => write!(f, "Space Bitmap Descriptor"),
+            Self::PartitionIntegrityEntry => write!(f, "Partition Integrity Entry"),
+            Self::ExtendedFileEntry => write!(f, "Extended File Entry"),
+            Self::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
 /// CRC-16-ITU (CCITT) used by UDF
 ///
 /// Polynomial: x^16 + x^12 + x^5 + 1 (0x1021)

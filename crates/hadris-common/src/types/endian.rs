@@ -33,6 +33,16 @@ pub enum EndianType {
     BigEndian,
 }
 
+impl core::fmt::Display for EndianType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NativeEndian => write!(f, "native"),
+            Self::LittleEndian => write!(f, "little-endian"),
+            Self::BigEndian => write!(f, "big-endian"),
+        }
+    }
+}
+
 impl EndianType {
     pub const fn is_le(&self) -> bool {
         #[cfg(target_endian = "little")]

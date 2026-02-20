@@ -258,6 +258,28 @@ impl FileType {
     }
 }
 
+impl core::fmt::Display for FileType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Unspecified => write!(f, "unspecified"),
+            Self::UnallocatedSpaceEntry => write!(f, "unallocated space entry"),
+            Self::PartitionIntegrityEntry => write!(f, "partition integrity entry"),
+            Self::IndirectEntry => write!(f, "indirect entry"),
+            Self::Directory => write!(f, "directory"),
+            Self::RegularFile => write!(f, "regular file"),
+            Self::BlockDevice => write!(f, "block device"),
+            Self::CharacterDevice => write!(f, "character device"),
+            Self::ExtendedAttribute => write!(f, "extended attribute"),
+            Self::Fifo => write!(f, "fifo"),
+            Self::Socket => write!(f, "socket"),
+            Self::TerminalEntry => write!(f, "terminal entry"),
+            Self::SymbolicLink => write!(f, "symlink"),
+            Self::StreamDirectory => write!(f, "stream directory"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
 /// Allocation descriptor type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AllocationType {
@@ -284,15 +306,17 @@ impl AllocationType {
 }
 
 /// A UDF file handle
+#[allow(dead_code)]
 pub struct UdfFile {
     /// File size
     size: u64,
     /// ICB location
-    icb: LongAllocationDescriptor,
+    _icb: LongAllocationDescriptor,
     /// Allocation type
-    allocation_type: AllocationType,
+    _allocation_type: AllocationType,
 }
 
+#[allow(dead_code)]
 impl UdfFile {
     /// Create a new file handle
     pub(crate) fn new(
@@ -302,8 +326,8 @@ impl UdfFile {
     ) -> Self {
         Self {
             size,
-            icb,
-            allocation_type,
+            _icb: icb,
+            _allocation_type: allocation_type,
         }
     }
 

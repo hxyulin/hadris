@@ -4,7 +4,7 @@ use alloc::borrow::Cow;
 use alloc::string::String;
 
 use super::super::directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef};
-use super::super::io::{self, IsoCursor, LogicalSector, Read, Seek, SeekFrom, ErrorKind};
+use super::super::io::{self, IsoCursor, LogicalSector, Read, Seek, SeekFrom};
 use spin::Mutex;
 
 use super::IsoImage;
@@ -62,10 +62,10 @@ impl DirEntry {
 
     /// Returns the display name: RRIP alternate name if available, else decoded raw name.
     pub fn display_name(&self) -> Cow<'_, str> {
-        if let Some(ref rrip) = self.rrip {
-            if let Some(ref nm) = rrip.alternate_name {
-                return Cow::Borrowed(nm.as_str());
-            }
+        if let Some(ref rrip) = self.rrip
+            && let Some(ref nm) = rrip.alternate_name
+        {
+            return Cow::Borrowed(nm.as_str());
         }
         String::from_utf8_lossy(self.record.name())
     }
@@ -79,10 +79,10 @@ impl DirEntry {
     /// CL-aware: a child link means the entry points to a directory.
     #[inline]
     pub fn is_directory(&self) -> bool {
-        if let Some(ref rrip) = self.rrip {
-            if rrip.child_link.is_some() {
-                return true;
-            }
+        if let Some(ref rrip) = self.rrip
+            && rrip.child_link.is_some()
+        {
+            return true;
         }
         self.record.is_directory()
     }
@@ -106,7 +106,6 @@ impl DirEntry {
     pub fn system_use(&self) -> &[u8] {
         self.record.system_use()
     }
-
 }
 
 io_transform! {
@@ -119,14 +118,14 @@ impl DirEntry {
         &self,
         image: &IsoImage<DATA>,
     ) -> io::Result<DirectoryRef> {
-        if let Some(ref rrip) = self.rrip {
-            if let Some(cl_sector) = rrip.child_link {
-                return rrip::read_dir_size(image, LogicalSector(cl_sector as usize)).await;
-            }
+        if let Some(ref rrip) = self.rrip
+            && let Some(cl_sector) = rrip.child_link
+        {
+            return rrip::read_dir_size(image, LogicalSector(cl_sector as usize)).await;
         }
         self.record
             .as_dir_ref()
-            .map_err(|_| io::Error::new(ErrorKind::Other, "not a directory"))
+            .map_err(|_| io::Error::other("not a directory"))
     }
 }
 } // io_transform!

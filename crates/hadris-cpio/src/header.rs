@@ -1,3 +1,4 @@
+use core::fmt;
 use crate::error::{CpioError, Result};
 use super::super::{Read, Write};
 
@@ -17,6 +18,15 @@ pub enum CpioMagic {
     Newc,
     /// Newc with CRC checksums (`070702`).
     NewcCrc,
+}
+
+impl fmt::Display for CpioMagic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CpioMagic::Newc => write!(f, "newc (070701)"),
+            CpioMagic::NewcCrc => write!(f, "newc+CRC (070702)"),
+        }
+    }
 }
 
 impl CpioMagic {
@@ -90,54 +100,67 @@ impl RawNewcHeader {
         &self.data[0..6]
     }
 
+    /// Returns the inode number of the entry.
     pub fn ino(&self) -> Result<u32> {
         parse_hex_field(&self.data[6..14], "ino")
     }
 
+    /// Returns the file mode (file type and permission bits).
     pub fn mode(&self) -> Result<u32> {
         parse_hex_field(&self.data[14..22], "mode")
     }
 
+    /// Returns the owner user ID.
     pub fn uid(&self) -> Result<u32> {
         parse_hex_field(&self.data[22..30], "uid")
     }
 
+    /// Returns the owner group ID.
     pub fn gid(&self) -> Result<u32> {
         parse_hex_field(&self.data[30..38], "gid")
     }
 
+    /// Returns the number of hard links to this file.
     pub fn nlink(&self) -> Result<u32> {
         parse_hex_field(&self.data[38..46], "nlink")
     }
 
+    /// Returns the modification time as seconds since the Unix epoch.
     pub fn mtime(&self) -> Result<u32> {
         parse_hex_field(&self.data[46..54], "mtime")
     }
 
+    /// Returns the file data size in bytes.
     pub fn filesize(&self) -> Result<u32> {
         parse_hex_field(&self.data[54..62], "filesize")
     }
 
+    /// Returns the major number of the device containing this file.
     pub fn devmajor(&self) -> Result<u32> {
         parse_hex_field(&self.data[62..70], "devmajor")
     }
 
+    /// Returns the minor number of the device containing this file.
     pub fn devminor(&self) -> Result<u32> {
         parse_hex_field(&self.data[70..78], "devminor")
     }
 
+    /// Returns the major number of the device (for device node entries).
     pub fn rdevmajor(&self) -> Result<u32> {
         parse_hex_field(&self.data[78..86], "rdevmajor")
     }
 
+    /// Returns the minor number of the device (for device node entries).
     pub fn rdevminor(&self) -> Result<u32> {
         parse_hex_field(&self.data[86..94], "rdevminor")
     }
 
+    /// Returns the length of the filename in bytes (including the NUL terminator).
     pub fn namesize(&self) -> Result<u32> {
         parse_hex_field(&self.data[94..102], "namesize")
     }
 
+    /// Returns the CRC checksum (only meaningful for `070702` format entries).
     pub fn check(&self) -> Result<u32> {
         parse_hex_field(&self.data[102..110], "check")
     }

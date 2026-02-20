@@ -70,8 +70,8 @@ pub mod tree;
 #[cfg(feature = "sync")]
 #[path = ""]
 pub mod sync {
-    pub use hadris_io::sync::{Read, Write, Seek};
     pub use hadris_io::SeekFrom;
+    pub use hadris_io::sync::{Read, Seek, Write};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
@@ -82,7 +82,7 @@ pub mod sync {
     }
 
     macro_rules! async_only {
-        ($($item:tt)*) => { };
+        ($($item:tt)*) => {};
     }
 
     #[path = "."]
@@ -102,15 +102,15 @@ pub mod sync {
 #[cfg(feature = "async")]
 #[path = ""]
 pub mod r#async {
-    pub use hadris_io::r#async::{Read, Write, Seek};
     pub use hadris_io::SeekFrom;
+    pub use hadris_io::r#async::{Read, Seek, Write};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
     macro_rules! sync_only {
-        ($($item:tt)*) => { };
+        ($($item:tt)*) => {};
     }
 
     macro_rules! async_only {

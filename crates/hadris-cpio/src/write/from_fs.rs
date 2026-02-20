@@ -45,9 +45,7 @@ impl FileTree {
 fn scan_dir(dir: &Path, out: &mut Vec<FileNode>) -> core::result::Result<(), FromFsError> {
     use std::os::unix::fs::MetadataExt;
 
-    let mut entries: Vec<_> = std::fs::read_dir(dir)?
-        .filter_map(|e| e.ok())
-        .collect();
+    let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|e| e.file_name());
 
     for entry in entries {

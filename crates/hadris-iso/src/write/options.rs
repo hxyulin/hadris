@@ -1,9 +1,9 @@
 use alloc::string::String;
 
 use super::super::boot::options::BootOptions;
-use crate::joliet::JolietLevel;
 use super::super::read::PathSeparator;
 use super::super::rrip::RripOptions;
+use crate::joliet::JolietLevel;
 
 /// Hybrid boot options for creating bootable ISO images from USB/disk.
 ///

@@ -16,6 +16,16 @@ pub struct FileExtent {
     pub length: u64,
 }
 
+impl core::fmt::Display for FileExtent {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.is_empty() {
+            write!(f, "empty")
+        } else {
+            write!(f, "sector {} ({} bytes)", self.sector, self.length)
+        }
+    }
+}
+
 impl FileExtent {
     /// Create a new file extent
     pub fn new(sector: u32, length: u64) -> Self {
@@ -54,6 +64,15 @@ impl std::fmt::Debug for FileData {
     }
 }
 
+impl core::fmt::Display for FileData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Buffer(b) => write!(f, "buffer ({} bytes)", b.len()),
+            Self::Path(p) => write!(f, "path ({})", p.display()),
+        }
+    }
+}
+
 impl FileData {
     /// Get the size of the file data
     pub fn size(&self) -> std::io::Result<u64> {
@@ -83,6 +102,12 @@ pub struct FileEntry {
     pub data: FileData,
     /// Unique ID for this file (used by UDF)
     pub unique_id: u64,
+}
+
+impl core::fmt::Display for FileEntry {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.name)
+    }
 }
 
 impl FileEntry {
@@ -127,6 +152,13 @@ pub struct Directory {
     pub udf_icb_location: u32,
     /// Directory extent for ISO (sector and size)
     pub iso_extent: FileExtent,
+}
+
+impl core::fmt::Display for Directory {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let name = if self.name.is_empty() { "/" } else { &self.name };
+        write!(f, "{} ({} files, {} subdirs)", name, self.files.len(), self.subdirs.len())
+    }
 }
 
 impl Directory {
@@ -211,6 +243,12 @@ impl Directory {
 pub struct FileTree {
     /// Root directory
     pub root: Directory,
+}
+
+impl core::fmt::Display for FileTree {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} files, {} directories", self.total_files(), self.total_dirs())
+    }
 }
 
 impl Default for FileTree {

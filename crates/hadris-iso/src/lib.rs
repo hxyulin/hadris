@@ -297,9 +297,9 @@ pub mod sync {
     //!
     //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
 
-    pub use hadris_io::sync::{Read, Write, Seek, ReadExt, Parsable, Writable};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
     pub use hadris_io::Result as IoResult;
+    pub use hadris_io::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
@@ -310,7 +310,7 @@ pub mod sync {
     }
 
     macro_rules! async_only {
-        ($($item:tt)*) => { };
+        ($($item:tt)*) => {};
     }
 
     #[path = "."]
@@ -532,16 +532,16 @@ pub mod r#async {
     //!
     //! All I/O operations use async `Read`/`Write`/`Seek` traits.
 
-    pub use hadris_io::r#async::{Read, Write, Seek, ReadExt, Parsable, Writable};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
     pub use hadris_io::Result as IoResult;
+    pub use hadris_io::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
     macro_rules! sync_only {
-        ($($item:tt)*) => { };
+        ($($item:tt)*) => {};
     }
 
     macro_rules! async_only {
@@ -550,21 +550,21 @@ pub mod r#async {
 
     #[path = "."]
     mod __inner {
-        pub mod io;
-        pub mod directory;
-        pub mod volume;
-        pub mod path;
         pub mod boot;
+        pub mod directory;
+        pub mod io;
+        #[cfg(feature = "write")]
+        pub mod modify;
+        pub mod path;
         #[cfg(feature = "alloc")]
-        pub mod susp;
+        pub mod read;
         #[cfg(feature = "alloc")]
         pub mod rrip;
         #[cfg(feature = "alloc")]
-        pub mod read;
+        pub mod susp;
+        pub mod volume;
         #[cfg(feature = "write")]
         pub mod write;
-        #[cfg(feature = "write")]
-        pub mod modify;
     }
     pub use __inner::*;
 }

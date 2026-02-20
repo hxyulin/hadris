@@ -119,10 +119,7 @@ fn is_rrip_identifier(er: &super::super::susp::ExtensionReference) -> bool {
         return false;
     }
     let identifier = &er.buf[4..4 + id_len];
-    matches!(
-        identifier,
-        b"RRIP_1991A" | b"IEEE_P1282" | b"IEEE_1282"
-    )
+    matches!(identifier, b"RRIP_1991A" | b"IEEE_P1282" | b"IEEE_1282")
 }
 
 /// Collect all system use entries from a directory record, following CE
@@ -331,15 +328,15 @@ fn parse_tf_timestamps(tf: &super::super::rrip::TfEntry) -> RripTimestamps {
     // Parse timestamps in order, assigning to the correct field
     let mut parsed: [Option<RripDateTime>; 7] = [None; 7];
     for (i, flag) in flags_in_order.iter().enumerate() {
-        if tf.flags.contains(*flag) {
-            if offset + stamp_size <= data.len() {
-                parsed[i] = Some(if long_form {
-                    parse_long_timestamp(&data[offset..offset + 17])
-                } else {
-                    parse_short_timestamp(&data[offset..offset + 7])
-                });
-                offset += stamp_size;
-            }
+        if tf.flags.contains(*flag)
+            && offset + stamp_size <= data.len()
+        {
+            parsed[i] = Some(if long_form {
+                parse_long_timestamp(&data[offset..offset + 17])
+            } else {
+                parse_short_timestamp(&data[offset..offset + 7])
+            });
+            offset += stamp_size;
         }
     }
 
@@ -454,4 +451,3 @@ pub(crate) async fn read_dir_size<DATA: Read + Seek>(
 }
 
 } // io_transform!
-

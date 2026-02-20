@@ -59,6 +59,16 @@ impl SessionInfo {
     }
 }
 
+impl core::fmt::Display for SessionInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "session {} (sectors {}-{})",
+            self.session_number, self.start_sector, self.end_sector
+        )
+    }
+}
+
 impl Default for SessionInfo {
     fn default() -> Self {
         Self {
@@ -131,6 +141,25 @@ pub enum OpticalMediaType {
     BdR = 10,
     /// BD-RE (rewritable Blu-ray, 25/50 GB).
     BdRe = 11,
+}
+
+impl core::fmt::Display for OpticalMediaType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::CdRom => write!(f, "CD-ROM"),
+            Self::CdR => write!(f, "CD-R"),
+            Self::CdRw => write!(f, "CD-RW"),
+            Self::DvdRom => write!(f, "DVD-ROM"),
+            Self::DvdR => write!(f, "DVD-R"),
+            Self::DvdPlusR => write!(f, "DVD+R"),
+            Self::DvdRw => write!(f, "DVD-RW"),
+            Self::DvdPlusRw => write!(f, "DVD+RW"),
+            Self::DvdRam => write!(f, "DVD-RAM"),
+            Self::BdRom => write!(f, "BD-ROM"),
+            Self::BdR => write!(f, "BD-R"),
+            Self::BdRe => write!(f, "BD-RE"),
+        }
+    }
 }
 
 impl OpticalMediaType {

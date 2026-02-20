@@ -13,12 +13,19 @@ fn write_archive(tree: &FileTree, use_crc: bool) -> Vec<u8> {
 #[test]
 fn roundtrip_single_file() {
     let mut tree = FileTree::new();
-    tree.add(FileNode::file("hello.txt", b"Hello, world!\n".to_vec(), 0o644));
+    tree.add(FileNode::file(
+        "hello.txt",
+        b"Hello, world!\n".to_vec(),
+        0o644,
+    ));
 
     let archive = write_archive(&tree, false);
 
     let mut reader = CpioReader::new(archive.as_slice());
-    let entry = reader.next_entry_alloc().unwrap().expect("expected an entry");
+    let entry = reader
+        .next_entry_alloc()
+        .unwrap()
+        .expect("expected an entry");
 
     assert_eq!(entry.name_str().unwrap(), "hello.txt");
     assert_eq!(entry.header().permissions(), 0o644);
@@ -214,7 +221,11 @@ fn roundtrip_offset_based_seek() {
 #[test]
 fn no_alloc_reader_with_fixed_buffer() {
     let mut tree = FileTree::new();
-    tree.add(FileNode::file("buf_test.txt", b"buffer test".to_vec(), 0o644));
+    tree.add(FileNode::file(
+        "buf_test.txt",
+        b"buffer test".to_vec(),
+        0o644,
+    ));
 
     let archive = write_archive(&tree, false);
     let mut reader = CpioReader::new(archive.as_slice());
@@ -304,7 +315,11 @@ fn error_truncated_header() {
 #[test]
 fn error_buffer_too_small() {
     let mut tree = FileTree::new();
-    tree.add(FileNode::file("very_long_filename.txt", b"data".to_vec(), 0o644));
+    tree.add(FileNode::file(
+        "very_long_filename.txt",
+        b"data".to_vec(),
+        0o644,
+    ));
 
     let archive = write_archive(&tree, false);
     let mut reader = CpioReader::new(archive.as_slice());
@@ -335,7 +350,13 @@ fn roundtrip_all_node_types() {
         1234567890,
     ));
     tree.add(FileNode::symlink("mylink", "/target"));
-    tree.add(FileNode::device("mynull", FileType::CharDevice, 1, 3, 0o666));
+    tree.add(FileNode::device(
+        "mynull",
+        FileType::CharDevice,
+        1,
+        3,
+        0o666,
+    ));
     tree.add(FileNode::fifo("myfifo", 0o644));
 
     let archive = write_archive(&tree, false);

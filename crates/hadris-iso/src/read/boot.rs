@@ -1,9 +1,9 @@
 use super::super::boot::{BaseBootCatalog, BootSectionHeaderEntry};
+use super::super::io::{self, Read, Seek, SeekFrom};
 use super::super::io::{IsoCursor, LogicalSector};
 use super::IsoImage;
 use bytemuck::Zeroable;
 use hadris_common::types::endian::Endian;
-use super::super::io::{self, Read, Seek, SeekFrom};
 use spin::Mutex;
 
 #[derive(Debug, Clone)]

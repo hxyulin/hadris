@@ -92,6 +92,30 @@ impl MbrPartitionType {
     }
 }
 
+impl core::fmt::Display for MbrPartitionType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Empty => write!(f, "Empty"),
+            Self::Fat12 => write!(f, "FAT12"),
+            Self::Fat16 => write!(f, "FAT16"),
+            Self::Extended => write!(f, "Extended"),
+            Self::Fat16Lba => write!(f, "FAT16 LBA"),
+            Self::Ntfs => write!(f, "NTFS"),
+            Self::Fat32 => write!(f, "FAT32"),
+            Self::Fat32Lba => write!(f, "FAT32 LBA"),
+            Self::ExtendedLba => write!(f, "Extended LBA"),
+            Self::Iso9660 => write!(f, "ISO 9660"),
+            Self::LinuxSwap => write!(f, "Linux swap"),
+            Self::LinuxNative => write!(f, "Linux"),
+            Self::LinuxLvm => write!(f, "Linux LVM"),
+            Self::LinuxRaid => write!(f, "Linux RAID"),
+            Self::ProtectiveMbr => write!(f, "GPT Protective"),
+            Self::EfiSystemPartition => write!(f, "EFI System"),
+            Self::Unknown(id) => write!(f, "Unknown (0x{:02X})", id),
+        }
+    }
+}
+
 /// A 3-byte CHS (Cylinder-Head-Sector) address.
 ///
 /// CHS addressing is largely obsolete but is still required for MBR compatibility.

@@ -1,8 +1,8 @@
 //! System Use Sharing Protocol
 
-use super::io::{self, Read, ReadExt};
 #[cfg(feature = "std")]
 use super::io::Writable;
+use super::io::{self, Read, ReadExt};
 
 use crate::types::U32LsbMsb;
 
@@ -465,11 +465,9 @@ impl Iterator for SystemUseIter<'_> {
                 SystemUseField::ParentLink(pl)
             }
             b"RE" => SystemUseField::Relocated,
-            b"ES" if !entry_data.is_empty() => {
-                SystemUseField::ExtensionSelector {
-                    extension_sequence: entry_data[0],
-                }
-            }
+            b"ES" if !entry_data.is_empty() => SystemUseField::ExtensionSelector {
+                extension_sequence: entry_data[0],
+            },
             _ => {
                 let mut buf = [0u8; 252];
                 let copy_len = entry_data.len().min(252);

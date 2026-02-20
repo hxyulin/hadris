@@ -21,11 +21,7 @@ pub fn create(directory: PathBuf, output: PathBuf, crc: bool) -> Result<()> {
         .context("Failed to write CPIO archive")?;
 
     let format_name = if crc { "newc+crc" } else { "newc" };
-    println!(
-        "Created {} archive: {}",
-        format_name,
-        output.display()
-    );
+    println!("Created {} archive: {}", format_name, output.display());
 
     Ok(())
 }

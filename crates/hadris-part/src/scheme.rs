@@ -30,6 +30,16 @@ pub enum PartitionSchemeType {
     Hybrid,
 }
 
+impl core::fmt::Display for PartitionSchemeType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Mbr => write!(f, "MBR"),
+            Self::Gpt => write!(f, "GPT"),
+            Self::Hybrid => write!(f, "Hybrid MBR"),
+        }
+    }
+}
+
 /// Information about a partition, independent of the underlying scheme.
 #[derive(Debug, Clone, Copy)]
 pub struct PartitionInfo {

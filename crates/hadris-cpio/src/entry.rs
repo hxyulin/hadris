@@ -1,3 +1,4 @@
+use core::fmt;
 use crate::error::Result;
 use super::header::RawNewcHeader;
 use crate::mode::FileType;
@@ -32,6 +33,12 @@ pub struct CpioEntryHeader {
     pub rdevminor: u32,
     /// CRC checksum (only meaningful in `070702` format).
     pub check: u32,
+}
+
+impl fmt::Display for CpioEntryHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ino {} ({} bytes)", self.ino, self.filesize)
+    }
 }
 
 impl CpioEntryHeader {

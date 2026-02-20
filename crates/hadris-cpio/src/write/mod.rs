@@ -9,11 +9,11 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use super::super::Write;
+use super::header::{CpioMagic, HEADER_SIZE, RawNewcHeader, TRAILER_NAME};
 use crate::error::{CpioError, Result};
-use super::header::{CpioMagic, RawNewcHeader, HEADER_SIZE, TRAILER_NAME};
 use crate::mode::{self, FileType};
 use file_tree::{FileNode, FileTree};
-use super::super::Write;
 
 /// Options for writing a CPIO archive.
 pub struct CpioWriteOptions {

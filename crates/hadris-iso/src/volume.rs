@@ -1,9 +1,9 @@
-#[cfg(feature = "alloc")]
-use alloc::vec::Vec;
-use core::{ffi::CStr, fmt::Debug};
 #[cfg(feature = "std")]
 use super::io::Parsable;
 use super::io::{self, Read, Write};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+use core::{ffi::CStr, fmt::Debug};
 
 use super::directory::RootDirectoryEntry;
 use crate::types::{

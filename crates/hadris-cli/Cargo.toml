@@ -7,8 +7,10 @@ license.workspace = true
 repository.workspace = true
 description = "CLI utility for filesystem operations"
 readme = "README.md"
+keywords = ["filesystem", "cli", "fat", "disk"]
+categories = ["command-line-utilities", "filesystem"]
 
 [dependencies]
 hadris-fat = { workspace = true, features = ["std", "read", "write", "lfn"] }
 
-clap = { version = "4.5.32", features = ["derive"] }
+clap.workspace = true

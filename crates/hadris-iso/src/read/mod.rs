@@ -1,10 +1,10 @@
-use crate::file::EntryType;
-use super::io::{self, IsoCursor, LogicalSector, Read, Seek};
-use crate::joliet::JolietLevel;
-use super::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
 use super::directory::DirectoryRef;
+use super::io::{self, IsoCursor, LogicalSector, Read, Seek};
 use super::path::{PathTableInfo, PathTableRef};
 use super::volume::VolumeDescriptorList;
+use super::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
+use crate::file::EntryType;
+use crate::joliet::JolietLevel;
 use hadris_common::types::endian::Endian;
 #[cfg(not(feature = "alloc"))]
 use hadris_common::types::no_alloc::ArrayVec;
@@ -22,8 +22,8 @@ sync_only! {
 use spin::Mutex;
 
 mod rrip;
-pub use rrip::*;
 pub(crate) use rrip::SuspInfo;
+pub use rrip::*;
 
 mod volume;
 

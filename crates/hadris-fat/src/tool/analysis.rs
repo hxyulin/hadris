@@ -5,13 +5,13 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::DerefMut;
 
-use crate::error::Result;
 use super::super::{
     dir::{DirectoryEntry, FatDir, FileEntry},
     fat_table::{Fat, Fat12, Fat16, Fat32, FatType},
     fs::FatFs,
     io::{Read, Seek},
 };
+use crate::error::Result;
 
 /// Statistics about a FAT filesystem.
 #[derive(Debug, Clone)]

@@ -34,15 +34,13 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
+use super::io::{self, Read, Seek, SeekFrom, Write};
 use hadris_common::types::endian::Endian;
 use hadris_common::types::extent::{Extent, FileType};
 use hadris_common::types::layout::{AllocationMap, DirectoryLayout, FileLayout};
-use super::io::{self, Read, Seek, SeekFrom, Write};
 
 use super::directory::{DirectoryRecord, DirectoryRef, FileFlags};
-use crate::file::EntryType;
 use super::io::{IsoCursor, LogicalSector};
-use crate::joliet::JolietLevel;
 use super::path::PathTableRef;
 use super::read::PathSeparator;
 use super::volume::{
@@ -50,6 +48,8 @@ use super::volume::{
     VolumeDescriptorList, VolumeDescriptorType,
 };
 use super::write::writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
+use crate::file::EntryType;
+use crate::joliet::JolietLevel;
 
 /// Operations that can be performed on an ISO image.
 #[derive(Debug, Clone)]

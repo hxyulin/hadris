@@ -4,11 +4,12 @@ use core::fmt;
 pub mod estimator;
 pub mod writer;
 
-use super::super::boot::{BootCatalog, BootInfoTable, BootSectionEntry, ElToritoWriter, Grub2BootInfoTable};
+use super::super::boot::{
+    BootCatalog, BootInfoTable, BootSectionEntry, ElToritoWriter, Grub2BootInfoTable,
+};
 use super::super::directory::{DirectoryRecord, DirectoryRef, FileFlags};
-use crate::file::EntryType;
+use super::super::io::{self, Read, Seek, SeekFrom, Write};
 use super::super::io::{IsoCursor, LogicalSector};
-use crate::joliet::JolietLevel;
 use super::super::path::PathTableRef;
 use super::super::read::PathSeparator;
 use super::super::rrip::RripBuilder;
@@ -17,18 +18,19 @@ use super::super::volume::{
     BootRecordVolumeDescriptor, PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor,
     VolumeDescriptor, VolumeDescriptorHeader, VolumeDescriptorList, VolumeDescriptorType,
 };
-use writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
+use crate::file::EntryType;
+use crate::joliet::JolietLevel;
 use hadris_common::types::{
     endian::{Endian, EndianType},
     number::U32,
 };
-use super::super::io::{self, Read, Seek, SeekFrom, Write};
 use hadris_part::{
     gpt::{GptPartitionEntry, Guid},
     hybrid::HybridMbrBuilder,
     mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionType},
 };
 use options::PartitionScheme;
+use writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
 
 use alloc::{collections::VecDeque, string::String, vec, vec::Vec};
 
@@ -1038,6 +1040,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     /// Writes a GPT header to the given buffer (92 bytes).
+    #[allow(clippy::too_many_arguments)]
     fn write_gpt_header_bytes(
         disk_guid: Guid,
         my_lba: u64,

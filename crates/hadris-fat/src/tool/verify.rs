@@ -6,12 +6,12 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::ops::DerefMut;
 
-use crate::error::Result;
 use super::super::{
     dir::{DirectoryEntry, FatDir},
     fs::FatFs,
     io::{Read, Seek},
 };
+use crate::error::Result;
 
 /// Types of verification issues that can be detected.
 #[derive(Debug, Clone, PartialEq, Eq)]

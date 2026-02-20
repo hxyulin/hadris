@@ -3,7 +3,7 @@ use core::{
     ops::{Add, AddAssign},
 };
 
-pub use super::super::{Read, Write, Seek, ReadExt, Parsable, Writable};
+pub use super::super::{Parsable, Read, ReadExt, Seek, Writable, Write};
 pub use hadris_io::{Error, ErrorKind, Result, SeekFrom, try_io_result_option};
 
 /// A Logical Sector, size has to be 2^n and > 2048

@@ -1,5 +1,5 @@
-use bytemuck::Zeroable;
 use super::io::{self, Read, Write};
+use bytemuck::Zeroable;
 
 use super::io::LogicalSector;
 use crate::types::{U16LsbMsb, U32LsbMsb};
@@ -199,7 +199,6 @@ impl DirectoryRecord {
         sel.header_mut().len = record_len as u8;
         sel
     }
-
 }
 
 io_transform! {

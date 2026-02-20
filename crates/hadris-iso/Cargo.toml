@@ -18,7 +18,7 @@ read = ["hadris-common/bytemuck"]
 # Heap allocation without full std
 alloc = []
 # Standard library support (includes alloc)
-std = ["sync", "hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "dep:tracing", "dep:chrono"]
+std = ["sync", "hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "dep:tracing", "dep:chrono", "chrono/std", "chrono/clock"]
 
 sync = ["hadris-io/sync", "hadris-common/sync", "hadris-part/sync"]
 async = ["hadris-io/async", "hadris-common/async", "hadris-part/async"]

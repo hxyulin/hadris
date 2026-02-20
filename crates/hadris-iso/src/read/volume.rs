@@ -1,6 +1,8 @@
 use spin::Mutex;
 
-use super::super::io::{self, IsoCursor, LogicalSector, Read, Seek, try_io_result_option as try_io};
+use super::super::io::{
+    self, IsoCursor, LogicalSector, Read, Seek, try_io_result_option as try_io,
+};
 use super::super::volume::VolumeDescriptor;
 
 sync_only! {

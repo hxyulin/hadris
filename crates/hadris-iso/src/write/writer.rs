@@ -2,7 +2,9 @@ use alloc::{collections::BTreeMap, collections::VecDeque, string::String, sync::
 use hadris_common::types::endian::EndianType;
 use super::super::io::{self, Write};
 
-use crate::file::{EntryType, ConvertedName, convert_l1, convert_l2, convert_l3, convert_joliet3};
+use crate::file::EntryType;
+#[cfg(test)]
+use crate::file::{convert_l1, convert_l2, convert_l3, convert_joliet3};
 use super::super::io::LogicalSector;
 use super::super::path::PathTableEntryHeader;
 use super::super::read::PathSeparator;

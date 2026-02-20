@@ -15,9 +15,17 @@ impl fmt::Debug for ShortFileName {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("disallowed characters in short file name")]
+#[derive(Debug)]
 pub struct CreateShortFileNameError;
+
+impl fmt::Display for CreateShortFileNameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("disallowed characters in short file name")
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for CreateShortFileNameError {}
 
 impl ShortFileName {
     pub const ALLOWED_SYMBOLS: &'static [u8] = b"$%'-_@~`!(){}^#&";

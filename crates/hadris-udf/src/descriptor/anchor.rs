@@ -1,8 +1,8 @@
 //! Anchor Volume Descriptor Pointer (ECMA-167 3/10.2)
 
+use super::super::super::{Read, Seek, SeekFrom};
 use super::{DescriptorTag, ExtentDescriptor, TagIdentifier};
 use crate::error::{UdfError, UdfResult};
-use super::super::super::{Read, Seek, SeekFrom};
 
 /// Anchor Volume Descriptor Pointer (AVDP)
 ///

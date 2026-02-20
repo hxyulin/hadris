@@ -132,9 +132,9 @@ pub mod sync {
     //!
     //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
 
-    pub use hadris_io::sync::{Read, Write, Seek, ReadExt, Parsable, Writable};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
     pub use hadris_io::Result as IoResult;
+    pub use hadris_io::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
@@ -145,15 +145,15 @@ pub mod sync {
     }
 
     macro_rules! async_only {
-        ($($item:tt)*) => { };
+        ($($item:tt)*) => {};
     }
 
     #[path = "."]
     mod __inner {
-        /// Raw 110-byte ASCII newc header parsing and construction.
-        pub mod header;
         /// Decoded entry header with typed fields.
         pub mod entry;
+        /// Raw 110-byte ASCII newc header parsing and construction.
+        pub mod header;
         /// Streaming CPIO archive reader.
         #[cfg(feature = "read")]
         pub mod read;
@@ -164,16 +164,18 @@ pub mod sync {
     pub use __inner::*;
 
     // Convenience re-exports
-    pub use __inner::header::{CpioMagic, RawNewcHeader, HEADER_SIZE, MAGIC_NEWC, MAGIC_NEWC_CRC, TRAILER_NAME};
     pub use __inner::entry::CpioEntryHeader;
-    #[cfg(feature = "read")]
-    pub use __inner::read::{CpioEntry, CpioReader};
+    pub use __inner::header::{
+        CpioMagic, HEADER_SIZE, MAGIC_NEWC, MAGIC_NEWC_CRC, RawNewcHeader, TRAILER_NAME,
+    };
     #[cfg(all(feature = "read", feature = "alloc"))]
     pub use __inner::read::CpioEntryOwned;
-    #[cfg(feature = "write")]
-    pub use __inner::write::{CpioWriteOptions, CpioWriter};
+    #[cfg(feature = "read")]
+    pub use __inner::read::{CpioEntry, CpioReader};
     #[cfg(feature = "write")]
     pub use __inner::write::file_tree::{FileNode, FileTree};
+    #[cfg(feature = "write")]
+    pub use __inner::write::{CpioWriteOptions, CpioWriter};
 }
 
 // ---------------------------------------------------------------------------
@@ -187,16 +189,16 @@ pub mod r#async {
     //!
     //! All I/O operations use async `Read`/`Write`/`Seek` traits.
 
-    pub use hadris_io::r#async::{Read, Write, Seek, ReadExt, Parsable, Writable};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
     pub use hadris_io::Result as IoResult;
+    pub use hadris_io::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
+    pub use hadris_io::{Error, ErrorKind, SeekFrom};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
     macro_rules! sync_only {
-        ($($item:tt)*) => { };
+        ($($item:tt)*) => {};
     }
 
     macro_rules! async_only {
@@ -205,8 +207,8 @@ pub mod r#async {
 
     #[path = "."]
     mod __inner {
-        pub mod header;
         pub mod entry;
+        pub mod header;
         #[cfg(feature = "read")]
         pub mod read;
         #[cfg(feature = "write")]

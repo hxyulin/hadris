@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 readme = "../../README.md"
 description = "A collection of crates for working with various file formats."
+keywords = ["filesystem", "iso9660", "fat32", "udf", "cpio"]
 categories = ["filesystem", "encoding"]
 
 [features]

@@ -2,8 +2,8 @@
 //!
 //! This is used for booting from CDs and DVDs
 
-use core::fmt::Debug;
 use super::io::{self, Read, Seek, Write};
+use core::fmt::Debug;
 
 use crate::types::{Endian, LittleEndian, U16, U32};
 #[cfg(feature = "alloc")]
@@ -93,7 +93,6 @@ impl BaseBootCatalog {
             default_entry: BootSectionEntry::new(media_type, load_segment, sector_count, load_rba),
         }
     }
-
 }
 
 /// Boot catalogue (requires alloc feature for dynamic sections)

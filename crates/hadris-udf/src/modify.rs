@@ -29,10 +29,10 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use super::super::{Read, Seek, SeekFrom, Write};
 use hadris_common::types::extent::{Extent, FileType};
 use hadris_common::types::layout::{AllocationMap, DirectoryLayout, FileLayout};
 use hadris_io as io;
-use super::super::{Read, Write, Seek, SeekFrom};
 
 use super::descriptor::AnchorVolumeDescriptorPointer;
 use crate::{AVDP_LOCATION, SECTOR_SIZE, UdfError, UdfRevision};

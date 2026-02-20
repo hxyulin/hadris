@@ -7,7 +7,7 @@
 //! 4. Writing UDF metadata
 //! 5. Finalizing the image
 
-use super::super::{Read, Write, Seek, SeekFrom};
+use super::super::{Read, Seek, SeekFrom, Write};
 
 use hadris_iso::read::PathSeparator;
 use hadris_udf::descriptor::{

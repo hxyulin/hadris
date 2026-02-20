@@ -1,7 +1,7 @@
-use super::entry::CpioEntryHeader;
-use crate::error::{CpioError, Result};
-use super::header::{CpioMagic, RawNewcHeader, HEADER_SIZE, TRAILER_NAME};
 use super::super::Read;
+use super::entry::CpioEntryHeader;
+use super::header::{CpioMagic, HEADER_SIZE, RawNewcHeader, TRAILER_NAME};
+use crate::error::{CpioError, Result};
 
 #[cfg(feature = "alloc")]
 use alloc::vec;

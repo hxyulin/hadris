@@ -175,7 +175,13 @@ impl FileNode {
     }
 
     /// Create a block or character device node.
-    pub fn device(name: &str, device_type: FileType, major: u32, minor: u32, permissions: u32) -> Self {
+    pub fn device(
+        name: &str,
+        device_type: FileType,
+        major: u32,
+        minor: u32,
+        permissions: u32,
+    ) -> Self {
         FileNode::DeviceNode {
             name: Arc::new(String::from(name)),
             device_type,
