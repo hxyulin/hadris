@@ -88,6 +88,15 @@ impl Error {
         Self { kind }
     }
 
+    /// Create an error with `ErrorKind::Other`.
+    ///
+    /// This mirrors `std::io::Error::other()` for no-std compatibility.
+    pub const fn other(_msg: &'static str) -> Self {
+        Self {
+            kind: ErrorKind::Other,
+        }
+    }
+
     /// Get the error kind
     pub const fn kind(&self) -> ErrorKind {
         self.kind
