@@ -42,7 +42,7 @@ bytemuck = { version = "1.22.0", default-features = false }
 bitflags = "2.9.0"
 static_assertions = "1.1.0"
 criterion = "0.5.1"
-thiserror = "2.0.12"
+thiserror = { version = "2.0.12", default-features = false }
 cfg-if = "1.0.0"
 tempfile = "3.19.1"
 chrono = { version = "0.4.40", default-features = false }
