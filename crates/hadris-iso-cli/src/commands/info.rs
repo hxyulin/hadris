@@ -73,7 +73,14 @@ pub fn info(args: InfoArgs) -> Result<()> {
                         has_joliet = true;
                         println!();
                         println!("Joliet Extension ({:?}):", level);
-                        println!("  Volume ID:        {}", svd.volume_identifier);
+                        // Joliet volume identifier is UTF-16BE encoded
+                        let raw = svd.volume_identifier.as_bytes();
+                        let utf16: Vec<u16> = raw.as_slice()
+                            .chunks_exact(2)
+                            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                            .collect();
+                        let vol_name = String::from_utf16_lossy(&utf16);
+                        println!("  Volume ID:        {}", vol_name.trim_end());
                         break;
                     }
                 }

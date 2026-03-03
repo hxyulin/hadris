@@ -471,6 +471,93 @@ fn test_rrip_detection_with_joliet_and_rock_ridge() {
 }
 
 // =============================================================================
+// Regression: PVD root directory record flags (7z compatibility)
+// =============================================================================
+
+#[test]
+fn test_pvd_root_directory_has_directory_flag() {
+    use hadris_iso::directory::FileFlags;
+
+    let files = vec![IsoFile::File {
+        name: Arc::new("test.txt".to_string()),
+        contents: b"test".to_vec(),
+    }];
+    let iso_data = create_iso(files, CreationFeatures::default());
+
+    // PVD is at sector 16 (offset 32768). Root directory record at PVD offset 156.
+    // File flags byte is at offset 25 within the directory record.
+    let pvd_root_flags = iso_data[32768 + 156 + 25];
+    assert_eq!(
+        pvd_root_flags,
+        FileFlags::DIRECTORY.bits(),
+        "PVD root directory record must have DIRECTORY flag set"
+    );
+}
+
+#[test]
+fn test_pvd_root_directory_record_fields() {
+    let files = vec![IsoFile::File {
+        name: Arc::new("test.txt".to_string()),
+        contents: b"test".to_vec(),
+    }];
+    let iso_data = create_iso(files, CreationFeatures::default());
+
+    // Root directory record starts at PVD offset 156 (byte 32768 + 156 = 32924)
+    let base = 32768 + 156;
+    let record_len = iso_data[base];
+    let file_id_len = iso_data[base + 32];
+    let vol_seq_le = u16::from_le_bytes([iso_data[base + 28], iso_data[base + 29]]);
+
+    assert_eq!(record_len, 34, "Root directory record length should be 34");
+    assert_eq!(file_id_len, 1, "Root directory file_identifier_len should be 1");
+    assert_eq!(vol_seq_le, 1, "Root directory volume_sequence_number should be 1");
+}
+
+// =============================================================================
+// Regression: Joliet SVD volume name encoding (UTF-16BE)
+// =============================================================================
+
+#[test]
+fn test_joliet_svd_volume_name_utf16be() {
+    let files = vec![IsoFile::File {
+        name: Arc::new("test.txt".to_string()),
+        contents: b"test".to_vec(),
+    }];
+
+    // Create ISO with Joliet and custom volume name
+    let input = InputFiles {
+        path_separator: PathSeparator::ForwardSlash,
+        files,
+    };
+    let options = FormatOptions {
+        volume_name: "MYISO".to_string(),
+        sector_size: 2048,
+        path_separator: PathSeparator::ForwardSlash,
+        features: CreationFeatures::with_joliet(hadris_iso::joliet::JolietLevel::Level3),
+    };
+    let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
+    IsoImageWriter::format_new(&mut buffer, input, options).unwrap();
+    let iso_data = buffer.into_inner();
+
+    // Find the Joliet SVD (type 0x02 = Supplementary VD, after PVD at sector 16)
+    // SVD should be at sector 17
+    let svd_offset = 17 * 2048;
+    assert_eq!(iso_data[svd_offset], 0x02, "Sector 17 should be SVD");
+
+    // Volume identifier is at offset 40, 32 bytes
+    let vol_id = &iso_data[svd_offset + 40..svd_offset + 40 + 32];
+
+    // "MYISO" in UTF-16BE: 00 4D 00 59 00 49 00 53 00 4F
+    assert_eq!(vol_id[0..2], [0x00, b'M'], "First char should be UTF-16BE 'M'");
+    assert_eq!(vol_id[2..4], [0x00, b'Y'], "Second char should be UTF-16BE 'Y'");
+    assert_eq!(vol_id[4..6], [0x00, b'I'], "Third char should be UTF-16BE 'I'");
+    assert_eq!(vol_id[6..8], [0x00, b'S'], "Fourth char should be UTF-16BE 'S'");
+    assert_eq!(vol_id[8..10], [0x00, b'O'], "Fifth char should be UTF-16BE 'O'");
+    // Remaining should be UTF-16BE spaces (0x00, 0x20)
+    assert_eq!(vol_id[10..12], [0x00, 0x20], "Padding should be UTF-16BE space");
+}
+
+// =============================================================================
 // TF Timestamp Parsing Tests (unit-level)
 // =============================================================================
 

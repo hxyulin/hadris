@@ -516,6 +516,28 @@ pub struct SupplementaryVolumeDescriptor {
 
 impl SupplementaryVolumeDescriptor {
     pub fn new_svd(name: &str, sectors: u32, escape_sequences: [u8; 32]) -> Self {
+        // Joliet SVD requires all strings to be encoded as UTF-16BE
+        let volume_identifier = {
+            let mut bytes = [0u8; 32];
+            // Fill with UTF-16BE spaces (0x00, 0x20)
+            for i in (0..32).step_by(2) {
+                bytes[i] = 0x00;
+                bytes[i + 1] = 0x20;
+            }
+            // Encode name as UTF-16BE
+            let mut pos = 0;
+            for c in name.encode_utf16() {
+                if pos + 2 > 32 {
+                    break;
+                }
+                let be = c.to_be_bytes();
+                bytes[pos] = be[0];
+                bytes[pos + 1] = be[1];
+                pos += 2;
+            }
+            IsoStrD::from_bytes_exact(bytes)
+        };
+
         Self {
             header: VolumeDescriptorHeader {
                 descriptor_type: VolumeDescriptorType::SupplementaryVolumeDescriptor.to_u8(),
@@ -524,7 +546,7 @@ impl SupplementaryVolumeDescriptor {
             },
             flags: 0,
             system_identifier: IsoStrA::empty(),
-            volume_identifier: IsoStrD::from_str(name).unwrap(),
+            volume_identifier,
             unused1: [0; 8],
             volume_space_size: U32LsbMsb::new(sectors),
             escape_sequences,

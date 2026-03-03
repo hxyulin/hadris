@@ -149,6 +149,10 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
         self.len() == 0
     }
 
+    pub fn as_bytes(&self) -> &[u8; N] {
+        &self.chars
+    }
+
     pub const fn from_bytes_exact(bytes: [u8; N]) -> Self {
         Self {
             chars: bytes,
