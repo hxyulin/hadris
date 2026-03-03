@@ -8,7 +8,7 @@ use hadris_iso::volume::VolumeDescriptor;
 
 use crate::args::InfoArgs;
 
-use super::{Result, detect_rock_ridge};
+use super::Result;
 
 /// Display information about an ISO image
 pub fn info(args: InfoArgs) -> Result<()> {
@@ -22,7 +22,7 @@ pub fn info(args: InfoArgs) -> Result<()> {
     // Read and display volume descriptors
     let mut has_boot = false;
     let mut has_joliet = false;
-    let has_rockridge = detect_rock_ridge(&iso);
+    let has_rockridge = iso.supports_rrip();
 
     for vd in iso.read_volume_descriptors() {
         let vd = vd?;
@@ -73,7 +73,14 @@ pub fn info(args: InfoArgs) -> Result<()> {
                         has_joliet = true;
                         println!();
                         println!("Joliet Extension ({:?}):", level);
-                        println!("  Volume ID:        {}", svd.volume_identifier);
+                        // Joliet volume identifier is UTF-16BE encoded
+                        let raw = svd.volume_identifier.as_bytes();
+                        let utf16: Vec<u16> = raw.as_slice()
+                            .chunks_exact(2)
+                            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                            .collect();
+                        let vol_name = String::from_utf16_lossy(&utf16);
+                        println!("  Volume ID:        {}", vol_name.trim_end());
                         break;
                     }
                 }

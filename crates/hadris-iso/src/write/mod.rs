@@ -367,6 +367,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 EntryType::Level1 { .. } | EntryType::Level2 { .. } => {
                     let mut pvd = PrimaryVolumeDescriptor::new(&self.ops.volume_name, 0);
                     pvd.dir_record.header.len = 34;
+                    pvd.dir_record.header.flags = FileFlags::DIRECTORY.bits();
+                    pvd.dir_record.header.file_identifier_len = 1;
+                    pvd.dir_record.header.volume_sequence_number.write(1);
                     pvd.volume_sequence_number.write(1);
                     volume_descriptors.push(VolumeDescriptor::Primary(pvd));
                 }
@@ -374,6 +377,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     // Version 2 for EVD
                     let mut evd = SupplementaryVolumeDescriptor::new_evd(&self.ops.volume_name, 0);
                     evd.dir_record.header.len = 34;
+                    evd.dir_record.header.flags = FileFlags::DIRECTORY.bits();
+                    evd.dir_record.header.file_identifier_len = 1;
+                    evd.dir_record.header.volume_sequence_number.write(1);
                     evd.volume_sequence_number.write(1);
                     volume_descriptors.push(VolumeDescriptor::Supplementary(evd));
                 }
@@ -384,6 +390,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                         level.escape_sequence(),
                     );
                     svd.dir_record.header.len = 34;
+                    svd.dir_record.header.flags = FileFlags::DIRECTORY.bits();
+                    svd.dir_record.header.file_identifier_len = 1;
+                    svd.dir_record.header.volume_sequence_number.write(1);
                     svd.volume_sequence_number.write(1);
                     volume_descriptors.push(VolumeDescriptor::Supplementary(svd));
                 }
@@ -783,9 +792,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             .map(|h| h.partition_scheme)
         {
             None | Some(PartitionScheme::None) => {
-                // No partition table - write a minimal MBR for basic compatibility
-                // This is the legacy behavior
-                self.write_legacy_mbr(end_sector).await?;
+                // No partition table requested - leave the system area empty.
+                // Writing an MBR here would cause the kernel to detect a
+                // partition table and prevent the ISO from being mounted.
             }
             Some(PartitionScheme::Mbr) => {
                 self.write_mbr_boot(end_sector).await?;
