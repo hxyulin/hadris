@@ -453,6 +453,24 @@ fn test_nm_parent_directory() {
 }
 
 // =============================================================================
+// Regression: RRIP detection with Joliet + Rock Ridge (GitHub issue #6)
+// =============================================================================
+
+#[test]
+fn test_rrip_detection_with_joliet_and_rock_ridge() {
+    let files = vec![IsoFile::File {
+        name: Arc::new("hello.txt".to_string()),
+        contents: b"Hello, World!".to_vec(),
+    }];
+    let iso_data = create_iso(files, CreationFeatures::with_extensions());
+    let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
+    assert!(
+        image.supports_rrip(),
+        "RRIP should be detected with Joliet+RR"
+    );
+}
+
+// =============================================================================
 // TF Timestamp Parsing Tests (unit-level)
 // =============================================================================
 

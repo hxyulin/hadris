@@ -8,7 +8,7 @@ use hadris_iso::volume::VolumeDescriptor;
 
 use crate::args::InfoArgs;
 
-use super::{Result, detect_rock_ridge};
+use super::Result;
 
 /// Display information about an ISO image
 pub fn info(args: InfoArgs) -> Result<()> {
@@ -22,7 +22,7 @@ pub fn info(args: InfoArgs) -> Result<()> {
     // Read and display volume descriptors
     let mut has_boot = false;
     let mut has_joliet = false;
-    let has_rockridge = detect_rock_ridge(&iso);
+    let has_rockridge = iso.supports_rrip();
 
     for vd in iso.read_volume_descriptors() {
         let vd = vd?;

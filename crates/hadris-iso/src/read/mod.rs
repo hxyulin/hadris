@@ -69,7 +69,7 @@ impl RootDirs {
         let mut best = (0, EntryType::default());
         for (idx, dir) in self.dirs.iter().enumerate() {
             if dir.ty > best.1 {
-                best.0 = idx;
+                best = (idx, dir.ty);
             }
         }
         self.dirs[best.0]

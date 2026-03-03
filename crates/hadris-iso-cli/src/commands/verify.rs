@@ -9,7 +9,7 @@ use hadris_iso::volume::VolumeDescriptor;
 
 use crate::args::VerifyArgs;
 
-use super::{Result, detect_rock_ridge};
+use super::Result;
 
 // ── Verify types ──
 
@@ -490,8 +490,7 @@ fn check_rrip_fields<R: Read + Seek>(iso: &IsoImage<R>, verbose: bool) -> Vec<Ve
         }
     }
 
-    // Detect Rock Ridge by looking for PX/NM in root's system use area
-    let has_rrip = detect_rock_ridge(iso);
+    let has_rrip = iso.supports_rrip();
     if !has_rrip {
         if verbose {
             println!("  No Rock Ridge detected, skipping RRIP checks");

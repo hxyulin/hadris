@@ -783,9 +783,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             .map(|h| h.partition_scheme)
         {
             None | Some(PartitionScheme::None) => {
-                // No partition table - write a minimal MBR for basic compatibility
-                // This is the legacy behavior
-                self.write_legacy_mbr(end_sector).await?;
+                // No partition table requested - leave the system area empty.
+                // Writing an MBR here would cause the kernel to detect a
+                // partition table and prevent the ISO from being mounted.
             }
             Some(PartitionScheme::Mbr) => {
                 self.write_mbr_boot(end_sector).await?;

@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, Seek, Write};
+use std::io::{self, Write};
 use std::num::NonZeroU16;
 
 use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
@@ -144,17 +144,11 @@ pub fn create(args: CreateArgs) -> Result<()> {
     // Write ISO to buffer
     IsoImageWriter::format_new(&mut buffer, input, format_options)?;
 
-    // Seek to end to get actual size used
-    buffer.seek(io::SeekFrom::End(0))?;
-    let mut actual_size = buffer.position() as usize;
-
-    // ISO must be at least 32 sectors
-    let min_size = 32 * 2048;
-    if actual_size < min_size {
-        actual_size = min_size;
-    }
-
+    // Read volume_space_size from PVD (LE u32 at byte offset 32848)
     let data = buffer.into_inner();
+    let vol_size_le = &data[32848..32852];
+    let volume_sectors = u32::from_le_bytes(vol_size_le.try_into().unwrap()) as usize;
+    let actual_size = (volume_sectors * 2048).max(32 * 2048);
 
     // Write the ISO to file
     let mut file = File::create(&args.output)?;
