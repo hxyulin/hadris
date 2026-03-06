@@ -30,7 +30,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "1.0.2"
+version = "1.0.3"
 edition = "2024"
 authors = ["hxyulin"]
 license = "MIT"
@@ -52,12 +52,12 @@ clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 
 # Internal crates
-hadris-macros = { version = "1.0.2", path = "crates/hadris-macros" }
-hadris-io = { version = "1.0.2", path = "crates/hadris-io", default-features = false }
-hadris-iso = { version = "1.0.2", path = "crates/hadris-iso", default-features = false }
-hadris-udf = { version = "1.0.2", path = "crates/hadris-udf", default-features = false }
-hadris-cd = { version = "1.0.2", path = "crates/hadris-cd", default-features = false }
-hadris-fat = { version = "1.0.2", path = "crates/hadris-fat", default-features = false }
-hadris-common = { version = "1.0.2", path = "crates/hadris-common", default-features = false }
-hadris-part = { version = "1.0.2", path = "crates/hadris-part", default-features = false }
-hadris-cpio = { version = "1.0.2", path = "crates/hadris-cpio", default-features = false }
+hadris-macros = { version = "1.0.3", path = "crates/hadris-macros" }
+hadris-io = { version = "1.0.3", path = "crates/hadris-io", default-features = false }
+hadris-iso = { version = "1.0.3", path = "crates/hadris-iso", default-features = false }
+hadris-udf = { version = "1.0.3", path = "crates/hadris-udf", default-features = false }
+hadris-cd = { version = "1.0.3", path = "crates/hadris-cd", default-features = false }
+hadris-fat = { version = "1.0.3", path = "crates/hadris-fat", default-features = false }
+hadris-common = { version = "1.0.3", path = "crates/hadris-common", default-features = false }
+hadris-part = { version = "1.0.3", path = "crates/hadris-part", default-features = false }
+hadris-cpio = { version = "1.0.3", path = "crates/hadris-cpio", default-features = false }
