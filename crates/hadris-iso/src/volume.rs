@@ -7,7 +7,8 @@ use core::{ffi::CStr, fmt::Debug};
 
 use super::directory::RootDirectoryEntry;
 use crate::types::{
-    BigEndian, DecDateTime, Endian, IsoStrA, IsoStrD, LittleEndian, U16LsbMsb, U32, U32LsbMsb,
+    BigEndian, Charset, DecDateTime, Endian, IsoStr, IsoStrA, IsoStrD, LittleEndian, U16LsbMsb,
+    U32, U32LsbMsb,
 };
 
 /// Errors that can occur when parsing volume descriptors
@@ -515,29 +516,41 @@ pub struct SupplementaryVolumeDescriptor {
 }
 
 impl SupplementaryVolumeDescriptor {
-    pub fn new_svd(name: &str, sectors: u32, escape_sequences: [u8; 32]) -> Self {
-        // Joliet SVD requires all strings to be encoded as UTF-16BE
-        let volume_identifier = {
-            let mut bytes = [0u8; 32];
-            // Fill with UTF-16BE spaces (0x00, 0x20)
-            for i in (0..32).step_by(2) {
-                bytes[i] = 0x00;
-                bytes[i + 1] = 0x20;
+    /// Encode a string as UTF-16BE into a fixed-size byte array, padded with UTF-16BE spaces.
+    pub fn utf16be_str<C: Charset, const N: usize>(s: &str) -> IsoStr<C, N> {
+        let mut bytes = [0u8; N];
+        let paired = N & !1; // round down to even
+        // Fill with UTF-16BE spaces (0x00, 0x20)
+        for i in (0..paired).step_by(2) {
+            bytes[i] = 0x00;
+            bytes[i + 1] = 0x20;
+        }
+        // Encode string as UTF-16BE
+        let mut pos = 0;
+        for c in s.encode_utf16() {
+            if pos + 2 > paired {
+                break;
             }
-            // Encode name as UTF-16BE
-            let mut pos = 0;
-            for c in name.encode_utf16() {
-                if pos + 2 > 32 {
-                    break;
-                }
-                let be = c.to_be_bytes();
-                bytes[pos] = be[0];
-                bytes[pos + 1] = be[1];
-                pos += 2;
-            }
-            IsoStrD::from_bytes_exact(bytes)
-        };
+            let be = c.to_be_bytes();
+            bytes[pos] = be[0];
+            bytes[pos + 1] = be[1];
+            pos += 2;
+        }
+        IsoStr::from_bytes_exact(bytes)
+    }
 
+    /// Create an empty UTF-16BE padded field (all UTF-16BE spaces).
+    pub fn utf16be_empty<C: Charset, const N: usize>() -> IsoStr<C, N> {
+        let mut bytes = [0u8; N];
+        let paired = N & !1;
+        for i in (0..paired).step_by(2) {
+            bytes[i] = 0x00;
+            bytes[i + 1] = 0x20;
+        }
+        IsoStr::from_bytes_exact(bytes)
+    }
+
+    pub fn new_svd(name: &str, sectors: u32, escape_sequences: [u8; 32]) -> Self {
         Self {
             header: VolumeDescriptorHeader {
                 descriptor_type: VolumeDescriptorType::SupplementaryVolumeDescriptor.to_u8(),
@@ -545,8 +558,8 @@ impl SupplementaryVolumeDescriptor {
                 version: 1,
             },
             flags: 0,
-            system_identifier: IsoStrA::empty(),
-            volume_identifier,
+            system_identifier: Self::utf16be_empty(),
+            volume_identifier: Self::utf16be_str(name),
             unused1: [0; 8],
             volume_space_size: U32LsbMsb::new(sectors),
             escape_sequences,
@@ -559,13 +572,13 @@ impl SupplementaryVolumeDescriptor {
             type_m_path_table: U32::<BigEndian>::new(0),
             opt_type_m_path_table: U32::<BigEndian>::new(0),
             dir_record: RootDirectoryEntry::default(),
-            volume_set_identifier: IsoStrD::empty(),
-            publisher_identifier: IsoStrA::empty(),
-            preparer_identifier: IsoStrA::empty(),
-            application_identifier: IsoStrA::from_str("HADRIS-ISO").unwrap(),
-            copyright_file_identifier: IsoStrD::empty(),
-            abstract_file_identifier: IsoStrD::empty(),
-            bibliographic_file_identifier: IsoStrD::empty(),
+            volume_set_identifier: Self::utf16be_empty(),
+            publisher_identifier: Self::utf16be_empty(),
+            preparer_identifier: Self::utf16be_empty(),
+            application_identifier: Self::utf16be_str("HADRIS-ISO"),
+            copyright_file_identifier: Self::utf16be_empty(),
+            abstract_file_identifier: Self::utf16be_empty(),
+            bibliographic_file_identifier: Self::utf16be_empty(),
             creation_date: DecDateTime::now(),
             modification_date: DecDateTime::now(),
             expiration_date: DecDateTime::now(),

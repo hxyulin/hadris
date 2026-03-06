@@ -35,6 +35,11 @@ fn test_multi_sector_directory() {
 
     let format_options = FormatOptions {
         volume_name: "MULTISECTOR".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures {
@@ -122,6 +127,11 @@ fn test_hadris_rockridge_roundtrip() {
 
     let format_options = FormatOptions {
         volume_name: "RRIP_TEST".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::with_rock_ridge(),

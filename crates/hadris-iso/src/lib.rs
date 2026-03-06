@@ -34,6 +34,8 @@
 //! # };
 //! # let options = FormatOptions {
 //! #     volume_name: "TEST".to_string(),
+//! #     system_id: None, volume_set_id: None, publisher_id: None,
+//! #     preparer_id: None, application_id: None,
 //! #     sector_size: 2048,
 //! #     path_separator: PathSeparator::ForwardSlash,
 //! #     features: CreationFeatures::default(),
@@ -92,6 +94,8 @@
 //! // Create the ISO
 //! let format_options = FormatOptions {
 //!     volume_name: "MY_BOOTABLE_ISO".to_string(),
+//!     system_id: None, volume_set_id: None, publisher_id: None,
+//!     preparer_id: None, application_id: None,
 //!     sector_size: 2048,
 //!     path_separator: PathSeparator::ForwardSlash,
 //!     features: CreationFeatures {
@@ -431,6 +435,8 @@ pub mod sync {
         /// # };
         /// # let options = FormatOptions {
         /// #     volume_name: "TEST".to_string(),
+        /// #     system_id: None, volume_set_id: None, publisher_id: None,
+        /// #     preparer_id: None, application_id: None,
         /// #     sector_size: 2048,
         /// #     path_separator: PathSeparator::ForwardSlash,
         /// #     features: CreationFeatures::default(),
@@ -480,6 +486,8 @@ pub mod sync {
         /// };
         /// let options = FormatOptions {
         ///     volume_name: "MY_ISO".to_string(),
+        ///     system_id: None, volume_set_id: None, publisher_id: None,
+        ///     preparer_id: None, application_id: None,
         ///     sector_size: 2048,
         ///     path_separator: PathSeparator::ForwardSlash,
         ///     features: CreationFeatures::default(),

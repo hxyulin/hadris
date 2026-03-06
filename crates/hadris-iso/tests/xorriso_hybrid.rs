@@ -34,6 +34,11 @@ fn test_hybrid_boot_mbr() {
 
     let format_options = hadris_iso::write::options::FormatOptions {
         volume_name: "HYBRID_TEST".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: hadris_iso::read::PathSeparator::ForwardSlash,
         features: hadris_iso::write::options::CreationFeatures {
@@ -102,6 +107,11 @@ fn test_hybrid_boot_gpt() {
 
     let format_options = hadris_iso::write::options::FormatOptions {
         volume_name: "GPT_TEST".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: hadris_iso::read::PathSeparator::ForwardSlash,
         features: hadris_iso::write::options::CreationFeatures {
@@ -173,6 +183,11 @@ fn test_hybrid_boot_dual() {
 
     let format_options = hadris_iso::write::options::FormatOptions {
         volume_name: "DUAL_BOOT".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: hadris_iso::read::PathSeparator::ForwardSlash,
         features: hadris_iso::write::options::CreationFeatures {

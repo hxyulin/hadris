@@ -44,7 +44,7 @@ pub struct CharsetD;
 pub struct CharsetD1;
 
 impl CharsetA {
-    const VALID_SYMBOLS: &[u8] = b"0123456789_!\"%$'()*+,-./:;<=>?";
+    const VALID_SYMBOLS: &[u8] = b" 0123456789_!\"%$'()*+,-./:;<=>?";
 
     fn valid_byte(b: u8) -> bool {
         b.is_ascii_uppercase() || Self::VALID_SYMBOLS.contains(&b)
@@ -142,7 +142,10 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
     }
 
     pub fn len(&self) -> usize {
-        self.chars.iter().position(|&c| c == b' ').unwrap_or(N)
+        match self.chars.iter().rposition(|&c| c != b' ' && c != 0) {
+            Some(pos) => pos + 1,
+            None => 0,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -321,7 +324,7 @@ impl<C: Charset> core::fmt::Debug for IsoString<C> {
 }
 
 pub type IsoStrA<const N: usize> = IsoStr<CharsetA, N>;
-pub type IsoStrD<const N: usize> = IsoStr<CharsetA, N>;
+pub type IsoStrD<const N: usize> = IsoStr<CharsetD, N>;
 #[cfg(feature = "alloc")]
 pub type IsoStringA = IsoString<CharsetA>;
 #[cfg(feature = "alloc")]
@@ -474,5 +477,39 @@ mod tests {
         let mut new = original.to_vec();
         CharsetD::substitute_invalid(new.iter_mut());
         assert_eq!(new, b"THISISATEST_NEW");
+    }
+
+    #[test]
+    fn test_iso_str_len_trailing_spaces() {
+        // "HELLO WORLD" followed by trailing spaces (using from_bytes_exact
+        // since space is the padding char, not in charset validation)
+        let mut bytes = [b' '; 20];
+        bytes[..11].copy_from_slice(b"HELLO WORLD");
+        let s = IsoStrA::<20>::from_bytes_exact(bytes);
+        assert_eq!(s.len(), 11);
+        assert_eq!(s.to_str(), "HELLO WORLD");
+    }
+
+    #[test]
+    fn test_iso_str_len_all_spaces() {
+        let s = IsoStrA::<10>::empty();
+        assert_eq!(s.len(), 0);
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn test_iso_str_len_no_trailing_spaces() {
+        let s = IsoStrA::<5>::from_str("ABCDE").unwrap();
+        assert_eq!(s.len(), 5);
+    }
+
+    #[test]
+    fn test_iso_str_len_embedded_spaces() {
+        // "A B C" should preserve embedded spaces in length
+        let mut bytes = [b' '; 10];
+        bytes[..5].copy_from_slice(b"A B C");
+        let s = IsoStrA::<10>::from_bytes_exact(bytes);
+        assert_eq!(s.len(), 5);
+        assert_eq!(s.to_str(), "A B C");
     }
 }

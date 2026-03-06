@@ -90,6 +90,11 @@ pub fn create(args: CreateArgs) -> Result<()> {
     // Configure format options
     let format_options = FormatOptions {
         volume_name: args.volume_name.clone(),
+        system_id: args.system_id.clone(),
+        volume_set_id: args.volume_set_id.clone(),
+        publisher_id: args.publisher_id.clone(),
+        preparer_id: args.preparer_id.clone(),
+        application_id: args.application_id.clone(),
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures {

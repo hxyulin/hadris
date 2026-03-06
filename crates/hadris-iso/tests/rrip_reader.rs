@@ -19,6 +19,11 @@ fn create_iso(files: Vec<IsoFile>, features: CreationFeatures) -> Vec<u8> {
     };
     let options = FormatOptions {
         volume_name: "TEST".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features,
@@ -531,6 +536,11 @@ fn test_joliet_svd_volume_name_utf16be() {
     };
     let options = FormatOptions {
         volume_name: "MYISO".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::with_joliet(hadris_iso::joliet::JolietLevel::Level3),
@@ -555,6 +565,97 @@ fn test_joliet_svd_volume_name_utf16be() {
     assert_eq!(vol_id[8..10], [0x00, b'O'], "Fifth char should be UTF-16BE 'O'");
     // Remaining should be UTF-16BE spaces (0x00, 0x20)
     assert_eq!(vol_id[10..12], [0x00, 0x20], "Padding should be UTF-16BE space");
+}
+
+#[test]
+fn test_joliet_svd_strings_are_utf16be() {
+    let files = vec![IsoFile::File {
+        name: Arc::new("test.txt".to_string()),
+        contents: b"test".to_vec(),
+    }];
+
+    let input = InputFiles {
+        path_separator: PathSeparator::ForwardSlash,
+        files,
+    };
+    let options = FormatOptions {
+        volume_name: "TEST".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: Some("MY PUBLISHER".to_string()),
+        preparer_id: Some("MY PREPARER".to_string()),
+        application_id: None,
+        sector_size: 2048,
+        path_separator: PathSeparator::ForwardSlash,
+        features: CreationFeatures::with_joliet(hadris_iso::joliet::JolietLevel::Level3),
+    };
+    let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
+    IsoImageWriter::format_new(&mut buffer, input, options).unwrap();
+    let iso_data = buffer.into_inner();
+
+    let svd_offset = 17 * 2048;
+    assert_eq!(iso_data[svd_offset], 0x02, "Sector 17 should be SVD");
+
+    // Application identifier at offset 574, 128 bytes
+    // Default "HADRIS-ISO" should be UTF-16BE encoded
+    let app_id = &iso_data[svd_offset + 574..svd_offset + 574 + 128];
+    // 'H' in UTF-16BE = 0x00 0x48
+    assert_eq!(app_id[0..2], [0x00, b'H'], "App id first char should be UTF-16BE 'H'");
+    assert_eq!(app_id[2..4], [0x00, b'A'], "App id second char should be UTF-16BE 'A'");
+
+    // Publisher identifier at offset 318, 128 bytes
+    let pub_id = &iso_data[svd_offset + 318..svd_offset + 318 + 128];
+    // "MY PUBLISHER" in UTF-16BE
+    assert_eq!(pub_id[0..2], [0x00, b'M'], "Publisher first char");
+    assert_eq!(pub_id[2..4], [0x00, b'Y'], "Publisher second char");
+    assert_eq!(pub_id[4..6], [0x00, b' '], "Publisher third char (space)");
+    assert_eq!(pub_id[6..8], [0x00, b'P'], "Publisher fourth char");
+
+    // Preparer identifier at offset 446, 128 bytes
+    let prep_id = &iso_data[svd_offset + 446..svd_offset + 446 + 128];
+    assert_eq!(prep_id[0..2], [0x00, b'M'], "Preparer first char");
+    assert_eq!(prep_id[2..4], [0x00, b'Y'], "Preparer second char");
+
+    // Empty fields should be UTF-16BE spaces (0x00, 0x20), not ASCII spaces (0x20)
+    // System identifier at offset 8, 32 bytes
+    let sys_id = &iso_data[svd_offset + 8..svd_offset + 8 + 32];
+    assert_eq!(sys_id[0..2], [0x00, 0x20], "Empty system id should be UTF-16BE space");
+    assert_eq!(sys_id[2..4], [0x00, 0x20], "Empty system id second pair should be UTF-16BE space");
+}
+
+#[test]
+fn test_pvd_strings_with_spaces() {
+    let files = vec![IsoFile::File {
+        name: Arc::new("test.txt".to_string()),
+        contents: b"test".to_vec(),
+    }];
+
+    let input = InputFiles {
+        path_separator: PathSeparator::ForwardSlash,
+        files,
+    };
+    let options = FormatOptions {
+        volume_name: "TEST".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: Some("EXAMPLE PUBLISHER".to_string()),
+        preparer_id: Some("EXAMPLE PREPARER".to_string()),
+        application_id: None,
+        sector_size: 2048,
+        path_separator: PathSeparator::ForwardSlash,
+        features: CreationFeatures::default(),
+    };
+    let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
+    IsoImageWriter::format_new(&mut buffer, input, options).unwrap();
+    let iso_data = buffer.into_inner();
+
+    // Open the ISO and read the PVD
+    let image = hadris_iso::read::IsoImage::open(Cursor::new(iso_data)).unwrap();
+    let pvd = image.read_pvd();
+
+    // Verify strings with spaces are not truncated (Issue #8)
+    assert_eq!(pvd.publisher_identifier.to_str(), "EXAMPLE PUBLISHER");
+    assert_eq!(pvd.preparer_identifier.to_str(), "EXAMPLE PREPARER");
 }
 
 // =============================================================================

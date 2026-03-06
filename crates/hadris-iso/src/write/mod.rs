@@ -20,6 +20,7 @@ use super::super::volume::{
 };
 use crate::file::EntryType;
 use crate::joliet::JolietLevel;
+use crate::types::{IsoStrA, IsoStrD};
 use hadris_common::types::{
     endian::{Endian, EndianType},
     number::U32,
@@ -371,6 +372,21 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     pvd.dir_record.header.file_identifier_len = 1;
                     pvd.dir_record.header.volume_sequence_number.write(1);
                     pvd.volume_sequence_number.write(1);
+                    if let Some(s) = &self.ops.system_id {
+                        pvd.system_identifier = IsoStrA::from_str(s).unwrap();
+                    }
+                    if let Some(s) = &self.ops.volume_set_id {
+                        pvd.volume_set_identifier = IsoStrD::from_str(s).unwrap();
+                    }
+                    if let Some(s) = &self.ops.publisher_id {
+                        pvd.publisher_identifier = IsoStrA::from_str(s).unwrap();
+                    }
+                    if let Some(s) = &self.ops.preparer_id {
+                        pvd.preparer_identifier = IsoStrA::from_str(s).unwrap();
+                    }
+                    if let Some(s) = &self.ops.application_id {
+                        pvd.application_identifier = IsoStrA::from_str(s).unwrap();
+                    }
                     volume_descriptors.push(VolumeDescriptor::Primary(pvd));
                 }
                 EntryType::Level3 { .. } => {
@@ -394,6 +410,21 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     svd.dir_record.header.file_identifier_len = 1;
                     svd.dir_record.header.volume_sequence_number.write(1);
                     svd.volume_sequence_number.write(1);
+                    if let Some(s) = &self.ops.system_id {
+                        svd.system_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
+                    }
+                    if let Some(s) = &self.ops.volume_set_id {
+                        svd.volume_set_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
+                    }
+                    if let Some(s) = &self.ops.publisher_id {
+                        svd.publisher_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
+                    }
+                    if let Some(s) = &self.ops.preparer_id {
+                        svd.preparer_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
+                    }
+                    if let Some(s) = &self.ops.application_id {
+                        svd.application_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
+                    }
                     volume_descriptors.push(VolumeDescriptor::Supplementary(svd));
                 }
             }

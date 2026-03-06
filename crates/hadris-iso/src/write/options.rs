@@ -73,6 +73,11 @@ pub enum PartitionScheme {
 #[derive(Debug, Clone)]
 pub struct FormatOptions {
     pub volume_name: String,
+    pub system_id: Option<String>,
+    pub volume_set_id: Option<String>,
+    pub publisher_id: Option<String>,
+    pub preparer_id: Option<String>,
+    pub application_id: Option<String>,
     pub sector_size: usize,
     pub features: CreationFeatures,
     pub path_separator: PathSeparator,

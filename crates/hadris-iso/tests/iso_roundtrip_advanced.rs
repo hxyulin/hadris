@@ -20,6 +20,11 @@ use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter, estimator};
 fn default_options() -> FormatOptions {
     FormatOptions {
         volume_name: "TEST".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::default(),
@@ -29,6 +34,11 @@ fn default_options() -> FormatOptions {
 fn rrip_options() -> FormatOptions {
     FormatOptions {
         volume_name: "RRIP_TEST".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::with_rock_ridge(),
@@ -39,6 +49,11 @@ fn joliet_options() -> FormatOptions {
     use hadris_iso::joliet::JolietLevel;
     FormatOptions {
         volume_name: "JOLIET_TEST".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::with_joliet(JolietLevel::Level3),

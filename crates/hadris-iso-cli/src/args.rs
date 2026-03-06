@@ -124,6 +124,21 @@ pub struct CreateArgs {
     /// Enable GPT hybrid boot for UEFI USB booting
     #[arg(long)]
     pub hybrid_gpt: bool,
+    /// System identifier (max 32 characters)
+    #[arg(long, alias = "sysid")]
+    pub system_id: Option<String>,
+    /// Volume set identifier (max 128 characters)
+    #[arg(long, alias = "volset")]
+    pub volume_set_id: Option<String>,
+    /// Publisher identifier (max 128 characters)
+    #[arg(long, alias = "publisher")]
+    pub publisher_id: Option<String>,
+    /// Data preparer identifier (max 128 characters)
+    #[arg(long, alias = "preparer")]
+    pub preparer_id: Option<String>,
+    /// Application identifier (max 128 characters)
+    #[arg(long, alias = "appid")]
+    pub application_id: Option<String>,
     /// Verbose output
     #[arg(short, long)]
     pub verbose: bool,

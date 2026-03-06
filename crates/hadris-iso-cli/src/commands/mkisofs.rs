@@ -67,6 +67,11 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
     // Configure format options
     let format_options = FormatOptions {
         volume_name: args.volume_name.unwrap_or_else(|| "CDROM".to_string()),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures {

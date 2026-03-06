@@ -130,6 +130,11 @@ impl<W: Read + Write + Seek> CdWriter<W> {
 
         let format_options = FormatOptions {
             volume_name: self.options.volume_id.clone(),
+            system_id: None,
+            volume_set_id: None,
+            publisher_id: None,
+            preparer_id: None,
+            application_id: None,
             sector_size: self.options.sector_size,
             features,
             path_separator: PathSeparator::ForwardSlash,
