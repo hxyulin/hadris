@@ -1,7 +1,7 @@
-use core::fmt;
-use crate::error::Result;
 use super::header::RawNewcHeader;
+use crate::error::Result;
 use crate::mode::FileType;
+use core::fmt;
 
 /// Decoded CPIO entry header with all fields parsed from hex to `u32`.
 ///

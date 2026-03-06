@@ -113,7 +113,7 @@ impl FileData {
         match self {
             FileData::Buffer(data) => Ok(data.clone()),
             #[cfg(feature = "std")]
-            FileData::Path(path) => std::fs::read(path).map_err(Into::into),
+            FileData::Path(path) => std::fs::read(path),
         }
     }
 }
@@ -145,16 +145,10 @@ pub enum UdfModifyError {
 pub type UdfModifyResult<T> = Result<T, UdfModifyError>;
 
 /// Options for UDF modification.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct UdfModifyOptions {
     /// Volume name (if changing).
     pub volume_name: Option<String>,
-}
-
-impl Default for UdfModifyOptions {
-    fn default() -> Self {
-        Self { volume_name: None }
-    }
 }
 
 /// Modifier for UDF images.

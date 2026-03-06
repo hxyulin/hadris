@@ -87,7 +87,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         FileSetDescriptor,
     )> {
         let start_sector = extent.location as u64;
-        let num_sectors = (extent.length as u64 + SECTOR_SIZE as u64 - 1) / SECTOR_SIZE as u64;
+        let num_sectors = (extent.length as u64).div_ceil(SECTOR_SIZE as u64);
 
         let mut pvd: Option<PrimaryVolumeDescriptor> = None;
         let mut partition: Option<PartitionDescriptor> = None;

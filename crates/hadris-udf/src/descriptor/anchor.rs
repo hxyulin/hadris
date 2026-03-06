@@ -52,11 +52,10 @@ impl AnchorVolumeDescriptorPointer {
 
         // Try N-256 and N if we know the disk size
         if let Some(n) = total_sectors {
-            if n > 256 {
-                if let Ok(avdp) = Self::read(reader, (n - 256) as u32).await {
+            if n > 256
+                && let Ok(avdp) = Self::read(reader, (n - 256) as u32).await {
                     return Ok(avdp);
                 }
-            }
             if let Ok(avdp) = Self::read(reader, (n - 1) as u32).await {
                 return Ok(avdp);
             }

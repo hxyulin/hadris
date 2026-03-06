@@ -32,18 +32,15 @@ fn strip_async_from_stream(input: TokenStream2) -> TokenStream2 {
 
     while let Some(token) = iter.next() {
         match &token {
-            TokenTree::Ident(ident) if ident.to_string() == "async" => {
+            TokenTree::Ident(ident) if *ident == "async" => {
                 // Look ahead: if next is `fn` or `move`, skip the `async`
-                if let Some(next) = iter.peek() {
-                    match next {
-                        TokenTree::Ident(next_ident) => {
-                            let s = next_ident.to_string();
-                            if s == "fn" || s == "move" || s == "unsafe" {
-                                // Skip `async`, let the next token be emitted normally
-                                continue;
-                            }
-                        }
-                        _ => {}
+                if let Some(next) = iter.peek()
+                    && let TokenTree::Ident(next_ident) = next
+                {
+                    let s = next_ident.to_string();
+                    if s == "fn" || s == "move" || s == "unsafe" {
+                        // Skip `async`, let the next token be emitted normally
+                        continue;
                     }
                 }
                 // `async` not followed by `fn`/`move`/`unsafe` — keep it
@@ -52,14 +49,13 @@ fn strip_async_from_stream(input: TokenStream2) -> TokenStream2 {
             }
             TokenTree::Punct(punct) if punct.as_char() == '.' => {
                 // Check if next token is `await`
-                if let Some(next) = iter.peek() {
-                    if let TokenTree::Ident(ident) = next {
-                        if ident.to_string() == "await" {
-                            // Skip both `.` and `await`
-                            iter.next();
-                            continue;
-                        }
-                    }
+                if let Some(next) = iter.peek()
+                    && let TokenTree::Ident(ident) = next
+                    && *ident == "await"
+                {
+                    // Skip both `.` and `await`
+                    iter.next();
+                    continue;
                 }
                 // Not `.await`, keep the `.`
                 output.extend(core::iter::once(token));

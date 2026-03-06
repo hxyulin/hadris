@@ -1,0 +1,7 @@
+shared-version = true
+consolidate-commits = true
+tag-name = "v{{version}}"
+tag = true
+sign-commit = false
+push-remote = "origin"
+allow-branch = ["main"]

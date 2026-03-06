@@ -75,7 +75,8 @@ pub fn info(args: InfoArgs) -> Result<()> {
                         println!("Joliet Extension ({:?}):", level);
                         // Joliet volume identifier is UTF-16BE encoded
                         let raw = svd.volume_identifier.as_bytes();
-                        let utf16: Vec<u16> = raw.as_slice()
+                        let utf16: Vec<u16> = raw
+                            .as_slice()
                             .chunks_exact(2)
                             .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
                             .collect();

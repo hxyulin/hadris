@@ -334,8 +334,8 @@ impl r#async::Seek for Cursor<'_> {
 #[cfg(all(test, feature = "sync"))]
 mod tests {
     extern crate std;
-    use std::format;
     use super::*;
+    use std::format;
 
     // -----------------------------------------------------------------------
     // Cursor tests

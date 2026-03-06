@@ -42,7 +42,7 @@ impl FileExtent {
         if self.length == 0 {
             0
         } else {
-            ((self.length + sector_size as u64 - 1) / sector_size as u64) as u32
+            self.length.div_ceil(sector_size as u64) as u32
         }
     }
 }
@@ -156,8 +156,18 @@ pub struct Directory {
 
 impl core::fmt::Display for Directory {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let name = if self.name.is_empty() { "/" } else { &self.name };
-        write!(f, "{} ({} files, {} subdirs)", name, self.files.len(), self.subdirs.len())
+        let name = if self.name.is_empty() {
+            "/"
+        } else {
+            &self.name
+        };
+        write!(
+            f,
+            "{} ({} files, {} subdirs)",
+            name,
+            self.files.len(),
+            self.subdirs.len()
+        )
     }
 }
 
@@ -247,7 +257,12 @@ pub struct FileTree {
 
 impl core::fmt::Display for FileTree {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{} files, {} directories", self.total_files(), self.total_dirs())
+        write!(
+            f,
+            "{} files, {} directories",
+            self.total_files(),
+            self.total_dirs()
+        )
     }
 }
 

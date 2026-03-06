@@ -1,11 +1,11 @@
 //! Integration tests for hadris-part: roundtrip, geometry, edge cases.
 
 use hadris_part::error::PartitionError;
-use hadris_part::geometry::{validate_partition_alignment, DiskGeometry};
-use hadris_part::gpt::{Guid, GptPartitionEntry};
+use hadris_part::geometry::{DiskGeometry, validate_partition_alignment};
+use hadris_part::gpt::{GptPartitionEntry, Guid};
 use hadris_part::hybrid::{HybridMbrBuilder, is_hybrid_mbr};
 use hadris_part::mbr::{MasterBootRecord, MbrPartition, MbrPartitionTable, MbrPartitionType};
-use hadris_part::scheme::{detect_scheme_from_mbr, PartitionSchemeType};
+use hadris_part::scheme::{PartitionSchemeType, detect_scheme_from_mbr};
 use hadris_part::{PartitionInfoTrait, PartitionTableRead};
 
 // ---------------------------------------------------------------------------
@@ -258,12 +258,7 @@ fn partition_info_trait_custom_sector_size() {
 #[test]
 fn hybrid_mbr_builder() {
     let gpt_entries = [
-        GptPartitionEntry::new(
-            Guid::BASIC_DATA,
-            Guid::from_bytes([1; 16]),
-            2048,
-            206847,
-        ),
+        GptPartitionEntry::new(Guid::BASIC_DATA, Guid::from_bytes([1; 16]), 2048, 206847),
         GptPartitionEntry::new(
             Guid::LINUX_FILESYSTEM,
             Guid::from_bytes([2; 16]),

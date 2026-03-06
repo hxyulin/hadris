@@ -13,6 +13,7 @@ pub struct FixedUtf16Str<const N: usize> {
 }
 
 impl<const N: usize> FixedUtf16Str<N> {
+    #[allow(clippy::result_unit_err)]
     pub fn to_string(&self) -> Result<String, ()> {
         // For now we just take the lower u8 of each character
         let data = self.data.iter().map(|c| c.get() as u8).collect::<Vec<u8>>();

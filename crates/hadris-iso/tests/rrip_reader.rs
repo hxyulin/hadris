@@ -514,8 +514,14 @@ fn test_pvd_root_directory_record_fields() {
     let vol_seq_le = u16::from_le_bytes([iso_data[base + 28], iso_data[base + 29]]);
 
     assert_eq!(record_len, 34, "Root directory record length should be 34");
-    assert_eq!(file_id_len, 1, "Root directory file_identifier_len should be 1");
-    assert_eq!(vol_seq_le, 1, "Root directory volume_sequence_number should be 1");
+    assert_eq!(
+        file_id_len, 1,
+        "Root directory file_identifier_len should be 1"
+    );
+    assert_eq!(
+        vol_seq_le, 1,
+        "Root directory volume_sequence_number should be 1"
+    );
 }
 
 // =============================================================================
@@ -558,13 +564,37 @@ fn test_joliet_svd_volume_name_utf16be() {
     let vol_id = &iso_data[svd_offset + 40..svd_offset + 40 + 32];
 
     // "MYISO" in UTF-16BE: 00 4D 00 59 00 49 00 53 00 4F
-    assert_eq!(vol_id[0..2], [0x00, b'M'], "First char should be UTF-16BE 'M'");
-    assert_eq!(vol_id[2..4], [0x00, b'Y'], "Second char should be UTF-16BE 'Y'");
-    assert_eq!(vol_id[4..6], [0x00, b'I'], "Third char should be UTF-16BE 'I'");
-    assert_eq!(vol_id[6..8], [0x00, b'S'], "Fourth char should be UTF-16BE 'S'");
-    assert_eq!(vol_id[8..10], [0x00, b'O'], "Fifth char should be UTF-16BE 'O'");
+    assert_eq!(
+        vol_id[0..2],
+        [0x00, b'M'],
+        "First char should be UTF-16BE 'M'"
+    );
+    assert_eq!(
+        vol_id[2..4],
+        [0x00, b'Y'],
+        "Second char should be UTF-16BE 'Y'"
+    );
+    assert_eq!(
+        vol_id[4..6],
+        [0x00, b'I'],
+        "Third char should be UTF-16BE 'I'"
+    );
+    assert_eq!(
+        vol_id[6..8],
+        [0x00, b'S'],
+        "Fourth char should be UTF-16BE 'S'"
+    );
+    assert_eq!(
+        vol_id[8..10],
+        [0x00, b'O'],
+        "Fifth char should be UTF-16BE 'O'"
+    );
     // Remaining should be UTF-16BE spaces (0x00, 0x20)
-    assert_eq!(vol_id[10..12], [0x00, 0x20], "Padding should be UTF-16BE space");
+    assert_eq!(
+        vol_id[10..12],
+        [0x00, 0x20],
+        "Padding should be UTF-16BE space"
+    );
 }
 
 #[test]
@@ -600,8 +630,16 @@ fn test_joliet_svd_strings_are_utf16be() {
     // Default "HADRIS-ISO" should be UTF-16BE encoded
     let app_id = &iso_data[svd_offset + 574..svd_offset + 574 + 128];
     // 'H' in UTF-16BE = 0x00 0x48
-    assert_eq!(app_id[0..2], [0x00, b'H'], "App id first char should be UTF-16BE 'H'");
-    assert_eq!(app_id[2..4], [0x00, b'A'], "App id second char should be UTF-16BE 'A'");
+    assert_eq!(
+        app_id[0..2],
+        [0x00, b'H'],
+        "App id first char should be UTF-16BE 'H'"
+    );
+    assert_eq!(
+        app_id[2..4],
+        [0x00, b'A'],
+        "App id second char should be UTF-16BE 'A'"
+    );
 
     // Publisher identifier at offset 318, 128 bytes
     let pub_id = &iso_data[svd_offset + 318..svd_offset + 318 + 128];
@@ -619,8 +657,16 @@ fn test_joliet_svd_strings_are_utf16be() {
     // Empty fields should be UTF-16BE spaces (0x00, 0x20), not ASCII spaces (0x20)
     // System identifier at offset 8, 32 bytes
     let sys_id = &iso_data[svd_offset + 8..svd_offset + 8 + 32];
-    assert_eq!(sys_id[0..2], [0x00, 0x20], "Empty system id should be UTF-16BE space");
-    assert_eq!(sys_id[2..4], [0x00, 0x20], "Empty system id second pair should be UTF-16BE space");
+    assert_eq!(
+        sys_id[0..2],
+        [0x00, 0x20],
+        "Empty system id should be UTF-16BE space"
+    );
+    assert_eq!(
+        sys_id[2..4],
+        [0x00, 0x20],
+        "Empty system id second pair should be UTF-16BE space"
+    );
 }
 
 #[test]

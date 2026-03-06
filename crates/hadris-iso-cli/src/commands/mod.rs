@@ -83,4 +83,3 @@ fn count_files(input: &InputFiles) -> usize {
     }
     count_recursive(&input.files)
 }
-

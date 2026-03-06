@@ -842,6 +842,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     /// Writes a legacy MBR with a protective partition (current behavior).
+    #[allow(dead_code)]
     async fn write_legacy_mbr(&mut self, end_sector: LogicalSector) -> io::Result<()> {
         let start_sector = LogicalSector(16);
         let start_block = (start_sector.0 * (self.data.sector_size / 512)) as u32;

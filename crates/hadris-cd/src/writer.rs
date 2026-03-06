@@ -89,7 +89,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
 
             // Pad to sector boundary
             let written = file.extent.length as usize;
-            let padded = (written + self.options.sector_size - 1) / self.options.sector_size
+            let padded = written.div_ceil(self.options.sector_size)
                 * self.options.sector_size;
             if padded > written {
                 let padding = vec![0u8; padded - written];
@@ -123,7 +123,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             filenames: self.options.iso.level,
             long_filenames: self.options.iso.long_filenames,
             joliet: self.options.iso.joliet,
-            rock_ridge: self.options.iso.rock_ridge.clone(),
+            rock_ridge: self.options.iso.rock_ridge,
             el_torito: self.options.boot.clone(),
             hybrid_boot: self.options.hybrid_boot.clone(),
         };
@@ -288,7 +288,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             let subdir_icb_block = next_icb;
             // Reserve space for subdir's File Entry and FIDs
             let subdir_entries = subdir.files.len() + subdir.subdirs.len() + 1; // +1 for parent
-            let fid_sectors = ((subdir_entries * 50) + UDF_SECTOR_SIZE - 1) / UDF_SECTOR_SIZE;
+            let fid_sectors = (subdir_entries * 50).div_ceil(UDF_SECTOR_SIZE);
             next_icb += 1 + fid_sectors as u32;
 
             let subdir_icb = LongAllocationDescriptor {
@@ -305,7 +305,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         let total_entries = entries.len() + 1; // +1 for parent entry
         let estimated_fid_size = total_entries * 50; // Rough estimate
         let dir_data_sectors =
-            ((estimated_fid_size + UDF_SECTOR_SIZE - 1) / UDF_SECTOR_SIZE) as u32;
+            estimated_fid_size.div_ceil(UDF_SECTOR_SIZE) as u32;
         let dir_data_size = (dir_data_sectors as usize) * UDF_SECTOR_SIZE;
 
         // Write directory File Entry
@@ -360,7 +360,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             Self::write_udf_directory_static(udf_writer, subdir, subdir_icb, layout_info)?;
             // Calculate next subdir's ICB position
             let subdir_entries = subdir.files.len() + subdir.subdirs.len() + 1;
-            let fid_sectors = ((subdir_entries * 50) + UDF_SECTOR_SIZE - 1) / UDF_SECTOR_SIZE;
+            let fid_sectors = (subdir_entries * 50).div_ceil(UDF_SECTOR_SIZE);
             subdir_icb += 1 + fid_sectors as u32 + subdir.files.len() as u32;
         }
 

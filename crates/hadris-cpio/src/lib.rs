@@ -140,10 +140,12 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
+    #[allow(unused_macros)]
     macro_rules! sync_only {
         ($($item:tt)*) => { $($item)* };
     }
 
+    #[allow(unused_macros)]
     macro_rules! async_only {
         ($($item:tt)*) => {};
     }
@@ -197,10 +199,12 @@ pub mod r#async {
         ($($item:tt)*) => { $($item)* };
     }
 
+    #[allow(unused_macros)]
     macro_rules! sync_only {
         ($($item:tt)*) => {};
     }
 
+    #[allow(unused_macros)]
     macro_rules! async_only {
         ($($item:tt)*) => { $($item)* };
     }

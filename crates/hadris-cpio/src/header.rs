@@ -1,6 +1,6 @@
-use core::fmt;
-use crate::error::{CpioError, Result};
 use super::super::{Read, Write};
+use crate::error::{CpioError, Result};
+use core::fmt;
 
 /// Magic bytes for the newc format (`070701`).
 pub const MAGIC_NEWC: &[u8; 6] = b"070701";
@@ -166,6 +166,7 @@ impl RawNewcHeader {
     }
 
     /// Build a new raw header from individual field values.
+    #[allow(clippy::too_many_arguments)]
     pub fn build(
         magic: CpioMagic,
         ino: u32,
@@ -210,7 +211,10 @@ fn parse_hex_field(bytes: &[u8], field: &'static str) -> Result<u32> {
             b'A'..=b'F' => (b - b'A' + 10) as u32,
             _ => return Err(CpioError::InvalidHexField { field }),
         };
-        value = value.checked_shl(4).ok_or(CpioError::InvalidHexField { field })? | digit;
+        value = value
+            .checked_shl(4)
+            .ok_or(CpioError::InvalidHexField { field })?
+            | digit;
     }
     Ok(value)
 }
@@ -218,9 +222,9 @@ fn parse_hex_field(bytes: &[u8], field: &'static str) -> Result<u32> {
 fn write_hex_field(value: u32, out: &mut [u8]) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     debug_assert!(out.len() == 8);
-    for i in 0..8 {
+    for (i, byte) in out.iter_mut().enumerate().take(8) {
         let shift = (7 - i) * 4;
-        out[i] = HEX[((value >> shift) & 0xF) as usize];
+        *byte = HEX[((value >> shift) & 0xF) as usize];
     }
 }
 

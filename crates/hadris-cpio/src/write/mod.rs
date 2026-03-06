@@ -16,15 +16,10 @@ use crate::mode::{self, FileType};
 use file_tree::{FileNode, FileTree};
 
 /// Options for writing a CPIO archive.
+#[derive(Default)]
 pub struct CpioWriteOptions {
     /// If true, use the 070702 (CRC) magic; otherwise use 070701 (newc).
     pub use_crc: bool,
-}
-
-impl Default for CpioWriteOptions {
-    fn default() -> Self {
-        Self { use_crc: false }
-    }
 }
 
 /// CPIO archive writer.

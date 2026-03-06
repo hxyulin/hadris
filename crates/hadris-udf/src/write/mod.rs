@@ -428,7 +428,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         // Calculate FID size
         let entry_count = 1 + dir.files.len() + dir.subdirs.len(); // parent + files + subdirs
         let estimated_fid_bytes = entry_count * 50; // ~50 bytes per FID entry
-        let fid_sectors = ((estimated_fid_bytes + SECTOR_SIZE - 1) / SECTOR_SIZE) as u32;
+        let fid_sectors = estimated_fid_bytes.div_ceil(SECTOR_SIZE) as u32;
 
         let fid_block = self.allocate_block();
         // Allocate additional FID sectors if needed
@@ -445,7 +445,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             // Allocate data blocks for non-empty files
             let data_block = if !file.data.is_empty() {
                 let block = self.allocate_block();
-                let data_sectors = ((file.data.len() + SECTOR_SIZE - 1) / SECTOR_SIZE) as u32;
+                let data_sectors = file.data.len().div_ceil(SECTOR_SIZE) as u32;
                 for _ in 1..data_sectors {
                     self.allocate_block();
                 }
@@ -579,7 +579,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
                 self.writer.write_all(&file.data)?;
 
                 // Pad to sector boundary
-                let padded = ((file.data.len() + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE;
+                let padded = file.data.len().div_ceil(SECTOR_SIZE) * SECTOR_SIZE;
                 if padded > file.data.len() {
                     let padding = vec![0u8; padded - file.data.len()];
                     self.writer.write_all(&padding)?;
@@ -985,7 +985,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         let il_offset = uid_offset + 20;
         buffer[il_offset..il_offset + 8].copy_from_slice(&info_length.to_le_bytes());
 
-        let blocks = (info_length + SECTOR_SIZE as u64 - 1) / SECTOR_SIZE as u64;
+        let blocks = info_length.div_ceil(SECTOR_SIZE as u64);
         buffer[il_offset + 8..il_offset + 16].copy_from_slice(&blocks.to_le_bytes());
 
         let now = UdfTimestamp::now();
@@ -1006,7 +1006,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         let lea_offset = uid_offset2 + 8;
         buffer[lea_offset..lea_offset + 4].copy_from_slice(&0u32.to_le_bytes());
 
-        let ad_len = allocation_descriptors.len() * size_of::<ShortAllocationDescriptor>();
+        let ad_len = core::mem::size_of_val(allocation_descriptors);
         buffer[lea_offset + 4..lea_offset + 8].copy_from_slice(&(ad_len as u32).to_le_bytes());
 
         let ad_offset = lea_offset + 8;
@@ -1054,7 +1054,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         }
 
         // Pad to sector boundary
-        let padded_len = (buffer.len() + SECTOR_SIZE - 1) / SECTOR_SIZE * SECTOR_SIZE;
+        let padded_len = buffer.len().div_ceil(SECTOR_SIZE) * SECTOR_SIZE;
         buffer.resize(padded_len, 0);
 
         self.writer.write_all(&buffer)?;
@@ -1635,7 +1635,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         buffer[il_offset..il_offset + 8].copy_from_slice(&info_length.to_le_bytes());
 
         // Logical Blocks Recorded (8 bytes)
-        let blocks = (info_length + SECTOR_SIZE as u64 - 1) / SECTOR_SIZE as u64;
+        let blocks = info_length.div_ceil(SECTOR_SIZE as u64);
         buffer[il_offset + 8..il_offset + 16].copy_from_slice(&blocks.to_le_bytes());
 
         // Access/Modification/Attribute Times (12 bytes each)
@@ -1663,7 +1663,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         buffer[lea_offset..lea_offset + 4].copy_from_slice(&0u32.to_le_bytes());
 
         // Length of Allocation Descriptors (4 bytes)
-        let ad_len = allocation_descriptors.len() * size_of::<ShortAllocationDescriptor>();
+        let ad_len = core::mem::size_of_val(allocation_descriptors);
         buffer[lea_offset + 4..lea_offset + 8].copy_from_slice(&(ad_len as u32).to_le_bytes());
 
         // Allocation Descriptors
@@ -1714,7 +1714,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         }
 
         // Pad to sector boundary
-        let padded_len = (buffer.len() + SECTOR_SIZE - 1) / SECTOR_SIZE * SECTOR_SIZE;
+        let padded_len = buffer.len().div_ceil(SECTOR_SIZE) * SECTOR_SIZE;
         buffer.resize(padded_len, 0);
 
         self.writer.write_all(&buffer)?;

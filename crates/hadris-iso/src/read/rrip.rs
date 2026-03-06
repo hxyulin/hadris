@@ -122,14 +122,14 @@ fn is_rrip_identifier(er: &super::super::susp::ExtensionReference) -> bool {
     matches!(identifier, b"RRIP_1991A" | b"IEEE_P1282" | b"IEEE_1282")
 }
 
+io_transform! {
+
 /// Collect all system use entries from a directory record, following CE
 /// continuation area chains.
 ///
 /// This function parses the inline system use area and then reads any
 /// continuation areas referenced by CE entries. CE chains are followed
 /// with a depth limit of 16 and a size limit of 1MB per allocation.
-io_transform! {
-
 pub async fn collect_su_entries<DATA: Read + Seek>(
     record: &DirectoryRecord,
     image: &IsoImage<DATA>,

@@ -41,7 +41,7 @@ impl ExtentDescriptor {
 ///
 /// Used to reference data that may span multiple partitions
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct LongAllocationDescriptor {
     /// Extent length (high 2 bits indicate type)
     pub extent_length: u32,
@@ -51,17 +51,6 @@ pub struct LongAllocationDescriptor {
     pub partition_ref_num: u16,
     /// Implementation use (6 bytes)
     pub impl_use: [u8; 6],
-}
-
-impl Default for LongAllocationDescriptor {
-    fn default() -> Self {
-        Self {
-            extent_length: 0,
-            logical_block_num: 0,
-            partition_ref_num: 0,
-            impl_use: [0; 6],
-        }
-    }
 }
 
 unsafe impl bytemuck::Zeroable for LongAllocationDescriptor {}

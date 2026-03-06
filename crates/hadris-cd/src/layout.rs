@@ -150,7 +150,7 @@ impl LayoutManager {
     fn assign_file_extents(&mut self, dir: &mut Directory) -> CdResult<()> {
         // Assign extents to files
         for file in &mut dir.files {
-            let size = file.size().map_err(|e| CdError::Io(e.into()))?;
+            let size = file.size().map_err(CdError::Io)?;
 
             if size == 0 {
                 // Zero-size files have no extent (sector 0 per ISO spec)

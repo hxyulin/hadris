@@ -264,6 +264,7 @@ impl<DATA: Read + Seek> FatVerifyExt<DATA> for FatFs<DATA> {
 
 // Helper methods
 impl<DATA: Read + Seek> FatFs<DATA> {
+    #[allow(clippy::too_many_arguments)]
     fn verify_directory_recursive<'a>(
         &'a self,
         dir: &FatDir<'a, DATA>,
