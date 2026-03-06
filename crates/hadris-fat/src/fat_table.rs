@@ -580,7 +580,7 @@ impl Fat32 {
         reader.seek(SeekFrom::Start(self.entry_offset(cluster) as u64)).await?;
         let mut data = 0u32;
         reader.read_exact(bytemuck::bytes_of_mut(&mut data)).await?;
-        Ok(data)
+        Ok(u32::from_le(data))
     }
 
     /// Check if a cluster value represents end-of-chain
