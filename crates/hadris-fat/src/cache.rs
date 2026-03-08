@@ -617,21 +617,21 @@ impl<'a> CachedFat<'a> {
 impl Fat12 {
     /// Get the maximum cluster number.
     pub fn max_cluster(&self) -> u16 {
-        self.max_cluster
+        self.max_cluster()
     }
 }
 
 impl Fat16 {
     /// Get the maximum cluster number.
     pub fn max_cluster(&self) -> u16 {
-        self.max_cluster
+        self.max_cluster()
     }
 }
 
 impl Fat32 {
     /// Get the maximum cluster number.
     pub fn max_cluster(&self) -> u32 {
-        self.max_cluster
+        self.max_cluster()
     }
 }
 
