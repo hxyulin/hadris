@@ -24,7 +24,7 @@ jobs:
         run: cargo check --workspace
 
   check-features:
-    name: Check feature combinations
+    name: "Check ${{ matrix.crate }} (${{ matrix.tier }})"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -32,65 +32,77 @@ jobs:
         include:
           # hadris-io
           - crate: hadris-io
+            tier: no-std
             features: ""
           - crate: hadris-io
+            tier: std
             features: "std"
 
           # hadris-common
           - crate: hadris-common
-            features: ""
+            tier: no-std
+            features: "sync,bytemuck,optical"
           - crate: hadris-common
-            features: "alloc"
+            tier: alloc
+            features: "alloc,sync,bytemuck,optical"
           - crate: hadris-common
-            features: "std"
-          - crate: hadris-common
-            features: "bytemuck"
+            tier: std
+            features: "std,sync,bytemuck,optical"
 
           # hadris-part
           - crate: hadris-part
-            features: ""
+            tier: no-std
+            features: "sync,read"
           - crate: hadris-part
-            features: "alloc"
+            tier: alloc
+            features: "alloc,sync,read,write"
           - crate: hadris-part
-            features: "std"
-          - crate: hadris-part
-            features: "read"
-          - crate: hadris-part
-            features: "std,write"
+            tier: std
+            features: "std,sync,read,write"
 
           # hadris-fat
           - crate: hadris-fat
-            features: "read"
+            tier: no-std
+            features: "sync,read,lfn,cache,tool,exfat"
           - crate: hadris-fat
-            features: "std,read"
+            tier: alloc
+            features: "alloc,sync,read,lfn,cache,tool,exfat"
           - crate: hadris-fat
-            features: "std,read,write"
-          - crate: hadris-fat
-            features: "std,read,write,lfn"
-          - crate: hadris-fat
-            features: "std,read,write,lfn,cache"
-          - crate: hadris-fat
-            features: "std,read,write,lfn,tool"
+            tier: std
+            features: "std,sync,read,write,lfn,cache,tool,exfat"
 
           # hadris-iso
           - crate: hadris-iso
-            features: "read"
+            tier: no-std
+            features: "sync,read,joliet"
           - crate: hadris-iso
-            features: "std"
+            tier: alloc
+            features: "alloc,sync,read,joliet"
           - crate: hadris-iso
-            features: "std,write"
-          - crate: hadris-iso
-            features: "std,write,joliet"
+            tier: std
+            features: "std,sync,read,write,joliet"
 
-          # hadris (meta-crate)
-          - crate: hadris
-            features: ""
-          - crate: hadris
-            features: "iso9660"
-          - crate: hadris
-            features: "fat"
-          - crate: hadris
-            features: "iso9660,fat"
+          # hadris-udf
+          - crate: hadris-udf
+            tier: no-std
+            features: "sync,read"
+          - crate: hadris-udf
+            tier: alloc
+            features: "alloc,sync,read"
+          - crate: hadris-udf
+            tier: std
+            features: "std,sync,read,write"
+
+          # hadris-cpio
+          - crate: hadris-cpio
+            tier: no-std
+            features: "sync,read"
+          - crate: hadris-cpio
+            tier: alloc
+            features: "alloc,sync,read,write"
+          - crate: hadris-cpio
+            tier: std
+            features: "std,sync,read,write"
 
     steps:
       - uses: actions/checkout@v4

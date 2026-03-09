@@ -295,7 +295,7 @@ where
     }
 
     /// Flush any pending writes.
-    pub(crate) fn flush(&self) -> crate::io::Result<()> {
+    pub(crate) fn flush(&self) -> crate::io::IoResult<()> {
         let mut guard = self.data.lock();
         guard.flush()
     }
