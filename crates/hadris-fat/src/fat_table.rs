@@ -11,8 +11,10 @@ use super::io::Write;
 use super::io::{Read, Seek, SeekFrom};
 
 /// Size of the sliding window used when reading FAT chains in bulk (bytes).
+/// Set at build time via `HADRIS_FAT_CACHE_SIZE` (e.g. 4MiB, 8M). Build script sets
+/// `FAT_CACHE_WINDOW_SIZE_BYTES` (rustc-env); we read it with `env!` and `.parse()`.
 #[cfg(feature = "alloc")]
-const FAT_CACHE_SIZE: usize = 4096 * 1024; // 4MB
+const FAT_CACHE_WINDOW_SIZE: &'static str = env!("FAT_CACHE_WINDOW_SIZE_BYTES");
 
 /// Decode a FAT12 entry from a byte slice (raw FAT window). Cluster N’s entry
 /// starts at byte offset (N * 3) / 2 and spans 2 bytes; even/odd determines layout.
@@ -54,8 +56,8 @@ where
         entry_size
     );
 
-    let cache_size = FAT_CACHE_SIZE.min(fat_size);
-    let mut fat_buf = alloc::vec![0u8; cache_size];
+    let cache_size = FAT_CACHE_WINDOW_SIZE.parse::<usize>().unwrap();
+    let mut fat_buf = alloc::vec![0u8; FAT_CACHE_WINDOW_SIZE.parse::<usize>().unwrap()];
     let mut window_start = usize::MAX;
     let mut valid_len = 0usize;
 

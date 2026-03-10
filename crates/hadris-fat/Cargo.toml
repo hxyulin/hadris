@@ -39,6 +39,9 @@ bytemuck = { workspace = true, features = [
 ] }
 chrono = { workspace = true, optional = true }
 
+[build-dependencies]
+parse-size = "1.1"
+
 [dev-dependencies]
 pretty_assertions = "1.4.1"
 static_assertions = "1.1.0"
