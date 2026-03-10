@@ -5,6 +5,56 @@ use alloc::vec::Vec;
 
 use super::file_tree::{FileNode, FileTree};
 
+#[cfg(unix)]
+fn meta_uid(meta: &std::fs::Metadata) -> u32 {
+    use std::os::unix::fs::MetadataExt;
+    meta.uid()
+}
+#[cfg(not(unix))]
+fn meta_uid(_meta: &std::fs::Metadata) -> u32 {
+    0
+}
+
+#[cfg(unix)]
+fn meta_gid(meta: &std::fs::Metadata) -> u32 {
+    use std::os::unix::fs::MetadataExt;
+    meta.gid()
+}
+#[cfg(not(unix))]
+fn meta_gid(_meta: &std::fs::Metadata) -> u32 {
+    0
+}
+
+#[cfg(unix)]
+fn meta_mtime(meta: &std::fs::Metadata) -> u32 {
+    use std::os::unix::fs::MetadataExt;
+    meta.mtime() as u32
+}
+#[cfg(not(unix))]
+fn meta_mtime(meta: &std::fs::Metadata) -> u32 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as u32)
+        .unwrap_or(0)
+}
+
+#[cfg(unix)]
+fn meta_permissions(meta: &std::fs::Metadata) -> u32 {
+    use std::os::unix::fs::MetadataExt;
+    meta.mode() & 0o7777
+}
+#[cfg(not(unix))]
+fn meta_permissions(meta: &std::fs::Metadata) -> u32 {
+    if meta.is_dir() {
+        0o755
+    } else if meta.permissions().readonly() {
+        0o444
+    } else {
+        0o644
+    }
+}
+
 /// Error returned by [`FileTree::from_fs`].
 #[derive(Debug)]
 pub enum FromFsError {
@@ -43,8 +93,6 @@ impl FileTree {
 }
 
 fn scan_dir(dir: &Path, out: &mut Vec<FileNode>) -> core::result::Result<(), FromFsError> {
-    use std::os::unix::fs::MetadataExt;
-
     let mut entries: Vec<_> = std::fs::read_dir(dir)?.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|e| e.file_name());
 
@@ -60,10 +108,10 @@ fn scan_dir(dir: &Path, out: &mut Vec<FileNode>) -> core::result::Result<(), Fro
             out.push(FileNode::Symlink {
                 name: Arc::new(name),
                 target: target_str,
-                permissions: (meta.mode() & 0o7777),
-                uid: meta.uid(),
-                gid: meta.gid(),
-                mtime: meta.mtime() as u32,
+                permissions: meta_permissions(&meta),
+                uid: meta_uid(&meta),
+                gid: meta_gid(&meta),
+                mtime: meta_mtime(&meta),
             });
         } else if ft.is_dir() {
             let meta = std::fs::metadata(&path)?;
@@ -73,10 +121,10 @@ fn scan_dir(dir: &Path, out: &mut Vec<FileNode>) -> core::result::Result<(), Fro
             out.push(FileNode::Directory {
                 name: Arc::new(name),
                 children,
-                permissions: (meta.mode() & 0o7777),
-                uid: meta.uid(),
-                gid: meta.gid(),
-                mtime: meta.mtime() as u32,
+                permissions: meta_permissions(&meta),
+                uid: meta_uid(&meta),
+                gid: meta_gid(&meta),
+                mtime: meta_mtime(&meta),
             });
         } else if ft.is_file() {
             let meta = std::fs::metadata(&path)?;
@@ -84,10 +132,10 @@ fn scan_dir(dir: &Path, out: &mut Vec<FileNode>) -> core::result::Result<(), Fro
             out.push(FileNode::File {
                 name: Arc::new(name),
                 contents,
-                permissions: (meta.mode() & 0o7777),
-                uid: meta.uid(),
-                gid: meta.gid(),
-                mtime: meta.mtime() as u32,
+                permissions: meta_permissions(&meta),
+                uid: meta_uid(&meta),
+                gid: meta_gid(&meta),
+                mtime: meta_mtime(&meta),
             });
         }
         // Skip device nodes, FIFOs, sockets
