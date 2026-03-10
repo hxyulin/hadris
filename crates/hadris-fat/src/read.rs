@@ -231,11 +231,77 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     }
 
     /// Read the entire file contents into a vector.
+    ///
+    /// When the cluster chain is cached, reads contiguous runs of clusters in a single
+    /// seek+read per run (one I/O per fragment) instead of one per cluster.
     #[cfg(feature = "alloc")]
     pub async fn read_to_vec(&mut self) -> Result<Vec<u8>> {
         let mut buf = alloc::vec![0u8; self.remaining()];
+        let buf_len = buf.len();
+        if buf_len == 0 {
+            return Ok(buf);
+        }
+
+        let mut data = self.fs.data.lock();
+        let cluster_size = data.cluster_size;
+        let data_start = self.fs.info.data_start;
+
+        if let Some(ref chain) = self.cached_chain {
+            // Fast path: one seek + one read per contiguous run of clusters
+            let mut total = 0usize;
+            let mut chain_index = self.chain_index;
+            let mut offset_in_cluster = self.offset_in_cluster;
+
+            while total < buf_len && chain_index < chain.len() {
+                let first_cluster = chain[chain_index] as usize;
+                // Count contiguous run: chain[chain_index], chain[chain_index+1], ... while consecutive
+                let mut run_len = 1usize;
+                while chain_index + run_len < chain.len()
+                    && chain[chain_index + run_len] == chain[chain_index + run_len - 1] + 1
+                {
+                    run_len += 1;
+                }
+
+                // Bytes we can read from this run (from current offset to end of run)
+                let bytes_from_first = cluster_size.saturating_sub(offset_in_cluster);
+                let bytes_from_run = bytes_from_first
+                    .saturating_add(run_len.saturating_sub(1).saturating_mul(cluster_size));
+                let to_read = bytes_from_run.min(buf_len - total);
+
+                if to_read == 0 {
+                    break;
+                }
+
+                let seek_pos = Cluster(first_cluster)
+                    .to_bytes(data_start, cluster_size)
+                    .saturating_add(offset_in_cluster);
+                data.seek(SeekFrom::Start(seek_pos as u64)).await?;
+                data.read_exact(&mut buf[total..total + to_read]).await?;
+
+                total += to_read;
+                self.total_read += to_read;
+
+                // Advance by clusters we consumed
+                let new_offset = offset_in_cluster + to_read;
+                chain_index += new_offset / cluster_size;
+                offset_in_cluster = new_offset % cluster_size;
+            }
+
+            self.chain_index = chain_index;
+            self.offset_in_cluster = offset_in_cluster;
+            if chain_index < chain.len() {
+                self.cluster.0 = chain[chain_index] as usize;
+            }
+            drop(data);
+            buf.truncate(total);
+            return Ok(buf);
+        }
+
+        drop(data);
+
+        // No cached chain: fall back to read() loop
         let mut total = 0;
-        while total < buf.len() {
+        while total < buf_len {
             let n = self.read(&mut buf[total..]).await?;
             if n == 0 {
                 break;
