@@ -1,6 +1,5 @@
 use std::fs::{self, File};
 use std::io::BufReader;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -27,8 +26,12 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
             FileType::Directory => {
                 fs::create_dir_all(&dest)
                     .with_context(|| format!("Failed to create directory: {}", dest.display()))?;
-                let perms = fs::Permissions::from_mode(header.permissions());
-                fs::set_permissions(&dest, perms).ok();
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let perms = fs::Permissions::from_mode(header.permissions());
+                    fs::set_permissions(&dest, perms).ok();
+                }
                 reader.skip_entry_data_owned(&entry)?;
             }
             FileType::Regular => {
@@ -40,8 +43,12 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
                     .context("Failed to read file data")?;
                 fs::write(&dest, &data)
                     .with_context(|| format!("Failed to write file: {}", dest.display()))?;
-                let perms = fs::Permissions::from_mode(header.permissions());
-                fs::set_permissions(&dest, perms).ok();
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let perms = fs::Permissions::from_mode(header.permissions());
+                    fs::set_permissions(&dest, perms).ok();
+                }
             }
             FileType::Symlink => {
                 if let Some(parent) = dest.parent() {
@@ -56,8 +63,16 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
                 if dest.exists() || dest.symlink_metadata().is_ok() {
                     fs::remove_file(&dest).ok();
                 }
-                std::os::unix::fs::symlink(target, &dest)
-                    .with_context(|| format!("Failed to create symlink: {}", dest.display()))?;
+                #[cfg(unix)]
+                {
+                    std::os::unix::fs::symlink(target, &dest)
+                        .with_context(|| format!("Failed to create symlink: {}", dest.display()))?;
+                }
+                #[cfg(not(unix))]
+                {
+                    std::os::windows::fs::symlink_file(target, &dest)
+                        .with_context(|| format!("Failed to create symlink: {}", dest.display()))?;
+                }
             }
             _ => {
                 eprintln!("warning: skipping {} ({})", name, ft);
