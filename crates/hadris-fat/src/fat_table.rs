@@ -2,10 +2,114 @@ io_transform! {
 
 use core::mem::size_of;
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 use crate::error::{FatError, Result};
 #[cfg(feature = "write")]
 use super::io::Write;
 use super::io::{Read, Seek, SeekFrom};
+
+/// Size of the sliding window used when reading FAT chains in bulk (bytes).
+#[cfg(feature = "alloc")]
+const FAT_CACHE_SIZE: usize = 4096 * 1024; // 4MB
+
+/// Decode a FAT12 entry from a byte slice (raw FAT window). Cluster N’s entry
+/// starts at byte offset (N * 3) / 2 and spans 2 bytes; even/odd determines layout.
+#[cfg(feature = "alloc")]
+fn fat12_entry_from_buf(buf: &[u8], window_start: usize, cluster: usize) -> u16 {
+    let offset_in_fat = (cluster * 3) / 2;
+    let buffer_offset = offset_in_fat - window_start;
+    let bytes = &buf[buffer_offset..][..2];
+    if cluster % 2 == 0 {
+        u16::from(bytes[0]) | (u16::from(bytes[1] & 0x0F) << 8)
+    } else {
+        (u16::from(bytes[0]) >> 4) | (u16::from(bytes[1]) << 4)
+    }
+}
+
+/// Read a cluster chain in bulk using a 4 MiB sliding window (FAT12, FAT16, FAT32).
+///
+/// Used when `alloc` is enabled as the backend for [`with_cached_chain`](super::read::FileReader::with_cached_chain).
+/// `entry_size`: 0 = FAT12 (packed 12-bit), 2 = FAT16, 4 = FAT32. Panics if not 0, 2, or 4.
+#[cfg(feature = "alloc")]
+async fn read_chain_wide<R>(
+    reader: &mut R,
+    fat_start: usize,
+    fat_size: usize,
+    start_cluster: u32,
+    max_clusters: usize,
+    entry_size: usize,
+    entry_mask: u32,
+    is_end_of_chain: impl Fn(u32) -> bool,
+    is_bad_cluster: impl Fn(u32) -> bool,
+    validate_cluster: impl Fn(u32) -> Result<()>,
+) -> Result<Vec<u32>>
+where
+    R: Read + Seek,
+{
+    assert!(
+        entry_size == 0 || entry_size == 2 || entry_size == 4,
+        "FAT entry_size must be 0 (FAT12), 2 (FAT16), or 4 (FAT32), got {}",
+        entry_size
+    );
+
+    let cache_size = FAT_CACHE_SIZE.min(fat_size);
+    let mut fat_buf = alloc::vec![0u8; cache_size];
+    let mut window_start = usize::MAX;
+    let mut valid_len = 0usize;
+
+    let mut chain = Vec::new();
+    let mut current = start_cluster as usize;
+    let mut iterations = 0;
+
+    while current >= 2 && iterations <= max_clusters {
+        chain.push(current as u32);
+        iterations += 1;
+
+        let (offset_in_fat, span) = if entry_size == 0 {
+            ((current * 3) / 2, 2)
+        } else {
+            (current * entry_size, entry_size)
+        };
+
+        if offset_in_fat < window_start || offset_in_fat + span > window_start + valid_len {
+            window_start = offset_in_fat;
+            valid_len = cache_size.min(fat_size.saturating_sub(window_start));
+            reader
+                .seek(SeekFrom::Start((fat_start + window_start) as u64))
+                .await?;
+            reader.read_exact(&mut fat_buf[..valid_len]).await?;
+        }
+
+        let buffer_offset = offset_in_fat - window_start;
+        let cluster_u32 = if entry_size == 0 {
+            fat12_entry_from_buf(&fat_buf, window_start, current) as u32 & entry_mask
+        } else if entry_size == 2 {
+            let raw = u16::from_le_bytes(
+                fat_buf[buffer_offset..][..2].try_into().unwrap(),
+            );
+            (raw as u32) & entry_mask
+        } else {
+            let raw = u32::from_le_bytes(
+                fat_buf[buffer_offset..][..4].try_into().unwrap(),
+            );
+            raw & entry_mask
+        };
+
+        if is_end_of_chain(cluster_u32) {
+            break;
+        }
+        if is_bad_cluster(cluster_u32) {
+            return Err(FatError::BadCluster {
+                cluster: current as u32,
+            });
+        }
+        validate_cluster(cluster_u32)?;
+        current = cluster_u32 as usize;
+    }
+    Ok(chain)
+}
 
 pub enum Fat {
     Fat12(Fat12),
@@ -23,6 +127,65 @@ impl Fat {
             Self::Fat12(fat12) => fat12.next_cluster(reader, cluster).await,
             Self::Fat16(fat16) => fat16.next_cluster(reader, cluster).await,
             Self::Fat32(fat32) => fat32.next_cluster(reader, cluster).await,
+        }
+    }
+
+    /// Read an entire cluster chain into a vector (alloc only).
+    ///
+    /// Uses a 4 MiB sliding window over the FAT for all types to reduce I/O.
+    #[cfg(feature = "alloc")]
+    pub(crate) async fn read_chain<T: Read + Seek>(
+        &self,
+        reader: &mut T,
+        start_cluster: u32,
+        max_clusters: usize,
+    ) -> Result<Vec<u32>> {
+        match self {
+            Self::Fat12(fat12) => {
+                read_chain_wide(
+                    reader,
+                    fat12.start,
+                    fat12.size,
+                    start_cluster,
+                    max_clusters,
+                    0, // FAT12: packed 12-bit
+                    0x0FFF,
+                    |v| Fat12::is_end_of_chain(v as u16),
+                    |v| Fat12::is_bad_cluster(v as u16),
+                    |v| fat12.validate_cluster(v as u16),
+                )
+                .await
+            }
+            Self::Fat16(fat16) => {
+                read_chain_wide(
+                    reader,
+                    fat16.start,
+                    fat16.size,
+                    start_cluster,
+                    max_clusters,
+                    2, // FAT16
+                    0xFFFF,
+                    |v| Fat16::is_end_of_chain(v as u16),
+                    |v| Fat16::is_bad_cluster(v as u16),
+                    |v| fat16.validate_cluster(v as u16),
+                )
+                .await
+            }
+            Self::Fat32(fat32) => {
+                read_chain_wide(
+                    reader,
+                    fat32.start,
+                    fat32.size,
+                    start_cluster,
+                    max_clusters,
+                    4, // FAT32
+                    Fat32::ENTRY_MASK,
+                    Fat32::is_end_of_chain,
+                    Fat32::is_bad_cluster,
+                    |v| fat32.validate_cluster(v),
+                )
+                .await
+            }
         }
     }
 
