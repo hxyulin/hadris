@@ -110,35 +110,15 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
             return Ok(self);
         }
 
-        let mut chain = Vec::new();
-        let mut current = self.cluster.0 as u32;
-        let mut data = self.fs.data.lock();
-
-        // Limit iterations to prevent infinite loops on corrupted FAT
         let max_clusters = self.fs.info.max_cluster as usize;
-        let mut iterations = 0;
-
-        while current >= 2 {
-            chain.push(current);
-            iterations += 1;
-
-            if iterations > max_clusters {
-                // Likely a loop in the FAT
-                break;
-            }
-
-            match self
-                .fs
-                .fat
-                .next_cluster(data.deref_mut(), current as usize)
-                .await?
-            {
-                Some(next) => current = next,
-                None => break,
-            }
-        }
-
+        let mut data = self.fs.data.lock();
+        let chain = self
+            .fs
+            .fat
+            .read_chain(data.deref_mut(), self.cluster.0 as u32, max_clusters)
+            .await?;
         drop(data);
+
         self.cached_chain = Some(chain);
         self.chain_index = 0;
         Ok(self)
