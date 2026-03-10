@@ -14,7 +14,7 @@ use super::io::{Read, Seek, SeekFrom};
 /// Set at build time via `HADRIS_FAT_CACHE_SIZE` (e.g. 4MiB, 8M). Build script sets
 /// `FAT_CACHE_WINDOW_SIZE_BYTES` (rustc-env); we read it with `env!` and `.parse()`.
 #[cfg(feature = "alloc")]
-const FAT_CACHE_WINDOW_SIZE: &'static str = env!("FAT_CACHE_WINDOW_SIZE_BYTES");
+const FAT_CACHE_WINDOW_SIZE: &str = env!("FAT_CACHE_WINDOW_SIZE_BYTES");
 
 /// Decode a FAT12 entry from a byte slice (raw FAT window). Cluster N’s entry
 /// starts at byte offset (N * 3) / 2 and spans 2 bytes; even/odd determines layout.
@@ -23,7 +23,7 @@ fn fat12_entry_from_buf(buf: &[u8], window_start: usize, cluster: usize) -> u16 
     let offset_in_fat = (cluster * 3) / 2;
     let buffer_offset = offset_in_fat - window_start;
     let bytes = &buf[buffer_offset..][..2];
-    if cluster % 2 == 0 {
+    if cluster.is_multiple_of(2) {
         u16::from(bytes[0]) | (u16::from(bytes[1] & 0x0F) << 8)
     } else {
         (u16::from(bytes[0]) >> 4) | (u16::from(bytes[1]) << 4)
@@ -35,6 +35,7 @@ fn fat12_entry_from_buf(buf: &[u8], window_start: usize, cluster: usize) -> u16 
 /// Used when `alloc` is enabled as the backend for [`with_cached_chain`](super::read::FileReader::with_cached_chain).
 /// `entry_size`: 0 = FAT12 (packed 12-bit), 2 = FAT16, 4 = FAT32. Panics if not 0, 2, or 4.
 #[cfg(feature = "alloc")]
+#[allow(clippy::too_many_arguments)]
 async fn read_chain_wide<R>(
     reader: &mut R,
     fat_start: usize,
