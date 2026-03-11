@@ -1,6 +1,6 @@
 use super::directory::DirectoryRef;
 use super::io::{self, IsoCursor, LogicalSector, Read, Seek};
-use super::path::{PathTableInfo, PathTableRef};
+use super::path::{PathTableEntry, PathTableInfo, PathTableRef};
 use super::volume::VolumeDescriptorList;
 use super::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
 use crate::file::EntryType;
@@ -15,7 +15,7 @@ sync_only! {
 mod boot;
 mod directory;
 pub use boot::*;
-pub use directory::{DirEntry, IsoDir};
+pub use directory::{DirEntry, Extent, IsoDir};
 sync_only! {
     pub use directory::{IsoDirIter, RawDirIter};
 }
@@ -41,6 +41,13 @@ pub struct IsoImageInfo {
     boot_catalog: Option<u32>,
     path_table: PathTableRef,
     pub(crate) susp_info: SuspInfo,
+    /// True if an Enhanced Volume Descriptor (EVD) was found, indicating
+    /// this may be a UDF bridge ISO (combined ISO 9660 + UDF).
+    has_evd: bool,
+    /// Cached path table entries, parsed once during open() to avoid
+    /// repeated seeks for directory hierarchy traversal.
+    #[cfg(feature = "alloc")]
+    path_table_cache: alloc::vec::Vec<PathTableEntry>,
 }
 
 #[derive(Debug)]
@@ -161,6 +168,28 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             size: pvd.path_table_size.read() as u64,
         };
 
+        // Parse and cache path table entries
+        #[cfg(feature = "alloc")]
+        let path_table_cache = {
+            use crate::types::EndianType;
+            let pt_start = if cfg!(target_endian = "little") {
+                path_table.lpt
+            } else {
+                path_table.mpt
+            };
+            let start_byte = pt_start.0 as u64 * sector_size as u64;
+            let end_byte = start_byte + path_table.size;
+            data.seek(super::io::SeekFrom::Start(start_byte)).await?;
+            let mut entries = alloc::vec::Vec::new();
+            let mut pos = start_byte;
+            while pos < end_byte {
+                let entry = PathTableEntry::parse(&mut data, EndianType::NativeEndian).await?;
+                pos += entry.size() as u64;
+                entries.push(entry);
+            }
+            entries
+        };
+
         let mut info = IsoImageInfo {
             block_size,
             sector_size,
@@ -168,6 +197,9 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             boot_catalog: None,
             path_table,
             susp_info,
+            has_evd: false,
+            #[cfg(feature = "alloc")]
+            path_table_cache,
         };
 
         for svd in volume_descriptors.supplementary() {
@@ -188,8 +220,12 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                     }
                 }
             } else if svd.file_structure_version == 2 {
-                // TODO: EVD
-                continue;
+                // Enhanced Volume Descriptor (EVD) — indicates UDF bridge ISO.
+                // The ISO 9660 spec defines this as a supplementary VD with
+                // file_structure_version == 2. Its presence signals that the
+                // image likely also contains a UDF filesystem that can be
+                // accessed via hadris-udf for richer metadata.
+                info.has_evd = true;
             }
         }
 
@@ -210,6 +246,34 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         data.read_exact(buf).await?;
         Ok(())
     }
+
+    /// Read the complete contents of a file, handling multi-extent files.
+    ///
+    /// For single-extent files, this reads from the entry's extent.
+    /// For multi-extent files (using `NOT_FINAL` flag), this reads and
+    /// concatenates all extents in order.
+    #[cfg(feature = "alloc")]
+    pub async fn read_file(&self, entry: &directory::DirEntry) -> io::Result<alloc::vec::Vec<u8>> {
+        let total = entry.total_size();
+        let mut buf = alloc::vec![0u8; total as usize];
+
+        if entry.is_multi_extent() {
+            let mut offset = 0usize;
+            for extent in entry.extents() {
+                let len = extent.length as usize;
+                let byte_offset = extent.sector.0 as u64 * 2048;
+                self.read_bytes_at(byte_offset, &mut buf[offset..offset + len]).await?;
+                offset += len;
+            }
+        } else {
+            let header = entry.header();
+            let byte_offset = header.extent.read() as u64 * 2048;
+            let len = header.data_len.read() as usize;
+            self.read_bytes_at(byte_offset, &mut buf[..len]).await?;
+        }
+
+        Ok(buf)
+    }
 }
 } // io_transform!
 
@@ -227,6 +291,14 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         self.info.susp_info.rrip_detected
     }
 
+    /// Returns whether an Enhanced Volume Descriptor (EVD) was found.
+    ///
+    /// An EVD indicates this is likely a UDF bridge ISO containing both
+    /// ISO 9660 and UDF filesystems. Use `hadris-udf` for UDF access.
+    pub fn has_evd(&self) -> bool {
+        self.info.has_evd
+    }
+
     /// Open a directory by its `DirectoryRef`, enabling navigation into subdirectories.
     pub fn open_dir(&self, dir_ref: DirectoryRef) -> IsoDir<'_, DATA> {
         IsoDir {
@@ -240,6 +312,15 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         PathTableInfo {
             path_table: self.info.path_table,
         }
+    }
+
+    /// Returns the cached path table entries, parsed once during `open()`.
+    ///
+    /// Each entry contains a directory name, its LBA, and its parent index,
+    /// enabling fast directory hierarchy traversal without repeated seeks.
+    #[cfg(feature = "alloc")]
+    pub fn path_table_entries(&self) -> &[PathTableEntry] {
+        &self.info.path_table_cache
     }
 }
 

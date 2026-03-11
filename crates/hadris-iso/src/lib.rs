@@ -243,7 +243,8 @@
 //! [spec directory](https://github.com/hxyulin/hadris/tree/main/crates/hadris-iso/spec).
 
 // Known Limitations:
-//  - Rock Ridge write support is not yet implemented (read support works)
+//  - Rock Ridge write uses hardcoded defaults (mode 0o755/0o644, uid/gid 0);
+//    the `RripOptions` configuration (preserve_permissions, etc.) is not yet wired up.
 //  - When reading ISOs with both Joliet and Rock Ridge, only one is used
 
 #![no_std]

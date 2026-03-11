@@ -194,6 +194,12 @@ fn available_su_space(iso_name_len: usize) -> usize {
 /// Entries are ordered by priority (most important first, largest last),
 /// so that `build_split` keeps the important ones inline and overflows
 /// the rest via a CE pointer.
+// TODO: Accept `&RripOptions` and use it to:
+//  - Conditionally include PX entries (preserve_permissions / preserve_ownership)
+//  - Use actual file modes/uid/gid instead of hardcoded 0o755/0o644 and 0/0
+//  - Conditionally include TF entries (preserve_timestamps) with real timestamps
+//  - Support symbolic links (preserve_symlinks) and device files (preserve_devices)
+//  - Handle deep directory relocation (relocate_deep_dirs)
 fn build_rrip_entries(kind: RripEntryKind<'_>, inode: u32) -> RripBuilder {
     use super::super::directory::DirDateTime;
 
