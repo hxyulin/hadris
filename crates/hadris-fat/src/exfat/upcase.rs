@@ -6,7 +6,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::error::Result;
+use crate::error::{FatError, Result};
 use crate::io::{Read, Seek, SeekFrom};
 
 use super::ExFatInfo;
@@ -59,11 +59,11 @@ impl UpcaseTable {
             data.seek(SeekFrom::Start(offset))?;
             data.read_exact(&mut raw_data)?;
         } else {
-            // TODO: Handle fragmented table by following FAT chain
-            // For now, assume contiguous
-            let offset = info.cluster_to_offset(first_cluster);
-            data.seek(SeekFrom::Start(offset))?;
-            data.read_exact(&mut raw_data)?;
+            // Fragmented upcase tables require following the FAT chain, which is not yet
+            // implemented. Return an error rather than silently reading wrong data.
+            return Err(FatError::UnsupportedFatType(
+                "fragmented exFAT upcase table not yet supported",
+            ));
         }
 
         // Decompress the table

@@ -63,13 +63,11 @@ impl AllocationBitmap {
             self.data.resize(self.size as usize, 0);
             data.read_exact(&mut self.data)?;
         } else {
-            // TODO: Handle fragmented bitmap by following FAT chain
-            // For now, treat as contiguous - most implementations use contiguous bitmaps
-            let offset = info.cluster_to_offset(self.first_cluster);
-            data.seek(SeekFrom::Start(offset))?;
-
-            self.data.resize(self.size as usize, 0);
-            data.read_exact(&mut self.data)?;
+            // Fragmented bitmaps require following the FAT chain, which is not yet
+            // implemented. Return an error rather than silently reading wrong data.
+            return Err(FatError::UnsupportedFatType(
+                "fragmented exFAT allocation bitmap not yet supported",
+            ));
         }
 
         Ok(())

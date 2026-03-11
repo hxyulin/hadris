@@ -272,11 +272,15 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
 
     /// Finish writing and update the directory entry.
     ///
-    /// This must be called after writing to update the file's metadata.
+    /// This must be called after writing to update the file's metadata
+    /// (size, data length, first cluster) and recalculate the entry set checksum.
     pub fn finish(self) -> Result<()> {
-        // Update the directory entry with new size and cluster info
-        // Note: This is a simplified version - a full implementation would
-        // rebuild the entry set with updated checksums
+        self.fs.update_entry_size(
+            &self.entry,
+            self.new_length,
+            self.allocated_length,
+            self.first_cluster,
+        )?;
         self.fs.sync_bitmap()?;
         let _ = self.fs.flush();
         Ok(())

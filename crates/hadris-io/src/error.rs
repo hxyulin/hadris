@@ -75,25 +75,27 @@ impl Display for ErrorKind {
 #[derive(Debug)]
 pub struct Error {
     kind: ErrorKind,
+    msg: &'static str,
 }
 
 impl Error {
-    /// Create a new error with the given kind
-    pub const fn new(kind: ErrorKind, _msg: &'static str) -> Self {
-        Self { kind }
+    /// Create a new error with the given kind and message
+    pub const fn new(kind: ErrorKind, msg: &'static str) -> Self {
+        Self { kind, msg }
     }
 
     /// Create a new error from an error kind
     pub const fn from_kind(kind: ErrorKind) -> Self {
-        Self { kind }
+        Self { kind, msg: "" }
     }
 
     /// Create an error with `ErrorKind::Other`.
     ///
     /// This mirrors `std::io::Error::other()` for no-std compatibility.
-    pub const fn other(_msg: &'static str) -> Self {
+    pub const fn other(msg: &'static str) -> Self {
         Self {
             kind: ErrorKind::Other,
+            msg,
         }
     }
 
@@ -105,13 +107,17 @@ impl Error {
 
 impl From<ErrorKind> for Error {
     fn from(kind: ErrorKind) -> Self {
-        Self { kind }
+        Self { kind, msg: "" }
     }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.kind)
+        if self.msg.is_empty() {
+            write!(f, "{}", self.kind)
+        } else {
+            write!(f, "{}: {}", self.kind, self.msg)
+        }
     }
 }
 

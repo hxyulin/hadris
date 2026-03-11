@@ -1,5 +1,4 @@
 use alloc::string::String;
-use alloc::vec::Vec;
 
 use crate::types::{
     endian::{Endian, LittleEndian},
@@ -15,9 +14,10 @@ pub struct FixedUtf16Str<const N: usize> {
 impl<const N: usize> FixedUtf16Str<N> {
     #[allow(clippy::result_unit_err)]
     pub fn to_string(&self) -> Result<String, ()> {
-        // For now we just take the lower u8 of each character
-        let data = self.data.iter().map(|c| c.get() as u8).collect::<Vec<u8>>();
-        String::from_utf8(data).map_err(|_| ())
+        let u16_iter = self.data.iter().map(|c| c.get());
+        char::decode_utf16(u16_iter)
+            .collect::<Result<String, _>>()
+            .map_err(|_| ())
     }
 }
 

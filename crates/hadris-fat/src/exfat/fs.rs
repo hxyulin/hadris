@@ -610,6 +610,65 @@ where
         ExFatFileWriter::new(self, entry.clone())
     }
 
+    /// Update the stream extension entry for a file with new size and cluster info.
+    ///
+    /// Reads the entry set from disk, updates the stream extension's
+    /// `valid_data_length`, `data_length`, and `first_cluster` fields,
+    /// recalculates the entry set checksum, and writes everything back.
+    pub(crate) fn update_entry_size(
+        &self,
+        entry: &ExFatFileEntry,
+        new_valid_data_length: u64,
+        new_data_length: u64,
+        new_first_cluster: u32,
+    ) -> Result<()> {
+        use super::entry::{RawStreamExtensionEntry, compute_entry_set_checksum};
+        use hadris_common::types::endian::LittleEndian;
+        use hadris_common::types::number::{U16, U32, U64};
+
+        let mut guard = self.data.lock();
+
+        // Read the primary (File Directory) entry to get secondary_count
+        guard.seek(SeekFrom::Start(entry.entry_offset))?;
+        let primary: RawDirectoryEntry = guard.data.read_struct()?;
+        let secondary_count = unsafe { primary.file.secondary_count } as usize;
+
+        // Read the full entry set (primary + secondaries)
+        let entry_count = 1 + secondary_count;
+        let mut entries = Vec::with_capacity(entry_count);
+        entries.push(primary);
+
+        for i in 1..entry_count {
+            let offset = entry.entry_offset + (i as u64 * 32);
+            guard.seek(SeekFrom::Start(offset))?;
+            let e: RawDirectoryEntry = guard.data.read_struct()?;
+            entries.push(e);
+        }
+
+        // Update the stream extension entry (second entry, index 1)
+        if entry_count >= 2 {
+            let stream = unsafe { &mut entries[1].stream };
+            stream.valid_data_length = U64::<LittleEndian>::new(new_valid_data_length);
+            stream.data_length = U64::<LittleEndian>::new(new_data_length);
+            stream.first_cluster = U32::<LittleEndian>::new(new_first_cluster);
+        }
+
+        // Recalculate checksum and update primary entry
+        let checksum = compute_entry_set_checksum(&entries);
+        unsafe {
+            entries[0].file.set_checksum = U16::<LittleEndian>::new(checksum);
+        }
+
+        // Write the updated entry set back
+        for (i, e) in entries.iter().enumerate() {
+            let offset = entry.entry_offset + (i as u64 * 32);
+            guard.seek(SeekFrom::Start(offset))?;
+            guard.write_all(unsafe { &e.bytes })?;
+        }
+
+        Ok(())
+    }
+
     /// Truncate a file to the specified size.
     pub fn truncate(&self, entry: &ExFatFileEntry, new_size: u64) -> Result<()> {
         if entry.is_directory() {
@@ -632,10 +691,11 @@ where
                 };
                 self.free_clusters(entry.first_cluster, cluster_count, entry.no_fat_chain)?;
             }
-            // TODO: Update directory entry
+            self.update_entry_size(entry, 0, 0, 0)?;
         } else {
             // Calculate clusters to keep
             let clusters_to_keep = (new_size + cluster_size - 1) / cluster_size;
+            let new_data_length = clusters_to_keep * cluster_size;
 
             if entry.no_fat_chain {
                 // For contiguous files, just free the excess clusters
@@ -662,7 +722,7 @@ where
                 let mut data = self.data.lock();
                 self.fat.truncate_chain(&mut data.data, current)?;
             }
-            // TODO: Update directory entry
+            self.update_entry_size(entry, new_size, new_data_length, entry.first_cluster)?;
         }
 
         Ok(())

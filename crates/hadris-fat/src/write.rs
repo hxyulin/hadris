@@ -370,6 +370,18 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
     }
 }
 
+/// Convert 0xE5 to 0x05 in the first byte of a short name for kanji compatibility.
+///
+/// The FAT spec uses 0xE5 as a deleted-entry marker, so actual filenames starting
+/// with byte 0xE5 (valid kanji lead byte) must be stored as 0x05. The read path
+/// converts 0x05 back to 0xE5.
+#[cfg(feature = "write")]
+fn kanji_short_name_fixup(name: &mut [u8; 11]) {
+    if name[0] == 0xE5 {
+        name[0] = 0x05;
+    }
+}
+
 /// Directory write operations
 #[cfg(feature = "write")]
 impl<DATA: Read + Write + Seek> FatFs<DATA> {
@@ -553,8 +565,11 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let now = FatDateTime::now();
         let (date, time, time_tenth) = now.to_raw();
 
+        let mut raw_name = short_name.to_raw_bytes();
+        kanji_short_name_fixup(&mut raw_name);
+
         let entry = RawFileEntry {
-            name: short_name.to_raw_bytes(),
+            name: raw_name,
             attributes: DirEntryAttrFlags::ARCHIVE.bits(),
             reserved: 0,
             creation_time_tenth: time_tenth,
@@ -626,8 +641,11 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             Fat::Fat32(_) => ((new_cluster >> 16) as u16, new_cluster as u16),
         };
 
+        let mut raw_name = short_name.to_raw_bytes();
+        kanji_short_name_fixup(&mut raw_name);
+
         let entry = RawFileEntry {
-            name: short_name.to_raw_bytes(),
+            name: raw_name,
             attributes: DirEntryAttrFlags::DIRECTORY.bits(),
             reserved: 0,
             creation_time_tenth: time_tenth,
