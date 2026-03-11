@@ -142,6 +142,72 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
         })
     }
 
+    /// Create a FileWriter positioned at the end of the file for appending.
+    ///
+    /// Walks the FAT chain to find the last cluster and positions the
+    /// writer at the file's current end. Subsequent writes append data
+    /// and `finish()` updates the size to include both existing and new data.
+    pub async fn new_append(fs: &'a FatFs<DATA>, entry: &FileEntry) -> Result<Self> {
+        if entry.is_directory() {
+            return Err(FatError::NotAFile);
+        }
+
+        let fixed_root = if entry.parent_clus.0 == 0 {
+            fs.fixed_root_dir_info()
+        } else {
+            None
+        };
+
+        let file_size = entry.size();
+        let first_cluster = if entry.cluster().0 >= 2 {
+            Some(entry.cluster())
+        } else {
+            None
+        };
+
+        if file_size == 0 || first_cluster.is_none() {
+            // Empty file — same as a regular new writer
+            return Ok(Self {
+                fs,
+                first_cluster,
+                current_cluster: first_cluster,
+                offset_in_cluster: 0,
+                total_written: 0,
+                entry_parent: entry.parent_clus,
+                entry_offset: entry.offset_within_cluster,
+                fixed_root,
+            });
+        }
+
+        let cluster_size = {
+            let data = fs.data.lock();
+            data.cluster_size
+        };
+
+        // Walk the FAT chain to find the last cluster
+        let mut current = first_cluster.unwrap();
+        loop {
+            let mut data = fs.data.lock();
+            match fs.fat.next_cluster(data.deref_mut(), current.0).await? {
+                Some(next) => current = Cluster(next as usize),
+                None => break,
+            }
+        }
+
+        let offset_in_last = file_size % cluster_size;
+
+        Ok(Self {
+            fs,
+            first_cluster,
+            current_cluster: Some(current),
+            offset_in_cluster: offset_in_last,
+            total_written: file_size,
+            entry_parent: entry.parent_clus,
+            entry_offset: entry.offset_within_cluster,
+            fixed_root,
+        })
+    }
+
     /// Write data to the file.
     ///
     /// Allocates new clusters as needed.
@@ -809,6 +875,141 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         Ok(())
     }
 
+    /// Rename or move a file or directory.
+    ///
+    /// Creates a new directory entry with `new_name` in `dest_dir`, copying
+    /// the cluster chain, size, and attributes from the source entry, then
+    /// marks the old entry as deleted. Data is NOT copied — only the
+    /// directory entry metadata changes.
+    ///
+    /// If moving a directory to a different parent, the `..` entry is updated
+    /// to point to the new parent.
+    pub async fn rename(
+        &self,
+        entry: &FileEntry,
+        dest_dir: &FatDir<'_, DATA>,
+        new_name: &str,
+    ) -> Result<FileEntry> {
+        // Check if destination already has this name
+        if dest_dir.find(new_name).await?.is_some() {
+            return Err(FatError::AlreadyExists);
+        }
+
+        // Generate short filename
+        let short_name =
+            ShortFileName::from_long_name(new_name, 0).map_err(|_| FatError::InvalidFilename)?;
+
+        // Find a free slot in the destination directory
+        let (slot_cluster, slot_offset) = self.find_free_entry_slot_in_dir(dest_dir).await?;
+
+        // Read the original raw entry to preserve all fields
+        let original_raw = {
+            let mut data = self.data.lock();
+            let cluster_size = data.cluster_size;
+
+            let entry_pos = if entry.parent_clus.0 == 0 {
+                let (root_start, _) = self
+                    .fixed_root_dir_info()
+                    .expect("Fixed root info required for cluster 0");
+                root_start + entry.offset_within_cluster
+            } else {
+                entry
+                    .parent_clus
+                    .to_bytes(self.info.data_start, cluster_size)
+                    + entry.offset_within_cluster
+            };
+
+            data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+            data.read_struct::<RawDirectoryEntry>().await?
+        };
+
+        // Build the new entry with the new name but same cluster/size/attributes
+        let original_file = unsafe { &original_raw.file };
+        let mut raw_name = short_name.to_raw_bytes();
+        kanji_short_name_fixup(&mut raw_name);
+
+        let now = FatDateTime::now();
+        let new_entry = RawFileEntry {
+            name: raw_name,
+            attributes: original_file.attributes,
+            reserved: original_file.reserved,
+            creation_time_tenth: original_file.creation_time_tenth,
+            creation_time: original_file.creation_time,
+            creation_date: original_file.creation_date,
+            last_access_date: now.date.to_le_bytes(),
+            first_cluster_high: original_file.first_cluster_high,
+            last_write_time: now.time.to_le_bytes(),
+            last_write_date: now.date.to_le_bytes(),
+            first_cluster_low: original_file.first_cluster_low,
+            size: original_file.size,
+        };
+
+        // Write the new entry
+        self.write_raw_entry(slot_cluster, slot_offset, &new_entry, dest_dir.fixed_root)
+            .await?;
+
+        // If moving a directory to a different parent, update the ".." entry
+        if entry.is_directory()
+            && entry.cluster().0 >= 2
+            && dest_dir.cluster != entry.parent_clus
+        {
+            let mut data = self.data.lock();
+            let cluster_size = data.cluster_size;
+            let dir_data_start =
+                entry.cluster().to_bytes(self.info.data_start, cluster_size);
+            // ".." is the second entry (32 bytes after ".")
+            let dotdot_pos = dir_data_start + core::mem::size_of::<RawDirectoryEntry>();
+            data.seek(SeekFrom::Start(dotdot_pos as u64)).await?;
+            let mut dotdot = data.read_struct::<RawDirectoryEntry>().await?;
+            let dotdot_file = unsafe { &mut dotdot.file };
+
+            let parent_cluster = dest_dir.cluster.0 as u32;
+            let (parent_high, parent_low) = match &self.fat {
+                Fat::Fat12(_) | Fat::Fat16(_) => (0u16, parent_cluster as u16),
+                Fat::Fat32(_) => ((parent_cluster >> 16) as u16, parent_cluster as u16),
+            };
+            dotdot_file.first_cluster_high =
+                hadris_common::types::number::U16::<LittleEndian>::new(parent_high);
+            dotdot_file.first_cluster_low =
+                hadris_common::types::number::U16::<LittleEndian>::new(parent_low);
+
+            data.seek(SeekFrom::Start(dotdot_pos as u64)).await?;
+            data.write_all(bytemuck::bytes_of(&dotdot)).await?;
+        }
+
+        // Mark the old entry as deleted (0xE5)
+        {
+            let mut data = self.data.lock();
+            let cluster_size = data.cluster_size;
+
+            let entry_pos = if entry.parent_clus.0 == 0 {
+                let (root_start, _) = self
+                    .fixed_root_dir_info()
+                    .expect("Fixed root info required for cluster 0");
+                root_start + entry.offset_within_cluster
+            } else {
+                entry
+                    .parent_clus
+                    .to_bytes(self.info.data_start, cluster_size)
+                    + entry.offset_within_cluster
+            };
+
+            data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+            data.write_all(&[0xE5]).await?;
+        }
+
+        Ok(FileEntry {
+            short_name,
+            #[cfg(feature = "lfn")]
+            long_name: None,
+            attr: DirEntryAttrFlags::from_bits_retain(original_file.attributes),
+            size: original_file.size.get() as usize,
+            parent_clus: slot_cluster,
+            offset_within_cluster: slot_offset,
+            cluster: entry.cluster(),
+        })
+    }
+
     /// Update a directory entry's size and first cluster fields.
     ///
     /// This is used by truncate and other operations that need to modify these fields.
@@ -864,6 +1065,48 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         file_entry.last_write_date = now.date.to_le_bytes();
         file_entry.last_write_time = now.time.to_le_bytes();
         file_entry.last_access_date = now.date.to_le_bytes();
+
+        // Write back the entry
+        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+        data.write_all(bytemuck::bytes_of(&raw_entry)).await?;
+
+        Ok(())
+    }
+}
+
+/// File attribute modification
+#[cfg(feature = "write")]
+impl<DATA: Read + Write + Seek> FatFs<DATA> {
+    /// Set the attributes of a file or directory entry.
+    ///
+    /// Reads the directory entry, modifies the attribute byte, and writes it back.
+    pub async fn set_attributes(
+        &self,
+        entry: &FileEntry,
+        attrs: DirEntryAttrFlags,
+    ) -> Result<()> {
+        let mut data = self.data.lock();
+        let cluster_size = data.cluster_size;
+
+        let entry_pos = if entry.parent_clus.0 == 0 {
+            let (root_start, _) = self
+                .fixed_root_dir_info()
+                .expect("Fixed root info required for cluster 0");
+            root_start + entry.offset_within_cluster
+        } else {
+            entry
+                .parent_clus
+                .to_bytes(self.info.data_start, cluster_size)
+                + entry.offset_within_cluster
+        };
+
+        // Read the current directory entry
+        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+        let mut raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
+        let file_entry = unsafe { &mut raw_entry.file };
+
+        // Update attributes
+        file_entry.attributes = attrs.bits();
 
         // Write back the entry
         data.seek(SeekFrom::Start(entry_pos as u64)).await?;

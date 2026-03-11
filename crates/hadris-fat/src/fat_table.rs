@@ -229,6 +229,102 @@ impl Fat {
             Self::Fat32(fat32) => fat32.free_chain(rw, cluster as u32).await,
         }
     }
+
+    /// Mark a cluster as bad in the FAT.
+    ///
+    /// Writes the appropriate bad-cluster marker (0xFF7 / 0xFFF7 / 0x0FFFFFF7)
+    /// to the FAT entry for the given cluster. This prevents the cluster from
+    /// being allocated in the future.
+    #[cfg(feature = "write")]
+    pub async fn mark_bad<T: Read + Write + Seek>(&self, rw: &mut T, cluster: usize) -> Result<()> {
+        match self {
+            Self::Fat12(fat12) => fat12.mark_bad(rw, cluster as u16).await,
+            Self::Fat16(fat16) => fat16.mark_bad(rw, cluster as u16).await,
+            Self::Fat32(fat32) => fat32.mark_bad(rw, cluster as u32).await,
+        }
+    }
+
+    /// Returns the number of FAT copies on disk (typically 1 or 2).
+    pub fn fat_copy_count(&self) -> usize {
+        match self {
+            Self::Fat12(f) => f.count,
+            Self::Fat16(f) => f.count,
+            Self::Fat32(f) => f.count,
+        }
+    }
+
+    /// Compare a FAT entry between the primary (index 0) and backup (index 1) copies.
+    ///
+    /// Returns `Ok(true)` if both copies match, `Ok(false)` if they differ.
+    /// Returns an error if there is only one FAT copy or on I/O failure.
+    pub async fn compare_entry<T: Read + Seek>(
+        &self,
+        reader: &mut T,
+        cluster: usize,
+    ) -> Result<bool> {
+        if self.fat_copy_count() < 2 {
+            return Err(FatError::UnsupportedFatType("no backup FAT copy available"));
+        }
+        match self {
+            Self::Fat12(f) => {
+                let a = f.read_clus_at(reader, cluster, 0).await?;
+                let b = f.read_clus_at(reader, cluster, 1).await?;
+                Ok(a == b)
+            }
+            Self::Fat16(f) => {
+                let a = f.read_clus_at(reader, cluster, 0).await?;
+                let b = f.read_clus_at(reader, cluster, 1).await?;
+                Ok(a == b)
+            }
+            Self::Fat32(f) => {
+                let a = f.read_clus_at(reader, cluster, 0).await?;
+                let b = f.read_clus_at(reader, cluster, 1).await?;
+                Ok(a == b)
+            }
+        }
+    }
+
+    /// Read the next cluster, falling back to the backup FAT copy on error.
+    ///
+    /// Tries the primary FAT first. If reading fails and a backup FAT exists,
+    /// reads from the backup copy instead.
+    pub async fn next_cluster_with_fallback<T: Read + Seek>(
+        &self,
+        reader: &mut T,
+        cluster: usize,
+    ) -> Result<Option<u32>> {
+        match self.next_cluster(reader, cluster).await {
+            Ok(result) => Ok(result),
+            Err(_primary_err) if self.fat_copy_count() >= 2 => {
+                // Try reading from backup FAT (index 1)
+                match self {
+                    Self::Fat12(f) => {
+                        let entry = f.read_clus_at(reader, cluster, 1).await? & Fat12::ENTRY_MASK;
+                        if Fat12::is_end_of_chain(entry) { return Ok(None); }
+                        if Fat12::is_bad_cluster(entry) { return Err(FatError::BadCluster { cluster: cluster as u32 }); }
+                        f.validate_cluster(entry)?;
+                        Ok(Some(entry as u32))
+                    }
+                    Self::Fat16(f) => {
+                        let entry = f.read_clus_at(reader, cluster, 1).await?;
+                        if Fat16::is_end_of_chain(entry) { return Ok(None); }
+                        if Fat16::is_bad_cluster(entry) { return Err(FatError::BadCluster { cluster: cluster as u32 }); }
+                        f.validate_cluster(entry)?;
+                        Ok(Some(entry as u32))
+                    }
+                    Self::Fat32(f) => {
+                        let raw = f.read_clus_at(reader, cluster, 1).await?;
+                        let entry = raw & Fat32::ENTRY_MASK;
+                        if Fat32::is_end_of_chain(entry) { return Ok(None); }
+                        if Fat32::is_bad_cluster(entry) { return Err(FatError::BadCluster { cluster: cluster as u32 }); }
+                        f.validate_cluster(entry)?;
+                        Ok(Some(entry))
+                    }
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
 }
 
 /// FAT filesystem type
@@ -287,15 +383,17 @@ impl Fat12 {
     }
 
     async fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u16> {
-        let byte_offset = self.entry_byte_offset(cluster);
+        self.read_clus_at(reader, cluster, 0).await
+    }
+
+    /// Read a FAT12 entry from a specific FAT copy (0 = primary, 1 = backup).
+    async fn read_clus_at<T: Read + Seek>(&self, reader: &mut T, cluster: usize, fat_index: usize) -> Result<u16> {
+        let byte_offset = self.start + fat_index * self.size + (cluster * 3) / 2;
         reader.seek(SeekFrom::Start(byte_offset as u64)).await?;
 
         let mut bytes = [0u8; 2];
         reader.read_exact(&mut bytes).await?;
 
-        // FAT12 entry layout:
-        // If cluster N is even: entry = (bytes[1] & 0x0F) << 8 | bytes[0]
-        // If cluster N is odd:  entry = bytes[1] << 4 | (bytes[0] >> 4)
         let value = if cluster.is_multiple_of(2) {
             u16::from(bytes[0]) | (u16::from(bytes[1] & 0x0F) << 8)
         } else {
@@ -495,6 +593,12 @@ impl Fat12 {
             Ok(0)
         }
     }
+
+    /// Mark a cluster as bad (0x0FF7) in all FAT copies.
+    #[cfg(feature = "write")]
+    pub async fn mark_bad<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u16) -> Result<()> {
+        self.write_clus(rw, cluster as usize, Self::BAD_CLUSTER).await
+    }
 }
 
 /// FAT16 table implementation.
@@ -530,7 +634,13 @@ impl Fat16 {
     }
 
     async fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u16> {
-        reader.seek(SeekFrom::Start(self.entry_offset(cluster) as u64)).await?;
+        self.read_clus_at(reader, cluster, 0).await
+    }
+
+    /// Read a FAT16 entry from a specific FAT copy (0 = primary, 1 = backup).
+    async fn read_clus_at<T: Read + Seek>(&self, reader: &mut T, cluster: usize, fat_index: usize) -> Result<u16> {
+        let offset = self.start + fat_index * self.size + cluster * size_of::<u16>();
+        reader.seek(SeekFrom::Start(offset as u64)).await?;
         let mut data = 0u16;
         reader.read_exact(bytemuck::bytes_of_mut(&mut data)).await?;
         Ok(u16::from_le(data))
@@ -707,6 +817,12 @@ impl Fat16 {
             Ok(0)
         }
     }
+
+    /// Mark a cluster as bad (0xFFF7) in all FAT copies.
+    #[cfg(feature = "write")]
+    pub async fn mark_bad<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u16) -> Result<()> {
+        self.write_clus(rw, cluster as usize, Self::BAD_CLUSTER).await
+    }
 }
 
 pub struct Fat32 {
@@ -743,7 +859,13 @@ impl Fat32 {
     }
 
     async fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u32> {
-        reader.seek(SeekFrom::Start(self.entry_offset(cluster) as u64)).await?;
+        self.read_clus_at(reader, cluster, 0).await
+    }
+
+    /// Read a FAT32 entry from a specific FAT copy (0 = primary, 1 = backup).
+    async fn read_clus_at<T: Read + Seek>(&self, reader: &mut T, cluster: usize, fat_index: usize) -> Result<u32> {
+        let offset = self.start + fat_index * self.size + cluster * size_of::<u32>();
+        reader.seek(SeekFrom::Start(offset as u64)).await?;
         let mut data = 0u32;
         reader.read_exact(bytemuck::bytes_of_mut(&mut data)).await?;
         Ok(u32::from_le(data))
@@ -961,6 +1083,12 @@ impl Fat32 {
         } else {
             Ok(0)
         }
+    }
+
+    /// Mark a cluster as bad (0x0FFFFFF7) in all FAT copies.
+    #[cfg(feature = "write")]
+    pub async fn mark_bad<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u32) -> Result<()> {
+        self.write_clus(rw, cluster as usize, Self::BAD_CLUSTER).await
     }
 
     /// Extend a cluster chain by appending new clusters.

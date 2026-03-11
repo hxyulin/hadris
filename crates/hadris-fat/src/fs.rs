@@ -413,27 +413,30 @@ where
     ///
     /// Paths can use forward slashes as separators. Leading slashes are optional.
     /// Empty path components are ignored.
-    #[cfg(feature = "alloc")]
     pub async fn open_path(&self, path: &str) -> Result<FileEntry> {
         let path = path.trim_start_matches('/');
         if path.is_empty() {
             return Err(FatError::InvalidPath);
         }
 
-        let components: alloc::vec::Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-        if components.is_empty() {
+        let mut components = path.split('/').filter(|s| !s.is_empty()).peekable();
+        if components.peek().is_none() {
             return Err(FatError::InvalidPath);
         }
 
         let mut current_dir = self.root_dir();
+        let mut last_component = None;
 
-        // Navigate to parent directories
-        for component in &components[..components.len() - 1] {
-            current_dir = current_dir.open_dir(component).await?;
+        for component in components {
+            if let Some(prev) = last_component.take() {
+                // Navigate into the previous component as a directory
+                current_dir = current_dir.open_dir(prev).await?;
+            }
+            last_component = Some(component);
         }
 
         // Find the final entry
-        let final_name = components.last().unwrap();
+        let final_name = last_component.unwrap();
         current_dir.find(final_name).await?.ok_or(FatError::EntryNotFound)
     }
 
@@ -441,7 +444,6 @@ where
     ///
     /// This is a convenience method that combines [`open_path`](Self::open_path)
     /// with opening a file reader.
-    #[cfg(feature = "alloc")]
     pub async fn open_file_path(&self, path: &str) -> Result<FileReader<'_, DATA>> {
         let entry = self.open_path(path).await?;
         FileReader::new(self, &entry)
@@ -451,7 +453,6 @@ where
     ///
     /// This is a convenience method that combines [`open_path`](Self::open_path)
     /// with validating the entry is a directory.
-    #[cfg(feature = "alloc")]
     pub async fn open_dir_path(&self, path: &str) -> Result<FatDir<'_, DATA>> {
         let entry = self.open_path(path).await?;
         if !entry.is_directory() {

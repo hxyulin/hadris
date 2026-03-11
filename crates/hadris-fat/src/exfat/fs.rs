@@ -124,7 +124,7 @@ where
                     _ => {}
                 }
 
-                offset += 32; // Each entry is 32 bytes
+                offset += size_of::<RawDirectoryEntry>();
                 entries_read += 1;
             }
 

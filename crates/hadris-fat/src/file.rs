@@ -158,19 +158,37 @@ impl ShortFileName {
             }
         }
 
-        // Add ~N suffix if needed
-        if suffix > 0 && base_len <= 6 {
-            base_chars[base_len] = b'~';
-            base_len += 1;
-            if suffix < 10 {
+        // Add ~N suffix if needed (Microsoft-style collision handling)
+        if suffix > 0 {
+            if suffix <= 4 {
+                // For N=1..4: use simple ~N suffix (e.g., FILENA~1)
+                let max_base = 6; // leave room for ~N (2 chars)
+                if base_len > max_base {
+                    base_len = max_base;
+                }
+                base_chars[base_len] = b'~';
+                base_len += 1;
                 base_chars[base_len] = b'0' + suffix;
                 base_len += 1;
             } else {
-                // For suffix >= 10, use two digits
-                base_chars[base_len] = b'0' + (suffix / 10);
+                // For N>4: use hash-based suffix ~HHHH where HHHH is a 4-char
+                // hex hash derived from the long name + suffix, per Microsoft's
+                // recommended approach for reducing collisions.
+                let hash = Self::lfn_hash(name, suffix);
+                let max_base = 2; // leave room for ~HHHH (5 chars) + at least 2 base chars
+                if base_len > max_base {
+                    base_len = max_base;
+                }
+                base_chars[base_len] = b'~';
                 base_len += 1;
-                if base_len < 8 {
-                    base_chars[base_len] = b'0' + (suffix % 10);
+                // Write 4 hex digits
+                for i in (0..4).rev() {
+                    let nibble = ((hash >> (i * 4)) & 0xF) as u8;
+                    base_chars[base_len] = if nibble < 10 {
+                        b'0' + nibble
+                    } else {
+                        b'A' + nibble - 10
+                    };
                     base_len += 1;
                 }
             }
@@ -206,6 +224,17 @@ impl ShortFileName {
     /// Process a character for short filename conversion.
     /// Returns 0 if the character should be skipped.
     #[cfg(feature = "write")]
+    /// Compute a simple hash from a long filename and suffix for short name generation.
+    /// Returns a 16-bit value used as a 4-hex-digit suffix.
+    #[cfg(feature = "write")]
+    fn lfn_hash(name: &str, suffix: u8) -> u16 {
+        let mut hash: u16 = suffix as u16;
+        for &b in name.as_bytes() {
+            hash = hash.wrapping_mul(37).wrapping_add(b as u16);
+        }
+        hash
+    }
+
     fn process_char(ch: char) -> u8 {
         if ch.is_ascii_alphanumeric() {
             ch.to_ascii_uppercase() as u8

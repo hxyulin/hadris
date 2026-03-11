@@ -209,7 +209,7 @@ pub fn calculate_layout(
 
     // FAT offset: after the main and backup boot regions (24 sectors)
     // Align to boundary if specified
-    let min_fat_offset = 24u32; // 12 main + 12 backup
+    let min_fat_offset = (2 * BOOT_REGION_SECTORS) as u32;
     let fat_offset = if let Some(alignment) = options.boundary_alignment {
         let align_sectors = (alignment / bytes_per_sector as u64) as u32;
         if align_sectors > min_fat_offset {
