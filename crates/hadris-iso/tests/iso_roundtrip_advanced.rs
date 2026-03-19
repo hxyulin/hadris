@@ -28,6 +28,7 @@ fn default_options() -> FormatOptions {
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::default(),
+        strict_charset: false,
     }
 }
 
@@ -42,6 +43,7 @@ fn rrip_options() -> FormatOptions {
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::with_rock_ridge(),
+        strict_charset: false,
     }
 }
 
@@ -57,6 +59,7 @@ fn joliet_options() -> FormatOptions {
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::with_joliet(JolietLevel::Level3),
+        strict_charset: false,
     }
 }
 

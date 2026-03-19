@@ -83,6 +83,7 @@ fn main() {
             el_torito: Some(boot_options),
             hybrid_boot: None,
         },
+        strict_charset: false,
     };
 
     // Create the ISO in memory

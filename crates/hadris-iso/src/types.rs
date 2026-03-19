@@ -33,7 +33,7 @@ pub trait Charset: Copy {
 }
 
 /// The `a-characters` character set.
-/// This supports `a-z`, `A-Z`, `0-9` and `!"%$'()*+,-./:;<=>?`.
+/// This supports `A-Z`, `0-9` and `!"%$'()*+,-./:;<=>?`.
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct CharsetA;
 
@@ -177,6 +177,45 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
             return Err(IsoStrError::InvalidCharset);
         }
 
+        for (i, c) in s.bytes().enumerate() {
+            chars[i] = c;
+        }
+        Ok(Self {
+            chars,
+            _marker: core::marker::PhantomData,
+        })
+    }
+
+    /// Like `from_str`, but auto-converts lowercase to uppercase and substitutes
+    /// other invalid characters instead of rejecting them.
+    pub fn from_str_lossy(s: &str) -> Result<Self, IsoStrError> {
+        if s.len() > N {
+            return Err(IsoStrError::TooLong {
+                max: N,
+                got: s.len(),
+            });
+        }
+        let mut chars = [b' '; N];
+        for (i, c) in s.bytes().enumerate() {
+            chars[i] = c;
+        }
+        C::substitute_invalid(chars[..s.len()].iter_mut());
+        Ok(Self {
+            chars,
+            _marker: core::marker::PhantomData,
+        })
+    }
+
+    /// Like `from_str`, but skips charset validation entirely.
+    /// Stores the bytes as-is, only checking length.
+    pub fn from_str_unchecked(s: &str) -> Result<Self, IsoStrError> {
+        if s.len() > N {
+            return Err(IsoStrError::TooLong {
+                max: N,
+                got: s.len(),
+            });
+        }
+        let mut chars = [b' '; N];
         for (i, c) in s.bytes().enumerate() {
             chars[i] = c;
         }
@@ -501,6 +540,36 @@ mod tests {
     fn test_iso_str_len_no_trailing_spaces() {
         let s = IsoStrA::<5>::from_str("ABCDE").unwrap();
         assert_eq!(s.len(), 5);
+    }
+
+    #[test]
+    fn test_iso_str_from_str_lossy() {
+        // Lowercase should be auto-uppercased
+        let s = IsoStrA::<20>::from_str_lossy("hello world").unwrap();
+        assert_eq!(s.to_str(), "HELLO WORLD");
+
+        // Invalid chars should be substituted with '_'
+        let s = IsoStrD::<10>::from_str_lossy("test\\new").unwrap();
+        assert_eq!(s.to_str(), "TEST_NEW");
+
+        // Too long should still error
+        let err = IsoStrA::<3>::from_str_lossy("toolong");
+        assert!(matches!(err, Err(IsoStrError::TooLong { max: 3, got: 7 })));
+    }
+
+    #[test]
+    fn test_iso_str_from_str_unchecked() {
+        // Lowercase should be preserved as-is
+        let s = IsoStrA::<20>::from_str_unchecked("hello world").unwrap();
+        assert_eq!(s.to_str(), "hello world");
+
+        // Non-compliant chars should be preserved as-is
+        let s = IsoStrD::<10>::from_str_unchecked("test\\new").unwrap();
+        assert_eq!(s.to_str(), "test\\new");
+
+        // Too long should still error
+        let err = IsoStrA::<3>::from_str_unchecked("toolong");
+        assert!(matches!(err, Err(IsoStrError::TooLong { max: 3, got: 7 })));
     }
 
     #[test]

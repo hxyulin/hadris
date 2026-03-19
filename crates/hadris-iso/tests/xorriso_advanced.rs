@@ -53,6 +53,7 @@ fn test_multi_sector_directory() {
             el_torito: None,
             hybrid_boot: None,
         },
+        strict_charset: false,
     };
 
     // Create ISO in memory
@@ -135,6 +136,7 @@ fn test_hadris_rockridge_roundtrip() {
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::with_rock_ridge(),
+        strict_charset: false,
     };
 
     // Write the ISO to a buffer

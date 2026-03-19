@@ -138,6 +138,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             sector_size: self.options.sector_size,
             features,
             path_separator: PathSeparator::ForwardSlash,
+            strict_charset: false,
         };
 
         // Reset position and write ISO

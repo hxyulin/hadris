@@ -113,6 +113,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
             el_torito,
             hybrid_boot,
         },
+        strict_charset: args.strict_charset,
     };
 
     // Dry run: print estimate and exit

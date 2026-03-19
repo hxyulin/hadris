@@ -27,6 +27,7 @@ fn create_iso(files: Vec<IsoFile>, features: CreationFeatures) -> Vec<u8> {
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features,
+        strict_charset: false,
     };
     let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
     IsoImageWriter::format_new(&mut buffer, input, options).unwrap();
@@ -550,6 +551,7 @@ fn test_joliet_svd_volume_name_utf16be() {
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::with_joliet(hadris_iso::joliet::JolietLevel::Level3),
+        strict_charset: false,
     };
     let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
     IsoImageWriter::format_new(&mut buffer, input, options).unwrap();
@@ -618,6 +620,7 @@ fn test_joliet_svd_strings_are_utf16be() {
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::with_joliet(hadris_iso::joliet::JolietLevel::Level3),
+        strict_charset: false,
     };
     let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
     IsoImageWriter::format_new(&mut buffer, input, options).unwrap();
@@ -690,6 +693,7 @@ fn test_pvd_strings_with_spaces() {
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
         features: CreationFeatures::default(),
+        strict_charset: false,
     };
     let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
     IsoImageWriter::format_new(&mut buffer, input, options).unwrap();

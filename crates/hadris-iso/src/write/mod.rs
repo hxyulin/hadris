@@ -20,7 +20,7 @@ use super::super::volume::{
 };
 use crate::file::EntryType;
 use crate::joliet::JolietLevel;
-use crate::types::{IsoStrA, IsoStrD};
+use crate::types::{Charset, IsoStr};
 use hadris_common::types::{
     endian::{Endian, EndianType},
     number::U32,
@@ -366,6 +366,19 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
     const VOLUME_DESCRIPTOR_SET_START: LogicalSector = LogicalSector(16);
 
+    fn parse_iso_str<C: Charset, const N: usize>(
+        &self,
+        s: &str,
+        field_name: &str,
+    ) -> io::Result<IsoStr<C, N>> {
+        if self.ops.strict_charset {
+            IsoStr::from_str_lossy(s)
+        } else {
+            IsoStr::from_str_unchecked(s)
+        }
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, alloc::format!("{field_name}: {e}")))
+    }
+
     async fn write_volume_descriptors(&mut self, files: &mut InputFiles) -> io::Result<()> {
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START).await?;
         let mut volume_descriptors = VolumeDescriptorList::empty();
@@ -373,31 +386,33 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             match entry {
                 EntryType::Level1 { .. } | EntryType::Level2 { .. } => {
                     let mut pvd = PrimaryVolumeDescriptor::new(&self.ops.volume_name, 0);
+                    pvd.volume_identifier = self.parse_iso_str(&self.ops.volume_name, "volume name")?;
                     pvd.dir_record.header.len = 34;
                     pvd.dir_record.header.flags = FileFlags::DIRECTORY.bits();
                     pvd.dir_record.header.file_identifier_len = 1;
                     pvd.dir_record.header.volume_sequence_number.write(1);
                     pvd.volume_sequence_number.write(1);
                     if let Some(s) = &self.ops.system_id {
-                        pvd.system_identifier = IsoStrA::from_str(s).unwrap();
+                        pvd.system_identifier = self.parse_iso_str(s, "system identifier")?;
                     }
                     if let Some(s) = &self.ops.volume_set_id {
-                        pvd.volume_set_identifier = IsoStrD::from_str(s).unwrap();
+                        pvd.volume_set_identifier = self.parse_iso_str(s, "volume set identifier")?;
                     }
                     if let Some(s) = &self.ops.publisher_id {
-                        pvd.publisher_identifier = IsoStrA::from_str(s).unwrap();
+                        pvd.publisher_identifier = self.parse_iso_str(s, "publisher identifier")?;
                     }
                     if let Some(s) = &self.ops.preparer_id {
-                        pvd.preparer_identifier = IsoStrA::from_str(s).unwrap();
+                        pvd.preparer_identifier = self.parse_iso_str(s, "preparer identifier")?;
                     }
                     if let Some(s) = &self.ops.application_id {
-                        pvd.application_identifier = IsoStrA::from_str(s).unwrap();
+                        pvd.application_identifier = self.parse_iso_str(s, "application identifier")?;
                     }
                     volume_descriptors.push(VolumeDescriptor::Primary(pvd));
                 }
                 EntryType::Level3 { .. } => {
                     // Version 2 for EVD
                     let mut evd = SupplementaryVolumeDescriptor::new_evd(&self.ops.volume_name, 0);
+                    evd.volume_identifier = self.parse_iso_str(&self.ops.volume_name, "volume name")?;
                     evd.dir_record.header.len = 34;
                     evd.dir_record.header.flags = FileFlags::DIRECTORY.bits();
                     evd.dir_record.header.file_identifier_len = 1;

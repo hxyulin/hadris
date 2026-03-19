@@ -39,6 +39,7 @@
 //! #     sector_size: 2048,
 //! #     path_separator: PathSeparator::ForwardSlash,
 //! #     features: CreationFeatures::default(),
+//! #     strict_charset: false,
 //! # };
 //! # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
 //! # IsoImageWriter::format_new(&mut buffer, files, options).unwrap();
@@ -109,6 +110,7 @@
 //!         el_torito: Some(boot_options),
 //!         hybrid_boot: None,
 //!     },
+//!     strict_charset: false,
 //! };
 //!
 //! let mut buffer = Cursor::new(vec![0u8; 2 * 1024 * 1024]); // 2MB buffer
@@ -443,6 +445,7 @@ pub mod sync {
         /// #     sector_size: 2048,
         /// #     path_separator: PathSeparator::ForwardSlash,
         /// #     features: CreationFeatures::default(),
+        /// #     strict_charset: false,
         /// # };
         /// # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
         /// # IsoImageWriter::format_new(&mut buffer, files, options).unwrap();
@@ -494,6 +497,7 @@ pub mod sync {
         ///     sector_size: 2048,
         ///     path_separator: PathSeparator::ForwardSlash,
         ///     features: CreationFeatures::default(),
+        ///     strict_charset: false,
         /// };
         ///
         /// let mut output = Cursor::new(vec![0u8; 1024 * 1024]);

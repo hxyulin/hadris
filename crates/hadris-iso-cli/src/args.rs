@@ -139,6 +139,9 @@ pub struct CreateArgs {
     /// Application identifier (max 128 characters)
     #[arg(long, alias = "appid")]
     pub application_id: Option<String>,
+    /// Auto-uppercase and fix invalid characters for ECMA-119 compliance
+    #[arg(long)]
+    pub strict_charset: bool,
     /// Verbose output
     #[arg(short, long)]
     pub verbose: bool,

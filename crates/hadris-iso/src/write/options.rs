@@ -81,6 +81,10 @@ pub struct FormatOptions {
     pub sector_size: usize,
     pub features: CreationFeatures,
     pub path_separator: PathSeparator,
+    /// When false (default), PVD string fields are stored as-is without charset
+    /// validation (matching xorriso/genisoimage behavior). When true, auto-converts
+    /// lowercase to uppercase and substitutes invalid characters for ECMA-119 compliance.
+    pub strict_charset: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

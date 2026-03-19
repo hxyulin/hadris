@@ -93,6 +93,7 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
             el_torito,
             hybrid_boot,
         },
+        strict_charset: false,
     };
 
     // Create output buffer with estimated size

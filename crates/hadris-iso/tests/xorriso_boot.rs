@@ -197,6 +197,7 @@ fn test_hadris_bootable_iso_creation() {
             el_torito: Some(boot_options),
             hybrid_boot: None,
         },
+        strict_charset: false,
     };
 
     let mut iso_buffer = Cursor::new(vec![0u8; 256 * 2048]); // 256 sectors
@@ -387,6 +388,7 @@ fn test_compare_boot_catalogs() {
             el_torito: Some(boot_options),
             hybrid_boot: None,
         },
+        strict_charset: false,
     };
 
     let mut hadris_buffer = Cursor::new(vec![0u8; 256 * 2048]);
@@ -704,6 +706,7 @@ fn test_qemu_boot_hadris_iso() {
             el_torito: Some(boot_options),
             hybrid_boot: None,
         },
+        strict_charset: false,
     };
 
     // Create ISO in memory first, then write to file

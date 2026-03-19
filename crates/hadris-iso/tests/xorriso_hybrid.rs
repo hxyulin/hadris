@@ -52,6 +52,7 @@ fn test_hybrid_boot_mbr() {
             el_torito: Some(boot_options),
             hybrid_boot: Some(HybridBootOptions::mbr()),
         },
+        strict_charset: false,
     };
 
     let mut iso_buffer = Cursor::new(vec![0u8; 512 * 2048]); // 512 sectors
@@ -125,6 +126,7 @@ fn test_hybrid_boot_gpt() {
             el_torito: Some(boot_options),
             hybrid_boot: Some(HybridBootOptions::gpt()),
         },
+        strict_charset: false,
     };
 
     let mut iso_buffer = Cursor::new(vec![0u8; 512 * 2048]);
@@ -201,6 +203,7 @@ fn test_hybrid_boot_dual() {
             el_torito: Some(boot_options),
             hybrid_boot: Some(HybridBootOptions::hybrid()),
         },
+        strict_charset: false,
     };
 
     let mut iso_buffer = Cursor::new(vec![0u8; 512 * 2048]);
