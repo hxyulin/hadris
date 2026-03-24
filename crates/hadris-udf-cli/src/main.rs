@@ -12,6 +12,7 @@ fn main() {
         Command::Ls(args) => commands::ls(args),
         Command::Tree(args) => commands::tree(args),
         Command::Create(args) => commands::create(args),
+        Command::Verify(args) => commands::verify(args),
     };
 
     if let Err(e) = result {

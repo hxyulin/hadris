@@ -19,6 +19,8 @@ pub enum Command {
     Tree(TreeArgs),
     /// Create a new UDF image
     Create(CreateArgs),
+    /// Verify UDF image structural integrity
+    Verify(VerifyArgs),
 }
 
 /// Display information about a UDF image
@@ -80,4 +82,14 @@ pub struct CreateArgs {
     /// Dry run: estimate size without creating the image
     #[arg(long)]
     pub dry_run: bool,
+}
+
+/// Verify UDF image structural integrity
+#[derive(Debug, Clone, Parser)]
+pub struct VerifyArgs {
+    /// Path to UDF image
+    pub input: PathBuf,
+    /// Show detailed information including full directory tree walk
+    #[arg(short, long)]
+    pub verbose: bool,
 }

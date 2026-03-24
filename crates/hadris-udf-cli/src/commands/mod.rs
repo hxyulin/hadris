@@ -4,11 +4,13 @@ mod create;
 mod info;
 mod ls;
 mod tree;
+mod verify;
 
 pub use create::create;
 pub use info::info;
 pub use ls::ls;
 pub use tree::tree;
+pub use verify::verify;
 
 use std::fs::File;
 
