@@ -522,6 +522,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-udf-cli"
+version = "1.1.0"
+dependencies = [
+ "clap",
+ "hadris-udf",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "half"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

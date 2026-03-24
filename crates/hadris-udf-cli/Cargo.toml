@@ -1,0 +1,18 @@
+[package]
+name = "hadris-udf-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI utility for Universal Disk Format image operations"
+readme = "README.md"
+keywords = ["udf", "cli", "optical", "disk"]
+categories = ["command-line-utilities", "filesystem"]
+
+[dependencies]
+clap.workspace = true
+
+hadris-udf = { workspace = true, features = ["std", "write"] }
+tracing.workspace = true
+tracing-subscriber = "0.3.20"

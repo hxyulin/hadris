@@ -124,7 +124,7 @@ where
                     _ => {}
                 }
 
-                offset += size_of::<RawDirectoryEntry>();
+                offset += size_of::<RawDirectoryEntry>() as u64;
                 entries_read += 1;
             }
 
