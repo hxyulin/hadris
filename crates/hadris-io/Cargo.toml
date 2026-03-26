@@ -14,7 +14,8 @@ categories = ["no-std", "filesystem"]
 default = ["sync", "std"]
 sync = []
 async = []
-std = ["sync"]
+alloc = []
+std = ["sync", "alloc"]
 
 [dependencies]
 cfg-if.workspace = true

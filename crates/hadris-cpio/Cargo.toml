@@ -14,7 +14,7 @@ default = ["std", "read", "write"]
 # Read support
 read = []
 # Heap allocation without full std
-alloc = []
+alloc = ["hadris-io/alloc"]
 # Standard library support (includes alloc)
 std = ["hadris-io/std", "hadris-common/std", "alloc", "sync"]
 # Write/format support (requires alloc + read)

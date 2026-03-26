@@ -2,6 +2,9 @@
 
 use core::fmt::{self, Display};
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 /// Error kind for I/O operations (no-std compatible)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -71,31 +74,106 @@ impl Display for ErrorKind {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Error message storage
+// ---------------------------------------------------------------------------
+
+/// Internal message representation.
+///
+/// Always has the `Static` variant. The `Dynamic` variant is only available
+/// when the `alloc` feature is enabled, allowing heap-allocated messages.
+#[derive(Debug)]
+enum ErrorMessage {
+    Static(&'static str),
+    #[cfg(feature = "alloc")]
+    Dynamic(alloc::string::String),
+}
+
+impl ErrorMessage {
+    fn as_str(&self) -> &str {
+        match self {
+            ErrorMessage::Static(s) => s,
+            #[cfg(feature = "alloc")]
+            ErrorMessage::Dynamic(s) => s.as_str(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Error type
+// ---------------------------------------------------------------------------
+
 /// I/O Error type for no-std environments
+///
+/// When the `alloc` feature is enabled, errors can store dynamic messages
+/// via heap allocation. Without `alloc`, only `&'static str` messages are
+/// supported.
 #[derive(Debug)]
 pub struct Error {
     kind: ErrorKind,
-    msg: &'static str,
+    msg: ErrorMessage,
 }
 
 impl Error {
-    /// Create a new error with the given kind and message
+    /// Create a new error with the given kind and a static message.
+    ///
+    /// This is always available and `const`-compatible.
+    pub const fn new_static(kind: ErrorKind, msg: &'static str) -> Self {
+        Self {
+            kind,
+            msg: ErrorMessage::Static(msg),
+        }
+    }
+
+    /// Create a new error with the given kind and message.
+    ///
+    /// Without `alloc`, the message must be a `&'static str`.
+    /// With `alloc`, any type implementing `Into<String>` is accepted.
+    #[cfg(not(feature = "alloc"))]
     pub const fn new(kind: ErrorKind, msg: &'static str) -> Self {
-        Self { kind, msg }
+        Self::new_static(kind, msg)
+    }
+
+    /// Create a new error with the given kind and message.
+    ///
+    /// Accepts any type implementing `Into<String>`, including `&str`,
+    /// `String`, and `format!(...)` results.
+    #[cfg(feature = "alloc")]
+    pub fn new(kind: ErrorKind, msg: impl Into<alloc::string::String>) -> Self {
+        Self {
+            kind,
+            msg: ErrorMessage::Dynamic(msg.into()),
+        }
     }
 
     /// Create a new error from an error kind
     pub const fn from_kind(kind: ErrorKind) -> Self {
-        Self { kind, msg: "" }
+        Self {
+            kind,
+            msg: ErrorMessage::Static(""),
+        }
     }
 
     /// Create an error with `ErrorKind::Other`.
     ///
     /// This mirrors `std::io::Error::other()` for no-std compatibility.
+    #[cfg(not(feature = "alloc"))]
     pub const fn other(msg: &'static str) -> Self {
         Self {
             kind: ErrorKind::Other,
-            msg,
+            msg: ErrorMessage::Static(msg),
+        }
+    }
+
+    /// Create an error with `ErrorKind::Other`.
+    ///
+    /// This mirrors `std::io::Error::other()` for no-std compatibility.
+    /// Accepts any type implementing `Into<String>`.
+    #[cfg(feature = "alloc")]
+    pub fn other(msg: impl Into<alloc::string::String>) -> Self {
+        Self {
+            kind: ErrorKind::Other,
+            msg: ErrorMessage::Dynamic(msg.into()),
         }
     }
 
@@ -107,16 +185,17 @@ impl Error {
 
 impl From<ErrorKind> for Error {
     fn from(kind: ErrorKind) -> Self {
-        Self { kind, msg: "" }
+        Self::from_kind(kind)
     }
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.msg.is_empty() {
+        let msg = self.msg.as_str();
+        if msg.is_empty() {
             write!(f, "{}", self.kind)
         } else {
-            write!(f, "{}: {}", self.kind, self.msg)
+            write!(f, "{}: {}", self.kind, msg)
         }
     }
 }

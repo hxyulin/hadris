@@ -15,7 +15,7 @@ default = ["std", "read", "sync"]
 # Read support
 read = ["hadris-common/bytemuck"]
 # Heap allocation without full std
-alloc = []
+alloc = ["hadris-io/alloc"]
 # Standard library support (includes alloc)
 std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "sync"]
 # Write/format support (requires std)

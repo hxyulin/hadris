@@ -404,6 +404,7 @@ dependencies = [
  "noalloc",
  "rand",
  "static_assertions",
+ "zerocopy",
 ]
 
 [[package]]

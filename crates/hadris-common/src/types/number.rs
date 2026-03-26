@@ -2,6 +2,17 @@ use crate::types::endian::{BigEndian, Endian, Endianness, LittleEndian};
 use core::marker::PhantomData;
 use core::ops::{Add, BitAnd, Not, Sub};
 
+// Re-export zerocopy's endian integer types for consumers that want to migrate
+// away from the custom generic types. These have the same `.get()` / `::new()` API.
+pub use zerocopy::little_endian::{
+    U16 as U16Le, U32 as U32Le, U64 as U64Le,
+    I16 as I16Le, I32 as I32Le, I64 as I64Le,
+};
+pub use zerocopy::big_endian::{
+    U16 as U16Be, U32 as U32Be, U64 as U64Be,
+    I16 as I16Be, I32 as I32Be, I64 as I64Be,
+};
+
 /// A 16-bit unsigned integer with a specified endianness.
 #[repr(transparent)]
 #[derive(Clone, Copy)]

@@ -16,7 +16,7 @@ default = ["std", "write"]
 # No-std + no-alloc read support (minimal, for bootloaders)
 read = ["hadris-common/bytemuck"]
 # Heap allocation without full std
-alloc = []
+alloc = ["hadris-io/alloc"]
 # Standard library support (includes alloc)
 std = ["sync", "hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "dep:tracing", "dep:chrono", "chrono/std", "chrono/clock"]
 

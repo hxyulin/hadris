@@ -15,7 +15,7 @@ default = ["std"]
 std = ["sync", "alloc", "hadris-io/std"]
 sync = ["hadris-io/sync"]
 async = ["hadris-io/async"]
-alloc = []
+alloc = ["hadris-io/alloc"]
 read = []
 write = ["alloc", "read"]
 
