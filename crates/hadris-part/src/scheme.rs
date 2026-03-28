@@ -16,6 +16,8 @@ use crate::error::{PartitionError, Result};
 use crate::gpt::Guid;
 #[cfg(feature = "alloc")]
 use crate::gpt::{GptHeader, GptPartitionEntry};
+#[cfg(feature = "alloc")]
+use endian_num::Le;
 use crate::hybrid::is_hybrid_mbr;
 use crate::mbr::MasterBootRecord;
 
@@ -123,26 +125,26 @@ impl GptDisk {
         #[cfg_attr(not(feature = "crc"), allow(unused_mut))]
         let mut primary_header = GptHeader {
             signature: GptHeader::SIGNATURE,
-            revision: GptHeader::REVISION_1_0,
-            header_size: GptHeader::STANDARD_HEADER_SIZE,
-            header_crc32: 0,
-            reserved: 0,
-            my_lba: 1,
-            alternate_lba: disk_sectors - 1,
-            first_usable_lba: first_usable,
-            last_usable_lba: last_usable,
+            revision: Le::<u32>::from_ne(GptHeader::REVISION_1_0),
+            header_size: Le::<u32>::from_ne(GptHeader::STANDARD_HEADER_SIZE),
+            header_crc32: Le::<u32>::from_ne(0),
+            reserved: Le::<u32>::from_ne(0),
+            my_lba: Le::<u64>::from_ne(1),
+            alternate_lba: Le::<u64>::from_ne(disk_sectors - 1),
+            first_usable_lba: Le::<u64>::from_ne(first_usable),
+            last_usable_lba: Le::<u64>::from_ne(last_usable),
             disk_guid,
-            partition_entry_lba: 2,
-            num_partition_entries: entry_count,
-            size_of_partition_entry: entry_size,
-            partition_entry_array_crc32: 0,
+            partition_entry_lba: Le::<u64>::from_ne(2),
+            num_partition_entries: Le::<u32>::from_ne(entry_count),
+            size_of_partition_entry: Le::<u32>::from_ne(entry_size),
+            partition_entry_array_crc32: Le::<u32>::from_ne(0),
         };
 
         #[cfg_attr(not(feature = "crc"), allow(unused_mut))]
         let mut backup_header = GptHeader {
-            my_lba: disk_sectors - 1,
-            alternate_lba: 1,
-            partition_entry_lba: disk_sectors - 1 - entry_sectors as u64,
+            my_lba: Le::<u64>::from_ne(disk_sectors - 1),
+            alternate_lba: Le::<u64>::from_ne(1),
+            partition_entry_lba: Le::<u64>::from_ne(disk_sectors - 1 - entry_sectors as u64),
             ..primary_header
         };
 
@@ -152,8 +154,8 @@ impl GptDisk {
         #[cfg(feature = "crc")]
         {
             let entries_crc = crate::gpt::calculate_partition_array_crc32(&entries);
-            primary_header.partition_entry_array_crc32 = entries_crc;
-            backup_header.partition_entry_array_crc32 = entries_crc;
+            primary_header.partition_entry_array_crc32 = Le::<u32>::from_ne(entries_crc);
+            backup_header.partition_entry_array_crc32 = Le::<u32>::from_ne(entries_crc);
             primary_header.update_crc32();
             backup_header.update_crc32();
         }
@@ -210,15 +212,15 @@ impl GptDisk {
         {
             if !self.primary_header.verify_crc32() {
                 return Err(PartitionError::GptHeaderCrcMismatch {
-                    expected: self.primary_header.header_crc32,
+                    expected: self.primary_header.header_crc32.to_ne(),
                     actual: self.primary_header.calculate_crc32(),
                 });
             }
 
             let entries_crc = crate::gpt::calculate_partition_array_crc32(&self.entries);
-            if self.primary_header.partition_entry_array_crc32 != entries_crc {
+            if self.primary_header.partition_entry_array_crc32.to_ne() != entries_crc {
                 return Err(PartitionError::GptEntriesCrcMismatch {
-                    expected: self.primary_header.partition_entry_array_crc32,
+                    expected: self.primary_header.partition_entry_array_crc32.to_ne(),
                     actual: entries_crc,
                 });
             }
@@ -230,9 +232,11 @@ impl GptDisk {
             for j in (i + 1)..used.len() {
                 let (idx1, p1) = used[i];
                 let (idx2, p2) = used[j];
-                if p1.first_lba <= p2.last_lba && p2.first_lba <= p1.last_lba {
-                    let overlap_start = p1.first_lba.max(p2.first_lba);
-                    let overlap_end = p1.last_lba.min(p2.last_lba);
+                if p1.first_lba.to_ne() <= p2.last_lba.to_ne()
+                    && p2.first_lba.to_ne() <= p1.last_lba.to_ne()
+                {
+                    let overlap_start = p1.first_lba.to_ne().max(p2.first_lba.to_ne());
+                    let overlap_end = p1.last_lba.to_ne().min(p2.last_lba.to_ne());
                     return Err(PartitionError::PartitionOverlap {
                         index1: idx1,
                         index2: idx2,
@@ -245,13 +249,13 @@ impl GptDisk {
 
         // Check partitions are within usable area
         for (idx, entry) in self.partitions() {
-            if entry.first_lba < self.primary_header.first_usable_lba
-                || entry.last_lba > self.primary_header.last_usable_lba
+            if entry.first_lba.to_ne() < self.primary_header.first_usable_lba.to_ne()
+                || entry.last_lba.to_ne() > self.primary_header.last_usable_lba.to_ne()
             {
                 return Err(PartitionError::PartitionOutOfBounds {
                     index: idx,
-                    partition_end: entry.last_lba,
-                    disk_end: self.primary_header.last_usable_lba,
+                    partition_end: entry.last_lba.to_ne(),
+                    disk_end: self.primary_header.last_usable_lba.to_ne(),
                 });
             }
         }
@@ -263,8 +267,8 @@ impl GptDisk {
     #[cfg(feature = "crc")]
     pub fn update_crcs(&mut self) {
         let entries_crc = crate::gpt::calculate_partition_array_crc32(&self.entries);
-        self.primary_header.partition_entry_array_crc32 = entries_crc;
-        self.backup_header.partition_entry_array_crc32 = entries_crc;
+        self.primary_header.partition_entry_array_crc32 = Le::<u32>::from_ne(entries_crc);
+        self.backup_header.partition_entry_array_crc32 = Le::<u32>::from_ne(entries_crc);
         self.primary_header.update_crc32();
         self.backup_header.update_crc32();
     }
@@ -276,7 +280,7 @@ impl GptDisk {
 
     /// Creates a protective MBR for this GPT disk.
     pub fn create_protective_mbr(&self) -> MasterBootRecord {
-        let disk_sectors = self.backup_header.my_lba + 1;
+        let disk_sectors = self.backup_header.my_lba.to_ne().saturating_add(1);
         MasterBootRecord::protective(disk_sectors)
     }
 }
@@ -352,8 +356,8 @@ impl DiskPartitionScheme {
                 .partitions()
                 .map(|(i, e)| PartitionInfo {
                     index: i,
-                    start_lba: e.first_lba,
-                    end_lba: e.last_lba,
+                    start_lba: e.first_lba.to_ne(),
+                    end_lba: e.last_lba.to_ne(),
                     size_sectors: e.size_sectors(),
                     bootable: e.attributes.is_legacy_bios_bootable(),
                     partition_type: PartitionType::Gpt(e.type_guid),

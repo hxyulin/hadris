@@ -61,24 +61,24 @@ impl GptDiskReadExt for GptDisk {
         #[cfg(feature = "crc")]
         if !primary_header.verify_crc32() {
             return Err(PartitionError::GptHeaderCrcMismatch {
-                expected: primary_header.header_crc32,
+                expected: primary_header.header_crc32.to_ne(),
                 actual: primary_header.calculate_crc32(),
             });
         }
 
         // Validate partition entry size
-        let entry_size = primary_header.size_of_partition_entry;
+        let entry_size = primary_header.size_of_partition_entry.to_ne();
         if entry_size != core::mem::size_of::<GptPartitionEntry>() as u32 {
             return Err(PartitionError::InvalidPartitionEntrySize { size: entry_size });
         }
 
         // Read partition entries
-        let num_entries = primary_header.num_partition_entries as usize;
+        let num_entries = primary_header.num_partition_entries.to_ne() as usize;
         let mut entries = alloc::vec![GptPartitionEntry::default(); num_entries];
 
         reader
             .seek(SeekFrom::Start(
-                primary_header.partition_entry_lba * block_size as u64,
+                primary_header.partition_entry_lba.to_ne() * block_size as u64,
             ))
             .await
             .map_err(|_| PartitionError::Io)?;
@@ -96,9 +96,9 @@ impl GptDiskReadExt for GptDisk {
         #[cfg(feature = "crc")]
         {
             let entries_crc = crate::gpt::calculate_partition_array_crc32(&entries);
-            if primary_header.partition_entry_array_crc32 != entries_crc {
+            if primary_header.partition_entry_array_crc32.to_ne() != entries_crc {
                 return Err(PartitionError::GptEntriesCrcMismatch {
-                    expected: primary_header.partition_entry_array_crc32,
+                    expected: primary_header.partition_entry_array_crc32.to_ne(),
                     actual: entries_crc,
                 });
             }
@@ -106,7 +106,9 @@ impl GptDiskReadExt for GptDisk {
 
         // Try to read backup header
         let backup_header =
-            match GptHeader::read_from_lba(reader, primary_header.alternate_lba, block_size).await {
+            match GptHeader::read_from_lba(reader, primary_header.alternate_lba.to_ne(), block_size)
+                .await
+            {
                 Ok(header) => header,
                 Err(_) => GptHeader {
                     // If backup header read fails, construct it from primary
@@ -184,7 +186,7 @@ impl GptDiskWriteExt for GptDisk {
         // Write primary partition entries starting at partition_entry_lba
         writer
             .seek(SeekFrom::Start(
-                self.primary_header.partition_entry_lba * self.block_size as u64,
+                self.primary_header.partition_entry_lba.to_ne() * self.block_size as u64,
             ))
             .await
             .map_err(|_| PartitionError::Io)?;
@@ -199,7 +201,7 @@ impl GptDiskWriteExt for GptDisk {
         // Write backup partition entries
         writer
             .seek(SeekFrom::Start(
-                self.backup_header.partition_entry_lba * self.block_size as u64,
+                self.backup_header.partition_entry_lba.to_ne() * self.block_size as u64,
             ))
             .await
             .map_err(|_| PartitionError::Io)?;
@@ -213,7 +215,7 @@ impl GptDiskWriteExt for GptDisk {
 
         // Write backup header at last LBA
         self.backup_header
-            .write_to_lba(writer, self.backup_header.my_lba, self.block_size)
+            .write_to_lba(writer, self.backup_header.my_lba.to_ne(), self.block_size)
             .await?;
 
         Ok(())
@@ -239,7 +241,7 @@ impl GptDiskWriteExt for GptDisk {
         // Write primary partition entries
         writer
             .seek(SeekFrom::Start(
-                self.primary_header.partition_entry_lba * self.block_size as u64,
+                self.primary_header.partition_entry_lba.to_ne() * self.block_size as u64,
             ))
             .await
             .map_err(|_| PartitionError::Io)?;
@@ -254,7 +256,7 @@ impl GptDiskWriteExt for GptDisk {
         // Write backup partition entries
         writer
             .seek(SeekFrom::Start(
-                self.backup_header.partition_entry_lba * self.block_size as u64,
+                self.backup_header.partition_entry_lba.to_ne() * self.block_size as u64,
             ))
             .await
             .map_err(|_| PartitionError::Io)?;
@@ -268,7 +270,7 @@ impl GptDiskWriteExt for GptDisk {
 
         // Write backup header at last LBA
         self.backup_header
-            .write_to_lba(writer, self.backup_header.my_lba, self.block_size)
+            .write_to_lba(writer, self.backup_header.my_lba.to_ne(), self.block_size)
             .await?;
 
         Ok(())

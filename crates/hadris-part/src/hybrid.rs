@@ -236,15 +236,18 @@ impl HybridMbrBuilder {
             }
 
             // Check if partition fits in 32-bit MBR addressing
-            if gpt_entry.last_lba > u32::MAX as u64 {
+            let first_native = gpt_entry.first_lba.to_ne();
+            let last_native = gpt_entry.last_lba.to_ne();
+
+            if last_native > u32::MAX as u64 {
                 return Err(PartitionError::InvalidHybridMbr {
                     reason: "GPT partition extends beyond MBR 32-bit limit",
                 });
             }
 
             let slot = self.config.calculate_slot(i);
-            let start_lba = gpt_entry.first_lba as u32;
-            let sector_count = (gpt_entry.last_lba - gpt_entry.first_lba + 1) as u32;
+            let start_lba = first_native as u32;
+            let sector_count = (last_native - first_native + 1) as u32;
 
             partition_table[slot] = MbrPartition {
                 boot_indicator: if mirrored.bootable { 0x80 } else { 0x00 },
@@ -255,7 +258,7 @@ impl HybridMbrBuilder {
                 sector_count: Le::<u32>::from_ne(sector_count),
             };
 
-            mirrored_ranges[mirror_count] = (gpt_entry.first_lba, gpt_entry.last_lba);
+            mirrored_ranges[mirror_count] = (first_native, last_native);
             mirror_count += 1;
         }
 

@@ -211,19 +211,21 @@ impl PartitionInfoTrait for MbrPartition {
 
 impl PartitionInfoTrait for GptPartitionEntry {
     fn start_lba(&self) -> u64 {
-        self.first_lba
+        self.first_lba.to_ne()
     }
 
     fn size_sectors(&self) -> u64 {
-        if self.is_unused() || self.last_lba < self.first_lba {
+        let first = self.first_lba.to_ne();
+        let last = self.last_lba.to_ne();
+        if self.is_unused() || last < first {
             0
         } else {
-            self.last_lba - self.first_lba + 1
+            last - first + 1
         }
     }
 
     fn end_lba(&self) -> u64 {
-        self.last_lba
+        self.last_lba.to_ne()
     }
 }
 
