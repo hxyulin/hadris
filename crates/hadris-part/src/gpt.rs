@@ -8,6 +8,8 @@
 
 use core::fmt::{Debug, Display};
 
+use endian_num::Le;
+
 /// A 128-bit GUID (Globally Unique Identifier).
 ///
 /// GUIDs are stored in mixed-endian format:
@@ -548,10 +550,10 @@ impl Guid {
     }
 }
 
-/// GPT partition entry attributes.
+/// GPT partition entry attributes (64-bit flags, little-endian on disk).
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, Default, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct GptAttributes(u64);
+pub struct GptAttributes(Le<u64>);
 
 impl GptAttributes {
     /// Platform required (required for system to function).
@@ -563,39 +565,39 @@ impl GptAttributes {
 
     /// Creates new attributes from a raw value.
     pub const fn new(value: u64) -> Self {
-        Self(value)
+        Self(Le::<u64>::from_ne(value))
     }
 
     /// Returns the raw attribute value.
     pub const fn get(&self) -> u64 {
-        self.0
+        self.0.to_ne()
     }
 
     /// Sets the raw attribute value.
     pub fn set(&mut self, value: u64) {
-        self.0 = value;
+        self.0 = Le::<u64>::from_ne(value);
     }
 
     /// Returns whether the platform required flag is set.
     pub const fn is_platform_required(&self) -> bool {
-        (self.0 & Self::PLATFORM_REQUIRED) != 0
+        (self.0.to_ne() & Self::PLATFORM_REQUIRED) != 0
     }
 
     /// Returns whether the EFI ignore flag is set.
     pub const fn is_efi_ignore(&self) -> bool {
-        (self.0 & Self::EFI_IGNORE) != 0
+        (self.0.to_ne() & Self::EFI_IGNORE) != 0
     }
 
     /// Returns whether the legacy BIOS bootable flag is set.
     pub const fn is_legacy_bios_bootable(&self) -> bool {
-        (self.0 & Self::LEGACY_BIOS_BOOTABLE) != 0
+        (self.0.to_ne() & Self::LEGACY_BIOS_BOOTABLE) != 0
     }
 }
 
 impl Debug for GptAttributes {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("GptAttributes")
-            .field("raw", &format_args!("0x{:016X}", self.0))
+            .field("raw", &format_args!("0x{:016X}", self.get()))
             .field("platform_required", &self.is_platform_required())
             .field("efi_ignore", &self.is_efi_ignore())
             .field("legacy_bios_bootable", &self.is_legacy_bios_bootable())
@@ -661,58 +663,58 @@ impl GptPartitionName {
 
 /// GPT partition table header (92 bytes, padded to sector size).
 ///
-/// Note: This struct uses native alignment for ease of use. When reading/writing
-/// to disk, use the serialization methods rather than direct memory casting.
+/// Numeric fields use [`Le`] so their on-disk little-endian layout is explicit.
+/// Use `to_raw` / `from_raw` or the I/O extension traits for serialization.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct GptHeader {
     /// Signature: must be "EFI PART" (0x5452415020494645).
     pub signature: [u8; 8],
-    /// Revision: currently 0x00010000 (1.0).
-    pub revision: u32,
-    /// Header size in bytes (usually 92).
-    pub header_size: u32,
-    /// CRC32 of header (with this field set to 0 during calculation).
-    pub header_crc32: u32,
-    /// Reserved, must be 0.
-    pub reserved: u32,
-    /// LBA of this header.
-    pub my_lba: u64,
-    /// LBA of alternate header (backup).
-    pub alternate_lba: u64,
-    /// First usable LBA for partitions.
-    pub first_usable_lba: u64,
-    /// Last usable LBA for partitions.
-    pub last_usable_lba: u64,
+    /// Revision: currently 0x00010000 (1.0), little-endian on disk.
+    pub revision: Le<u32>,
+    /// Header size in bytes (usually 92), little-endian on disk.
+    pub header_size: Le<u32>,
+    /// CRC32 of header (with this field set to 0 during calculation), little-endian on disk.
+    pub header_crc32: Le<u32>,
+    /// Reserved, must be 0, little-endian on disk.
+    pub reserved: Le<u32>,
+    /// LBA of this header, little-endian on disk.
+    pub my_lba: Le<u64>,
+    /// LBA of alternate header (backup), little-endian on disk.
+    pub alternate_lba: Le<u64>,
+    /// First usable LBA for partitions, little-endian on disk.
+    pub first_usable_lba: Le<u64>,
+    /// Last usable LBA for partitions, little-endian on disk.
+    pub last_usable_lba: Le<u64>,
     /// Disk GUID.
     pub disk_guid: Guid,
-    /// Starting LBA of partition entry array.
-    pub partition_entry_lba: u64,
-    /// Number of partition entries.
-    pub num_partition_entries: u32,
-    /// Size of each partition entry (usually 128).
-    pub size_of_partition_entry: u32,
-    /// CRC32 of partition entry array.
-    pub partition_entry_array_crc32: u32,
+    /// Starting LBA of partition entry array, little-endian on disk.
+    pub partition_entry_lba: Le<u64>,
+    /// Number of partition entries, little-endian on disk.
+    pub num_partition_entries: Le<u32>,
+    /// Size of each partition entry (usually 128), little-endian on disk.
+    pub size_of_partition_entry: Le<u32>,
+    /// CRC32 of partition entry array, little-endian on disk.
+    pub partition_entry_array_crc32: Le<u32>,
 }
 
 impl Default for GptHeader {
     fn default() -> Self {
         Self {
             signature: *b"EFI PART",
-            revision: 0x00010000,
-            header_size: 92,
-            header_crc32: 0,
-            reserved: 0,
-            my_lba: 0,
-            alternate_lba: 0,
-            first_usable_lba: 0,
-            last_usable_lba: 0,
+            revision: Le::<u32>::from_ne(0x00010000),
+            header_size: Le::<u32>::from_ne(92),
+            header_crc32: Le::<u32>::from_ne(0),
+            reserved: Le::<u32>::from_ne(0),
+            my_lba: Le::<u64>::from_ne(0),
+            alternate_lba: Le::<u64>::from_ne(0),
+            first_usable_lba: Le::<u64>::from_ne(0),
+            last_usable_lba: Le::<u64>::from_ne(0),
             disk_guid: Guid::default(),
-            partition_entry_lba: 0,
-            num_partition_entries: 0,
-            size_of_partition_entry: 128,
-            partition_entry_array_crc32: 0,
+            partition_entry_lba: Le::<u64>::from_ne(0),
+            num_partition_entries: Le::<u32>::from_ne(0),
+            size_of_partition_entry: Le::<u32>::from_ne(128),
+            partition_entry_array_crc32: Le::<u32>::from_ne(0),
         }
     }
 }
@@ -748,7 +750,7 @@ impl GptHeader {
         const HASHER: Crc<u32> = Crc::<u32>::new(&CRC_32_ISO_HDLC);
 
         let mut header = *self;
-        header.header_crc32 = 0;
+        header.header_crc32 = Le::<u32>::from_ne(0);
         let raw = header.to_raw();
         HASHER.checksum(bytemuck::bytes_of(&raw))
     }
@@ -756,42 +758,42 @@ impl GptHeader {
     /// Verifies the header CRC32.
     #[cfg(feature = "crc")]
     pub fn verify_crc32(&self) -> bool {
-        self.header_crc32 == self.calculate_crc32()
+        self.header_crc32.to_ne() == self.calculate_crc32()
     }
 
     /// Updates the header CRC32 field.
     #[cfg(feature = "crc")]
     pub fn update_crc32(&mut self) {
-        self.header_crc32 = 0;
-        self.header_crc32 = self.calculate_crc32();
+        self.header_crc32 = Le::<u32>::from_ne(0);
+        self.header_crc32 = Le::<u32>::from_ne(self.calculate_crc32());
     }
 }
 
 /// On-disk GPT header representation (92 bytes, packed).
 ///
 /// This struct matches the exact on-disk layout of the GPT header.
-/// The `GptHeader` struct uses native alignment for convenience but may
-/// have padding, so this packed representation is used for serialization.
+/// The [`GptHeader`] struct uses native alignment and may include padding;
+/// this packed representation is used for serialization and CRC.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub(crate) struct GptHeaderRaw {
     signature: [u8; 8],
-    revision: [u8; 4],
-    header_size: [u8; 4],
-    header_crc32: [u8; 4],
-    reserved: [u8; 4],
-    my_lba: [u8; 8],
-    alternate_lba: [u8; 8],
-    first_usable_lba: [u8; 8],
-    last_usable_lba: [u8; 8],
+    revision: Le<u32>,
+    header_size: Le<u32>,
+    header_crc32: Le<u32>,
+    reserved: Le<u32>,
+    my_lba: Le<u64>,
+    alternate_lba: Le<u64>,
+    first_usable_lba: Le<u64>,
+    last_usable_lba: Le<u64>,
     disk_guid: [u8; 16],
-    partition_entry_lba: [u8; 8],
-    num_partition_entries: [u8; 4],
-    size_of_partition_entry: [u8; 4],
-    partition_entry_array_crc32: [u8; 4],
+    partition_entry_lba: Le<u64>,
+    num_partition_entries: Le<u32>,
+    size_of_partition_entry: Le<u32>,
+    partition_entry_array_crc32: Le<u32>,
 }
 
-// SAFETY: GptHeaderRaw is repr(C, packed) with only byte arrays.
+// SAFETY: GptHeaderRaw is repr(C, packed) with Pod field types (`Le`, byte arrays).
 // All bit patterns are valid.
 unsafe impl bytemuck::Pod for GptHeaderRaw {}
 unsafe impl bytemuck::Zeroable for GptHeaderRaw {}
@@ -806,19 +808,19 @@ impl GptHeader {
     pub(crate) fn to_raw(self) -> GptHeaderRaw {
         GptHeaderRaw {
             signature: self.signature,
-            revision: self.revision.to_le_bytes(),
-            header_size: self.header_size.to_le_bytes(),
-            header_crc32: self.header_crc32.to_le_bytes(),
-            reserved: self.reserved.to_le_bytes(),
-            my_lba: self.my_lba.to_le_bytes(),
-            alternate_lba: self.alternate_lba.to_le_bytes(),
-            first_usable_lba: self.first_usable_lba.to_le_bytes(),
-            last_usable_lba: self.last_usable_lba.to_le_bytes(),
+            revision: self.revision,
+            header_size: self.header_size,
+            header_crc32: self.header_crc32,
+            reserved: self.reserved,
+            my_lba: self.my_lba,
+            alternate_lba: self.alternate_lba,
+            first_usable_lba: self.first_usable_lba,
+            last_usable_lba: self.last_usable_lba,
             disk_guid: self.disk_guid.to_bytes(),
-            partition_entry_lba: self.partition_entry_lba.to_le_bytes(),
-            num_partition_entries: self.num_partition_entries.to_le_bytes(),
-            size_of_partition_entry: self.size_of_partition_entry.to_le_bytes(),
-            partition_entry_array_crc32: self.partition_entry_array_crc32.to_le_bytes(),
+            partition_entry_lba: self.partition_entry_lba,
+            num_partition_entries: self.num_partition_entries,
+            size_of_partition_entry: self.size_of_partition_entry,
+            partition_entry_array_crc32: self.partition_entry_array_crc32,
         }
     }
 
@@ -826,19 +828,19 @@ impl GptHeader {
     pub(crate) fn from_raw(raw: &GptHeaderRaw) -> Self {
         Self {
             signature: raw.signature,
-            revision: u32::from_le_bytes(raw.revision),
-            header_size: u32::from_le_bytes(raw.header_size),
-            header_crc32: u32::from_le_bytes(raw.header_crc32),
-            reserved: u32::from_le_bytes(raw.reserved),
-            my_lba: u64::from_le_bytes(raw.my_lba),
-            alternate_lba: u64::from_le_bytes(raw.alternate_lba),
-            first_usable_lba: u64::from_le_bytes(raw.first_usable_lba),
-            last_usable_lba: u64::from_le_bytes(raw.last_usable_lba),
+            revision: raw.revision,
+            header_size: raw.header_size,
+            header_crc32: raw.header_crc32,
+            reserved: raw.reserved,
+            my_lba: raw.my_lba,
+            alternate_lba: raw.alternate_lba,
+            first_usable_lba: raw.first_usable_lba,
+            last_usable_lba: raw.last_usable_lba,
             disk_guid: Guid::from_bytes(raw.disk_guid),
-            partition_entry_lba: u64::from_le_bytes(raw.partition_entry_lba),
-            num_partition_entries: u32::from_le_bytes(raw.num_partition_entries),
-            size_of_partition_entry: u32::from_le_bytes(raw.size_of_partition_entry),
-            partition_entry_array_crc32: u32::from_le_bytes(raw.partition_entry_array_crc32),
+            partition_entry_lba: raw.partition_entry_lba,
+            num_partition_entries: raw.num_partition_entries,
+            size_of_partition_entry: raw.size_of_partition_entry,
+            partition_entry_array_crc32: raw.partition_entry_array_crc32,
         }
     }
 }
@@ -851,10 +853,10 @@ pub struct GptPartitionEntry {
     pub type_guid: Guid,
     /// Unique partition GUID.
     pub unique_guid: Guid,
-    /// First LBA (little-endian).
-    pub first_lba: u64,
-    /// Last LBA (inclusive, little-endian).
-    pub last_lba: u64,
+    /// First LBA, little-endian on disk.
+    pub first_lba: Le<u64>,
+    /// Last LBA (inclusive), little-endian on disk.
+    pub last_lba: Le<u64>,
     /// Attribute flags.
     pub attributes: GptAttributes,
     /// Partition name (UTF-16LE).
@@ -866,8 +868,8 @@ impl Default for GptPartitionEntry {
         Self {
             type_guid: Guid::UNUSED,
             unique_guid: Guid::UNUSED,
-            first_lba: 0,
-            last_lba: 0,
+            first_lba: Le::<u64>::from_ne(0),
+            last_lba: Le::<u64>::from_ne(0),
             attributes: GptAttributes::default(),
             name: GptPartitionName::default(),
         }
@@ -879,8 +881,8 @@ impl Debug for GptPartitionEntry {
         f.debug_struct("GptPartitionEntry")
             .field("type_guid", &self.type_guid)
             .field("unique_guid", &self.unique_guid)
-            .field("first_lba", &self.first_lba)
-            .field("last_lba", &self.last_lba)
+            .field("first_lba", &self.first_lba.to_ne())
+            .field("last_lba", &self.last_lba.to_ne())
             .field("attributes", &self.attributes)
             .field("name", &self.name)
             .finish()
@@ -893,8 +895,8 @@ impl GptPartitionEntry {
         Self {
             type_guid,
             unique_guid,
-            first_lba,
-            last_lba,
+            first_lba: Le::<u64>::from_ne(first_lba),
+            last_lba: Le::<u64>::from_ne(last_lba),
             attributes: GptAttributes::new(0),
             name: GptPartitionName([0; 36]),
         }
@@ -907,10 +909,12 @@ impl GptPartitionEntry {
 
     /// Returns the partition size in sectors.
     pub const fn size_sectors(&self) -> u64 {
-        if self.is_unused() || self.last_lba < self.first_lba {
+        let first = self.first_lba.to_ne();
+        let last = self.last_lba.to_ne();
+        if self.is_unused() || last < first {
             0
         } else {
-            self.last_lba - self.first_lba + 1
+            last - first + 1
         }
     }
 

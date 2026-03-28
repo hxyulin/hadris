@@ -63,8 +63,8 @@ fn gpt_partition_entry_roundtrip() {
 
     let entry2: &GptPartitionEntry = bytemuck::from_bytes(bytes);
     assert_eq!(entry2.type_guid, Guid::EFI_SYSTEM);
-    assert_eq!(entry2.first_lba, 2048);
-    assert_eq!(entry2.last_lba, 206847);
+    assert_eq!(entry2.first_lba.to_ne(), 2048);
+    assert_eq!(entry2.last_lba.to_ne(), 206847);
     assert_eq!(entry2.size_sectors(), 204800);
 }
 
