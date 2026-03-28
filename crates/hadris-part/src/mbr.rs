@@ -9,6 +9,8 @@
 use core::fmt::Debug;
 use core::ops::{Index, IndexMut};
 
+use endian_num::Le;
+
 /// A simplified enum for common MBR partition types.
 ///
 /// For a complete list of partition types, see [`MbrPartitionTypeFull`].
@@ -216,10 +218,10 @@ pub struct MbrPartition {
     pub part_type: u8,
     /// Ending CHS address.
     pub end_chs: Chs,
-    /// Starting LBA (sector number).
-    pub start_lba: u32,
-    /// Number of sectors in this partition.
-    pub sector_count: u32,
+    /// Starting LBA (sector number), little-endian on disk.
+    pub start_lba: Le<u32>,
+    /// Number of sectors in this partition, little-endian on disk.
+    pub sector_count: Le<u32>,
 }
 
 impl Default for MbrPartition {
@@ -229,8 +231,8 @@ impl Default for MbrPartition {
             start_chs: Chs::new(0),
             part_type: 0x00,
             end_chs: Chs::new(0),
-            start_lba: 0,
-            sector_count: 0,
+            start_lba: Le::<u32>::from_ne(0),
+            sector_count: Le::<u32>::from_ne(0),
         }
     }
 }
@@ -248,8 +250,8 @@ impl MbrPartition {
             start_chs: Chs::new(start_lba),
             part_type: part_type.to_u8(),
             end_chs: Chs::new(end_lba),
-            start_lba,
-            sector_count,
+            start_lba: Le::<u32>::from_ne(start_lba),
+            sector_count: Le::<u32>::from_ne(sector_count),
         }
     }
 
@@ -291,10 +293,12 @@ impl MbrPartition {
 
     /// Returns the ending LBA (inclusive).
     pub const fn end_lba(&self) -> u32 {
-        if self.sector_count == 0 {
-            self.start_lba
+        let start = self.start_lba.to_ne();
+        let count = self.sector_count.to_ne();
+        if count == 0 {
+            start
         } else {
-            self.start_lba + self.sector_count - 1
+            start + count - 1
         }
     }
 }
@@ -329,8 +333,8 @@ impl MbrPartitionTable {
         start_chs: Chs([0, 0, 0]),
         part_type: 0,
         end_chs: Chs([0, 0, 0]),
-        start_lba: 0,
-        sector_count: 0,
+        start_lba: Le::<u32>::from_ne(0),
+        sector_count: Le::<u32>::from_ne(0),
     };
 
     /// Creates a new empty MBR partition table.
@@ -849,8 +853,8 @@ mod tests {
         assert!(mbr.has_valid_signature());
         let pt = mbr.get_partition_table();
         assert!(pt.is_protective());
-        assert_eq!(pt[0].start_lba, 1);
-        assert_eq!(pt[0].sector_count, 999);
+        assert_eq!(pt[0].start_lba.to_ne(), 1);
+        assert_eq!(pt[0].sector_count.to_ne(), 999);
     }
 
     #[test]

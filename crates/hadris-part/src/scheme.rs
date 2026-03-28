@@ -340,9 +340,9 @@ impl DiskPartitionScheme {
                     .filter(|(_, p)| !p.is_empty())
                     .map(|(i, p)| PartitionInfo {
                         index: i,
-                        start_lba: p.start_lba as u64,
+                        start_lba: p.start_lba.to_ne() as u64,
                         end_lba: p.end_lba() as u64,
-                        size_sectors: p.sector_count as u64,
+                        size_sectors: p.sector_count.to_ne() as u64,
                         bootable: p.is_bootable(),
                         partition_type: PartitionType::Mbr(p.part_type),
                     })

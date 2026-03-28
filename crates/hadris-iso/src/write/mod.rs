@@ -29,6 +29,7 @@ use hadris_part::{
     gpt::{GptPartitionEntry, Guid},
     hybrid::HybridMbrBuilder,
     mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionType},
+    Le,
 };
 use options::PartitionScheme;
 use writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
@@ -876,8 +877,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 start_chs: Chs::new(start_block),
                 part_type: MbrPartitionType::Iso9660.to_u8(),
                 end_chs: Chs::new(end_block),
-                start_lba: start_block,
-                sector_count: end_block - start_block,
+                start_lba: Le::<u32>::from_ne(start_block),
+                sector_count: Le::<u32>::from_ne(end_block - start_block),
             };
         });
 
@@ -911,8 +912,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 start_chs: Chs::new(0),
                 part_type: MbrPartitionType::Iso9660.to_u8(),
                 end_chs: Chs::new(end_block.saturating_sub(1)),
-                start_lba: 0,
-                sector_count: end_block,
+                start_lba: Le::<u32>::from_ne(0),
+                sector_count: Le::<u32>::from_ne(end_block),
             };
         });
 
