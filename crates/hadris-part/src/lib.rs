@@ -157,6 +157,7 @@ pub mod r#async {
 pub use sync::*;
 
 // Re-export commonly used types at the crate root
+pub use endian_num::Le;
 pub use error::{PartitionError, Result};
 pub use geometry::{DiskGeometry, validate_partition_alignment};
 pub use gpt::{GptHeader, GptPartitionEntry, Guid};
@@ -200,11 +201,11 @@ pub trait PartitionInfoTrait {
 
 impl PartitionInfoTrait for MbrPartition {
     fn start_lba(&self) -> u64 {
-        self.start_lba as u64
+        self.start_lba.to_ne() as u64
     }
 
     fn size_sectors(&self) -> u64 {
-        self.sector_count as u64
+        self.sector_count.to_ne() as u64
     }
 }
 

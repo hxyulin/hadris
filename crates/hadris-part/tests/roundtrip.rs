@@ -28,9 +28,9 @@ fn mbr_write_read_roundtrip() {
     assert!(mbr2.has_valid_signature());
     let t2 = mbr2.get_partition_table();
     assert_eq!(t2.count(), 2);
-    assert_eq!(t2[0].start_lba as u64, 2048);
-    assert_eq!(t2[0].sector_count as u64, 204800);
-    assert_eq!(t2[1].start_lba as u64, 206848);
+    assert_eq!(t2[0].start_lba.to_ne() as u64, 2048);
+    assert_eq!(t2[0].sector_count.to_ne() as u64, 204800);
+    assert_eq!(t2[1].start_lba.to_ne() as u64, 206848);
 }
 
 #[test]

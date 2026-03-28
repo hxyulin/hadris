@@ -18,6 +18,7 @@ use alloc::vec::Vec;
 use crate::error::{PartitionError, Result};
 use crate::gpt::GptPartitionEntry;
 use crate::mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionTable, MbrPartitionType};
+use endian_num::Le;
 
 /// A partition to be mirrored from GPT to MBR in a hybrid configuration.
 #[derive(Debug, Clone, Copy)]
@@ -250,8 +251,8 @@ impl HybridMbrBuilder {
                 start_chs: Chs::new(start_lba),
                 part_type: mirrored.mbr_type.to_u8(),
                 end_chs: Chs::new(start_lba + sector_count - 1),
-                start_lba,
-                sector_count,
+                start_lba: Le::<u32>::from_ne(start_lba),
+                sector_count: Le::<u32>::from_ne(sector_count),
             };
 
             mirrored_ranges[mirror_count] = (gpt_entry.first_lba, gpt_entry.last_lba);
@@ -291,8 +292,8 @@ impl HybridMbrBuilder {
             start_chs: Chs::new(1),
             part_type: MbrPartitionType::ProtectiveMbr.to_u8(),
             end_chs: Chs::new(protective_end),
-            start_lba: 1,
-            sector_count: protective_size,
+            start_lba: Le::<u32>::from_ne(1),
+            sector_count: Le::<u32>::from_ne(protective_size),
         };
 
         mbr.partition_table = partition_table;

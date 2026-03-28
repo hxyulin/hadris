@@ -23,5 +23,6 @@ write = ["alloc", "read"]
 hadris-io = { workspace = true, default-features = false }
 hadris-macros = { workspace = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
+endian-num.workspace = true
 crc = { version = "3", default-features = false, optional = true }
 rand = { version = "0.9", default-features = false, optional = true, features = ["thread_rng"] }
