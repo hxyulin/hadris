@@ -95,6 +95,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
+name = "bit_field"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e4b40c7323adcfc0a41c4b88143ed58346ff65a288fc144329c5c45e05d70c6"
+
+[[package]]
 name = "bitflags"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -493,6 +499,20 @@ name = "hadris-macros"
 version = "1.1.0"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "hadris-ntfs"
+version = "1.1.0"
+dependencies = [
+ "bitflags",
+ "bytemuck",
+ "hadris-common",
+ "hadris-io",
+ "hadris-macros",
+ "spin",
+ "static_assertions",
+ "ucs2",
 ]
 
 [[package]]
@@ -1079,6 +1099,15 @@ dependencies = [
  "thread_local",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "ucs2"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79298e11f316400c57ec268f3c2c29ac3c4d4777687955cd3d4f3a35ce7eba"
+dependencies = [
+ "bit_field",
 ]
 
 [[package]]

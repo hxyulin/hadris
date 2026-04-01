@@ -15,6 +15,7 @@ members = [
     "crates/hadris-cli",
     "crates/hadris-cpio",
     "crates/hadris-cpio-cli",
+    "crates/hadris-ntfs",
 ]
 default-members = [
     "crates/hadris-macros",
@@ -31,6 +32,7 @@ default-members = [
     "crates/hadris-cli",
     "crates/hadris-cpio",
     "crates/hadris-cpio-cli",
+    "crates/hadris-ntfs",
 ]
 
 [workspace.package]
@@ -65,3 +67,4 @@ hadris-fat = { version = "1.1.0", path = "crates/hadris-fat", default-features =
 hadris-common = { version = "1.1.0", path = "crates/hadris-common", default-features = false }
 hadris-part = { version = "1.1.0", path = "crates/hadris-part", default-features = false }
 hadris-cpio = { version = "1.1.0", path = "crates/hadris-cpio", default-features = false }
+hadris-ntfs = { version = "1.1.0", path = "crates/hadris-ntfs", default-features = false }
