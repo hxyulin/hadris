@@ -16,6 +16,7 @@ members = [
     "crates/hadris-cpio",
     "crates/hadris-cpio-cli",
     "crates/hadris-ntfs",
+    "crates/hadris-ntfs/tests",
 ]
 default-members = [
     "crates/hadris-macros",
@@ -33,6 +34,7 @@ default-members = [
     "crates/hadris-cpio",
     "crates/hadris-cpio-cli",
     "crates/hadris-ntfs",
+    "crates/hadris-ntfs/tests",
 ]
 
 [workspace.package]
