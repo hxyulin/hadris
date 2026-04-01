@@ -1,0 +1,11 @@
+[package]
+name = "hadris-ntfs-tests"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+hadris-ntfs = { workspace = true, features = ["std", "read"] }
+tempfile = { workspace = true }

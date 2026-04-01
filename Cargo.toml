@@ -8,6 +8,7 @@ members = [
     "crates/tools/*",
     "examples/*",
     "crates/hadris-ntfs",
+    "crates/hadris-ntfs/tests",
 ]
 default-members = [
     "crates/core/*",
@@ -16,6 +17,7 @@ default-members = [
     "crates/archive/*",
     "crates/tools/*",
     "crates/hadris-ntfs",
+    "crates/hadris-ntfs/tests",
 ]
 
 [workspace.package]

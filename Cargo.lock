@@ -677,6 +677,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-ntfs-tests"
+version = "1.1.0"
+dependencies = [
+ "hadris-ntfs",
+ "tempfile",
+]
+
+[[package]]
 name = "hadris-part"
 version = "2.0.0-rc.4"
 dependencies = [
