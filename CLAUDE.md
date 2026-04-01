@@ -51,6 +51,7 @@ cargo check -p hadris-fat --no-default-features --features "read,sync"
 cargo check -p hadris-cpio --no-default-features --features "read,sync"
 cargo check -p hadris-udf --no-default-features --features "read,sync"
 cargo check -p hadris-part --no-default-features --features "read,sync"
+cargo check -p hadris-ntfs --no-default-features --features "read,sync"
 ```
 
 Note: `hadris-io` provides a minimal `Error` type in no-std mode (no message storage). The `std::io::Error` API surface is not fully mirrored — if you use a std-only method like `Error::other()`, add a matching method to `crates/hadris-io/src/error.rs`.
@@ -66,6 +67,7 @@ crates/
 ├── hadris-iso/      # ISO 9660: Joliet, El-Torito, SUSP/RRIP (Rock Ridge)
 ├── hadris-fat/      # FAT12/16/32 with LFN, caching, analysis tools
 ├── hadris-udf/      # UDF (Universal Disk Format) for DVD/Blu-ray
+├── hadris-ntfs/     # NTFS (read-only): MFT, B+ tree directories, data runs
 ├── hadris-cpio/     # CPIO archive format (newc/SVR4) for initramfs
 ├── hadris-cd/       # Hybrid ISO+UDF optical disc image creation
 ├── hadris/          # Meta-crate re-exporting filesystem implementations
@@ -124,12 +126,17 @@ All library crates support `sync` and `async` feature flags for dual sync/async 
 - `read` - Read operations
 - `write` - Write operations (requires `alloc`, `read`)
 
+**hadris-ntfs:**
+- `std` (default) - Standard library support
+- `alloc` - Heap allocation without full std
+- `read` - Read operations (requires `alloc`)
+
 **hadris-cd:**
 - `std` (default) - Standard library support (combines hadris-iso + hadris-udf)
 
 ## Architecture Notes
 
-**Dependency flow:** `hadris-io` -> `hadris-common` -> `hadris-{part,fat,iso,udf,cpio}` -> `hadris-cd` -> `hadris`
+**Dependency flow:** `hadris-io` -> `hadris-common` -> `hadris-{part,fat,iso,udf,cpio,ntfs}` -> `hadris-cd` -> `hadris`
 
 **Dual sync/async:** `hadris-macros` provides a `strip_async!` proc macro. Each crate defines `io_transform!`, `sync_only!`, and `async_only!` macros in its sync/async modules. Shared source files are included in both modules via `#[path]` attributes. Doc comments must go *inside* macro invocations to appear in generated docs.
 
