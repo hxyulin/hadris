@@ -125,6 +125,24 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
+  test-exfat:
+    name: Test exFAT (with external tools)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install exfatprogs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y exfatprogs
+          mkfs.exfat -V
+          fsck.exfat -V || true
+      - name: Run exFAT integration tests
+        run: |
+          cargo test -p hadris-fat --features "exfat,write" --test integration_exfat -- --nocapture
+          cargo test -p hadris-fat --features "exfat,write" --test exfat_roundtrip -- --nocapture
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
