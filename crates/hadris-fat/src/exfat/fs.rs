@@ -621,6 +621,7 @@ where
         new_valid_data_length: u64,
         new_data_length: u64,
         new_first_cluster: u32,
+        no_fat_chain: bool,
     ) -> Result<()> {
         use super::entry::{RawStreamExtensionEntry, compute_entry_set_checksum};
         use hadris_common::types::endian::LittleEndian;
@@ -648,6 +649,15 @@ where
         // Update the stream extension entry (second entry, index 1)
         if entry_count >= 2 {
             let stream = unsafe { &mut entries[1].stream };
+            // Keep general_secondary_flags consistent with the new allocation
+            // state: AllocationPossible (bit 0) must be 0 when there are no
+            // clusters, and NoFatChain (bit 1) requires AllocationPossible=1.
+            let has_allocation = new_data_length > 0 || new_first_cluster != 0;
+            stream.general_secondary_flags = if has_allocation {
+                0x01 | if no_fat_chain { 0x02 } else { 0x00 }
+            } else {
+                0
+            };
             stream.valid_data_length = U64::<LittleEndian>::new(new_valid_data_length);
             stream.data_length = U64::<LittleEndian>::new(new_data_length);
             stream.first_cluster = U32::<LittleEndian>::new(new_first_cluster);
@@ -691,7 +701,7 @@ where
                 };
                 self.free_clusters(entry.first_cluster, cluster_count, entry.no_fat_chain)?;
             }
-            self.update_entry_size(entry, 0, 0, 0)?;
+            self.update_entry_size(entry, 0, 0, 0, false)?;
         } else {
             // Calculate clusters to keep
             let clusters_to_keep = (new_size + cluster_size - 1) / cluster_size;
@@ -722,7 +732,13 @@ where
                 let mut data = self.data.lock();
                 self.fat.truncate_chain(&mut data.data, current)?;
             }
-            self.update_entry_size(entry, new_size, new_data_length, entry.first_cluster)?;
+            self.update_entry_size(
+                entry,
+                new_size,
+                new_data_length,
+                entry.first_cluster,
+                entry.no_fat_chain,
+            )?;
         }
 
         Ok(())

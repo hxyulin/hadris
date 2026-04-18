@@ -280,6 +280,7 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
             self.new_length,
             self.allocated_length,
             self.first_cluster,
+            self.is_contiguous,
         )?;
         self.fs.sync_bitmap()?;
         let _ = self.fs.flush();
