@@ -38,8 +38,22 @@ impl<const N: usize> FixedFilename<N> {
         }
     }
 
+    /// Borrow the contents as a `&str`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bytes are not valid UTF-8. Use [`Self::try_as_str`] for
+    /// a fallible variant. Note: prior versions used `from_utf8_unchecked`,
+    /// which was unsound because [`Self::as_bytes_mut`] (and the other
+    /// byte-level constructors) accept arbitrary bytes safely.
     pub fn as_str(&self) -> &str {
-        unsafe { core::str::from_utf8_unchecked(self.as_bytes()) }
+        core::str::from_utf8(self.as_bytes())
+            .expect("FixedFilename contains invalid UTF-8")
+    }
+
+    /// Borrow the contents as a `&str` if they are valid UTF-8.
+    pub fn try_as_str(&self) -> Result<&str, core::str::Utf8Error> {
+        core::str::from_utf8(self.as_bytes())
     }
 
     pub fn allocate(&mut self, bytes: usize) {
@@ -106,15 +120,22 @@ impl<const N: usize> FixedFilename<N> {
 
 impl<const N: usize> fmt::Debug for FixedFilename<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("FixedFilename")
-            .field(&self.as_str())
-            .finish()
+        match self.try_as_str() {
+            Ok(s) => f.debug_tuple("FixedFilename").field(&s).finish(),
+            Err(_) => f
+                .debug_tuple("FixedFilename")
+                .field(&self.as_bytes())
+                .finish(),
+        }
     }
 }
 
 impl<const N: usize> fmt::Display for FixedFilename<N> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+        match self.try_as_str() {
+            Ok(s) => f.write_str(s),
+            Err(_) => write!(f, "{:?}", self.as_bytes()),
+        }
     }
 }
 
@@ -124,5 +145,52 @@ impl<const N: usize> From<&[u8]> for FixedFilename<N> {
         let mut str = FixedFilename::with_size(value.len());
         str.data[0..value.len()].copy_from_slice(value);
         str
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn try_as_str_rejects_invalid_utf8() {
+        // Regression test for issue #26: previously `as_str` used
+        // `from_utf8_unchecked`, which made it possible to invoke UB through
+        // entirely safe code by writing arbitrary bytes via `as_bytes_mut`.
+        let mut filename = FixedFilename::<10>::with_size(10);
+        filename.as_bytes_mut()[0] = 0xff;
+
+        assert!(filename.try_as_str().is_err());
+    }
+
+    #[test]
+    fn debug_does_not_panic_on_invalid_utf8() {
+        use core::fmt::Write as _;
+        struct Sink;
+        impl core::fmt::Write for Sink {
+            fn write_str(&mut self, _: &str) -> core::fmt::Result {
+                Ok(())
+            }
+        }
+        let mut filename = FixedFilename::<10>::with_size(10);
+        filename.as_bytes_mut()[0] = 0xff;
+        // Should fall back to byte-slice formatting instead of panicking.
+        write!(Sink, "{:?}", filename).unwrap();
+        write!(Sink, "{}", filename).unwrap();
+    }
+
+    #[test]
+    fn try_as_str_round_trips_valid_utf8() {
+        let name = FixedFilename::<64>::from(b"readme.txt".as_slice());
+        assert_eq!(name.try_as_str().unwrap(), "readme.txt");
+        assert_eq!(name.as_str(), "readme.txt");
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid UTF-8")]
+    fn as_str_panics_on_invalid_utf8() {
+        let mut filename = FixedFilename::<10>::with_size(10);
+        filename.as_bytes_mut()[0] = 0xff;
+        let _ = filename.as_str();
     }
 }
