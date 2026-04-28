@@ -113,7 +113,11 @@ fn roundtrip_zero_byte_file() {
     maybe_fsck(&img);
 
     let got = read_root_file(&img, "empty.bin");
-    assert!(got.is_empty(), "expected empty file, got {} bytes", got.len());
+    assert!(
+        got.is_empty(),
+        "expected empty file, got {} bytes",
+        got.len()
+    );
 }
 
 #[test]

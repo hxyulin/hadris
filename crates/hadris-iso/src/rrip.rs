@@ -7,9 +7,8 @@
 //! - Device files (PN entries)
 //! - Deep directory relocation (CL, PL, RE entries)
 
-use super::io::{self, Read};
 #[cfg(feature = "std")]
-use super::io::{Writable, Write};
+use super::io::{self, Read, Writable, Write};
 use super::susp::SystemUseHeader;
 use crate::types::U32LsbMsb;
 

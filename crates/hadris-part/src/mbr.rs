@@ -295,11 +295,7 @@ impl MbrPartition {
     pub const fn end_lba(&self) -> u32 {
         let start = self.start_lba.to_ne();
         let count = self.sector_count.to_ne();
-        if count == 0 {
-            start
-        } else {
-            start + count - 1
-        }
+        if count == 0 { start } else { start + count - 1 }
     }
 }
 

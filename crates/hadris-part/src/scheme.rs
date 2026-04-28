@@ -16,10 +16,10 @@ use crate::error::{PartitionError, Result};
 use crate::gpt::Guid;
 #[cfg(feature = "alloc")]
 use crate::gpt::{GptHeader, GptPartitionEntry};
-#[cfg(feature = "alloc")]
-use endian_num::Le;
 use crate::hybrid::is_hybrid_mbr;
 use crate::mbr::MasterBootRecord;
+#[cfg(feature = "alloc")]
+use endian_num::Le;
 
 /// The type of partition scheme detected or to be created.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

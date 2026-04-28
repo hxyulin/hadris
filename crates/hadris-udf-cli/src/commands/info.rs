@@ -18,10 +18,7 @@ pub fn info(args: InfoArgs) -> Result<()> {
     println!("  Volume ID:         {}", info.volume_id);
     println!("  UDF Revision:      {}", info.udf_revision);
     println!("  Block Size:        {} bytes", info.block_size);
-    println!(
-        "  Partition Start:   sector {}",
-        info.partition_start
-    );
+    println!("  Partition Start:   sector {}", info.partition_start);
     println!(
         "  Partition Length:  {} sectors ({} bytes)",
         info.partition_length,

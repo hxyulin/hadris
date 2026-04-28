@@ -4,9 +4,7 @@ use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use super::super::directory::{
-    DirectoryRecord, DirectoryRecordHeader, DirectoryRef, FileFlags,
-};
+use super::super::directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef, FileFlags};
 use super::super::io::{self, IsoCursor, LogicalSector, Read, Seek, SeekFrom};
 use spin::Mutex;
 
@@ -133,7 +131,11 @@ impl DirEntry {
     /// For multi-extent files this sums all extent lengths.
     pub fn total_size(&self) -> u64 {
         let first = self.record.header().data_len.read() as u64;
-        let rest: u64 = self.additional_extents.iter().map(|e| e.length as u64).sum();
+        let rest: u64 = self
+            .additional_extents
+            .iter()
+            .map(|e| e.length as u64)
+            .sum();
         first + rest
     }
 

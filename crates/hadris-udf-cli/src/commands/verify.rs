@@ -49,8 +49,10 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
         let mut dirs = 0usize;
         let mut errors = 0usize;
         walk_tree(&udf, &root, &mut files, &mut dirs, &mut errors);
-        println!("  Directory tree: {} files, {} directories, {} errors",
-            files, dirs, errors);
+        println!(
+            "  Directory tree: {} files, {} directories, {} errors",
+            files, dirs, errors
+        );
         if errors > 0 {
             println!("  [WARN] {} directories could not be read", errors);
         } else {

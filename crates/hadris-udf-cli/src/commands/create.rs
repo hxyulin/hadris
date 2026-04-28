@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::Path;
 
-use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
 use hadris_udf::UdfRevision;
+use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
 
 use crate::args::CreateArgs;
 
@@ -87,7 +87,11 @@ fn build_dir(path: &Path, dir: &mut SimpleDir, verbose: bool) -> Result<usize> {
 /// Parse a UDF revision string like "1.02" into a UdfRevision.
 fn parse_revision(s: &str) -> Result<UdfRevision> {
     let err = || -> Box<dyn std::error::Error> {
-        format!("invalid UDF revision '{}': expected format like 1.02, 2.50", s).into()
+        format!(
+            "invalid UDF revision '{}': expected format like 1.02, 2.50",
+            s
+        )
+        .into()
     };
     let (major_str, minor_str) = s.split_once('.').ok_or_else(err)?;
     let major = major_str.parse::<u8>().map_err(|_| err())?;

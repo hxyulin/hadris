@@ -1,8 +1,7 @@
 //! System Use Sharing Protocol
 
 #[cfg(feature = "std")]
-use super::io::Writable;
-use super::io::{self, Read, ReadExt};
+use super::io::{self, Read, ReadExt, Writable};
 
 use crate::types::U32LsbMsb;
 

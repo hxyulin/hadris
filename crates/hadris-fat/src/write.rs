@@ -290,60 +290,69 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
 
     /// Finish writing and update the directory entry with the new size.
     ///
-    /// This must be called after writing to persist the file size.
+    /// This must be called after writing to persist the file size. On FAT32 it
+    /// also flushes the FSInfo sector so its `free_count` matches the FAT —
+    /// without this, `fsck.fat` rejects the image after writes.
     pub async fn finish(self) -> Result<()> {
-        let mut data = self.fs.data.lock();
-        let cluster_size = data.cluster_size;
+        {
+            let mut data = self.fs.data.lock();
+            let cluster_size = data.cluster_size;
 
-        // Calculate entry position - handle fixed root directory
-        let entry_pos = if self.entry_parent.0 == 0 {
-            // Fixed root directory (FAT12/16)
-            let (root_start, _) = self.fixed_root.expect("Fixed root info required");
-            root_start + self.entry_offset
-        } else {
-            // Cluster-based directory
-            self.entry_parent
-                .to_bytes(self.fs.info.data_start, cluster_size)
-                + self.entry_offset
-        };
-
-        // Read the current directory entry
-        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
-
-        let mut raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
-        let file_entry = unsafe { &mut raw_entry.file };
-
-        // Update size
-        file_entry.size =
-            hadris_common::types::number::U32::<LittleEndian>::new(self.total_written as u32);
-
-        // Update first cluster - for FAT12/16, only use low 16 bits
-        if let Some(cluster) = self.first_cluster {
-            let (high, low) = match &self.fs.fat {
-                Fat::Fat12(_) | Fat::Fat16(_) => (0u16, cluster.0 as u16),
-                Fat::Fat32(_) => ((cluster.0 >> 16) as u16, cluster.0 as u16),
+            // Calculate entry position - handle fixed root directory
+            let entry_pos = if self.entry_parent.0 == 0 {
+                // Fixed root directory (FAT12/16)
+                let (root_start, _) = self.fixed_root.expect("Fixed root info required");
+                root_start + self.entry_offset
+            } else {
+                // Cluster-based directory
+                self.entry_parent
+                    .to_bytes(self.fs.info.data_start, cluster_size)
+                    + self.entry_offset
             };
-            file_entry.first_cluster_high =
-                hadris_common::types::number::U16::<LittleEndian>::new(high);
-            file_entry.first_cluster_low =
-                hadris_common::types::number::U16::<LittleEndian>::new(low);
-        } else {
-            file_entry.first_cluster_high =
-                hadris_common::types::number::U16::<LittleEndian>::new(0);
-            file_entry.first_cluster_low =
-                hadris_common::types::number::U16::<LittleEndian>::new(0);
+
+            // Read the current directory entry
+            data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+
+            let mut raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
+            let file_entry = unsafe { &mut raw_entry.file };
+
+            // Update size
+            file_entry.size =
+                hadris_common::types::number::U32::<LittleEndian>::new(self.total_written as u32);
+
+            // Update first cluster - for FAT12/16, only use low 16 bits
+            if let Some(cluster) = self.first_cluster {
+                let (high, low) = match &self.fs.fat {
+                    Fat::Fat12(_) | Fat::Fat16(_) => (0u16, cluster.0 as u16),
+                    Fat::Fat32(_) => ((cluster.0 >> 16) as u16, cluster.0 as u16),
+                };
+                file_entry.first_cluster_high =
+                    hadris_common::types::number::U16::<LittleEndian>::new(high);
+                file_entry.first_cluster_low =
+                    hadris_common::types::number::U16::<LittleEndian>::new(low);
+            } else {
+                file_entry.first_cluster_high =
+                    hadris_common::types::number::U16::<LittleEndian>::new(0);
+                file_entry.first_cluster_low =
+                    hadris_common::types::number::U16::<LittleEndian>::new(0);
+            }
+
+            // Update write time
+            let now = FatDateTime::now();
+            file_entry.last_write_date = now.date.to_le_bytes();
+            file_entry.last_write_time = now.time.to_le_bytes();
+            file_entry.last_access_date = now.date.to_le_bytes();
+
+            // Write back the entry
+            data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+            data.write_all(bytemuck::bytes_of(&raw_entry)).await?;
+            data.flush().await?;
         }
 
-        // Update write time
-        let now = FatDateTime::now();
-        file_entry.last_write_date = now.date.to_le_bytes();
-        file_entry.last_write_time = now.time.to_le_bytes();
-        file_entry.last_access_date = now.date.to_le_bytes();
-
-        // Write back the entry
-        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
-        data.write_all(bytemuck::bytes_of(&raw_entry)).await?;
-        data.flush().await?;
+        // Flush FSInfo so on-disk free_count matches in-memory state
+        // (no-op for FAT12/16). The lock above must be released first because
+        // write_fsinfo also acquires it.
+        self.fs.write_fsinfo().await?;
 
         Ok(())
     }

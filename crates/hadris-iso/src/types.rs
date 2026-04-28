@@ -4,8 +4,10 @@ pub use hadris_common::types::{endian::*, number::*};
 #[cfg(feature = "std")]
 use std::time::SystemTime;
 
+#[cfg(feature = "std")]
+use alloc::string::ToString;
 #[cfg(feature = "alloc")]
-use alloc::{string::ToString, vec::Vec};
+use alloc::vec::Vec;
 
 /// Error type for `IsoStr::from_str()` conversion failures.
 #[derive(Debug, Clone, PartialEq, Eq)]

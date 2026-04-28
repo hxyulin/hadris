@@ -26,10 +26,10 @@ use hadris_common::types::{
     number::U32,
 };
 use hadris_part::{
+    Le,
     gpt::{GptPartitionEntry, Guid},
     hybrid::HybridMbrBuilder,
     mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionType},
-    Le,
 };
 use options::PartitionScheme;
 use writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};

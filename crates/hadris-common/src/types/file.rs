@@ -47,8 +47,7 @@ impl<const N: usize> FixedFilename<N> {
     /// which was unsound because [`Self::as_bytes_mut`] (and the other
     /// byte-level constructors) accept arbitrary bytes safely.
     pub fn as_str(&self) -> &str {
-        core::str::from_utf8(self.as_bytes())
-            .expect("FixedFilename contains invalid UTF-8")
+        core::str::from_utf8(self.as_bytes()).expect("FixedFilename contains invalid UTF-8")
     }
 
     /// Borrow the contents as a `&str` if they are valid UTF-8.
