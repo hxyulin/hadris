@@ -411,6 +411,15 @@ where
         self.ext.fixed_root_dir()
     }
 
+    /// Returns true iff `cluster` is the FAT32 root directory cluster.
+    ///
+    /// Used by directory-creation code to honor the FAT32 spec rule that a
+    /// subdirectory's ".." entry must store cluster 0 (not the real root
+    /// cluster) when its parent is the FAT32 root.
+    pub(crate) fn is_fat32_root_cluster(&self, cluster: u32) -> bool {
+        matches!(&self.ext, FatFsExt::Fat32(ext) if ext.root_clus.0 == cluster)
+    }
+
     /// Open a file or directory by path (e.g., "/dir/subdir/file.txt").
     ///
     /// Paths can use forward slashes as separators. Leading slashes are optional.

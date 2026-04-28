@@ -441,6 +441,9 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
             self.update_entry_size_and_cluster(entry, new_size, first_cluster, fixed_root).await?;
         }
 
+        // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
+        self.write_fsinfo().await?;
+
         Ok(())
     }
 }
@@ -660,6 +663,10 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
         self.write_raw_entry(slot_cluster, slot_offset, &entry, parent.fixed_root).await?;
 
+        // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
+        // find_free_entry_slot_in_dir may have extended the parent directory.
+        self.write_fsinfo().await?;
+
         Ok(FileEntry {
             short_name,
             #[cfg(feature = "lfn")]
@@ -772,13 +779,20 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             data.seek(SeekFrom::Start(dir_pos as u64)).await?;
             data.write_all(bytemuck::bytes_of(&dot_entry)).await?;
 
-            // Write ".." entry (points to parent)
-            // For FAT12/16 root directory (cluster 0), ".." should point to cluster 0
-            // For FAT32 root or any subdirectory, use the parent's cluster
+            // Write ".." entry (points to parent).
+            // FAT12/16 root has cluster 0 already, so it stores 0.
+            // FAT32 spec: when the parent is the FAT32 root, ".." must store
+            // cluster 0 even though the root has a real cluster — fsck.fat
+            // rejects images that use the actual root cluster here.
             let parent_cluster = parent.cluster.0 as u32;
+            let dotdot_cluster = if self.is_fat32_root_cluster(parent_cluster) {
+                0
+            } else {
+                parent_cluster
+            };
             let (parent_high, parent_low) = match &self.fat {
-                Fat::Fat12(_) | Fat::Fat16(_) => (0u16, parent_cluster as u16),
-                Fat::Fat32(_) => ((parent_cluster >> 16) as u16, parent_cluster as u16),
+                Fat::Fat12(_) | Fat::Fat16(_) => (0u16, dotdot_cluster as u16),
+                Fat::Fat32(_) => ((dotdot_cluster >> 16) as u16, dotdot_cluster as u16),
             };
 
             let dotdot_entry = RawFileEntry {
@@ -803,6 +817,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             data.seek(SeekFrom::Start(dotdot_pos as u64)).await?;
             data.write_all(bytemuck::bytes_of(&dotdot_entry)).await?;
         }
+
+        // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
+        self.write_fsinfo().await?;
 
         Ok(FatDir {
             data: self,
@@ -880,6 +897,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             // Write 0xE5 as the first byte to mark as deleted
             data.write_all(&[0xE5]).await?;
         }
+
+        // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
+        self.write_fsinfo().await?;
 
         Ok(())
     }
@@ -972,10 +992,17 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             let mut dotdot = data.read_struct::<RawDirectoryEntry>().await?;
             let dotdot_file = unsafe { &mut dotdot.file };
 
+            // FAT32 spec: when the new parent is the FAT32 root, ".." stores
+            // cluster 0 even though the root has a real cluster.
             let parent_cluster = dest_dir.cluster.0 as u32;
+            let dotdot_cluster = if self.is_fat32_root_cluster(parent_cluster) {
+                0
+            } else {
+                parent_cluster
+            };
             let (parent_high, parent_low) = match &self.fat {
-                Fat::Fat12(_) | Fat::Fat16(_) => (0u16, parent_cluster as u16),
-                Fat::Fat32(_) => ((parent_cluster >> 16) as u16, parent_cluster as u16),
+                Fat::Fat12(_) | Fat::Fat16(_) => (0u16, dotdot_cluster as u16),
+                Fat::Fat32(_) => ((dotdot_cluster >> 16) as u16, dotdot_cluster as u16),
             };
             dotdot_file.first_cluster_high =
                 hadris_common::types::number::U16::<LittleEndian>::new(parent_high);
@@ -1006,6 +1033,10 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             data.seek(SeekFrom::Start(entry_pos as u64)).await?;
             data.write_all(&[0xE5]).await?;
         }
+
+        // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
+        // find_free_entry_slot_in_dir on dest_dir may have extended it.
+        self.write_fsinfo().await?;
 
         Ok(FileEntry {
             short_name,

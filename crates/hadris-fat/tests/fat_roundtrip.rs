@@ -68,6 +68,39 @@ fn write_root_file(image_path: &Path, name: &str, contents: &[u8]) {
     }
 }
 
+/// Create a subdirectory `name` in the root directory.
+fn create_root_dir(image_path: &Path, name: &str) {
+    let file = open_image(image_path);
+    let fs = FatFs::open(file).expect("open FAT");
+
+    let root = fs.root_dir();
+    fs.create_dir(&root, name).expect("create_dir");
+}
+
+/// Truncate `name` in the root directory to `new_size`.
+fn truncate_root_file(image_path: &Path, name: &str, new_size: usize) {
+    let file = open_image(image_path);
+    let fs = FatFs::open(file).expect("open FAT");
+
+    let entry = {
+        let root = fs.root_dir();
+        root.find(name).expect("find").expect("present")
+    };
+    fs.truncate(&entry, new_size).expect("truncate");
+}
+
+/// Delete `name` from the root directory.
+fn delete_root_file(image_path: &Path, name: &str) {
+    let file = open_image(image_path);
+    let fs = FatFs::open(file).expect("open FAT");
+
+    let entry = {
+        let root = fs.root_dir();
+        root.find(name).expect("find").expect("present")
+    };
+    fs.delete(&entry).expect("delete");
+}
+
 /// Read the full contents of `name` from the root directory.
 fn read_root_file(image_path: &Path, name: &str) -> Vec<u8> {
     let file = open_image(image_path);
@@ -246,6 +279,104 @@ fn fat32_roundtrip_multi_cluster_file() {
     let got = read_root_file(&img, "BLOB.BIN");
     assert_eq!(got.len(), payload.len(), "FAT32 size mismatch");
     assert_eq!(got, payload, "FAT32 content mismatch");
+}
+
+#[test]
+fn fat32_rename_dir_into_root_clean_fsck() {
+    // FAT32 spec quirk: a directory's ".." entry must store cluster 0 when its
+    // parent is the FAT32 root, even though the root has a real cluster. When
+    // a directory is renamed/moved into the root, rename() must rewrite the
+    // ".." entry following the same rule.
+    let tmp = TempDir::new().unwrap();
+    let img = tmp.path().join("fat32_rename.img");
+    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32REN");
+
+    {
+        let file = open_image(&img);
+        let fs = FatFs::open(file).expect("open FAT");
+        let root = fs.root_dir();
+        let _sub1 = fs.create_dir(&root, "SUB1").expect("create SUB1");
+    }
+    {
+        let file = open_image(&img);
+        let fs = FatFs::open(file).expect("open FAT");
+        let root = fs.root_dir();
+        let sub1 = root.open_dir("SUB1").expect("open SUB1");
+        let _sub2 = fs.create_dir(&sub1, "SUB2").expect("create SUB2");
+    }
+    {
+        let file = open_image(&img);
+        let fs = FatFs::open(file).expect("open FAT");
+        let root = fs.root_dir();
+        let sub1 = root.open_dir("SUB1").expect("open SUB1");
+        let sub2_entry = sub1.find("SUB2").expect("find SUB2").expect("present");
+        fs.rename(&sub2_entry, &root, "SUB2").expect("rename");
+    }
+    maybe_fsck(&img);
+}
+
+#[test]
+fn fat32_root_extension_clean_fsck() {
+    // Creating enough short-named (8.3) files in the FAT32 root to overflow
+    // its initial single cluster forces find_free_entry_slot_in_dir to
+    // allocate a new cluster mid-create_file. That allocator path must keep
+    // the on-disk FSInfo free_count consistent.
+    let tmp = TempDir::new().unwrap();
+    let img = tmp.path().join("fat32_rootext.img");
+    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32EXT");
+
+    {
+        let file = open_image(&img);
+        let fs = FatFs::open(file).expect("open FAT");
+        let root = fs.root_dir();
+        // 64 MiB / 512-byte cluster → 16 entries per cluster initially;
+        // 32 files guarantees at least one extension.
+        for i in 0..32 {
+            let name = format!("F{i:02}.TXT");
+            fs.create_file(&root, &name).expect("create_file");
+        }
+    }
+    maybe_fsck(&img);
+}
+
+#[test]
+fn fat32_create_dir_clean_fsck() {
+    let tmp = TempDir::new().unwrap();
+    let img = tmp.path().join("fat32_mkdir.img");
+    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32MKDIR");
+
+    create_root_dir(&img, "SUBDIR");
+    maybe_fsck(&img);
+}
+
+#[test]
+fn fat32_delete_clean_fsck() {
+    let tmp = TempDir::new().unwrap();
+    let img = tmp.path().join("fat32_delete.img");
+    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32DEL");
+
+    let payload: Vec<u8> = (0..(32 * 1024)).map(|i| (i * 17 + 9) as u8).collect();
+    write_root_file(&img, "DOOMED.BIN", &payload);
+    maybe_fsck(&img);
+
+    delete_root_file(&img, "DOOMED.BIN");
+    maybe_fsck(&img);
+}
+
+#[test]
+fn fat32_truncate_to_zero_clean_fsck() {
+    let tmp = TempDir::new().unwrap();
+    let img = tmp.path().join("fat32_truncate.img");
+    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32TRUNC");
+
+    // Multi-cluster file — truncating to 0 must free all of them and the
+    // FSInfo free_count must reflect that on disk for fsck.fat.
+    let payload: Vec<u8> = (0..(64 * 1024)).map(|i| (i * 11 + 5) as u8).collect();
+    write_root_file(&img, "BIG.BIN", &payload);
+    maybe_fsck(&img);
+
+    truncate_root_file(&img, "BIG.BIN", 0);
+    maybe_fsck(&img);
 }
 
 // =============================================================================
