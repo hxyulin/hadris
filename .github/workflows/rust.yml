@@ -147,6 +147,21 @@ jobs:
           cargo test -p hadris-fat --features "exfat,write" --test integration_exfat -- --nocapture
           cargo test -p hadris-fat --features "exfat,write" --test exfat_roundtrip -- --nocapture
 
+  test-fat:
+    name: Test FAT12/16/32 (with fsck.fat)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install dosfstools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dosfstools
+      - name: Run FAT roundtrip tests
+        run: |
+          cargo test -p hadris-fat --features "write" --test fat_roundtrip -- --nocapture
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
