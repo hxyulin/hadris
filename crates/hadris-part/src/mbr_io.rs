@@ -1,6 +1,8 @@
 io_transform! {
 
+#[allow(unused_imports)]
 use super::super::{Read, Write};
+#[allow(unused_imports)]
 use crate::mbr::MasterBootRecord;
 
 // I/O operations

@@ -112,6 +112,7 @@ impl EntrySetBuilder {
     }
 
     /// Set the timestamps.
+    #[allow(dead_code)]
     pub fn with_timestamps(
         mut self,
         created: ExFatTimestamp,
@@ -159,6 +160,7 @@ impl EntrySetBuilder {
     }
 
     /// Calculate the number of directory entries this entry set will use.
+    #[allow(dead_code)]
     pub fn entry_count(&self) -> usize {
         let name_utf16_len = self.name.encode_utf16().count();
         let name_entry_count = (name_utf16_len + CHARS_PER_NAME_ENTRY - 1) / CHARS_PER_NAME_ENTRY;

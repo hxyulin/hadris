@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 
-use super::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
+use super::fat_table::{Fat, FatType};
 use super::io::{Read, Seek, SeekFrom, Write};
 use crate::error::{FatError, Result};
 
@@ -166,21 +166,6 @@ impl FatSectorCache {
                 entry.dirty = false;
                 self.stats.dirty_writes += 1;
             }
-        }
-        Ok(())
-    }
-
-    /// Write a sector to all FAT copies on disk.
-    fn write_sector_to_disk<T: Write + Seek>(
-        &self,
-        writer: &mut T,
-        sector: usize,
-        data: &[u8],
-    ) -> Result<()> {
-        for i in 0..self.fat_count {
-            let offset = self.fat_start + i * self.fat_size + sector * self.sector_size;
-            writer.seek(SeekFrom::Start(offset as u64))?;
-            writer.write_all(data)?;
         }
         Ok(())
     }
@@ -610,28 +595,6 @@ impl<'a> CachedFat<'a> {
     /// Flush the cache to disk.
     pub fn flush<T: Write + Seek>(&mut self, writer: &mut T) -> Result<()> {
         self.cache.flush(writer)
-    }
-}
-
-// Add accessor methods to Fat12, Fat16, Fat32 for max_cluster
-impl Fat12 {
-    /// Get the maximum cluster number.
-    pub fn max_cluster(&self) -> u16 {
-        self.max_cluster()
-    }
-}
-
-impl Fat16 {
-    /// Get the maximum cluster number.
-    pub fn max_cluster(&self) -> u16 {
-        self.max_cluster()
-    }
-}
-
-impl Fat32 {
-    /// Get the maximum cluster number.
-    pub fn max_cluster(&self) -> u32 {
-        self.max_cluster()
     }
 }
 

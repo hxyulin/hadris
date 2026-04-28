@@ -20,6 +20,7 @@ use crate::error::{FatError, Result};
 use crate::io::{Read, ReadExt, Seek, SeekFrom};
 
 /// Size of the boot region in sectors
+#[allow(dead_code)]
 pub const BOOT_REGION_SECTORS: usize = 12;
 
 /// exFAT filesystem signature "EXFAT   " (8 bytes, space-padded)

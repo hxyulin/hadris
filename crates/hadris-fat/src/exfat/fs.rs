@@ -2,6 +2,7 @@
 //!
 //! The main entry point for working with exFAT filesystems.
 
+#[cfg(feature = "write")]
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
@@ -271,6 +272,7 @@ where
     }
 
     /// Get a reference to the upcase table.
+    #[allow(dead_code)]
     pub(crate) fn upcase(&self) -> &UpcaseTable {
         &self.upcase
     }
@@ -623,7 +625,7 @@ where
         new_first_cluster: u32,
         no_fat_chain: bool,
     ) -> Result<()> {
-        use super::entry::{RawStreamExtensionEntry, compute_entry_set_checksum};
+        use super::entry::compute_entry_set_checksum;
         use hadris_common::types::endian::LittleEndian;
         use hadris_common::types::number::{U16, U32, U64};
 
@@ -665,9 +667,7 @@ where
 
         // Recalculate checksum and update primary entry
         let checksum = compute_entry_set_checksum(&entries);
-        unsafe {
-            entries[0].file.set_checksum = U16::<LittleEndian>::new(checksum);
-        }
+        entries[0].file.set_checksum = U16::<LittleEndian>::new(checksum);
 
         // Write the updated entry set back
         for (i, e) in entries.iter().enumerate() {

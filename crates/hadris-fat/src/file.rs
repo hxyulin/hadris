@@ -221,9 +221,6 @@ impl ShortFileName {
         Self::new(result)
     }
 
-    /// Process a character for short filename conversion.
-    /// Returns 0 if the character should be skipped.
-    #[cfg(feature = "write")]
     /// Compute a simple hash from a long filename and suffix for short name generation.
     /// Returns a 16-bit value used as a 4-hex-digit suffix.
     #[cfg(feature = "write")]
@@ -235,6 +232,9 @@ impl ShortFileName {
         hash
     }
 
+    /// Process a character for short filename conversion.
+    /// Returns 0 if the character should be skipped.
+    #[cfg(feature = "write")]
     fn process_char(ch: char) -> u8 {
         if ch.is_ascii_alphanumeric() {
             ch.to_ascii_uppercase() as u8

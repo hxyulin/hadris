@@ -148,12 +148,7 @@ fn roundtrip_unicode_name() {
     assert_eq!(got, payload);
 }
 
-// KNOWN BUG: writing a new file after deleting one fails with WriteZero.
-// The delete path frees clusters but the bitmap state isn't fully consistent
-// for the next allocator pass. Tracked separately — keep this test as a
-// regression check; remove `#[ignore]` once the underlying bug is fixed.
 #[test]
-#[ignore = "exfat write-after-delete bug; see test comment"]
 fn roundtrip_delete_and_recreate() {
     let tmp = TempDir::new().unwrap();
     let img = tmp.path().join("reuse.img");

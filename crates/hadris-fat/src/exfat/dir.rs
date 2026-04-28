@@ -133,7 +133,8 @@ impl<DATA: Read + Seek> ExFatDirIter<'_, DATA> {
                 self.cluster_offset = 0;
             }
 
-            // Read a single entry
+            // Read a single entry. Capture the absolute disk offset so callers
+            // (e.g. delete, update_entry_size) can write back to the right place.
             let offset = info.cluster_to_offset(self.current_cluster) + self.cluster_offset as u64;
             let raw_entry = self.fs.read_entry_at(offset)?;
 
@@ -165,8 +166,7 @@ impl<DATA: Read + Seek> ExFatDirIter<'_, DATA> {
 
             // File directory entry - need to read the complete entry set
             if entry_type == entry_type::FILE_DIRECTORY {
-                let entry_offset = self.dir_offset - entry_size as u64;
-                return self.read_entry_set(raw_entry, entry_offset);
+                return self.read_entry_set(raw_entry, offset);
             }
 
             // Skip any other entry types

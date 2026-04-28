@@ -800,11 +800,13 @@ unsafe impl bytemuck::Zeroable for GptHeaderRaw {}
 
 impl GptHeaderRaw {
     /// Size of the raw header on disk.
+    #[allow(dead_code)]
     pub(crate) const SIZE: usize = 92;
 }
 
 impl GptHeader {
     /// Converts this header to its on-disk packed representation.
+    #[allow(dead_code)]
     pub(crate) fn to_raw(self) -> GptHeaderRaw {
         GptHeaderRaw {
             signature: self.signature,
@@ -825,6 +827,7 @@ impl GptHeader {
     }
 
     /// Creates a header from its on-disk packed representation.
+    #[allow(dead_code)]
     pub(crate) fn from_raw(raw: &GptHeaderRaw) -> Self {
         Self {
             signature: raw.signature,

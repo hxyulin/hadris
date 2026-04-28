@@ -3,17 +3,24 @@ io_transform! {
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+#[allow(unused_imports)]
 use super::super::{Read, Write, Seek, SeekFrom};
+#[allow(unused_imports)]
 use crate::error::{PartitionError, Result};
+#[allow(unused_imports)]
 use crate::gpt::{GptHeader, GptPartitionEntry};
+#[allow(unused_imports)]
 use crate::mbr::MasterBootRecord;
+#[allow(unused_imports)]
 use crate::scheme::{detect_scheme_from_mbr, PartitionSchemeType};
 
 #[cfg(feature = "read")]
+#[allow(unused_imports)]
 use super::gpt_io::GptHeaderReadExt;
 #[cfg(feature = "write")]
 use super::gpt_io::GptHeaderWriteExt;
 #[cfg(feature = "read")]
+#[allow(unused_imports)]
 use super::mbr_io::MasterBootRecordReadExt;
 #[cfg(feature = "write")]
 use super::mbr_io::MasterBootRecordWriteExt;

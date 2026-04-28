@@ -16,6 +16,10 @@ jobs:
   check:
     name: Check
     runs-on: ubuntu-latest
+    # Promote rustc warnings to errors so issues like `unconditional_recursion`
+    # (see issue #23) fail CI instead of slipping through.
+    env:
+      RUSTFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -26,6 +30,8 @@ jobs:
   check-features:
     name: "Check ${{ matrix.crate }} (${{ matrix.tier }})"
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-D warnings"
     strategy:
       fail-fast: false
       matrix:
@@ -162,4 +168,4 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Run clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace

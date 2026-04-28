@@ -103,6 +103,7 @@ pub(crate) enum FatFsExt {
 
 impl FatFsExt {
     /// Get fixed root directory info for FAT12/16
+    #[allow(dead_code)]
     fn fixed_root_dir(&self) -> Option<(usize, usize)> {
         match self {
             Self::Fat12_16(ext) => Some((ext.root_dir_start, ext.root_dir_size)),
@@ -405,6 +406,7 @@ where
     /// Get the fixed root directory info for FAT12/16 filesystems.
     ///
     /// Returns `Some((start_offset, size))` for FAT12/16, `None` for FAT32.
+    #[allow(dead_code)]
     pub(crate) fn fixed_root_dir_info(&self) -> Option<(usize, usize)> {
         self.ext.fixed_root_dir()
     }

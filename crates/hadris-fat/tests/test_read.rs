@@ -60,7 +60,7 @@ fn test_invalid_boot_signature() {
     }
 }
 
-/// Test that FAT12/16 is now detected and parsed (no longer returns UnsupportedFatType)
+/// Test that FAT12/16 is detected and parsed.
 #[test]
 fn test_fat12_16_detection() {
     // Create a minimal FAT16-like buffer

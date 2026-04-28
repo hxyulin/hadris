@@ -196,6 +196,7 @@ impl Default for UpcaseTable {
 }
 
 /// Compute the checksum for an up-case table.
+#[allow(dead_code)]
 pub fn compute_upcase_checksum(data: &[u8]) -> u32 {
     let mut checksum: u32 = 0;
 

@@ -7,8 +7,6 @@ use std::process::Command;
 use tempfile::TempDir;
 
 /// Test that directories spanning multiple sectors are read correctly.
-/// This tests the fix for the multi-sector directory bug where only the
-/// first sector (~29 files) would be read.
 #[test]
 fn test_multi_sector_directory() {
     use hadris_iso::read::{IsoImage, PathSeparator};

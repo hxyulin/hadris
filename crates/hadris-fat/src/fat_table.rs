@@ -376,8 +376,14 @@ impl Fat12 {
         }
     }
 
+    /// Get the maximum cluster number.
+    pub fn max_cluster(&self) -> u16 {
+        self.max_cluster
+    }
+
     /// Calculate byte offset for a FAT12 entry.
     /// FAT12 packs 2 entries into 3 bytes: entry N starts at byte (N * 3) / 2
+    #[allow(dead_code)]
     pub(crate) fn entry_byte_offset(&self, cluster: usize) -> usize {
         self.start + (cluster * 3) / 2
     }
@@ -628,6 +634,12 @@ impl Fat16 {
         }
     }
 
+    /// Get the maximum cluster number.
+    pub fn max_cluster(&self) -> u16 {
+        self.max_cluster
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn entry_offset(&self, cluster: usize) -> usize {
         debug_assert!(cluster * size_of::<u16>() < self.size);
         self.start + cluster * size_of::<u16>()
@@ -853,6 +865,12 @@ impl Fat32 {
         }
     }
 
+    /// Get the maximum cluster number.
+    pub fn max_cluster(&self) -> u32 {
+        self.max_cluster
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn entry_offset(&self, cluster: usize) -> usize {
         debug_assert!(cluster * size_of::<u32>() < self.size);
         self.start + cluster * size_of::<u32>()

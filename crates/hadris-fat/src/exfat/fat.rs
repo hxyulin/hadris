@@ -18,8 +18,10 @@ pub struct ExFatTable {
     /// FAT offset in bytes from start of volume
     fat_offset: u64,
     /// FAT length in bytes
+    #[allow(dead_code)]
     fat_length: u64,
     /// Number of FAT copies (1 or 2)
+    #[allow(dead_code)]
     fat_count: u8,
     /// Maximum valid cluster number
     max_cluster: u32,

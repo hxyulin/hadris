@@ -458,10 +458,6 @@ fn test_nm_parent_directory() {
     assert_eq!(meta.alternate_name.as_deref(), Some(".."));
 }
 
-// =============================================================================
-// Regression: RRIP detection with Joliet + Rock Ridge (GitHub issue #6)
-// =============================================================================
-
 #[test]
 fn test_rrip_detection_with_joliet_and_rock_ridge() {
     let files = vec![IsoFile::File {
@@ -475,10 +471,6 @@ fn test_rrip_detection_with_joliet_and_rock_ridge() {
         "RRIP should be detected with Joliet+RR"
     );
 }
-
-// =============================================================================
-// Regression: PVD root directory record flags (7z compatibility)
-// =============================================================================
 
 #[test]
 fn test_pvd_root_directory_has_directory_flag() {
@@ -524,10 +516,6 @@ fn test_pvd_root_directory_record_fields() {
         "Root directory volume_sequence_number should be 1"
     );
 }
-
-// =============================================================================
-// Regression: Joliet SVD volume name encoding (UTF-16BE)
-// =============================================================================
 
 #[test]
 fn test_joliet_svd_volume_name_utf16be() {

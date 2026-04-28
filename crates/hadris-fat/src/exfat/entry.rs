@@ -43,8 +43,8 @@ pub mod entry_type {
     pub const DELETED_FILE: u8 = 0x05;
 }
 
-/// File attribute flags (compatible with FAT but with extensions)
 bitflags::bitflags! {
+    /// File attribute flags (compatible with FAT but with extensions)
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct FileAttributes: u16 {
         /// File is read-only
@@ -296,6 +296,7 @@ impl ExFatFileEntry {
 ///
 /// The checksum is computed over all entries in the set, with the
 /// set_checksum field (bytes 2-3 of the primary entry) set to zero.
+#[allow(dead_code)]
 pub fn compute_entry_set_checksum(entries: &[RawDirectoryEntry]) -> u16 {
     let mut checksum: u16 = 0;
 

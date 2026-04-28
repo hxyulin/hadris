@@ -1,6 +1,8 @@
 io_transform! {
 
+#[allow(unused_imports)]
 use super::super::{Read, Write, Seek, SeekFrom};
+#[allow(unused_imports)]
 use crate::gpt::{GptHeader, GptHeaderRaw};
 
 // I/O operations for GptHeader
