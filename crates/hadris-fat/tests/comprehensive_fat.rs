@@ -664,7 +664,7 @@ mod long_filename_tests {
     fn test_empty_lfn() {
         let lfn = LongFileName::new();
         assert!(lfn.is_empty());
-        assert_eq!(lfn.as_str(), "");
+        assert_eq!(lfn.to_string(), "");
     }
 
     #[test]
@@ -680,7 +680,7 @@ mod long_filename_tests {
 
         lfn.prepend_lfn_entry(&name1, &name2, &name3);
 
-        assert_eq!(lfn.as_str(), "short");
+        assert_eq!(lfn.to_string(), "short");
     }
 
     #[test]
@@ -712,7 +712,7 @@ mod long_filename_tests {
 
         lfn.prepend_lfn_entry(&name1, &name2, &name3);
 
-        assert_eq!(lfn.as_str(), "中");
+        assert_eq!(lfn.to_string(), "中");
     }
 
     #[test]
@@ -740,7 +740,7 @@ mod long_filename_tests {
 
         lfn.prepend_lfn_entry(&name1, &name2, &name3);
 
-        assert_eq!(lfn.as_str(), "my file");
+        assert_eq!(lfn.to_string(), "my file");
     }
 
     #[test]
@@ -754,7 +754,7 @@ mod long_filename_tests {
 
         lfn.prepend_lfn_entry(&name1, &name2, &name3);
 
-        assert_eq!(lfn.as_str(), "document.txt");
+        assert_eq!(lfn.to_string(), "document.txt");
     }
 }
 

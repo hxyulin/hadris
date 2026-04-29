@@ -184,3 +184,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run clippy
         run: cargo clippy --workspace
+
+  miri:
+    name: Miri (UB detection)
+    runs-on: ubuntu-latest
+    # Miri runs Rust through an interpreter to catch undefined behavior at
+    # runtime. We only point it at focused unit tests that exercise
+    # historically-unsafe code paths (see issues #26 and #28). Miri is too slow
+    # — and too restricted (no real I/O) — to run the full test suite, but
+    # these targeted tests catch regressions cheaply.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nightly toolchain with miri
+        run: |
+          rustup toolchain install nightly --component miri
+          rustup +nightly component add miri
+      - name: Setup miri
+        run: cargo +nightly miri setup
+      - uses: Swatinem/rust-cache@v2
+      - name: Miri — hadris-common (FixedFilename safety)
+        run: cargo +nightly miri test -p hadris-common --lib
+      - name: Miri — hadris-fat (LFN UTF-16 / surrogate-pair safety)
+        run: cargo +nightly miri test -p hadris-fat --lib file::lfn_unicode_tests
+      - name: Miri — hadris-iso (IsoStr / IsoString safety)
+        run: cargo +nightly miri test -p hadris-iso --lib types::iso_str_safety_tests

@@ -183,7 +183,7 @@ mod lfn_tests {
     fn test_lfn_empty() {
         let lfn = LongFileName::new();
         assert!(lfn.is_empty());
-        assert_eq!(lfn.as_str(), "");
+        assert_eq!(lfn.to_string(), "");
     }
 
     #[test]
@@ -208,7 +208,7 @@ mod lfn_tests {
 
         lfn.prepend_lfn_entry(&name1, &name2, &name3);
 
-        assert_eq!(lfn.as_str(), "test");
+        assert_eq!(lfn.to_string(), "test");
     }
 
     #[test]
@@ -231,7 +231,7 @@ mod lfn_tests {
 
         lfn.prepend_lfn_entry(&name1_1, &name2_1, &name3_1);
 
-        assert_eq!(lfn.as_str(), "long_file.txt");
+        assert_eq!(lfn.to_string(), "long_file.txt");
     }
 }
 

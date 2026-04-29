@@ -87,7 +87,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
                     // Check LFN match (case-sensitive)
                     #[cfg(feature = "lfn")]
                     if let Some(lfn) = file_entry.long_name()
-                        && lfn.as_str() == name
+                        && lfn.eq_str(name)
                     {
                         return Ok(Some(file_entry));
                     }
@@ -361,7 +361,10 @@ pub enum DirectoryEntry {
 impl DirectoryEntry {
     /// Get the display name of the entry.
     /// Returns the long filename if available, otherwise the short name.
-    pub fn name(&self) -> &str {
+    ///
+    /// Requires the `alloc` feature. See [`FileEntry::name`].
+    #[cfg(feature = "alloc")]
+    pub fn name(&self) -> alloc::borrow::Cow<'_, str> {
         match self {
             Self::Entry(ent) => ent.name(),
         }
@@ -412,13 +415,23 @@ pub struct FileEntry {
 
 impl FileEntry {
     /// Get the file's display name.
-    /// Returns the long filename if available, otherwise the short name.
-    pub fn name(&self) -> &str {
+    ///
+    /// Returns the long filename if available, otherwise the short name. The
+    /// `Cow` is borrowed for short names and owned (allocated) for long names,
+    /// since long names are stored internally as UTF-16 and require decoding
+    /// before they can be exposed as a `&str`.
+    ///
+    /// Requires the `alloc` feature. Without `alloc`, use [`Self::short_name`]
+    /// and [`Self::long_name`] (with [`LongFileName::chars`] /
+    /// [`LongFileName::eq_str`]) directly.
+    #[cfg(feature = "alloc")]
+    pub fn name(&self) -> alloc::borrow::Cow<'_, str> {
+        use alloc::string::ToString;
         #[cfg(feature = "lfn")]
         if let Some(ref lfn) = self.long_name {
-            return lfn.as_str();
+            return alloc::borrow::Cow::Owned(lfn.to_string());
         }
-        self.short_name.as_str()
+        alloc::borrow::Cow::Borrowed(self.short_name.as_str())
     }
 
     /// Get the short (8.3) filename

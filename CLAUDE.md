@@ -55,6 +55,23 @@ cargo check -p hadris-part --no-default-features --features "read,sync"
 
 Note: `hadris-io` provides a minimal `Error` type in no-std mode (no message storage). The `std::io::Error` API surface is not fully mirrored — if you use a std-only method like `Error::other()`, add a matching method to `crates/hadris-io/src/error.rs`.
 
+### Miri (UB detection)
+
+The crates have several `unsafe` blocks (`bytemuck::Pod` reinterpretation, union access in directory entries, the `transmute` in `dir.rs` raw entry parsing). When touching any of these — or anything that converts disk bytes into `&str` — run miri to catch UB regressions before pushing:
+
+```bash
+# One-time setup
+rustup +nightly component add miri
+cargo +nightly miri setup
+
+# Targeted safety tests (fast, ~5s each)
+cargo +nightly miri test -p hadris-common --lib
+cargo +nightly miri test -p hadris-fat --lib file::lfn_unicode_tests
+cargo +nightly miri test -p hadris-iso --lib types::iso_str_safety_tests
+```
+
+CI runs the same set on every push (`miri` job in `.github/workflows/rust.yml`). Miri rejects real I/O syscalls and is 10–100× slower than native, so we deliberately scope it to focused unit tests covering historically-unsafe code paths (issues #26 and #28). When you add a new `unsafe` block or fix a soundness bug, add a regression test under one of the existing miri-tested modules so the CI job exercises it.
+
 ## Workspace Structure
 
 ```

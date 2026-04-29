@@ -253,21 +253,40 @@ impl ShortFileName {
     }
 }
 
-/// Maximum number of UTF-8 bytes in a long filename (255 UTF-16 code units * 3 bytes max per code unit)
-pub const LFN_MAX_BYTES: usize = 255 * 3;
+/// Maximum number of UTF-16 code units in a long filename (per the FAT LFN spec).
+pub const LFN_MAX_UTF16_UNITS: usize = 255;
 
-/// A Long File Name stored as UTF-8
+/// A Long File Name stored as UTF-16.
+///
+/// LFN entries on disk encode the filename in UTF-16LE. Storing the data in its
+/// native form avoids two classes of bugs that previously lived here (see issue
+/// #28): the buffer never holds invalid UTF-8, and surrogate pairs (characters
+/// outside the Basic Multilingual Plane, e.g. emoji) are preserved correctly
+/// regardless of how the pair lands across LFN entry boundaries — the conversion
+/// to scalar values happens once, at access time.
 #[cfg(feature = "lfn")]
 #[derive(Clone, PartialEq, Eq)]
 pub struct LongFileName {
-    bytes: [u8; LFN_MAX_BYTES],
+    chars: [u16; LFN_MAX_UTF16_UNITS],
     len: usize,
 }
 
 #[cfg(feature = "lfn")]
 impl fmt::Debug for LongFileName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("LongFileName").field(&self.as_str()).finish()
+        struct LossyChars<'a>(&'a LongFileName);
+        impl fmt::Debug for LossyChars<'_> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("\"")?;
+                for ch in self.0.chars() {
+                    fmt::Write::write_char(f, ch)?;
+                }
+                f.write_str("\"")
+            }
+        }
+        f.debug_tuple("LongFileName")
+            .field(&LossyChars(self))
+            .finish()
     }
 }
 
@@ -286,7 +305,7 @@ impl LongFileName {
     /// Create a new empty LongFileName
     pub fn new() -> Self {
         Self {
-            bytes: [0; LFN_MAX_BYTES],
+            chars: [0; LFN_MAX_UTF16_UNITS],
             len: 0,
         }
     }
@@ -299,6 +318,11 @@ impl LongFileName {
     /// Check if the filename is empty
     pub fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    /// Number of UTF-16 code units in the filename.
+    pub fn len(&self) -> usize {
+        self.len
     }
 
     /// Prepend UTF-16LE characters from an LFN entry.
@@ -327,63 +351,47 @@ impl LongFileName {
             .position(|&c| c == 0x0000 || c == 0xFFFF)
             .unwrap_or(Self::CHARS_PER_ENTRY);
 
-        // Convert UTF-16 to UTF-8 and prepend
-        let mut temp_utf8 = [0u8; Self::CHARS_PER_ENTRY * 3]; // Max 3 bytes per char
-        let mut temp_len = 0;
-
-        for &code_unit in &utf16_chars[..actual_len] {
-            temp_len += encode_utf16_to_utf8(code_unit, &mut temp_utf8[temp_len..]);
+        // Prepend code units to the existing buffer.
+        let new_len = self.len + actual_len;
+        if new_len > LFN_MAX_UTF16_UNITS {
+            // Spec violation: silently drop the entry rather than panicking on
+            // a malformed image. Matches the prior behavior.
+            return;
         }
-
-        // Prepend to existing content
         if self.len > 0 {
-            // Shift existing content
-            let new_len = self.len + temp_len;
-            if new_len <= LFN_MAX_BYTES {
-                // Move existing bytes forward
-                for i in (0..self.len).rev() {
-                    self.bytes[i + temp_len] = self.bytes[i];
-                }
-                // Copy new content to beginning
-                self.bytes[..temp_len].copy_from_slice(&temp_utf8[..temp_len]);
-                self.len = new_len;
-            }
-        } else {
-            // Just copy
-            self.bytes[..temp_len].copy_from_slice(&temp_utf8[..temp_len]);
-            self.len = temp_len;
+            self.chars.copy_within(0..self.len, actual_len);
         }
+        self.chars[..actual_len].copy_from_slice(&utf16_chars[..actual_len]);
+        self.len = new_len;
     }
 
-    /// Get the filename as a UTF-8 string slice
-    pub fn as_str(&self) -> &str {
-        // Safety: we only ever store valid UTF-8
-        unsafe { core::str::from_utf8_unchecked(&self.bytes[..self.len]) }
+    /// Borrow the filename as raw UTF-16 code units.
+    pub fn as_utf16(&self) -> &[u16] {
+        &self.chars[..self.len]
+    }
+
+    /// Iterate over the decoded scalar values of the filename.
+    ///
+    /// Lone surrogates (which the spec disallows but a malformed image could
+    /// contain) are reported as [`char::REPLACEMENT_CHARACTER`] (U+FFFD).
+    pub fn chars(&self) -> impl Iterator<Item = char> + '_ {
+        char::decode_utf16(self.chars[..self.len].iter().copied())
+            .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
+    }
+
+    /// Compare the filename to a `&str` without allocating.
+    pub fn eq_str(&self, s: &str) -> bool {
+        self.chars().eq(s.chars())
     }
 }
 
-/// Encode a single UTF-16 code unit to UTF-8.
-/// Returns the number of bytes written.
-/// Note: This doesn't handle surrogate pairs; each code unit is treated independently.
 #[cfg(feature = "lfn")]
-fn encode_utf16_to_utf8(code_unit: u16, output: &mut [u8]) -> usize {
-    let c = code_unit as u32;
-
-    if c < 0x80 {
-        // ASCII
-        output[0] = c as u8;
-        1
-    } else if c < 0x800 {
-        // 2-byte UTF-8
-        output[0] = (0xC0 | (c >> 6)) as u8;
-        output[1] = (0x80 | (c & 0x3F)) as u8;
-        2
-    } else {
-        // 3-byte UTF-8 (BMP character)
-        output[0] = (0xE0 | (c >> 12)) as u8;
-        output[1] = (0x80 | ((c >> 6) & 0x3F)) as u8;
-        output[2] = (0x80 | (c & 0x3F)) as u8;
-        3
+impl fmt::Display for LongFileName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for ch in self.chars() {
+            fmt::Write::write_char(f, ch)?;
+        }
+        Ok(())
     }
 }
 
@@ -494,5 +502,108 @@ impl LfnBuilder {
         let result = core::mem::take(&mut self.name);
         self.reset();
         Some(result)
+    }
+}
+
+#[cfg(all(test, feature = "lfn", feature = "alloc"))]
+mod lfn_unicode_tests {
+    use super::*;
+    extern crate alloc;
+    use alloc::string::ToString;
+
+    /// Regression test for issue #28: lone surrogates in an LFN entry must
+    /// not produce undefined behavior. Previously, the encoder produced
+    /// invalid UTF-8 from lone surrogates and `as_str` then transmuted those
+    /// bytes via `from_utf8_unchecked`. With UTF-16 storage, lone surrogates
+    /// are surfaced as the replacement character (U+FFFD) instead.
+    #[test]
+    fn lone_high_surrogate_becomes_replacement_char() {
+        let mut lfn = LongFileName::new();
+        // Lone high surrogate 0xD800 followed by ASCII 'a'.
+        let name1: [u8; 10] = [0x00, 0xD8, b'a', 0, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF];
+        let name2: [u8; 12] = [0xFF; 12];
+        let name3: [u8; 4] = [0xFF; 4];
+
+        lfn.prepend_lfn_entry(&name1, &name2, &name3);
+
+        let s = lfn.to_string();
+        assert_eq!(s, "\u{FFFD}a");
+    }
+
+    /// Regression test for issue #28: a valid surrogate pair encodes a
+    /// supplementary-plane character (here, U+1F600 GRINNING FACE — emoji).
+    /// Previously the encoder dropped the surrogate semantics and emitted two
+    /// 3-byte sequences that are invalid UTF-8.
+    #[test]
+    fn valid_surrogate_pair_decodes_to_supplementary_codepoint() {
+        let mut lfn = LongFileName::new();
+        // U+1F600 = 0xD83D 0xDE00 in UTF-16LE.
+        let name1: [u8; 10] = [0x3D, 0xD8, 0x00, 0xDE, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF];
+        let name2: [u8; 12] = [0xFF; 12];
+        let name3: [u8; 4] = [0xFF; 4];
+
+        lfn.prepend_lfn_entry(&name1, &name2, &name3);
+
+        assert_eq!(lfn.to_string(), "\u{1F600}");
+    }
+
+    /// A surrogate pair split across two LFN entries (high in the earlier
+    /// entry, low in the later one) must still decode correctly. The on-disk
+    /// order is reverse, so the entry containing the LOW surrogate is read
+    /// first (prepended first), then the entry containing the HIGH surrogate
+    /// is prepended in front.
+    #[test]
+    fn surrogate_pair_split_across_entries() {
+        let mut lfn = LongFileName::new();
+
+        // Second-prepended entry (logically earlier in the filename): ends
+        // with the high surrogate of U+1F600.
+        let high_name1: [u8; 10] = [b'a', 0, b'b', 0, b'c', 0, b'd', 0, b'e', 0];
+        let high_name2: [u8; 12] = [b'f', 0, b'g', 0, b'h', 0, b'i', 0, b'j', 0, b'k', 0];
+        let high_name3: [u8; 4] = [b'l', 0, 0x3D, 0xD8]; // 0xD83D = high surrogate
+
+        // First-prepended entry (logically later): starts with the low
+        // surrogate of U+1F600.
+        let low_name1: [u8; 10] = [
+            0x00, 0xDE, // 0xDE00 = low surrogate
+            b'm', 0, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
+        let low_name2: [u8; 12] = [0xFF; 12];
+        let low_name3: [u8; 4] = [0xFF; 4];
+
+        lfn.prepend_lfn_entry(&low_name1, &low_name2, &low_name3);
+        lfn.prepend_lfn_entry(&high_name1, &high_name2, &high_name3);
+
+        assert_eq!(lfn.to_string(), "abcdefghijkl\u{1F600}m");
+    }
+
+    /// Two-byte UTF-8 path: a code point in the 0x80..0x800 range must round
+    /// through as one character.
+    #[test]
+    fn two_byte_utf8_codepoint() {
+        let mut lfn = LongFileName::new();
+        // U+00E9 (é)
+        let name1: [u8; 10] = [0xE9, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let name2: [u8; 12] = [0xFF; 12];
+        let name3: [u8; 4] = [0xFF; 4];
+
+        lfn.prepend_lfn_entry(&name1, &name2, &name3);
+
+        assert_eq!(lfn.to_string(), "é");
+    }
+
+    /// Verify `eq_str` works without allocation against decoded characters.
+    #[test]
+    fn eq_str_matches_decoded_chars() {
+        let mut lfn = LongFileName::new();
+        // U+1F600
+        let name1: [u8; 10] = [0x3D, 0xD8, 0x00, 0xDE, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF];
+        let name2: [u8; 12] = [0xFF; 12];
+        let name3: [u8; 4] = [0xFF; 4];
+
+        lfn.prepend_lfn_entry(&name1, &name2, &name3);
+
+        assert!(lfn.eq_str("\u{1F600}"));
+        assert!(!lfn.eq_str("X"));
     }
 }

@@ -227,6 +227,15 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
         })
     }
 
+    /// Borrow the contents as a `&str`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bytes are not valid UTF-8. Because `IsoStr` is
+    /// `bytemuck::Pod`, instances can be constructed by transmuting raw bytes
+    /// from a disk image — those bytes are not guaranteed to be UTF-8 even
+    /// when the format requires it. Use [`Self::try_to_str`] for a fallible
+    /// variant.
     pub fn to_str(&self) -> &str {
         if self.chars.len() == 1 {
             match self.chars[0] {
@@ -235,20 +244,37 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
                 _ => {}
             }
         }
-        // SAFETY: The string is constructed from valid ASCII characters.
-        unsafe { core::str::from_utf8_unchecked(&self.chars[..self.len()]) }
+        core::str::from_utf8(&self.chars[..self.len()]).expect("IsoStr contains invalid UTF-8")
+    }
+
+    /// Borrow the contents as a `&str` if they are valid UTF-8.
+    pub fn try_to_str(&self) -> Result<&str, core::str::Utf8Error> {
+        if self.chars.len() == 1 {
+            match self.chars[0] {
+                b'\x00' => return Ok("\\x00"),
+                b'\x01' => return Ok("\\x01"),
+                _ => {}
+            }
+        }
+        core::str::from_utf8(&self.chars[..self.len()])
     }
 }
 
 impl<C: Charset, const N: usize> core::fmt::Display for IsoStr<C, N> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.to_str())
+        match self.try_to_str() {
+            Ok(s) => f.write_str(s),
+            Err(_) => write!(f, "{:?}", &self.chars[..self.len()]),
+        }
     }
 }
 
 impl<C: Charset, const N: usize> core::fmt::Debug for IsoStr<C, N> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "\"{}\"", self.to_str())
+        match self.try_to_str() {
+            Ok(s) => write!(f, "\"{}\"", s),
+            Err(_) => write!(f, "{:?}", &self.chars[..self.len()]),
+        }
     }
 }
 
@@ -337,6 +363,14 @@ impl<C: Charset> IsoString<C> {
         &self.chars
     }
 
+    /// Borrow the contents as a `&str`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the bytes are not valid UTF-8. `IsoString` accepts arbitrary
+    /// bytes via [`Self::from_bytes`] / `From<Vec<u8>>`, so the buffer is not
+    /// guaranteed to be UTF-8. Use [`Self::try_as_str`] for a fallible
+    /// variant.
     pub fn as_str(&self) -> &str {
         if self.chars.len() == 1 {
             match self.chars[0] {
@@ -345,22 +379,39 @@ impl<C: Charset> IsoString<C> {
                 _ => {}
             }
         }
-        // SAFETY: The string is constructed from valid ASCII characters.
-        unsafe { core::str::from_utf8_unchecked(&self.chars[..self.len()]) }
+        core::str::from_utf8(&self.chars[..self.len()]).expect("IsoString contains invalid UTF-8")
+    }
+
+    /// Borrow the contents as a `&str` if they are valid UTF-8.
+    pub fn try_as_str(&self) -> Result<&str, core::str::Utf8Error> {
+        if self.chars.len() == 1 {
+            match self.chars[0] {
+                b'\x00' => return Ok("\\x00"),
+                b'\x01' => return Ok("\\x01"),
+                _ => {}
+            }
+        }
+        core::str::from_utf8(&self.chars[..self.len()])
     }
 }
 
 #[cfg(feature = "alloc")]
 impl<C: Charset> core::fmt::Display for IsoString<C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.as_str())
+        match self.try_as_str() {
+            Ok(s) => f.write_str(s),
+            Err(_) => write!(f, "{:?}", &self.chars[..self.len()]),
+        }
     }
 }
 
 #[cfg(feature = "alloc")]
 impl<C: Charset> core::fmt::Debug for IsoString<C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "\"{}\"", self.as_str())
+        match self.try_as_str() {
+            Ok(s) => write!(f, "\"{}\"", s),
+            Err(_) => write!(f, "{:?}", &self.chars[..self.len()]),
+        }
     }
 }
 
@@ -370,6 +421,64 @@ pub type IsoStrD<const N: usize> = IsoStr<CharsetD, N>;
 pub type IsoStringA = IsoString<CharsetA>;
 #[cfg(feature = "alloc")]
 pub type IsoStringD = IsoString<CharsetD>;
+
+#[cfg(test)]
+mod iso_str_safety_tests {
+    use super::*;
+
+    /// `IsoStr` is `bytemuck::Pod`, so an attacker (or a malformed disk image)
+    /// can construct one from arbitrary bytes. Previously `to_str` used
+    /// `from_utf8_unchecked` under the assumption that contents were always
+    /// ASCII — that assumption only holds for strings built via `from_str`,
+    /// not for ones loaded from disk. `try_to_str` must reject invalid UTF-8
+    /// safely.
+    #[test]
+    fn try_to_str_rejects_non_utf8_bytes() {
+        let mut bytes = [b' '; 16];
+        bytes[0] = 0xFF; // invalid as UTF-8 lead byte
+        let s: IsoStrA<16> = IsoStrA::from_bytes_exact(bytes);
+        assert!(s.try_to_str().is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid UTF-8")]
+    fn to_str_panics_on_invalid_utf8() {
+        let mut bytes = [b' '; 16];
+        bytes[0] = 0xFF;
+        let s: IsoStrA<16> = IsoStrA::from_bytes_exact(bytes);
+        let _ = s.to_str();
+    }
+
+    #[test]
+    fn debug_does_not_panic_on_invalid_utf8() {
+        use core::fmt::Write as _;
+        struct Sink;
+        impl core::fmt::Write for Sink {
+            fn write_str(&mut self, _: &str) -> core::fmt::Result {
+                Ok(())
+            }
+        }
+        let mut bytes = [b' '; 16];
+        bytes[0] = 0xFF;
+        let s: IsoStrA<16> = IsoStrA::from_bytes_exact(bytes);
+        write!(Sink, "{:?}", s).unwrap();
+        write!(Sink, "{}", s).unwrap();
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn iso_string_try_as_str_rejects_non_utf8() {
+        let s = IsoStringA::from_bytes(&[0xFFu8, 0xFE, b'a']);
+        assert!(s.try_as_str().is_err());
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn iso_string_round_trips_valid_utf8() {
+        let s = IsoStringA::from_utf8("HELLO");
+        assert_eq!(s.try_as_str().unwrap(), "HELLO");
+    }
+}
 
 pub trait StdNum: Copy {
     type LsbType: bytemuck::Pod + bytemuck::Zeroable + Endian<Output = Self>;
