@@ -416,6 +416,7 @@ where
     /// Used by directory-creation code to honor the FAT32 spec rule that a
     /// subdirectory's ".." entry must store cluster 0 (not the real root
     /// cluster) when its parent is the FAT32 root.
+    #[cfg(feature = "write")]
     pub(crate) fn is_fat32_root_cluster(&self, cluster: u32) -> bool {
         matches!(&self.ext, FatFsExt::Fat32(ext) if ext.root_clus.0 == cluster)
     }

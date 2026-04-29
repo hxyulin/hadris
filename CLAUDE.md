@@ -24,6 +24,24 @@ cargo check --workspace --no-default-features --features "std,write"
 cargo build -p hadris-fat --no-default-features --features "read"
 ```
 
+### Quality checks (match CI)
+
+CI promotes warnings to errors via `RUSTFLAGS="-D warnings"` for both the default-feature workspace check and every per-crate feature tier (see the `check` and `check-features` jobs in `.github/workflows/rust.yml`). A warning that only appears under a non-default feature combination — e.g. an unused helper that's gated behind `write` — passes a plain `cargo check --workspace` but fails CI. Always reproduce CI locally with `-D warnings`:
+
+```bash
+# Workspace, default features (matches CI `check` job)
+RUSTFLAGS="-D warnings" cargo check --workspace
+
+# Per-crate feature tiers (matches CI `check-features` matrix)
+RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-cpio --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-udf --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-part --no-default-features --features "read,sync"
+```
+
+When fixing a feature-gated dead-code warning, prefer `#[cfg(feature = "<feat>")]` on the item over `#[allow(dead_code)]` so the compiler stays honest about which builds actually use it.
+
 ## Testing
 
 ```bash
@@ -43,14 +61,14 @@ cargo test -- --nocapture
 
 ### No-std verification
 
-Default features include `std`, so `cargo check` and `cargo test` do NOT exercise the no-std code path. After any change to I/O types, error handling, or feature-gated code, verify no-std compilation:
+Default features include `std`, so `cargo check` and `cargo test` do NOT exercise the no-std code path. After any change to I/O types, error handling, or feature-gated code, verify no-std compilation (with `-D warnings` to match CI — see "Quality checks" above):
 
 ```bash
-cargo check -p hadris-iso --no-default-features --features "read,sync"
-cargo check -p hadris-fat --no-default-features --features "read,sync"
-cargo check -p hadris-cpio --no-default-features --features "read,sync"
-cargo check -p hadris-udf --no-default-features --features "read,sync"
-cargo check -p hadris-part --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-cpio --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-udf --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-part --no-default-features --features "read,sync"
 ```
 
 Note: `hadris-io` provides a minimal `Error` type in no-std mode (no message storage). The `std::io::Error` API surface is not fully mirrored — if you use a std-only method like `Error::other()`, add a matching method to `crates/hadris-io/src/error.rs`.
