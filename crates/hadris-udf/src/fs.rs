@@ -11,6 +11,7 @@ use super::descriptor::{
     LogicalVolumeDescriptor, LongAllocationDescriptor, PartitionDescriptor,
     PrimaryVolumeDescriptor, TagIdentifier, parse_vrs,
 };
+use crate::descriptor::DescriptorTag;
 use crate::dir::{
     FileCharacteristics, FileIdentifierDescriptor, UdfDir, UdfDirEntry, decode_filename,
 };
@@ -100,19 +101,19 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
             data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
             data.read_exact(&mut buffer).await?;
 
-            let tag: &descriptor::DescriptorTag = bytemuck::from_bytes(&buffer[..16]);
+            let tag: &DescriptorTag = bytemuck::try_from_bytes(&buffer[..size_of::<DescriptorTag>()]).map_err(|err| UdfError::PodCastError(err))?;
 
             match tag.identifier() {
                 TagIdentifier::PrimaryVolumeDescriptor => {
-                    let desc: PrimaryVolumeDescriptor = *bytemuck::from_bytes(&buffer);
+                    let desc: PrimaryVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PrimaryVolumeDescriptor>()]).map_err(|err| UdfError::PodCastError(err))?;
                     pvd = Some(desc);
                 }
                 TagIdentifier::PartitionDescriptor => {
-                    let desc: PartitionDescriptor = *bytemuck::from_bytes(&buffer);
+                    let desc: PartitionDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PartitionDescriptor>()]).map_err(|err| UdfError::PodCastError(err))?;
                     partition = Some(desc);
                 }
                 TagIdentifier::LogicalVolumeDescriptor => {
-                    let desc: LogicalVolumeDescriptor = *bytemuck::from_bytes(&buffer);
+                    let desc: LogicalVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<LogicalVolumeDescriptor>()]).map_err(|err| UdfError::PodCastError(err))?;
                     lvd = Some(desc);
                 }
                 TagIdentifier::TerminatingDescriptor => break,
@@ -120,9 +121,9 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
             }
         }
 
-        let pvd = pvd.ok_or(UdfError::InvalidVrs)?;
-        let partition = partition.ok_or(UdfError::InvalidPartition(0))?;
-        let lvd = lvd.ok_or(UdfError::InvalidVrs)?;
+        let pvd = pvd.ok_or_else(|| UdfError::InvalidVds("PVD"))?;
+        let partition = partition.ok_or_else(|| UdfError::InvalidPartition(0))?;
+        let lvd = lvd.ok_or_else(|| UdfError::InvalidVds("LVD"))?;
 
         // Read File Set Descriptor from the location in LVD
         let fsd_location = lvd.file_set_location();
@@ -143,7 +144,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         let mut buffer = [0u8; SECTOR_SIZE];
         data.read_exact(&mut buffer).await?;
 
-        let fsd: FileSetDescriptor = *bytemuck::from_bytes(&buffer);
+        let fsd: FileSetDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<FileSetDescriptor>()]).map_err(|_| UdfError::InvalidFsd)?;
         Ok(fsd)
     }
 
@@ -362,5 +363,260 @@ mod tests {
         };
         assert_eq!(info.block_size, 2048);
         assert_eq!(info.volume_id, "TEST_VOLUME");
+    }
+
+    fn calculate_tag_checksum(tag: &[u8; 16]) -> u8 {
+        let mut sum: u8 = 0;
+        for (i, &byte) in tag.iter().enumerate() {
+            if i != 4 {
+                sum = sum.wrapping_add(byte);
+            }
+        }
+        sum
+    }
+
+    fn write_vrs(data: &mut [u8]) {
+        let offset = 16 * 2048;
+        data[offset..offset + 7].copy_from_slice(b"\0BEA01\x01");
+        
+        let offset = 17 * 2048;
+        data[offset..offset + 7].copy_from_slice(b"\0NSR02\x01");
+        
+        let offset = 18 * 2048;
+        data[offset..offset + 7].copy_from_slice(b"\0TEA01\x01");
+    }
+
+    fn write_avdp(data: &mut [u8]) {
+        let offset = 256 * 2048;
+        
+        let mut tag = [0u8; 16];
+        tag[0] = 0x02;
+        tag[1] = 0x00;
+        tag[2] = 0x02;
+        tag[3] = 0x00;
+        tag[4] = 0;
+        tag[5] = 0;
+        tag[6] = 0x01;
+        tag[7] = 0x00;
+        tag[8] = 0;
+        tag[9] = 0;
+        tag[10] = 0;
+        tag[11] = 0;
+        tag[12] = 0x00;
+        tag[13] = 0x01;
+        tag[14] = 0x00;
+        tag[15] = 0x00;
+        
+        let checksum = calculate_tag_checksum(&tag);
+        tag[4] = checksum;
+        data[offset..offset + 16].copy_from_slice(&tag);
+        
+        // main_vds_extent: 4 sectors (257-260) = 8192 bytes
+        data[offset + 16] = 0x00;
+        data[offset + 17] = 0x20;  // 8192 = 0x2000
+        data[offset + 18] = 0x00;
+        data[offset + 19] = 0x00;
+        data[offset + 20] = 0x01;
+        data[offset + 21] = 0x01;  // sector 257
+        data[offset + 22] = 0x00;
+        data[offset + 23] = 0x00;
+        
+        // reserve_vds_extent: backup at sector 275
+        data[offset + 24] = 0x00;
+        data[offset + 25] = 0x20;  // 8192 bytes
+        data[offset + 26] = 0x00;
+        data[offset + 27] = 0x00;
+        data[offset + 28] = 0x13;
+        data[offset + 29] = 0x01;  // sector 275 = 0x0113
+        data[offset + 30] = 0x00;
+        data[offset + 31] = 0x00;
+        
+        data[offset + 32..offset + 56].fill(0);
+    }
+
+    fn write_primary_volume_descriptor(data: &mut [u8], sector: u32) {
+        let offset = (sector as usize) * 2048;
+        
+        let mut tag = [0u8; 16];
+        tag[0] = 0x01;
+        tag[1] = 0x00;
+        tag[2] = 0x02;
+        tag[3] = 0x00;
+        tag[4] = 0;
+        tag[5] = 0;
+        tag[6] = 0x01;
+        tag[7] = 0x00;
+        tag[8] = 0;
+        tag[9] = 0;
+        tag[10] = 0;
+        tag[11] = 0;
+        tag[12] = (sector & 0xFF) as u8;
+        tag[13] = ((sector >> 8) & 0xFF) as u8;
+        tag[14] = ((sector >> 16) & 0xFF) as u8;
+        tag[15] = ((sector >> 24) & 0xFF) as u8;
+        
+        let checksum = calculate_tag_checksum(&tag);
+        tag[4] = checksum;
+        data[offset..offset + 16].copy_from_slice(&tag);
+        
+        let vol_id = b"MOCK_VOLUME        ";
+        data[offset + 24..offset + 24 + vol_id.len()].copy_from_slice(vol_id);
+        
+        data[offset + 80] = 0x00;
+        data[offset + 81] = 0x00;
+        data[offset + 82] = 0x02;
+        data[offset + 83] = 0x00;
+    }
+
+    fn write_partition_descriptor(data: &mut [u8], sector: u32, partition_start: u32) {
+        let offset = (sector as usize) * 2048;
+        
+        let mut tag = [0u8; 16];
+        tag[0] = 0x05;
+        tag[1] = 0x00;
+        tag[2] = 0x02;
+        tag[3] = 0x00;
+        tag[4] = 0;
+        tag[5] = 0;
+        tag[6] = 0x02;
+        tag[7] = 0x00;
+        tag[8] = 0;
+        tag[9] = 0;
+        tag[10] = 0;
+        tag[11] = 0;
+        tag[12] = (sector & 0xFF) as u8;
+        tag[13] = ((sector >> 8) & 0xFF) as u8;
+        tag[14] = ((sector >> 16) & 0xFF) as u8;
+        tag[15] = ((sector >> 24) & 0xFF) as u8;
+        
+        let checksum = calculate_tag_checksum(&tag);
+        tag[4] = checksum;
+        data[offset..offset + 16].copy_from_slice(&tag);
+        
+        data[offset + 40] = (partition_start & 0xFF) as u8;
+        data[offset + 41] = ((partition_start >> 8) & 0xFF) as u8;
+        data[offset + 42] = ((partition_start >> 16) & 0xFF) as u8;
+        data[offset + 43] = ((partition_start >> 24) & 0xFF) as u8;
+    }
+
+    fn write_logical_volume_descriptor(data: &mut [u8], sector: u32, fsd_sector: u32) {
+        let offset = (sector as usize) * 2048;
+        
+        let mut tag = [0u8; 16];
+        tag[0] = 0x06;
+        tag[1] = 0x00;
+        tag[2] = 0x02;
+        tag[3] = 0x00;
+        tag[4] = 0;
+        tag[5] = 0;
+        tag[6] = 0x03;
+        tag[7] = 0x00;
+        tag[8] = 0;
+        tag[9] = 0;
+        tag[10] = 0;
+        tag[11] = 0;
+        tag[12] = (sector & 0xFF) as u8;
+        tag[13] = ((sector >> 8) & 0xFF) as u8;
+        tag[14] = ((sector >> 16) & 0xFF) as u8;
+        tag[15] = ((sector >> 24) & 0xFF) as u8;
+        
+        let checksum = calculate_tag_checksum(&tag);
+        tag[4] = checksum;
+        data[offset..offset + 16].copy_from_slice(&tag);
+        
+        // logical_block_size = 2048 at offset 16
+        data[offset + 16] = 0x00;
+        data[offset + 17] = 0x08;
+        data[offset + 18] = 0x00;
+        data[offset + 19] = 0x00;
+        
+        // file_set_location at offset 124 (LongAllocationDescriptor: 16 bytes)
+        data[offset + 124] = (fsd_sector & 0xFF) as u8;
+        data[offset + 125] = ((fsd_sector >> 8) & 0xFF) as u8;
+        data[offset + 126] = ((fsd_sector >> 16) & 0xFF) as u8;
+        data[offset + 127] = ((fsd_sector >> 24) & 0xFF) as u8;
+    }
+
+    fn write_terminating_descriptor(data: &mut [u8], sector: u32) {
+        let offset = (sector as usize) * 2048;
+        
+        let mut tag = [0u8; 16];
+        tag[0] = 0x08;
+        tag[1] = 0x00;
+        tag[2] = 0x02;
+        tag[3] = 0x00;
+        tag[4] = 0;
+        tag[5] = 0;
+        tag[6] = 0x04;
+        tag[7] = 0x00;
+        tag[8] = 0;
+        tag[9] = 0;
+        tag[10] = 0;
+        tag[11] = 0;
+        tag[12] = (sector & 0xFF) as u8;
+        tag[13] = ((sector >> 8) & 0xFF) as u8;
+        tag[14] = ((sector >> 16) & 0xFF) as u8;
+        tag[15] = ((sector >> 24) & 0xFF) as u8;
+        
+        let checksum = calculate_tag_checksum(&tag);
+        tag[4] = checksum;
+        data[offset..offset + 16].copy_from_slice(&tag);
+    }
+
+    fn write_file_set_descriptor(data: &mut [u8], sector: u32, root_icb_sector: u32) {
+        let offset = (sector as usize) * 2048;
+        
+        let mut tag = [0u8; 16];
+        tag[0] = 0x00;
+        tag[1] = 0x01;  // Tag identifier = 256 (0x0100) for FileSetDescriptor
+        tag[2] = 0x02;
+        tag[3] = 0x00;
+        tag[4] = 0;
+        tag[5] = 0;
+        tag[6] = 0x05;
+        tag[7] = 0x00;
+        tag[8] = 0;
+        tag[9] = 0;
+        tag[10] = 0;
+        tag[11] = 0;
+        tag[12] = (sector & 0xFF) as u8;
+        tag[13] = ((sector >> 8) & 0xFF) as u8;
+        tag[14] = ((sector >> 16) & 0xFF) as u8;
+        tag[15] = ((sector >> 24) & 0xFF) as u8;
+        
+        let checksum = calculate_tag_checksum(&tag);
+        tag[4] = checksum;
+        data[offset..offset + 16].copy_from_slice(&tag);
+        
+        // root_directory_icb at offset 160 (LongAllocationDescriptor)
+        data[offset + 160] = (root_icb_sector & 0xFF) as u8;
+        data[offset + 161] = ((root_icb_sector >> 8) & 0xFF) as u8;
+        data[offset + 162] = ((root_icb_sector >> 16) & 0xFF) as u8;
+        data[offset + 163] = ((root_icb_sector >> 24) & 0xFF) as u8;
+    }
+
+    fn create_mock_udf_data() -> std::boxed::Box<[u8]> {
+        let mut data = std::vec![0u8; 2048 * 300].into_boxed_slice();
+        
+        write_vrs(&mut data);
+        write_avdp(&mut data);
+        
+        write_primary_volume_descriptor(&mut data, 257);
+        write_partition_descriptor(&mut data, 258, 260);
+        write_logical_volume_descriptor(&mut data, 259, 261);
+        write_terminating_descriptor(&mut data, 260);
+        
+        write_file_set_descriptor(&mut data, 261, 262);
+        
+        data
+    }
+
+    #[test]
+    fn test_udf_open() {
+        let mut data = create_mock_udf_data();
+        let mut cursor = std::io::Cursor::new(data);
+        let result = UdfFs::open(cursor);
+
+        assert!(result.is_ok())
     }
 }
