@@ -36,7 +36,7 @@ pub enum UdfError {
     /// Invalid filename encoding
     InvalidEncoding,
     /// byte casting failed - the data buffer size doesn't match the target struct size.
-    PodCastError(bytemuck::PodCastError)
+    PodCastError(bytemuck::PodCastError),
 }
 
 impl From<io::Error> for UdfError {
@@ -50,7 +50,9 @@ impl core::fmt::Display for UdfError {
         match self {
             Self::Io(e) => write!(f, "I/O error: {}", e),
             Self::InvalidVrs => write!(f, "invalid or missing Volume Recognition Sequence"),
-            Self::InvalidVds(reason) => write!(f, "invalid or missing Volume Descriptor Sequence. {reason}"),
+            Self::InvalidVds(reason) => {
+                write!(f, "invalid or missing Volume Descriptor Sequence. {reason}")
+            }
             Self::InvalidFsd => write!(f, "invalid or missing File Set Descriptor."),
             Self::NoAnchor => write!(f, "no Anchor Volume Descriptor Pointer found"),
             Self::InvalidTag { expected, found } => {
@@ -77,7 +79,10 @@ impl core::fmt::Display for UdfError {
             Self::NotAFile => write!(f, "not a file"),
             Self::PathTooLong => write!(f, "path too long"),
             Self::InvalidEncoding => write!(f, "invalid filename encoding"),
-            Self::PodCastError(err) => write!(f, "byte casting failed - the data buffer size doesn't match the target struct size. {err}"),
+            Self::PodCastError(err) => write!(
+                f,
+                "byte casting failed - the data buffer size doesn't match the target struct size. {err}"
+            ),
         }
     }
 }
