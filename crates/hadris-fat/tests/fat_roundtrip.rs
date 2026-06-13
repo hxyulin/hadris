@@ -380,6 +380,49 @@ fn fat32_truncate_to_zero_clean_fsck() {
 }
 
 // =============================================================================
+// LFN write — long filenames must persist + image must remain fsck-clean
+// =============================================================================
+
+/// Writes a file with a long, mixed-case name and verifies (a) the long name
+/// round-trips and (b) `fsck.fat` accepts the resulting image. Without LFN
+/// write support, the long name is silently truncated to 8.3 and the
+/// generated checksum is missing — fsck.fat tolerates the truncation but
+/// the long-name lookup fails. Regression coverage for issue A1.
+#[cfg(feature = "lfn")]
+#[test]
+fn fat32_long_filename_lfn_write_roundtrip_clean_fsck() {
+    let tmp = TempDir::new().unwrap();
+    let img = tmp.path().join("fat32_lfn.img");
+    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32LFN");
+    assert_fat_type(&img, FatType::Fat32);
+
+    let long_name = "My Long Notes.txt";
+    let payload = b"long-name LFN write test\n";
+    write_root_file(&img, long_name, payload);
+    maybe_fsck(&img);
+
+    // Re-open and look up by the long name — must hit the LFN entries.
+    let file = open_image(&img);
+    let fs = FatFs::open(file).expect("reopen");
+    let root = fs.root_dir();
+    let entry = root
+        .find(long_name)
+        .expect("find did not error")
+        .expect("entry found by long name");
+    let mut reader = fs.read_file(&entry).expect("read_file");
+    let mut got = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = reader.read(&mut buf).expect("reader.read");
+        if n == 0 {
+            break;
+        }
+        got.extend_from_slice(&buf[..n]);
+    }
+    assert_eq!(got, payload, "LFN write/read content mismatch");
+}
+
+// =============================================================================
 // Cross-FAT: multiple files in the same root directory
 // =============================================================================
 

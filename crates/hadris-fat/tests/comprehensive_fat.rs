@@ -968,6 +968,16 @@ mod error_display_tests {
                 FatError::InvalidBootSignature { found: 0x1234 },
                 "invalid boot signature",
             ),
+            (
+                FatError::CorruptFilesystem {
+                    context: "test arithmetic",
+                },
+                "corrupt filesystem: test arithmetic",
+            ),
+            (
+                FatError::ClusterLoop { cluster: 7 },
+                "cluster chain loop detected at cluster 7",
+            ),
         ];
 
         for (error, expected_substr) in errors {

@@ -2,6 +2,7 @@
 
 io_transform! {
 
+#[allow(unused_imports)]
 use core::ops::DerefMut;
 
 #[cfg(feature = "alloc")]
@@ -37,6 +38,10 @@ pub struct FileReader<'a, DATA: Read + Seek> {
     total_read: usize,
     /// Total size of the file
     size: usize,
+    /// Cluster transitions taken so far. Bounded by `Fat::max_cluster()` so a
+    /// corrupt looping chain surfaces as `FatError::ClusterLoop` instead of
+    /// hanging the reader.
+    cluster_steps: u32,
     /// Optional cluster buffer for reduced I/O
     #[cfg(feature = "alloc")]
     cluster_buffer: Option<Vec<u8>>,
@@ -63,6 +68,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
             offset_in_cluster: 0,
             total_read: 0,
             size: entry.size(),
+            cluster_steps: 0,
             #[cfg(feature = "alloc")]
             cluster_buffer: None,
             #[cfg(feature = "alloc")]
@@ -261,7 +267,17 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
                     }
                 } else {
                     // Resolve next cluster from the FAT on disk.
-                    let next = self.fs.fat.next_cluster(data.deref_mut(), self.cluster.0).await?;
+                    self.cluster_steps = self.cluster_steps.saturating_add(1);
+                    if self.cluster_steps > self.fs.fat.max_cluster() {
+                        return Err(FatError::ClusterLoop {
+                            cluster: self.cluster.0 as u32,
+                        });
+                    }
+                    // Drop data lock so next_cluster_routed can acquire
+                    // cache+data in canonical order; re-lock after.
+                    drop(data);
+                    let next = self.fs.next_cluster_routed(self.cluster.0).await?;
+                    data = self.fs.data.lock();
                     match next {
                         Some(cluster) => {
                             self.cluster.0 = cluster as usize;
@@ -277,7 +293,17 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
 
             #[cfg(not(feature = "alloc"))]
             {
-                let next = self.fs.fat.next_cluster(data.deref_mut(), self.cluster.0).await?;
+                self.cluster_steps = self.cluster_steps.saturating_add(1);
+                if self.cluster_steps > self.fs.fat.max_cluster() {
+                    return Err(FatError::ClusterLoop {
+                        cluster: self.cluster.0 as u32,
+                    });
+                }
+                // Drop data lock so next_cluster_routed can acquire
+                // cache+data in canonical order; re-lock after.
+                drop(data);
+                let next = self.fs.next_cluster_routed(self.cluster.0).await?;
+                data = self.fs.data.lock();
                 match next {
                     Some(cluster) => {
                         self.cluster.0 = cluster as usize;

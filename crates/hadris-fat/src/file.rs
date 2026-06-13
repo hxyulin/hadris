@@ -62,16 +62,20 @@ impl ShortFileName {
         Ok(Self(name))
     }
 
-    /// Get the raw 11-byte name for checksum calculation
+    /// Get the raw 11-byte name for checksum calculation.
+    ///
+    /// Operates on the underlying byte buffer directly — does NOT go through
+    /// [`Self::as_str`], which would panic on non-ASCII OEM bytes (e.g.
+    /// CP437 0x82 for `é`). The 11-byte form is what's stored in the FAT
+    /// directory entry, so byte-level access is the correct level here
+    /// regardless of encoding.
     pub fn raw_bytes(&self) -> [u8; 11] {
-        let s = self.0.as_str();
-        let bytes = s.as_bytes();
+        let bytes = self.0.as_bytes();
         let mut result = [b' '; 11];
-        // Copy the name part (before the dot)
-        let dot_pos = bytes.iter().position(|&b| b == b'.').unwrap_or(8);
+        // Stored layout: "BASE    .EXT" — at most 8 base + dot + 3 ext.
+        let dot_pos = bytes.iter().position(|&b| b == b'.').unwrap_or(bytes.len());
         let name_len = dot_pos.min(8);
         result[..name_len].copy_from_slice(&bytes[..name_len]);
-        // Copy the extension part (after the dot)
         if dot_pos < bytes.len() {
             let ext_start = dot_pos + 1;
             let ext_len = (bytes.len() - ext_start).min(3);
@@ -128,12 +132,31 @@ impl ShortFileName {
     /// Generate an 8.3 short filename from a long name.
     ///
     /// Rules:
-    /// - Uppercase all letters
+    /// - Uppercase all ASCII letters
     /// - Strip invalid characters, replace with `_`
     /// - Base name max 8 chars, extension max 3 chars
     /// - Add `~N` suffix for collisions (caller should increment suffix)
+    ///
+    /// Non-ASCII characters always become `_`. To preserve OEM-encoded Latin
+    /// characters (e.g. `é` → CP437 0x82), use [`from_long_name_with`].
+    ///
+    /// [`from_long_name_with`]: Self::from_long_name_with
     #[cfg(feature = "write")]
     pub fn from_long_name(name: &str, suffix: u8) -> Result<Self, CreateShortFileNameError> {
+        Self::from_long_name_with(name, suffix, &crate::oem::LossyAsciiOemCpConverter)
+    }
+
+    /// Like [`from_long_name`](Self::from_long_name), but routes non-ASCII
+    /// characters through the supplied [`OemCpConverter`](crate::oem::OemCpConverter) rather than
+    /// dropping them to `_`.
+    ///
+    /// Characters the converter cannot encode still become `_`.
+    #[cfg(feature = "write")]
+    pub fn from_long_name_with(
+        name: &str,
+        suffix: u8,
+        oem: &dyn crate::oem::OemCpConverter,
+    ) -> Result<Self, CreateShortFileNameError> {
         // Find the last dot for extension separation
         let (base, ext) = match name.rfind('.') {
             Some(pos) if pos > 0 => (&name[..pos], &name[pos + 1..]),
@@ -151,7 +174,7 @@ impl ShortFileName {
             if base_len >= 8 {
                 break;
             }
-            let processed = Self::process_char(ch);
+            let processed = Self::process_char(ch, oem);
             if processed != 0 {
                 base_chars[base_len] = processed;
                 base_len += 1;
@@ -201,7 +224,7 @@ impl ShortFileName {
             if ext_len >= 3 {
                 break;
             }
-            let processed = Self::process_char(ch);
+            let processed = Self::process_char(ch, oem);
             if processed != 0 {
                 ext_chars[ext_len] = processed;
                 ext_len += 1;
@@ -234,8 +257,11 @@ impl ShortFileName {
 
     /// Process a character for short filename conversion.
     /// Returns 0 if the character should be skipped.
+    ///
+    /// Non-ASCII characters are routed through `oem.encode`; if the converter
+    /// returns `None`, the byte falls back to `_`.
     #[cfg(feature = "write")]
-    fn process_char(ch: char) -> u8 {
+    fn process_char(ch: char, oem: &dyn crate::oem::OemCpConverter) -> u8 {
         if ch.is_ascii_alphanumeric() {
             ch.to_ascii_uppercase() as u8
         } else if Self::ALLOWED_SYMBOLS.contains(&(ch as u8)) {
@@ -247,8 +273,8 @@ impl ShortFileName {
             // Replace other ASCII chars with underscore
             b'_'
         } else {
-            // Non-ASCII: replace with underscore
-            b'_'
+            // Non-ASCII: ask the OEM converter for a byte; fall back to '_'.
+            oem.encode(ch).unwrap_or(b'_')
         }
     }
 }
@@ -382,6 +408,27 @@ impl LongFileName {
     /// Compare the filename to a `&str` without allocating.
     pub fn eq_str(&self, s: &str) -> bool {
         self.chars().eq(s.chars())
+    }
+
+    /// Encode `name` as UTF-16LE into the buffer. Returns `None` if the name
+    /// exceeds [`LFN_MAX_UTF16_UNITS`] (the FAT spec cap for LFN names).
+    /// Used by the write path to remember the name in-memory after creating
+    /// a file; the chars stay in UTF-16 so the disk-side LFN write can pull
+    /// them out without a second UTF-8 conversion.
+    #[cfg(feature = "write")]
+    pub fn from_str_utf16(name: &str) -> Option<Self> {
+        let mut out = Self::new();
+        for ch in name.chars() {
+            let mut tmp = [0u16; 2];
+            for &c in ch.encode_utf16(&mut tmp).iter() {
+                if out.len >= LFN_MAX_UTF16_UNITS {
+                    return None;
+                }
+                out.chars[out.len] = c;
+                out.len += 1;
+            }
+        }
+        Some(out)
     }
 }
 

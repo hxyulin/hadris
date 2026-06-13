@@ -10,6 +10,14 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# docs.rs builds with default features only, which would hide the cache/tool/
+# exfat APIs and break intra-doc links into them. Build the full sync feature
+# set instead (async is omitted: the cache and tool APIs are sync-only, and
+# the async slice bypasses the cache — see the `cache`/`tool` feature notes
+# below).
+[package.metadata.docs.rs]
+features = ["std", "read", "write", "lfn", "cache", "tool", "exfat"]
+
 [features]
 default = ["read", "write", "lfn", "std"]
 sync = ["hadris-io/sync", "hadris-common/sync"]
@@ -19,12 +27,26 @@ std = ["sync", "alloc", "dep:chrono", "chrono/std", "chrono/clock", "hadris-io/s
 read = []
 write = ["alloc", "read"]
 lfn = []
-# FAT sector caching for reduced I/O operations
-cache = ["alloc"]
-# Analysis and diagnostic APIs
-tool = ["alloc", "read"]
+# FAT sector caching for reduced I/O operations.
+# Implies `sync` because `cache.rs` uses sync I/O traits and the transparent
+# wiring on `FatFs` (`lock_for_fat`, etc.) is only generated in sync mode;
+# async builds skip the cache entirely (deferred to phase C5b).
+cache = ["alloc", "sync"]
+# Analysis and diagnostic APIs.
+# Implies `sync`: the analysis/verify code walks directories with the
+# synchronous iterator API (`for entry in dir.entries()`) and is not
+# async-aware, so it is emitted only in the sync slice (mirrors `cache`).
+tool = ["alloc", "read", "sync"]
 # exFAT filesystem support
 exfat = ["alloc"]
+# Embedded-friendly logging: derives `defmt::Format` on public diagnostic
+# types (`FatError`, `FatType`, `FatDateTime`, `FsStatusFlags`) so they can
+# be logged through `defmt::info!` etc. without going through `Debug`.
+defmt = ["dep:defmt"]
+# When set, dropping a `FileWriter` without calling `finish()` panics
+# instead of silently losing the size/timestamp metadata update. Catches
+# the most common corruption-causing mistake. Mirrors embedded-fatfs.
+dirty-file-panic = []
 
 [dependencies]
 hadris-common = { workspace = true }
@@ -38,6 +60,7 @@ bytemuck = { workspace = true, features = [
   "min_const_generics",
 ] }
 chrono = { workspace = true, optional = true }
+defmt = { version = "0.3", optional = true }
 
 [build-dependencies]
 parse-size = "1.1"

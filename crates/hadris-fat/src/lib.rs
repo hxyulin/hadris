@@ -18,6 +18,25 @@
 //! }
 //! ```
 //!
+//! ## Builder: custom providers and FAT caching
+//!
+//! [`FatFs::builder`] configures the clock and
+//! OEM-codepage providers — and, with the `cache` feature, an LRU FAT-sector
+//! cache — before mounting:
+//!
+//! ```rust,no_run
+//! use hadris_fat::sync::FatFs;
+//!
+//! let file = std::fs::File::open("disk.img").unwrap();
+//! let fs = FatFs::builder(file).open().unwrap();
+//! # let _ = fs;
+//! ```
+//!
+//! With the `cache` feature, chain `.with_fat_cache(capacity_sectors)` before
+//! `.open()` to back FAT reads and writes with an LRU cache. The cache is
+//! sync-only: under the async API it is silently bypassed. See
+//! [`FatFsBuilder`].
+//!
 //! ## Feature Flags
 //!
 //! | Feature  | Default | Description |
@@ -74,7 +93,9 @@ extern crate alloc;
 
 pub mod error;
 pub mod file;
+pub mod oem;
 pub mod raw;
+pub mod time;
 
 // ExFAT (WIP, stays at crate root for now)
 #[cfg(feature = "exfat")]
@@ -127,16 +148,18 @@ pub mod sync {
     pub use __inner::*;
 
     // Convenience re-exports for backwards compatibility
+    #[cfg(feature = "write")]
+    pub use crate::time::FatDateTime;
     pub use __inner::dir::{DirectoryEntry, FatDir, FileEntry};
     pub use __inner::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
-    pub use __inner::fs::FatFs;
+    pub use __inner::fs::{FatFs, FatFsBuilder};
     pub use __inner::read::FatFsReadExt;
     #[cfg(feature = "tool")]
     pub use __inner::tool::analysis::FatAnalysisExt;
     #[cfg(feature = "tool")]
     pub use __inner::tool::verify::FatVerifyExt;
     #[cfg(feature = "write")]
-    pub use __inner::write::{FatDateTime, FatFsWriteExt};
+    pub use __inner::write::FatFsWriteExt;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,8 +193,10 @@ pub mod r#async {
 
     #[path = "."]
     mod __inner {
-        #[cfg(feature = "cache")]
-        pub mod cache;
+        // Note: `cache` is intentionally absent here. The cache module uses
+        // synchronous I/O traits and is not yet async-aware; the `cache`
+        // feature is gated to `sync` in Cargo.toml so this combination is
+        // unreachable. Async-aware caching is deferred to phase C5b.
         pub mod dir;
         pub mod fat_table;
         #[cfg(feature = "write")]
@@ -179,10 +204,14 @@ pub mod r#async {
         pub mod fs;
         pub mod io;
         pub mod read;
-        #[cfg(feature = "tool")]
-        pub mod tool;
+        // Note: `tool` is intentionally absent here. The analysis/verify
+        // utilities iterate directories synchronously and are not
+        // async-aware; the `tool` feature is gated to `sync` in Cargo.toml
+        // so this combination is unreachable.
         pub mod write;
     }
+    #[cfg(feature = "write")]
+    pub use crate::time::FatDateTime;
     pub use __inner::*;
 }
 

@@ -20,72 +20,6 @@ use super::{
 #[cfg(feature = "write")]
 use hadris_common::types::endian::{Endian, LittleEndian};
 
-/// FAT date/time representation for directory entries.
-#[cfg(feature = "write")]
-#[derive(Debug, Clone, Copy)]
-pub struct FatDateTime {
-    /// Date: (year-1980)<<9 | month<<5 | day
-    pub date: u16,
-    /// Time: hour<<11 | minute<<5 | (second/2)
-    pub time: u16,
-    /// 10ms units (0-199) for creation time
-    pub time_tenth: u8,
-}
-
-#[cfg(feature = "write")]
-impl FatDateTime {
-    /// Create a FatDateTime from components.
-    pub fn new(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> Self {
-        let year_offset = year.saturating_sub(1980).min(127);
-        let date = (year_offset << 9) | ((month as u16 & 0x0F) << 5) | (day as u16 & 0x1F);
-        let time = ((hour as u16 & 0x1F) << 11)
-            | ((minute as u16 & 0x3F) << 5)
-            | ((second as u16 / 2) & 0x1F);
-        Self {
-            date,
-            time,
-            time_tenth: 0,
-        }
-    }
-
-    /// Get current date/time (requires std feature).
-    #[cfg(feature = "std")]
-    pub fn now() -> Self {
-        use chrono::{Datelike, Local, Timelike};
-        let now = Local::now();
-        let year = now.year() as u16;
-        let month = now.month() as u8;
-        let day = now.day() as u8;
-        let hour = now.hour() as u8;
-        let minute = now.minute() as u8;
-        let second = now.second() as u8;
-        let millis = now.timestamp_subsec_millis();
-
-        let mut dt = Self::new(year, month, day, hour, minute, second);
-        // time_tenth is in 10ms units (0-199): (second % 2) * 100 + (millis / 10)
-        dt.time_tenth = ((second % 2) as u32 * 100 + millis / 10).min(199) as u8;
-        dt
-    }
-
-    /// Fallback for no-std: returns epoch (Jan 1, 1980 00:00:00).
-    #[cfg(not(feature = "std"))]
-    pub fn now() -> Self {
-        Self::new(1980, 1, 1, 0, 0, 0)
-    }
-
-    /// Convert to raw bytes for directory entry.
-    pub fn to_raw(&self) -> (u16, u16, u8) {
-        (self.date, self.time, self.time_tenth)
-    }
-}
-
-#[cfg(feature = "write")]
-impl Default for FatDateTime {
-    fn default() -> Self {
-        Self::now()
-    }
-}
-
 /// A writer for file content in a FAT filesystem.
 #[cfg(feature = "write")]
 pub struct FileWriter<'a, DATA: Read + Write + Seek> {
@@ -104,6 +38,37 @@ pub struct FileWriter<'a, DATA: Read + Write + Seek> {
     entry_offset: usize,
     /// Fixed root directory info (for FAT12/16)
     fixed_root: Option<(usize, usize)>,
+    /// Override for the modified timestamp written by `finish()`. When `None`,
+    /// the configured `TimeProvider` supplies "now".
+    pending_modified: Option<crate::time::FatDateTime>,
+    /// Override for the access date written by `finish()`. FAT stores no
+    /// access time, only a date — hence `u16` rather than `FatDateTime`.
+    pending_accessed: Option<u16>,
+    /// Override for the creation timestamp written by `finish()`.
+    pending_created: Option<crate::time::FatDateTime>,
+    /// Set to `true` only inside `finish()` once the on-disk entry has been
+    /// updated. Drives the `dirty-file-panic` Drop check; when the feature
+    /// is off, drop is a no-op regardless of this field.
+    finished: bool,
+}
+
+#[cfg(feature = "write")]
+impl<'a, DATA: Read + Write + Seek> Drop for FileWriter<'a, DATA> {
+    fn drop(&mut self) {
+        // Without `dirty-file-panic`, drop is a no-op: callers that forget
+        // `finish()` silently lose the size/timestamp commit (the data
+        // bytes themselves are already on disk because `write()` flushes
+        // immediately). With the feature, we panic loudly so the bug is
+        // caught in dev rather than in production.
+        #[cfg(feature = "dirty-file-panic")]
+        if !self.finished {
+            panic!(
+                "FileWriter dropped without calling finish() — \
+                 directory entry size/timestamps are NOT committed. \
+                 Disable the `dirty-file-panic` feature if this is intended."
+            );
+        }
+    }
 }
 
 #[cfg(feature = "write")]
@@ -139,6 +104,10 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             entry_parent: entry.parent_clus,
             entry_offset: entry.offset_within_cluster,
             fixed_root,
+            pending_modified: None,
+            pending_accessed: None,
+            pending_created: None,
+            finished: false,
         })
     }
 
@@ -176,6 +145,10 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
                 entry_parent: entry.parent_clus,
                 entry_offset: entry.offset_within_cluster,
                 fixed_root,
+                pending_modified: None,
+                pending_accessed: None,
+                pending_created: None,
+                finished: false,
             });
         }
 
@@ -184,15 +157,16 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             data.cluster_size
         };
 
-        // Walk the FAT chain to find the last cluster
-        let mut current = first_cluster.unwrap();
-        loop {
+        // Walk the FAT chain to find the last cluster. Bounded by
+        // `max_cluster` so a corrupt looping chain cannot hang the writer.
+        let max_steps = fs.fat.max_cluster();
+        let last = {
             let mut data = fs.data.lock();
-            match fs.fat.next_cluster(data.deref_mut(), current.0).await? {
-                Some(next) => current = Cluster(next as usize),
-                None => break,
-            }
-        }
+            fs.fat
+                .walk_chain(data.deref_mut(), first_cluster.unwrap().0 as u32, max_steps, |_| {})
+                .await?
+        };
+        let current = Cluster(last as usize);
 
         let offset_in_last = file_size % cluster_size;
 
@@ -205,6 +179,10 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             entry_parent: entry.parent_clus,
             entry_offset: entry.offset_within_cluster,
             fixed_root,
+            pending_modified: None,
+            pending_accessed: None,
+            pending_created: None,
+            finished: false,
         })
     }
 
@@ -216,42 +194,25 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             return Ok(0);
         }
 
-        let mut data = self.fs.data.lock();
-        let cluster_size = data.cluster_size;
+        let cluster_size = self.fs.info.cluster_size;
         let mut written = 0;
 
         while written < buf.len() {
             // Check if we need a new cluster
             if self.current_cluster.is_none() || self.offset_in_cluster >= cluster_size {
-                // Need to allocate a new cluster
+                // Allocate via the routed helper so the FAT cache (when
+                // installed) sees the mutation. The helper acquires both
+                // cache+data locks internally in canonical order.
                 let hint = self.current_cluster.map(|c| c.0 as u32 + 1).unwrap_or(2);
-                let new_cluster = match &self.fs.fat {
-                    Fat::Fat12(fat12) => {
-                        fat12.allocate_cluster(data.deref_mut(), hint as u16).await? as u32
-                    }
-                    Fat::Fat16(fat16) => {
-                        fat16.allocate_cluster(data.deref_mut(), hint as u16).await? as u32
-                    }
-                    Fat::Fat32(fat32) => fat32.allocate_cluster(data.deref_mut(), hint).await?,
-                };
+                let new_cluster = self.fs.allocate_cluster_routed(hint).await?;
 
                 // Update FSInfo tracking (FAT32 only)
                 self.fs.decrement_free_count();
                 self.fs.update_next_free_hint(new_cluster);
 
-                // Link previous cluster to the new one
+                // Link previous cluster to the new one (also routed).
                 if let Some(prev) = self.current_cluster {
-                    match &self.fs.fat {
-                        Fat::Fat12(fat12) => {
-                            fat12.write_clus(data.deref_mut(), prev.0, new_cluster as u16).await?;
-                        }
-                        Fat::Fat16(fat16) => {
-                            fat16.write_clus(data.deref_mut(), prev.0, new_cluster as u16).await?;
-                        }
-                        Fat::Fat32(fat32) => {
-                            fat32.write_clus(data.deref_mut(), prev.0, new_cluster).await?;
-                        }
-                    }
+                    self.fs.write_clus_routed(prev.0, new_cluster).await?;
                 }
 
                 // Update first cluster if this is the first allocation
@@ -267,13 +228,14 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             let bytes_left_in_cluster = cluster_size - self.offset_in_cluster;
             let to_write = (buf.len() - written).min(bytes_left_in_cluster);
 
-            // Seek to the correct position
-            let seek_pos =
-                cluster.to_bytes(self.fs.info.data_start, cluster_size) + self.offset_in_cluster;
-            data.seek(SeekFrom::Start(seek_pos as u64)).await?;
-
-            // Write the data
-            data.write_all(&buf[written..written + to_write]).await?;
+            // Lock data only for the payload write.
+            {
+                let mut data = self.fs.data.lock();
+                let seek_pos = cluster.to_bytes(self.fs.info.data_start, cluster_size)
+                    + self.offset_in_cluster;
+                data.seek(SeekFrom::Start(seek_pos as u64)).await?;
+                data.write_all(&buf[written..written + to_write]).await?;
+            }
 
             self.offset_in_cluster += to_write;
             self.total_written += to_write;
@@ -288,12 +250,46 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
         self.total_written
     }
 
+    /// Override the modified timestamp written by [`finish`](Self::finish).
+    ///
+    /// Without this call, `finish()` stamps "now" via the configured
+    /// [`TimeProvider`](crate::time::TimeProvider). Useful for preserving the
+    /// original mtime when copying files between volumes, or for
+    /// reproducible-image builds.
+    pub fn set_modified(&mut self, dt: crate::time::FatDateTime) -> &mut Self {
+        self.pending_modified = Some(dt);
+        self
+    }
+
+    /// Override the access date written by [`finish`](Self::finish).
+    ///
+    /// FAT does not store an access *time* — only a date. Pass the raw
+    /// FAT-encoded date `(year-1980)<<9 | month<<5 | day`.
+    pub fn set_accessed(&mut self, date: u16) -> &mut Self {
+        self.pending_accessed = Some(date);
+        self
+    }
+
+    /// Override the creation timestamp written by [`finish`](Self::finish).
+    ///
+    /// Most filesystems write creation time only at file-create. This setter
+    /// lets writers retroactively patch it, useful when re-imaging or
+    /// migrating data with timestamps from another source.
+    pub fn set_created(&mut self, dt: crate::time::FatDateTime) -> &mut Self {
+        self.pending_created = Some(dt);
+        self
+    }
+
     /// Finish writing and update the directory entry with the new size.
     ///
     /// This must be called after writing to persist the file size. On FAT32 it
     /// also flushes the FSInfo sector so its `free_count` matches the FAT —
     /// without this, `fsck.fat` rejects the image after writes.
-    pub async fn finish(self) -> Result<()> {
+    ///
+    /// With the `dirty-file-panic` feature enabled, dropping the writer
+    /// without calling `finish` panics — the most common cause of "the file
+    /// I just wrote shows up as zero bytes" bugs.
+    pub async fn finish(mut self) -> Result<()> {
         {
             let mut data = self.fs.data.lock();
             let cluster_size = data.cluster_size;
@@ -337,11 +333,20 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
                     hadris_common::types::number::U16::<LittleEndian>::new(0);
             }
 
-            // Update write time
-            let now = FatDateTime::now();
-            file_entry.last_write_date = now.date.to_le_bytes();
-            file_entry.last_write_time = now.time.to_le_bytes();
-            file_entry.last_access_date = now.date.to_le_bytes();
+            // Update timestamps. Overrides win over the configured clock so
+            // callers can preserve original times when copying or rebuilding.
+            let modified = self.pending_modified.unwrap_or_else(|| self.fs.time_provider().now());
+            file_entry.last_write_date = modified.date.to_le_bytes();
+            file_entry.last_write_time = modified.time.to_le_bytes();
+            file_entry.last_access_date = self
+                .pending_accessed
+                .unwrap_or(modified.date)
+                .to_le_bytes();
+            if let Some(created) = self.pending_created {
+                file_entry.creation_date = created.date.to_le_bytes();
+                file_entry.creation_time = created.time.to_le_bytes();
+                file_entry.creation_time_tenth = created.time_tenth;
+            }
 
             // Write back the entry
             data.seek(SeekFrom::Start(entry_pos as u64)).await?;
@@ -353,6 +358,10 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
         // (no-op for FAT12/16). The lock above must be released first because
         // write_fsinfo also acquires it.
         self.fs.write_fsinfo().await?;
+
+        // Mark as cleanly finished so the Drop guard (under
+        // `dirty-file-panic`) accepts the consume.
+        self.finished = true;
 
         Ok(())
     }
@@ -374,6 +383,24 @@ pub trait FatFsWriteExt<DATA: Read + Write + Seek> {
     ///
     /// Returns [`FatError::NotAFile`] if the entry is a directory.
     async fn truncate(&self, entry: &FileEntry, new_size: usize) -> Result<()>;
+
+    /// Patch the timestamps on an existing entry without rewriting its data.
+    ///
+    /// Each parameter is `Option`: `None` keeps the on-disk value untouched.
+    /// `accessed_date` is the raw FAT-encoded date (FAT does not store an
+    /// access *time*).
+    ///
+    /// Useful when copying files between volumes or rebuilding a reproducible
+    /// image — every other write path stamps "now" via the configured
+    /// [`TimeProvider`](crate::time::TimeProvider), which is the wrong
+    /// behaviour for those workflows.
+    async fn set_times(
+        &self,
+        entry: &FileEntry,
+        modified: Option<crate::time::FatDateTime>,
+        accessed_date: Option<u16>,
+        created: Option<crate::time::FatDateTime>,
+    ) -> Result<()>;
 }
 
 #[cfg(feature = "write")]
@@ -403,10 +430,9 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
         };
 
         if new_size == 0 {
-            // Free entire chain
+            // Free entire chain — routed through cache when installed.
             let freed_count = if first_cluster.0 >= 2 {
-                let mut data = self.data.lock();
-                self.fat.free_chain(data.deref_mut(), first_cluster.0).await?
+                self.free_chain_routed(first_cluster.0 as u32).await?
             } else {
                 0
             };
@@ -418,22 +444,26 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
             // Calculate which cluster to keep
             let clusters_needed = new_size.div_ceil(cluster_size);
 
-            // Walk chain to find the last cluster to keep
-            let mut current = first_cluster;
-            for _ in 1..clusters_needed {
-                let mut data = self.data.lock();
-                if let Some(next) = self.fat.next_cluster(data.deref_mut(), current.0).await? {
-                    current = Cluster(next as usize);
-                } else {
-                    break;
+            // Walk chain to find the last cluster to keep. The hop count is
+            // bounded both by the file size and by `max_cluster` so a
+            // looping chain on corrupt media surfaces as ClusterLoop.
+            let max_cluster = self.fat.max_cluster();
+            let hops = ((clusters_needed.saturating_sub(1)) as u32).min(max_cluster);
+            let current = {
+                let mut steps_remaining = hops;
+                let mut cur = first_cluster.0 as u32;
+                while steps_remaining > 0 {
+                    match self.next_cluster_routed(cur as usize).await? {
+                        Some(next) => cur = next,
+                        None => break,
+                    }
+                    steps_remaining -= 1;
                 }
-            }
-
-            // Truncate after this cluster
-            let freed_count = {
-                let mut data = self.data.lock();
-                self.fat.truncate_chain(data.deref_mut(), current.0).await?
+                Cluster(cur as usize)
             };
+
+            // Truncate after this cluster — routed.
+            let freed_count = self.truncate_chain_routed(current.0 as u32).await?;
             // Update FSInfo tracking (FAT32 only)
             self.increment_free_count(freed_count);
 
@@ -443,6 +473,56 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
 
         // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
         self.write_fsinfo().await?;
+
+        Ok(())
+    }
+
+    async fn set_times(
+        &self,
+        entry: &FileEntry,
+        modified: Option<crate::time::FatDateTime>,
+        accessed_date: Option<u16>,
+        created: Option<crate::time::FatDateTime>,
+    ) -> Result<()> {
+        if modified.is_none() && accessed_date.is_none() && created.is_none() {
+            return Ok(());
+        }
+
+        let mut data = self.data.lock();
+        let cluster_size = data.cluster_size;
+
+        let entry_pos = if entry.parent_clus.0 == 0 {
+            let (root_start, _) = self
+                .fixed_root_dir_info()
+                .expect("Fixed root info required for cluster 0");
+            root_start + entry.offset_within_cluster
+        } else {
+            entry
+                .parent_clus
+                .to_bytes(self.info.data_start, cluster_size)
+                + entry.offset_within_cluster
+        };
+
+        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+        let mut raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
+        let file_entry = unsafe { &mut raw_entry.file };
+
+        if let Some(m) = modified {
+            file_entry.last_write_date = m.date.to_le_bytes();
+            file_entry.last_write_time = m.time.to_le_bytes();
+        }
+        if let Some(date) = accessed_date {
+            file_entry.last_access_date = date.to_le_bytes();
+        }
+        if let Some(c) = created {
+            file_entry.creation_date = c.date.to_le_bytes();
+            file_entry.creation_time = c.time.to_le_bytes();
+            file_entry.creation_time_tenth = c.time_tenth;
+        }
+
+        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+        data.write_all(bytemuck::bytes_of(&raw_entry)).await?;
+        data.flush().await?;
 
         Ok(())
     }
@@ -460,40 +540,249 @@ fn kanji_short_name_fixup(name: &mut [u8; 11]) {
     }
 }
 
-/// Directory write operations
+/// Maximum number of LFN entries the spec allows: 20 entries × 13 UTF-16 code
+/// units per entry = 260 char "ceiling", though the spec caps the encoded
+/// name itself at 255 code units.
+#[cfg(all(feature = "write", feature = "lfn"))]
+pub(crate) const MAX_LFN_ENTRIES: usize = 20;
+
+/// Decide whether `name` requires LFN entries to round-trip losslessly.
+///
+/// Returns `true` for any name that wouldn't survive the 8.3 short-name
+/// conversion: lowercase letters, multiple dots, spaces, length over 8.3,
+/// or non-ASCII characters. Returns `false` for already-conforming names —
+/// those write as a single short entry, the same as before LFN-write existed.
+#[cfg(all(feature = "write", feature = "lfn"))]
+fn name_requires_lfn(name: &str) -> bool {
+    let (base, ext) = match name.rfind('.') {
+        Some(pos) if pos > 0 => (&name[..pos], &name[pos + 1..]),
+        _ => (name, ""),
+    };
+    if base.chars().count() > 8 || ext.chars().count() > 3 {
+        return true;
+    }
+    if name.matches('.').count() > 1 {
+        return true;
+    }
+    name.chars()
+        .any(|c| !c.is_ascii() || c.is_ascii_lowercase() || c == ' ')
+}
+
+/// Maximum number of LFN entries we'll walk backward when cleaning up
+/// orphaned long-name slots on delete/rename. The FAT spec caps at 20
+/// entries per name; bounding the scan defends against corrupt directory
+/// contents that would otherwise spoof an unbounded LFN run.
 #[cfg(feature = "write")]
-impl<DATA: Read + Write + Seek> FatFs<DATA> {
-    /// Find a free entry slot in a directory.
-    ///
-    /// For fixed root directories (FAT12/16), searches the fixed area and returns
-    /// DirectoryFull if full since it cannot be expanded.
-    ///
-    /// For cluster-based directories, searches the cluster chain and allocates
-    /// a new cluster if needed.
-    async fn find_free_entry_slot_in_dir(
-        &self,
-        dir: &FatDir<'_, DATA>,
-    ) -> Result<(Cluster<usize>, usize)> {
-        if let Some((root_start, root_size)) = dir.fixed_root {
-            // Fixed root directory (FAT12/16) - cannot be expanded
-            self.find_free_entry_in_fixed_root(root_start, root_size).await
-        } else {
-            // Cluster-based directory
-            self.find_free_entry_in_cluster_chain(dir.cluster).await
+const LFN_CLEANUP_SCAN_LIMIT: usize = 20;
+
+/// Mark every LFN entry immediately preceding `short_entry_pos` as deleted
+/// (first byte = 0xE5). Walks backward up to `LFN_CLEANUP_SCAN_LIMIT`
+/// slots and stops at the first non-LFN entry, an already-deleted slot,
+/// or the `lower_bound` (the start of the containing cluster, or fixed-
+/// root start). LFN runs are constrained to a single cluster by
+/// `find_free_entry_run_in_cluster_chain`, so this single-cluster scan is
+/// sufficient.
+///
+/// Always-on (not gated on the `lfn` feature) because LFN slots can exist
+/// on disk regardless of how this build was configured — Windows or any
+/// other writer may have planted them in the past.
+///
+/// Without this cleanup, deleting (or renaming) a file that was created
+/// with LFN entries would leave orphaned LFN slots on disk. fsck.fat
+/// reports those as "stray long-name slots" and they confuse fresh-mount
+/// lookups until the slots are eventually overwritten.
+#[cfg(feature = "write")]
+async fn mark_preceding_lfn_entries_deleted<T: Read + Write + Seek>(
+    data: &mut T,
+    short_entry_pos: usize,
+    lower_bound: usize,
+) -> Result<()> {
+    let entry_size = core::mem::size_of::<RawDirectoryEntry>();
+    if short_entry_pos < lower_bound + entry_size {
+        return Ok(());
+    }
+
+    let mut pos = short_entry_pos - entry_size;
+    let mut steps = 0;
+    while steps < LFN_CLEANUP_SCAN_LIMIT {
+        if pos < lower_bound {
+            break;
+        }
+        data.seek(SeekFrom::Start(pos as u64)).await?;
+        let raw = data.read_struct::<RawDirectoryEntry>().await?;
+        let bytes = unsafe { raw.bytes };
+        // Stop at end-of-directory, already-deleted slot, or any non-LFN
+        // entry (LFN attribute byte is exactly 0x0F).
+        if bytes[0] == 0x00 || bytes[0] == 0xE5 {
+            break;
+        }
+        let attr = unsafe { raw.file }.attributes;
+        if attr != DirEntryAttrFlags::LONG_NAME.bits() {
+            break;
+        }
+        // Mark this LFN slot deleted.
+        data.seek(SeekFrom::Start(pos as u64)).await?;
+        data.write_all(&[0xE5]).await?;
+        steps += 1;
+        if pos < entry_size {
+            break;
+        }
+        pos -= entry_size;
+    }
+    Ok(())
+}
+
+/// Encode `name` (UTF-8) into UTF-16LE LFN entries, written into `out` in
+/// disk order. Returns the number of LFN entries produced (excluding the
+/// short entry).
+///
+/// Disk layout placed into `out`:
+///   `out[0]`               = sequence N | LAST_ENTRY_MASK (highest seq)
+///   `out[1..n]`            = sequences N-1, N-2, ..., 1
+///   (caller writes the short entry into `out[n]`)
+///
+/// Returns `None` if the name exceeds 255 UTF-16 code units (FAT spec cap).
+#[cfg(all(feature = "write", feature = "lfn"))]
+fn build_lfn_entries(
+    name: &str,
+    short_checksum: u8,
+    out: &mut [RawDirectoryEntry],
+) -> Option<usize> {
+    use crate::raw::RawLfnEntry;
+
+    // Worst-case staging buffer: 20 LFN entries × 13 UTF-16 units = 260.
+    // Sized larger than the spec cap (255) so we always have room for the
+    // 0x0000 terminator + 0xFFFF filler when a 255-unit name doesn't
+    // perfectly fill the last entry. A 255-unit buffer (the previous size)
+    // would index out of bounds at exactly the spec cap.
+    const STAGING_CAP: usize = MAX_LFN_ENTRIES * crate::file::LongFileName::CHARS_PER_ENTRY;
+    let mut u16_buf = [0u16; STAGING_CAP];
+    let mut u16_len = 0usize;
+    for ch in name.chars() {
+        let mut tmp = [0u16; 2];
+        for &c in ch.encode_utf16(&mut tmp).iter() {
+            // Cap the *encoded* length at 255 (FAT spec) — anything longer
+            // surfaces as `None` so the caller can return `InvalidFilename`.
+            if u16_len >= crate::file::LFN_MAX_UTF16_UNITS {
+                return None;
+            }
+            u16_buf[u16_len] = c;
+            u16_len += 1;
         }
     }
 
-    /// Find a free entry in a fixed root directory (FAT12/16).
+    let chars_per_entry = crate::file::LongFileName::CHARS_PER_ENTRY;
+    let num_lfn = u16_len.div_ceil(chars_per_entry);
+    if num_lfn == 0 || num_lfn > MAX_LFN_ENTRIES || out.len() < num_lfn {
+        return None;
+    }
+
+    // Pad the unused tail of the last entry: 0x0000 terminator immediately
+    // after the last real char, then 0xFFFF for any remaining slots — that's
+    // what the spec expects from a writer. Skip when the name perfectly
+    // fills the last entry (terminator omitted in that case per spec).
+    let total_capacity = num_lfn * chars_per_entry;
+    if u16_len < total_capacity {
+        u16_buf[u16_len] = 0x0000;
+        for slot in &mut u16_buf[u16_len + 1..total_capacity] {
+            *slot = 0xFFFF;
+        }
+    }
+
+    // LFN entries on disk are stored in reverse: the first entry encountered
+    // by a reader has the highest sequence number (with `LAST_ENTRY_MASK`)
+    // and contains the *last* segment of the name. Walk from highest seq
+    // down to 1, slotting them into out[0..num_lfn].
+    for entry_idx in 0..num_lfn {
+        let seq_num = (num_lfn - entry_idx) as u8;
+        let seq_byte = if entry_idx == 0 {
+            seq_num | crate::file::LfnBuilder::LAST_ENTRY_MASK
+        } else {
+            seq_num
+        };
+
+        let chunk_start = (seq_num as usize - 1) * chars_per_entry;
+        let chunk = &u16_buf[chunk_start..chunk_start + chars_per_entry];
+
+        let mut name1 = [0u8; 10];
+        let mut name2 = [0u8; 12];
+        let mut name3 = [0u8; 4];
+        for i in 0..5 {
+            let bytes = chunk[i].to_le_bytes();
+            name1[i * 2] = bytes[0];
+            name1[i * 2 + 1] = bytes[1];
+        }
+        for i in 0..6 {
+            let bytes = chunk[5 + i].to_le_bytes();
+            name2[i * 2] = bytes[0];
+            name2[i * 2 + 1] = bytes[1];
+        }
+        for i in 0..2 {
+            let bytes = chunk[11 + i].to_le_bytes();
+            name3[i * 2] = bytes[0];
+            name3[i * 2 + 1] = bytes[1];
+        }
+
+        let lfn = RawLfnEntry {
+            sequence_number: seq_byte,
+            name1,
+            attributes: DirEntryAttrFlags::LONG_NAME.bits(),
+            ty: 0,
+            checksum: short_checksum,
+            name2,
+            first_cluster_low: [0, 0],
+            name3,
+        };
+        out[entry_idx] = RawDirectoryEntry { lfn };
+    }
+
+    Some(num_lfn)
+}
+
+/// Directory write operations
+#[cfg(feature = "write")]
+impl<DATA: Read + Write + Seek> FatFs<DATA> {
+    /// Find `count` consecutive free entry slots in a directory, allocating
+    /// new directory clusters if needed.
     ///
-    /// Returns DirectoryFull if the fixed root directory is full.
-    async fn find_free_entry_in_fixed_root(
+    /// Returns the position of the *first* slot in the run; subsequent slots
+    /// follow at incrementing offsets within a single cluster (runs never
+    /// cross a cluster boundary — see [`Self::find_free_entry_run_in_cluster_chain`]).
+    /// Returns [`FatError::DirectoryFull`] when no run is available, or
+    /// [`FatError::DirEntryRunTooLong`] when `count` exceeds the entries that
+    /// fit in one cluster.
+    ///
+    /// `count == 1` is the existing single-slot case used by callers that
+    /// don't need LFN entries.
+    async fn find_free_entry_run_in_dir(
+        &self,
+        dir: &FatDir<'_, DATA>,
+        count: usize,
+    ) -> Result<(Cluster<usize>, usize)> {
+        if let Some((root_start, root_size)) = dir.fixed_root {
+            self.find_free_entry_run_in_fixed_root(root_start, root_size, count)
+                .await
+        } else {
+            self.find_free_entry_run_in_cluster_chain(dir.cluster, count)
+                .await
+        }
+    }
+
+    /// Find `count` consecutive free entries in a fixed root directory.
+    ///
+    /// Returns DirectoryFull if no such run exists.
+    async fn find_free_entry_run_in_fixed_root(
         &self,
         root_start: usize,
         root_size: usize,
+        count: usize,
     ) -> Result<(Cluster<usize>, usize)> {
         let mut data = self.data.lock();
         let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         let max_entries = root_size / entry_size;
+
+        let mut run_start: Option<usize> = None;
+        let mut run_len = 0usize;
 
         for i in 0..max_entries {
             let offset = i * entry_size;
@@ -503,91 +792,147 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             let raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
             let first_byte = unsafe { raw_entry.bytes[0] };
 
-            // 0x00 = free entry and all following are free
-            // 0xE5 = deleted entry (free)
-            if first_byte == 0x00 || first_byte == 0xE5 {
-                // Return Cluster(0) as sentinel for fixed root
-                return Ok((Cluster(0), offset));
+            if first_byte == 0x00 {
+                // Definite end-of-directory sentinel — every slot from `offset`
+                // onward is free, so the run continues to the end of the root.
+                let start = run_start.unwrap_or(offset);
+                let needed_end = start + count * entry_size;
+                if needed_end <= root_start + root_size {
+                    return Ok((Cluster(0), start));
+                }
+                return Err(FatError::DirectoryFull);
+            }
+            if first_byte == 0xE5 {
+                if run_start.is_none() {
+                    run_start = Some(offset);
+                }
+                run_len += 1;
+                if run_len >= count {
+                    return Ok((Cluster(0), run_start.unwrap()));
+                }
+            } else {
+                run_start = None;
+                run_len = 0;
             }
         }
 
-        // Root directory is full and cannot be expanded
         Err(FatError::DirectoryFull)
     }
 
-    /// Find a free entry slot in a cluster-based directory.
+    /// Find `count` consecutive free entries starting at the given cluster
+    /// chain. Allocates a new cluster (extending the chain) when the existing
+    /// space is exhausted; the new cluster is zeroed, so the run can complete
+    /// inside it.
     ///
-    /// If no free slot is found in the existing chain, allocates a new cluster.
-    async fn find_free_entry_in_cluster_chain(
+    /// LFN write currently relies on the run fitting fully inside one cluster
+    /// (see assertion below). Names that don't fit must be split across
+    /// clusters by a future extension.
+    async fn find_free_entry_run_in_cluster_chain(
         &self,
         dir_cluster: Cluster<usize>,
+        count: usize,
     ) -> Result<(Cluster<usize>, usize)> {
-        let mut data = self.data.lock();
-        let cluster_size = data.cluster_size;
+        let cluster_size = self.info.cluster_size;
         let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         let entries_per_cluster = cluster_size / entry_size;
+        // The MVP keeps every run inside a single cluster — correct for
+        // nearly all real-world cluster sizes (4 KB cluster = 128 entries,
+        // > 21 LFN+short max). Cross-cluster runs are TODO. Reject up front
+        // with a specific error (the directory isn't full — the name is too
+        // long for this cluster size) so the failure is actionable.
+        if count > entries_per_cluster {
+            return Err(FatError::DirEntryRunTooLong {
+                entries_needed: count,
+                entries_per_cluster,
+            });
+        }
         let mut current_cluster = dir_cluster;
+        // Bound the chain walk so a corrupt directory chain cannot loop
+        // forever. Anything past `max_cluster` clusters has to revisit one.
+        let chain_limit = self.fat.max_cluster();
+        let mut steps: u32 = 0;
 
         loop {
-            // Search this cluster for a free entry
-            for i in 0..entries_per_cluster {
-                let offset = i * entry_size;
-                let seek_pos =
-                    current_cluster.to_bytes(self.info.data_start, cluster_size) + offset;
-                data.seek(SeekFrom::Start(seek_pos as u64)).await?;
+            steps = steps.saturating_add(1);
+            if steps > chain_limit {
+                return Err(FatError::ClusterLoop {
+                    cluster: current_cluster.0 as u32,
+                });
+            }
+            // Search this cluster for `count` consecutive free entries.
+            let mut run_start: Option<usize> = None;
+            let mut run_len = 0usize;
+            let early_exit = {
+                let mut data = self.data.lock();
+                let mut early_exit: Option<(Cluster<usize>, usize)> = None;
+                for i in 0..entries_per_cluster {
+                    let offset = i * entry_size;
+                    let seek_pos =
+                        current_cluster.to_bytes(self.info.data_start, cluster_size) + offset;
+                    data.seek(SeekFrom::Start(seek_pos as u64)).await?;
 
-                let raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
-                let first_byte = unsafe { raw_entry.bytes[0] };
+                    let raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
+                    let first_byte = unsafe { raw_entry.bytes[0] };
 
-                // 0x00 = free entry and all following are free
-                // 0xE5 = deleted entry (free)
-                if first_byte == 0x00 || first_byte == 0xE5 {
-                    return Ok((current_cluster, offset));
+                    if first_byte == 0x00 {
+                        // Definite end-of-directory. If the run fits in this
+                        // cluster's tail, plant it here; otherwise leave
+                        // `early_exit` unset and fall through to advance to /
+                        // allocate the next cluster (a run must stay within a
+                        // single cluster — see the `count > entries_per_cluster`
+                        // guard above).
+                        let start = run_start.unwrap_or(offset);
+                        if start + count * entry_size <= cluster_size {
+                            early_exit = Some((current_cluster, start));
+                        }
+                        break;
+                    }
+                    if first_byte == 0xE5 {
+                        if run_start.is_none() {
+                            run_start = Some(offset);
+                        }
+                        run_len += 1;
+                        if run_len >= count {
+                            early_exit = Some((current_cluster, run_start.unwrap()));
+                            break;
+                        }
+                    } else {
+                        run_start = None;
+                        run_len = 0;
+                    }
                 }
+                drop(data);
+                early_exit
+            };
+            if let Some(found) = early_exit {
+                return Ok(found);
             }
 
-            // Try to get next cluster
-            let next = self.fat.next_cluster(data.deref_mut(), current_cluster.0).await?;
+            // Try to get next cluster (cache-routed).
+            let next = self.next_cluster_routed(current_cluster.0).await?;
             match next {
                 Some(cluster) => {
                     current_cluster = Cluster(cluster as usize);
                 }
                 None => {
-                    // No more clusters, need to allocate a new one
-                    let new_cluster = match &self.fat {
-                        Fat::Fat12(fat12) => {
-                            let hint = (current_cluster.0 as u16).saturating_add(1);
-                            let new = fat12.allocate_cluster(data.deref_mut(), hint).await?;
-                            // Link the last cluster to the new one
-                            fat12.write_clus(data.deref_mut(), current_cluster.0, new).await?;
-                            new as u32
-                        }
-                        Fat::Fat16(fat16) => {
-                            let hint = (current_cluster.0 as u16).saturating_add(1);
-                            let new = fat16.allocate_cluster(data.deref_mut(), hint).await?;
-                            // Link the last cluster to the new one
-                            fat16.write_clus(data.deref_mut(), current_cluster.0, new).await?;
-                            new as u32
-                        }
-                        Fat::Fat32(fat32) => {
-                            let hint = current_cluster.0 as u32 + 1;
-                            let new = fat32.allocate_cluster(data.deref_mut(), hint).await?;
-                            // Link the last cluster to the new one
-                            fat32.write_clus(data.deref_mut(), current_cluster.0, new).await?;
-                            new
-                        }
-                    };
+                    // No more clusters: allocate a fresh one and link it in.
+                    let hint = current_cluster.0 as u32 + 1;
+                    let new_cluster = self.allocate_cluster_routed(hint).await?;
+                    self.write_clus_routed(current_cluster.0, new_cluster).await?;
 
                     // Update FSInfo tracking (FAT32 only)
                     self.decrement_free_count();
                     self.update_next_free_hint(new_cluster);
 
                     // Zero out the new cluster
-                    let new_cluster_pos =
-                        Cluster(new_cluster as usize).to_bytes(self.info.data_start, cluster_size);
-                    data.seek(SeekFrom::Start(new_cluster_pos as u64)).await?;
-                    let zeros = alloc::vec![0u8; cluster_size];
-                    data.write_all(&zeros).await?;
+                    let new_cluster_pos = Cluster(new_cluster as usize)
+                        .to_bytes(self.info.data_start, cluster_size);
+                    {
+                        let mut data = self.data.lock();
+                        data.seek(SeekFrom::Start(new_cluster_pos as u64)).await?;
+                        let zeros = alloc::vec![0u8; cluster_size];
+                        data.write_all(&zeros).await?;
+                    }
 
                     return Ok((Cluster(new_cluster as usize), 0));
                 }
@@ -623,6 +968,35 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         Ok(())
     }
 
+    /// Write a raw `RawDirectoryEntry` (which may carry an LFN payload via
+    /// the union variant). Identical seek logic to `write_raw_entry`; the
+    /// split exists only because the short-entry caller already passes a
+    /// `RawFileEntry`.
+    #[cfg(feature = "lfn")]
+    async fn write_raw_directory_entry(
+        &self,
+        cluster: Cluster<usize>,
+        offset: usize,
+        entry: &RawDirectoryEntry,
+        fixed_root: Option<(usize, usize)>,
+    ) -> Result<()> {
+        let mut data = self.data.lock();
+        let cluster_size = data.cluster_size;
+        let seek_pos = if cluster.0 == 0 {
+            let (root_start, _) = fixed_root.expect("Fixed root info required for cluster 0");
+            root_start + offset
+        } else {
+            cluster.to_bytes(self.info.data_start, cluster_size) + offset
+        };
+        data.seek(SeekFrom::Start(seek_pos as u64)).await?;
+        // Safety: the union has a `bytes` variant guaranteed to be 32 bytes,
+        // and the caller has already populated the entry through a typed
+        // write. `bytemuck::bytes_of` is safe because RawDirectoryEntry is
+        // Pod (NoUninit + AnyBitPattern declared in raw.rs).
+        data.write_all(bytemuck::bytes_of(entry)).await?;
+        Ok(())
+    }
+
     /// Create a new file in the given directory.
     ///
     /// Returns the FileEntry for the newly created file.
@@ -633,14 +1007,30 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         }
 
         // Generate short filename (suffix=0 means no ~N suffix)
-        let short_name =
-            ShortFileName::from_long_name(name, 0).map_err(|_| FatError::InvalidFilename)?;
+        let short_name = ShortFileName::from_long_name_with(name, 0, self.oem_converter())
+            .map_err(|_| FatError::InvalidFilename)?;
 
-        // Find a free slot
-        let (slot_cluster, slot_offset) = self.find_free_entry_slot_in_dir(parent).await?;
+        // Build LFN entries if the long name doesn't fit 8.3 cleanly, into
+        // a stack buffer. When the lfn feature is off, we never emit LFN.
+        #[cfg(feature = "lfn")]
+        let mut lfn_buf: [RawDirectoryEntry; MAX_LFN_ENTRIES] = unsafe { core::mem::zeroed() };
+        #[cfg(feature = "lfn")]
+        let lfn_count = if name_requires_lfn(name) {
+            build_lfn_entries(name, short_name.lfn_checksum(), &mut lfn_buf)
+                .ok_or(FatError::InvalidFilename)?
+        } else {
+            0
+        };
+        #[cfg(not(feature = "lfn"))]
+        let lfn_count = 0usize;
 
-        // Create the directory entry
-        let now = FatDateTime::now();
+        // Find a free run sized for the LFN preamble + the short entry.
+        let total_slots = lfn_count + 1;
+        let (run_start_cluster, run_start_offset) =
+            self.find_free_entry_run_in_dir(parent, total_slots).await?;
+
+        // Write LFN entries first (in disk order), then the short entry.
+        let now = self.time_provider().now();
         let (date, time, time_tenth) = now.to_raw();
 
         let mut raw_name = short_name.to_raw_bytes();
@@ -661,7 +1051,16 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             size: hadris_common::types::number::U32::<LittleEndian>::new(0),
         };
 
-        self.write_raw_entry(slot_cluster, slot_offset, &entry, parent.fixed_root).await?;
+        let entry_size = core::mem::size_of::<RawDirectoryEntry>();
+        #[cfg(feature = "lfn")]
+        for i in 0..lfn_count {
+            let off = run_start_offset + i * entry_size;
+            self.write_raw_directory_entry(run_start_cluster, off, &lfn_buf[i], parent.fixed_root)
+                .await?;
+        }
+        // Short entry sits at the end of the run.
+        let short_offset = run_start_offset + lfn_count * entry_size;
+        self.write_raw_entry(run_start_cluster, short_offset, &entry, parent.fixed_root).await?;
 
         // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
         // find_free_entry_slot_in_dir may have extended the parent directory.
@@ -670,12 +1069,19 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         Ok(FileEntry {
             short_name,
             #[cfg(feature = "lfn")]
-            long_name: None,
+            long_name: if lfn_count > 0 {
+                crate::file::LongFileName::from_str_utf16(name)
+            } else {
+                None
+            },
             attr: DirEntryAttrFlags::ARCHIVE,
             size: 0,
-            parent_clus: slot_cluster,
-            offset_within_cluster: slot_offset,
+            parent_clus: run_start_cluster,
+            offset_within_cluster: short_offset,
             cluster: Cluster(0),
+            created: now,
+            last_access_date: now.date,
+            modified: crate::time::FatDateTime::from_raw(now.date, now.time, 0),
         })
     }
 
@@ -693,28 +1099,37 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         }
 
         // Generate short filename (suffix=0 means no ~N suffix)
-        let short_name =
-            ShortFileName::from_long_name(name, 0).map_err(|_| FatError::InvalidFilename)?;
+        let short_name = ShortFileName::from_long_name_with(name, 0, self.oem_converter())
+            .map_err(|_| FatError::InvalidFilename)?;
 
-        // Allocate a cluster for the directory contents
-        let new_cluster = {
-            let mut data = self.data.lock();
-            match &self.fat {
-                Fat::Fat12(fat12) => fat12.allocate_cluster(data.deref_mut(), 2).await? as u32,
-                Fat::Fat16(fat16) => fat16.allocate_cluster(data.deref_mut(), 2).await? as u32,
-                Fat::Fat32(fat32) => fat32.allocate_cluster(data.deref_mut(), 2).await?,
-            }
-        };
+        // Allocate a cluster for the directory contents (cache-routed).
+        let new_cluster = self.allocate_cluster_routed(2).await?;
 
         // Update FSInfo tracking (FAT32 only)
         self.decrement_free_count();
         self.update_next_free_hint(new_cluster);
 
-        // Find a free slot in parent
-        let (slot_cluster, slot_offset) = self.find_free_entry_slot_in_dir(parent).await?;
+        // Build LFN entries if the long name doesn't fit 8.3 cleanly. When
+        // the lfn feature is off, we never emit LFN.
+        #[cfg(feature = "lfn")]
+        let mut lfn_buf: [RawDirectoryEntry; MAX_LFN_ENTRIES] = unsafe { core::mem::zeroed() };
+        #[cfg(feature = "lfn")]
+        let lfn_count = if name_requires_lfn(name) {
+            build_lfn_entries(name, short_name.lfn_checksum(), &mut lfn_buf)
+                .ok_or(FatError::InvalidFilename)?
+        } else {
+            0
+        };
+        #[cfg(not(feature = "lfn"))]
+        let lfn_count = 0usize;
+
+        // Allocate `lfn_count + 1` consecutive slots.
+        let total_slots = lfn_count + 1;
+        let (run_start_cluster, run_start_offset) =
+            self.find_free_entry_run_in_dir(parent, total_slots).await?;
 
         // Create the directory entry in parent
-        let now = FatDateTime::now();
+        let now = self.time_provider().now();
         let (date, time, time_tenth) = now.to_raw();
 
         // For FAT12/16, only use the low 16 bits of the cluster number
@@ -743,6 +1158,15 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             size: hadris_common::types::number::U32::<LittleEndian>::new(0),
         };
 
+        let entry_size = core::mem::size_of::<RawDirectoryEntry>();
+        #[cfg(feature = "lfn")]
+        for i in 0..lfn_count {
+            let off = run_start_offset + i * entry_size;
+            self.write_raw_directory_entry(run_start_cluster, off, &lfn_buf[i], parent.fixed_root)
+                .await?;
+        }
+        let short_offset = run_start_offset + lfn_count * entry_size;
+        let (slot_cluster, slot_offset) = (run_start_cluster, short_offset);
         self.write_raw_entry(slot_cluster, slot_offset, &entry, parent.fixed_root).await?;
 
         // Initialize the new directory with . and .. entries
@@ -853,48 +1277,44 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             }
         }
 
-        // Free the cluster chain if there is one
+        // Free the cluster chain if there is one (cache-routed).
         if entry.cluster().0 >= 2 {
-            let freed_count = {
-                let mut data = self.data.lock();
-                match &self.fat {
-                    Fat::Fat12(fat12) => {
-                        fat12.free_chain(data.deref_mut(), entry.cluster().0 as u16).await?
-                    }
-                    Fat::Fat16(fat16) => {
-                        fat16.free_chain(data.deref_mut(), entry.cluster().0 as u16).await?
-                    }
-                    Fat::Fat32(fat32) => {
-                        fat32.free_chain(data.deref_mut(), entry.cluster().0 as u32).await?
-                    }
-                }
-            };
+            let freed_count = self.free_chain_routed(entry.cluster().0 as u32).await?;
             // Update FSInfo tracking (FAT32 only)
             self.increment_free_count(freed_count);
         }
 
-        // Mark the directory entry as deleted
+        // Mark the directory entry as deleted, plus any LFN slots that
+        // precede it. Without the LFN cleanup, a delete would leave
+        // orphaned LFN slots on disk — fsck.fat flags those as "stray
+        // long-name slots" and they'd confuse a fresh-mount lookup until
+        // the slots are eventually overwritten.
         {
             let mut data = self.data.lock();
             let cluster_size = data.cluster_size;
 
             // Calculate entry position - handle fixed root directory
-            let entry_pos = if entry.parent_clus.0 == 0 {
-                // Fixed root directory (FAT12/16)
+            let (entry_pos, lower_bound) = if entry.parent_clus.0 == 0 {
+                // Fixed root directory (FAT12/16): lower bound is the start
+                // of the root area.
                 let (root_start, _) = self
                     .fixed_root_dir_info()
                     .expect("Fixed root info required for cluster 0");
-                root_start + entry.offset_within_cluster
+                (root_start + entry.offset_within_cluster, root_start)
             } else {
-                // Cluster-based directory
-                entry
+                // Cluster-based directory: LFN runs are constrained to a
+                // single cluster (see find_free_entry_run_in_cluster_chain),
+                // so the lower bound is the start of the parent cluster.
+                let parent_cluster_start = entry
                     .parent_clus
-                    .to_bytes(self.info.data_start, cluster_size)
-                    + entry.offset_within_cluster
+                    .to_bytes(self.info.data_start, cluster_size);
+                (parent_cluster_start + entry.offset_within_cluster, parent_cluster_start)
             };
 
+            mark_preceding_lfn_entries_deleted(data.deref_mut(), entry_pos, lower_bound).await?;
+
             data.seek(SeekFrom::Start(entry_pos as u64)).await?;
-            // Write 0xE5 as the first byte to mark as deleted
+            // Write 0xE5 as the first byte to mark the short entry deleted
             data.write_all(&[0xE5]).await?;
         }
 
@@ -925,11 +1345,41 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         }
 
         // Generate short filename
-        let short_name =
-            ShortFileName::from_long_name(new_name, 0).map_err(|_| FatError::InvalidFilename)?;
+        let short_name = ShortFileName::from_long_name_with(new_name, 0, self.oem_converter())
+            .map_err(|_| FatError::InvalidFilename)?;
 
-        // Find a free slot in the destination directory
-        let (slot_cluster, slot_offset) = self.find_free_entry_slot_in_dir(dest_dir).await?;
+        // Build LFN entries for the new name if it doesn't fit 8.3 cleanly.
+        // When the lfn feature is off, we never emit LFN.
+        #[cfg(feature = "lfn")]
+        let mut lfn_buf: [RawDirectoryEntry; MAX_LFN_ENTRIES] = unsafe { core::mem::zeroed() };
+        #[cfg(feature = "lfn")]
+        let lfn_count = if name_requires_lfn(new_name) {
+            build_lfn_entries(new_name, short_name.lfn_checksum(), &mut lfn_buf)
+                .ok_or(FatError::InvalidFilename)?
+        } else {
+            0
+        };
+        #[cfg(not(feature = "lfn"))]
+        let lfn_count = 0usize;
+
+        // Find a contiguous run sized for LFN entries plus the short entry.
+        let total_slots = lfn_count + 1;
+        let (run_start_cluster, run_start_offset) =
+            self.find_free_entry_run_in_dir(dest_dir, total_slots).await?;
+        let entry_size = core::mem::size_of::<RawDirectoryEntry>();
+        #[cfg(feature = "lfn")]
+        for i in 0..lfn_count {
+            let off = run_start_offset + i * entry_size;
+            self.write_raw_directory_entry(
+                run_start_cluster,
+                off,
+                &lfn_buf[i],
+                dest_dir.fixed_root,
+            )
+            .await?;
+        }
+        let slot_cluster = run_start_cluster;
+        let slot_offset = run_start_offset + lfn_count * entry_size;
 
         // Read the original raw entry to preserve all fields
         let original_raw = {
@@ -957,7 +1407,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let mut raw_name = short_name.to_raw_bytes();
         kanji_short_name_fixup(&mut raw_name);
 
-        let now = FatDateTime::now();
+        let now = self.time_provider().now();
         let new_entry = RawFileEntry {
             name: raw_name,
             attributes: original_file.attributes,
@@ -1013,22 +1463,25 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             data.write_all(bytemuck::bytes_of(&dotdot)).await?;
         }
 
-        // Mark the old entry as deleted (0xE5)
+        // Mark the old entry deleted, including any preceding LFN slots so
+        // we don't leave orphaned long-name entries behind.
         {
             let mut data = self.data.lock();
             let cluster_size = data.cluster_size;
 
-            let entry_pos = if entry.parent_clus.0 == 0 {
+            let (entry_pos, lower_bound) = if entry.parent_clus.0 == 0 {
                 let (root_start, _) = self
                     .fixed_root_dir_info()
                     .expect("Fixed root info required for cluster 0");
-                root_start + entry.offset_within_cluster
+                (root_start + entry.offset_within_cluster, root_start)
             } else {
-                entry
+                let parent_cluster_start = entry
                     .parent_clus
-                    .to_bytes(self.info.data_start, cluster_size)
-                    + entry.offset_within_cluster
+                    .to_bytes(self.info.data_start, cluster_size);
+                (parent_cluster_start + entry.offset_within_cluster, parent_cluster_start)
             };
+
+            mark_preceding_lfn_entries_deleted(data.deref_mut(), entry_pos, lower_bound).await?;
 
             data.seek(SeekFrom::Start(entry_pos as u64)).await?;
             data.write_all(&[0xE5]).await?;
@@ -1041,12 +1494,24 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         Ok(FileEntry {
             short_name,
             #[cfg(feature = "lfn")]
-            long_name: None,
+            long_name: if lfn_count > 0 {
+                crate::file::LongFileName::from_str_utf16(new_name)
+            } else {
+                None
+            },
             attr: DirEntryAttrFlags::from_bits_retain(original_file.attributes),
             size: original_file.size.get() as usize,
             parent_clus: slot_cluster,
             offset_within_cluster: slot_offset,
             cluster: entry.cluster(),
+            // Preserve original creation time; bump access/modified to "now".
+            created: crate::time::FatDateTime::from_raw(
+                u16::from_le_bytes(original_file.creation_date),
+                u16::from_le_bytes(original_file.creation_time),
+                original_file.creation_time_tenth,
+            ),
+            last_access_date: now.date,
+            modified: crate::time::FatDateTime::from_raw(now.date, now.time, 0),
         })
     }
 
@@ -1101,7 +1566,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         file_entry.first_cluster_low = hadris_common::types::number::U16::<LittleEndian>::new(low);
 
         // Update modification time
-        let now = FatDateTime::now();
+        let now = self.time_provider().now();
         file_entry.last_write_date = now.date.to_le_bytes();
         file_entry.last_write_time = now.time.to_le_bytes();
         file_entry.last_access_date = now.date.to_le_bytes();
@@ -1114,17 +1579,62 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     }
 }
 
+/// Volume label modification (root directory entry).
+#[cfg(feature = "write")]
+impl<DATA: Read + Write + Seek> FatFs<DATA> {
+    /// Overwrite the volume label stored in the root-directory entry.
+    ///
+    /// Returns [`FatError::EntryNotFound`] if no label entry exists today —
+    /// callers should format the volume with a label, or extend the API
+    /// later to allocate a new entry. The 11-byte name is written verbatim
+    /// (FAT spec: space-padded, conventionally uppercase ASCII).
+    ///
+    /// This does **not** update the BPB volume label; reformatting is the
+    /// only way to change that one without rewriting the boot sector.
+    pub async fn set_root_label(&self, name: &[u8; 11]) -> Result<()> {
+        let (pos, raw) = self
+            .find_root_label_entry()
+            .await?
+            .ok_or(FatError::EntryNotFound)?;
+        let mut updated = raw;
+        // Writing to a union field of `Copy` type without `Drop` is safe in
+        // modern Rust — the existing memory is overwritten verbatim.
+        updated.file.name = *name;
+
+        let mut data = self.data.lock();
+        data.seek(SeekFrom::Start(pos as u64)).await?;
+        data.write_all(bytemuck::bytes_of(&updated)).await?;
+        data.flush().await?;
+        Ok(())
+    }
+}
+
 /// File attribute modification
 #[cfg(feature = "write")]
 impl<DATA: Read + Write + Seek> FatFs<DATA> {
     /// Set the attributes of a file or directory entry.
     ///
-    /// Reads the directory entry, modifies the attribute byte, and writes it back.
+    /// Only the user-mutable bits (`READ_ONLY`, `HIDDEN`, `SYSTEM`, `ARCHIVE`)
+    /// may be changed in place. Attempting to flip `DIRECTORY` or `VOLUME_ID`
+    /// returns [`FatError::InvalidAttributeChange`] — those bits identify the
+    /// kind of entry on disk and changing them would orphan a cluster chain
+    /// or break the root volume label.
     pub async fn set_attributes(
         &self,
         entry: &FileEntry,
         attrs: DirEntryAttrFlags,
     ) -> Result<()> {
+        // Reject flips on the immutable bits before touching disk.
+        let current = entry.attributes();
+        let immutable = DirEntryAttrFlags::DIRECTORY | DirEntryAttrFlags::VOLUME_ID;
+        let changed = (current ^ attrs) & immutable;
+        if changed.contains(DirEntryAttrFlags::DIRECTORY) {
+            return Err(FatError::InvalidAttributeChange { bit: "DIRECTORY" });
+        }
+        if changed.contains(DirEntryAttrFlags::VOLUME_ID) {
+            return Err(FatError::InvalidAttributeChange { bit: "VOLUME_ID" });
+        }
+
         let mut data = self.data.lock();
         let cluster_size = data.cluster_size;
 
@@ -1282,6 +1792,126 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             }
             _ => None,
         }
+    }
+}
+
+/// Miri-targeted unit tests for `build_lfn_entries`. These exercise the
+/// `unsafe { lfn: ... }` union writes inside the staging buffer and the
+/// 0xFFFF padding writes that previously OOB'd at the spec cap (255 UTF-16
+/// units). Pure functions, no I/O — so miri's no-syscall sandbox runs them
+/// at full speed.
+///
+/// Wired into CI via `.github/workflows/rust.yml` (the `miri` job).
+#[cfg(all(test, feature = "write", feature = "lfn"))]
+mod lfn_write_safety_tests {
+    use super::{build_lfn_entries, MAX_LFN_ENTRIES};
+    use crate::raw::{DirEntryAttrFlags, RawDirectoryEntry};
+
+    fn fresh_out() -> [RawDirectoryEntry; MAX_LFN_ENTRIES] {
+        // SAFETY: zero-bytes is a valid bit pattern for every union variant
+        // of RawDirectoryEntry — bytemuck::AnyBitPattern is impl'd on it.
+        unsafe { core::mem::zeroed() }
+    }
+
+    /// All bytes of every written LFN slot must be readable through the
+    /// `bytes` union arm without UB. Before this commit, an exactly-255
+    /// UTF-16 name OOB'd the staging buffer; this test pins that fix.
+    #[test]
+    fn build_lfn_entries_at_spec_cap_255_units_does_not_oob() {
+        let name: alloc::string::String = core::iter::repeat('a').take(255).collect();
+        let mut out = fresh_out();
+        let n = build_lfn_entries(&name, 0, &mut out).expect("must accept 255 chars");
+        assert_eq!(n, 20);
+        for i in 0..n {
+            // Touch every byte through the bytes union arm — miri flags
+            // any out-of-bounds reads or invalid bit patterns.
+            let bytes = unsafe { out[i].bytes };
+            assert_eq!(bytes.len(), 32);
+        }
+    }
+
+    /// 256 UTF-16 units must surface as `None` (caller turns this into
+    /// `InvalidFilename`) — silently truncating a filename is worse than
+    /// refusing it.
+    #[test]
+    fn build_lfn_entries_overlong_returns_none() {
+        let name: alloc::string::String = core::iter::repeat('a').take(256).collect();
+        let mut out = fresh_out();
+        assert!(build_lfn_entries(&name, 0, &mut out).is_none());
+    }
+
+    /// Supplementary-plane chars (e.g. U+1F31F 🌟) need surrogate pairs in
+    /// UTF-16 — 2 code units per char. The staging path writes both halves;
+    /// miri verifies the writes stay within `u16_buf`.
+    #[test]
+    fn build_lfn_entries_supplementary_plane_writes_both_surrogates() {
+        // 100 emoji × 2 UTF-16 units each = 200 units, fits the spec cap.
+        let name: alloc::string::String = core::iter::repeat('\u{1F31F}').take(100).collect();
+        let mut out = fresh_out();
+        let n = build_lfn_entries(&name, 0, &mut out).expect("100 emoji fits");
+        // 200 units / 13 chars per entry = 16 (15.38 rounded up).
+        assert_eq!(n, 16);
+        // Sanity: the first slot's name1 starts with 0xD83C 0xDF1F or the
+        // appropriate surrogate pair. Don't depend on which slot maps where —
+        // just confirm that some slot contains valid surrogate halves.
+        let mut saw_high = false;
+        let mut saw_low = false;
+        for i in 0..n {
+            let lfn = unsafe { out[i].lfn };
+            for chunk in lfn.name1.chunks_exact(2) {
+                let unit = u16::from_le_bytes([chunk[0], chunk[1]]);
+                if (0xD800..0xDC00).contains(&unit) {
+                    saw_high = true;
+                }
+                if (0xDC00..0xE000).contains(&unit) {
+                    saw_low = true;
+                }
+            }
+        }
+        assert!(saw_high && saw_low, "must encode both halves of the surrogate pair");
+    }
+
+    /// Exact fill (length is a multiple of 13): the spec says no
+    /// terminator/filler is written. Verify the last LFN entry's bytes are
+    /// all real chars, not 0xFFFF or 0x0000.
+    #[test]
+    fn build_lfn_entries_exact_13_unit_multiple_no_padding() {
+        let name: alloc::string::String = core::iter::repeat('a').take(13).collect();
+        let mut out = fresh_out();
+        let n = build_lfn_entries(&name, 0, &mut out).expect("13 chars fits");
+        assert_eq!(n, 1);
+
+        let lfn = unsafe { out[0].lfn };
+        // All 13 units must be 'a' (0x0061). Walk name1 (5), name2 (6), name3 (2).
+        for chunk in lfn
+            .name1
+            .chunks_exact(2)
+            .chain(lfn.name2.chunks_exact(2))
+            .chain(lfn.name3.chunks_exact(2))
+        {
+            let unit = u16::from_le_bytes([chunk[0], chunk[1]]);
+            assert_eq!(unit, b'a' as u16, "exact-fill must contain only real chars");
+        }
+        // Sequence number has the LAST_ENTRY_MASK on the highest seq.
+        assert_eq!(lfn.sequence_number, 0x41); // seq 1 + 0x40
+        assert_eq!(lfn.attributes, DirEntryAttrFlags::LONG_NAME.bits());
+    }
+
+    /// The first entry on disk (out[0]) carries the highest sequence number
+    /// with `LAST_ENTRY_MASK` set. This invariant is what readers rely on
+    /// to find the start of an LFN run.
+    #[test]
+    fn build_lfn_entries_first_slot_has_last_entry_mask() {
+        let name = "longishname.tx"; // 14 chars, 2 LFN entries
+        let mut out = fresh_out();
+        let n = build_lfn_entries(name, 0xAB, &mut out).expect("ok");
+        assert_eq!(n, 2);
+        let first = unsafe { out[0].lfn };
+        assert_eq!(first.sequence_number, 0x42); // seq 2 | 0x40
+        assert_eq!(first.checksum, 0xAB);
+        let second = unsafe { out[1].lfn };
+        assert_eq!(second.sequence_number, 0x01); // no mask
+        assert_eq!(second.checksum, 0xAB);
     }
 }
 

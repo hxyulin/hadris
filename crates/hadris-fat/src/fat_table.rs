@@ -201,6 +201,52 @@ impl Fat {
         }
     }
 
+    /// Highest valid cluster number on this volume (inclusive). Clusters 0 and 1
+    /// are reserved, so the chain-loop ceiling is `max_cluster - 1` distinct
+    /// clusters; one extra step lets the walker observe the end-of-chain marker
+    /// before declaring a loop.
+    pub fn max_cluster(&self) -> u32 {
+        match self {
+            Self::Fat12(f) => f.max_cluster as u32,
+            Self::Fat16(f) => f.max_cluster as u32,
+            Self::Fat32(f) => f.max_cluster,
+        }
+    }
+
+    /// Walk a cluster chain starting at `start`, calling `visit` for each
+    /// cluster (including `start`) until the chain ends. Returns the last
+    /// cluster visited.
+    ///
+    /// Aborts with [`FatError::ClusterLoop`] if more than `max_steps`
+    /// clusters are walked. The natural upper bound is
+    /// [`Self::max_cluster`] — any chain longer than that must repeat a
+    /// cluster and is therefore corrupt.
+    pub async fn walk_chain<T, F>(
+        &self,
+        reader: &mut T,
+        start: u32,
+        max_steps: u32,
+        mut visit: F,
+    ) -> Result<u32>
+    where
+        T: Read + Seek,
+        F: FnMut(u32),
+    {
+        let mut current = start;
+        let mut steps: u32 = 0;
+        loop {
+            visit(current);
+            steps = steps.saturating_add(1);
+            if steps > max_steps {
+                return Err(FatError::ClusterLoop { cluster: current });
+            }
+            match self.next_cluster(reader, current as usize).await? {
+                Some(next) => current = next,
+                None => return Ok(current),
+            }
+        }
+    }
+
     /// Truncate a cluster chain after the specified cluster.
     ///
     /// The specified cluster becomes the end of chain (marked with end-of-chain marker).
@@ -241,6 +287,45 @@ impl Fat {
             Self::Fat12(fat12) => fat12.mark_bad(rw, cluster as u16).await,
             Self::Fat16(fat16) => fat16.mark_bad(rw, cluster as u16).await,
             Self::Fat32(fat32) => fat32.mark_bad(rw, cluster as u32).await,
+        }
+    }
+
+    /// Read the FAT-resident status bits from `FAT[1]`.
+    ///
+    /// The FAT spec stores two volume-level status bits in the high bits of
+    /// the FAT entry for cluster 1:
+    ///   * "clean shutdown" (set = clean, cleared = dirty)
+    ///   * "no I/O errors" (set = ok, cleared = errors during last use)
+    /// FAT12 has no spare bits in its packed 12-bit entries, so it returns
+    /// `(false, false)` (treat as "clean, no errors") — matches the spec's
+    /// "FAT12 has no status word" reading.
+    ///
+    /// Returns `(dirty, io_errors)` — both `true` means trouble.
+    pub async fn read_status_flags<T: Read + Seek>(&self, reader: &mut T) -> Result<(bool, bool)> {
+        match self {
+            Self::Fat12(_) => Ok((false, false)),
+            Self::Fat16(f) => {
+                // FAT[1] sits at byte offset start + 2 (cluster 1, 16-bit entries).
+                let offset = f.start + 2;
+                reader.seek(SeekFrom::Start(offset as u64)).await?;
+                let mut bytes = [0u8; 2];
+                reader.read_exact(&mut bytes).await?;
+                let val = u16::from_le_bytes(bytes);
+                // Bit 15 cleared = dirty; bit 14 cleared = I/O errors.
+                Ok((val & 0x8000 == 0, val & 0x4000 == 0))
+            }
+            Self::Fat32(f) => {
+                // FAT[1] at byte offset start + 4 (cluster 1, 32-bit entries).
+                let offset = f.start + 4;
+                reader.seek(SeekFrom::Start(offset as u64)).await?;
+                let mut bytes = [0u8; 4];
+                reader.read_exact(&mut bytes).await?;
+                let val = u32::from_le_bytes(bytes);
+                // Bit 27 cleared = dirty; bit 26 cleared = I/O errors. Only
+                // these two bits are status; the rest of the high nibble is
+                // reserved and the low 28 bits are the cluster-1 entry value.
+                Ok((val & 0x0800_0000 == 0, val & 0x0400_0000 == 0))
+            }
         }
     }
 
@@ -329,6 +414,7 @@ impl Fat {
 
 /// FAT filesystem type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FatType {
     Fat12,
     Fat16,
@@ -365,6 +451,13 @@ impl Fat12 {
     const BAD_CLUSTER: u16 = 0x0FF7;
     /// First valid data cluster (clusters 0 and 1 are reserved)
     const FIRST_DATA_CLUSTER: u16 = 2;
+
+    /// Layout fields a [`crate::cache::FatSectorCache`] needs to mirror this
+    /// FAT: `(start_byte, size_per_copy, copy_count)`.
+    #[cfg(feature = "cache")]
+    pub(crate) fn cache_layout(&self) -> (usize, usize, usize) {
+        (self.start, self.size, self.count)
+    }
 
     pub fn new(start: usize, size: usize, count: usize, max_cluster: u16) -> Self {
         debug_assert!(count == 1 || count == 2);
@@ -624,6 +717,13 @@ impl Fat16 {
     /// First valid data cluster (clusters 0 and 1 are reserved)
     const FIRST_DATA_CLUSTER: u16 = 2;
 
+    /// Layout fields a [`crate::cache::FatSectorCache`] needs to mirror this
+    /// FAT: `(start_byte, size_per_copy, copy_count)`.
+    #[cfg(feature = "cache")]
+    pub(crate) fn cache_layout(&self) -> (usize, usize, usize) {
+        (self.start, self.size, self.count)
+    }
+
     pub fn new(start: usize, size: usize, count: usize, max_cluster: u16) -> Self {
         debug_assert!(count == 1 || count == 2);
         Self {
@@ -854,6 +954,13 @@ impl Fat32 {
     const BAD_CLUSTER: u32 = 0x0FFF_FFF7;
     /// First valid data cluster (clusters 0 and 1 are reserved)
     const FIRST_DATA_CLUSTER: u32 = 2;
+
+    /// Layout fields a [`crate::cache::FatSectorCache`] needs to mirror this
+    /// FAT: `(start_byte, size_per_copy, copy_count)`.
+    #[cfg(feature = "cache")]
+    pub(crate) fn cache_layout(&self) -> (usize, usize, usize) {
+        (self.start, self.size, self.count)
+    }
 
     pub fn new(start: usize, size: usize, count: usize, max_cluster: u32) -> Self {
         debug_assert!(count == 1 || count == 2);

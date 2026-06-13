@@ -13,7 +13,7 @@ use crate::raw::{
     RawBpbExt16, RawBpbExt32, RawFileEntry, RawFsInfo,
 };
 use super::super::io::{Read, Seek, SeekFrom, Write};
-use super::super::write::FatDateTime;
+use crate::time::FatDateTime;
 use super::super::fat_table::FatType;
 use super::super::fs::{FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG};
 

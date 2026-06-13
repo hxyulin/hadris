@@ -1,7 +1,66 @@
 //! FAT sector caching for reduced I/O operations.
 //!
-//! This module provides a sector cache for FAT table operations, significantly
-//! reducing the number of seek and read operations when traversing cluster chains.
+//! This module provides a write-back sector cache for FAT table operations,
+//! significantly reducing the number of seek and read operations when
+//! traversing cluster chains.
+//!
+//! # Quick start
+//!
+//! Most callers don't construct [`FatSectorCache`] directly — install one
+//! on a [`crate::FatFs`] via [`crate::FatFsBuilder::with_fat_cache`] and
+//! drive it through [`crate::FatFs::with_cached_fat`]:
+//!
+//! ```rust,no_run
+//! # #[cfg(all(feature = "cache", feature = "std"))]
+//! # {
+//! use std::fs::OpenOptions;
+//! use hadris_fat::FatFs;
+//!
+//! let disk = OpenOptions::new().read(true).write(true).open("disk.img").unwrap();
+//! let fs = FatFs::builder(disk).with_fat_cache(16).open().unwrap();
+//!
+//! // Walk the FAT cluster chain starting at cluster 42, using the cache.
+//! // The closure runs with both the cache and disk mutexes held.
+//! let chain = fs
+//!     .with_cached_fat(|cached, disk| cached.read_chain(disk, 42))
+//!     .expect("cache installed")
+//!     .expect("read_chain ok");
+//!
+//! // After dirty writes, flush before dropping the FatFs to persist.
+//! fs.flush().unwrap();
+//! # }
+//! ```
+//!
+//! As of phase C5 the built-in `FatFs` operations (`read_file`,
+//! `create_file`, `delete`, `truncate`, etc.) consult the cache
+//! transparently — internal FAT-table reads go through
+//! `next_cluster_routed` and writes go through `write_clus_routed` /
+//! `allocate_cluster_routed` / `free_chain_routed` /
+//! `truncate_chain_routed`. [`crate::FatFs::with_cached_fat`] remains the
+//! recommended entry point for *bulk* user-driven walks (free-cluster
+//! scans, chain traversal) where holding the cache+disk locks across
+//! many entries is cheaper than re-acquiring them per call.
+//!
+//! Caching is a **synchronous-only** feature: the `cache` Cargo feature
+//! implies `sync`, and the FatFs cache wiring is emitted only in the sync
+//! slice. Async builds compile with the same on-disk surface but fall
+//! through to direct `Fat::*` reads/writes (deferred to phase C5b — see
+//! issue #27).
+//!
+//! # Semantics
+//!
+//! Reads ([`FatSectorCache::read_fat12_entry`] etc.) take any
+//! `Read + Seek` source — they never need to write. If the cache is full of
+//! *dirty* entries (lines you wrote and haven't flushed), a fresh read may
+//! need to evict a dirty entry; in that case it returns
+//! [`FatError::CacheDirtyEviction`] rather than silently dropping bytes.
+//! Call [`FatSectorCache::flush`] (or [`crate::FatFs::flush`]) to empty the
+//! dirty pool.
+//!
+//! Writes ([`FatSectorCache::write_fat12_entry`] etc.) take
+//! `Read + Write + Seek` and *write through* on eviction: a dirty sector is
+//! flushed to every FAT copy before it leaves the cache, so writes are never
+//! silently lost.
 
 use alloc::vec::Vec;
 
@@ -180,7 +239,11 @@ impl FatSectorCache {
         None
     }
 
-    /// Get or load a sector into the cache.
+    /// Read a sector into the cache. Read-only path: never marks the entry
+    /// dirty, never needs a writer. Returns [`FatError::CacheDirtyEviction`]
+    /// if the cache is at capacity and *every* resident sector is dirty —
+    /// the caller must `flush()` first because dropping a dirty entry would
+    /// silently lose unwritten data.
     fn get_sector<T: Read + Seek>(&mut self, reader: &mut T, sector: usize) -> Result<&[u8]> {
         self.access_counter += 1;
 
@@ -193,18 +256,19 @@ impl FatSectorCache {
 
         self.stats.misses += 1;
 
-        // Need to load from disk
+        // Evict before reading: read-paths can only evict clean entries, so
+        // the eviction may fail with CacheDirtyEviction. Returning early
+        // means we never read a sector we then can't park.
+        if self.entries.len() >= self.capacity {
+            self.evict_lru_clean()?;
+        }
+
+        // Load from disk
         let mut data = alloc::vec![0u8; self.sector_size];
         let offset = self.fat_start + sector * self.sector_size;
         reader.seek(SeekFrom::Start(offset as u64))?;
         reader.read_exact(&mut data)?;
 
-        // Evict if necessary
-        if self.entries.len() >= self.capacity {
-            self.evict_lru()?;
-        }
-
-        // Add to cache
         self.entries.push(CacheEntry {
             sector,
             data,
@@ -216,14 +280,17 @@ impl FatSectorCache {
     }
 
     /// Get a mutable reference to a sector, loading it if necessary.
-    fn get_sector_mut<T: Read + Seek>(
+    ///
+    /// Write path: requires `Read + Write + Seek` so a dirty LRU can be
+    /// flushed (write-through to every FAT copy) before being evicted.
+    /// Marks the returned entry dirty.
+    fn get_sector_mut<T: Read + Write + Seek>(
         &mut self,
-        reader: &mut T,
+        io: &mut T,
         sector: usize,
     ) -> Result<&mut [u8]> {
         self.access_counter += 1;
 
-        // Check if already cached
         if let Some(idx) = self.find_sector(sector) {
             self.stats.hits += 1;
             self.entries[idx].access_count = self.access_counter;
@@ -233,18 +300,18 @@ impl FatSectorCache {
 
         self.stats.misses += 1;
 
-        // Need to load from disk
-        let mut data = alloc::vec![0u8; self.sector_size];
-        let offset = self.fat_start + sector * self.sector_size;
-        reader.seek(SeekFrom::Start(offset as u64))?;
-        reader.read_exact(&mut data)?;
-
-        // Evict if necessary
+        // Evict before reading: write-paths can flush dirty entries on
+        // eviction, so this never fails for cache-pressure reasons (only if
+        // the underlying writer fails).
         if self.entries.len() >= self.capacity {
-            self.evict_lru()?;
+            self.evict_lru_flush(io)?;
         }
 
-        // Add to cache
+        let mut data = alloc::vec![0u8; self.sector_size];
+        let offset = self.fat_start + sector * self.sector_size;
+        io.seek(SeekFrom::Start(offset as u64))?;
+        io.read_exact(&mut data)?;
+
         self.entries.push(CacheEntry {
             sector,
             data,
@@ -256,32 +323,81 @@ impl FatSectorCache {
         Ok(&mut self.entries[idx].data)
     }
 
-    /// Evict the least recently used sector.
-    fn evict_lru(&mut self) -> Result<()> {
-        if self.entries.is_empty() {
-            return Ok(());
-        }
-
-        // Find LRU entry
-        let mut lru_idx = 0;
+    /// Find the index of the LRU entry, or `None` if the cache is empty.
+    fn find_lru_index(&self) -> Option<usize> {
+        let mut lru_idx = None;
         let mut lru_count = u64::MAX;
         for (i, entry) in self.entries.iter().enumerate() {
             if entry.access_count < lru_count {
                 lru_count = entry.access_count;
-                lru_idx = i;
+                lru_idx = Some(i);
             }
         }
+        lru_idx
+    }
 
-        // If dirty, it will be written on next flush
-        // For now, just remove it (caller should flush before eviction if needed)
-        if self.entries[lru_idx].dirty {
-            // We can't write here without a writer, so we'll mark it
-            // The flush method should be called before eviction in write scenarios
+    /// Find the LRU among *non-dirty* entries, or `None` if all entries are
+    /// dirty (or the cache is empty).
+    fn find_lru_clean_index(&self) -> Option<usize> {
+        let mut lru_idx = None;
+        let mut lru_count = u64::MAX;
+        for (i, entry) in self.entries.iter().enumerate() {
+            if !entry.dirty && entry.access_count < lru_count {
+                lru_count = entry.access_count;
+                lru_idx = Some(i);
+            }
         }
+        lru_idx
+    }
 
-        self.entries.swap_remove(lru_idx);
+    /// Read-path eviction: drops the LRU non-dirty entry. If every entry is
+    /// dirty, returns [`FatError::CacheDirtyEviction`] — read paths can't
+    /// safely drop unwritten data, and there's no writer available here to
+    /// flush it.
+    fn evict_lru_clean(&mut self) -> Result<()> {
+        if self.entries.is_empty() {
+            return Ok(());
+        }
+        match self.find_lru_clean_index() {
+            Some(idx) => {
+                self.entries.swap_remove(idx);
+                self.stats.evictions += 1;
+                Ok(())
+            }
+            None => {
+                // Every resident entry is dirty. Surface the LRU's sector
+                // so the caller has a useful breadcrumb (which sector they
+                // need to flush before retrying).
+                let lru = self.find_lru_index().expect("non-empty above");
+                Err(FatError::CacheDirtyEviction {
+                    sector: self.entries[lru].sector as u32,
+                })
+            }
+        }
+    }
+
+    /// Write-path eviction: flushes the LRU entry to every FAT copy if
+    /// dirty, then removes it. Always succeeds unless the underlying writer
+    /// fails.
+    fn evict_lru_flush<T: Write + Seek>(&mut self, writer: &mut T) -> Result<()> {
+        let Some(idx) = self.find_lru_index() else {
+            return Ok(());
+        };
+        if self.entries[idx].dirty {
+            // Mirror `flush`'s loop: write to every FAT copy so backup FATs
+            // stay consistent with the primary.
+            for copy in 0..self.fat_count {
+                let offset = self.fat_start
+                    + copy * self.fat_size
+                    + self.entries[idx].sector * self.sector_size;
+                writer.seek(SeekFrom::Start(offset as u64))?;
+                writer.write_all(&self.entries[idx].data)?;
+            }
+            self.entries[idx].dirty = false;
+            self.stats.dirty_writes += 1;
+        }
+        self.entries.swap_remove(idx);
         self.stats.evictions += 1;
-
         Ok(())
     }
 
@@ -333,10 +449,14 @@ impl FatSectorCache {
         Ok(value)
     }
 
-    /// Write a FAT12 entry using the cache.
-    pub fn write_fat12_entry<T: Read + Seek>(
+    /// Write a FAT12 entry through the cache.
+    ///
+    /// Requires `Read + Write + Seek` because the cache is write-back: an
+    /// LRU eviction during this call must flush a dirty sector to disk
+    /// before discarding it.
+    pub fn write_fat12_entry<T: Read + Write + Seek>(
         &mut self,
-        reader: &mut T,
+        io: &mut T,
         cluster: usize,
         value: u16,
     ) -> Result<()> {
@@ -348,7 +468,7 @@ impl FatSectorCache {
 
         if offset_in_sector + 1 < sector_size {
             // Entry is within one sector
-            let data = self.get_sector_mut(reader, sector)?;
+            let data = self.get_sector_mut(io, sector)?;
 
             if cluster.is_multiple_of(2) {
                 data[offset_in_sector] = value as u8;
@@ -361,7 +481,7 @@ impl FatSectorCache {
         } else {
             // Entry spans two sectors
             {
-                let data = self.get_sector_mut(reader, sector)?;
+                let data = self.get_sector_mut(io, sector)?;
                 if cluster.is_multiple_of(2) {
                     data[offset_in_sector] = value as u8;
                 } else {
@@ -370,7 +490,7 @@ impl FatSectorCache {
             }
 
             {
-                let data = self.get_sector_mut(reader, sector + 1)?;
+                let data = self.get_sector_mut(io, sector + 1)?;
                 if cluster.is_multiple_of(2) {
                     data[0] = (data[0] & 0xF0) | ((value >> 8) as u8 & 0x0F);
                 } else {
@@ -403,10 +523,13 @@ impl FatSectorCache {
         Ok(value)
     }
 
-    /// Write a FAT16 entry using the cache.
-    pub fn write_fat16_entry<T: Read + Seek>(
+    /// Write a FAT16 entry through the cache.
+    ///
+    /// Requires `Read + Write + Seek` because eviction may flush a dirty
+    /// sector before discarding it (see [`Self::write_fat12_entry`]).
+    pub fn write_fat16_entry<T: Read + Write + Seek>(
         &mut self,
-        reader: &mut T,
+        io: &mut T,
         cluster: usize,
         value: u16,
     ) -> Result<()> {
@@ -415,7 +538,7 @@ impl FatSectorCache {
         let sector = byte_offset / sector_size;
         let offset_in_sector = byte_offset % sector_size;
 
-        let data = self.get_sector_mut(reader, sector)?;
+        let data = self.get_sector_mut(io, sector)?;
         let bytes = value.to_le_bytes();
         data[offset_in_sector] = bytes[0];
         data[offset_in_sector + 1] = bytes[1];
@@ -449,10 +572,13 @@ impl FatSectorCache {
         Ok(value)
     }
 
-    /// Write a FAT32 entry using the cache.
-    pub fn write_fat32_entry<T: Read + Seek>(
+    /// Write a FAT32 entry through the cache.
+    ///
+    /// Requires `Read + Write + Seek` because eviction may flush a dirty
+    /// sector before discarding it (see [`Self::write_fat12_entry`]).
+    pub fn write_fat32_entry<T: Read + Write + Seek>(
         &mut self,
-        reader: &mut T,
+        io: &mut T,
         cluster: usize,
         value: u32,
     ) -> Result<()> {
@@ -461,7 +587,7 @@ impl FatSectorCache {
         let sector = byte_offset / sector_size;
         let offset_in_sector = byte_offset % sector_size;
 
-        let data = self.get_sector_mut(reader, sector)?;
+        let data = self.get_sector_mut(io, sector)?;
         let bytes = value.to_le_bytes();
         data[offset_in_sector] = bytes[0];
         data[offset_in_sector + 1] = bytes[1];
@@ -558,6 +684,10 @@ impl<'a> CachedFat<'a> {
     /// Read the entire cluster chain starting from a cluster.
     ///
     /// This is efficient because it uses the cache to avoid repeated seeks.
+    /// On a chain longer than `max_cluster` clusters (only possible if the
+    /// FAT is corrupt and contains a loop), returns
+    /// [`FatError::ClusterLoop`] rather than silently returning a
+    /// partial chain.
     pub fn read_chain<T: Read + Seek>(
         &mut self,
         reader: &mut T,
@@ -566,9 +696,10 @@ impl<'a> CachedFat<'a> {
         let mut chain = Vec::new();
         let mut current = start_cluster;
 
-        // Prevent infinite loops
+        // A healthy chain visits each cluster at most once, so it can't
+        // exceed `max_cluster - 1` clusters (clusters 0 and 1 are reserved).
+        // Anything larger means the chain has a loop.
         let max_iterations = self.max_cluster as usize;
-        let mut iterations = 0;
 
         loop {
             if current < 2 || current > self.max_cluster {
@@ -576,11 +707,9 @@ impl<'a> CachedFat<'a> {
             }
 
             chain.push(current);
-            iterations += 1;
 
-            if iterations > max_iterations {
-                // Likely a loop in the FAT
-                break;
+            if chain.len() > max_iterations {
+                return Err(FatError::ClusterLoop { cluster: current });
             }
 
             match self.next_cluster(reader, current as usize)? {

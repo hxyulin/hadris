@@ -1,7 +1,6 @@
 io_transform! {
 
 use core::mem::size_of;
-use core::ops::DerefMut;
 
 use hadris_common::types::endian::Endian;
 
@@ -10,6 +9,7 @@ use crate::file::ShortFileName;
 #[cfg(feature = "lfn")]
 use crate::file::{LfnBuilder, LongFileName};
 use crate::raw::{DirEntryAttrFlags, RawDirectoryEntry};
+use crate::time::FatDateTime;
 use super::fs::FatFs;
 #[cfg(not(feature = "alloc"))]
 use super::io::ReadExt;
@@ -33,6 +33,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
             offset: 0,
             fixed_root_remaining: self.fixed_root.map(|(_, size)| size),
             fixed_root_start: self.fixed_root.map(|(start, _)| start),
+            cluster_steps: 0,
             lfn_builder: LfnBuilder::new(),
             #[cfg(feature = "alloc")]
             cluster_buffer: None,
@@ -49,6 +50,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
             offset: 0,
             fixed_root_remaining: self.fixed_root.map(|(_, size)| size),
             fixed_root_start: self.fixed_root.map(|(start, _)| start),
+            cluster_steps: 0,
             #[cfg(feature = "alloc")]
             cluster_buffer: None,
             #[cfg(feature = "alloc")]
@@ -138,6 +140,10 @@ pub struct FatDirIter<'a, DATA: Read + Seek> {
     fixed_root_remaining: Option<usize>,
     /// For fixed root directory: start byte offset
     fixed_root_start: Option<usize>,
+    /// Cluster transitions taken so far. A cluster-based directory chain
+    /// longer than `max_cluster` clusters has to revisit one — that's a
+    /// loop and we abort with `FatError::ClusterLoop`.
+    cluster_steps: u32,
     #[cfg(feature = "lfn")]
     lfn_builder: LfnBuilder,
     /// Buffered cluster data (reduces seeks by reading entire cluster at once)
@@ -166,10 +172,21 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                 // Cluster-based directory (FAT32 or subdirectory)
                 // Check if we need to move to the next cluster
                 if self.offset >= cluster_size {
-                    let next = match self.data.fat.next_cluster(data.deref_mut(), self.cluster.0).await {
+                    self.cluster_steps = self.cluster_steps.saturating_add(1);
+                    if self.cluster_steps > self.data.fat.max_cluster() {
+                        return Some(Err(FatError::ClusterLoop {
+                            cluster: self.cluster.0 as u32,
+                        }));
+                    }
+                    // Drop data lock so the routed helper can acquire cache
+                    // first (canonical order) without deadlocking. Re-lock
+                    // after.
+                    drop(data);
+                    let next = match self.data.next_cluster_routed(self.cluster.0).await {
                         Ok(n) => n,
                         Err(e) => return Some(Err(e)),
                     };
+                    data = self.data.data.lock();
                     match next {
                         Some(cluster) => {
                             self.cluster.0 = cluster as usize;
@@ -335,6 +352,18 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
 
             // For FAT12/16 with fixed root dir, parent_clus is 0 (sentinel)
             // For cluster-based dirs, parent_clus is the actual cluster
+            let created = FatDateTime::from_raw(
+                u16::from_le_bytes(file_entry.creation_date),
+                u16::from_le_bytes(file_entry.creation_time),
+                file_entry.creation_time_tenth,
+            );
+            let modified = FatDateTime::from_raw(
+                u16::from_le_bytes(file_entry.last_write_date),
+                u16::from_le_bytes(file_entry.last_write_time),
+                0,
+            );
+            let last_access_date = u16::from_le_bytes(file_entry.last_access_date);
+
             return Some(Ok(DirectoryEntry::Entry(FileEntry {
                 short_name,
                 #[cfg(feature = "lfn")]
@@ -347,6 +376,9 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                     file_entry.first_cluster_high.get(),
                     file_entry.first_cluster_low.get(),
                 ),
+                created,
+                last_access_date,
+                modified,
             })));
         }
     }
@@ -411,6 +443,12 @@ pub struct FileEntry {
     #[cfg_attr(not(feature = "write"), allow(dead_code))]
     pub(crate) offset_within_cluster: usize,
     pub(crate) cluster: Cluster<usize>,
+    /// Creation time (date + time + 10ms-units).
+    pub(crate) created: FatDateTime,
+    /// Last-access date (FAT stores no time component for access).
+    pub(crate) last_access_date: u16,
+    /// Last-modified time (date + time; `time_tenth` is 0).
+    pub(crate) modified: FatDateTime,
 }
 
 impl FileEntry {
@@ -426,10 +464,12 @@ impl FileEntry {
     /// [`LongFileName::eq_str`]) directly.
     #[cfg(feature = "alloc")]
     pub fn name(&self) -> alloc::borrow::Cow<'_, str> {
-        use alloc::string::ToString;
         #[cfg(feature = "lfn")]
-        if let Some(ref lfn) = self.long_name {
-            return alloc::borrow::Cow::Owned(lfn.to_string());
+        {
+            use alloc::string::ToString;
+            if let Some(ref lfn) = self.long_name {
+                return alloc::borrow::Cow::Owned(lfn.to_string());
+            }
         }
         alloc::borrow::Cow::Borrowed(self.short_name.as_str())
     }
@@ -465,6 +505,23 @@ impl FileEntry {
         self.size
     }
 
+    /// Creation timestamp (date + time + 10-ms units).
+    pub fn created(&self) -> FatDateTime {
+        self.created
+    }
+
+    /// Last-access date. FAT does not store an access time, only a date.
+    /// Returns the raw FAT-encoded date `(year-1980)<<9 | month<<5 | day`.
+    pub fn accessed_date(&self) -> u16 {
+        self.last_access_date
+    }
+
+    /// Last-modified timestamp (date + time; sub-2-second precision is not
+    /// preserved by FAT for the modified field).
+    pub fn modified(&self) -> FatDateTime {
+        self.modified
+    }
+
     /// Get the first cluster of the file data
     pub fn cluster(&self) -> Cluster<usize> {
         self.cluster
@@ -494,10 +551,20 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                 // Cluster-based directory (FAT32 or subdirectory)
                 // Check if we need to move to the next cluster
                 if self.offset >= cluster_size {
-                    let next = match self.data.fat.next_cluster(data.deref_mut(), self.cluster.0) {
+                    self.cluster_steps = self.cluster_steps.saturating_add(1);
+                    if self.cluster_steps > self.data.fat.max_cluster() {
+                        return Some(Err(FatError::ClusterLoop {
+                            cluster: self.cluster.0 as u32,
+                        }));
+                    }
+                    // Drop data lock so next_cluster_routed can acquire
+                    // cache+data in canonical order; re-lock afterwards.
+                    drop(data);
+                    let next = match self.data.next_cluster_routed(self.cluster.0) {
                         Ok(n) => n,
                         Err(e) => return Some(Err(e)),
                     };
+                    data = self.data.data.lock();
                     match next {
                         Some(cluster) => {
                             self.cluster.0 = cluster as usize;
@@ -663,6 +730,18 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
 
             // For FAT12/16 with fixed root dir, parent_clus is 0 (sentinel)
             // For cluster-based dirs, parent_clus is the actual cluster
+            let created = FatDateTime::from_raw(
+                u16::from_le_bytes(file_entry.creation_date),
+                u16::from_le_bytes(file_entry.creation_time),
+                file_entry.creation_time_tenth,
+            );
+            let modified = FatDateTime::from_raw(
+                u16::from_le_bytes(file_entry.last_write_date),
+                u16::from_le_bytes(file_entry.last_write_time),
+                0,
+            );
+            let last_access_date = u16::from_le_bytes(file_entry.last_access_date);
+
             return Some(Ok(DirectoryEntry::Entry(FileEntry {
                 short_name,
                 #[cfg(feature = "lfn")]
@@ -675,6 +754,9 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                     file_entry.first_cluster_high.get(),
                     file_entry.first_cluster_low.get(),
                 ),
+                created,
+                last_access_date,
+                modified,
             })));
         }
     }
