@@ -161,6 +161,12 @@ jobs:
       - name: Run FAT roundtrip tests
         run: |
           cargo test -p hadris-fat --features "write" --test fat_roundtrip -- --nocapture
+      # `cache` is not a default feature, so the workspace `test` job never
+      # exercises the FAT-sector cache, its routing on FatFs, or the
+      # cache_integration suite. Run them explicitly here.
+      - name: Run FAT cache tests
+        run: |
+          cargo test -p hadris-fat --features "cache,write,std" -- --nocapture
 
   fmt:
     name: Format
@@ -206,5 +212,7 @@ jobs:
         run: cargo +nightly miri test -p hadris-common --lib
       - name: Miri — hadris-fat (LFN UTF-16 / surrogate-pair safety)
         run: cargo +nightly miri test -p hadris-fat --lib file::lfn_unicode_tests
+      - name: Miri — hadris-fat (LFN write encoding / union safety)
+        run: cargo +nightly miri test -p hadris-fat --lib lfn_write_safety_tests
       - name: Miri — hadris-iso (IsoStr / IsoString safety)
         run: cargo +nightly miri test -p hadris-iso --lib types::iso_str_safety_tests
