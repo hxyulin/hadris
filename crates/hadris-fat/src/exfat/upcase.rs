@@ -50,6 +50,17 @@ impl UpcaseTable {
         size: u64,
         is_contiguous: bool,
     ) -> Result<()> {
+        // `size` is the untrusted `data_length` of the up-case table directory
+        // entry — a full u64. Bound it against the volume's cluster heap before
+        // allocating, otherwise a corrupt entry in a tiny image could claim
+        // ~18 EiB and abort the process on a no-overcommit / embedded target.
+        let volume_capacity = info.cluster_count as u64 * info.bytes_per_cluster as u64;
+        if size > volume_capacity {
+            return Err(FatError::ExFatInvalidEntry {
+                reason: "upcase table size exceeds volume capacity",
+            });
+        }
+
         // Read the raw table data
         let mut raw_data = vec![0u8; size as usize];
 

@@ -4,8 +4,6 @@ use super::header::{CpioMagic, HEADER_SIZE, RawNewcHeader, TRAILER_NAME};
 use crate::error::{CpioError, Result};
 
 #[cfg(feature = "alloc")]
-use alloc::vec;
-#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
 /// Compute the number of padding bytes needed to align `offset` to a 4-byte boundary.
@@ -264,6 +262,31 @@ impl<R: Read> CpioReader<R> {
         Ok(())
     }
 
+    /// Read exactly `len` bytes into a freshly-allocated `Vec`, without trusting
+    /// `len` to size the allocation up front.
+    ///
+    /// `len` originates from attacker-controlled header fields (`namesize`,
+    /// `filesize`), which can claim up to ~4 GiB from a handful of input bytes.
+    /// Pre-allocating that claim (`vec![0u8; len]`) aborts the process on a
+    /// no-overcommit / embedded target — a DoS from a tiny archive. Instead we
+    /// grow the buffer in bounded chunks, so peak allocation tracks the bytes
+    /// the reader actually delivers: a bogus claim hits EOF after one chunk.
+    #[cfg(feature = "alloc")]
+    async fn read_exact_alloc(&mut self, len: usize) -> Result<Vec<u8>> {
+        // ponytail: 64 KiB cap bounds a bogus huge `len` to one chunk of slack.
+        const CHUNK: usize = 64 * 1024;
+        let mut buf = Vec::new();
+        let mut filled = 0;
+        while filled < len {
+            let want = (len - filled).min(CHUNK);
+            buf.resize(filled + want, 0);
+            self.reader.read_exact(&mut buf[filled..]).await?;
+            self.offset += want as u64;
+            filled += want;
+        }
+        Ok(buf)
+    }
+
     /// Read the next entry, allocating a `Vec` for the filename.
     ///
     /// Returns `Ok(None)` when the `TRAILER!!!` sentinel is reached.
@@ -294,9 +317,7 @@ impl<R: Read> CpioReader<R> {
         }
 
         let name_len = namesize - 1;
-        let mut name = vec![0u8; name_len];
-        self.reader.read_exact(&mut name).await?;
-        self.offset += name_len as u64;
+        let name = self.read_exact_alloc(name_len).await?;
 
         // Read and discard NUL
         let mut nul = [0u8; 1];
@@ -330,11 +351,7 @@ impl<R: Read> CpioReader<R> {
     #[cfg(feature = "alloc")]
     pub async fn read_entry_data_alloc(&mut self, entry: &CpioEntryOwned) -> Result<Vec<u8>> {
         let size = entry.file_size() as usize;
-        let mut buf = vec![0u8; size];
-        if size > 0 {
-            self.reader.read_exact(&mut buf).await?;
-            self.offset += size as u64;
-        }
+        let buf = self.read_exact_alloc(size).await?;
         let pad = align4_padding(entry.file_size() as u64);
         if pad > 0 {
             self.skip_bytes(pad).await?;

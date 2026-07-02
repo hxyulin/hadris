@@ -279,7 +279,18 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
 
     /// Read an extent from disk
     async fn read_extent(&self, data: &mut DATA, sector: u64, length: usize) -> UdfResult<Vec<u8>> {
-        data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
+        let start = sector * SECTOR_SIZE as u64;
+        // `length` is the untrusted extent length from an on-disk allocation
+        // descriptor (30-bit, up to ~1 GiB per descriptor, and the caller chains
+        // many). Bound it against the actual image size before allocating,
+        // otherwise a tiny image with one bogus descriptor would force that
+        // allocation up front — a DoS that aborts the process on no-overcommit
+        // / embedded targets.
+        let image_len = data.seek(SeekFrom::End(0)).await?;
+        if start.saturating_add(length as u64) > image_len {
+            return Err(UdfError::InvalidIcb);
+        }
+        data.seek(SeekFrom::Start(start)).await?;
         let mut buffer = alloc::vec![0u8; length];
         data.read_exact(&mut buffer).await?;
         Ok(buffer)

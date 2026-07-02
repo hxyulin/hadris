@@ -368,8 +368,21 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     /// same internal bulk-read path as [`read`](Self::read).
     #[cfg(feature = "alloc")]
     pub async fn read_to_vec(&mut self) -> Result<Vec<u8>> {
+        let remaining = self.remaining();
+        // `size` derives from the untrusted directory-entry file size (u32, up to
+        // ~4 GiB). A file cannot exceed the volume's cluster heap, so bound the
+        // up-front allocation against it — otherwise a corrupt entry in a tiny
+        // image could force a multi-gigabyte allocation (a DoS that aborts the
+        // process on no-overcommit / embedded targets).
+        let volume_capacity =
+            self.fs.info.max_cluster as u64 * self.fs.info.cluster_size as u64;
+        if remaining as u64 > volume_capacity {
+            return Err(FatError::CorruptFilesystem {
+                context: "file size exceeds volume capacity",
+            });
+        }
         // One allocation sized to what's left from the current read cursor.
-        let mut buf = alloc::vec![0u8; self.remaining()];
+        let mut buf = alloc::vec![0u8; remaining];
         let n = self.read_to_buf(&mut buf).await?;
         buf.truncate(n);
         Ok(buf)

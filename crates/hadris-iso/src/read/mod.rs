@@ -255,6 +255,21 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
     #[cfg(feature = "alloc")]
     pub async fn read_file(&self, entry: &directory::DirEntry) -> io::Result<alloc::vec::Vec<u8>> {
         let total = entry.total_size();
+        // `total` comes from on-disk directory-record data-length fields (u32 each,
+        // summed across extents) and is untrusted. Bound it against the actual
+        // image size before allocating, otherwise a tiny image whose record claims
+        // ~4 GiB would force that allocation up front — a DoS that aborts the
+        // process on no-overcommit / embedded targets.
+        let image_len = {
+            let mut data = self.data.lock();
+            data.seek(super::io::SeekFrom::End(0)).await?
+        };
+        if total > image_len {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "directory entry claims more data than the image contains",
+            ));
+        }
         let mut buf = alloc::vec![0u8; total as usize];
 
         if entry.is_multi_extent() {
