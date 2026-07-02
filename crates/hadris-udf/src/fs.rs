@@ -224,15 +224,18 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
     ) -> UdfResult<Vec<UdfDirEntry>> {
         let mut entries = Vec::new();
 
+        // Bound the untrusted allocation window against the buffer before slicing.
+        let alloc_range = validated_alloc_range(buffer.len(), alloc_offset, alloc_length)?;
+
         match allocation_type {
             AllocationType::Embedded => {
                 // Data is embedded in the allocation descriptors field
-                let embedded_data = &buffer[alloc_offset..alloc_offset + alloc_length];
+                let embedded_data = &buffer[alloc_range];
                 self.parse_fids(embedded_data, &mut entries)?;
             }
             AllocationType::Short | AllocationType::Long => {
                 // Read from extent
-                let alloc_data = &buffer[alloc_offset..alloc_offset + alloc_length];
+                let alloc_data = &buffer[alloc_range];
 
                 if allocation_type == AllocationType::Short {
                     // Parse short allocation descriptors
@@ -359,6 +362,27 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
 
 } // io_transform!
 
+/// Validate that the `[offset, offset + length)` allocation-descriptor window
+/// lies within the sector-sized File Entry `buffer`.
+///
+/// `offset` and `length` derive from the untrusted on-disk
+/// `extended_attributes_length` / `allocation_descriptors_length` (u32 each), so
+/// a corrupt File Entry can point them far past the 2 KiB buffer. Without this
+/// check the slice in `parse_directory_entries` panics (and on 32-bit the
+/// `offset + length` addition can overflow) — a crash triggerable by a crafted
+/// image, which aborts the process under `panic = "abort"` (embedded targets).
+fn validated_alloc_range(
+    buffer_len: usize,
+    offset: usize,
+    length: usize,
+) -> UdfResult<core::ops::Range<usize>> {
+    let end = offset.checked_add(length).ok_or(UdfError::InvalidIcb)?;
+    if end > buffer_len {
+        return Err(UdfError::InvalidIcb);
+    }
+    Ok(offset..end)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -374,6 +398,20 @@ mod tests {
         };
         assert_eq!(info.block_size, 2048);
         assert_eq!(info.volume_id, "TEST_VOLUME");
+    }
+
+    #[test]
+    fn alloc_range_rejects_out_of_bounds_and_overflow() {
+        // Valid window inside a 2 KiB File Entry buffer.
+        assert_eq!(validated_alloc_range(2048, 176, 100).unwrap(), 176..276);
+        assert_eq!(validated_alloc_range(2048, 0, 2048).unwrap(), 0..2048);
+
+        // A corrupt `extended_attributes_length` puts the offset past the buffer.
+        assert!(validated_alloc_range(2048, 5000, 0).is_err());
+        // A corrupt `allocation_descriptors_length` runs the window past the end.
+        assert!(validated_alloc_range(2048, 176, 4000).is_err());
+        // `offset + length` must not wrap on 32-bit usize.
+        assert!(validated_alloc_range(2048, usize::MAX, 10).is_err());
     }
 
     fn calculate_tag_checksum(tag: &[u8; 16]) -> u8 {
