@@ -60,6 +60,21 @@ fn test_invalid_boot_signature() {
     }
 }
 
+/// A corrupt BPB fat_count (not 1 or 2) must return an error, not trip the
+/// `debug_assert!(count == 1 || count == 2)` inside the FAT constructors.
+/// (fuzz regression: fat_table.rs debug_assert on untrusted input)
+#[test]
+fn test_invalid_fat_count_rejected() {
+    for bad in [0u8, 3, 0xFF] {
+        let mut data = BOOT_SECTORS.to_vec();
+        data[16] = bad; // BPB_NumFATs
+        match FatFs::open(Cursor::new(data)) {
+            Err(FatError::CorruptFilesystem { .. }) => {}
+            other => panic!("fat_count={bad} should be rejected, got {other:?}"),
+        }
+    }
+}
+
 /// Test that FAT12/16 is detected and parsed.
 #[test]
 fn test_fat12_16_detection() {

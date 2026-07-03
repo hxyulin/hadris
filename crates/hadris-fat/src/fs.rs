@@ -378,6 +378,17 @@ where
             return Err(FatError::InvalidBootSignature { found: signature });
         }
 
+        // FAT requires 1 or 2 file allocation tables (BPB_NumFATs). A corrupt
+        // count trips a debug_assert deep in the FAT constructors and, in
+        // release builds where the assert is stripped, silently corrupts
+        // FAT-copy math — reject it here (after the signature check so a
+        // non-FAT sector still surfaces InvalidBootSignature first).
+        if bpb.fat_count != 1 && bpb.fat_count != 2 {
+            return Err(FatError::CorruptFilesystem {
+                context: "BPB fat_count must be 1 or 2",
+            });
+        }
+
         let sector_size = data.sector_size;
         let cluster_size = data.cluster_size;
         let reserved_sectors = bpb.reserved_sector_count.get() as usize;
@@ -511,6 +522,15 @@ where
         let signature = bpb_ext32.signature_word.get();
         if signature != 0xAA55 {
             return Err(FatError::InvalidBootSignature { found: signature });
+        }
+
+        // FAT requires 1 or 2 file allocation tables (BPB_NumFATs) — see the
+        // FAT12/16 path. Reject a corrupt count before it reaches Fat32::new's
+        // debug_assert (and before it skews FAT-copy math in release).
+        if bpb.fat_count != 1 && bpb.fat_count != 2 {
+            return Err(FatError::CorruptFilesystem {
+                context: "BPB fat_count must be 1 or 2",
+            });
         }
 
         // Read and validate FSInfo

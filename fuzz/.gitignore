@@ -1,0 +1,5 @@
+# Build artifacts and fuzzer state (the seed corpus under corpus/ IS tracked).
+/target
+/artifacts
+/coverage
+Cargo.lock

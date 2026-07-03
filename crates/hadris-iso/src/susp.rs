@@ -364,6 +364,14 @@ impl Iterator for SystemUseIter<'_> {
             return None;
         }
 
+        // A SUSP entry is at least its 4-byte header (BP1-2 signature, BP3
+        // length, BP4 version). A nonzero length below that is malformed and
+        // would make the `entry_data` slice below have start > end (panic) —
+        // treat it as the end of entries.
+        if (header.length as usize) < 4 {
+            return None;
+        }
+
         // Validate we have enough data
         let entry_end = self.offset + header.length as usize;
         if entry_end > self.data.len() {
@@ -716,6 +724,18 @@ mod tests {
     static_assertions::const_assert_eq!(size_of::<SystemUseHeader>(), 4);
     static_assertions::const_assert_eq!(size_of::<ContinuationArea>(), 24);
     static_assertions::const_assert_eq!(size_of::<SuspIdentifier>(), 3);
+
+    #[test]
+    fn short_entry_length_does_not_panic() {
+        // A nonzero length below the 4-byte header size used to make the
+        // entry_data slice have start (offset+4) > end (offset+length) and
+        // panic. The iterator must terminate cleanly instead. (fuzz regression)
+        for len in 1u8..=3 {
+            let data = [b'A', b'A', len, 1];
+            let mut iter = SystemUseIter::new(&data, 0);
+            assert!(iter.next().is_none(), "length {len} should terminate");
+        }
+    }
 
     #[test]
     fn test_susp_identifier_valid() {

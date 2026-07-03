@@ -1,0 +1,62 @@
+# Fuzzing harnesses for the untrusted-input parsers. This is a cargo-fuzz
+# package: a separate crate (own `[workspace]` so it detaches from the parent
+# workspace) that builds one libFuzzer binary per reader.
+#
+# The invariant every target enforces: feeding ARBITRARY bytes into a reader
+# must only ever return an `Err` or succeed — never panic, abort, or OOM.
+#
+#   cargo install cargo-fuzz          # one-time
+#   cargo +nightly fuzz run cpio_read # fuzz one target
+#
+# See README.md for the full workflow.
+
+[package]
+name = "hadris-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+hadris-cpio = { path = "../crates/hadris-cpio" }
+hadris-fat = { path = "../crates/hadris-fat" }
+hadris-iso = { path = "../crates/hadris-iso", features = ["read", "joliet"] }
+hadris-udf = { path = "../crates/hadris-udf" }
+
+# Keep line-table debug info so crash backtraces point at real source lines.
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "cpio_read"
+path = "fuzz_targets/cpio_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fat_read"
+path = "fuzz_targets/fat_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "iso_read"
+path = "fuzz_targets/iso_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "udf_read"
+path = "fuzz_targets/udf_read.rs"
+test = false
+doc = false
+bench = false
+
+# Detach from the parent workspace — cargo-fuzz packages are standalone.
+[workspace]
