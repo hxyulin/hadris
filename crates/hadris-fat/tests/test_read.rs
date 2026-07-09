@@ -317,6 +317,71 @@ mod integration_tests {
     }
 
     #[test]
+    fn test_root_listing_skips_volume_label_entry() {
+        use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
+
+        let volume_size: u64 = 256 * 1024 * 1024;
+        let buffer = vec![0u8; volume_size as usize];
+        let mut cursor = Cursor::new(buffer);
+
+        let opts = FormatOptions::new(volume_size)
+            .with_label("PMOS_BOOT")
+            .with_fat_type(FatTypeSelection::Fat32);
+        let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
+
+        let entries: Vec<_> = fs
+            .root_dir()
+            .entries()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(
+            entries.is_empty(),
+            "volume label must not appear in directory listing"
+        );
+        assert_eq!(
+            fs.read_root_label().expect("read_root_label"),
+            Some(*b"PMOS_BOOT  ")
+        );
+    }
+
+    #[test]
+    fn test_root_listing_skips_mkfs_style_lowercase_label() {
+        use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
+        use hadris_io::Seek;
+
+        let volume_size: u64 = 256 * 1024 * 1024;
+        let mut buffer = vec![0u8; volume_size as usize];
+        let mut cursor = Cursor::new(&mut buffer);
+
+        let opts = FormatOptions::new(volume_size)
+            .with_label("PLACEHOLDER")
+            .with_fat_type(FatTypeSelection::Fat32);
+        {
+            let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
+            // mkfs.fat stores the label verbatim, including lowercase (issue #31).
+            fs.set_root_label(b"pmOS_boot  ")
+                .expect("set_root_label");
+        }
+
+        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+        let fs = FatFs::open(cursor).expect("re-open FAT32");
+
+        let entries: Vec<_> = fs
+            .root_dir()
+            .entries()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(
+            entries.is_empty(),
+            "lowercase mkfs.fat-style volume label must not break listing"
+        );
+        assert_eq!(
+            fs.read_root_label().expect("read_root_label"),
+            Some(*b"pmOS_boot  ")
+        );
+    }
+
+    #[test]
     fn test_read_directory_entries() {
         use hadris_io::Seek;
 

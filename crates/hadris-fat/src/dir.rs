@@ -335,6 +335,13 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
             // This is a regular file/directory entry
             let file_entry = unsafe { raw_entry.file };
 
+            let attr = DirEntryAttrFlags::from_bits_retain(file_entry.attributes);
+            if attr.is_volume_label_entry() {
+                #[cfg(feature = "lfn")]
+                self.lfn_builder.reset();
+                continue;
+            }
+
             // Convert 0x05 back to 0xE5 for kanji compatibility
             let mut name_bytes = file_entry.name;
             if name_bytes[0] == 0x05 {
@@ -368,7 +375,7 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                 short_name,
                 #[cfg(feature = "lfn")]
                 long_name,
-                attr: DirEntryAttrFlags::from_bits_retain(file_entry.attributes),
+                attr,
                 size: file_entry.size.get() as usize,
                 parent_clus: self.cluster,
                 offset_within_cluster: self.offset - entry_size,
@@ -713,6 +720,13 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
             // This is a regular file/directory entry
             let file_entry = unsafe { raw_entry.file };
 
+            let attr = DirEntryAttrFlags::from_bits_retain(file_entry.attributes);
+            if attr.is_volume_label_entry() {
+                #[cfg(feature = "lfn")]
+                self.lfn_builder.reset();
+                continue;
+            }
+
             // Convert 0x05 back to 0xE5 for kanji compatibility
             let mut name_bytes = file_entry.name;
             if name_bytes[0] == 0x05 {
@@ -746,7 +760,7 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                 short_name,
                 #[cfg(feature = "lfn")]
                 long_name,
-                attr: DirEntryAttrFlags::from_bits_retain(file_entry.attributes),
+                attr,
                 size: file_entry.size.get() as usize,
                 parent_clus: self.cluster,
                 offset_within_cluster: self.offset - entry_size,

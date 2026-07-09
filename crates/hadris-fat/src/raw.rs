@@ -399,4 +399,12 @@ impl DirEntryAttrFlags {
     pub const LONG_NAME: Self = Self::from_bits_truncate(
         Self::READ_ONLY.bits() | Self::HIDDEN.bits() | Self::SYSTEM.bits() | Self::VOLUME_ID.bits(),
     );
+
+    /// True for a root-directory volume label entry (`VOLUME_ID` set, not a
+    /// directory, not an LFN component).
+    pub fn is_volume_label_entry(self) -> bool {
+        self.contains(Self::VOLUME_ID)
+            && !self.contains(Self::DIRECTORY)
+            && self != Self::LONG_NAME
+    }
 }

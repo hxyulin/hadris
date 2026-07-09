@@ -95,15 +95,35 @@ fn open_fat_fs(path: PathBuf) -> Result<FatFs<File>> {
     FatFs::open(file).context("Failed to parse FAT filesystem")
 }
 
+/// Prefer the root-directory volume label (what Windows/mkfs.fat update) over
+/// the BPB copy, which can drift. Fall back to the BPB label when no root
+/// entry exists.
+fn display_volume_label(fs: &FatFs<File>) -> Result<String> {
+    if let Some(raw) = fs
+        .read_root_label()
+        .context("Failed to read root volume label")?
+    {
+        let label = core::str::from_utf8(&raw)
+            .unwrap_or("")
+            .trim_end()
+            .to_string();
+        if !label.is_empty() && label != "NO NAME" {
+            return Ok(label);
+        }
+    }
+    Ok(fs.volume_info().volume_label().to_string())
+}
+
 fn cmd_info(image: PathBuf) -> Result<()> {
     let fs = open_fat_fs(image)?;
     let vol = fs.volume_info();
+    let label = display_volume_label(&fs)?;
 
     println!("FAT Filesystem Information");
     println!("==========================");
     println!("FAT Type:        {:?}", fs.fat_type());
     println!("OEM Name:        {}", vol.oem_name());
-    println!("Volume Label:    {}", vol.volume_label());
+    println!("Volume Label:    {}", label);
     println!("Volume ID:       {:08X}", vol.volume_id());
     println!("FS Type String:  {}", vol.fs_type_str());
 
@@ -113,10 +133,12 @@ fn cmd_info(image: PathBuf) -> Result<()> {
 fn cmd_stat(image: PathBuf) -> Result<()> {
     let fs = open_fat_fs(image)?;
     let stats = fs.statistics().context("Failed to gather statistics")?;
+    let label = display_volume_label(&fs)?;
 
     println!("FAT Filesystem Statistics");
     println!("=========================");
     println!("FAT Type:            {:?}", stats.fat_type);
+    println!("Volume Label:        {}", label);
     println!();
     println!("Cluster Information:");
     println!("  Cluster Size:      {} bytes", stats.cluster_size);

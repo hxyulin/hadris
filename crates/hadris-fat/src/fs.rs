@@ -737,12 +737,8 @@ where
         let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         let mut data = self.data.lock();
 
-        let is_label = |attr: u8| {
-            let flags = DirEntryAttrFlags::from_bits_retain(attr);
-            flags.contains(DirEntryAttrFlags::VOLUME_ID)
-                && !flags.contains(DirEntryAttrFlags::DIRECTORY)
-                && flags != DirEntryAttrFlags::LONG_NAME
-        };
+        let is_label =
+            |attr: u8| DirEntryAttrFlags::from_bits_retain(attr).is_volume_label_entry();
 
         match &self.ext {
             FatFsExt::Fat12_16(ext) => {
