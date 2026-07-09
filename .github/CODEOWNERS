@@ -1,0 +1,28 @@
+* @hxyulin
+
+# CI / infra
+/.github/ @hxyulin
+/fuzz/ @hxyulin
+/.pre-commit-config.yaml @hxyulin
+/rust-toolchain.toml @hxyulin
+
+# Shared foundation
+/crates/hadris-io/ @hxyulin
+/crates/hadris-common/ @hxyulin
+/crates/hadris-macros/ @hxyulin
+
+# Filesystems / formats
+/crates/hadris-iso/ @hxyulin
+/crates/hadris-iso-cli/ @hxyulin
+/crates/hadris-fat/ @hxyulin
+/crates/hadris-fat-cli/ @hxyulin
+/crates/hadris-udf/ @hxyulin
+/crates/hadris-udf-cli/ @hxyulin
+/crates/hadris-cpio/ @hxyulin
+/crates/hadris-cpio-cli/ @hxyulin
+/crates/hadris-part/ @hxyulin
+/crates/hadris-cd/ @hxyulin
+
+# Meta / general CLI
+/crates/hadris/ @hxyulin
+/crates/hadris-cli/ @hxyulin
