@@ -103,21 +103,21 @@ IsoImageWriter::format_new(&mut buffer, files, format_options)?;
 
 ```toml
 [dependencies]
-hadris-iso = { version = "0.2", default-features = false, features = ["read"] }
+hadris-iso = { version = "1.2.1", default-features = false, features = ["read"] }
 ```
 
 ### For Kernels with Heap (no-std + alloc)
 
 ```toml
 [dependencies]
-hadris-iso = { version = "0.2", default-features = false, features = ["read", "alloc"] }
+hadris-iso = { version = "1.2.1", default-features = false, features = ["read", "alloc"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-iso = { version = "0.2" }  # Uses default features
+hadris-iso = "1.2.1"  # Uses default features
 ```
 
 ## Extension Support
@@ -128,7 +128,7 @@ hadris-iso = { version = "0.2" }  # Uses default features
 | ISO 9660:1999 | Yes | Yes | Long filenames up to 207 chars (Level 2/3 compliance) |
 | SUSP | Yes | Yes | System Use Sharing Protocol for extension framework |
 | Joliet | Yes | Yes | UTF-16 BE, up to 64 characters |
-| Rock Ridge (RRIP) | Yes | Yes | POSIX semantics, symlinks, uses SUSP |
+| Rock Ridge (RRIP) | Yes | Partial | Read: POSIX semantics / symlinks via SUSP. Write: basic RRIP only (hardcoded modes; `RripOptions` / symlinks / devices not fully wired) |
 | El-Torito | Yes | Yes | BIOS bootable images |
 | Hybrid Boot (MBR/GPT) | - | Yes | USB bootable images (MBR, GPT, or dual) |
 

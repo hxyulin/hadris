@@ -16,7 +16,7 @@ use hadris_udf::descriptor::{
 use hadris_udf::write::{UdfWriteOptions, UdfWriter};
 use hadris_udf::{FileType, SECTOR_SIZE as UDF_SECTOR_SIZE};
 
-use crate::error::CdResult;
+use crate::error::{CdError, CdResult};
 use crate::layout::{LayoutInfo, LayoutManager};
 use crate::options::CdOptions;
 use crate::tree::{Directory, FileData, FileTree};
@@ -111,7 +111,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         use hadris_iso::write::{InputFiles, IsoImageWriter};
 
         // Convert our tree to ISO's InputFiles format
-        let iso_files = self.tree_to_iso_files(&tree.root);
+        let iso_files = self.tree_to_iso_files(&tree.root)?;
 
         let input_files = InputFiles {
             path_separator: PathSeparator::ForwardSlash,
@@ -149,13 +149,18 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     }
 
     /// Convert our tree to ISO's file format
-    fn tree_to_iso_files(&self, dir: &Directory) -> Vec<hadris_iso::write::File> {
+    fn tree_to_iso_files(&self, dir: &Directory) -> CdResult<Vec<hadris_iso::write::File>> {
         let mut files = Vec::new();
 
         for file in &dir.files {
             let data = match &file.data {
                 FileData::Buffer(b) => b.clone(),
-                FileData::Path(p) => std::fs::read(p).unwrap_or_default(),
+                FileData::Path(p) => std::fs::read(p).map_err(|e| {
+                    CdError::Io(std::io::Error::new(
+                        e.kind(),
+                        format!("failed to read {}: {e}", p.display()),
+                    ))
+                })?,
             };
             files.push(hadris_iso::write::File::File {
                 name: file.name.clone(),
@@ -166,11 +171,11 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         for subdir in &dir.subdirs {
             files.push(hadris_iso::write::File::Directory {
                 name: subdir.name.clone(),
-                children: self.tree_to_iso_files(subdir),
+                children: self.tree_to_iso_files(subdir)?,
             });
         }
 
-        files
+        Ok(files)
     }
 
     /// Write UDF structures

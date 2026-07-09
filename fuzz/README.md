@@ -1,6 +1,9 @@
 # Fuzzing
 
-Coverage-guided fuzz harnesses for the untrusted-input parsers, one per reader:
+Coverage-guided fuzz harnesses for the untrusted-input parsers, one per reader.
+These are **local / developer tools** — they are intentionally **not** run in CI
+(nightly + long-running; corpus replay belongs in a developer workflow or a
+separate scheduled job outside the PR gate).
 
 | Target      | Entry point                          | Exercises |
 |-------------|--------------------------------------|-----------|
@@ -24,6 +27,14 @@ cargo +nightly fuzz run cpio_read -- -max_total_time=60 # time-boxed
 cargo +nightly fuzz run cpio_read -- -runs=0           # replay committed corpus only, then exit
 ```
 
+Replay every committed corpus after pulling or before a release:
+
+```bash
+for t in cpio_read fat_read iso_read udf_read; do
+  cargo +nightly fuzz run "$t" -- -runs=0
+done
+```
+
 ## When a crash is found
 
 cargo-fuzz writes the crashing input to `artifacts/<target>/crash-<hash>`.
@@ -31,12 +42,10 @@ cargo-fuzz writes the crashing input to `artifacts/<target>/crash-<hash>`.
 1. Reproduce: `cargo +nightly fuzz run <target> artifacts/<target>/crash-<hash>`
 2. Fix the reader so that input returns an `Err`.
 3. Lock in the regression: copy the artifact into the target's seed corpus so it
-   is replayed on every run:
+   is replayed on every local `-runs=0` pass:
    ```bash
    cp artifacts/<target>/crash-<hash> corpus/<target>/
    ```
-   The committed corpus under `corpus/` is replayed by the `fuzz` CI job
-   (`-runs=0`), so the fixed input guards against regressions.
 
 ## Notes
 
@@ -47,3 +56,5 @@ cargo-fuzz writes the crashing input to `artifacts/<target>/crash-<hash>`.
   the libraries.
 - `cpio_read` is seeded with the two allocation-DoS inputs that motivated this
   setup; they now replay cleanly.
+- Prefer adding a focused unit/integration regression under `crates/*/tests`
+  for crashes that should gate PRs; keep fuzzing for discovery.

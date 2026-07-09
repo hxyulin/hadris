@@ -2,6 +2,7 @@
 name = "hadris-udf"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -9,6 +10,10 @@ readme = "README.md"
 description = "A rust implementation of the UDF (Universal Disk Format) filesystem."
 keywords = ["udf", "dvd", "blu-ray", "optical", "filesystem"]
 categories = ["filesystem", "encoding"]
+
+[package.metadata.docs.rs]
+features = ["std", "read", "write", "sync"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std", "read", "sync"]

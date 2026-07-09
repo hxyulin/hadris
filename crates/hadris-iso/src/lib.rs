@@ -243,14 +243,25 @@
 //!
 //! For detailed specification documentation, see the
 //! [spec directory](https://github.com/hxyulin/hadris/tree/main/crates/hadris-iso/spec).
-
-// Known Limitations:
-//  - Rock Ridge write uses hardcoded defaults (mode 0o755/0o644, uid/gid 0);
-//    the `RripOptions` configuration (preserve_permissions, etc.) is not yet wired up.
-//  - When reading ISOs with both Joliet and Rock Ridge, only one is used
+//!
+//! ## Known Limitations
+//!
+//! - **Rock Ridge write:** Modes are hardcoded (`0o755` directories / `0o644` files,
+//!   uid/gid `0`). [`RripOptions`](crate::rrip::RripOptions) (permissions,
+//!   ownership, symlinks, devices) is not yet wired into the writer.
+//! - **Joliet + Rock Ridge on read:** When an image has both namespaces, the
+//!   reader selects a single root via usefulness scoring (`root_dir()` /
+//!   `best_choice()`). Joliet roots are treated as non-RRIP, so a Level-1 +
+//!   RRIP root can win over Joliet and hide Unicode Joliet names. Prefer
+//!   iterating volume descriptors / roots explicitly when you need both.
+//! - **El-Torito multi-section catalogs:** Virtual FAT for non-default section
+//!   entries is incomplete (`TODO` in the writer).
+//! - **High-level `IsoImage`:** Requires the `alloc` feature. `read` alone
+//!   exposes low-level modules suitable for no-alloc bootloaders.
 
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

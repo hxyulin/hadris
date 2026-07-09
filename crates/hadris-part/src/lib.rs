@@ -13,11 +13,12 @@
 //!
 //! # Features
 //!
-//! - `std` (default): Enables standard library support and includes `alloc`.
+//! - `std` (default): Enables standard library support and includes `alloc` + `sync`.
+//! - `read` (default): Enables reading partition tables via `*ReadExt` traits.
 //! - `alloc`: Enables heap allocation for `Vec`-based APIs (e.g., `GptDisk`, `DiskPartitionScheme`).
-//! - `read`: Enables reading partition tables (currently a marker feature).
-//! - `write`: Enables writing partition tables (requires `alloc`).
-//! - `crc`: Enables CRC32 calculation for GPT headers (via the `crc` crate).
+//! - `write`: Enables writing partition tables (requires `alloc` + `read`).
+//! - `sync` / `async`: Synchronous or asynchronous I/O traits (via `hadris-io`).
+//! - `crc`: Enables CRC32 verification/calculation for GPT headers (via the `crc` crate).
 //! - `rand`: Enables random GUID generation (via the `rand` crate).
 //!
 //! # Examples
@@ -165,7 +166,28 @@ pub use mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionTable, MbrPartiti
 pub use scheme::{PartitionInfo, PartitionSchemeType, PartitionType};
 
 #[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use scheme::{DiskPartitionScheme, GptDisk};
+
+// Flatten I/O extension traits to the crate root for discoverability
+#[cfg(all(feature = "sync", feature = "read"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "read")))]
+pub use sync::gpt_io::GptHeaderReadExt;
+#[cfg(all(feature = "sync", feature = "write"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
+pub use sync::gpt_io::GptHeaderWriteExt;
+#[cfg(all(feature = "sync", feature = "read"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "read")))]
+pub use sync::mbr_io::MasterBootRecordReadExt;
+#[cfg(all(feature = "sync", feature = "write"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
+pub use sync::mbr_io::MasterBootRecordWriteExt;
+#[cfg(all(feature = "sync", feature = "alloc", feature = "read"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "read"))))]
+pub use sync::scheme_io::{DiskPartitionSchemeReadExt, GptDiskReadExt};
+#[cfg(all(feature = "sync", feature = "alloc", feature = "write"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "write"))))]
+pub use sync::scheme_io::{DiskPartitionSchemeWriteExt, GptDiskWriteExt};
 
 /// Trait for types that represent partition information.
 ///

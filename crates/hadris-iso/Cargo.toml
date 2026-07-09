@@ -2,6 +2,7 @@
 name = "hadris-iso"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -10,6 +11,10 @@ description = "A rust implementation of the ISO-9660 filesystem."
 keywords = ["el-torito", "iso", "iso9660", "cd", "dvd"]
 categories = ["filesystem", "encoding"]
 exclude = ["/spec"]
+
+[package.metadata.docs.rs]
+features = ["std", "write", "joliet", "read", "alloc"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std", "write"]

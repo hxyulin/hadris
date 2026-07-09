@@ -52,6 +52,16 @@
 //! | `tool`   | No      | Analysis and diagnostic utilities |
 //! | `exfat`  | No      | exFAT filesystem support (WIP) |
 //!
+//! ## Known Limitations
+//!
+//! - **LFN cross-cluster runs:** Creating a long name whose directory-entry run
+//!   would span a cluster boundary returns [`FatError::DirEntryRunTooLong`].
+//! - **async + cache:** The FAT-sector cache is sync-only; under the async API
+//!   it is silently bypassed.
+//! - **exFAT:** Experimental. Fragmented allocation bitmap / upcase table
+//!   layouts return [`FatError::UnsupportedFatType`]. The exFAT API lives at
+//!   the crate root (`exfat` module), not under `sync`/`async` dual codegen.
+//!
 //! ## Dual Sync/Async Architecture
 //!
 //! This crate provides both synchronous and asynchronous APIs through

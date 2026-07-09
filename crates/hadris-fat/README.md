@@ -16,47 +16,53 @@ A comprehensive Rust implementation of the FAT filesystem family with support fo
 
 ### Reading a FAT Filesystem
 
-```rust
+```rust,no_run
 use std::fs::File;
-use std::io::BufReader;
-use hadris_fat::Fat;
+use hadris_fat::{FatFs, FatFsReadExt};
 
+# fn main() -> hadris_fat::Result<()> {
 let file = File::open("disk.img")?;
-let reader = BufReader::new(file);
-let fat = Fat::open(reader)?;
+let fs = FatFs::open(file)?;
 
-// Read root directory
-let root = fat.root_dir();
-for entry in root.iter() {
-    let entry = entry?;
-    println!("File: {}", entry.name());
+let root = fs.root_dir();
+let mut iter = root.entries();
+while let Some(Ok(entry)) = iter.next_entry() {
+    println!("{}", entry.name());
 }
+# Ok(())
+# }
 ```
 
 ### Writing to a FAT Filesystem
 
-```rust
-use hadris_fat::Fat;
+```rust,no_run
+use std::fs::OpenOptions;
+use hadris_fat::{FatFs, FatFsWriteExt};
 
-let mut fat = Fat::open(file)?;
+# fn main() -> hadris_fat::Result<()> {
+let file = OpenOptions::new().read(true).write(true).open("disk.img")?;
+let fs = FatFs::open(file)?;
 
-// Create a new file
-let root = fat.root_dir_mut();
-let mut file = root.create_file("newfile.txt")?;
-file.write_all(b"Hello, FAT!")?;
+let root = fs.root_dir();
+let entry = fs.create_file(&root, "newfile.txt")?;
+let mut writer = fs.write_file(&entry)?;
+writer.write(b"Hello, FAT!")?;
+writer.finish()?;
+# Ok(())
+# }
 ```
 
 ### Formatting a New FAT Volume
 
-```rust
+```rust,no_run
 use hadris_fat::format::{FatVolumeFormatter, FormatOptions, FatTypeSelection};
 use std::io::Cursor;
 
+# fn main() -> hadris_fat::Result<()> {
 // Create a 64 MB in-memory volume
 let mut buffer = vec![0u8; 64 * 1024 * 1024];
 let cursor = Cursor::new(&mut buffer[..]);
 
-// Format with automatic FAT type selection
 let options = FormatOptions::new(64 * 1024 * 1024)
     .with_label("MYDISK");
 
@@ -67,6 +73,9 @@ println!("Created {} volume", fs.fat_type());
 let options = FormatOptions::new(64 * 1024 * 1024)
     .with_fat_type(FatTypeSelection::Fat32)
     .with_label("FAT32VOL");
+# let _ = options;
+# Ok(())
+# }
 ```
 
 ## Feature Flags
@@ -76,35 +85,42 @@ let options = FormatOptions::new(64 * 1024 * 1024)
 | `read` | Read operations | None |
 | `write` | Write operations | `alloc`, `read` |
 | `lfn` | Long filename (VFAT) support | None |
-| `cache` | FAT sector caching for performance | `alloc` |
-| `tool` | Analysis and verification utilities | `alloc`, `read` |
+| `cache` | FAT sector caching for performance | `alloc`, `sync` |
+| `tool` | Analysis and verification utilities | `alloc`, `read`, `sync` |
 | `exfat` | ExFAT filesystem support (WIP) | `alloc` |
 | `alloc` | Heap allocation without full std | `alloc` crate |
-| `std` | Full standard library support | `std`, `alloc` |
+| `sync` | Synchronous API | `hadris-io/sync` |
+| `async` | Asynchronous API | `hadris-io/async` |
+| `std` | Full standard library support | `std`, `alloc`, `sync` |
 
 Default features: `read`, `write`, `lfn`, `std`
 
 ## Volume Formatting
 
-The `format` module (requires `write` feature) provides volume formatting capabilities:
+The `format` module (requires `write`) provides volume formatting:
 
-```rust
-use hadris_fat::format::{FatVolumeFormatter, FormatOptions};
+```rust,no_run
+use hadris_fat::format::{FatVolumeFormatter, FormatOptions, SectorSize};
 
+# fn main() -> hadris_fat::Result<()> {
+# let volume_size = 64 * 1024 * 1024usize;
+# let data = std::io::Cursor::new(vec![0u8; volume_size]);
 let options = FormatOptions::new(volume_size)
     .with_label("VOLUME")
     .with_sector_size(SectorSize::S512)
     .with_fat_copies(2);
 
-// Calculate parameters without formatting (for validation)
 let params = FatVolumeFormatter::calculate_params(&options)?;
 println!("Will create {} with {} clusters", params.fat_type, params.cluster_count);
 
-// Format the volume
 let fs = FatVolumeFormatter::format(data, options)?;
+# let _ = fs;
+# Ok(())
+# }
 ```
 
 Automatic FAT type selection follows Microsoft recommendations:
+
 - < 16 MB: FAT12
 - 16 MB - 512 MB: FAT16
 - \> 512 MB: FAT32
@@ -113,21 +129,21 @@ Automatic FAT type selection follows Microsoft recommendations:
 
 ```toml
 [dependencies]
-hadris-fat = { version = "0.3", default-features = false, features = ["read"] }
+hadris-fat = { version = "1.2.1", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Embedded Systems with Heap
 
 ```toml
 [dependencies]
-hadris-fat = { version = "0.3", default-features = false, features = ["read", "write", "alloc", "lfn"] }
+hadris-fat = { version = "1.2.1", default-features = false, features = ["read", "write", "alloc", "lfn", "sync"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-fat = { version = "0.3" }  # Uses default features
+hadris-fat = "1.2.1"  # Uses default features
 ```
 
 ## FAT Variant Support
@@ -143,49 +159,44 @@ hadris-fat = { version = "0.3" }  # Uses default features
 
 When the `lfn` feature is enabled, the crate supports VFAT long filenames:
 
-- Filenames up to 255 characters
-- Unicode character support
-- Automatic fallback to 8.3 short names
-- Maintains compatibility with non-LFN implementations
+- Filenames up to 255 UTF-16 code units
+- Unicode character support (including supplementary-plane characters)
+- Automatic short-name generation for 8.3 compatibility
+- **Limitation:** LFN directory-entry runs that would span a cluster boundary are rejected with `FatError::DirEntryRunTooLong`
 
 ## FAT Caching
 
-The `cache` feature enables intelligent FAT sector caching:
+The `cache` feature enables LRU FAT sector caching (sync API only; silently bypassed under async):
 
 - Reduces redundant disk reads
-- Configurable cache size
-- Write-through or write-back strategies
-- Significant performance improvement for fragmented files
+- Configurable capacity via `FatFs::builder(data).with_fat_cache(n).open()`
+- Dirty entries flush to all FAT copies on eviction
 
 ## Analysis Tools
 
-The `tool` feature provides filesystem analysis capabilities:
+The `tool` feature adds extension traits on `FatFs`:
 
-- Filesystem integrity verification
-- Cluster chain validation
-- Lost cluster detection
-- Fragmentation analysis
-- Disk space statistics
+```rust,no_run
+use hadris_fat::{FatFs, FatAnalysisExt, FatVerifyExt};
 
-Example:
+# fn main() -> hadris_fat::Result<()> {
+# let fs = FatFs::open(std::fs::File::open("disk.img")?)?;
+let stats = fs.statistics()?;
+println!("Total clusters: {}", stats.total_clusters);
+println!("Free clusters: {}", stats.free_clusters);
+println!("Bad clusters: {}", stats.bad_clusters);
 
-```rust
-use hadris_fat::tool::FatAnalyzer;
-
-let analyzer = FatAnalyzer::new(&fat);
-let report = analyzer.analyze()?;
-println!("Total clusters: {}", report.total_clusters);
-println!("Free clusters: {}", report.free_clusters);
-println!("Bad clusters: {}", report.bad_clusters);
+let report = fs.verify()?;
+println!("Issues: {}", report.issues.len());
+# Ok(())
+# }
 ```
 
 ## No-std Compatibility
 
-The crate is designed for no-std environments:
-
-- Core reading functionality requires only `read` feature (no allocations)
-- Write operations require `alloc` feature for buffering
-- All I/O uses `hadris-io` traits instead of `std::io`
+- Core reading requires `read` + `sync` (add `alloc` for high-level APIs that need heap)
+- Write operations require `alloc`
+- All I/O uses `hadris-io` traits instead of `std::io` directly
 - Suitable for bootloaders, embedded systems, and custom kernels
 
 ## Specification Compliance
@@ -198,4 +209,4 @@ Implements the following specifications:
 
 ## License
 
-This project is licensed under the [MIT license](LICENSE-MIT).
+This project is licensed under the [MIT license](../../LICENSE-MIT).

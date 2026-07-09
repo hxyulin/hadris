@@ -8,6 +8,58 @@ Crates share a single workspace version.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-part:** `read` is now a default feature; I/O extension traits
+  (`MasterBootRecordReadExt`, `GptDiskReadExt`, `DiskPartitionSchemeReadExt`,
+  and write counterparts) are re-exported at the crate root.
+- **hadris-part:** Explicit `crc` / `rand` feature flags; docs.rs builds with
+  all features.
+- **hadris-part:** I/O roundtrip integration tests for MBR read/write and
+  scheme detection.
+- **hadris-macros:** Dual sync/async integration guide in the crate README.
+- **CI:** `check-features` tiers for `hadris-io` async and `hadris-part`
+  async-read / crc.
+- **hadris-udf:** Public `UdfFs::read_file`; directory listings populate
+  `UdfDirEntry::size` from each file ICB.
+- **hadris-udf-cli:** `cat` and `extract` subcommands.
+
+### Changed
+
+- **hadris-part:** `PartitionError::Io` now wraps `hadris_io::Error` (with
+  `std::error::Error::source` under `std`) instead of discarding context.
+- **hadris-cd:** Missing/unreadable source paths during ISO tree conversion
+  now return `CdError` instead of silently writing empty files.
+- **hadris-iso / hadris-fat / hadris-udf:** Documented known limitations in
+  crate-level rustdoc.
+- **CI / process:** MSRV pinned to Rust 1.88.0 (required for `let`-chains in
+  `hadris-macros`; `rust-toolchain.toml`, workspace `rust-version`, CI
+  toolchain); CLI `--help` smoke job; workspace `cargo doc` job; Dependabot
+  for Cargo and GitHub Actions; CONTRIBUTING.md. Fuzz harnesses remain
+  local-only (not PR CI).
+
+## [1.2.1] - 2026-07-09
+
+### Added
+
+- **Fuzzing:** Coverage-guided fuzz harnesses for `cpio_read`, `fat_read`,
+  `iso_read`, and `udf_read`, with a committed seed corpus (including CPIO
+  allocation-DoS regressions).
+- **SECURITY.md:** Project security policy.
+
+### Fixed
+
+- **hadris-fat / hadris-iso / hadris-udf / hadris-cpio:** Bound untrusted length
+  fields before allocating; reject inputs that previously panicked readers.
+- **hadris-udf:** Validate File Entry allocation window before slicing.
+- **hadris-fat:** Skip volume label entries when listing directories.
+
+### Documentation
+
+- Workspace and crate READMEs updated for API accuracy and version `1.2.1`
+  (ongoing professionalization; see
+  `docs/superpowers/specs/2026-07-09-professionalization-review.md`).
+
 ## [1.2.0] - 2026-06-13
 
 ### Added
@@ -82,6 +134,7 @@ Crates share a single workspace version.
 Baseline for this changelog. See the git history for changes at and before this
 tag.
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/hxyulin/hadris/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/hxyulin/hadris/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/hxyulin/hadris/releases/tag/v1.1.0

@@ -2,11 +2,13 @@
 name = "hadris-cli"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "CLI utility for filesystem operations"
+description = "Experimental stub CLI for filesystem operations (not for production use)"
 readme = "README.md"
+publish = false
 keywords = ["filesystem", "cli", "fat", "disk"]
 categories = ["command-line-utilities", "filesystem"]
 

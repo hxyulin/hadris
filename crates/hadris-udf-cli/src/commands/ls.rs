@@ -26,13 +26,7 @@ pub fn ls(args: LsArgs) -> Result<()> {
 
         if args.long {
             let type_char = if entry.is_dir() { 'd' } else { '-' };
-            // size is currently a placeholder (0) in the UDF library
-            let size_str = if entry.size == 0 && entry.is_file() {
-                "N/A".to_string()
-            } else {
-                entry.size.to_string()
-            };
-            println!("{}  {:>10}  {}", type_char, size_str, entry.name());
+            println!("{}  {:>10}  {}", type_char, entry.size, entry.name());
         } else if entry.is_dir() {
             println!("{}/", entry.name());
         } else {

@@ -6,6 +6,7 @@ readme = "README.md"
 keywords = ["fat", "fat32", "filesystem", "no-std", "vfat"]
 categories = ["no-std", "filesystem"]
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

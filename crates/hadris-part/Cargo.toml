@@ -2,6 +2,7 @@
 name = "hadris-part"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -11,13 +12,19 @@ keywords = ["partition", "mbr", "gpt", "disk", "no-std"]
 categories = ["no-std", "filesystem"]
 
 [features]
-default = ["std"]
+default = ["std", "read"]
 std = ["sync", "alloc", "hadris-io/std"]
 sync = ["hadris-io/sync"]
 async = ["hadris-io/async"]
 alloc = ["hadris-io/alloc"]
 read = []
 write = ["alloc", "read"]
+crc = ["dep:crc"]
+rand = ["dep:rand"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 hadris-io = { workspace = true, default-features = false }

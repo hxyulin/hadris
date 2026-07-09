@@ -13,29 +13,39 @@ Or build from source:
 
 ```bash
 cargo build --release -p hadris-udf-cli
+# binary: target/release/hadris-udf-cli
 ```
+
+The installed binary is named **`hadris-udf-cli`** (not `hadris-udf`).
 
 ## Usage
 
 ```bash
 # Display UDF image information
-hadris-udf info image.udf
+hadris-udf-cli info image.udf
 
 # List directory contents
-hadris-udf ls image.udf
-hadris-udf ls image.udf /subdir
+hadris-udf-cli ls image.udf
+hadris-udf-cli ls image.udf /subdir -l
 
 # Display directory tree
-hadris-udf tree image.udf
-hadris-udf tree image.udf --depth 2
+hadris-udf-cli tree image.udf
+hadris-udf-cli tree image.udf --depth 2
+
+# Print a file to stdout
+hadris-udf-cli cat image.udf /readme.txt
+
+# Extract files (default output directory: .)
+hadris-udf-cli extract image.udf -o ./out
+hadris-udf-cli extract image.udf -p /subdir -o ./out
 
 # Create a new UDF image from a directory
-hadris-udf create ./my-files --output image.udf
-hadris-udf create ./my-files --output image.udf --volume-name MY_DISC --revision 2.50
+hadris-udf-cli create ./my-files --output image.udf
+hadris-udf-cli create ./my-files --output image.udf --volume-name MY_DISC --revision 2.50
 
 # Verify UDF image integrity
-hadris-udf verify image.udf
-hadris-udf verify image.udf --verbose
+hadris-udf-cli verify image.udf
+hadris-udf-cli verify image.udf --verbose
 ```
 
 ## Commands
@@ -45,6 +55,8 @@ hadris-udf verify image.udf --verbose
 | `info`   | Display volume information (ID, revision, size)  |
 | `ls`     | List directory contents                          |
 | `tree`   | Display directory tree structure                 |
+| `cat`    | Print file contents to stdout                    |
+| `extract`| Extract files from the image                     |
 | `create` | Create a new UDF image from a local directory    |
 | `verify` | Verify UDF image structural integrity            |
 
@@ -57,35 +69,6 @@ hadris-udf verify image.udf --verbose
 | `2.01`   | DVD-RW streaming      |
 | `2.50`   | Blu-ray               |
 | `2.60`   | Blu-ray pseudo-OW     |
-
-## Known Limitations
-
-- File content extraction (`cat`, `extract`) is not yet supported because the
-  UDF library does not yet expose a public file-read API.
-- `UdfDirEntry::size` is currently always 0 (a placeholder in the library);
-  long listing shows `N/A` for file sizes.
-
-## Examples
-
-### Inspecting a DVD image
-
-```bash
-$ hadris-udf info movie.iso
-UDF Image: movie.iso
-
-Volume Information:
-  Volume ID:         MOVIE_TITLE
-  UDF Revision:      1.02
-  Block Size:        2048 bytes
-  Partition Start:   sector 270
-  Partition Length:  1234 sectors (2525184 bytes)
-```
-
-### Creating a UDF image
-
-```bash
-hadris-udf create ./content --output disc.udf --volume-name MY_DISC --revision 1.50
-```
 
 ## License
 

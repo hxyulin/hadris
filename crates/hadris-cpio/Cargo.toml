@@ -2,12 +2,18 @@
 name = "hadris-cpio"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "A rust implementation of the CPIO archive format (newc/SVR4)."
 keywords = ["cpio", "archive", "initramfs", "linux", "filesystem"]
 categories = ["filesystem", "encoding"]
+readme = "README.md"
+
+[package.metadata.docs.rs]
+features = ["std", "read", "write", "sync"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std", "read", "write"]

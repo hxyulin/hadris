@@ -185,4 +185,11 @@ All library crates support `sync` and `async` feature flags for dual sync/async 
 ## Edition and Rust Version
 
 - Rust Edition: 2024
-- Requires Rust 1.85+
+- MSRV: Rust **1.88.0** (`rust-version` in workspace `Cargo.toml`, pinned by `rust-toolchain.toml`)
+- CI installs `dtolnay/rust-toolchain@1.88.0` for check/test/clippy/fmt/doc jobs (Miri still uses nightly)
+
+## Fuzzing
+
+Harnesses live under `fuzz/` and are **not** run in CI. Replay corpora locally with
+`cargo +nightly fuzz run <target> -- -runs=0`. Prefer unit/integration regressions
+for PR-gating fixes; see `fuzz/README.md` and `CONTRIBUTING.md`.

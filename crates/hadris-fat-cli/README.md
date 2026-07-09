@@ -12,25 +12,32 @@ Or build from source:
 
 ```bash
 cargo build --release -p hadris-fat-cli
+# binary: target/release/fatutil
 ```
 
-The binary will be available as `fatutil`.
+The installed binary is named **`fatutil`**.
 
 ## Usage
 
 ```bash
-# Display filesystem information
+# Display volume information
 fatutil info disk.img
+
+# Detailed filesystem statistics
+fatutil stat disk.img
 
 # List directory contents
 fatutil ls disk.img /
 fatutil ls disk.img /SUBDIR
 
-# Extract a file
-fatutil extract disk.img /path/to/file.txt output.txt
+# Display directory tree
+fatutil tree disk.img
 
-# Show filesystem statistics
-fatutil stats disk.img
+# Analyze fragmentation
+fatutil fragmentation disk.img
+
+# Show cluster chain for a file
+fatutil chain disk.img /README.TXT
 
 # Verify filesystem integrity
 fatutil verify disk.img
@@ -40,43 +47,42 @@ fatutil verify disk.img
 
 | Command | Description |
 |---------|-------------|
-| `info` | Display boot sector and filesystem information |
+| `info` | Display boot sector and volume information |
+| `stat` | Show detailed filesystem statistics |
 | `ls` | List directory contents |
-| `extract` | Extract a file from the filesystem |
-| `stats` | Show cluster and space usage statistics |
+| `tree` | Display directory tree |
+| `fragmentation` | Analyze filesystem fragmentation |
+| `chain` | Show cluster chain for a file |
 | `verify` | Check filesystem integrity |
+
+## Known Limitations
+
+- Read/analysis focused: there is no `cat`, `extract`, or `format` subcommand yet
+  (the `hadris-fat` library supports file read/write and formatting).
+- ExFAT images are not exposed through this CLI.
 
 ## Examples
 
 ### Examining a Disk Image
 
 ```bash
-$ fatutil info disk.img
-FAT Type: FAT32
-Volume Label: MYDISK
-Cluster Size: 4096 bytes
-Total Clusters: 32768
-Free Clusters: 28500
+fatutil info disk.img
+fatutil stat disk.img
 ```
 
 ### Listing Files
 
 ```bash
-$ fatutil ls disk.img /
-Name            Size       Attr    Cluster
-BOOT            <DIR>      D----   3
-CONFIG.SYS      1024       A----   100
-README.TXT      2048       A----   105
+fatutil ls disk.img /
 ```
 
 ## Supported Features
 
 - FAT12, FAT16, FAT32 filesystems
 - Long filename (LFN/VFAT) display
-- Directory traversal
-- File extraction
+- Directory traversal and tree view
+- Fragmentation and cluster-chain analysis
 - Filesystem verification
-- Cluster analysis
 
 ## License
 

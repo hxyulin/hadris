@@ -33,8 +33,13 @@
 //!
 //! // List root directory
 //! for entry in udf.root_dir().unwrap().entries() {
-//!     println!("{}", entry.name());
+//!     println!("{} ({})", entry.name(), entry.size);
 //! }
+//!
+//! // Read a file's contents
+//! # let entry = udf.root_dir().unwrap().entries().next().unwrap();
+//! let bytes = udf.read_file(&entry).unwrap();
+//! # let _ = bytes;
 //! ```
 //!
 //! ## Feature Flags
@@ -46,6 +51,13 @@
 //! | `std` | Full standard library support |
 //! | `write` | Write/format support (requires std) |
 //!
+//! ## Known Limitations
+//!
+//! - Extended allocation descriptors and stream directories are not supported.
+//! - Packet writing / sparing tables / Blu-ray-specific features are not implemented.
+//! - Directory listing reads each file ICB to populate
+//!   [`dir::UdfDirEntry::size`] (one extra seek per file).
+//!
 //! ## Specification References
 //!
 //! - ECMA-167: Volume and File Structure for Write-Once and Rewritable Media
@@ -53,6 +65,7 @@
 
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;

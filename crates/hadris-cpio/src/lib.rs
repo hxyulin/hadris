@@ -104,6 +104,7 @@
 //! - RPM file format specification — CPIO payload format
 
 #![no_std]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(async_fn_in_trait)]
 
 #[cfg(feature = "std")]

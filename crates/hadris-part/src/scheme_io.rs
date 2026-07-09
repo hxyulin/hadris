@@ -35,6 +35,7 @@ use crate::scheme::DiskPartitionScheme;
 
 /// Extension trait for reading [`GptDisk`] from I/O sources.
 #[cfg(all(feature = "alloc", feature = "read"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "read"))))]
 pub trait GptDiskReadExt: Sized {
     /// Reads a GPT disk structure from a reader.
     ///
@@ -88,14 +89,14 @@ impl GptDiskReadExt for GptDisk {
                 primary_header.partition_entry_lba.to_ne() * block_size as u64,
             ))
             .await
-            .map_err(|_| PartitionError::Io)?;
+            .map_err(PartitionError::from)?;
 
         for entry in entries.iter_mut() {
             let mut buf = [0u8; 128];
             reader
                 .read_exact(&mut buf)
                 .await
-                .map_err(|_| PartitionError::Io)?;
+                .map_err(PartitionError::from)?;
             *entry = bytemuck::cast(buf);
         }
 
@@ -136,6 +137,7 @@ impl GptDiskReadExt for GptDisk {
 
 /// Extension trait for writing [`GptDisk`] to I/O sinks.
 #[cfg(all(feature = "alloc", feature = "write"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "write"))))]
 pub trait GptDiskWriteExt {
     /// Writes the complete GPT structure to a writer.
     ///
@@ -181,7 +183,7 @@ impl GptDiskWriteExt for GptDisk {
         writer
             .seek(SeekFrom::Start(0))
             .await
-            .map_err(|_| PartitionError::Io)?;
+            .map_err(PartitionError::from)?;
         let protective_mbr = self.create_protective_mbr();
         protective_mbr.write_to(writer).await?;
 
@@ -196,13 +198,13 @@ impl GptDiskWriteExt for GptDisk {
                 self.primary_header.partition_entry_lba.to_ne() * self.block_size as u64,
             ))
             .await
-            .map_err(|_| PartitionError::Io)?;
+            .map_err(PartitionError::from)?;
 
         for entry in &self.entries {
             writer
                 .write_all(bytemuck::bytes_of(entry))
                 .await
-                .map_err(|_| PartitionError::Io)?;
+                .map_err(PartitionError::from)?;
         }
 
         // Write backup partition entries
@@ -211,13 +213,13 @@ impl GptDiskWriteExt for GptDisk {
                 self.backup_header.partition_entry_lba.to_ne() * self.block_size as u64,
             ))
             .await
-            .map_err(|_| PartitionError::Io)?;
+            .map_err(PartitionError::from)?;
 
         for entry in &self.entries {
             writer
                 .write_all(bytemuck::bytes_of(entry))
                 .await
-                .map_err(|_| PartitionError::Io)?;
+                .map_err(PartitionError::from)?;
         }
 
         // Write backup header at last LBA
@@ -237,7 +239,7 @@ impl GptDiskWriteExt for GptDisk {
         writer
             .seek(SeekFrom::Start(0))
             .await
-            .map_err(|_| PartitionError::Io)?;
+            .map_err(PartitionError::from)?;
         mbr.write_to(writer).await?;
 
         // Write primary header at LBA 1
@@ -251,13 +253,13 @@ impl GptDiskWriteExt for GptDisk {
                 self.primary_header.partition_entry_lba.to_ne() * self.block_size as u64,
             ))
             .await
-            .map_err(|_| PartitionError::Io)?;
+            .map_err(PartitionError::from)?;
 
         for entry in &self.entries {
             writer
                 .write_all(bytemuck::bytes_of(entry))
                 .await
-                .map_err(|_| PartitionError::Io)?;
+                .map_err(PartitionError::from)?;
         }
 
         // Write backup partition entries
@@ -266,13 +268,13 @@ impl GptDiskWriteExt for GptDisk {
                 self.backup_header.partition_entry_lba.to_ne() * self.block_size as u64,
             ))
             .await
-            .map_err(|_| PartitionError::Io)?;
+            .map_err(PartitionError::from)?;
 
         for entry in &self.entries {
             writer
                 .write_all(bytemuck::bytes_of(entry))
                 .await
-                .map_err(|_| PartitionError::Io)?;
+                .map_err(PartitionError::from)?;
         }
 
         // Write backup header at last LBA
@@ -288,6 +290,7 @@ impl GptDiskWriteExt for GptDisk {
 
 /// Extension trait for reading [`DiskPartitionScheme`] from I/O sources.
 #[cfg(all(feature = "alloc", feature = "read"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "read"))))]
 pub trait DiskPartitionSchemeReadExt: Sized {
     /// Detects and reads a partition scheme from a disk image.
     ///
@@ -321,7 +324,7 @@ impl DiskPartitionSchemeReadExt for DiskPartitionScheme {
         reader
             .seek(SeekFrom::Start(0))
             .await
-            .map_err(|_| PartitionError::Io)?;
+            .map_err(PartitionError::from)?;
 
         let mbr = MasterBootRecord::read_from(reader).await?;
         let scheme_type = detect_scheme_from_mbr(&mbr);
@@ -348,6 +351,7 @@ impl DiskPartitionSchemeReadExt for DiskPartitionScheme {
 
 /// Extension trait for writing [`DiskPartitionScheme`] to I/O sinks.
 #[cfg(all(feature = "alloc", feature = "write"))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "write"))))]
 pub trait DiskPartitionSchemeWriteExt {
     /// Writes the partition scheme to a writer.
     ///
@@ -369,7 +373,7 @@ impl DiskPartitionSchemeWriteExt for DiskPartitionScheme {
                 writer
                     .seek(SeekFrom::Start(0))
                     .await
-                    .map_err(|_| PartitionError::Io)?;
+                    .map_err(PartitionError::from)?;
                 mbr.write_to(writer).await
             }
             Self::Gpt { gpt, .. } => gpt.write_to(writer).await,

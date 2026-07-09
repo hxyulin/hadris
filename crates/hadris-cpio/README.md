@@ -75,21 +75,21 @@ Default features: `std`, `read`, `write`
 
 ```toml
 [dependencies]
-hadris-cpio = { version = "1.0", default-features = false, features = ["read"] }
+hadris-cpio = { version = "1.2.1", default-features = false, features = ["read"] }
 ```
 
 ### For Kernels with Heap (no-std + alloc)
 
 ```toml
 [dependencies]
-hadris-cpio = { version = "1.0", default-features = false, features = ["read", "alloc"] }
+hadris-cpio = { version = "1.2.1", default-features = false, features = ["read", "alloc"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-cpio = { version = "1.0" }  # Uses default features
+hadris-cpio = "1.2.1"  # Uses default features
 ```
 
 ## Archive Format

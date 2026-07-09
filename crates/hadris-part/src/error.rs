@@ -3,10 +3,10 @@
 use core::fmt::{self, Debug, Display};
 
 /// Errors that can occur during partition table operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum PartitionError {
     /// An I/O error occurred.
-    Io,
+    Io(hadris_io::Error),
 
     /// The MBR signature (0x55AA) is invalid.
     InvalidMbrSignature {
@@ -107,7 +107,7 @@ pub enum PartitionError {
 impl Display for PartitionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io => write!(f, "I/O error"),
+            Self::Io(err) => write!(f, "I/O error: {err}"),
             Self::InvalidMbrSignature { found } => {
                 write!(
                     f,
@@ -209,8 +209,21 @@ impl Display for PartitionError {
     }
 }
 
+impl From<hadris_io::Error> for PartitionError {
+    fn from(err: hadris_io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
 #[cfg(feature = "std")]
-impl std::error::Error for PartitionError {}
+impl std::error::Error for PartitionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(err) => Some(err),
+            _ => None,
+        }
+    }
+}
 
 /// A specialized `Result` type for partition operations.
 pub type Result<T> = core::result::Result<T, PartitionError>;

@@ -158,59 +158,165 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         self.read_directory(&self.root_icb).await
     }
 
+    /// Read the full contents of a regular file.
+    ///
+    /// Follows the entry's ICB allocation descriptors (embedded, short, or long)
+    /// and truncates the result to the File Entry `information_length`.
+    pub async fn read_file(&self, entry: &UdfDirEntry) -> UdfResult<Vec<u8>> {
+        if entry.is_dir() {
+            return Err(UdfError::NotAFile);
+        }
+
+        let mut data = self.data.lock();
+        let meta = self.read_icb(&mut data, &entry.icb).await?;
+        if meta.is_directory {
+            return Err(UdfError::NotAFile);
+        }
+
+        let mut bytes = self
+            .read_allocation_bytes(
+                &mut data,
+                &meta.buffer,
+                meta.allocation_type,
+                meta.alloc_offset,
+                meta.alloc_length,
+            )
+            .await?;
+
+        let size = usize::try_from(meta.size).map_err(|_| UdfError::InvalidIcb)?;
+        if bytes.len() < size {
+            return Err(UdfError::InvalidIcb);
+        }
+        bytes.truncate(size);
+        Ok(bytes)
+    }
+
     /// Read a directory from its ICB
     pub async fn read_directory(&self, icb: &LongAllocationDescriptor) -> UdfResult<UdfDir> {
         let mut data = self.data.lock();
+        let meta = self.read_icb(&mut data, icb).await?;
+        if !meta.is_directory {
+            return Err(UdfError::NotADirectory);
+        }
 
-        // Calculate absolute sector
+        let entries = self
+            .parse_directory_entries(
+                &mut data,
+                &meta.buffer,
+                meta.allocation_type,
+                meta.alloc_offset,
+                meta.alloc_length,
+            )
+            .await?;
+
+        Ok(UdfDir::new(entries))
+    }
+
+    /// Read and parse a File Entry / Extended File Entry ICB.
+    async fn read_icb(
+        &self,
+        data: &mut DATA,
+        icb: &LongAllocationDescriptor,
+    ) -> UdfResult<IcbMetadata> {
         let sector = self.info.partition_start as u64 + icb.logical_block_num as u64;
-        data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
+        data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64))
+            .await?;
 
-        // Read the file entry
         let mut buffer = [0u8; SECTOR_SIZE];
         data.read_exact(&mut buffer).await?;
 
         let tag: &descriptor::DescriptorTag = bytemuck::from_bytes(&buffer[..16]);
 
-        let (_dir_size, allocation_type, alloc_offset, alloc_length) = match tag.identifier() {
-            TagIdentifier::FileEntry => {
-                let fe: &FileEntry = bytemuck::from_bytes(&buffer[..FileEntry::BASE_SIZE]);
-                if !fe.is_directory() {
-                    return Err(UdfError::NotADirectory);
+        let (size, is_directory, allocation_type, alloc_offset, alloc_length) =
+            match tag.identifier() {
+                TagIdentifier::FileEntry => {
+                    let fe: &FileEntry = bytemuck::from_bytes(&buffer[..FileEntry::BASE_SIZE]);
+                    (
+                        fe.size(),
+                        fe.is_directory(),
+                        fe.allocation_type(),
+                        FileEntry::BASE_SIZE + fe.extended_attributes_length as usize,
+                        fe.allocation_descriptors_length as usize,
+                    )
                 }
-                (
-                    fe.size(),
-                    fe.allocation_type(),
-                    FileEntry::BASE_SIZE + fe.extended_attributes_length as usize,
-                    fe.allocation_descriptors_length as usize,
-                )
-            }
-            TagIdentifier::ExtendedFileEntry => {
-                let efe: &ExtendedFileEntry =
-                    bytemuck::from_bytes(&buffer[..ExtendedFileEntry::BASE_SIZE]);
-                if !efe.is_directory() {
-                    return Err(UdfError::NotADirectory);
+                TagIdentifier::ExtendedFileEntry => {
+                    let efe: &ExtendedFileEntry =
+                        bytemuck::from_bytes(&buffer[..ExtendedFileEntry::BASE_SIZE]);
+                    (
+                        efe.size(),
+                        efe.is_directory(),
+                        efe.allocation_type(),
+                        ExtendedFileEntry::BASE_SIZE + efe.extended_attributes_length as usize,
+                        efe.allocation_descriptors_length as usize,
+                    )
                 }
-                (
-                    efe.size(),
-                    efe.allocation_type(),
-                    ExtendedFileEntry::BASE_SIZE + efe.extended_attributes_length as usize,
-                    efe.allocation_descriptors_length as usize,
-                )
-            }
-            _ => return Err(UdfError::InvalidIcb),
-        };
+                _ => return Err(UdfError::InvalidIcb),
+            };
 
-        // Parse directory entries
-        let entries = self.parse_directory_entries(
-            &mut data,
-            &buffer,
+        Ok(IcbMetadata {
+            size,
+            is_directory,
             allocation_type,
             alloc_offset,
             alloc_length,
-        ).await?;
+            buffer,
+        })
+    }
 
-        Ok(UdfDir::new(entries))
+    /// Concatenate bytes described by allocation descriptors in an ICB buffer.
+    async fn read_allocation_bytes(
+        &self,
+        data: &mut DATA,
+        buffer: &[u8],
+        allocation_type: AllocationType,
+        alloc_offset: usize,
+        alloc_length: usize,
+    ) -> UdfResult<Vec<u8>> {
+        let alloc_range = validated_alloc_range(buffer.len(), alloc_offset, alloc_length)?;
+        let mut out = Vec::new();
+
+        match allocation_type {
+            AllocationType::Embedded => {
+                out.extend_from_slice(&buffer[alloc_range]);
+            }
+            AllocationType::Short => {
+                let alloc_data = &buffer[alloc_range];
+                for chunk in alloc_data.chunks(8) {
+                    if chunk.len() < 8 {
+                        break;
+                    }
+                    let sad: &descriptor::ShortAllocationDescriptor = bytemuck::from_bytes(chunk);
+                    if sad.length() == 0 {
+                        break;
+                    }
+                    let sector = self.info.partition_start as u64 + sad.extent_position as u64;
+                    let extent = self
+                        .read_extent(data, sector, sad.length() as usize)
+                        .await?;
+                    out.extend_from_slice(&extent);
+                }
+            }
+            AllocationType::Long => {
+                let alloc_data = &buffer[alloc_range];
+                for chunk in alloc_data.chunks(16) {
+                    if chunk.len() < 16 {
+                        break;
+                    }
+                    let lad: &LongAllocationDescriptor = bytemuck::from_bytes(chunk);
+                    if lad.length() == 0 {
+                        break;
+                    }
+                    let sector = self.info.partition_start as u64 + lad.logical_block_num as u64;
+                    let extent = self
+                        .read_extent(data, sector, lad.length() as usize)
+                        .await?;
+                    out.extend_from_slice(&extent);
+                }
+            }
+            AllocationType::Extended => return Err(UdfError::InvalidIcb),
+        }
+
+        Ok(out)
     }
 
     /// Parse directory entries from allocation descriptors
@@ -223,60 +329,10 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         alloc_length: usize,
     ) -> UdfResult<Vec<UdfDirEntry>> {
         let mut entries = Vec::new();
-
-        // Bound the untrusted allocation window against the buffer before slicing.
-        let alloc_range = validated_alloc_range(buffer.len(), alloc_offset, alloc_length)?;
-
-        match allocation_type {
-            AllocationType::Embedded => {
-                // Data is embedded in the allocation descriptors field
-                let embedded_data = &buffer[alloc_range];
-                self.parse_fids(embedded_data, &mut entries)?;
-            }
-            AllocationType::Short | AllocationType::Long => {
-                // Read from extent
-                let alloc_data = &buffer[alloc_range];
-
-                if allocation_type == AllocationType::Short {
-                    // Parse short allocation descriptors
-                    for chunk in alloc_data.chunks(8) {
-                        if chunk.len() < 8 {
-                            break;
-                        }
-                        let sad: &descriptor::ShortAllocationDescriptor =
-                            bytemuck::from_bytes(chunk);
-                        if sad.length() == 0 {
-                            break;
-                        }
-
-                        let sector = self.info.partition_start as u64 + sad.extent_position as u64;
-                        let extent_data = self.read_extent(data, sector, sad.length() as usize).await?;
-                        self.parse_fids(&extent_data, &mut entries)?;
-                    }
-                } else {
-                    // Parse long allocation descriptors
-                    for chunk in alloc_data.chunks(16) {
-                        if chunk.len() < 16 {
-                            break;
-                        }
-                        let lad: &LongAllocationDescriptor = bytemuck::from_bytes(chunk);
-                        if lad.length() == 0 {
-                            break;
-                        }
-
-                        let sector =
-                            self.info.partition_start as u64 + lad.logical_block_num as u64;
-                        let extent_data = self.read_extent(data, sector, lad.length() as usize).await?;
-                        self.parse_fids(&extent_data, &mut entries)?;
-                    }
-                }
-            }
-            AllocationType::Extended => {
-                // Extended allocation descriptors not commonly used
-                return Err(UdfError::InvalidIcb);
-            }
-        }
-
+        let dir_bytes = self
+            .read_allocation_bytes(data, buffer, allocation_type, alloc_offset, alloc_length)
+            .await?;
+        self.parse_fids(data, &dir_bytes, &mut entries).await?;
         Ok(entries)
     }
 
@@ -300,19 +356,25 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
     }
 
     /// Parse File Identifier Descriptors from a buffer
-    fn parse_fids(&self, data: &[u8], entries: &mut Vec<UdfDirEntry>) -> UdfResult<()> {
+    async fn parse_fids(
+        &self,
+        data: &mut DATA,
+        fid_data: &[u8],
+        entries: &mut Vec<UdfDirEntry>,
+    ) -> UdfResult<()> {
         let mut offset = 0;
 
-        while offset < data.len() {
+        while offset < fid_data.len() {
             // Need at least the base FID size
-            if offset + FileIdentifierDescriptor::BASE_SIZE > data.len() {
+            if offset + FileIdentifierDescriptor::BASE_SIZE > fid_data.len() {
                 break;
             }
 
-            let (fid, variable_data) = match FileIdentifierDescriptor::from_bytes(&data[offset..]) {
-                Ok(fid) => fid,
-                Err(_) => break,
-            };
+            let (fid, variable_data) =
+                match FileIdentifierDescriptor::from_bytes(&fid_data[offset..]) {
+                    Ok(fid) => fid,
+                    Err(_) => break,
+                };
 
             let characteristics = FileCharacteristics::from_bits_truncate(fid.file_characteristics);
 
@@ -342,8 +404,12 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
 
             let is_directory = characteristics.contains(FileCharacteristics::DIRECTORY);
 
-            // Get file size (would need to read the ICB for this)
-            let size = 0; // Placeholder
+            // File size lives in the child ICB, not the FID.
+            let size = if is_directory || characteristics.contains(FileCharacteristics::PARENT) {
+                0
+            } else {
+                self.read_icb(data, &fid.icb).await?.size
+            };
 
             entries.push(UdfDirEntry {
                 name,
@@ -358,6 +424,16 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
 
         Ok(())
     }
+}
+
+/// Parsed File Entry / Extended File Entry metadata.
+struct IcbMetadata {
+    size: u64,
+    is_directory: bool,
+    allocation_type: AllocationType,
+    alloc_offset: usize,
+    alloc_length: usize,
+    buffer: [u8; SECTOR_SIZE],
 }
 
 } // io_transform!
@@ -662,8 +738,8 @@ mod tests {
 
     #[test]
     fn test_udf_open() {
-        let mut data = create_mock_udf_data();
-        let mut cursor = std::io::Cursor::new(data);
+        let data = create_mock_udf_data();
+        let cursor = std::io::Cursor::new(data);
         let result = UdfFs::open(cursor);
 
         assert!(result.is_ok())

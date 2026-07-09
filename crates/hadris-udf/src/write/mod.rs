@@ -2105,17 +2105,15 @@ mod tests {
 
     #[test]
     fn test_roundtrip_basic_verification() {
-        // This test verifies that basic UDF structures are written correctly
-        // by checking specific byte patterns in the output.
-        // Full roundtrip reading will work once descriptors are sector-sized.
+        // Write → open → list → read_file roundtrip.
 
         let mut buffer = vec![0u8; 4 * 1024 * 1024]; // 4MB
+        let payload = b"Hello, UDF!";
 
-        // Write a UDF filesystem
         {
             let cursor = Cursor::new(&mut buffer[..]);
             let mut root = SimpleDir::root();
-            root.add_file(SimpleFile::new("hello.txt", b"Hello, UDF!".to_vec()));
+            root.add_file(SimpleFile::new("hello.txt", payload.to_vec()));
 
             let options = UdfWriteOptions {
                 volume_id: String::from("ROUNDTRIP"),
@@ -2125,30 +2123,46 @@ mod tests {
             UdfWriter::format(cursor, &root, options).expect("Format should succeed");
         }
 
-        // Verify key structures manually
-        // 1. Check VRS at sector 16-18
+        // Structural sanity checks
         assert_eq!(&buffer[16 * 2048 + 1..16 * 2048 + 6], b"BEA01", "VRS BEA01");
         assert_eq!(&buffer[17 * 2048 + 1..17 * 2048 + 6], b"NSR02", "VRS NSR02");
         assert_eq!(&buffer[18 * 2048 + 1..18 * 2048 + 6], b"TEA01", "VRS TEA01");
 
-        // 2. Check AVDP at sector 256
         let avdp_tag = u16::from_le_bytes([buffer[256 * 2048], buffer[256 * 2048 + 1]]);
         assert_eq!(avdp_tag, 2, "AVDP tag ID should be 2");
 
-        // 3. Check PVD at sector 257
-        let pvd_tag = u16::from_le_bytes([buffer[257 * 2048], buffer[257 * 2048 + 1]]);
-        assert_eq!(pvd_tag, 1, "PVD tag ID should be 1");
+        // Full reader roundtrip
+        let udf = crate::UdfFs::open(Cursor::new(&buffer[..])).expect("open hadris-written image");
+        let root = udf.root_dir().expect("root_dir");
+        let entry = root
+            .entries()
+            .find(|e| e.is_file() && e.name() == "hello.txt")
+            .expect("hello.txt should be listed");
+        assert_eq!(entry.size, payload.len() as u64);
+        let bytes = udf.read_file(&entry).expect("read_file");
+        assert_eq!(bytes, payload);
+    }
 
-        // 4. Check FSD at partition start (sector 270, block 0)
-        let fsd_tag = u16::from_le_bytes([buffer[270 * 2048], buffer[270 * 2048 + 1]]);
-        assert_eq!(fsd_tag, 256, "FSD tag ID should be 256");
+    #[test]
+    fn test_roundtrip_large_file_read() {
+        let mut buffer = vec![0u8; 8 * 1024 * 1024];
+        let large_data = vec![0x55; 10000];
 
-        // 5. Verify file data is somewhere in the image
-        let hello_pattern = b"Hello, UDF!";
-        let contains_data = buffer
-            .windows(hello_pattern.len())
-            .any(|w| w == hello_pattern);
-        assert!(contains_data, "File data should be in the image");
+        {
+            let cursor = Cursor::new(&mut buffer[..]);
+            let mut root = SimpleDir::root();
+            root.add_file(SimpleFile::new("large.bin", large_data.clone()));
+            UdfWriter::format(cursor, &root, UdfWriteOptions::default()).unwrap();
+        }
+
+        let udf = crate::UdfFs::open(Cursor::new(&buffer[..])).unwrap();
+        let root = udf.root_dir().unwrap();
+        let entry = root
+            .entries()
+            .find(|e| e.name() == "large.bin")
+            .expect("large.bin");
+        assert_eq!(entry.size, large_data.len() as u64);
+        assert_eq!(udf.read_file(&entry).unwrap(), large_data);
     }
 
     #[test]

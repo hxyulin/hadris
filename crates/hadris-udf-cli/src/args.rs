@@ -17,6 +17,10 @@ pub enum Command {
     Ls(LsArgs),
     /// Display directory tree
     Tree(TreeArgs),
+    /// Print file contents to stdout
+    Cat(CatArgs),
+    /// Extract files from a UDF image
+    Extract(ExtractArgs),
     /// Create a new UDF image
     Create(CreateArgs),
     /// Verify UDF image structural integrity
@@ -60,6 +64,31 @@ pub struct TreeArgs {
     /// Maximum depth to display
     #[arg(short, long)]
     pub depth: Option<usize>,
+}
+
+/// Print file contents to stdout
+#[derive(Debug, Clone, Parser)]
+pub struct CatArgs {
+    /// Path to UDF image
+    pub input: PathBuf,
+    /// Path within the image
+    pub path: String,
+}
+
+/// Extract files from a UDF image
+#[derive(Debug, Clone, Parser)]
+pub struct ExtractArgs {
+    /// Path to UDF image
+    pub input: PathBuf,
+    /// Output directory for extracted files
+    #[arg(short, long, default_value = ".")]
+    pub output: PathBuf,
+    /// Path within the image to extract (default: extract all)
+    #[arg(short, long)]
+    pub path: Option<String>,
+    /// Verbose output
+    #[arg(short, long)]
+    pub verbose: bool,
 }
 
 /// Create a new UDF image

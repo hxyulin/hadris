@@ -9,6 +9,7 @@ use crate::mbr::MasterBootRecord;
 
 /// Extension trait for reading [`MasterBootRecord`] from I/O sources.
 #[cfg(feature = "read")]
+#[cfg_attr(docsrs, doc(cfg(feature = "read")))]
 pub trait MasterBootRecordReadExt: Sized {
     /// Reads an MBR from the beginning of a reader.
     ///
@@ -25,7 +26,7 @@ impl MasterBootRecordReadExt for MasterBootRecord {
         reader
             .read_exact(&mut buf)
             .await
-            .map_err(|_| crate::error::PartitionError::Io)?;
+            .map_err(crate::error::PartitionError::from)?;
         let mbr: Self = bytemuck::cast(buf);
         if !mbr.has_valid_signature() {
             return Err(crate::error::PartitionError::InvalidMbrSignature {
@@ -38,6 +39,7 @@ impl MasterBootRecordReadExt for MasterBootRecord {
 
 /// Extension trait for writing [`MasterBootRecord`] to I/O sinks.
 #[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
 pub trait MasterBootRecordWriteExt {
     /// Writes this MBR to a writer.
     ///
@@ -53,7 +55,7 @@ impl MasterBootRecordWriteExt for MasterBootRecord {
         writer
             .write_all(bytemuck::bytes_of(self))
             .await
-            .map_err(|_| crate::error::PartitionError::Io)
+            .map_err(crate::error::PartitionError::from)
     }
 }
 

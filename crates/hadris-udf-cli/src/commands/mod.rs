@@ -1,12 +1,16 @@
 //! Command implementations for hadris-udf CLI
 
+mod cat;
 mod create;
+mod extract;
 mod info;
 mod ls;
 mod tree;
 mod verify;
 
+pub use cat::cat;
 pub use create::create;
+pub use extract::extract;
 pub use info::info;
 pub use ls::ls;
 pub use tree::tree;

@@ -17,47 +17,109 @@ This crate provides read and write support for common partition table formats us
 
 | Feature | Description | Dependencies | Default |
 |---------|-------------|--------------|---------|
-| `std` | Standard library support | `alloc` | Yes |
-| `alloc` | Heap allocation for Vec-based APIs | - | - |
-| `read` | Reading partition tables | - | - |
+| `std` | Standard library support (enables `sync`, `alloc`) | `alloc` | Yes |
+| `read` | Reading partition tables via `*ReadExt` traits | - | Yes |
+| `sync` | Synchronous I/O traits | - | via `std` |
+| `async` | Asynchronous I/O traits | - | - |
+| `alloc` | Heap allocation for `Vec`-based APIs (`GptDisk`, `DiskPartitionScheme`) | - | via `std` |
 | `write` | Writing partition tables | `alloc`, `read` | - |
+| `crc` | CRC32 verification/calculation for GPT headers | `crc` crate | - |
+| `rand` | Random GUID generation | `rand` crate | - |
+
+> **Note:** GPT header/entry CRC checks run only when the `crc` feature is enabled.
+> Without it, CRC fields are ignored on read.
 
 ## Usage
 
-### Reading Partition Tables
+### Detecting and reading a partition scheme
 
-```rust
-use hadris_part::{Mbr, Gpt};
+Requires features `read` and `alloc` (included when using `std` + `read`):
 
-// Read MBR
-let mbr = Mbr::read(&mut disk)?;
-for partition in mbr.partitions() {
-    println!("Partition: {} sectors at LBA {}",
-             partition.sector_count(),
-             partition.start_lba());
+```rust,no_run
+use std::fs::File;
+use hadris_part::{
+    DiskPartitionScheme, DiskPartitionSchemeReadExt, PartitionInfoTrait,
+};
+
+# fn main() -> hadris_part::Result<()> {
+let mut disk = File::open("disk.img")?;
+let scheme = DiskPartitionScheme::read_from(&mut disk, 512)?;
+
+for part in scheme.partitions() {
+    println!(
+        "Partition {}: {} sectors at LBA {}",
+        part.index,
+        part.size_sectors,
+        part.start_lba
+    );
 }
+# Ok(())
+# }
+```
 
-// Read GPT
-let gpt = Gpt::read(&mut disk)?;
-for entry in gpt.entries() {
-    println!("Partition: {} - {}",
-             entry.name(),
-             entry.partition_type_guid());
+### Reading an MBR directly
+
+```rust,no_run
+use std::fs::File;
+use hadris_part::{MasterBootRecord, MasterBootRecordReadExt, PartitionInfoTrait};
+
+# fn main() -> hadris_part::Result<()> {
+let mut disk = File::open("disk.img")?;
+let mbr = MasterBootRecord::read_from(&mut disk)?;
+
+for partition in mbr.get_partition_table().iter() {
+    if partition.sector_count.to_ne() == 0 {
+        continue;
+    }
+    println!(
+        "Partition: {} sectors at LBA {}",
+        partition.size_sectors(),
+        partition.start_lba()
+    );
 }
+# Ok(())
+# }
+```
+
+### Reading a GPT disk
+
+```rust,no_run
+use std::fs::File;
+use hadris_part::{GptDisk, GptDiskReadExt};
+
+# fn main() -> hadris_part::Result<()> {
+let mut disk = File::open("disk.img")?;
+let gpt = GptDisk::read_from(&mut disk, 512)?;
+
+for (idx, entry) in gpt.partitions() {
+    if entry.is_unused() {
+        continue;
+    }
+    println!(
+        "Partition {}: type {:?} first_lba={}",
+        idx,
+        entry.type_guid,
+        entry.first_lba.to_ne()
+    );
+}
+# Ok(())
+# }
 ```
 
 ### For Bootloaders (minimal footprint)
 
 ```toml
 [dependencies]
-hadris-part = { version = "0.2", default-features = false, features = ["read"] }
+hadris-part = { version = "1.2.1", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Desktop Applications
 
 ```toml
 [dependencies]
-hadris-part = { version = "0.2", features = ["read", "write"] }
+hadris-part = { version = "1.2.1", features = ["write"] }  # read is already default
+# Optional GPT CRC verification:
+# hadris-part = { version = "1.2.1", features = ["write", "crc"] }
 ```
 
 ## Partition Types
@@ -65,6 +127,7 @@ hadris-part = { version = "0.2", features = ["read", "write"] }
 ### MBR Partition Types
 
 Common partition type IDs:
+
 - `0x00` - Empty
 - `0x0B` - FAT32 (CHS)
 - `0x0C` - FAT32 (LBA)
@@ -76,9 +139,12 @@ Common partition type IDs:
 ### GPT Partition GUIDs
 
 Common partition type GUIDs:
+
 - EFI System Partition: `C12A7328-F81F-11D2-BA4B-00A0C93EC93B`
 - Microsoft Basic Data: `EBD0A0A2-B9E5-4433-87C0-68B6B72699C7`
 - Linux Filesystem: `0FC63DAF-8483-4772-8E79-3D69D8477DE4`
+
+Constants are available on [`Guid`](https://docs.rs/hadris-part/latest/hadris_part/struct.Guid.html) (e.g. `Guid::EFI_SYSTEM`).
 
 ## License
 

@@ -298,6 +298,23 @@ fn partition_error_display() {
     assert!(msg.contains("disk too small"));
 }
 
+#[cfg(feature = "read")]
+#[test]
+fn partition_io_error_preserves_kind() {
+    use hadris_io::Cursor;
+    use hadris_part::MasterBootRecordReadExt;
+    use std::io::ErrorKind;
+
+    let mut cursor = Cursor::new(&[0u8; 10]); // too short for a 512-byte MBR
+    let err = MasterBootRecord::read_from(&mut cursor).unwrap_err();
+    match err {
+        PartitionError::Io(io_err) => {
+            assert_eq!(io_err.kind(), ErrorKind::UnexpectedEof);
+        }
+        other => panic!("expected PartitionError::Io, got {other:?}"),
+    }
+}
+
 #[test]
 fn partition_scheme_type_debug() {
     let s = format!("{:?}", PartitionSchemeType::Gpt);
