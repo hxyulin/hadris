@@ -7,7 +7,7 @@ use crate::error::UdfResult;
 ///
 /// @hadris-spec ECMA-167:3/10.5
 /// @hadris-compliance full
-/// @hadris-tests comprehensive_udf::test_partition_contents
+/// @hadris-tests descriptor::partition::tests::partition_descriptor_layout_and_validate
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -89,4 +89,66 @@ mod tests {
     use super::*;
 
     static_assertions::const_assert_eq!(size_of::<PartitionDescriptor>(), 512);
+
+    fn tag_with_checksum(identifier: TagIdentifier, location: u32) -> DescriptorTag {
+        let mut tag = DescriptorTag {
+            tag_identifier: identifier.to_u16(),
+            descriptor_version: 2,
+            tag_checksum: 0,
+            reserved: 0,
+            tag_serial_number: 0,
+            descriptor_crc: 0,
+            descriptor_crc_length: 0,
+            tag_location: location,
+        };
+        let bytes = bytemuck::bytes_of(&tag);
+        let mut sum: u8 = 0;
+        for (i, &byte) in bytes.iter().enumerate() {
+            if i != 4 {
+                sum = sum.wrapping_add(byte);
+            }
+        }
+        tag.tag_checksum = sum;
+        tag
+    }
+
+    fn entity_id(id: &[u8]) -> EntityIdentifier {
+        assert!(
+            id.len() <= 23,
+            "EntityIdentifier::identifier is 23 bytes; got {}",
+            id.len()
+        );
+        let mut entity = EntityIdentifier::EMPTY;
+        entity.identifier[..id.len()].copy_from_slice(id);
+        entity
+    }
+
+    /// Vertical slice for ECMA-167:3/10.5 — layout, validate, contents helpers.
+    #[test]
+    fn partition_descriptor_layout_and_validate() {
+        let location = 20u32;
+        let mut desc = PartitionDescriptor {
+            tag: tag_with_checksum(TagIdentifier::PartitionDescriptor, location),
+            vds_number: 1,
+            partition_flags: 0x0001,
+            partition_number: 0,
+            partition_contents: entity_id(b"+NSR03"),
+            partition_contents_use: [0; 128],
+            access_type: 1,
+            partition_starting_location: 0,
+            partition_length: 1000,
+            implementation_identifier: EntityIdentifier::EMPTY,
+            implementation_use: [0; 128],
+            reserved: [0; 156],
+        };
+
+        assert_eq!(core::mem::size_of_val(&desc), 512);
+        assert!(desc.validate(location).is_ok());
+        assert!(desc.is_allocated());
+        assert_eq!(desc.contents_type(), PartitionContents::Nsr03);
+
+        // Wrong tag id fails closed
+        desc.tag = tag_with_checksum(TagIdentifier::PrimaryVolumeDescriptor, location);
+        assert!(desc.validate(location).is_err());
+    }
 }

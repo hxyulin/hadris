@@ -26,7 +26,7 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | ECMA-167:4/14.14.1 | `ShortAllocationDescriptor` | full | `comprehensive_udf::test_allocation_descriptor_sizes` | `udf_read` | |
 | ECMA-167:3/10.2 | `AnchorVolumeDescriptorPointer` | full | `comprehensive_udf::test_avdp_structure` | `udf_read` | |
 | ECMA-167:3/10.1 | `PrimaryVolumeDescriptor` | full | | `udf_read` | |
-| ECMA-167:3/10.5 | `PartitionDescriptor` | full | `comprehensive_udf::test_partition_contents` | `udf_read` | |
+| ECMA-167:3/10.5 | `PartitionDescriptor` | full | `descriptor::partition::tests::partition_descriptor_layout_and_validate` | `udf_read` | Vertical-slice unit test |
 | ECMA-167:3/10.6 | `LogicalVolumeDescriptor` | full | `comprehensive_udf::test_allocation_descriptor_sizes` | `udf_read` | |
 | ECMA-167:3/10.7.2 | `Type1PartitionMap` | full | `descriptor::logical::tests::type1_partition_maps_parses_embedded_table` | `udf_read` | |
 | ECMA-167:4/14.1 | `FileSetDescriptor` | full | `comprehensive_udf::test_allocation_descriptor_sizes` | `udf_read` | |
@@ -36,8 +36,8 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
 | ECMA-119:8.4 | `PrimaryVolumeDescriptor` | full | `comprehensive_iso::test_pvd_standard_identifier` | `iso_read` | |
-| ECMA-119:9.1 | `DirectoryRecordHeader` | full | `comprehensive_iso::test_directory_record_structure` | `iso_read` | Fixed fields of the directory record |
-| ECMA-119:9.1 | `DirectoryRecord` | partial | `comprehensive_iso::test_directory_record_structure` | `iso_read` | Joliet+RRIP coexistence on read may hide one namespace |
+| ECMA-119:9.1 | `DirectoryRecordHeader` | full | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Fixed fields; covered by parse roundtrip |
+| ECMA-119:9.1 | `DirectoryRecord` | partial | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Joliet+RRIP coexistence on read may hide one namespace |
 | El-Torito:validation | `BootValidationEntry` | full | `xorriso_boot::test_eltorito_boot_catalog_comparison` | `iso_read` | |
 
 ## hadris-fat
