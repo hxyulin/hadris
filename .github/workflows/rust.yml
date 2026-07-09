@@ -185,19 +185,8 @@ jobs:
         run: |
           cargo test -p hadris-fat --features "cache,write,std" -- --nocapture
 
-  cli-smoke:
-    name: CLI smoke (--help)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.88.0
-      - uses: Swatinem/rust-cache@v2
-      - name: Specialized CLIs respond to --help
-        run: |
-          cargo run -q -p hadris-iso-cli -- --help
-          cargo run -q -p hadris-fat-cli -- --help
-          cargo run -q -p hadris-cpio-cli -- --help
-          cargo run -q -p hadris-udf-cli -- --help
+  # CLI --help/--version smoke tests live in crates/hadris-*-cli/tests/cli_smoke.rs
+  # and run under the workspace `test` job.
 
   doc:
     name: Docs
