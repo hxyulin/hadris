@@ -9,7 +9,7 @@ use crate::types::{U16LsbMsb, U32LsbMsb};
 ///
 /// @hadris-spec ECMA-119:9.1
 /// @hadris-compliance full
-/// @hadris-tests comprehensive_iso::test_directory_record_structure
+/// @hadris-tests directory::tests::directory_record_parse_roundtrip
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -63,7 +63,7 @@ impl DirectoryRecordHeader {
 ///
 /// @hadris-spec ECMA-119:9.1
 /// @hadris-compliance partial
-/// @hadris-tests comprehensive_iso::test_directory_record_structure
+/// @hadris-tests directory::tests::directory_record_parse_roundtrip
 /// @hadris-fuzz iso_read
 /// @hadris-note Joliet+RRIP coexistence on read may hide one namespace; see crate Known Limitations
 #[repr(transparent)]
@@ -284,6 +284,71 @@ impl DirDateTime {
 pub struct DirectoryRef {
     pub extent: LogicalSector,
     pub size: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
+    use std::io::Cursor;
+
+    /// Vertical slice for ECMA-119:9.1 — parse `.` / `..` records from a sector.
+    #[test]
+    fn directory_record_parse_roundtrip() {
+        // Minimal root directory sector (same layout as comprehensive_iso helper)
+        let mut dir = vec![0u8; 2048];
+        let mut offset = 0usize;
+        for (id, flags) in [(0x00u8, 0x02u8), (0x01u8, 0x02u8)] {
+            dir[offset] = 34;
+            dir[offset + 2..offset + 6].copy_from_slice(&20u32.to_le_bytes());
+            dir[offset + 6..offset + 10].copy_from_slice(&20u32.to_be_bytes());
+            dir[offset + 10..offset + 14].copy_from_slice(&2048u32.to_le_bytes());
+            dir[offset + 14..offset + 18].copy_from_slice(&2048u32.to_be_bytes());
+            dir[offset + 25] = flags;
+            dir[offset + 28..offset + 30].copy_from_slice(&1u16.to_le_bytes());
+            dir[offset + 30..offset + 32].copy_from_slice(&1u16.to_be_bytes());
+            dir[offset + 32] = 1;
+            dir[offset + 33] = id;
+            offset += 34;
+        }
+
+        let mut cursor = Cursor::new(&dir[..]);
+        let dot = DirectoryRecord::parse(&mut cursor).expect("parse .");
+        assert_eq!(dot.size(), 34);
+        assert_eq!(core::mem::size_of::<DirectoryRecordHeader>(), 33);
+        assert!(dot.is_directory());
+        assert_eq!(dot.name(), b"\x00");
+        assert_eq!(dot.header().extent.read(), 20);
+        assert_eq!(dot.header().data_len.read(), 2048);
+
+        let dotdot = DirectoryRecord::parse(&mut cursor).expect("parse ..");
+        assert_eq!(dotdot.name(), b"\x01");
+        assert!(dotdot.is_special());
+
+        // new() + write/parse roundtrip for a file identifier
+        let made = DirectoryRecord::new(
+            b"README.;1",
+            &[],
+            DirectoryRef {
+                extent: LogicalSector(42),
+                size: 100,
+            },
+            FileFlags::empty(),
+        );
+        assert!(made.size() >= 33 + b"README.;1".len());
+        assert!(!made.is_directory());
+        assert_eq!(made.name(), b"README.;1");
+        assert_eq!(made.header().extent.read(), 42);
+
+        let mut out = Vec::new();
+        made.write(&mut out).expect("write");
+        let mut round = Cursor::new(&out[..]);
+        let parsed = DirectoryRecord::parse(&mut round).expect("re-parse");
+        assert_eq!(parsed.name(), made.name());
+        assert_eq!(parsed.size(), made.size());
+        assert_eq!(parsed.header().extent.read(), 42);
+    }
 }
 
 bitflags::bitflags! {
