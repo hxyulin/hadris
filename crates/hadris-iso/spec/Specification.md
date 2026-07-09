@@ -1,5 +1,8 @@
 # ISO-9660 Specification
 
+> Maintainer machine-index for implemented sections:
+> [`docs/spec-coverage.md`](../../../docs/spec-coverage.md).
+
 This is an unofficial specification for the ISO-9660 filesystem.
 
 ## Table of Contents

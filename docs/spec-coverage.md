@@ -38,9 +38,11 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | ECMA-119:8.4 | `PrimaryVolumeDescriptor` | full | `comprehensive_iso::test_pvd_standard_identifier` | `iso_read` | |
 | ECMA-119:9.1 | `DirectoryRecordHeader` | full | `comprehensive_iso::test_directory_record_structure` | `iso_read` | Fixed fields of the directory record |
 | ECMA-119:9.1 | `DirectoryRecord` | partial | `comprehensive_iso::test_directory_record_structure` | `iso_read` | Joliet+RRIP coexistence on read may hide one namespace |
+| El-Torito:validation | `BootValidationEntry` | full | `xorriso_boot::test_eltorito_boot_catalog_comparison` | `iso_read` | |
 
 ## hadris-fat
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
-| *(pilot rows added in Task 5)* | | | | | |
+| FAT:BPB | `RawBpb` | full | `comprehensive_fat::test_valid_sector_sizes` | `fat_read` | |
+| FAT:LFN | `RawLfnEntry` | partial | `comprehensive_fat::test_lfn_builder_sequence` | `fat_read` | Cross-cluster LFN directory entry runs unsupported on write |
