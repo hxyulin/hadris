@@ -113,6 +113,11 @@ mod tests {
     }
 
     fn entity_id(id: &[u8]) -> EntityIdentifier {
+        assert!(
+            id.len() <= 23,
+            "EntityIdentifier::identifier is 23 bytes; got {}",
+            id.len()
+        );
         let mut entity = EntityIdentifier::EMPTY;
         entity.identifier[..id.len()].copy_from_slice(id);
         entity
@@ -143,15 +148,7 @@ mod tests {
         assert_eq!(desc.contents_type(), PartitionContents::Nsr03);
 
         // Wrong tag id fails closed
-        desc.tag.tag_identifier = TagIdentifier::PrimaryVolumeDescriptor.to_u16();
-        let bytes = bytemuck::bytes_of(&desc.tag);
-        let mut sum: u8 = 0;
-        for (i, &byte) in bytes.iter().enumerate() {
-            if i != 4 {
-                sum = sum.wrapping_add(byte);
-            }
-        }
-        desc.tag.tag_checksum = sum;
+        desc.tag = tag_with_checksum(TagIdentifier::PrimaryVolumeDescriptor, location);
         assert!(desc.validate(location).is_err());
     }
 }
