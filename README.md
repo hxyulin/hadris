@@ -82,6 +82,16 @@ cargo build -p hadris-fat --no-default-features --features "read"
 
 See [CLAUDE.md](CLAUDE.md) for detailed build instructions and architecture notes.
 
+## Development
+
+Install [pre-commit](https://pre-commit.com/) hooks once per clone (runs `cargo fmt` / `cargo clippy` before commits):
+
+```bash
+# brew install pre-commit   # or: pipx install pre-commit
+pre-commit install
+pre-commit install --hook-type pre-push   # also run clippy on push
+```
+
 ## License
 
 Licensed under the [MIT license](LICENSE-MIT).

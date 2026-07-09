@@ -403,8 +403,6 @@ impl DirEntryAttrFlags {
     /// True for a root-directory volume label entry (`VOLUME_ID` set, not a
     /// directory, not an LFN component).
     pub fn is_volume_label_entry(self) -> bool {
-        self.contains(Self::VOLUME_ID)
-            && !self.contains(Self::DIRECTORY)
-            && self != Self::LONG_NAME
+        self.contains(Self::VOLUME_ID) && !self.contains(Self::DIRECTORY) && self != Self::LONG_NAME
     }
 }

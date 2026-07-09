@@ -329,11 +329,7 @@ mod integration_tests {
             .with_fat_type(FatTypeSelection::Fat32);
         let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
 
-        let entries: Vec<_> = fs
-            .root_dir()
-            .entries()
-            .filter_map(|e| e.ok())
-            .collect();
+        let entries: Vec<_> = fs.root_dir().entries().filter_map(|e| e.ok()).collect();
         assert!(
             entries.is_empty(),
             "volume label must not appear in directory listing"
@@ -359,18 +355,13 @@ mod integration_tests {
         {
             let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
             // mkfs.fat stores the label verbatim, including lowercase (issue #31).
-            fs.set_root_label(b"pmOS_boot  ")
-                .expect("set_root_label");
+            fs.set_root_label(b"pmOS_boot  ").expect("set_root_label");
         }
 
         cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
         let fs = FatFs::open(cursor).expect("re-open FAT32");
 
-        let entries: Vec<_> = fs
-            .root_dir()
-            .entries()
-            .filter_map(|e| e.ok())
-            .collect();
+        let entries: Vec<_> = fs.root_dir().entries().filter_map(|e| e.ok()).collect();
         assert!(
             entries.is_empty(),
             "lowercase mkfs.fat-style volume label must not break listing"

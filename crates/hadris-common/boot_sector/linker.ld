@@ -3,7 +3,7 @@ ENTRY(_start)
 SECTIONS {
     /* The stack is before the 0x7c00 address */
     . = 0x7c00;
-   
+
     .boot : {
         *(.boot)
         *(.boot.*)

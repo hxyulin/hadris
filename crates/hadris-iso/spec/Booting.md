@@ -13,7 +13,7 @@ This is not commonly used anymore, but is still supported by some motherboards, 
 Booting from a CD can be done by either the BIOS or the EFI firmware (UEFI).
 
 Booting from BIOS requires a boot entry, with the Platform ID for BIOS, and a boot image.
-There is a misconception that the boot image needs a MBR, but this is not the case. 
+There is a misconception that the boot image needs a MBR, but this is not the case.
 Partition tables are only used when booting from a hard drive.
 
 Booting from UEFI requires a boot entry, with the Platform ID for UEFI, and a boot image.
@@ -24,7 +24,7 @@ There is a misconception that the boot image needs a GPT or MBR, but this is not
 Booting from a hard drive is the most common way to boot, and is also the most flexible.
 A hard drive includes:
 - HDD
-- SSD 
+- SSD
 - USB
 
 (Unfinished)

@@ -9,6 +9,14 @@ on:
     branches:
       - main
 
+# Least-privilege GITHUB_TOKEN. Without an explicit block the token inherits the
+# repo/org default (often write), which CodeQL flags as
+# `actions/missing-workflow-permissions` — a compromised step could otherwise
+# push code, create releases, or modify settings. This workflow only needs to
+# check out the tree.
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 

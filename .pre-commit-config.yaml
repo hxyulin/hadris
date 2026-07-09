@@ -1,0 +1,37 @@
+# https://pre-commit.com
+# Install once per clone:  pre-commit install
+# Optional (clippy on push):  pre-commit install --hook-type pre-push
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^fuzz/corpus/
+      - id: end-of-file-fixer
+        exclude: ^fuzz/corpus/
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        exclude: ^fuzz/corpus/
+
+  # Local system hooks use the repo's rustup toolchain (same as CI).
+  # Prefer these over doublify/pre-commit-rust (unmaintained).
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        description: Format Rust sources (matches CI `fmt` job)
+        entry: cargo fmt --all
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        description: Lint Rust sources (matches CI `clippy` job)
+        entry: cargo clippy --workspace
+        language: system
+        types: [rust]
+        pass_filenames: false
+        # Clippy is slower; also run on push so a --no-verify commit still gets checked.
+        stages: [pre-commit, pre-push]
