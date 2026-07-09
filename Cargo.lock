@@ -102,9 +102,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.9.0"
+version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c8214115b7bf84099f1309324e63141d4c5d7cc26862f97a0a857dbefe165bd"
+checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
 dependencies = [
  "bytemuck",
 ]
@@ -487,7 +487,7 @@ dependencies = [
 name = "hadris-fat"
 version = "1.2.1"
 dependencies = [
- "bitflags 2.9.0",
+ "bitflags 2.13.0",
  "bytemuck",
  "chrono",
  "defmt 0.3.100",
@@ -522,7 +522,7 @@ dependencies = [
 name = "hadris-iso"
 version = "1.2.1"
 dependencies = [
- "bitflags 2.9.0",
+ "bitflags 2.13.0",
  "bytemuck",
  "chrono",
  "criterion",
@@ -570,7 +570,7 @@ dependencies = [
 name = "hadris-udf"
 version = "1.2.1"
 dependencies = [
- "bitflags 2.9.0",
+ "bitflags 2.13.0",
  "bytemuck",
  "hadris-common",
  "hadris-io",
@@ -945,7 +945,7 @@ version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d97817398dd4bb2e6da002002db259209759911da105da92bec29ccb12cf58bf"
 dependencies = [
- "bitflags 2.9.0",
+ "bitflags 2.13.0",
  "errno",
  "libc",
  "linux-raw-sys",
@@ -1434,7 +1434,7 @@ version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
- "bitflags 2.9.0",
+ "bitflags 2.13.0",
 ]
 
 [[package]]
