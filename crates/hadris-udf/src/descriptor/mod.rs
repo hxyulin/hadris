@@ -12,7 +12,7 @@ mod tag;
 
 pub use anchor::AnchorVolumeDescriptorPointer;
 pub use fileset::FileSetDescriptor;
-pub use logical::LogicalVolumeDescriptor;
+pub use logical::{LogicalVolumeDescriptor, Type1PartitionMap};
 pub use partition::{PartitionContents, PartitionDescriptor};
 pub use primary::PrimaryVolumeDescriptor;
 pub use tag::{DescriptorTag, TagIdentifier};

@@ -32,12 +32,13 @@
 //! println!("Volume: {}", info.volume_id);
 //!
 //! // List root directory
-//! for entry in udf.root_dir().unwrap().entries() {
+//! let root = udf.root_dir().unwrap();
+//! for entry in root.entries() {
 //!     println!("{} ({})", entry.name(), entry.size);
 //! }
 //!
 //! // Read a file's contents
-//! # let entry = udf.root_dir().unwrap().entries().next().unwrap();
+//! # let entry = root.entries().next().unwrap();
 //! let bytes = udf.read_file(&entry).unwrap();
 //! # let _ = bytes;
 //! ```

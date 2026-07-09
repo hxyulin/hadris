@@ -258,7 +258,7 @@ mod tests {
         let options = CdOptions::default();
         let mut layout = LayoutManager::new(2048);
 
-        let info = layout.layout_files(&mut tree, &options).unwrap();
+        layout.layout_files(&mut tree, &options).unwrap();
 
         // First file should have a valid extent
         let file1 = tree.root.files.get(0).unwrap();

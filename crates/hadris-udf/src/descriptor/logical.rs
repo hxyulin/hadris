@@ -64,6 +64,36 @@ impl LogicalVolumeDescriptor {
     pub fn is_udf_domain(&self) -> bool {
         self.domain_identifier.is(b"*OSTA UDF Compliant")
     }
+
+    /// Yield Type 1 partition maps from the embedded map table (ECMA-167 3/10.7.2).
+    ///
+    /// Skips unknown / Type 2 maps and stops if the table is truncated or malformed.
+    pub fn type1_partition_maps(&self) -> impl Iterator<Item = Type1PartitionMap> + '_ {
+        let maps = &self.partition_maps;
+        let mut offset = 0usize;
+        let mut remaining = self.num_partition_maps as usize;
+        core::iter::from_fn(move || {
+            while remaining > 0 {
+                remaining -= 1;
+                if offset + 2 > maps.len() {
+                    return None;
+                }
+                let map_type = maps[offset];
+                let map_len = maps[offset + 1] as usize;
+                if map_len < 2 || offset + map_len > maps.len() {
+                    return None;
+                }
+                let entry = &maps[offset..offset + map_len];
+                offset += map_len;
+                if map_type == 1 && map_len >= core::mem::size_of::<Type1PartitionMap>() {
+                    return Some(*bytemuck::from_bytes(
+                        &entry[..core::mem::size_of::<Type1PartitionMap>()],
+                    ));
+                }
+            }
+            None
+        })
+    }
 }
 
 /// Type 1 Partition Map (ECMA-167 3/10.7.2)
@@ -86,4 +116,38 @@ mod tests {
 
     static_assertions::const_assert_eq!(size_of::<LogicalVolumeDescriptor>(), 512);
     static_assertions::const_assert_eq!(size_of::<Type1PartitionMap>(), 6);
+
+    #[test]
+    fn type1_partition_maps_parses_embedded_table() {
+        let mut lvd = LogicalVolumeDescriptor {
+            tag: bytemuck::Zeroable::zeroed(),
+            vds_number: 0,
+            descriptor_char_set: CharSpec::default(),
+            logical_volume_identifier: [0; 128],
+            logical_block_size: 2048,
+            domain_identifier: EntityIdentifier::EMPTY,
+            logical_volume_contents_use: [0; 16],
+            map_table_length: 6,
+            num_partition_maps: 1,
+            implementation_identifier: EntityIdentifier::EMPTY,
+            implementation_use: [0; 128],
+            integrity_sequence_extent: ExtentDescriptor::default(),
+            partition_maps: [0; 72],
+        };
+        let map = Type1PartitionMap {
+            partition_map_type: 1,
+            partition_map_length: 6,
+            volume_sequence_number: 1,
+            partition_number: 0,
+        };
+        lvd.partition_maps[..6].copy_from_slice(bytemuck::bytes_of(&map));
+
+        let mut parsed = lvd.type1_partition_maps();
+        let first = parsed.next().expect("type 1 map");
+        assert!(parsed.next().is_none());
+        assert_eq!(first.partition_map_type, 1);
+        assert_eq!(first.partition_map_length, 6);
+        assert_eq!(first.volume_sequence_number, 1);
+        assert_eq!(first.partition_number, 0);
+    }
 }
