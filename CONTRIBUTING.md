@@ -46,6 +46,17 @@ See [CLAUDE.md](CLAUDE.md) for the full per-crate feature matrix used in CI.
   Replay corpora with `cargo +nightly fuzz run <target> -- -runs=0` after
   parser fixes; prefer a normal unit/integration test for PR-gating regressions.
 
+## Spec annotations
+
+When changing on-disk layouts or public parse/format entry points for a
+standard section, add or update `@hadris-spec` tags (see
+[`docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md`](docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md))
+and sync [`docs/spec-coverage.md`](docs/spec-coverage.md).
+
+- `full` needs `@hadris-tests` and/or `@hadris-fuzz`.
+- `partial` needs `@hadris-note` describing the gap.
+- Fuzz targets are local discovery tools, not CI gates.
+
 ## Docs
 
 ```bash
