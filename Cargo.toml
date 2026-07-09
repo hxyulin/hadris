@@ -56,7 +56,7 @@ cfg-if = "1.0.0"
 tempfile = "3.19.1"
 chrono = { version = "0.4.40", default-features = false }
 tracing = "0.1.41"
-spin = "0.10.0"
+spin = "0.12.1"
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 
