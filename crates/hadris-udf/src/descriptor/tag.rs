@@ -5,6 +5,11 @@ use crate::error::{UdfError, UdfResult};
 /// Descriptor tag (ECMA-167 3/7.2)
 ///
 /// Every UDF descriptor starts with this 16-byte tag
+///
+/// @hadris-spec ECMA-167:3/7.2
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_udf::test_tag_structure
+/// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct DescriptorTag {
@@ -82,6 +87,11 @@ impl DescriptorTag {
 }
 
 /// Tag identifier values (ECMA-167 3/7.2.1)
+///
+/// @hadris-spec ECMA-167:3/7.2.1
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_udf::test_descriptor_tag_ids
+/// @hadris-fuzz udf_read
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum TagIdentifier {
