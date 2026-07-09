@@ -324,6 +324,12 @@ impl Debug for UnknownVolumeDescriptor {
 unsafe impl bytemuck::Zeroable for UnknownVolumeDescriptor {}
 unsafe impl bytemuck::Pod for UnknownVolumeDescriptor {}
 
+/// Primary Volume Descriptor (ECMA-119 8.4)
+///
+/// @hadris-spec ECMA-119:8.4
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_iso::test_pvd_standard_identifier
+/// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PrimaryVolumeDescriptor {
