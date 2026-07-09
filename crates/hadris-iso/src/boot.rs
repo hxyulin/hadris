@@ -220,6 +220,12 @@ impl PlatformId {
     }
 }
 
+/// El Torito boot catalog validation entry.
+///
+/// @hadris-spec El-Torito:validation
+/// @hadris-compliance full
+/// @hadris-tests xorriso_boot::test_eltorito_boot_catalog_comparison
+/// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct BootValidationEntry {

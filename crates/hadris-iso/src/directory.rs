@@ -4,7 +4,13 @@ use bytemuck::Zeroable;
 use super::io::LogicalSector;
 use crate::types::{U16LsbMsb, U32LsbMsb};
 
-/// The header of a directory record, because the identifier is variable length,
+/// The header of a directory record, because the identifier is variable length
+/// (ECMA-119 9.1 fixed fields).
+///
+/// @hadris-spec ECMA-119:9.1
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_iso::test_directory_record_structure
+/// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct DirectoryRecordHeader {
@@ -53,6 +59,13 @@ impl DirectoryRecordHeader {
     }
 }
 
+/// Directory Record (ECMA-119 9.1) — header plus variable identifier / system use.
+///
+/// @hadris-spec ECMA-119:9.1
+/// @hadris-compliance partial
+/// @hadris-tests comprehensive_iso::test_directory_record_structure
+/// @hadris-fuzz iso_read
+/// @hadris-note Joliet+RRIP coexistence on read may hide one namespace; see crate Known Limitations
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct DirectoryRecord {

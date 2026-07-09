@@ -8,6 +8,11 @@ use hadris_common::types::{
 /// This only contains the common fields of the boot sector, and is not meant to be used directly
 /// for reading or writing to the boot sector, for that, see `RawBootSector`, which contains
 /// the boot sector and the extended boot sector
+///
+/// @hadris-spec FAT:BPB
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_fat::test_valid_sector_sizes
+/// @hadris-fuzz fat_read
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct RawBpb {
@@ -276,6 +281,12 @@ unsafe impl bytemuck::AnyBitPattern for RawFileEntry {}
 /// Embedded paces are also allowed
 /// The name is stored in UTF-16 encoding (UNICODE)
 /// When the unicode character cannot be translated to ANSI, an underscore is used
+///
+/// @hadris-spec FAT:LFN
+/// @hadris-compliance partial
+/// @hadris-tests comprehensive_fat::test_lfn_builder_sequence
+/// @hadris-fuzz fat_read
+/// @hadris-note cross-cluster LFN directory entry runs unsupported on write
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct RawLfnEntry {

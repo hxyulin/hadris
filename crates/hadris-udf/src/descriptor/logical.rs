@@ -7,6 +7,11 @@ use super::{
 use crate::error::UdfResult;
 
 /// Logical Volume Descriptor (ECMA-167 3/10.6)
+///
+/// @hadris-spec ECMA-167:3/10.6
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_udf::test_allocation_descriptor_sizes
+/// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct LogicalVolumeDescriptor {
@@ -97,6 +102,11 @@ impl LogicalVolumeDescriptor {
 }
 
 /// Type 1 Partition Map (ECMA-167 3/10.7.2)
+///
+/// @hadris-spec ECMA-167:3/10.7.2
+/// @hadris-compliance full
+/// @hadris-tests descriptor::logical::tests::type1_partition_maps_parses_embedded_table
+/// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct Type1PartitionMap {

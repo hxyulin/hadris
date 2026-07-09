@@ -5,6 +5,11 @@ use crate::error::UdfResult;
 use crate::time::UdfTimestamp;
 
 /// File Set Descriptor (ECMA-167 4/14.1)
+///
+/// @hadris-spec ECMA-167:4/14.1
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_udf::test_allocation_descriptor_sizes
+/// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct FileSetDescriptor {

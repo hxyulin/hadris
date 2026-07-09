@@ -4,6 +4,11 @@ use super::{DescriptorTag, EntityIdentifier, TagIdentifier};
 use crate::error::UdfResult;
 
 /// Partition Descriptor (ECMA-167 3/10.5)
+///
+/// @hadris-spec ECMA-167:3/10.5
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_udf::test_partition_contents
+/// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct PartitionDescriptor {

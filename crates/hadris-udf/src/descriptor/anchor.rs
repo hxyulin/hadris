@@ -7,6 +7,11 @@ use crate::error::{UdfError, UdfResult};
 /// Anchor Volume Descriptor Pointer (AVDP)
 ///
 /// Located at sector 256 (and optionally at N-256 and N where N is last sector)
+///
+/// @hadris-spec ECMA-167:3/10.2
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_udf::test_avdp_structure
+/// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct AnchorVolumeDescriptorPointer {
