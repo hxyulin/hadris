@@ -21,6 +21,18 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Phase E v1: enforce @hadris-* annotation grammar (no cargo / no fuzz).
+  # See docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md §7.
+  spec-annotations:
+    name: Spec annotations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Self-test checker
+        run: python3 scripts/check-spec-annotations.py --self-test
+      - name: Check @hadris-* tags
+        run: python3 scripts/check-spec-annotations.py
+
   check:
     name: Check
     runs-on: ubuntu-latest

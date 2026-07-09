@@ -1,15 +1,18 @@
 # Spec coverage
 
 Maintainer audit index for standards-facing types in Hadris.
-Not a public marketing matrix (v0).
+Not a public marketing matrix.
 
 **Design:** [`docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md`](superpowers/specs/2026-07-09-spec-compliance-program-design.md)
+
+**CI:** `python3 scripts/check-spec-annotations.py` (tag grammar + every `@hadris-spec` id must appear below).
 
 **How to update**
 
 1. `rg '@hadris-spec' crates/`
 2. Sync rows below (one primary row per annotated item).
 3. Prefer `partial` + Notes over claiming `full`.
+4. Re-run `python3 scripts/check-spec-annotations.py`.
 
 Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 
