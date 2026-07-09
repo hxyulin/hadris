@@ -57,6 +57,13 @@ and sync [`docs/spec-coverage.md`](docs/spec-coverage.md).
 - `partial` needs `@hadris-note` describing the gap.
 - Fuzz targets are local discovery tools, not CI gates.
 
+CI runs the grammar + table-sync check (never `cargo fuzz`):
+
+```bash
+python3 scripts/check-spec-annotations.py --self-test
+python3 scripts/check-spec-annotations.py
+```
+
 ## Docs
 
 ```bash

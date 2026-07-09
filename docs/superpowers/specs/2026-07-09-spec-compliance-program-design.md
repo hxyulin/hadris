@@ -1,7 +1,7 @@
 # Spec Compliance Program (Phase E) — Design
 
 **Date:** 2026-07-09
-**Status:** Design approved; implementation deferred
+**Status:** v0 + v1 landed (`scripts/check-spec-annotations.py` + CI job `Spec annotations`)
 **Parent review:** [`2026-07-09-professionalization-review.md`](./2026-07-09-professionalization-review.md) (§6 / Phase E)
 **Approach:** Comment tags only (no proc-macro in v0/v1)
 
@@ -186,13 +186,15 @@ Minimum:
 | **v2** | Optional generator (script preferred over proc-macro) that emits or checks the markdown table | Only if hand sync becomes painful |
 | **Later** | Golden vectors per section; richer in-repo human specs as an index into the same ids | Ongoing |
 
-### v1 CI sketch (not implemented in v0)
+### v1 CI (implemented)
 
-- Input: `rg -n '@hadris-' crates/` (or a tiny Python/shell scanner).
-- Group consecutive tags belonging to one item (comment block above an `fn`/`struct`).
+Script: [`scripts/check-spec-annotations.py`](../../../scripts/check-spec-annotations.py).
+CI job: `Spec annotations` in [`.github/workflows/rust.yml`](../../../.github/workflows/rust.yml).
+
+- Input: walk `crates/**/*.rs` for consecutive `@hadris-*` comment lines.
 - Fail if any block has `@hadris-compliance full` and neither `@hadris-tests` nor `@hadris-fuzz`.
 - Fail if any block has `@hadris-compliance partial` without `@hadris-note`.
-- Optional: every `@hadris-spec` value appears in `docs/spec-coverage.md`.
+- Fail if any `@hadris-spec` value is missing from `docs/spec-coverage.md` (disable with `--no-table-sync`).
 - **Never** invoke `cargo fuzz` in CI.
 
 Keep the checker dumb: line-oriented tags, no AST. If that proves too fragile, escalate to v2 — still prefer a script over a proc-macro.
@@ -225,8 +227,8 @@ Annotations do not replace (2)–(4); they make them findable from the standard 
 
 **v1 is done when:**
 
-1. A CI job or script enforces the `full` / `partial` tag rules above.
-2. Failures are actionable (print file:line and missing tag).
+1. A CI job or script enforces the `full` / `partial` tag rules above. ✅
+2. Failures are actionable (print file:line and missing tag). ✅
 
 ---
 
@@ -242,11 +244,11 @@ Resolved for design; revisit only if implementation hits friction:
 | Mechanism | Comment tags only |
 | Spec id for FAT | Prefer existing citations; else stable `FAT:BPB` / `FAT:LFN` |
 
-Still open at implementation time (not blocking this design):
+Resolved during implementation:
 
-- Exact test path strings for each pilot row (discover while tagging).
-- Whether El-Torito is in or out of the ISO pilot (default: in only if cheap).
-- Whether v1 table sync is required or optional on first CI landing.
+- Exact test path strings: discovered while tagging; see `docs/spec-coverage.md`.
+- El-Torito: in (`El-Torito:validation` on `BootValidationEntry`).
+- v1 table sync: **required** (default on; `--no-table-sync` for local escape hatch only).
 
 ---
 
