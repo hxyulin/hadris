@@ -161,7 +161,7 @@ apply the same contract:
 - platform, I/O-mode, and capability features forward only to selected leaves;
 - each concrete leaf is re-exported without wrapping or erasing its API;
 - `hadris-block` additionally exposes the format-neutral `hadris-storage`
-  primitives;
+  primitives and forwards I/O modes to its optional detection API;
 - the top-level `hadris` crate delegates to these facades instead of maintaining
   a second leaf-dependency and forwarding layer;
 - the optical facade documents and preserves the CD writer's sync-only exception.
