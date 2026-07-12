@@ -351,7 +351,7 @@ pub mod hadris_iso::async::path
 pub struct hadris_iso::async::path::PathTableEntry<const N: usize>
 pub hadris_iso::async::path::PathTableEntry::extended_attr_record: u8
 pub hadris_iso::async::path::PathTableEntry::length: u8
-pub hadris_iso::async::path::PathTableEntry::name: hadris_common::types::file::FixedFilename<N>
+pub hadris_iso::async::path::PathTableEntry::name: hadris_fixed::FixedBytes<N>
 pub hadris_iso::async::path::PathTableEntry::parent_index: u16
 pub hadris_iso::async::path::PathTableEntry::parent_lba: u32
 impl hadris_iso::async::path::PathTableEntry
@@ -1620,7 +1620,7 @@ impl bytemuck::pod::Pod for hadris_iso::directory::RootDirectoryEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::directory::RootDirectoryEntry
 pub mod hadris_iso::file
 pub enum hadris_iso::file::ConvertedName
-pub hadris_iso::file::ConvertedName::Joliet(hadris_common::types::file::FixedFilename<207>)
+pub hadris_iso::file::ConvertedName::Joliet(hadris_fixed::FixedBytes<207>)
 pub hadris_iso::file::ConvertedName::Level1(hadris_iso::file::FilenameL1)
 pub hadris_iso::file::ConvertedName::Level2(hadris_iso::file::FilenameL2)
 pub hadris_iso::file::ConvertedName::Level3(hadris_iso::file::FilenameL3)
@@ -1653,13 +1653,13 @@ impl core::convert::From<hadris_iso::write::options::BaseIsoLevel> for hadris_is
 pub fn hadris_iso::file::EntryType::from(hadris_iso::write::options::BaseIsoLevel) -> Self
 impl core::default::Default for hadris_iso::file::EntryType
 pub fn hadris_iso::file::EntryType::default() -> Self
-pub fn hadris_iso::file::convert_joliet3(&str) -> hadris_common::types::file::FixedFilename<207>
-pub fn hadris_iso::file::convert_l1(&str, bool) -> hadris_common::types::file::FixedFilename<14>
+pub fn hadris_iso::file::convert_joliet3(&str) -> hadris_fixed::FixedBytes<207>
+pub fn hadris_iso::file::convert_l1(&str, bool) -> hadris_fixed::FixedBytes<14>
 pub fn hadris_iso::file::convert_l2(&str, bool) -> hadris_iso::file::FilenameL2
 pub fn hadris_iso::file::convert_l3(&str, bool) -> hadris_iso::file::FilenameL3
-pub type hadris_iso::file::FilenameL1 = hadris_common::types::file::FixedFilename<14>
-pub type hadris_iso::file::FilenameL2 = hadris_common::types::file::FixedFilename<32>
-pub type hadris_iso::file::FilenameL3 = hadris_common::types::file::FixedFilename<207>
+pub type hadris_iso::file::FilenameL1 = hadris_fixed::FixedBytes<14>
+pub type hadris_iso::file::FilenameL2 = hadris_fixed::FixedBytes<32>
+pub type hadris_iso::file::FilenameL3 = hadris_fixed::FixedBytes<207>
 pub mod hadris_iso::io
 pub use hadris_iso::io::Error
 pub use hadris_iso::io::ErrorKind
@@ -1771,7 +1771,7 @@ pub mod hadris_iso::path
 pub struct hadris_iso::path::PathTableEntry<const N: usize>
 pub hadris_iso::path::PathTableEntry::extended_attr_record: u8
 pub hadris_iso::path::PathTableEntry::length: u8
-pub hadris_iso::path::PathTableEntry::name: hadris_common::types::file::FixedFilename<N>
+pub hadris_iso::path::PathTableEntry::name: hadris_fixed::FixedBytes<N>
 pub hadris_iso::path::PathTableEntry::parent_index: u16
 pub hadris_iso::path::PathTableEntry::parent_lba: u32
 impl hadris_iso::path::PathTableEntry
@@ -2992,7 +2992,7 @@ pub mod hadris_iso::sync::path
 pub struct hadris_iso::sync::path::PathTableEntry<const N: usize>
 pub hadris_iso::sync::path::PathTableEntry::extended_attr_record: u8
 pub hadris_iso::sync::path::PathTableEntry::length: u8
-pub hadris_iso::sync::path::PathTableEntry::name: hadris_common::types::file::FixedFilename<N>
+pub hadris_iso::sync::path::PathTableEntry::name: hadris_fixed::FixedBytes<N>
 pub hadris_iso::sync::path::PathTableEntry::parent_index: u16
 pub hadris_iso::sync::path::PathTableEntry::parent_lba: u32
 impl hadris_iso::path::PathTableEntry

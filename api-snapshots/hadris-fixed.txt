@@ -1,0 +1,96 @@
+pub mod hadris_fixed
+pub struct hadris_fixed::BigEndian
+impl hadris_fixed::Utf16ByteOrder for hadris_fixed::BigEndian
+pub fn hadris_fixed::BigEndian::read([u8; 2]) -> u16
+pub fn hadris_fixed::BigEndian::write(u16) -> [u8; 2]
+pub struct hadris_fixed::CapacityError
+impl core::error::Error for hadris_fixed::CapacityError
+impl core::fmt::Display for hadris_fixed::CapacityError
+pub fn hadris_fixed::CapacityError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fixed::FixedBytes<const N: usize>
+impl<const N: usize> hadris_fixed::FixedBytes<N>
+pub fn hadris_fixed::FixedBytes<N>::allocate(&mut self, usize)
+pub fn hadris_fixed::FixedBytes<N>::as_bytes(&self) -> &[u8]
+pub fn hadris_fixed::FixedBytes<N>::as_bytes_mut(&mut self) -> &mut [u8]
+pub fn hadris_fixed::FixedBytes<N>::as_str(&self) -> &str
+pub const fn hadris_fixed::FixedBytes<N>::capacity(&self) -> usize
+pub fn hadris_fixed::FixedBytes<N>::clear(&mut self)
+pub const fn hadris_fixed::FixedBytes<N>::empty() -> Self
+pub const fn hadris_fixed::FixedBytes<N>::is_empty(&self) -> bool
+pub const fn hadris_fixed::FixedBytes<N>::len(&self) -> usize
+pub const fn hadris_fixed::FixedBytes<N>::new() -> Self
+pub fn hadris_fixed::FixedBytes<N>::push_byte(&mut self, u8) -> usize
+pub fn hadris_fixed::FixedBytes<N>::push_slice(&mut self, &[u8]) -> core::ops::range::Range<usize>
+pub const fn hadris_fixed::FixedBytes<N>::remaining_capacity(&self) -> usize
+pub fn hadris_fixed::FixedBytes<N>::truncate(&mut self, usize)
+pub fn hadris_fixed::FixedBytes<N>::try_as_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub fn hadris_fixed::FixedBytes<N>::try_from_slice(&[u8]) -> core::result::Result<Self, hadris_fixed::CapacityError>
+pub fn hadris_fixed::FixedBytes<N>::try_push_byte(&mut self, u8) -> core::result::Result<usize, hadris_fixed::CapacityError>
+pub fn hadris_fixed::FixedBytes<N>::try_push_slice(&mut self, &[u8]) -> core::result::Result<core::ops::range::Range<usize>, hadris_fixed::CapacityError>
+pub const fn hadris_fixed::FixedBytes<N>::with_size(usize) -> Self
+impl<const N: usize> core::convert::From<&[u8; N]> for hadris_fixed::FixedBytes<N>
+pub fn hadris_fixed::FixedBytes<N>::from(&[u8; N]) -> Self
+impl<const N: usize> core::convert::From<&[u8]> for hadris_fixed::FixedBytes<N>
+pub fn hadris_fixed::FixedBytes<N>::from(&[u8]) -> Self
+impl<const N: usize> core::convert::TryFrom<hadris_fixed::FixedBytes<N>> for hadris_fixed::FixedStr<N>
+pub type hadris_fixed::FixedStr<N>::Error = core::str::error::Utf8Error
+pub fn hadris_fixed::FixedStr<N>::try_from(hadris_fixed::FixedBytes<N>) -> core::result::Result<Self, Self::Error>
+impl<const N: usize> core::default::Default for hadris_fixed::FixedBytes<N>
+pub fn hadris_fixed::FixedBytes<N>::default() -> Self
+impl<const N: usize> core::fmt::Debug for hadris_fixed::FixedBytes<N>
+pub fn hadris_fixed::FixedBytes<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const N: usize> core::fmt::Display for hadris_fixed::FixedBytes<N>
+pub fn hadris_fixed::FixedBytes<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fixed::FixedStr<const N: usize>(_)
+impl<const N: usize> hadris_fixed::FixedStr<N>
+pub fn hadris_fixed::FixedStr<N>::as_bytes(&self) -> &[u8]
+pub fn hadris_fixed::FixedStr<N>::as_str(&self) -> &str
+pub const fn hadris_fixed::FixedStr<N>::capacity(&self) -> usize
+pub fn hadris_fixed::FixedStr<N>::clear(&mut self)
+pub const fn hadris_fixed::FixedStr<N>::into_bytes(self) -> hadris_fixed::FixedBytes<N>
+pub const fn hadris_fixed::FixedStr<N>::is_empty(&self) -> bool
+pub const fn hadris_fixed::FixedStr<N>::len(&self) -> usize
+pub const fn hadris_fixed::FixedStr<N>::new() -> Self
+pub fn hadris_fixed::FixedStr<N>::push_str(&mut self, &str) -> core::ops::range::Range<usize>
+pub const fn hadris_fixed::FixedStr<N>::remaining_capacity(&self) -> usize
+pub fn hadris_fixed::FixedStr<N>::truncate(&mut self, usize)
+pub fn hadris_fixed::FixedStr<N>::try_push(&mut self, char) -> core::result::Result<core::ops::range::Range<usize>, hadris_fixed::CapacityError>
+pub fn hadris_fixed::FixedStr<N>::try_push_str(&mut self, &str) -> core::result::Result<core::ops::range::Range<usize>, hadris_fixed::CapacityError>
+impl<const N: usize> core::convert::TryFrom<&str> for hadris_fixed::FixedStr<N>
+pub type hadris_fixed::FixedStr<N>::Error = hadris_fixed::CapacityError
+pub fn hadris_fixed::FixedStr<N>::try_from(&str) -> core::result::Result<Self, Self::Error>
+impl<const N: usize> core::convert::TryFrom<hadris_fixed::FixedBytes<N>> for hadris_fixed::FixedStr<N>
+pub type hadris_fixed::FixedStr<N>::Error = core::str::error::Utf8Error
+pub fn hadris_fixed::FixedStr<N>::try_from(hadris_fixed::FixedBytes<N>) -> core::result::Result<Self, Self::Error>
+impl<const N: usize> core::default::Default for hadris_fixed::FixedStr<N>
+pub fn hadris_fixed::FixedStr<N>::default() -> Self
+impl<const N: usize> core::fmt::Debug for hadris_fixed::FixedStr<N>
+pub fn hadris_fixed::FixedStr<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const N: usize> core::fmt::Display for hadris_fixed::FixedStr<N>
+pub fn hadris_fixed::FixedStr<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(C)] pub struct hadris_fixed::FixedUtf16<const N: usize, E: hadris_fixed::Utf16ByteOrder>
+impl<const N: usize, E: hadris_fixed::Utf16ByteOrder> hadris_fixed::FixedUtf16<N, E>
+pub fn hadris_fixed::FixedUtf16<N, E>::as_bytes(&self) -> &[[u8; 2]; N]
+pub fn hadris_fixed::FixedUtf16<N, E>::decode(&self) -> impl core::iter::traits::iterator::Iterator<Item = core::result::Result<char, core::char::decode::DecodeUtf16Error>> + '_
+pub const fn hadris_fixed::FixedUtf16<N, E>::new() -> Self
+pub fn hadris_fixed::FixedUtf16<N, E>::to_string(&self) -> core::result::Result<alloc::string::String, core::char::decode::DecodeUtf16Error>
+pub fn hadris_fixed::FixedUtf16<N, E>::try_from_str(&str) -> core::result::Result<Self, hadris_fixed::CapacityError>
+impl<const N: usize, E: hadris_fixed::Utf16ByteOrder + 'static> bytemuck::pod::Pod for hadris_fixed::FixedUtf16<N, E>
+impl<const N: usize, E: hadris_fixed::Utf16ByteOrder + 'static> bytemuck::zeroable::Zeroable for hadris_fixed::FixedUtf16<N, E>
+impl<const N: usize, E: hadris_fixed::Utf16ByteOrder> core::default::Default for hadris_fixed::FixedUtf16<N, E>
+pub fn hadris_fixed::FixedUtf16<N, E>::default() -> Self
+pub struct hadris_fixed::LittleEndian
+impl hadris_fixed::Utf16ByteOrder for hadris_fixed::LittleEndian
+pub fn hadris_fixed::LittleEndian::read([u8; 2]) -> u16
+pub fn hadris_fixed::LittleEndian::write(u16) -> [u8; 2]
+pub trait hadris_fixed::Utf16ByteOrder: core::marker::Copy
+pub fn hadris_fixed::Utf16ByteOrder::read([u8; 2]) -> u16
+pub fn hadris_fixed::Utf16ByteOrder::write(u16) -> [u8; 2]
+impl hadris_fixed::Utf16ByteOrder for hadris_fixed::BigEndian
+pub fn hadris_fixed::BigEndian::read([u8; 2]) -> u16
+pub fn hadris_fixed::BigEndian::write(u16) -> [u8; 2]
+impl hadris_fixed::Utf16ByteOrder for hadris_fixed::LittleEndian
+pub fn hadris_fixed::LittleEndian::read([u8; 2]) -> u16
+pub fn hadris_fixed::LittleEndian::write(u16) -> [u8; 2]
+pub type hadris_fixed::FixedUtf16Be<const N: usize> = hadris_fixed::FixedUtf16<N, hadris_fixed::BigEndian>
+pub type hadris_fixed::FixedUtf16Le<const N: usize> = hadris_fixed::FixedUtf16<N, hadris_fixed::LittleEndian>

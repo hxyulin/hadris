@@ -1,4 +1,4 @@
-use hadris_common::types::file::FixedFilename;
+use hadris_fixed::FixedBytes;
 
 use super::io::{self, Error, LogicalSector, Read, Write};
 use crate::types::EndianType;
@@ -35,7 +35,7 @@ pub struct PathTableEntry<const N: usize = 256> {
     pub extended_attr_record: u8,
     pub parent_lba: u32,
     pub parent_index: u16,
-    pub name: FixedFilename<N>,
+    pub name: FixedBytes<N>,
 }
 
 impl PathTableEntry {
@@ -50,7 +50,7 @@ impl PathTableEntry {
         let mut buf = [0; size_of::<PathTableEntryHeader>()];
         reader.read_exact(&mut buf).await?;
         let header = PathTableEntryHeader::from_bytes(&buf);
-        let mut name = FixedFilename::with_size(header.len as usize);
+        let mut name = FixedBytes::with_size(header.len as usize);
         reader.read_exact(name.as_bytes_mut()).await?;
         if header.len % 2 == 1 {
             // Read the padding byte

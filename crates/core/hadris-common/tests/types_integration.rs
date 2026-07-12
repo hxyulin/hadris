@@ -2,8 +2,8 @@
 
 use hadris_common::types::endian::*;
 use hadris_common::types::extent::*;
-use hadris_common::types::file::FixedFilename;
 use hadris_common::types::number::*;
+use hadris_fixed::FixedBytes;
 
 // ---------------------------------------------------------------------------
 // Endian number types
@@ -170,12 +170,12 @@ fn file_type_default() {
 }
 
 // ---------------------------------------------------------------------------
-// FixedFilename
+// FixedBytes
 // ---------------------------------------------------------------------------
 
 #[test]
 fn fixed_filename_push_operations() {
-    let mut name = FixedFilename::<32>::empty();
+    let mut name = FixedBytes::<32>::empty();
     assert!(name.is_empty());
 
     name.push_slice(b"hello");
@@ -189,24 +189,24 @@ fn fixed_filename_push_operations() {
 
 #[test]
 fn fixed_filename_try_push_overflow() {
-    let mut name = FixedFilename::<5>::empty();
+    let mut name = FixedBytes::<5>::empty();
     name.push_slice(b"hello");
     assert_eq!(name.remaining_capacity(), 0);
 
-    assert!(name.try_push_byte(b'!').is_none());
-    assert!(name.try_push_slice(b"x").is_none());
+    assert!(name.try_push_byte(b'!').is_err());
+    assert!(name.try_push_slice(b"x").is_err());
 }
 
 #[test]
 fn fixed_filename_truncate() {
-    let mut name = FixedFilename::<32>::from(b"hello.txt".as_slice());
+    let mut name = FixedBytes::<32>::from(b"hello.txt".as_slice());
     name.truncate(5);
     assert_eq!(name.as_str(), "hello");
 }
 
 #[test]
 fn fixed_filename_display() {
-    let name = FixedFilename::<32>::from(b"test.iso".as_slice());
+    let name = FixedBytes::<32>::from(b"test.iso".as_slice());
     assert_eq!(format!("{}", name), "test.iso");
 }
 

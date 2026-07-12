@@ -1,11 +1,11 @@
 use core::fmt;
 
-use hadris_common::types::file::FixedFilename;
+use hadris_fixed::FixedBytes;
 
 /// A type representing a short filename (8.3 format)
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct ShortFileName(FixedFilename<12>);
+pub struct ShortFileName(FixedBytes<12>);
 
 impl fmt::Debug for ShortFileName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -33,12 +33,12 @@ impl ShortFileName {
     pub fn new(bytes: [u8; 11]) -> Result<Self, CreateShortFileNameError> {
         // Special case: "." and ".." directory entries
         if bytes == *b".          " {
-            let mut name = FixedFilename::empty();
+            let mut name = FixedBytes::empty();
             name.push_byte(b'.');
             return Ok(Self(name));
         }
         if bytes == *b"..         " {
-            let mut name = FixedFilename::empty();
+            let mut name = FixedBytes::empty();
             name.push_slice(b"..");
             return Ok(Self(name));
         }
@@ -55,7 +55,7 @@ impl ShortFileName {
             return Err(CreateShortFileNameError);
         }
 
-        let mut name = FixedFilename::empty();
+        let mut name = FixedBytes::empty();
         name.push_slice(&bytes[0..8]);
         name.push_byte(b'.');
         name.push_slice(&bytes[8..11]);

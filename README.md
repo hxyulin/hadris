@@ -10,8 +10,9 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 ### Core Libraries
 
 - **[hadris-io](crates/core/hadris-io)** - No-std I/O abstraction layer (`Read`, `Write`, `Seek`)
+- **[hadris-fixed](crates/core/hadris-fixed)** - Fixed-capacity byte, UTF-8, and endian-aware UTF-16 types
 - **[hadris-path](crates/core/hadris-path)** - Allocation-free lexical paths for virtual filesystems and archives
-- **[hadris-common](crates/core/hadris-common)** - Shared utilities (endian types, CRC, UTF-16 strings, optical helpers)
+- **[hadris-common](crates/core/hadris-common)** - Shared filesystem utilities (endian types, CRC, optical helpers)
 - **[hadris-storage](crates/core/hadris-storage)** - Format-neutral block geometry, device traits, and seekable-stream adapters
 - **[hadris-macros](crates/core/hadris-macros)** - Proc macros for dual sync/async code generation
 
@@ -57,7 +58,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Meta-crate
 
-- **[hadris](crates/core/hadris)** - Optional umbrella built on the three category facades, plus `path` utilities, with grouped APIs: `block::{storage, fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `path`, `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
+- **[hadris](crates/core/hadris)** - Optional umbrella built on the three category facades, plus `fixed` and `path` utilities, with grouped APIs: `block::{storage, fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `fixed`, `path`, `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
 
 ## Key Features
 
@@ -75,6 +76,7 @@ Each package now owns its version; all current packages target **2.0.0**:
 hadris-iso = "2.0.0"
 hadris-fat = "2.0.0"
 hadris-part = { version = "2.0.0", features = ["read"] }
+hadris-fixed = "2.0.0"
 hadris-path = "2.0.0"
 ```
 
