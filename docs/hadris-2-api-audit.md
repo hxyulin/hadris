@@ -62,6 +62,10 @@ traversal, duplicate rejection, and source-recovery workflows.
 format types. Raw disk-layout structs will not be hidden behind one lossy entry
 enum.
 
+The synchronous lifecycle is continuously qualified for MBR, primary/backup
+GPT, and hybrid write-to-open roundtrips; non-destructive detection; CRC-backed
+validation; and truncated or corrupt GPT rejection.
+
 ## ISO 9660
 
 | Current surface | 2.0 direction |
