@@ -92,6 +92,15 @@ jobs:
             tier: async-read
             features: "async,read,alloc"
           - crate: hadris-part
+            tier: hosted-async-read-write
+            features: "std,async,read,write,crc,rand"
+          - crate: hadris-part
+            tier: sync-and-async-read-write
+            features: "alloc,sync,async,read,write,crc"
+          - crate: hadris-part
+            tier: all-capabilities
+            features: "std,alloc,sync,async,read,write,crc,rand"
+          - crate: hadris-part
             tier: crc
             features: "sync,read,alloc,crc"
 

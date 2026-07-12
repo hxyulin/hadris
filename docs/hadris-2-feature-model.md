@@ -101,6 +101,20 @@ Async read/write currently has compile-matrix and shared logic coverage. Dedicat
 async integration tests using an async storage adapter remain desirable before
 calling its runtime behavior release-qualified.
 
+### Partition tables
+
+`hadris-part` now follows the shared contract:
+
+- `std` no longer enables `sync`, while defaults select `sync` explicitly;
+- bare, no-std sync, async-only, hosted async read/write, combined, default, and
+  all-capability builds pass with warnings denied;
+- the same mode-neutral MBR/GPT/hybrid types back both I/O modules, avoiding the
+  nominal-type duplication encountered during the UDF pilot;
+- all-feature builds use the current `rand` trait API for GUID generation.
+
+As with FAT, dedicated async adapter integration tests remain useful release work;
+the feature composition and generated async APIs are now compile-checked in CI.
+
 ## Ecosystem research
 
 Hadris is not the only Rust project to offer synchronous and asynchronous APIs,

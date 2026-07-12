@@ -535,7 +535,7 @@ impl Guid {
 impl Guid {
     /// Generate a new random GUID (version 4).
     pub fn generate_v4() -> Self {
-        use rand::RngCore;
+        use rand::Rng;
 
         let mut bytes = [0u8; 16];
         rand::rng().fill_bytes(&mut bytes);
