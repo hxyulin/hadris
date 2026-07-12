@@ -68,22 +68,22 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ## Quick Start
 
-Crates share workspace version **1.2.1**:
+Each package now owns its version; all current packages target **2.0.0**:
 
 ```toml
 [dependencies]
-hadris-iso = "1.2.1"
-hadris-fat = "1.2.1"
-hadris-part = { version = "1.2.1", features = ["read"] }
-hadris-path = "1.2.1"
+hadris-iso = "2.0.0"
+hadris-fat = "2.0.0"
+hadris-part = { version = "2.0.0", features = ["read"] }
+hadris-path = "2.0.0"
 ```
 
 For no-std environments:
 
 ```toml
 [dependencies]
-hadris-iso = { version = "1.2.1", default-features = false, features = ["read", "alloc"] }
-hadris-fat = { version = "1.2.1", default-features = false, features = ["read", "sync"] }
+hadris-iso = { version = "2.0.0", default-features = false, features = ["read", "alloc"] }
+hadris-fat = { version = "2.0.0", default-features = false, features = ["read", "sync"] }
 ```
 
 ## Building

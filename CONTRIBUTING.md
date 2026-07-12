@@ -30,6 +30,21 @@ RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --featur
 
 See [CLAUDE.md](CLAUDE.md) for the full per-crate feature matrix used in CI.
 
+## Package versions
+
+Each package declares its own version in its `Cargo.toml`; the workspace does
+not impose a shared version. Update only the packages being released and keep
+their requirements in `[workspace.dependencies]` aligned. Releases are handled
+manually or by package-specific automation—do not use `cargo-release` for this
+workspace.
+
+When several unpublished versions depend on one another, publish in dependency
+order: `hadris-macros`/`hadris-io`/`hadris-path`; then
+`hadris-common`/`hadris-storage`/`hadris-part`; then format crates; then category
+facades and `hadris-cd`; then the `hadris` umbrella and CLI packages. Cargo
+validates dependent packages against crates.io, so each prerequisite version
+must be available before packaging the next layer.
+
 ## Pull requests
 
 1. Keep changes focused; prefer small PRs over mixed refactors.
