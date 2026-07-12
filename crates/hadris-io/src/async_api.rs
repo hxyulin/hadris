@@ -54,13 +54,13 @@ pub trait Seek {
     /// Error returned by the stream.
     type Error: embedded_io::Error;
     /// Seek to a new byte position.
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64>;
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error>;
     /// Return the current position.
-    async fn stream_position(&mut self) -> Result<u64> {
+    async fn stream_position(&mut self) -> Result<u64, Self::Error> {
         self.seek(SeekFrom::Current(0)).await
     }
     /// Seek relative to the current position.
-    async fn seek_relative(&mut self, offset: i64) -> Result<()> {
+    async fn seek_relative(&mut self, offset: i64) -> Result<(), Self::Error> {
         self.seek(SeekFrom::Current(offset)).await?;
         Ok(())
     }
@@ -97,7 +97,7 @@ impl<T: Write + ?Sized> Write for &mut T {
 }
 impl<T: Seek + ?Sized> Seek for &mut T {
     type Error = T::Error;
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         T::seek(self, pos).await
     }
 }
@@ -176,7 +176,7 @@ impl<T: Write + ?Sized> Write for Borrowed<'_, T> {
 }
 impl<T: Seek + ?Sized> Seek for Borrowed<'_, T> {
     type Error = T::Error;
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.0.seek(pos).await
     }
 }
@@ -203,9 +203,9 @@ impl<T: embedded_io_async::Write> Write for FromEmbedded<T> {
 }
 impl<T: embedded_io_async::Seek> Seek for FromEmbedded<T> {
     type Error = T::Error;
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         embedded_io_async::Seek::seek(&mut self.0, pos)
             .await
-            .map_err(|error| Error::from_source(error).erase())
+            .map_err(Error::from_source)
     }
 }

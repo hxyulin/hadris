@@ -79,7 +79,9 @@ impl<DATA: Read + Seek> Iterator for BootSectionIter<'_, DATA> {
             return None;
         }
         use super::super::io::try_io_result_option as try_io;
-        try_io!(data.seek(SeekFrom::Start(self.current_seek)));
+        try_io!(data
+            .seek(SeekFrom::Start(self.current_seek))
+            .map_err(io::Error::erase));
         let mut header = BootSectionHeaderEntry::zeroed();
 
         // Limit iterations to prevent infinite loop on malformed data

@@ -74,7 +74,10 @@ impl<W: Read + Write + Seek> CdWriter<W> {
 
             // Seek to the file's assigned sector
             let offset = (file.extent.sector as u64) * self.options.sector_size as u64;
-            self.writer.seek(SeekFrom::Start(offset)).await?;
+            self.writer
+                .seek(SeekFrom::Start(offset))
+                .await
+                .map_err(hadris_io::Error::erase)?;
 
             // Write the file data
             match &file.data {
@@ -143,7 +146,10 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         };
 
         // Reset position and write ISO
-        self.writer.seek(SeekFrom::Start(0)).await?;
+        self.writer
+            .seek(SeekFrom::Start(0))
+            .await
+            .map_err(hadris_io::Error::erase)?;
         IsoImageWriter::format_new(
             Borrowed::new(&mut self.writer),
             input_files,

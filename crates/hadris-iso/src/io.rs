@@ -50,15 +50,15 @@ impl<DATA: Read + Seek> Read for IsoCursor<DATA> {
 impl<DATA: Seek> Seek for IsoCursor<DATA> {
     type Error = DATA::Error;
 
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.data.seek(pos).await
     }
 
-    async fn stream_position(&mut self) -> Result<u64> {
+    async fn stream_position(&mut self) -> Result<u64, Self::Error> {
         self.data.stream_position().await
     }
 
-    async fn seek_relative(&mut self, offset: i64) -> Result<()> {
+    async fn seek_relative(&mut self, offset: i64) -> Result<(), Self::Error> {
         self.data.seek_relative(offset).await
     }
 }
@@ -69,11 +69,13 @@ impl<DATA: Seek> IsoCursor<DATA> {
     }
 
     pub async fn pad_align_sector(&mut self) -> Result<LogicalSector> {
-        let stream_pos = self.stream_position().await?;
+        let stream_pos = self.stream_position().await.map_err(Error::erase)?;
         let sector_size_minus_one = self.sector_size as u64 - 1;
         let aligned_pos = (stream_pos + sector_size_minus_one) & !sector_size_minus_one;
         if aligned_pos != stream_pos {
-            self.seek(SeekFrom::Start(aligned_pos)).await?;
+            self.seek(SeekFrom::Start(aligned_pos))
+                .await
+                .map_err(Error::erase)?;
         }
         Ok(LogicalSector(
             (aligned_pos / self.sector_size as u64) as usize,
@@ -83,6 +85,7 @@ impl<DATA: Seek> IsoCursor<DATA> {
     pub async fn seek_sector(&mut self, sector: LogicalSector) -> Result<u64> {
         self.seek(SeekFrom::Start(sector.0 as u64 * self.sector_size as u64))
             .await
+            .map_err(Error::erase)
     }
 }
 

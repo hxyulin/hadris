@@ -179,7 +179,9 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             };
             let start_byte = pt_start.0 as u64 * sector_size as u64;
             let end_byte = start_byte + path_table.size;
-            data.seek(super::io::SeekFrom::Start(start_byte)).await?;
+            data.seek(super::io::SeekFrom::Start(start_byte))
+                .await
+                .map_err(super::io::Error::erase)?;
             let mut entries = alloc::vec::Vec::new();
             let mut pos = start_byte;
             while pos < end_byte {
@@ -242,7 +244,9 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
     /// Read raw bytes from an absolute byte position in the image.
     pub async fn read_bytes_at(&self, byte_offset: u64, buf: &mut [u8]) -> io::Result<()> {
         let mut data = self.data.lock();
-        data.seek(super::io::SeekFrom::Start(byte_offset)).await?;
+        data.seek(super::io::SeekFrom::Start(byte_offset))
+            .await
+            .map_err(super::io::Error::erase)?;
         data.read_exact(buf).await?;
         Ok(())
     }
@@ -262,7 +266,9 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         // process on no-overcommit / embedded targets.
         let image_len = {
             let mut data = self.data.lock();
-            data.seek(super::io::SeekFrom::End(0)).await?
+            data.seek(super::io::SeekFrom::End(0))
+                .await
+                .map_err(super::io::Error::erase)?
         };
         if total > image_len {
             return Err(io::Error::new(

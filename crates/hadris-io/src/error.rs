@@ -179,7 +179,7 @@ impl<E: embedded_io::Error> Error<E> {
     }
 }
 
-impl<E: embedded_io::Error + 'static> embedded_io::Error for Error<E> {
+impl<E: embedded_io::Error> embedded_io::Error for Error<E> {
     fn kind(&self) -> embedded_io::ErrorKind {
         Error::<E>::kind(self).into()
     }
@@ -203,15 +203,7 @@ impl<E: Display> Display for Error<E> {
     }
 }
 
-impl<E> core::error::Error for Error<E>
-where
-    E: core::error::Error + 'static,
-{
-    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        self.source_ref()
-            .map(|source| source as &(dyn core::error::Error + 'static))
-    }
-}
+impl<E: core::error::Error> core::error::Error for Error<E> {}
 
 #[cfg(feature = "std")]
 impl From<std::io::Error> for Error<std::io::Error> {

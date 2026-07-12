@@ -370,14 +370,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     fn parse_iso_str<C: Charset, const N: usize>(
         &self,
         s: &str,
-        _field_name: &str,
+        field_name: &'static str,
     ) -> io::Result<IsoStr<C, N>> {
         if self.ops.strict_charset {
             IsoStr::from_str_lossy(s)
         } else {
             IsoStr::from_str_unchecked(s)
         }
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid ISO string"))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, field_name))
     }
 
     async fn write_volume_descriptors(&mut self, files: &mut InputFiles) -> io::Result<()> {
@@ -509,7 +509,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     let mut checksum = 0u32;
                     let mut buffer = [0u8; 4];
                     let byte_offset = (boot_image_lba as u64) * self.ops.sector_size as u64;
-                    self.data.seek(SeekFrom::Start(byte_offset + 64)).await?;
+                    self.data
+                        .seek(SeekFrom::Start(byte_offset + 64))
+                        .await
+                        .map_err(io::Error::erase)?;
                     // Calculate checksum for all 4-byte chunks from offset 64 to end
                     let checksum_bytes = dir_ref.size - 64;
                     for _ in 0..(checksum_bytes / 4) {
@@ -519,7 +522,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
                     const TABLE_OFFSET: u64 = 8;
                     self.data
-                        .seek(SeekFrom::Start(byte_offset + TABLE_OFFSET)).await?;
+                        .seek(SeekFrom::Start(byte_offset + TABLE_OFFSET))
+                        .await
+                        .map_err(io::Error::erase)?;
 
                     if entry.grub2_boot_info {
                         // GRUB2/ISOLINUX uses extended 56-byte format with reserved bytes
@@ -698,7 +703,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             }
 
             // Write the new data
-            self.data.seek_relative(-(buffer.len() as i64)).await?;
+            self.data
+                .seek_relative(-(buffer.len() as i64))
+                .await
+                .map_err(io::Error::erase)?;
             self.data.write_all(&buffer).await?;
         }
 
@@ -778,12 +786,19 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             self.written_files.root_refs().clone()
         };
 
-        let pos = self.data.stream_position().await?;
+        let pos = self
+            .data
+            .stream_position()
+            .await
+            .map_err(io::Error::erase)?;
         for root in roots.values() {
             self.update_directory(*root, *root).await?;
         }
         // We need to seek back to this position
-        self.data.seek(SeekFrom::Start(pos)).await?;
+        self.data
+            .seek(SeekFrom::Start(pos))
+            .await
+            .map_err(io::Error::erase)?;
 
         Ok(roots)
     }
@@ -814,7 +829,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             endian,
         }
         .write(&mut self.data).await?;
-        let size = self.data.stream_position().await? as usize - (start.0 * self.data.sector_size);
+        let size = self
+            .data
+            .stream_position()
+            .await
+            .map_err(io::Error::erase)? as usize
+            - (start.0 * self.data.sector_size);
         let _end = self.data.pad_align_sector().await?;
         Ok(DirectoryRef {
             extent: start,
@@ -880,7 +900,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
         }
 
-        self.data.seek(SeekFrom::Start(0)).await?;
+        self.data
+            .seek(SeekFrom::Start(0))
+            .await
+            .map_err(io::Error::erase)?;
         self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
 
         Ok(())
@@ -915,7 +938,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
         }
 
-        self.data.seek(SeekFrom::Start(0)).await?;
+        self.data
+            .seek(SeekFrom::Start(0))
+            .await
+            .map_err(io::Error::erase)?;
         self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
 
         Ok(())
@@ -931,7 +957,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         // Write protective MBR
         let mbr = MasterBootRecord::protective(disk_size_512);
-        self.data.seek(SeekFrom::Start(0)).await?;
+        self.data
+            .seek(SeekFrom::Start(0))
+            .await
+            .map_err(io::Error::erase)?;
         self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
 
         // Create GPT partition entry for the ISO data
@@ -969,11 +998,17 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         );
 
         // Write primary GPT header
-        self.data.seek(SeekFrom::Start(512)).await?; // Sector 1
+        self.data
+            .seek(SeekFrom::Start(512))
+            .await
+            .map_err(io::Error::erase)?; // Sector 1
         self.data.write_all(&header_bytes).await?;
 
         // Write partition entries (starting at sector 2)
-        self.data.seek(SeekFrom::Start(1024)).await?; // Sector 2
+        self.data
+            .seek(SeekFrom::Start(1024))
+            .await
+            .map_err(io::Error::erase)?; // Sector 2
         self.data.write_all(entries_bytes).await?;
 
         // Note: In a full implementation, we'd also write the backup GPT at the end
@@ -1021,7 +1056,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         }
 
         // Write hybrid MBR
-        self.data.seek(SeekFrom::Start(0)).await?;
+        self.data
+            .seek(SeekFrom::Start(0))
+            .await
+            .map_err(io::Error::erase)?;
         self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
 
         // Calculate CRC32 of partition entries
@@ -1041,11 +1079,17 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         );
 
         // Write primary GPT header
-        self.data.seek(SeekFrom::Start(512)).await?;
+        self.data
+            .seek(SeekFrom::Start(512))
+            .await
+            .map_err(io::Error::erase)?;
         self.data.write_all(&header_bytes).await?;
 
         // Write partition entries
-        self.data.seek(SeekFrom::Start(1024)).await?;
+        self.data
+            .seek(SeekFrom::Start(1024))
+            .await
+            .map_err(io::Error::erase)?;
         self.data.write_all(entries_bytes).await?;
 
         Ok(())
@@ -1153,7 +1197,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             if offset >= directory.size as u64 {
                 break;
             }
-            self.data.seek(SeekFrom::Start(start + offset)).await?;
+            self.data
+                .seek(SeekFrom::Start(start + offset))
+                .await
+                .map_err(io::Error::erase)?;
             let mut record = DirectoryRecord::parse(&mut self.data).await?;
             if record.header().len == 0 {
                 break;
@@ -1164,7 +1211,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 let header = record.header_mut();
                 header.extent.write(dir_ref.extent.0 as u32);
                 header.data_len.write(dir_ref.size as u32);
-                self.data.seek(SeekFrom::Start(start + offset)).await?;
+                self.data
+                    .seek(SeekFrom::Start(start + offset))
+                    .await
+                    .map_err(io::Error::erase)?;
                 record.write(&mut self.data).await?;
                 offset += record.header().len as u64;
                 continue;

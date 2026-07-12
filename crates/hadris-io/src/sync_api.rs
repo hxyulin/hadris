@@ -57,15 +57,15 @@ pub trait Seek {
     type Error: embedded_io::Error;
 
     /// Seek to a new byte position.
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64>;
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error>;
 
     /// Return the current byte position.
-    fn stream_position(&mut self) -> Result<u64> {
+    fn stream_position(&mut self) -> Result<u64, Self::Error> {
         self.seek(SeekFrom::Current(0))
     }
 
     /// Seek relative to the current byte position.
-    fn seek_relative(&mut self, offset: i64) -> Result<()> {
+    fn seek_relative(&mut self, offset: i64) -> Result<(), Self::Error> {
         self.seek(SeekFrom::Current(offset))?;
         Ok(())
     }
@@ -115,8 +115,8 @@ impl<T: std::io::Write + ?Sized> Write for T {
 impl<T: std::io::Seek + ?Sized> Seek for T {
     type Error = std::io::Error;
 
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        std::io::Seek::seek(self, pos.into()).map_err(|error| Error::from_source(error).erase())
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        std::io::Seek::seek(self, pos.into()).map_err(Error::from_source)
     }
 }
 
@@ -146,8 +146,8 @@ impl<T: embedded_io::Write + ?Sized> Write for T {
 impl<T: embedded_io::Seek + ?Sized> Seek for T {
     type Error = T::Error;
 
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        embedded_io::Seek::seek(self, pos).map_err(|error| Error::from_source(error).erase())
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        embedded_io::Seek::seek(self, pos).map_err(Error::from_source)
     }
 }
 
@@ -202,7 +202,7 @@ impl<T: Write + ?Sized> Write for Borrowed<'_, T> {
 }
 impl<T: Seek + ?Sized> Seek for Borrowed<'_, T> {
     type Error = T::Error;
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.0.seek(pos)
     }
 }
@@ -226,8 +226,8 @@ impl<T: embedded_io::Write> Write for FromEmbedded<T> {
 
 impl<T: embedded_io::Seek> Seek for FromEmbedded<T> {
     type Error = T::Error;
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        embedded_io::Seek::seek(&mut self.0, pos).map_err(|error| Error::from_source(error).erase())
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        embedded_io::Seek::seek(&mut self.0, pos).map_err(Error::from_source)
     }
 }
 
@@ -246,16 +246,10 @@ impl<T> ToEmbedded<T> {
     }
 }
 
-impl<T: Read> embedded_io::ErrorType for ToEmbedded<T>
-where
-    T::Error: 'static,
-{
+impl<T: Read> embedded_io::ErrorType for ToEmbedded<T> {
     type Error = Error<T::Error>;
 }
-impl<T: Read> embedded_io::Read for ToEmbedded<T>
-where
-    T::Error: 'static,
-{
+impl<T: Read> embedded_io::Read for ToEmbedded<T> {
     fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
         Read::read(&mut self.0, buf)
     }
@@ -263,7 +257,6 @@ where
 impl<T> embedded_io::Write for ToEmbedded<T>
 where
     T: Read + Write<Error = <T as Read>::Error>,
-    <T as Read>::Error: 'static,
 {
     fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
         Write::write(&mut self.0, buf)
@@ -275,13 +268,9 @@ where
 impl<T> embedded_io::Seek for ToEmbedded<T>
 where
     T: Read + Seek<Error = <T as Read>::Error>,
-    <T as Read>::Error: 'static,
 {
     fn seek(&mut self, pos: SeekFrom) -> core::result::Result<u64, Self::Error> {
-        Seek::seek(&mut self.0, pos).map_err(|error| Error::Context {
-            kind: error.kind(),
-            message: None,
-        })
+        Seek::seek(&mut self.0, pos)
     }
 }
 

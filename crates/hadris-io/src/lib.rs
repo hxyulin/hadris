@@ -113,7 +113,7 @@ macro_rules! try_io_result_option {
     ($expr:expr) => {
         match $expr {
             Ok(val) => val,
-            Err(err) => return Some(Err(err)),
+            Err(err) => return Some(Err(err.erase())),
         }
     };
 }

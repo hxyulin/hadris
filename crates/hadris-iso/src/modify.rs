@@ -345,7 +345,10 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                 subdir.extent = Some(extent);
 
                 // Save current position
-                let current_pos = cursor.stream_position().await?;
+                let current_pos = cursor
+                    .stream_position()
+                    .await
+                    .map_err(io::Error::erase)?;
 
                 Self::read_directory_recursive(
                     cursor,
@@ -356,7 +359,10 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                 ).await?;
 
                 // Restore position
-                cursor.seek(SeekFrom::Start(current_pos)).await?;
+                cursor
+                    .seek(SeekFrom::Start(current_pos))
+                    .await
+                    .map_err(io::Error::erase)?;
 
                 layout.add_subdir(subdir);
             } else {
@@ -697,7 +703,12 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             endian,
         }
         .write(&mut self.inner).await?;
-        let size = self.inner.stream_position().await? as usize - (start.0 * self.sector_size);
+        let size = self
+            .inner
+            .stream_position()
+            .await
+            .map_err(io::Error::erase)? as usize
+            - (start.0 * self.sector_size);
         let _end = self.inner.pad_align_sector().await?;
         Ok(DirectoryRef {
             extent: start,
@@ -775,7 +786,10 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             }
 
             // Write back the modified descriptor
-            self.inner.seek_relative(-(buffer.len() as i64)).await?;
+            self.inner
+                .seek_relative(-(buffer.len() as i64))
+                .await
+                .map_err(io::Error::erase)?;
             self.inner.write_all(&buffer).await?;
         }
 

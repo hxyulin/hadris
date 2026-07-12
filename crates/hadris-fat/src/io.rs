@@ -87,7 +87,9 @@ impl<DATA: Seek> SectorCursor<DATA> {
     }
 
     pub async fn seek_sector(&mut self, sector: impl SectorLike) -> hadris_io::Result<u64> {
-        self.seek(SeekFrom::Start(sector.to_bytes(self.sector_size) as u64)).await
+        self.seek(SeekFrom::Start(sector.to_bytes(self.sector_size) as u64))
+            .await
+            .map_err(hadris_io::Error::erase)
     }
 }
 
@@ -97,15 +99,15 @@ where
 {
     type Error = <T as Seek>::Error;
 
-    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::Result<u64> {
+    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::Result<u64, Self::Error> {
         self.data.seek(pos).await
     }
 
-    async fn stream_position(&mut self) -> hadris_io::Result<u64> {
+    async fn stream_position(&mut self) -> hadris_io::Result<u64, Self::Error> {
         self.data.stream_position().await
     }
 
-    async fn seek_relative(&mut self, offset: i64) -> hadris_io::Result<()> {
+    async fn seek_relative(&mut self, offset: i64) -> hadris_io::Result<(), Self::Error> {
         self.data.seek_relative(offset).await
     }
 }

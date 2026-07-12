@@ -1,4 +1,4 @@
-use hadris_io::{Error, ErrorKind, Read};
+use hadris_io::{Error, ErrorKind, Read, Seek, SeekFrom};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DeviceError;
@@ -29,12 +29,25 @@ impl embedded_io::Read for Device {
     }
 }
 
+impl embedded_io::Seek for Device {
+    fn seek(&mut self, _pos: embedded_io::SeekFrom) -> Result<u64, Self::Error> {
+        Err(DeviceError)
+    }
+}
+
 #[test]
 fn embedded_adapter_preserves_typed_source() {
     let mut reader = hadris_io::sync::FromEmbedded::new(Device);
     let error = Read::read(&mut reader, &mut [0]).unwrap_err();
     assert_eq!(error.source_ref(), Some(&DeviceError));
     assert_eq!(error.kind(), ErrorKind::Other);
+}
+
+#[test]
+fn embedded_seek_adapter_preserves_typed_source() {
+    let mut seeker = hadris_io::sync::FromEmbedded::new(Device);
+    let error = Seek::seek(&mut seeker, SeekFrom::Start(0)).unwrap_err();
+    assert_eq!(error.source_ref(), Some(&DeviceError));
 }
 
 #[test]

@@ -38,7 +38,9 @@ pub(crate) async fn detect_susp_rrip<DATA: Read + Seek>(
     let mut info = SuspInfo::default();
 
     // Seek to root directory and parse the first record ("." entry)
-    data.seek(SeekFrom::Start(root_extent.0 as u64 * 2048)).await?;
+    data.seek(SeekFrom::Start(root_extent.0 as u64 * 2048))
+        .await
+        .map_err(io::Error::erase)?;
     let dot_record = DirectoryRecord::parse(data).await?;
     let su = dot_record.system_use();
     if su.is_empty() {
@@ -86,7 +88,9 @@ pub(crate) async fn detect_susp_rrip<DATA: Read + Seek>(
             }
 
             let mut ce_buf = alloc::vec![0u8; ce_len];
-            data.seek(SeekFrom::Start(ce_offset)).await?;
+            data.seek(SeekFrom::Start(ce_offset))
+                .await
+                .map_err(io::Error::erase)?;
             data.read_exact(&mut ce_buf).await?;
 
             for field in SystemUseIter::new(&ce_buf, 0) {
