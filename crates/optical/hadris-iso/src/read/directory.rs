@@ -97,6 +97,58 @@ impl DirEntry {
         String::from_utf8_lossy(self.record.name())
     }
 
+    /// Returns whether this entry matches a path component.
+    ///
+    /// Rock Ridge alternate names are matched exactly. Plain ISO 9660 names
+    /// are matched case-insensitively after removing trailing NUL bytes and a
+    /// numeric version suffix such as `;1`.
+    pub fn matches_name(&self, name: &str) -> bool {
+        if let Some(rrip_name) = self
+            .rrip
+            .as_ref()
+            .and_then(|metadata| metadata.alternate_name.as_deref())
+        {
+            return rrip_name == name;
+        }
+
+        let raw_name = self.record.name();
+        if raw_name.len().is_multiple_of(2) {
+            let units: Vec<u16> = raw_name
+                .chunks_exact(2)
+                .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+                .collect();
+            if let Ok(joliet_name) = String::from_utf16(&units) {
+                let joliet_name = match joliet_name.rsplit_once(';') {
+                    Some((base, version))
+                        if !version.is_empty()
+                            && version.bytes().all(|byte| byte.is_ascii_digit()) =>
+                    {
+                        base
+                    }
+                    _ => &joliet_name,
+                };
+                if joliet_name == name {
+                    return true;
+                }
+            }
+        }
+
+        let display_name: String = self
+            .display_name()
+            .chars()
+            .filter(|character| *character != '\0')
+            .collect();
+        let display_name = match display_name.rsplit_once(';') {
+            Some((base, version))
+                if !version.is_empty() && version.bytes().all(|b| b.is_ascii_digit()) =>
+            {
+                base
+            }
+            _ => &display_name,
+        };
+        display_name.eq_ignore_ascii_case(name)
+    }
+
     #[inline]
     pub fn header(&self) -> &DirectoryRecordHeader {
         self.record.header()
@@ -288,6 +340,15 @@ impl<T: Read + Seek> IsoDir<'_, T> {
             });
         }
         Ok(entries)
+    }
+
+    /// Finds an entry in this directory by its displayed name.
+    pub async fn find(&self, name: &str) -> io::Result<Option<DirEntry>> {
+        Ok(self
+            .read_entries()
+            .await?
+            .into_iter()
+            .find(|entry| entry.matches_name(name)))
     }
 }
 } // io_transform!

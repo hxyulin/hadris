@@ -258,6 +258,36 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         Ok(())
     }
 
+    /// Finds an entry by a slash- or backslash-delimited path.
+    ///
+    /// Leading and repeated separators and `.` components are ignored. The
+    /// root itself has no directory entry, so an empty or root-only path
+    /// returns `None`. Parent (`..`) components are rejected.
+    pub async fn find_path(&self, path: &str) -> io::Result<Option<DirEntry>> {
+        let mut components = path
+            .split(['/', '\\'])
+            .filter(|component| !component.is_empty() && *component != ".")
+            .peekable();
+        let mut directory = self.open_dir(self.root_dir().dir_ref());
+
+        while let Some(component) = components.next() {
+            if component == ".." {
+                return Err(io::Error::other("parent path components are not supported"));
+            }
+            let Some(entry) = directory.find(component).await? else {
+                return Ok(None);
+            };
+            if components.peek().is_none() {
+                return Ok(Some(entry));
+            }
+            if !entry.is_directory() {
+                return Ok(None);
+            }
+            directory = self.open_dir(entry.as_dir_ref(self).await?);
+        }
+        Ok(None)
+    }
+
     /// Read the complete contents of a file, handling multi-extent files.
     ///
     /// For single-extent files, this reads from the entry's extent.

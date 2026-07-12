@@ -31,6 +31,7 @@ fn populated_tree() -> hadris_optical::cd::FileTree {
 
     let mut nested = Directory::new("DOCS");
     nested.add_file(FileEntry::from_buffer("README.TXT", PAYLOAD.to_vec()));
+    nested.add_file(FileEntry::from_buffer("Résumé.txt", PAYLOAD.to_vec()));
     let mut tree = FileTree::new();
     tree.add_dir(nested);
     tree
@@ -68,6 +69,20 @@ fn asynchronously_opens_and_recovers_an_iso_source() {
         .unwrap();
         assert_eq!(opened.format(), hadris_optical::OpticalFormat::Iso9660);
         let iso = opened.as_iso9660().unwrap();
+        let readme = iso.find_path("/DOCS//README.TXT").await.unwrap().unwrap();
+        assert!(readme.is_file());
+        assert_eq!(iso.read_file(&readme).await.unwrap(), PAYLOAD);
+        let unicode = iso.find_path("DOCS/Résumé.txt").await.unwrap().unwrap();
+        assert_eq!(iso.read_file(&unicode).await.unwrap(), PAYLOAD);
+        assert!(iso.find_path("DOCS/MISSING.TXT").await.unwrap().is_none());
+        assert!(
+            iso.find_path("DOCS/README.TXT/CHILD")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(iso.find_path("../README.TXT").await.is_err());
+
         let root = iso.open_dir(iso.root_dir().dir_ref());
         let entries = root.read_entries().await.unwrap();
         let docs = entries
