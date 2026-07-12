@@ -13,13 +13,16 @@
 //!
 //! # Features
 //!
-//! - `std` (default): Enables standard library support and includes `alloc` + `sync`.
+//! - `std` (default): Enables standard library support and includes `alloc`.
 //! - `read` (default): Enables reading partition tables via `*ReadExt` traits.
 //! - `alloc`: Enables heap allocation for `Vec`-based APIs (e.g., `GptDisk`, `DiskPartitionScheme`).
 //! - `write`: Enables writing partition tables (requires `alloc` + `read`).
 //! - `sync` / `async`: Synchronous or asynchronous I/O traits (via `hadris-io`).
 //! - `crc`: Enables CRC32 verification/calculation for GPT headers (via the `crc` crate).
 //! - `rand`: Enables random GUID generation (via the `rand` crate).
+//!
+//! `std` does not select an I/O mode. The default feature set enables `sync`
+//! explicitly; custom configurations should enable `sync`, `async`, or both.
 //!
 //! # Examples
 //!

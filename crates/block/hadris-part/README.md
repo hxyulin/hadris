@@ -17,9 +17,9 @@ This crate provides read and write support for common partition table formats us
 
 | Feature | Description | Dependencies | Default |
 |---------|-------------|--------------|---------|
-| `std` | Standard library support (enables `sync`, `alloc`) | `alloc` | Yes |
+| `std` | Standard library support | `alloc` | Yes |
 | `read` | Reading partition tables via `*ReadExt` traits | - | Yes |
-| `sync` | Synchronous I/O traits | - | via `std` |
+| `sync` | Synchronous I/O traits | - | Yes |
 | `async` | Asynchronous I/O traits | - | - |
 | `alloc` | Heap allocation for `Vec`-based APIs (`GptDisk`, `DiskPartitionScheme`) | - | via `std` |
 | `write` | Writing partition tables | `alloc`, `read` | - |
@@ -28,6 +28,10 @@ This crate provides read and write support for common partition table formats us
 
 > **Note:** GPT header/entry CRC checks run only when the `crc` feature is enabled.
 > Without it, CRC fields are ignored on read.
+
+`std` selects platform integration but does not select an I/O mode. The default
+feature set enables `sync` explicitly; custom configurations should enable
+`sync`, `async`, or both.
 
 ## Usage
 
