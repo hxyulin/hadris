@@ -14,10 +14,12 @@ categories = ["no-std", "filesystem"]
 [features]
 default = ["sync", "std"]
 sync = []
-async = []
+async = ["dep:embedded-io-async"]
 alloc = []
-std = ["sync", "alloc"]
+std = ["sync", "alloc", "embedded-io/std", "embedded-io-async?/std"]
 
 [dependencies]
 cfg-if.workspace = true
 bytemuck.workspace = true
+embedded-io.workspace = true
+embedded-io-async = { workspace = true, optional = true }

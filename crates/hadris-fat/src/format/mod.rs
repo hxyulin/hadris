@@ -8,7 +8,7 @@
 //! use std::fs::OpenOptions;
 //! use hadris_fat::format::{FatVolumeFormatter, FormatOptions};
 //!
-//! # fn main() -> hadris_fat::Result<()> {
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create or open a file for the volume
 //! let file = OpenOptions::new()
 //!     .read(true)

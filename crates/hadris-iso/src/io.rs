@@ -36,7 +36,9 @@ pub struct IsoCursor<DATA: Seek> {
 io_transform! {
 
 impl<DATA: Read + Seek> Read for IsoCursor<DATA> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    type Error = <DATA as Read>::Error;
+
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.data.read(buf).await
     }
 
@@ -46,15 +48,17 @@ impl<DATA: Read + Seek> Read for IsoCursor<DATA> {
 }
 
 impl<DATA: Seek> Seek for IsoCursor<DATA> {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    type Error = DATA::Error;
+
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.data.seek(pos).await
     }
 
-    async fn stream_position(&mut self) -> Result<u64> {
+    async fn stream_position(&mut self) -> Result<u64, Self::Error> {
         self.data.stream_position().await
     }
 
-    async fn seek_relative(&mut self, offset: i64) -> Result<()> {
+    async fn seek_relative(&mut self, offset: i64) -> Result<(), Self::Error> {
         self.data.seek_relative(offset).await
     }
 }
@@ -65,11 +69,13 @@ impl<DATA: Seek> IsoCursor<DATA> {
     }
 
     pub async fn pad_align_sector(&mut self) -> Result<LogicalSector> {
-        let stream_pos = self.stream_position().await?;
+        let stream_pos = self.stream_position().await.map_err(Error::erase)?;
         let sector_size_minus_one = self.sector_size as u64 - 1;
         let aligned_pos = (stream_pos + sector_size_minus_one) & !sector_size_minus_one;
         if aligned_pos != stream_pos {
-            self.seek(SeekFrom::Start(aligned_pos)).await?;
+            self.seek(SeekFrom::Start(aligned_pos))
+                .await
+                .map_err(Error::erase)?;
         }
         Ok(LogicalSector(
             (aligned_pos / self.sector_size as u64) as usize,
@@ -77,16 +83,20 @@ impl<DATA: Seek> IsoCursor<DATA> {
     }
 
     pub async fn seek_sector(&mut self, sector: LogicalSector) -> Result<u64> {
-        self.seek(SeekFrom::Start(sector.0 as u64 * self.sector_size as u64)).await
+        self.seek(SeekFrom::Start(sector.0 as u64 * self.sector_size as u64))
+            .await
+            .map_err(Error::erase)
     }
 }
 
 impl<DATA: Write + Seek> Write for IsoCursor<DATA> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    type Error = <DATA as Write>::Error;
+
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.data.write(buf).await
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
         self.data.flush().await
     }
 

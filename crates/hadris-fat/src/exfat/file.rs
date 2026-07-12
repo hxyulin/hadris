@@ -73,6 +73,8 @@ impl<'a, DATA: Read + Seek> ExFatFileReader<'a, DATA> {
 }
 
 impl<DATA: Read + Seek> Read for ExFatFileReader<'_, DATA> {
+    type Error = ErrorKind;
+
     fn read(&mut self, buf: &mut [u8]) -> crate::io::IoResult<usize> {
         if self.position >= self.valid_length {
             return Ok(0);
@@ -140,6 +142,8 @@ impl<DATA: Read + Seek> Read for ExFatFileReader<'_, DATA> {
 }
 
 impl<DATA: Read + Seek> Seek for ExFatFileReader<'_, DATA> {
+    type Error = ErrorKind;
+
     fn seek(&mut self, pos: SeekFrom) -> crate::io::IoResult<u64> {
         let new_pos = match pos {
             SeekFrom::Start(offset) => offset as i64,
@@ -290,6 +294,8 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
 
 #[cfg(feature = "write")]
 impl<DATA: Read + Write + Seek> Write for ExFatFileWriter<'_, DATA> {
+    type Error = ErrorKind;
+
     fn write(&mut self, buf: &[u8]) -> crate::io::IoResult<usize> {
         if buf.is_empty() {
             return Ok(0);

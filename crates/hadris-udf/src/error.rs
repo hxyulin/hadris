@@ -39,9 +39,9 @@ pub enum UdfError {
     PodCastError(bytemuck::PodCastError),
 }
 
-impl From<io::Error> for UdfError {
-    fn from(err: io::Error) -> Self {
-        Self::Io(err)
+impl<E: io::IoError> From<io::Error<E>> for UdfError {
+    fn from(err: io::Error<E>) -> Self {
+        Self::Io(err.erase())
     }
 }
 

@@ -7,7 +7,7 @@
 //! 4. Writing UDF metadata
 //! 5. Finalizing the image
 
-use super::super::{Read, Seek, SeekFrom, Write};
+use super::super::{Borrowed, Read, Seek, SeekFrom, Write};
 
 use hadris_iso::read::PathSeparator;
 use hadris_udf::descriptor::{
@@ -16,7 +16,7 @@ use hadris_udf::descriptor::{
 use hadris_udf::write::{UdfWriteOptions, UdfWriter};
 use hadris_udf::{FileType, SECTOR_SIZE as UDF_SECTOR_SIZE};
 
-use crate::error::{CdError, CdResult};
+use crate::error::CdResult;
 use crate::layout::{LayoutInfo, LayoutManager};
 use crate::options::CdOptions;
 use crate::tree::{Directory, FileData, FileTree};
@@ -74,7 +74,10 @@ impl<W: Read + Write + Seek> CdWriter<W> {
 
             // Seek to the file's assigned sector
             let offset = (file.extent.sector as u64) * self.options.sector_size as u64;
-            self.writer.seek(SeekFrom::Start(offset)).await?;
+            self.writer
+                .seek(SeekFrom::Start(offset))
+                .await
+                .map_err(hadris_io::Error::erase)?;
 
             // Write the file data
             match &file.data {
@@ -82,7 +85,8 @@ impl<W: Read + Write + Seek> CdWriter<W> {
                     self.writer.write_all(data).await?;
                 }
                 FileData::Path(path) => {
-                    let data = std::fs::read(path)?;
+                    let data = std::fs::read(path)
+                        .map_err(|error| hadris_io::Error::from_source(error).erase())?;
                     self.writer.write_all(&data).await?;
                 }
             }
@@ -142,8 +146,15 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         };
 
         // Reset position and write ISO
-        self.writer.seek(SeekFrom::Start(0)).await?;
-        IsoImageWriter::format_new(&mut self.writer, input_files, format_options)?;
+        self.writer
+            .seek(SeekFrom::Start(0))
+            .await
+            .map_err(hadris_io::Error::erase)?;
+        IsoImageWriter::format_new(
+            Borrowed::new(&mut self.writer),
+            input_files,
+            format_options,
+        )?;
 
         Ok(())
     }
@@ -155,12 +166,8 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         for file in &dir.files {
             let data = match &file.data {
                 FileData::Buffer(b) => b.clone(),
-                FileData::Path(p) => std::fs::read(p).map_err(|e| {
-                    CdError::Io(std::io::Error::new(
-                        e.kind(),
-                        format!("failed to read {}: {e}", p.display()),
-                    ))
-                })?,
+                FileData::Path(p) => std::fs::read(p)
+                    .map_err(|error| hadris_io::Error::from_source(error).erase())?,
             };
             files.push(hadris_iso::write::File::File {
                 name: file.name.clone(),
@@ -187,7 +194,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             partition_length: layout_info.udf_partition_length(),
         };
 
-        let mut udf_writer = UdfWriter::new(&mut self.writer, udf_options);
+        let mut udf_writer = UdfWriter::new(Borrowed::new(&mut self.writer), udf_options);
 
         // Write Volume Recognition Sequence
         udf_writer.write_vrs()?;

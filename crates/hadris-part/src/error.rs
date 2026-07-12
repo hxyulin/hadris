@@ -209,9 +209,9 @@ impl Display for PartitionError {
     }
 }
 
-impl From<hadris_io::Error> for PartitionError {
-    fn from(err: hadris_io::Error) -> Self {
-        Self::Io(err)
+impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for PartitionError {
+    fn from(err: hadris_io::Error<E>) -> Self {
+        Self::Io(err.erase())
     }
 }
 

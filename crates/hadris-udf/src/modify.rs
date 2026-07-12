@@ -102,7 +102,8 @@ impl FileData {
             FileData::Buffer(data) => Ok(data.len() as u64),
             #[cfg(feature = "std")]
             FileData::Path(path) => {
-                let metadata = std::fs::metadata(path)?;
+                let metadata = std::fs::metadata(path)
+                    .map_err(|error| io::Error::from_source(error).erase())?;
                 Ok(metadata.len())
             }
         }
@@ -113,7 +114,9 @@ impl FileData {
         match self {
             FileData::Buffer(data) => Ok(data.clone()),
             #[cfg(feature = "std")]
-            FileData::Path(path) => std::fs::read(path),
+            FileData::Path(path) => {
+                std::fs::read(path).map_err(|error| io::Error::from_source(error).erase())
+            }
         }
     }
 }
@@ -193,7 +196,9 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
     /// Opens an existing UDF image for modification with custom options.
     pub fn open_with_options(mut inner: RW, options: UdfModifyOptions) -> UdfModifyResult<Self> {
         // Read AVDP to get VDS location
-        inner.seek(SeekFrom::Start(AVDP_LOCATION as u64 * SECTOR_SIZE as u64))?;
+        inner
+            .seek(SeekFrom::Start(AVDP_LOCATION as u64 * SECTOR_SIZE as u64))
+            .map_err(io::Error::erase)?;
         let mut avdp_buf = [0u8; SECTOR_SIZE];
         inner.read_exact(&mut avdp_buf)?;
         let avdp: &AnchorVolumeDescriptorPointer = bytemuck::from_bytes(&avdp_buf[..512]);
@@ -355,7 +360,8 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
 
                     // Write data
                     self.inner
-                        .seek(SeekFrom::Start(current_sector as u64 * SECTOR_SIZE as u64))?;
+                        .seek(SeekFrom::Start(current_sector as u64 * SECTOR_SIZE as u64))
+                        .map_err(io::Error::erase)?;
                     let content = data.read_all()?;
                     self.inner.write_all(&content)?;
 
@@ -367,7 +373,7 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
         }
 
         // Pad to sector boundary
-        let pos = self.inner.stream_position()?;
+        let pos = self.inner.stream_position().map_err(io::Error::erase)?;
         let remainder = pos % SECTOR_SIZE as u64;
         if remainder != 0 {
             let padding = SECTOR_SIZE as u64 - remainder;

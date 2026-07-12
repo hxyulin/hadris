@@ -223,12 +223,12 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                     };
 
                     if let Err(e) = data.seek(SeekFrom::Start(seek_pos)).await {
-                        return Some(Err(FatError::Io(e)));
+                        return Some(Err(FatError::Io(e.erase())));
                     }
 
                     let mut buffer = alloc::vec![0u8; buffer_size];
                     if let Err(e) = data.read_exact(&mut buffer).await {
-                        return Some(Err(FatError::Io(e)));
+                        return Some(Err(FatError::Io(e.erase())));
                     }
 
                     self.cluster_buffer = Some(buffer);
@@ -608,12 +608,12 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                     };
 
                     if let Err(e) = data.seek(SeekFrom::Start(seek_pos)) {
-                        return Some(Err(FatError::Io(e)));
+                        return Some(Err(FatError::Io(e.erase())));
                     }
 
                     let mut buffer = alloc::vec![0u8; buffer_size];
                     if let Err(e) = data.read_exact(&mut buffer) {
-                        return Some(Err(FatError::Io(e)));
+                        return Some(Err(FatError::Io(e.erase())));
                     }
 
                     self.cluster_buffer = Some(buffer);

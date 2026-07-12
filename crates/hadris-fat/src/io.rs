@@ -87,7 +87,9 @@ impl<DATA: Seek> SectorCursor<DATA> {
     }
 
     pub async fn seek_sector(&mut self, sector: impl SectorLike) -> hadris_io::Result<u64> {
-        self.seek(SeekFrom::Start(sector.to_bytes(self.sector_size) as u64)).await
+        self.seek(SeekFrom::Start(sector.to_bytes(self.sector_size) as u64))
+            .await
+            .map_err(hadris_io::Error::erase)
     }
 }
 
@@ -95,15 +97,17 @@ impl<T> Seek for SectorCursor<T>
 where
     T: Seek,
 {
-    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::Result<u64> {
+    type Error = <T as Seek>::Error;
+
+    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::Result<u64, Self::Error> {
         self.data.seek(pos).await
     }
 
-    async fn stream_position(&mut self) -> hadris_io::Result<u64> {
+    async fn stream_position(&mut self) -> hadris_io::Result<u64, Self::Error> {
         self.data.stream_position().await
     }
 
-    async fn seek_relative(&mut self, offset: i64) -> hadris_io::Result<()> {
+    async fn seek_relative(&mut self, offset: i64) -> hadris_io::Result<(), Self::Error> {
         self.data.seek_relative(offset).await
     }
 }
@@ -112,7 +116,9 @@ impl<T> Read for SectorCursor<T>
 where
     T: Read + Seek,
 {
-    async fn read(&mut self, buf: &mut [u8]) -> hadris_io::Result<usize> {
+    type Error = <T as Read>::Error;
+
+    async fn read(&mut self, buf: &mut [u8]) -> hadris_io::Result<usize, Self::Error> {
         self.data.read(buf).await
     }
 
@@ -126,11 +132,13 @@ impl<T> Write for SectorCursor<T>
 where
     T: Write + Seek,
 {
-    async fn write(&mut self, buf: &[u8]) -> hadris_io::Result<usize> {
+    type Error = <T as Write>::Error;
+
+    async fn write(&mut self, buf: &[u8]) -> hadris_io::Result<usize, Self::Error> {
         self.data.write(buf).await
     }
 
-    async fn flush(&mut self) -> hadris_io::Result<()> {
+    async fn flush(&mut self) -> hadris_io::Result<(), Self::Error> {
         self.data.flush().await
     }
 

@@ -63,9 +63,9 @@ impl fmt::Display for CpioError {
 #[cfg(feature = "std")]
 impl std::error::Error for CpioError {}
 
-impl From<hadris_io::Error> for CpioError {
-    fn from(e: hadris_io::Error) -> Self {
-        Self::Io(e)
+impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for CpioError {
+    fn from(e: hadris_io::Error<E>) -> Self {
+        Self::Io(e.erase())
     }
 }
 
