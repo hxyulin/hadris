@@ -51,6 +51,12 @@
 //! | `alloc` | Heap allocation without full std |
 //! | `std` | Full standard library support |
 //! | `write` | Write/format support (requires std) |
+//! | `sync` | Synchronous API under [`sync`] (default) |
+//! | `async` | Asynchronous read API under `hadris_udf::r#async` |
+//!
+//! `std` does not select an I/O mode. The `write` implementation is currently
+//! synchronous-only; enabling `write` and `async` together does not expose an
+//! async write API.
 //!
 //! ## Known Limitations
 //!
@@ -81,18 +87,8 @@ extern crate std;
 mod error;
 mod time;
 
-#[cfg(feature = "alloc")]
-pub mod dir;
-#[cfg(feature = "alloc")]
-pub mod file;
-
 pub use error::{UdfError, UdfResult};
 pub use time::UdfTimestamp;
-
-#[cfg(feature = "alloc")]
-pub use dir::UdfDir;
-#[cfg(feature = "alloc")]
-pub use file::{FileType, UdfFile};
 
 // ---------------------------------------------------------------------------
 // Sync module
@@ -127,13 +123,23 @@ pub mod sync {
     mod __inner {
         pub mod descriptor;
         #[cfg(feature = "alloc")]
+        pub mod dir;
+        #[cfg(feature = "alloc")]
+        pub mod file;
+        #[cfg(feature = "alloc")]
         pub mod fs;
-        /// UDF image modification and append support.
-        #[cfg(feature = "write")]
-        pub mod modify;
-        #[cfg(feature = "write")]
-        pub mod write;
+        sync_only! {
+            /// UDF image modification and append support.
+            #[cfg(feature = "write")]
+            pub mod modify;
+            #[cfg(feature = "write")]
+            pub mod write;
+        }
     }
+    #[cfg(feature = "alloc")]
+    pub use __inner::dir::UdfDir;
+    #[cfg(feature = "alloc")]
+    pub use __inner::file::{FileType, UdfFile};
     pub use __inner::*;
 
     // Convenience re-exports for backwards compatibility
@@ -174,13 +180,16 @@ pub mod r#async {
     mod __inner {
         pub mod descriptor;
         #[cfg(feature = "alloc")]
+        pub mod dir;
+        #[cfg(feature = "alloc")]
+        pub mod file;
+        #[cfg(feature = "alloc")]
         pub mod fs;
-        /// UDF image modification and append support.
-        #[cfg(feature = "write")]
-        pub mod modify;
-        #[cfg(feature = "write")]
-        pub mod write;
     }
+    #[cfg(feature = "alloc")]
+    pub use __inner::dir::UdfDir;
+    #[cfg(feature = "alloc")]
+    pub use __inner::file::{FileType, UdfFile};
     pub use __inner::*;
 }
 

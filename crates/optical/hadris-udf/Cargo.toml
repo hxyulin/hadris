@@ -22,7 +22,7 @@ read = ["hadris-common/bytemuck"]
 # Heap allocation without full std
 alloc = ["hadris-io/alloc"]
 # Standard library support (includes alloc)
-std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "sync"]
+std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror"]
 # Write/format support (requires std)
 write = ["alloc", "std", "read"]
 # Synchronous API
