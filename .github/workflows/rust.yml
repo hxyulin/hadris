@@ -227,10 +227,10 @@ jobs:
             features: ""
           - crate: hadris-optical
             tier: hosted-async-with-cd
-            features: "std,async,read,detect,iso,udf,cd"
+            features: "std,async,read,open,cd"
           - crate: hadris-optical
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,detect,iso,udf,cd"
+            features: "std,alloc,sync,async,read,write,open,cd"
           - crate: hadris-archive
             tier: no-formats
             features: ""
@@ -303,6 +303,8 @@ jobs:
         run: cargo test -p hadris-block --all-features --test async_volume
       - name: Run optical detection integration tests
         run: cargo test -p hadris-optical --all-features --test detect
+      - name: Run optical opening integration tests
+        run: cargo test -p hadris-optical --all-features --test open_image --test async_open_image
 
   test-exfat:
     name: Test exFAT (with external tools)

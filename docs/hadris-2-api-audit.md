@@ -14,7 +14,7 @@ builders, traversal, ownership, and errors.
 | Probe | mixed detection and opening | `detect(&mut source)` is cheap and restores position | block and partition implemented |
 | Existing object | `open`, `read_from`, constructors | `open` validates an existing logical object | block/FAT/partition implemented |
 | New object | `new`, writer constructors | `create` creates; `format` initializes a complete volume/image | format-by-format migration |
-| Ownership | inconsistent or unavailable | `get_ref`, `get_mut`, `into_inner` where representation permits | FAT `into_inner` implemented |
+| Ownership | inconsistent or unavailable | `get_ref`, `get_mut`, `into_inner` where representation permits | FAT, ISO, and UDF `into_inner` implemented |
 | Builders | mixture of `with_*` and field names | fluent setters use field names | FAT implemented |
 | Length | `size: usize/u32/u64` | `len() -> u64`, plus `is_empty` | FAT entries implemented |
 | Modes | root sync exports, incomplete async exports | matching `sync` and `async` module shapes | feature model complete; naming ongoing |
@@ -71,9 +71,9 @@ enum.
 | sync-only writers beside async readers | keep capability explicit; do not synthesize async writers |
 | directory traversal naming differs from FAT/UDF | audit against `entries`, `find`, and operational file handles |
 
-Category-level detection is already mode-neutral and reports ISO independently
-from UDF. Unified opening remains deferred until ISO and UDF both support the
-same recoverable borrowed-source ownership contract.
+Category-level detection reports ISO independently from UDF. ISO and UDF now
+provide recoverable ownership, and the optical facade implements policy-driven
+unified opening with matching sync and async surfaces.
 
 ## UDF
 

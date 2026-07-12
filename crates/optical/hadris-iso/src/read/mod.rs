@@ -132,6 +132,13 @@ pub struct IsoImage<DATA: Seek> {
     pub(crate) info: IsoImageInfo,
 }
 
+impl<DATA: Seek> IsoImage<DATA> {
+    /// Consumes the image handle and returns its underlying data source.
+    pub fn into_inner(self) -> DATA {
+        self.data.into_inner().data
+    }
+}
+
 io_transform! {
 impl<DATA: Read + Seek> IsoImage<DATA> {
     /// Opens a ISO9660 Image
