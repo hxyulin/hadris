@@ -299,7 +299,7 @@ where
     /// Flush any pending writes.
     pub(crate) fn flush(&self) -> crate::io::IoResult<()> {
         let mut guard = self.data.lock();
-        guard.flush()
+        guard.flush().map_err(hadris_io::Error::erase)
     }
 
     /// Allocate a single cluster.
