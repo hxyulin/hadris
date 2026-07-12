@@ -11,6 +11,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 - **[hadris-io](crates/core/hadris-io)** - No-std I/O abstraction layer (`Read`, `Write`, `Seek`)
 - **[hadris-common](crates/core/hadris-common)** - Shared utilities (endian types, CRC, UTF-16 strings, optical helpers)
+- **[hadris-storage](crates/core/hadris-storage)** - Format-neutral block geometry, device traits, and seekable-stream adapters
 - **[hadris-macros](crates/core/hadris-macros)** - Proc macros for dual sync/async code generation
 
 ### Block Storage

@@ -9,6 +9,7 @@
 # Shared foundation
 /crates/core/hadris-io/ @hxyulin
 /crates/core/hadris-common/ @hxyulin
+/crates/core/hadris-storage/ @hxyulin
 /crates/core/hadris-macros/ @hxyulin
 
 # Format libraries

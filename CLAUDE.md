@@ -98,6 +98,7 @@ crates/
 │   ├── hadris/
 │   ├── hadris-common/
 │   ├── hadris-io/
+│   ├── hadris-storage/
 │   └── hadris-macros/
 ├── block/           # Block filesystems and partition tables
 │   ├── hadris-fat/
@@ -165,7 +166,7 @@ All library crates support `sync` and `async` feature flags for dual sync/async 
 
 ## Architecture Notes
 
-**Dependency flow:** `hadris-io` -> `hadris-common` -> `hadris-{part,fat,iso,udf,cpio}` -> `hadris-cd` -> `hadris`
+**Dependency flow:** `hadris-io` -> `hadris-{common,storage}` -> `hadris-{part,fat,iso,udf,cpio}` -> `hadris-cd` -> category facades / `hadris`
 
 **Dual sync/async:** `hadris-macros` provides a `strip_async!` proc macro. Each crate defines `io_transform!`, `sync_only!`, and `async_only!` macros in its sync/async modules. Shared source files are included in both modules via `#[path]` attributes. Doc comments must go *inside* macro invocations to appear in generated docs.
 

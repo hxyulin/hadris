@@ -1,0 +1,23 @@
+[package]
+name = "hadris-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Block-storage geometry, capabilities, and adapters for Hadris"
+readme = "README.md"
+keywords = ["block-device", "storage", "no-std", "filesystem"]
+categories = ["no-std", "filesystem"]
+
+[features]
+default = ["std", "sync"]
+alloc = ["hadris-io/alloc"]
+std = ["alloc", "hadris-io/std"]
+sync = ["hadris-io/sync"]
+async = ["hadris-io/async"]
+
+[dependencies]
+hadris-io = { workspace = true }
+embedded-io.workspace = true
