@@ -8,7 +8,7 @@ use std::task::{Wake, Waker};
 use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::FatVariant;
 use hadris_io::SeekFrom;
-use hadris_io::r#async::{Read, Seek};
+use hadris_io::r#async::{Read, Seek, Write};
 use hadris_storage::PartitionView;
 
 struct ThreadWaker(std::thread::Thread);
@@ -38,6 +38,72 @@ fn formatted_fat12() -> Vec<u8> {
     let volume = FatVolumeFormatter::format(std::io::Cursor::new(&mut image[..]), options).unwrap();
     drop(volume);
     image
+}
+
+struct AsyncCursor {
+    bytes: Vec<u8>,
+    position: u64,
+}
+
+impl AsyncCursor {
+    fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes, position: 0 }
+    }
+}
+
+impl Read for AsyncCursor {
+    type Error = hadris_io::ErrorKind;
+
+    async fn read(&mut self, buffer: &mut [u8]) -> hadris_io::Result<usize, Self::Error> {
+        let start = usize::try_from(self.position)
+            .map_err(|_| hadris_io::Error::from_kind(hadris_io::ErrorKind::InvalidInput))?;
+        let available = self.bytes.len().saturating_sub(start);
+        let len = available.min(buffer.len());
+        buffer[..len].copy_from_slice(&self.bytes[start..start + len]);
+        self.position += len as u64;
+        Ok(len)
+    }
+}
+
+impl Write for AsyncCursor {
+    type Error = hadris_io::ErrorKind;
+
+    async fn write(&mut self, buffer: &[u8]) -> hadris_io::Result<usize, Self::Error> {
+        let start = usize::try_from(self.position)
+            .map_err(|_| hadris_io::Error::from_kind(hadris_io::ErrorKind::InvalidInput))?;
+        let end = start
+            .checked_add(buffer.len())
+            .ok_or_else(|| hadris_io::Error::from_kind(hadris_io::ErrorKind::InvalidInput))?;
+        if end > self.bytes.len() {
+            return Err(hadris_io::Error::from_kind(hadris_io::ErrorKind::WriteZero));
+        }
+        self.bytes[start..end].copy_from_slice(buffer);
+        self.position = end as u64;
+        Ok(buffer.len())
+    }
+
+    async fn flush(&mut self) -> hadris_io::Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl Seek for AsyncCursor {
+    type Error = hadris_io::ErrorKind;
+
+    async fn seek(&mut self, position: SeekFrom) -> hadris_io::Result<u64, Self::Error> {
+        let next = match position {
+            SeekFrom::Start(position) => i128::from(position),
+            SeekFrom::Current(offset) => i128::from(self.position) + i128::from(offset),
+            SeekFrom::End(offset) => self.bytes.len() as i128 + i128::from(offset),
+        };
+        if !(0..=self.bytes.len() as i128).contains(&next) {
+            return Err(hadris_io::Error::from_kind(
+                hadris_io::ErrorKind::InvalidInput,
+            ));
+        }
+        self.position = next as u64;
+        Ok(self.position)
+    }
 }
 
 #[test]
@@ -89,5 +155,41 @@ fn async_open_reports_mismatch_without_consuming_source() {
         ));
         source.seek(SeekFrom::Start(11)).await.unwrap();
         assert_eq!(source.stream_position().await.unwrap(), 11);
+    });
+}
+
+#[test]
+fn async_fat_content_mutation_traversal_and_recovery() {
+    use hadris_fat::r#async::FatVolumeWriteExt;
+
+    let image = formatted_fat12();
+    block_on(async {
+        let mut source = AsyncCursor::new(image);
+        let volume = OpenVolume::open(&mut source, 512).await.unwrap();
+        let fs = volume.as_fat().unwrap();
+        let root = fs.root_dir();
+        let nested = fs.create_dir(&root, "NESTED").await.unwrap();
+        let entry = fs.create_file(&nested, "PAYLOAD.BIN").await.unwrap();
+
+        let payload: Vec<u8> = (0..1537).map(|index| (index % 251) as u8).collect();
+        let mut writer = fs.write_file(&entry).unwrap();
+        assert_eq!(writer.write(&payload).await.unwrap(), payload.len());
+        writer.finish().await.unwrap();
+
+        let mut reader = fs.open_file_path("NESTED/PAYLOAD.BIN").await.unwrap();
+        assert_eq!(reader.read_to_vec().await.unwrap(), payload);
+
+        let entry = fs.open_path("NESTED/PAYLOAD.BIN").await.unwrap();
+        fs.truncate(&entry, 513).await.unwrap();
+        let mut reader = fs.open_file_path("NESTED/PAYLOAD.BIN").await.unwrap();
+        assert_eq!(reader.read_to_vec().await.unwrap(), payload[..513]);
+
+        assert!(fs.create_file(&nested, "PAYLOAD.BIN").await.is_err());
+        assert!(fs.open_dir_path("NESTED").await.is_ok());
+
+        let source = volume.into_inner();
+        assert_eq!(source.bytes.len(), 2 * 1024 * 1024);
+        source.seek(SeekFrom::Start(0)).await.unwrap();
+        assert_eq!(source.stream_position().await.unwrap(), 0);
     });
 }
