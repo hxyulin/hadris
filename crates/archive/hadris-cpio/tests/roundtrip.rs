@@ -1,13 +1,12 @@
 use hadris_cpio::mode::FileType;
 use hadris_cpio::read::CpioReader;
 use hadris_cpio::write::file_tree::{FileNode, FileTree};
-use hadris_cpio::write::{CpioWriteOptions, CpioWriter};
+use hadris_cpio::write::{CpioArchiveWriter, CpioWriteOptions};
 
 fn write_archive(tree: &FileTree, use_crc: bool) -> Vec<u8> {
-    let mut buf = Vec::new();
-    let writer = CpioWriter::new(CpioWriteOptions { use_crc });
-    writer.write(&mut buf, tree).expect("write failed");
-    buf
+    CpioArchiveWriter::new(Vec::new(), CpioWriteOptions { use_crc })
+        .finish(tree)
+        .expect("write failed")
 }
 
 #[test]

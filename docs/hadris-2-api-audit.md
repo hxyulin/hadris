@@ -67,7 +67,7 @@ enum.
 |---|---|
 | `IsoImage` | retain as primary read handle |
 | root raw descriptors and high-level handles mixed | move raw disk layouts under `raw` with targeted compatibility exports |
-| writer constructors and modification APIs vary | converge on `create`/`finish` and explicit modification options |
+| writer constructors and modification APIs vary | canonical `create` returns the target; modifier `finish` returns the target; legacy methods deprecated |
 | sync-only writers beside async readers | keep capability explicit; do not synthesize async writers |
 | directory traversal naming differs from FAT/UDF | audit against `entries`, `find`, and operational file handles |
 
@@ -82,15 +82,16 @@ unified opening with matching sync and async surfaces.
 | `UdfFs` | canonical `UdfVolume` alias implemented; retain `UdfFs` for compatibility |
 | mode-specific descriptor identities | continue separating mode-neutral raw values from I/O handles |
 | sync-only formatting/modification | retain explicit sync capability until genuine async implementation |
-| modification and writer errors | converge on root `Error` categories and operation context |
+| formatter/modifier lifecycle | `create` and modifier `finish` recover the target; legacy `format`/`commit` retained as deprecated forwarding APIs |
+| modification and writer errors | operation modules expose canonical `Error`/`Result`; descriptive aliases retained |
 
 ## CPIO
 
 | Current surface | 2.0 direction |
 |---|---|
-| `CpioReader`/`CpioWriter` | retain sequential reader/writer model |
+| stateless `CpioWriter` | canonical owning `CpioArchiveWriter`; legacy writer retained |
 | entry/header mode duplication | move stable header/entry metadata to mode-neutral types where practical |
-| writer completion | standardize on consuming `finish` returning the underlying target |
+| writer completion | consuming `finish` returning the underlying target implemented in both modes |
 | traversal | keep sequential `next_entry`; do not force filesystem directory traits |
 
 CPIO intentionally does not implement a volume abstraction. Shared archive

@@ -56,7 +56,7 @@ fn test_hybrid_boot_mbr() {
     };
 
     let mut iso_buffer = Cursor::new(vec![0u8; 512 * 2048]); // 512 sectors
-    hadris_iso::write::IsoImageWriter::format_new(&mut iso_buffer, files, format_options)
+    hadris_iso::write::IsoImageWriter::create(&mut iso_buffer, files, format_options)
         .expect("Failed to create hybrid ISO");
 
     let iso_data = iso_buffer.into_inner();
@@ -130,7 +130,7 @@ fn test_hybrid_boot_gpt() {
     };
 
     let mut iso_buffer = Cursor::new(vec![0u8; 512 * 2048]);
-    hadris_iso::write::IsoImageWriter::format_new(&mut iso_buffer, files, format_options)
+    hadris_iso::write::IsoImageWriter::create(&mut iso_buffer, files, format_options)
         .expect("Failed to create GPT ISO");
 
     let iso_data = iso_buffer.into_inner();
@@ -207,7 +207,7 @@ fn test_hybrid_boot_dual() {
     };
 
     let mut iso_buffer = Cursor::new(vec![0u8; 512 * 2048]);
-    hadris_iso::write::IsoImageWriter::format_new(&mut iso_buffer, files, format_options)
+    hadris_iso::write::IsoImageWriter::create(&mut iso_buffer, files, format_options)
         .expect("Failed to create hybrid dual-boot ISO");
 
     let iso_data = iso_buffer.into_inner();

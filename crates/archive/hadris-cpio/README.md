@@ -34,19 +34,17 @@ while let Some(entry) = reader.next_entry_alloc()? {
 ```rust
 use std::fs::File;
 use std::io::BufWriter;
-use hadris_cpio::{CpioWriteOptions, CpioWriter, FileTree};
+use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
 
 let tree = FileTree::from_fs(std::path::Path::new("./my-directory"))?;
-let writer = CpioWriter::new(CpioWriteOptions::default());
-
-let mut out = BufWriter::new(File::create("archive.cpio")?);
-writer.write(&mut out, &tree)?;
+let out = BufWriter::new(File::create("archive.cpio")?);
+let _out = CpioArchiveWriter::new(out, CpioWriteOptions::default()).finish(&tree)?;
 ```
 
 ### Building an Archive Programmatically
 
 ```rust
-use hadris_cpio::{CpioWriteOptions, CpioWriter, FileNode, FileTree};
+use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileNode, FileTree};
 
 let mut tree = FileTree::new();
 tree.add(FileNode::file("hello.txt", b"Hello, world!\n".to_vec(), 0o644));
@@ -55,9 +53,7 @@ tree.add(FileNode::dir("subdir", vec![
 ], 0o755));
 tree.add(FileNode::symlink("link.txt", "hello.txt"));
 
-let writer = CpioWriter::new(CpioWriteOptions::default());
-let mut buf = Vec::new();
-writer.write(&mut buf, &tree)?;
+let buf = CpioArchiveWriter::new(Vec::new(), CpioWriteOptions::default()).finish(&tree)?;
 ```
 
 ## Feature Flags

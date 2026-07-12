@@ -43,7 +43,8 @@ let mut root = SimpleDir::new("");
 root.add_file(SimpleFile::new("readme.txt", b"Hello, World!".to_vec()));
 
 let options = UdfWriteOptions::default();
-UdfWriter::format(&mut cursor, &root, options).expect("Format failed");
+let output = UdfWriter::create(cursor, &root, options).expect("Create failed");
+let _cursor = output.into_inner();
 ```
 
 ## Feature Flags

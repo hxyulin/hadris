@@ -49,6 +49,13 @@ impl HybridBootOptions {
     }
 
     /// Set the MBR bootstrap code.
+    pub fn bootstrap(mut self, bootstrap: alloc::vec::Vec<u8>) -> Self {
+        self.mbr_bootstrap = Some(bootstrap);
+        self
+    }
+
+    /// Set the MBR bootstrap code.
+    #[deprecated(since = "2.0.0", note = "use `bootstrap` instead")]
     pub fn with_bootstrap(mut self, bootstrap: alloc::vec::Vec<u8>) -> Self {
         self.mbr_bootstrap = Some(bootstrap);
         self
@@ -140,7 +147,7 @@ impl Default for CreationFeatures {
 
 impl CreationFeatures {
     /// Create features with Rock Ridge enabled (default settings)
-    pub fn with_rock_ridge() -> Self {
+    pub fn rock_ridge() -> Self {
         Self {
             filenames: BaseIsoLevel::Level1 {
                 supports_lowercase: false,
@@ -151,16 +158,26 @@ impl CreationFeatures {
         }
     }
 
+    #[deprecated(since = "2.0.0", note = "use `rock_ridge` instead")]
+    pub fn with_rock_ridge() -> Self {
+        Self::rock_ridge()
+    }
+
     /// Create features with Joliet enabled
-    pub fn with_joliet(level: JolietLevel) -> Self {
+    pub fn joliet(level: JolietLevel) -> Self {
         Self {
             joliet: Some(level),
             ..Default::default()
         }
     }
 
+    #[deprecated(since = "2.0.0", note = "use `joliet` instead")]
+    pub fn with_joliet(level: JolietLevel) -> Self {
+        Self::joliet(level)
+    }
+
     /// Create features with both Rock Ridge and Joliet enabled
-    pub fn with_extensions() -> Self {
+    pub fn extensions() -> Self {
         Self {
             filenames: BaseIsoLevel::Level1 {
                 supports_lowercase: false,
@@ -172,8 +189,13 @@ impl CreationFeatures {
         }
     }
 
+    #[deprecated(since = "2.0.0", note = "use `extensions` instead")]
+    pub fn with_extensions() -> Self {
+        Self::extensions()
+    }
+
     /// Create features with hybrid boot enabled (MBR for USB boot)
-    pub fn with_hybrid_boot(scheme: PartitionScheme) -> Self {
+    pub fn hybrid_boot(scheme: PartitionScheme) -> Self {
         Self {
             hybrid_boot: Some(HybridBootOptions {
                 partition_scheme: scheme,
@@ -182,6 +204,11 @@ impl CreationFeatures {
             }),
             ..Default::default()
         }
+    }
+
+    #[deprecated(since = "2.0.0", note = "use `hybrid_boot` instead")]
+    pub fn with_hybrid_boot(scheme: PartitionScheme) -> Self {
+        Self::hybrid_boot(scheme)
     }
 }
 

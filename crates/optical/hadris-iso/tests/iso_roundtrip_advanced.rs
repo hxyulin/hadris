@@ -42,7 +42,7 @@ fn rrip_options() -> FormatOptions {
         application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures::with_rock_ridge(),
+        features: CreationFeatures::rock_ridge(),
         strict_charset: false,
     }
 }
@@ -58,7 +58,7 @@ fn joliet_options() -> FormatOptions {
         application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures::with_joliet(JolietLevel::Level3),
+        features: CreationFeatures::joliet(JolietLevel::Level3),
         strict_charset: false,
     }
 }
@@ -69,7 +69,7 @@ fn write_and_open(files: Vec<IsoFile>, options: FormatOptions) -> IsoImage<Curso
         files,
     };
     let mut buffer = Cursor::new(vec![0u8; 8 * 1024 * 1024]);
-    IsoImageWriter::format_new(&mut buffer, input, options).expect("Failed to write ISO");
+    IsoImageWriter::create(&mut buffer, input, options).expect("Failed to write ISO");
     let data = buffer.into_inner();
     IsoImage::open(Cursor::new(data)).expect("Failed to open ISO")
 }
@@ -231,7 +231,7 @@ fn test_depth_8_succeeds() {
         files,
     };
     let mut buffer = Cursor::new(vec![0u8; 8 * 1024 * 1024]);
-    let result = IsoImageWriter::format_new(&mut buffer, input, default_options());
+    let result = IsoImageWriter::create(&mut buffer, input, default_options());
     assert!(result.is_ok(), "Depth 8 should succeed: {:?}", result.err());
 }
 
@@ -244,7 +244,7 @@ fn test_depth_9_fails() {
         files,
     };
     let mut buffer = Cursor::new(vec![0u8; 8 * 1024 * 1024]);
-    let result = IsoImageWriter::format_new(&mut buffer, input, default_options());
+    let result = IsoImageWriter::create(&mut buffer, input, default_options());
     assert!(result.is_err(), "Depth 9 should fail");
 }
 
@@ -303,7 +303,7 @@ fn test_size_estimate_is_conservative() {
             0u8;
             estimate.minimum_bytes() as usize + 4 * 1024 * 1024
         ]);
-        IsoImageWriter::format_new(&mut buffer, input2, options).expect("Failed to write ISO");
+        IsoImageWriter::create(&mut buffer, input2, options).expect("Failed to write ISO");
 
         use std::io::Seek;
         let actual_pos = buffer.stream_position().unwrap();

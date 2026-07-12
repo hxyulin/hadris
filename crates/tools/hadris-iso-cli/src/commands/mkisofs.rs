@@ -101,7 +101,7 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
     let mut buffer = io::Cursor::new(vec![0u8; estimated_size as usize]);
 
     // Write ISO to buffer
-    IsoImageWriter::format_new(&mut buffer, input, format_options)?;
+    IsoImageWriter::create(&mut buffer, input, format_options)?;
 
     // Seek to end to get actual size
     buffer.seek(io::SeekFrom::End(0))?;

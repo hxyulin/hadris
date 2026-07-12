@@ -86,7 +86,7 @@ let format_options = FormatOptions {
 };
 
 let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
-IsoImageWriter::format_new(&mut buffer, files, format_options)?;
+IsoImageWriter::create(&mut buffer, files, format_options)?;
 ```
 
 ## Feature Flags

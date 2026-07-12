@@ -56,7 +56,7 @@ fn test_multi_sector_directory() {
 
     // Create ISO in memory
     let mut iso_buffer = Cursor::new(vec![0u8; 1024 * 2048]); // 2MB should be plenty
-    IsoImageWriter::format_new(&mut iso_buffer, input_files, format_options)
+    IsoImageWriter::create(&mut iso_buffer, input_files, format_options)
         .expect("Failed to create ISO");
 
     let iso_data = iso_buffer.into_inner();
@@ -133,13 +133,13 @@ fn test_hadris_rockridge_roundtrip() {
         application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures::with_rock_ridge(),
+        features: CreationFeatures::rock_ridge(),
         strict_charset: false,
     };
 
     // Write the ISO to a buffer
     let mut buffer = std::io::Cursor::new(vec![0u8; 4 * 1024 * 1024]);
-    IsoImageWriter::format_new(&mut buffer, files, format_options)
+    IsoImageWriter::create(&mut buffer, files, format_options)
         .expect("Failed to create Rock Ridge ISO");
 
     let iso_data = buffer.into_inner();

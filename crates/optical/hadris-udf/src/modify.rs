@@ -22,7 +22,7 @@
 //!
 //! let mut modifier = UdfModifier::open(file)?;
 //! modifier.append_file("new_file.txt", b"Hello, world!".to_vec());
-//! modifier.commit()?;
+//! modifier.finish()?;
 //! ```
 
 use alloc::collections::BTreeMap;
@@ -144,8 +144,12 @@ pub enum UdfModifyError {
     InvalidPath(String),
 }
 
-/// Result type for UDF modification operations.
-pub type UdfModifyResult<T> = Result<T, UdfModifyError>;
+/// Canonical error for UDF modification operations.
+pub type Error = UdfModifyError;
+/// Canonical result for UDF modification operations.
+pub type Result<T> = core::result::Result<T, Error>;
+/// Compatibility alias for UDF modification results.
+pub type UdfModifyResult<T> = Result<T>;
 
 /// Options for UDF modification.
 #[derive(Debug, Clone, Default)]
@@ -273,10 +277,10 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
         &self.existing_layout
     }
 
-    /// Commits all pending changes.
-    pub fn commit(mut self) -> UdfModifyResult<()> {
+    /// Finishes all pending changes and returns the underlying image target.
+    pub fn finish(mut self) -> UdfModifyResult<RW> {
         if self.pending_ops.is_empty() {
-            return Ok(());
+            return Ok(self.inner);
         }
 
         // 1. Apply pending ops to layout
@@ -288,7 +292,13 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
         // 3. Update UDF metadata
         self.write_new_metadata(&new_layout, file_extents)?;
 
-        Ok(())
+        Ok(self.inner)
+    }
+
+    /// Commits changes while discarding the returned image target.
+    #[deprecated(since = "2.0.0", note = "use `finish` to recover the image target")]
+    pub fn commit(self) -> UdfModifyResult<()> {
+        self.finish().map(|_| ())
     }
 
     /// Applies pending operations to create a new layout.

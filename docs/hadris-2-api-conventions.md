@@ -90,7 +90,7 @@ Constructors use `new` only when they cannot fail and do not perform I/O.
 
 - FAT uses `FatFs`, while UDF uses `UdfFs` and ISO uses `IsoImage`; the `Fs`
   abbreviation and volume/image vocabulary need normalization.
-- Opening is relatively consistent, but creation varies among `format_new`,
+- Opening is relatively consistent, while legacy creation varies among `format_new`,
   formatter objects, writer constructors, and `write` methods.
 - FAT directory iteration mixes `entries`, `next_entry`, synchronous `Iterator`,
   and mode-specific behavior in the same source.

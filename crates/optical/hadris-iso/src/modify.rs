@@ -26,7 +26,7 @@
 //! let mut modifier = IsoModifier::open(file)?;
 //! modifier.append_file("new_file.txt", b"Hello, world!".to_vec());
 //! modifier.delete("old_file.txt");
-//! modifier.commit()?;
+//! modifier.finish()?;
 //! ```
 
 use alloc::collections::BTreeMap;
@@ -155,8 +155,12 @@ pub enum IsoModifyError {
     InvalidPath(String),
 }
 
-/// Result type for ISO modification operations.
-pub type IsoModifyResult<T> = Result<T, IsoModifyError>;
+/// Canonical error for ISO modification operations.
+pub type Error = IsoModifyError;
+/// Canonical result for ISO modification operations.
+pub type Result<T> = core::result::Result<T, Error>;
+/// Compatibility alias for ISO modification results.
+pub type IsoModifyResult<T> = Result<T>;
 
 /// Modifier for ISO 9660 images.
 ///
@@ -421,10 +425,10 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         &self.existing_layout
     }
 
-    /// Commits all pending changes by writing a new session.
-    pub async fn commit(mut self) -> IsoModifyResult<()> {
+    /// Finishes all pending changes and returns the underlying image target.
+    pub async fn finish(mut self) -> IsoModifyResult<RW> {
         if self.pending_ops.is_empty() {
-            return Ok(());
+            return Ok(self.inner.into_inner());
         }
 
         // 1. Apply pending ops to layout
@@ -436,7 +440,13 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         // 3. Write new session metadata
         self.write_new_session(&new_layout, written_files).await?;
 
-        Ok(())
+        Ok(self.inner.into_inner())
+    }
+
+    /// Commits changes while discarding the returned image target.
+    #[deprecated(since = "2.0.0", note = "use `finish` to recover the image target")]
+    pub async fn commit(self) -> IsoModifyResult<()> {
+        self.finish().await.map(|_| ())
     }
 
     /// Applies pending operations to create a new layout.

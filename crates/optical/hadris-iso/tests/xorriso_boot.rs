@@ -201,7 +201,7 @@ fn test_hadris_bootable_iso_creation() {
     };
 
     let mut iso_buffer = Cursor::new(vec![0u8; 256 * 2048]); // 256 sectors
-    IsoImageWriter::format_new(&mut iso_buffer, files, format_options)
+    IsoImageWriter::create(&mut iso_buffer, files, format_options)
         .expect("Failed to create bootable ISO with hadris-iso");
 
     let iso_data = iso_buffer.into_inner();
@@ -392,7 +392,7 @@ fn test_compare_boot_catalogs() {
     };
 
     let mut hadris_buffer = Cursor::new(vec![0u8; 256 * 2048]);
-    IsoImageWriter::format_new(&mut hadris_buffer, files, format_options)
+    IsoImageWriter::create(&mut hadris_buffer, files, format_options)
         .expect("Failed to create hadris ISO");
     let hadris_data = hadris_buffer.into_inner();
 
@@ -711,7 +711,7 @@ fn test_qemu_boot_hadris_iso() {
 
     // Create ISO in memory first, then write to file
     let mut iso_buffer = Cursor::new(vec![0u8; 256 * 2048]);
-    IsoImageWriter::format_new(&mut iso_buffer, files, format_options)
+    IsoImageWriter::create(&mut iso_buffer, files, format_options)
         .expect("Failed to create bootable ISO with hadris-iso");
 
     // Write to file

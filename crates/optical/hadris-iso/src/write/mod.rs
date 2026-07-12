@@ -51,7 +51,7 @@ impl InputFiles {
     pub fn from_fs(
         root_path: &std::path::Path,
         path_separator: PathSeparator,
-    ) -> Result<Self, FileConversionError> {
+    ) -> core::result::Result<Self, FileConversionError> {
         if !root_path.is_dir() {
             return Err(FileConversionError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -71,7 +71,7 @@ impl InputFiles {
 /// Recursively reads a directory and converts its contents into a vector of `File` enums.
 fn read_directory_recursively(
     current_path: &std::path::Path,
-) -> Result<Vec<File>, FileConversionError> {
+) -> core::result::Result<Vec<File>, FileConversionError> {
     use alloc::string::ToString;
     let mut children_files: Vec<File> = Vec::new();
 
@@ -155,7 +155,12 @@ pub enum IsoCreationError {
     Io(#[from] io::Error),
 }
 
-pub type IsoCreationResult<T> = Result<T, IsoCreationError>;
+/// Canonical error for ISO creation operations.
+pub type Error = IsoCreationError;
+/// Canonical result for ISO creation operations.
+pub type Result<T> = core::result::Result<T, Error>;
+/// Compatibility alias for the ISO creation result.
+pub type IsoCreationResult<T> = Result<T>;
 
 pub struct IsoImageWriter<DATA: Read + Write + Seek> {
     data: IsoCursor<DATA>,
@@ -328,17 +333,33 @@ struct PendingRecord {
 
 io_transform! {
 impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
-    pub async fn format_new(
+    /// Creates a complete ISO image and returns its output target.
+    pub async fn create(
         data: DATA,
         mut files: InputFiles,
         ops: FormatOptions,
-    ) -> IsoCreationResult<()> {
+    ) -> IsoCreationResult<DATA> {
         let mut writer = Self::new(data, ops);
         writer.write_volume_descriptors(&mut files).await?;
         let root_dirs = writer.write_files(&files).await?;
         writer.write_path_tables().await?;
         writer.finalize_volume_descriptors(root_dirs).await?;
-        Ok(())
+        Ok(writer.into_inner())
+    }
+
+    /// Formats an ISO image while discarding the returned output target.
+    #[deprecated(since = "2.0.0", note = "use `create` to recover the output target")]
+    pub async fn format_new(
+        data: DATA,
+        files: InputFiles,
+        ops: FormatOptions,
+    ) -> IsoCreationResult<()> {
+        Self::create(data, files, ops).await.map(|_| ())
+    }
+
+    /// Returns the output target.
+    pub fn into_inner(self) -> DATA {
+        self.data.into_inner()
     }
 
     fn new(data: DATA, ops: FormatOptions) -> Self {

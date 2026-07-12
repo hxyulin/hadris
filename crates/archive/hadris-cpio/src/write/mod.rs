@@ -16,10 +16,18 @@ use crate::mode::{self, FileType};
 use file_tree::{FileNode, FileTree};
 
 /// Options for writing a CPIO archive.
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct CpioWriteOptions {
     /// If true, use the 070702 (CRC) magic; otherwise use 070701 (newc).
     pub use_crc: bool,
+}
+
+impl CpioWriteOptions {
+    /// Selects CRC newc (`070702`) instead of plain newc (`070701`).
+    pub const fn crc(mut self, enabled: bool) -> Self {
+        self.use_crc = enabled;
+        self
+    }
 }
 
 /// CPIO archive writer.
@@ -27,6 +35,12 @@ pub struct CpioWriteOptions {
 /// Serializes a [`FileTree`] into a valid newc CPIO archive. Handles inode
 /// assignment, hard link tracking, padding, and the `TRAILER!!!` sentinel.
 pub struct CpioWriter {
+    options: CpioWriteOptions,
+}
+
+/// Owning CPIO archive writer with a recoverable output target.
+pub struct CpioArchiveWriter<W> {
+    writer: W,
     options: CpioWriteOptions,
 }
 
@@ -291,6 +305,31 @@ impl CpioWriter {
         }
 
         Ok(())
+    }
+}
+
+impl<W: Write> CpioArchiveWriter<W> {
+    /// Creates an owning archive writer.
+    pub fn new(writer: W, options: CpioWriteOptions) -> Self {
+        Self { writer, options }
+    }
+
+    /// Returns the target without writing an archive.
+    pub fn into_inner(self) -> W {
+        self.writer
+    }
+
+    /// Writes the complete archive and returns its target.
+    pub async fn finish(mut self, tree: &FileTree) -> Result<W> {
+        CpioWriter::new(self.options)
+            .write(&mut self.writer, tree)
+            .await?;
+        Ok(self.writer)
+    }
+
+    /// Creates a complete archive and returns its target.
+    pub async fn create(writer: W, tree: &FileTree, options: CpioWriteOptions) -> Result<W> {
+        Self::new(writer, options).finish(tree).await
     }
 }
 
