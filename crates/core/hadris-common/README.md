@@ -5,14 +5,15 @@ Shared types and utilities used by Hadris filesystem crates.
 ## Overview
 
 This crate provides common functionality needed across the Hadris workspace,
-including endian-aware types, extents, fixed-length filenames, and optional
-optical-media types. New path code should use the standalone `hadris-path`
-crate; the old path module remains as a compatibility forwarding surface.
+including endian-aware types, extents, and optional optical-media types. New
+fixed-capacity buffers and text should use `hadris-fixed`, and new path code
+should use `hadris-path`; the old modules remain as deprecated compatibility
+forwarding surfaces.
 
 ## Features
 
 - **Endian Types** - Little-endian and big-endian wrappers for integers
-- **Extents / filenames** - On-disk layout helpers used by ISO and related crates
+- **Extents** - On-disk layout helpers used by ISO and related crates
 - **CRC / time / rand** - Available under the `std` feature
 - **Optical media** - Session and metadata helpers behind the `optical` feature
 - **No-std Compatible** - Works without the standard library

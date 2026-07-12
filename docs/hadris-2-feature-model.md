@@ -59,6 +59,13 @@ format dependencies. Current FAT, exFAT, ISO, UDF, RRIP, and layout consumers
 share its component and separator semantics while retaining format-specific
 name matching.
 
+### Fixed-capacity data
+
+`hadris-fixed` provides an independent allocation-free `FixedBytes` and
+`FixedStr` core plus endian-aware fixed UTF-16 storage. Its `alloc` feature adds
+owned UTF-16 decoding, while `bytemuck` enables zero-copy use of the fixed-width
+UTF-16 representations. It has no filesystem or I/O dependencies.
+
 ### UDF pilot
 
 UDF now follows the contract for its implemented capabilities:

@@ -54,11 +54,7 @@ pub use hadris_common::path::VPath
 pub fn hadris_common::path::split_path(&str) -> core::option::Option<(alloc::string::String, alloc::string::String)>
 pub mod hadris_common::str
 pub mod hadris_common::str::utf16
-#[repr(C)] pub struct hadris_common::str::utf16::FixedUtf16Str<const N: usize>
-impl<const N: usize> hadris_common::str::utf16::FixedUtf16Str<N>
-pub fn hadris_common::str::utf16::FixedUtf16Str<N>::to_string(&self) -> core::result::Result<alloc::string::String, ()>
-impl<const N: usize> bytemuck::pod::Pod for hadris_common::str::utf16::FixedUtf16Str<N>
-impl<const N: usize> bytemuck::zeroable::Zeroable for hadris_common::str::utf16::FixedUtf16Str<N>
+pub type hadris_common::str::utf16::FixedUtf16Str<const N: usize> = hadris_fixed::FixedUtf16Le<N>
 pub mod hadris_common::types
 pub mod hadris_common::types::endian
 pub enum hadris_common::types::endian::EndianType
@@ -226,31 +222,7 @@ pub const fn hadris_common::types::extent::Timestamps::with_times(u64, u64, u64)
 impl bytemuck::pod::Pod for hadris_common::types::extent::Timestamps
 impl bytemuck::zeroable::Zeroable for hadris_common::types::extent::Timestamps
 pub mod hadris_common::types::file
-pub struct hadris_common::types::file::FixedFilename<const N: usize>
-pub hadris_common::types::file::FixedFilename::data: [u8; N]
-pub hadris_common::types::file::FixedFilename::len: usize
-impl<const N: usize> hadris_common::types::file::FixedFilename<N>
-pub fn hadris_common::types::file::FixedFilename<N>::allocate(&mut self, usize)
-pub fn hadris_common::types::file::FixedFilename<N>::as_bytes(&self) -> &[u8]
-pub fn hadris_common::types::file::FixedFilename<N>::as_bytes_mut(&mut self) -> &mut [u8]
-pub fn hadris_common::types::file::FixedFilename<N>::as_str(&self) -> &str
-pub const fn hadris_common::types::file::FixedFilename<N>::empty() -> Self
-pub fn hadris_common::types::file::FixedFilename<N>::is_empty(&self) -> bool
-pub fn hadris_common::types::file::FixedFilename<N>::len(&self) -> usize
-pub fn hadris_common::types::file::FixedFilename<N>::push_byte(&mut self, u8) -> usize
-pub fn hadris_common::types::file::FixedFilename<N>::push_slice(&mut self, &[u8]) -> core::ops::range::Range<usize>
-pub fn hadris_common::types::file::FixedFilename<N>::remaining_capacity(&self) -> usize
-pub fn hadris_common::types::file::FixedFilename<N>::truncate(&mut self, usize)
-pub fn hadris_common::types::file::FixedFilename<N>::try_as_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
-pub fn hadris_common::types::file::FixedFilename<N>::try_push_byte(&mut self, u8) -> core::option::Option<usize>
-pub fn hadris_common::types::file::FixedFilename<N>::try_push_slice(&mut self, &[u8]) -> core::option::Option<core::ops::range::Range<usize>>
-pub const fn hadris_common::types::file::FixedFilename<N>::with_size(usize) -> Self
-impl<const N: usize> core::convert::From<&[u8]> for hadris_common::types::file::FixedFilename<N>
-pub fn hadris_common::types::file::FixedFilename<N>::from(&[u8]) -> Self
-impl<const N: usize> core::fmt::Debug for hadris_common::types::file::FixedFilename<N>
-pub fn hadris_common::types::file::FixedFilename<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<const N: usize> core::fmt::Display for hadris_common::types::file::FixedFilename<N>
-pub fn hadris_common::types::file::FixedFilename<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub type hadris_common::types::file::FixedFilename<const N: usize> = hadris_fixed::FixedBytes<N>
 pub mod hadris_common::types::layout
 pub struct hadris_common::types::layout::AllocationMap
 impl hadris_common::types::layout::AllocationMap

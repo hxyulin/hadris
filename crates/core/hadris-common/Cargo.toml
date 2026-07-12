@@ -16,9 +16,9 @@ include = ["src/**/*", "Cargo.toml"]
 default = ["bytemuck", "std"]
 sync = ["hadris-io/sync"]
 async = ["hadris-io/async"]
-alloc = ["hadris-io/alloc", "hadris-path/alloc"]
+alloc = ["hadris-fixed/alloc", "hadris-io/alloc", "hadris-path/alloc"]
 std = ["sync", "dep:chrono", "chrono?/std", "dep:crc", "dep:rand", "alloc"]
-bytemuck = ["dep:bytemuck"]
+bytemuck = ["dep:bytemuck", "hadris-fixed/bytemuck"]
 optical = ["alloc"]  # Optical media types (SessionInfo, OpticalMetadataWriter)
 
 [dependencies]
@@ -29,6 +29,7 @@ crc = { version = "3.2.1", optional = true }
 rand = { version = "0.10.2", optional = true }
 noalloc = "0.0.1"
 hadris-io = { workspace = true }  # For I/O traits in optical module
+hadris-fixed = { workspace = true }
 hadris-path = { workspace = true }
 
 [dev-dependencies]

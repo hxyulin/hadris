@@ -3,8 +3,9 @@
 //! Shared types and utilities used across the Hadris filesystem crates.
 //!
 //! This crate provides foundational types for working with on-disk filesystem
-//! structures, including endian-aware integers, extents, fixed-length filenames,
-//! path manipulation, and optical media constants.
+//! structures, including endian-aware integers, extents, layout helpers, and
+//! optical media constants. Reusable fixed-capacity storage and virtual paths
+//! live in `hadris-fixed` and `hadris-path` respectively.
 //!
 //! ## Feature Flags
 //!
@@ -23,8 +24,8 @@
 //!   [`types::number::U64`] — unsigned integers parameterized by endianness.
 //! - **Extent**: [`types::extent::Extent`] — a contiguous region on disk
 //!   (sector + length).
-//! - **FixedFilename**: [`types::file::FixedFilename`] — a stack-allocated
-//!   filename with a compile-time maximum length.
+//! - **Compatibility exports**: [`types::file::FixedFilename`] forwards to
+//!   `hadris_fixed::FixedBytes`; new code should depend on `hadris-fixed`.
 //! - **EndianType / Endianness**: [`types::endian::EndianType`],
 //!   [`types::endian::Endianness`] — runtime and compile-time endianness.
 //!

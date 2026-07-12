@@ -26,6 +26,12 @@ UDF, RRIP, and metadata-layout traversal. Format crates retain responsibility
 for case folding, on-disk name decoding, symlinks, and entry lookup errors.
 `hadris_common::path` remains a deprecated forwarding surface for migration.
 
+Fixed-capacity storage now lives in the independent `hadris-fixed` crate.
+`FixedBytes` represents arbitrary bytes, `FixedStr` preserves valid UTF-8, and
+`FixedUtf16Le`/`FixedUtf16Be` make byte order explicit. FAT and ISO consume the
+byte-oriented type directly. The former `hadris_common::types::file::FixedFilename`
+and `hadris_common::str::utf16::FixedUtf16Str` names remain deprecated aliases.
+
 ## FAT
 
 | Existing API | Canonical 2.0 API | Compatibility |

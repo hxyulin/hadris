@@ -1,4 +1,4 @@
-use hadris_common::types::file::FixedFilename;
+use hadris_fixed::FixedBytes;
 
 #[cfg(feature = "alloc")]
 use crate::joliet::JolietLevel;
@@ -99,16 +99,16 @@ impl From<JolietLevel> for EntryType {
     }
 }
 
-pub type FilenameL1 = FixedFilename<14>;
-pub type FilenameL2 = FixedFilename<32>;
-pub type FilenameL3 = FixedFilename<207>;
+pub type FilenameL1 = FixedBytes<14>;
+pub type FilenameL2 = FixedBytes<32>;
+pub type FilenameL3 = FixedBytes<207>;
 
 #[cfg(feature = "write")]
 pub enum ConvertedName {
     Level1(FilenameL1),
     Level2(FilenameL2),
     Level3(FilenameL3),
-    Joliet(FixedFilename<207>),
+    Joliet(FixedBytes<207>),
 }
 
 #[cfg(feature = "write")]
@@ -147,14 +147,14 @@ impl EntryType {
 }
 
 #[cfg(feature = "write")]
-pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedFilename<14> {
-    let mut l1 = FixedFilename::empty();
+pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedBytes<14> {
+    let mut l1 = FixedBytes::empty();
     let name_bytes = name.as_bytes();
     match name.find('.') {
         Some(index) => {
             // We copy the basename, at most 8 bytes
             let basename = l1.push_slice(&name_bytes[0..index.min(8)]);
-            let basename = l1.data[basename].iter_mut();
+            let basename = l1.as_bytes_mut()[basename].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(basename);
             } else {
@@ -164,7 +164,7 @@ pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedFilename<14> {
             let ext_len = (name.len() - index - 1).min(3);
             l1.push_byte(b'.');
             let ext = l1.push_slice(&name_bytes[index + 1..(index + 1 + ext_len).min(name.len())]);
-            let ext = l1.data[ext].iter_mut();
+            let ext = l1.as_bytes_mut()[ext].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(ext);
             } else {
@@ -174,7 +174,7 @@ pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedFilename<14> {
         None => {
             let len = name.len().min(8);
             let basename = l1.push_slice(&name_bytes[0..len]);
-            let basename = l1.data[basename].iter_mut();
+            let basename = l1.as_bytes_mut()[basename].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(basename);
             } else {
@@ -197,7 +197,7 @@ pub fn convert_l2(name: &str, supports_lowercase: bool) -> FilenameL2 {
         Some(index) => {
             let basename_end = index.min(MAX_NAME_LEN);
             let basename = l2.push_slice(&name_bytes[0..basename_end]);
-            let basename = l2.data[basename].iter_mut();
+            let basename = l2.as_bytes_mut()[basename].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(basename);
             } else {
@@ -210,7 +210,7 @@ pub fn convert_l2(name: &str, supports_lowercase: bool) -> FilenameL2 {
                 l2.push_byte(b'.');
                 let ext_end = (index + 1 + remaining).min(name.len());
                 let ext = l2.push_slice(&name_bytes[index + 1..ext_end]);
-                let ext = l2.data[ext].iter_mut();
+                let ext = l2.as_bytes_mut()[ext].iter_mut();
                 if supports_lowercase {
                     CharsetD1::substitute_invalid(ext);
                 } else {
@@ -221,7 +221,7 @@ pub fn convert_l2(name: &str, supports_lowercase: bool) -> FilenameL2 {
         None => {
             let len = name.len().min(MAX_NAME_LEN);
             let basename = l2.push_slice(&name_bytes[0..len]);
-            let basename = l2.data[basename].iter_mut();
+            let basename = l2.as_bytes_mut()[basename].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(basename);
             } else {
@@ -244,7 +244,7 @@ pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
         Some(index) => {
             let basename_end = index.min(MAX_NAME_LEN);
             let basename = l3.push_slice(&name_bytes[0..basename_end]);
-            let basename = l3.data[basename].iter_mut();
+            let basename = l3.as_bytes_mut()[basename].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(basename);
             } else {
@@ -257,7 +257,7 @@ pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
                 l3.push_byte(b'.');
                 let ext_end = (index + 1 + remaining).min(name.len());
                 let ext = l3.push_slice(&name_bytes[index + 1..ext_end]);
-                let ext = l3.data[ext].iter_mut();
+                let ext = l3.as_bytes_mut()[ext].iter_mut();
                 if supports_lowercase {
                     CharsetD1::substitute_invalid(ext);
                 } else {
@@ -268,7 +268,7 @@ pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
         None => {
             let len = name.len().min(MAX_NAME_LEN);
             let basename = l3.push_slice(&name_bytes[0..len]);
-            let basename = l3.data[basename].iter_mut();
+            let basename = l3.as_bytes_mut()[basename].iter_mut();
             if supports_lowercase {
                 CharsetD1::substitute_invalid(basename);
             } else {
@@ -280,8 +280,8 @@ pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
 }
 
 #[cfg(feature = "write")]
-pub fn convert_joliet3(name: &str) -> FixedFilename<207> {
-    let mut j1 = FixedFilename::empty();
+pub fn convert_joliet3(name: &str) -> FixedBytes<207> {
+    let mut j1 = FixedBytes::empty();
     for (written, c) in name.encode_utf16().enumerate() {
         if written >= 206 / 2 {
             // We reached the maximum we can write

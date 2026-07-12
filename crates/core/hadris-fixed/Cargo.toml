@@ -1,0 +1,20 @@
+[package]
+name = "hadris-fixed"
+version = "2.0.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Fixed-capacity byte and text types for no-std applications"
+keywords = ["fixed-capacity", "string", "no-std", "utf16"]
+categories = ["no-std", "data-structures", "encoding"]
+include = ["src/**/*", "Cargo.toml", "README.md"]
+
+[features]
+default = []
+alloc = []
+bytemuck = ["dep:bytemuck"]
+
+[dependencies]
+bytemuck = { workspace = true, optional = true, features = ["derive", "min_const_generics"] }

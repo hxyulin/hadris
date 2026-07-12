@@ -44,6 +44,7 @@ anyhow = "1.0"
 # Internal crates
 hadris-macros = { version = "2.0.0", path = "crates/core/hadris-macros" }
 hadris-io = { version = "2.0.0", path = "crates/core/hadris-io", default-features = false }
+hadris-fixed = { version = "2.0.0", path = "crates/core/hadris-fixed", default-features = false }
 hadris-path = { version = "2.0.0", path = "crates/core/hadris-path", default-features = false }
 hadris-common = { version = "2.0.0", path = "crates/core/hadris-common", default-features = false }
 hadris-storage = { version = "2.0.0", path = "crates/core/hadris-storage", default-features = false }

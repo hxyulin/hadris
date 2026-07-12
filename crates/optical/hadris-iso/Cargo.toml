@@ -38,6 +38,7 @@ thiserror = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 hadris-io = { workspace = true }
+hadris-fixed = { workspace = true }
 hadris-path = { workspace = true }
 hadris-macros = { workspace = true }
 hadris-common = { workspace = true, features = ["alloc", "bytemuck"] }
