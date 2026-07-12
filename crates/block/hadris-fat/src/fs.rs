@@ -160,6 +160,13 @@ pub struct FatFs<DATA: Seek> {
     pub(crate) fat_cache: Option<Mutex<crate::cache::FatSectorCache>>,
 }
 
+impl<DATA: Seek> FatFs<DATA> {
+    /// Consumes the filesystem handle and returns its underlying data source.
+    pub fn into_inner(self) -> DATA {
+        self.data.into_inner().data
+    }
+}
+
 impl<DATA: Seek> fmt::Debug for FatFs<DATA> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FatFs")

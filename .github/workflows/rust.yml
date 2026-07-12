@@ -78,6 +78,17 @@ jobs:
             tier: std
             features: "std,sync,bytemuck,optical"
 
+          # hadris-storage
+          - crate: hadris-storage
+            tier: no-std-sync
+            features: "sync"
+          - crate: hadris-storage
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-storage
+            tier: sync-and-async
+            features: "alloc,sync,async"
+
           # hadris-part
           - crate: hadris-part
             tier: no-std

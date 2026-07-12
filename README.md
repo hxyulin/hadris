@@ -16,7 +16,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Block Storage
 
-- **[hadris-block](crates/block/hadris-block)** - Category facade for storage traits, partitions, and block filesystems, with lightweight FAT/partition-table detection
+- **[hadris-block](crates/block/hadris-block)** - Category facade for storage traits, partitions, and block filesystems, with lightweight detection, bounded partition views, and unified FAT opening
 - **[hadris-part](crates/block/hadris-part)** - Partition table support
   - MBR (Legacy BIOS partition tables)
   - GPT (Modern UEFI partition tables)
