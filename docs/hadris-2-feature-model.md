@@ -98,9 +98,10 @@ FAT now follows the shared contract:
   explicitly sync-only capabilities and therefore imply `sync`; the core FAT
   read/write surface supports either or both modes.
 
-Async read/write currently has compile-matrix and shared logic coverage. Dedicated
-async integration tests using an async storage adapter remain desirable before
-calling its runtime behavior release-qualified.
+Async FAT detection and opening now have runtime integration coverage through the
+block facade, including source recovery and format mismatches. Dedicated async
+file-content read/write round trips remain desirable before calling mutation
+behavior release-qualified.
 
 ### Partition tables
 
@@ -113,8 +114,9 @@ calling its runtime behavior release-qualified.
   nominal-type duplication encountered during the UDF pilot;
 - all-feature builds use the current `rand` trait API for GUID generation.
 
-As with FAT, dedicated async adapter integration tests remain useful release work;
-the feature composition and generated async APIs are now compile-checked in CI.
+Partition-table async I/O remains compile-checked. The shared async bounded
+partition adapter now has runtime coverage through `hadris-block`; direct async
+MBR/GPT parse and write round trips remain useful release work.
 
 ### CPIO
 

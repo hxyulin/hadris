@@ -300,10 +300,10 @@ mod tests {
     #[cfg(all(feature = "std", feature = "sync", feature = "write", feature = "fat"))]
     #[test]
     fn recognizes_volume_created_by_fat_formatter() {
-        use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
+        use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
 
         let mut image = std::vec![0u8; 2 * 1024 * 1024];
-        let options = FormatOptions::new(image.len() as u64).with_fat_type(FatTypeSelection::Fat12);
+        let options = FatFormatOptions::new(image.len() as u64).fat_type(FatTypeSelection::Fat12);
         let fs = FatVolumeFormatter::format(std::io::Cursor::new(&mut image[..]), options).unwrap();
         drop(fs);
 

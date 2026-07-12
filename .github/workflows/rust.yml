@@ -299,6 +299,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --workspace
+      - name: Run block async integration tests
+        run: cargo test -p hadris-block --all-features --test async_volume
 
   test-exfat:
     name: Test exFAT (with external tools)
