@@ -47,3 +47,30 @@ fn asynchronously_opens_and_recovers_an_iso_source() {
         let _ = opened.into_inner();
     });
 }
+
+#[test]
+fn asynchronously_opens_and_recovers_a_udf_source() {
+    use hadris_optical::udf::sync::write::{SimpleDir, UdfWriteOptions, UdfWriter};
+
+    let mut image = std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
+    UdfWriter::format(
+        hadris_io::sync::Borrowed::new(&mut image),
+        &SimpleDir::root(),
+        UdfWriteOptions::default(),
+    )
+    .unwrap();
+    let bytes = image.into_inner();
+
+    block_on(async {
+        let mut source = hadris_io::Cursor::new(bytes.as_slice());
+        let opened = hadris_optical::r#async::OpenOpticalImage::open(
+            &mut source,
+            hadris_optical::OpenPolicy::Udf,
+        )
+        .await
+        .unwrap();
+        assert_eq!(opened.format(), hadris_optical::OpticalFormat::Udf);
+        assert!(opened.as_udf().is_some());
+        let _ = opened.into_inner();
+    });
+}

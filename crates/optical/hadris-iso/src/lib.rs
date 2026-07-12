@@ -598,6 +598,10 @@ pub mod r#async {
         pub mod volume;
     }
     pub use __inner::*;
+
+    // Keep high-level handle exports symmetric with the sync module.
+    #[cfg(feature = "alloc")]
+    pub use __inner::read::IsoImage;
 }
 
 // ---------------------------------------------------------------------------

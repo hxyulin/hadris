@@ -20,12 +20,12 @@
 //! ```rust,no_run
 //! use std::fs::File;
 //! use std::io::BufReader;
-//! use hadris_udf::UdfFs;
+//! use hadris_udf::UdfVolume;
 //!
 //! // Open a UDF image file
 //! let file = File::open("movie.udf").unwrap();
 //! let reader = BufReader::new(file);
-//! let udf = UdfFs::open(reader).unwrap();
+//! let udf = UdfVolume::open(reader).unwrap();
 //!
 //! // Read volume info
 //! let info = udf.info();
@@ -145,6 +145,8 @@ pub mod sync {
     // Convenience re-exports for backwards compatibility
     #[cfg(feature = "alloc")]
     pub use __inner::fs::{UdfFs, UdfInfo};
+    #[cfg(feature = "alloc")]
+    pub use __inner::fs::{UdfFs as UdfVolume, UdfInfo as UdfVolumeInfo};
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +193,11 @@ pub mod r#async {
     #[cfg(feature = "alloc")]
     pub use __inner::file::{FileType, UdfFile};
     pub use __inner::*;
+
+    #[cfg(feature = "alloc")]
+    pub use __inner::fs::{UdfFs, UdfInfo};
+    #[cfg(feature = "alloc")]
+    pub use __inner::fs::{UdfFs as UdfVolume, UdfInfo as UdfVolumeInfo};
 }
 
 // ---------------------------------------------------------------------------

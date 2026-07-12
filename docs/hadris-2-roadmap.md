@@ -108,6 +108,11 @@ UDF, or both for bridge images rather than forcing a single classification.
 Policy-driven unified ISO/UDF opening is also implemented in both I/O modes;
 see [`hadris-2-optical-opening.md`](hadris-2-optical-opening.md).
 
+Known qualification gap: `CdWriter` bridge/UDF output passes lightweight VRS
+detection but its UDF side fails full `UdfFs::open` validation with an invalid
+PVD. Fixing and continuously testing that hybrid write-to-open roundtrip remains
+release-blocking for the bridge writer.
+
 The accepted block opening and partition traversal design lives in
 [`hadris-2-block-opening-api.md`](hadris-2-block-opening-api.md). It chooses a
 borrowed `OpenVolume` initially so failed opens never take ownership away from the
