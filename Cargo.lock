@@ -459,12 +459,25 @@ dependencies = [
 name = "hadris"
 version = "1.2.1"
 dependencies = [
- "hadris-cd",
+ "hadris-archive",
+ "hadris-block",
+ "hadris-optical",
+]
+
+[[package]]
+name = "hadris-archive"
+version = "1.2.1"
+dependencies = [
  "hadris-cpio",
+]
+
+[[package]]
+name = "hadris-block"
+version = "1.2.1"
+dependencies = [
  "hadris-fat",
- "hadris-iso",
  "hadris-part",
- "hadris-udf",
+ "hadris-storage",
 ]
 
 [[package]]
@@ -591,6 +604,15 @@ name = "hadris-macros"
 version = "1.2.1"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "hadris-optical"
+version = "1.2.1"
+dependencies = [
+ "hadris-cd",
+ "hadris-iso",
+ "hadris-udf",
 ]
 
 [[package]]

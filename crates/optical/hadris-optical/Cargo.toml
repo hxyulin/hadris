@@ -1,0 +1,33 @@
+[package]
+name = "hadris-optical"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hadris facade for optical filesystems and disc images"
+keywords = ["iso9660", "udf", "optical", "cd", "dvd"]
+categories = ["filesystem", "encoding"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["std", "sync", "read", "write", "iso", "udf", "cd"]
+std = ["alloc", "hadris-iso?/std", "hadris-udf?/std", "hadris-cd?/std"]
+alloc = ["hadris-iso?/alloc", "hadris-udf?/alloc"]
+sync = ["hadris-iso?/sync", "hadris-udf?/sync"]
+async = ["hadris-iso?/async", "hadris-udf?/async"]
+read = ["hadris-iso?/read", "hadris-udf?/read"]
+write = ["alloc", "read", "hadris-iso?/write", "hadris-udf?/write"]
+iso = ["dep:hadris-iso"]
+udf = ["dep:hadris-udf"]
+# The hybrid writer currently has no async implementation.
+cd = ["dep:hadris-cd", "hadris-cd/sync"]
+
+[dependencies]
+hadris-iso = { workspace = true, optional = true, default-features = false }
+hadris-udf = { workspace = true, optional = true, default-features = false }
+hadris-cd = { workspace = true, optional = true, default-features = false }

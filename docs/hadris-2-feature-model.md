@@ -1,6 +1,6 @@
 # Hadris 2.0 Feature Model
 
-Status: accepted specification; implementation in progress
+Status: accepted specification; implemented across current leaves and facades
 
 ## Goals
 
@@ -151,6 +151,23 @@ The final optical leaf and the existing umbrella now have explicit contracts:
 
 Facade CI covers no-format, no-std async block, hosted async optical, dual-mode
 archive, and all-capability configurations.
+
+### Category facades
+
+The standalone `hadris-block`, `hadris-optical`, and `hadris-archive` crates now
+apply the same contract:
+
+- optional leaf dependencies disable their defaults;
+- platform, I/O-mode, and capability features forward only to selected leaves;
+- each concrete leaf is re-exported without wrapping or erasing its API;
+- `hadris-block` additionally exposes the format-neutral `hadris-storage`
+  primitives;
+- the top-level `hadris` crate delegates to these facades instead of maintaining
+  a second leaf-dependency and forwarding layer;
+- the optical facade documents and preserves the CD writer's sync-only exception.
+
+CI checks empty, async-only, dual-mode, default, and all-capability category
+configurations, as well as the umbrella's individual and aggregate routes.
 
 ## Ecosystem research
 

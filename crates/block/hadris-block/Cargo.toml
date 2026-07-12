@@ -1,0 +1,32 @@
+[package]
+name = "hadris-block"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hadris block-storage facade for devices, partitions, and filesystems"
+keywords = ["block-device", "partition", "fat", "filesystem", "no-std"]
+categories = ["no-std", "filesystem"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["std", "sync", "read", "write", "storage", "fat", "part"]
+std = ["alloc", "hadris-storage?/std", "hadris-fat?/std", "hadris-part?/std"]
+alloc = ["hadris-storage?/alloc", "hadris-fat?/alloc", "hadris-part?/alloc"]
+sync = ["hadris-storage?/sync", "hadris-fat?/sync", "hadris-part?/sync"]
+async = ["hadris-storage?/async", "hadris-fat?/async", "hadris-part?/async"]
+read = ["hadris-fat?/read", "hadris-part?/read"]
+write = ["alloc", "read", "hadris-fat?/write", "hadris-part?/write"]
+storage = ["dep:hadris-storage"]
+fat = ["dep:hadris-fat", "hadris-fat/lfn"]
+part = ["dep:hadris-part"]
+
+[dependencies]
+hadris-storage = { workspace = true, optional = true, default-features = false }
+hadris-fat = { workspace = true, optional = true, default-features = false }
+hadris-part = { workspace = true, optional = true, default-features = false }

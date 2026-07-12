@@ -1,0 +1,28 @@
+[package]
+name = "hadris-archive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hadris facade for sequential archive formats"
+keywords = ["archive", "cpio", "initramfs", "no-std"]
+categories = ["no-std", "filesystem", "encoding"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["std", "sync", "read", "write", "cpio"]
+std = ["alloc", "hadris-cpio?/std"]
+alloc = ["hadris-cpio?/alloc"]
+sync = ["hadris-cpio?/sync"]
+async = ["hadris-cpio?/async"]
+read = ["hadris-cpio?/read"]
+write = ["alloc", "read", "hadris-cpio?/write"]
+cpio = ["dep:hadris-cpio"]
+
+[dependencies]
+hadris-cpio = { workspace = true, optional = true, default-features = false }
