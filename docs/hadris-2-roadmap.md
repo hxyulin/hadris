@@ -143,6 +143,8 @@ well-defined common subset and provide an escape hatch to concrete formats.
 - Maintain API snapshots to detect unintended public changes.
 - Compile every documented example in CI.
 - Test external-tool interoperability and malformed-input behavior.
+- Continuously qualify malformed block, optical, partition-table, and CPIO
+  inputs in both I/O modes, including non-destructive detection contracts.
 - Document stability levels for experimental formats and APIs.
 - Require a clean default workspace build, the supported feature matrix, and
   category-facade integration tests before the 2.0 release.

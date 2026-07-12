@@ -70,3 +70,23 @@ fn async_finish_recovers_target_and_roundtrips() {
         );
     });
 }
+
+#[test]
+fn async_reader_rejects_invalid_and_truncated_headers_with_typed_errors() {
+    block_on(async {
+        let mut invalid = [0_u8; 110];
+        invalid[..6].copy_from_slice(b"999999");
+        let mut reader = CpioReader::new(hadris_io::Cursor::new(invalid.as_slice()));
+        assert!(matches!(
+            reader.next_entry_alloc().await,
+            Err(hadris_cpio::CpioError::InvalidMagic { found }) if &found == b"999999"
+        ));
+
+        let mut reader = CpioReader::new(hadris_io::Cursor::new(b"07070".as_slice()));
+        assert!(matches!(
+            reader.next_entry_alloc().await,
+            Err(hadris_cpio::CpioError::Io(error))
+                if error.kind() == hadris_io::ErrorKind::UnexpectedEof
+        ));
+    });
+}
