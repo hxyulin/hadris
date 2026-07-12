@@ -99,12 +99,14 @@ access to the concrete format type so specialized features are not erased.
 Status: the three facades exist and the `hadris` umbrella delegates its feature
 forwarding and public category namespaces to them. `hadris-block` also exposes
 the format-neutral `hadris-storage` primitives and lightweight, non-consuming
-FAT/partition-table detection. Detection for other categories and common wrappers
-remain future work.
+FAT/partition-table detection. Common cross-format capability traits remain
+future work and should follow a second format in each relevant category.
 
 Optical multi-format detection is implemented and specified in
 [`hadris-2-optical-detection.md`](hadris-2-optical-detection.md). It reports ISO,
 UDF, or both for bridge images rather than forcing a single classification.
+Policy-driven unified ISO/UDF opening is also implemented in both I/O modes;
+see [`hadris-2-optical-opening.md`](hadris-2-optical-opening.md).
 
 The accepted block opening and partition traversal design lives in
 [`hadris-2-block-opening-api.md`](hadris-2-block-opening-api.md). It chooses a

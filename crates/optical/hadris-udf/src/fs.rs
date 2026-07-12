@@ -41,6 +41,13 @@ pub struct UdfFs<DATA: Read + Seek> {
     root_icb: LongAllocationDescriptor,
 }
 
+impl<DATA: Read + Seek> UdfFs<DATA> {
+    /// Consumes the filesystem handle and returns its underlying data source.
+    pub fn into_inner(self) -> DATA {
+        self.data.into_inner()
+    }
+}
+
 io_transform! {
 
 impl<DATA: Read + Seek> UdfFs<DATA> {

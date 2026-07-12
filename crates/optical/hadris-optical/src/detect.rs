@@ -22,6 +22,11 @@ pub struct OpticalFormats {
 }
 
 impl OpticalFormats {
+    #[cfg(test)]
+    pub(crate) const fn new(iso9660: bool, udf: Option<UdfVrs>) -> Self {
+        Self { iso9660, udf }
+    }
+
     /// Returns whether an ISO 9660 volume descriptor was found.
     pub const fn has_iso9660(self) -> bool {
         self.iso9660

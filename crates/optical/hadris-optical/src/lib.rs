@@ -7,8 +7,28 @@
 
 #![no_std]
 
+#[cfg(feature = "std")]
+extern crate std;
+
 #[cfg(feature = "detect")]
 pub mod detect;
+#[cfg(feature = "open")]
+mod error;
+#[cfg(feature = "open")]
+mod image;
+
+#[cfg(feature = "open")]
+pub use error::{Error, OpticalFormat, Result};
+#[cfg(feature = "open")]
+pub use image::OpenPolicy;
+
+#[cfg(all(feature = "open", feature = "sync"))]
+#[path = "image_sync.rs"]
+pub mod sync;
+
+#[cfg(all(feature = "open", feature = "async"))]
+#[path = "image_async.rs"]
+pub mod r#async;
 
 /// ISO 9660 filesystem support.
 #[cfg(feature = "iso")]

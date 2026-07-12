@@ -15,7 +15,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "sync", "read", "write", "detect", "iso", "udf", "cd"]
+default = ["std", "sync", "read", "write", "open", "cd"]
 std = ["alloc", "hadris-io?/std", "hadris-iso?/std", "hadris-udf?/std", "hadris-cd?/std"]
 alloc = ["hadris-io?/alloc", "hadris-iso?/alloc", "hadris-udf?/alloc"]
 sync = ["hadris-io?/sync", "hadris-iso?/sync", "hadris-udf?/sync"]
@@ -23,6 +23,7 @@ async = ["hadris-io?/async", "hadris-iso?/async", "hadris-udf?/async"]
 read = ["hadris-iso?/read", "hadris-udf?/read"]
 write = ["alloc", "read", "hadris-iso?/write", "hadris-udf?/write"]
 detect = ["read", "dep:hadris-io"]
+open = ["detect", "alloc", "iso", "udf"]
 iso = ["dep:hadris-iso"]
 udf = ["dep:hadris-udf"]
 # The hybrid writer currently has no async implementation.
