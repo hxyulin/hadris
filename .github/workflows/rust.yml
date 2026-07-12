@@ -127,6 +127,15 @@ jobs:
           - crate: hadris-udf
             tier: std
             features: "std,sync,read,write"
+          - crate: hadris-udf
+            tier: async-read
+            features: "alloc,async,read"
+          - crate: hadris-udf
+            tier: sync-and-async-read
+            features: "alloc,sync,async,read"
+          - crate: hadris-udf
+            tier: all-capabilities
+            features: "std,alloc,sync,async,read,write"
 
           # hadris-cpio
           - crate: hadris-cpio

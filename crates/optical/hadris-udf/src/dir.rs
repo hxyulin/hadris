@@ -3,7 +3,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::descriptor::{DescriptorTag, LongAllocationDescriptor, TagIdentifier};
+use super::descriptor::{DescriptorTag, LongAllocationDescriptor, TagIdentifier};
 use crate::error::{UdfError, UdfResult};
 
 /// A UDF directory entry

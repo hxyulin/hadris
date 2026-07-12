@@ -1,6 +1,6 @@
 //! UDF File operations
 
-use crate::descriptor::{DescriptorTag, LongAllocationDescriptor};
+use super::descriptor::{DescriptorTag, LongAllocationDescriptor};
 use crate::time::UdfTimestamp;
 
 /// File Entry (ECMA-167 4/14.9)

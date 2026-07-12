@@ -1,6 +1,6 @@
 # Hadris 2.0 Feature Model
 
-Status: draft specification; implementation in progress
+Status: accepted specification; implementation in progress
 
 ## Goals
 
@@ -45,18 +45,62 @@ feature independently.
 
 ## Current blockers
 
-- ISO and UDF currently make `std` imply `sync`, preventing a hosted async-only
+- ISO currently makes `std` imply `sync`, preventing a hosted async-only
   configuration.
-- UDF compiles descriptor modules once per mode while shared `dir` and `file`
-  modules refer to descriptors through crate-root sync re-exports. With both modes
-  enabled, async code receives sync descriptor values and fails nominal type
-  checks.
-- UDF write code contains synchronous-only implementations inside files included
-  by the async module.
 - ISO has imports and fields used only by one mode without matching gates, and its
   write/modify surface is not yet genuinely async-capable.
 - Existing no-std warning-denied checks expose independent ISO dead-code/import
   issues and FAT generic error-type mismatches.
+
+## Implementation status
+
+### UDF pilot
+
+UDF now follows the contract for its implemented capabilities:
+
+- `std` no longer enables `sync`;
+- sync-only, async-only, combined, default, and all-feature builds pass with
+  warnings denied;
+- descriptor, directory, and file model types are owned by their API mode, so a
+  value can never accidentally cross between nominally distinct sync and async
+  descriptor types through a crate-root compatibility re-export;
+- write and modification APIs are currently exported only by `sync`, because the
+  implementation is synchronous. Async write will be added only with genuinely
+  asynchronous I/O operations.
+
+The compatibility root re-exports still select sync whenever sync is enabled.
+New 2.0 code should use `hadris_udf::sync` or `hadris_udf::async` explicitly.
+
+## Ecosystem research
+
+Hadris is not the only Rust project to offer synchronous and asynchronous APIs,
+but the implementations use several materially different models:
+
+- [`reqwest`](https://docs.rs/reqwest/latest/reqwest/blocking/) and
+  [`zbus`](https://docs.rs/zbus/latest/zbus/blocking/) have async cores and
+  optional blocking wrappers. This is a good ergonomic fit for network clients,
+  but their own documentation warns about blocking wrappers inside async runtimes.
+  Hadris must not conceal an executor or spawn threads merely to provide its sync
+  filesystem API.
+- [`embedded-storage`](https://docs.rs/embedded-storage/latest/embedded_storage/)
+  publishes synchronous and asynchronous storage traits as
+  closely related crates. Its separation supports small `no_std` dependency
+  graphs, but would make a single Hadris format supporting both modes harder to
+  discover and configure.
+- [`async-compression`](https://docs.rs/async-compression/latest/async_compression/)
+  shares mode-neutral compression codecs and places runtime I/O adapters in
+  feature-gated modules. This is the closest architectural analogue to the desired
+  Hadris layering: share parsing/format algorithms, isolate I/O adapters.
+- [`maybe-async`](https://docs.rs/maybe-async/latest/maybe_async/) demonstrates the
+  same source-transformation technique as Hadris,
+  including explicit sync-only and async-only regions. Its feature model selects
+  one generated mode at a time, whereas Hadris intentionally supports both modes
+  in one build.
+
+The chosen Hadris model remains: compile both explicit API modules when requested,
+share mode-neutral algorithms and wire types where practical, transform only the
+thin I/O-dependent implementation, and never let a root compatibility re-export
+determine internal type identity.
 
 ## Repair sequence
 

@@ -6,17 +6,17 @@ use spin::Mutex;
 
 use super::super::{Read, Seek, SeekFrom};
 
+use super::descriptor::DescriptorTag;
 use super::descriptor::{
     self, AnchorVolumeDescriptorPointer, ExtentDescriptor, FileSetDescriptor,
     LogicalVolumeDescriptor, LongAllocationDescriptor, PartitionDescriptor,
     PrimaryVolumeDescriptor, TagIdentifier, parse_vrs,
 };
-use crate::descriptor::DescriptorTag;
-use crate::dir::{
+use super::dir::{
     FileCharacteristics, FileIdentifierDescriptor, UdfDir, UdfDirEntry, decode_filename,
 };
+use super::file::{AllocationType, ExtendedFileEntry, FileEntry};
 use crate::error::{UdfError, UdfResult};
-use crate::file::{AllocationType, ExtendedFileEntry, FileEntry};
 use crate::{SECTOR_SIZE, UdfRevision};
 
 /// UDF filesystem information
@@ -459,6 +459,7 @@ fn validated_alloc_range(
     Ok(offset..end)
 }
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -744,4 +745,5 @@ mod tests {
 
         assert!(result.is_ok())
     }
+}
 }
