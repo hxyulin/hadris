@@ -116,11 +116,9 @@ release-qualified.
   nominal-type duplication encountered during the UDF pilot;
 - all-feature builds use the current `rand` trait API for GUID generation.
 
-Partition-table async I/O has runtime GPT and hybrid write/open round trips,
-corruption and truncation checks, non-destructive detection coverage, and an
-end-to-end GPT partition view opened as FAT through `hadris-block`. Direct async
-MBR qualification remains useful feature work, but is not a release blocker for
-the currently documented async surface.
+Partition-table async I/O has runtime MBR, GPT, and hybrid write/open round
+trips, corruption and truncation checks, non-destructive detection coverage,
+and an end-to-end GPT partition view opened as FAT through `hadris-block`.
 
 ### CPIO
 
