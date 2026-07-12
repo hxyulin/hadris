@@ -127,7 +127,7 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             None
         };
 
-        let file_size = entry.size();
+        let file_size = entry.len() as usize;
         let first_cluster = if entry.cluster().0 >= 2 {
             Some(entry.cluster())
         } else {
@@ -414,7 +414,7 @@ impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
             return Err(FatError::NotAFile);
         }
 
-        let current_size = entry.size();
+        let current_size = entry.len() as usize;
         if new_size >= current_size {
             return Ok(()); // Nothing to do
         }

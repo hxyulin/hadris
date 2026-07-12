@@ -225,7 +225,7 @@ fn cmd_ls(image: PathBuf, path: &str, long: bool) -> Result<()> {
                 if file_entry.is_directory() {
                     "<DIR>".to_string()
                 } else {
-                    file_entry.size().to_string()
+                    file_entry.len().to_string()
                 },
                 name
             );
@@ -386,7 +386,7 @@ fn cmd_chain(image: PathBuf, file_path: &str) -> Result<()> {
         .context("Failed to read cluster chain")?;
 
     println!("Cluster chain for: {}", file_path);
-    println!("File size: {} bytes", entry.size());
+    println!("File size: {} bytes", entry.len());
     println!("Chain length: {} clusters", chain.len());
     println!();
 

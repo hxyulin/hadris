@@ -18,11 +18,11 @@ A comprehensive Rust implementation of the FAT filesystem family with support fo
 
 ```rust,no_run
 use std::fs::File;
-use hadris_fat::{FatFs, FatFsReadExt};
+use hadris_fat::{FatVolume, FatVolumeReadExt};
 
 # fn main() -> hadris_fat::Result<()> {
 let file = File::open("disk.img")?;
-let fs = FatFs::open(file)?;
+let fs = FatVolume::open(file)?;
 
 let root = fs.root_dir();
 let mut iter = root.entries();
@@ -37,11 +37,11 @@ while let Some(Ok(entry)) = iter.next_entry() {
 
 ```rust,no_run
 use std::fs::OpenOptions;
-use hadris_fat::{FatFs, FatFsWriteExt};
+use hadris_fat::{FatVolume, FatVolumeWriteExt};
 
 # fn main() -> hadris_fat::Result<()> {
 let file = OpenOptions::new().read(true).write(true).open("disk.img")?;
-let fs = FatFs::open(file)?;
+let fs = FatVolume::open(file)?;
 
 let root = fs.root_dir();
 let entry = fs.create_file(&root, "newfile.txt")?;
@@ -55,7 +55,7 @@ writer.finish()?;
 ### Formatting a New FAT Volume
 
 ```rust,no_run
-use hadris_fat::format::{FatVolumeFormatter, FormatOptions, FatTypeSelection};
+use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter, FatTypeSelection};
 use std::io::Cursor;
 
 # fn main() -> hadris_fat::Result<()> {
@@ -63,16 +63,16 @@ use std::io::Cursor;
 let mut buffer = vec![0u8; 64 * 1024 * 1024];
 let cursor = Cursor::new(&mut buffer[..]);
 
-let options = FormatOptions::new(64 * 1024 * 1024)
-    .with_label("MYDISK");
+let options = FatFormatOptions::new(64 * 1024 * 1024)
+    .volume_label("MYDISK");
 
 let fs = FatVolumeFormatter::format(cursor, options)?;
 println!("Created {} volume", fs.fat_type());
 
 // Or force a specific FAT type
-let options = FormatOptions::new(64 * 1024 * 1024)
-    .with_fat_type(FatTypeSelection::Fat32)
-    .with_label("FAT32VOL");
+let options = FatFormatOptions::new(64 * 1024 * 1024)
+    .fat_type(FatTypeSelection::Fat32)
+    .volume_label("FAT32VOL");
 # let _ = options;
 # Ok(())
 # }
@@ -104,15 +104,15 @@ configurations should enable `sync`, `async`, or both explicitly. The `cache`,
 The `format` module (requires `write`) provides volume formatting:
 
 ```rust,no_run
-use hadris_fat::format::{FatVolumeFormatter, FormatOptions, SectorSize};
+use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter, SectorSize};
 
 # fn main() -> hadris_fat::Result<()> {
 # let volume_size = 64 * 1024 * 1024usize;
 # let data = std::io::Cursor::new(vec![0u8; volume_size]);
-let options = FormatOptions::new(volume_size)
-    .with_label("VOLUME")
-    .with_sector_size(SectorSize::S512)
-    .with_fat_copies(2);
+let options = FatFormatOptions::new(volume_size)
+    .volume_label("VOLUME")
+    .sector_size(SectorSize::S512)
+    .fat_copies(2);
 
 let params = FatVolumeFormatter::calculate_params(&options)?;
 println!("Will create {} with {} clusters", params.fat_type, params.cluster_count);
@@ -173,7 +173,7 @@ When the `lfn` feature is enabled, the crate supports VFAT long filenames:
 The `cache` feature enables LRU FAT sector caching (sync API only; silently bypassed under async):
 
 - Reduces redundant disk reads
-- Configurable capacity via `FatFs::builder(data).with_fat_cache(n).open()`
+- Configurable capacity via `FatVolume::builder(data).fat_cache(n).open()`
 - Dirty entries flush to all FAT copies on eviction
 
 ## Analysis Tools

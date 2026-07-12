@@ -6,7 +6,7 @@
 //!
 //! ```no_run
 //! use std::fs::OpenOptions;
-//! use hadris_fat::format::{FatVolumeFormatter, FormatOptions};
+//! use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create or open a file for the volume
@@ -20,8 +20,8 @@
 //! file.set_len(64 * 1024 * 1024)?;
 //!
 //! // Format with default options
-//! let options = FormatOptions::new(64 * 1024 * 1024)
-//!     .with_label("MY VOLUME");
+//! let options = FatFormatOptions::new(64 * 1024 * 1024)
+//!     .volume_label("MY VOLUME");
 //!
 //! let fs = FatVolumeFormatter::format(file, options)?;
 //! # Ok(())
@@ -36,6 +36,7 @@ mod options;
 
 pub use calc::FormatParams;
 pub use options::{FatTypeSelection, FormatOptions, MediaType, OemName, SectorSize, VolumeLabel};
+pub use options::FormatOptions as FatFormatOptions;
 
 use crate::error::Result;
 use super::fs::FatFs;
@@ -73,16 +74,16 @@ impl FatVolumeFormatter {
     ///
     /// ```no_run
     /// use std::io::Cursor;
-    /// use hadris_fat::format::{FatVolumeFormatter, FormatOptions, FatTypeSelection};
+    /// use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter, FatTypeSelection};
     ///
     /// # fn main() -> hadris_fat::Result<()> {
     /// // Create a 2 MB in-memory volume
     /// let mut buffer = vec![0u8; 2 * 1024 * 1024];
     /// let cursor = std::io::Cursor::new(&mut buffer[..]);
     ///
-    /// let options = FormatOptions::new(2 * 1024 * 1024)
-    ///     .with_label("TEST")
-    ///     .with_fat_type(FatTypeSelection::Fat12);
+    /// let options = FatFormatOptions::new(2 * 1024 * 1024)
+    ///     .volume_label("TEST")
+    ///     .fat_type(FatTypeSelection::Fat12);
     ///
     /// let fs = FatVolumeFormatter::format(cursor, options)?;
     /// assert_eq!(fs.fat_type(), hadris_fat::FatType::Fat12);
