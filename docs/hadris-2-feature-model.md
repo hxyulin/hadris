@@ -80,9 +80,10 @@ ISO now follows the same contract:
 - write, modification, and El-Torito writer APIs are exported only by `sync`;
 - both API modes can be documented and compiled in the same build.
 
-The remaining ISO async work is capability expansion, particularly ergonomic
-asynchronous directory traversal and eventually a genuine async writer. It is no
-longer a feature-composition blocker.
+ISO async reading now includes collection-oriented directory traversal through
+`IsoDir::read_entries`, with nested-file integration coverage through the optical
+facade. A genuine async writer remains a future feature, not a 2.0
+feature-composition or release blocker.
 
 ### FAT
 
@@ -98,10 +99,11 @@ FAT now follows the shared contract:
   explicitly sync-only capabilities and therefore imply `sync`; the core FAT
   read/write surface supports either or both modes.
 
-Async FAT detection and opening now have runtime integration coverage through the
-block facade, including source recovery and format mismatches. Dedicated async
-file-content read/write round trips remain desirable before calling mutation
-behavior release-qualified.
+Async FAT detection, opening, nested traversal, multi-cluster file-content
+read/write, truncation, duplicate rejection, and source recovery have runtime
+integration coverage through the block facade. Further filesystem capabilities
+may still be added before 2.0, but the current async mutation surface is
+release-qualified.
 
 ### Partition tables
 
@@ -114,9 +116,11 @@ behavior release-qualified.
   nominal-type duplication encountered during the UDF pilot;
 - all-feature builds use the current `rand` trait API for GUID generation.
 
-Partition-table async I/O remains compile-checked. The shared async bounded
-partition adapter now has runtime coverage through `hadris-block`; direct async
-MBR/GPT parse and write round trips remain useful release work.
+Partition-table async I/O has runtime GPT and hybrid write/open round trips,
+corruption and truncation checks, non-destructive detection coverage, and an
+end-to-end GPT partition view opened as FAT through `hadris-block`. Direct async
+MBR qualification remains useful feature work, but is not a release blocker for
+the currently documented async surface.
 
 ### CPIO
 
@@ -130,8 +134,8 @@ MBR/GPT parse and write round trips remain useful release work.
   both modules coexist without nominal-type leakage;
 - both streaming reads and archive writes are generated for sync and async I/O.
 
-Dedicated async round-trip tests remain release work; the combined API surface is
-now continuously compile-checked.
+Dedicated async archive write/read recovery and malformed-header tests now
+qualify the runtime surface in addition to the combined-mode compile checks.
 
 ### Hybrid CD writer and umbrella facade
 

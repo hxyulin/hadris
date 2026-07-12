@@ -1,6 +1,6 @@
 # Hadris 2.0 Public API Audit and Migration Table
 
-Status: active migration specification
+Status: accepted 2.0 baseline; additive feature work may continue before freeze
 
 This is the authoritative inventory of high-level public API changes planned for
 Hadris 2.0. Raw on-disk representations are audited separately when their
@@ -17,8 +17,8 @@ builders, traversal, ownership, and errors.
 | Ownership | inconsistent or unavailable | `get_ref`, `get_mut`, `into_inner` where representation permits | FAT, ISO, and UDF `into_inner` implemented |
 | Builders | mixture of `with_*` and field names | fluent setters use field names | FAT implemented |
 | Length | `size: usize/u32/u64` | `len() -> u64`, plus `is_empty` | FAT entries implemented |
-| Modes | root sync exports, incomplete async exports | matching `sync` and `async` module shapes | feature model complete; naming ongoing |
-| Errors | format-specific aliases and erased I/O | root `Error`/`Result`, categorized corruption/unsupported/options/I/O | category migration ongoing |
+| Modes | root sync exports, incomplete async exports | matching `sync` and `async` module shapes | feature model and baseline naming complete |
+| Errors | format-specific aliases and erased I/O | category facades use root `Error`/`Result`; leaf crates retain descriptive errors where format context matters | baseline complete |
 
 ## FAT
 
@@ -38,9 +38,10 @@ builders, traversal, ownership, and errors.
 | remaining `with_*` format setters | matching field name | deprecated forwarding methods |
 | `FileEntry::size() -> usize` | `len() -> u64`, `is_empty()` | deprecated forwarding method |
 
-`FatDir`, `DirectoryEntry`, `FileReader`, and `FileWriter` remain under review.
-They will not be renamed until traversal and finish behavior are normalized in
-both modes. Experimental exFAT stays outside the stable FAT volume surface for
+`FatDir`, `DirectoryEntry`, `FileReader`, and `FileWriter` retain their current
+names for 2.0. They describe concrete FAT handles, have matching sync/async
+shapes, and a rename would add migration cost without clarifying ownership or
+lifecycle. Experimental exFAT stays outside the stable FAT volume surface for
 2.0 until it meets the same validation and async contracts.
 
 The block facade continuously runs canonical async FAT detection, opening,
@@ -75,7 +76,7 @@ rejection, and an end-to-end GPT partition view opened as a FAT volume.
 | Current surface | 2.0 direction |
 |---|---|
 | `IsoImage` | retain as primary read handle |
-| root raw descriptors and high-level handles mixed | move raw disk layouts under `raw` with targeted compatibility exports |
+| root raw descriptors and high-level handles mixed | retain 1.x exports for 2.0; any future `raw` move must begin as additive aliases and receive a separate compatibility review |
 | writer constructors and modification APIs vary | canonical `create` returns the target; modifier `finish` returns the target; legacy methods deprecated |
 | sync-only writers beside async readers | keep capability explicit; do not synthesize async writers |
 | directory traversal naming differs from FAT/UDF | audit against `entries`, `find`, and operational file handles |
@@ -135,3 +136,6 @@ error variants for diagnosis.
   provides sufficient migration time.
 - Raw layout moves require explicit compatibility review because downstream code
   may use them for forensic and bootloader applications.
+- This baseline is not a feature freeze. New capabilities may land before the
+  final 2.0 release when they follow these conventions and extend the feature
+  matrix, API snapshot, documentation examples, and integration coverage.

@@ -1,0 +1,468 @@
+pub mod hadris_io
+pub use hadris_io::Path
+pub use hadris_io::PathBuf
+pub use hadris_io::SeekFrom
+pub mod hadris_io::async
+pub struct hadris_io::async::Borrowed<'a, T: ?core::marker::Sized>(pub &'a mut T)
+impl<'a, T: ?core::marker::Sized> hadris_io::async::Borrowed<'a, T>
+pub fn hadris_io::async::Borrowed<'a, T>::new(&'a mut T) -> Self
+impl<T: hadris_io::async::Read + ?core::marker::Sized> hadris_io::async::Read for hadris_io::async::Borrowed<'_, T>
+pub type hadris_io::async::Borrowed<'_, T>::Error = <T as hadris_io::async::Read>::Error
+pub async fn hadris_io::async::Borrowed<'_, T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::async::Borrowed<'_, T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::async::Seek + ?core::marker::Sized> hadris_io::async::Seek for hadris_io::async::Borrowed<'_, T>
+pub type hadris_io::async::Borrowed<'_, T>::Error = <T as hadris_io::async::Seek>::Error
+pub async fn hadris_io::async::Borrowed<'_, T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub async fn hadris_io::async::Borrowed<'_, T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::async::Borrowed<'_, T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: hadris_io::async::Write + ?core::marker::Sized> hadris_io::async::Write for hadris_io::async::Borrowed<'_, T>
+pub type hadris_io::async::Borrowed<'_, T>::Error = <T as hadris_io::async::Write>::Error
+pub async fn hadris_io::async::Borrowed<'_, T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::async::Borrowed<'_, T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::async::Borrowed<'_, T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+pub struct hadris_io::async::FromEmbedded<T>(pub T)
+impl<T> hadris_io::async::FromEmbedded<T>
+pub fn hadris_io::async::FromEmbedded<T>::into_inner(self) -> T
+pub const fn hadris_io::async::FromEmbedded<T>::new(T) -> Self
+impl<T: embedded_io_async::Read> hadris_io::async::Read for hadris_io::async::FromEmbedded<T>
+pub type hadris_io::async::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub async fn hadris_io::async::FromEmbedded<T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::async::FromEmbedded<T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: embedded_io_async::Seek> hadris_io::async::Seek for hadris_io::async::FromEmbedded<T>
+pub type hadris_io::async::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub async fn hadris_io::async::FromEmbedded<T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub async fn hadris_io::async::FromEmbedded<T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::async::FromEmbedded<T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: embedded_io_async::Write> hadris_io::async::Write for hadris_io::async::FromEmbedded<T>
+pub type hadris_io::async::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub async fn hadris_io::async::FromEmbedded<T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::async::FromEmbedded<T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::async::FromEmbedded<T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+pub trait hadris_io::async::Parsable: core::marker::Sized
+pub async fn hadris_io::async::Parsable::parse<R: hadris_io::async::Read>(&mut R) -> hadris_io::Result<Self>
+pub trait hadris_io::async::Read
+pub type hadris_io::async::Read::Error: embedded_io::Error
+pub async fn hadris_io::async::Read::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::async::Read::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl hadris_io::async::Read for hadris_io::Cursor<'_>
+pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
+pub async fn hadris_io::Cursor<'_>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::Cursor<'_>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: embedded_io_async::Read> hadris_io::async::Read for hadris_io::async::FromEmbedded<T>
+pub type hadris_io::async::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub async fn hadris_io::async::FromEmbedded<T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::async::FromEmbedded<T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::async::Read + ?core::marker::Sized> hadris_io::async::Read for &mut T
+pub type &mut T::Error = <T as hadris_io::async::Read>::Error
+pub async fn &mut T::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn &mut T::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::async::Read + ?core::marker::Sized> hadris_io::async::Read for hadris_io::async::Borrowed<'_, T>
+pub type hadris_io::async::Borrowed<'_, T>::Error = <T as hadris_io::async::Read>::Error
+pub async fn hadris_io::async::Borrowed<'_, T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::async::Borrowed<'_, T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+pub trait hadris_io::async::ReadExt: hadris_io::async::Read
+pub async fn hadris_io::async::ReadExt::parse<T: hadris_io::async::Parsable>(&mut self) -> hadris_io::Result<T> where Self: core::marker::Sized
+pub async fn hadris_io::async::ReadExt::read_struct<T: bytemuck::zeroable::Zeroable + bytemuck::no_uninit::NoUninit + bytemuck::anybitpattern::AnyBitPattern>(&mut self) -> hadris_io::Result<T>
+impl<T: hadris_io::async::Read + ?core::marker::Sized> hadris_io::async::ReadExt for T
+pub async fn T::parse<T: hadris_io::async::Parsable>(&mut self) -> hadris_io::Result<T> where Self: core::marker::Sized
+pub async fn T::read_struct<T: bytemuck::zeroable::Zeroable + bytemuck::no_uninit::NoUninit + bytemuck::anybitpattern::AnyBitPattern>(&mut self) -> hadris_io::Result<T>
+pub trait hadris_io::async::ReadSeek: hadris_io::async::Read + hadris_io::async::Seek<Error = <Self as hadris_io::async::Read>::Error>
+impl<T: hadris_io::async::Read + hadris_io::async::Seek<Error = <T as hadris_io::async::Read>::Error> + ?core::marker::Sized> hadris_io::async::ReadSeek for T
+pub trait hadris_io::async::ReadWriteSeek: hadris_io::async::Read + hadris_io::async::Write<Error = <Self as hadris_io::async::Read>::Error> + hadris_io::async::Seek<Error = <Self as hadris_io::async::Read>::Error>
+impl<T> hadris_io::async::ReadWriteSeek for T where T: hadris_io::async::Read + hadris_io::async::Write<Error = <T as hadris_io::async::Read>::Error> + hadris_io::async::Seek<Error = <T as hadris_io::async::Read>::Error> + ?core::marker::Sized
+pub trait hadris_io::async::Seek
+pub type hadris_io::async::Seek::Error: embedded_io::Error
+pub async fn hadris_io::async::Seek::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub async fn hadris_io::async::Seek::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::async::Seek::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl hadris_io::async::Seek for hadris_io::Cursor<'_>
+pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
+pub async fn hadris_io::Cursor<'_>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64>
+pub async fn hadris_io::Cursor<'_>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::Cursor<'_>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: embedded_io_async::Seek> hadris_io::async::Seek for hadris_io::async::FromEmbedded<T>
+pub type hadris_io::async::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub async fn hadris_io::async::FromEmbedded<T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub async fn hadris_io::async::FromEmbedded<T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::async::FromEmbedded<T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: hadris_io::async::Seek + ?core::marker::Sized> hadris_io::async::Seek for &mut T
+pub type &mut T::Error = <T as hadris_io::async::Seek>::Error
+pub async fn &mut T::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub async fn &mut T::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub async fn &mut T::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: hadris_io::async::Seek + ?core::marker::Sized> hadris_io::async::Seek for hadris_io::async::Borrowed<'_, T>
+pub type hadris_io::async::Borrowed<'_, T>::Error = <T as hadris_io::async::Seek>::Error
+pub async fn hadris_io::async::Borrowed<'_, T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub async fn hadris_io::async::Borrowed<'_, T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::async::Borrowed<'_, T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+pub trait hadris_io::async::Writable: core::marker::Sized
+pub async fn hadris_io::async::Writable::write<W: hadris_io::async::Write>(&self, &mut W) -> hadris_io::Result<()>
+pub trait hadris_io::async::Write
+pub type hadris_io::async::Write::Error: embedded_io::Error
+pub async fn hadris_io::async::Write::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::async::Write::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::async::Write::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+impl<T: embedded_io_async::Write> hadris_io::async::Write for hadris_io::async::FromEmbedded<T>
+pub type hadris_io::async::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub async fn hadris_io::async::FromEmbedded<T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::async::FromEmbedded<T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::async::FromEmbedded<T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::async::Write + ?core::marker::Sized> hadris_io::async::Write for &mut T
+pub type &mut T::Error = <T as hadris_io::async::Write>::Error
+pub async fn &mut T::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub async fn &mut T::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn &mut T::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::async::Write + ?core::marker::Sized> hadris_io::async::Write for hadris_io::async::Borrowed<'_, T>
+pub type hadris_io::async::Borrowed<'_, T>::Error = <T as hadris_io::async::Write>::Error
+pub async fn hadris_io::async::Borrowed<'_, T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::async::Borrowed<'_, T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::async::Borrowed<'_, T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+pub mod hadris_io::sync
+pub struct hadris_io::sync::Borrowed<'a, T: ?core::marker::Sized>(pub &'a mut T)
+impl<'a, T: ?core::marker::Sized> hadris_io::Borrowed<'a, T>
+pub fn hadris_io::Borrowed<'a, T>::new(&'a mut T) -> Self
+impl<T: hadris_io::Read + ?core::marker::Sized> hadris_io::Read for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Read>::Error
+pub fn hadris_io::Borrowed<'_, T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::Seek + ?core::marker::Sized> hadris_io::Seek for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Seek>::Error
+pub fn hadris_io::Borrowed<'_, T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: hadris_io::Write + ?core::marker::Sized> hadris_io::Write for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Write>::Error
+pub fn hadris_io::Borrowed<'_, T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+pub struct hadris_io::sync::FromEmbedded<T>(pub T)
+impl<T> hadris_io::FromEmbedded<T>
+pub fn hadris_io::FromEmbedded<T>::get_mut(&mut self) -> &mut T
+pub const fn hadris_io::FromEmbedded<T>::get_ref(&self) -> &T
+pub fn hadris_io::FromEmbedded<T>::into_inner(self) -> T
+pub const fn hadris_io::FromEmbedded<T>::new(T) -> Self
+impl<T: embedded_io::Read> hadris_io::Read for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: embedded_io::Seek> hadris_io::Seek for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::FromEmbedded<T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: embedded_io::Write> hadris_io::Write for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::FromEmbedded<T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+pub struct hadris_io::sync::ToEmbedded<T>(pub T)
+impl<T> hadris_io::ToEmbedded<T>
+pub fn hadris_io::ToEmbedded<T>::into_inner(self) -> T
+pub const fn hadris_io::ToEmbedded<T>::new(T) -> Self
+impl<T: hadris_io::Read> embedded_io::ErrorType for hadris_io::ToEmbedded<T>
+pub type hadris_io::ToEmbedded<T>::Error = hadris_io::Error<<T as hadris_io::Read>::Error>
+impl<T: hadris_io::Read> embedded_io::Read for hadris_io::ToEmbedded<T>
+pub fn hadris_io::ToEmbedded<T>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
+impl<T> embedded_io::Seek for hadris_io::ToEmbedded<T> where T: hadris_io::Read + hadris_io::Seek<Error = <T as hadris_io::Read>::Error>
+pub fn hadris_io::ToEmbedded<T>::seek(&mut self, embedded_io::SeekFrom) -> core::result::Result<u64, Self::Error>
+impl<T> embedded_io::Write for hadris_io::ToEmbedded<T> where T: hadris_io::Read + hadris_io::Write<Error = <T as hadris_io::Read>::Error>
+pub fn hadris_io::ToEmbedded<T>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hadris_io::ToEmbedded<T>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
+pub trait hadris_io::sync::Parsable: core::marker::Sized
+pub fn hadris_io::sync::Parsable::parse<R: hadris_io::Read>(&mut R) -> hadris_io::Result<Self>
+pub trait hadris_io::sync::Read
+pub type hadris_io::sync::Read::Error: embedded_io::Error
+pub fn hadris_io::sync::Read::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::sync::Read::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl hadris_io::Read for hadris_io::Cursor<'_>
+pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
+pub fn hadris_io::Cursor<'_>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Cursor<'_>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: embedded_io::Read> hadris_io::Read for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::Read + ?core::marker::Sized> hadris_io::Read for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Read>::Error
+pub fn hadris_io::Borrowed<'_, T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: std::io::Read + ?core::marker::Sized> hadris_io::Read for T
+pub type T::Error = std::io::error::Error
+pub fn T::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn T::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+pub trait hadris_io::sync::ReadExt: hadris_io::Read
+pub fn hadris_io::sync::ReadExt::parse<T: hadris_io::Parsable>(&mut self) -> hadris_io::Result<T> where Self: core::marker::Sized
+pub fn hadris_io::sync::ReadExt::read_struct<T: bytemuck::zeroable::Zeroable + bytemuck::no_uninit::NoUninit + bytemuck::anybitpattern::AnyBitPattern>(&mut self) -> hadris_io::Result<T>
+impl<T: hadris_io::Read + ?core::marker::Sized> hadris_io::ReadExt for T
+pub fn T::parse<T: hadris_io::Parsable>(&mut self) -> hadris_io::Result<T> where Self: core::marker::Sized
+pub fn T::read_struct<T: bytemuck::zeroable::Zeroable + bytemuck::no_uninit::NoUninit + bytemuck::anybitpattern::AnyBitPattern>(&mut self) -> hadris_io::Result<T>
+pub trait hadris_io::sync::ReadSeek: hadris_io::Read + hadris_io::Seek<Error = <Self as hadris_io::Read>::Error>
+impl<T: hadris_io::Read + hadris_io::Seek<Error = <T as hadris_io::Read>::Error> + ?core::marker::Sized> hadris_io::ReadSeek for T
+pub trait hadris_io::sync::ReadWrite: hadris_io::Read + hadris_io::Write<Error = <Self as hadris_io::Read>::Error>
+impl<T: hadris_io::Read + hadris_io::Write<Error = <T as hadris_io::Read>::Error> + ?core::marker::Sized> hadris_io::ReadWrite for T
+pub trait hadris_io::sync::ReadWriteSeek: hadris_io::Read + hadris_io::Write<Error = <Self as hadris_io::Read>::Error> + hadris_io::Seek<Error = <Self as hadris_io::Read>::Error>
+impl<T> hadris_io::ReadWriteSeek for T where T: hadris_io::Read + hadris_io::Write<Error = <T as hadris_io::Read>::Error> + hadris_io::Seek<Error = <T as hadris_io::Read>::Error> + ?core::marker::Sized
+pub trait hadris_io::sync::Seek
+pub type hadris_io::sync::Seek::Error: embedded_io::Error
+pub fn hadris_io::sync::Seek::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn hadris_io::sync::Seek::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::sync::Seek::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl hadris_io::Seek for hadris_io::Cursor<'_>
+pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
+pub fn hadris_io::Cursor<'_>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64>
+pub fn hadris_io::Cursor<'_>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Cursor<'_>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: embedded_io::Seek> hadris_io::Seek for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::FromEmbedded<T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: hadris_io::Seek + ?core::marker::Sized> hadris_io::Seek for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Seek>::Error
+pub fn hadris_io::Borrowed<'_, T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: std::io::Seek + ?core::marker::Sized> hadris_io::Seek for T
+pub type T::Error = std::io::error::Error
+pub fn T::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn T::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn T::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+pub trait hadris_io::sync::Writable: core::marker::Sized
+pub fn hadris_io::sync::Writable::write<W: hadris_io::Write>(&self, &mut W) -> hadris_io::Result<()>
+pub trait hadris_io::sync::Write
+pub type hadris_io::sync::Write::Error: embedded_io::Error
+pub fn hadris_io::sync::Write::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::sync::Write::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::sync::Write::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+impl<T: embedded_io::Write> hadris_io::Write for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::FromEmbedded<T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::Write + ?core::marker::Sized> hadris_io::Write for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Write>::Error
+pub fn hadris_io::Borrowed<'_, T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+impl<T: std::io::Write + ?core::marker::Sized> hadris_io::Write for T
+pub type T::Error = std::io::error::Error
+pub fn T::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn T::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn T::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+pub macro hadris_io::try_io_result_option!
+#[non_exhaustive] pub enum hadris_io::Error<E>
+pub hadris_io::Error::Context
+pub hadris_io::Error::Context::kind: hadris_io::ErrorKind
+pub hadris_io::Error::Context::message: core::option::Option<&'static str>
+pub hadris_io::Error::Source(E)
+impl<E: embedded_io::Error> hadris_io::Error<E>
+pub fn hadris_io::Error<E>::erase(self) -> hadris_io::Error<hadris_io::ErrorKind>
+pub fn hadris_io::Error<E>::kind(&self) -> hadris_io::ErrorKind
+impl<E> hadris_io::Error<E>
+pub const fn hadris_io::Error<E>::from_kind(hadris_io::ErrorKind) -> Self
+pub const fn hadris_io::Error<E>::from_source(E) -> Self
+pub fn hadris_io::Error<E>::into_source(self) -> core::option::Option<E>
+pub const fn hadris_io::Error<E>::new(hadris_io::ErrorKind, &'static str) -> Self
+pub const fn hadris_io::Error<E>::other(&'static str) -> Self
+pub const fn hadris_io::Error<E>::source_ref(&self) -> core::option::Option<&E>
+impl core::convert::From<hadris_io::Error<std::io::error::Error>> for std::io::error::Error
+pub fn std::io::error::Error::from(hadris_io::Error<std::io::error::Error>) -> Self
+impl core::convert::From<std::io::error::Error> for hadris_io::Error<std::io::error::Error>
+pub fn hadris_io::Error<std::io::error::Error>::from(std::io::error::Error) -> Self
+impl<E: core::error::Error> core::error::Error for hadris_io::Error<E>
+impl<E: core::fmt::Display> core::fmt::Display for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: embedded_io::Error> embedded_io::Error for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::kind(&self) -> embedded_io::ErrorKind
+#[non_exhaustive] pub enum hadris_io::ErrorKind
+pub hadris_io::ErrorKind::AddrInUse
+pub hadris_io::ErrorKind::AddrNotAvailable
+pub hadris_io::ErrorKind::AlreadyExists
+pub hadris_io::ErrorKind::BrokenPipe
+pub hadris_io::ErrorKind::ConnectionAborted
+pub hadris_io::ErrorKind::ConnectionRefused
+pub hadris_io::ErrorKind::ConnectionReset
+pub hadris_io::ErrorKind::Interrupted
+pub hadris_io::ErrorKind::InvalidData
+pub hadris_io::ErrorKind::InvalidInput
+pub hadris_io::ErrorKind::NotConnected
+pub hadris_io::ErrorKind::NotFound
+pub hadris_io::ErrorKind::Other
+pub hadris_io::ErrorKind::OutOfMemory
+pub hadris_io::ErrorKind::PermissionDenied
+pub hadris_io::ErrorKind::TimedOut
+pub hadris_io::ErrorKind::UnexpectedEof
+pub hadris_io::ErrorKind::Unsupported
+pub hadris_io::ErrorKind::WouldBlock
+pub hadris_io::ErrorKind::WriteZero
+impl hadris_io::ErrorKind
+pub const fn hadris_io::ErrorKind::kind(&self) -> Self
+impl core::convert::From<embedded_io::ErrorKind> for hadris_io::ErrorKind
+pub fn hadris_io::ErrorKind::from(embedded_io::ErrorKind) -> Self
+impl core::convert::From<hadris_io::ErrorKind> for core::io::error::ErrorKind
+pub fn core::io::error::ErrorKind::from(hadris_io::ErrorKind) -> Self
+impl core::convert::From<hadris_io::ErrorKind> for embedded_io::ErrorKind
+pub fn embedded_io::ErrorKind::from(hadris_io::ErrorKind) -> Self
+impl core::error::Error for hadris_io::ErrorKind
+impl core::fmt::Display for hadris_io::ErrorKind
+pub fn hadris_io::ErrorKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl embedded_io::Error for hadris_io::ErrorKind
+pub fn hadris_io::ErrorKind::kind(&self) -> embedded_io::ErrorKind
+pub struct hadris_io::Borrowed<'a, T: ?core::marker::Sized>(pub &'a mut T)
+impl<'a, T: ?core::marker::Sized> hadris_io::Borrowed<'a, T>
+pub fn hadris_io::Borrowed<'a, T>::new(&'a mut T) -> Self
+impl<T: hadris_io::Read + ?core::marker::Sized> hadris_io::Read for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Read>::Error
+pub fn hadris_io::Borrowed<'_, T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::Seek + ?core::marker::Sized> hadris_io::Seek for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Seek>::Error
+pub fn hadris_io::Borrowed<'_, T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: hadris_io::Write + ?core::marker::Sized> hadris_io::Write for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Write>::Error
+pub fn hadris_io::Borrowed<'_, T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+pub struct hadris_io::Cursor<'a>
+impl<'a> hadris_io::Cursor<'a>
+pub fn hadris_io::Cursor<'a>::get_ref(&self) -> &'a [u8]
+pub fn hadris_io::Cursor<'a>::new(&'a [u8]) -> Self
+pub fn hadris_io::Cursor<'a>::position(&self) -> usize
+pub fn hadris_io::Cursor<'a>::set_position(&mut self, usize)
+impl hadris_io::Read for hadris_io::Cursor<'_>
+pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
+pub fn hadris_io::Cursor<'_>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Cursor<'_>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl hadris_io::Seek for hadris_io::Cursor<'_>
+pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
+pub fn hadris_io::Cursor<'_>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64>
+pub fn hadris_io::Cursor<'_>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Cursor<'_>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl hadris_io::async::Read for hadris_io::Cursor<'_>
+pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
+pub async fn hadris_io::Cursor<'_>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub async fn hadris_io::Cursor<'_>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl hadris_io::async::Seek for hadris_io::Cursor<'_>
+pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
+pub async fn hadris_io::Cursor<'_>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64>
+pub async fn hadris_io::Cursor<'_>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub async fn hadris_io::Cursor<'_>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+pub struct hadris_io::FromEmbedded<T>(pub T)
+impl<T> hadris_io::FromEmbedded<T>
+pub fn hadris_io::FromEmbedded<T>::get_mut(&mut self) -> &mut T
+pub const fn hadris_io::FromEmbedded<T>::get_ref(&self) -> &T
+pub fn hadris_io::FromEmbedded<T>::into_inner(self) -> T
+pub const fn hadris_io::FromEmbedded<T>::new(T) -> Self
+impl<T: embedded_io::Read> hadris_io::Read for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: embedded_io::Seek> hadris_io::Seek for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::FromEmbedded<T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: embedded_io::Write> hadris_io::Write for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::FromEmbedded<T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+pub struct hadris_io::ToEmbedded<T>(pub T)
+impl<T> hadris_io::ToEmbedded<T>
+pub fn hadris_io::ToEmbedded<T>::into_inner(self) -> T
+pub const fn hadris_io::ToEmbedded<T>::new(T) -> Self
+impl<T: hadris_io::Read> embedded_io::ErrorType for hadris_io::ToEmbedded<T>
+pub type hadris_io::ToEmbedded<T>::Error = hadris_io::Error<<T as hadris_io::Read>::Error>
+impl<T: hadris_io::Read> embedded_io::Read for hadris_io::ToEmbedded<T>
+pub fn hadris_io::ToEmbedded<T>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
+impl<T> embedded_io::Seek for hadris_io::ToEmbedded<T> where T: hadris_io::Read + hadris_io::Seek<Error = <T as hadris_io::Read>::Error>
+pub fn hadris_io::ToEmbedded<T>::seek(&mut self, embedded_io::SeekFrom) -> core::result::Result<u64, Self::Error>
+impl<T> embedded_io::Write for hadris_io::ToEmbedded<T> where T: hadris_io::Read + hadris_io::Write<Error = <T as hadris_io::Read>::Error>
+pub fn hadris_io::ToEmbedded<T>::flush(&mut self) -> core::result::Result<(), Self::Error>
+pub fn hadris_io::ToEmbedded<T>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
+pub trait hadris_io::IoError: embedded_io::Error
+impl<T: embedded_io::Error + ?core::marker::Sized> hadris_io::IoError for T
+pub trait hadris_io::Parsable: core::marker::Sized
+pub fn hadris_io::Parsable::parse<R: hadris_io::Read>(&mut R) -> hadris_io::Result<Self>
+pub trait hadris_io::Read
+pub type hadris_io::Read::Error: embedded_io::Error
+pub fn hadris_io::Read::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Read::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl hadris_io::Read for hadris_io::Cursor<'_>
+pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
+pub fn hadris_io::Cursor<'_>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Cursor<'_>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: embedded_io::Read> hadris_io::Read for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::Read + ?core::marker::Sized> hadris_io::Read for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Read>::Error
+pub fn hadris_io::Borrowed<'_, T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: std::io::Read + ?core::marker::Sized> hadris_io::Read for T
+pub type T::Error = std::io::error::Error
+pub fn T::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn T::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+pub trait hadris_io::ReadExt: hadris_io::Read
+pub fn hadris_io::ReadExt::parse<T: hadris_io::Parsable>(&mut self) -> hadris_io::Result<T> where Self: core::marker::Sized
+pub fn hadris_io::ReadExt::read_struct<T: bytemuck::zeroable::Zeroable + bytemuck::no_uninit::NoUninit + bytemuck::anybitpattern::AnyBitPattern>(&mut self) -> hadris_io::Result<T>
+impl<T: hadris_io::Read + ?core::marker::Sized> hadris_io::ReadExt for T
+pub fn T::parse<T: hadris_io::Parsable>(&mut self) -> hadris_io::Result<T> where Self: core::marker::Sized
+pub fn T::read_struct<T: bytemuck::zeroable::Zeroable + bytemuck::no_uninit::NoUninit + bytemuck::anybitpattern::AnyBitPattern>(&mut self) -> hadris_io::Result<T>
+pub trait hadris_io::ReadSeek: hadris_io::Read + hadris_io::Seek<Error = <Self as hadris_io::Read>::Error>
+impl<T: hadris_io::Read + hadris_io::Seek<Error = <T as hadris_io::Read>::Error> + ?core::marker::Sized> hadris_io::ReadSeek for T
+pub trait hadris_io::ReadWrite: hadris_io::Read + hadris_io::Write<Error = <Self as hadris_io::Read>::Error>
+impl<T: hadris_io::Read + hadris_io::Write<Error = <T as hadris_io::Read>::Error> + ?core::marker::Sized> hadris_io::ReadWrite for T
+pub trait hadris_io::ReadWriteSeek: hadris_io::Read + hadris_io::Write<Error = <Self as hadris_io::Read>::Error> + hadris_io::Seek<Error = <Self as hadris_io::Read>::Error>
+impl<T> hadris_io::ReadWriteSeek for T where T: hadris_io::Read + hadris_io::Write<Error = <T as hadris_io::Read>::Error> + hadris_io::Seek<Error = <T as hadris_io::Read>::Error> + ?core::marker::Sized
+pub trait hadris_io::Seek
+pub type hadris_io::Seek::Error: embedded_io::Error
+pub fn hadris_io::Seek::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn hadris_io::Seek::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Seek::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl hadris_io::Seek for hadris_io::Cursor<'_>
+pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
+pub fn hadris_io::Cursor<'_>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64>
+pub fn hadris_io::Cursor<'_>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Cursor<'_>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: embedded_io::Seek> hadris_io::Seek for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::FromEmbedded<T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: hadris_io::Seek + ?core::marker::Sized> hadris_io::Seek for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Seek>::Error
+pub fn hadris_io::Borrowed<'_, T>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+impl<T: std::io::Seek + ?core::marker::Sized> hadris_io::Seek for T
+pub type T::Error = std::io::error::Error
+pub fn T::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::Result<u64, Self::Error>
+pub fn T::seek_relative(&mut self, i64) -> hadris_io::Result<(), Self::Error>
+pub fn T::stream_position(&mut self) -> hadris_io::Result<u64, Self::Error>
+pub trait hadris_io::Writable: core::marker::Sized
+pub fn hadris_io::Writable::write<W: hadris_io::Write>(&self, &mut W) -> hadris_io::Result<()>
+pub trait hadris_io::Write
+pub type hadris_io::Write::Error: embedded_io::Error
+pub fn hadris_io::Write::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Write::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Write::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+impl<T: embedded_io::Write> hadris_io::Write for hadris_io::FromEmbedded<T>
+pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
+pub fn hadris_io::FromEmbedded<T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::FromEmbedded<T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::FromEmbedded<T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+impl<T: hadris_io::Write + ?core::marker::Sized> hadris_io::Write for hadris_io::Borrowed<'_, T>
+pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Write>::Error
+pub fn hadris_io::Borrowed<'_, T>::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn hadris_io::Borrowed<'_, T>::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+impl<T: std::io::Write + ?core::marker::Sized> hadris_io::Write for T
+pub type T::Error = std::io::error::Error
+pub fn T::flush(&mut self) -> hadris_io::Result<(), Self::Error>
+pub fn T::write(&mut self, &[u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn T::write_all(&mut self, &[u8]) -> hadris_io::Result<()>
+pub type hadris_io::Result<T, E> = core::result::Result<T, hadris_io::Error<E>>

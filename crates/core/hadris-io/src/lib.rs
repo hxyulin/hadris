@@ -281,8 +281,7 @@ mod async_api;
 
 /// Asynchronous I/O traits (using async fn in trait).
 ///
-/// Contains async versions of [`Read`](r#async::Read),
-/// [`Write`](r#async::Write), [`Seek`](r#async::Seek),
+/// Contains async versions of `Read`, `Write`, and `Seek`,
 /// plus async extension traits.
 #[cfg(feature = "async")]
 pub mod r#async {

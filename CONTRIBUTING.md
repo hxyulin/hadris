@@ -70,6 +70,17 @@ python3 scripts/check-spec-annotations.py
 cargo doc --workspace --no-deps --document-private-items
 ```
 
+Public APIs are snapshot-tested under their all-feature configurations. After
+an intentional additive or breaking API change, review the diff and refresh the
+baseline with:
+
+```bash
+scripts/check-public-api.sh update
+```
+
+The snapshot is a review aid, not a feature freeze. New APIs are welcome before
+2.0 when their documentation, feature-matrix tier, and tests land with them.
+
 Feature-gated items should use `#[cfg_attr(docsrs, doc(cfg(...)))]` where the
 crate already enables `docsrs` (see `hadris-part`, `hadris-fat`).
 

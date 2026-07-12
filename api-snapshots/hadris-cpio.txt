@@ -1,0 +1,1081 @@
+pub mod hadris_cpio
+pub use hadris_cpio::Error
+pub use hadris_cpio::ErrorKind
+pub use hadris_cpio::IoResult
+pub use hadris_cpio::Parsable
+pub use hadris_cpio::Read
+pub use hadris_cpio::ReadExt
+pub use hadris_cpio::Seek
+pub use hadris_cpio::SeekFrom
+pub use hadris_cpio::Writable
+pub use hadris_cpio::Write
+pub mod hadris_cpio::async
+pub use hadris_cpio::async::Error
+pub use hadris_cpio::async::ErrorKind
+pub use hadris_cpio::async::IoResult
+pub use hadris_cpio::async::Parsable
+pub use hadris_cpio::async::Read
+pub use hadris_cpio::async::ReadExt
+pub use hadris_cpio::async::Seek
+pub use hadris_cpio::async::SeekFrom
+pub use hadris_cpio::async::Writable
+pub use hadris_cpio::async::Write
+pub mod hadris_cpio::async::entry
+pub struct hadris_cpio::async::entry::CpioEntryHeader
+pub hadris_cpio::async::entry::CpioEntryHeader::check: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::devmajor: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::devminor: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::filesize: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::gid: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::ino: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::mode: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::mtime: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::nlink: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::rdevmajor: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::rdevminor: u32
+pub hadris_cpio::async::entry::CpioEntryHeader::uid: u32
+impl hadris_cpio::async::entry::CpioEntryHeader
+pub fn hadris_cpio::async::entry::CpioEntryHeader::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::async::entry::CpioEntryHeader::from_raw(&hadris_cpio::async::header::RawNewcHeader) -> hadris_cpio::error::Result<Self>
+pub fn hadris_cpio::async::entry::CpioEntryHeader::is_hard_link(&self) -> bool
+pub fn hadris_cpio::async::entry::CpioEntryHeader::is_trailer_like(&self) -> bool
+pub fn hadris_cpio::async::entry::CpioEntryHeader::permissions(&self) -> u32
+impl core::fmt::Display for hadris_cpio::async::entry::CpioEntryHeader
+pub fn hadris_cpio::async::entry::CpioEntryHeader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub mod hadris_cpio::async::header
+pub enum hadris_cpio::async::header::CpioMagic
+pub hadris_cpio::async::header::CpioMagic::Newc
+pub hadris_cpio::async::header::CpioMagic::NewcCrc
+impl hadris_cpio::async::header::CpioMagic
+pub fn hadris_cpio::async::header::CpioMagic::as_bytes(&self) -> &[u8; 6]
+impl core::fmt::Display for hadris_cpio::async::header::CpioMagic
+pub fn hadris_cpio::async::header::CpioMagic::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cpio::async::header::RawNewcHeader
+impl hadris_cpio::async::header::RawNewcHeader
+pub fn hadris_cpio::async::header::RawNewcHeader::build(hadris_cpio::async::header::CpioMagic, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::async::header::RawNewcHeader::check(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::devmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::devminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::filesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::gid(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::ino(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::magic(&self) -> core::option::Option<hadris_cpio::async::header::CpioMagic>
+pub fn hadris_cpio::async::header::RawNewcHeader::magic_bytes(&self) -> &[u8]
+pub fn hadris_cpio::async::header::RawNewcHeader::mode(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::mtime(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::namesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::nlink(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::rdevmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::rdevminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::uid(&self) -> hadris_cpio::error::Result<u32>
+impl hadris_cpio::async::header::RawNewcHeader
+pub async fn hadris_cpio::async::header::RawNewcHeader::parse<R: hadris_io::async_api::Read>(&mut R) -> hadris_cpio::error::Result<Self>
+pub async fn hadris_cpio::async::header::RawNewcHeader::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_cpio::error::Result<()>
+pub const hadris_cpio::async::header::HEADER_SIZE: usize
+pub const hadris_cpio::async::header::MAGIC_NEWC: &[u8; 6]
+pub const hadris_cpio::async::header::MAGIC_NEWC_CRC: &[u8; 6]
+pub const hadris_cpio::async::header::TRAILER_NAME: &[u8]
+pub mod hadris_cpio::async::read
+pub struct hadris_cpio::async::read::CpioEntry<'a>
+impl<'a> hadris_cpio::async::read::CpioEntry<'a>
+pub fn hadris_cpio::async::read::CpioEntry<'a>::entry_offset(&self) -> u64
+pub fn hadris_cpio::async::read::CpioEntry<'a>::file_size(&self) -> u32
+pub fn hadris_cpio::async::read::CpioEntry<'a>::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::async::read::CpioEntry<'a>::header(&self) -> &hadris_cpio::async::entry::CpioEntryHeader
+pub fn hadris_cpio::async::read::CpioEntry<'a>::magic(&self) -> hadris_cpio::async::header::CpioMagic
+pub fn hadris_cpio::async::read::CpioEntry<'a>::name(&self) -> &[u8]
+pub fn hadris_cpio::async::read::CpioEntry<'a>::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::async::read::CpioEntryOwned
+impl hadris_cpio::async::read::CpioEntryOwned
+pub fn hadris_cpio::async::read::CpioEntryOwned::entry_offset(&self) -> u64
+pub fn hadris_cpio::async::read::CpioEntryOwned::file_size(&self) -> u32
+pub fn hadris_cpio::async::read::CpioEntryOwned::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::async::read::CpioEntryOwned::header(&self) -> &hadris_cpio::async::entry::CpioEntryHeader
+pub fn hadris_cpio::async::read::CpioEntryOwned::magic(&self) -> hadris_cpio::async::header::CpioMagic
+pub fn hadris_cpio::async::read::CpioEntryOwned::name(&self) -> &[u8]
+pub fn hadris_cpio::async::read::CpioEntryOwned::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::async::read::CpioReader<R>
+impl<R: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_cpio::async::read::CpioReader<R>
+pub async fn hadris_cpio::async::read::CpioReader<R>::seek_to_entry(&mut self, u64) -> hadris_cpio::error::Result<()>
+impl<R: hadris_io::async_api::Read> hadris_cpio::async::read::CpioReader<R>
+pub fn hadris_cpio::async::read::CpioReader<R>::new(R) -> Self
+pub async fn hadris_cpio::async::read::CpioReader<R>::next_entry_alloc(&mut self) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::async::read::CpioEntryOwned>>
+pub async fn hadris_cpio::async::read::CpioReader<R>::next_entry_with_buf<'buf>(&mut self, &'buf mut [u8]) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::async::read::CpioEntry<'buf>>>
+pub fn hadris_cpio::async::read::CpioReader<R>::offset(&self) -> u64
+pub async fn hadris_cpio::async::read::CpioReader<R>::read_entry_data(&mut self, &hadris_cpio::async::read::CpioEntry<'_>, &mut [u8]) -> hadris_cpio::error::Result<()>
+pub async fn hadris_cpio::async::read::CpioReader<R>::read_entry_data_alloc(&mut self, &hadris_cpio::async::read::CpioEntryOwned) -> hadris_cpio::error::Result<alloc::vec::Vec<u8>>
+pub async fn hadris_cpio::async::read::CpioReader<R>::skip_entry_data(&mut self, &hadris_cpio::async::read::CpioEntry<'_>) -> hadris_cpio::error::Result<()>
+pub async fn hadris_cpio::async::read::CpioReader<R>::skip_entry_data_owned(&mut self, &hadris_cpio::async::read::CpioEntryOwned) -> hadris_cpio::error::Result<()>
+pub mod hadris_cpio::async::write
+pub mod hadris_cpio::async::write::file_tree
+pub enum hadris_cpio::async::write::file_tree::FileNode
+pub hadris_cpio::async::write::file_tree::FileNode::DeviceNode
+pub hadris_cpio::async::write::file_tree::FileNode::DeviceNode::device_type: hadris_cpio::mode::FileType
+pub hadris_cpio::async::write::file_tree::FileNode::DeviceNode::gid: u32
+pub hadris_cpio::async::write::file_tree::FileNode::DeviceNode::major: u32
+pub hadris_cpio::async::write::file_tree::FileNode::DeviceNode::minor: u32
+pub hadris_cpio::async::write::file_tree::FileNode::DeviceNode::mtime: u32
+pub hadris_cpio::async::write::file_tree::FileNode::DeviceNode::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::write::file_tree::FileNode::DeviceNode::permissions: u32
+pub hadris_cpio::async::write::file_tree::FileNode::DeviceNode::uid: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Directory
+pub hadris_cpio::async::write::file_tree::FileNode::Directory::children: alloc::vec::Vec<hadris_cpio::async::write::file_tree::FileNode>
+pub hadris_cpio::async::write::file_tree::FileNode::Directory::gid: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Directory::mtime: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Directory::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::write::file_tree::FileNode::Directory::permissions: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Directory::uid: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Fifo
+pub hadris_cpio::async::write::file_tree::FileNode::Fifo::gid: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Fifo::mtime: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Fifo::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::write::file_tree::FileNode::Fifo::permissions: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Fifo::uid: u32
+pub hadris_cpio::async::write::file_tree::FileNode::File
+pub hadris_cpio::async::write::file_tree::FileNode::File::contents: alloc::vec::Vec<u8>
+pub hadris_cpio::async::write::file_tree::FileNode::File::gid: u32
+pub hadris_cpio::async::write::file_tree::FileNode::File::mtime: u32
+pub hadris_cpio::async::write::file_tree::FileNode::File::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::write::file_tree::FileNode::File::permissions: u32
+pub hadris_cpio::async::write::file_tree::FileNode::File::uid: u32
+pub hadris_cpio::async::write::file_tree::FileNode::HardLink
+pub hadris_cpio::async::write::file_tree::FileNode::HardLink::link_target: alloc::string::String
+pub hadris_cpio::async::write::file_tree::FileNode::HardLink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::write::file_tree::FileNode::Symlink
+pub hadris_cpio::async::write::file_tree::FileNode::Symlink::gid: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Symlink::mtime: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Symlink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::write::file_tree::FileNode::Symlink::permissions: u32
+pub hadris_cpio::async::write::file_tree::FileNode::Symlink::target: alloc::string::String
+pub hadris_cpio::async::write::file_tree::FileNode::Symlink::uid: u32
+impl hadris_cpio::async::write::file_tree::FileNode
+pub fn hadris_cpio::async::write::file_tree::FileNode::device(&str, hadris_cpio::mode::FileType, u32, u32, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::dir(&str, alloc::vec::Vec<hadris_cpio::async::write::file_tree::FileNode>, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::dir_with_owner(&str, alloc::vec::Vec<hadris_cpio::async::write::file_tree::FileNode>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::fifo(&str, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::file(&str, alloc::vec::Vec<u8>, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::file_with_owner(&str, alloc::vec::Vec<u8>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::hard_link(&str, &str) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::node_name(&self) -> &str
+pub fn hadris_cpio::async::write::file_tree::FileNode::symlink(&str, &str) -> Self
+pub struct hadris_cpio::async::write::file_tree::FileTree
+pub hadris_cpio::async::write::file_tree::FileTree::root: alloc::vec::Vec<hadris_cpio::async::write::file_tree::FileNode>
+impl hadris_cpio::async::write::file_tree::FileTree
+pub fn hadris_cpio::async::write::file_tree::FileTree::add(&mut self, hadris_cpio::async::write::file_tree::FileNode)
+pub fn hadris_cpio::async::write::file_tree::FileTree::new() -> Self
+impl hadris_cpio::async::write::file_tree::FileTree
+pub fn hadris_cpio::async::write::file_tree::FileTree::from_fs(&std::path::Path) -> core::result::Result<Self, hadris_cpio::async::write::from_fs::FromFsError>
+impl core::default::Default for hadris_cpio::async::write::file_tree::FileTree
+pub fn hadris_cpio::async::write::file_tree::FileTree::default() -> Self
+pub mod hadris_cpio::async::write::from_fs
+pub enum hadris_cpio::async::write::from_fs::FromFsError
+pub hadris_cpio::async::write::from_fs::FromFsError::Io(std::io::error::Error)
+impl core::convert::From<std::io::error::Error> for hadris_cpio::async::write::from_fs::FromFsError
+pub fn hadris_cpio::async::write::from_fs::FromFsError::from(std::io::error::Error) -> Self
+impl core::error::Error for hadris_cpio::async::write::from_fs::FromFsError
+impl core::fmt::Display for hadris_cpio::async::write::from_fs::FromFsError
+pub fn hadris_cpio::async::write::from_fs::FromFsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cpio::async::write::CpioArchiveWriter<W>
+impl<W: hadris_io::async_api::Write> hadris_cpio::async::write::CpioArchiveWriter<W>
+pub async fn hadris_cpio::async::write::CpioArchiveWriter<W>::create(W, &hadris_cpio::async::write::file_tree::FileTree, hadris_cpio::async::write::CpioWriteOptions) -> hadris_cpio::error::Result<W>
+pub async fn hadris_cpio::async::write::CpioArchiveWriter<W>::finish(self, &hadris_cpio::async::write::file_tree::FileTree) -> hadris_cpio::error::Result<W>
+pub fn hadris_cpio::async::write::CpioArchiveWriter<W>::into_inner(self) -> W
+pub fn hadris_cpio::async::write::CpioArchiveWriter<W>::new(W, hadris_cpio::async::write::CpioWriteOptions) -> Self
+pub struct hadris_cpio::async::write::CpioWriteOptions
+pub hadris_cpio::async::write::CpioWriteOptions::use_crc: bool
+impl hadris_cpio::async::write::CpioWriteOptions
+pub const fn hadris_cpio::async::write::CpioWriteOptions::crc(self, bool) -> Self
+pub struct hadris_cpio::async::write::CpioWriter
+impl hadris_cpio::async::write::CpioWriter
+pub fn hadris_cpio::async::write::CpioWriter::new(hadris_cpio::async::write::CpioWriteOptions) -> Self
+pub async fn hadris_cpio::async::write::CpioWriter::write<W: hadris_io::async_api::Write>(&self, &mut W, &hadris_cpio::async::write::file_tree::FileTree) -> hadris_cpio::error::Result<()>
+pub enum hadris_cpio::async::CpioMagic
+pub hadris_cpio::async::CpioMagic::Newc
+pub hadris_cpio::async::CpioMagic::NewcCrc
+impl hadris_cpio::async::header::CpioMagic
+pub fn hadris_cpio::async::header::CpioMagic::as_bytes(&self) -> &[u8; 6]
+impl core::fmt::Display for hadris_cpio::async::header::CpioMagic
+pub fn hadris_cpio::async::header::CpioMagic::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum hadris_cpio::async::FileNode
+pub hadris_cpio::async::FileNode::DeviceNode
+pub hadris_cpio::async::FileNode::DeviceNode::device_type: hadris_cpio::mode::FileType
+pub hadris_cpio::async::FileNode::DeviceNode::gid: u32
+pub hadris_cpio::async::FileNode::DeviceNode::major: u32
+pub hadris_cpio::async::FileNode::DeviceNode::minor: u32
+pub hadris_cpio::async::FileNode::DeviceNode::mtime: u32
+pub hadris_cpio::async::FileNode::DeviceNode::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::FileNode::DeviceNode::permissions: u32
+pub hadris_cpio::async::FileNode::DeviceNode::uid: u32
+pub hadris_cpio::async::FileNode::Directory
+pub hadris_cpio::async::FileNode::Directory::children: alloc::vec::Vec<hadris_cpio::async::write::file_tree::FileNode>
+pub hadris_cpio::async::FileNode::Directory::gid: u32
+pub hadris_cpio::async::FileNode::Directory::mtime: u32
+pub hadris_cpio::async::FileNode::Directory::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::FileNode::Directory::permissions: u32
+pub hadris_cpio::async::FileNode::Directory::uid: u32
+pub hadris_cpio::async::FileNode::Fifo
+pub hadris_cpio::async::FileNode::Fifo::gid: u32
+pub hadris_cpio::async::FileNode::Fifo::mtime: u32
+pub hadris_cpio::async::FileNode::Fifo::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::FileNode::Fifo::permissions: u32
+pub hadris_cpio::async::FileNode::Fifo::uid: u32
+pub hadris_cpio::async::FileNode::File
+pub hadris_cpio::async::FileNode::File::contents: alloc::vec::Vec<u8>
+pub hadris_cpio::async::FileNode::File::gid: u32
+pub hadris_cpio::async::FileNode::File::mtime: u32
+pub hadris_cpio::async::FileNode::File::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::FileNode::File::permissions: u32
+pub hadris_cpio::async::FileNode::File::uid: u32
+pub hadris_cpio::async::FileNode::HardLink
+pub hadris_cpio::async::FileNode::HardLink::link_target: alloc::string::String
+pub hadris_cpio::async::FileNode::HardLink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::FileNode::Symlink
+pub hadris_cpio::async::FileNode::Symlink::gid: u32
+pub hadris_cpio::async::FileNode::Symlink::mtime: u32
+pub hadris_cpio::async::FileNode::Symlink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::async::FileNode::Symlink::permissions: u32
+pub hadris_cpio::async::FileNode::Symlink::target: alloc::string::String
+pub hadris_cpio::async::FileNode::Symlink::uid: u32
+impl hadris_cpio::async::write::file_tree::FileNode
+pub fn hadris_cpio::async::write::file_tree::FileNode::device(&str, hadris_cpio::mode::FileType, u32, u32, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::dir(&str, alloc::vec::Vec<hadris_cpio::async::write::file_tree::FileNode>, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::dir_with_owner(&str, alloc::vec::Vec<hadris_cpio::async::write::file_tree::FileNode>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::fifo(&str, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::file(&str, alloc::vec::Vec<u8>, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::file_with_owner(&str, alloc::vec::Vec<u8>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::hard_link(&str, &str) -> Self
+pub fn hadris_cpio::async::write::file_tree::FileNode::node_name(&self) -> &str
+pub fn hadris_cpio::async::write::file_tree::FileNode::symlink(&str, &str) -> Self
+pub struct hadris_cpio::async::CpioArchiveWriter<W>
+impl<W: hadris_io::async_api::Write> hadris_cpio::async::write::CpioArchiveWriter<W>
+pub async fn hadris_cpio::async::write::CpioArchiveWriter<W>::create(W, &hadris_cpio::async::write::file_tree::FileTree, hadris_cpio::async::write::CpioWriteOptions) -> hadris_cpio::error::Result<W>
+pub async fn hadris_cpio::async::write::CpioArchiveWriter<W>::finish(self, &hadris_cpio::async::write::file_tree::FileTree) -> hadris_cpio::error::Result<W>
+pub fn hadris_cpio::async::write::CpioArchiveWriter<W>::into_inner(self) -> W
+pub fn hadris_cpio::async::write::CpioArchiveWriter<W>::new(W, hadris_cpio::async::write::CpioWriteOptions) -> Self
+pub struct hadris_cpio::async::CpioEntry<'a>
+impl<'a> hadris_cpio::async::read::CpioEntry<'a>
+pub fn hadris_cpio::async::read::CpioEntry<'a>::entry_offset(&self) -> u64
+pub fn hadris_cpio::async::read::CpioEntry<'a>::file_size(&self) -> u32
+pub fn hadris_cpio::async::read::CpioEntry<'a>::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::async::read::CpioEntry<'a>::header(&self) -> &hadris_cpio::async::entry::CpioEntryHeader
+pub fn hadris_cpio::async::read::CpioEntry<'a>::magic(&self) -> hadris_cpio::async::header::CpioMagic
+pub fn hadris_cpio::async::read::CpioEntry<'a>::name(&self) -> &[u8]
+pub fn hadris_cpio::async::read::CpioEntry<'a>::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::async::CpioEntryHeader
+pub hadris_cpio::async::CpioEntryHeader::check: u32
+pub hadris_cpio::async::CpioEntryHeader::devmajor: u32
+pub hadris_cpio::async::CpioEntryHeader::devminor: u32
+pub hadris_cpio::async::CpioEntryHeader::filesize: u32
+pub hadris_cpio::async::CpioEntryHeader::gid: u32
+pub hadris_cpio::async::CpioEntryHeader::ino: u32
+pub hadris_cpio::async::CpioEntryHeader::mode: u32
+pub hadris_cpio::async::CpioEntryHeader::mtime: u32
+pub hadris_cpio::async::CpioEntryHeader::nlink: u32
+pub hadris_cpio::async::CpioEntryHeader::rdevmajor: u32
+pub hadris_cpio::async::CpioEntryHeader::rdevminor: u32
+pub hadris_cpio::async::CpioEntryHeader::uid: u32
+impl hadris_cpio::async::entry::CpioEntryHeader
+pub fn hadris_cpio::async::entry::CpioEntryHeader::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::async::entry::CpioEntryHeader::from_raw(&hadris_cpio::async::header::RawNewcHeader) -> hadris_cpio::error::Result<Self>
+pub fn hadris_cpio::async::entry::CpioEntryHeader::is_hard_link(&self) -> bool
+pub fn hadris_cpio::async::entry::CpioEntryHeader::is_trailer_like(&self) -> bool
+pub fn hadris_cpio::async::entry::CpioEntryHeader::permissions(&self) -> u32
+impl core::fmt::Display for hadris_cpio::async::entry::CpioEntryHeader
+pub fn hadris_cpio::async::entry::CpioEntryHeader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cpio::async::CpioEntryOwned
+impl hadris_cpio::async::read::CpioEntryOwned
+pub fn hadris_cpio::async::read::CpioEntryOwned::entry_offset(&self) -> u64
+pub fn hadris_cpio::async::read::CpioEntryOwned::file_size(&self) -> u32
+pub fn hadris_cpio::async::read::CpioEntryOwned::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::async::read::CpioEntryOwned::header(&self) -> &hadris_cpio::async::entry::CpioEntryHeader
+pub fn hadris_cpio::async::read::CpioEntryOwned::magic(&self) -> hadris_cpio::async::header::CpioMagic
+pub fn hadris_cpio::async::read::CpioEntryOwned::name(&self) -> &[u8]
+pub fn hadris_cpio::async::read::CpioEntryOwned::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::async::CpioReader<R>
+impl<R: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_cpio::async::read::CpioReader<R>
+pub async fn hadris_cpio::async::read::CpioReader<R>::seek_to_entry(&mut self, u64) -> hadris_cpio::error::Result<()>
+impl<R: hadris_io::async_api::Read> hadris_cpio::async::read::CpioReader<R>
+pub fn hadris_cpio::async::read::CpioReader<R>::new(R) -> Self
+pub async fn hadris_cpio::async::read::CpioReader<R>::next_entry_alloc(&mut self) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::async::read::CpioEntryOwned>>
+pub async fn hadris_cpio::async::read::CpioReader<R>::next_entry_with_buf<'buf>(&mut self, &'buf mut [u8]) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::async::read::CpioEntry<'buf>>>
+pub fn hadris_cpio::async::read::CpioReader<R>::offset(&self) -> u64
+pub async fn hadris_cpio::async::read::CpioReader<R>::read_entry_data(&mut self, &hadris_cpio::async::read::CpioEntry<'_>, &mut [u8]) -> hadris_cpio::error::Result<()>
+pub async fn hadris_cpio::async::read::CpioReader<R>::read_entry_data_alloc(&mut self, &hadris_cpio::async::read::CpioEntryOwned) -> hadris_cpio::error::Result<alloc::vec::Vec<u8>>
+pub async fn hadris_cpio::async::read::CpioReader<R>::skip_entry_data(&mut self, &hadris_cpio::async::read::CpioEntry<'_>) -> hadris_cpio::error::Result<()>
+pub async fn hadris_cpio::async::read::CpioReader<R>::skip_entry_data_owned(&mut self, &hadris_cpio::async::read::CpioEntryOwned) -> hadris_cpio::error::Result<()>
+pub struct hadris_cpio::async::CpioWriteOptions
+pub hadris_cpio::async::CpioWriteOptions::use_crc: bool
+impl hadris_cpio::async::write::CpioWriteOptions
+pub const fn hadris_cpio::async::write::CpioWriteOptions::crc(self, bool) -> Self
+pub struct hadris_cpio::async::CpioWriter
+impl hadris_cpio::async::write::CpioWriter
+pub fn hadris_cpio::async::write::CpioWriter::new(hadris_cpio::async::write::CpioWriteOptions) -> Self
+pub async fn hadris_cpio::async::write::CpioWriter::write<W: hadris_io::async_api::Write>(&self, &mut W, &hadris_cpio::async::write::file_tree::FileTree) -> hadris_cpio::error::Result<()>
+pub struct hadris_cpio::async::FileTree
+pub hadris_cpio::async::FileTree::root: alloc::vec::Vec<hadris_cpio::async::write::file_tree::FileNode>
+impl hadris_cpio::async::write::file_tree::FileTree
+pub fn hadris_cpio::async::write::file_tree::FileTree::add(&mut self, hadris_cpio::async::write::file_tree::FileNode)
+pub fn hadris_cpio::async::write::file_tree::FileTree::new() -> Self
+impl hadris_cpio::async::write::file_tree::FileTree
+pub fn hadris_cpio::async::write::file_tree::FileTree::from_fs(&std::path::Path) -> core::result::Result<Self, hadris_cpio::async::write::from_fs::FromFsError>
+impl core::default::Default for hadris_cpio::async::write::file_tree::FileTree
+pub fn hadris_cpio::async::write::file_tree::FileTree::default() -> Self
+pub struct hadris_cpio::async::RawNewcHeader
+impl hadris_cpio::async::header::RawNewcHeader
+pub fn hadris_cpio::async::header::RawNewcHeader::build(hadris_cpio::async::header::CpioMagic, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::async::header::RawNewcHeader::check(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::devmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::devminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::filesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::gid(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::ino(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::magic(&self) -> core::option::Option<hadris_cpio::async::header::CpioMagic>
+pub fn hadris_cpio::async::header::RawNewcHeader::magic_bytes(&self) -> &[u8]
+pub fn hadris_cpio::async::header::RawNewcHeader::mode(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::mtime(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::namesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::nlink(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::rdevmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::rdevminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::async::header::RawNewcHeader::uid(&self) -> hadris_cpio::error::Result<u32>
+impl hadris_cpio::async::header::RawNewcHeader
+pub async fn hadris_cpio::async::header::RawNewcHeader::parse<R: hadris_io::async_api::Read>(&mut R) -> hadris_cpio::error::Result<Self>
+pub async fn hadris_cpio::async::header::RawNewcHeader::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_cpio::error::Result<()>
+pub const hadris_cpio::async::HEADER_SIZE: usize
+pub const hadris_cpio::async::MAGIC_NEWC: &[u8; 6]
+pub const hadris_cpio::async::MAGIC_NEWC_CRC: &[u8; 6]
+pub const hadris_cpio::async::TRAILER_NAME: &[u8]
+pub mod hadris_cpio::entry
+pub struct hadris_cpio::entry::CpioEntryHeader
+pub hadris_cpio::entry::CpioEntryHeader::check: u32
+pub hadris_cpio::entry::CpioEntryHeader::devmajor: u32
+pub hadris_cpio::entry::CpioEntryHeader::devminor: u32
+pub hadris_cpio::entry::CpioEntryHeader::filesize: u32
+pub hadris_cpio::entry::CpioEntryHeader::gid: u32
+pub hadris_cpio::entry::CpioEntryHeader::ino: u32
+pub hadris_cpio::entry::CpioEntryHeader::mode: u32
+pub hadris_cpio::entry::CpioEntryHeader::mtime: u32
+pub hadris_cpio::entry::CpioEntryHeader::nlink: u32
+pub hadris_cpio::entry::CpioEntryHeader::rdevmajor: u32
+pub hadris_cpio::entry::CpioEntryHeader::rdevminor: u32
+pub hadris_cpio::entry::CpioEntryHeader::uid: u32
+impl hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::entry::CpioEntryHeader::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::entry::CpioEntryHeader::from_raw(&hadris_cpio::header::RawNewcHeader) -> hadris_cpio::error::Result<Self>
+pub fn hadris_cpio::entry::CpioEntryHeader::is_hard_link(&self) -> bool
+pub fn hadris_cpio::entry::CpioEntryHeader::is_trailer_like(&self) -> bool
+pub fn hadris_cpio::entry::CpioEntryHeader::permissions(&self) -> u32
+impl core::fmt::Display for hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::entry::CpioEntryHeader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub mod hadris_cpio::error
+pub enum hadris_cpio::error::CpioError
+pub hadris_cpio::error::CpioError::ChecksumMismatch
+pub hadris_cpio::error::CpioError::ChecksumMismatch::computed: u32
+pub hadris_cpio::error::CpioError::ChecksumMismatch::expected: u32
+pub hadris_cpio::error::CpioError::FileTooLarge
+pub hadris_cpio::error::CpioError::FilenameTooLong
+pub hadris_cpio::error::CpioError::InvalidFilename
+pub hadris_cpio::error::CpioError::InvalidHexField
+pub hadris_cpio::error::CpioError::InvalidHexField::field: &'static str
+pub hadris_cpio::error::CpioError::InvalidMagic
+pub hadris_cpio::error::CpioError::InvalidMagic::found: [u8; 6]
+pub hadris_cpio::error::CpioError::Io(hadris_io::error::Error)
+pub hadris_cpio::error::CpioError::MissingTrailer
+pub hadris_cpio::error::CpioError::UnresolvedHardLink
+pub hadris_cpio::error::CpioError::UnresolvedHardLink::ino: u32
+impl core::error::Error for hadris_cpio::error::CpioError
+impl core::fmt::Display for hadris_cpio::error::CpioError
+pub fn hadris_cpio::error::CpioError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_io::IoError> core::convert::From<hadris_io::error::Error<E>> for hadris_cpio::error::CpioError
+pub fn hadris_cpio::error::CpioError::from(hadris_io::error::Error<E>) -> Self
+pub type hadris_cpio::error::Result<T> = core::result::Result<T, hadris_cpio::error::CpioError>
+pub mod hadris_cpio::header
+pub enum hadris_cpio::header::CpioMagic
+pub hadris_cpio::header::CpioMagic::Newc
+pub hadris_cpio::header::CpioMagic::NewcCrc
+impl hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::header::CpioMagic::as_bytes(&self) -> &[u8; 6]
+impl core::fmt::Display for hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::header::CpioMagic::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cpio::header::RawNewcHeader
+impl hadris_cpio::header::RawNewcHeader
+pub fn hadris_cpio::header::RawNewcHeader::build(hadris_cpio::header::CpioMagic, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::header::RawNewcHeader::check(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::devmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::devminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::filesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::gid(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::ino(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::magic(&self) -> core::option::Option<hadris_cpio::header::CpioMagic>
+pub fn hadris_cpio::header::RawNewcHeader::magic_bytes(&self) -> &[u8]
+pub fn hadris_cpio::header::RawNewcHeader::mode(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::mtime(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::namesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::nlink(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::rdevmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::rdevminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::uid(&self) -> hadris_cpio::error::Result<u32>
+impl hadris_cpio::header::RawNewcHeader
+pub fn hadris_cpio::header::RawNewcHeader::parse<R: hadris_io::sync_api::Read>(&mut R) -> hadris_cpio::error::Result<Self>
+pub fn hadris_cpio::header::RawNewcHeader::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_cpio::error::Result<()>
+pub const hadris_cpio::header::HEADER_SIZE: usize
+pub const hadris_cpio::header::MAGIC_NEWC: &[u8; 6]
+pub const hadris_cpio::header::MAGIC_NEWC_CRC: &[u8; 6]
+pub const hadris_cpio::header::TRAILER_NAME: &[u8]
+pub mod hadris_cpio::mode
+pub enum hadris_cpio::mode::FileType
+pub hadris_cpio::mode::FileType::BlockDevice
+pub hadris_cpio::mode::FileType::CharDevice
+pub hadris_cpio::mode::FileType::Directory
+pub hadris_cpio::mode::FileType::Fifo
+pub hadris_cpio::mode::FileType::Regular
+pub hadris_cpio::mode::FileType::Socket
+pub hadris_cpio::mode::FileType::Symlink
+pub hadris_cpio::mode::FileType::Unknown(u32)
+impl hadris_cpio::mode::FileType
+pub fn hadris_cpio::mode::FileType::from_mode(u32) -> Self
+pub fn hadris_cpio::mode::FileType::to_mode_bits(self) -> u32
+impl core::fmt::Display for hadris_cpio::mode::FileType
+pub fn hadris_cpio::mode::FileType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn hadris_cpio::mode::make_mode(hadris_cpio::mode::FileType, u32) -> u32
+pub mod hadris_cpio::read
+pub struct hadris_cpio::read::CpioEntry<'a>
+impl<'a> hadris_cpio::read::CpioEntry<'a>
+pub fn hadris_cpio::read::CpioEntry<'a>::entry_offset(&self) -> u64
+pub fn hadris_cpio::read::CpioEntry<'a>::file_size(&self) -> u32
+pub fn hadris_cpio::read::CpioEntry<'a>::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::read::CpioEntry<'a>::header(&self) -> &hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::read::CpioEntry<'a>::magic(&self) -> hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::read::CpioEntry<'a>::name(&self) -> &[u8]
+pub fn hadris_cpio::read::CpioEntry<'a>::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::read::CpioEntryOwned
+impl hadris_cpio::read::CpioEntryOwned
+pub fn hadris_cpio::read::CpioEntryOwned::entry_offset(&self) -> u64
+pub fn hadris_cpio::read::CpioEntryOwned::file_size(&self) -> u32
+pub fn hadris_cpio::read::CpioEntryOwned::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::read::CpioEntryOwned::header(&self) -> &hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::read::CpioEntryOwned::magic(&self) -> hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::read::CpioEntryOwned::name(&self) -> &[u8]
+pub fn hadris_cpio::read::CpioEntryOwned::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::read::CpioReader<R>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_cpio::read::CpioReader<R>
+pub fn hadris_cpio::read::CpioReader<R>::seek_to_entry(&mut self, u64) -> hadris_cpio::error::Result<()>
+impl<R: hadris_io::sync_api::Read> hadris_cpio::read::CpioReader<R>
+pub fn hadris_cpio::read::CpioReader<R>::new(R) -> Self
+pub fn hadris_cpio::read::CpioReader<R>::next_entry_alloc(&mut self) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::read::CpioEntryOwned>>
+pub fn hadris_cpio::read::CpioReader<R>::next_entry_with_buf<'buf>(&mut self, &'buf mut [u8]) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::read::CpioEntry<'buf>>>
+pub fn hadris_cpio::read::CpioReader<R>::offset(&self) -> u64
+pub fn hadris_cpio::read::CpioReader<R>::read_entry_data(&mut self, &hadris_cpio::read::CpioEntry<'_>, &mut [u8]) -> hadris_cpio::error::Result<()>
+pub fn hadris_cpio::read::CpioReader<R>::read_entry_data_alloc(&mut self, &hadris_cpio::read::CpioEntryOwned) -> hadris_cpio::error::Result<alloc::vec::Vec<u8>>
+pub fn hadris_cpio::read::CpioReader<R>::skip_entry_data(&mut self, &hadris_cpio::read::CpioEntry<'_>) -> hadris_cpio::error::Result<()>
+pub fn hadris_cpio::read::CpioReader<R>::skip_entry_data_owned(&mut self, &hadris_cpio::read::CpioEntryOwned) -> hadris_cpio::error::Result<()>
+pub mod hadris_cpio::sync
+pub use hadris_cpio::sync::Error
+pub use hadris_cpio::sync::ErrorKind
+pub use hadris_cpio::sync::IoResult
+pub use hadris_cpio::sync::Parsable
+pub use hadris_cpio::sync::Read
+pub use hadris_cpio::sync::ReadExt
+pub use hadris_cpio::sync::Seek
+pub use hadris_cpio::sync::SeekFrom
+pub use hadris_cpio::sync::Writable
+pub use hadris_cpio::sync::Write
+pub mod hadris_cpio::sync::entry
+pub struct hadris_cpio::sync::entry::CpioEntryHeader
+pub hadris_cpio::sync::entry::CpioEntryHeader::check: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::devmajor: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::devminor: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::filesize: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::gid: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::ino: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::mode: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::mtime: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::nlink: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::rdevmajor: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::rdevminor: u32
+pub hadris_cpio::sync::entry::CpioEntryHeader::uid: u32
+impl hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::entry::CpioEntryHeader::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::entry::CpioEntryHeader::from_raw(&hadris_cpio::header::RawNewcHeader) -> hadris_cpio::error::Result<Self>
+pub fn hadris_cpio::entry::CpioEntryHeader::is_hard_link(&self) -> bool
+pub fn hadris_cpio::entry::CpioEntryHeader::is_trailer_like(&self) -> bool
+pub fn hadris_cpio::entry::CpioEntryHeader::permissions(&self) -> u32
+impl core::fmt::Display for hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::entry::CpioEntryHeader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub mod hadris_cpio::sync::header
+pub enum hadris_cpio::sync::header::CpioMagic
+pub hadris_cpio::sync::header::CpioMagic::Newc
+pub hadris_cpio::sync::header::CpioMagic::NewcCrc
+impl hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::header::CpioMagic::as_bytes(&self) -> &[u8; 6]
+impl core::fmt::Display for hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::header::CpioMagic::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cpio::sync::header::RawNewcHeader
+impl hadris_cpio::header::RawNewcHeader
+pub fn hadris_cpio::header::RawNewcHeader::build(hadris_cpio::header::CpioMagic, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::header::RawNewcHeader::check(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::devmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::devminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::filesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::gid(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::ino(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::magic(&self) -> core::option::Option<hadris_cpio::header::CpioMagic>
+pub fn hadris_cpio::header::RawNewcHeader::magic_bytes(&self) -> &[u8]
+pub fn hadris_cpio::header::RawNewcHeader::mode(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::mtime(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::namesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::nlink(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::rdevmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::rdevminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::uid(&self) -> hadris_cpio::error::Result<u32>
+impl hadris_cpio::header::RawNewcHeader
+pub fn hadris_cpio::header::RawNewcHeader::parse<R: hadris_io::sync_api::Read>(&mut R) -> hadris_cpio::error::Result<Self>
+pub fn hadris_cpio::header::RawNewcHeader::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_cpio::error::Result<()>
+pub const hadris_cpio::sync::header::HEADER_SIZE: usize
+pub const hadris_cpio::sync::header::MAGIC_NEWC: &[u8; 6]
+pub const hadris_cpio::sync::header::MAGIC_NEWC_CRC: &[u8; 6]
+pub const hadris_cpio::sync::header::TRAILER_NAME: &[u8]
+pub mod hadris_cpio::sync::read
+pub struct hadris_cpio::sync::read::CpioEntry<'a>
+impl<'a> hadris_cpio::read::CpioEntry<'a>
+pub fn hadris_cpio::read::CpioEntry<'a>::entry_offset(&self) -> u64
+pub fn hadris_cpio::read::CpioEntry<'a>::file_size(&self) -> u32
+pub fn hadris_cpio::read::CpioEntry<'a>::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::read::CpioEntry<'a>::header(&self) -> &hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::read::CpioEntry<'a>::magic(&self) -> hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::read::CpioEntry<'a>::name(&self) -> &[u8]
+pub fn hadris_cpio::read::CpioEntry<'a>::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::sync::read::CpioEntryOwned
+impl hadris_cpio::read::CpioEntryOwned
+pub fn hadris_cpio::read::CpioEntryOwned::entry_offset(&self) -> u64
+pub fn hadris_cpio::read::CpioEntryOwned::file_size(&self) -> u32
+pub fn hadris_cpio::read::CpioEntryOwned::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::read::CpioEntryOwned::header(&self) -> &hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::read::CpioEntryOwned::magic(&self) -> hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::read::CpioEntryOwned::name(&self) -> &[u8]
+pub fn hadris_cpio::read::CpioEntryOwned::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::sync::read::CpioReader<R>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_cpio::read::CpioReader<R>
+pub fn hadris_cpio::read::CpioReader<R>::seek_to_entry(&mut self, u64) -> hadris_cpio::error::Result<()>
+impl<R: hadris_io::sync_api::Read> hadris_cpio::read::CpioReader<R>
+pub fn hadris_cpio::read::CpioReader<R>::new(R) -> Self
+pub fn hadris_cpio::read::CpioReader<R>::next_entry_alloc(&mut self) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::read::CpioEntryOwned>>
+pub fn hadris_cpio::read::CpioReader<R>::next_entry_with_buf<'buf>(&mut self, &'buf mut [u8]) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::read::CpioEntry<'buf>>>
+pub fn hadris_cpio::read::CpioReader<R>::offset(&self) -> u64
+pub fn hadris_cpio::read::CpioReader<R>::read_entry_data(&mut self, &hadris_cpio::read::CpioEntry<'_>, &mut [u8]) -> hadris_cpio::error::Result<()>
+pub fn hadris_cpio::read::CpioReader<R>::read_entry_data_alloc(&mut self, &hadris_cpio::read::CpioEntryOwned) -> hadris_cpio::error::Result<alloc::vec::Vec<u8>>
+pub fn hadris_cpio::read::CpioReader<R>::skip_entry_data(&mut self, &hadris_cpio::read::CpioEntry<'_>) -> hadris_cpio::error::Result<()>
+pub fn hadris_cpio::read::CpioReader<R>::skip_entry_data_owned(&mut self, &hadris_cpio::read::CpioEntryOwned) -> hadris_cpio::error::Result<()>
+pub mod hadris_cpio::sync::write
+pub mod hadris_cpio::sync::write::file_tree
+pub enum hadris_cpio::sync::write::file_tree::FileNode
+pub hadris_cpio::sync::write::file_tree::FileNode::DeviceNode
+pub hadris_cpio::sync::write::file_tree::FileNode::DeviceNode::device_type: hadris_cpio::mode::FileType
+pub hadris_cpio::sync::write::file_tree::FileNode::DeviceNode::gid: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::DeviceNode::major: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::DeviceNode::minor: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::DeviceNode::mtime: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::DeviceNode::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::write::file_tree::FileNode::DeviceNode::permissions: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::DeviceNode::uid: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Directory
+pub hadris_cpio::sync::write::file_tree::FileNode::Directory::children: alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>
+pub hadris_cpio::sync::write::file_tree::FileNode::Directory::gid: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Directory::mtime: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Directory::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::write::file_tree::FileNode::Directory::permissions: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Directory::uid: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Fifo
+pub hadris_cpio::sync::write::file_tree::FileNode::Fifo::gid: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Fifo::mtime: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Fifo::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::write::file_tree::FileNode::Fifo::permissions: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Fifo::uid: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::File
+pub hadris_cpio::sync::write::file_tree::FileNode::File::contents: alloc::vec::Vec<u8>
+pub hadris_cpio::sync::write::file_tree::FileNode::File::gid: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::File::mtime: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::File::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::write::file_tree::FileNode::File::permissions: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::File::uid: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::HardLink
+pub hadris_cpio::sync::write::file_tree::FileNode::HardLink::link_target: alloc::string::String
+pub hadris_cpio::sync::write::file_tree::FileNode::HardLink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::write::file_tree::FileNode::Symlink
+pub hadris_cpio::sync::write::file_tree::FileNode::Symlink::gid: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Symlink::mtime: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Symlink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::write::file_tree::FileNode::Symlink::permissions: u32
+pub hadris_cpio::sync::write::file_tree::FileNode::Symlink::target: alloc::string::String
+pub hadris_cpio::sync::write::file_tree::FileNode::Symlink::uid: u32
+impl hadris_cpio::write::file_tree::FileNode
+pub fn hadris_cpio::write::file_tree::FileNode::device(&str, hadris_cpio::mode::FileType, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::dir(&str, alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::dir_with_owner(&str, alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::fifo(&str, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::file(&str, alloc::vec::Vec<u8>, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::file_with_owner(&str, alloc::vec::Vec<u8>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::hard_link(&str, &str) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::node_name(&self) -> &str
+pub fn hadris_cpio::write::file_tree::FileNode::symlink(&str, &str) -> Self
+pub struct hadris_cpio::sync::write::file_tree::FileTree
+pub hadris_cpio::sync::write::file_tree::FileTree::root: alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>
+impl hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::add(&mut self, hadris_cpio::write::file_tree::FileNode)
+pub fn hadris_cpio::write::file_tree::FileTree::new() -> Self
+impl hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::from_fs(&std::path::Path) -> core::result::Result<Self, hadris_cpio::write::from_fs::FromFsError>
+impl core::default::Default for hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::default() -> Self
+pub mod hadris_cpio::sync::write::from_fs
+pub enum hadris_cpio::sync::write::from_fs::FromFsError
+pub hadris_cpio::sync::write::from_fs::FromFsError::Io(std::io::error::Error)
+impl core::convert::From<std::io::error::Error> for hadris_cpio::write::from_fs::FromFsError
+pub fn hadris_cpio::write::from_fs::FromFsError::from(std::io::error::Error) -> Self
+impl core::error::Error for hadris_cpio::write::from_fs::FromFsError
+impl core::fmt::Display for hadris_cpio::write::from_fs::FromFsError
+pub fn hadris_cpio::write::from_fs::FromFsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cpio::sync::write::CpioArchiveWriter<W>
+impl<W: hadris_io::sync_api::Write> hadris_cpio::write::CpioArchiveWriter<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::create(W, &hadris_cpio::write::file_tree::FileTree, hadris_cpio::write::CpioWriteOptions) -> hadris_cpio::error::Result<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::finish(self, &hadris_cpio::write::file_tree::FileTree) -> hadris_cpio::error::Result<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::into_inner(self) -> W
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::new(W, hadris_cpio::write::CpioWriteOptions) -> Self
+pub struct hadris_cpio::sync::write::CpioWriteOptions
+pub hadris_cpio::sync::write::CpioWriteOptions::use_crc: bool
+impl hadris_cpio::write::CpioWriteOptions
+pub const fn hadris_cpio::write::CpioWriteOptions::crc(self, bool) -> Self
+pub struct hadris_cpio::sync::write::CpioWriter
+impl hadris_cpio::write::CpioWriter
+pub fn hadris_cpio::write::CpioWriter::new(hadris_cpio::write::CpioWriteOptions) -> Self
+pub fn hadris_cpio::write::CpioWriter::write<W: hadris_io::sync_api::Write>(&self, &mut W, &hadris_cpio::write::file_tree::FileTree) -> hadris_cpio::error::Result<()>
+pub enum hadris_cpio::sync::CpioMagic
+pub hadris_cpio::sync::CpioMagic::Newc
+pub hadris_cpio::sync::CpioMagic::NewcCrc
+impl hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::header::CpioMagic::as_bytes(&self) -> &[u8; 6]
+impl core::fmt::Display for hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::header::CpioMagic::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum hadris_cpio::sync::FileNode
+pub hadris_cpio::sync::FileNode::DeviceNode
+pub hadris_cpio::sync::FileNode::DeviceNode::device_type: hadris_cpio::mode::FileType
+pub hadris_cpio::sync::FileNode::DeviceNode::gid: u32
+pub hadris_cpio::sync::FileNode::DeviceNode::major: u32
+pub hadris_cpio::sync::FileNode::DeviceNode::minor: u32
+pub hadris_cpio::sync::FileNode::DeviceNode::mtime: u32
+pub hadris_cpio::sync::FileNode::DeviceNode::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::FileNode::DeviceNode::permissions: u32
+pub hadris_cpio::sync::FileNode::DeviceNode::uid: u32
+pub hadris_cpio::sync::FileNode::Directory
+pub hadris_cpio::sync::FileNode::Directory::children: alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>
+pub hadris_cpio::sync::FileNode::Directory::gid: u32
+pub hadris_cpio::sync::FileNode::Directory::mtime: u32
+pub hadris_cpio::sync::FileNode::Directory::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::FileNode::Directory::permissions: u32
+pub hadris_cpio::sync::FileNode::Directory::uid: u32
+pub hadris_cpio::sync::FileNode::Fifo
+pub hadris_cpio::sync::FileNode::Fifo::gid: u32
+pub hadris_cpio::sync::FileNode::Fifo::mtime: u32
+pub hadris_cpio::sync::FileNode::Fifo::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::FileNode::Fifo::permissions: u32
+pub hadris_cpio::sync::FileNode::Fifo::uid: u32
+pub hadris_cpio::sync::FileNode::File
+pub hadris_cpio::sync::FileNode::File::contents: alloc::vec::Vec<u8>
+pub hadris_cpio::sync::FileNode::File::gid: u32
+pub hadris_cpio::sync::FileNode::File::mtime: u32
+pub hadris_cpio::sync::FileNode::File::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::FileNode::File::permissions: u32
+pub hadris_cpio::sync::FileNode::File::uid: u32
+pub hadris_cpio::sync::FileNode::HardLink
+pub hadris_cpio::sync::FileNode::HardLink::link_target: alloc::string::String
+pub hadris_cpio::sync::FileNode::HardLink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::FileNode::Symlink
+pub hadris_cpio::sync::FileNode::Symlink::gid: u32
+pub hadris_cpio::sync::FileNode::Symlink::mtime: u32
+pub hadris_cpio::sync::FileNode::Symlink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::sync::FileNode::Symlink::permissions: u32
+pub hadris_cpio::sync::FileNode::Symlink::target: alloc::string::String
+pub hadris_cpio::sync::FileNode::Symlink::uid: u32
+impl hadris_cpio::write::file_tree::FileNode
+pub fn hadris_cpio::write::file_tree::FileNode::device(&str, hadris_cpio::mode::FileType, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::dir(&str, alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::dir_with_owner(&str, alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::fifo(&str, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::file(&str, alloc::vec::Vec<u8>, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::file_with_owner(&str, alloc::vec::Vec<u8>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::hard_link(&str, &str) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::node_name(&self) -> &str
+pub fn hadris_cpio::write::file_tree::FileNode::symlink(&str, &str) -> Self
+pub struct hadris_cpio::sync::CpioArchiveWriter<W>
+impl<W: hadris_io::sync_api::Write> hadris_cpio::write::CpioArchiveWriter<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::create(W, &hadris_cpio::write::file_tree::FileTree, hadris_cpio::write::CpioWriteOptions) -> hadris_cpio::error::Result<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::finish(self, &hadris_cpio::write::file_tree::FileTree) -> hadris_cpio::error::Result<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::into_inner(self) -> W
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::new(W, hadris_cpio::write::CpioWriteOptions) -> Self
+pub struct hadris_cpio::sync::CpioEntry<'a>
+impl<'a> hadris_cpio::read::CpioEntry<'a>
+pub fn hadris_cpio::read::CpioEntry<'a>::entry_offset(&self) -> u64
+pub fn hadris_cpio::read::CpioEntry<'a>::file_size(&self) -> u32
+pub fn hadris_cpio::read::CpioEntry<'a>::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::read::CpioEntry<'a>::header(&self) -> &hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::read::CpioEntry<'a>::magic(&self) -> hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::read::CpioEntry<'a>::name(&self) -> &[u8]
+pub fn hadris_cpio::read::CpioEntry<'a>::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::sync::CpioEntryHeader
+pub hadris_cpio::sync::CpioEntryHeader::check: u32
+pub hadris_cpio::sync::CpioEntryHeader::devmajor: u32
+pub hadris_cpio::sync::CpioEntryHeader::devminor: u32
+pub hadris_cpio::sync::CpioEntryHeader::filesize: u32
+pub hadris_cpio::sync::CpioEntryHeader::gid: u32
+pub hadris_cpio::sync::CpioEntryHeader::ino: u32
+pub hadris_cpio::sync::CpioEntryHeader::mode: u32
+pub hadris_cpio::sync::CpioEntryHeader::mtime: u32
+pub hadris_cpio::sync::CpioEntryHeader::nlink: u32
+pub hadris_cpio::sync::CpioEntryHeader::rdevmajor: u32
+pub hadris_cpio::sync::CpioEntryHeader::rdevminor: u32
+pub hadris_cpio::sync::CpioEntryHeader::uid: u32
+impl hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::entry::CpioEntryHeader::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::entry::CpioEntryHeader::from_raw(&hadris_cpio::header::RawNewcHeader) -> hadris_cpio::error::Result<Self>
+pub fn hadris_cpio::entry::CpioEntryHeader::is_hard_link(&self) -> bool
+pub fn hadris_cpio::entry::CpioEntryHeader::is_trailer_like(&self) -> bool
+pub fn hadris_cpio::entry::CpioEntryHeader::permissions(&self) -> u32
+impl core::fmt::Display for hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::entry::CpioEntryHeader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cpio::sync::CpioEntryOwned
+impl hadris_cpio::read::CpioEntryOwned
+pub fn hadris_cpio::read::CpioEntryOwned::entry_offset(&self) -> u64
+pub fn hadris_cpio::read::CpioEntryOwned::file_size(&self) -> u32
+pub fn hadris_cpio::read::CpioEntryOwned::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::read::CpioEntryOwned::header(&self) -> &hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::read::CpioEntryOwned::magic(&self) -> hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::read::CpioEntryOwned::name(&self) -> &[u8]
+pub fn hadris_cpio::read::CpioEntryOwned::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::sync::CpioReader<R>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_cpio::read::CpioReader<R>
+pub fn hadris_cpio::read::CpioReader<R>::seek_to_entry(&mut self, u64) -> hadris_cpio::error::Result<()>
+impl<R: hadris_io::sync_api::Read> hadris_cpio::read::CpioReader<R>
+pub fn hadris_cpio::read::CpioReader<R>::new(R) -> Self
+pub fn hadris_cpio::read::CpioReader<R>::next_entry_alloc(&mut self) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::read::CpioEntryOwned>>
+pub fn hadris_cpio::read::CpioReader<R>::next_entry_with_buf<'buf>(&mut self, &'buf mut [u8]) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::read::CpioEntry<'buf>>>
+pub fn hadris_cpio::read::CpioReader<R>::offset(&self) -> u64
+pub fn hadris_cpio::read::CpioReader<R>::read_entry_data(&mut self, &hadris_cpio::read::CpioEntry<'_>, &mut [u8]) -> hadris_cpio::error::Result<()>
+pub fn hadris_cpio::read::CpioReader<R>::read_entry_data_alloc(&mut self, &hadris_cpio::read::CpioEntryOwned) -> hadris_cpio::error::Result<alloc::vec::Vec<u8>>
+pub fn hadris_cpio::read::CpioReader<R>::skip_entry_data(&mut self, &hadris_cpio::read::CpioEntry<'_>) -> hadris_cpio::error::Result<()>
+pub fn hadris_cpio::read::CpioReader<R>::skip_entry_data_owned(&mut self, &hadris_cpio::read::CpioEntryOwned) -> hadris_cpio::error::Result<()>
+pub struct hadris_cpio::sync::CpioWriteOptions
+pub hadris_cpio::sync::CpioWriteOptions::use_crc: bool
+impl hadris_cpio::write::CpioWriteOptions
+pub const fn hadris_cpio::write::CpioWriteOptions::crc(self, bool) -> Self
+pub struct hadris_cpio::sync::CpioWriter
+impl hadris_cpio::write::CpioWriter
+pub fn hadris_cpio::write::CpioWriter::new(hadris_cpio::write::CpioWriteOptions) -> Self
+pub fn hadris_cpio::write::CpioWriter::write<W: hadris_io::sync_api::Write>(&self, &mut W, &hadris_cpio::write::file_tree::FileTree) -> hadris_cpio::error::Result<()>
+pub struct hadris_cpio::sync::FileTree
+pub hadris_cpio::sync::FileTree::root: alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>
+impl hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::add(&mut self, hadris_cpio::write::file_tree::FileNode)
+pub fn hadris_cpio::write::file_tree::FileTree::new() -> Self
+impl hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::from_fs(&std::path::Path) -> core::result::Result<Self, hadris_cpio::write::from_fs::FromFsError>
+impl core::default::Default for hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::default() -> Self
+pub struct hadris_cpio::sync::RawNewcHeader
+impl hadris_cpio::header::RawNewcHeader
+pub fn hadris_cpio::header::RawNewcHeader::build(hadris_cpio::header::CpioMagic, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::header::RawNewcHeader::check(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::devmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::devminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::filesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::gid(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::ino(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::magic(&self) -> core::option::Option<hadris_cpio::header::CpioMagic>
+pub fn hadris_cpio::header::RawNewcHeader::magic_bytes(&self) -> &[u8]
+pub fn hadris_cpio::header::RawNewcHeader::mode(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::mtime(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::namesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::nlink(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::rdevmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::rdevminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::uid(&self) -> hadris_cpio::error::Result<u32>
+impl hadris_cpio::header::RawNewcHeader
+pub fn hadris_cpio::header::RawNewcHeader::parse<R: hadris_io::sync_api::Read>(&mut R) -> hadris_cpio::error::Result<Self>
+pub fn hadris_cpio::header::RawNewcHeader::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_cpio::error::Result<()>
+pub const hadris_cpio::sync::HEADER_SIZE: usize
+pub const hadris_cpio::sync::MAGIC_NEWC: &[u8; 6]
+pub const hadris_cpio::sync::MAGIC_NEWC_CRC: &[u8; 6]
+pub const hadris_cpio::sync::TRAILER_NAME: &[u8]
+pub mod hadris_cpio::write
+pub mod hadris_cpio::write::file_tree
+pub enum hadris_cpio::write::file_tree::FileNode
+pub hadris_cpio::write::file_tree::FileNode::DeviceNode
+pub hadris_cpio::write::file_tree::FileNode::DeviceNode::device_type: hadris_cpio::mode::FileType
+pub hadris_cpio::write::file_tree::FileNode::DeviceNode::gid: u32
+pub hadris_cpio::write::file_tree::FileNode::DeviceNode::major: u32
+pub hadris_cpio::write::file_tree::FileNode::DeviceNode::minor: u32
+pub hadris_cpio::write::file_tree::FileNode::DeviceNode::mtime: u32
+pub hadris_cpio::write::file_tree::FileNode::DeviceNode::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::write::file_tree::FileNode::DeviceNode::permissions: u32
+pub hadris_cpio::write::file_tree::FileNode::DeviceNode::uid: u32
+pub hadris_cpio::write::file_tree::FileNode::Directory
+pub hadris_cpio::write::file_tree::FileNode::Directory::children: alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>
+pub hadris_cpio::write::file_tree::FileNode::Directory::gid: u32
+pub hadris_cpio::write::file_tree::FileNode::Directory::mtime: u32
+pub hadris_cpio::write::file_tree::FileNode::Directory::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::write::file_tree::FileNode::Directory::permissions: u32
+pub hadris_cpio::write::file_tree::FileNode::Directory::uid: u32
+pub hadris_cpio::write::file_tree::FileNode::Fifo
+pub hadris_cpio::write::file_tree::FileNode::Fifo::gid: u32
+pub hadris_cpio::write::file_tree::FileNode::Fifo::mtime: u32
+pub hadris_cpio::write::file_tree::FileNode::Fifo::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::write::file_tree::FileNode::Fifo::permissions: u32
+pub hadris_cpio::write::file_tree::FileNode::Fifo::uid: u32
+pub hadris_cpio::write::file_tree::FileNode::File
+pub hadris_cpio::write::file_tree::FileNode::File::contents: alloc::vec::Vec<u8>
+pub hadris_cpio::write::file_tree::FileNode::File::gid: u32
+pub hadris_cpio::write::file_tree::FileNode::File::mtime: u32
+pub hadris_cpio::write::file_tree::FileNode::File::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::write::file_tree::FileNode::File::permissions: u32
+pub hadris_cpio::write::file_tree::FileNode::File::uid: u32
+pub hadris_cpio::write::file_tree::FileNode::HardLink
+pub hadris_cpio::write::file_tree::FileNode::HardLink::link_target: alloc::string::String
+pub hadris_cpio::write::file_tree::FileNode::HardLink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::write::file_tree::FileNode::Symlink
+pub hadris_cpio::write::file_tree::FileNode::Symlink::gid: u32
+pub hadris_cpio::write::file_tree::FileNode::Symlink::mtime: u32
+pub hadris_cpio::write::file_tree::FileNode::Symlink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::write::file_tree::FileNode::Symlink::permissions: u32
+pub hadris_cpio::write::file_tree::FileNode::Symlink::target: alloc::string::String
+pub hadris_cpio::write::file_tree::FileNode::Symlink::uid: u32
+impl hadris_cpio::write::file_tree::FileNode
+pub fn hadris_cpio::write::file_tree::FileNode::device(&str, hadris_cpio::mode::FileType, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::dir(&str, alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::dir_with_owner(&str, alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::fifo(&str, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::file(&str, alloc::vec::Vec<u8>, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::file_with_owner(&str, alloc::vec::Vec<u8>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::hard_link(&str, &str) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::node_name(&self) -> &str
+pub fn hadris_cpio::write::file_tree::FileNode::symlink(&str, &str) -> Self
+pub struct hadris_cpio::write::file_tree::FileTree
+pub hadris_cpio::write::file_tree::FileTree::root: alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>
+impl hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::add(&mut self, hadris_cpio::write::file_tree::FileNode)
+pub fn hadris_cpio::write::file_tree::FileTree::new() -> Self
+impl hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::from_fs(&std::path::Path) -> core::result::Result<Self, hadris_cpio::write::from_fs::FromFsError>
+impl core::default::Default for hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::default() -> Self
+pub mod hadris_cpio::write::from_fs
+pub enum hadris_cpio::write::from_fs::FromFsError
+pub hadris_cpio::write::from_fs::FromFsError::Io(std::io::error::Error)
+impl core::convert::From<std::io::error::Error> for hadris_cpio::write::from_fs::FromFsError
+pub fn hadris_cpio::write::from_fs::FromFsError::from(std::io::error::Error) -> Self
+impl core::error::Error for hadris_cpio::write::from_fs::FromFsError
+impl core::fmt::Display for hadris_cpio::write::from_fs::FromFsError
+pub fn hadris_cpio::write::from_fs::FromFsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cpio::write::CpioArchiveWriter<W>
+impl<W: hadris_io::sync_api::Write> hadris_cpio::write::CpioArchiveWriter<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::create(W, &hadris_cpio::write::file_tree::FileTree, hadris_cpio::write::CpioWriteOptions) -> hadris_cpio::error::Result<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::finish(self, &hadris_cpio::write::file_tree::FileTree) -> hadris_cpio::error::Result<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::into_inner(self) -> W
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::new(W, hadris_cpio::write::CpioWriteOptions) -> Self
+pub struct hadris_cpio::write::CpioWriteOptions
+pub hadris_cpio::write::CpioWriteOptions::use_crc: bool
+impl hadris_cpio::write::CpioWriteOptions
+pub const fn hadris_cpio::write::CpioWriteOptions::crc(self, bool) -> Self
+pub struct hadris_cpio::write::CpioWriter
+impl hadris_cpio::write::CpioWriter
+pub fn hadris_cpio::write::CpioWriter::new(hadris_cpio::write::CpioWriteOptions) -> Self
+pub fn hadris_cpio::write::CpioWriter::write<W: hadris_io::sync_api::Write>(&self, &mut W, &hadris_cpio::write::file_tree::FileTree) -> hadris_cpio::error::Result<()>
+pub enum hadris_cpio::CpioError
+pub hadris_cpio::CpioError::ChecksumMismatch
+pub hadris_cpio::CpioError::ChecksumMismatch::computed: u32
+pub hadris_cpio::CpioError::ChecksumMismatch::expected: u32
+pub hadris_cpio::CpioError::FileTooLarge
+pub hadris_cpio::CpioError::FilenameTooLong
+pub hadris_cpio::CpioError::InvalidFilename
+pub hadris_cpio::CpioError::InvalidHexField
+pub hadris_cpio::CpioError::InvalidHexField::field: &'static str
+pub hadris_cpio::CpioError::InvalidMagic
+pub hadris_cpio::CpioError::InvalidMagic::found: [u8; 6]
+pub hadris_cpio::CpioError::Io(hadris_io::error::Error)
+pub hadris_cpio::CpioError::MissingTrailer
+pub hadris_cpio::CpioError::UnresolvedHardLink
+pub hadris_cpio::CpioError::UnresolvedHardLink::ino: u32
+impl core::error::Error for hadris_cpio::error::CpioError
+impl core::fmt::Display for hadris_cpio::error::CpioError
+pub fn hadris_cpio::error::CpioError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_io::IoError> core::convert::From<hadris_io::error::Error<E>> for hadris_cpio::error::CpioError
+pub fn hadris_cpio::error::CpioError::from(hadris_io::error::Error<E>) -> Self
+pub enum hadris_cpio::CpioMagic
+pub hadris_cpio::CpioMagic::Newc
+pub hadris_cpio::CpioMagic::NewcCrc
+impl hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::header::CpioMagic::as_bytes(&self) -> &[u8; 6]
+impl core::fmt::Display for hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::header::CpioMagic::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum hadris_cpio::FileNode
+pub hadris_cpio::FileNode::DeviceNode
+pub hadris_cpio::FileNode::DeviceNode::device_type: hadris_cpio::mode::FileType
+pub hadris_cpio::FileNode::DeviceNode::gid: u32
+pub hadris_cpio::FileNode::DeviceNode::major: u32
+pub hadris_cpio::FileNode::DeviceNode::minor: u32
+pub hadris_cpio::FileNode::DeviceNode::mtime: u32
+pub hadris_cpio::FileNode::DeviceNode::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::FileNode::DeviceNode::permissions: u32
+pub hadris_cpio::FileNode::DeviceNode::uid: u32
+pub hadris_cpio::FileNode::Directory
+pub hadris_cpio::FileNode::Directory::children: alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>
+pub hadris_cpio::FileNode::Directory::gid: u32
+pub hadris_cpio::FileNode::Directory::mtime: u32
+pub hadris_cpio::FileNode::Directory::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::FileNode::Directory::permissions: u32
+pub hadris_cpio::FileNode::Directory::uid: u32
+pub hadris_cpio::FileNode::Fifo
+pub hadris_cpio::FileNode::Fifo::gid: u32
+pub hadris_cpio::FileNode::Fifo::mtime: u32
+pub hadris_cpio::FileNode::Fifo::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::FileNode::Fifo::permissions: u32
+pub hadris_cpio::FileNode::Fifo::uid: u32
+pub hadris_cpio::FileNode::File
+pub hadris_cpio::FileNode::File::contents: alloc::vec::Vec<u8>
+pub hadris_cpio::FileNode::File::gid: u32
+pub hadris_cpio::FileNode::File::mtime: u32
+pub hadris_cpio::FileNode::File::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::FileNode::File::permissions: u32
+pub hadris_cpio::FileNode::File::uid: u32
+pub hadris_cpio::FileNode::HardLink
+pub hadris_cpio::FileNode::HardLink::link_target: alloc::string::String
+pub hadris_cpio::FileNode::HardLink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::FileNode::Symlink
+pub hadris_cpio::FileNode::Symlink::gid: u32
+pub hadris_cpio::FileNode::Symlink::mtime: u32
+pub hadris_cpio::FileNode::Symlink::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cpio::FileNode::Symlink::permissions: u32
+pub hadris_cpio::FileNode::Symlink::target: alloc::string::String
+pub hadris_cpio::FileNode::Symlink::uid: u32
+impl hadris_cpio::write::file_tree::FileNode
+pub fn hadris_cpio::write::file_tree::FileNode::device(&str, hadris_cpio::mode::FileType, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::dir(&str, alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::dir_with_owner(&str, alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::fifo(&str, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::file(&str, alloc::vec::Vec<u8>, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::file_with_owner(&str, alloc::vec::Vec<u8>, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::hard_link(&str, &str) -> Self
+pub fn hadris_cpio::write::file_tree::FileNode::node_name(&self) -> &str
+pub fn hadris_cpio::write::file_tree::FileNode::symlink(&str, &str) -> Self
+pub enum hadris_cpio::FileType
+pub hadris_cpio::FileType::BlockDevice
+pub hadris_cpio::FileType::CharDevice
+pub hadris_cpio::FileType::Directory
+pub hadris_cpio::FileType::Fifo
+pub hadris_cpio::FileType::Regular
+pub hadris_cpio::FileType::Socket
+pub hadris_cpio::FileType::Symlink
+pub hadris_cpio::FileType::Unknown(u32)
+impl hadris_cpio::mode::FileType
+pub fn hadris_cpio::mode::FileType::from_mode(u32) -> Self
+pub fn hadris_cpio::mode::FileType::to_mode_bits(self) -> u32
+impl core::fmt::Display for hadris_cpio::mode::FileType
+pub fn hadris_cpio::mode::FileType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cpio::CpioArchiveWriter<W>
+impl<W: hadris_io::sync_api::Write> hadris_cpio::write::CpioArchiveWriter<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::create(W, &hadris_cpio::write::file_tree::FileTree, hadris_cpio::write::CpioWriteOptions) -> hadris_cpio::error::Result<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::finish(self, &hadris_cpio::write::file_tree::FileTree) -> hadris_cpio::error::Result<W>
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::into_inner(self) -> W
+pub fn hadris_cpio::write::CpioArchiveWriter<W>::new(W, hadris_cpio::write::CpioWriteOptions) -> Self
+pub struct hadris_cpio::CpioEntry<'a>
+impl<'a> hadris_cpio::read::CpioEntry<'a>
+pub fn hadris_cpio::read::CpioEntry<'a>::entry_offset(&self) -> u64
+pub fn hadris_cpio::read::CpioEntry<'a>::file_size(&self) -> u32
+pub fn hadris_cpio::read::CpioEntry<'a>::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::read::CpioEntry<'a>::header(&self) -> &hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::read::CpioEntry<'a>::magic(&self) -> hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::read::CpioEntry<'a>::name(&self) -> &[u8]
+pub fn hadris_cpio::read::CpioEntry<'a>::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::CpioEntryHeader
+pub hadris_cpio::CpioEntryHeader::check: u32
+pub hadris_cpio::CpioEntryHeader::devmajor: u32
+pub hadris_cpio::CpioEntryHeader::devminor: u32
+pub hadris_cpio::CpioEntryHeader::filesize: u32
+pub hadris_cpio::CpioEntryHeader::gid: u32
+pub hadris_cpio::CpioEntryHeader::ino: u32
+pub hadris_cpio::CpioEntryHeader::mode: u32
+pub hadris_cpio::CpioEntryHeader::mtime: u32
+pub hadris_cpio::CpioEntryHeader::nlink: u32
+pub hadris_cpio::CpioEntryHeader::rdevmajor: u32
+pub hadris_cpio::CpioEntryHeader::rdevminor: u32
+pub hadris_cpio::CpioEntryHeader::uid: u32
+impl hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::entry::CpioEntryHeader::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::entry::CpioEntryHeader::from_raw(&hadris_cpio::header::RawNewcHeader) -> hadris_cpio::error::Result<Self>
+pub fn hadris_cpio::entry::CpioEntryHeader::is_hard_link(&self) -> bool
+pub fn hadris_cpio::entry::CpioEntryHeader::is_trailer_like(&self) -> bool
+pub fn hadris_cpio::entry::CpioEntryHeader::permissions(&self) -> u32
+impl core::fmt::Display for hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::entry::CpioEntryHeader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cpio::CpioEntryOwned
+impl hadris_cpio::read::CpioEntryOwned
+pub fn hadris_cpio::read::CpioEntryOwned::entry_offset(&self) -> u64
+pub fn hadris_cpio::read::CpioEntryOwned::file_size(&self) -> u32
+pub fn hadris_cpio::read::CpioEntryOwned::file_type(&self) -> hadris_cpio::mode::FileType
+pub fn hadris_cpio::read::CpioEntryOwned::header(&self) -> &hadris_cpio::entry::CpioEntryHeader
+pub fn hadris_cpio::read::CpioEntryOwned::magic(&self) -> hadris_cpio::header::CpioMagic
+pub fn hadris_cpio::read::CpioEntryOwned::name(&self) -> &[u8]
+pub fn hadris_cpio::read::CpioEntryOwned::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub struct hadris_cpio::CpioReader<R>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_cpio::read::CpioReader<R>
+pub fn hadris_cpio::read::CpioReader<R>::seek_to_entry(&mut self, u64) -> hadris_cpio::error::Result<()>
+impl<R: hadris_io::sync_api::Read> hadris_cpio::read::CpioReader<R>
+pub fn hadris_cpio::read::CpioReader<R>::new(R) -> Self
+pub fn hadris_cpio::read::CpioReader<R>::next_entry_alloc(&mut self) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::read::CpioEntryOwned>>
+pub fn hadris_cpio::read::CpioReader<R>::next_entry_with_buf<'buf>(&mut self, &'buf mut [u8]) -> hadris_cpio::error::Result<core::option::Option<hadris_cpio::read::CpioEntry<'buf>>>
+pub fn hadris_cpio::read::CpioReader<R>::offset(&self) -> u64
+pub fn hadris_cpio::read::CpioReader<R>::read_entry_data(&mut self, &hadris_cpio::read::CpioEntry<'_>, &mut [u8]) -> hadris_cpio::error::Result<()>
+pub fn hadris_cpio::read::CpioReader<R>::read_entry_data_alloc(&mut self, &hadris_cpio::read::CpioEntryOwned) -> hadris_cpio::error::Result<alloc::vec::Vec<u8>>
+pub fn hadris_cpio::read::CpioReader<R>::skip_entry_data(&mut self, &hadris_cpio::read::CpioEntry<'_>) -> hadris_cpio::error::Result<()>
+pub fn hadris_cpio::read::CpioReader<R>::skip_entry_data_owned(&mut self, &hadris_cpio::read::CpioEntryOwned) -> hadris_cpio::error::Result<()>
+pub struct hadris_cpio::CpioWriteOptions
+pub hadris_cpio::CpioWriteOptions::use_crc: bool
+impl hadris_cpio::write::CpioWriteOptions
+pub const fn hadris_cpio::write::CpioWriteOptions::crc(self, bool) -> Self
+pub struct hadris_cpio::CpioWriter
+impl hadris_cpio::write::CpioWriter
+pub fn hadris_cpio::write::CpioWriter::new(hadris_cpio::write::CpioWriteOptions) -> Self
+pub fn hadris_cpio::write::CpioWriter::write<W: hadris_io::sync_api::Write>(&self, &mut W, &hadris_cpio::write::file_tree::FileTree) -> hadris_cpio::error::Result<()>
+pub struct hadris_cpio::FileTree
+pub hadris_cpio::FileTree::root: alloc::vec::Vec<hadris_cpio::write::file_tree::FileNode>
+impl hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::add(&mut self, hadris_cpio::write::file_tree::FileNode)
+pub fn hadris_cpio::write::file_tree::FileTree::new() -> Self
+impl hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::from_fs(&std::path::Path) -> core::result::Result<Self, hadris_cpio::write::from_fs::FromFsError>
+impl core::default::Default for hadris_cpio::write::file_tree::FileTree
+pub fn hadris_cpio::write::file_tree::FileTree::default() -> Self
+pub struct hadris_cpio::RawNewcHeader
+impl hadris_cpio::header::RawNewcHeader
+pub fn hadris_cpio::header::RawNewcHeader::build(hadris_cpio::header::CpioMagic, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) -> Self
+pub fn hadris_cpio::header::RawNewcHeader::check(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::devmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::devminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::filesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::gid(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::ino(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::magic(&self) -> core::option::Option<hadris_cpio::header::CpioMagic>
+pub fn hadris_cpio::header::RawNewcHeader::magic_bytes(&self) -> &[u8]
+pub fn hadris_cpio::header::RawNewcHeader::mode(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::mtime(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::namesize(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::nlink(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::rdevmajor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::rdevminor(&self) -> hadris_cpio::error::Result<u32>
+pub fn hadris_cpio::header::RawNewcHeader::uid(&self) -> hadris_cpio::error::Result<u32>
+impl hadris_cpio::header::RawNewcHeader
+pub fn hadris_cpio::header::RawNewcHeader::parse<R: hadris_io::sync_api::Read>(&mut R) -> hadris_cpio::error::Result<Self>
+pub fn hadris_cpio::header::RawNewcHeader::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_cpio::error::Result<()>
+pub const hadris_cpio::HEADER_SIZE: usize
+pub const hadris_cpio::MAGIC_NEWC: &[u8; 6]
+pub const hadris_cpio::MAGIC_NEWC_CRC: &[u8; 6]
+pub const hadris_cpio::TRAILER_NAME: &[u8]
+pub type hadris_cpio::Result<T> = core::result::Result<T, hadris_cpio::error::CpioError>

@@ -1,0 +1,1369 @@
+pub mod hadris_part
+pub use hadris_part::Error
+pub use hadris_part::ErrorKind
+pub use hadris_part::IoResult
+pub use hadris_part::Le
+pub use hadris_part::Parsable
+pub use hadris_part::Read
+pub use hadris_part::ReadExt
+pub use hadris_part::Seek
+pub use hadris_part::SeekFrom
+pub use hadris_part::Writable
+pub use hadris_part::Write
+pub mod hadris_part::async
+pub use hadris_part::async::Error
+pub use hadris_part::async::ErrorKind
+pub use hadris_part::async::IoResult
+pub use hadris_part::async::Parsable
+pub use hadris_part::async::Read
+pub use hadris_part::async::ReadExt
+pub use hadris_part::async::Seek
+pub use hadris_part::async::SeekFrom
+pub use hadris_part::async::Writable
+pub use hadris_part::async::Write
+pub mod hadris_part::async::gpt_io
+pub trait hadris_part::async::gpt_io::GptHeaderReadExt: core::marker::Sized
+pub async fn hadris_part::async::gpt_io::GptHeaderReadExt::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::async::gpt_io::GptHeaderReadExt::read_from_lba<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::async::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
+pub async fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::async::gpt_io::GptHeaderWriteExt
+pub async fn hadris_part::async::gpt_io::GptHeaderWriteExt::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::async::gpt_io::GptHeaderWriteExt::write_to_lba<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+impl hadris_part::async::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
+pub async fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub mod hadris_part::async::mbr_io
+pub trait hadris_part::async::mbr_io::MasterBootRecordReadExt: core::marker::Sized
+pub async fn hadris_part::async::mbr_io::MasterBootRecordReadExt::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+impl hadris_part::async::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
+pub async fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub trait hadris_part::async::mbr_io::MasterBootRecordWriteExt
+pub async fn hadris_part::async::mbr_io::MasterBootRecordWriteExt::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::async::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
+pub async fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub mod hadris_part::async::partition_table
+pub async fn hadris_part::async::partition_table::detect<R>(&mut R) -> hadris_part::error::Result<hadris_part::scheme::PartitionSchemeType> where R: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <R as hadris_io::async_api::Read>::Error>
+pub async fn hadris_part::async::partition_table::open<R>(&mut R, u32) -> hadris_part::error::Result<hadris_part::scheme::DiskPartitionScheme> where R: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <R as hadris_io::async_api::Read>::Error>
+pub mod hadris_part::async::scheme_io
+pub trait hadris_part::async::scheme_io::DiskPartitionSchemeReadExt: core::marker::Sized
+pub async fn hadris_part::async::scheme_io::DiskPartitionSchemeReadExt::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::async::scheme_io::DiskPartitionSchemeReadExt for hadris_part::scheme::DiskPartitionScheme
+pub async fn hadris_part::scheme::DiskPartitionScheme::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::async::scheme_io::DiskPartitionSchemeWriteExt
+pub async fn hadris_part::async::scheme_io::DiskPartitionSchemeWriteExt::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::async::scheme_io::DiskPartitionSchemeWriteExt for hadris_part::scheme::DiskPartitionScheme
+pub async fn hadris_part::scheme::DiskPartitionScheme::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub trait hadris_part::async::scheme_io::GptDiskReadExt: core::marker::Sized
+pub async fn hadris_part::async::scheme_io::GptDiskReadExt::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::async::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
+pub async fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::async::scheme_io::GptDiskWriteExt
+pub async fn hadris_part::async::scheme_io::GptDiskWriteExt::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::async::scheme_io::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+impl hadris_part::async::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
+pub async fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub mod hadris_part::error
+pub enum hadris_part::error::PartitionError
+pub hadris_part::error::PartitionError::BackupHeaderMismatch
+pub hadris_part::error::PartitionError::DiskTooSmall
+pub hadris_part::error::PartitionError::DiskTooSmall::available: u64
+pub hadris_part::error::PartitionError::DiskTooSmall::required: u64
+pub hadris_part::error::PartitionError::FeatureNotAvailable(&'static str)
+pub hadris_part::error::PartitionError::GptEntriesCrcMismatch
+pub hadris_part::error::PartitionError::GptEntriesCrcMismatch::actual: u32
+pub hadris_part::error::PartitionError::GptEntriesCrcMismatch::expected: u32
+pub hadris_part::error::PartitionError::GptHeaderCrcMismatch
+pub hadris_part::error::PartitionError::GptHeaderCrcMismatch::actual: u32
+pub hadris_part::error::PartitionError::GptHeaderCrcMismatch::expected: u32
+pub hadris_part::error::PartitionError::InvalidGptSignature
+pub hadris_part::error::PartitionError::InvalidGptSignature::found: [u8; 8]
+pub hadris_part::error::PartitionError::InvalidHybridMbr
+pub hadris_part::error::PartitionError::InvalidHybridMbr::reason: &'static str
+pub hadris_part::error::PartitionError::InvalidMbrSignature
+pub hadris_part::error::PartitionError::InvalidMbrSignature::found: [u8; 2]
+pub hadris_part::error::PartitionError::InvalidPartitionEntrySize
+pub hadris_part::error::PartitionError::InvalidPartitionEntrySize::size: u32
+pub hadris_part::error::PartitionError::Io(hadris_io::error::Error)
+pub hadris_part::error::PartitionError::MisalignedPartition
+pub hadris_part::error::PartitionError::MisalignedPartition::lba: u64
+pub hadris_part::error::PartitionError::MisalignedPartition::required_alignment: u64
+pub hadris_part::error::PartitionError::NoProtectiveMbr
+pub hadris_part::error::PartitionError::PartitionOutOfBounds
+pub hadris_part::error::PartitionError::PartitionOutOfBounds::disk_end: u64
+pub hadris_part::error::PartitionError::PartitionOutOfBounds::index: usize
+pub hadris_part::error::PartitionError::PartitionOutOfBounds::partition_end: u64
+pub hadris_part::error::PartitionError::PartitionOverlap
+pub hadris_part::error::PartitionError::PartitionOverlap::index1: usize
+pub hadris_part::error::PartitionError::PartitionOverlap::index2: usize
+pub hadris_part::error::PartitionError::PartitionOverlap::overlap_end: u64
+pub hadris_part::error::PartitionError::PartitionOverlap::overlap_start: u64
+pub hadris_part::error::PartitionError::TooManyPartitions
+pub hadris_part::error::PartitionError::TooManyPartitions::max: usize
+pub hadris_part::error::PartitionError::TooManyPartitions::requested: usize
+impl core::error::Error for hadris_part::error::PartitionError
+pub fn hadris_part::error::PartitionError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Display for hadris_part::error::PartitionError
+pub fn hadris_part::error::PartitionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_io::IoError> core::convert::From<hadris_io::error::Error<E>> for hadris_part::error::PartitionError
+pub fn hadris_part::error::PartitionError::from(hadris_io::error::Error<E>) -> Self
+pub type hadris_part::error::Result<T> = core::result::Result<T, hadris_part::error::PartitionError>
+pub mod hadris_part::geometry
+pub struct hadris_part::geometry::DiskGeometry
+pub hadris_part::geometry::DiskGeometry::block_size: u32
+pub hadris_part::geometry::DiskGeometry::physical_block_size: core::option::Option<u32>
+pub hadris_part::geometry::DiskGeometry::total_blocks: u64
+impl hadris_part::geometry::DiskGeometry
+pub const hadris_part::geometry::DiskGeometry::ADVANCED_FORMAT_BLOCK_SIZE: u32
+pub const hadris_part::geometry::DiskGeometry::DEFAULT_ALIGNMENT_BYTES: u64
+pub const hadris_part::geometry::DiskGeometry::STANDARD_BLOCK_SIZE: u32
+pub const fn hadris_part::geometry::DiskGeometry::advanced_format(u64) -> Self
+pub const fn hadris_part::geometry::DiskGeometry::align_down(&self, u64, u64) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::align_up(&self, u64, u64) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::alignment_boundary(&self) -> u32
+pub const fn hadris_part::geometry::DiskGeometry::default_alignment(&self) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::emulated_512(u64) -> Self
+pub const fn hadris_part::geometry::DiskGeometry::gpt_first_usable_lba(&self, u32, u32) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::gpt_first_usable_lba_aligned(&self, u32, u32) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::gpt_last_usable_lba(&self, u32, u32) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::gpt_last_usable_lba_aligned(&self, u32, u32) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::gpt_usable_sectors(&self, u32, u32) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::is_aligned(&self, u64, u64) -> bool
+pub const fn hadris_part::geometry::DiskGeometry::new(u32, u64, core::option::Option<u32>) -> Self
+pub const fn hadris_part::geometry::DiskGeometry::standard(u64) -> Self
+pub const fn hadris_part::geometry::DiskGeometry::total_bytes(&self) -> u64
+pub fn hadris_part::geometry::validate_all_partitions_aligned<P: hadris_part::PartitionInfoTrait>(&[P], &hadris_part::geometry::DiskGeometry, u64) -> hadris_part::error::Result<()>
+pub fn hadris_part::geometry::validate_partition_alignment<P: hadris_part::PartitionInfoTrait>(&P, &hadris_part::geometry::DiskGeometry, u64) -> hadris_part::error::Result<()>
+pub mod hadris_part::gpt
+#[repr(transparent)] pub struct hadris_part::gpt::GptAttributes(_)
+impl hadris_part::gpt::GptAttributes
+pub const hadris_part::gpt::GptAttributes::EFI_IGNORE: u64
+pub const hadris_part::gpt::GptAttributes::LEGACY_BIOS_BOOTABLE: u64
+pub const hadris_part::gpt::GptAttributes::PLATFORM_REQUIRED: u64
+pub const fn hadris_part::gpt::GptAttributes::get(&self) -> u64
+pub const fn hadris_part::gpt::GptAttributes::is_efi_ignore(&self) -> bool
+pub const fn hadris_part::gpt::GptAttributes::is_legacy_bios_bootable(&self) -> bool
+pub const fn hadris_part::gpt::GptAttributes::is_platform_required(&self) -> bool
+pub const fn hadris_part::gpt::GptAttributes::new(u64) -> Self
+pub fn hadris_part::gpt::GptAttributes::set(&mut self, u64)
+impl bytemuck::pod::Pod for hadris_part::gpt::GptAttributes
+impl bytemuck::zeroable::Zeroable for hadris_part::gpt::GptAttributes
+impl core::fmt::Debug for hadris_part::gpt::GptAttributes
+pub fn hadris_part::gpt::GptAttributes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(C)] pub struct hadris_part::gpt::GptHeader
+pub hadris_part::gpt::GptHeader::alternate_lba: endian_num::Le<u64>
+pub hadris_part::gpt::GptHeader::disk_guid: hadris_part::gpt::Guid
+pub hadris_part::gpt::GptHeader::first_usable_lba: endian_num::Le<u64>
+pub hadris_part::gpt::GptHeader::header_crc32: endian_num::Le<u32>
+pub hadris_part::gpt::GptHeader::header_size: endian_num::Le<u32>
+pub hadris_part::gpt::GptHeader::last_usable_lba: endian_num::Le<u64>
+pub hadris_part::gpt::GptHeader::my_lba: endian_num::Le<u64>
+pub hadris_part::gpt::GptHeader::num_partition_entries: endian_num::Le<u32>
+pub hadris_part::gpt::GptHeader::partition_entry_array_crc32: endian_num::Le<u32>
+pub hadris_part::gpt::GptHeader::partition_entry_lba: endian_num::Le<u64>
+pub hadris_part::gpt::GptHeader::reserved: endian_num::Le<u32>
+pub hadris_part::gpt::GptHeader::revision: endian_num::Le<u32>
+pub hadris_part::gpt::GptHeader::signature: [u8; 8]
+pub hadris_part::gpt::GptHeader::size_of_partition_entry: endian_num::Le<u32>
+impl hadris_part::gpt::GptHeader
+pub const hadris_part::gpt::GptHeader::REVISION_1_0: u32
+pub const hadris_part::gpt::GptHeader::SIGNATURE: [u8; 8]
+pub const hadris_part::gpt::GptHeader::STANDARD_ENTRY_SIZE: u32
+pub const hadris_part::gpt::GptHeader::STANDARD_HEADER_SIZE: u32
+pub fn hadris_part::gpt::GptHeader::calculate_crc32(&self) -> u32
+pub const fn hadris_part::gpt::GptHeader::has_valid_signature(&self) -> bool
+pub fn hadris_part::gpt::GptHeader::update_crc32(&mut self)
+pub fn hadris_part::gpt::GptHeader::verify_crc32(&self) -> bool
+impl core::default::Default for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::default() -> Self
+impl hadris_part::async::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
+pub async fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::async::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
+pub async fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+impl hadris_part::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+#[repr(C)] pub struct hadris_part::gpt::GptPartitionEntry
+pub hadris_part::gpt::GptPartitionEntry::attributes: hadris_part::gpt::GptAttributes
+pub hadris_part::gpt::GptPartitionEntry::first_lba: endian_num::Le<u64>
+pub hadris_part::gpt::GptPartitionEntry::last_lba: endian_num::Le<u64>
+pub hadris_part::gpt::GptPartitionEntry::name: hadris_part::gpt::GptPartitionName
+pub hadris_part::gpt::GptPartitionEntry::type_guid: hadris_part::gpt::Guid
+pub hadris_part::gpt::GptPartitionEntry::unique_guid: hadris_part::gpt::Guid
+impl hadris_part::gpt::GptPartitionEntry
+pub const fn hadris_part::gpt::GptPartitionEntry::is_unused(&self) -> bool
+pub const fn hadris_part::gpt::GptPartitionEntry::new(hadris_part::gpt::Guid, hadris_part::gpt::Guid, u64, u64) -> Self
+pub fn hadris_part::gpt::GptPartitionEntry::set_name_ascii(&mut self, &[u8])
+pub const fn hadris_part::gpt::GptPartitionEntry::size_bytes(&self) -> u64
+pub const fn hadris_part::gpt::GptPartitionEntry::size_bytes_with_sector_size(&self, u32) -> u64
+pub const fn hadris_part::gpt::GptPartitionEntry::size_sectors(&self) -> u64
+impl bytemuck::pod::Pod for hadris_part::gpt::GptPartitionEntry
+impl bytemuck::zeroable::Zeroable for hadris_part::gpt::GptPartitionEntry
+impl core::default::Default for hadris_part::gpt::GptPartitionEntry
+pub fn hadris_part::gpt::GptPartitionEntry::default() -> Self
+impl core::fmt::Debug for hadris_part::gpt::GptPartitionEntry
+pub fn hadris_part::gpt::GptPartitionEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl hadris_part::PartitionInfoTrait for hadris_part::gpt::GptPartitionEntry
+pub fn hadris_part::gpt::GptPartitionEntry::byte_len(&self, u32) -> core::option::Option<u64>
+pub fn hadris_part::gpt::GptPartitionEntry::checked_end_lba(&self) -> core::option::Option<u64>
+pub fn hadris_part::gpt::GptPartitionEntry::end_lba(&self) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::size_bytes(&self) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::size_bytes_with_sector_size(&self, u32) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::size_sectors(&self) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::start_lba(&self) -> u64
+#[repr(C)] pub struct hadris_part::gpt::GptPartitionName(_)
+impl hadris_part::gpt::GptPartitionName
+pub const fn hadris_part::gpt::GptPartitionName::as_u16_slice(&self) -> &[u16; 36]
+pub const fn hadris_part::gpt::GptPartitionName::from_ascii(&[u8]) -> Self
+impl bytemuck::pod::Pod for hadris_part::gpt::GptPartitionName
+impl bytemuck::zeroable::Zeroable for hadris_part::gpt::GptPartitionName
+impl core::default::Default for hadris_part::gpt::GptPartitionName
+pub fn hadris_part::gpt::GptPartitionName::default() -> Self
+impl core::fmt::Debug for hadris_part::gpt::GptPartitionName
+pub fn hadris_part::gpt::GptPartitionName::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(transparent)] pub struct hadris_part::gpt::Guid(_)
+impl hadris_part::gpt::Guid
+pub const hadris_part::gpt::Guid::APPLE_APFS: Self
+pub const hadris_part::gpt::Guid::APPLE_BOOT: Self
+pub const hadris_part::gpt::Guid::APPLE_CORE_STORAGE: Self
+pub const hadris_part::gpt::Guid::APPLE_HFS_PLUS: Self
+pub const hadris_part::gpt::Guid::APPLE_LABEL: Self
+pub const hadris_part::gpt::Guid::APPLE_RAID: Self
+pub const hadris_part::gpt::Guid::APPLE_RAID_OFFLINE: Self
+pub const hadris_part::gpt::Guid::APPLE_TV_RECOVERY: Self
+pub const hadris_part::gpt::Guid::APPLE_UFS: Self
+pub const hadris_part::gpt::Guid::BASIC_DATA: Self
+pub const hadris_part::gpt::Guid::BIOS_BOOT: Self
+pub const hadris_part::gpt::Guid::CHROMEOS_KERNEL: Self
+pub const hadris_part::gpt::Guid::CHROMEOS_RESERVED: Self
+pub const hadris_part::gpt::Guid::CHROMEOS_ROOTFS: Self
+pub const hadris_part::gpt::Guid::EFI_SYSTEM: Self
+pub const hadris_part::gpt::Guid::FREEBSD_BOOT: Self
+pub const hadris_part::gpt::Guid::FREEBSD_DATA: Self
+pub const hadris_part::gpt::Guid::FREEBSD_SWAP: Self
+pub const hadris_part::gpt::Guid::FREEBSD_UFS: Self
+pub const hadris_part::gpt::Guid::FREEBSD_VINUM: Self
+pub const hadris_part::gpt::Guid::FREEBSD_ZFS: Self
+pub const hadris_part::gpt::Guid::LINUX_FILESYSTEM: Self
+pub const hadris_part::gpt::Guid::LINUX_HOME: Self
+pub const hadris_part::gpt::Guid::LINUX_LUKS: Self
+pub const hadris_part::gpt::Guid::LINUX_LVM: Self
+pub const hadris_part::gpt::Guid::LINUX_RAID: Self
+pub const hadris_part::gpt::Guid::LINUX_ROOT_ARM: Self
+pub const hadris_part::gpt::Guid::LINUX_ROOT_ARM64: Self
+pub const hadris_part::gpt::Guid::LINUX_ROOT_X86: Self
+pub const hadris_part::gpt::Guid::LINUX_ROOT_X86_64: Self
+pub const hadris_part::gpt::Guid::LINUX_SRV: Self
+pub const hadris_part::gpt::Guid::LINUX_SWAP: Self
+pub const hadris_part::gpt::Guid::MICROSOFT_RESERVED: Self
+pub const hadris_part::gpt::Guid::NETBSD_FFS: Self
+pub const hadris_part::gpt::Guid::NETBSD_LFS: Self
+pub const hadris_part::gpt::Guid::NETBSD_RAID: Self
+pub const hadris_part::gpt::Guid::NETBSD_SWAP: Self
+pub const hadris_part::gpt::Guid::SOLARIS_BACKUP: Self
+pub const hadris_part::gpt::Guid::SOLARIS_BOOT: Self
+pub const hadris_part::gpt::Guid::SOLARIS_HOME: Self
+pub const hadris_part::gpt::Guid::SOLARIS_RESERVED: Self
+pub const hadris_part::gpt::Guid::SOLARIS_ROOT: Self
+pub const hadris_part::gpt::Guid::SOLARIS_SWAP: Self
+pub const hadris_part::gpt::Guid::SOLARIS_VAR: Self
+pub const hadris_part::gpt::Guid::UNUSED: Self
+pub const hadris_part::gpt::Guid::VMWARE_RESERVED: Self
+pub const hadris_part::gpt::Guid::VMWARE_VMFS: Self
+pub const hadris_part::gpt::Guid::WINDOWS_LDM_DATA: Self
+pub const hadris_part::gpt::Guid::WINDOWS_LDM_METADATA: Self
+pub const hadris_part::gpt::Guid::WINDOWS_RECOVERY: Self
+pub const hadris_part::gpt::Guid::WINDOWS_STORAGE_SPACES: Self
+impl hadris_part::gpt::Guid
+pub const fn hadris_part::gpt::Guid::from_bytes([u8; 16]) -> Self
+pub const fn hadris_part::gpt::Guid::from_str(&str) -> core::option::Option<Self>
+pub const fn hadris_part::gpt::Guid::is_unused(&self) -> bool
+pub const fn hadris_part::gpt::Guid::to_bytes(&self) -> [u8; 16]
+impl hadris_part::gpt::Guid
+pub fn hadris_part::gpt::Guid::generate_v4() -> Self
+impl bytemuck::pod::Pod for hadris_part::gpt::Guid
+impl bytemuck::zeroable::Zeroable for hadris_part::gpt::Guid
+impl core::default::Default for hadris_part::gpt::Guid
+pub fn hadris_part::gpt::Guid::default() -> Self
+impl core::fmt::Debug for hadris_part::gpt::Guid
+pub fn hadris_part::gpt::Guid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for hadris_part::gpt::Guid
+pub fn hadris_part::gpt::Guid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn hadris_part::gpt::calculate_partition_array_crc32(&[hadris_part::gpt::GptPartitionEntry]) -> u32
+pub mod hadris_part::gpt_io
+pub trait hadris_part::gpt_io::GptHeaderReadExt: core::marker::Sized
+pub fn hadris_part::gpt_io::GptHeaderReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt_io::GptHeaderReadExt::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::gpt_io::GptHeaderWriteExt
+pub fn hadris_part::gpt_io::GptHeaderWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt_io::GptHeaderWriteExt::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+impl hadris_part::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub mod hadris_part::hybrid
+pub struct hadris_part::hybrid::HybridMbrBuilder
+impl hadris_part::hybrid::HybridMbrBuilder
+pub fn hadris_part::hybrid::HybridMbrBuilder::build(self, &[hadris_part::gpt::GptPartitionEntry]) -> hadris_part::error::Result<hadris_part::mbr::MasterBootRecord>
+pub fn hadris_part::hybrid::HybridMbrBuilder::mirror_partition(self, u32, hadris_part::mbr::MbrPartitionType, bool) -> Self
+pub fn hadris_part::hybrid::HybridMbrBuilder::new(u64) -> Self
+pub fn hadris_part::hybrid::HybridMbrBuilder::protective_slot(self, usize) -> Self
+pub struct hadris_part::hybrid::HybridMbrConfig
+pub hadris_part::hybrid::HybridMbrConfig::mirrored: alloc::vec::Vec<hadris_part::hybrid::MirroredPartition>
+pub hadris_part::hybrid::HybridMbrConfig::protective_slot: usize
+impl hadris_part::hybrid::HybridMbrConfig
+pub fn hadris_part::hybrid::HybridMbrConfig::add_mirrored(self, hadris_part::hybrid::MirroredPartition) -> Self
+pub fn hadris_part::hybrid::HybridMbrConfig::mirrored_count(&self) -> usize
+pub const fn hadris_part::hybrid::HybridMbrConfig::new() -> Self
+pub fn hadris_part::hybrid::HybridMbrConfig::validate(&self) -> hadris_part::error::Result<()>
+pub const fn hadris_part::hybrid::HybridMbrConfig::with_protective_slot(self, usize) -> Self
+pub struct hadris_part::hybrid::MirroredPartition
+pub hadris_part::hybrid::MirroredPartition::bootable: bool
+pub hadris_part::hybrid::MirroredPartition::gpt_partition_index: u32
+pub hadris_part::hybrid::MirroredPartition::mbr_type: hadris_part::mbr::MbrPartitionType
+impl hadris_part::hybrid::MirroredPartition
+pub const fn hadris_part::hybrid::MirroredPartition::new(u32, hadris_part::mbr::MbrPartitionType) -> Self
+pub const fn hadris_part::hybrid::MirroredPartition::with_bootable(self, bool) -> Self
+pub fn hadris_part::hybrid::is_hybrid_mbr(&hadris_part::mbr::MasterBootRecord) -> bool
+pub mod hadris_part::mbr
+pub enum hadris_part::mbr::MbrPartitionType
+pub hadris_part::mbr::MbrPartitionType::EfiSystemPartition
+pub hadris_part::mbr::MbrPartitionType::Empty
+pub hadris_part::mbr::MbrPartitionType::Extended
+pub hadris_part::mbr::MbrPartitionType::ExtendedLba
+pub hadris_part::mbr::MbrPartitionType::Fat12
+pub hadris_part::mbr::MbrPartitionType::Fat16
+pub hadris_part::mbr::MbrPartitionType::Fat16Lba
+pub hadris_part::mbr::MbrPartitionType::Fat32
+pub hadris_part::mbr::MbrPartitionType::Fat32Lba
+pub hadris_part::mbr::MbrPartitionType::Iso9660
+pub hadris_part::mbr::MbrPartitionType::LinuxLvm
+pub hadris_part::mbr::MbrPartitionType::LinuxNative
+pub hadris_part::mbr::MbrPartitionType::LinuxRaid
+pub hadris_part::mbr::MbrPartitionType::LinuxSwap
+pub hadris_part::mbr::MbrPartitionType::Ntfs
+pub hadris_part::mbr::MbrPartitionType::ProtectiveMbr
+pub hadris_part::mbr::MbrPartitionType::Unknown(u8)
+impl hadris_part::mbr::MbrPartitionType
+pub const fn hadris_part::mbr::MbrPartitionType::from_u8(u8) -> Self
+pub const fn hadris_part::mbr::MbrPartitionType::is_empty(&self) -> bool
+pub const fn hadris_part::mbr::MbrPartitionType::is_protective(&self) -> bool
+pub const fn hadris_part::mbr::MbrPartitionType::to_u8(&self) -> u8
+impl core::fmt::Display for hadris_part::mbr::MbrPartitionType
+pub fn hadris_part::mbr::MbrPartitionType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(u8)] pub enum hadris_part::mbr::MbrPartitionTypeFull
+pub hadris_part::mbr::MbrPartitionTypeFull::AcronisBackup = 188
+pub hadris_part::mbr::MbrPartitionTypeFull::AixBoot = 8
+pub hadris_part::mbr::MbrPartitionTypeFull::AixData = 9
+pub hadris_part::mbr::MbrPartitionTypeFull::Alfs = 74
+pub hadris_part::mbr::MbrPartitionTypeFull::AltExt2Fs = 67
+pub hadris_part::mbr::MbrPartitionTypeFull::AmoebaBadBlockTable = 148
+pub hadris_part::mbr::MbrPartitionTypeFull::AstWindowsSwap = 24
+pub hadris_part::mbr::MbrPartitionTypeFull::BadBlockTable = 255
+pub hadris_part::mbr::MbrPartitionTypeFull::BeOs = 235
+pub hadris_part::mbr::MbrPartitionTypeFull::BootMngrBootStar = 176
+pub hadris_part::mbr::MbrPartitionTypeFull::Bsdi = 159
+pub hadris_part::mbr::MbrPartitionTypeFull::BsdiFs = 183
+pub hadris_part::mbr::MbrPartitionTypeFull::BsdiSwap = 184
+pub hadris_part::mbr::MbrPartitionTypeFull::CPM = 82
+pub hadris_part::mbr::MbrPartitionTypeFull::CompaqDiagnosis = 18
+pub hadris_part::mbr::MbrPartitionTypeFull::Cpm = 219
+pub hadris_part::mbr::MbrPartitionTypeFull::Cpm86 = 216
+pub hadris_part::mbr::MbrPartitionTypeFull::Dell = 222
+pub hadris_part::mbr::MbrPartitionTypeFull::DiskSecureMultiBoot = 112
+pub hadris_part::mbr::MbrPartitionTypeFull::DosReadOnly = 226
+pub hadris_part::mbr::MbrPartitionTypeFull::DrDos12 = 193
+pub hadris_part::mbr::MbrPartitionTypeFull::DrDos16 = 196
+pub hadris_part::mbr::MbrPartitionTypeFull::DrDosHuge = 198
+pub hadris_part::mbr::MbrPartitionTypeFull::EfiSystemPartition = 239
+pub hadris_part::mbr::MbrPartitionTypeFull::Embrm = 223
+pub hadris_part::mbr::MbrPartitionTypeFull::Empty = 0
+pub hadris_part::mbr::MbrPartitionTypeFull::EumelElan46 = 70
+pub hadris_part::mbr::MbrPartitionTypeFull::EumelElan47 = 71
+pub hadris_part::mbr::MbrPartitionTypeFull::EumelElan48 = 72
+pub hadris_part::mbr::MbrPartitionTypeFull::Extended = 5
+pub hadris_part::mbr::MbrPartitionTypeFull::ExtendedLba = 15
+pub hadris_part::mbr::MbrPartitionTypeFull::EzDrive = 85
+pub hadris_part::mbr::MbrPartitionTypeFull::Fat12 = 1
+pub hadris_part::mbr::MbrPartitionTypeFull::Fat16L = 6
+pub hadris_part::mbr::MbrPartitionTypeFull::Fat16Lba = 14
+pub hadris_part::mbr::MbrPartitionTypeFull::Fat16S = 4
+pub hadris_part::mbr::MbrPartitionTypeFull::Fat32 = 11
+pub hadris_part::mbr::MbrPartitionTypeFull::Fat32Lba = 12
+pub hadris_part::mbr::MbrPartitionTypeFull::FreeBsd386 = 165
+pub hadris_part::mbr::MbrPartitionTypeFull::GnuHurd = 99
+pub hadris_part::mbr::MbrPartitionTypeFull::GoldenBow = 86
+pub hadris_part::mbr::MbrPartitionTypeFull::GptProtectiveMbr = 238
+pub hadris_part::mbr::MbrPartitionTypeFull::HiddenFat12 = 17
+pub hadris_part::mbr::MbrPartitionTypeFull::HiddenFat16L = 22
+pub hadris_part::mbr::MbrPartitionTypeFull::HiddenFat16Lba = 30
+pub hadris_part::mbr::MbrPartitionTypeFull::HiddenFat16S = 20
+pub hadris_part::mbr::MbrPartitionTypeFull::HiddenFat32 = 27
+pub hadris_part::mbr::MbrPartitionTypeFull::HiddenFat32Lba = 28
+pub hadris_part::mbr::MbrPartitionTypeFull::HiddenIfs = 23
+pub hadris_part::mbr::MbrPartitionTypeFull::HiddenLinuxNative = 147
+pub hadris_part::mbr::MbrPartitionTypeFull::HiddenNetWare = 61
+pub hadris_part::mbr::MbrPartitionTypeFull::HpVolumeExpA1 = 161
+pub hadris_part::mbr::MbrPartitionTypeFull::HpVolumeExpA3 = 163
+pub hadris_part::mbr::MbrPartitionTypeFull::HpVolumeExpA4 = 164
+pub hadris_part::mbr::MbrPartitionTypeFull::HpVolumeExpA7 = 167
+pub hadris_part::mbr::MbrPartitionTypeFull::HpVolumeExpB1 = 177
+pub hadris_part::mbr::MbrPartitionTypeFull::HpVolumeExpB2 = 178
+pub hadris_part::mbr::MbrPartitionTypeFull::HpVolumeExpB3 = 179
+pub hadris_part::mbr::MbrPartitionTypeFull::HpVolumeExpB4 = 180
+pub hadris_part::mbr::MbrPartitionTypeFull::HpVolumeExpB6 = 182
+pub hadris_part::mbr::MbrPartitionTypeFull::HpfsFtMirrored = 135
+pub hadris_part::mbr::MbrPartitionTypeFull::HpfsFtMirroredDisabled = 199
+pub hadris_part::mbr::MbrPartitionTypeFull::IbmHibernation = 160
+pub hadris_part::mbr::MbrPartitionTypeFull::IbmPcIx = 117
+pub hadris_part::mbr::MbrPartitionTypeFull::Installable = 7
+pub hadris_part::mbr::MbrPartitionTypeFull::LanStep = 254
+pub hadris_part::mbr::MbrPartitionTypeFull::LinuxExtended = 133
+pub hadris_part::mbr::MbrPartitionTypeFull::LinuxLvm = 142
+pub hadris_part::mbr::MbrPartitionTypeFull::LinuxMinix = 129
+pub hadris_part::mbr::MbrPartitionTypeFull::LinuxNative = 131
+pub hadris_part::mbr::MbrPartitionTypeFull::LinuxRaid = 253
+pub hadris_part::mbr::MbrPartitionTypeFull::LinuxSwap = 130
+pub hadris_part::mbr::MbrPartitionTypeFull::MacOsX = 168
+pub hadris_part::mbr::MbrPartitionTypeFull::MacOsXBoot = 171
+pub hadris_part::mbr::MbrPartitionTypeFull::MacOsXHfsPlus = 175
+pub hadris_part::mbr::MbrPartitionTypeFull::MultiuserDos = 208
+pub hadris_part::mbr::MbrPartitionTypeFull::Mylex = 153
+pub hadris_part::mbr::MbrPartitionTypeFull::NecMsDos = 36
+pub hadris_part::mbr::MbrPartitionTypeFull::NetBsd = 169
+pub hadris_part::mbr::MbrPartitionTypeFull::NovellDos = 192
+pub hadris_part::mbr::MbrPartitionTypeFull::NovellNetware286 = 100
+pub hadris_part::mbr::MbrPartitionTypeFull::NovellNetware311 = 101
+pub hadris_part::mbr::MbrPartitionTypeFull::NovellNetware386 = 102
+pub hadris_part::mbr::MbrPartitionTypeFull::NovellNetware5 = 105
+pub hadris_part::mbr::MbrPartitionTypeFull::NovellNetware67 = 103
+pub hadris_part::mbr::MbrPartitionTypeFull::NovellNetware68 = 104
+pub hadris_part::mbr::MbrPartitionTypeFull::NtStripeSet = 134
+pub hadris_part::mbr::MbrPartitionTypeFull::Odm6 = 84
+pub hadris_part::mbr::MbrPartitionTypeFull::OdmReadOnly = 80
+pub hadris_part::mbr::MbrPartitionTypeFull::OdmReadWrite = 81
+pub hadris_part::mbr::MbrPartitionTypeFull::OdmWriteOnly = 83
+pub hadris_part::mbr::MbrPartitionTypeFull::Ofs1 = 32
+pub hadris_part::mbr::MbrPartitionTypeFull::OldMinix = 128
+pub hadris_part::mbr::MbrPartitionTypeFull::OldMultiuserDos = 209
+pub hadris_part::mbr::MbrPartitionTypeFull::OldMultiuserDos2 = 212
+pub hadris_part::mbr::MbrPartitionTypeFull::OldMultiuserDos3 = 213
+pub hadris_part::mbr::MbrPartitionTypeFull::OldMultiuserDos4 = 214
+pub hadris_part::mbr::MbrPartitionTypeFull::Olivetti = 170
+pub hadris_part::mbr::MbrPartitionTypeFull::OpenBsd = 166
+pub hadris_part::mbr::MbrPartitionTypeFull::Opus = 16
+pub hadris_part::mbr::MbrPartitionTypeFull::Os2Boot = 10
+pub hadris_part::mbr::MbrPartitionTypeFull::Os2Hidden = 132
+pub hadris_part::mbr::MbrPartitionTypeFull::OxygenExt = 34
+pub hadris_part::mbr::MbrPartitionTypeFull::PowerQuestFiles = 60
+pub hadris_part::mbr::MbrPartitionTypeFull::PpcBoot = 65
+pub hadris_part::mbr::MbrPartitionTypeFull::Priam = 69
+pub hadris_part::mbr::MbrPartitionTypeFull::PriamEDisk = 92
+pub hadris_part::mbr::MbrPartitionTypeFull::Prolugue = 245
+pub hadris_part::mbr::MbrPartitionTypeFull::PtsBootWizard = 187
+pub hadris_part::mbr::MbrPartitionTypeFull::Qnx4D = 77
+pub hadris_part::mbr::MbrPartitionTypeFull::Qnx4E = 78
+pub hadris_part::mbr::MbrPartitionTypeFull::Qnx4F = 79
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved0D = 13
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved13 = 19
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved15 = 21
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved1A = 26
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved1D = 29
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved1F = 31
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved21 = 33
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved23 = 35
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved25 = 37
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved26 = 38
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved27 = 39
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved28 = 40
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved29 = 41
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved2A = 42
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved2B = 43
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved2C = 44
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved2D = 45
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved2E = 46
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved2F = 47
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved30 = 48
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved31 = 49
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved32 = 50
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved33 = 51
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved34 = 52
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved35 = 53
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved36 = 54
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved37 = 55
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved39 = 57
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved3A = 58
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved3B = 59
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved3E = 62
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved3F = 63
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved44 = 68
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved49 = 73
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved4B = 75
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved4C = 76
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved57 = 87
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved58 = 88
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved59 = 89
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved5A = 90
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved5B = 91
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved5D = 93
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved5E = 94
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved5F = 95
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved60 = 96
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved62 = 98
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved6A = 106
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved6B = 107
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved6C = 108
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved6D = 109
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved6E = 110
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved6F = 111
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved71 = 113
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved72 = 114
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved73 = 115
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved74 = 116
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved76 = 118
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved77 = 119
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved78 = 120
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved79 = 121
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved7A = 122
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved7B = 123
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved7C = 124
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved7D = 125
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved7E = 126
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved7F = 127
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved88 = 136
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved89 = 137
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved8A = 138
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved8B = 139
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved8C = 140
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved8D = 141
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved8F = 143
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved90 = 144
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved91 = 145
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved92 = 146
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved95 = 149
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved96 = 150
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved97 = 151
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved98 = 152
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved9A = 154
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved9B = 155
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved9C = 156
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved9D = 157
+pub hadris_part::mbr::MbrPartitionTypeFull::Reserved9E = 158
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedA2 = 162
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedAC = 172
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedAD = 173
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedAE = 174
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedB5 = 181
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedB9 = 185
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedBA = 186
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedBD = 189
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedC2 = 194
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedC3 = 195
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedC5 = 197
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedC8 = 200
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedC9 = 201
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedCA = 202
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedCB = 203
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedCC = 204
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedCD = 205
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedCE = 206
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedCF = 207
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedD2 = 210
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedD3 = 211
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedD7 = 215
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedD9 = 217
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedDA = 218
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedDC = 220
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedDD = 221
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedE0 = 224
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedE5 = 229
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedE7 = 231
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedE8 = 232
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedE9 = 233
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedEA = 234
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedEC = 236
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedED = 237
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedF0 = 240
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedF7 = 247
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedF8 = 248
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedF9 = 249
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedFA = 250
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedFB = 251
+pub hadris_part::mbr::MbrPartitionTypeFull::ReservedFC = 252
+pub hadris_part::mbr::MbrPartitionTypeFull::SecureFileSystem = 66
+pub hadris_part::mbr::MbrPartitionTypeFull::Solaris = 191
+pub hadris_part::mbr::MbrPartitionTypeFull::SolarisBoot = 190
+pub hadris_part::mbr::MbrPartitionTypeFull::SpeedStor = 227
+pub hadris_part::mbr::MbrPartitionTypeFull::SpeedStor16Ext = 228
+pub hadris_part::mbr::MbrPartitionTypeFull::SpeedStorDimensions = 241
+pub hadris_part::mbr::MbrPartitionTypeFull::SpeedStorDimensions2 = 244
+pub hadris_part::mbr::MbrPartitionTypeFull::SpeedStorFat12Ext = 225
+pub hadris_part::mbr::MbrPartitionTypeFull::StorageDimension1 = 97
+pub hadris_part::mbr::MbrPartitionTypeFull::StorageDimension2 = 230
+pub hadris_part::mbr::MbrPartitionTypeFull::StorageDimension3 = 243
+pub hadris_part::mbr::MbrPartitionTypeFull::StorageDimension4 = 246
+pub hadris_part::mbr::MbrPartitionTypeFull::Theos = 56
+pub hadris_part::mbr::MbrPartitionTypeFull::UnisysDos = 242
+pub hadris_part::mbr::MbrPartitionTypeFull::Venix80286 = 64
+pub hadris_part::mbr::MbrPartitionTypeFull::WillowtechPhotonCos = 25
+pub hadris_part::mbr::MbrPartitionTypeFull::XenixRoot = 2
+pub hadris_part::mbr::MbrPartitionTypeFull::XenixUsr = 3
+impl hadris_part::mbr::MbrPartitionTypeFull
+pub const fn hadris_part::mbr::MbrPartitionTypeFull::from_u8(u8) -> Self
+pub const fn hadris_part::mbr::MbrPartitionTypeFull::to_u8(&self) -> u8
+#[repr(transparent)] pub struct hadris_part::mbr::Chs(_)
+impl hadris_part::mbr::Chs
+pub const hadris_part::mbr::Chs::OUT_OF_RANGE: hadris_part::mbr::Chs
+pub const fn hadris_part::mbr::Chs::as_lba(&self) -> u32
+pub const fn hadris_part::mbr::Chs::cylinder(&self) -> u16
+pub const fn hadris_part::mbr::Chs::head(&self) -> u8
+pub const fn hadris_part::mbr::Chs::new(u32) -> Self
+pub const fn hadris_part::mbr::Chs::sector(&self) -> u8
+impl bytemuck::pod::Pod for hadris_part::mbr::Chs
+impl bytemuck::zeroable::Zeroable for hadris_part::mbr::Chs
+impl core::default::Default for hadris_part::mbr::Chs
+pub fn hadris_part::mbr::Chs::default() -> Self
+impl core::fmt::Debug for hadris_part::mbr::Chs
+pub fn hadris_part::mbr::Chs::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(C, packed(1))] pub struct hadris_part::mbr::MasterBootRecord
+pub hadris_part::mbr::MasterBootRecord::bootstrap: [u8; 446]
+pub hadris_part::mbr::MasterBootRecord::partition_table: hadris_part::mbr::MbrPartitionTable
+pub hadris_part::mbr::MasterBootRecord::signature: [u8; 2]
+impl hadris_part::mbr::MasterBootRecord
+pub const hadris_part::mbr::MasterBootRecord::SIGNATURE: [u8; 2]
+pub fn hadris_part::mbr::MasterBootRecord::get_partition_table(&self) -> hadris_part::mbr::MbrPartitionTable
+pub const fn hadris_part::mbr::MasterBootRecord::has_valid_signature(&self) -> bool
+pub fn hadris_part::mbr::MasterBootRecord::is_valid(&self) -> bool
+pub const fn hadris_part::mbr::MasterBootRecord::new(hadris_part::mbr::MbrPartitionTable) -> Self
+pub const fn hadris_part::mbr::MasterBootRecord::protective(u64) -> Self
+pub fn hadris_part::mbr::MasterBootRecord::set_partition_table(&mut self, hadris_part::mbr::MbrPartitionTable)
+pub fn hadris_part::mbr::MasterBootRecord::with_partition_table<F>(&mut self, F) where F: core::ops::function::FnOnce(&mut hadris_part::mbr::MbrPartitionTable)
+impl bytemuck::pod::Pod for hadris_part::mbr::MasterBootRecord
+impl bytemuck::zeroable::Zeroable for hadris_part::mbr::MasterBootRecord
+impl core::default::Default for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::default() -> Self
+impl core::fmt::Debug for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl hadris_part::async::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
+pub async fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+impl hadris_part::async::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
+pub async fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+impl hadris_part::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+#[repr(C)] pub struct hadris_part::mbr::MbrPartition
+pub hadris_part::mbr::MbrPartition::boot_indicator: u8
+pub hadris_part::mbr::MbrPartition::end_chs: hadris_part::mbr::Chs
+pub hadris_part::mbr::MbrPartition::part_type: u8
+pub hadris_part::mbr::MbrPartition::sector_count: endian_num::Le<u32>
+pub hadris_part::mbr::MbrPartition::start_chs: hadris_part::mbr::Chs
+pub hadris_part::mbr::MbrPartition::start_lba: endian_num::Le<u32>
+impl hadris_part::mbr::MbrPartition
+pub const fn hadris_part::mbr::MbrPartition::end_lba(&self) -> u32
+pub const fn hadris_part::mbr::MbrPartition::is_bootable(&self) -> bool
+pub const fn hadris_part::mbr::MbrPartition::is_empty(&self) -> bool
+pub const fn hadris_part::mbr::MbrPartition::new(hadris_part::mbr::MbrPartitionType, u32, u32) -> Self
+pub const fn hadris_part::mbr::MbrPartition::partition_type(&self) -> hadris_part::mbr::MbrPartitionType
+pub const fn hadris_part::mbr::MbrPartition::protective(u64) -> Self
+pub fn hadris_part::mbr::MbrPartition::set_bootable(&mut self, bool)
+impl bytemuck::pod::Pod for hadris_part::mbr::MbrPartition
+impl bytemuck::zeroable::Zeroable for hadris_part::mbr::MbrPartition
+impl core::default::Default for hadris_part::mbr::MbrPartition
+pub fn hadris_part::mbr::MbrPartition::default() -> Self
+impl hadris_part::PartitionInfoTrait for hadris_part::mbr::MbrPartition
+pub fn hadris_part::mbr::MbrPartition::byte_len(&self, u32) -> core::option::Option<u64>
+pub fn hadris_part::mbr::MbrPartition::checked_end_lba(&self) -> core::option::Option<u64>
+pub fn hadris_part::mbr::MbrPartition::end_lba(&self) -> u64
+pub fn hadris_part::mbr::MbrPartition::size_bytes(&self) -> u64
+pub fn hadris_part::mbr::MbrPartition::size_bytes_with_sector_size(&self, u32) -> u64
+pub fn hadris_part::mbr::MbrPartition::size_sectors(&self) -> u64
+pub fn hadris_part::mbr::MbrPartition::start_lba(&self) -> u64
+#[repr(transparent)] pub struct hadris_part::mbr::MbrPartitionTable
+pub hadris_part::mbr::MbrPartitionTable::partitions: [hadris_part::mbr::MbrPartition; 4]
+impl hadris_part::mbr::MbrPartitionTable
+pub fn hadris_part::mbr::MbrPartitionTable::count(&self) -> usize
+pub fn hadris_part::mbr::MbrPartitionTable::is_protective(&self) -> bool
+pub fn hadris_part::mbr::MbrPartitionTable::is_valid(&self) -> bool
+pub fn hadris_part::mbr::MbrPartitionTable::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = &hadris_part::mbr::MbrPartition>
+pub fn hadris_part::mbr::MbrPartitionTable::iter_mut(&mut self) -> impl core::iter::traits::iterator::Iterator<Item = &mut hadris_part::mbr::MbrPartition>
+pub const fn hadris_part::mbr::MbrPartitionTable::new() -> Self
+pub const fn hadris_part::mbr::MbrPartitionTable::protective(u64) -> Self
+impl bytemuck::pod::Pod for hadris_part::mbr::MbrPartitionTable
+impl bytemuck::zeroable::Zeroable for hadris_part::mbr::MbrPartitionTable
+impl core::default::Default for hadris_part::mbr::MbrPartitionTable
+pub fn hadris_part::mbr::MbrPartitionTable::default() -> Self
+impl core::fmt::Debug for hadris_part::mbr::MbrPartitionTable
+pub fn hadris_part::mbr::MbrPartitionTable::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::index::Index<usize> for hadris_part::mbr::MbrPartitionTable
+pub type hadris_part::mbr::MbrPartitionTable::Output = hadris_part::mbr::MbrPartition
+pub fn hadris_part::mbr::MbrPartitionTable::index(&self, usize) -> &Self::Output
+impl core::ops::index::IndexMut<usize> for hadris_part::mbr::MbrPartitionTable
+pub fn hadris_part::mbr::MbrPartitionTable::index_mut(&mut self, usize) -> &mut Self::Output
+impl hadris_part::PartitionTableRead for hadris_part::mbr::MbrPartitionTable
+pub type hadris_part::mbr::MbrPartitionTable::Partition = hadris_part::mbr::MbrPartition
+pub fn hadris_part::mbr::MbrPartitionTable::partition(&self, usize) -> core::option::Option<&Self::Partition>
+pub fn hadris_part::mbr::MbrPartitionTable::partition_count(&self) -> usize
+pub mod hadris_part::mbr_io
+pub trait hadris_part::mbr_io::MasterBootRecordReadExt: core::marker::Sized
+pub fn hadris_part::mbr_io::MasterBootRecordReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+impl hadris_part::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub trait hadris_part::mbr_io::MasterBootRecordWriteExt
+pub fn hadris_part::mbr_io::MasterBootRecordWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub mod hadris_part::partition_table
+pub fn hadris_part::partition_table::detect<R>(&mut R) -> hadris_part::error::Result<hadris_part::scheme::PartitionSchemeType> where R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <R as hadris_io::sync_api::Read>::Error>
+pub fn hadris_part::partition_table::open<R>(&mut R, u32) -> hadris_part::error::Result<hadris_part::scheme::DiskPartitionScheme> where R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <R as hadris_io::sync_api::Read>::Error>
+pub mod hadris_part::scheme
+pub enum hadris_part::scheme::DiskPartitionScheme
+pub hadris_part::scheme::DiskPartitionScheme::Gpt
+pub hadris_part::scheme::DiskPartitionScheme::Gpt::gpt: hadris_part::scheme::GptDisk
+pub hadris_part::scheme::DiskPartitionScheme::Gpt::protective_mbr: hadris_part::mbr::MasterBootRecord
+pub hadris_part::scheme::DiskPartitionScheme::Hybrid
+pub hadris_part::scheme::DiskPartitionScheme::Hybrid::gpt: hadris_part::scheme::GptDisk
+pub hadris_part::scheme::DiskPartitionScheme::Hybrid::hybrid_mbr: hadris_part::mbr::MasterBootRecord
+pub hadris_part::scheme::DiskPartitionScheme::Mbr(hadris_part::mbr::MasterBootRecord)
+impl hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::new_gpt(u64, u32) -> Self
+pub fn hadris_part::scheme::DiskPartitionScheme::new_mbr() -> Self
+pub fn hadris_part::scheme::DiskPartitionScheme::partitions(&self) -> alloc::vec::Vec<hadris_part::scheme::PartitionInfo>
+pub fn hadris_part::scheme::DiskPartitionScheme::scheme_type(&self) -> hadris_part::scheme::PartitionSchemeType
+pub fn hadris_part::scheme::DiskPartitionScheme::validate(&self) -> hadris_part::error::Result<()>
+impl hadris_part::async::scheme_io::DiskPartitionSchemeReadExt for hadris_part::scheme::DiskPartitionScheme
+pub async fn hadris_part::scheme::DiskPartitionScheme::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::async::scheme_io::DiskPartitionSchemeWriteExt for hadris_part::scheme::DiskPartitionScheme
+pub async fn hadris_part::scheme::DiskPartitionScheme::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::DiskPartitionSchemeReadExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::DiskPartitionSchemeWriteExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub enum hadris_part::scheme::PartitionSchemeType
+pub hadris_part::scheme::PartitionSchemeType::Gpt
+pub hadris_part::scheme::PartitionSchemeType::Hybrid
+pub hadris_part::scheme::PartitionSchemeType::Mbr
+impl core::fmt::Display for hadris_part::scheme::PartitionSchemeType
+pub fn hadris_part::scheme::PartitionSchemeType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum hadris_part::scheme::PartitionType
+pub hadris_part::scheme::PartitionType::Gpt(hadris_part::gpt::Guid)
+pub hadris_part::scheme::PartitionType::Mbr(u8)
+pub struct hadris_part::scheme::GptDisk
+pub hadris_part::scheme::GptDisk::backup_header: hadris_part::gpt::GptHeader
+pub hadris_part::scheme::GptDisk::block_size: u32
+pub hadris_part::scheme::GptDisk::entries: alloc::vec::Vec<hadris_part::gpt::GptPartitionEntry>
+pub hadris_part::scheme::GptDisk::primary_header: hadris_part::gpt::GptHeader
+impl hadris_part::scheme::GptDisk
+pub const hadris_part::scheme::GptDisk::DEFAULT_ENTRY_COUNT: u32
+pub fn hadris_part::scheme::GptDisk::add_partition(&mut self, hadris_part::gpt::GptPartitionEntry) -> hadris_part::error::Result<usize>
+pub fn hadris_part::scheme::GptDisk::create_protective_mbr(&self) -> hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::scheme::GptDisk::new(u64, u32) -> Self
+pub fn hadris_part::scheme::GptDisk::partition_count(&self) -> usize
+pub fn hadris_part::scheme::GptDisk::partitions(&self) -> impl core::iter::traits::iterator::Iterator<Item = (usize, &hadris_part::gpt::GptPartitionEntry)>
+pub fn hadris_part::scheme::GptDisk::update_crcs(&mut self)
+pub fn hadris_part::scheme::GptDisk::validate(&self) -> hadris_part::error::Result<()>
+impl hadris_part::async::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
+pub async fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::async::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
+pub async fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
+pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
+pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub struct hadris_part::scheme::PartitionInfo
+pub hadris_part::scheme::PartitionInfo::bootable: bool
+pub hadris_part::scheme::PartitionInfo::end_lba: u64
+pub hadris_part::scheme::PartitionInfo::index: usize
+pub hadris_part::scheme::PartitionInfo::partition_type: hadris_part::scheme::PartitionType
+pub hadris_part::scheme::PartitionInfo::size_sectors: u64
+pub hadris_part::scheme::PartitionInfo::start_lba: u64
+impl hadris_part::scheme::PartitionInfo
+pub const fn hadris_part::scheme::PartitionInfo::size_bytes(&self) -> u64
+pub const fn hadris_part::scheme::PartitionInfo::size_bytes_with_sector_size(&self, u32) -> u64
+impl hadris_part::PartitionInfoTrait for hadris_part::scheme::PartitionInfo
+pub fn hadris_part::scheme::PartitionInfo::byte_len(&self, u32) -> core::option::Option<u64>
+pub fn hadris_part::scheme::PartitionInfo::checked_end_lba(&self) -> core::option::Option<u64>
+pub fn hadris_part::scheme::PartitionInfo::end_lba(&self) -> u64
+pub fn hadris_part::scheme::PartitionInfo::size_bytes(&self) -> u64
+pub fn hadris_part::scheme::PartitionInfo::size_bytes_with_sector_size(&self, u32) -> u64
+pub fn hadris_part::scheme::PartitionInfo::size_sectors(&self) -> u64
+pub fn hadris_part::scheme::PartitionInfo::start_lba(&self) -> u64
+pub fn hadris_part::scheme::detect_scheme_from_mbr(&hadris_part::mbr::MasterBootRecord) -> hadris_part::scheme::PartitionSchemeType
+pub mod hadris_part::scheme_io
+pub trait hadris_part::scheme_io::DiskPartitionSchemeReadExt: core::marker::Sized
+pub fn hadris_part::scheme_io::DiskPartitionSchemeReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::DiskPartitionSchemeReadExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::scheme_io::DiskPartitionSchemeWriteExt
+pub fn hadris_part::scheme_io::DiskPartitionSchemeWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::DiskPartitionSchemeWriteExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub trait hadris_part::scheme_io::GptDiskReadExt: core::marker::Sized
+pub fn hadris_part::scheme_io::GptDiskReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
+pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::scheme_io::GptDiskWriteExt
+pub fn hadris_part::scheme_io::GptDiskWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme_io::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
+pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub mod hadris_part::sync
+pub use hadris_part::sync::Error
+pub use hadris_part::sync::ErrorKind
+pub use hadris_part::sync::IoResult
+pub use hadris_part::sync::Parsable
+pub use hadris_part::sync::Read
+pub use hadris_part::sync::ReadExt
+pub use hadris_part::sync::Seek
+pub use hadris_part::sync::SeekFrom
+pub use hadris_part::sync::Writable
+pub use hadris_part::sync::Write
+pub mod hadris_part::sync::gpt_io
+pub trait hadris_part::sync::gpt_io::GptHeaderReadExt: core::marker::Sized
+pub fn hadris_part::sync::gpt_io::GptHeaderReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::sync::gpt_io::GptHeaderReadExt::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::sync::gpt_io::GptHeaderWriteExt
+pub fn hadris_part::sync::gpt_io::GptHeaderWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::sync::gpt_io::GptHeaderWriteExt::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+impl hadris_part::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub mod hadris_part::sync::mbr_io
+pub trait hadris_part::sync::mbr_io::MasterBootRecordReadExt: core::marker::Sized
+pub fn hadris_part::sync::mbr_io::MasterBootRecordReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+impl hadris_part::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub trait hadris_part::sync::mbr_io::MasterBootRecordWriteExt
+pub fn hadris_part::sync::mbr_io::MasterBootRecordWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub mod hadris_part::sync::partition_table
+pub fn hadris_part::sync::partition_table::detect<R>(&mut R) -> hadris_part::error::Result<hadris_part::scheme::PartitionSchemeType> where R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <R as hadris_io::sync_api::Read>::Error>
+pub fn hadris_part::sync::partition_table::open<R>(&mut R, u32) -> hadris_part::error::Result<hadris_part::scheme::DiskPartitionScheme> where R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <R as hadris_io::sync_api::Read>::Error>
+pub mod hadris_part::sync::scheme_io
+pub trait hadris_part::sync::scheme_io::DiskPartitionSchemeReadExt: core::marker::Sized
+pub fn hadris_part::sync::scheme_io::DiskPartitionSchemeReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::DiskPartitionSchemeReadExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::sync::scheme_io::DiskPartitionSchemeWriteExt
+pub fn hadris_part::sync::scheme_io::DiskPartitionSchemeWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::DiskPartitionSchemeWriteExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub trait hadris_part::sync::scheme_io::GptDiskReadExt: core::marker::Sized
+pub fn hadris_part::sync::scheme_io::GptDiskReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
+pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::sync::scheme_io::GptDiskWriteExt
+pub fn hadris_part::sync::scheme_io::GptDiskWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::sync::scheme_io::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
+pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub enum hadris_part::DiskPartitionScheme
+pub hadris_part::DiskPartitionScheme::Gpt
+pub hadris_part::DiskPartitionScheme::Gpt::gpt: hadris_part::scheme::GptDisk
+pub hadris_part::DiskPartitionScheme::Gpt::protective_mbr: hadris_part::mbr::MasterBootRecord
+pub hadris_part::DiskPartitionScheme::Hybrid
+pub hadris_part::DiskPartitionScheme::Hybrid::gpt: hadris_part::scheme::GptDisk
+pub hadris_part::DiskPartitionScheme::Hybrid::hybrid_mbr: hadris_part::mbr::MasterBootRecord
+pub hadris_part::DiskPartitionScheme::Mbr(hadris_part::mbr::MasterBootRecord)
+impl hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::new_gpt(u64, u32) -> Self
+pub fn hadris_part::scheme::DiskPartitionScheme::new_mbr() -> Self
+pub fn hadris_part::scheme::DiskPartitionScheme::partitions(&self) -> alloc::vec::Vec<hadris_part::scheme::PartitionInfo>
+pub fn hadris_part::scheme::DiskPartitionScheme::scheme_type(&self) -> hadris_part::scheme::PartitionSchemeType
+pub fn hadris_part::scheme::DiskPartitionScheme::validate(&self) -> hadris_part::error::Result<()>
+impl hadris_part::async::scheme_io::DiskPartitionSchemeReadExt for hadris_part::scheme::DiskPartitionScheme
+pub async fn hadris_part::scheme::DiskPartitionScheme::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::async::scheme_io::DiskPartitionSchemeWriteExt for hadris_part::scheme::DiskPartitionScheme
+pub async fn hadris_part::scheme::DiskPartitionScheme::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::DiskPartitionSchemeReadExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::DiskPartitionSchemeWriteExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub enum hadris_part::MbrPartitionType
+pub hadris_part::MbrPartitionType::EfiSystemPartition
+pub hadris_part::MbrPartitionType::Empty
+pub hadris_part::MbrPartitionType::Extended
+pub hadris_part::MbrPartitionType::ExtendedLba
+pub hadris_part::MbrPartitionType::Fat12
+pub hadris_part::MbrPartitionType::Fat16
+pub hadris_part::MbrPartitionType::Fat16Lba
+pub hadris_part::MbrPartitionType::Fat32
+pub hadris_part::MbrPartitionType::Fat32Lba
+pub hadris_part::MbrPartitionType::Iso9660
+pub hadris_part::MbrPartitionType::LinuxLvm
+pub hadris_part::MbrPartitionType::LinuxNative
+pub hadris_part::MbrPartitionType::LinuxRaid
+pub hadris_part::MbrPartitionType::LinuxSwap
+pub hadris_part::MbrPartitionType::Ntfs
+pub hadris_part::MbrPartitionType::ProtectiveMbr
+pub hadris_part::MbrPartitionType::Unknown(u8)
+impl hadris_part::mbr::MbrPartitionType
+pub const fn hadris_part::mbr::MbrPartitionType::from_u8(u8) -> Self
+pub const fn hadris_part::mbr::MbrPartitionType::is_empty(&self) -> bool
+pub const fn hadris_part::mbr::MbrPartitionType::is_protective(&self) -> bool
+pub const fn hadris_part::mbr::MbrPartitionType::to_u8(&self) -> u8
+impl core::fmt::Display for hadris_part::mbr::MbrPartitionType
+pub fn hadris_part::mbr::MbrPartitionType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum hadris_part::PartitionError
+pub hadris_part::PartitionError::BackupHeaderMismatch
+pub hadris_part::PartitionError::DiskTooSmall
+pub hadris_part::PartitionError::DiskTooSmall::available: u64
+pub hadris_part::PartitionError::DiskTooSmall::required: u64
+pub hadris_part::PartitionError::FeatureNotAvailable(&'static str)
+pub hadris_part::PartitionError::GptEntriesCrcMismatch
+pub hadris_part::PartitionError::GptEntriesCrcMismatch::actual: u32
+pub hadris_part::PartitionError::GptEntriesCrcMismatch::expected: u32
+pub hadris_part::PartitionError::GptHeaderCrcMismatch
+pub hadris_part::PartitionError::GptHeaderCrcMismatch::actual: u32
+pub hadris_part::PartitionError::GptHeaderCrcMismatch::expected: u32
+pub hadris_part::PartitionError::InvalidGptSignature
+pub hadris_part::PartitionError::InvalidGptSignature::found: [u8; 8]
+pub hadris_part::PartitionError::InvalidHybridMbr
+pub hadris_part::PartitionError::InvalidHybridMbr::reason: &'static str
+pub hadris_part::PartitionError::InvalidMbrSignature
+pub hadris_part::PartitionError::InvalidMbrSignature::found: [u8; 2]
+pub hadris_part::PartitionError::InvalidPartitionEntrySize
+pub hadris_part::PartitionError::InvalidPartitionEntrySize::size: u32
+pub hadris_part::PartitionError::Io(hadris_io::error::Error)
+pub hadris_part::PartitionError::MisalignedPartition
+pub hadris_part::PartitionError::MisalignedPartition::lba: u64
+pub hadris_part::PartitionError::MisalignedPartition::required_alignment: u64
+pub hadris_part::PartitionError::NoProtectiveMbr
+pub hadris_part::PartitionError::PartitionOutOfBounds
+pub hadris_part::PartitionError::PartitionOutOfBounds::disk_end: u64
+pub hadris_part::PartitionError::PartitionOutOfBounds::index: usize
+pub hadris_part::PartitionError::PartitionOutOfBounds::partition_end: u64
+pub hadris_part::PartitionError::PartitionOverlap
+pub hadris_part::PartitionError::PartitionOverlap::index1: usize
+pub hadris_part::PartitionError::PartitionOverlap::index2: usize
+pub hadris_part::PartitionError::PartitionOverlap::overlap_end: u64
+pub hadris_part::PartitionError::PartitionOverlap::overlap_start: u64
+pub hadris_part::PartitionError::TooManyPartitions
+pub hadris_part::PartitionError::TooManyPartitions::max: usize
+pub hadris_part::PartitionError::TooManyPartitions::requested: usize
+impl core::error::Error for hadris_part::error::PartitionError
+pub fn hadris_part::error::PartitionError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Display for hadris_part::error::PartitionError
+pub fn hadris_part::error::PartitionError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_io::IoError> core::convert::From<hadris_io::error::Error<E>> for hadris_part::error::PartitionError
+pub fn hadris_part::error::PartitionError::from(hadris_io::error::Error<E>) -> Self
+pub enum hadris_part::PartitionSchemeType
+pub hadris_part::PartitionSchemeType::Gpt
+pub hadris_part::PartitionSchemeType::Hybrid
+pub hadris_part::PartitionSchemeType::Mbr
+impl core::fmt::Display for hadris_part::scheme::PartitionSchemeType
+pub fn hadris_part::scheme::PartitionSchemeType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum hadris_part::PartitionTable
+pub hadris_part::PartitionTable::Gpt
+pub hadris_part::PartitionTable::Gpt::gpt: hadris_part::scheme::GptDisk
+pub hadris_part::PartitionTable::Gpt::protective_mbr: hadris_part::mbr::MasterBootRecord
+pub hadris_part::PartitionTable::Hybrid
+pub hadris_part::PartitionTable::Hybrid::gpt: hadris_part::scheme::GptDisk
+pub hadris_part::PartitionTable::Hybrid::hybrid_mbr: hadris_part::mbr::MasterBootRecord
+pub hadris_part::PartitionTable::Mbr(hadris_part::mbr::MasterBootRecord)
+impl hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::new_gpt(u64, u32) -> Self
+pub fn hadris_part::scheme::DiskPartitionScheme::new_mbr() -> Self
+pub fn hadris_part::scheme::DiskPartitionScheme::partitions(&self) -> alloc::vec::Vec<hadris_part::scheme::PartitionInfo>
+pub fn hadris_part::scheme::DiskPartitionScheme::scheme_type(&self) -> hadris_part::scheme::PartitionSchemeType
+pub fn hadris_part::scheme::DiskPartitionScheme::validate(&self) -> hadris_part::error::Result<()>
+impl hadris_part::async::scheme_io::DiskPartitionSchemeReadExt for hadris_part::scheme::DiskPartitionScheme
+pub async fn hadris_part::scheme::DiskPartitionScheme::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::async::scheme_io::DiskPartitionSchemeWriteExt for hadris_part::scheme::DiskPartitionScheme
+pub async fn hadris_part::scheme::DiskPartitionScheme::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::DiskPartitionSchemeReadExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::DiskPartitionSchemeWriteExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub enum hadris_part::PartitionType
+pub hadris_part::PartitionType::Gpt(hadris_part::gpt::Guid)
+pub hadris_part::PartitionType::Mbr(u8)
+#[repr(transparent)] pub struct hadris_part::Chs(_)
+impl hadris_part::mbr::Chs
+pub const hadris_part::mbr::Chs::OUT_OF_RANGE: hadris_part::mbr::Chs
+pub const fn hadris_part::mbr::Chs::as_lba(&self) -> u32
+pub const fn hadris_part::mbr::Chs::cylinder(&self) -> u16
+pub const fn hadris_part::mbr::Chs::head(&self) -> u8
+pub const fn hadris_part::mbr::Chs::new(u32) -> Self
+pub const fn hadris_part::mbr::Chs::sector(&self) -> u8
+impl bytemuck::pod::Pod for hadris_part::mbr::Chs
+impl bytemuck::zeroable::Zeroable for hadris_part::mbr::Chs
+impl core::default::Default for hadris_part::mbr::Chs
+pub fn hadris_part::mbr::Chs::default() -> Self
+impl core::fmt::Debug for hadris_part::mbr::Chs
+pub fn hadris_part::mbr::Chs::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_part::DiskGeometry
+pub hadris_part::DiskGeometry::block_size: u32
+pub hadris_part::DiskGeometry::physical_block_size: core::option::Option<u32>
+pub hadris_part::DiskGeometry::total_blocks: u64
+impl hadris_part::geometry::DiskGeometry
+pub const hadris_part::geometry::DiskGeometry::ADVANCED_FORMAT_BLOCK_SIZE: u32
+pub const hadris_part::geometry::DiskGeometry::DEFAULT_ALIGNMENT_BYTES: u64
+pub const hadris_part::geometry::DiskGeometry::STANDARD_BLOCK_SIZE: u32
+pub const fn hadris_part::geometry::DiskGeometry::advanced_format(u64) -> Self
+pub const fn hadris_part::geometry::DiskGeometry::align_down(&self, u64, u64) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::align_up(&self, u64, u64) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::alignment_boundary(&self) -> u32
+pub const fn hadris_part::geometry::DiskGeometry::default_alignment(&self) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::emulated_512(u64) -> Self
+pub const fn hadris_part::geometry::DiskGeometry::gpt_first_usable_lba(&self, u32, u32) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::gpt_first_usable_lba_aligned(&self, u32, u32) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::gpt_last_usable_lba(&self, u32, u32) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::gpt_last_usable_lba_aligned(&self, u32, u32) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::gpt_usable_sectors(&self, u32, u32) -> u64
+pub const fn hadris_part::geometry::DiskGeometry::is_aligned(&self, u64, u64) -> bool
+pub const fn hadris_part::geometry::DiskGeometry::new(u32, u64, core::option::Option<u32>) -> Self
+pub const fn hadris_part::geometry::DiskGeometry::standard(u64) -> Self
+pub const fn hadris_part::geometry::DiskGeometry::total_bytes(&self) -> u64
+pub struct hadris_part::GptDisk
+pub hadris_part::GptDisk::backup_header: hadris_part::gpt::GptHeader
+pub hadris_part::GptDisk::block_size: u32
+pub hadris_part::GptDisk::entries: alloc::vec::Vec<hadris_part::gpt::GptPartitionEntry>
+pub hadris_part::GptDisk::primary_header: hadris_part::gpt::GptHeader
+impl hadris_part::scheme::GptDisk
+pub const hadris_part::scheme::GptDisk::DEFAULT_ENTRY_COUNT: u32
+pub fn hadris_part::scheme::GptDisk::add_partition(&mut self, hadris_part::gpt::GptPartitionEntry) -> hadris_part::error::Result<usize>
+pub fn hadris_part::scheme::GptDisk::create_protective_mbr(&self) -> hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::scheme::GptDisk::new(u64, u32) -> Self
+pub fn hadris_part::scheme::GptDisk::partition_count(&self) -> usize
+pub fn hadris_part::scheme::GptDisk::partitions(&self) -> impl core::iter::traits::iterator::Iterator<Item = (usize, &hadris_part::gpt::GptPartitionEntry)>
+pub fn hadris_part::scheme::GptDisk::update_crcs(&mut self)
+pub fn hadris_part::scheme::GptDisk::validate(&self) -> hadris_part::error::Result<()>
+impl hadris_part::async::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
+pub async fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::async::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
+pub async fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
+pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
+pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+#[repr(C)] pub struct hadris_part::GptHeader
+pub hadris_part::GptHeader::alternate_lba: endian_num::Le<u64>
+pub hadris_part::GptHeader::disk_guid: hadris_part::gpt::Guid
+pub hadris_part::GptHeader::first_usable_lba: endian_num::Le<u64>
+pub hadris_part::GptHeader::header_crc32: endian_num::Le<u32>
+pub hadris_part::GptHeader::header_size: endian_num::Le<u32>
+pub hadris_part::GptHeader::last_usable_lba: endian_num::Le<u64>
+pub hadris_part::GptHeader::my_lba: endian_num::Le<u64>
+pub hadris_part::GptHeader::num_partition_entries: endian_num::Le<u32>
+pub hadris_part::GptHeader::partition_entry_array_crc32: endian_num::Le<u32>
+pub hadris_part::GptHeader::partition_entry_lba: endian_num::Le<u64>
+pub hadris_part::GptHeader::reserved: endian_num::Le<u32>
+pub hadris_part::GptHeader::revision: endian_num::Le<u32>
+pub hadris_part::GptHeader::signature: [u8; 8]
+pub hadris_part::GptHeader::size_of_partition_entry: endian_num::Le<u32>
+impl hadris_part::gpt::GptHeader
+pub const hadris_part::gpt::GptHeader::REVISION_1_0: u32
+pub const hadris_part::gpt::GptHeader::SIGNATURE: [u8; 8]
+pub const hadris_part::gpt::GptHeader::STANDARD_ENTRY_SIZE: u32
+pub const hadris_part::gpt::GptHeader::STANDARD_HEADER_SIZE: u32
+pub fn hadris_part::gpt::GptHeader::calculate_crc32(&self) -> u32
+pub const fn hadris_part::gpt::GptHeader::has_valid_signature(&self) -> bool
+pub fn hadris_part::gpt::GptHeader::update_crc32(&mut self)
+pub fn hadris_part::gpt::GptHeader::verify_crc32(&self) -> bool
+impl core::default::Default for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::default() -> Self
+impl hadris_part::async::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
+pub async fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::async::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
+pub async fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+impl hadris_part::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+#[repr(C)] pub struct hadris_part::GptPartitionEntry
+pub hadris_part::GptPartitionEntry::attributes: hadris_part::gpt::GptAttributes
+pub hadris_part::GptPartitionEntry::first_lba: endian_num::Le<u64>
+pub hadris_part::GptPartitionEntry::last_lba: endian_num::Le<u64>
+pub hadris_part::GptPartitionEntry::name: hadris_part::gpt::GptPartitionName
+pub hadris_part::GptPartitionEntry::type_guid: hadris_part::gpt::Guid
+pub hadris_part::GptPartitionEntry::unique_guid: hadris_part::gpt::Guid
+impl hadris_part::gpt::GptPartitionEntry
+pub const fn hadris_part::gpt::GptPartitionEntry::is_unused(&self) -> bool
+pub const fn hadris_part::gpt::GptPartitionEntry::new(hadris_part::gpt::Guid, hadris_part::gpt::Guid, u64, u64) -> Self
+pub fn hadris_part::gpt::GptPartitionEntry::set_name_ascii(&mut self, &[u8])
+pub const fn hadris_part::gpt::GptPartitionEntry::size_bytes(&self) -> u64
+pub const fn hadris_part::gpt::GptPartitionEntry::size_bytes_with_sector_size(&self, u32) -> u64
+pub const fn hadris_part::gpt::GptPartitionEntry::size_sectors(&self) -> u64
+impl bytemuck::pod::Pod for hadris_part::gpt::GptPartitionEntry
+impl bytemuck::zeroable::Zeroable for hadris_part::gpt::GptPartitionEntry
+impl core::default::Default for hadris_part::gpt::GptPartitionEntry
+pub fn hadris_part::gpt::GptPartitionEntry::default() -> Self
+impl core::fmt::Debug for hadris_part::gpt::GptPartitionEntry
+pub fn hadris_part::gpt::GptPartitionEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl hadris_part::PartitionInfoTrait for hadris_part::gpt::GptPartitionEntry
+pub fn hadris_part::gpt::GptPartitionEntry::byte_len(&self, u32) -> core::option::Option<u64>
+pub fn hadris_part::gpt::GptPartitionEntry::checked_end_lba(&self) -> core::option::Option<u64>
+pub fn hadris_part::gpt::GptPartitionEntry::end_lba(&self) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::size_bytes(&self) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::size_bytes_with_sector_size(&self, u32) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::size_sectors(&self) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::start_lba(&self) -> u64
+#[repr(transparent)] pub struct hadris_part::Guid(_)
+impl hadris_part::gpt::Guid
+pub const hadris_part::gpt::Guid::APPLE_APFS: Self
+pub const hadris_part::gpt::Guid::APPLE_BOOT: Self
+pub const hadris_part::gpt::Guid::APPLE_CORE_STORAGE: Self
+pub const hadris_part::gpt::Guid::APPLE_HFS_PLUS: Self
+pub const hadris_part::gpt::Guid::APPLE_LABEL: Self
+pub const hadris_part::gpt::Guid::APPLE_RAID: Self
+pub const hadris_part::gpt::Guid::APPLE_RAID_OFFLINE: Self
+pub const hadris_part::gpt::Guid::APPLE_TV_RECOVERY: Self
+pub const hadris_part::gpt::Guid::APPLE_UFS: Self
+pub const hadris_part::gpt::Guid::BASIC_DATA: Self
+pub const hadris_part::gpt::Guid::BIOS_BOOT: Self
+pub const hadris_part::gpt::Guid::CHROMEOS_KERNEL: Self
+pub const hadris_part::gpt::Guid::CHROMEOS_RESERVED: Self
+pub const hadris_part::gpt::Guid::CHROMEOS_ROOTFS: Self
+pub const hadris_part::gpt::Guid::EFI_SYSTEM: Self
+pub const hadris_part::gpt::Guid::FREEBSD_BOOT: Self
+pub const hadris_part::gpt::Guid::FREEBSD_DATA: Self
+pub const hadris_part::gpt::Guid::FREEBSD_SWAP: Self
+pub const hadris_part::gpt::Guid::FREEBSD_UFS: Self
+pub const hadris_part::gpt::Guid::FREEBSD_VINUM: Self
+pub const hadris_part::gpt::Guid::FREEBSD_ZFS: Self
+pub const hadris_part::gpt::Guid::LINUX_FILESYSTEM: Self
+pub const hadris_part::gpt::Guid::LINUX_HOME: Self
+pub const hadris_part::gpt::Guid::LINUX_LUKS: Self
+pub const hadris_part::gpt::Guid::LINUX_LVM: Self
+pub const hadris_part::gpt::Guid::LINUX_RAID: Self
+pub const hadris_part::gpt::Guid::LINUX_ROOT_ARM: Self
+pub const hadris_part::gpt::Guid::LINUX_ROOT_ARM64: Self
+pub const hadris_part::gpt::Guid::LINUX_ROOT_X86: Self
+pub const hadris_part::gpt::Guid::LINUX_ROOT_X86_64: Self
+pub const hadris_part::gpt::Guid::LINUX_SRV: Self
+pub const hadris_part::gpt::Guid::LINUX_SWAP: Self
+pub const hadris_part::gpt::Guid::MICROSOFT_RESERVED: Self
+pub const hadris_part::gpt::Guid::NETBSD_FFS: Self
+pub const hadris_part::gpt::Guid::NETBSD_LFS: Self
+pub const hadris_part::gpt::Guid::NETBSD_RAID: Self
+pub const hadris_part::gpt::Guid::NETBSD_SWAP: Self
+pub const hadris_part::gpt::Guid::SOLARIS_BACKUP: Self
+pub const hadris_part::gpt::Guid::SOLARIS_BOOT: Self
+pub const hadris_part::gpt::Guid::SOLARIS_HOME: Self
+pub const hadris_part::gpt::Guid::SOLARIS_RESERVED: Self
+pub const hadris_part::gpt::Guid::SOLARIS_ROOT: Self
+pub const hadris_part::gpt::Guid::SOLARIS_SWAP: Self
+pub const hadris_part::gpt::Guid::SOLARIS_VAR: Self
+pub const hadris_part::gpt::Guid::UNUSED: Self
+pub const hadris_part::gpt::Guid::VMWARE_RESERVED: Self
+pub const hadris_part::gpt::Guid::VMWARE_VMFS: Self
+pub const hadris_part::gpt::Guid::WINDOWS_LDM_DATA: Self
+pub const hadris_part::gpt::Guid::WINDOWS_LDM_METADATA: Self
+pub const hadris_part::gpt::Guid::WINDOWS_RECOVERY: Self
+pub const hadris_part::gpt::Guid::WINDOWS_STORAGE_SPACES: Self
+impl hadris_part::gpt::Guid
+pub const fn hadris_part::gpt::Guid::from_bytes([u8; 16]) -> Self
+pub const fn hadris_part::gpt::Guid::from_str(&str) -> core::option::Option<Self>
+pub const fn hadris_part::gpt::Guid::is_unused(&self) -> bool
+pub const fn hadris_part::gpt::Guid::to_bytes(&self) -> [u8; 16]
+impl hadris_part::gpt::Guid
+pub fn hadris_part::gpt::Guid::generate_v4() -> Self
+impl bytemuck::pod::Pod for hadris_part::gpt::Guid
+impl bytemuck::zeroable::Zeroable for hadris_part::gpt::Guid
+impl core::default::Default for hadris_part::gpt::Guid
+pub fn hadris_part::gpt::Guid::default() -> Self
+impl core::fmt::Debug for hadris_part::gpt::Guid
+pub fn hadris_part::gpt::Guid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for hadris_part::gpt::Guid
+pub fn hadris_part::gpt::Guid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(C, packed(1))] pub struct hadris_part::MasterBootRecord
+pub hadris_part::MasterBootRecord::bootstrap: [u8; 446]
+pub hadris_part::MasterBootRecord::partition_table: hadris_part::mbr::MbrPartitionTable
+pub hadris_part::MasterBootRecord::signature: [u8; 2]
+impl hadris_part::mbr::MasterBootRecord
+pub const hadris_part::mbr::MasterBootRecord::SIGNATURE: [u8; 2]
+pub fn hadris_part::mbr::MasterBootRecord::get_partition_table(&self) -> hadris_part::mbr::MbrPartitionTable
+pub const fn hadris_part::mbr::MasterBootRecord::has_valid_signature(&self) -> bool
+pub fn hadris_part::mbr::MasterBootRecord::is_valid(&self) -> bool
+pub const fn hadris_part::mbr::MasterBootRecord::new(hadris_part::mbr::MbrPartitionTable) -> Self
+pub const fn hadris_part::mbr::MasterBootRecord::protective(u64) -> Self
+pub fn hadris_part::mbr::MasterBootRecord::set_partition_table(&mut self, hadris_part::mbr::MbrPartitionTable)
+pub fn hadris_part::mbr::MasterBootRecord::with_partition_table<F>(&mut self, F) where F: core::ops::function::FnOnce(&mut hadris_part::mbr::MbrPartitionTable)
+impl bytemuck::pod::Pod for hadris_part::mbr::MasterBootRecord
+impl bytemuck::zeroable::Zeroable for hadris_part::mbr::MasterBootRecord
+impl core::default::Default for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::default() -> Self
+impl core::fmt::Debug for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl hadris_part::async::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
+pub async fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+impl hadris_part::async::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
+pub async fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+impl hadris_part::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+#[repr(C)] pub struct hadris_part::MbrPartition
+pub hadris_part::MbrPartition::boot_indicator: u8
+pub hadris_part::MbrPartition::end_chs: hadris_part::mbr::Chs
+pub hadris_part::MbrPartition::part_type: u8
+pub hadris_part::MbrPartition::sector_count: endian_num::Le<u32>
+pub hadris_part::MbrPartition::start_chs: hadris_part::mbr::Chs
+pub hadris_part::MbrPartition::start_lba: endian_num::Le<u32>
+impl hadris_part::mbr::MbrPartition
+pub const fn hadris_part::mbr::MbrPartition::end_lba(&self) -> u32
+pub const fn hadris_part::mbr::MbrPartition::is_bootable(&self) -> bool
+pub const fn hadris_part::mbr::MbrPartition::is_empty(&self) -> bool
+pub const fn hadris_part::mbr::MbrPartition::new(hadris_part::mbr::MbrPartitionType, u32, u32) -> Self
+pub const fn hadris_part::mbr::MbrPartition::partition_type(&self) -> hadris_part::mbr::MbrPartitionType
+pub const fn hadris_part::mbr::MbrPartition::protective(u64) -> Self
+pub fn hadris_part::mbr::MbrPartition::set_bootable(&mut self, bool)
+impl bytemuck::pod::Pod for hadris_part::mbr::MbrPartition
+impl bytemuck::zeroable::Zeroable for hadris_part::mbr::MbrPartition
+impl core::default::Default for hadris_part::mbr::MbrPartition
+pub fn hadris_part::mbr::MbrPartition::default() -> Self
+impl hadris_part::PartitionInfoTrait for hadris_part::mbr::MbrPartition
+pub fn hadris_part::mbr::MbrPartition::byte_len(&self, u32) -> core::option::Option<u64>
+pub fn hadris_part::mbr::MbrPartition::checked_end_lba(&self) -> core::option::Option<u64>
+pub fn hadris_part::mbr::MbrPartition::end_lba(&self) -> u64
+pub fn hadris_part::mbr::MbrPartition::size_bytes(&self) -> u64
+pub fn hadris_part::mbr::MbrPartition::size_bytes_with_sector_size(&self, u32) -> u64
+pub fn hadris_part::mbr::MbrPartition::size_sectors(&self) -> u64
+pub fn hadris_part::mbr::MbrPartition::start_lba(&self) -> u64
+#[repr(transparent)] pub struct hadris_part::MbrPartitionTable
+pub hadris_part::MbrPartitionTable::partitions: [hadris_part::mbr::MbrPartition; 4]
+impl hadris_part::mbr::MbrPartitionTable
+pub fn hadris_part::mbr::MbrPartitionTable::count(&self) -> usize
+pub fn hadris_part::mbr::MbrPartitionTable::is_protective(&self) -> bool
+pub fn hadris_part::mbr::MbrPartitionTable::is_valid(&self) -> bool
+pub fn hadris_part::mbr::MbrPartitionTable::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = &hadris_part::mbr::MbrPartition>
+pub fn hadris_part::mbr::MbrPartitionTable::iter_mut(&mut self) -> impl core::iter::traits::iterator::Iterator<Item = &mut hadris_part::mbr::MbrPartition>
+pub const fn hadris_part::mbr::MbrPartitionTable::new() -> Self
+pub const fn hadris_part::mbr::MbrPartitionTable::protective(u64) -> Self
+impl bytemuck::pod::Pod for hadris_part::mbr::MbrPartitionTable
+impl bytemuck::zeroable::Zeroable for hadris_part::mbr::MbrPartitionTable
+impl core::default::Default for hadris_part::mbr::MbrPartitionTable
+pub fn hadris_part::mbr::MbrPartitionTable::default() -> Self
+impl core::fmt::Debug for hadris_part::mbr::MbrPartitionTable
+pub fn hadris_part::mbr::MbrPartitionTable::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::index::Index<usize> for hadris_part::mbr::MbrPartitionTable
+pub type hadris_part::mbr::MbrPartitionTable::Output = hadris_part::mbr::MbrPartition
+pub fn hadris_part::mbr::MbrPartitionTable::index(&self, usize) -> &Self::Output
+impl core::ops::index::IndexMut<usize> for hadris_part::mbr::MbrPartitionTable
+pub fn hadris_part::mbr::MbrPartitionTable::index_mut(&mut self, usize) -> &mut Self::Output
+impl hadris_part::PartitionTableRead for hadris_part::mbr::MbrPartitionTable
+pub type hadris_part::mbr::MbrPartitionTable::Partition = hadris_part::mbr::MbrPartition
+pub fn hadris_part::mbr::MbrPartitionTable::partition(&self, usize) -> core::option::Option<&Self::Partition>
+pub fn hadris_part::mbr::MbrPartitionTable::partition_count(&self) -> usize
+pub struct hadris_part::PartitionInfo
+pub hadris_part::PartitionInfo::bootable: bool
+pub hadris_part::PartitionInfo::end_lba: u64
+pub hadris_part::PartitionInfo::index: usize
+pub hadris_part::PartitionInfo::partition_type: hadris_part::scheme::PartitionType
+pub hadris_part::PartitionInfo::size_sectors: u64
+pub hadris_part::PartitionInfo::start_lba: u64
+impl hadris_part::scheme::PartitionInfo
+pub const fn hadris_part::scheme::PartitionInfo::size_bytes(&self) -> u64
+pub const fn hadris_part::scheme::PartitionInfo::size_bytes_with_sector_size(&self, u32) -> u64
+impl hadris_part::PartitionInfoTrait for hadris_part::scheme::PartitionInfo
+pub fn hadris_part::scheme::PartitionInfo::byte_len(&self, u32) -> core::option::Option<u64>
+pub fn hadris_part::scheme::PartitionInfo::checked_end_lba(&self) -> core::option::Option<u64>
+pub fn hadris_part::scheme::PartitionInfo::end_lba(&self) -> u64
+pub fn hadris_part::scheme::PartitionInfo::size_bytes(&self) -> u64
+pub fn hadris_part::scheme::PartitionInfo::size_bytes_with_sector_size(&self, u32) -> u64
+pub fn hadris_part::scheme::PartitionInfo::size_sectors(&self) -> u64
+pub fn hadris_part::scheme::PartitionInfo::start_lba(&self) -> u64
+pub trait hadris_part::DiskPartitionSchemeReadExt: core::marker::Sized
+pub fn hadris_part::DiskPartitionSchemeReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::DiskPartitionSchemeReadExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::DiskPartitionSchemeWriteExt
+pub fn hadris_part::DiskPartitionSchemeWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::DiskPartitionSchemeWriteExt for hadris_part::scheme::DiskPartitionScheme
+pub fn hadris_part::scheme::DiskPartitionScheme::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub trait hadris_part::GptDiskReadExt: core::marker::Sized
+pub fn hadris_part::GptDiskReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
+pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::GptDiskWriteExt
+pub fn hadris_part::GptDiskWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+impl hadris_part::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
+pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub trait hadris_part::GptHeaderReadExt: core::marker::Sized
+pub fn hadris_part::GptHeaderReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::GptHeaderReadExt::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+impl hadris_part::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub trait hadris_part::GptHeaderWriteExt
+pub fn hadris_part::GptHeaderWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::GptHeaderWriteExt::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+impl hadris_part::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
+pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub trait hadris_part::MasterBootRecordReadExt: core::marker::Sized
+pub fn hadris_part::MasterBootRecordReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+impl hadris_part::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub trait hadris_part::MasterBootRecordWriteExt
+pub fn hadris_part::MasterBootRecordWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+impl hadris_part::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
+pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub trait hadris_part::PartitionInfoTrait
+pub fn hadris_part::PartitionInfoTrait::byte_len(&self, u32) -> core::option::Option<u64>
+pub fn hadris_part::PartitionInfoTrait::checked_end_lba(&self) -> core::option::Option<u64>
+pub fn hadris_part::PartitionInfoTrait::end_lba(&self) -> u64
+pub fn hadris_part::PartitionInfoTrait::size_bytes(&self) -> u64
+pub fn hadris_part::PartitionInfoTrait::size_bytes_with_sector_size(&self, u32) -> u64
+pub fn hadris_part::PartitionInfoTrait::size_sectors(&self) -> u64
+pub fn hadris_part::PartitionInfoTrait::start_lba(&self) -> u64
+impl hadris_part::PartitionInfoTrait for hadris_part::gpt::GptPartitionEntry
+pub fn hadris_part::gpt::GptPartitionEntry::byte_len(&self, u32) -> core::option::Option<u64>
+pub fn hadris_part::gpt::GptPartitionEntry::checked_end_lba(&self) -> core::option::Option<u64>
+pub fn hadris_part::gpt::GptPartitionEntry::end_lba(&self) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::size_bytes(&self) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::size_bytes_with_sector_size(&self, u32) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::size_sectors(&self) -> u64
+pub fn hadris_part::gpt::GptPartitionEntry::start_lba(&self) -> u64
+impl hadris_part::PartitionInfoTrait for hadris_part::mbr::MbrPartition
+pub fn hadris_part::mbr::MbrPartition::byte_len(&self, u32) -> core::option::Option<u64>
+pub fn hadris_part::mbr::MbrPartition::checked_end_lba(&self) -> core::option::Option<u64>
+pub fn hadris_part::mbr::MbrPartition::end_lba(&self) -> u64
+pub fn hadris_part::mbr::MbrPartition::size_bytes(&self) -> u64
+pub fn hadris_part::mbr::MbrPartition::size_bytes_with_sector_size(&self, u32) -> u64
+pub fn hadris_part::mbr::MbrPartition::size_sectors(&self) -> u64
+pub fn hadris_part::mbr::MbrPartition::start_lba(&self) -> u64
+impl hadris_part::PartitionInfoTrait for hadris_part::scheme::PartitionInfo
+pub fn hadris_part::scheme::PartitionInfo::byte_len(&self, u32) -> core::option::Option<u64>
+pub fn hadris_part::scheme::PartitionInfo::checked_end_lba(&self) -> core::option::Option<u64>
+pub fn hadris_part::scheme::PartitionInfo::end_lba(&self) -> u64
+pub fn hadris_part::scheme::PartitionInfo::size_bytes(&self) -> u64
+pub fn hadris_part::scheme::PartitionInfo::size_bytes_with_sector_size(&self, u32) -> u64
+pub fn hadris_part::scheme::PartitionInfo::size_sectors(&self) -> u64
+pub fn hadris_part::scheme::PartitionInfo::start_lba(&self) -> u64
+pub trait hadris_part::PartitionTableRead
+pub type hadris_part::PartitionTableRead::Partition: hadris_part::PartitionInfoTrait
+pub fn hadris_part::PartitionTableRead::partition(&self, usize) -> core::option::Option<&Self::Partition>
+pub fn hadris_part::PartitionTableRead::partition_count(&self) -> usize
+impl hadris_part::PartitionTableRead for hadris_part::mbr::MbrPartitionTable
+pub type hadris_part::mbr::MbrPartitionTable::Partition = hadris_part::mbr::MbrPartition
+pub fn hadris_part::mbr::MbrPartitionTable::partition(&self, usize) -> core::option::Option<&Self::Partition>
+pub fn hadris_part::mbr::MbrPartitionTable::partition_count(&self) -> usize
+pub fn hadris_part::validate_partition_alignment<P: hadris_part::PartitionInfoTrait>(&P, &hadris_part::geometry::DiskGeometry, u64) -> hadris_part::error::Result<()>
+pub type hadris_part::Result<T> = core::result::Result<T, hadris_part::error::PartitionError>

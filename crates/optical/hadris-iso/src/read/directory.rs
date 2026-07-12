@@ -211,7 +211,7 @@ io_transform! {
 impl<T: Read + Seek> IsoDir<'_, T> {
     /// Reads all entries in this directory.
     ///
-    /// Unlike [`entries`](Self::entries), this collection-oriented operation is
+    /// Unlike the synchronous `entries` iterator, this collection-oriented operation is
     /// available with both synchronous and asynchronous I/O.
     pub async fn read_entries(&self) -> io::Result<Vec<DirEntry>> {
         const SECTOR_SIZE: usize = 2048;
