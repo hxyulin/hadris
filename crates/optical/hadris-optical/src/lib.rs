@@ -2,8 +2,13 @@
 //!
 //! Concrete format crates remain directly accessible so callers do not lose
 //! format-specific functionality.
+//! Optical detection reports ISO 9660 and UDF independently because bridge
+//! images may validly contain both filesystems.
 
 #![no_std]
+
+#[cfg(feature = "detect")]
+pub mod detect;
 
 /// ISO 9660 filesystem support.
 #[cfg(feature = "iso")]

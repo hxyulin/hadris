@@ -30,7 +30,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Optical Media
 
-- **[hadris-optical](crates/optical/hadris-optical)** - Category facade for optical filesystems and image composition
+- **[hadris-optical](crates/optical/hadris-optical)** - Category facade with multi-format ISO/UDF/bridge detection and image composition
 - **[hadris-iso](crates/optical/hadris-iso)** - ISO 9660 filesystem implementation
   - ISO 9660 Level 1-3 and ISO 9660:1999 (long filenames)
   - Joliet extension (UTF-16 Unicode filenames)
