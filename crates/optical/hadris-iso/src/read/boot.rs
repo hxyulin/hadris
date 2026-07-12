@@ -1,10 +1,14 @@
-use super::super::boot::{BaseBootCatalog, BootSectionHeaderEntry};
-use super::super::io::{self, Read, Seek, SeekFrom};
-use super::super::io::{IsoCursor, LogicalSector};
+use super::super::boot::BaseBootCatalog;
+use super::super::io::LogicalSector;
+use hadris_common::types::endian::Endian;
+
+sync_only! {
+use super::super::boot::BootSectionHeaderEntry;
+use super::super::io::{self, IsoCursor, Read, Seek, SeekFrom};
 use super::IsoImage;
 use bytemuck::Zeroable;
-use hadris_common::types::endian::Endian;
 use spin::Mutex;
+}
 
 #[derive(Debug, Clone)]
 pub struct BootInfo {
@@ -13,6 +17,7 @@ pub struct BootInfo {
     pub(crate) catalog: BaseBootCatalog,
     /// The Start Sector of the Boot Catalog
     /// This is used to construct an iterator for querying further sections
+    #[allow(dead_code)]
     pub(crate) catalog_ptr: LogicalSector,
 }
 

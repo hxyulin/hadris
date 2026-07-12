@@ -1,11 +1,10 @@
-use spin::Mutex;
+sync_only! {
 
+use spin::Mutex;
 use super::super::io::{
     self, IsoCursor, LogicalSector, Read, Seek, try_io_result_option as try_io,
 };
 use super::super::volume::VolumeDescriptor;
-
-sync_only! {
 
 pub struct VolumeDescriptorIter<'ctx, DATA: Read + Seek> {
     pub(crate) data: &'ctx Mutex<IsoCursor<DATA>>,

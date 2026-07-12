@@ -2,13 +2,13 @@ use super::directory::DirectoryRef;
 use super::io::{self, IsoCursor, LogicalSector, Read, Seek};
 use super::path::{PathTableEntry, PathTableInfo, PathTableRef};
 use super::volume::VolumeDescriptorList;
-use super::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
 use crate::file::EntryType;
 use crate::joliet::JolietLevel;
 use hadris_common::types::endian::Endian;
 #[cfg(not(feature = "alloc"))]
 use hadris_common::types::no_alloc::ArrayVec;
 sync_only! {
+    use super::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
     use volume::VolumeDescriptorIter;
 }
 

@@ -96,21 +96,28 @@ IsoImageWriter::format_new(&mut buffer, files, format_options)?;
 | `read` | Minimal read support (no-std, no-alloc) | None |
 | `alloc` | Heap allocation without full std | `alloc` crate |
 | `std` | Full standard library support | `std`, `alloc` |
-| `write` | ISO creation/formatting | `std`, `alloc` |
+| `sync` | Synchronous API under `hadris_iso::sync` | — |
+| `async` | Asynchronous read API under `hadris_iso::r#async` | — |
+| `write` | Synchronous ISO creation/formatting | `std`, `alloc` |
 | `joliet` | UTF-16 Unicode filename support | `alloc` |
+
+`std` selects platform integration but does not select an I/O mode. The default
+configuration enables `sync`; custom configurations should select `sync`,
+`async`, or both explicitly. Write and modification APIs are currently available
+only under `sync`.
 
 ### For Bootloaders (minimal footprint)
 
 ```toml
 [dependencies]
-hadris-iso = { version = "1.2.1", default-features = false, features = ["read"] }
+hadris-iso = { version = "1.2.1", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Kernels with Heap (no-std + alloc)
 
 ```toml
 [dependencies]
-hadris-iso = { version = "1.2.1", default-features = false, features = ["read", "alloc"] }
+hadris-iso = { version = "1.2.1", default-features = false, features = ["read", "alloc", "sync"] }
 ```
 
 ### For Desktop Applications (full features)

@@ -10,6 +10,13 @@
 //! - **Desktop Applications**: Full-featured ISO creation and extraction
 //! - **Build Systems**: Automated bootable ISO generation
 //!
+//! ## I/O modes
+//!
+//! `std` selects standard-library integration but does not enable an I/O mode.
+//! Enable `sync`, `async`, or both. The default configuration enables `sync` for
+//! compatibility. ISO creation and modification are currently synchronous-only;
+//! the async module exposes the implemented read APIs.
+//!
 //! ## Quick Start
 //!
 //! ### Reading an ISO Image
@@ -581,8 +588,6 @@ pub mod r#async {
         pub mod boot;
         pub mod directory;
         pub mod io;
-        #[cfg(feature = "write")]
-        pub mod modify;
         pub mod path;
         #[cfg(feature = "alloc")]
         pub mod read;
@@ -591,8 +596,6 @@ pub mod r#async {
         #[cfg(feature = "alloc")]
         pub mod susp;
         pub mod volume;
-        #[cfg(feature = "write")]
-        pub mod write;
     }
     pub use __inner::*;
 }
