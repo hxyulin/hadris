@@ -12,6 +12,7 @@ extern crate std;
 
 mod error;
 mod geometry;
+mod view;
 
 #[cfg(feature = "async")]
 pub mod r#async;
@@ -20,6 +21,7 @@ pub mod sync;
 
 pub use error::{BlockError, Result};
 pub use geometry::{BlockCount, BlockGeometry, BlockIndex, BlockRange, BlockSize};
+pub use view::PartitionView;
 
 #[cfg(feature = "sync")]
 pub use sync::{BlockDevice, BlockDeviceMut, SeekBlockDevice};

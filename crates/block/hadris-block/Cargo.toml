@@ -32,3 +32,6 @@ hadris-io = { workspace = true, optional = true, default-features = false }
 hadris-storage = { workspace = true, optional = true, default-features = false }
 hadris-fat = { workspace = true, optional = true, default-features = false }
 hadris-part = { workspace = true, optional = true, default-features = false }
+
+[dev-dependencies]
+bytemuck.workspace = true

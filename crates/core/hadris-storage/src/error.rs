@@ -21,6 +21,13 @@ pub enum BlockError<E> {
     },
     /// A block or byte-offset calculation overflowed.
     AddressOverflow,
+    /// A bounded view was created with an empty or overflowing byte range.
+    InvalidView {
+        /// First byte in the underlying stream.
+        offset: u64,
+        /// Length of the view in bytes.
+        length: u64,
+    },
     /// The underlying byte-oriented device returned an error.
     Io(hadris_io::Error<E>),
 }
@@ -44,6 +51,12 @@ impl<E: embedded_io::Error> fmt::Display for BlockError<E> {
                 "block range {start}..+{count} exceeds device size of {device_blocks} blocks"
             ),
             Self::AddressOverflow => f.write_str("block address calculation overflowed"),
+            Self::InvalidView { offset, length } => {
+                write!(
+                    f,
+                    "invalid bounded view at byte {offset} with length {length}"
+                )
+            }
             Self::Io(error) => write!(f, "storage I/O error: {:?}", error.kind()),
         }
     }

@@ -98,6 +98,18 @@ the format-neutral `hadris-storage` primitives and lightweight, non-consuming
 FAT/partition-table detection. Detection for other categories and common wrappers
 remain future work.
 
+The accepted block opening and partition traversal design lives in
+[`hadris-2-block-opening-api.md`](hadris-2-block-opening-api.md). It chooses a
+borrowed `OpenVolume` initially so failed opens never take ownership away from the
+caller, and requires a checked bounded `PartitionView` before opening filesystems
+inside partitioned disks.
+
+Status: the initial slice is implemented for FAT in both API modes. Checked
+partition views, MBR/GPT entry adapters, concrete escape hatches, source
+recovery, and nested-volume integration tests are in place. Runtime async tests
+and a second filesystem remain the next evidence needed before defining common
+volume capabilities.
+
 ## Phase 5: Capability-oriented high-level APIs
 
 Explore narrow interfaces such as `Volume`, `Directory`, `File`, `Entry`,

@@ -1,7 +1,76 @@
 use hadris_io::r#async::{Read, Seek, Write};
 use hadris_io::{ErrorKind, SeekFrom};
 
+use crate::PartitionView;
 use crate::{BlockCount, BlockError, BlockGeometry, BlockIndex, BlockRange, Result};
+
+impl<S> Read for PartitionView<'_, S>
+where
+    S: Read + Seek<Error = <S as Read>::Error>,
+{
+    type Error = hadris_io::ErrorKind;
+
+    async fn read(&mut self, buffer: &mut [u8]) -> hadris_io::Result<usize> {
+        let length = buffer.len().min(self.remaining());
+        if length == 0 {
+            return Ok(0);
+        }
+        let absolute = self.absolute_position()?;
+        self.source
+            .seek(SeekFrom::Start(absolute))
+            .await
+            .map_err(hadris_io::Error::erase)?;
+        let read = self
+            .source
+            .read(&mut buffer[..length])
+            .await
+            .map_err(hadris_io::Error::erase)?;
+        self.position += read as u64;
+        Ok(read)
+    }
+}
+
+impl<S> Seek for PartitionView<'_, S>
+where
+    S: Read + Seek<Error = <S as Read>::Error>,
+{
+    type Error = hadris_io::ErrorKind;
+
+    async fn seek(&mut self, from: SeekFrom) -> hadris_io::Result<u64> {
+        self.position = self.seek_position(from)?;
+        Ok(self.position)
+    }
+}
+
+impl<S> Write for PartitionView<'_, S>
+where
+    S: Read + Write<Error = <S as Read>::Error> + Seek<Error = <S as Read>::Error>,
+{
+    type Error = hadris_io::ErrorKind;
+
+    async fn write(&mut self, buffer: &[u8]) -> hadris_io::Result<usize> {
+        let length = buffer.len().min(self.remaining());
+        if length == 0 {
+            return Ok(0);
+        }
+        let absolute = self.absolute_position()?;
+        self.source
+            .seek(SeekFrom::Start(absolute))
+            .await
+            .map_err(hadris_io::Error::erase)?;
+        let written = self
+            .source
+            .write(&buffer[..length])
+            .await
+            .map_err(hadris_io::Error::erase)?;
+        self.position += written as u64;
+        Ok(written)
+    }
+
+    async fn flush(&mut self) -> hadris_io::Result<()> {
+        self.source.flush().await.map_err(hadris_io::Error::erase)
+    }
+}
 
 /// Asynchronous read capability for logical block devices.
 pub trait BlockDevice {

@@ -475,6 +475,7 @@ dependencies = [
 name = "hadris-block"
 version = "1.2.1"
 dependencies = [
+ "bytemuck",
  "hadris-fat",
  "hadris-io",
  "hadris-part",

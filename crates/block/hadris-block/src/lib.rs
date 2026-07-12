@@ -10,6 +10,21 @@ extern crate std;
 
 #[cfg(feature = "detect")]
 pub mod detect;
+#[cfg(all(feature = "detect", feature = "fat"))]
+mod error;
+#[cfg(all(feature = "detect", feature = "part", feature = "storage"))]
+pub mod partition;
+
+#[cfg(all(feature = "detect", feature = "fat"))]
+pub use error::{Error, Result};
+
+#[cfg(all(feature = "detect", feature = "fat", feature = "sync"))]
+#[path = "volume_sync.rs"]
+pub mod sync;
+
+#[cfg(all(feature = "detect", feature = "fat", feature = "async"))]
+#[path = "volume_async.rs"]
+pub mod r#async;
 
 /// Format-neutral block geometry and device capabilities.
 #[cfg(feature = "storage")]
