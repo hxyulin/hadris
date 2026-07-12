@@ -45,8 +45,8 @@ feature independently.
 
 ## Current blockers
 
-- Existing no-std warning-denied checks still expose independent FAT generic
-  error-type mismatches.
+The initial ISO, UDF, and FAT feature-composition blockers are resolved. The
+remaining format crates and facades still need to be audited against the matrix.
 
 ## Implementation status
 
@@ -82,6 +82,24 @@ ISO now follows the same contract:
 The remaining ISO async work is capability expansion, particularly ergonomic
 asynchronous directory traversal and eventually a genuine async writer. It is no
 longer a feature-composition blocker.
+
+### FAT
+
+FAT now follows the shared contract:
+
+- `std` no longer enables `sync`, while defaults select `sync` explicitly;
+- no-std sync, async-only, hosted async read/write, combined read/write, default,
+  and all-capability configurations pass with warnings denied;
+- device-specific seek errors are erased only when entering the non-generic
+  public `FatError`, preserving generic storage implementations;
+- sync-only formatter tests are not instantiated against the async API;
+- `cache`, `tool`, and the current root-level experimental `exfat` API remain
+  explicitly sync-only capabilities and therefore imply `sync`; the core FAT
+  read/write surface supports either or both modes.
+
+Async read/write currently has compile-matrix and shared logic coverage. Dedicated
+async integration tests using an async storage adapter remain desirable before
+calling its runtime behavior release-qualified.
 
 ## Ecosystem research
 

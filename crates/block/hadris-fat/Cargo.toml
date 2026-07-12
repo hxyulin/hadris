@@ -17,14 +17,14 @@ repository.workspace = true
 # the async slice bypasses the cache — see the `cache`/`tool` feature notes
 # below).
 [package.metadata.docs.rs]
-features = ["std", "read", "write", "lfn", "cache", "tool", "exfat"]
+features = ["std", "sync", "async", "read", "write", "lfn", "cache", "tool", "exfat"]
 
 [features]
-default = ["read", "write", "lfn", "std"]
+default = ["read", "write", "lfn", "std", "sync"]
 sync = ["hadris-io/sync", "hadris-common/sync"]
 async = ["hadris-io/async", "hadris-common/async"]
 alloc = ["chrono?/alloc", "hadris-io/alloc"]
-std = ["sync", "alloc", "dep:chrono", "chrono/std", "chrono/clock", "hadris-io/std", "hadris-common/std"]
+std = ["alloc", "dep:chrono", "chrono/std", "chrono/clock", "hadris-io/std", "hadris-common/std"]
 read = []
 write = ["alloc", "read"]
 lfn = []
@@ -38,8 +38,9 @@ cache = ["alloc", "sync"]
 # synchronous iterator API (`for entry in dir.entries()`) and is not
 # async-aware, so it is emitted only in the sync slice (mirrors `cache`).
 tool = ["alloc", "read", "sync"]
-# exFAT filesystem support
-exfat = ["alloc"]
+# Experimental exFAT filesystem support. The current root-level implementation
+# uses synchronous I/O traits and therefore selects the sync API.
+exfat = ["alloc", "sync"]
 # Embedded-friendly logging: derives `defmt::Format` on public diagnostic
 # types (`FatError`, `FatType`, `FatDateTime`, `FsStatusFlags`) so they can
 # be logged through `defmt::info!` etc. without going through `Debug`.

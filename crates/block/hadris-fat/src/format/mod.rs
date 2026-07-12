@@ -131,6 +131,7 @@ impl FatVolumeFormatter {
 
 } // end io_transform!
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,4 +196,5 @@ mod tests {
         assert!(file_entry.name().contains("TXT"));
         assert!(file_entry.is_file());
     }
+}
 }

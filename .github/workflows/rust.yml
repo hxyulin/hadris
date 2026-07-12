@@ -105,6 +105,18 @@ jobs:
           - crate: hadris-fat
             tier: std
             features: "std,sync,read,write,lfn,cache,tool,exfat"
+          - crate: hadris-fat
+            tier: async-read
+            features: "alloc,async,read,lfn"
+          - crate: hadris-fat
+            tier: hosted-async-read-write
+            features: "std,async,read,write,lfn"
+          - crate: hadris-fat
+            tier: sync-and-async-read-write
+            features: "alloc,sync,async,read,write,lfn,exfat"
+          - crate: hadris-fat
+            tier: all-capabilities
+            features: "std,alloc,sync,async,read,write,lfn,cache,tool,exfat,defmt,dirty-file-panic"
 
           # hadris-iso
           - crate: hadris-iso
