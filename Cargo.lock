@@ -459,9 +459,11 @@ dependencies = [
 name = "hadris"
 version = "1.2.1"
 dependencies = [
+ "hadris-cd",
  "hadris-cpio",
  "hadris-fat",
  "hadris-iso",
+ "hadris-part",
  "hadris-udf",
 ]
 

@@ -35,7 +35,7 @@ Phase E adds a lightweight compliance program — not formal verification — so
 - A custom comment DSL / parser before a useful set of annotations exists.
 - Replacing roundtrip / external-tool tests — annotations **point at** them.
 - A public marketing “compliance matrix” in v0 (the table may be promoted later).
-- Full rewrite of `crates/hadris-iso/spec/` in v0 (pointer + light headers only if useful).
+- Full rewrite of `crates/optical/hadris-iso/spec/` in v0 (pointer + light headers only if useful).
 - Proc-macros or build-script table generation in v0/v1 (possible v2).
 
 ---
@@ -141,7 +141,7 @@ Ordered for reuse of existing ECMA titles and high-traffic parsers.
 
 ### 6.1 hadris-udf (first)
 
-Add tags to descriptor modules under `crates/hadris-udf/src/descriptor/` (anchor, partition, primary, logical, fileset, tag, …) and any other already-titled ECMA-167 items that are parse entry points.
+Add tags to descriptor modules under `crates/optical/hadris-udf/src/descriptor/` (anchor, partition, primary, logical, fileset, tag, …) and any other already-titled ECMA-167 items that are parse entry points.
 
 Populate the UDF section of `docs/spec-coverage.md`.
 
@@ -153,7 +153,7 @@ Minimum:
 - Directory Record (`DirectoryRecord`)
 - El-Torito catalog / boot entry **only if** a clear type already exists and tagging is cheap
 
-Optional light touch: one-line pointer from `crates/hadris-iso/spec/Specification.md` (or README in that folder) to `docs/spec-coverage.md`. No full rewrite of in-repo ISO markdown specs in v0.
+Optional light touch: one-line pointer from `crates/optical/hadris-iso/spec/Specification.md` (or README in that folder) to `docs/spec-coverage.md`. No full rewrite of in-repo ISO markdown specs in v0.
 
 ### 6.3 hadris-fat
 
@@ -260,7 +260,7 @@ Do **not** start this until Phase E is scheduled. Suggested order:
 2. Tag UDF descriptors; fill UDF table rows.
 3. Tag ISO PVD + directory record; fill rows.
 4. Tag FAT BPB + LFN; fill rows.
-5. Optional: pointer from `crates/hadris-iso/spec/`.
+5. Optional: pointer from `crates/optical/hadris-iso/spec/`.
 6. Stop. Schedule v1 CI checker separately.
 
 ---

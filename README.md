@@ -4,49 +4,55 @@ A Rust workspace for working with partition tables, filesystems, and disk images
 
 ## Workspace Crates
 
+Crates are grouped by their storage access model. These directories are
+organizational only: published package names such as `hadris-fat` are unchanged.
+
 ### Core Libraries
 
-- **[hadris-io](crates/hadris-io)** - No-std I/O abstraction layer (`Read`, `Write`, `Seek`)
-- **[hadris-common](crates/hadris-common)** - Shared utilities (endian types, CRC, UTF-16 strings, optical helpers)
-- **[hadris-macros](crates/hadris-macros)** - Proc macros for dual sync/async code generation
+- **[hadris-io](crates/core/hadris-io)** - No-std I/O abstraction layer (`Read`, `Write`, `Seek`)
+- **[hadris-common](crates/core/hadris-common)** - Shared utilities (endian types, CRC, UTF-16 strings, optical helpers)
+- **[hadris-macros](crates/core/hadris-macros)** - Proc macros for dual sync/async code generation
 
-### Partition Tables
+### Block Storage
 
-- **[hadris-part](crates/hadris-part)** - Partition table support
+- **[hadris-part](crates/block/hadris-part)** - Partition table support
   - MBR (Legacy BIOS partition tables)
   - GPT (Modern UEFI partition tables)
   - Hybrid MBR (Combined MBR+GPT for dual BIOS/UEFI boot)
-
-### Filesystems and Archives
-
-- **[hadris-iso](crates/hadris-iso)** - ISO 9660 filesystem implementation
-  - ISO 9660 Level 1-3 and ISO 9660:1999 (long filenames)
-  - Joliet extension (UTF-16 Unicode filenames)
-  - Rock Ridge (RRIP) and SUSP (POSIX semantics, symlinks)
-  - El-Torito bootable CD/DVD images
-- **[hadris-fat](crates/hadris-fat)** - FAT filesystem implementation
+- **[hadris-fat](crates/block/hadris-fat)** - FAT filesystem implementation
   - FAT12, FAT16, FAT32 support
   - Long filename support (VFAT/LFN)
   - FAT sector caching for performance
   - Analysis and verification tools
   - ExFAT support (experimental)
-- **[hadris-udf](crates/hadris-udf)** - Universal Disk Format (UDF) for DVD/Blu-ray
-- **[hadris-cpio](crates/hadris-cpio)** - CPIO newc/SVR4 archives (initramfs)
-- **[hadris-cd](crates/hadris-cd)** - Hybrid ISO+UDF optical disc image creation
+
+### Optical Media
+
+- **[hadris-iso](crates/optical/hadris-iso)** - ISO 9660 filesystem implementation
+  - ISO 9660 Level 1-3 and ISO 9660:1999 (long filenames)
+  - Joliet extension (UTF-16 Unicode filenames)
+  - Rock Ridge (RRIP) and SUSP (POSIX semantics, symlinks)
+  - El-Torito bootable CD/DVD images
+- **[hadris-udf](crates/optical/hadris-udf)** - Universal Disk Format (UDF) for DVD/Blu-ray
+- **[hadris-cd](crates/optical/hadris-cd)** - Hybrid ISO+UDF optical disc image creation
+
+### Archives
+
+- **[hadris-cpio](crates/archive/hadris-cpio)** - CPIO newc/SVR4 archives (initramfs)
 
 ### CLI Tools
 
 | Crate | Binary | Notes |
 |-------|--------|-------|
-| [hadris-iso-cli](crates/hadris-iso-cli) | `hadris-iso-cli` | ISO create/inspect/extract |
-| [hadris-fat-cli](crates/hadris-fat-cli) | `fatutil` | FAT analysis and verification |
-| [hadris-cpio-cli](crates/hadris-cpio-cli) | `cpioutil` | CPIO create/extract |
-| [hadris-udf-cli](crates/hadris-udf-cli) | `hadris-udf-cli` | UDF create/inspect |
-| [hadris-cli](crates/hadris-cli) | `hadris-cli` | Experimental stub (not published) |
+| [hadris-iso-cli](crates/tools/hadris-iso-cli) | `hadris-iso-cli` | ISO create/inspect/extract |
+| [hadris-fat-cli](crates/tools/hadris-fat-cli) | `fatutil` | FAT analysis and verification |
+| [hadris-cpio-cli](crates/tools/hadris-cpio-cli) | `cpioutil` | CPIO create/extract |
+| [hadris-udf-cli](crates/tools/hadris-udf-cli) | `hadris-udf-cli` | UDF create/inspect |
+| [hadris-cli](crates/tools/hadris-cli) | `hadris-cli` | Experimental stub (not published) |
 
 ### Meta-crate
 
-- **[hadris](crates/hadris)** - Optional umbrella that re-exports format crates behind feature flags (`iso9660`, `fat`, `cpio` by default; `udf` opt-in). Does not re-export `hadris-part` or `hadris-cd`.
+- **[hadris](crates/core/hadris)** - Optional umbrella with grouped APIs: `block::{fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Leaf and category feature flags are available; `iso`, `fat`, and `cpio` are enabled by default.
 
 ## Key Features
 

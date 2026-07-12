@@ -21,10 +21,10 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-hadris-cpio = { path = "../crates/hadris-cpio" }
-hadris-fat = { path = "../crates/hadris-fat" }
-hadris-iso = { path = "../crates/hadris-iso", features = ["read", "joliet"] }
-hadris-udf = { path = "../crates/hadris-udf" }
+hadris-cpio = { path = "../crates/archive/hadris-cpio" }
+hadris-fat = { path = "../crates/block/hadris-fat" }
+hadris-iso = { path = "../crates/optical/hadris-iso", features = ["read", "joliet"] }
+hadris-udf = { path = "../crates/optical/hadris-udf" }
 
 # Keep line-table debug info so crash backtraces point at real source lines.
 [profile.release]

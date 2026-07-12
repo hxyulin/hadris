@@ -35,13 +35,13 @@ Related prior plan (shared crates only): [`plans/2026-07-09-shared-crates-profes
 Wrong or outdated Quick Starts appear in:
 
 - Root [`README.md`](../../../README.md) — version pins, incomplete crate inventory
-- [`crates/hadris-fat/README.md`](../../../crates/hadris-fat/README.md) — `Fat` vs `FatFs`
-- [`crates/hadris-part/README.md`](../../../crates/hadris-part/README.md) — phantom `Mbr`/`Gpt`
-- [`crates/hadris-io/README.md`](../../../crates/hadris-io/README.md) — phantom `SectorCursor`
-- [`crates/hadris-common/README.md`](../../../crates/hadris-common/README.md) — wrong import paths
-- [`crates/hadris-fat-cli/README.md`](../../../crates/hadris-fat-cli/README.md) — phantom `extract`/`stats`
-- [`crates/hadris-iso-cli/README.md`](../../../crates/hadris-iso-cli/README.md) — incomplete command set / wrong flags
-- [`crates/hadris-udf-cli/README.md`](../../../crates/hadris-udf-cli/README.md) — binary name `hadris-udf` vs `hadris-udf-cli`
+- [`crates/block/hadris-fat/README.md`](../../../crates/block/hadris-fat/README.md) — `Fat` vs `FatFs`
+- [`crates/block/hadris-part/README.md`](../../../crates/block/hadris-part/README.md) — phantom `Mbr`/`Gpt`
+- [`crates/core/hadris-io/README.md`](../../../crates/core/hadris-io/README.md) — phantom `SectorCursor`
+- [`crates/core/hadris-common/README.md`](../../../crates/core/hadris-common/README.md) — wrong import paths
+- [`crates/tools/hadris-fat-cli/README.md`](../../../crates/tools/hadris-fat-cli/README.md) — phantom `extract`/`stats`
+- [`crates/tools/hadris-iso-cli/README.md`](../../../crates/tools/hadris-iso-cli/README.md) — incomplete command set / wrong flags
+- [`crates/tools/hadris-udf-cli/README.md`](../../../crates/tools/hadris-udf-cli/README.md) — binary name `hadris-udf` vs `hadris-udf-cli`
 
 Crate-level `//!` rustdoc is often better than READMEs (especially fat/iso/cpio). Prefer regenerating README Quick Starts from working doctests.
 
@@ -58,7 +58,7 @@ Crate-level `//!` rustdoc is often better than READMEs (especially fat/iso/cpio)
 ### 2.3 Spec traceability
 
 - UDF already tags many structs with `ECMA-167 x/y.z` in module/item docs — best existing pattern.
-- ISO cites `ECMA-119` in places; in-repo [`crates/hadris-iso/spec/`](../../../crates/hadris-iso/spec/) is incomplete and **excluded from crates.io** (`exclude = ["/spec"]`).
+- ISO cites `ECMA-119` in places; in-repo [`crates/optical/hadris-iso/spec/`](../../../crates/optical/hadris-iso/spec/) is incomplete and **excluded from crates.io** (`exclude = ["/spec"]`).
 - FAT/CPIO/part rely on informal comments + external references.
 - Tests almost never cite section numbers; compliance is proven via roundtrip / external tools, not a coverage matrix.
 
@@ -84,23 +84,23 @@ Categories: `docs` | `api-ergonomics` | `missing-api` | `spec` | `code-quality` 
 
 | ID | Sev | Cat | Location | Evidence | Suggested follow-up |
 |----|-----|-----|----------|----------|---------------------|
-| D1 | P0 | docs | `crates/hadris-fat/README.md` | Documents `Fat::open`, `root_dir().iter()`, `FatAnalyzer`; real API is `FatFs::open` / `builder`, `entries()` / `next_entry()`, `FatAnalysisExt` | Rewrite Quick Start; add doctests that compile |
-| D2 | P0 | docs | `crates/hadris-part/README.md` | Documents `Mbr::read` / `Gpt::read` and accessors that do not exist | Rewrite against `*ReadExt` / `DiskPartitionScheme` (see shared-crates plan Task 1) |
-| D3 | P0 | docs | `crates/hadris-io/README.md` | Documents `hadris_io::SectorCursor`; type lives in `hadris-fat` | Remove or relocate; sync feature table with `Cargo.toml` |
+| D1 | P0 | docs | `crates/block/hadris-fat/README.md` | Documents `Fat::open`, `root_dir().iter()`, `FatAnalyzer`; real API is `FatFs::open` / `builder`, `entries()` / `next_entry()`, `FatAnalysisExt` | Rewrite Quick Start; add doctests that compile |
+| D2 | P0 | docs | `crates/block/hadris-part/README.md` | Documents `Mbr::read` / `Gpt::read` and accessors that do not exist | Rewrite against `*ReadExt` / `DiskPartitionScheme` (see shared-crates plan Task 1) |
+| D3 | P0 | docs | `crates/core/hadris-io/README.md` | Documents `hadris_io::SectorCursor`; type lives in `hadris-fat` | Remove or relocate; sync feature table with `Cargo.toml` |
 | D4 | P0 | docs | Root `README.md` | `hadris-iso = "0.2"`, `hadris-fat = "0.3"`; omits udf/cpio/cd and several CLIs | Bump pins to workspace version; expand inventory |
 | D5 | ~~P0~~ | docs | `fuzz/README.md` | ~~Claims CI fuzz job~~ — **resolved:** local-only workflow documented | — |
 | D6 | P1 | docs | `CHANGELOG.md` | Workspace `1.2.1` but `[Unreleased]` empty; last dated release `1.2.0` | Document 1.2.1 delta or retag |
-| D7 | P1 | docs | `crates/hadris-iso/README.md` + `src/lib.rs` | RRIP write claimed as full POSIX/symlinks; limitations only in `//` comments | Public Limitations section; downgrade claims |
-| D8 | P1 | docs | `crates/hadris-iso/README.md` | `features = ["read"]` as no-alloc bootloader path; high-level `IsoImage` needs `alloc` | Fix feature docs |
-| D9 | P1 | docs | `crates/hadris-common/README.md` | Wrong paths for `U16`/`U32` / endian imports | Match `tests/types_integration.rs` |
-| D10 | P1 | docs | `crates/hadris-common/src/lib.rs` | Claims sync/async “forwarded to hadris-io” but no public re-export | Re-export or fix wording |
-| D11 | P1 | docs | `crates/hadris-part/src/lib.rs` | Calls `read` a “marker feature”; it gates all `*ReadExt` traits | Correct crate docs |
-| D12 | P1 | docs | `crates/hadris-macros/README.md` | One-line README; no `io_transform!` cookbook | Expand from CLAUDE.md + fat/part patterns |
-| D13 | P1 | docs | `crates/hadris` + root README | “All formats” / “all filesystem implementations” overclaim | Feature table: defaults vs optional; mention cd/part |
-| D14 | P1 | docs | `crates/hadris-fat-cli/README.md` | Documents `extract`/`stats`; code has `stat`, no extract | Regenerate from `--help` |
-| D15 | P1 | docs | `crates/hadris-iso-cli/README.md` | Lists 4 commands; code has 8; wrong flag names | Regenerate from `--help` |
-| D16 | P1 | docs | `crates/hadris-udf-cli/README.md` | Examples use `hadris-udf`; binary is `hadris-udf-cli` | Rename bin or fix docs |
-| D17 | P1 | docs | `crates/hadris-udf/README.md` | UDF 2.x “Planned” while writer emits NSR03 for ≥2.00 | Align support matrix with tested write paths |
+| D7 | P1 | docs | `crates/optical/hadris-iso/README.md` + `src/lib.rs` | RRIP write claimed as full POSIX/symlinks; limitations only in `//` comments | Public Limitations section; downgrade claims |
+| D8 | P1 | docs | `crates/optical/hadris-iso/README.md` | `features = ["read"]` as no-alloc bootloader path; high-level `IsoImage` needs `alloc` | Fix feature docs |
+| D9 | P1 | docs | `crates/core/hadris-common/README.md` | Wrong paths for `U16`/`U32` / endian imports | Match `tests/types_integration.rs` |
+| D10 | P1 | docs | `crates/core/hadris-common/src/lib.rs` | Claims sync/async “forwarded to hadris-io” but no public re-export | Re-export or fix wording |
+| D11 | P1 | docs | `crates/block/hadris-part/src/lib.rs` | Calls `read` a “marker feature”; it gates all `*ReadExt` traits | Correct crate docs |
+| D12 | P1 | docs | `crates/core/hadris-macros/README.md` | One-line README; no `io_transform!` cookbook | Expand from CLAUDE.md + fat/part patterns |
+| D13 | P1 | docs | `crates/core/hadris` + root README | “All formats” / “all filesystem implementations” overclaim | Feature table: defaults vs optional; mention cd/part |
+| D14 | P1 | docs | `crates/tools/hadris-fat-cli/README.md` | Documents `extract`/`stats`; code has `stat`, no extract | Regenerate from `--help` |
+| D15 | P1 | docs | `crates/tools/hadris-iso-cli/README.md` | Lists 4 commands; code has 8; wrong flag names | Regenerate from `--help` |
+| D16 | P1 | docs | `crates/tools/hadris-udf-cli/README.md` | Examples use `hadris-udf`; binary is `hadris-udf-cli` | Rename bin or fix docs |
+| D17 | P1 | docs | `crates/optical/hadris-udf/README.md` | UDF 2.x “Planned” while writer emits NSR03 for ≥2.00 | Align support matrix with tested write paths |
 | D18 | P2 | docs | Multiple crate READMEs | Stale version pins (`1.0`, `0.2`, …) | Workspace-wide pin sync |
 | D19 | P2 | docs | No `CONTRIBUTING.md` / `CODE_OF_CONDUCT.md` | Contributor workflow lives only in `CLAUDE.md` | Extract public CONTRIBUTING |
 | D20 | P2 | docs | `tests/README.md` | Stub top-level tests dir | Delete or explain purpose |
@@ -110,7 +110,7 @@ Categories: `docs` | `api-ergonomics` | `missing-api` | `spec` | `code-quality` 
 
 | ID | Sev | Cat | Location | Evidence | Suggested follow-up |
 |----|-----|-----|----------|----------|---------------------|
-| A1 | P0 | api-ergonomics | `crates/hadris-cli` | Installable stub with `unwrap()`; no real subcommands | `publish = false` and/or explicit experimental gate; remove install advice until ready |
+| A1 | P0 | api-ergonomics | `crates/tools/hadris-cli` | Installable stub with `unwrap()`; no real subcommands | `publish = false` and/or explicit experimental gate; remove install advice until ready |
 | A2 | P1 | missing-api | `hadris-udf` `fs.rs` / `file.rs` | `size = 0; // Placeholder`; `UdfFile` has only `size()`, no read | Populate size from ICB; add `read_file` / `open_file` |
 | A3 | P1 | missing-api | `hadris-iso` write `File` enum | Only file/dir; no symlink/device despite RRIP write claims | Extend input model + wire RRIP |
 | A4 | P1 | api-ergonomics | `hadris-iso` read | Joliet+RRIP written together; reader `best_choice()` picks one root | Document; expose per-namespace roots |
@@ -130,7 +130,7 @@ Categories: `docs` | `api-ergonomics` | `missing-api` | `spec` | `code-quality` 
 
 | ID | Sev | Cat | Location | Evidence | Suggested follow-up |
 |----|-----|-----|----------|----------|---------------------|
-| S1 | P0 | spec | `crates/hadris-iso/spec/Specification.md` | Stops at PVD with `(WIP)`; Booting.md unfinished | Finish or mark planned sections; link from rustdoc |
+| S1 | P0 | spec | `crates/optical/hadris-iso/spec/Specification.md` | Stops at PVD with `(WIP)`; Booting.md unfinished | Finish or mark planned sections; link from rustdoc |
 | S2 | P1 | spec | ISO RRIP write | Hardcoded modes/uid/gid; `RripOptions` ignored | Wire options or document non-compliance |
 | S3 | P1 | spec | ISO El-Torito write | `// TODO: Create Virtual FAT` for section entries | Implement or document multi-platform limits |
 | S4 | P1 | spec | FAT LFN write | Cross-cluster LFN runs rejected (`DirEntryRunTooLong`) | Implement or document max name vs cluster size |
@@ -363,7 +363,7 @@ Execute / extend [`plans/2026-07-09-shared-crates-professionalization.md`](../..
 | hadris | Meta re-exports |
 | hadris-iso-cli, hadris-fat-cli, hadris-cpio-cli, hadris-udf-cli, hadris-cli | CLIs |
 | fuzz/, .github/workflows/, .pre-commit-config.yaml | Quality infra |
-| crates/hadris-iso/spec/, CHANGELOG, READMEs, CLAUDE.md | Docs / specs |
+| crates/optical/hadris-iso/spec/, CHANGELOG, READMEs, CLAUDE.md | Docs / specs |
 
 ## Appendix B — Rubric
 
