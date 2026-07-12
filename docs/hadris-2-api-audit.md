@@ -71,6 +71,10 @@ enum.
 | sync-only writers beside async readers | keep capability explicit; do not synthesize async writers |
 | directory traversal naming differs from FAT/UDF | audit against `entries`, `find`, and operational file handles |
 
+Category-level detection is already mode-neutral and reports ISO independently
+from UDF. Unified opening remains deferred until ISO and UDF both support the
+same recoverable borrowed-source ownership contract.
+
 ## UDF
 
 | Current surface | 2.0 direction |

@@ -102,6 +102,10 @@ the format-neutral `hadris-storage` primitives and lightweight, non-consuming
 FAT/partition-table detection. Detection for other categories and common wrappers
 remain future work.
 
+Optical multi-format detection is implemented and specified in
+[`hadris-2-optical-detection.md`](hadris-2-optical-detection.md). It reports ISO,
+UDF, or both for bridge images rather than forcing a single classification.
+
 The accepted block opening and partition traversal design lives in
 [`hadris-2-block-opening-api.md`](hadris-2-block-opening-api.md). It chooses a
 borrowed `OpenVolume` initially so failed opens never take ownership away from the

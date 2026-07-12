@@ -613,6 +613,7 @@ name = "hadris-optical"
 version = "1.2.1"
 dependencies = [
  "hadris-cd",
+ "hadris-io",
  "hadris-iso",
  "hadris-udf",
 ]
