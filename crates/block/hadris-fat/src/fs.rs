@@ -152,7 +152,7 @@ pub struct FatFs<DATA: Seek> {
     /// Defaults to [`crate::oem::DEFAULT_OEM_CONVERTER`].
     oem_converter: &'static dyn crate::oem::OemCpConverter,
     /// Optional FAT-sector LRU cache. Installed by the builder via
-    /// [`FatFsBuilder::with_fat_cache`]; `None` means uncached behaviour
+    /// [`FatFsBuilder::fat_cache`]; `None` means uncached behaviour
     /// identical to pre-cache versions of this crate. The cache itself
     /// is sync-only and lives behind a [`spin::Mutex`] so it can be
     /// shared between read paths and write paths.
@@ -206,7 +206,7 @@ impl<DATA: Read + Seek> FatFsBuilder<DATA> {
     }
 
     /// Override the clock used for directory-entry timestamps.
-    pub fn with_time_provider(
+    pub fn time_provider(
         mut self,
         provider: &'static dyn crate::time::TimeProvider,
     ) -> Self {
@@ -214,13 +214,23 @@ impl<DATA: Read + Seek> FatFsBuilder<DATA> {
         self
     }
 
+    #[deprecated(since = "2.0.0", note = "use `time_provider` instead")]
+    pub fn with_time_provider(self, provider: &'static dyn crate::time::TimeProvider) -> Self {
+        self.time_provider(provider)
+    }
+
     /// Override the codepage converter used for short (8.3) filenames.
-    pub fn with_oem_converter(
+    pub fn oem_converter(
         mut self,
         converter: &'static dyn crate::oem::OemCpConverter,
     ) -> Self {
         self.oem_converter = converter;
         self
+    }
+
+    #[deprecated(since = "2.0.0", note = "use `oem_converter` instead")]
+    pub fn with_oem_converter(self, converter: &'static dyn crate::oem::OemCpConverter) -> Self {
+        self.oem_converter(converter)
     }
 
     /// Install an LRU FAT-sector cache backing read and write operations.
@@ -237,13 +247,19 @@ impl<DATA: Read + Seek> FatFsBuilder<DATA> {
     /// Without this call, `FatFs` performs a seek + read on the underlying
     /// data source for every FAT entry access (today's behaviour).
     #[cfg(feature = "cache")]
-    pub fn with_fat_cache(mut self, capacity_sectors: usize) -> Self {
+    pub fn fat_cache(mut self, capacity_sectors: usize) -> Self {
         if capacity_sectors == 0 {
             self.fat_cache_capacity = None;
         } else {
             self.fat_cache_capacity = Some(capacity_sectors);
         }
         self
+    }
+
+    #[cfg(feature = "cache")]
+    #[deprecated(since = "2.0.0", note = "use `fat_cache` instead")]
+    pub fn with_fat_cache(self, capacity_sectors: usize) -> Self {
+        self.fat_cache(capacity_sectors)
     }
 
     /// Mount the filesystem with the configured providers.

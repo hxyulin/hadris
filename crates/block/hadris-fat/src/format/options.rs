@@ -59,52 +59,76 @@ impl FormatOptions {
     }
 
     /// Set the volume label.
-    pub fn with_label(mut self, label: &str) -> Self {
+    pub fn volume_label(mut self, label: &str) -> Self {
         self.volume_label = VolumeLabel::new(label);
         self
     }
 
+    #[deprecated(since = "2.0.0", note = "use `volume_label` instead")]
+    pub fn with_label(self, label: &str) -> Self { self.volume_label(label) }
+
     /// Set the sector size.
-    pub fn with_sector_size(mut self, size: SectorSize) -> Self {
+    pub fn sector_size(mut self, size: SectorSize) -> Self {
         self.sector_size = size;
         self
     }
 
+    #[deprecated(since = "2.0.0", note = "use `sector_size` instead")]
+    pub fn with_sector_size(self, size: SectorSize) -> Self { self.sector_size(size) }
+
     /// Set the FAT type selection.
-    pub fn with_fat_type(mut self, fat_type: FatTypeSelection) -> Self {
+    pub fn fat_type(mut self, fat_type: FatTypeSelection) -> Self {
         self.fat_type = fat_type;
         self
     }
 
+    #[deprecated(since = "2.0.0", note = "use `fat_type` instead")]
+    pub fn with_fat_type(self, fat_type: FatTypeSelection) -> Self { self.fat_type(fat_type) }
+
     /// Set sectors per cluster.
-    pub fn with_sectors_per_cluster(mut self, spc: u8) -> Self {
+    pub fn sectors_per_cluster(mut self, spc: u8) -> Self {
         self.sectors_per_cluster = Some(spc);
         self
     }
 
+    #[deprecated(since = "2.0.0", note = "use `sectors_per_cluster` instead")]
+    pub fn with_sectors_per_cluster(self, spc: u8) -> Self { self.sectors_per_cluster(spc) }
+
     /// Set the number of FAT copies.
-    pub fn with_fat_copies(mut self, copies: u8) -> Self {
+    pub fn fat_copies(mut self, copies: u8) -> Self {
         self.fat_copies = copies.clamp(1, 2);
         self
     }
 
+    #[deprecated(since = "2.0.0", note = "use `fat_copies` instead")]
+    pub fn with_fat_copies(self, copies: u8) -> Self { self.fat_copies(copies) }
+
     /// Set the media type.
-    pub fn with_media_type(mut self, media_type: MediaType) -> Self {
+    pub fn media_type(mut self, media_type: MediaType) -> Self {
         self.media_type = media_type;
         self
     }
 
+    #[deprecated(since = "2.0.0", note = "use `media_type` instead")]
+    pub fn with_media_type(self, media_type: MediaType) -> Self { self.media_type(media_type) }
+
     /// Set hidden sectors count.
-    pub fn with_hidden_sectors(mut self, hidden: u32) -> Self {
+    pub fn hidden_sectors(mut self, hidden: u32) -> Self {
         self.hidden_sectors = hidden;
         self
     }
 
+    #[deprecated(since = "2.0.0", note = "use `hidden_sectors` instead")]
+    pub fn with_hidden_sectors(self, hidden: u32) -> Self { self.hidden_sectors(hidden) }
+
     /// Set the volume ID.
-    pub fn with_volume_id(mut self, id: u32) -> Self {
+    pub fn volume_id(mut self, id: u32) -> Self {
         self.volume_id = Some(id);
         self
     }
+
+    #[deprecated(since = "2.0.0", note = "use `volume_id` instead")]
+    pub fn with_volume_id(self, id: u32) -> Self { self.volume_id(id) }
 }
 
 /// Volume label (11 characters max, space-padded).

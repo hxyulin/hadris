@@ -110,6 +110,9 @@ pub mod sync {
     mod __inner {
         pub mod gpt_io;
         pub mod mbr_io;
+        #[cfg(all(feature = "alloc", feature = "read"))]
+        #[path = "partition_table_io.rs"]
+        pub mod partition_table;
         pub mod scheme_io;
     }
     pub use __inner::*;
@@ -148,6 +151,9 @@ pub mod r#async {
     mod __inner {
         pub mod gpt_io;
         pub mod mbr_io;
+        #[cfg(all(feature = "alloc", feature = "read"))]
+        #[path = "partition_table_io.rs"]
+        pub mod partition_table;
         pub mod scheme_io;
     }
     pub use __inner::*;
@@ -168,6 +174,8 @@ pub use gpt::{GptHeader, GptPartitionEntry, Guid};
 pub use mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionTable, MbrPartitionType};
 pub use scheme::{PartitionInfo, PartitionSchemeType, PartitionType};
 
+#[cfg(feature = "alloc")]
+pub use scheme::DiskPartitionScheme as PartitionTable;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use scheme::{DiskPartitionScheme, GptDisk};
@@ -213,14 +221,30 @@ pub trait PartitionInfoTrait {
         }
     }
 
+    /// Returns the inclusive ending LBA, or `None` if it overflows.
+    fn checked_end_lba(&self) -> Option<u64> {
+        let size = self.size_sectors();
+        if size == 0 {
+            Some(self.start_lba())
+        } else {
+            self.start_lba().checked_add(size - 1)
+        }
+    }
+
+    /// Returns the partition length in bytes for an explicit logical block size.
+    fn byte_len(&self, logical_block_size: u32) -> Option<u64> {
+        self.size_sectors().checked_mul(logical_block_size as u64)
+    }
+
     /// Returns the size of the partition in bytes (assuming 512-byte sectors).
+    #[deprecated(since = "2.0.0", note = "use `byte_len(logical_block_size)` instead")]
     fn size_bytes(&self) -> u64 {
         self.size_sectors() * 512
     }
 
     /// Returns the size of the partition in bytes for a given sector size.
     fn size_bytes_with_sector_size(&self, sector_size: u32) -> u64 {
-        self.size_sectors() * sector_size as u64
+        self.byte_len(sector_size).unwrap_or(u64::MAX)
     }
 }
 

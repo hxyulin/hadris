@@ -67,7 +67,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
             cluster: entry.cluster(),
             offset_in_cluster: 0,
             total_read: 0,
-            size: entry.size(),
+            size: entry.len() as usize,
             cluster_steps: 0,
             #[cfg(feature = "alloc")]
             cluster_buffer: None,

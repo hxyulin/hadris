@@ -7,10 +7,10 @@
 //!
 //! ```rust,no_run
 //! use std::fs::File;
-//! use hadris_fat::sync::FatFs;
+//! use hadris_fat::sync::FatVolume;
 //!
 //! let file = File::open("disk.img").unwrap();
-//! let fs = FatFs::open(file).unwrap();
+//! let fs = FatVolume::open(file).unwrap();
 //! let root = fs.root_dir();
 //! let mut iter = root.entries();
 //! while let Some(Ok(entry)) = iter.next_entry() {
@@ -20,22 +20,22 @@
 //!
 //! ## Builder: custom providers and FAT caching
 //!
-//! [`FatFs::builder`] configures the clock and
+//! [`FatVolume::builder`] configures the clock and
 //! OEM-codepage providers — and, with the `cache` feature, an LRU FAT-sector
 //! cache — before mounting:
 //!
 //! ```rust,no_run
-//! use hadris_fat::sync::FatFs;
+//! use hadris_fat::sync::FatVolume;
 //!
 //! let file = std::fs::File::open("disk.img").unwrap();
-//! let fs = FatFs::builder(file).open().unwrap();
+//! let fs = FatVolume::builder(file).open().unwrap();
 //! # let _ = fs;
 //! ```
 //!
-//! With the `cache` feature, chain `.with_fat_cache(capacity_sectors)` before
+//! With the `cache` feature, chain `.fat_cache(capacity_sectors)` before
 //! `.open()` to back FAT reads and writes with an LRU cache. The cache is
 //! sync-only: under the async API it is silently bypassed. See
-//! [`FatFsBuilder`].
+//! [`FatVolumeBuilder`].
 //!
 //! ## Feature Flags
 //!
@@ -165,13 +165,17 @@ pub mod sync {
     pub use __inner::dir::{DirectoryEntry, FatDir, FileEntry};
     pub use __inner::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
     pub use __inner::fs::{FatFs, FatFsBuilder};
+    pub use __inner::fs::{FatFs as FatVolume, FatFsBuilder as FatVolumeBuilder};
     pub use __inner::read::FatFsReadExt;
+    pub use __inner::read::FatFsReadExt as FatVolumeReadExt;
     #[cfg(feature = "tool")]
     pub use __inner::tool::analysis::FatAnalysisExt;
     #[cfg(feature = "tool")]
     pub use __inner::tool::verify::FatVerifyExt;
     #[cfg(feature = "write")]
     pub use __inner::write::FatFsWriteExt;
+    #[cfg(feature = "write")]
+    pub use __inner::write::FatFsWriteExt as FatVolumeWriteExt;
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +228,14 @@ pub mod r#async {
     }
     #[cfg(feature = "write")]
     pub use crate::time::FatDateTime;
+    pub use __inner::dir::{DirectoryEntry, FatDir, FileEntry};
+    pub use __inner::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
+    pub use __inner::fs::{
+        FatFs, FatFs as FatVolume, FatFsBuilder, FatFsBuilder as FatVolumeBuilder,
+    };
+    pub use __inner::read::{FatFsReadExt, FatFsReadExt as FatVolumeReadExt};
+    #[cfg(feature = "write")]
+    pub use __inner::write::{FatFsWriteExt, FatFsWriteExt as FatVolumeWriteExt};
     pub use __inner::*;
 }
 

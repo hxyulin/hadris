@@ -350,7 +350,7 @@ impl<DATA: Read + Seek> FatFs<DATA> {
                     )?;
 
                     // Verify file size matches chain length
-                    let recorded_size = file_entry.size();
+                    let recorded_size = file_entry.len() as usize;
                     let chain_size = chain_length as usize * cluster_size;
                     let min_chain_size = if chain_length > 0 {
                         (chain_length as usize - 1) * cluster_size + 1
@@ -367,11 +367,11 @@ impl<DATA: Read + Seek> FatFs<DATA> {
                             chain_size,
                         });
                     }
-                } else if file_entry.size() > 0 {
+                } else if !file_entry.is_empty() {
                     // Non-zero size but no cluster chain
                     issues.push(VerificationIssue::SizeMismatch {
                         path: full_path,
-                        recorded_size: file_entry.size(),
+                        recorded_size: file_entry.len() as usize,
                         chain_size: 0,
                     });
                 }

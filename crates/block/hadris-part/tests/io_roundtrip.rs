@@ -7,6 +7,7 @@ use hadris_part::{
     MasterBootRecordWriteExt, MbrPartition, MbrPartitionType, PartitionError, PartitionSchemeType,
 };
 use std::io::Cursor as StdCursor;
+use std::io::{Seek, SeekFrom};
 
 #[test]
 fn mbr_read_write_roundtrip() {
@@ -59,4 +60,23 @@ fn disk_partition_scheme_reads_mbr() {
     assert_eq!(parts.len(), 1);
     assert_eq!(parts[0].start_lba, 2048);
     assert_eq!(parts[0].size_sectors, 204800);
+}
+
+#[test]
+fn v2_partition_table_detect_and_open_restore_clear_lifecycle() {
+    let mut mbr = MasterBootRecord::default();
+    mbr.with_partition_table(|table| {
+        table[0] = MbrPartition::new(MbrPartitionType::Fat32, 2048, 204800);
+    });
+    let disk = bytemuck::bytes_of(&mbr).to_vec();
+    let mut cursor = StdCursor::new(disk);
+    cursor.seek(SeekFrom::Start(19)).unwrap();
+
+    let kind = hadris_part::sync::partition_table::detect(&mut cursor).unwrap();
+    assert_eq!(kind, PartitionSchemeType::Mbr);
+    assert_eq!(cursor.stream_position().unwrap(), 19);
+
+    let table: hadris_part::PartitionTable =
+        hadris_part::sync::partition_table::open(&mut cursor, 512).unwrap();
+    assert_eq!(table.scheme_type(), PartitionSchemeType::Mbr);
 }

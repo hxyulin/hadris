@@ -2,6 +2,9 @@
 
 Status: working specification and audit baseline
 
+The concrete crate-by-crate rename and migration inventory is maintained in
+[`hadris-2-api-audit.md`](hadris-2-api-audit.md).
+
 ## Public API shape
 
 Every format should distinguish four layers:

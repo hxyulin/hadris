@@ -226,7 +226,7 @@ impl<DATA: Read + Seek> FatAnalysisExt<DATA> for FatFs<DATA> {
 
             file_infos.push(FileFragmentInfo {
                 path: path.clone(),
-                size: entry.size(),
+                size: entry.len() as usize,
                 fragments,
                 first_cluster,
             });

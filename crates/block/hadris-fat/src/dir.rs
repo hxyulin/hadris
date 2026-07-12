@@ -507,9 +507,20 @@ impl FileEntry {
         !self.is_directory()
     }
 
-    /// Get the file size in bytes (0 for directories)
+    /// Returns the file length in bytes (zero for directories).
+    pub fn len(&self) -> u64 {
+        self.size as u64
+    }
+
+    /// Returns whether this entry has a zero byte length.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Get the file size in bytes (0 for directories).
+    #[deprecated(since = "2.0.0", note = "use `len` instead")]
     pub fn size(&self) -> usize {
-        self.size
+        self.len() as usize
     }
 
     /// Creation timestamp (date + time + 10-ms units).
