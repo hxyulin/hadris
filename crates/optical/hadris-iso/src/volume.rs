@@ -1,5 +1,6 @@
 #[cfg(feature = "std")]
 use super::io::Parsable;
+#[cfg(any(feature = "std", feature = "alloc"))]
 use super::io::{self, Read, Write};
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;

@@ -9,12 +9,14 @@ use crate::types::{Endian, LittleEndian, U16, U32};
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
+sync_only! {
 #[cfg(feature = "write")]
 use super::{
     boot::options::BootOptions,
     volume::BootRecordVolumeDescriptor,
     write::{File, InputFiles},
 };
+}
 
 /// Errors that can occur during boot catalog operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -606,6 +608,7 @@ impl BootCatalog {
 }
 } // io_transform!
 
+sync_only! {
 #[cfg(feature = "write")]
 pub struct ElToritoWriter;
 
@@ -640,6 +643,7 @@ impl ElToritoWriter {
         }
         BootRecordVolumeDescriptor::new(0)
     }
+}
 }
 
 #[cfg(feature = "write")]
@@ -695,6 +699,7 @@ pub mod options {
     }
 }
 
+sync_only! {
 #[cfg(all(test, feature = "alloc"))]
 mod tests {
     use super::*;
@@ -850,4 +855,5 @@ mod tests {
         let unknown = EmulationType::Unknown(0x42);
         assert_eq!(unknown.to_u8(), 0x42);
     }
+}
 }

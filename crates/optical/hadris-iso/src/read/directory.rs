@@ -1,15 +1,20 @@
-use core::ops::DerefMut;
-
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use super::super::directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef, FileFlags};
-use super::super::io::{self, IsoCursor, LogicalSector, Read, Seek, SeekFrom};
-use spin::Mutex;
+use super::super::directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef};
+use super::super::io::{self, LogicalSector, Read, Seek};
 
 use super::IsoImage;
-use super::rrip::{self, RripMetadata, collect_su_entries};
+use super::rrip::{self, RripMetadata};
+
+sync_only! {
+use core::ops::DerefMut;
+use super::super::directory::FileFlags;
+use super::super::io::{IsoCursor, SeekFrom};
+use super::rrip::collect_su_entries;
+use spin::Mutex;
+}
 
 /// A single extent of a file (sector location + byte length).
 #[derive(Debug, Clone, Copy)]
@@ -20,6 +25,7 @@ pub struct Extent {
 
 // ── IsoDir ──
 
+#[allow(dead_code)]
 pub struct IsoDir<'a, T: Read + Seek> {
     pub(crate) image: &'a IsoImage<T>,
     pub(crate) directory: DirectoryRef,

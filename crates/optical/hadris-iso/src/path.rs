@@ -1,13 +1,18 @@
-use core::ops::DerefMut;
-
 use hadris_common::types::file::FixedFilename;
-use spin::Mutex;
 
-use super::io::{self, Error, LogicalSector, Read, Seek, SeekFrom, Write};
+use super::io::{self, Error, LogicalSector, Read, Write};
 use crate::types::EndianType;
 
+sync_only! {
+#[cfg(feature = "alloc")]
+use core::ops::DerefMut;
+#[cfg(feature = "alloc")]
+use spin::Mutex;
+#[cfg(feature = "alloc")]
+use super::io::{Seek, SeekFrom};
 #[cfg(feature = "alloc")]
 use super::read::IsoImage;
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -80,6 +85,7 @@ impl PathTableEntry {
 } // io_transform!
 
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub struct PathTableRef {
     pub(crate) lpt: LogicalSector,
     pub(crate) mpt: LogicalSector,
@@ -88,6 +94,7 @@ pub struct PathTableRef {
 
 /// Path table information (requires alloc for iterator support)
 #[cfg(feature = "alloc")]
+#[allow(dead_code)]
 pub struct PathTableInfo {
     pub(crate) path_table: PathTableRef,
 }

@@ -286,6 +286,7 @@ pub struct DirectoryRef {
     pub size: usize,
 }
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,6 +350,7 @@ mod tests {
         assert_eq!(parsed.size(), made.size());
         assert_eq!(parsed.header().extent.read(), 42);
     }
+}
 }
 
 bitflags::bitflags! {

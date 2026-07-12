@@ -116,6 +116,18 @@ jobs:
           - crate: hadris-iso
             tier: std
             features: "std,sync,read,write,joliet"
+          - crate: hadris-iso
+            tier: async-read
+            features: "alloc,async,read,joliet"
+          - crate: hadris-iso
+            tier: hosted-async-read
+            features: "std,async,read,joliet"
+          - crate: hadris-iso
+            tier: sync-and-async-read
+            features: "alloc,sync,async,read,joliet"
+          - crate: hadris-iso
+            tier: all-capabilities
+            features: "std,alloc,sync,async,read,write,joliet"
 
           # hadris-udf
           - crate: hadris-udf

@@ -45,12 +45,8 @@ feature independently.
 
 ## Current blockers
 
-- ISO currently makes `std` imply `sync`, preventing a hosted async-only
-  configuration.
-- ISO has imports and fields used only by one mode without matching gates, and its
-  write/modify surface is not yet genuinely async-capable.
-- Existing no-std warning-denied checks expose independent ISO dead-code/import
-  issues and FAT generic error-type mismatches.
+- Existing no-std warning-denied checks still expose independent FAT generic
+  error-type mismatches.
 
 ## Implementation status
 
@@ -70,6 +66,22 @@ UDF now follows the contract for its implemented capabilities:
 
 The compatibility root re-exports still select sync whenever sync is enabled.
 New 2.0 code should use `hadris_udf::sync` or `hadris_udf::async` explicitly.
+
+### ISO
+
+ISO now follows the same contract:
+
+- `std` no longer enables `sync`, while the default feature set selects `sync`
+  explicitly;
+- bare, sync-only, async-only, hosted async-only, combined, default, and
+  all-capability builds pass with warnings denied;
+- synchronous iterators and their imports are confined to the sync module;
+- write, modification, and El-Torito writer APIs are exported only by `sync`;
+- both API modes can be documented and compiled in the same build.
+
+The remaining ISO async work is capability expansion, particularly ergonomic
+asynchronous directory traversal and eventually a genuine async writer. It is no
+longer a feature-composition blocker.
 
 ## Ecosystem research
 
