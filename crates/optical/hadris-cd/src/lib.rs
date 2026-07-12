@@ -52,6 +52,14 @@
 //! - El-Torito bootable images
 //! - Hybrid MBR+GPT for USB booting
 //!
+//! ## Known Limitations
+//!
+//! The current UDF structures emitted by [`CdWriter`] are recognized by the
+//! lightweight optical detector but are not yet accepted by
+//! `hadris_udf::UdfFs::open`. ISO-only output and standalone images produced by
+//! `hadris-udf` are fully validated independently. Treat hybrid/UDF output as
+//! experimental until the bridge writer has a write-to-open roundtrip test.
+//!
 //! Hybrid image creation currently uses the synchronous ISO and UDF writers.
 //! This crate therefore exposes a sync-only writer API; `std` selects hosted
 //! platform support, while the default feature set selects `sync` explicitly.

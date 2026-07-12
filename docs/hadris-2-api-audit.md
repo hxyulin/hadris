@@ -79,7 +79,7 @@ unified opening with matching sync and async surfaces.
 
 | Current surface | 2.0 direction |
 |---|---|
-| `UdfFs` | rename canonical handle to `UdfVolume` |
+| `UdfFs` | canonical `UdfVolume` alias implemented; retain `UdfFs` for compatibility |
 | mode-specific descriptor identities | continue separating mode-neutral raw values from I/O handles |
 | sync-only formatting/modification | retain explicit sync capability until genuine async implementation |
 | modification and writer errors | converge on root `Error` categories and operation context |
@@ -103,6 +103,7 @@ traits wait for TAR so that they are based on two real formats.
 | `CdImageWriter` and mixed builder setters | retain writer role; normalize setters and `finish` |
 | “CD” naming for DVD/bridge images | evaluate `OpticalImageWriter` before 2.0 freeze |
 | sync-only ISO/UDF bridge construction | remain explicitly sync-only |
+| bridge UDF output is detectable but fails `UdfFs::open` | release-blocking writer roundtrip fix; do not weaken opener validation |
 
 ## Migration policy
 
