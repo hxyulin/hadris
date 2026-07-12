@@ -86,8 +86,10 @@ provide recoverable ownership, and the optical facade implements policy-driven
 unified opening with matching sync and async surfaces.
 
 `IsoDir::read_entries` is the collection-oriented traversal operation shared by
-both modes. Async facade tests traverse nested ISO and UDF directories, read
-file contents, exercise both bridge-image policies, and recover the source.
+both modes. `IsoDir::find` and `IsoImage::find_path` provide matching
+collection-based lookup without requiring a synchronous iterator. Async facade
+tests traverse nested ISO and UDF directories, read file contents, exercise both
+bridge-image policies, and recover the source.
 
 ## UDF
 

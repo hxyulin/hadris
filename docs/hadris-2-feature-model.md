@@ -80,9 +80,10 @@ ISO now follows the same contract:
 - write, modification, and El-Torito writer APIs are exported only by `sync`;
 - both API modes can be documented and compiled in the same build.
 
-ISO async reading now includes collection-oriented directory traversal through
-`IsoDir::read_entries`, with nested-file integration coverage through the optical
-facade. A genuine async writer remains a future feature, not a 2.0
+ISO async reading now includes collection-oriented directory traversal and
+lookup through `IsoDir::read_entries`, `IsoDir::find`, and
+`IsoImage::find_path`, with nested-file integration coverage through the
+optical facade. A genuine async writer remains a future feature, not a 2.0
 feature-composition or release blocker.
 
 ### FAT
