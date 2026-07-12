@@ -180,6 +180,18 @@ jobs:
           - crate: hadris-cpio
             tier: std
             features: "std,sync,read,write"
+          - crate: hadris-cpio
+            tier: async-read
+            features: "alloc,async,read"
+          - crate: hadris-cpio
+            tier: hosted-async-read-write
+            features: "std,async,read,write"
+          - crate: hadris-cpio
+            tier: sync-and-async-read-write
+            features: "alloc,sync,async,read,write"
+          - crate: hadris-cpio
+            tier: all-capabilities
+            features: "std,alloc,sync,async,read,write"
 
     steps:
       - uses: actions/checkout@v7

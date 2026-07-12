@@ -115,6 +115,21 @@ calling its runtime behavior release-qualified.
 As with FAT, dedicated async adapter integration tests remain useful release work;
 the feature composition and generated async APIs are now compile-checked in CI.
 
+### CPIO
+
+`hadris-cpio` now follows the shared contract:
+
+- `std` no longer enables `sync`, while defaults select `sync` explicitly;
+- bare, no-std sync, async-only, hosted async read/write, combined, default, and
+  all-capability builds pass with warnings denied;
+- entry/header representation remains local to each generated mode today, but no
+  shared root type resolves through a mode-dependent compatibility re-export, so
+  both modules coexist without nominal-type leakage;
+- both streaming reads and archive writes are generated for sync and async I/O.
+
+Dedicated async round-trip tests remain release work; the combined API surface is
+now continuously compile-checked.
+
 ## Ecosystem research
 
 Hadris is not the only Rust project to offer synchronous and asynchronous APIs,
