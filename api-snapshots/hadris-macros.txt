@@ -1,0 +1,2 @@
+pub mod hadris_macros
+pub proc macro hadris_macros::strip_async!()

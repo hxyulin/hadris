@@ -1,0 +1,312 @@
+pub mod hadris_cd
+pub use hadris_cd::Borrowed
+pub use hadris_cd::JolietLevel
+pub use hadris_cd::Read
+pub use hadris_cd::Seek
+pub use hadris_cd::SeekFrom
+pub use hadris_cd::Write
+pub mod hadris_cd::error
+pub enum hadris_cd::error::CdError
+pub hadris_cd::error::CdError::DirectoryNotFound(alloc::string::String)
+pub hadris_cd::error::CdError::FileNotFound(alloc::string::String)
+pub hadris_cd::error::CdError::InvalidConfig(alloc::string::String)
+pub hadris_cd::error::CdError::InvalidPath(alloc::string::String)
+pub hadris_cd::error::CdError::Io(hadris_io::error::Error)
+pub hadris_cd::error::CdError::Iso(hadris_iso::sync::__inner::write::IsoCreationError)
+pub hadris_cd::error::CdError::Udf(hadris_udf::error::UdfError)
+pub hadris_cd::error::CdError::VolumeNameTooLong
+pub hadris_cd::error::CdError::VolumeNameTooLong::max: usize
+pub hadris_cd::error::CdError::VolumeNameTooLong::name: alloc::string::String
+pub type hadris_cd::error::CdResult<T> = core::result::Result<T, hadris_cd::error::CdError>
+pub mod hadris_cd::layout
+pub struct hadris_cd::layout::LayoutInfo
+pub hadris_cd::layout::LayoutInfo::file_data_end: u32
+pub hadris_cd::layout::LayoutInfo::file_data_start: u32
+pub hadris_cd::layout::LayoutInfo::total_sectors: u32
+pub hadris_cd::layout::LayoutInfo::udf_metadata_sectors: u32
+pub hadris_cd::layout::LayoutInfo::udf_partition_start: u32
+pub hadris_cd::layout::LayoutInfo::vds_end: u32
+impl hadris_cd::layout::LayoutInfo
+pub fn hadris_cd::layout::LayoutInfo::udf_partition_length(&self) -> u32
+impl core::fmt::Display for hadris_cd::layout::LayoutInfo
+pub fn hadris_cd::layout::LayoutInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::layout::LayoutManager
+impl hadris_cd::layout::LayoutManager
+pub fn hadris_cd::layout::LayoutManager::allocate_udf_block(&mut self) -> u32
+pub fn hadris_cd::layout::LayoutManager::layout_files(&mut self, &mut hadris_cd::tree::FileTree, &hadris_cd::options::CdOptions) -> hadris_cd::error::CdResult<hadris_cd::layout::LayoutInfo>
+pub fn hadris_cd::layout::LayoutManager::new(usize) -> Self
+pub fn hadris_cd::layout::LayoutManager::next_unique_id(&mut self) -> u64
+pub mod hadris_cd::options
+pub use hadris_cd::options::JolietLevel
+pub struct hadris_cd::options::CdOptions
+pub hadris_cd::options::CdOptions::boot: core::option::Option<hadris_iso::sync::__inner::boot::options::BootOptions>
+pub hadris_cd::options::CdOptions::hybrid_boot: core::option::Option<hadris_iso::sync::__inner::write::options::HybridBootOptions>
+pub hadris_cd::options::CdOptions::iso: hadris_cd::options::IsoOptions
+pub hadris_cd::options::CdOptions::sector_size: usize
+pub hadris_cd::options::CdOptions::udf: hadris_cd::options::UdfOptions
+pub hadris_cd::options::CdOptions::volume_id: alloc::string::String
+impl hadris_cd::options::CdOptions
+pub fn hadris_cd::options::CdOptions::boot(self, hadris_iso::sync::__inner::boot::options::BootOptions) -> Self
+pub fn hadris_cd::options::CdOptions::hybrid_boot(self, hadris_iso::sync::__inner::write::options::HybridBootOptions) -> Self
+pub fn hadris_cd::options::CdOptions::iso_only(self) -> Self
+pub fn hadris_cd::options::CdOptions::joliet(self, hadris_iso::joliet::JolietLevel) -> Self
+pub fn hadris_cd::options::CdOptions::rock_ridge(self, hadris_iso::sync::__inner::rrip::RripOptions) -> Self
+pub fn hadris_cd::options::CdOptions::udf_only(self) -> Self
+pub fn hadris_cd::options::CdOptions::volume_id(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn hadris_cd::options::CdOptions::with_boot(self, hadris_iso::sync::__inner::boot::options::BootOptions) -> Self
+pub fn hadris_cd::options::CdOptions::with_hybrid_boot(self, hadris_iso::sync::__inner::write::options::HybridBootOptions) -> Self
+pub fn hadris_cd::options::CdOptions::with_joliet(self) -> Self
+pub fn hadris_cd::options::CdOptions::with_rock_ridge(self) -> Self
+pub fn hadris_cd::options::CdOptions::with_volume_id(impl core::convert::Into<alloc::string::String>) -> Self
+impl core::default::Default for hadris_cd::options::CdOptions
+pub fn hadris_cd::options::CdOptions::default() -> Self
+pub struct hadris_cd::options::IsoOptions
+pub hadris_cd::options::IsoOptions::enabled: bool
+pub hadris_cd::options::IsoOptions::joliet: core::option::Option<hadris_iso::joliet::JolietLevel>
+pub hadris_cd::options::IsoOptions::level: hadris_iso::sync::__inner::write::options::BaseIsoLevel
+pub hadris_cd::options::IsoOptions::long_filenames: bool
+pub hadris_cd::options::IsoOptions::rock_ridge: core::option::Option<hadris_iso::sync::__inner::rrip::RripOptions>
+impl core::default::Default for hadris_cd::options::IsoOptions
+pub fn hadris_cd::options::IsoOptions::default() -> Self
+pub struct hadris_cd::options::UdfOptions
+pub hadris_cd::options::UdfOptions::enabled: bool
+pub hadris_cd::options::UdfOptions::revision: hadris_udf::UdfRevision
+impl core::default::Default for hadris_cd::options::UdfOptions
+pub fn hadris_cd::options::UdfOptions::default() -> Self
+pub mod hadris_cd::sync
+pub use hadris_cd::sync::Borrowed
+pub use hadris_cd::sync::Read
+pub use hadris_cd::sync::Seek
+pub use hadris_cd::sync::SeekFrom
+pub use hadris_cd::sync::Write
+pub mod hadris_cd::sync::writer
+pub struct hadris_cd::sync::writer::CdWriter<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
+impl<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_cd::writer::CdWriter<W>
+pub fn hadris_cd::writer::CdWriter<W>::create(W, hadris_cd::tree::FileTree, hadris_cd::options::CdOptions) -> hadris_cd::error::CdResult<W>
+pub fn hadris_cd::writer::CdWriter<W>::finish(self, hadris_cd::tree::FileTree) -> hadris_cd::error::CdResult<W>
+pub fn hadris_cd::writer::CdWriter<W>::into_inner(self) -> W
+pub fn hadris_cd::writer::CdWriter<W>::new(W, hadris_cd::options::CdOptions) -> Self
+pub fn hadris_cd::writer::CdWriter<W>::write(self, hadris_cd::tree::FileTree) -> hadris_cd::error::CdResult<()>
+pub struct hadris_cd::sync::CdWriter<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
+impl<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_cd::writer::CdWriter<W>
+pub fn hadris_cd::writer::CdWriter<W>::create(W, hadris_cd::tree::FileTree, hadris_cd::options::CdOptions) -> hadris_cd::error::CdResult<W>
+pub fn hadris_cd::writer::CdWriter<W>::finish(self, hadris_cd::tree::FileTree) -> hadris_cd::error::CdResult<W>
+pub fn hadris_cd::writer::CdWriter<W>::into_inner(self) -> W
+pub fn hadris_cd::writer::CdWriter<W>::new(W, hadris_cd::options::CdOptions) -> Self
+pub fn hadris_cd::writer::CdWriter<W>::write(self, hadris_cd::tree::FileTree) -> hadris_cd::error::CdResult<()>
+pub mod hadris_cd::tree
+pub enum hadris_cd::tree::FileData
+pub hadris_cd::tree::FileData::Buffer(alloc::vec::Vec<u8>)
+pub hadris_cd::tree::FileData::Path(std::path::PathBuf)
+impl hadris_cd::tree::FileData
+pub fn hadris_cd::tree::FileData::read_all(&self) -> std::io::error::Result<alloc::vec::Vec<u8>>
+pub fn hadris_cd::tree::FileData::size(&self) -> std::io::error::Result<u64>
+impl core::fmt::Debug for hadris_cd::tree::FileData
+pub fn hadris_cd::tree::FileData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for hadris_cd::tree::FileData
+pub fn hadris_cd::tree::FileData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::tree::Directory
+pub hadris_cd::tree::Directory::files: alloc::vec::Vec<hadris_cd::tree::FileEntry>
+pub hadris_cd::tree::Directory::iso_extent: hadris_cd::tree::FileExtent
+pub hadris_cd::tree::Directory::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cd::tree::Directory::subdirs: alloc::vec::Vec<hadris_cd::tree::Directory>
+pub hadris_cd::tree::Directory::udf_icb_location: u32
+pub hadris_cd::tree::Directory::unique_id: u64
+impl hadris_cd::tree::Directory
+pub fn hadris_cd::tree::Directory::add_file(&mut self, hadris_cd::tree::FileEntry)
+pub fn hadris_cd::tree::Directory::add_subdir(&mut self, hadris_cd::tree::Directory)
+pub fn hadris_cd::tree::Directory::find_file(&self, &str) -> core::option::Option<&hadris_cd::tree::FileEntry>
+pub fn hadris_cd::tree::Directory::find_file_mut(&mut self, &str) -> core::option::Option<&mut hadris_cd::tree::FileEntry>
+pub fn hadris_cd::tree::Directory::find_subdir(&self, &str) -> core::option::Option<&hadris_cd::tree::Directory>
+pub fn hadris_cd::tree::Directory::find_subdir_mut(&mut self, &str) -> core::option::Option<&mut hadris_cd::tree::Directory>
+pub fn hadris_cd::tree::Directory::iter_files(&self) -> alloc::vec::Vec<&hadris_cd::tree::FileEntry>
+pub fn hadris_cd::tree::Directory::new(impl core::convert::Into<alloc::string::String>) -> Self
+pub fn hadris_cd::tree::Directory::root() -> Self
+pub fn hadris_cd::tree::Directory::sort(&mut self)
+pub fn hadris_cd::tree::Directory::total_dirs(&self) -> usize
+pub fn hadris_cd::tree::Directory::total_files(&self) -> usize
+impl core::fmt::Display for hadris_cd::tree::Directory
+pub fn hadris_cd::tree::Directory::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::tree::FileEntry
+pub hadris_cd::tree::FileEntry::data: hadris_cd::tree::FileData
+pub hadris_cd::tree::FileEntry::extent: hadris_cd::tree::FileExtent
+pub hadris_cd::tree::FileEntry::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cd::tree::FileEntry::unique_id: u64
+impl hadris_cd::tree::FileEntry
+pub fn hadris_cd::tree::FileEntry::from_buffer(impl core::convert::Into<alloc::string::String>, alloc::vec::Vec<u8>) -> Self
+pub fn hadris_cd::tree::FileEntry::from_path(impl core::convert::Into<alloc::string::String>, std::path::PathBuf) -> Self
+pub fn hadris_cd::tree::FileEntry::size(&self) -> std::io::error::Result<u64>
+impl core::fmt::Display for hadris_cd::tree::FileEntry
+pub fn hadris_cd::tree::FileEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::tree::FileExtent
+pub hadris_cd::tree::FileExtent::length: u64
+pub hadris_cd::tree::FileExtent::sector: u32
+impl hadris_cd::tree::FileExtent
+pub fn hadris_cd::tree::FileExtent::is_empty(&self) -> bool
+pub fn hadris_cd::tree::FileExtent::new(u32, u64) -> Self
+pub fn hadris_cd::tree::FileExtent::sector_count(&self, usize) -> u32
+impl core::fmt::Display for hadris_cd::tree::FileExtent
+pub fn hadris_cd::tree::FileExtent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::tree::FileTree
+pub hadris_cd::tree::FileTree::root: hadris_cd::tree::Directory
+impl hadris_cd::tree::FileTree
+pub fn hadris_cd::tree::FileTree::add_dir(&mut self, hadris_cd::tree::Directory)
+pub fn hadris_cd::tree::FileTree::add_file(&mut self, hadris_cd::tree::FileEntry)
+pub fn hadris_cd::tree::FileTree::find_file(&self, &str) -> core::option::Option<&hadris_cd::tree::FileEntry>
+pub fn hadris_cd::tree::FileTree::from_fs(&std::path::Path) -> std::io::error::Result<Self>
+pub fn hadris_cd::tree::FileTree::new() -> Self
+pub fn hadris_cd::tree::FileTree::sort(&mut self)
+pub fn hadris_cd::tree::FileTree::total_dirs(&self) -> usize
+pub fn hadris_cd::tree::FileTree::total_files(&self) -> usize
+impl core::default::Default for hadris_cd::tree::FileTree
+pub fn hadris_cd::tree::FileTree::default() -> Self
+impl core::fmt::Display for hadris_cd::tree::FileTree
+pub fn hadris_cd::tree::FileTree::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub mod hadris_cd::writer
+pub struct hadris_cd::writer::CdWriter<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
+impl<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_cd::writer::CdWriter<W>
+pub fn hadris_cd::writer::CdWriter<W>::create(W, hadris_cd::tree::FileTree, hadris_cd::options::CdOptions) -> hadris_cd::error::CdResult<W>
+pub fn hadris_cd::writer::CdWriter<W>::finish(self, hadris_cd::tree::FileTree) -> hadris_cd::error::CdResult<W>
+pub fn hadris_cd::writer::CdWriter<W>::into_inner(self) -> W
+pub fn hadris_cd::writer::CdWriter<W>::new(W, hadris_cd::options::CdOptions) -> Self
+pub fn hadris_cd::writer::CdWriter<W>::write(self, hadris_cd::tree::FileTree) -> hadris_cd::error::CdResult<()>
+pub enum hadris_cd::CdError
+pub hadris_cd::CdError::DirectoryNotFound(alloc::string::String)
+pub hadris_cd::CdError::FileNotFound(alloc::string::String)
+pub hadris_cd::CdError::InvalidConfig(alloc::string::String)
+pub hadris_cd::CdError::InvalidPath(alloc::string::String)
+pub hadris_cd::CdError::Io(hadris_io::error::Error)
+pub hadris_cd::CdError::Iso(hadris_iso::sync::__inner::write::IsoCreationError)
+pub hadris_cd::CdError::Udf(hadris_udf::error::UdfError)
+pub hadris_cd::CdError::VolumeNameTooLong
+pub hadris_cd::CdError::VolumeNameTooLong::max: usize
+pub hadris_cd::CdError::VolumeNameTooLong::name: alloc::string::String
+pub enum hadris_cd::FileData
+pub hadris_cd::FileData::Buffer(alloc::vec::Vec<u8>)
+pub hadris_cd::FileData::Path(std::path::PathBuf)
+impl hadris_cd::tree::FileData
+pub fn hadris_cd::tree::FileData::read_all(&self) -> std::io::error::Result<alloc::vec::Vec<u8>>
+pub fn hadris_cd::tree::FileData::size(&self) -> std::io::error::Result<u64>
+impl core::fmt::Debug for hadris_cd::tree::FileData
+pub fn hadris_cd::tree::FileData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for hadris_cd::tree::FileData
+pub fn hadris_cd::tree::FileData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::CdOptions
+pub hadris_cd::CdOptions::boot: core::option::Option<hadris_iso::sync::__inner::boot::options::BootOptions>
+pub hadris_cd::CdOptions::hybrid_boot: core::option::Option<hadris_iso::sync::__inner::write::options::HybridBootOptions>
+pub hadris_cd::CdOptions::iso: hadris_cd::options::IsoOptions
+pub hadris_cd::CdOptions::sector_size: usize
+pub hadris_cd::CdOptions::udf: hadris_cd::options::UdfOptions
+pub hadris_cd::CdOptions::volume_id: alloc::string::String
+impl hadris_cd::options::CdOptions
+pub fn hadris_cd::options::CdOptions::boot(self, hadris_iso::sync::__inner::boot::options::BootOptions) -> Self
+pub fn hadris_cd::options::CdOptions::hybrid_boot(self, hadris_iso::sync::__inner::write::options::HybridBootOptions) -> Self
+pub fn hadris_cd::options::CdOptions::iso_only(self) -> Self
+pub fn hadris_cd::options::CdOptions::joliet(self, hadris_iso::joliet::JolietLevel) -> Self
+pub fn hadris_cd::options::CdOptions::rock_ridge(self, hadris_iso::sync::__inner::rrip::RripOptions) -> Self
+pub fn hadris_cd::options::CdOptions::udf_only(self) -> Self
+pub fn hadris_cd::options::CdOptions::volume_id(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn hadris_cd::options::CdOptions::with_boot(self, hadris_iso::sync::__inner::boot::options::BootOptions) -> Self
+pub fn hadris_cd::options::CdOptions::with_hybrid_boot(self, hadris_iso::sync::__inner::write::options::HybridBootOptions) -> Self
+pub fn hadris_cd::options::CdOptions::with_joliet(self) -> Self
+pub fn hadris_cd::options::CdOptions::with_rock_ridge(self) -> Self
+pub fn hadris_cd::options::CdOptions::with_volume_id(impl core::convert::Into<alloc::string::String>) -> Self
+impl core::default::Default for hadris_cd::options::CdOptions
+pub fn hadris_cd::options::CdOptions::default() -> Self
+pub struct hadris_cd::CdWriter<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
+impl<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_cd::writer::CdWriter<W>
+pub fn hadris_cd::writer::CdWriter<W>::create(W, hadris_cd::tree::FileTree, hadris_cd::options::CdOptions) -> hadris_cd::error::CdResult<W>
+pub fn hadris_cd::writer::CdWriter<W>::finish(self, hadris_cd::tree::FileTree) -> hadris_cd::error::CdResult<W>
+pub fn hadris_cd::writer::CdWriter<W>::into_inner(self) -> W
+pub fn hadris_cd::writer::CdWriter<W>::new(W, hadris_cd::options::CdOptions) -> Self
+pub fn hadris_cd::writer::CdWriter<W>::write(self, hadris_cd::tree::FileTree) -> hadris_cd::error::CdResult<()>
+pub struct hadris_cd::Directory
+pub hadris_cd::Directory::files: alloc::vec::Vec<hadris_cd::tree::FileEntry>
+pub hadris_cd::Directory::iso_extent: hadris_cd::tree::FileExtent
+pub hadris_cd::Directory::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cd::Directory::subdirs: alloc::vec::Vec<hadris_cd::tree::Directory>
+pub hadris_cd::Directory::udf_icb_location: u32
+pub hadris_cd::Directory::unique_id: u64
+impl hadris_cd::tree::Directory
+pub fn hadris_cd::tree::Directory::add_file(&mut self, hadris_cd::tree::FileEntry)
+pub fn hadris_cd::tree::Directory::add_subdir(&mut self, hadris_cd::tree::Directory)
+pub fn hadris_cd::tree::Directory::find_file(&self, &str) -> core::option::Option<&hadris_cd::tree::FileEntry>
+pub fn hadris_cd::tree::Directory::find_file_mut(&mut self, &str) -> core::option::Option<&mut hadris_cd::tree::FileEntry>
+pub fn hadris_cd::tree::Directory::find_subdir(&self, &str) -> core::option::Option<&hadris_cd::tree::Directory>
+pub fn hadris_cd::tree::Directory::find_subdir_mut(&mut self, &str) -> core::option::Option<&mut hadris_cd::tree::Directory>
+pub fn hadris_cd::tree::Directory::iter_files(&self) -> alloc::vec::Vec<&hadris_cd::tree::FileEntry>
+pub fn hadris_cd::tree::Directory::new(impl core::convert::Into<alloc::string::String>) -> Self
+pub fn hadris_cd::tree::Directory::root() -> Self
+pub fn hadris_cd::tree::Directory::sort(&mut self)
+pub fn hadris_cd::tree::Directory::total_dirs(&self) -> usize
+pub fn hadris_cd::tree::Directory::total_files(&self) -> usize
+impl core::fmt::Display for hadris_cd::tree::Directory
+pub fn hadris_cd::tree::Directory::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::FileEntry
+pub hadris_cd::FileEntry::data: hadris_cd::tree::FileData
+pub hadris_cd::FileEntry::extent: hadris_cd::tree::FileExtent
+pub hadris_cd::FileEntry::name: alloc::sync::Arc<alloc::string::String>
+pub hadris_cd::FileEntry::unique_id: u64
+impl hadris_cd::tree::FileEntry
+pub fn hadris_cd::tree::FileEntry::from_buffer(impl core::convert::Into<alloc::string::String>, alloc::vec::Vec<u8>) -> Self
+pub fn hadris_cd::tree::FileEntry::from_path(impl core::convert::Into<alloc::string::String>, std::path::PathBuf) -> Self
+pub fn hadris_cd::tree::FileEntry::size(&self) -> std::io::error::Result<u64>
+impl core::fmt::Display for hadris_cd::tree::FileEntry
+pub fn hadris_cd::tree::FileEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::FileExtent
+pub hadris_cd::FileExtent::length: u64
+pub hadris_cd::FileExtent::sector: u32
+impl hadris_cd::tree::FileExtent
+pub fn hadris_cd::tree::FileExtent::is_empty(&self) -> bool
+pub fn hadris_cd::tree::FileExtent::new(u32, u64) -> Self
+pub fn hadris_cd::tree::FileExtent::sector_count(&self, usize) -> u32
+impl core::fmt::Display for hadris_cd::tree::FileExtent
+pub fn hadris_cd::tree::FileExtent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::FileTree
+pub hadris_cd::FileTree::root: hadris_cd::tree::Directory
+impl hadris_cd::tree::FileTree
+pub fn hadris_cd::tree::FileTree::add_dir(&mut self, hadris_cd::tree::Directory)
+pub fn hadris_cd::tree::FileTree::add_file(&mut self, hadris_cd::tree::FileEntry)
+pub fn hadris_cd::tree::FileTree::find_file(&self, &str) -> core::option::Option<&hadris_cd::tree::FileEntry>
+pub fn hadris_cd::tree::FileTree::from_fs(&std::path::Path) -> std::io::error::Result<Self>
+pub fn hadris_cd::tree::FileTree::new() -> Self
+pub fn hadris_cd::tree::FileTree::sort(&mut self)
+pub fn hadris_cd::tree::FileTree::total_dirs(&self) -> usize
+pub fn hadris_cd::tree::FileTree::total_files(&self) -> usize
+impl core::default::Default for hadris_cd::tree::FileTree
+pub fn hadris_cd::tree::FileTree::default() -> Self
+impl core::fmt::Display for hadris_cd::tree::FileTree
+pub fn hadris_cd::tree::FileTree::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::IsoOptions
+pub hadris_cd::IsoOptions::enabled: bool
+pub hadris_cd::IsoOptions::joliet: core::option::Option<hadris_iso::joliet::JolietLevel>
+pub hadris_cd::IsoOptions::level: hadris_iso::sync::__inner::write::options::BaseIsoLevel
+pub hadris_cd::IsoOptions::long_filenames: bool
+pub hadris_cd::IsoOptions::rock_ridge: core::option::Option<hadris_iso::sync::__inner::rrip::RripOptions>
+impl core::default::Default for hadris_cd::options::IsoOptions
+pub fn hadris_cd::options::IsoOptions::default() -> Self
+pub struct hadris_cd::LayoutInfo
+pub hadris_cd::LayoutInfo::file_data_end: u32
+pub hadris_cd::LayoutInfo::file_data_start: u32
+pub hadris_cd::LayoutInfo::total_sectors: u32
+pub hadris_cd::LayoutInfo::udf_metadata_sectors: u32
+pub hadris_cd::LayoutInfo::udf_partition_start: u32
+pub hadris_cd::LayoutInfo::vds_end: u32
+impl hadris_cd::layout::LayoutInfo
+pub fn hadris_cd::layout::LayoutInfo::udf_partition_length(&self) -> u32
+impl core::fmt::Display for hadris_cd::layout::LayoutInfo
+pub fn hadris_cd::layout::LayoutInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_cd::LayoutManager
+impl hadris_cd::layout::LayoutManager
+pub fn hadris_cd::layout::LayoutManager::allocate_udf_block(&mut self) -> u32
+pub fn hadris_cd::layout::LayoutManager::layout_files(&mut self, &mut hadris_cd::tree::FileTree, &hadris_cd::options::CdOptions) -> hadris_cd::error::CdResult<hadris_cd::layout::LayoutInfo>
+pub fn hadris_cd::layout::LayoutManager::new(usize) -> Self
+pub fn hadris_cd::layout::LayoutManager::next_unique_id(&mut self) -> u64
+pub struct hadris_cd::UdfOptions
+pub hadris_cd::UdfOptions::enabled: bool
+pub hadris_cd::UdfOptions::revision: hadris_udf::UdfRevision
+impl core::default::Default for hadris_cd::options::UdfOptions
+pub fn hadris_cd::options::UdfOptions::default() -> Self
+pub type hadris_cd::CdResult<T> = core::result::Result<T, hadris_cd::error::CdError>
+pub type hadris_cd::OpticalImageOptions = hadris_cd::options::CdOptions
+pub type hadris_cd::OpticalImageWriter<W> = hadris_cd::writer::CdWriter<W>

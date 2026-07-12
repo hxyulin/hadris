@@ -148,6 +148,9 @@ well-defined common subset and provide an escape hatch to concrete formats.
 - Document stability levels for experimental formats and APIs.
 - Require a clean default workspace build, the supported feature matrix, and
   category-facade integration tests before the 2.0 release.
+- Treat the accepted API audit as a compatibility baseline, not a feature
+  freeze: additive capabilities may land before 2.0 when their feature tiers,
+  API snapshots, examples, and integration tests are updated together.
 
 ## Current execution order
 

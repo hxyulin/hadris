@@ -1,0 +1,391 @@
+pub mod hadris_common
+pub mod hadris_common::alg
+pub mod hadris_common::alg::hash
+pub mod hadris_common::alg::hash::crc
+pub struct hadris_common::alg::hash::crc::Crc32HasherIsoHdlc
+impl hadris_common::alg::hash::crc::Crc32HasherIsoHdlc
+pub fn hadris_common::alg::hash::crc::Crc32HasherIsoHdlc::checksum(&[u8]) -> u32
+pub mod hadris_common::optical
+#[repr(u8)] pub enum hadris_common::optical::OpticalMediaType
+pub hadris_common::optical::OpticalMediaType::BdR = 10
+pub hadris_common::optical::OpticalMediaType::BdRe = 11
+pub hadris_common::optical::OpticalMediaType::BdRom = 9
+pub hadris_common::optical::OpticalMediaType::CdR = 1
+pub hadris_common::optical::OpticalMediaType::CdRom = 0
+pub hadris_common::optical::OpticalMediaType::CdRw = 2
+pub hadris_common::optical::OpticalMediaType::DvdPlusR = 5
+pub hadris_common::optical::OpticalMediaType::DvdPlusRw = 7
+pub hadris_common::optical::OpticalMediaType::DvdR = 4
+pub hadris_common::optical::OpticalMediaType::DvdRam = 8
+pub hadris_common::optical::OpticalMediaType::DvdRom = 3
+pub hadris_common::optical::OpticalMediaType::DvdRw = 6
+impl hadris_common::optical::OpticalMediaType
+pub const fn hadris_common::optical::OpticalMediaType::capacity(&self) -> u64
+pub const fn hadris_common::optical::OpticalMediaType::is_rewritable(&self) -> bool
+pub const fn hadris_common::optical::OpticalMediaType::is_writable(&self) -> bool
+pub const fn hadris_common::optical::OpticalMediaType::is_write_once(&self) -> bool
+impl core::fmt::Display for hadris_common::optical::OpticalMediaType
+pub fn hadris_common::optical::OpticalMediaType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_common::optical::SessionInfo
+pub hadris_common::optical::SessionInfo::end_sector: u32
+pub hadris_common::optical::SessionInfo::is_last_session: bool
+pub hadris_common::optical::SessionInfo::session_number: u16
+pub hadris_common::optical::SessionInfo::start_sector: u32
+impl hadris_common::optical::SessionInfo
+pub const fn hadris_common::optical::SessionInfo::as_last(self) -> Self
+pub const fn hadris_common::optical::SessionInfo::byte_size(&self) -> u64
+pub const fn hadris_common::optical::SessionInfo::new(u16, u32, u32) -> Self
+pub const fn hadris_common::optical::SessionInfo::sector_count(&self) -> u32
+impl core::default::Default for hadris_common::optical::SessionInfo
+pub fn hadris_common::optical::SessionInfo::default() -> Self
+impl core::fmt::Display for hadris_common::optical::SessionInfo
+pub fn hadris_common::optical::SessionInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const hadris_common::optical::OPTICAL_SECTOR_SIZE: usize
+pub trait hadris_common::optical::OpticalMetadataWriter
+pub type hadris_common::optical::OpticalMetadataWriter::Error
+pub type hadris_common::optical::OpticalMetadataWriter::Options
+pub fn hadris_common::optical::OpticalMetadataWriter::write_metadata<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&mut W, &hadris_common::types::layout::DirectoryLayout, &Self::Options) -> core::result::Result<(), Self::Error>
+pub mod hadris_common::path
+pub fn hadris_common::path::split_path(&str) -> core::option::Option<(alloc::string::String, alloc::string::String)>
+pub mod hadris_common::str
+pub mod hadris_common::str::utf16
+#[repr(C)] pub struct hadris_common::str::utf16::FixedUtf16Str<const N: usize>
+impl<const N: usize> hadris_common::str::utf16::FixedUtf16Str<N>
+pub fn hadris_common::str::utf16::FixedUtf16Str<N>::to_string(&self) -> core::result::Result<alloc::string::String, ()>
+impl<const N: usize> bytemuck::pod::Pod for hadris_common::str::utf16::FixedUtf16Str<N>
+impl<const N: usize> bytemuck::zeroable::Zeroable for hadris_common::str::utf16::FixedUtf16Str<N>
+pub mod hadris_common::types
+pub mod hadris_common::types::endian
+pub enum hadris_common::types::endian::EndianType
+pub hadris_common::types::endian::EndianType::BigEndian
+pub hadris_common::types::endian::EndianType::LittleEndian
+pub hadris_common::types::endian::EndianType::NativeEndian
+impl hadris_common::types::endian::EndianType
+pub const fn hadris_common::types::endian::EndianType::is_le(&self) -> bool
+pub fn hadris_common::types::endian::EndianType::read_u16(&self, [u8; 2]) -> u16
+pub fn hadris_common::types::endian::EndianType::read_u32(&self, [u8; 4]) -> u32
+pub fn hadris_common::types::endian::EndianType::read_u64(&self, [u8; 8]) -> u64
+pub fn hadris_common::types::endian::EndianType::u16_bytes(&self, u16) -> [u8; 2]
+pub fn hadris_common::types::endian::EndianType::u32_bytes(&self, u32) -> [u8; 4]
+pub fn hadris_common::types::endian::EndianType::u64_bytes(&self, u64) -> [u8; 8]
+impl core::fmt::Display for hadris_common::types::endian::EndianType
+pub fn hadris_common::types::endian::EndianType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(transparent)] pub struct hadris_common::types::endian::BigEndian
+impl bytemuck::pod::Pod for hadris_common::types::endian::BigEndian
+impl bytemuck::zeroable::Zeroable for hadris_common::types::endian::BigEndian
+impl hadris_common::types::endian::Endianness for hadris_common::types::endian::BigEndian
+pub fn hadris_common::types::endian::BigEndian::get() -> hadris_common::types::endian::EndianType
+pub fn hadris_common::types::endian::BigEndian::get_u16([u8; 2]) -> u16
+pub fn hadris_common::types::endian::BigEndian::get_u24([u8; 3]) -> u32
+pub fn hadris_common::types::endian::BigEndian::get_u32([u8; 4]) -> u32
+pub fn hadris_common::types::endian::BigEndian::get_u64([u8; 8]) -> u64
+pub fn hadris_common::types::endian::BigEndian::set_u16(u16, &mut [u8; 2])
+pub fn hadris_common::types::endian::BigEndian::set_u24(u32, &mut [u8; 3])
+pub fn hadris_common::types::endian::BigEndian::set_u32(u32, &mut [u8; 4])
+pub fn hadris_common::types::endian::BigEndian::set_u64(u64, &mut [u8; 8])
+#[repr(transparent)] pub struct hadris_common::types::endian::LittleEndian
+impl bytemuck::pod::Pod for hadris_common::types::endian::LittleEndian
+impl bytemuck::zeroable::Zeroable for hadris_common::types::endian::LittleEndian
+impl hadris_common::types::endian::Endianness for hadris_common::types::endian::LittleEndian
+pub fn hadris_common::types::endian::LittleEndian::get() -> hadris_common::types::endian::EndianType
+pub fn hadris_common::types::endian::LittleEndian::get_u16([u8; 2]) -> u16
+pub fn hadris_common::types::endian::LittleEndian::get_u24([u8; 3]) -> u32
+pub fn hadris_common::types::endian::LittleEndian::get_u32([u8; 4]) -> u32
+pub fn hadris_common::types::endian::LittleEndian::get_u64([u8; 8]) -> u64
+pub fn hadris_common::types::endian::LittleEndian::set_u16(u16, &mut [u8; 2])
+pub fn hadris_common::types::endian::LittleEndian::set_u24(u32, &mut [u8; 3])
+pub fn hadris_common::types::endian::LittleEndian::set_u32(u32, &mut [u8; 4])
+pub fn hadris_common::types::endian::LittleEndian::set_u64(u64, &mut [u8; 8])
+#[repr(transparent)] pub struct hadris_common::types::endian::NativeEndian
+impl bytemuck::pod::Pod for hadris_common::types::endian::NativeEndian
+impl bytemuck::zeroable::Zeroable for hadris_common::types::endian::NativeEndian
+impl hadris_common::types::endian::Endianness for hadris_common::types::endian::NativeEndian
+pub fn hadris_common::types::endian::NativeEndian::get() -> hadris_common::types::endian::EndianType
+pub fn hadris_common::types::endian::NativeEndian::get_u16([u8; 2]) -> u16
+pub fn hadris_common::types::endian::NativeEndian::get_u24([u8; 3]) -> u32
+pub fn hadris_common::types::endian::NativeEndian::get_u32([u8; 4]) -> u32
+pub fn hadris_common::types::endian::NativeEndian::get_u64([u8; 8]) -> u64
+pub fn hadris_common::types::endian::NativeEndian::set_u16(u16, &mut [u8; 2])
+pub fn hadris_common::types::endian::NativeEndian::set_u24(u32, &mut [u8; 3])
+pub fn hadris_common::types::endian::NativeEndian::set_u32(u32, &mut [u8; 4])
+pub fn hadris_common::types::endian::NativeEndian::set_u64(u64, &mut [u8; 8])
+pub trait hadris_common::types::endian::Endian
+pub type hadris_common::types::endian::Endian::LsbType: hadris_common::types::endian::MaybePod + hadris_common::types::endian::Endian<Output = Self::Output>
+pub type hadris_common::types::endian::Endian::MsbType: hadris_common::types::endian::MaybePod + hadris_common::types::endian::Endian<Output = Self::Output>
+pub type hadris_common::types::endian::Endian::Output: hadris_common::types::endian::MaybePod
+pub fn hadris_common::types::endian::Endian::get(&self) -> Self::Output
+pub fn hadris_common::types::endian::Endian::new(Self::Output) -> Self
+pub fn hadris_common::types::endian::Endian::set(&mut self, Self::Output)
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::endian::Endian for hadris_common::types::number::U16<E>
+pub type hadris_common::types::number::U16<E>::LsbType = hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub type hadris_common::types::number::U16<E>::MsbType = hadris_common::types::number::U16<hadris_common::types::endian::BigEndian>
+pub type hadris_common::types::number::U16<E>::Output = u16
+pub fn hadris_common::types::number::U16<E>::get(&self) -> u16
+pub fn hadris_common::types::number::U16<E>::new(u16) -> Self
+pub fn hadris_common::types::number::U16<E>::set(&mut self, u16)
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::endian::Endian for hadris_common::types::number::U24<E>
+pub type hadris_common::types::number::U24<E>::LsbType = hadris_common::types::number::U24<hadris_common::types::endian::LittleEndian>
+pub type hadris_common::types::number::U24<E>::MsbType = hadris_common::types::number::U24<hadris_common::types::endian::BigEndian>
+pub type hadris_common::types::number::U24<E>::Output = u32
+pub fn hadris_common::types::number::U24<E>::get(&self) -> u32
+pub fn hadris_common::types::number::U24<E>::new(u32) -> Self
+pub fn hadris_common::types::number::U24<E>::set(&mut self, u32)
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::endian::Endian for hadris_common::types::number::U32<E>
+pub type hadris_common::types::number::U32<E>::LsbType = hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub type hadris_common::types::number::U32<E>::MsbType = hadris_common::types::number::U32<hadris_common::types::endian::BigEndian>
+pub type hadris_common::types::number::U32<E>::Output = u32
+pub fn hadris_common::types::number::U32<E>::get(&self) -> u32
+pub fn hadris_common::types::number::U32<E>::new(u32) -> Self
+pub fn hadris_common::types::number::U32<E>::set(&mut self, u32)
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::endian::Endian for hadris_common::types::number::U64<E>
+pub type hadris_common::types::number::U64<E>::LsbType = hadris_common::types::number::U64<hadris_common::types::endian::LittleEndian>
+pub type hadris_common::types::number::U64<E>::MsbType = hadris_common::types::number::U64<hadris_common::types::endian::BigEndian>
+pub type hadris_common::types::number::U64<E>::Output = u64
+pub fn hadris_common::types::number::U64<E>::get(&self) -> u64
+pub fn hadris_common::types::number::U64<E>::new(u64) -> Self
+pub fn hadris_common::types::number::U64<E>::set(&mut self, u64)
+pub trait hadris_common::types::endian::Endianness: core::marker::Copy + core::marker::Sized
+pub fn hadris_common::types::endian::Endianness::get() -> hadris_common::types::endian::EndianType
+pub fn hadris_common::types::endian::Endianness::get_u16([u8; 2]) -> u16
+pub fn hadris_common::types::endian::Endianness::get_u24([u8; 3]) -> u32
+pub fn hadris_common::types::endian::Endianness::get_u32([u8; 4]) -> u32
+pub fn hadris_common::types::endian::Endianness::get_u64([u8; 8]) -> u64
+pub fn hadris_common::types::endian::Endianness::set_u16(u16, &mut [u8; 2])
+pub fn hadris_common::types::endian::Endianness::set_u24(u32, &mut [u8; 3])
+pub fn hadris_common::types::endian::Endianness::set_u32(u32, &mut [u8; 4])
+pub fn hadris_common::types::endian::Endianness::set_u64(u64, &mut [u8; 8])
+impl hadris_common::types::endian::Endianness for hadris_common::types::endian::BigEndian
+pub fn hadris_common::types::endian::BigEndian::get() -> hadris_common::types::endian::EndianType
+pub fn hadris_common::types::endian::BigEndian::get_u16([u8; 2]) -> u16
+pub fn hadris_common::types::endian::BigEndian::get_u24([u8; 3]) -> u32
+pub fn hadris_common::types::endian::BigEndian::get_u32([u8; 4]) -> u32
+pub fn hadris_common::types::endian::BigEndian::get_u64([u8; 8]) -> u64
+pub fn hadris_common::types::endian::BigEndian::set_u16(u16, &mut [u8; 2])
+pub fn hadris_common::types::endian::BigEndian::set_u24(u32, &mut [u8; 3])
+pub fn hadris_common::types::endian::BigEndian::set_u32(u32, &mut [u8; 4])
+pub fn hadris_common::types::endian::BigEndian::set_u64(u64, &mut [u8; 8])
+impl hadris_common::types::endian::Endianness for hadris_common::types::endian::LittleEndian
+pub fn hadris_common::types::endian::LittleEndian::get() -> hadris_common::types::endian::EndianType
+pub fn hadris_common::types::endian::LittleEndian::get_u16([u8; 2]) -> u16
+pub fn hadris_common::types::endian::LittleEndian::get_u24([u8; 3]) -> u32
+pub fn hadris_common::types::endian::LittleEndian::get_u32([u8; 4]) -> u32
+pub fn hadris_common::types::endian::LittleEndian::get_u64([u8; 8]) -> u64
+pub fn hadris_common::types::endian::LittleEndian::set_u16(u16, &mut [u8; 2])
+pub fn hadris_common::types::endian::LittleEndian::set_u24(u32, &mut [u8; 3])
+pub fn hadris_common::types::endian::LittleEndian::set_u32(u32, &mut [u8; 4])
+pub fn hadris_common::types::endian::LittleEndian::set_u64(u64, &mut [u8; 8])
+impl hadris_common::types::endian::Endianness for hadris_common::types::endian::NativeEndian
+pub fn hadris_common::types::endian::NativeEndian::get() -> hadris_common::types::endian::EndianType
+pub fn hadris_common::types::endian::NativeEndian::get_u16([u8; 2]) -> u16
+pub fn hadris_common::types::endian::NativeEndian::get_u24([u8; 3]) -> u32
+pub fn hadris_common::types::endian::NativeEndian::get_u32([u8; 4]) -> u32
+pub fn hadris_common::types::endian::NativeEndian::get_u64([u8; 8]) -> u64
+pub fn hadris_common::types::endian::NativeEndian::set_u16(u16, &mut [u8; 2])
+pub fn hadris_common::types::endian::NativeEndian::set_u24(u32, &mut [u8; 3])
+pub fn hadris_common::types::endian::NativeEndian::set_u32(u32, &mut [u8; 4])
+pub fn hadris_common::types::endian::NativeEndian::set_u64(u64, &mut [u8; 8])
+pub trait hadris_common::types::endian::MaybePod: bytemuck::pod::Pod + bytemuck::zeroable::Zeroable
+impl<T: bytemuck::pod::Pod + bytemuck::zeroable::Zeroable> hadris_common::types::endian::MaybePod for T
+pub mod hadris_common::types::extent
+#[repr(u8)] pub enum hadris_common::types::extent::FileType
+pub hadris_common::types::extent::FileType::Directory = 1
+pub hadris_common::types::extent::FileType::RegularFile = 0
+pub hadris_common::types::extent::FileType::Symlink = 2
+impl hadris_common::types::extent::FileType
+pub const fn hadris_common::types::extent::FileType::is_directory(&self) -> bool
+pub const fn hadris_common::types::extent::FileType::is_file(&self) -> bool
+pub const fn hadris_common::types::extent::FileType::is_symlink(&self) -> bool
+impl core::fmt::Display for hadris_common::types::extent::FileType
+pub fn hadris_common::types::extent::FileType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(C)] pub struct hadris_common::types::extent::Extent
+pub hadris_common::types::extent::Extent::length: u64
+pub hadris_common::types::extent::Extent::sector: u32
+impl hadris_common::types::extent::Extent
+pub const fn hadris_common::types::extent::Extent::end_sector(&self, u32) -> u32
+pub const fn hadris_common::types::extent::Extent::is_empty(&self) -> bool
+pub const fn hadris_common::types::extent::Extent::new(u32, u64) -> Self
+pub const fn hadris_common::types::extent::Extent::overlaps(&self, &hadris_common::types::extent::Extent, u32) -> bool
+pub const fn hadris_common::types::extent::Extent::sector_count(&self, u32) -> u32
+impl bytemuck::pod::Pod for hadris_common::types::extent::Extent
+impl bytemuck::zeroable::Zeroable for hadris_common::types::extent::Extent
+impl core::fmt::Display for hadris_common::types::extent::Extent
+pub fn hadris_common::types::extent::Extent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(C)] pub struct hadris_common::types::extent::Timestamps
+pub hadris_common::types::extent::Timestamps::accessed: u64
+pub hadris_common::types::extent::Timestamps::created: u64
+pub hadris_common::types::extent::Timestamps::modified: u64
+impl hadris_common::types::extent::Timestamps
+pub const fn hadris_common::types::extent::Timestamps::most_recent(&self) -> u64
+pub const fn hadris_common::types::extent::Timestamps::new(u64) -> Self
+pub const fn hadris_common::types::extent::Timestamps::with_times(u64, u64, u64) -> Self
+impl bytemuck::pod::Pod for hadris_common::types::extent::Timestamps
+impl bytemuck::zeroable::Zeroable for hadris_common::types::extent::Timestamps
+pub mod hadris_common::types::file
+pub struct hadris_common::types::file::FixedFilename<const N: usize>
+pub hadris_common::types::file::FixedFilename::data: [u8; N]
+pub hadris_common::types::file::FixedFilename::len: usize
+impl<const N: usize> hadris_common::types::file::FixedFilename<N>
+pub fn hadris_common::types::file::FixedFilename<N>::allocate(&mut self, usize)
+pub fn hadris_common::types::file::FixedFilename<N>::as_bytes(&self) -> &[u8]
+pub fn hadris_common::types::file::FixedFilename<N>::as_bytes_mut(&mut self) -> &mut [u8]
+pub fn hadris_common::types::file::FixedFilename<N>::as_str(&self) -> &str
+pub const fn hadris_common::types::file::FixedFilename<N>::empty() -> Self
+pub fn hadris_common::types::file::FixedFilename<N>::is_empty(&self) -> bool
+pub fn hadris_common::types::file::FixedFilename<N>::len(&self) -> usize
+pub fn hadris_common::types::file::FixedFilename<N>::push_byte(&mut self, u8) -> usize
+pub fn hadris_common::types::file::FixedFilename<N>::push_slice(&mut self, &[u8]) -> core::ops::range::Range<usize>
+pub fn hadris_common::types::file::FixedFilename<N>::remaining_capacity(&self) -> usize
+pub fn hadris_common::types::file::FixedFilename<N>::truncate(&mut self, usize)
+pub fn hadris_common::types::file::FixedFilename<N>::try_as_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+pub fn hadris_common::types::file::FixedFilename<N>::try_push_byte(&mut self, u8) -> core::option::Option<usize>
+pub fn hadris_common::types::file::FixedFilename<N>::try_push_slice(&mut self, &[u8]) -> core::option::Option<core::ops::range::Range<usize>>
+pub const fn hadris_common::types::file::FixedFilename<N>::with_size(usize) -> Self
+impl<const N: usize> core::convert::From<&[u8]> for hadris_common::types::file::FixedFilename<N>
+pub fn hadris_common::types::file::FixedFilename<N>::from(&[u8]) -> Self
+impl<const N: usize> core::fmt::Debug for hadris_common::types::file::FixedFilename<N>
+pub fn hadris_common::types::file::FixedFilename<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const N: usize> core::fmt::Display for hadris_common::types::file::FixedFilename<N>
+pub fn hadris_common::types::file::FixedFilename<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub mod hadris_common::types::layout
+pub struct hadris_common::types::layout::AllocationMap
+impl hadris_common::types::layout::AllocationMap
+pub fn hadris_common::types::layout::AllocationMap::allocate(&mut self, u64, u32) -> core::option::Option<hadris_common::types::extent::Extent>
+pub fn hadris_common::types::layout::AllocationMap::free_sectors(&self) -> u32
+pub fn hadris_common::types::layout::AllocationMap::from_existing(&[hadris_common::types::extent::Extent], u32, u32) -> Self
+pub fn hadris_common::types::layout::AllocationMap::is_free(&self, u32) -> bool
+pub fn hadris_common::types::layout::AllocationMap::is_used(&self, u32) -> bool
+pub fn hadris_common::types::layout::AllocationMap::mark_free(&mut self, hadris_common::types::extent::Extent, u32)
+pub fn hadris_common::types::layout::AllocationMap::mark_used(&mut self, hadris_common::types::extent::Extent, u32)
+pub fn hadris_common::types::layout::AllocationMap::new(u32) -> Self
+pub fn hadris_common::types::layout::AllocationMap::reserve_initial(&mut self, u32, u32)
+pub fn hadris_common::types::layout::AllocationMap::total_sectors(&self) -> u32
+pub fn hadris_common::types::layout::AllocationMap::used_sectors(&self) -> u32
+pub struct hadris_common::types::layout::DirectoryLayout
+pub hadris_common::types::layout::DirectoryLayout::attributes: u32
+pub hadris_common::types::layout::DirectoryLayout::extent: core::option::Option<hadris_common::types::extent::Extent>
+pub hadris_common::types::layout::DirectoryLayout::files: alloc::vec::Vec<hadris_common::types::layout::FileLayout>
+pub hadris_common::types::layout::DirectoryLayout::name: alloc::string::String
+pub hadris_common::types::layout::DirectoryLayout::subdirs: alloc::vec::Vec<hadris_common::types::layout::DirectoryLayout>
+pub hadris_common::types::layout::DirectoryLayout::timestamps: hadris_common::types::extent::Timestamps
+impl hadris_common::types::layout::DirectoryLayout
+pub fn hadris_common::types::layout::DirectoryLayout::add_file(&mut self, hadris_common::types::layout::FileLayout)
+pub fn hadris_common::types::layout::DirectoryLayout::add_subdir(&mut self, hadris_common::types::layout::DirectoryLayout)
+pub fn hadris_common::types::layout::DirectoryLayout::entry_count(&self) -> usize
+pub fn hadris_common::types::layout::DirectoryLayout::file_count(&self) -> usize
+pub fn hadris_common::types::layout::DirectoryLayout::find_file(&self, &str) -> core::option::Option<&hadris_common::types::layout::FileLayout>
+pub fn hadris_common::types::layout::DirectoryLayout::find_file_mut(&mut self, &str) -> core::option::Option<&mut hadris_common::types::layout::FileLayout>
+pub fn hadris_common::types::layout::DirectoryLayout::get_or_create_dir(&mut self, &str) -> &mut hadris_common::types::layout::DirectoryLayout
+pub fn hadris_common::types::layout::DirectoryLayout::iter_files(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, &hadris_common::types::layout::FileLayout)>
+pub fn hadris_common::types::layout::DirectoryLayout::new(impl core::convert::Into<alloc::string::String>) -> Self
+pub fn hadris_common::types::layout::DirectoryLayout::remove_file(&mut self, &str) -> core::option::Option<hadris_common::types::layout::FileLayout>
+pub fn hadris_common::types::layout::DirectoryLayout::root() -> Self
+pub fn hadris_common::types::layout::DirectoryLayout::subdir_count(&self) -> usize
+pub fn hadris_common::types::layout::DirectoryLayout::with_extent(self, hadris_common::types::extent::Extent) -> Self
+pub fn hadris_common::types::layout::DirectoryLayout::with_timestamps(self, hadris_common::types::extent::Timestamps) -> Self
+pub struct hadris_common::types::layout::FileLayout
+pub hadris_common::types::layout::FileLayout::attributes: u32
+pub hadris_common::types::layout::FileLayout::extent: hadris_common::types::extent::Extent
+pub hadris_common::types::layout::FileLayout::file_type: hadris_common::types::extent::FileType
+pub hadris_common::types::layout::FileLayout::name: alloc::string::String
+pub hadris_common::types::layout::FileLayout::symlink_target: core::option::Option<alloc::string::String>
+pub hadris_common::types::layout::FileLayout::timestamps: hadris_common::types::extent::Timestamps
+impl hadris_common::types::layout::FileLayout
+pub fn hadris_common::types::layout::FileLayout::new(impl core::convert::Into<alloc::string::String>, hadris_common::types::extent::Extent) -> Self
+pub fn hadris_common::types::layout::FileLayout::size(&self) -> u64
+pub fn hadris_common::types::layout::FileLayout::with_attributes(self, u32) -> Self
+pub fn hadris_common::types::layout::FileLayout::with_symlink_target(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn hadris_common::types::layout::FileLayout::with_timestamps(self, hadris_common::types::extent::Timestamps) -> Self
+pub fn hadris_common::types::layout::FileLayout::with_type(self, hadris_common::types::extent::FileType) -> Self
+pub mod hadris_common::types::no_alloc
+pub use hadris_common::types::no_alloc::ArrayVec
+pub use hadris_common::types::no_alloc::ArrayVecError
+pub use hadris_common::types::no_alloc::RingBuf
+pub mod hadris_common::types::number
+pub use hadris_common::types::number::I16Be
+pub use hadris_common::types::number::I16Le
+pub use hadris_common::types::number::I32Be
+pub use hadris_common::types::number::I32Le
+pub use hadris_common::types::number::I64Be
+pub use hadris_common::types::number::I64Le
+pub use hadris_common::types::number::U16Be
+pub use hadris_common::types::number::U16Le
+pub use hadris_common::types::number::U32Be
+pub use hadris_common::types::number::U32Le
+pub use hadris_common::types::number::U64Be
+pub use hadris_common::types::number::U64Le
+#[repr(transparent)] pub struct hadris_common::types::number::U16<E> where E: hadris_common::types::endian::Endianness
+impl<E: hadris_common::types::endian::Endianness> core::fmt::Debug for hadris_common::types::number::U16<E>
+pub fn hadris_common::types::number::U16<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::Display for hadris_common::types::number::U16<E>
+pub fn hadris_common::types::number::U16<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::LowerHex for hadris_common::types::number::U16<E>
+pub fn hadris_common::types::number::U16<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::UpperHex for hadris_common::types::number::U16<E>
+pub fn hadris_common::types::number::U16<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::endian::Endian for hadris_common::types::number::U16<E>
+pub type hadris_common::types::number::U16<E>::LsbType = hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub type hadris_common::types::number::U16<E>::MsbType = hadris_common::types::number::U16<hadris_common::types::endian::BigEndian>
+pub type hadris_common::types::number::U16<E>::Output = u16
+pub fn hadris_common::types::number::U16<E>::get(&self) -> u16
+pub fn hadris_common::types::number::U16<E>::new(u16) -> Self
+pub fn hadris_common::types::number::U16<E>::set(&mut self, u16)
+impl<E> bytemuck::pod::Pod for hadris_common::types::number::U16<E> where E: hadris_common::types::endian::Endianness + bytemuck::pod::Pod
+impl<E> bytemuck::zeroable::Zeroable for hadris_common::types::number::U16<E> where E: hadris_common::types::endian::Endianness + bytemuck::zeroable::Zeroable
+#[repr(C, packed(1))] pub struct hadris_common::types::number::U24<E> where E: hadris_common::types::endian::Endianness
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::number::U24<E>
+pub const hadris_common::types::number::U24<E>::MAX: u32
+impl<E: hadris_common::types::endian::Endianness> core::fmt::Debug for hadris_common::types::number::U24<E>
+pub fn hadris_common::types::number::U24<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::Display for hadris_common::types::number::U24<E>
+pub fn hadris_common::types::number::U24<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::LowerHex for hadris_common::types::number::U24<E>
+pub fn hadris_common::types::number::U24<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::UpperHex for hadris_common::types::number::U24<E>
+pub fn hadris_common::types::number::U24<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::endian::Endian for hadris_common::types::number::U24<E>
+pub type hadris_common::types::number::U24<E>::LsbType = hadris_common::types::number::U24<hadris_common::types::endian::LittleEndian>
+pub type hadris_common::types::number::U24<E>::MsbType = hadris_common::types::number::U24<hadris_common::types::endian::BigEndian>
+pub type hadris_common::types::number::U24<E>::Output = u32
+pub fn hadris_common::types::number::U24<E>::get(&self) -> u32
+pub fn hadris_common::types::number::U24<E>::new(u32) -> Self
+pub fn hadris_common::types::number::U24<E>::set(&mut self, u32)
+impl<E> bytemuck::pod::Pod for hadris_common::types::number::U24<E> where E: hadris_common::types::endian::Endianness + bytemuck::pod::Pod
+impl<E> bytemuck::zeroable::Zeroable for hadris_common::types::number::U24<E> where E: hadris_common::types::endian::Endianness + bytemuck::zeroable::Zeroable
+#[repr(transparent)] pub struct hadris_common::types::number::U32<E> where E: hadris_common::types::endian::Endianness
+impl<E: hadris_common::types::endian::Endianness> core::fmt::Debug for hadris_common::types::number::U32<E>
+pub fn hadris_common::types::number::U32<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::Display for hadris_common::types::number::U32<E>
+pub fn hadris_common::types::number::U32<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::LowerHex for hadris_common::types::number::U32<E>
+pub fn hadris_common::types::number::U32<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::UpperHex for hadris_common::types::number::U32<E>
+pub fn hadris_common::types::number::U32<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::endian::Endian for hadris_common::types::number::U32<E>
+pub type hadris_common::types::number::U32<E>::LsbType = hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub type hadris_common::types::number::U32<E>::MsbType = hadris_common::types::number::U32<hadris_common::types::endian::BigEndian>
+pub type hadris_common::types::number::U32<E>::Output = u32
+pub fn hadris_common::types::number::U32<E>::get(&self) -> u32
+pub fn hadris_common::types::number::U32<E>::new(u32) -> Self
+pub fn hadris_common::types::number::U32<E>::set(&mut self, u32)
+impl<E> bytemuck::pod::Pod for hadris_common::types::number::U32<E> where E: hadris_common::types::endian::Endianness + bytemuck::pod::Pod
+impl<E> bytemuck::zeroable::Zeroable for hadris_common::types::number::U32<E> where E: hadris_common::types::endian::Endianness + bytemuck::zeroable::Zeroable
+#[repr(transparent)] pub struct hadris_common::types::number::U64<E> where E: hadris_common::types::endian::Endianness
+impl<E: hadris_common::types::endian::Endianness> core::fmt::Debug for hadris_common::types::number::U64<E>
+pub fn hadris_common::types::number::U64<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::Display for hadris_common::types::number::U64<E>
+pub fn hadris_common::types::number::U64<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::LowerHex for hadris_common::types::number::U64<E>
+pub fn hadris_common::types::number::U64<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> core::fmt::UpperHex for hadris_common::types::number::U64<E>
+pub fn hadris_common::types::number::U64<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: hadris_common::types::endian::Endianness> hadris_common::types::endian::Endian for hadris_common::types::number::U64<E>
+pub type hadris_common::types::number::U64<E>::LsbType = hadris_common::types::number::U64<hadris_common::types::endian::LittleEndian>
+pub type hadris_common::types::number::U64<E>::MsbType = hadris_common::types::number::U64<hadris_common::types::endian::BigEndian>
+pub type hadris_common::types::number::U64<E>::Output = u64
+pub fn hadris_common::types::number::U64<E>::get(&self) -> u64
+pub fn hadris_common::types::number::U64<E>::new(u64) -> Self
+pub fn hadris_common::types::number::U64<E>::set(&mut self, u64)
+impl<E> bytemuck::pod::Pod for hadris_common::types::number::U64<E> where E: hadris_common::types::endian::Endianness + bytemuck::pod::Pod
+impl<E> bytemuck::zeroable::Zeroable for hadris_common::types::number::U64<E> where E: hadris_common::types::endian::Endianness + bytemuck::zeroable::Zeroable
+pub fn hadris_common::types::number::align_up<T: core::ops::arith::Add<Output = T> + core::ops::arith::Sub<Output = T> + core::ops::bit::BitAnd<Output = T> + core::ops::bit::Not<Output = T> + core::convert::From<u8> + core::marker::Copy>(T, T) -> T
+pub static hadris_common::BOOT_SECTOR_BIN: &[u8]

@@ -33,6 +33,18 @@ jobs:
       - name: Check @hadris-* tags
         run: python3 scripts/check-spec-annotations.py
 
+  public-api:
+    name: Public API snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-public-api
+        run: cargo install cargo-public-api --version 0.52.0 --locked
+      - name: Check all-feature public API snapshots
+        run: scripts/check-public-api.sh
+
   check:
     name: Check
     runs-on: ubuntu-latest
@@ -359,6 +371,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: cargo doc --workspace
         run: cargo doc --workspace --no-deps
+      - name: Compile rustdoc examples
+        run: cargo test --workspace --doc
+      - name: Compile Cargo example targets
+        run: cargo check --workspace --all-features --examples
 
   fmt:
     name: Format
