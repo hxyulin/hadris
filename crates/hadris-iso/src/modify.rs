@@ -116,7 +116,8 @@ impl FileData {
             FileData::Buffer(data) => Ok(data.len() as u64),
             #[cfg(feature = "std")]
             FileData::Path(path) => {
-                let metadata = std::fs::metadata(path)?;
+                let metadata = std::fs::metadata(path)
+                    .map_err(|error| io::Error::from_source(error).erase())?;
                 Ok(metadata.len())
             }
         }
@@ -127,7 +128,9 @@ impl FileData {
         match self {
             FileData::Buffer(data) => Ok(data.clone()),
             #[cfg(feature = "std")]
-            FileData::Path(path) => std::fs::read(path),
+            FileData::Path(path) => {
+                std::fs::read(path).map_err(|error| io::Error::from_source(error).erase())
+            }
         }
     }
 }
@@ -207,10 +210,10 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     }
 
     /// Opens an existing ISO image for modification with custom options.
-    pub async fn open_with_options(mut inner: RW, options: IsoModifyOptions) -> IsoModifyResult<Self> {
+    pub async fn open_with_options(inner: RW, options: IsoModifyOptions) -> IsoModifyResult<Self> {
         // Parse existing image
         let sector_size = 2048;
-        let mut cursor = IsoCursor::new(&mut inner, sector_size);
+        let mut cursor = IsoCursor::new(inner, sector_size);
 
         // Read volume descriptors to get image info
         cursor.seek_sector(LogicalSector(16)).await?;
@@ -255,9 +258,6 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         let allocation_map =
             AllocationMap::from_existing(&used_extents, total_sectors, sector_size as u32);
 
-        // Create the cursor from the original inner
-        let cursor = IsoCursor::new(inner, sector_size);
-
         Ok(Self {
             inner: cursor,
             existing_layout,
@@ -272,7 +272,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
 
     /// Builds a DirectoryLayout from an existing ISO directory structure.
     async fn build_layout_from_directory(
-        cursor: &mut IsoCursor<&mut RW>,
+        cursor: &mut IsoCursor<RW>,
         root_ref: DirectoryRef,
         sector_size: usize,
     ) -> IsoModifyResult<(DirectoryLayout, Vec<Extent>)> {
@@ -296,7 +296,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     /// Recursively reads a directory and its contents.
     #[allow(clippy::only_used_in_recursion)]
     async fn read_directory_recursive(
-        cursor: &mut IsoCursor<&mut RW>,
+        cursor: &mut IsoCursor<RW>,
         dir_ref: DirectoryRef,
         layout: &mut DirectoryLayout,
         used_extents: &mut Vec<Extent>,

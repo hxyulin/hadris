@@ -102,7 +102,8 @@ impl FileData {
             FileData::Buffer(data) => Ok(data.len() as u64),
             #[cfg(feature = "std")]
             FileData::Path(path) => {
-                let metadata = std::fs::metadata(path)?;
+                let metadata = std::fs::metadata(path)
+                    .map_err(|error| io::Error::from_source(error).erase())?;
                 Ok(metadata.len())
             }
         }
@@ -113,7 +114,9 @@ impl FileData {
         match self {
             FileData::Buffer(data) => Ok(data.clone()),
             #[cfg(feature = "std")]
-            FileData::Path(path) => std::fs::read(path),
+            FileData::Path(path) => {
+                std::fs::read(path).map_err(|error| io::Error::from_source(error).erase())
+            }
         }
     }
 }

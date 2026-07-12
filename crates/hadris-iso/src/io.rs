@@ -36,7 +36,9 @@ pub struct IsoCursor<DATA: Seek> {
 io_transform! {
 
 impl<DATA: Read + Seek> Read for IsoCursor<DATA> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    type Error = <DATA as Read>::Error;
+
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.data.read(buf).await
     }
 
@@ -46,6 +48,8 @@ impl<DATA: Read + Seek> Read for IsoCursor<DATA> {
 }
 
 impl<DATA: Seek> Seek for IsoCursor<DATA> {
+    type Error = DATA::Error;
+
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
         self.data.seek(pos).await
     }
@@ -77,16 +81,19 @@ impl<DATA: Seek> IsoCursor<DATA> {
     }
 
     pub async fn seek_sector(&mut self, sector: LogicalSector) -> Result<u64> {
-        self.seek(SeekFrom::Start(sector.0 as u64 * self.sector_size as u64)).await
+        self.seek(SeekFrom::Start(sector.0 as u64 * self.sector_size as u64))
+            .await
     }
 }
 
 impl<DATA: Write + Seek> Write for IsoCursor<DATA> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    type Error = <DATA as Write>::Error;
+
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.data.write(buf).await
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
         self.data.flush().await
     }
 

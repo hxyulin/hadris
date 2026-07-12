@@ -358,7 +358,7 @@ mod integration_tests {
             fs.set_root_label(b"pmOS_boot  ").expect("set_root_label");
         }
 
-        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+        cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
         let fs = FatFs::open(cursor).expect("re-open FAT32");
 
         let entries: Vec<_> = fs.root_dir().entries().filter_map(|e| e.ok()).collect();
@@ -377,7 +377,7 @@ mod integration_tests {
         use hadris_io::Seek;
 
         let mut cursor = create_test_fat32_image();
-        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+        cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
         let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
@@ -416,7 +416,7 @@ mod integration_tests {
         use hadris_io::Seek;
 
         let mut cursor = create_test_fat32_image();
-        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+        cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
         let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
@@ -443,7 +443,7 @@ mod integration_tests {
         // by other tools. This test verifies that the LFN parsing infrastructure
         // compiles and works correctly by testing with short filenames.
         let mut cursor = create_test_fat32_image();
-        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+        cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
         let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
@@ -479,7 +479,7 @@ mod navigation_tests {
     #[test]
     fn test_find_nonexistent_returns_none() {
         let mut cursor = create_test_fat32_image();
-        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+        cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
         let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
@@ -494,7 +494,7 @@ mod navigation_tests {
     #[test]
     fn test_open_dir_on_file_returns_error() {
         let mut cursor = create_test_fat32_image();
-        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+        cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
         let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
@@ -512,7 +512,7 @@ mod navigation_tests {
     #[test]
     fn test_open_file_on_directory_returns_error() {
         let mut cursor = create_test_fat32_image();
-        cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+        cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
         let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
@@ -557,7 +557,7 @@ mod navigation_tests {
             use hadris_io::Seek;
 
             let mut cursor = create_test_fat32_image();
-            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+            cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
             let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
 
@@ -578,7 +578,7 @@ mod navigation_tests {
             use hadris_io::Seek;
 
             let mut cursor = create_test_fat32_image();
-            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+            cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
             let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
 
@@ -599,7 +599,7 @@ mod navigation_tests {
             use hadris_io::Seek;
 
             let mut cursor = create_test_fat32_image();
-            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+            cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
             let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
 
@@ -620,7 +620,7 @@ mod navigation_tests {
             use hadris_io::Seek;
 
             let mut cursor = create_test_fat32_image();
-            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+            cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
             let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
 
@@ -638,7 +638,7 @@ mod navigation_tests {
             use hadris_io::Seek;
 
             let mut cursor = create_test_fat32_image();
-            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+            cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
             let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
 

@@ -339,9 +339,9 @@ impl fmt::Display for FatError {
 #[cfg(feature = "std")]
 impl std::error::Error for FatError {}
 
-impl From<hadris_io::Error> for FatError {
-    fn from(e: hadris_io::Error) -> Self {
-        Self::Io(e)
+impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for FatError {
+    fn from(e: hadris_io::Error<E>) -> Self {
+        Self::Io(e.erase())
     }
 }
 

@@ -335,7 +335,7 @@ where
             .map_err(|source| FatError::IoContext {
                 op: "boot sector",
                 sector: Some(0),
-                source,
+                source: source.erase(),
             })?;
         let sector_size = bpb.bytes_per_sector.get() as usize;
         let cluster_size = (bpb.sectors_per_cluster as usize) * sector_size;
@@ -369,7 +369,7 @@ where
             .map_err(|source| FatError::IoContext {
                 op: "boot sector (FAT12/16 extended fields)",
                 sector: Some(0),
-                source,
+                source: source.erase(),
             })?;
 
         // Validate boot signature
@@ -515,7 +515,7 @@ where
             .map_err(|source| FatError::IoContext {
                 op: "boot sector (FAT32 extended fields)",
                 sector: Some(0),
-                source,
+                source: source.erase(),
             })?;
 
         // Validate boot signature
@@ -542,7 +542,7 @@ where
             .map_err(|source| FatError::IoContext {
                 op: "FSInfo",
                 sector: Some(fs_info_sec.0 as u64),
-                source,
+                source: source.erase(),
             })?;
 
         // Validate FSInfo signatures

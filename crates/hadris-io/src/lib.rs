@@ -70,28 +70,19 @@ extern crate std;
 // Shared types (always available)
 // ---------------------------------------------------------------------------
 
-/// No-std compatible I/O error types.
-#[cfg(not(feature = "std"))]
 mod error;
-#[cfg(not(feature = "std"))]
 pub use error::{Error, ErrorKind, Result};
-
-/// Re-export std error types when std is available.
-#[cfg(feature = "std")]
-pub use std::io::{Error, ErrorKind, Result};
 
 /// Re-export std path types when std is available.
 #[cfg(feature = "std")]
 pub use std::path::{Path, PathBuf};
 
-/// `SeekFrom` — re-exported from std or defined for no-std.
-#[cfg(feature = "std")]
-pub use std::io::SeekFrom;
+/// Portable seek position, convertible to and from `std::io::SeekFrom`.
+pub use embedded_io::SeekFrom;
 
-#[cfg(not(feature = "std"))]
-mod traits;
-#[cfg(not(feature = "std"))]
-pub use traits::SeekFrom;
+/// Error implemented by portable underlying I/O sources.
+pub trait IoError: embedded_io::Error {}
+impl<T: embedded_io::Error + ?Sized> IoError for T {}
 
 /// Helper macro: short-circuit an `Err` by returning `Some(Err(..))`.
 ///
@@ -214,7 +205,7 @@ impl<'a> Cursor<'a> {
     }
 
     #[allow(dead_code)]
-    fn read_impl(&mut self, buf: &mut [u8]) -> Result<usize> {
+    fn read_impl(&mut self, buf: &mut [u8]) -> core::result::Result<usize, ErrorKind> {
         let remaining = self.data.len().saturating_sub(self.cursor);
         let to_read = buf.len().min(remaining);
         if to_read > 0 {
@@ -225,7 +216,7 @@ impl<'a> Cursor<'a> {
     }
 
     #[allow(dead_code)]
-    fn seek_impl(&mut self, pos: SeekFrom) -> Result<u64> {
+    fn seek_impl(&mut self, pos: SeekFrom) -> core::result::Result<u64, ErrorKind> {
         let new_pos = match pos {
             SeekFrom::Start(offset) => offset as i64,
             SeekFrom::End(offset) => self.data.len() as i64 + offset,
@@ -233,16 +224,7 @@ impl<'a> Cursor<'a> {
         };
 
         if new_pos < 0 {
-            #[cfg(feature = "std")]
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "invalid seek to negative position",
-            ));
-            #[cfg(not(feature = "std"))]
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "invalid seek to negative position",
-            ));
+            return Err(ErrorKind::InvalidInput);
         }
 
         self.cursor = new_pos as usize;
@@ -270,28 +252,19 @@ pub mod sync {
 // Cursor: sync trait impls
 #[cfg(feature = "sync")]
 impl sync::Read for Cursor<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        self.read_impl(buf)
+    type Error = ErrorKind;
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.read_impl(buf).map_err(Error::from_source)
     }
 }
 
-#[cfg(all(feature = "sync", not(feature = "std")))]
+#[cfg(feature = "sync")]
 impl sync::Seek for Cursor<'_> {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        self.seek_impl(pos)
-    }
-}
+    type Error = ErrorKind;
 
-#[cfg(all(feature = "sync", feature = "std"))]
-impl std::io::Seek for Cursor<'_> {
-    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        // Convert std SeekFrom to our result
-        let our_pos = match pos {
-            std::io::SeekFrom::Start(n) => SeekFrom::Start(n),
-            std::io::SeekFrom::End(n) => SeekFrom::End(n),
-            std::io::SeekFrom::Current(n) => SeekFrom::Current(n),
-        };
-        self.seek_impl(our_pos)
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+        self.seek_impl(pos).map_err(Error::from_source)
     }
 }
 
@@ -319,15 +292,19 @@ pub mod r#async {
 // Cursor: async trait impls
 #[cfg(feature = "async")]
 impl r#async::Read for Cursor<'_> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        self.read_impl(buf)
+    type Error = ErrorKind;
+
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.read_impl(buf).map_err(Error::from_source)
     }
 }
 
 #[cfg(feature = "async")]
 impl r#async::Seek for Cursor<'_> {
+    type Error = ErrorKind;
+
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        self.seek_impl(pos)
+        self.seek_impl(pos).map_err(Error::from_source)
     }
 }
 

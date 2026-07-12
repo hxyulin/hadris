@@ -302,8 +302,8 @@ fn partition_error_display() {
 #[test]
 fn partition_io_error_preserves_kind() {
     use hadris_io::Cursor;
+    use hadris_io::ErrorKind;
     use hadris_part::MasterBootRecordReadExt;
-    use std::io::ErrorKind;
 
     let mut cursor = Cursor::new(&[0u8; 10]); // too short for a 512-byte MBR
     let err = MasterBootRecord::read_from(&mut cursor).unwrap_err();

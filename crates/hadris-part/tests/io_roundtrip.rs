@@ -1,11 +1,12 @@
 //! I/O roundtrip tests for partition table extension traits.
 
 use hadris_io::Cursor;
+use hadris_io::ErrorKind;
 use hadris_part::{
     DiskPartitionScheme, DiskPartitionSchemeReadExt, MasterBootRecord, MasterBootRecordReadExt,
     MasterBootRecordWriteExt, MbrPartition, MbrPartitionType, PartitionError, PartitionSchemeType,
 };
-use std::io::{Cursor as StdCursor, ErrorKind};
+use std::io::Cursor as StdCursor;
 
 #[test]
 fn mbr_read_write_roundtrip() {

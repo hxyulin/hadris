@@ -370,14 +370,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     fn parse_iso_str<C: Charset, const N: usize>(
         &self,
         s: &str,
-        field_name: &str,
+        _field_name: &str,
     ) -> io::Result<IsoStr<C, N>> {
         if self.ops.strict_charset {
             IsoStr::from_str_lossy(s)
         } else {
             IsoStr::from_str_unchecked(s)
         }
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, alloc::format!("{field_name}: {e}")))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid ISO string"))
     }
 
     async fn write_volume_descriptors(&mut self, files: &mut InputFiles) -> io::Result<()> {
@@ -477,10 +477,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     .ok_or_else(|| {
                         io::Error::new(
                             io::ErrorKind::NotFound,
-                            alloc::format!(
-                                "boot image file not found: {}",
-                                entry.boot_image_path
-                            ),
+                            "boot image file not found",
                         )
                     })?;
                 let load_size = entry
@@ -561,11 +558,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 if dir_ref.size < catalog.size() {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
-                        alloc::format!(
-                            "boot.catalog file too small: {} bytes, need {}",
-                            dir_ref.size,
-                            catalog.size()
-                        ),
+                        "boot.catalog file too small",
                     ));
                 }
                 catalog.write(&mut self.data).await?;
@@ -727,10 +720,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                         if depth > 8 {
                             return Err(io::Error::new(
                                 io::ErrorKind::InvalidInput,
-                                alloc::format!(
-                                    "Directory depth {} exceeds ISO 9660 limit of 8",
-                                    depth
-                                ),
+                                "directory depth exceeds ISO 9660 limit of 8",
                             ));
                         }
                         let name = dir.name();
@@ -1020,7 +1010,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             .protective_slot(0)
             .mirror_partition(0, MbrPartitionType::Iso9660, bootable)
             .build(&gpt_entries)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, alloc::format!("{:?}", e)))?;
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid hybrid MBR"))?;
 
         // Inject bootstrap code if provided
         if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot
