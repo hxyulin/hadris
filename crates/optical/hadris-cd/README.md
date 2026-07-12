@@ -18,12 +18,13 @@ use hadris_cd::{CdWriter, CdOptions, FileTree, FileEntry};
 let mut tree = FileTree::new();
 tree.add_file(FileEntry::from_buffer("readme.txt", b"Hello, World!".to_vec()));
 
-let options = CdOptions::with_volume_id("MY_DISC")
-    .with_joliet();
+let options = CdOptions::default()
+    .volume_id("MY_DISC")
+    .joliet(hadris_cd::JolietLevel::Level3);
 
 let file = std::fs::File::create("output.iso").unwrap();
 CdWriter::new(file, options)
-    .write(tree)
+    .finish(tree)
     .unwrap();
 ```
 

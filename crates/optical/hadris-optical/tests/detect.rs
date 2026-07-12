@@ -67,7 +67,7 @@ fn detects_images_created_by_optical_writer() {
     for (options, iso, udf) in cases {
         let mut image = std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
         hadris_optical::cd::CdWriter::new(hadris_io::sync::Borrowed::new(&mut image), options)
-            .write(hadris_optical::cd::FileTree::new())
+            .finish(hadris_optical::cd::FileTree::new())
             .unwrap();
 
         let formats = hadris_optical::detect::sync::detect(&mut image)

@@ -31,7 +31,7 @@ fn asynchronously_opens_and_recovers_an_iso_source() {
         hadris_io::sync::Borrowed::new(&mut image),
         hadris_optical::cd::CdOptions::default().iso_only(),
     )
-    .write(hadris_optical::cd::FileTree::new())
+    .finish(hadris_optical::cd::FileTree::new())
     .unwrap();
     let bytes = image.into_inner();
 

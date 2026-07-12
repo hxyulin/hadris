@@ -100,10 +100,10 @@ traits wait for TAR so that they are based on two real formats.
 
 | Current surface | 2.0 direction |
 |---|---|
-| `CdImageWriter` and mixed builder setters | retain writer role; normalize setters and `finish` |
-| “CD” naming for DVD/bridge images | evaluate `OpticalImageWriter` before 2.0 freeze |
+| `CdWriter::write` and mixed `with_*` setters | canonical consuming `finish` plus field-style setters; deprecated forwarding APIs retained |
+| “CD” naming for DVD/bridge images | canonical `OpticalImageWriter`/`OpticalImageOptions` aliases implemented; retain existing names for compatibility |
 | sync-only ISO/UDF bridge construction | remain explicitly sync-only |
-| bridge UDF output is detectable but fails `UdfFs::open` | release-blocking writer roundtrip fix; do not weaken opener validation |
+| bridge ISO/UDF validation | layout collision fixed; both concrete readers continuously tested |
 
 ## Migration policy
 
