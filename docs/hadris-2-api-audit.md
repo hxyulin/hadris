@@ -67,9 +67,9 @@ The synchronous lifecycle is continuously qualified for MBR, primary/backup
 GPT, and hybrid write-to-open roundtrips; non-destructive detection; CRC-backed
 validation; and truncated or corrupt GPT rejection.
 
-The asynchronous lifecycle is qualified independently for GPT and hybrid
-write-to-open roundtrips, non-destructive detection, truncated and corrupt GPT
-rejection, and an end-to-end GPT partition view opened as a FAT volume.
+The asynchronous lifecycle is qualified independently for MBR, GPT, and hybrid
+write-to-open roundtrips; non-destructive detection; truncated and corrupt
+table rejection; and an end-to-end GPT partition view opened as a FAT volume.
 
 ## ISO 9660
 

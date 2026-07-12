@@ -57,6 +57,19 @@ fn populated_gpt() -> hadris_block::part::DiskPartitionScheme {
     scheme
 }
 
+fn populated_mbr() -> hadris_block::part::DiskPartitionScheme {
+    use hadris_block::part::{
+        DiskPartitionScheme, MasterBootRecord, MbrPartition, MbrPartitionType,
+    };
+
+    let mut mbr = MasterBootRecord::default();
+    mbr.with_partition_table(|table| {
+        table[0] = MbrPartition::new(MbrPartitionType::Fat32, 2048, 4096);
+        table[1] = MbrPartition::new(MbrPartitionType::LinuxNative, 6144, 2048);
+    });
+    DiskPartitionScheme::Mbr(mbr)
+}
+
 struct AsyncCursor {
     bytes: Vec<u8>,
     position: u64,
@@ -251,6 +264,63 @@ fn async_partition_table_gpt_write_detect_open_and_reject_malformed() {
                 512,
             ).await,
             Err(hadris_block::part::PartitionError::InvalidGptSignature { .. })
+        ));
+    });
+}
+
+#[test]
+fn async_partition_table_mbr_write_detect_open_and_reject_malformed() {
+    use hadris_block::part::r#async::scheme_io::DiskPartitionSchemeWriteExt;
+    use hadris_block::part::{PartitionError, PartitionSchemeType};
+
+    block_on(async {
+        let mut disk = AsyncCursor::new(vec![0_u8; 8192 * 512]);
+        populated_mbr().write_to(&mut disk).await.unwrap();
+
+        disk.seek(SeekFrom::Start(47)).await.unwrap();
+        assert_eq!(
+            hadris_block::part::r#async::partition_table::detect(&mut disk)
+                .await
+                .unwrap(),
+            PartitionSchemeType::Mbr
+        );
+        assert_eq!(disk.stream_position().await.unwrap(), 47);
+
+        let opened = hadris_block::part::r#async::partition_table::open(&mut disk, 512)
+            .await
+            .unwrap();
+        assert_eq!(opened.scheme_type(), PartitionSchemeType::Mbr);
+        opened.validate().unwrap();
+        let partitions = opened.partitions();
+        assert_eq!(partitions.len(), 2);
+        assert_eq!(
+            (partitions[0].start_lba, partitions[0].size_sectors),
+            (2048, 4096)
+        );
+        assert_eq!(
+            (partitions[1].start_lba, partitions[1].size_sectors),
+            (6144, 2048)
+        );
+
+        assert!(matches!(
+            hadris_block::part::r#async::partition_table::open(
+                &mut AsyncCursor::new(vec![0_u8; 64]),
+                512,
+            )
+            .await,
+            Err(PartitionError::Io(error))
+                if error.kind() == hadris_io::ErrorKind::UnexpectedEof
+        ));
+
+        let mut invalid = vec![0_u8; 512];
+        invalid[510..].copy_from_slice(&[0x12, 0x34]);
+        assert!(matches!(
+            hadris_block::part::r#async::partition_table::open(
+                &mut AsyncCursor::new(invalid),
+                512,
+            )
+            .await,
+            Err(PartitionError::InvalidMbrSignature { found: [0x12, 0x34] })
         ));
     });
 }
