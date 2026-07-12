@@ -53,7 +53,7 @@ fn asynchronously_opens_and_recovers_a_udf_source() {
     use hadris_optical::udf::sync::write::{SimpleDir, UdfWriteOptions, UdfWriter};
 
     let mut image = std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
-    UdfWriter::format(
+    UdfWriter::create(
         hadris_io::sync::Borrowed::new(&mut image),
         &SimpleDir::root(),
         UdfWriteOptions::default(),

@@ -43,7 +43,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
     };
 
     let output_file = fs::File::create(&args.output)?;
-    let sectors = UdfWriter::format(output_file, &root, options)?;
+    let sectors = UdfWriter::create(output_file, &root, options)?.sectors_written;
 
     if args.verbose {
         println!(

@@ -148,7 +148,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
     let mut buffer = io::Cursor::new(vec![0u8; estimated_size as usize]);
 
     // Write ISO to buffer
-    IsoImageWriter::format_new(&mut buffer, input, format_options)?;
+    IsoImageWriter::create(&mut buffer, input, format_options)?;
 
     // Read volume_space_size from PVD (LE u32 at byte offset 32848)
     let data = buffer.into_inner();

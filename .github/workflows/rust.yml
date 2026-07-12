@@ -305,6 +305,8 @@ jobs:
         run: cargo test -p hadris-optical --all-features --test detect
       - name: Run optical opening integration tests
         run: cargo test -p hadris-optical --all-features --test open_image --test async_open_image
+      - name: Run CPIO async writer integration test
+        run: cargo test -p hadris-cpio --all-features --test async_writer
 
   test-exfat:
     name: Test exFAT (with external tools)

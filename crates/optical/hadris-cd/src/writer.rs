@@ -166,7 +166,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             .seek(SeekFrom::Start(0))
             .await
             .map_err(hadris_io::Error::erase)?;
-        IsoImageWriter::format_new(
+        IsoImageWriter::create(
             Borrowed::new(&mut self.writer),
             input_files,
             format_options,

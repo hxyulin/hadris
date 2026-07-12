@@ -5,7 +5,7 @@
 //!
 //! ## High-Level API
 //!
-//! Use [`UdfWriter::format`] to create a complete UDF filesystem:
+//! Use [`UdfWriter::create`] to create a complete UDF filesystem:
 //!
 //! ```rust,no_run
 //! use hadris_udf::write::{UdfWriter, UdfWriteOptions, SimpleFile, SimpleDir};
@@ -22,7 +22,7 @@
 //! root.add_dir(subdir);
 //!
 //! let options = UdfWriteOptions::default();
-//! UdfWriter::format(&mut cursor, &root, options).expect("Format failed");
+//! UdfWriter::create(&mut cursor, &root, options).expect("Format failed");
 //! ```
 //!
 //! ## Low-Level API
@@ -165,6 +165,21 @@ pub struct UdfWriteOptions {
     pub partition_length: u32,
 }
 
+/// Result of creating a complete UDF image.
+pub struct UdfCreateOutput<W> {
+    /// Recovered output target.
+    pub target: W,
+    /// Total number of sectors used by the image.
+    pub sectors_written: u32,
+}
+
+impl<W> UdfCreateOutput<W> {
+    /// Returns the output target, discarding creation metadata.
+    pub fn into_inner(self) -> W {
+        self.target
+    }
+}
+
 impl Default for UdfWriteOptions {
     fn default() -> Self {
         Self {
@@ -235,7 +250,7 @@ impl UdfDirInfo {
 ///
 /// ## High-Level API
 ///
-/// Use [`UdfWriter::format`] for simple standalone UDF filesystems.
+/// Use [`UdfWriter::create`] for simple standalone UDF filesystems.
 ///
 /// ## Low-Level API
 ///
@@ -263,6 +278,20 @@ impl<W: Write + Seek> UdfWriter<W> {
         self.writer
     }
 
+    /// Creates a complete UDF filesystem and returns its target and size.
+    pub fn create(
+        writer: W,
+        root: &SimpleDir,
+        options: UdfWriteOptions,
+    ) -> UdfResult<UdfCreateOutput<W>> {
+        let mut formatter = UdfFormatter::new(writer, options);
+        let sectors_written = formatter.format(root)?;
+        Ok(UdfCreateOutput {
+            target: formatter.into_inner(),
+            sectors_written,
+        })
+    }
+
     // =========================================================================
     // High-Level Format API
     // =========================================================================
@@ -285,12 +314,15 @@ impl<W: Write + Seek> UdfWriter<W> {
     /// # Returns
     ///
     /// Returns the total number of sectors written on success.
+    #[deprecated(
+        since = "2.0.0",
+        note = "use `create` to recover the output target and sector count"
+    )]
     pub fn format(writer: W, root: &SimpleDir, options: UdfWriteOptions) -> UdfResult<u32>
     where
         W: Write + Seek,
     {
-        let mut formatter = UdfFormatter::new(writer, options);
-        formatter.format(root)
+        Self::create(writer, root, options).map(|output| output.sectors_written)
     }
 }
 
@@ -310,6 +342,10 @@ impl<W: Write + Seek> UdfFormatter<W> {
             next_block: 0,
             unique_id_counter: 16, // UDF reserves IDs 0-15
         }
+    }
+
+    fn into_inner(self) -> W {
+        self.writer
     }
 
     fn allocate_block(&mut self) -> u32 {
@@ -2008,10 +2044,10 @@ mod tests {
         let root = SimpleDir::root();
         let options = UdfWriteOptions::default();
 
-        let result = UdfWriter::format(cursor, &root, options);
+        let result = UdfWriter::create(cursor, &root, options);
         assert!(result.is_ok(), "Format should succeed for empty filesystem");
 
-        let sectors = result.unwrap();
+        let sectors = result.unwrap().sectors_written;
         assert!(
             sectors > 270,
             "Should have written at least partition start sectors"
@@ -2031,7 +2067,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = UdfWriter::format(cursor, &root, options);
+        let result = UdfWriter::create(cursor, &root, options);
         assert!(result.is_ok(), "Format should succeed with single file");
 
         // Verify VRS is written at sector 16
@@ -2064,7 +2100,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = UdfWriter::format(cursor, &root, options);
+        let result = UdfWriter::create(cursor, &root, options);
         assert!(result.is_ok(), "Format should succeed with subdirectory");
     }
 
@@ -2079,7 +2115,7 @@ mod tests {
 
         let options = UdfWriteOptions::default();
 
-        let result = UdfWriter::format(cursor, &root, options);
+        let result = UdfWriter::create(cursor, &root, options);
         assert!(result.is_ok(), "Format should handle empty files");
     }
 
@@ -2093,7 +2129,7 @@ mod tests {
             revision: crate::UdfRevision::V1_02,
             ..Default::default()
         };
-        UdfWriter::format(cursor, &root, options).unwrap();
+        UdfWriter::create(cursor, &root, options).unwrap();
         let nsr = &buffer[17 * 2048 + 1..17 * 2048 + 6];
         assert_eq!(nsr, b"NSR02", "UDF 1.02 should use NSR02");
 
@@ -2105,7 +2141,7 @@ mod tests {
             revision: crate::UdfRevision::V2_01,
             ..Default::default()
         };
-        UdfWriter::format(cursor2, &root2, options2).unwrap();
+        UdfWriter::create(cursor2, &root2, options2).unwrap();
         let nsr2 = &buffer2[17 * 2048 + 1..17 * 2048 + 6];
         assert_eq!(nsr2, b"NSR03", "UDF 2.01 should use NSR03");
     }
@@ -2127,7 +2163,7 @@ mod tests {
                 ..Default::default()
             };
 
-            UdfWriter::format(cursor, &root, options).expect("Format should succeed");
+            UdfWriter::create(cursor, &root, options).expect("Format should succeed");
         }
 
         // Structural sanity checks
@@ -2159,7 +2195,7 @@ mod tests {
             let cursor = Cursor::new(&mut buffer[..]);
             let mut root = SimpleDir::root();
             root.add_file(SimpleFile::new("large.bin", large_data.clone()));
-            UdfWriter::format(cursor, &root, UdfWriteOptions::default()).unwrap();
+            UdfWriter::create(cursor, &root, UdfWriteOptions::default()).unwrap();
         }
 
         let udf = crate::UdfFs::open(Cursor::new(&buffer[..])).unwrap();
@@ -2183,7 +2219,7 @@ mod tests {
         root.add_file(SimpleFile::new("large.bin", large_data.clone()));
 
         let options = UdfWriteOptions::default();
-        let result = UdfWriter::format(cursor, &root, options);
+        let result = UdfWriter::create(cursor, &root, options);
         assert!(result.is_ok(), "Format should succeed with large file");
 
         // Verify the data was written somewhere in the image

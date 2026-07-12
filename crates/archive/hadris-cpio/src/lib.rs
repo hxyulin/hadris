@@ -33,13 +33,13 @@
 //! ```rust,no_run
 //! use std::fs::File;
 //! use std::io::BufWriter;
-//! use hadris_cpio::{CpioWriteOptions, CpioWriter, FileTree};
+//! use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
 //!
 //! let tree = FileTree::from_fs(std::path::Path::new("./my-directory")).unwrap();
-//! let writer = CpioWriter::new(CpioWriteOptions::default());
-//!
-//! let mut out = BufWriter::new(File::create("archive.cpio").unwrap());
-//! writer.write(&mut out, &tree).unwrap();
+//! let out = BufWriter::new(File::create("archive.cpio").unwrap());
+//! let _out = CpioArchiveWriter::new(out, CpioWriteOptions::default())
+//!     .finish(&tree)
+//!     .unwrap();
 //! ```
 //!
 //! ## Feature Flags
@@ -183,7 +183,7 @@ pub mod sync {
     #[cfg(feature = "write")]
     pub use __inner::write::file_tree::{FileNode, FileTree};
     #[cfg(feature = "write")]
-    pub use __inner::write::{CpioWriteOptions, CpioWriter};
+    pub use __inner::write::{CpioArchiveWriter, CpioWriteOptions, CpioWriter};
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +225,19 @@ pub mod r#async {
         pub mod write;
     }
     pub use __inner::*;
+
+    pub use __inner::entry::CpioEntryHeader;
+    pub use __inner::header::{
+        CpioMagic, HEADER_SIZE, MAGIC_NEWC, MAGIC_NEWC_CRC, RawNewcHeader, TRAILER_NAME,
+    };
+    #[cfg(all(feature = "read", feature = "alloc"))]
+    pub use __inner::read::CpioEntryOwned;
+    #[cfg(feature = "read")]
+    pub use __inner::read::{CpioEntry, CpioReader};
+    #[cfg(feature = "write")]
+    pub use __inner::write::file_tree::{FileNode, FileTree};
+    #[cfg(feature = "write")]
+    pub use __inner::write::{CpioArchiveWriter, CpioWriteOptions, CpioWriter};
 }
 
 // ---------------------------------------------------------------------------

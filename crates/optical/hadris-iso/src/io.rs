@@ -68,6 +68,11 @@ impl<DATA: Seek> IsoCursor<DATA> {
         Self { data, sector_size }
     }
 
+    /// Consumes the cursor and returns its underlying data source.
+    pub fn into_inner(self) -> DATA {
+        self.data
+    }
+
     pub async fn pad_align_sector(&mut self) -> Result<LogicalSector> {
         let stream_pos = self.stream_position().await.map_err(Error::erase)?;
         let sector_size_minus_one = self.sector_size as u64 - 1;

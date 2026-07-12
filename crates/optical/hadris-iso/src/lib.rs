@@ -49,7 +49,7 @@
 //! #     strict_charset: false,
 //! # };
 //! # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
-//! # IsoImageWriter::format_new(&mut buffer, files, options).unwrap();
+//! # IsoImageWriter::create(&mut buffer, files, options).unwrap();
 //! # let reader = Cursor::new(buffer.into_inner());
 //! let image = IsoImage::open(reader).unwrap();
 //!
@@ -121,7 +121,7 @@
 //! };
 //!
 //! let mut buffer = Cursor::new(vec![0u8; 2 * 1024 * 1024]); // 2MB buffer
-//! IsoImageWriter::format_new(&mut buffer, files, format_options).unwrap();
+//! IsoImageWriter::create(&mut buffer, files, format_options).unwrap();
 //! # // In real code you would write to a file:
 //! # // std::fs::write("bootable.iso", buffer.into_inner()).unwrap();
 //! ```
@@ -466,7 +466,7 @@ pub mod sync {
         /// #     strict_charset: false,
         /// # };
         /// # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
-        /// # IsoImageWriter::format_new(&mut buffer, files, options).unwrap();
+        /// # IsoImageWriter::create(&mut buffer, files, options).unwrap();
         /// # let file = Cursor::new(buffer.into_inner());
         /// let image = IsoImage::open(file).unwrap();
         ///
@@ -519,7 +519,7 @@ pub mod sync {
         /// };
         ///
         /// let mut output = Cursor::new(vec![0u8; 1024 * 1024]);
-        /// IsoImageWriter::format_new(&mut output, files, options).unwrap();
+        /// IsoImageWriter::create(&mut output, files, options).unwrap();
         /// # // In real code, write to a file instead of a Cursor
         /// ```
         #[cfg(feature = "write")]
@@ -541,7 +541,7 @@ pub mod sync {
         ///
         /// let mut modifier = IsoModifier::open(file)?;
         /// modifier.append_file("new_file.txt", b"Hello, world!".to_vec());
-        /// modifier.commit()?;
+        /// modifier.finish()?;
         /// ```
         #[cfg(feature = "write")]
         pub mod modify;

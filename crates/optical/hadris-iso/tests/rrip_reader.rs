@@ -30,7 +30,7 @@ fn create_iso(files: Vec<IsoFile>, features: CreationFeatures) -> Vec<u8> {
         strict_charset: false,
     };
     let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
-    IsoImageWriter::format_new(&mut buffer, input, options).unwrap();
+    IsoImageWriter::create(&mut buffer, input, options).unwrap();
     buffer.into_inner()
 }
 
@@ -44,7 +44,7 @@ fn test_rrip_detection_with_rock_ridge() {
         name: Arc::new("hello.txt".to_string()),
         contents: b"Hello, World!".to_vec(),
     }];
-    let iso_data = create_iso(files, CreationFeatures::with_rock_ridge());
+    let iso_data = create_iso(files, CreationFeatures::rock_ridge());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
     assert!(
         image.supports_rrip(),
@@ -82,7 +82,7 @@ fn test_rrip_nm_names() {
             contents: b"data".to_vec(),
         },
     ];
-    let iso_data = create_iso(files, CreationFeatures::with_rock_ridge());
+    let iso_data = create_iso(files, CreationFeatures::rock_ridge());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
 
     let root = image.root_dir();
@@ -121,7 +121,7 @@ fn test_rrip_tf_timestamps() {
         name: Arc::new("test.txt".to_string()),
         contents: b"test".to_vec(),
     }];
-    let iso_data = create_iso(files, CreationFeatures::with_rock_ridge());
+    let iso_data = create_iso(files, CreationFeatures::rock_ridge());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
 
     let root = image.root_dir();
@@ -165,7 +165,7 @@ fn test_rrip_px_attributes() {
             children: vec![],
         },
     ];
-    let iso_data = create_iso(files, CreationFeatures::with_rock_ridge());
+    let iso_data = create_iso(files, CreationFeatures::rock_ridge());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
 
     let root = image.root_dir();
@@ -218,7 +218,7 @@ fn test_rrip_directory_iteration() {
             children: vec![],
         },
     ];
-    let iso_data = create_iso(files, CreationFeatures::with_rock_ridge());
+    let iso_data = create_iso(files, CreationFeatures::rock_ridge());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
 
     let root = image.root_dir();
@@ -254,7 +254,7 @@ fn test_rrip_subdirectory_navigation() {
             contents: b"inner content".to_vec(),
         }],
     }];
-    let iso_data = create_iso(files, CreationFeatures::with_rock_ridge());
+    let iso_data = create_iso(files, CreationFeatures::rock_ridge());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
 
     let root = image.root_dir();
@@ -464,7 +464,7 @@ fn test_rrip_detection_with_joliet_and_rock_ridge() {
         name: Arc::new("hello.txt".to_string()),
         contents: b"Hello, World!".to_vec(),
     }];
-    let iso_data = create_iso(files, CreationFeatures::with_extensions());
+    let iso_data = create_iso(files, CreationFeatures::extensions());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
     assert!(
         image.supports_rrip(),
@@ -538,11 +538,11 @@ fn test_joliet_svd_volume_name_utf16be() {
         application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures::with_joliet(hadris_iso::joliet::JolietLevel::Level3),
+        features: CreationFeatures::joliet(hadris_iso::joliet::JolietLevel::Level3),
         strict_charset: false,
     };
     let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
-    IsoImageWriter::format_new(&mut buffer, input, options).unwrap();
+    IsoImageWriter::create(&mut buffer, input, options).unwrap();
     let iso_data = buffer.into_inner();
 
     // Find the Joliet SVD (type 0x02 = Supplementary VD, after PVD at sector 16)
@@ -607,11 +607,11 @@ fn test_joliet_svd_strings_are_utf16be() {
         application_id: None,
         sector_size: 2048,
         path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures::with_joliet(hadris_iso::joliet::JolietLevel::Level3),
+        features: CreationFeatures::joliet(hadris_iso::joliet::JolietLevel::Level3),
         strict_charset: false,
     };
     let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
-    IsoImageWriter::format_new(&mut buffer, input, options).unwrap();
+    IsoImageWriter::create(&mut buffer, input, options).unwrap();
     let iso_data = buffer.into_inner();
 
     let svd_offset = 17 * 2048;
@@ -684,7 +684,7 @@ fn test_pvd_strings_with_spaces() {
         strict_charset: false,
     };
     let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
-    IsoImageWriter::format_new(&mut buffer, input, options).unwrap();
+    IsoImageWriter::create(&mut buffer, input, options).unwrap();
     let iso_data = buffer.into_inner();
 
     // Open the ISO and read the PVD

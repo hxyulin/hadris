@@ -60,8 +60,11 @@ The audit will produce an explicit rename/removal/migration table. Public exampl
 and compile tests become acceptance tests for the conventions.
 
 Status: the cross-crate audit and migration table is active in
-[`hadris-2-api-audit.md`](hadris-2-api-audit.md). FAT is the first normalization
-pilot, followed by partition lifecycle and geometry APIs.
+[`hadris-2-api-audit.md`](hadris-2-api-audit.md). FAT, partitioning, optical
+opening/writing, ISO/UDF creation and modification, and CPIO writer completion
+now follow the canonical ownership and lifecycle conventions. Remaining audit
+work focuses on traversal vocabulary, raw-layout organization, and final error
+taxonomy before the API freeze.
 
 ## Phase 3: Foundational storage interfaces
 
