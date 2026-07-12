@@ -81,7 +81,8 @@ own crates unless multiple consumers prove a shared semantic model.
 
 ## Phase 4: Category facade crates
 
-Create thin facades before adding unified behavior:
+Thin facades now establish the category boundaries before unified behavior is
+added:
 
 - `hadris-block`: storage primitives, partitioning, FAT, and future block
   filesystems;
@@ -90,6 +91,11 @@ Create thin facades before adding unified behavior:
 
 Facades may later add detection and common read-only wrappers. They must preserve
 access to the concrete format type so specialized features are not erased.
+
+Status: the three facades exist and the `hadris` umbrella delegates its feature
+forwarding and public category namespaces to them. `hadris-block` also exposes
+the format-neutral `hadris-storage` primitives. Detection and common wrappers
+remain future work.
 
 ## Phase 5: Capability-oriented high-level APIs
 
@@ -118,8 +124,9 @@ well-defined common subset and provide an escape hatch to concrete formats.
 3. Integrate the initial `hadris-storage` geometry, capability, and stream-adapter
    slice into block-format experiments.
 4. Normalize existing format APIs against the conventions.
-5. Add thin category facades.
-6. Add detection and unified capability wrappers where justified.
+5. Design category-level detection without erasing concrete format access.
+6. Add unified capability wrappers where at least two implementations have
+   proven compatible semantics.
 
 Update this document when a design decision changes the sequence or scope. More
 detailed specifications may live beside it, but this remains the project-level

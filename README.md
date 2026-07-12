@@ -16,6 +16,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Block Storage
 
+- **[hadris-block](crates/block/hadris-block)** - Category facade for storage traits, partitions, and block filesystems
 - **[hadris-part](crates/block/hadris-part)** - Partition table support
   - MBR (Legacy BIOS partition tables)
   - GPT (Modern UEFI partition tables)
@@ -29,6 +30,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Optical Media
 
+- **[hadris-optical](crates/optical/hadris-optical)** - Category facade for optical filesystems and image composition
 - **[hadris-iso](crates/optical/hadris-iso)** - ISO 9660 filesystem implementation
   - ISO 9660 Level 1-3 and ISO 9660:1999 (long filenames)
   - Joliet extension (UTF-16 Unicode filenames)
@@ -39,6 +41,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Archives
 
+- **[hadris-archive](crates/archive/hadris-archive)** - Category facade for sequential archive formats
 - **[hadris-cpio](crates/archive/hadris-cpio)** - CPIO newc/SVR4 archives (initramfs)
 
 ### CLI Tools
@@ -53,7 +56,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Meta-crate
 
-- **[hadris](crates/core/hadris)** - Optional umbrella with grouped APIs: `block::{fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
+- **[hadris](crates/core/hadris)** - Optional umbrella built on the three category facades, with grouped APIs: `block::{storage, fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
 
 ## Key Features
 

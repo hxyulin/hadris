@@ -47,9 +47,12 @@ hadris-macros = { version = "1.2.1", path = "crates/core/hadris-macros" }
 hadris-io = { version = "1.2.1", path = "crates/core/hadris-io", default-features = false }
 hadris-common = { version = "1.2.1", path = "crates/core/hadris-common", default-features = false }
 hadris-storage = { version = "1.2.1", path = "crates/core/hadris-storage", default-features = false }
+hadris-block = { version = "1.2.1", path = "crates/block/hadris-block", default-features = false }
 hadris-fat = { version = "1.2.1", path = "crates/block/hadris-fat", default-features = false }
 hadris-part = { version = "1.2.1", path = "crates/block/hadris-part", default-features = false }
+hadris-optical = { version = "1.2.1", path = "crates/optical/hadris-optical", default-features = false }
 hadris-iso = { version = "1.2.1", path = "crates/optical/hadris-iso", default-features = false }
 hadris-udf = { version = "1.2.1", path = "crates/optical/hadris-udf", default-features = false }
 hadris-cd = { version = "1.2.1", path = "crates/optical/hadris-cd", default-features = false }
+hadris-archive = { version = "1.2.1", path = "crates/archive/hadris-archive", default-features = false }
 hadris-cpio = { version = "1.2.1", path = "crates/archive/hadris-cpio", default-features = false }

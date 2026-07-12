@@ -13,6 +13,7 @@
 /crates/core/hadris-macros/ @hxyulin
 
 # Format libraries
+/crates/block/hadris-block/ @hxyulin
 /crates/optical/hadris-iso/ @hxyulin
 /crates/tools/hadris-iso-cli/ @hxyulin
 /crates/block/hadris-fat/ @hxyulin
@@ -23,6 +24,8 @@
 /crates/tools/hadris-cpio-cli/ @hxyulin
 /crates/block/hadris-part/ @hxyulin
 /crates/optical/hadris-cd/ @hxyulin
+/crates/optical/hadris-optical/ @hxyulin
+/crates/archive/hadris-archive/ @hxyulin
 
 # Meta-crate / general CLI
 /crates/core/hadris/ @hxyulin

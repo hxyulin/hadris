@@ -201,6 +201,35 @@ jobs:
             tier: hosted-sync-writer
             features: "std,sync"
 
+          # standalone category facades
+          - crate: hadris-block
+            tier: no-formats
+            features: ""
+          - crate: hadris-block
+            tier: no-std-async
+            features: "alloc,async,read,storage,fat,part"
+          - crate: hadris-block
+            tier: all-capabilities
+            features: "std,alloc,sync,async,read,write,storage,fat,part"
+          - crate: hadris-optical
+            tier: no-formats
+            features: ""
+          - crate: hadris-optical
+            tier: hosted-async-with-cd
+            features: "std,async,read,iso,udf,cd"
+          - crate: hadris-optical
+            tier: all-capabilities
+            features: "std,alloc,sync,async,read,write,iso,udf,cd"
+          - crate: hadris-archive
+            tier: no-formats
+            features: ""
+          - crate: hadris-archive
+            tier: async-read-write
+            features: "alloc,async,read,write,cpio"
+          - crate: hadris-archive
+            tier: all-capabilities
+            features: "std,alloc,sync,async,read,write,cpio"
+
           # hadris umbrella/category forwarding
           - crate: hadris
             tier: no-formats
@@ -208,6 +237,9 @@ jobs:
           - crate: hadris
             tier: leaf-fat
             features: "std,sync,read,write,fat"
+          - crate: hadris
+            tier: leaf-storage
+            features: "std,sync,storage"
           - crate: hadris
             tier: leaf-part
             features: "std,sync,read,write,part"

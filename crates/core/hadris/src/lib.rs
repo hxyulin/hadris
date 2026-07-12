@@ -9,7 +9,7 @@
 //!
 //! # Feature flags
 //!
-//! Leaf features (`fat`, `part`, `iso`, `udf`, `cd`, and `cpio`) enable one
+//! Leaf features (`storage`, `fat`, `part`, `iso`, `udf`, `cd`, and `cpio`) enable one
 //! library at a time. The `block`, `optical`, and `archive` features enable all
 //! libraries in their respective category. Platform (`std`, `alloc`), I/O mode
 //! (`sync`, `async`), and capability (`read`, `write`) features are forwarded
@@ -32,37 +32,14 @@
 //! println!("Volume: {}", pvd.volume_identifier);
 //! ```
 
-/// Block-oriented filesystems and disk-layout formats.
-#[cfg(any(feature = "fat", feature = "part"))]
-pub mod block {
-    /// FAT12/16/32 and exFAT filesystem support.
-    #[cfg(feature = "fat")]
-    pub use hadris_fat as fat;
-
-    /// MBR, GPT, and hybrid partition-table support.
-    #[cfg(feature = "part")]
-    pub use hadris_part as part;
-}
+/// Block-oriented storage, filesystems, and disk-layout formats.
+#[cfg(any(feature = "storage", feature = "fat", feature = "part"))]
+pub use hadris_block as block;
 
 /// Optical filesystems and disc-image composition.
 #[cfg(any(feature = "iso", feature = "udf", feature = "cd"))]
-pub mod optical {
-    /// ISO 9660 filesystem support.
-    #[cfg(feature = "iso")]
-    pub use hadris_iso as iso;
-
-    /// Universal Disk Format filesystem support.
-    #[cfg(feature = "udf")]
-    pub use hadris_udf as udf;
-
-    /// Hybrid ISO+UDF optical-disc image creation.
-    #[cfg(feature = "cd")]
-    pub use hadris_cd as cd;
-}
+pub use hadris_optical as optical;
 
 /// Sequential archive formats.
 #[cfg(feature = "cpio")]
-pub mod archive {
-    /// CPIO newc/CRC archive support.
-    pub use hadris_cpio as cpio;
-}
+pub use hadris_archive as archive;
