@@ -12,17 +12,17 @@ categories = ["filesystem", "encoding"]
 readme = "README.md"
 
 [package.metadata.docs.rs]
-features = ["std", "read", "write", "sync"]
+features = ["std", "read", "write", "sync", "async"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "read", "write"]
+default = ["std", "sync", "read", "write"]
 # Read support
 read = []
 # Heap allocation without full std
 alloc = ["hadris-io/alloc"]
 # Standard library support (includes alloc)
-std = ["hadris-io/std", "hadris-common/std", "alloc", "sync"]
+std = ["hadris-io/std", "hadris-common/std", "alloc"]
 # Write/format support (requires alloc + read)
 write = ["alloc", "read"]
 # Synchronous API (uses hadris-io sync traits)

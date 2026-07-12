@@ -67,22 +67,27 @@ writer.write(&mut buf, &tree)?;
 | `read` | Streaming archive reader | None |
 | `alloc` | Heap allocation without full std | `alloc` crate |
 | `std` | Full standard library support | `std`, `alloc` |
+| `sync` | Synchronous archive API | `hadris-io/sync` |
+| `async` | Asynchronous archive API | `hadris-io/async` |
 | `write` | Archive creation | `alloc`, `read` |
 
-Default features: `std`, `read`, `write`
+Default features: `std`, `sync`, `read`, `write`
+
+`std` selects platform integration but does not select an I/O mode. Custom
+configurations should enable `sync`, `async`, or both explicitly.
 
 ### For Bootloaders (minimal footprint)
 
 ```toml
 [dependencies]
-hadris-cpio = { version = "1.2.1", default-features = false, features = ["read"] }
+hadris-cpio = { version = "1.2.1", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Kernels with Heap (no-std + alloc)
 
 ```toml
 [dependencies]
-hadris-cpio = { version = "1.2.1", default-features = false, features = ["read", "alloc"] }
+hadris-cpio = { version = "1.2.1", default-features = false, features = ["read", "alloc", "sync"] }
 ```
 
 ### For Desktop Applications (full features)
