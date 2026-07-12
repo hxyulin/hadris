@@ -51,6 +51,14 @@ the same contract before 2.0.
 
 ## Implementation status
 
+### Virtual paths
+
+`hadris-path` provides an independent `no_std`, allocation-free lexical path
+core with optional allocation-backed normalization. It has no filesystem I/O or
+format dependencies. Current FAT, exFAT, ISO, UDF, RRIP, and layout consumers
+share its component and separator semantics while retaining format-specific
+name matching.
+
 ### UDF pilot
 
 UDF now follows the contract for its implemented capabilities:

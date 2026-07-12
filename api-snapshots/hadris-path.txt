@@ -1,0 +1,38 @@
+pub mod hadris_path
+pub enum hadris_path::Component<'a>
+pub hadris_path::Component::Current
+pub hadris_path::Component::Normal(&'a str)
+pub hadris_path::Component::Parent
+pub hadris_path::Component::Root
+pub enum hadris_path::PathError
+pub hadris_path::PathError::EscapesRoot
+impl core::error::Error for hadris_path::PathError
+impl core::fmt::Display for hadris_path::PathError
+pub fn hadris_path::PathError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum hadris_path::Separators
+pub hadris_path::Separators::Slash
+pub hadris_path::Separators::SlashOrBackslash
+pub struct hadris_path::Components<'a>
+impl<'a> core::iter::traits::iterator::Iterator for hadris_path::Components<'a>
+pub type hadris_path::Components<'a>::Item = hadris_path::Component<'a>
+pub fn hadris_path::Components<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct hadris_path::VPath<'a>
+impl hadris_path::VPath<'_>
+pub fn hadris_path::VPath<'_>::normalize(self) -> core::result::Result<alloc::string::String, hadris_path::PathError>
+impl<'a> hadris_path::VPath<'a>
+pub const fn hadris_path::VPath<'a>::as_str(self) -> &'a str
+pub fn hadris_path::VPath<'a>::components(self) -> hadris_path::Components<'a>
+pub fn hadris_path::VPath<'a>::file_name(self) -> core::option::Option<&'a str>
+pub fn hadris_path::VPath<'a>::is_absolute(self) -> bool
+pub const fn hadris_path::VPath<'a>::new(&'a str) -> Self
+pub fn hadris_path::VPath<'a>::parent(self) -> core::option::Option<Self>
+pub const fn hadris_path::VPath<'a>::separators(self) -> hadris_path::Separators
+pub fn hadris_path::VPath<'a>::split_file(self) -> core::option::Option<(Self, &'a str)>
+pub const fn hadris_path::VPath<'a>::with_separators(&'a str, hadris_path::Separators) -> Self
+impl core::convert::AsRef<str> for hadris_path::VPath<'_>
+pub fn hadris_path::VPath<'_>::as_ref(&self) -> &str
+impl core::fmt::Display for hadris_path::VPath<'_>
+pub fn hadris_path::VPath<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::convert::From<&'a str> for hadris_path::VPath<'a>
+pub fn hadris_path::VPath<'a>::from(&'a str) -> Self
+pub fn hadris_path::split_path(&str) -> core::option::Option<(alloc::string::String, alloc::string::String)>

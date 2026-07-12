@@ -7,6 +7,7 @@ use crate::joliet::JolietLevel;
 use hadris_common::types::endian::Endian;
 #[cfg(not(feature = "alloc"))]
 use hadris_common::types::no_alloc::ArrayVec;
+use hadris_path::{Component, Separators, VPath};
 sync_only! {
     use super::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
     use volume::VolumeDescriptorIter;
@@ -264,16 +265,20 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
     /// root itself has no directory entry, so an empty or root-only path
     /// returns `None`. Parent (`..`) components are rejected.
     pub async fn find_path(&self, path: &str) -> io::Result<Option<DirEntry>> {
-        let mut components = path
-            .split(['/', '\\'])
-            .filter(|component| !component.is_empty() && *component != ".")
+        let mut components = VPath::with_separators(path, Separators::SlashOrBackslash)
+            .components()
+            .filter_map(|component| match component {
+                Component::Root | Component::Current => None,
+                Component::Parent => Some(Err(io::Error::other(
+                    "parent path components are not supported",
+                ))),
+                Component::Normal(component) => Some(Ok(component)),
+            })
             .peekable();
         let mut directory = self.open_dir(self.root_dir().dir_ref());
 
         while let Some(component) = components.next() {
-            if component == ".." {
-                return Err(io::Error::other("parent path components are not supported"));
-            }
+            let component = component?;
             let Some(entry) = directory.find(component).await? else {
                 return Ok(None);
             };

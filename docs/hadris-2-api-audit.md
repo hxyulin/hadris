@@ -20,6 +20,12 @@ builders, traversal, ownership, and errors.
 | Modes | root sync exports, incomplete async exports | matching `sync` and `async` module shapes | feature model and baseline naming complete |
 | Errors | format-specific aliases and erased I/O | category facades use root `Error`/`Result`; leaf crates retain descriptive errors where format context matters | baseline complete |
 
+Lexical virtual-path parsing now lives in the independent `hadris-path` crate.
+Its allocation-free `VPath`/`Components` core is shared by FAT, exFAT, ISO,
+UDF, RRIP, and metadata-layout traversal. Format crates retain responsibility
+for case folding, on-disk name decoding, symlinks, and entry lookup errors.
+`hadris_common::path` remains a deprecated forwarding surface for migration.
+
 ## FAT
 
 | Existing API | Canonical 2.0 API | Compatibility |

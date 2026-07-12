@@ -462,6 +462,7 @@ dependencies = [
  "hadris-archive",
  "hadris-block",
  "hadris-optical",
+ "hadris-path",
 ]
 
 [[package]]
@@ -510,6 +511,7 @@ dependencies = [
  "crc",
  "criterion",
  "hadris-io",
+ "hadris-path",
  "noalloc",
  "rand",
  "static_assertions",
@@ -546,6 +548,7 @@ dependencies = [
  "hadris-common",
  "hadris-io",
  "hadris-macros",
+ "hadris-path",
  "parse-size",
  "pretty_assertions",
  "spin",
@@ -584,6 +587,7 @@ dependencies = [
  "hadris-io",
  "hadris-macros",
  "hadris-part",
+ "hadris-path",
  "spin",
  "static_assertions",
  "tempfile",
@@ -631,6 +635,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-path"
+version = "1.2.1"
+
+[[package]]
 name = "hadris-storage"
 version = "1.2.1"
 dependencies = [
@@ -647,6 +655,7 @@ dependencies = [
  "hadris-common",
  "hadris-io",
  "hadris-macros",
+ "hadris-path",
  "spin",
  "static_assertions",
  "tempfile",

@@ -1,6 +1,7 @@
 use super::super::io::{self, Write};
 use alloc::{collections::BTreeMap, collections::VecDeque, string::String, sync::Arc, vec::Vec};
 use hadris_common::types::endian::EndianType;
+use hadris_path::{Component, Separators, VPath};
 
 use super::super::io::LogicalSector;
 use super::super::path::PathTableEntryHeader;
@@ -48,27 +49,34 @@ impl WrittenFiles {
         let mut current_dir = DirectoryId {
             indices: Vec::new(),
         };
-        // Split on both separators for cross-platform compatibility
-        let mut parts: Vec<&str> = name.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
-        // Empty path, not a valid file
-        let filename = parts.pop()?;
-        'outer: for part in parts {
+        let mut parts = VPath::with_separators(name, Separators::SlashOrBackslash)
+            .components()
+            .filter_map(|component| match component {
+                Component::Root | Component::Current => None,
+                Component::Parent => Some(None),
+                Component::Normal(component) => Some(Some(component)),
+            })
+            .peekable();
+        'parts: while let Some(part) = parts.next() {
+            let part = part?;
+            if parts.peek().is_none() {
+                let dir = self.get(&current_dir);
+                return dir
+                    .files
+                    .iter()
+                    .find(|file| file.name.as_str() == part)
+                    .map(|file| file.entry);
+            }
             let dir = self.get(&current_dir);
             for (idx, dir) in dir.dirs.iter().enumerate() {
                 if dir.name.as_str() == part {
                     current_dir.push(idx);
-                    continue 'outer;
+                    continue 'parts;
                 }
             }
-            // didn't find
             return None;
         }
-
-        let dir = self.get(&current_dir);
-        dir.files
-            .iter()
-            .find(|f| f.name.as_str() == filename)
-            .map(|f| f.entry)
+        None
     }
 
     pub fn root_dir(&self) -> DirectoryId {

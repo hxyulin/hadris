@@ -10,6 +10,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 ### Core Libraries
 
 - **[hadris-io](crates/core/hadris-io)** - No-std I/O abstraction layer (`Read`, `Write`, `Seek`)
+- **[hadris-path](crates/core/hadris-path)** - Allocation-free lexical paths for virtual filesystems and archives
 - **[hadris-common](crates/core/hadris-common)** - Shared utilities (endian types, CRC, UTF-16 strings, optical helpers)
 - **[hadris-storage](crates/core/hadris-storage)** - Format-neutral block geometry, device traits, and seekable-stream adapters
 - **[hadris-macros](crates/core/hadris-macros)** - Proc macros for dual sync/async code generation
@@ -56,7 +57,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Meta-crate
 
-- **[hadris](crates/core/hadris)** - Optional umbrella built on the three category facades, with grouped APIs: `block::{storage, fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
+- **[hadris](crates/core/hadris)** - Optional umbrella built on the three category facades, plus `path` utilities, with grouped APIs: `block::{storage, fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `path`, `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
 
 ## Key Features
 
@@ -74,6 +75,7 @@ Crates share workspace version **1.2.1**:
 hadris-iso = "1.2.1"
 hadris-fat = "1.2.1"
 hadris-part = { version = "1.2.1", features = ["read"] }
+hadris-path = "1.2.1"
 ```
 
 For no-std environments:

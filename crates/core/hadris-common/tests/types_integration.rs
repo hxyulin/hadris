@@ -231,27 +231,27 @@ fn align_up_needs_alignment() {
 
 #[test]
 fn split_path_file_only() {
-    let (dir, file) = hadris_common::path::split_path("file.txt").unwrap();
+    let (dir, file) = hadris_path::split_path("file.txt").unwrap();
     assert_eq!(dir, "");
     assert_eq!(file, "file.txt");
 }
 
 #[test]
 fn split_path_nested() {
-    let (dir, file) = hadris_common::path::split_path("a/b/c/file.txt").unwrap();
+    let (dir, file) = hadris_path::split_path("a/b/c/file.txt").unwrap();
     assert_eq!(dir, "a/b/c");
     assert_eq!(file, "file.txt");
 }
 
 #[test]
 fn split_path_leading_slash() {
-    let (dir, file) = hadris_common::path::split_path("/root/file.txt").unwrap();
+    let (dir, file) = hadris_path::split_path("/root/file.txt").unwrap();
     assert_eq!(dir, "root");
     assert_eq!(file, "file.txt");
 }
 
 #[test]
 fn split_path_empty() {
-    assert!(hadris_common::path::split_path("").is_none());
-    assert!(hadris_common::path::split_path("/").is_none());
+    assert!(hadris_path::split_path("").is_none());
+    assert!(hadris_path::split_path("/").is_none());
 }

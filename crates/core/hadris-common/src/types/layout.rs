@@ -7,8 +7,21 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use hadris_path::{Component, VPath};
 
 use super::extent::{Extent, FileType, Timestamps};
+
+fn path_parts(path: &str) -> Option<Vec<&str>> {
+    let mut parts = Vec::new();
+    for component in VPath::new(path).components() {
+        match component {
+            Component::Root | Component::Current => {}
+            Component::Parent => return None,
+            Component::Normal(component) => parts.push(component),
+        }
+    }
+    Some(parts)
+}
 
 /// File layout with pre-calculated extent (for metadata-only writing).
 ///
@@ -160,7 +173,7 @@ impl DirectoryLayout {
 
     /// Finds a file by path (e.g., "docs/readme.txt").
     pub fn find_file(&self, path: &str) -> Option<&FileLayout> {
-        let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        let parts = path_parts(path)?;
         self.find_file_parts(&parts)
     }
 
@@ -184,7 +197,7 @@ impl DirectoryLayout {
 
     /// Finds a mutable file reference by path.
     pub fn find_file_mut(&mut self, path: &str) -> Option<&mut FileLayout> {
-        let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        let parts = path_parts(path)?;
         self.find_file_parts_mut(&parts)
     }
 
@@ -206,7 +219,7 @@ impl DirectoryLayout {
 
     /// Finds or creates a subdirectory by path.
     pub fn get_or_create_dir(&mut self, path: &str) -> &mut DirectoryLayout {
-        let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        let parts = path_parts(path).unwrap_or_default();
         self.get_or_create_dir_parts(&parts)
     }
 
@@ -233,7 +246,7 @@ impl DirectoryLayout {
 
     /// Removes a file by path. Returns the removed file if found.
     pub fn remove_file(&mut self, path: &str) -> Option<FileLayout> {
-        let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        let parts = path_parts(path)?;
         self.remove_file_parts(&parts)
     }
 
@@ -560,6 +573,14 @@ mod tests {
         assert!(removed.is_some());
         assert_eq!(removed.unwrap().name, "test.txt");
         assert_eq!(root.file_count(), 0);
+    }
+
+    #[test]
+    fn path_traversal_rejects_parent_escape() {
+        let mut root = DirectoryLayout::root();
+        assert!(root.find_file("../file.txt").is_none());
+        assert!(root.remove_file("../file.txt").is_none());
+        assert_eq!(root.get_or_create_dir("../docs").name, "");
     }
 
     #[test]
