@@ -66,6 +66,10 @@ The synchronous lifecycle is continuously qualified for MBR, primary/backup
 GPT, and hybrid write-to-open roundtrips; non-destructive detection; CRC-backed
 validation; and truncated or corrupt GPT rejection.
 
+The asynchronous lifecycle is qualified independently for GPT and hybrid
+write-to-open roundtrips, non-destructive detection, truncated and corrupt GPT
+rejection, and an end-to-end GPT partition view opened as a FAT volume.
+
 ## ISO 9660
 
 | Current surface | 2.0 direction |
@@ -79,6 +83,10 @@ validation; and truncated or corrupt GPT rejection.
 Category-level detection reports ISO independently from UDF. ISO and UDF now
 provide recoverable ownership, and the optical facade implements policy-driven
 unified opening with matching sync and async surfaces.
+
+`IsoDir::read_entries` is the collection-oriented traversal operation shared by
+both modes. Async facade tests traverse nested ISO and UDF directories, read
+file contents, exercise both bridge-image policies, and recover the source.
 
 ## UDF
 
@@ -101,6 +109,12 @@ unified opening with matching sync and async surfaces.
 
 CPIO intentionally does not implement a volume abstraction. Shared archive
 traits wait for TAR so that they are based on two real formats.
+
+Malformed-input qualification covers invalid CPIO magic and truncated headers
+in both modes. At category boundaries, block and optical unknown inputs return
+their facade error types and detection restores the caller's stream position;
+recognized-but-invalid ISO and FAT/GPT inputs retain their format-specific
+error variants for diagnosis.
 
 ## Hybrid optical composition
 

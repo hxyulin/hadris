@@ -2,6 +2,7 @@ use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use super::super::directory::FileFlags;
 use super::super::directory::{DirectoryRecord, DirectoryRecordHeader, DirectoryRef};
 use super::super::io::{self, LogicalSector, Read, Seek};
 
@@ -10,7 +11,6 @@ use super::rrip::{self, RripMetadata};
 
 sync_only! {
 use core::ops::DerefMut;
-use super::super::directory::FileFlags;
 use super::super::io::{IsoCursor, SeekFrom};
 use super::rrip::collect_su_entries;
 use spin::Mutex;
@@ -203,6 +203,91 @@ impl DirEntry {
         self.record
             .as_dir_ref()
             .map_err(|_| io::Error::other("not a directory"))
+    }
+}
+} // io_transform!
+
+io_transform! {
+impl<T: Read + Seek> IsoDir<'_, T> {
+    /// Reads all entries in this directory.
+    ///
+    /// Unlike [`entries`](Self::entries), this collection-oriented operation is
+    /// available with both synchronous and asynchronous I/O.
+    pub async fn read_entries(&self) -> io::Result<Vec<DirEntry>> {
+        const SECTOR_SIZE: usize = 2048;
+        let mut bytes = alloc::vec![0_u8; self.directory.size];
+        self.image
+            .read_bytes_at(self.directory.extent.0 as u64 * SECTOR_SIZE as u64, &mut bytes)
+            .await?;
+        let mut cursor = hadris_io::Cursor::new(bytes.as_slice());
+        let mut offset = 0_usize;
+        let mut entries = Vec::new();
+        let mut associated_file = None;
+
+        while offset < bytes.len() {
+            if bytes[offset] == 0 {
+                offset = (offset / SECTOR_SIZE + 1) * SECTOR_SIZE;
+                continue;
+            }
+            cursor.seek(io::SeekFrom::Start(offset as u64)).await?;
+            let record = DirectoryRecord::parse(&mut cursor).await?;
+            offset += record.size();
+            let flags = FileFlags::from_bits_retain(record.header().flags);
+            if flags.contains(FileFlags::ASSOCIATED_FILE) {
+                associated_file = Some(Extent {
+                    sector: LogicalSector(record.header().extent.read() as usize),
+                    length: record.header().data_len.read(),
+                });
+                continue;
+            }
+
+            let mut additional_extents = Vec::new();
+            if flags.contains(FileFlags::NOT_FINAL) {
+                const MAX_EXTENTS: usize = 4096;
+                while additional_extents.len() < MAX_EXTENTS && offset < bytes.len() {
+                    if bytes[offset] == 0 {
+                        offset = (offset / SECTOR_SIZE + 1) * SECTOR_SIZE;
+                        continue;
+                    }
+                    cursor.seek(io::SeekFrom::Start(offset as u64)).await?;
+                    let continuation = DirectoryRecord::parse(&mut cursor).await?;
+                    offset += continuation.size();
+                    let header = continuation.header();
+                    additional_extents.push(Extent {
+                        sector: LogicalSector(header.extent.read() as usize),
+                        length: header.data_len.read(),
+                    });
+                    if !FileFlags::from_bits_retain(header.flags)
+                        .contains(FileFlags::NOT_FINAL)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            let rrip = if self.image.info.susp_info.rrip_detected {
+                let fields = rrip::collect_su_entries(
+                    &record,
+                    self.image,
+                    self.image.info.susp_info.bytes_skipped,
+                )
+                .await?;
+                let metadata = RripMetadata::from_fields(&fields);
+                if metadata.is_relocated {
+                    continue;
+                }
+                Some(metadata)
+            } else {
+                None
+            };
+            entries.push(DirEntry {
+                record,
+                rrip,
+                additional_extents,
+                associated_file: associated_file.take(),
+            });
+        }
+        Ok(entries)
     }
 }
 } // io_transform!
