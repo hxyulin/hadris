@@ -111,8 +111,9 @@ inside partitioned disks.
 Status: the initial slice is implemented for FAT in both API modes. Checked
 partition views, MBR/GPT entry adapters, concrete escape hatches, source
 recovery, and nested-volume integration tests are in place. Runtime async tests
-and a second filesystem remain the next evidence needed before defining common
-volume capabilities.
+now cover bounded reads, detection, unified opening, mismatches, and recovery. A
+second filesystem remains the next evidence needed before defining common volume
+capabilities.
 
 ## Phase 5: Capability-oriented high-level APIs
 

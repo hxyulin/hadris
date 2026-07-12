@@ -249,7 +249,8 @@ wrapper until those semantics can be compared with another block filesystem.
 5. [x] Implement the structurally equivalent async API.
 6. [x] Add helpers from concrete MBR/GPT entries to `PartitionView`.
 7. [x] Add integration coverage for FAT inside MBR and GPT partition views.
-8. [ ] Add a dedicated runtime async adapter test harness; async composition is
-   currently compile-checked with the shared algorithms covered synchronously.
+8. [x] Add a dedicated runtime async adapter test harness covering bounded
+   partition reads, detection position restoration, opening, mismatch errors,
+   and source recovery.
 9. [ ] Revisit common volume capabilities only after another block filesystem is
    available.

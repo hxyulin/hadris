@@ -2,14 +2,14 @@ use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
 use hadris_block::partition::{gpt_partition_view, mbr_partition_view};
 use hadris_block::sync::OpenVolume;
 use hadris_block::{Error, part};
-use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
+use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
 
 const VOLUME_LEN: usize = 2 * 1024 * 1024;
 
 fn format_fat12(
     source: impl hadris_io::sync::Read + hadris_io::sync::Write + hadris_io::sync::Seek,
 ) {
-    let options = FormatOptions::new(VOLUME_LEN as u64).with_fat_type(FatTypeSelection::Fat12);
+    let options = FatFormatOptions::new(VOLUME_LEN as u64).fat_type(FatTypeSelection::Fat12);
     let volume = FatVolumeFormatter::format(source, options).unwrap();
     drop(volume);
 }

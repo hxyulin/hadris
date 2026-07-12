@@ -43,6 +43,9 @@ They will not be renamed until traversal and finish behavior are normalized in
 both modes. Experimental exFAT stays outside the stable FAT volume surface for
 2.0 until it meets the same validation and async contracts.
 
+The block facade continuously runs the canonical async FAT detection/opening
+workflow. Async mutation remains a separate qualification item.
+
 ## Partition tables
 
 | Existing API | Canonical 2.0 API | Compatibility |
