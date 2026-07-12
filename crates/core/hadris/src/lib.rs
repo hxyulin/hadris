@@ -11,8 +11,15 @@
 //!
 //! Leaf features (`fat`, `part`, `iso`, `udf`, `cd`, and `cpio`) enable one
 //! library at a time. The `block`, `optical`, and `archive` features enable all
-//! libraries in their respective category. The default set is `fat`, `iso`, and
-//! `cpio`.
+//! libraries in their respective category. Platform (`std`, `alloc`), I/O mode
+//! (`sync`, `async`), and capability (`read`, `write`) features are forwarded
+//! independently to enabled leaves. The default set is the hosted synchronous
+//! read/write configuration with `fat`, `iso`, and `cpio`.
+//!
+//! Hybrid CD image creation is currently sync-only. Enabling `cd`—directly or
+//! through `optical`—therefore enables the CD writer's sync API, even when the
+//! umbrella `async` feature is also selected. ISO and UDF still expose their
+//! async modules in that configuration.
 //!
 //! # Quick start
 //!

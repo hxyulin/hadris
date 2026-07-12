@@ -53,7 +53,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Meta-crate
 
-- **[hadris](crates/core/hadris)** - Optional umbrella with grouped APIs: `block::{fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Leaf and category feature flags are available; `iso`, `fat`, and `cpio` are enabled by default.
+- **[hadris](crates/core/hadris)** - Optional umbrella with grouped APIs: `block::{fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
 
 ## Key Features
 

@@ -12,23 +12,27 @@ keywords = ["filesystem", "iso9660", "fat32", "udf", "cpio"]
 categories = ["filesystem", "encoding"]
 
 [features]
-default = ["iso", "fat", "cpio"]
-sync = ["hadris-fat?/sync", "hadris-part?/sync", "hadris-iso?/sync", "hadris-udf?/sync", "hadris-cd?/sync", "hadris-cpio?/sync"]
-async = ["hadris-fat?/async", "hadris-part?/async", "hadris-iso?/async", "hadris-udf?/async", "hadris-cd?/async", "hadris-cpio?/async"]
+default = ["std", "sync", "read", "write", "iso", "fat", "cpio"]
+std = ["alloc", "hadris-fat?/std", "hadris-part?/std", "hadris-iso?/std", "hadris-udf?/std", "hadris-cd?/std", "hadris-cpio?/std"]
+alloc = ["hadris-fat?/alloc", "hadris-part?/alloc", "hadris-iso?/alloc", "hadris-udf?/alloc", "hadris-cpio?/alloc"]
+read = ["hadris-fat?/read", "hadris-part?/read", "hadris-iso?/read", "hadris-udf?/read", "hadris-cpio?/read"]
+write = ["alloc", "read", "hadris-fat?/write", "hadris-part?/write", "hadris-iso?/write", "hadris-udf?/write", "hadris-cpio?/write"]
+sync = ["hadris-fat?/sync", "hadris-part?/sync", "hadris-iso?/sync", "hadris-udf?/sync", "hadris-cpio?/sync"]
+async = ["hadris-fat?/async", "hadris-part?/async", "hadris-iso?/async", "hadris-udf?/async", "hadris-cpio?/async"]
 block = ["fat", "part"]
 optical = ["iso", "udf", "cd"]
 archive = ["cpio"]
-fat = ["dep:hadris-fat"]
+fat = ["dep:hadris-fat", "hadris-fat/lfn"]
 part = ["dep:hadris-part"]
 iso = ["dep:hadris-iso"]
 udf = ["dep:hadris-udf"]
-cd = ["dep:hadris-cd"]
+cd = ["dep:hadris-cd", "hadris-cd/sync"]
 cpio = ["dep:hadris-cpio"]
 
 [dependencies]
-hadris-iso = { workspace = true, optional = true, features = ["std", "write"] }
-hadris-fat = { workspace = true, optional = true, features = ["std", "read", "write", "lfn"] }
-hadris-part = { workspace = true, optional = true, features = ["std", "read", "write"] }
-hadris-udf = { workspace = true, optional = true, features = ["std", "read"] }
-hadris-cd = { workspace = true, optional = true, features = ["std"] }
-hadris-cpio = { workspace = true, optional = true, features = ["std", "read", "write"] }
+hadris-iso = { workspace = true, optional = true, default-features = false }
+hadris-fat = { workspace = true, optional = true, default-features = false }
+hadris-part = { workspace = true, optional = true, default-features = false }
+hadris-udf = { workspace = true, optional = true, default-features = false }
+hadris-cd = { workspace = true, optional = true, default-features = false }
+hadris-cpio = { workspace = true, optional = true, default-features = false }

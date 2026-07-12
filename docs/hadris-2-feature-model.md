@@ -45,8 +45,9 @@ feature independently.
 
 ## Current blockers
 
-The initial ISO, UDF, and FAT feature-composition blockers are resolved. The
-remaining format crates and facades still need to be audited against the matrix.
+No known feature-composition blockers remain in the current format leaves or
+umbrella facade. Core support crates and future category meta-crates should adopt
+the same contract before 2.0.
 
 ## Implementation status
 
@@ -129,6 +130,27 @@ the feature composition and generated async APIs are now compile-checked in CI.
 
 Dedicated async round-trip tests remain release work; the combined API surface is
 now continuously compile-checked.
+
+### Hybrid CD writer and umbrella facade
+
+The final optical leaf and the existing umbrella now have explicit contracts:
+
+- `hadris-cd` no longer advertises an async writer that delegated to sync-only
+  ISO/UDF writers and never compiled; it is an explicitly sync-only capability;
+- `hadris-cd` defaults select `std` and `sync` separately, and no-feature or
+  std-only configurations compile without exposing a writer;
+- umbrella optional dependencies disable leaf defaults, preventing a selected
+  format from silently choosing an I/O mode;
+- umbrella `std`, `alloc`, `read`, `write`, `sync`, and `async` features forward
+  independently to whichever leaves are enabled;
+- the umbrella default preserves the hosted synchronous read/write experience
+  with FAT, ISO, and CPIO;
+- `cd` deliberately enables its sync-only writer. Consequently the full
+  `optical` bundle contains that sync API even in a configuration that also asks
+  for async ISO/UDF APIs.
+
+Facade CI covers no-format, no-std async block, hosted async optical, dual-mode
+archive, and all-capability configurations.
 
 ## Ecosystem research
 
