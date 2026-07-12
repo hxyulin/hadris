@@ -5,7 +5,7 @@ use hadris_optical::{OpenPolicy, OpticalFormat, sync::OpenOpticalImage};
 fn create_image(options: hadris_optical::cd::CdOptions) -> std::io::Cursor<Vec<u8>> {
     let mut image = std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
     hadris_optical::cd::CdWriter::new(hadris_io::sync::Borrowed::new(&mut image), options)
-        .write(hadris_optical::cd::FileTree::new())
+        .finish(hadris_optical::cd::FileTree::new())
         .unwrap();
     image
 }
@@ -51,4 +51,16 @@ fn exact_requests_are_checked() {
         error,
         hadris_optical::Error::RequestedFormatUnavailable(OpticalFormat::Udf)
     ));
+}
+
+#[test]
+fn bridge_image_opens_as_either_filesystem() {
+    let mut source = create_image(hadris_optical::cd::CdOptions::default());
+    let opened = OpenOpticalImage::open(&mut source, OpenPolicy::Udf).unwrap();
+    assert_eq!(opened.format(), OpticalFormat::Udf);
+    let source = opened.into_inner();
+
+    let opened = OpenOpticalImage::open(source, OpenPolicy::Iso9660).unwrap();
+    assert_eq!(opened.format(), OpticalFormat::Iso9660);
+    let _ = opened.into_inner();
 }

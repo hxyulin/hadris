@@ -1173,13 +1173,20 @@ impl<W: Write + Seek> UdfWriter<W> {
     ///
     /// Writes BEA01, NSR02/NSR03, TEA01 at sectors 16+
     pub fn write_vrs(&mut self) -> UdfResult<()> {
+        self.write_vrs_at(16)
+    }
+
+    /// Write the Volume Recognition Sequence beginning at an explicit sector.
+    ///
+    /// Standalone UDF images use sector 16. Bridge writers can place the VRS
+    /// after the ISO descriptor terminator to avoid overwriting either format.
+    pub fn write_vrs_at(&mut self, start_sector: u32) -> UdfResult<()> {
         let nsr = match self.options.revision {
             r if r >= UdfRevision::V2_00 => b"NSR03",
             _ => b"NSR02",
         };
 
-        // BEA01 at sector 16
-        self.seek_to_sector(16)?;
+        self.seek_to_sector(start_sector)?;
         self.write_vrs_descriptor(b"BEA01")?;
 
         // NSR02/NSR03 at sector 17

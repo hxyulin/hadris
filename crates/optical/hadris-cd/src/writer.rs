@@ -35,8 +35,18 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         Self { writer, options }
     }
 
-    /// Create a hybrid image from a file tree
-    pub async fn write(mut self, mut tree: FileTree) -> CdResult<()> {
+    /// Creates an optical image and returns its output target.
+    pub async fn create(writer: W, tree: FileTree, options: CdOptions) -> CdResult<W> {
+        Self::new(writer, options).finish(tree).await
+    }
+
+    /// Returns the output target without writing an image.
+    pub fn into_inner(self) -> W {
+        self.writer
+    }
+
+    /// Finishes the image and returns its output target.
+    pub async fn finish(mut self, mut tree: FileTree) -> CdResult<W> {
         // Sort the tree for consistent output
         tree.sort();
 
@@ -57,7 +67,13 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             self.write_udf_structures(&tree, &layout_info).await?;
         }
 
-        Ok(())
+        Ok(self.writer)
+    }
+
+    /// Create an image while discarding the returned output target.
+    #[deprecated(since = "2.0.0", note = "use `finish` to recover the output target")]
+    pub async fn write(self, tree: FileTree) -> CdResult<()> {
+        self.finish(tree).await.map(|_| ())
     }
 
     /// Write all file data to their pre-assigned sectors
@@ -196,8 +212,9 @@ impl<W: Read + Write + Seek> CdWriter<W> {
 
         let mut udf_writer = UdfWriter::new(Borrowed::new(&mut self.writer), udf_options);
 
-        // Write Volume Recognition Sequence
-        udf_writer.write_vrs()?;
+        // Keep the UDF VRS after ISO's descriptor terminator so both descriptor
+        // streams remain independently parseable.
+        udf_writer.write_vrs_at(layout_info.vds_end)?;
 
         // VDS at sectors 257-262
         let vds_start = 257u32;
@@ -400,12 +417,12 @@ mod tests {
         let buffer = vec![0u8; 1024 * 1024]; // 1MB buffer
         let cursor = Cursor::new(buffer);
 
-        let options = CdOptions::with_volume_id("TEST");
+        let options = CdOptions::default().volume_id("TEST");
         let writer = CdWriter::new(cursor, options);
 
         // This will test the basic flow
         // Note: Full verification would require mounting the resulting image
-        let result = writer.write(tree);
-        assert!(result.is_ok());
+        let output = writer.finish(tree).unwrap();
+        assert!(!output.get_ref().is_empty());
     }
 }

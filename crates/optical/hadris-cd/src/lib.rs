@@ -24,11 +24,12 @@
 //! # // Use a Cursor for the doctest instead of a real file
 //! # let buffer = vec![0u8; 2 * 1024 * 1024]; // 2MB buffer
 //! # let file = Cursor::new(buffer);
-//! let options = CdOptions::with_volume_id("MY_DISC")
-//!     .with_joliet();
+//! let options = CdOptions::default()
+//!     .volume_id("MY_DISC")
+//!     .joliet(hadris_cd::JolietLevel::Level3);
 //!
-//! CdWriter::new(file, options)
-//!     .write(tree)
+//! let _file = CdWriter::new(file, options)
+//!     .finish(tree)
 //!     .unwrap();
 //! ```
 //!
@@ -52,13 +53,8 @@
 //! - El-Torito bootable images
 //! - Hybrid MBR+GPT for USB booting
 //!
-//! ## Known Limitations
-//!
-//! The current UDF structures emitted by [`CdWriter`] are recognized by the
-//! lightweight optical detector but are not yet accepted by
-//! `hadris_udf::UdfFs::open`. ISO-only output and standalone images produced by
-//! `hadris-udf` are fully validated independently. Treat hybrid/UDF output as
-//! experimental until the bridge writer has a write-to-open roundtrip test.
+//! Bridge output is continuously tested by opening the completed image through
+//! both the ISO 9660 and UDF readers.
 //!
 //! Hybrid image creation currently uses the synchronous ISO and UDF writers.
 //! This crate therefore exposes a sync-only writer API; `std` selects hosted
@@ -126,6 +122,14 @@ pub use error::{CdError, CdResult};
 #[cfg(feature = "sync")]
 pub use layout::{LayoutInfo, LayoutManager};
 #[cfg(feature = "sync")]
-pub use options::{CdOptions, IsoOptions, UdfOptions};
+pub use options::{CdOptions, IsoOptions, JolietLevel, UdfOptions};
 #[cfg(feature = "sync")]
 pub use tree::{Directory, FileData, FileEntry, FileExtent, FileTree};
+
+/// Canonical writer name for ISO/UDF optical images.
+#[cfg(feature = "sync")]
+pub type OpticalImageWriter<W> = sync::CdWriter<W>;
+
+/// Canonical options name for ISO/UDF optical images.
+#[cfg(feature = "sync")]
+pub type OpticalImageOptions = CdOptions;

@@ -65,8 +65,8 @@ impl LayoutManager {
         // Calculate starting positions based on what we need to write
         let vds_end = self.calculate_vds_end(options);
 
-        // UDF partition starts after AVDP at sector 256
-        let udf_partition_start = 257;
+        // Main/reserve VDS occupy 257-268 and the LVID occupies 269.
+        let udf_partition_start = 270;
 
         // Reserve space for UDF structures (FSD, directory entries)
         // We'll use a conservative estimate and may adjust later

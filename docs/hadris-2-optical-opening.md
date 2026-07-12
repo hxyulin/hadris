@@ -22,9 +22,8 @@ async APIs have the same shape.
 One opener deliberately owns one filesystem handle. Opening both sides of a
 bridge simultaneously requires a future shared or reopenable source adapter.
 
-## Current writer limitation
+## Writer qualification
 
-`CdWriter` bridge images are detected as ISO+UDF, but their UDF structures are
-currently rejected by full `UdfFs::open` validation (`InvalidVds("PVD")`). The
-unified opener intentionally propagates that validation failure. Standalone UDF
-images produced by `hadris-udf` do pass write-to-open roundtrip tests.
+`CdWriter` bridge images are continuously opened through both the ISO 9660 and
+UDF policies. Detection remains only a probe: the unified opener still performs
+and propagates each concrete reader's full validation.

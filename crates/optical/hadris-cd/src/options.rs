@@ -1,7 +1,7 @@
 //! Configuration options for hybrid CD/DVD image creation
 
 use hadris_iso::boot::options::BootOptions;
-use hadris_iso::joliet::JolietLevel;
+pub use hadris_iso::joliet::JolietLevel;
 use hadris_iso::rrip::RripOptions;
 use hadris_iso::write::options::{BaseIsoLevel, HybridBootOptions};
 use hadris_udf::UdfRevision;
@@ -38,6 +38,10 @@ impl Default for CdOptions {
 
 impl CdOptions {
     /// Create options with a volume ID
+    #[deprecated(
+        since = "2.0.0",
+        note = "use `CdOptions::default().volume_id(...)` instead"
+    )]
     pub fn with_volume_id(volume_id: impl Into<String>) -> Self {
         Self {
             volume_id: volume_id.into(),
@@ -51,25 +55,56 @@ impl CdOptions {
         self
     }
 
-    /// Enable Joliet support (Windows long filenames)
+    /// Set the Joliet level used for Windows-compatible long filenames.
+    pub fn joliet(mut self, level: JolietLevel) -> Self {
+        self.iso.joliet = Some(level);
+        self
+    }
+
+    /// Enable Joliet level 3 support.
+    #[deprecated(since = "2.0.0", note = "use `joliet(JolietLevel::Level3)` instead")]
     pub fn with_joliet(mut self) -> Self {
         self.iso.joliet = Some(JolietLevel::Level3);
         self
     }
 
-    /// Enable Rock Ridge support (POSIX filenames and permissions)
+    /// Set Rock Ridge options.
+    pub fn rock_ridge(mut self, options: RripOptions) -> Self {
+        self.iso.rock_ridge = Some(options);
+        self
+    }
+
+    /// Enable Rock Ridge with default options.
+    #[deprecated(
+        since = "2.0.0",
+        note = "use `rock_ridge(RripOptions::default())` instead"
+    )]
     pub fn with_rock_ridge(mut self) -> Self {
         self.iso.rock_ridge = Some(RripOptions::default());
         self
     }
 
-    /// Set boot options
+    /// Set boot options.
+    pub fn boot(mut self, boot: BootOptions) -> Self {
+        self.boot = Some(boot);
+        self
+    }
+
+    /// Set boot options.
+    #[deprecated(since = "2.0.0", note = "use `boot` instead")]
     pub fn with_boot(mut self, boot: BootOptions) -> Self {
         self.boot = Some(boot);
         self
     }
 
-    /// Set hybrid boot options (for USB booting)
+    /// Set hybrid boot options for USB booting.
+    pub fn hybrid_boot(mut self, hybrid: HybridBootOptions) -> Self {
+        self.hybrid_boot = Some(hybrid);
+        self
+    }
+
+    /// Set hybrid boot options for USB booting.
+    #[deprecated(since = "2.0.0", note = "use `hybrid_boot` instead")]
     pub fn with_hybrid_boot(mut self, hybrid: HybridBootOptions) -> Self {
         self.hybrid_boot = Some(hybrid);
         self
@@ -151,9 +186,10 @@ mod tests {
 
     #[test]
     fn test_builder_pattern() {
-        let opts = CdOptions::with_volume_id("MY_DISC")
-            .with_joliet()
-            .with_rock_ridge();
+        let opts = CdOptions::default()
+            .volume_id("MY_DISC")
+            .joliet(JolietLevel::Level3)
+            .rock_ridge(RripOptions::default());
 
         assert_eq!(opts.volume_id, "MY_DISC");
         assert!(opts.iso.joliet.is_some());
