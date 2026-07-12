@@ -133,21 +133,21 @@ Automatic FAT type selection follows Microsoft recommendations:
 
 ```toml
 [dependencies]
-hadris-fat = { version = "1.2.1", default-features = false, features = ["read", "sync"] }
+hadris-fat = { version = "2.0.0", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Embedded Systems with Heap
 
 ```toml
 [dependencies]
-hadris-fat = { version = "1.2.1", default-features = false, features = ["read", "write", "alloc", "lfn", "sync"] }
+hadris-fat = { version = "2.0.0", default-features = false, features = ["read", "write", "alloc", "lfn", "sync"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-fat = "1.2.1"  # Uses default features
+hadris-fat = "2.0.0"  # Uses default features
 ```
 
 ## FAT Variant Support

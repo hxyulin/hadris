@@ -4,7 +4,7 @@ All notable changes to this workspace are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Crates share a single workspace version.
+Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
@@ -25,6 +25,10 @@ Crates share a single workspace version.
 - **hadris-udf-cli:** `cat` and `extract` subcommands.
 
 ### Changed
+
+- **Release process:** Removed shared workspace versioning and the obsolete
+  `cargo-release` configuration. Every current package now declares version
+  `2.0.0` in its own manifest.
 
 - **hadris-part:** `PartitionError::Io` now wraps `hadris_io::Error` (with
   `std::error::Error::source` under `std`) instead of discarding context.
