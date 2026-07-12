@@ -193,6 +193,49 @@ jobs:
             tier: all-capabilities
             features: "std,alloc,sync,async,read,write"
 
+          # hadris-cd (hybrid writer is intentionally sync-only)
+          - crate: hadris-cd
+            tier: no-api
+            features: ""
+          - crate: hadris-cd
+            tier: hosted-sync-writer
+            features: "std,sync"
+
+          # hadris umbrella/category forwarding
+          - crate: hadris
+            tier: no-formats
+            features: ""
+          - crate: hadris
+            tier: leaf-fat
+            features: "std,sync,read,write,fat"
+          - crate: hadris
+            tier: leaf-part
+            features: "std,sync,read,write,part"
+          - crate: hadris
+            tier: leaf-iso
+            features: "std,sync,read,write,iso"
+          - crate: hadris
+            tier: leaf-udf
+            features: "std,sync,read,write,udf"
+          - crate: hadris
+            tier: leaf-cd
+            features: "std,cd"
+          - crate: hadris
+            tier: leaf-cpio
+            features: "std,sync,read,write,cpio"
+          - crate: hadris
+            tier: no-std-async-block
+            features: "alloc,async,read,block"
+          - crate: hadris
+            tier: hosted-async-optical
+            features: "std,async,read,optical"
+          - crate: hadris
+            tier: dual-mode-archive
+            features: "alloc,sync,async,read,write,archive"
+          - crate: hadris
+            tier: all-capabilities
+            features: "std,alloc,sync,async,read,write,block,optical,archive"
+
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.88.0

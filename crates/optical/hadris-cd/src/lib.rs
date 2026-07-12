@@ -51,6 +51,10 @@
 //! - UDF 1.02/1.50/2.00+ support
 //! - El-Torito bootable images
 //! - Hybrid MBR+GPT for USB booting
+//!
+//! Hybrid image creation currently uses the synchronous ISO and UDF writers.
+//! This crate therefore exposes a sync-only writer API; `std` selects hosted
+//! platform support, while the default feature set selects `sync` explicitly.
 
 #![allow(async_fn_in_trait)]
 
@@ -58,9 +62,13 @@
 // Shared types (compiled once)
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "sync")]
 pub mod error;
+#[cfg(feature = "sync")]
 pub mod layout;
+#[cfg(feature = "sync")]
 pub mod options;
+#[cfg(feature = "sync")]
 pub mod tree;
 
 // ---------------------------------------------------------------------------
@@ -98,37 +106,6 @@ pub mod sync {
 }
 
 // ---------------------------------------------------------------------------
-// Async module
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "async")]
-#[path = ""]
-pub mod r#async {
-    pub use hadris_io::SeekFrom;
-    pub use hadris_io::r#async::{Borrowed, Read, Seek, Write};
-
-    macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => {};
-    }
-
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    #[path = "."]
-    mod __inner {
-        pub mod writer;
-    }
-    pub use __inner::*;
-}
-
-// ---------------------------------------------------------------------------
 // Default re-exports for backwards compatibility (sync)
 // ---------------------------------------------------------------------------
 
@@ -136,7 +113,11 @@ pub mod r#async {
 pub use sync::*;
 
 // Re-exports from shared types
+#[cfg(feature = "sync")]
 pub use error::{CdError, CdResult};
+#[cfg(feature = "sync")]
 pub use layout::{LayoutInfo, LayoutManager};
+#[cfg(feature = "sync")]
 pub use options::{CdOptions, IsoOptions, UdfOptions};
+#[cfg(feature = "sync")]
 pub use tree::{Directory, FileData, FileEntry, FileExtent, FileTree};

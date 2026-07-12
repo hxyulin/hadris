@@ -47,6 +47,10 @@ File data:      Shared between ISO and UDF (both point to same sectors)
 - **El-Torito** bootable images (BIOS and UEFI)
 - **Hybrid MBR+GPT** for USB booting
 
+Hybrid image creation currently delegates to the synchronous ISO and UDF
+writers. The crate therefore exposes a sync-only writer API. Its default features
+select both `std` and `sync` explicitly.
+
 ## License
 
 MIT
