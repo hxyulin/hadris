@@ -7,22 +7,22 @@
 /rust-toolchain.toml @hxyulin
 
 # Shared foundation
-/crates/hadris-io/ @hxyulin
-/crates/hadris-common/ @hxyulin
-/crates/hadris-macros/ @hxyulin
+/crates/core/hadris-io/ @hxyulin
+/crates/core/hadris-common/ @hxyulin
+/crates/core/hadris-macros/ @hxyulin
 
-# Filesystems / formats
-/crates/hadris-iso/ @hxyulin
-/crates/hadris-iso-cli/ @hxyulin
-/crates/hadris-fat/ @hxyulin
-/crates/hadris-fat-cli/ @hxyulin
-/crates/hadris-udf/ @hxyulin
-/crates/hadris-udf-cli/ @hxyulin
-/crates/hadris-cpio/ @hxyulin
-/crates/hadris-cpio-cli/ @hxyulin
-/crates/hadris-part/ @hxyulin
-/crates/hadris-cd/ @hxyulin
+# Format libraries
+/crates/optical/hadris-iso/ @hxyulin
+/crates/tools/hadris-iso-cli/ @hxyulin
+/crates/block/hadris-fat/ @hxyulin
+/crates/tools/hadris-fat-cli/ @hxyulin
+/crates/optical/hadris-udf/ @hxyulin
+/crates/tools/hadris-udf-cli/ @hxyulin
+/crates/archive/hadris-cpio/ @hxyulin
+/crates/tools/hadris-cpio-cli/ @hxyulin
+/crates/block/hadris-part/ @hxyulin
+/crates/optical/hadris-cd/ @hxyulin
 
-# Meta / general CLI
-/crates/hadris/ @hxyulin
-/crates/hadris-cli/ @hxyulin
+# Meta-crate / general CLI
+/crates/core/hadris/ @hxyulin
+/crates/tools/hadris-cli/ @hxyulin

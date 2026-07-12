@@ -71,7 +71,7 @@ RUSTFLAGS="-D warnings" cargo check -p hadris-udf --no-default-features --featur
 RUSTFLAGS="-D warnings" cargo check -p hadris-part --no-default-features --features "read,sync"
 ```
 
-Note: `hadris-io` provides a minimal `Error` type in no-std mode (no message storage). The `std::io::Error` API surface is not fully mirrored — if you use a std-only method like `Error::other()`, add a matching method to `crates/hadris-io/src/error.rs`.
+Note: `hadris-io` provides a minimal `Error` type in no-std mode (no message storage). The `std::io::Error` API surface is not fully mirrored — if you use a std-only method like `Error::other()`, add a matching method to `crates/core/hadris-io/src/error.rs`.
 
 ### Miri (UB detection)
 
@@ -94,20 +94,21 @@ CI runs the same set on every push (`miri` job in `.github/workflows/rust.yml`).
 
 ```
 crates/
-├── hadris-io/       # No-std I/O abstraction (Read, Write, Seek traits)
-├── hadris-macros/   # Proc macros for dual sync/async code generation
-├── hadris-common/   # Shared types: CRC, endian types, UTF-16 strings
-├── hadris-part/     # Partition tables: MBR, GPT, Hybrid MBR
-├── hadris-iso/      # ISO 9660: Joliet, El-Torito, SUSP/RRIP (Rock Ridge)
-├── hadris-fat/      # FAT12/16/32 with LFN, caching, analysis tools
-├── hadris-udf/      # UDF (Universal Disk Format) for DVD/Blu-ray
-├── hadris-cpio/     # CPIO archive format (newc/SVR4) for initramfs
-├── hadris-cd/       # Hybrid ISO+UDF optical disc image creation
-├── hadris/          # Meta-crate re-exporting filesystem implementations
-├── hadris-iso-cli/  # CLI for ISO operations
-├── hadris-fat-cli/  # CLI for FAT operations (fatutil)
-├── hadris-cpio-cli/ # CLI for CPIO operations (cpioutil)
-└── hadris-cli/      # General CLI (WIP)
+├── core/            # Umbrella crate, shared types, I/O, and macros
+│   ├── hadris/
+│   ├── hadris-common/
+│   ├── hadris-io/
+│   └── hadris-macros/
+├── block/           # Block filesystems and partition tables
+│   ├── hadris-fat/
+│   └── hadris-part/
+├── optical/         # Optical filesystems and disc composition
+│   ├── hadris-iso/
+│   ├── hadris-udf/
+│   └── hadris-cd/
+├── archive/         # Sequential archive formats
+│   └── hadris-cpio/
+└── tools/           # Format CLIs and the experimental general CLI
 ```
 
 ## Key Crate Features

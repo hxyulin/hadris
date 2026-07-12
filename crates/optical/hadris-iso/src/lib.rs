@@ -242,7 +242,7 @@
 //! - El-Torito Bootable CD-ROM Format Specification
 //!
 //! For detailed specification documentation, see the
-//! [spec directory](https://github.com/hxyulin/hadris/tree/main/crates/hadris-iso/spec).
+//! [spec directory](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-iso/spec).
 //!
 //! ## Known Limitations
 //!

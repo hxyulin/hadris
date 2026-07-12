@@ -6,22 +6,29 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-readme = "../../README.md"
+readme = "../../../README.md"
 description = "A collection of crates for working with various file formats."
 keywords = ["filesystem", "iso9660", "fat32", "udf", "cpio"]
 categories = ["filesystem", "encoding"]
 
 [features]
-default = ["iso9660", "fat", "cpio"]
-sync = ["hadris-iso?/sync", "hadris-fat?/sync", "hadris-udf?/sync", "hadris-cpio?/sync"]
-async = ["hadris-iso?/async", "hadris-fat?/async", "hadris-udf?/async", "hadris-cpio?/async"]
-iso9660 = ["dep:hadris-iso"]
+default = ["iso", "fat", "cpio"]
+sync = ["hadris-fat?/sync", "hadris-part?/sync", "hadris-iso?/sync", "hadris-udf?/sync", "hadris-cd?/sync", "hadris-cpio?/sync"]
+async = ["hadris-fat?/async", "hadris-part?/async", "hadris-iso?/async", "hadris-udf?/async", "hadris-cd?/async", "hadris-cpio?/async"]
+block = ["fat", "part"]
+optical = ["iso", "udf", "cd"]
+archive = ["cpio"]
 fat = ["dep:hadris-fat"]
+part = ["dep:hadris-part"]
+iso = ["dep:hadris-iso"]
 udf = ["dep:hadris-udf"]
+cd = ["dep:hadris-cd"]
 cpio = ["dep:hadris-cpio"]
 
 [dependencies]
 hadris-iso = { workspace = true, optional = true, features = ["std", "write"] }
 hadris-fat = { workspace = true, optional = true, features = ["std", "read", "write", "lfn"] }
+hadris-part = { workspace = true, optional = true, features = ["std", "read", "write"] }
 hadris-udf = { workspace = true, optional = true, features = ["std", "read"] }
+hadris-cd = { workspace = true, optional = true, features = ["std"] }
 hadris-cpio = { workspace = true, optional = true, features = ["std", "read", "write"] }

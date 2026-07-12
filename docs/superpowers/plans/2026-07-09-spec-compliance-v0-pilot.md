@@ -15,7 +15,7 @@
 - Prefer `partial` + honest `@hadris-note` over claiming `full` when write paths or options are incomplete.
 - Annotate **spec-facing** structs / parse entry points only — not every helper.
 - Do **not** add a fuzz CI job, proc-macro, or table generator in v0.
-- Do **not** rewrite `crates/hadris-iso/spec/` beyond a one-line pointer.
+- Do **not** rewrite `crates/optical/hadris-iso/spec/` beyond a one-line pointer.
 - Out of pilot: exFAT depth, full RRIP write matrix, GPT/MBR, CPIO, golden vectors, v1 CI checker.
 - Keep `RUSTFLAGS="-D warnings"` green; comment-only changes should not alter behavior.
 - Design docs under `docs/superpowers/specs/` may still be untracked — include them in the first commit of this plan if not already on `main`.
@@ -30,12 +30,12 @@
 | `CONTRIBUTING.md` | **Modify** — short “Spec annotations” subsection |
 | `docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md` | Ensure committed (source of truth) |
 | `docs/superpowers/specs/2026-07-09-professionalization-review.md` | Ensure Phase E pointer committed |
-| `crates/hadris-udf/src/descriptor/{tag,anchor,primary,partition,logical,fileset,mod}.rs` | Add tags on ECMA-167 types |
-| `crates/hadris-iso/src/volume.rs` | Tag `PrimaryVolumeDescriptor` |
-| `crates/hadris-iso/src/directory.rs` | Tag `DirectoryRecord` / header |
-| `crates/hadris-iso/src/boot.rs` | Tag El-Torito validation entry **only if cheap** (see Task 4) |
-| `crates/hadris-iso/spec/Specification.md` | One-line pointer to coverage doc |
-| `crates/hadris-fat/src/raw.rs` | Tag `RawBpb` (`FAT:BPB`) and `RawLfnEntry` (`FAT:LFN`) |
+| `crates/optical/hadris-udf/src/descriptor/{tag,anchor,primary,partition,logical,fileset,mod}.rs` | Add tags on ECMA-167 types |
+| `crates/optical/hadris-iso/src/volume.rs` | Tag `PrimaryVolumeDescriptor` |
+| `crates/optical/hadris-iso/src/directory.rs` | Tag `DirectoryRecord` / header |
+| `crates/optical/hadris-iso/src/boot.rs` | Tag El-Torito validation entry **only if cheap** (see Task 4) |
+| `crates/optical/hadris-iso/spec/Specification.md` | One-line pointer to coverage doc |
+| `crates/block/hadris-fat/src/raw.rs` | Tag `RawBpb` (`FAT:BPB`) and `RawLfnEntry` (`FAT:LFN`) |
 
 No new Rust modules, no CI workflow changes in v0.
 
@@ -129,13 +129,13 @@ EOF
 ### Task 2: Tag hadris-udf descriptors (pilot core)
 
 **Files:**
-- Modify: `crates/hadris-udf/src/descriptor/tag.rs`
-- Modify: `crates/hadris-udf/src/descriptor/anchor.rs`
-- Modify: `crates/hadris-udf/src/descriptor/primary.rs`
-- Modify: `crates/hadris-udf/src/descriptor/partition.rs`
-- Modify: `crates/hadris-udf/src/descriptor/logical.rs` (`LogicalVolumeDescriptor`, `Type1PartitionMap`)
-- Modify: `crates/hadris-udf/src/descriptor/fileset.rs`
-- Modify: `crates/hadris-udf/src/descriptor/mod.rs` (shared building blocks: `ExtentDescriptor`, `LongAllocationDescriptor`, `ShortAllocationDescriptor`, `EntityIdentifier`, `CharSpec` — tag only if they are clearly spec-facing and already titled; skip `LbAddr` / tiny helpers if noisy)
+- Modify: `crates/optical/hadris-udf/src/descriptor/tag.rs`
+- Modify: `crates/optical/hadris-udf/src/descriptor/anchor.rs`
+- Modify: `crates/optical/hadris-udf/src/descriptor/primary.rs`
+- Modify: `crates/optical/hadris-udf/src/descriptor/partition.rs`
+- Modify: `crates/optical/hadris-udf/src/descriptor/logical.rs` (`LogicalVolumeDescriptor`, `Type1PartitionMap`)
+- Modify: `crates/optical/hadris-udf/src/descriptor/fileset.rs`
+- Modify: `crates/optical/hadris-udf/src/descriptor/mod.rs` (shared building blocks: `ExtentDescriptor`, `LongAllocationDescriptor`, `ShortAllocationDescriptor`, `EntityIdentifier`, `CharSpec` — tag only if they are clearly spec-facing and already titled; skip `LbAddr` / tiny helpers if noisy)
 - Modify: `docs/spec-coverage.md` (UDF section rows)
 
 **Interfaces:**
@@ -180,7 +180,7 @@ Use section ids already in module titles:
 
 - [ ] **Step 5: Verify tags are grepable**
 
-Run: `rg -n '@hadris-spec ECMA-167' crates/hadris-udf/src/descriptor`
+Run: `rg -n '@hadris-spec ECMA-167' crates/optical/hadris-udf/src/descriptor`
 Expected: one hit per tagged item (≥6).
 
 Run: `RUSTFLAGS='-D warnings' cargo check -p hadris-udf --no-default-features --features 'read,sync'`
@@ -189,7 +189,7 @@ Expected: success.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/hadris-udf/src/descriptor docs/spec-coverage.md
+git add crates/optical/hadris-udf/src/descriptor docs/spec-coverage.md
 git commit -m "$(cat <<'EOF'
 docs(udf): add @hadris-spec tags for ECMA-167 descriptor pilot
 
@@ -204,8 +204,8 @@ EOF
 ### Task 3: Tag hadris-iso PVD + directory record
 
 **Files:**
-- Modify: `crates/hadris-iso/src/volume.rs` (`PrimaryVolumeDescriptor` ~line 329)
-- Modify: `crates/hadris-iso/src/directory.rs` (`DirectoryRecordHeader` / `DirectoryRecord`)
+- Modify: `crates/optical/hadris-iso/src/volume.rs` (`PrimaryVolumeDescriptor` ~line 329)
+- Modify: `crates/optical/hadris-iso/src/directory.rs` (`DirectoryRecordHeader` / `DirectoryRecord`)
 - Modify: `docs/spec-coverage.md` (ISO section)
 
 **Interfaces:**
@@ -242,7 +242,7 @@ EOF
 
 - [ ] **Step 4: Verify**
 
-Run: `rg -n '@hadris-spec ECMA-119' crates/hadris-iso/src`
+Run: `rg -n '@hadris-spec ECMA-119' crates/optical/hadris-iso/src`
 Expected: ≥2 hits.
 
 Run: `RUSTFLAGS='-D warnings' cargo check -p hadris-iso --no-default-features --features 'read,sync'`
@@ -251,7 +251,7 @@ Expected: success.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/hadris-iso/src/volume.rs crates/hadris-iso/src/directory.rs docs/spec-coverage.md
+git add crates/optical/hadris-iso/src/volume.rs crates/optical/hadris-iso/src/directory.rs docs/spec-coverage.md
 git commit -m "$(cat <<'EOF'
 docs(iso): tag PVD and directory record for spec coverage pilot
 
@@ -265,9 +265,9 @@ EOF
 ### Task 4: El-Torito — include only if cheap
 
 **Files:**
-- Modify (conditional): `crates/hadris-iso/src/boot.rs` (`BootValidationEntry` and/or `BaseBootCatalog`)
+- Modify (conditional): `crates/optical/hadris-iso/src/boot.rs` (`BootValidationEntry` and/or `BaseBootCatalog`)
 - Modify (conditional): `docs/spec-coverage.md`
-- Modify: `crates/hadris-iso/spec/Specification.md` (pointer — always do this step even if El-Torito is skipped)
+- Modify: `crates/optical/hadris-iso/spec/Specification.md` (pointer — always do this step even if El-Torito is skipped)
 
 **Decision gate:** If `BootValidationEntry` already has a clear struct + parse path and a nearby test (`xorriso_boot` or unit tests), tag with `@hadris-spec El-Torito:validation` (or the id used in `Booting.md`) as `partial`/`full` with note. If tagging requires inventing tests or large docs, **skip El-Torito** and record “skipped — not cheap” in the PR description.
 
@@ -277,7 +277,7 @@ EOF
 
 - [ ] **Step 2b (skip):** No code change in `boot.rs`
 
-- [ ] **Step 3: Add pointer at top of `crates/hadris-iso/spec/Specification.md`**
+- [ ] **Step 3: Add pointer at top of `crates/optical/hadris-iso/spec/Specification.md`**
 
 ```markdown
 > Maintainer machine-index for implemented sections:
@@ -287,7 +287,7 @@ EOF
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/hadris-iso/spec/Specification.md docs/spec-coverage.md
+git add crates/optical/hadris-iso/spec/Specification.md docs/spec-coverage.md
 # plus boot.rs if tagged
 git commit -m "$(cat <<'EOF'
 docs(iso): link in-repo spec notes to workspace coverage table
@@ -302,7 +302,7 @@ EOF
 ### Task 5: Tag hadris-fat BPB + LFN
 
 **Files:**
-- Modify: `crates/hadris-fat/src/raw.rs` (`RawBpb` ~line 13, `RawLfnEntry` ~line 281)
+- Modify: `crates/block/hadris-fat/src/raw.rs` (`RawBpb` ~line 13, `RawLfnEntry` ~line 281)
 - Modify: `docs/spec-coverage.md` (FAT section)
 
 **Interfaces:**
@@ -340,7 +340,7 @@ EOF
 
 - [ ] **Step 4: Verify**
 
-Run: `rg -n '@hadris-spec FAT:' crates/hadris-fat/src/raw.rs`
+Run: `rg -n '@hadris-spec FAT:' crates/block/hadris-fat/src/raw.rs`
 Expected: 2 hits.
 
 Run: `RUSTFLAGS='-D warnings' cargo check -p hadris-fat --no-default-features --features 'read,sync,lfn'`
@@ -349,7 +349,7 @@ Expected: success.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/hadris-fat/src/raw.rs docs/spec-coverage.md
+git add crates/block/hadris-fat/src/raw.rs docs/spec-coverage.md
 git commit -m "$(cat <<'EOF'
 docs(fat): tag BPB and LFN entries for spec coverage pilot
 
@@ -371,7 +371,7 @@ EOF
 Run:
 
 ```bash
-rg -n '@hadris-spec' crates/hadris-udf crates/hadris-iso crates/hadris-fat
+rg -n '@hadris-spec' crates/optical/hadris-udf crates/optical/hadris-iso crates/block/hadris-fat
 rg -n '^\| ECMA-|^\| FAT:|^\| El-' docs/spec-coverage.md
 ```
 
@@ -379,7 +379,7 @@ Expected: every `@hadris-spec` value appears as a table row; every `full` row ha
 
 - [ ] **Step 2: Spot-check `full` rule manually**
 
-Run: `rg -n '@hadris-compliance full' -A2 crates/hadris-udf crates/hadris-iso crates/hadris-fat`
+Run: `rg -n '@hadris-compliance full' -A2 crates/optical/hadris-udf crates/optical/hadris-iso crates/block/hadris-fat`
 Expected: each block shows `@hadris-tests` and/or `@hadris-fuzz` within the next few lines.
 
 - [ ] **Step 3: Workspace warning check (touched crates)**

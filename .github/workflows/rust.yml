@@ -197,7 +197,7 @@ jobs:
         run: |
           cargo test -p hadris-fat --features "cache,write,std" -- --nocapture
 
-  # CLI --help/--version smoke tests live in crates/hadris-*-cli/tests/cli_smoke.rs
+  # CLI --help/--version smoke tests live in crates/tools/hadris-*-cli/tests/cli_smoke.rs
   # and run under the workspace `test` job.
 
   doc:
