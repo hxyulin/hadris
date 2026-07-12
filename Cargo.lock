@@ -606,6 +606,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-storage"
+version = "1.2.1"
+dependencies = [
+ "embedded-io",
+ "hadris-io",
+]
+
+[[package]]
 name = "hadris-udf"
 version = "1.2.1"
 dependencies = [
