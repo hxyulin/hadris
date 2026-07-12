@@ -53,6 +53,7 @@ dirty-file-panic = []
 [dependencies]
 hadris-common = { workspace = true }
 hadris-io = { workspace = true }
+hadris-path = { workspace = true }
 hadris-macros = { workspace = true }
 spin.workspace = true
 

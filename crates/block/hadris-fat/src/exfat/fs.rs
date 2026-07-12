@@ -4,9 +4,11 @@
 
 #[cfg(feature = "write")]
 use alloc::string::ToString;
+#[cfg(feature = "write")]
 use alloc::vec::Vec;
 
 use hadris_common::types::endian::Endian;
+use hadris_path::{Component, VPath};
 use spin::Mutex;
 
 use crate::error::{FatError, Result};
@@ -191,25 +193,26 @@ where
 
     /// Open a file or directory by path.
     pub fn open_path(&self, path: &str) -> Result<ExFatFileEntry> {
-        let path = path.trim_start_matches('/');
-        if path.is_empty() {
-            return Err(FatError::InvalidPath);
-        }
-
-        let components: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-
-        if components.is_empty() {
-            return Err(FatError::InvalidPath);
-        }
-
         let mut current_dir = self.root_dir();
+        let mut components = VPath::new(path)
+            .components()
+            .filter_map(|component| match component {
+                Component::Root | Component::Current => None,
+                Component::Parent => Some(Err(FatError::InvalidPath)),
+                Component::Normal(component) => Some(Ok(component)),
+            })
+            .peekable();
+        if components.peek().is_none() {
+            return Err(FatError::InvalidPath);
+        }
 
-        for (i, component) in components.iter().enumerate() {
+        while let Some(component) = components.next() {
+            let component = component?;
             let entry = current_dir
                 .find(component)?
                 .ok_or(FatError::EntryNotFound)?;
 
-            if i < components.len() - 1 {
+            if components.peek().is_some() {
                 // Not the last component, must be a directory
                 if !entry.is_directory() {
                     return Err(FatError::NotADirectory);
@@ -221,7 +224,6 @@ where
                     size: entry.data_length,
                 };
             } else {
-                // Last component, return the entry
                 return Ok(entry);
             }
         }

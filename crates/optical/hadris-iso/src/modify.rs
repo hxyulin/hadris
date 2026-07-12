@@ -38,6 +38,7 @@ use super::io::{self, Read, Seek, SeekFrom, Write};
 use hadris_common::types::endian::Endian;
 use hadris_common::types::extent::{Extent, FileType};
 use hadris_common::types::layout::{AllocationMap, DirectoryLayout, FileLayout};
+use hadris_path::split_path;
 
 use super::directory::{DirectoryRecord, DirectoryRef, FileFlags};
 use super::io::{IsoCursor, LogicalSector};
@@ -808,7 +809,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
 
     /// Splits a path into (directory, filename).
     fn split_path(path: &str) -> IsoModifyResult<(String, String)> {
-        hadris_common::path::split_path(path)
+        split_path(path)
             .ok_or_else(|| IsoModifyError::InvalidPath(path.to_string()))
     }
 }

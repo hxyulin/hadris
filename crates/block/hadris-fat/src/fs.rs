@@ -5,6 +5,7 @@ use core::{cell::Cell, fmt};
 use spin::Mutex;
 
 use hadris_common::types::endian::Endian;
+use hadris_path::{Component, VPath};
 
 use crate::error::{FatError, Result};
 use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
@@ -826,20 +827,15 @@ where
     /// Paths can use forward slashes as separators. Leading slashes are optional.
     /// Empty path components are ignored.
     pub async fn open_path(&self, path: &str) -> Result<FileEntry> {
-        let path = path.trim_start_matches('/');
-        if path.is_empty() {
-            return Err(FatError::InvalidPath);
-        }
-
-        let mut components = path.split('/').filter(|s| !s.is_empty()).peekable();
-        if components.peek().is_none() {
-            return Err(FatError::InvalidPath);
-        }
-
         let mut current_dir = self.root_dir();
         let mut last_component = None;
 
-        for component in components {
+        for component in VPath::new(path).components() {
+            let component = match component {
+                Component::Root | Component::Current => continue,
+                Component::Parent => return Err(FatError::InvalidPath),
+                Component::Normal(component) => component,
+            };
             if let Some(prev) = last_component.take() {
                 // Navigate into the previous component as a directory
                 current_dir = current_dir.open_dir(prev).await?;
@@ -848,7 +844,7 @@ where
         }
 
         // Find the final entry
-        let final_name = last_component.unwrap();
+        let final_name = last_component.ok_or(FatError::InvalidPath)?;
         current_dir.find(final_name).await?.ok_or(FatError::EntryNotFound)
     }
 

@@ -1,8 +1,9 @@
 //! Path utilities shared across filesystem implementations.
 
 extern crate alloc;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use alloc::string::String;
+
+pub use hadris_path::{Component, Components, PathError, Separators, VPath};
 
 /// Splits a path into (directory, filename).
 ///
@@ -17,18 +18,7 @@ use alloc::vec::Vec;
 /// assert_eq!(split_path(""), None);
 /// assert_eq!(split_path("/"), None);
 /// ```
+#[deprecated(since = "2.0.0", note = "use hadris_path::split_path")]
 pub fn split_path(path: &str) -> Option<(String, String)> {
-    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    if parts.is_empty() {
-        return None;
-    }
-
-    let filename = parts.last().unwrap().to_string();
-    let dir_path = if parts.len() > 1 {
-        parts[..parts.len() - 1].join("/")
-    } else {
-        String::new()
-    };
-
-    Some((dir_path, filename))
+    hadris_path::split_path(path)
 }

@@ -68,6 +68,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # hadris-path
+          - crate: hadris-path
+            tier: no-std
+            features: ""
+          - crate: hadris-path
+            tier: alloc
+            features: "alloc"
+
           # hadris-io
           - crate: hadris-io
             tier: no-std
@@ -263,6 +271,9 @@ jobs:
           - crate: hadris
             tier: leaf-storage
             features: "std,sync,storage"
+          - crate: hadris
+            tier: leaf-path
+            features: "alloc,path"
           - crate: hadris
             tier: leaf-part
             features: "std,sync,read,write,part"

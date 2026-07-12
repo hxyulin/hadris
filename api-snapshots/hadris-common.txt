@@ -46,6 +46,11 @@ pub type hadris_common::optical::OpticalMetadataWriter::Error
 pub type hadris_common::optical::OpticalMetadataWriter::Options
 pub fn hadris_common::optical::OpticalMetadataWriter::write_metadata<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&mut W, &hadris_common::types::layout::DirectoryLayout, &Self::Options) -> core::result::Result<(), Self::Error>
 pub mod hadris_common::path
+pub use hadris_common::path::Component
+pub use hadris_common::path::Components
+pub use hadris_common::path::PathError
+pub use hadris_common::path::Separators
+pub use hadris_common::path::VPath
 pub fn hadris_common::path::split_path(&str) -> core::option::Option<(alloc::string::String, alloc::string::String)>
 pub mod hadris_common::str
 pub mod hadris_common::str::utf16

@@ -4,7 +4,10 @@ Shared types and utilities used by Hadris filesystem crates.
 
 ## Overview
 
-This crate provides common functionality needed across the Hadris workspace, including endian-aware types, extents, fixed-length filenames, path helpers, and optional optical-media types.
+This crate provides common functionality needed across the Hadris workspace,
+including endian-aware types, extents, fixed-length filenames, and optional
+optical-media types. New path code should use the standalone `hadris-path`
+crate; the old path module remains as a compatibility forwarding surface.
 
 ## Features
 

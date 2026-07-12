@@ -6,6 +6,7 @@
 //! - [`block`] — block filesystems and partition tables
 //! - [`optical`] — optical filesystems and disc image composition
 //! - [`archive`] — sequential archive formats
+//! - [`path`] — lexical virtual-path parsing and normalization
 //!
 //! # Feature flags
 //!
@@ -43,3 +44,7 @@ pub use hadris_optical as optical;
 /// Sequential archive formats.
 #[cfg(feature = "cpio")]
 pub use hadris_archive as archive;
+
+/// Lexical virtual-path utilities.
+#[cfg(feature = "path")]
+pub use hadris_path as path;

@@ -209,13 +209,14 @@ fn async_fat_content_mutation_traversal_and_recovery() {
         let mut reader = fs.open_file_path("NESTED/PAYLOAD.BIN").await.unwrap();
         assert_eq!(reader.read_to_vec().await.unwrap(), payload);
 
-        let entry = fs.open_path("NESTED/PAYLOAD.BIN").await.unwrap();
+        let entry = fs.open_path("./NESTED//PAYLOAD.BIN").await.unwrap();
         fs.truncate(&entry, 513).await.unwrap();
         let mut reader = fs.open_file_path("NESTED/PAYLOAD.BIN").await.unwrap();
         assert_eq!(reader.read_to_vec().await.unwrap(), payload[..513]);
 
         assert!(fs.create_file(&nested, "PAYLOAD.BIN").await.is_err());
         assert!(fs.open_dir_path("NESTED").await.is_ok());
+        assert!(fs.open_path("../PAYLOAD.BIN").await.is_err());
 
         let source = volume.into_inner();
         assert_eq!(source.bytes.len(), 2 * 1024 * 1024);

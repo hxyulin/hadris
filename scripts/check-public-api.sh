@@ -25,6 +25,7 @@ crates=(
   hadris-macros
   hadris-optical
   hadris-part
+  hadris-path
   hadris-storage
   hadris-udf
 )
