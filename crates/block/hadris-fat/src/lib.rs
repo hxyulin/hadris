@@ -41,7 +41,7 @@
 //!
 //! | Feature  | Default | Description |
 //! |----------|---------|-------------|
-//! | `std`    | Yes     | Standard library support (enables `alloc`, `sync`, chrono clock) |
+//! | `std`    | Yes     | Standard library support (enables `alloc` and chrono clock) |
 //! | `alloc`  | No      | Heap allocation without full std |
 //! | `sync`   | No      | Synchronous API via `hadris-io` sync traits |
 //! | `async`  | No      | Asynchronous API via `hadris-io` async traits |
@@ -50,7 +50,7 @@
 //! | `lfn`    | Yes     | Long filename (VFAT) support |
 //! | `cache`  | No      | FAT sector caching for reduced I/O |
 //! | `tool`   | No      | Analysis and diagnostic utilities |
-//! | `exfat`  | No      | exFAT filesystem support (WIP) |
+//! | `exfat`  | No      | Sync-only exFAT filesystem support (WIP) |
 //!
 //! ## Known Limitations
 //!
@@ -60,7 +60,8 @@
 //!   it is silently bypassed.
 //! - **exFAT:** Experimental. Fragmented allocation bitmap / upcase table
 //!   layouts return [`FatError::UnsupportedFatType`]. The exFAT API lives at
-//!   the crate root (`exfat` module), not under `sync`/`async` dual codegen.
+//!   the crate root (`exfat` module), not under `sync`/`async` dual codegen,
+//!   and currently implies `sync`.
 //!
 //! ## Dual Sync/Async Architecture
 //!
@@ -68,11 +69,12 @@
 //! a compile-time code transformation system. The same implementation
 //! source is compiled twice:
 //!
-//! - **`sync`** module: synchronous API (enabled by `sync` or `std` feature)
+//! - **`sync`** module: synchronous API (enabled by `sync` feature)
 //! - **`async`** module: asynchronous API (enabled by `async` feature)
 //!
-//! When the `std` feature is enabled (default), the synchronous API types
-//! are re-exported at the crate root for convenience.
+//! `std` does not select an I/O mode. The default feature set enables `sync`
+//! explicitly, and synchronous API types are re-exported at the crate root
+//! whenever `sync` is enabled.
 //!
 //! ## Modules
 //!

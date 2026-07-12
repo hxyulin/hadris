@@ -87,13 +87,17 @@ let options = FormatOptions::new(64 * 1024 * 1024)
 | `lfn` | Long filename (VFAT) support | None |
 | `cache` | FAT sector caching for performance | `alloc`, `sync` |
 | `tool` | Analysis and verification utilities | `alloc`, `read`, `sync` |
-| `exfat` | ExFAT filesystem support (WIP) | `alloc` |
+| `exfat` | Sync-only exFAT filesystem support (WIP) | `alloc`, `sync` |
 | `alloc` | Heap allocation without full std | `alloc` crate |
 | `sync` | Synchronous API | `hadris-io/sync` |
 | `async` | Asynchronous API | `hadris-io/async` |
-| `std` | Full standard library support | `std`, `alloc`, `sync` |
+| `std` | Full standard library support | `std`, `alloc` |
 
-Default features: `read`, `write`, `lfn`, `std`
+Default features: `read`, `write`, `lfn`, `std`, `sync`
+
+`std` selects platform integration but does not select an I/O mode. Custom
+configurations should enable `sync`, `async`, or both explicitly. The `cache`,
+`tool`, and `exfat` capabilities remain sync-only and therefore imply `sync`.
 
 ## Volume Formatting
 

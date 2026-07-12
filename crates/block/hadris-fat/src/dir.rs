@@ -270,7 +270,7 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                 };
 
                 if let Err(e) = data.seek(SeekFrom::Start(seek_pos)).await {
-                    return Some(Err(FatError::Io(e)));
+                    return Some(Err(FatError::Io(e.erase())));
                 }
 
                 // Read the directory entry
@@ -655,7 +655,7 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                 };
 
                 if let Err(e) = data.seek(SeekFrom::Start(seek_pos)) {
-                    return Some(Err(FatError::Io(e)));
+                    return Some(Err(FatError::Io(e.erase())));
                 }
 
                 // Read the directory entry
