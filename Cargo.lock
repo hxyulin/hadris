@@ -476,6 +476,7 @@ name = "hadris-block"
 version = "1.2.1"
 dependencies = [
  "hadris-fat",
+ "hadris-io",
  "hadris-part",
  "hadris-storage",
 ]

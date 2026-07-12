@@ -94,7 +94,8 @@ access to the concrete format type so specialized features are not erased.
 
 Status: the three facades exist and the `hadris` umbrella delegates its feature
 forwarding and public category namespaces to them. `hadris-block` also exposes
-the format-neutral `hadris-storage` primitives. Detection and common wrappers
+the format-neutral `hadris-storage` primitives and lightweight, non-consuming
+FAT/partition-table detection. Detection for other categories and common wrappers
 remain future work.
 
 ## Phase 5: Capability-oriented high-level APIs

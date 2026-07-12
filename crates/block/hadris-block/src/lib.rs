@@ -5,6 +5,12 @@
 
 #![no_std]
 
+#[cfg(feature = "std")]
+extern crate std;
+
+#[cfg(feature = "detect")]
+pub mod detect;
+
 /// Format-neutral block geometry and device capabilities.
 #[cfg(feature = "storage")]
 pub use hadris_storage as storage;

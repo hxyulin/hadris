@@ -207,10 +207,10 @@ jobs:
             features: ""
           - crate: hadris-block
             tier: no-std-async
-            features: "alloc,async,read,storage,fat,part"
+            features: "alloc,async,read,detect,storage,fat,part"
           - crate: hadris-block
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,storage,fat,part"
+            features: "std,alloc,sync,async,read,write,detect,storage,fat,part"
           - crate: hadris-optical
             tier: no-formats
             features: ""

@@ -15,18 +15,20 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "sync", "read", "write", "storage", "fat", "part"]
-std = ["alloc", "hadris-storage?/std", "hadris-fat?/std", "hadris-part?/std"]
-alloc = ["hadris-storage?/alloc", "hadris-fat?/alloc", "hadris-part?/alloc"]
-sync = ["hadris-storage?/sync", "hadris-fat?/sync", "hadris-part?/sync"]
-async = ["hadris-storage?/async", "hadris-fat?/async", "hadris-part?/async"]
+default = ["std", "sync", "read", "write", "detect", "storage", "fat", "part"]
+std = ["alloc", "hadris-io?/std", "hadris-storage?/std", "hadris-fat?/std", "hadris-part?/std"]
+alloc = ["hadris-io?/alloc", "hadris-storage?/alloc", "hadris-fat?/alloc", "hadris-part?/alloc"]
+sync = ["hadris-io?/sync", "hadris-storage?/sync", "hadris-fat?/sync", "hadris-part?/sync"]
+async = ["hadris-io?/async", "hadris-storage?/async", "hadris-fat?/async", "hadris-part?/async"]
 read = ["hadris-fat?/read", "hadris-part?/read"]
 write = ["alloc", "read", "hadris-fat?/write", "hadris-part?/write"]
+detect = ["read", "dep:hadris-io"]
 storage = ["dep:hadris-storage"]
 fat = ["dep:hadris-fat", "hadris-fat/lfn"]
 part = ["dep:hadris-part"]
 
 [dependencies]
+hadris-io = { workspace = true, optional = true, default-features = false }
 hadris-storage = { workspace = true, optional = true, default-features = false }
 hadris-fat = { workspace = true, optional = true, default-features = false }
 hadris-part = { workspace = true, optional = true, default-features = false }
