@@ -166,7 +166,7 @@ When the `lfn` feature is enabled, the crate supports VFAT long filenames:
 - Filenames up to 255 UTF-16 code units
 - Unicode character support (including supplementary-plane characters)
 - Automatic short-name generation for 8.3 compatibility
-- **Limitation:** LFN directory-entry runs that would span a cluster boundary are rejected with `FatError::DirEntryRunTooLong`
+- Directory-entry runs may span FAT cluster-chain boundaries
 
 ## FAT Caching
 

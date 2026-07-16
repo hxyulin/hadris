@@ -133,7 +133,7 @@ Categories: `docs` | `api-ergonomics` | `missing-api` | `spec` | `code-quality` 
 | S1 | P0 | spec | `crates/optical/hadris-iso/spec/Specification.md` | Stops at PVD with `(WIP)`; Booting.md unfinished | Finish or mark planned sections; link from rustdoc |
 | S2 | ~~P1~~ | spec | ISO RRIP write | **Resolved:** metadata, symlinks, devices, and directory relocation are emitted according to `RripOptions` | — |
 | S3 | ~~P1~~ | spec | ISO El-Torito write | **Resolved:** multi-section catalogs reference caller-prepared opaque emulation images; no synthesized Virtual FAT is required | — |
-| S4 | P1 | spec | FAT LFN write | Cross-cluster LFN runs rejected (`DirEntryRunTooLong`) | Implement or document max name vs cluster size |
+| S4 | ~~P1~~ | spec | FAT LFN write | **Resolved:** LFN runs may cross directory cluster-chain boundaries | — |
 | S5 | P1 | spec | exFAT | Fragmented bitmap/upcase → `UnsupportedFatType` | Document hard limits; add fixtures |
 | S6 | ~~P1~~ | spec | `hadris-part` `scheme_io.rs` | **Resolved:** backup headers are read and validated strictly with typed failures | — |
 | S7 | P2 | spec | UDF | `UnsupportedRevision` never constructed; NSR mapping coarse | Use variant or remove |
@@ -161,7 +161,7 @@ Categories: `docs` | `api-ergonomics` | `missing-api` | `spec` | `code-quality` 
 
 **hadris-iso** — Richest tests and rustdoc; RRIP/Joliet/El-Torito depth. Remaining gaps: sync-only introspection and the WIP in-repo spec excluded from crates.io.
 
-**hadris-fat** — Strongest library professionalism (builder, cache/tool, fsck roundtrips, docs.rs). Gaps: **broken README**, LFN cross-cluster limit, exFAT fragmentation limits, exFAT outside dual-async pattern.
+**hadris-fat** — Strongest library professionalism (builder, cache/tool, fsck roundtrips, docs.rs). Gaps: **broken README**, exFAT fragmentation limits, exFAT outside dual-async pattern.
 
 **hadris-udf** — Clean descriptor layer and ECMA-167 tags. Gaps: **no file read API**, size placeholder, write→read roundtrip hole, support-matrix messaging lag, dead `UnsupportedRevision`.
 
@@ -218,9 +218,8 @@ Compliance is **behavioral**: roundtrip tests and external tools (xorriso, fsck.
 
 ### Known mismatches / incompleteness
 
-1. **FAT LFN** — cross-cluster directory entry runs unsupported on write.
-2. **exFAT** — fragmented critical metadata unsupported.
-3. **In-repo ISO spec** — not a usable compliance oracle yet.
+1. **exFAT** — fragmented critical metadata unsupported.
+2. **In-repo ISO spec** — not a usable compliance oracle yet.
 
 ### Existing good practice to build on
 

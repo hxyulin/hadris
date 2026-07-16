@@ -2082,30 +2082,22 @@ mod lfn_write_edge_tests {
     }
 
     #[test]
-    fn lfn_run_too_long_returns_dir_entry_run_too_long() {
-        // The MVP keeps every directory-entry run inside one cluster
-        // (write.rs:785 comment). The default test fixture has 16
-        // entries-per-cluster, so a name needing > 15 LFN entries
-        // (≥ 16 slots total) trips the `count > entries_per_cluster`
-        // check and surfaces as `DirEntryRunTooLong`. This test pins that
-        // behaviour so a future cross-cluster fix doesn't quietly remove
-        // the boundary.
+    fn lfn_run_crosses_cluster_boundary() {
         let mut bytes = fresh_fat32_bytes();
-        // 16 LFN entries × 13 chars = 208 chars, requires 16 + 1 = 17 slots.
+        // 16 LFN entries + one short entry requires 17 slots, crossing from
+        // the 16-slot root cluster into a newly allocated cluster.
         let too_long: String = std::iter::repeat_n('a', 208).collect();
-        let cursor = Cursor::new(&mut bytes[..]);
-        let fs = FatFs::open(cursor).expect("open");
-        match fs.create_file(&fs.root_dir(), &too_long) {
-            Err(FatError::DirEntryRunTooLong {
-                entries_needed,
-                entries_per_cluster,
-            }) => {
-                assert_eq!(entries_needed, 17);
-                assert!(entries_needed > entries_per_cluster);
-            }
-            Err(other) => panic!("expected DirEntryRunTooLong, got {other:?}"),
-            Ok(_) => panic!("17-slot run should not fit a 16-entry cluster"),
+        {
+            let cursor = Cursor::new(&mut bytes[..]);
+            let fs = FatFs::open(cursor).expect("open");
+            fs.create_file(&fs.root_dir(), &too_long)
+                .expect("cross-cluster LFN create");
         }
+
+        let cursor = Cursor::new(&bytes[..]);
+        let fs = FatFs::open(cursor).expect("re-open");
+        let entry = fs.root_dir().find(&too_long).expect("find").expect("entry");
+        assert!(entry.long_name().expect("lfn").eq_str(&too_long));
     }
 
     #[test]
@@ -2473,16 +2465,9 @@ mod dirty_file_panic_tests {
     }
 }
 
-/// Regression tests for the LFN cluster-boundary limitation.
-///
-/// LFN write keeps each directory-entry run inside a single cluster (see the
-/// guard in `write.rs::find_free_entry_run_in_cluster_chain`). On a volume
-/// whose cluster holds fewer entries than a long name requires, the create
-/// must fail *safely* — return an error and leave the directory usable —
-/// rather than split the run across a cluster boundary or corrupt the dir.
+/// Regression tests for LFN runs spanning directory cluster boundaries.
 #[cfg(all(feature = "std", feature = "lfn"))]
 mod lfn_cluster_boundary_tests {
-    use hadris_fat::FatError;
     use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
     use std::io::Cursor;
 
@@ -2499,7 +2484,7 @@ mod lfn_cluster_boundary_tests {
     }
 
     #[test]
-    fn long_name_exceeding_one_cluster_fails_safely() {
+    fn long_name_exceeding_one_cluster_roundtrips_and_deletes() {
         let fs = fat32_spc1_fs();
 
         // 200 'A' + ".txt" = 204 UTF-16 units → 16 LFN entries + 1 short = 17
@@ -2508,24 +2493,16 @@ mod lfn_cluster_boundary_tests {
         // validation.
         let long_name = format!("{}.txt", "A".repeat(200));
 
-        let err = fs
+        let entry = fs
             .create_file(&fs.root_dir(), &long_name)
-            .expect_err("a 17-entry run must not fit a 16-entry cluster");
+            .expect("a 17-entry run should span two clusters");
         assert!(
-            matches!(
-                err,
-                FatError::DirEntryRunTooLong {
-                    entries_needed: 17,
-                    entries_per_cluster: 16,
-                }
-            ),
-            "expected the cluster-size guard to reject it as DirEntryRunTooLong, got {err:?}",
+            fs.root_dir().find(&long_name).expect("find").is_some(),
+            "cross-cluster name must round-trip"
         );
-
-        // Fail-safe: the rejected create must not have corrupted the root —
-        // a normal short-name create still works and lists correctly.
+        fs.delete(&entry).expect("delete cross-cluster LFN run");
         fs.create_file(&fs.root_dir(), "OK.TXT")
-            .expect("short-name create must still succeed after the rejection");
+            .expect("short-name create must succeed after deletion");
 
         let root = fs.root_dir();
         let mut names = Vec::new();
@@ -2541,7 +2518,80 @@ mod lfn_cluster_boundary_tests {
         );
         assert!(
             !names.iter().any(|n| n.starts_with("AAAA")),
-            "the rejected long name must leave no partial entries behind: {names:?}",
+            "the deleted long name must leave no visible entries behind: {names:?}",
         );
+    }
+
+    #[test]
+    fn maximum_length_name_spans_clusters() {
+        let fs = fat32_spc1_fs();
+        let name: String = std::iter::repeat_n('m', 255).collect();
+
+        let entry = fs
+            .create_file(&fs.root_dir(), &name)
+            .expect("255-unit LFN should use 20 LFN slots plus one short slot");
+        assert!(
+            fs.root_dir().find(&name).expect("find").is_some(),
+            "maximum-length name must round-trip"
+        );
+        fs.delete(&entry).expect("delete maximum-length name");
+        assert!(
+            fs.root_dir()
+                .find(&name)
+                .expect("find after delete")
+                .is_none(),
+            "maximum-length name must be fully removed"
+        );
+    }
+
+    #[test]
+    fn create_directory_run_crosses_cluster_boundary() {
+        let fs = fat32_spc1_fs();
+        for i in 0..15 {
+            fs.create_file(&fs.root_dir(), &format!("F{i:02}.TXT"))
+                .expect("fill root slot");
+        }
+
+        let name = "Long Folder Name";
+        fs.create_dir(&fs.root_dir(), name)
+            .expect("directory LFN should cross into a new cluster");
+        let entry = fs
+            .root_dir()
+            .find(name)
+            .expect("find")
+            .expect("directory entry");
+        assert!(entry.is_directory());
+        fs.delete(&entry).expect("delete cross-cluster directory");
+        assert!(
+            fs.root_dir()
+                .find(name)
+                .expect("find after delete")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn rename_run_crosses_cluster_boundary() {
+        let fs = fat32_spc1_fs();
+        let source = fs
+            .create_file(&fs.root_dir(), "SOURCE.TXT")
+            .expect("create source");
+        for i in 0..14 {
+            fs.create_file(&fs.root_dir(), &format!("F{i:02}.TXT"))
+                .expect("fill root slot");
+        }
+
+        let new_name = "Renamed Across Boundary.txt";
+        let renamed = fs
+            .rename(&source, &fs.root_dir(), new_name)
+            .expect("rename LFN should cross into a new cluster");
+        assert!(
+            fs.root_dir()
+                .find("SOURCE.TXT")
+                .expect("find old")
+                .is_none()
+        );
+        assert!(fs.root_dir().find(new_name).expect("find new").is_some());
+        fs.delete(&renamed).expect("delete renamed entry");
     }
 }

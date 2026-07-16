@@ -87,18 +87,6 @@ pub enum FatError {
     /// Directory is full (no free entry slots)
     #[cfg(feature = "write")]
     DirectoryFull,
-    /// A single name needs a run of directory entries (LFN slots + the
-    /// short entry) that does not fit in one cluster. This implementation
-    /// keeps every run within a single cluster, so the name is rejected.
-    /// Distinct from [`Self::DirectoryFull`]: the directory has room, but
-    /// the volume's cluster size is too small for a name this long.
-    #[cfg(feature = "write")]
-    DirEntryRunTooLong {
-        /// Directory entries the name requires (LFN slots + 1 short entry).
-        entries_needed: usize,
-        /// Directory entries that fit in one cluster.
-        entries_per_cluster: usize,
-    },
     /// Filename is invalid or too long
     #[cfg(feature = "write")]
     InvalidFilename,
@@ -256,16 +244,6 @@ impl fmt::Display for FatError {
                 write!(f, "directory is full (no free entry slots)")
             }
             #[cfg(feature = "write")]
-            Self::DirEntryRunTooLong {
-                entries_needed,
-                entries_per_cluster,
-            } => {
-                write!(
-                    f,
-                    "name needs {entries_needed} directory entries but only {entries_per_cluster} fit in a cluster (name too long for this cluster size)"
-                )
-            }
-            #[cfg(feature = "write")]
             Self::InvalidFilename => {
                 write!(f, "filename is invalid or too long")
             }
@@ -405,16 +383,6 @@ impl defmt::Format for FatError {
             Self::NoFreeSpace => defmt::write!(f, "no free clusters"),
             #[cfg(feature = "write")]
             Self::DirectoryFull => defmt::write!(f, "directory is full"),
-            #[cfg(feature = "write")]
-            Self::DirEntryRunTooLong {
-                entries_needed,
-                entries_per_cluster,
-            } => defmt::write!(
-                f,
-                "name needs {=usize} dir entries but only {=usize} fit in a cluster",
-                *entries_needed,
-                *entries_per_cluster
-            ),
             #[cfg(feature = "write")]
             Self::InvalidFilename => defmt::write!(f, "filename invalid or too long"),
             #[cfg(feature = "write")]

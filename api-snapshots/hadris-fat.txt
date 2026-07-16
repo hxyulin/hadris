@@ -956,9 +956,6 @@ pub hadris_fat::error::FatError::ClusterOutOfBounds::cluster: u32
 pub hadris_fat::error::FatError::ClusterOutOfBounds::max: u32
 pub hadris_fat::error::FatError::CorruptFilesystem
 pub hadris_fat::error::FatError::CorruptFilesystem::context: &'static str
-pub hadris_fat::error::FatError::DirEntryRunTooLong
-pub hadris_fat::error::FatError::DirEntryRunTooLong::entries_needed: usize
-pub hadris_fat::error::FatError::DirEntryRunTooLong::entries_per_cluster: usize
 pub hadris_fat::error::FatError::DirectoryFull
 pub hadris_fat::error::FatError::DirectoryNotEmpty
 pub hadris_fat::error::FatError::EntryNotFound
@@ -3110,9 +3107,6 @@ pub hadris_fat::FatError::ClusterOutOfBounds::cluster: u32
 pub hadris_fat::FatError::ClusterOutOfBounds::max: u32
 pub hadris_fat::FatError::CorruptFilesystem
 pub hadris_fat::FatError::CorruptFilesystem::context: &'static str
-pub hadris_fat::FatError::DirEntryRunTooLong
-pub hadris_fat::FatError::DirEntryRunTooLong::entries_needed: usize
-pub hadris_fat::FatError::DirEntryRunTooLong::entries_per_cluster: usize
 pub hadris_fat::FatError::DirectoryFull
 pub hadris_fat::FatError::DirectoryNotEmpty
 pub hadris_fat::FatError::EntryNotFound

@@ -575,61 +575,53 @@ fn name_requires_lfn(name: &str) -> bool {
 #[cfg(feature = "write")]
 const LFN_CLEANUP_SCAN_LIMIT: usize = 20;
 
-/// Mark every LFN entry immediately preceding `short_entry_pos` as deleted
-/// (first byte = 0xE5). Walks backward up to `LFN_CLEANUP_SCAN_LIMIT`
-/// slots and stops at the first non-LFN entry, an already-deleted slot,
-/// or the `lower_bound` (the start of the containing cluster, or fixed-
-/// root start). LFN runs are constrained to a single cluster by
-/// `find_free_entry_run_in_cluster_chain`, so this single-cluster scan is
-/// sufficient.
-///
-/// Always-on (not gated on the `lfn` feature) because LFN slots can exist
-/// on disk regardless of how this build was configured — Windows or any
-/// other writer may have planted them in the past.
-///
-/// Without this cleanup, deleting (or renaming) a file that was created
-/// with LFN entries would leave orphaned LFN slots on disk. fsck.fat
-/// reports those as "stray long-name slots" and they confuse fresh-mount
-/// lookups until the slots are eventually overwritten.
 #[cfg(feature = "write")]
-async fn mark_preceding_lfn_entries_deleted<T: Read + Write + Seek>(
-    data: &mut T,
-    short_entry_pos: usize,
-    lower_bound: usize,
-) -> Result<()> {
-    let entry_size = core::mem::size_of::<RawDirectoryEntry>();
-    if short_entry_pos < lower_bound + entry_size {
-        return Ok(());
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DirectoryEntryPosition {
+    cluster: Cluster<usize>,
+    offset: usize,
+}
+
+#[cfg(feature = "write")]
+const MAX_DIRECTORY_ENTRY_RUN: usize = MAX_LFN_ENTRIES + 1;
+
+#[cfg(feature = "write")]
+#[derive(Clone, Copy, Debug)]
+struct DirectoryEntryRun {
+    positions: [DirectoryEntryPosition; MAX_DIRECTORY_ENTRY_RUN],
+    len: usize,
+}
+
+#[cfg(feature = "write")]
+impl DirectoryEntryRun {
+    fn new() -> Self {
+        Self {
+            positions: [DirectoryEntryPosition {
+                cluster: Cluster(0),
+                offset: 0,
+            }; MAX_DIRECTORY_ENTRY_RUN],
+            len: 0,
+        }
     }
 
-    let mut pos = short_entry_pos - entry_size;
-    let mut steps = 0;
-    while steps < LFN_CLEANUP_SCAN_LIMIT {
-        if pos < lower_bound {
-            break;
-        }
-        data.seek(SeekFrom::Start(pos as u64)).await?;
-        let raw = data.read_struct::<RawDirectoryEntry>().await?;
-        let bytes = unsafe { raw.bytes };
-        // Stop at end-of-directory, already-deleted slot, or any non-LFN
-        // entry (LFN attribute byte is exactly 0x0F).
-        if bytes[0] == 0x00 || bytes[0] == 0xE5 {
-            break;
-        }
-        let attr = unsafe { raw.file }.attributes;
-        if attr != DirEntryAttrFlags::LONG_NAME.bits() {
-            break;
-        }
-        // Mark this LFN slot deleted.
-        data.seek(SeekFrom::Start(pos as u64)).await?;
-        data.write_all(&[0xE5]).await?;
-        steps += 1;
-        if pos < entry_size {
-            break;
-        }
-        pos -= entry_size;
+    fn push(&mut self, position: DirectoryEntryPosition) {
+        debug_assert!(self.len < self.positions.len());
+        self.positions[self.len] = position;
+        self.len += 1;
     }
-    Ok(())
+
+    fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    fn get(&self, index: usize) -> DirectoryEntryPosition {
+        debug_assert!(index < self.len);
+        self.positions[index]
+    }
+
+    fn last(&self) -> DirectoryEntryPosition {
+        self.get(self.len - 1)
+    }
 }
 
 /// Encode `name` (UTF-8) into UTF-16LE LFN entries, written into `out` in
@@ -742,23 +734,138 @@ fn build_lfn_entries(
 /// Directory write operations
 #[cfg(feature = "write")]
 impl<DATA: Read + Write + Seek> FatFs<DATA> {
+    async fn mark_entry_span_deleted(&self, entry: &FileEntry) -> Result<()> {
+        let entry_size = core::mem::size_of::<RawDirectoryEntry>();
+        let cluster_size = self.info.cluster_size;
+        let target = DirectoryEntryPosition {
+            cluster: entry.parent_clus,
+            offset: entry.offset_within_cluster,
+        };
+        let mut pending = DirectoryEntryRun::new();
+
+        if entry.parent_dir_clus.0 == 0 {
+            let (root_start, root_size) = self
+                .fixed_root_dir_info()
+                .expect("Fixed root info required for cluster 0");
+            let max_entries = root_size / entry_size;
+            let mut data = self.data.lock();
+            for i in 0..max_entries {
+                let position = DirectoryEntryPosition {
+                    cluster: Cluster(0),
+                    offset: i * entry_size,
+                };
+                if position == target {
+                    for index in 0..pending.len {
+                        data.seek(SeekFrom::Start(
+                            (root_start + pending.get(index).offset) as u64,
+                        ))
+                        .await?;
+                        data.write_all(&[0xE5]).await?;
+                    }
+                    data.seek(SeekFrom::Start((root_start + position.offset) as u64))
+                        .await?;
+                    data.write_all(&[0xE5]).await?;
+                    return Ok(());
+                }
+
+                data.seek(SeekFrom::Start((root_start + position.offset) as u64))
+                    .await?;
+                let raw = data.read_struct::<RawDirectoryEntry>().await?;
+                let bytes = unsafe { raw.bytes };
+                if bytes[0] == 0x00 {
+                    break;
+                }
+                if bytes[0] != 0xE5
+                    && unsafe { raw.file }.attributes == DirEntryAttrFlags::LONG_NAME.bits()
+                {
+                    if pending.len == LFN_CLEANUP_SCAN_LIMIT {
+                        for index in 1..pending.len {
+                            pending.positions[index - 1] = pending.positions[index];
+                        }
+                        pending.len -= 1;
+                    }
+                    pending.push(position);
+                } else {
+                    pending.clear();
+                }
+            }
+            return Err(FatError::EntryNotFound);
+        }
+
+        let mut current = entry.parent_dir_clus;
+        let mut steps = 0u32;
+        loop {
+            steps = steps.saturating_add(1);
+            if steps > self.fat.max_cluster() {
+                return Err(FatError::ClusterLoop {
+                    cluster: current.0 as u32,
+                });
+            }
+
+            {
+                let mut data = self.data.lock();
+                for offset in (0..cluster_size).step_by(entry_size) {
+                    let position = DirectoryEntryPosition {
+                        cluster: current,
+                        offset,
+                    };
+                    let seek_pos =
+                        current.to_bytes(self.info.data_start, cluster_size) + offset;
+                    if position == target {
+                        for index in 0..pending.len {
+                            let previous = pending.get(index);
+                            let previous_pos = previous
+                                .cluster
+                                .to_bytes(self.info.data_start, cluster_size)
+                                + previous.offset;
+                            data.seek(SeekFrom::Start(previous_pos as u64)).await?;
+                            data.write_all(&[0xE5]).await?;
+                        }
+                        data.seek(SeekFrom::Start(seek_pos as u64)).await?;
+                        data.write_all(&[0xE5]).await?;
+                        return Ok(());
+                    }
+
+                    data.seek(SeekFrom::Start(seek_pos as u64)).await?;
+                    let raw = data.read_struct::<RawDirectoryEntry>().await?;
+                    let bytes = unsafe { raw.bytes };
+                    if bytes[0] == 0x00 {
+                        return Err(FatError::EntryNotFound);
+                    }
+                    if bytes[0] != 0xE5
+                        && unsafe { raw.file }.attributes == DirEntryAttrFlags::LONG_NAME.bits()
+                    {
+                        if pending.len == LFN_CLEANUP_SCAN_LIMIT {
+                            for index in 1..pending.len {
+                                pending.positions[index - 1] = pending.positions[index];
+                            }
+                            pending.len -= 1;
+                        }
+                        pending.push(position);
+                    } else {
+                        pending.clear();
+                    }
+                }
+            }
+
+            match self.next_cluster_routed(current.0).await? {
+                Some(next) => current = Cluster(next as usize),
+                None => return Err(FatError::EntryNotFound),
+            }
+        }
+    }
+
     /// Find `count` consecutive free entry slots in a directory, allocating
     /// new directory clusters if needed.
     ///
-    /// Returns the position of the *first* slot in the run; subsequent slots
-    /// follow at incrementing offsets within a single cluster (runs never
-    /// cross a cluster boundary — see [`Self::find_free_entry_run_in_cluster_chain`]).
-    /// Returns [`FatError::DirectoryFull`] when no run is available, or
-    /// [`FatError::DirEntryRunTooLong`] when `count` exceeds the entries that
-    /// fit in one cluster.
-    ///
-    /// `count == 1` is the existing single-slot case used by callers that
-    /// don't need LFN entries.
+    /// The returned positions are in logical directory order and may cross
+    /// cluster boundaries.
     async fn find_free_entry_run_in_dir(
         &self,
         dir: &FatDir<'_, DATA>,
         count: usize,
-    ) -> Result<(Cluster<usize>, usize)> {
+    ) -> Result<DirectoryEntryRun> {
+        debug_assert!((1..=MAX_DIRECTORY_ENTRY_RUN).contains(&count));
         if let Some((root_start, root_size)) = dir.fixed_root {
             self.find_free_entry_run_in_fixed_root(root_start, root_size, count)
                 .await
@@ -776,43 +883,40 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         root_start: usize,
         root_size: usize,
         count: usize,
-    ) -> Result<(Cluster<usize>, usize)> {
+    ) -> Result<DirectoryEntryRun> {
         let mut data = self.data.lock();
         let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         let max_entries = root_size / entry_size;
-
-        let mut run_start: Option<usize> = None;
-        let mut run_len = 0usize;
+        let mut run = DirectoryEntryRun::new();
+        let mut end_seen = false;
 
         for i in 0..max_entries {
             let offset = i * entry_size;
-            let seek_pos = root_start + offset;
-            data.seek(SeekFrom::Start(seek_pos as u64)).await?;
-
-            let raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
-            let first_byte = unsafe { raw_entry.bytes[0] };
-
-            if first_byte == 0x00 {
-                // Definite end-of-directory sentinel — every slot from `offset`
-                // onward is free, so the run continues to the end of the root.
-                let start = run_start.unwrap_or(offset);
-                let needed_end = start + count * entry_size;
-                if needed_end <= root_start + root_size {
-                    return Ok((Cluster(0), start));
+            let free = if end_seen {
+                true
+            } else {
+                data.seek(SeekFrom::Start((root_start + offset) as u64))
+                    .await?;
+                let raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
+                let first_byte = unsafe { raw_entry.bytes[0] };
+                if first_byte == 0x00 {
+                    end_seen = true;
+                    true
+                } else {
+                    first_byte == 0xE5
                 }
-                return Err(FatError::DirectoryFull);
-            }
-            if first_byte == 0xE5 {
-                if run_start.is_none() {
-                    run_start = Some(offset);
-                }
-                run_len += 1;
-                if run_len >= count {
-                    return Ok((Cluster(0), run_start.unwrap()));
+            };
+
+            if free {
+                run.push(DirectoryEntryPosition {
+                    cluster: Cluster(0),
+                    offset,
+                });
+                if run.len == count {
+                    return Ok(run);
                 }
             } else {
-                run_start = None;
-                run_len = 0;
+                run.clear();
             }
         }
 
@@ -821,32 +925,18 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
     /// Find `count` consecutive free entries starting at the given cluster
     /// chain. Allocates a new cluster (extending the chain) when the existing
-    /// space is exhausted; the new cluster is zeroed, so the run can complete
-    /// inside it.
-    ///
-    /// LFN write currently relies on the run fitting fully inside one cluster
-    /// (see assertion below). Names that don't fit must be split across
-    /// clusters by a future extension.
+    /// space is exhausted. Free runs continue across cluster boundaries.
     async fn find_free_entry_run_in_cluster_chain(
         &self,
         dir_cluster: Cluster<usize>,
         count: usize,
-    ) -> Result<(Cluster<usize>, usize)> {
+    ) -> Result<DirectoryEntryRun> {
         let cluster_size = self.info.cluster_size;
         let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         let entries_per_cluster = cluster_size / entry_size;
-        // The MVP keeps every run inside a single cluster — correct for
-        // nearly all real-world cluster sizes (4 KB cluster = 128 entries,
-        // > 21 LFN+short max). Cross-cluster runs are TODO. Reject up front
-        // with a specific error (the directory isn't full — the name is too
-        // long for this cluster size) so the failure is actionable.
-        if count > entries_per_cluster {
-            return Err(FatError::DirEntryRunTooLong {
-                entries_needed: count,
-                entries_per_cluster,
-            });
-        }
         let mut current_cluster = dir_cluster;
+        let mut run = DirectoryEntryRun::new();
+        let mut end_seen = false;
         // Bound the chain walk so a corrupt directory chain cannot loop
         // forever. Anything past `max_cluster` clusters has to revisit one.
         let chain_limit = self.fat.max_cluster();
@@ -859,53 +949,38 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                     cluster: current_cluster.0 as u32,
                 });
             }
-            // Search this cluster for `count` consecutive free entries.
-            let mut run_start: Option<usize> = None;
-            let mut run_len = 0usize;
-            let early_exit = {
+            {
                 let mut data = self.data.lock();
-                let mut early_exit: Option<(Cluster<usize>, usize)> = None;
                 for i in 0..entries_per_cluster {
                     let offset = i * entry_size;
-                    let seek_pos =
-                        current_cluster.to_bytes(self.info.data_start, cluster_size) + offset;
-                    data.seek(SeekFrom::Start(seek_pos as u64)).await?;
-
-                    let raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
-                    let first_byte = unsafe { raw_entry.bytes[0] };
-
-                    if first_byte == 0x00 {
-                        // Definite end-of-directory. If the run fits in this
-                        // cluster's tail, plant it here; otherwise leave
-                        // `early_exit` unset and fall through to advance to /
-                        // allocate the next cluster (a run must stay within a
-                        // single cluster — see the `count > entries_per_cluster`
-                        // guard above).
-                        let start = run_start.unwrap_or(offset);
-                        if start + count * entry_size <= cluster_size {
-                            early_exit = Some((current_cluster, start));
+                    let free = if end_seen {
+                        true
+                    } else {
+                        let seek_pos =
+                            current_cluster.to_bytes(self.info.data_start, cluster_size) + offset;
+                        data.seek(SeekFrom::Start(seek_pos as u64)).await?;
+                        let raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
+                        let first_byte = unsafe { raw_entry.bytes[0] };
+                        if first_byte == 0x00 {
+                            end_seen = true;
+                            true
+                        } else {
+                            first_byte == 0xE5
                         }
-                        break;
-                    }
-                    if first_byte == 0xE5 {
-                        if run_start.is_none() {
-                            run_start = Some(offset);
-                        }
-                        run_len += 1;
-                        if run_len >= count {
-                            early_exit = Some((current_cluster, run_start.unwrap()));
-                            break;
+                    };
+
+                    if free {
+                        run.push(DirectoryEntryPosition {
+                            cluster: current_cluster,
+                            offset,
+                        });
+                        if run.len == count {
+                            return Ok(run);
                         }
                     } else {
-                        run_start = None;
-                        run_len = 0;
+                        run.clear();
                     }
                 }
-                drop(data);
-                early_exit
-            };
-            if let Some(found) = early_exit {
-                return Ok(found);
             }
 
             // Try to get next cluster (cache-routed).
@@ -918,23 +993,30 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                     // No more clusters: allocate a fresh one and link it in.
                     let hint = current_cluster.0 as u32 + 1;
                     let new_cluster = self.allocate_cluster_routed(hint).await?;
-                    self.write_clus_routed(current_cluster.0, new_cluster).await?;
-
-                    // Update FSInfo tracking (FAT32 only)
-                    self.decrement_free_count();
-                    self.update_next_free_hint(new_cluster);
-
-                    // Zero out the new cluster
                     let new_cluster_pos = Cluster(new_cluster as usize)
                         .to_bytes(self.info.data_start, cluster_size);
-                    {
+                    let zero_result = {
                         let mut data = self.data.lock();
                         data.seek(SeekFrom::Start(new_cluster_pos as u64)).await?;
                         let zeros = alloc::vec![0u8; cluster_size];
-                        data.write_all(&zeros).await?;
+                        data.write_all(&zeros).await
+                    };
+                    if let Err(error) = zero_result {
+                        let _ = self.free_chain_routed(new_cluster).await;
+                        return Err(error.into());
+                    }
+                    if let Err(error) = self
+                        .write_clus_routed(current_cluster.0, new_cluster)
+                        .await
+                    {
+                        let _ = self.free_chain_routed(new_cluster).await;
+                        return Err(error);
                     }
 
-                    return Ok((Cluster(new_cluster as usize), 0));
+                    self.decrement_free_count();
+                    self.update_next_free_hint(new_cluster);
+                    current_cluster = Cluster(new_cluster as usize);
+                    end_seen = true;
                 }
             }
         }
@@ -1026,8 +1108,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
         // Find a free run sized for the LFN preamble + the short entry.
         let total_slots = lfn_count + 1;
-        let (run_start_cluster, run_start_offset) =
-            self.find_free_entry_run_in_dir(parent, total_slots).await?;
+        let run = self.find_free_entry_run_in_dir(parent, total_slots).await?;
 
         // Write LFN entries first (in disk order), then the short entry.
         let now = self.time_provider().now();
@@ -1051,16 +1132,26 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             size: hadris_common::types::number::U32::<LittleEndian>::new(0),
         };
 
-        let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         #[cfg(feature = "lfn")]
         for (i, lfn_entry) in lfn_buf.iter().enumerate().take(lfn_count) {
-            let off = run_start_offset + i * entry_size;
-            self.write_raw_directory_entry(run_start_cluster, off, lfn_entry, parent.fixed_root)
+            let position = run.get(i);
+            self.write_raw_directory_entry(
+                position.cluster,
+                position.offset,
+                lfn_entry,
+                parent.fixed_root,
+            )
                 .await?;
         }
         // Short entry sits at the end of the run.
-        let short_offset = run_start_offset + lfn_count * entry_size;
-        self.write_raw_entry(run_start_cluster, short_offset, &entry, parent.fixed_root).await?;
+        let short_position = run.last();
+        self.write_raw_entry(
+            short_position.cluster,
+            short_position.offset,
+            &entry,
+            parent.fixed_root,
+        )
+        .await?;
 
         // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
         // find_free_entry_slot_in_dir may have extended the parent directory.
@@ -1076,8 +1167,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             },
             attr: DirEntryAttrFlags::ARCHIVE,
             size: 0,
-            parent_clus: run_start_cluster,
-            offset_within_cluster: short_offset,
+            parent_dir_clus: parent.cluster,
+            parent_clus: short_position.cluster,
+            offset_within_cluster: short_position.offset,
             cluster: Cluster(0),
             created: now,
             last_access_date: now.date,
@@ -1125,8 +1217,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
         // Allocate `lfn_count + 1` consecutive slots.
         let total_slots = lfn_count + 1;
-        let (run_start_cluster, run_start_offset) =
-            self.find_free_entry_run_in_dir(parent, total_slots).await?;
+        let run = self.find_free_entry_run_in_dir(parent, total_slots).await?;
 
         // Create the directory entry in parent
         let now = self.time_provider().now();
@@ -1158,15 +1249,19 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             size: hadris_common::types::number::U32::<LittleEndian>::new(0),
         };
 
-        let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         #[cfg(feature = "lfn")]
         for (i, lfn_entry) in lfn_buf.iter().enumerate().take(lfn_count) {
-            let off = run_start_offset + i * entry_size;
-            self.write_raw_directory_entry(run_start_cluster, off, lfn_entry, parent.fixed_root)
+            let position = run.get(i);
+            self.write_raw_directory_entry(
+                position.cluster,
+                position.offset,
+                lfn_entry,
+                parent.fixed_root,
+            )
                 .await?;
         }
-        let short_offset = run_start_offset + lfn_count * entry_size;
-        let (slot_cluster, slot_offset) = (run_start_cluster, short_offset);
+        let short_position = run.last();
+        let (slot_cluster, slot_offset) = (short_position.cluster, short_position.offset);
         self.write_raw_entry(slot_cluster, slot_offset, &entry, parent.fixed_root).await?;
 
         // Initialize the new directory with . and .. entries
@@ -1289,34 +1384,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         // orphaned LFN slots on disk — fsck.fat flags those as "stray
         // long-name slots" and they'd confuse a fresh-mount lookup until
         // the slots are eventually overwritten.
-        {
-            let mut data = self.data.lock();
-            let cluster_size = data.cluster_size;
-
-            // Calculate entry position - handle fixed root directory
-            let (entry_pos, lower_bound) = if entry.parent_clus.0 == 0 {
-                // Fixed root directory (FAT12/16): lower bound is the start
-                // of the root area.
-                let (root_start, _) = self
-                    .fixed_root_dir_info()
-                    .expect("Fixed root info required for cluster 0");
-                (root_start + entry.offset_within_cluster, root_start)
-            } else {
-                // Cluster-based directory: LFN runs are constrained to a
-                // single cluster (see find_free_entry_run_in_cluster_chain),
-                // so the lower bound is the start of the parent cluster.
-                let parent_cluster_start = entry
-                    .parent_clus
-                    .to_bytes(self.info.data_start, cluster_size);
-                (parent_cluster_start + entry.offset_within_cluster, parent_cluster_start)
-            };
-
-            mark_preceding_lfn_entries_deleted(data.deref_mut(), entry_pos, lower_bound).await?;
-
-            data.seek(SeekFrom::Start(entry_pos as u64)).await?;
-            // Write 0xE5 as the first byte to mark the short entry deleted
-            data.write_all(&[0xE5]).await?;
-        }
+        self.mark_entry_span_deleted(entry).await?;
 
         // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
         self.write_fsinfo().await?;
@@ -1364,22 +1432,23 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
         // Find a contiguous run sized for LFN entries plus the short entry.
         let total_slots = lfn_count + 1;
-        let (run_start_cluster, run_start_offset) =
-            self.find_free_entry_run_in_dir(dest_dir, total_slots).await?;
-        let entry_size = core::mem::size_of::<RawDirectoryEntry>();
+        let run = self
+            .find_free_entry_run_in_dir(dest_dir, total_slots)
+            .await?;
         #[cfg(feature = "lfn")]
         for (i, lfn_entry) in lfn_buf.iter().enumerate().take(lfn_count) {
-            let off = run_start_offset + i * entry_size;
+            let position = run.get(i);
             self.write_raw_directory_entry(
-                run_start_cluster,
-                off,
+                position.cluster,
+                position.offset,
                 lfn_entry,
                 dest_dir.fixed_root,
             )
             .await?;
         }
-        let slot_cluster = run_start_cluster;
-        let slot_offset = run_start_offset + lfn_count * entry_size;
+        let short_position = run.last();
+        let slot_cluster = short_position.cluster;
+        let slot_offset = short_position.offset;
 
         // Read the original raw entry to preserve all fields
         let original_raw = {
@@ -1430,7 +1499,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         // If moving a directory to a different parent, update the ".." entry
         if entry.is_directory()
             && entry.cluster().0 >= 2
-            && dest_dir.cluster != entry.parent_clus
+            && dest_dir.cluster != entry.parent_dir_clus
         {
             let mut data = self.data.lock();
             let cluster_size = data.cluster_size;
@@ -1465,27 +1534,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
         // Mark the old entry deleted, including any preceding LFN slots so
         // we don't leave orphaned long-name entries behind.
-        {
-            let mut data = self.data.lock();
-            let cluster_size = data.cluster_size;
-
-            let (entry_pos, lower_bound) = if entry.parent_clus.0 == 0 {
-                let (root_start, _) = self
-                    .fixed_root_dir_info()
-                    .expect("Fixed root info required for cluster 0");
-                (root_start + entry.offset_within_cluster, root_start)
-            } else {
-                let parent_cluster_start = entry
-                    .parent_clus
-                    .to_bytes(self.info.data_start, cluster_size);
-                (parent_cluster_start + entry.offset_within_cluster, parent_cluster_start)
-            };
-
-            mark_preceding_lfn_entries_deleted(data.deref_mut(), entry_pos, lower_bound).await?;
-
-            data.seek(SeekFrom::Start(entry_pos as u64)).await?;
-            data.write_all(&[0xE5]).await?;
-        }
+        self.mark_entry_span_deleted(entry).await?;
 
         // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
         // find_free_entry_slot_in_dir on dest_dir may have extended it.
@@ -1501,6 +1550,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             },
             attr: DirEntryAttrFlags::from_bits_retain(original_file.attributes),
             size: original_file.size.get() as usize,
+            parent_dir_clus: dest_dir.cluster,
             parent_clus: slot_cluster,
             offset_within_cluster: slot_offset,
             cluster: entry.cluster(),

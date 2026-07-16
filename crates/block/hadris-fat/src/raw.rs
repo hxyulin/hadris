@@ -286,7 +286,6 @@ unsafe impl bytemuck::AnyBitPattern for RawFileEntry {}
 /// @hadris-compliance partial
 /// @hadris-tests comprehensive_fat::test_lfn_builder_sequence
 /// @hadris-fuzz fat_read
-/// @hadris-note cross-cluster LFN directory entry runs unsupported on write
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct RawLfnEntry {

@@ -30,6 +30,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
         FatDirIter {
             data: self.data,
             cluster: self.cluster,
+            dir_start_cluster: self.cluster,
             offset: 0,
             fixed_root_remaining: self.fixed_root.map(|(_, size)| size),
             fixed_root_start: self.fixed_root.map(|(start, _)| start),
@@ -47,6 +48,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
         FatDirIter {
             data: self.data,
             cluster: self.cluster,
+            dir_start_cluster: self.cluster,
             offset: 0,
             fixed_root_remaining: self.fixed_root.map(|(_, size)| size),
             fixed_root_start: self.fixed_root.map(|(start, _)| start),
@@ -134,6 +136,8 @@ pub struct FatDirIter<'a, DATA: Read + Seek> {
     data: &'a FatFs<DATA>,
     /// Current cluster (or 0 for fixed root directory)
     cluster: Cluster,
+    /// First cluster of the directory chain (or 0 for a fixed root).
+    dir_start_cluster: Cluster,
     /// Offset within current cluster (or within fixed root dir)
     offset: usize,
     /// For fixed root directory: remaining bytes to read (None for cluster-based)
@@ -377,6 +381,7 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                 long_name,
                 attr,
                 size: file_entry.size.get() as usize,
+                parent_dir_clus: self.dir_start_cluster,
                 parent_clus: self.cluster,
                 offset_within_cluster: self.offset - entry_size,
                 cluster: Cluster::from_parts(
@@ -443,7 +448,10 @@ pub struct FileEntry {
     pub(crate) long_name: Option<LongFileName>,
     pub(crate) attr: DirEntryAttrFlags,
     pub(crate) size: usize,
-    /// Parent directory cluster (used for write operations)
+    /// First cluster of the containing directory (0 for a fixed root).
+    #[cfg_attr(not(feature = "write"), allow(dead_code))]
+    pub(crate) parent_dir_clus: Cluster<usize>,
+    /// Cluster containing this short directory entry.
     #[cfg_attr(not(feature = "write"), allow(dead_code))]
     pub(crate) parent_clus: Cluster<usize>,
     /// Offset of this entry within the parent cluster (used for write operations)
@@ -773,6 +781,7 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                 long_name,
                 attr,
                 size: file_entry.size.get() as usize,
+                parent_dir_clus: self.dir_start_cluster,
                 parent_clus: self.cluster,
                 offset_within_cluster: self.offset - entry_size,
                 cluster: Cluster::from_parts(
