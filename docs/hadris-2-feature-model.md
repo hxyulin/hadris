@@ -111,9 +111,10 @@ FAT now follows the shared contract:
 - device-specific seek errors are erased only when entering the non-generic
   public `FatError`, preserving generic storage implementations;
 - sync-only formatter tests are not instantiated against the async API;
-- `cache`, `tool`, and the current root-level experimental `exfat` API remain
-  explicitly sync-only capabilities and therefore imply `sync`; the core FAT
-  read/write surface supports either or both modes.
+- `cache`, `tool`, and the root-level `unstable-exfat` preview remain explicitly
+  sync-only capabilities and therefore imply `sync`; the preview is excluded
+  from the stable V2 API snapshot, while the core FAT read/write surface
+  supports either or both modes.
 
 Async FAT detection, opening, nested traversal, multi-cluster file-content
 read/write, truncation, duplicate rejection, and source recovery have runtime

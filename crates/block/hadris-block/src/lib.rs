@@ -30,7 +30,10 @@ pub mod r#async;
 #[cfg(feature = "storage")]
 pub use hadris_storage as storage;
 
-/// FAT12/16/32 and exFAT filesystem support.
+/// FAT12/16/32 filesystem support and exFAT format detection.
+///
+/// The unified volume opener supports FAT12/16/32. The leaf `hadris-fat`
+/// crate carries a separate unstable exFAT preview.
 #[cfg(feature = "fat")]
 pub use hadris_fat as fat;
 

@@ -94,3 +94,20 @@ fn rejects_unknown_and_mismatched_formats_without_consuming_source() {
     ));
     image.set_position(9);
 }
+
+#[test]
+fn detects_exfat_but_rejects_unified_opening() {
+    let mut image = vec![0_u8; 512];
+    image[3..11].copy_from_slice(b"EXFAT   ");
+    image[510..512].copy_from_slice(&[0x55, 0xaa]);
+    let mut image = std::io::Cursor::new(image);
+    image.set_position(11);
+
+    assert!(matches!(
+        OpenVolume::open(&mut image, 512),
+        Err(Error::UnsupportedFormat(BlockFormat::Fat(
+            FatVariant::ExFat
+        )))
+    ));
+    assert_eq!(image.position(), 11);
+}

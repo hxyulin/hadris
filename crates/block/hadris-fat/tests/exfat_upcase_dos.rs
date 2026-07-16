@@ -1,4 +1,4 @@
-#![cfg(feature = "exfat")]
+#![cfg(feature = "unstable-exfat")]
 //! Regression test for the exFAT up-case table allocation-DoS.
 //!
 //! The up-case table directory entry's `data_length` is an untrusted **u64**

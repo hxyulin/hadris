@@ -141,7 +141,7 @@ All library crates support `sync` and `async` feature flags for dual sync/async 
 - `lfn` - Long filename (VFAT) support
 - `cache` - FAT sector caching for performance
 - `tool` - Analysis and verification utilities
-- `exfat` - ExFAT support (WIP)
+- `unstable-exfat` - Unstable, sync-only exFAT preview
 
 **hadris-iso:**
 - `std` (default) - Standard library support

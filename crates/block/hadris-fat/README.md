@@ -10,7 +10,7 @@ A comprehensive Rust implementation of the FAT filesystem family with support fo
 - **No-std Compatible** - Use in bootloaders and custom kernels
 - **FAT Caching** - Optional sector caching for improved performance
 - **Analysis Tools** - Filesystem verification and diagnostic utilities
-- **ExFAT** - Experimental support for exFAT (work in progress)
+- **exFAT preview** - Opt-in unstable support for basic exFAT workflows
 
 ## Quick Start
 
@@ -87,7 +87,7 @@ let options = FatFormatOptions::new(64 * 1024 * 1024)
 | `lfn` | Long filename (VFAT) support | None |
 | `cache` | FAT sector caching for performance | `alloc`, `sync` |
 | `tool` | Analysis and verification utilities | `alloc`, `read`, `sync` |
-| `exfat` | Sync-only exFAT filesystem support (WIP) | `alloc`, `sync` |
+| `unstable-exfat` | Unstable, sync-only exFAT preview | `alloc`, `sync` |
 | `alloc` | Heap allocation without full std | `alloc` crate |
 | `sync` | Synchronous API | `hadris-io/sync` |
 | `async` | Asynchronous API | `hadris-io/async` |
@@ -97,7 +97,17 @@ Default features: `read`, `write`, `lfn`, `std`, `sync`
 
 `std` selects platform integration but does not select an I/O mode. Custom
 configurations should enable `sync`, `async`, or both explicitly. The `cache`,
-`tool`, and `exfat` capabilities remain sync-only and therefore imply `sync`.
+`tool` and `unstable-exfat` capabilities remain sync-only and therefore imply
+`sync`.
+
+### exFAT preview status
+
+The `unstable-exfat` feature is outside the Hadris V2 API stability promise.
+It provides basic formatting, reading, traversal, and simple mutation on
+conventional layouts, but is not recommended for irreplaceable data. The
+preview does not support fragmented allocation bitmap or up-case metadata,
+directory growth, general cross-cluster directory entry-set placement, async
+operation, TexFAT, or repair workflows.
 
 ## Volume Formatting
 

@@ -147,7 +147,7 @@ pub enum FatError {
 
     // exFAT-specific errors
     /// Invalid exFAT filesystem signature
-    #[cfg(feature = "exfat")]
+    #[cfg(feature = "unstable-exfat")]
     ExFatInvalidSignature {
         /// Expected signature
         expected: [u8; 8],
@@ -155,13 +155,13 @@ pub enum FatError {
         found: [u8; 8],
     },
     /// Invalid exFAT boot sector
-    #[cfg(feature = "exfat")]
+    #[cfg(feature = "unstable-exfat")]
     ExFatInvalidBootSector {
         /// Reason for invalidity
         reason: &'static str,
     },
     /// Invalid exFAT boot region checksum
-    #[cfg(feature = "exfat")]
+    #[cfg(feature = "unstable-exfat")]
     ExFatInvalidChecksum {
         /// Expected checksum
         expected: u32,
@@ -169,7 +169,7 @@ pub enum FatError {
         found: u32,
     },
     /// Invalid exFAT directory entry
-    #[cfg(feature = "exfat")]
+    #[cfg(feature = "unstable-exfat")]
     ExFatInvalidEntry {
         /// Reason for invalidity
         reason: &'static str,
@@ -284,7 +284,7 @@ impl fmt::Display for FatError {
             Self::InvalidFormatOption { option, reason } => {
                 write!(f, "invalid format option '{option}': {reason}")
             }
-            #[cfg(feature = "exfat")]
+            #[cfg(feature = "unstable-exfat")]
             Self::ExFatInvalidSignature { expected, found } => {
                 write!(
                     f,
@@ -293,18 +293,18 @@ impl fmt::Display for FatError {
                     core::str::from_utf8(found).unwrap_or("<invalid>")
                 )
             }
-            #[cfg(feature = "exfat")]
+            #[cfg(feature = "unstable-exfat")]
             Self::ExFatInvalidBootSector { reason } => {
                 write!(f, "invalid exFAT boot sector: {reason}")
             }
-            #[cfg(feature = "exfat")]
+            #[cfg(feature = "unstable-exfat")]
             Self::ExFatInvalidChecksum { expected, found } => {
                 write!(
                     f,
                     "invalid exFAT checksum: expected {expected:#010x}, found {found:#010x}"
                 )
             }
-            #[cfg(feature = "exfat")]
+            #[cfg(feature = "unstable-exfat")]
             Self::ExFatInvalidEntry { reason } => {
                 write!(f, "invalid exFAT directory entry: {reason}")
             }
@@ -422,20 +422,20 @@ impl defmt::Format for FatError {
                     *reason
                 )
             }
-            #[cfg(feature = "exfat")]
+            #[cfg(feature = "unstable-exfat")]
             Self::ExFatInvalidSignature { .. } => defmt::write!(f, "invalid exFAT signature"),
-            #[cfg(feature = "exfat")]
+            #[cfg(feature = "unstable-exfat")]
             Self::ExFatInvalidBootSector { reason } => {
                 defmt::write!(f, "invalid exFAT boot sector: {=str}", *reason)
             }
-            #[cfg(feature = "exfat")]
+            #[cfg(feature = "unstable-exfat")]
             Self::ExFatInvalidChecksum { expected, found } => defmt::write!(
                 f,
                 "invalid exFAT checksum: expected {=u32:#010x}, found {=u32:#010x}",
                 *expected,
                 *found
             ),
-            #[cfg(feature = "exfat")]
+            #[cfg(feature = "unstable-exfat")]
             Self::ExFatInvalidEntry { reason } => {
                 defmt::write!(f, "invalid exFAT directory entry: {=str}", *reason)
             }

@@ -5,7 +5,7 @@
 //! verify byte-for-byte equality. When `fsck.exfat` is available on the host,
 //! the image is also validated externally.
 
-#![cfg(all(feature = "exfat", feature = "write"))]
+#![cfg(all(feature = "unstable-exfat", feature = "write"))]
 
 use std::fs::OpenOptions;
 use std::io::Seek as _;

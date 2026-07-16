@@ -28,7 +28,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
   - Long filename support (VFAT/LFN)
   - FAT sector caching for performance
   - Analysis and verification tools
-  - ExFAT support (experimental)
+  - exFAT preview (unstable leaf-crate feature; not opened by the block facade)
 
 ### Optical Media
 

@@ -1,7 +1,7 @@
 //! # hadris-fat
 //!
 //! A `no_std`-compatible library for reading and writing FAT filesystems
-//! (FAT12, FAT16, FAT32) with optional exFAT support.
+//! (FAT12, FAT16, FAT32), plus an opt-in unstable exFAT preview.
 //!
 //! ## Quick Start
 //!
@@ -50,16 +50,18 @@
 //! | `lfn`    | Yes     | Long filename (VFAT) support |
 //! | `cache`  | No      | FAT sector caching for reduced I/O |
 //! | `tool`   | No      | Analysis and diagnostic utilities |
-//! | `exfat`  | No      | Sync-only exFAT filesystem support (WIP) |
+//! | `unstable-exfat` | No | Unstable, sync-only exFAT preview |
 //!
 //! ## Known Limitations
 //!
 //! - **async + cache:** The FAT-sector cache is sync-only; under the async API
 //!   it is silently bypassed.
-//! - **exFAT:** Experimental. Fragmented allocation bitmap / upcase table
-//!   layouts return [`FatError::UnsupportedFatType`]. The exFAT API lives at
-//!   the crate root (`exfat` module), not under `sync`/`async` dual codegen,
-//!   and currently implies `sync`.
+//! - **exFAT:** The `unstable-exfat` preview is outside the V2 API stability
+//!   promise and is not recommended for irreplaceable data. It is sync-only
+//!   and does not support fragmented allocation bitmap / upcase metadata,
+//!   directory growth, general cross-cluster entry-set placement, TexFAT, or
+//!   repair workflows. Enable the preview and see the `exfat` module for its
+//!   qualified scope.
 //!
 //! ## Dual Sync/Async Architecture
 //!
@@ -109,8 +111,8 @@ pub mod oem;
 pub mod raw;
 pub mod time;
 
-// ExFAT (WIP, stays at crate root for now)
-#[cfg(feature = "exfat")]
+// Unstable exFAT preview, intentionally outside the sync/async stable surface.
+#[cfg(feature = "unstable-exfat")]
 pub mod exfat;
 
 // ---------------------------------------------------------------------------

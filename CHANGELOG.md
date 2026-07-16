@@ -109,8 +109,8 @@ Each published package owns its version and may be released independently.
 - **hadris-iso:** Auto-convert lowercase in PVD string fields instead of
   panicking.
 - **Docs:** Fixed broken rustdoc intra-doc links (`OemCpConverter`, `FAT[1]`);
-  docs.rs now builds `hadris-fat` with the full sync feature set so cache /
-  tool / exfat APIs are documented.
+  docs.rs builds `hadris-fat` with the full stable sync feature set while the
+  unstable exFAT preview remains opt-in.
 - **hadris-fat:** The `tool` feature now implies `sync` and is emitted only
   in the sync slice — the analysis/verify utilities iterate directories
   synchronously, so `--features async,tool` previously failed to compile.
@@ -118,20 +118,18 @@ Each published package owns its version and may be released independently.
   `with_fat_cache_locked`, `fat_cache`, internal `*_via_cache` helpers) is
   now confined to the sync slice, so `--features async,cache` and
   `--all-features` compile (the cache is simply bypassed under async).
-- **hadris-fat:** Creating a file whose long name needs more directory
-  entries than fit in one cluster now returns the specific
-  `FatError::DirEntryRunTooLong { entries_needed, entries_per_cluster }`
-  instead of the misleading `DirectoryFull`.
+- **hadris-fat:** Long-filename entry runs may now cross directory cluster
+  boundaries, including maximum-length names and directory extension.
 
 ### Known limitations
 
 - **async + cache:** The FAT-sector cache is sync-only. Driving a volume
   through the async API silently bypasses the cache (async-aware caching is
   deferred — see the `cache` feature note in `hadris-fat/Cargo.toml`).
-- **LFN cross-cluster runs:** Directory entry runs that would span a cluster
-  boundary during LFN write are not yet supported; such a name is rejected
-  up front with `FatError::DirEntryRunTooLong` (`hadris-fat/src/write.rs`).
-- **exFAT:** Work in progress; gated behind the `exfat` feature.
+- **exFAT:** Available only as the leaf-crate `unstable-exfat` preview. It is
+  outside the V2 API stability promise and unified block opener; fragmented
+  system metadata, directory growth/general cross-cluster entry placement,
+  async operation, TexFAT, and repair workflows remain unsupported.
 
 ## [1.1.0] - 2026-03-12
 

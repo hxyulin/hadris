@@ -14,7 +14,7 @@
 //! - macOS: `brew install p7zip` (hdiutil is native)
 //! - Arch: `sudo pacman -S exfatprogs p7zip`
 
-#![cfg(feature = "exfat")]
+#![cfg(feature = "unstable-exfat")]
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Cursor, Read};
