@@ -287,6 +287,7 @@ unsafe impl bytemuck::AnyBitPattern for RawFileEntry {}
 ///
 /// @hadris-spec FAT:LFN
 /// @hadris-compliance partial
+/// @hadris-note This raw on-disk structure is complete, while semantic validation and legacy ANSI fallback behavior are implemented by higher-level LFN readers and writers.
 /// @hadris-tests comprehensive_fat::test_lfn_builder_sequence
 /// @hadris-fuzz fat_read
 #[repr(C, packed)]

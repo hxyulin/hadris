@@ -334,7 +334,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: Run all-feature tests
+        if: runner.os != 'Windows'
         run: cargo test --workspace --all-features
+      # `hadris-fat/defmt` is an embedded logging integration. It can be
+      # type-checked on every host, but its runtime symbols are supplied by an
+      # embedded target and therefore cannot be linked into Windows test
+      # executables. The feature matrix above still checks the complete feature
+      # combination; Windows exercises the portable hosted defaults here.
+      - name: Run portable hosted tests
+        if: runner.os == 'Windows'
+        run: |
+          cargo test --workspace --all-features --exclude hadris-fat
+          cargo test -p hadris-fat --features "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,dirty-file-panic"
       - name: Run block async integration tests
         run: cargo test -p hadris-block --all-features --test async_volume
       - name: Run optical detection integration tests
