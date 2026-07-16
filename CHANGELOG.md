@@ -15,6 +15,8 @@ Each published package owns its version and may be released independently.
   and `no_std` guides.
 - Added GitHub Pages build and deployment automation for the documentation
   site.
+- Added runnable workspace examples for listing FAT images and partition
+  tables, detecting optical formats, and creating CPIO archives.
 
 ### Changed
 

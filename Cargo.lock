@@ -544,6 +544,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-example-cpio-create"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris-cpio",
+]
+
+[[package]]
+name = "hadris-example-fat-list"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris-fat",
+]
+
+[[package]]
+name = "hadris-example-optical-detect"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris-optical",
+]
+
+[[package]]
+name = "hadris-example-partition-list"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "hadris-part",
+]
+
+[[package]]
 name = "hadris-fat"
 version = "2.0.0-rc.1"
 dependencies = [

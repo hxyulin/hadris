@@ -193,6 +193,8 @@ should also review the
 The Docusaurus source for the task-oriented documentation site lives in
 [`website/`](website/); it includes getting-started, crate-selection, and
 FAT, partition, ISO, CPIO, and `no_std` use-case guides.
+Runnable application examples live in [`examples/`](examples/) and are compiled
+as part of the Cargo workspace.
 
 **MSRV:** Rust 1.88.0 (`rust-toolchain.toml` / workspace `rust-version`).
 

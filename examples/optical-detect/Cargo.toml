@@ -1,0 +1,11 @@
+[package]
+name = "hadris-example-optical-detect"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hadris-optical = { workspace = true, features = ["std", "sync", "detect"] }

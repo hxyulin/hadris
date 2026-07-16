@@ -1,0 +1,11 @@
+[package]
+name = "hadris-example-cpio-create"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hadris-cpio = { workspace = true, features = ["std", "sync", "read", "write"] }

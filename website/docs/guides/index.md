@@ -12,6 +12,9 @@ These guides are organized around tasks rather than workspace internals:
 - [Build a CPIO initramfs](./build-initramfs.md)
 - [Use Hadris without the standard library](./no-std.md)
 
+Runnable application packages for the FAT, partition, optical-detection, and
+CPIO workflows live in the repository's
+[`examples/` directory](https://github.com/hxyulin/hadris/tree/main/examples).
 Runnable ISO examples also live in
 [`crates/optical/hadris-iso/examples`](https://github.com/hxyulin/hadris/tree/main/crates/optical/hadris-iso/examples).
 Crate READMEs and rustdoc remain the source for detailed API coverage.

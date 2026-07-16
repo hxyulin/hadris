@@ -6,6 +6,7 @@ members = [
     "crates/optical/*",
     "crates/archive/*",
     "crates/tools/*",
+    "examples/*",
 ]
 default-members = [
     "crates/core/*",
