@@ -13,6 +13,7 @@ pub fn error_from_kind(kind: ErrorKind) -> Error {
     Error::new(kind, "")
 }
 
+/// Creates a portable I/O error from its classification in `no_std` builds.
 #[cfg(not(feature = "std"))]
 pub fn error_from_kind(kind: ErrorKind) -> Error {
     Error::from_kind(kind)

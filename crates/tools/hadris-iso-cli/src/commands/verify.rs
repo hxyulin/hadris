@@ -7,7 +7,7 @@ use hadris_iso::susp::SystemUseIter;
 use hadris_iso::types::Endian;
 use hadris_iso::volume::VolumeDescriptor;
 
-use crate::args::VerifyArgs;
+use super::super::args::VerifyArgs;
 
 use super::Result;
 

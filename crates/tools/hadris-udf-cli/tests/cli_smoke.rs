@@ -2,7 +2,7 @@
 
 #[test]
 fn help_succeeds() {
-    let bin = env!("CARGO_BIN_EXE_hadris-udf-cli");
+    let bin = env!("CARGO_BIN_EXE_hadris-udf");
     let output = std::process::Command::new(bin)
         .arg("--help")
         .output()

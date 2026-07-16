@@ -2,7 +2,7 @@ use std::fs::File;
 
 use hadris_udf::UdfFs;
 
-use crate::args::LsArgs;
+use super::super::args::LsArgs;
 
 use super::{Result, navigate_to_path};
 

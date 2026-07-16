@@ -10,6 +10,14 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-cd-cli:** New `hadris-cd` utility for creating, inspecting, and
+  verifying ISO 9660/UDF bridge images, including Joliet, Rock Ridge, El Torito,
+  and hybrid MBR/GPT options.
+- **hadris-cd / hadris-iso:** Direct non-empty bridge qualification through
+  both concrete readers and an ISO allocation-floor API for collision-free
+  composition with other on-disc metadata.
+- **hadris-fat-cli:** `cat`, selective and recursive extraction, and recursive
+  FAT image creation with automatic or explicit sizing.
 - **hadris-part:** `read` is now a default feature; I/O extension traits
   (`MasterBootRecordReadExt`, `GptDiskReadExt`, `DiskPartitionSchemeReadExt`,
   and write counterparts) are re-exported at the crate root.
@@ -29,6 +37,12 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **CLI tools:** Canonical installed binaries now form the `hadris-fat`,
+  `hadris-iso`, `hadris-udf`, and `hadris-cpio` family. Existing executable
+  names remain compatibility aliases, and CPIO standardizes on `ls` with
+  `list` retained as an alias.
+- **Workspace cleanup:** Removed the unpublished `hadris-cli` FAT debug stub;
+  the supported V2 command-line surface is the specialized `hadris-*` family.
 - **Project positioning and package metadata:** Reframed Hadris as a layered
   Rust storage stack, documented its architecture and target environments, and
   refreshed the `hadris`, FAT, ISO, UDF, block, and storage crate descriptions

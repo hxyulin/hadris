@@ -14,34 +14,35 @@ Or build from source:
 cargo build --release -p hadris-cpio-cli
 ```
 
-The binary will be available as `cpioutil`.
+The canonical binary is `hadris-cpio`; `cpioutil` remains available as a
+compatibility alias.
 
 ## Usage
 
 ```bash
 # List archive contents
-cpioutil list archive.cpio
-cpioutil list -l archive.cpio
+hadris-cpio ls archive.cpio
+hadris-cpio ls -l archive.cpio
 
 # Display archive information
-cpioutil info archive.cpio
+hadris-cpio info archive.cpio
 
 # Create an archive from a directory
-cpioutil create -o archive.cpio ./my-directory
-cpioutil create -o archive.cpio --crc ./my-directory
+hadris-cpio create -o archive.cpio ./my-directory
+hadris-cpio create -o archive.cpio --crc ./my-directory
 
 # Extract an archive
-cpioutil extract -o ./output archive.cpio
+hadris-cpio extract -o ./output archive.cpio
 
 # Print a file from the archive
-cpioutil cat archive.cpio path/to/file.txt
+hadris-cpio cat archive.cpio path/to/file.txt
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `list` | List archive entries (like `cpio -t`) |
+| `ls` | List archive entries (legacy alias: `list`) |
 | `info` | Display archive format, entry count, and per-entry metadata |
 | `create` | Create a CPIO archive from a directory |
 | `extract` | Extract an archive to a directory |

@@ -12,44 +12,47 @@ Or build from source:
 
 ```bash
 cargo build --release -p hadris-iso-cli
-# binary: target/release/hadris-iso-cli
+# canonical binary: target/release/hadris-iso
 ```
+
+The canonical executable is `hadris-iso`; `hadris-iso-cli` remains available
+as a compatibility alias.
 
 ## Usage
 
 ```bash
 # Display ISO information
-hadris-iso-cli info image.iso
+hadris-iso info image.iso
 
 # List directory contents
-hadris-iso-cli ls image.iso /
-hadris-iso-cli ls image.iso /SUBDIR
+hadris-iso ls image.iso /
+hadris-iso ls image.iso /SUBDIR
 
 # Display directory tree
-hadris-iso-cli tree image.iso
+hadris-iso tree image.iso
 
 # Print a file to stdout
-hadris-iso-cli cat image.iso /README.TXT
+hadris-iso cat image.iso /README.TXT
 
 # Extract files (default output directory: .)
-hadris-iso-cli extract image.iso -o ./out
-hadris-iso-cli extract image.iso -p /SUBDIR -o ./out
+hadris-iso extract image.iso -o ./out
+hadris-iso extract image.iso -p /SUBDIR -o ./out
 
 # Create a new ISO from a directory
-hadris-iso-cli create ./directory --output output.iso
-hadris-iso-cli create ./directory -o output.iso -V MY_ISO --joliet --rock-ridge
+hadris-iso create ./directory --output output.iso
+hadris-iso create ./directory -o output.iso -V MY_ISO --joliet --rock-ridge
 
 # Create a bootable ISO
-hadris-iso-cli create ./directory -o bootable.iso \
+hadris-iso create ./directory -o bootable.iso \
     --boot boot/bios.img \
     --efi-boot boot/efi.img \
     --joliet
 
 # Verify ISO integrity
-hadris-iso-cli verify image.iso
+hadris-iso verify image.iso
 
 # xorriso-compatible mkisofs mode
-hadris-iso-cli mkisofs -o output.iso ./directory
+hadris-iso mkisofs -o output.iso ./directory
 ```
 
 ## Commands
@@ -79,7 +82,7 @@ hadris-iso-cli mkisofs -o output.iso ./directory
 ### Creating a Bootable ISO
 
 ```bash
-hadris-iso-cli create ./iso-contents \
+hadris-iso create ./iso-contents \
     --output bootable.iso \
     --volume-name BOOTABLE \
     --boot boot/bios.img \
@@ -89,7 +92,7 @@ hadris-iso-cli create ./iso-contents \
 ### Examining ISO Structure
 
 ```bash
-hadris-iso-cli info image.iso
+hadris-iso info image.iso
 ```
 
 ## License

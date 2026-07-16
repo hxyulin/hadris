@@ -1,0 +1,26 @@
+[package]
+name = "hadris-cd-cli"
+version = "2.0.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI utility for creating and verifying hybrid ISO 9660/UDF images"
+readme = "README.md"
+keywords = ["iso9660", "udf", "optical-disc", "disk-image", "cli"]
+categories = ["command-line-utilities", "filesystem"]
+
+[[bin]]
+name = "hadris-cd"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+clap.workspace = true
+hadris-cd = { workspace = true, features = ["std", "sync"] }
+hadris-iso = { workspace = true, features = ["std", "sync", "write", "joliet"] }
+hadris-udf = { workspace = true, features = ["std", "sync", "write"] }
+
+[dev-dependencies]
+tempfile.workspace = true

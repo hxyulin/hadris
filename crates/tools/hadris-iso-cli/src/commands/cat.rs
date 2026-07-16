@@ -3,7 +3,7 @@ use std::io::{self, BufReader, Write};
 
 use hadris_iso::read::IsoImage;
 
-use crate::args::CatArgs;
+use super::super::args::CatArgs;
 
 use super::{Result, clean_name, navigate_to_path};
 

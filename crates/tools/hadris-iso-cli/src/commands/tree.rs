@@ -4,7 +4,7 @@ use std::io::{BufReader, Read, Seek};
 use hadris_iso::directory::{DirectoryRef, FileFlags};
 use hadris_iso::read::IsoImage;
 
-use crate::args::TreeArgs;
+use super::super::args::TreeArgs;
 
 use super::{Result, clean_name, navigate_to_path};
 

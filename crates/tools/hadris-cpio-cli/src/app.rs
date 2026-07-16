@@ -1,5 +1,6 @@
-//! cpioutil - CPIO archive utility for listing, creating, extracting, and inspecting archives.
+//! Hadris CPIO archive utility for listing, creating, extracting, and inspecting archives.
 
+#[path = "commands/mod.rs"]
 mod commands;
 
 use std::path::PathBuf;
@@ -8,7 +9,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "cpioutil")]
+#[command(name = "hadris-cpio")]
 #[command(author, version, about = "CPIO archive utility", long_about = None)]
 struct Cli {
     #[command(subcommand)]
@@ -18,7 +19,8 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// List archive entries
-    List {
+    #[command(alias = "list")]
+    Ls {
         /// Path to the CPIO archive
         archive: PathBuf,
         /// Show long format with permissions, uid/gid, size, mtime
@@ -58,11 +60,12 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
+/// Parse command-line arguments and run the CPIO utility.
+pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::List { archive, long } => commands::list(archive, long),
+        Commands::Ls { archive, long } => commands::list(archive, long),
         Commands::Info { archive } => commands::info(archive),
         Commands::Create {
             directory,

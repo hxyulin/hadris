@@ -105,11 +105,11 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 | Crate | Binary | Notes |
 |-------|--------|-------|
-| [hadris-iso-cli](crates/tools/hadris-iso-cli) | `hadris-iso-cli` | ISO create/inspect/extract |
-| [hadris-fat-cli](crates/tools/hadris-fat-cli) | `fatutil` | FAT analysis and verification |
-| [hadris-cpio-cli](crates/tools/hadris-cpio-cli) | `cpioutil` | CPIO create/extract |
-| [hadris-udf-cli](crates/tools/hadris-udf-cli) | `hadris-udf-cli` | UDF create/inspect |
-| [hadris-cli](crates/tools/hadris-cli) | `hadris-cli` | Experimental stub (not published) |
+| [hadris-iso-cli](crates/tools/hadris-iso-cli) | `hadris-iso` | ISO create/inspect/extract; legacy alias: `hadris-iso-cli` |
+| [hadris-fat-cli](crates/tools/hadris-fat-cli) | `hadris-fat` | FAT create/read/extract/analyze; legacy alias: `fatutil` |
+| [hadris-cpio-cli](crates/tools/hadris-cpio-cli) | `hadris-cpio` | CPIO create/read/extract; legacy alias: `cpioutil` |
+| [hadris-udf-cli](crates/tools/hadris-udf-cli) | `hadris-udf` | UDF create/inspect/extract; legacy alias: `hadris-udf-cli` |
+| [hadris-cd-cli](crates/tools/hadris-cd-cli) | `hadris-cd` | Create, inspect, and verify hybrid ISO 9660/UDF images |
 
 ### Meta-crate
 

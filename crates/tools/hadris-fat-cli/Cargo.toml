@@ -10,12 +10,22 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+autobins = false
+
+[[bin]]
+name = "hadris-fat"
+path = "src/bin/hadris-fat.rs"
+doc = false
 
 [[bin]]
 name = "fatutil"
-path = "src/main.rs"
+path = "src/bin/fatutil.rs"
+doc = false
 
 [dependencies]
 hadris-fat = { workspace = true, features = ["std", "read", "write", "lfn", "tool"] }
 clap.workspace = true
 anyhow.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

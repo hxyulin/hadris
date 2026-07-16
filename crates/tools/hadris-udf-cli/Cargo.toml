@@ -10,6 +10,17 @@ description = "CLI utility for Universal Disk Format image operations"
 readme = "README.md"
 keywords = ["udf", "cli", "optical", "disk"]
 categories = ["command-line-utilities", "filesystem"]
+autobins = false
+
+[[bin]]
+name = "hadris-udf"
+path = "src/bin/hadris-udf.rs"
+doc = false
+
+[[bin]]
+name = "hadris-udf-cli"
+path = "src/bin/hadris-udf-cli.rs"
+doc = false
 
 [dependencies]
 clap.workspace = true

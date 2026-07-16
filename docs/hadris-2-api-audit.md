@@ -148,6 +148,11 @@ error variants for diagnosis.
 | sync-only ISO/UDF bridge construction | remain explicitly sync-only |
 | bridge ISO/UDF validation | layout collision fixed; both concrete readers continuously tested |
 
+Hybrid composition may place ISO file and directory allocations after a
+caller-provided logical-sector floor through
+`IsoImageWriter::create_with_allocation_floor`. The ordinary `create` path uses
+no floor and retains its compact standalone layout.
+
 ## Migration policy
 
 - Canonical names are used in all new documentation and examples.

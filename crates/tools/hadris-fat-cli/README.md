@@ -12,35 +12,44 @@ Or build from source:
 
 ```bash
 cargo build --release -p hadris-fat-cli
-# binary: target/release/fatutil
+# canonical binary: target/release/hadris-fat
 ```
 
-The installed binary is named **`fatutil`**.
+The canonical binary is **`hadris-fat`**. The legacy **`fatutil`** executable
+remains available as a compatibility alias.
 
 ## Usage
 
 ```bash
 # Display volume information
-fatutil info disk.img
+hadris-fat info disk.img
 
 # Detailed filesystem statistics
-fatutil stat disk.img
+hadris-fat stat disk.img
 
 # List directory contents
-fatutil ls disk.img /
-fatutil ls disk.img /SUBDIR
+hadris-fat ls disk.img /
+hadris-fat ls disk.img /SUBDIR
 
 # Display directory tree
-fatutil tree disk.img
+hadris-fat tree disk.img
+
+# Print and extract files
+hadris-fat cat disk.img /README.TXT
+hadris-fat extract disk.img --output ./out
+
+# Recursively create an image from a directory
+hadris-fat create ./contents --output disk.img
+hadris-fat create ./contents -o disk.img --fat-type fat32 --size 134217728 -V MY_DISK
 
 # Analyze fragmentation
-fatutil fragmentation disk.img
+hadris-fat fragmentation disk.img
 
 # Show cluster chain for a file
-fatutil chain disk.img /README.TXT
+hadris-fat chain disk.img /README.TXT
 
 # Verify filesystem integrity
-fatutil verify disk.img
+hadris-fat verify disk.img
 ```
 
 ## Commands
@@ -51,14 +60,16 @@ fatutil verify disk.img
 | `stat` | Show detailed filesystem statistics |
 | `ls` | List directory contents |
 | `tree` | Display directory tree |
+| `cat` | Print a file to stdout |
+| `extract` | Extract one path or the complete image |
+| `create` | Recursively create a FAT12/16/32 image from a directory |
 | `fragmentation` | Analyze filesystem fragmentation |
 | `chain` | Show cluster chain for a file |
 | `verify` | Check filesystem integrity |
 
 ## Known Limitations
 
-- Read/analysis focused: there is no `cat`, `extract`, or `format` subcommand yet
-  (the `hadris-fat` library supports file read/write and formatting).
+- Host symbolic links and other special file types are rejected during creation.
 - ExFAT images are not exposed through this CLI.
 
 ## Examples
@@ -66,14 +77,14 @@ fatutil verify disk.img
 ### Examining a Disk Image
 
 ```bash
-fatutil info disk.img
-fatutil stat disk.img
+hadris-fat info disk.img
+hadris-fat stat disk.img
 ```
 
 ### Listing Files
 
 ```bash
-fatutil ls disk.img /
+hadris-fat ls disk.img /
 ```
 
 ## Supported Features

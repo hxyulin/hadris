@@ -794,10 +794,45 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         files: T,
         ops: FormatOptions,
     ) -> IsoCreationResult<DATA> {
+        Self::create_with_allocation_floor(data, files, ops, None).await
+    }
+
+    /// Creates an ISO image while keeping file and directory allocations at or
+    /// after an optional logical-sector floor.
+    ///
+    /// This is useful when composing ISO 9660 with another on-disc format whose
+    /// metadata occupies sectors after the ISO volume descriptor sequence. A
+    /// floor below the end of the descriptors has no effect. Volume descriptors
+    /// and system-area structures retain their specification-defined locations.
+    pub async fn create_with_allocation_floor<T: Into<InputTree>>(
+        data: DATA,
+        files: T,
+        ops: FormatOptions,
+        allocation_floor: Option<u32>,
+    ) -> IsoCreationResult<DATA> {
         let mut files = files.into();
         validate_input_tree(&files, ops.features.rock_ridge.as_ref())?;
         let mut writer = Self::new(data, ops);
         writer.write_volume_descriptors(&mut files).await?;
+        if let Some(sector) = allocation_floor {
+            let current = writer
+                .data
+                .stream_position()
+                .await
+                .map_err(io::Error::erase)?;
+            let floor = u64::from(sector)
+                .checked_mul(writer.ops.sector_size as u64)
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "allocation floor overflow")
+                })?;
+            if floor > current {
+                writer
+                    .data
+                    .seek(SeekFrom::Start(floor))
+                    .await
+                    .map_err(io::Error::erase)?;
+            }
+        }
         let root_dirs = writer.write_files(&files).await?;
         writer.write_path_tables().await?;
         writer.finalize_volume_descriptors(root_dirs).await?;

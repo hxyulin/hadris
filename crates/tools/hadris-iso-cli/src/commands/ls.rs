@@ -4,7 +4,7 @@ use std::io::BufReader;
 use hadris_iso::directory::FileFlags;
 use hadris_iso::read::IsoImage;
 
-use crate::args::LsArgs;
+use super::super::args::LsArgs;
 
 use super::{Result, navigate_to_path};
 

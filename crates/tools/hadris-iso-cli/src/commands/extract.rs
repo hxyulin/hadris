@@ -5,7 +5,7 @@ use std::path::Path;
 use hadris_iso::directory::{DirectoryRef, FileFlags};
 use hadris_iso::read::IsoImage;
 
-use crate::args::ExtractArgs;
+use super::super::args::ExtractArgs;
 
 use super::{Result, clean_name, navigate_to_path};
 
