@@ -159,7 +159,7 @@ impl AllocationBitmap {
 
         for byte in &self.data {
             // Count zero bits
-            count += (8 - byte.count_ones()) as u32;
+            count += 8 - byte.count_ones();
         }
 
         // Adjust for any padding bits at the end

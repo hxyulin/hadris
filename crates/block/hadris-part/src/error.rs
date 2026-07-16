@@ -118,22 +118,19 @@ impl Display for PartitionError {
             Self::InvalidGptSignature { found } => {
                 write!(
                     f,
-                    "invalid GPT signature: expected 'EFI PART', found {:?}",
-                    found
+                    "invalid GPT signature: expected 'EFI PART', found {found:?}"
                 )
             }
             Self::GptHeaderCrcMismatch { expected, actual } => {
                 write!(
                     f,
-                    "GPT header CRC mismatch: expected 0x{:08X}, got 0x{:08X}",
-                    expected, actual
+                    "GPT header CRC mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
                 )
             }
             Self::GptEntriesCrcMismatch { expected, actual } => {
                 write!(
                     f,
-                    "GPT entries CRC mismatch: expected 0x{:08X}, got 0x{:08X}",
-                    expected, actual
+                    "GPT entries CRC mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
                 )
             }
             Self::PartitionOverlap {
@@ -144,15 +141,13 @@ impl Display for PartitionError {
             } => {
                 write!(
                     f,
-                    "partitions {} and {} overlap (LBA {}-{})",
-                    index1, index2, overlap_start, overlap_end
+                    "partitions {index1} and {index2} overlap (LBA {overlap_start}-{overlap_end})"
                 )
             }
             Self::TooManyPartitions { max, requested } => {
                 write!(
                     f,
-                    "too many partitions: maximum is {}, requested {}",
-                    max, requested
+                    "too many partitions: maximum is {max}, requested {requested}"
                 )
             }
             Self::PartitionOutOfBounds {
@@ -162,15 +157,13 @@ impl Display for PartitionError {
             } => {
                 write!(
                     f,
-                    "partition {} extends beyond disk (ends at LBA {}, disk ends at {})",
-                    index, partition_end, disk_end
+                    "partition {index} extends beyond disk (ends at LBA {partition_end}, disk ends at {disk_end})"
                 )
             }
             Self::InvalidPartitionEntrySize { size } => {
                 write!(
                     f,
-                    "invalid partition entry size: {} (must be 128 * 2^n)",
-                    size
+                    "invalid partition entry size: {size} (must be 128 * 2^n)"
                 )
             }
             Self::BackupHeaderMismatch => {
@@ -180,7 +173,7 @@ impl Display for PartitionError {
                 write!(f, "no protective MBR found on GPT disk")
             }
             Self::InvalidHybridMbr { reason } => {
-                write!(f, "invalid hybrid MBR: {}", reason)
+                write!(f, "invalid hybrid MBR: {reason}")
             }
             Self::DiskTooSmall {
                 required,
@@ -188,12 +181,11 @@ impl Display for PartitionError {
             } => {
                 write!(
                     f,
-                    "disk too small: requires {} sectors, only {} available",
-                    required, available
+                    "disk too small: requires {required} sectors, only {available} available"
                 )
             }
             Self::FeatureNotAvailable(feature) => {
-                write!(f, "feature not available: {}", feature)
+                write!(f, "feature not available: {feature}")
             }
             Self::MisalignedPartition {
                 lba,
@@ -201,8 +193,7 @@ impl Display for PartitionError {
             } => {
                 write!(
                     f,
-                    "partition at LBA {} is not aligned to {} sectors",
-                    lba, required_alignment
+                    "partition at LBA {lba} is not aligned to {required_alignment} sectors"
                 )
             }
         }

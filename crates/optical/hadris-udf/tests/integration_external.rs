@@ -232,7 +232,7 @@ fn test_udfinfo_validates_mkudffs_image() {
 
     let info = get_udf_info(&image_path).expect("udfinfo should be able to read the UDF image");
 
-    println!("=== udfinfo output ===\n{}", info);
+    println!("=== udfinfo output ===\n{info}");
     assert!(
         info.to_lowercase().contains("info_test") || info.contains("UDF"),
         "udfinfo should show volume info"
@@ -257,7 +257,7 @@ fn test_7z_can_list_mkudffs_image() {
     let listing =
         list_udf_with_7z(&image_path).expect("7z should be able to list mkudffs UDF image");
 
-    println!("=== 7z listing ===\n{}", listing);
+    println!("=== 7z listing ===\n{listing}");
     assert!(listing.len() > 50, "7z listing should have content");
 }
 
@@ -409,7 +409,7 @@ mod write_tests {
         // This test documents the current state
         match list_udf_with_7z(&image_path) {
             Some(listing) => {
-                println!("7z can read hadris-udf image:\n{}", listing);
+                println!("7z can read hadris-udf image:\n{listing}");
             }
             None => {
                 println!("7z cannot read hadris-udf image yet (needs more complete metadata)");
@@ -434,7 +434,7 @@ mod write_tests {
         // This test documents the current state
         match get_udf_info(&image_path) {
             Some(info) => {
-                println!("udfinfo output:\n{}", info);
+                println!("udfinfo output:\n{info}");
             }
             None => {
                 println!("udfinfo cannot validate hadris-udf image yet");

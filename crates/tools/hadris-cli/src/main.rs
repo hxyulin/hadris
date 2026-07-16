@@ -14,6 +14,6 @@ fn main() {
     let root = fat_fs.root_dir();
     for entry in root.entries() {
         let entry = entry.unwrap();
-        println!("{:#?}", entry);
+        println!("{entry:#?}");
     }
 }

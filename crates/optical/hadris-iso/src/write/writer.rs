@@ -269,7 +269,7 @@ mod tests {
     fn test_convert_l3_with_extension() {
         // Create a name that exceeds 207 bytes with extension
         let basename = "a".repeat(200);
-        let orig = format!("{}.txt", basename);
+        let orig = format!("{basename}.txt");
         let converted = convert_l3(&orig, false);
         assert!(
             converted.len() <= 207,

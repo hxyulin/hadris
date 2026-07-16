@@ -299,8 +299,7 @@ mod boot_sector_tests {
 
         assert!(
             matches!(result, Err(FatError::InvalidBootSignature { .. })),
-            "Expected InvalidBootSignature error, got {:?}",
-            result
+            "Expected InvalidBootSignature error, got {result:?}"
         );
     }
 
@@ -494,8 +493,7 @@ mod fat_type_detection_tests {
                 // May fail for FSInfo validation, but shouldn't be unsupported
                 assert!(
                     !matches!(e, FatError::UnsupportedFatType(_)),
-                    "FAT32 should be supported: {:?}",
-                    e
+                    "FAT32 should be supported: {e:?}"
                 );
             }
         }
@@ -827,7 +825,7 @@ mod cluster_chain_tests {
 
         assert_eq!(free, 0);
         assert_eq!(bad, 0xFF7);
-        assert!(eoc >= 0xFF8 && eoc <= 0xFFF);
+        assert!((0xFF8..=0xFFF).contains(&eoc));
     }
 
     #[test]
@@ -863,7 +861,7 @@ mod cluster_chain_tests {
 
         assert_eq!(free, 0);
         assert_eq!(bad, 0x0FFFFFF7);
-        assert!(eoc >= 0x0FFFFFF8 && eoc <= 0x0FFFFFFF);
+        assert!((0x0FFFFFF8..=0x0FFFFFFF).contains(&eoc));
     }
 
     #[test]
@@ -981,12 +979,10 @@ mod error_display_tests {
         ];
 
         for (error, expected_substr) in errors {
-            let msg = format!("{}", error);
+            let msg = format!("{error}");
             assert!(
                 msg.contains(expected_substr) || !expected_substr.is_empty(),
-                "Error message '{}' should contain '{}'",
-                msg,
-                expected_substr
+                "Error message '{msg}' should contain '{expected_substr}'"
             );
         }
     }

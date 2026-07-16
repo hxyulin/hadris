@@ -75,7 +75,7 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
                 }
             }
             _ => {
-                eprintln!("warning: skipping {} ({})", name, ft);
+                eprintln!("warning: skipping {name} ({ft})");
                 reader.skip_entry_data_owned(&entry)?;
             }
         }

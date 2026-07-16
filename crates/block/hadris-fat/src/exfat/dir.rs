@@ -91,13 +91,10 @@ impl<DATA: Read + Seek> Iterator for ExFatDirIter<'_, DATA> {
     type Item = Result<ExFatFileEntry>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            // Try to read the next entry
-            match self.read_next_entry() {
-                Ok(Some(entry)) => return Some(Ok(entry)),
-                Ok(None) => return None, // End of directory
-                Err(e) => return Some(Err(e)),
-            }
+        match self.read_next_entry() {
+            Ok(Some(entry)) => Some(Ok(entry)),
+            Ok(None) => None,
+            Err(error) => Some(Err(error)),
         }
     }
 }
@@ -186,7 +183,7 @@ impl<DATA: Read + Seek> ExFatDirIter<'_, DATA> {
         let primary_entry = unsafe { &primary.file };
         let secondary_count = primary_entry.secondary_count as usize;
 
-        if secondary_count < 2 || secondary_count > 18 {
+        if !(2..=18).contains(&secondary_count) {
             // Invalid entry, skip
             return Ok(None);
         }

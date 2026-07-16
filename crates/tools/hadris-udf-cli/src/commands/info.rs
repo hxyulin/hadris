@@ -31,10 +31,10 @@ pub fn info(args: InfoArgs) -> Result<()> {
         match udf.root_dir() {
             Ok(root) => {
                 let count = root.entries().count();
-                println!("  Root directory:    {} entries", count);
+                println!("  Root directory:    {count} entries");
             }
             Err(e) => {
-                println!("  Root directory:    error ({})", e);
+                println!("  Root directory:    error ({e})");
             }
         }
     }

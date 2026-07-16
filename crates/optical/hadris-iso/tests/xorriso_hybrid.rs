@@ -73,8 +73,8 @@ fn test_hybrid_boot_mbr() {
     assert_eq!(part_type, 0x17, "Partition type should be 0x17 (ISO9660)");
 
     println!("=== Hybrid MBR boot test passed ===");
-    println!("  Boot indicator: 0x{:02x}", boot_indicator);
-    println!("  Partition type: 0x{:02x}", part_type);
+    println!("  Boot indicator: 0x{boot_indicator:02x}");
+    println!("  Partition type: 0x{part_type:02x}");
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn test_hybrid_boot_gpt() {
     assert_eq!(gpt_sig, b"EFI PART", "GPT signature incorrect");
 
     println!("=== GPT boot test passed ===");
-    println!("  Protective MBR type: 0x{:02x}", part_type);
+    println!("  Protective MBR type: 0x{part_type:02x}");
     println!("  GPT signature: {:?}", String::from_utf8_lossy(gpt_sig));
 }
 
@@ -222,8 +222,8 @@ fn test_hybrid_boot_dual() {
     let part1_type = iso_data[446 + 16 + 4]; // Second partition entry
 
     println!("=== Hybrid dual-boot test ===");
-    println!("  Partition 0 type: 0x{:02x}", part0_type);
-    println!("  Partition 1 type: 0x{:02x}", part1_type);
+    println!("  Partition 0 type: 0x{part0_type:02x}");
+    println!("  Partition 1 type: 0x{part1_type:02x}");
 
     // Verify GPT signature
     let gpt_sig = &iso_data[512..520];

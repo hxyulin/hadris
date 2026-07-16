@@ -27,7 +27,7 @@ fn create_pvd(volume_id: &str, volume_space_size: u32, root_lba: u32) -> Vec<u8>
     pvd[8..40].copy_from_slice(&format!("{:32}", "HADRIS").as_bytes()[..32]);
 
     // Volume identifier (32 bytes)
-    let vol_id = format!("{:32}", volume_id);
+    let vol_id = format!("{volume_id:32}");
     pvd[40..72].copy_from_slice(&vol_id.as_bytes()[..32]);
 
     // Volume space size (both-endian)
@@ -264,8 +264,7 @@ mod volume_descriptor_tests {
             // Volume ID should be "MY_VOLUME" (possibly padded)
             assert!(
                 vol_id.starts_with("MY_VOLUME"),
-                "Volume ID should start with 'MY_VOLUME', got '{}'",
-                vol_id
+                "Volume ID should start with 'MY_VOLUME', got '{vol_id}'"
             );
         }
     }
@@ -395,10 +394,9 @@ mod file_identifier_tests {
             assert!(
                 name.chars()
                     .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
-                "Invalid character in '{}'",
-                name
+                "Invalid character in '{name}'"
             );
-            assert!(name.len() <= 8, "Name too long: '{}'", name);
+            assert!(name.len() <= 8, "Name too long: '{name}'");
         }
     }
 
@@ -505,12 +503,12 @@ mod datetime_tests {
         let gmt_offset = 0i8; // UTC
 
         assert_eq!(1900 + year as u16, 2024);
-        assert!(month >= 1 && month <= 12);
-        assert!(day >= 1 && day <= 31);
+        assert!((1..=12).contains(&month));
+        assert!((1..=31).contains(&day));
         assert!(hour <= 23);
         assert!(minute <= 59);
         assert!(second <= 59);
-        assert!(gmt_offset >= -48 && gmt_offset <= 52); // -12 to +13 hours in 15-min intervals
+        assert!((-48..=52).contains(&gmt_offset)); // -12 to +13 hours in 15-min intervals
     }
 
     #[test]

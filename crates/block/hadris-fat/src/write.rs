@@ -693,7 +693,7 @@ fn build_lfn_entries(
     // by a reader has the highest sequence number (with `LAST_ENTRY_MASK`)
     // and contains the *last* segment of the name. Walk from highest seq
     // down to 1, slotting them into out[0..num_lfn].
-    for entry_idx in 0..num_lfn {
+    for (entry_idx, out_entry) in out.iter_mut().enumerate().take(num_lfn) {
         let seq_num = (num_lfn - entry_idx) as u8;
         let seq_byte = if entry_idx == 0 {
             seq_num | crate::file::LfnBuilder::LAST_ENTRY_MASK
@@ -733,7 +733,7 @@ fn build_lfn_entries(
             first_cluster_low: [0, 0],
             name3,
         };
-        out[entry_idx] = RawDirectoryEntry { lfn };
+        *out_entry = RawDirectoryEntry { lfn };
     }
 
     Some(num_lfn)
@@ -1053,9 +1053,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
         let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         #[cfg(feature = "lfn")]
-        for i in 0..lfn_count {
+        for (i, lfn_entry) in lfn_buf.iter().enumerate().take(lfn_count) {
             let off = run_start_offset + i * entry_size;
-            self.write_raw_directory_entry(run_start_cluster, off, &lfn_buf[i], parent.fixed_root)
+            self.write_raw_directory_entry(run_start_cluster, off, lfn_entry, parent.fixed_root)
                 .await?;
         }
         // Short entry sits at the end of the run.
@@ -1160,9 +1160,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
         let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         #[cfg(feature = "lfn")]
-        for i in 0..lfn_count {
+        for (i, lfn_entry) in lfn_buf.iter().enumerate().take(lfn_count) {
             let off = run_start_offset + i * entry_size;
-            self.write_raw_directory_entry(run_start_cluster, off, &lfn_buf[i], parent.fixed_root)
+            self.write_raw_directory_entry(run_start_cluster, off, lfn_entry, parent.fixed_root)
                 .await?;
         }
         let short_offset = run_start_offset + lfn_count * entry_size;
@@ -1368,12 +1368,12 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             self.find_free_entry_run_in_dir(dest_dir, total_slots).await?;
         let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         #[cfg(feature = "lfn")]
-        for i in 0..lfn_count {
+        for (i, lfn_entry) in lfn_buf.iter().enumerate().take(lfn_count) {
             let off = run_start_offset + i * entry_size;
             self.write_raw_directory_entry(
                 run_start_cluster,
                 off,
-                &lfn_buf[i],
+                lfn_entry,
                 dest_dir.fixed_root,
             )
             .await?;
@@ -1818,14 +1818,14 @@ mod lfn_write_safety_tests {
     /// UTF-16 name OOB'd the staging buffer; this test pins that fix.
     #[test]
     fn build_lfn_entries_at_spec_cap_255_units_does_not_oob() {
-        let name: alloc::string::String = core::iter::repeat('a').take(255).collect();
+        let name: alloc::string::String = core::iter::repeat_n('a', 255).collect();
         let mut out = fresh_out();
         let n = build_lfn_entries(&name, 0, &mut out).expect("must accept 255 chars");
         assert_eq!(n, 20);
-        for i in 0..n {
+        for entry in out.iter().take(n) {
             // Touch every byte through the bytes union arm — miri flags
             // any out-of-bounds reads or invalid bit patterns.
-            let bytes = unsafe { out[i].bytes };
+            let bytes = unsafe { entry.bytes };
             assert_eq!(bytes.len(), 32);
         }
     }
@@ -1835,7 +1835,7 @@ mod lfn_write_safety_tests {
     /// refusing it.
     #[test]
     fn build_lfn_entries_overlong_returns_none() {
-        let name: alloc::string::String = core::iter::repeat('a').take(256).collect();
+        let name: alloc::string::String = core::iter::repeat_n('a', 256).collect();
         let mut out = fresh_out();
         assert!(build_lfn_entries(&name, 0, &mut out).is_none());
     }
@@ -1846,7 +1846,7 @@ mod lfn_write_safety_tests {
     #[test]
     fn build_lfn_entries_supplementary_plane_writes_both_surrogates() {
         // 100 emoji × 2 UTF-16 units each = 200 units, fits the spec cap.
-        let name: alloc::string::String = core::iter::repeat('\u{1F31F}').take(100).collect();
+        let name: alloc::string::String = core::iter::repeat_n('\u{1F31F}', 100).collect();
         let mut out = fresh_out();
         let n = build_lfn_entries(&name, 0, &mut out).expect("100 emoji fits");
         // 200 units / 13 chars per entry = 16 (15.38 rounded up).
@@ -1856,8 +1856,8 @@ mod lfn_write_safety_tests {
         // just confirm that some slot contains valid surrogate halves.
         let mut saw_high = false;
         let mut saw_low = false;
-        for i in 0..n {
-            let lfn = unsafe { out[i].lfn };
+        for entry in out.iter().take(n) {
+            let lfn = unsafe { entry.lfn };
             for chunk in lfn.name1.chunks_exact(2) {
                 let unit = u16::from_le_bytes([chunk[0], chunk[1]]);
                 if (0xD800..0xDC00).contains(&unit) {
@@ -1876,7 +1876,7 @@ mod lfn_write_safety_tests {
     /// all real chars, not 0xFFFF or 0x0000.
     #[test]
     fn build_lfn_entries_exact_13_unit_multiple_no_padding() {
-        let name: alloc::string::String = core::iter::repeat('a').take(13).collect();
+        let name: alloc::string::String = core::iter::repeat_n('a', 13).collect();
         let mut out = fresh_out();
         let n = build_lfn_entries(&name, 0, &mut out).expect("13 chars fits");
         assert_eq!(n, 1);

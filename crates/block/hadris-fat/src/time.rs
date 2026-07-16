@@ -120,7 +120,7 @@ impl TimeProvider for ChronoTimeProvider {
             now.second() as u8,
         );
         let millis = now.timestamp_subsec_millis();
-        dt.time_tenth = ((now.second() % 2) as u32 * 100 + millis / 10).min(199) as u8;
+        dt.time_tenth = ((now.second() % 2) * 100 + millis / 10).min(199) as u8;
         dt
     }
 }

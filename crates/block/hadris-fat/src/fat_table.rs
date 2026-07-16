@@ -53,8 +53,7 @@ where
 {
     assert!(
         entry_size == 0 || entry_size == 2 || entry_size == 4,
-        "FAT entry_size must be 0 (FAT12), 2 (FAT16), or 4 (FAT32), got {}",
-        entry_size
+        "FAT entry_size must be 0 (FAT12), 2 (FAT16), or 4 (FAT32), got {entry_size}"
     );
 
     let cache_size = FAT_CACHE_WINDOW_SIZE.parse::<usize>().unwrap();

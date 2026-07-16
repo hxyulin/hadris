@@ -19,7 +19,7 @@ fn xorriso_available() -> bool {
 
 fn create_test_content(dir: &Path, file_count: usize, file_size: usize) {
     for i in 0..file_count {
-        let filename = format!("file_{:04}.dat", i);
+        let filename = format!("file_{i:04}.dat");
         let content: Vec<u8> = (0..file_size).map(|j| ((i + j) % 256) as u8).collect();
         fs::write(dir.join(&filename), &content).unwrap();
     }
@@ -31,14 +31,10 @@ fn create_nested_dirs(dir: &Path, depth: usize, breadth: usize) {
             return;
         }
         for i in 0..breadth {
-            let subdir = dir.join(format!("{}dir_{}", prefix, i));
+            let subdir = dir.join(format!("{prefix}dir_{i}"));
             fs::create_dir_all(&subdir).unwrap();
-            fs::write(
-                subdir.join("data.txt"),
-                format!("Depth {} index {}", depth, i),
-            )
-            .unwrap();
-            create_recursive(&subdir, depth - 1, breadth, &format!("{}_{}", prefix, i));
+            fs::write(subdir.join("data.txt"), format!("Depth {depth} index {i}")).unwrap();
+            create_recursive(&subdir, depth - 1, breadth, &format!("{prefix}_{i}"));
         }
     }
     create_recursive(dir, depth, breadth, "");
@@ -91,9 +87,9 @@ fn bench_iso_open_small() {
     let elapsed = start.elapsed();
 
     println!("\n=== Small ISO Open Benchmark ===");
-    println!("ISO size: {} bytes", iso_size);
-    println!("Iterations: {}", iterations);
-    println!("Total time: {:?}", elapsed);
+    println!("ISO size: {iso_size} bytes");
+    println!("Iterations: {iterations}");
+    println!("Total time: {elapsed:?}");
     println!("Average time per open: {:?}", elapsed / iterations);
 }
 
@@ -131,8 +127,8 @@ fn bench_iso_open_large() {
         iso_size,
         iso_size as f64 / 1024.0 / 1024.0
     );
-    println!("Iterations: {}", iterations);
-    println!("Total time: {:?}", elapsed);
+    println!("Iterations: {iterations}");
+    println!("Total time: {elapsed:?}");
     println!("Average time per open: {:?}", elapsed / iterations);
 }
 
@@ -174,11 +170,11 @@ fn bench_directory_traversal() {
     let elapsed = start.elapsed();
 
     println!("\n=== Directory Traversal Benchmark ===");
-    println!("ISO size: {} bytes", iso_size);
-    println!("Iterations: {}", iterations);
-    println!("Total entries read: {}", total_entries);
+    println!("ISO size: {iso_size} bytes");
+    println!("Iterations: {iterations}");
+    println!("Total entries read: {total_entries}");
     println!("Entries per iteration: {}", total_entries / iterations);
-    println!("Total time: {:?}", elapsed);
+    println!("Total time: {elapsed:?}");
     println!(
         "Average time per traversal: {:?}",
         elapsed / iterations as u32
@@ -218,8 +214,8 @@ fn bench_volume_descriptor_parsing() {
     let elapsed = start.elapsed();
 
     println!("\n=== Volume Descriptor Parsing Benchmark ===");
-    println!("Iterations: {}", iterations);
-    println!("Total time: {:?}", elapsed);
+    println!("Iterations: {iterations}");
+    println!("Total time: {elapsed:?}");
     println!("Average time per parse: {:?}", elapsed / iterations);
 }
 
@@ -261,10 +257,10 @@ fn bench_joliet_encoding_decoding() {
 
     println!("\n=== Joliet Encoding/Decoding Benchmark ===");
     println!("Test strings: {}", test_strings.len());
-    println!("Iterations: {}", iterations);
+    println!("Iterations: {iterations}");
     println!("Total encodes: {}", iterations * test_strings.len());
-    println!("Encode time: {:?}", encode_elapsed);
-    println!("Decode time: {:?}", decode_elapsed);
+    println!("Encode time: {encode_elapsed:?}");
+    println!("Decode time: {decode_elapsed:?}");
     println!(
         "Avg encode per string: {:?}",
         encode_elapsed / (iterations * test_strings.len()) as u32
@@ -287,7 +283,7 @@ fn bench_rrip_builder() {
         builder
             .add_sp(0)
             .add_rrip_er()
-            .add_px(0o100644, 1, 1000, 1000, i as u32)
+            .add_px(0o100644, 1, 1000, 1000, i)
             .add_nm(b"test_file.txt")
             .add_st();
         let _ = builder.build();
@@ -295,8 +291,8 @@ fn bench_rrip_builder() {
     let elapsed = start.elapsed();
 
     println!("\n=== RRIP Builder Benchmark ===");
-    println!("Iterations: {}", iterations);
-    println!("Total time: {:?}", elapsed);
+    println!("Iterations: {iterations}");
+    println!("Total time: {elapsed:?}");
     println!("Average time per build: {:?}", elapsed / iterations);
 }
 
@@ -328,8 +324,8 @@ fn bench_susp_iterator() {
 
     println!("\n=== SUSP Iterator Benchmark ===");
     println!("Data size: {} bytes", data.len());
-    println!("Iterations: {}", iterations);
-    println!("Total time: {:?}", elapsed);
+    println!("Iterations: {iterations}");
+    println!("Total time: {elapsed:?}");
     println!("Average time per iteration: {:?}", elapsed / iterations);
 }
 
@@ -361,8 +357,8 @@ fn bench_boot_catalog_roundtrip() {
     let elapsed = start.elapsed();
 
     println!("\n=== Boot Catalog Roundtrip Benchmark ===");
-    println!("Iterations: {}", iterations);
-    println!("Total time: {:?}", elapsed);
+    println!("Iterations: {iterations}");
+    println!("Total time: {elapsed:?}");
     println!("Average time per roundtrip: {:?}", elapsed / iterations);
 }
 
@@ -382,8 +378,8 @@ fn stress_test_many_files() {
     // Create 500 files
     let file_count = 500;
     for i in 0..file_count {
-        let filename = format!("file_{:05}.txt", i);
-        fs::write(content_dir.join(&filename), format!("Content {}", i)).unwrap();
+        let filename = format!("file_{i:05}.txt");
+        fs::write(content_dir.join(&filename), format!("Content {i}")).unwrap();
     }
 
     let start = Instant::now();
@@ -404,14 +400,14 @@ fn stress_test_many_files() {
     let root_size = pvd.dir_record.header.data_len.read();
 
     println!("\n=== Stress Test: Many Files ===");
-    println!("Files created: {}", file_count);
+    println!("Files created: {file_count}");
     println!(
         "ISO size: {} bytes ({:.2} KB)",
         iso_size,
         iso_size as f64 / 1024.0
     );
-    println!("Root directory extent: sector {}", root_extent);
-    println!("Root directory size: {} bytes", root_size);
+    println!("Root directory extent: sector {root_extent}");
+    println!("Root directory size: {root_size} bytes");
     println!(
         "Expected entries (approx): {} per 2048-byte sector",
         2048 / 40
@@ -432,11 +428,11 @@ fn stress_test_many_files() {
     }
     let traverse_time = start.elapsed();
 
-    println!("ISO creation time (xorriso): {:?}", create_time);
-    println!("ISO open time: {:?}", open_time);
-    println!("Directory traversal time: {:?}", traverse_time);
-    println!("Entries found: {} (plus 2 special entries)", entry_count);
-    println!("Total bytes read from directory: {}", total_bytes);
+    println!("ISO creation time (xorriso): {create_time:?}");
+    println!("ISO open time: {open_time:?}");
+    println!("Directory traversal time: {traverse_time:?}");
+    println!("Entries found: {entry_count} (plus 2 special entries)");
+    println!("Total bytes read from directory: {total_bytes}");
 
     // For stress test with many files, we need to understand that:
     // - The root directory may span multiple sectors
@@ -446,6 +442,6 @@ fn stress_test_many_files() {
         eprintln!("Warning: Found fewer entries than created. This may indicate:");
         eprintln!("  - Multi-sector directory traversal issue");
         eprintln!("  - The directory iterator may stop at sector boundaries");
-        eprintln!("  - Expected: {}, Found: {}", file_count, entry_count);
+        eprintln!("  - Expected: {file_count}, Found: {entry_count}");
     }
 }

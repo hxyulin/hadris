@@ -22,7 +22,7 @@ fn main() {
     }
 
     let iso_path = &args[1];
-    println!("Opening ISO: {}", iso_path);
+    println!("Opening ISO: {iso_path}");
     println!();
 
     // Open the ISO file
@@ -68,10 +68,10 @@ fn main() {
                     VolumeDescriptor::End(_) => "Volume Set Terminator",
                     VolumeDescriptor::Unknown(_) => "Unknown Volume Descriptor",
                 };
-                println!("  [{}] {}", i, desc);
+                println!("  [{i}] {desc}");
             }
             Err(e) => {
-                eprintln!("  [{}] Error reading descriptor: {:?}", i, e);
+                eprintln!("  [{i}] Error reading descriptor: {e:?}");
             }
         }
     }
@@ -95,7 +95,7 @@ fn list_directory<R: hadris_io::Read + hadris_io::Seek>(
         let entry = match entry_result {
             Ok(e) => e,
             Err(e) => {
-                eprintln!("{}Error reading entry: {:?}", prefix, e);
+                eprintln!("{prefix}Error reading entry: {e:?}");
                 continue;
             }
         };
@@ -112,9 +112,9 @@ fn list_directory<R: hadris_io::Read + hadris_io::Seek>(
         let size = header.data_len.read();
 
         if flags.contains(FileFlags::DIRECTORY) {
-            println!("{}{}/", prefix, name);
+            println!("{prefix}{name}/");
         } else {
-            println!("{}{} ({} bytes)", prefix, name, size);
+            println!("{prefix}{name} ({size} bytes)");
         }
     }
 }

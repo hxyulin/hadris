@@ -332,7 +332,7 @@ pub fn parse_entry_set(entries: &[RawDirectoryEntry]) -> Option<(ExFatFileEntry,
     }
 
     let secondary_count = primary.secondary_count as usize;
-    if secondary_count < 2 || secondary_count > 18 {
+    if !(2..=18).contains(&secondary_count) {
         return None; // Invalid secondary count
     }
 
@@ -351,8 +351,8 @@ pub fn parse_entry_set(entries: &[RawDirectoryEntry]) -> Option<(ExFatFileEntry,
     let name_length = stream.name_length as usize;
     let mut name_chars: Vec<u16> = Vec::with_capacity(name_length);
 
-    for i in 2..total_entries {
-        let name_entry = unsafe { &entries[i].name };
+    for entry in entries.iter().take(total_entries).skip(2) {
+        let name_entry = unsafe { &entry.name };
         if name_entry.entry_type != entry_type::FILE_NAME {
             return None; // Expected file name entry
         }

@@ -26,5 +26,5 @@ pub fn cat(archive: PathBuf, path: &str) -> Result<()> {
         reader.skip_entry_data_owned(&entry)?;
     }
 
-    bail!("File not found in archive: {}", path)
+    bail!("File not found in archive: {path}")
 }

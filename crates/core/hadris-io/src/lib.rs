@@ -433,7 +433,7 @@ mod tests {
     fn cursor_debug_format() {
         let data = [1, 2, 3];
         let cursor = Cursor::new(&data);
-        let debug = format!("{:?}", cursor);
+        let debug = format!("{cursor:?}");
         assert!(debug.contains("Cursor"));
     }
 

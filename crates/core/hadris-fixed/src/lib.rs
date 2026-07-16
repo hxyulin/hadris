@@ -326,13 +326,11 @@ impl<const N: usize, E: Utf16ByteOrder> FixedUtf16<N, E> {
 
     pub fn try_from_str(value: &str) -> Result<Self, CapacityError> {
         let mut result = Self::new();
-        let mut index = 0;
-        for unit in value.encode_utf16() {
+        for (index, unit) in value.encode_utf16().enumerate() {
             if index == N {
                 return Err(CapacityError);
             }
             result.data[index] = E::write(unit);
-            index += 1;
         }
         Ok(result)
     }

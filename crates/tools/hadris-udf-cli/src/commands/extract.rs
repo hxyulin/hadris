@@ -63,7 +63,7 @@ fn extract_dir(
             if verbose {
                 println!("Extracting: {} ({} bytes)", file_path.display(), entry.size);
             }
-            let bytes = udf.read_file(&entry)?;
+            let bytes = udf.read_file(entry)?;
             fs::write(&file_path, bytes)?;
             *count += 1;
         }

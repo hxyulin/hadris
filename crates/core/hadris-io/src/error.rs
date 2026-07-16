@@ -231,8 +231,7 @@ pub type Result<T, E = ErrorKind> = core::result::Result<T, Error<E>>;
 #[cfg(feature = "std")]
 impl From<ErrorKind> for std::io::ErrorKind {
     fn from(kind: ErrorKind) -> Self {
-        match embedded_io::ErrorKind::from(kind) {
-            embedded => embedded.into(),
-        }
+        let embedded = embedded_io::ErrorKind::from(kind);
+        embedded.into()
     }
 }

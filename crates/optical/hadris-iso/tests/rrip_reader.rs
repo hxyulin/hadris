@@ -101,13 +101,11 @@ fn test_rrip_nm_names() {
 
     assert!(
         names.contains(&"readme.txt".to_string()),
-        "Should find 'readme.txt' via RRIP NM, got: {:?}",
-        names
+        "Should find 'readme.txt' via RRIP NM, got: {names:?}"
     );
     assert!(
         names.contains(&"LongFileName_WithMixedCase.dat".to_string()),
-        "Should find mixed-case filename via RRIP NM, got: {:?}",
-        names
+        "Should find mixed-case filename via RRIP NM, got: {names:?}"
     );
 }
 
@@ -183,15 +181,13 @@ fn test_rrip_px_attributes() {
                 // Directory should have directory file type bit set (0o040000)
                 assert!(
                     mode & 0o170000 == 0o040000,
-                    "Directory should have S_IFDIR mode, got {:#o}",
-                    mode
+                    "Directory should have S_IFDIR mode, got {mode:#o}"
                 );
             } else {
                 // Regular file should have regular file type bit set (0o100000)
                 assert!(
                     mode & 0o170000 == 0o100000,
-                    "File should have S_IFREG mode, got {:#o}",
-                    mode
+                    "File should have S_IFREG mode, got {mode:#o}"
                 );
             }
         }
@@ -290,8 +286,7 @@ fn test_rrip_subdirectory_navigation() {
     let inner_name = sub_entries[0].display_name();
     assert_eq!(
         inner_name, "inner.txt",
-        "Inner file should be 'inner.txt', got '{}'",
-        inner_name
+        "Inner file should be 'inner.txt', got '{inner_name}'"
     );
 }
 
@@ -310,7 +305,7 @@ fn test_es_parsing() {
         Some(SystemUseField::ExtensionSelector { extension_sequence }) => {
             assert_eq!(extension_sequence, 42);
         }
-        other => panic!("expected ES entry, got {:?}", other),
+        other => panic!("expected ES entry, got {other:?}"),
     }
     assert!(iter.next().is_none());
 }

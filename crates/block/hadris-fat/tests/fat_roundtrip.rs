@@ -34,8 +34,8 @@ fn make_image(path: &Path, size: u64, fat_type: FatTypeSelection, label: &str) {
     file.set_len(size).expect("set image length");
 
     let options = FormatOptions::new(size)
-        .with_label(label)
-        .with_fat_type(fat_type);
+        .volume_label(label)
+        .fat_type(fat_type);
 
     let _fs = FatVolumeFormatter::format(file, options).expect("FatVolumeFormatter::format");
     // Dropping `_fs` flushes its underlying File handle.

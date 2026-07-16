@@ -20,13 +20,10 @@ fn canonical_v2_names_open_a_formatted_volume() {
 
 #[test]
 fn file_entry_uses_len_vocabulary() {
-    fn accepts_entry<DATA>(entry: &hadris_fat::sync::FileEntry)
-    where
-        DATA: hadris_io::sync::Read + hadris_io::sync::Seek,
-    {
+    fn accepts_entry(entry: &hadris_fat::sync::FileEntry) {
         let _: u64 = entry.len();
         let _: bool = entry.is_empty();
     }
 
-    let _ = accepts_entry::<std::io::Cursor<Vec<u8>>>;
+    let _ = accepts_entry;
 }

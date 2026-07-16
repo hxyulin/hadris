@@ -254,8 +254,7 @@ impl ExFatTable {
         self.write_entry(data, cluster, Self::END_OF_CHAIN)?;
 
         if next != Self::END_OF_CHAIN
-            && next < Self::MEDIA_DESCRIPTOR
-            && next >= Self::FIRST_DATA_CLUSTER
+            && (Self::FIRST_DATA_CLUSTER..Self::MEDIA_DESCRIPTOR).contains(&next)
             && next <= self.max_cluster
         {
             self.free_chain(data, next)

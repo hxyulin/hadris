@@ -256,8 +256,10 @@ mod tests {
 
     #[test]
     fn test_tag_checksum() {
-        let mut tag = DescriptorTag::default();
-        tag.tag_identifier = 2; // AVDP
+        let mut tag = DescriptorTag {
+            tag_identifier: 2, // AVDP
+            ..DescriptorTag::default()
+        };
 
         // Calculate checksum
         let bytes = bytemuck::bytes_of(&tag);

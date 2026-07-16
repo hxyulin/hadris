@@ -58,15 +58,15 @@ fn print_tree_recursive<R: Read + Seek>(
             ""
         };
 
-        println!("{}{}{}{}", prefix, connector, display_name, suffix);
+        println!("{prefix}{connector}{display_name}{suffix}");
 
         if flags.contains(FileFlags::DIRECTORY)
             && let Ok(child_ref) = entry.as_dir_ref(iso)
         {
             let new_prefix = if is_last_entry {
-                format!("{}    ", prefix)
+                format!("{prefix}    ")
             } else {
-                format!("{}\u{2502}   ", prefix)
+                format!("{prefix}\u{2502}   ")
             };
             print_tree_recursive(iso, child_ref, &new_prefix, depth + 1, max_depth)?;
         }

@@ -52,7 +52,7 @@ impl core::fmt::Display for BootError {
                 "invalid boot catalog validation key (expected 0x55, 0xAA)"
             ),
             Self::InvalidDefaultEntry => write!(f, "default boot entry is not marked as bootable"),
-            Self::ExpectedSectionHeader(id) => write!(f, "expected section header, got: {:#x}", id),
+            Self::ExpectedSectionHeader(id) => write!(f, "expected section header, got: {id:#x}"),
             Self::UnexpectedEndOfCatalog => write!(f, "boot catalog ended unexpectedly"),
         }
     }

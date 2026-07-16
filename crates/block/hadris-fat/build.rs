@@ -13,5 +13,5 @@ fn main() {
         Err(_) => default_bytes,
     };
 
-    println!("cargo:rustc-env=FAT_CACHE_WINDOW_SIZE_BYTES={}", bytes);
+    println!("cargo:rustc-env=FAT_CACHE_WINDOW_SIZE_BYTES={bytes}");
 }

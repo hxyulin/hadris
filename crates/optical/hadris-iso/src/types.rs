@@ -22,7 +22,7 @@ impl core::fmt::Display for IsoStrError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::TooLong { max, got } => {
-                write!(f, "string too long: max {} bytes, got {}", max, got)
+                write!(f, "string too long: max {max} bytes, got {got}")
             }
             Self::InvalidCharset => write!(f, "string contains invalid charset characters"),
         }
@@ -272,7 +272,7 @@ impl<C: Charset, const N: usize> core::fmt::Display for IsoStr<C, N> {
 impl<C: Charset, const N: usize> core::fmt::Debug for IsoStr<C, N> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.try_to_str() {
-            Ok(s) => write!(f, "\"{}\"", s),
+            Ok(s) => write!(f, "\"{s}\""),
             Err(_) => write!(f, "{:?}", &self.chars[..self.len()]),
         }
     }
@@ -294,8 +294,7 @@ impl<C: Charset> From<Vec<u8>> for IsoString<C> {
         if !(value.len() == 1 && (value[0] == 0x00 || value[0] == 0x01)) {
             debug_assert!(
                 C::is_valid(value.iter()),
-                "IsoString contains invalid charset characters: {:?}",
-                value
+                "IsoString contains invalid charset characters: {value:?}"
             );
         }
         Self {
@@ -409,7 +408,7 @@ impl<C: Charset> core::fmt::Display for IsoString<C> {
 impl<C: Charset> core::fmt::Debug for IsoString<C> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.try_as_str() {
-            Ok(s) => write!(f, "\"{}\"", s),
+            Ok(s) => write!(f, "\"{s}\""),
             Err(_) => write!(f, "{:?}", &self.chars[..self.len()]),
         }
     }
@@ -461,8 +460,8 @@ mod iso_str_safety_tests {
         let mut bytes = [b' '; 16];
         bytes[0] = 0xFF;
         let s: IsoStrA<16> = IsoStrA::from_bytes_exact(bytes);
-        write!(Sink, "{:?}", s).unwrap();
-        write!(Sink, "{}", s).unwrap();
+        write!(Sink, "{s:?}").unwrap();
+        write!(Sink, "{s}").unwrap();
     }
 
     #[cfg(feature = "alloc")]

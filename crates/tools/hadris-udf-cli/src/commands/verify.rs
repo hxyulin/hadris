@@ -22,7 +22,7 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
             fs
         }
         Err(e) => {
-            println!("  [FAIL] Could not open UDF image: {}", e);
+            println!("  [FAIL] Could not open UDF image: {e}");
             return Err(e.into());
         }
     };
@@ -38,7 +38,7 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
             dir
         }
         Err(e) => {
-            println!("  [FAIL] Root directory: {}", e);
+            println!("  [FAIL] Root directory: {e}");
             return Err(e.into());
         }
     };
@@ -49,12 +49,9 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
         let mut dirs = 0usize;
         let mut errors = 0usize;
         walk_tree(&udf, &root, &mut files, &mut dirs, &mut errors);
-        println!(
-            "  Directory tree: {} files, {} directories, {} errors",
-            files, dirs, errors
-        );
+        println!("  Directory tree: {files} files, {dirs} directories, {errors} errors");
         if errors > 0 {
-            println!("  [WARN] {} directories could not be read", errors);
+            println!("  [WARN] {errors} directories could not be read");
         } else {
             println!("  [OK] Directory tree fully traversable");
         }

@@ -958,7 +958,7 @@ sync_only! {
             let cache_mutex = self.fat_cache.as_ref()?;
             let mut cache = cache_mutex.lock();
             let mut data = self.data.lock();
-            let mut cached = crate::cache::CachedFat::new(&mut *cache, &self.fat);
+            let mut cached = crate::cache::CachedFat::new(&mut cache, &self.fat);
             Some(f(&mut cached, &mut *data))
         }
 
@@ -984,7 +984,7 @@ sync_only! {
             let cache_mutex = self.fat_cache.as_ref()?;
             let mut cache = cache_mutex.lock();
             let mut data = self.data.lock();
-            Some(f(&mut *cache, &mut *data))
+            Some(f(&mut cache, &mut *data))
         }
     }
 }
