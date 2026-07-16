@@ -41,6 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.88.0
+      # cargo-public-api generates rustdoc JSON through nightly rustdoc even
+      # though the project itself remains pinned to the stable MSRV above.
+      - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-public-api
         run: cargo install cargo-public-api --version 0.52.0 --locked
