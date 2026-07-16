@@ -48,4 +48,4 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
 | FAT:BPB | `RawBpb` | full | `comprehensive_fat::test_valid_sector_sizes` | `fat_read` | |
-| FAT:LFN | `RawLfnEntry` | partial | `comprehensive_fat::test_lfn_builder_sequence` | `fat_read` | Cross-cluster LFN directory entry runs unsupported on write |
+| FAT:LFN | `RawLfnEntry` | full | `comprehensive_fat::test_lfn_builder_sequence`, `test_write::lfn_cluster_boundary_tests` | `fat_read` | Read/write supports directory-entry runs across cluster boundaries |

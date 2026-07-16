@@ -54,8 +54,6 @@
 //!
 //! ## Known Limitations
 //!
-//! - **LFN cross-cluster runs:** Creating a long name whose directory-entry run
-//!   would span a cluster boundary returns [`FatError::DirEntryRunTooLong`].
 //! - **async + cache:** The FAT-sector cache is sync-only; under the async API
 //!   it is silently bypassed.
 //! - **exFAT:** Experimental. Fragmented allocation bitmap / upcase table
