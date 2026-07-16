@@ -114,21 +114,21 @@ only under `sync`.
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.0.0", default-features = false, features = ["read", "sync"] }
+hadris-iso = { version = "2.0.0-rc.1", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Kernels with Heap (no-std + alloc)
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.0.0", default-features = false, features = ["read", "alloc", "sync"] }
+hadris-iso = { version = "2.0.0-rc.1", default-features = false, features = ["read", "alloc", "sync"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-iso = "2.0.0"  # Uses default features
+hadris-iso = "2.0.0-rc.1"  # Uses default features
 ```
 
 ## Extension Support

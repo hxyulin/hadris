@@ -8,6 +8,8 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [2.0.0-rc.1] - 2026-07-16
+
 ### Added
 
 - **hadris-cd-cli:** New `hadris-cd` utility for creating, inspecting, and
@@ -52,7 +54,7 @@ Each published package owns its version and may be released independently.
   FAT, partition, ISO, UDF, CPIO, and hybrid optical writer crates.
 - **Release process:** Removed shared workspace versioning and the obsolete
   `cargo-release` configuration. Every current package now declares version
-  `2.0.0` in its own manifest.
+  `2.0.0-rc.1` in its own manifest.
 
 - **hadris-part:** `PartitionError::Io` now wraps `hadris_io::Error` (with
   `std::error::Error::source` under `std`) instead of discarding context.
@@ -160,7 +162,8 @@ Each published package owns its version and may be released independently.
 Baseline for this changelog. See the git history for changes at and before this
 tag.
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.1...HEAD
+[2.0.0-rc.1]: https://github.com/hxyulin/hadris/compare/v1.2.1...v2.0.0-rc.1
 [1.2.1]: https://github.com/hxyulin/hadris/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/hxyulin/hadris/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/hxyulin/hadris/releases/tag/v1.1.0
