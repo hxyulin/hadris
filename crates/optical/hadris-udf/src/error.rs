@@ -16,9 +16,19 @@ pub enum UdfError {
     /// No Anchor Volume Descriptor Pointer found
     NoAnchor,
     /// Invalid descriptor tag
-    InvalidTag { expected: u16, found: u16 },
+    InvalidTag {
+        /// Descriptor tag identifier required at this location.
+        expected: u16,
+        /// Descriptor tag identifier found on the medium.
+        found: u16,
+    },
     /// Descriptor CRC mismatch
-    CrcMismatch { expected: u16, computed: u16 },
+    CrcMismatch {
+        /// CRC stored in the descriptor tag.
+        expected: u16,
+        /// CRC computed from the descriptor payload.
+        computed: u16,
+    },
     /// Invalid partition reference
     InvalidPartition(u16),
     /// Invalid ICB (Information Control Block)

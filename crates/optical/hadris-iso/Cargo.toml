@@ -7,9 +7,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "A rust implementation of the ISO-9660 filesystem."
-keywords = ["el-torito", "iso", "iso9660", "cd", "dvd"]
-categories = ["filesystem", "encoding"]
+description = "Pure Rust ISO 9660 filesystem library with Joliet, Rock Ridge, and El Torito support"
+keywords = ["iso9660", "joliet", "rock-ridge", "el-torito", "no-std"]
+categories = ["filesystem", "embedded", "no-std"]
 exclude = ["/spec"]
 
 [package.metadata.docs.rs]

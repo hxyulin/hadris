@@ -1,6 +1,9 @@
 # Hadris FAT
 
-A comprehensive Rust implementation of the FAT filesystem family with support for FAT12, FAT16, FAT32, long filenames (VFAT), and no-std environments.
+A modern Rust FAT12, FAT16, and FAT32 filesystem library with read, write, and
+format support. Hadris FAT handles VFAT long filenames and targets desktop disk
+image tools as well as `no_std` bootloaders, kernels, firmware, embedded
+systems, SD cards, and USB drives.
 
 ## Features
 

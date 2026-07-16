@@ -25,13 +25,17 @@ pub use rrip::*;
 
 mod volume;
 
+/// Identifies a FilenameType value.
 pub enum FilenameType {
+    /// The `Builtin` variant.
     Builtin,
+    /// The `Joliet` variant.
     Joliet,
 }
 
 #[derive(Debug)]
 #[allow(dead_code)]
+/// Represents IsoImageInfo.
 pub struct IsoImageInfo {
     block_size: usize,
     sector_size: usize,
@@ -49,6 +53,7 @@ pub struct IsoImageInfo {
 }
 
 #[derive(Debug)]
+/// Represents RootDirs.
 pub struct RootDirs {
     #[cfg(not(feature = "alloc"))]
     dirs: ArrayVec<RootDir, 8>,
@@ -122,6 +127,7 @@ impl<'a> IntoIterator for &'a RootDirs {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
+/// Represents RootDir.
 pub struct RootDir {
     ty: EntryType,
     dir_ref: DirectoryRef,
@@ -133,6 +139,7 @@ impl RootDir {
         self.ty
     }
 
+    /// Performs the `iter` operation.
     pub fn iter<'a, DATA: Read + Seek>(&self, iso: &'a IsoImage<DATA>) -> IsoDir<'a, DATA> {
         IsoDir {
             image: iso,
@@ -147,6 +154,7 @@ impl RootDir {
 }
 
 bitflags::bitflags! {
+    /// Extension features supported by an ISO image reader.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct SupportedFeatures: u64 {
 
@@ -155,12 +163,16 @@ bitflags::bitflags! {
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Identifies a PathSeparator value.
 pub enum PathSeparator {
+    /// The `ForwardSlash` variant.
     ForwardSlash = b'/',
+    /// The `Backslash` variant.
     Backslash = b'\\',
 }
 
 impl PathSeparator {
+    /// Performs the `as_char` operation.
     pub fn as_char(self) -> char {
         self as u8 as char
     }
@@ -383,10 +395,12 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
 } // io_transform!
 
 impl<DATA: Read + Seek> IsoImage<DATA> {
+    /// Performs the `root_dir` operation.
     pub fn root_dir(&self) -> RootDir {
         self.root_dirs().best_choice()
     }
 
+    /// Performs the `root_dirs` operation.
     pub fn root_dirs(&self) -> &RootDirs {
         &self.info.root_dirs
     }

@@ -125,6 +125,7 @@ impl PxEntry {
 
 #[cfg(feature = "std")]
 impl PxEntry {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"PX",
@@ -163,6 +164,7 @@ impl PnEntry {
 
 #[cfg(feature = "std")]
 impl PnEntry {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"PN",
@@ -238,6 +240,7 @@ impl NmEntry {
 
 #[cfg(feature = "std")]
 impl NmEntry {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"NM",
@@ -358,6 +361,7 @@ impl SlEntry {
 
 #[cfg(feature = "std")]
 impl SlEntry {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"SL",
@@ -423,6 +427,7 @@ impl TfEntry {
 
 #[cfg(feature = "std")]
 impl TfEntry {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"TF",
@@ -451,6 +456,7 @@ impl ClEntry {
 
 #[cfg(feature = "std")]
 impl ClEntry {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"CL",
@@ -479,6 +485,7 @@ impl PlEntry {
 
 #[cfg(feature = "std")]
 impl PlEntry {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"PL",
@@ -496,6 +503,7 @@ pub struct ReEntry;
 
 #[cfg(feature = "std")]
 impl ReEntry {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"RE",
@@ -517,6 +525,7 @@ impl Writable for PxEntry {
 
 #[cfg(feature = "std")]
 impl PxEntry {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         let mut buf = [0u8; 40];
         let len = (header.length as usize).saturating_sub(4).min(40);
@@ -547,6 +556,7 @@ impl Writable for PnEntry {
 
 #[cfg(feature = "std")]
 impl PnEntry {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(_header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         let mut buf = [0u8; 16];
         data.read_exact(&mut buf).await?;
@@ -569,6 +579,7 @@ impl Writable for NmEntry {
 
 #[cfg(feature = "std")]
 impl NmEntry {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         let mut flags_byte = [0u8; 1];
         data.read_exact(&mut flags_byte).await?;
@@ -597,6 +608,7 @@ impl Writable for SlEntry {
 
 #[cfg(feature = "std")]
 impl SlEntry {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         let mut flags = [0u8; 1];
         data.read_exact(&mut flags).await?;
@@ -641,6 +653,7 @@ impl Writable for TfEntry {
 
 #[cfg(feature = "std")]
 impl TfEntry {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         let mut flags_byte = [0u8; 1];
         data.read_exact(&mut flags_byte).await?;
@@ -665,6 +678,7 @@ impl Writable for ClEntry {
 
 #[cfg(feature = "std")]
 impl ClEntry {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(_header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         let mut buf = [0u8; 8];
         data.read_exact(&mut buf).await?;
@@ -685,6 +699,7 @@ impl Writable for PlEntry {
 
 #[cfg(feature = "std")]
 impl PlEntry {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(_header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         let mut buf = [0u8; 8];
         data.read_exact(&mut buf).await?;

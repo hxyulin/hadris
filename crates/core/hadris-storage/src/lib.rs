@@ -6,6 +6,7 @@
 
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![deny(missing_docs)]
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -15,8 +16,10 @@ mod geometry;
 mod view;
 
 #[cfg(feature = "async")]
+/// Asynchronous block-device traits and adapters.
 pub mod r#async;
 #[cfg(feature = "sync")]
+/// Synchronous block-device traits and adapters.
 pub mod sync;
 
 pub use error::{BlockError, Result};

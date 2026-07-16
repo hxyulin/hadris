@@ -13,7 +13,12 @@ use alloc::vec::Vec;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IsoStrError {
     /// The input string exceeds the maximum length.
-    TooLong { max: usize, got: usize },
+    TooLong {
+        /// Maximum permitted byte length.
+        max: usize,
+        /// Actual byte length of the input.
+        got: usize,
+    },
     /// The input contains characters not valid in the target charset.
     InvalidCharset,
 }
@@ -29,8 +34,11 @@ impl core::fmt::Display for IsoStrError {
     }
 }
 
+/// Defines behavior for Charset.
 pub trait Charset: Copy {
+    /// Performs the `is_valid` operation.
     fn is_valid<'a>(bytes: impl Iterator<Item = &'a u8>) -> bool;
+    /// Performs the `substitute_invalid` operation.
     fn substitute_invalid<'a>(bytes: impl Iterator<Item = &'a mut u8>);
 }
 
@@ -40,9 +48,11 @@ pub trait Charset: Copy {
 pub struct CharsetA;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+/// Represents CharsetD.
 pub struct CharsetD;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+/// Represents CharsetD1.
 pub struct CharsetD1;
 
 impl CharsetA {
@@ -132,6 +142,7 @@ unsafe impl<C: Charset, const N: usize> bytemuck::Zeroable for IsoStr<C, N> {}
 unsafe impl<C: Charset + 'static, const N: usize> bytemuck::Pod for IsoStr<C, N> {}
 
 impl<C: Charset, const N: usize> IsoStr<C, N> {
+    /// Performs the `empty` operation.
     pub fn empty() -> Self {
         Self {
             chars: [b' '; N],
@@ -139,10 +150,12 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
         }
     }
 
+    /// Performs the `max_len` operation.
     pub fn max_len() -> usize {
         N
     }
 
+    /// Performs the `len` operation.
     pub fn len(&self) -> usize {
         match self.chars.iter().rposition(|&c| c != b' ' && c != 0) {
             Some(pos) => pos + 1,
@@ -150,14 +163,17 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
         }
     }
 
+    /// Performs the `is_empty` operation.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Performs the `as_bytes` operation.
     pub fn as_bytes(&self) -> &[u8; N] {
         &self.chars
     }
 
+    /// Performs the `from_bytes_exact` operation.
     pub const fn from_bytes_exact(bytes: [u8; N]) -> Self {
         Self {
             chars: bytes,
@@ -166,6 +182,7 @@ impl<C: Charset, const N: usize> IsoStr<C, N> {
     }
 
     #[allow(clippy::should_implement_trait)]
+    /// Performs the `from_str` operation.
     pub fn from_str(s: &str) -> Result<Self, IsoStrError> {
         let mut chars = [b' '; N];
         if s.len() > N {
@@ -306,6 +323,7 @@ impl<C: Charset> From<Vec<u8>> for IsoString<C> {
 
 #[cfg(feature = "alloc")]
 impl<C: Charset> IsoString<C> {
+    /// Performs the `empty` operation.
     pub const fn empty() -> Self {
         Self {
             chars: Vec::new(),
@@ -313,6 +331,7 @@ impl<C: Charset> IsoString<C> {
         }
     }
 
+    /// Performs the `with_size` operation.
     pub fn with_size(size: usize) -> Self {
         use alloc::vec;
         Self {
@@ -322,6 +341,7 @@ impl<C: Charset> IsoString<C> {
         }
     }
 
+    /// Performs the `with_capacity` operation.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             chars: Vec::with_capacity(capacity),
@@ -329,6 +349,7 @@ impl<C: Charset> IsoString<C> {
         }
     }
 
+    /// Performs the `from_bytes` operation.
     pub fn from_bytes(bytes: &[u8]) -> Self {
         Self {
             chars: bytes.to_vec(),
@@ -336,6 +357,7 @@ impl<C: Charset> IsoString<C> {
         }
     }
 
+    /// Performs the `from_utf8` operation.
     pub fn from_utf8(str: &str) -> Self {
         Self {
             chars: str.as_bytes().to_vec(),
@@ -343,6 +365,7 @@ impl<C: Charset> IsoString<C> {
         }
     }
 
+    /// Performs the `len` operation.
     pub fn len(&self) -> usize {
         self.chars
             .iter()
@@ -350,14 +373,17 @@ impl<C: Charset> IsoString<C> {
             .unwrap_or(self.chars.len())
     }
 
+    /// Performs the `is_empty` operation.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Performs the `size` operation.
     pub fn size(&self) -> usize {
         self.chars.len()
     }
 
+    /// Performs the `bytes` operation.
     pub fn bytes(&self) -> &[u8] {
         &self.chars
     }
@@ -414,11 +440,15 @@ impl<C: Charset> core::fmt::Debug for IsoString<C> {
     }
 }
 
+/// Type alias for IsoStrA.
 pub type IsoStrA<const N: usize> = IsoStr<CharsetA, N>;
+/// Type alias for IsoStrD.
 pub type IsoStrD<const N: usize> = IsoStr<CharsetD, N>;
 #[cfg(feature = "alloc")]
+/// Type alias for IsoStringA.
 pub type IsoStringA = IsoString<CharsetA>;
 #[cfg(feature = "alloc")]
+/// Type alias for IsoStringD.
 pub type IsoStringD = IsoString<CharsetD>;
 
 #[cfg(test)]
@@ -479,8 +509,11 @@ mod iso_str_safety_tests {
     }
 }
 
+/// Defines behavior for StdNum.
 pub trait StdNum: Copy {
+    /// The `LsbType` associated type.
     type LsbType: bytemuck::Pod + bytemuck::Zeroable + Endian<Output = Self>;
+    /// The `MsbType` associated type.
     type MsbType: bytemuck::Pod + bytemuck::Zeroable + Endian<Output = Self>;
 }
 
@@ -496,6 +529,7 @@ impl StdNum for u32 {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+/// Represents LsbMsb.
 pub struct LsbMsb<T: StdNum> {
     lsb: T::LsbType,
     msb: T::MsbType,
@@ -514,6 +548,7 @@ unsafe impl<T: StdNum> bytemuck::Zeroable for LsbMsb<T> {}
 unsafe impl<T: StdNum + Copy + 'static> bytemuck::Pod for LsbMsb<T> {}
 
 impl<T: StdNum> LsbMsb<T> {
+    /// Performs the `new` operation.
     pub fn new(value: T) -> Self {
         Self {
             lsb: Endian::new(value),
@@ -521,6 +556,7 @@ impl<T: StdNum> LsbMsb<T> {
         }
     }
 
+    /// Performs the `read` operation.
     pub fn read(&self) -> T {
         #[cfg(target_endian = "little")]
         {
@@ -532,25 +568,37 @@ impl<T: StdNum> LsbMsb<T> {
         }
     }
 
+    /// Performs the `write` operation.
     pub fn write(&mut self, value: T) {
         self.lsb.set(value);
         self.msb.set(value);
     }
 }
 
+/// Type alias for U16LsbMsb.
 pub type U16LsbMsb = LsbMsb<u16>;
+/// Type alias for U32LsbMsb.
 pub type U32LsbMsb = LsbMsb<u32>;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+/// Represents DecDateTime.
 pub struct DecDateTime {
+    /// The `year` field.
     pub year: IsoStrD<4>,
+    /// The `month` field.
     pub month: IsoStrD<2>,
+    /// The `day` field.
     pub day: IsoStrD<2>,
+    /// The `hour` field.
     pub hour: IsoStrD<2>,
+    /// The `minute` field.
     pub minute: IsoStrD<2>,
+    /// The `second` field.
     pub second: IsoStrD<2>,
+    /// The `hundredths` field.
     pub hundredths: IsoStrD<2>,
+    /// The `timezone` field.
     pub timezone: u8,
 }
 
@@ -586,6 +634,7 @@ impl Default for DecDateTime {
 
 impl DecDateTime {
     #[cfg(feature = "std")]
+    /// Performs the `now` operation.
     pub fn now() -> Self {
         use chrono::{DateTime, Datelike, Timelike, Utc};
         let now: DateTime<Utc> = SystemTime::now().into();

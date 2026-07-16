@@ -65,6 +65,7 @@ impl FormatOptions {
     }
 
     #[deprecated(since = "2.0.0", note = "use `volume_label` instead")]
+    /// Deprecated alias for [`Self::volume_label`].
     pub fn with_label(self, label: &str) -> Self { self.volume_label(label) }
 
     /// Set the sector size.
@@ -74,6 +75,7 @@ impl FormatOptions {
     }
 
     #[deprecated(since = "2.0.0", note = "use `sector_size` instead")]
+    /// Deprecated alias for [`Self::sector_size`].
     pub fn with_sector_size(self, size: SectorSize) -> Self { self.sector_size(size) }
 
     /// Set the FAT type selection.
@@ -83,6 +85,7 @@ impl FormatOptions {
     }
 
     #[deprecated(since = "2.0.0", note = "use `fat_type` instead")]
+    /// Deprecated alias for [`Self::fat_type`].
     pub fn with_fat_type(self, fat_type: FatTypeSelection) -> Self { self.fat_type(fat_type) }
 
     /// Set sectors per cluster.
@@ -92,6 +95,7 @@ impl FormatOptions {
     }
 
     #[deprecated(since = "2.0.0", note = "use `sectors_per_cluster` instead")]
+    /// Deprecated alias for [`Self::sectors_per_cluster`].
     pub fn with_sectors_per_cluster(self, spc: u8) -> Self { self.sectors_per_cluster(spc) }
 
     /// Set the number of FAT copies.
@@ -101,6 +105,7 @@ impl FormatOptions {
     }
 
     #[deprecated(since = "2.0.0", note = "use `fat_copies` instead")]
+    /// Deprecated alias for [`Self::fat_copies`].
     pub fn with_fat_copies(self, copies: u8) -> Self { self.fat_copies(copies) }
 
     /// Set the media type.
@@ -110,6 +115,7 @@ impl FormatOptions {
     }
 
     #[deprecated(since = "2.0.0", note = "use `media_type` instead")]
+    /// Deprecated alias for [`Self::media_type`].
     pub fn with_media_type(self, media_type: MediaType) -> Self { self.media_type(media_type) }
 
     /// Set hidden sectors count.
@@ -119,6 +125,7 @@ impl FormatOptions {
     }
 
     #[deprecated(since = "2.0.0", note = "use `hidden_sectors` instead")]
+    /// Deprecated alias for [`Self::hidden_sectors`].
     pub fn with_hidden_sectors(self, hidden: u32) -> Self { self.hidden_sectors(hidden) }
 
     /// Set the volume ID.
@@ -128,6 +135,7 @@ impl FormatOptions {
     }
 
     #[deprecated(since = "2.0.0", note = "use `volume_id` instead")]
+    /// Deprecated alias for [`Self::volume_id`].
     pub fn with_volume_id(self, id: u32) -> Self { self.volume_id(id) }
 }
 

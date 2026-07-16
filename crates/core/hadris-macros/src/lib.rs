@@ -1,4 +1,6 @@
 //! Proc macros for dual sync/async code generation in Hadris.
+
+#![deny(missing_docs)]
 //!
 //! Provides `strip_async!` which removes `async`/`.await` from token streams,
 //! enabling the same source to compile as both sync and async code.

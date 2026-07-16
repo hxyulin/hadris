@@ -1,6 +1,10 @@
 # Hadris ISO
 
-A comprehensive Rust implementation of the ISO 9660 filesystem with support for Joliet, Rock Ridge (RRIP), SUSP, El-Torito booting, and no-std environments.
+A pure Rust ISO 9660 filesystem and ISO image library with read and write
+support for Joliet, Rock Ridge (RRIP), SUSP, El Torito, and ISO 9660:1999.
+Hadris ISO is designed for desktop applications and `no_std` bootloaders,
+operating-system kernels, firmware, and embedded systems working with CD-ROM,
+DVD, and bootable optical-disc images.
 
 ## Features
 

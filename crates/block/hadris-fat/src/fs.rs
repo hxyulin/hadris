@@ -140,6 +140,7 @@ impl fmt::Debug for Fat32FsExt {
     }
 }
 
+/// A mounted FAT filesystem backed by a seekable data source.
 pub struct FatFs<DATA: Seek> {
     pub(crate) data: Mutex<SectorCursor<DATA>>,
     pub(crate) info: FatInfo,
@@ -216,6 +217,7 @@ impl<DATA: Read + Seek> FatFsBuilder<DATA> {
     }
 
     #[deprecated(since = "2.0.0", note = "use `time_provider` instead")]
+    /// Deprecated alias for [`Self::time_provider`].
     pub fn with_time_provider(self, provider: &'static dyn crate::time::TimeProvider) -> Self {
         self.time_provider(provider)
     }
@@ -230,6 +232,7 @@ impl<DATA: Read + Seek> FatFsBuilder<DATA> {
     }
 
     #[deprecated(since = "2.0.0", note = "use `oem_converter` instead")]
+    /// Deprecated alias for [`Self::oem_converter`].
     pub fn with_oem_converter(self, converter: &'static dyn crate::oem::OemCpConverter) -> Self {
         self.oem_converter(converter)
     }
@@ -259,6 +262,7 @@ impl<DATA: Read + Seek> FatFsBuilder<DATA> {
 
     #[cfg(feature = "cache")]
     #[deprecated(since = "2.0.0", note = "use `fat_cache` instead")]
+    /// Deprecated alias for [`Self::fat_cache`].
     pub fn with_fat_cache(self, capacity_sectors: usize) -> Self {
         self.fat_cache(capacity_sectors)
     }
@@ -675,6 +679,7 @@ where
         &self.fat
     }
 
+    /// Returns the filesystem's root directory.
     pub fn root_dir(&self) -> FatDir<'_, DATA> {
         match &self.ext {
             FatFsExt::Fat12_16(ext) => FatDir {

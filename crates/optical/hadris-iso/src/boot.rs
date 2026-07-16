@@ -73,7 +73,9 @@ impl std::error::Error for BootError {}
 /// This is the minimum required specified by the El-Torito specification
 #[derive(Debug, Clone)]
 pub struct BaseBootCatalog {
+    /// The `validation` field.
     pub validation: BootValidationEntry,
+    /// The `default_entry` field.
     pub default_entry: BootSectionEntry,
 }
 
@@ -84,6 +86,7 @@ impl Default for BaseBootCatalog {
 }
 
 impl BaseBootCatalog {
+    /// Performs the `new` operation.
     pub fn new(
         media_type: EmulationType,
         load_segment: u16,
@@ -114,6 +117,7 @@ impl Default for BootCatalog {
 
 #[cfg(feature = "alloc")]
 impl BootCatalog {
+    /// Performs the `new` operation.
     pub fn new(
         media_type: EmulationType,
         load_segment: u16,
@@ -126,10 +130,12 @@ impl BootCatalog {
         }
     }
 
+    /// Performs the `set_default_entry` operation.
     pub fn set_default_entry(&mut self, entry: BootSectionEntry) {
         self.base.default_entry = entry;
     }
 
+    /// Performs the `add_section` operation.
     pub fn add_section(&mut self, platform_id: PlatformId, entries: Vec<BootSectionEntry>) {
         if let Some((header, _entry)) = self.sections.last_mut() {
             // No longer the last section
@@ -168,14 +174,20 @@ impl BootCatalog {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Identifies a BootCatalogEntry value.
 pub enum BootCatalogEntry {
+    /// The `Validation` variant.
     Validation(BootValidationEntry),
+    /// The `SectionHeader` variant.
     SectionHeader(BootSectionHeaderEntry),
+    /// The `SectionEntry` variant.
     SectionEntry(BootSectionEntry),
+    /// The `SectionEntryExtension` variant.
     SectionEntryExtension(BootSectionEntryExtension),
 }
 
 impl BootCatalogEntry {
+    /// Performs the `as_bytes` operation.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             BootCatalogEntry::Validation(entry) => bytemuck::bytes_of(entry),
@@ -185,22 +197,29 @@ impl BootCatalogEntry {
         }
     }
 
+    /// Performs the `size` operation.
     pub const fn size(&self) -> usize {
         32
     }
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Identifies a PlatformId value.
 pub enum PlatformId {
     /// This is for X8086, X86, and X86_64 architectures.
     X80X86,
+    /// The `PowerPC` variant.
     PowerPC,
+    /// The `Macintosh` variant.
     Macintosh,
+    /// The `UEFI` variant.
     UEFI,
+    /// The `Unknown` variant.
     Unknown(u8),
 }
 
 impl PlatformId {
+    /// Performs the `from_u8` operation.
     pub fn from_u8(value: u8) -> Self {
         match value {
             0x00 => Self::X80X86,
@@ -211,6 +230,7 @@ impl PlatformId {
         }
     }
 
+    /// Performs the `to_u8` operation.
     pub fn to_u8(self) -> u8 {
         match self {
             Self::X80X86 => 0x00,
@@ -231,10 +251,15 @@ impl PlatformId {
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct BootValidationEntry {
+    /// The `header_id` field.
     pub header_id: u8,
+    /// The `platform_id` field.
     pub platform_id: u8,
+    /// The `reserved` field.
     pub reserved: [u8; 2],
+    /// The `manufacturer` field.
     pub manufacturer: [u8; 24],
+    /// The `checksum` field.
     pub checksum: U16<LittleEndian>,
     /// 0x55AA
     pub key: [u8; 2],
@@ -247,6 +272,7 @@ impl Default for BootValidationEntry {
 }
 
 impl BootValidationEntry {
+    /// Performs the `new` operation.
     pub fn new() -> Self {
         let mut entry = Self {
             header_id: 1,
@@ -323,12 +349,16 @@ impl BootValidationEntry {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+/// Represents BootSectionHeaderEntry.
 pub struct BootSectionHeaderEntry {
     /// 0x90 = Header, more headers follow
     /// 0x91 = Final header
     pub header_type: u8,
+    /// The `platform_id` field.
     pub platform_id: u8,
+    /// The `section_count` field.
     pub section_count: U16<LittleEndian>,
+    /// The `section_ident` field.
     pub section_ident: [u8; 28],
 }
 
@@ -350,13 +380,16 @@ unsafe impl bytemuck::Zeroable for BootSectionHeaderEntry {}
 unsafe impl bytemuck::Pod for BootSectionHeaderEntry {}
 
 #[derive(Debug, Clone, Copy)]
+/// Identifies a EmulationType value.
 pub enum EmulationType {
     /// 0x00 = No emulation
     NoEmulation,
+    /// The `Unknown` variant.
     Unknown(u8),
 }
 
 impl EmulationType {
+    /// Performs the `from_u8` operation.
     pub fn from_u8(value: u8) -> Self {
         match value {
             0x00 => Self::NoEmulation,
@@ -364,6 +397,7 @@ impl EmulationType {
         }
     }
 
+    /// Performs the `to_u8` operation.
     pub fn to_u8(self) -> u8 {
         match self {
             Self::NoEmulation => 0x00,
@@ -374,20 +408,30 @@ impl EmulationType {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+/// Represents BootSectionEntry.
 pub struct BootSectionEntry {
     /// 0x88 = Bootable, 0x00 = Not bootable
     pub boot_indicator: u8,
+    /// The `boot_media_type` field.
     pub boot_media_type: u8,
+    /// The `load_segment` field.
     pub load_segment: U16<LittleEndian>,
+    /// The `system_type` field.
     pub system_type: u8,
+    /// The `reserved0` field.
     pub reserved0: u8,
+    /// The `sector_count` field.
     pub sector_count: U16<LittleEndian>,
+    /// The `load_rba` field.
     pub load_rba: U32<LittleEndian>,
+    /// The `selection_criteria` field.
     pub selection_criteria: u8,
+    /// The `vendor_unique` field.
     pub vendor_unique: [u8; 19],
 }
 
 impl BootSectionEntry {
+    /// Performs the `new` operation.
     pub fn new(
         media_type: EmulationType,
         load_segment: u16,
@@ -445,11 +489,15 @@ unsafe impl bytemuck::Pod for BootSectionEntry {}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+/// Represents BootSectionEntryExtension.
 pub struct BootSectionEntryExtension {
     // Must be 0x44
+    /// The `extension_indicator` field.
     pub extension_indicator: u8,
     // Bit 5: 1 = more extensions follow, 0 = final extension
+    /// The `flags` field.
     pub flags: u8,
+    /// The `vendor_unique` field.
     pub vendor_unique: [u8; 30],
 }
 
@@ -517,6 +565,7 @@ impl BaseBootCatalog {
         })
     }
 
+    /// Performs the `write` operation.
     pub async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         writer.write_all(bytemuck::bytes_of(&self.validation)).await?;
         writer.write_all(bytemuck::bytes_of(&self.default_entry)).await?;
@@ -525,6 +574,7 @@ impl BaseBootCatalog {
 }
 
 impl BootValidationEntry {
+    /// Performs the `parse` operation.
     pub async fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
         let mut buf = [0u8; 32];
         reader.read_exact(&mut buf).await?;
@@ -533,6 +583,7 @@ impl BootValidationEntry {
 }
 
 impl BootSectionEntry {
+    /// Performs the `parse` operation.
     pub async fn parse<T: Read>(reader: &mut T) -> Result<Self, io::Error> {
         let mut buf: [u8; 32] = [0; 32];
         reader.read_exact(&mut buf).await?;
@@ -593,6 +644,7 @@ impl BootCatalog {
         Ok(Self { base, sections })
     }
 
+    /// Performs the `write` operation.
     pub async fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         self.base.write(writer).await?;
         for (header, entries) in self.sections.iter() {
@@ -610,6 +662,7 @@ impl BootCatalog {
 
 sync_only! {
 #[cfg(feature = "write")]
+/// Represents ElToritoWriter.
 pub struct ElToritoWriter;
 
 #[cfg(feature = "write")]
@@ -641,6 +694,7 @@ impl ElToritoWriter {
 }
 
 #[cfg(feature = "write")]
+/// APIs for options.
 pub mod options {
     use alloc::string::String;
     use alloc::vec::Vec;
@@ -649,13 +703,18 @@ pub mod options {
     use super::{EmulationType, PlatformId};
 
     #[derive(Debug, Clone, Default)]
+    /// Represents BootOptions.
     pub struct BootOptions {
+        /// The `write_boot_catalog` field.
         pub write_boot_catalog: bool,
+        /// The `default` field.
         pub default: BootEntryOptions,
+        /// The `entries` field.
         pub entries: Vec<(BootSectionOptions, BootEntryOptions)>,
     }
 
     impl BootOptions {
+        /// Performs the `sections` operation.
         pub fn sections(&self) -> Vec<(Option<BootSectionOptions>, BootEntryOptions)> {
             let mut sections = Vec::with_capacity(self.entries.len() + 1);
             sections.push((None, self.default.clone()));
@@ -667,11 +726,14 @@ pub mod options {
     }
 
     #[derive(Debug, Clone)]
+    /// Represents BootSectionOptions.
     pub struct BootSectionOptions {
+        /// The `platform` field.
         pub platform: PlatformId,
     }
 
     #[derive(Debug, Clone)]
+    /// Represents BootEntryOptions.
     pub struct BootEntryOptions {
         /// Number of 512-byte virtual sectors loaded by firmware.
         pub load_size: Option<NonZeroU16>,
@@ -681,8 +743,11 @@ pub mod options {
         /// callers must provide an image containing the required filesystem
         /// and partition structures.
         pub boot_image_path: String,
+        /// The `boot_info_table` field.
         pub boot_info_table: bool,
+        /// The `grub2_boot_info` field.
         pub grub2_boot_info: bool,
+        /// The `emulation` field.
         pub emulation: EmulationType,
     }
 

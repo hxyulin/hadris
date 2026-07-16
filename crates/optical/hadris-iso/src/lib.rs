@@ -1,7 +1,7 @@
 //! # Hadris ISO
 //!
-//! A comprehensive Rust implementation of the ISO 9660 filesystem with support for
-//! Joliet, Rock Ridge (RRIP), El-Torito booting, and no-std environments.
+//! A pure Rust ISO 9660 filesystem and disk-image library with support for
+//! Joliet, Rock Ridge (RRIP), El Torito booting, and `no_std` environments.
 //!
 //! This crate provides both reading and writing capabilities for ISO 9660 images,
 //! making it suitable for:
@@ -268,6 +268,7 @@
 //!   exposes low-level modules suitable for no-alloc bootloaders.
 
 #![no_std]
+#![deny(missing_docs)]
 #![allow(async_fn_in_trait)]
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
@@ -589,15 +590,20 @@ pub mod r#async {
     #[path = "."]
     mod __inner {
         pub mod boot;
+        /// APIs for directory.
         pub mod directory;
+        /// APIs for io.
         pub mod io;
+        /// APIs for path.
         pub mod path;
         #[cfg(feature = "alloc")]
+        /// APIs for read.
         pub mod read;
         #[cfg(feature = "alloc")]
         pub mod rrip;
         #[cfg(feature = "alloc")]
         pub mod susp;
+        /// APIs for volume.
         pub mod volume;
     }
     pub use __inner::*;

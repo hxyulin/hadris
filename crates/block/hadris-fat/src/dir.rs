@@ -16,6 +16,7 @@ use super::io::ReadExt;
 use super::io::{Cluster, ClusterLike, Read, Seek, SeekFrom};
 use super::read::FileReader;
 
+/// A directory within a mounted FAT filesystem.
 pub struct FatDir<'a, DATA: Read + Seek> {
     pub(crate) data: &'a FatFs<DATA>,
     /// Cluster for subdirectories, or 0 (sentinel) for FAT12/16 fixed root
@@ -25,6 +26,7 @@ pub struct FatDir<'a, DATA: Read + Seek> {
 }
 
 impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
+    /// Creates an iterator over this directory's entries.
     #[cfg(feature = "lfn")]
     pub fn entries(&self) -> FatDirIter<'a, DATA> {
         FatDirIter {
@@ -43,6 +45,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
         }
     }
 
+    /// Creates an iterator over this directory's entries.
     #[cfg(not(feature = "lfn"))]
     pub fn entries(&self) -> FatDirIter<'a, DATA> {
         FatDirIter {
@@ -132,6 +135,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
     }
 }
 
+/// Stateful iterator over the entries in a FAT directory.
 pub struct FatDirIter<'a, DATA: Read + Seek> {
     data: &'a FatFs<DATA>,
     /// Current cluster (or 0 for fixed root directory)
@@ -397,6 +401,7 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
 }
 
 #[derive(Debug)]
+/// A parsed FAT directory record.
 pub enum DirectoryEntry {
     /// A file or directory entry
     Entry(FileEntry),
@@ -423,18 +428,24 @@ impl DirectoryEntry {
 }
 
 #[derive(Debug)]
+/// A parsed value together with non-fatal filesystem diagnostics.
 pub struct ParseInfo<T> {
+    /// Parsed value.
     pub data: T,
+    /// Warnings encountered while parsing.
     pub warnings: FileSystemWarnings,
+    /// Errors accumulated while parsing.
     pub errors: FileSystemErrors,
 }
 
 bitflags::bitflags! {
+    /// Non-fatal warnings discovered while parsing a filesystem object.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct FileSystemWarnings: u64 {
 
     }
 
+    /// Errors accumulated while parsing a filesystem object.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct FileSystemErrors: u64 {
 
@@ -442,6 +453,7 @@ bitflags::bitflags! {
 }
 
 #[derive(Debug)]
+/// Metadata for a file or subdirectory entry.
 pub struct FileEntry {
     pub(crate) short_name: ShortFileName,
     #[cfg(feature = "lfn")]

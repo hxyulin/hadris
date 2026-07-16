@@ -4,6 +4,7 @@ use spin::Mutex;
 
 io_transform! {
 
+/// Represents VolumeDescriptorIter.
 pub struct VolumeDescriptorIter<'ctx, DATA: Read + Seek> {
     pub(crate) data: &'ctx Mutex<IsoCursor<DATA>>,
     pub(crate) current_sector: LogicalSector,

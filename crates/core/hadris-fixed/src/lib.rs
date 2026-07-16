@@ -1,6 +1,7 @@
 //! Fixed-capacity byte and text types for `no_std` applications.
 
 #![no_std]
+#![deny(missing_docs)]
 
 #[cfg(any(feature = "alloc", test))]
 extern crate alloc;
@@ -54,30 +55,37 @@ impl<const N: usize> FixedBytes<N> {
         }
     }
 
+    /// Returns the number of initialized bytes.
     pub const fn len(&self) -> usize {
         self.len
     }
 
+    /// Returns whether the buffer contains no initialized bytes.
     pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
+    /// Returns the maximum number of bytes the buffer can hold.
     pub const fn capacity(&self) -> usize {
         N
     }
 
+    /// Returns the number of bytes that can still be appended.
     pub const fn remaining_capacity(&self) -> usize {
         N - self.len
     }
 
+    /// Returns the initialized portion of the buffer.
     pub fn as_bytes(&self) -> &[u8] {
         &self.data[..self.len]
     }
 
+    /// Returns the initialized portion of the buffer mutably.
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         &mut self.data[..self.len]
     }
 
+    /// Interprets the initialized bytes as UTF-8.
     pub fn try_as_str(&self) -> Result<&str, core::str::Utf8Error> {
         core::str::from_utf8(self.as_bytes())
     }
@@ -91,26 +99,37 @@ impl<const N: usize> FixedBytes<N> {
             .expect("FixedBytes contains invalid UTF-8")
     }
 
+    /// Removes all initialized bytes.
     pub fn clear(&mut self) {
         self.len = 0;
     }
 
+    /// Shortens the initialized portion to `new_len`.
+    ///
+    /// # Panics
+    /// Panics if `new_len` exceeds the current length.
     pub fn truncate(&mut self, new_len: usize) {
         assert!(new_len <= self.len);
         self.len = new_len;
     }
 
+    /// Extends the initialized portion with zero-filled bytes.
+    ///
+    /// # Panics
+    /// Panics if the requested bytes exceed the remaining capacity.
     pub fn allocate(&mut self, bytes: usize) {
         assert!(bytes <= self.remaining_capacity());
         self.len += bytes;
     }
 
+    /// Copies a byte slice into a new buffer.
     pub fn try_from_slice(value: &[u8]) -> Result<Self, CapacityError> {
         let mut result = Self::new();
         result.try_push_slice(value)?;
         Ok(result)
     }
 
+    /// Appends a slice and returns the occupied range.
     pub fn try_push_slice(&mut self, value: &[u8]) -> Result<Range<usize>, CapacityError> {
         if value.len() > self.remaining_capacity() {
             return Err(CapacityError);
@@ -121,11 +140,16 @@ impl<const N: usize> FixedBytes<N> {
         Ok(start..self.len)
     }
 
+    /// Appends a slice and returns the occupied range.
+    ///
+    /// # Panics
+    /// Panics if the slice exceeds the remaining capacity.
     pub fn push_slice(&mut self, value: &[u8]) -> Range<usize> {
         self.try_push_slice(value)
             .expect("FixedBytes capacity exceeded")
     }
 
+    /// Appends one byte and returns its index.
     pub fn try_push_byte(&mut self, value: u8) -> Result<usize, CapacityError> {
         if self.len == N {
             return Err(CapacityError);
@@ -136,6 +160,10 @@ impl<const N: usize> FixedBytes<N> {
         Ok(index)
     }
 
+    /// Appends one byte and returns its index.
+    ///
+    /// # Panics
+    /// Panics if the buffer is full.
     pub fn push_byte(&mut self, value: u8) -> usize {
         self.try_push_byte(value)
             .expect("FixedBytes capacity exceeded")
@@ -183,58 +211,77 @@ impl<const N: usize> fmt::Display for FixedBytes<N> {
 pub struct FixedStr<const N: usize>(FixedBytes<N>);
 
 impl<const N: usize> FixedStr<N> {
+    /// Creates an empty string.
     pub const fn new() -> Self {
         Self(FixedBytes::new())
     }
 
+    /// Returns the UTF-8 byte length.
     pub const fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Returns whether the string is empty.
     pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
+    /// Returns the maximum UTF-8 byte capacity.
     pub const fn capacity(&self) -> usize {
         N
     }
 
+    /// Returns the remaining UTF-8 byte capacity.
     pub const fn remaining_capacity(&self) -> usize {
         self.0.remaining_capacity()
     }
 
+    /// Returns the contents as a string slice.
     pub fn as_str(&self) -> &str {
         // Construction and mutation accept only valid UTF-8.
         unsafe { core::str::from_utf8_unchecked(self.0.as_bytes()) }
     }
 
+    /// Returns the UTF-8 bytes.
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
     }
 
+    /// Removes all text.
     pub fn clear(&mut self) {
         self.0.clear();
     }
 
+    /// Appends text and returns its byte range.
     pub fn try_push_str(&mut self, value: &str) -> Result<Range<usize>, CapacityError> {
         self.0.try_push_slice(value.as_bytes())
     }
 
+    /// Appends text and returns its byte range.
+    ///
+    /// # Panics
+    /// Panics if the text exceeds the remaining capacity.
     pub fn push_str(&mut self, value: &str) -> Range<usize> {
         self.try_push_str(value)
             .expect("FixedStr capacity exceeded")
     }
 
+    /// Appends one Unicode scalar and returns its UTF-8 byte range.
     pub fn try_push(&mut self, value: char) -> Result<Range<usize>, CapacityError> {
         let mut bytes = [0; 4];
         self.try_push_str(value.encode_utf8(&mut bytes))
     }
 
+    /// Shortens the string to `new_len` UTF-8 bytes.
+    ///
+    /// # Panics
+    /// Panics unless `new_len` is a character boundary within the string.
     pub fn truncate(&mut self, new_len: usize) {
         assert!(self.as_str().is_char_boundary(new_len));
         self.0.truncate(new_len);
     }
 
+    /// Converts the string into its fixed byte buffer.
     pub const fn into_bytes(self) -> FixedBytes<N> {
         self.0
     }
@@ -277,13 +324,17 @@ impl<const N: usize> fmt::Display for FixedStr<N> {
 
 /// UTF-16 byte order used by [`FixedUtf16`].
 pub trait Utf16ByteOrder: Copy {
+    /// Decodes one code unit from its on-disk byte order.
     fn read(bytes: [u8; 2]) -> u16;
+    /// Encodes one code unit into its on-disk byte order.
     fn write(value: u16) -> [u8; 2];
 }
 
+/// Little-endian UTF-16 code-unit encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LittleEndian;
 
+/// Big-endian UTF-16 code-unit encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BigEndian;
 
@@ -313,10 +364,13 @@ pub struct FixedUtf16<const N: usize, E: Utf16ByteOrder> {
     byte_order: PhantomData<E>,
 }
 
+/// Fixed-width little-endian UTF-16 text.
 pub type FixedUtf16Le<const N: usize> = FixedUtf16<N, LittleEndian>;
+/// Fixed-width big-endian UTF-16 text.
 pub type FixedUtf16Be<const N: usize> = FixedUtf16<N, BigEndian>;
 
 impl<const N: usize, E: Utf16ByteOrder> FixedUtf16<N, E> {
+    /// Creates a NUL-filled value.
     pub const fn new() -> Self {
         Self {
             data: [[0; 2]; N],
@@ -324,6 +378,7 @@ impl<const N: usize, E: Utf16ByteOrder> FixedUtf16<N, E> {
         }
     }
 
+    /// Encodes a string into fixed-width UTF-16.
     pub fn try_from_str(value: &str) -> Result<Self, CapacityError> {
         let mut result = Self::new();
         for (index, unit) in value.encode_utf16().enumerate() {
@@ -335,10 +390,12 @@ impl<const N: usize, E: Utf16ByteOrder> FixedUtf16<N, E> {
         Ok(result)
     }
 
+    /// Returns all encoded code-unit bytes, including NUL padding.
     pub fn as_bytes(&self) -> &[[u8; 2]; N] {
         &self.data
     }
 
+    /// Decodes code units up to the first NUL.
     pub fn decode(&self) -> impl Iterator<Item = Result<char, core::char::DecodeUtf16Error>> + '_ {
         char::decode_utf16(
             self.data
@@ -349,6 +406,7 @@ impl<const N: usize, E: Utf16ByteOrder> FixedUtf16<N, E> {
     }
 
     #[cfg(feature = "alloc")]
+    /// Decodes the value into an allocated UTF-8 string.
     pub fn to_string(&self) -> Result<alloc::string::String, core::char::DecodeUtf16Error> {
         self.decode().collect()
     }

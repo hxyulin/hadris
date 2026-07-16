@@ -39,54 +39,87 @@ impl Default for FileTree {
 pub enum FileNode {
     /// A regular file with in-memory contents.
     File {
+        /// Archive entry name.
         name: Arc<String>,
+        /// File contents.
         contents: Vec<u8>,
+        /// Unix permission bits.
         permissions: u32,
+        /// Owner user identifier.
         uid: u32,
+        /// Owner group identifier.
         gid: u32,
+        /// Modification time as seconds since the Unix epoch.
         mtime: u32,
     },
     /// A directory containing child nodes.
     Directory {
+        /// Archive entry name.
         name: Arc<String>,
+        /// Child entries.
         children: Vec<FileNode>,
+        /// Unix permission bits.
         permissions: u32,
+        /// Owner user identifier.
         uid: u32,
+        /// Owner group identifier.
         gid: u32,
+        /// Modification time as seconds since the Unix epoch.
         mtime: u32,
     },
     /// A symbolic link. The file data is the target path.
     Symlink {
+        /// Archive entry name.
         name: Arc<String>,
+        /// Link target stored as the entry contents.
         target: String,
+        /// Unix permission bits.
         permissions: u32,
+        /// Owner user identifier.
         uid: u32,
+        /// Owner group identifier.
         gid: u32,
+        /// Modification time as seconds since the Unix epoch.
         mtime: u32,
     },
     /// A hard link to another entry in the tree. The `link_target` must be
     /// the archive path of a [`File`](FileNode::File) that appears earlier.
     HardLink {
+        /// Archive entry name.
         name: Arc<String>,
+        /// Archive path of the earlier regular-file target.
         link_target: String,
     },
     /// A block or character device node.
     DeviceNode {
+        /// Archive entry name.
         name: Arc<String>,
+        /// Block or character device type.
         device_type: FileType,
+        /// Device major number.
         major: u32,
+        /// Device minor number.
         minor: u32,
+        /// Unix permission bits.
         permissions: u32,
+        /// Owner user identifier.
         uid: u32,
+        /// Owner group identifier.
         gid: u32,
+        /// Modification time as seconds since the Unix epoch.
         mtime: u32,
     },
     /// A named pipe (FIFO).
     Fifo {
+        /// Archive entry name.
         name: Arc<String>,
+        /// Unix permission bits.
         permissions: u32,
+        /// Owner user identifier.
         uid: u32,
+        /// Owner group identifier.
         gid: u32,
+        /// Modification time as seconds since the Unix epoch.
         mtime: u32,
     },
 }

@@ -16,6 +16,7 @@ impl fmt::Debug for ShortFileName {
 }
 
 #[derive(Debug)]
+/// Error returned when bytes cannot form a valid FAT 8.3 filename.
 pub struct CreateShortFileNameError;
 
 impl fmt::Display for CreateShortFileNameError {
@@ -28,8 +29,10 @@ impl fmt::Display for CreateShortFileNameError {
 impl std::error::Error for CreateShortFileNameError {}
 
 impl ShortFileName {
+    /// Punctuation permitted in a FAT short filename.
     pub const ALLOWED_SYMBOLS: &'static [u8] = b"$%'-_@~`!(){}^#&";
 
+    /// Creates a short filename from its space-padded 11-byte directory form.
     pub fn new(bytes: [u8; 11]) -> Result<Self, CreateShortFileNameError> {
         // Special case: "." and ".." directory entries
         if bytes == *b".          " {
@@ -84,6 +87,7 @@ impl ShortFileName {
         result
     }
 
+    /// Returns the formatted short filename as a string.
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
@@ -469,6 +473,7 @@ impl LfnBuilder {
     /// Mask for the sequence number (bits 0-5)
     pub const SEQ_NUMBER_MASK: u8 = 0x3F;
 
+    /// Creates an empty long-file-name sequence builder.
     pub fn new() -> Self {
         Self {
             name: LongFileName::new(),

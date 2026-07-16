@@ -28,8 +28,11 @@ impl AddAssign<usize> for LogicalSector {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct _LogicalBlock(pub usize);
 
+/// Represents IsoCursor.
 pub struct IsoCursor<DATA: Seek> {
+    /// The `data` field.
     pub data: DATA,
+    /// The `sector_size` field.
     pub sector_size: usize,
 }
 
@@ -64,6 +67,7 @@ impl<DATA: Seek> Seek for IsoCursor<DATA> {
 }
 
 impl<DATA: Seek> IsoCursor<DATA> {
+    /// Performs the `new` operation.
     pub fn new(data: DATA, sector_size: usize) -> Self {
         Self { data, sector_size }
     }
@@ -73,6 +77,7 @@ impl<DATA: Seek> IsoCursor<DATA> {
         self.data
     }
 
+    /// Performs the `pad_align_sector` operation.
     pub async fn pad_align_sector(&mut self) -> Result<LogicalSector> {
         let stream_pos = self.stream_position().await.map_err(Error::erase)?;
         let sector_size_minus_one = self.sector_size as u64 - 1;
@@ -87,6 +92,7 @@ impl<DATA: Seek> IsoCursor<DATA> {
         ))
     }
 
+    /// Performs the `seek_sector` operation.
     pub async fn seek_sector(&mut self, sector: LogicalSector) -> Result<u64> {
         self.seek(SeekFrom::Start(sector.0 as u64 * self.sector_size as u64))
             .await

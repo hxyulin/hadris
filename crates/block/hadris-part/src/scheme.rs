@@ -274,6 +274,10 @@ impl GptDisk {
     }
 
     #[cfg(not(feature = "crc"))]
+    /// Leaves the headers unchanged when CRC support is disabled.
+    ///
+    /// Enable the `crc` feature to calculate and update the partition-array
+    /// and header checksums.
     pub fn update_crcs(&mut self) {
         // No-op without CRC feature
     }

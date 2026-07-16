@@ -22,7 +22,9 @@ pub fn error_from_kind(kind: ErrorKind) -> Error {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Sector<T = usize>(pub T);
 
+/// Converts a typed sector number into a byte offset.
 pub trait SectorLike {
+    /// Converts this sector number using `bytes_per_sector`.
     fn to_bytes(self, bytes_per_sector: usize) -> usize;
 }
 
@@ -47,6 +49,7 @@ sector_impl!(usize);
 pub struct Cluster<T = usize>(pub T);
 
 impl Cluster<usize> {
+    /// Combines the high and low words stored in a directory entry.
     pub fn from_parts(high: u16, low: u16) -> Self {
         Self((high as usize) << 16 | (low as usize))
     }
@@ -71,6 +74,7 @@ cluster_impl!(u32);
 cluster_impl!(u64);
 cluster_impl!(usize);
 
+/// Seekable data source with FAT sector and cluster geometry.
 pub struct SectorCursor<DATA: Seek> {
     pub(crate) data: DATA,
     pub(crate) sector_size: usize,
@@ -78,6 +82,7 @@ pub struct SectorCursor<DATA: Seek> {
 }
 
 impl<DATA: Seek> SectorCursor<DATA> {
+    /// Creates a cursor with the supplied sector and cluster sizes.
     pub const fn new(data: DATA, sector_size: usize, cluster_size: usize) -> Self {
         Self {
             data,
@@ -86,6 +91,7 @@ impl<DATA: Seek> SectorCursor<DATA> {
         }
     }
 
+    /// Seeks to the beginning of a sector.
     pub async fn seek_sector(&mut self, sector: impl SectorLike) -> hadris_io::Result<u64> {
         self.seek(SeekFrom::Start(sector.to_bytes(self.sector_size) as u64))
             .await

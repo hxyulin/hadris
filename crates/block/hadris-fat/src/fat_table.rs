@@ -113,13 +113,18 @@ where
     Ok(chain)
 }
 
+/// Allocation-table implementation selected for a mounted FAT volume.
 pub enum Fat {
+    /// FAT12 allocation table.
     Fat12(Fat12),
+    /// FAT16 allocation table.
     Fat16(Fat16),
+    /// FAT32 allocation table.
     Fat32(Fat32),
 }
 
 impl Fat {
+    /// Returns the next cluster in a chain, or `None` at end-of-chain.
     pub async fn next_cluster<T: Read + Seek>(
         &self,
         reader: &mut T,
@@ -415,8 +420,11 @@ impl Fat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FatType {
+    /// 12-bit FAT entries.
     Fat12,
+    /// 16-bit FAT entries.
     Fat16,
+    /// 28-bit cluster values stored in 32-bit FAT entries.
     Fat32,
 }
 
@@ -458,6 +466,7 @@ impl Fat12 {
         (self.start, self.size, self.count)
     }
 
+    /// Creates a FAT12 table descriptor.
     pub fn new(start: usize, size: usize, count: usize, max_cluster: u16) -> Self {
         debug_assert!(count == 1 || count == 2);
         Self {
@@ -528,6 +537,7 @@ impl Fat12 {
         Ok(())
     }
 
+    /// Returns the next cluster in a chain, or `None` at end-of-chain.
     pub async fn next_cluster<T: Read + Seek>(
         &self,
         reader: &mut T,
@@ -723,6 +733,7 @@ impl Fat16 {
         (self.start, self.size, self.count)
     }
 
+    /// Creates a FAT16 table descriptor.
     pub fn new(start: usize, size: usize, count: usize, max_cluster: u16) -> Self {
         debug_assert!(count == 1 || count == 2);
         Self {
@@ -784,6 +795,7 @@ impl Fat16 {
         Ok(())
     }
 
+    /// Returns the next cluster in a chain, or `None` at end-of-chain.
     pub async fn next_cluster<T: Read + Seek>(
         &self,
         reader: &mut T,
@@ -936,6 +948,7 @@ impl Fat16 {
     }
 }
 
+/// FAT32 allocation-table descriptor.
 pub struct Fat32 {
     start: usize,
     size: usize,
@@ -961,6 +974,7 @@ impl Fat32 {
         (self.start, self.size, self.count)
     }
 
+    /// Creates a FAT32 table descriptor.
     pub fn new(start: usize, size: usize, count: usize, max_cluster: u32) -> Self {
         debug_assert!(count == 1 || count == 2);
         Self {
@@ -1022,6 +1036,7 @@ impl Fat32 {
         Ok(())
     }
 
+    /// Returns the next cluster in a chain, or `None` at end-of-chain.
     pub async fn next_cluster<T: Read + Seek>(
         &self,
         reader: &mut T,

@@ -61,6 +61,7 @@
 //! ```
 
 #![no_std]
+#![deny(missing_docs)]
 #![allow(async_fn_in_trait)]
 
 #[cfg(feature = "std")]

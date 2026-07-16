@@ -5,6 +5,7 @@
 //! iterators are allocation-free and available in `no_std` environments.
 
 #![no_std]
+#![deny(missing_docs)]
 
 #[cfg(any(feature = "alloc", test))]
 extern crate alloc;

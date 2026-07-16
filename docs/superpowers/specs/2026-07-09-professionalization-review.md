@@ -50,6 +50,7 @@ Severity: **P0** release blocker, **P1** important before a polished V2 release,
 | A6 | P2 | ISO specification | In-repo specification notes remain incomplete and are excluded from the package | Clearly treat as developer notes or finish as a later documentation project |
 | A7 | P2 | UDF revision reporting | NSR02/NSR03 identify revision families, so `UdfInfo::udf_revision` is a representative family revision rather than guaranteed exact media revision | Document semantics if exact domain-suffix parsing is not added |
 | A8 | Resolved | Async tests | FAT, partition, ISO, and UDF leaf crates directly exercise their public async namespaces in addition to facade coverage | Keep focused leaf and facade tests in the all-feature suite |
+| A9 | Resolved | Public API docs | All published library crates deny missing docs; legacy FAT, partition, ISO, and CPIO gaps and generated sync/async duplicates are documented | Keep the workspace library-only missing-doc check clean |
 
 ## Release-candidate checklist
 

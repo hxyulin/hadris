@@ -9,7 +9,9 @@ pub enum OpenOpticalImage<'a, S>
 where
     S: Read + Seek<Error = <S as Read>::Error>,
 {
+    /// An opened ISO 9660 filesystem.
     Iso9660(hadris_iso::sync::IsoImage<Borrowed<'a, S>>),
+    /// An opened UDF filesystem.
     Udf(hadris_udf::sync::UdfFs<Borrowed<'a, S>>),
 }
 
@@ -49,6 +51,7 @@ where
         }
     }
 
+    /// Returns the concrete format selected from the image.
     pub const fn format(&self) -> OpticalFormat {
         match self {
             Self::Iso9660(_) => OpticalFormat::Iso9660,
@@ -56,6 +59,7 @@ where
         }
     }
 
+    /// Borrows the ISO 9660 handle when that format was selected.
     pub fn as_iso9660(&self) -> Option<&hadris_iso::sync::IsoImage<Borrowed<'a, S>>> {
         match self {
             Self::Iso9660(image) => Some(image),
@@ -63,6 +67,7 @@ where
         }
     }
 
+    /// Borrows the UDF handle when that format was selected.
     pub fn as_udf(&self) -> Option<&hadris_udf::sync::UdfFs<Borrowed<'a, S>>> {
         match self {
             Self::Udf(image) => Some(image),
@@ -70,6 +75,7 @@ where
         }
     }
 
+    /// Mutably borrows the ISO 9660 handle when that format was selected.
     pub fn as_iso9660_mut(&mut self) -> Option<&mut hadris_iso::sync::IsoImage<Borrowed<'a, S>>> {
         match self {
             Self::Iso9660(image) => Some(image),
@@ -77,6 +83,7 @@ where
         }
     }
 
+    /// Mutably borrows the UDF handle when that format was selected.
     pub fn as_udf_mut(&mut self) -> Option<&mut hadris_udf::sync::UdfFs<Borrowed<'a, S>>> {
         match self {
             Self::Udf(image) => Some(image),
@@ -84,6 +91,7 @@ where
         }
     }
 
+    /// Closes the selected filesystem and returns the borrowed source.
     pub fn into_inner(self) -> &'a mut S {
         match self {
             Self::Iso9660(image) => image.into_inner().0,

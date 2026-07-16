@@ -9,21 +9,33 @@ use crate::types::{Charset, CharsetD, CharsetD1};
 /// The type of directory entry, indicating the ISO interchange level and features
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntryType {
+    /// The `Level1` variant.
     Level1 {
+        /// The `supports_lowercase` field.
         supports_lowercase: bool,
+        /// The `supports_rrip` field.
         supports_rrip: bool,
     },
+    /// The `Level2` variant.
     Level2 {
+        /// The `supports_lowercase` field.
         supports_lowercase: bool,
+        /// The `supports_rrip` field.
         supports_rrip: bool,
     },
+    /// The `Level3` variant.
     Level3 {
+        /// The `supports_lowercase` field.
         supports_lowercase: bool,
+        /// The `supports_rrip` field.
         supports_rrip: bool,
     },
     #[cfg(feature = "alloc")]
+    /// The `Joliet` variant.
     Joliet {
+        /// The `level` field.
         level: JolietLevel,
+        /// The `supports_rrip` field.
         supports_rrip: bool,
     },
 }
@@ -41,6 +53,7 @@ impl EntryType {
     // Usefulness coefficient:
     // bits 0-3 = base level (lowercase = 4,5,6 Joliet = level 12, 13, 14)
     // bit 4 = rrip
+    /// Performs the `supports_rrip` operation.
     pub fn supports_rrip(&self) -> bool {
         match self {
             Self::Level1 { supports_rrip, .. } => *supports_rrip,
@@ -99,20 +112,29 @@ impl From<JolietLevel> for EntryType {
     }
 }
 
+/// Type alias for FilenameL1.
 pub type FilenameL1 = FixedBytes<14>;
+/// Type alias for FilenameL2.
 pub type FilenameL2 = FixedBytes<32>;
+/// Type alias for FilenameL3.
 pub type FilenameL3 = FixedBytes<207>;
 
 #[cfg(feature = "write")]
+/// Identifies a ConvertedName value.
 pub enum ConvertedName {
+    /// The `Level1` variant.
     Level1(FilenameL1),
+    /// The `Level2` variant.
     Level2(FilenameL2),
+    /// The `Level3` variant.
     Level3(FilenameL3),
+    /// The `Joliet` variant.
     Joliet(FixedBytes<207>),
 }
 
 #[cfg(feature = "write")]
 impl ConvertedName {
+    /// Performs the `as_bytes` operation.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Level1(name) => name.as_bytes(),
@@ -125,6 +147,7 @@ impl ConvertedName {
 
 #[cfg(feature = "write")]
 impl EntryType {
+    /// Performs the `convert_name` operation.
     pub fn convert_name(self, name: &str) -> ConvertedName {
         match self {
             Self::Level1 {
@@ -147,6 +170,7 @@ impl EntryType {
 }
 
 #[cfg(feature = "write")]
+/// Performs the `convert_l1` operation.
 pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedBytes<14> {
     let mut l1 = FixedBytes::empty();
     let name_bytes = name.as_bytes();
@@ -187,6 +211,7 @@ pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedBytes<14> {
 }
 
 #[cfg(feature = "write")]
+/// Performs the `convert_l2` operation.
 pub fn convert_l2(name: &str, supports_lowercase: bool) -> FilenameL2 {
     let mut l2 = FilenameL2::empty();
     let name_bytes = name.as_bytes();
@@ -234,6 +259,7 @@ pub fn convert_l2(name: &str, supports_lowercase: bool) -> FilenameL2 {
 }
 
 #[cfg(feature = "write")]
+/// Performs the `convert_l3` operation.
 pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
     let mut l3 = FilenameL3::empty();
     let name_bytes = name.as_bytes();
@@ -280,6 +306,7 @@ pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
 }
 
 #[cfg(feature = "write")]
+/// Performs the `convert_joliet3` operation.
 pub fn convert_joliet3(name: &str) -> FixedBytes<207> {
     let mut j1 = FixedBytes::empty();
     for (written, c) in name.encode_utf16().enumerate() {

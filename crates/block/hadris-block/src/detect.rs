@@ -19,8 +19,11 @@ pub enum BlockFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FatVariant {
+    /// A FAT12 filesystem.
     Fat12,
+    /// A FAT16 filesystem.
     Fat16,
+    /// A FAT32 filesystem.
     Fat32,
     /// exFAT was recognized; the stable unified opener does not open it.
     ExFat,
@@ -30,8 +33,11 @@ pub enum FatVariant {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PartitionTableKind {
+    /// A legacy Master Boot Record partition table.
     Mbr,
+    /// A GUID Partition Table, including its protective MBR.
     Gpt,
+    /// A GPT with both protective and ordinary MBR entries.
     Hybrid,
 }
 
@@ -125,6 +131,7 @@ fn fat_variant(sector: &[u8; 512]) -> Option<FatVariant> {
 }
 
 #[cfg(feature = "sync")]
+/// Synchronous block-format detection.
 pub mod sync {
     use super::{BlockFormat, PartitionTableKind, detect_sector};
     use hadris_io::sync::{Read, Seek};
@@ -172,6 +179,7 @@ pub mod sync {
 }
 
 #[cfg(feature = "async")]
+/// Asynchronous block-format detection.
 pub mod r#async {
     use super::{BlockFormat, PartitionTableKind, detect_sector};
     use hadris_io::r#async::{Read, Seek};

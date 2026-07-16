@@ -1,6 +1,8 @@
 # hadris-udf
 
-A Rust implementation of the UDF (Universal Disk Format) filesystem.
+A pure Rust Universal Disk Format (UDF) filesystem library for optical media
+and disk images, with `std` and `no_std` support. It is suitable for desktop
+image tools, bootloaders, kernels, firmware, and embedded systems.
 
 UDF (ECMA-167) is the filesystem used for DVD-ROM, DVD-Video, DVD-RAM, Blu-ray discs, large USB drives (files >4GB), and packet writing to CD/DVD-RW.
 

@@ -31,7 +31,12 @@ pub enum CdError {
 
     /// Volume name too long
     #[error("Volume name too long (max {max} characters): {name}")]
-    VolumeNameTooLong { name: String, max: usize },
+    VolumeNameTooLong {
+        /// Rejected volume identifier.
+        name: String,
+        /// Maximum number of characters accepted by the selected formats.
+        max: usize,
+    },
 
     /// Invalid configuration
     #[error("Invalid configuration: {0}")]

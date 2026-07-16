@@ -14,21 +14,25 @@ use super::super::directory::DirectoryRef;
 use super::{InputEntryKind, InputMetadata};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// Represents DirectoryId.
 pub struct DirectoryId {
     indices: Vec<usize>,
 }
 
 impl DirectoryId {
+    /// Performs the `push` operation.
     pub fn push(&mut self, index: usize) {
         self.indices.push(index);
     }
 
+    /// Performs the `pop` operation.
     pub fn pop(&mut self) -> usize {
         self.indices.pop().expect("directory underflow")
     }
 }
 
 #[derive(Debug)]
+/// Represents WrittenFiles.
 pub struct WrittenFiles {
     root: WrittenDirectory,
 }
@@ -40,12 +44,14 @@ impl Default for WrittenFiles {
 }
 
 impl WrittenFiles {
+    /// Performs the `new` operation.
     pub fn new() -> Self {
         Self {
             root: WrittenDirectory::new(Arc::new(String::new())),
         }
     }
 
+    /// Performs the `find_file` operation.
     pub fn find_file(&self, name: &str, _sep: PathSeparator) -> Option<DirectoryRef> {
         let mut current_dir = DirectoryId {
             indices: Vec::new(),
@@ -80,16 +86,19 @@ impl WrittenFiles {
         None
     }
 
+    /// Performs the `root_dir` operation.
     pub fn root_dir(&self) -> DirectoryId {
         DirectoryId {
             indices: Vec::new(),
         }
     }
 
+    /// Performs the `root_refs` operation.
     pub fn root_refs(&self) -> &BTreeMap<EntryType, DirectoryRef> {
         &self.root.entries
     }
 
+    /// Performs the `get` operation.
     pub fn get(&self, id: &DirectoryId) -> &WrittenDirectory {
         let mut dir = &self.root;
         for index in &id.indices {
@@ -98,6 +107,7 @@ impl WrittenFiles {
         dir
     }
 
+    /// Performs the `get_mut` operation.
     pub fn get_mut(&mut self, id: &DirectoryId) -> &mut WrittenDirectory {
         let mut dir = &mut self.root;
         for index in &id.indices {
@@ -108,13 +118,19 @@ impl WrittenFiles {
 }
 
 #[derive(Debug)]
+/// Represents WrittenDirectory.
 pub struct WrittenDirectory {
     pub(crate) id: usize,
+    /// The `name` field.
     pub name: Arc<String>,
     pub(crate) rrip_name: Arc<String>,
+    /// The `entries` field.
     pub entries: BTreeMap<EntryType, DirectoryRef>,
+    /// The `dirs` field.
     pub dirs: Vec<WrittenDirectory>,
+    /// The `files` field.
     pub files: Vec<WrittenFile>,
+    /// The `metadata` field.
     pub metadata: InputMetadata,
     pub(crate) relocation: DirectoryRelocation,
 }
@@ -133,6 +149,7 @@ pub(crate) enum DirectoryRelocation {
 }
 
 impl WrittenDirectory {
+    /// Performs the `new` operation.
     pub fn new(name: Arc<String>) -> Self {
         Self {
             id: 0,
@@ -146,6 +163,7 @@ impl WrittenDirectory {
         }
     }
 
+    /// Performs the `push_dir` operation.
     pub fn push_dir(&mut self, name: Arc<String>, metadata: InputMetadata) -> usize {
         let mut directory = Self::new(name);
         directory.metadata = metadata;
@@ -155,10 +173,15 @@ impl WrittenDirectory {
 }
 
 #[derive(Debug)]
+/// Represents WrittenFile.
 pub struct WrittenFile {
+    /// The `name` field.
     pub name: Arc<String>,
+    /// The `entry` field.
     pub entry: DirectoryRef,
+    /// The `kind` field.
     pub kind: InputEntryKind,
+    /// The `metadata` field.
     pub metadata: InputMetadata,
 }
 

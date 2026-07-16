@@ -78,15 +78,25 @@ pub enum PartitionScheme {
 }
 
 #[derive(Debug, Clone)]
+/// Represents FormatOptions.
 pub struct FormatOptions {
+    /// The `volume_name` field.
     pub volume_name: String,
+    /// The `system_id` field.
     pub system_id: Option<String>,
+    /// The `volume_set_id` field.
     pub volume_set_id: Option<String>,
+    /// The `publisher_id` field.
     pub publisher_id: Option<String>,
+    /// The `preparer_id` field.
     pub preparer_id: Option<String>,
+    /// The `application_id` field.
     pub application_id: Option<String>,
+    /// The `sector_size` field.
     pub sector_size: usize,
+    /// The `features` field.
     pub features: CreationFeatures,
+    /// The `path_separator` field.
     pub path_separator: PathSeparator,
     /// When false (default), PVD string fields are stored as-is without charset
     /// validation (matching xorriso/genisoimage behavior). When true, auto-converts
@@ -95,22 +105,28 @@ pub struct FormatOptions {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Identifies a BaseIsoLevel value.
 pub enum BaseIsoLevel {
     /// L1 Filenames
     /// Supports only uppercase and using the 8.3 format
     Level1 {
+        /// The `supports_lowercase` field.
         supports_lowercase: bool,
+        /// The `supports_rrip` field.
         supports_rrip: bool,
     },
     /// L2 Filenames
     /// Supports up to 30 characters
     Level2 {
+        /// The `supports_lowercase` field.
         supports_lowercase: bool,
+        /// The `supports_rrip` field.
         supports_rrip: bool,
     },
 }
 
 #[derive(Debug, Clone)]
+/// Represents CreationFeatures.
 pub struct CreationFeatures {
     /// The base Filename Level
     /// This only supports ASCII uppercase, numbers, and '_' for compatibility reasons.
@@ -159,6 +175,7 @@ impl CreationFeatures {
     }
 
     #[deprecated(since = "2.0.0", note = "use `rock_ridge` instead")]
+    /// Performs the `with_rock_ridge` operation.
     pub fn with_rock_ridge() -> Self {
         Self::rock_ridge()
     }
@@ -172,6 +189,7 @@ impl CreationFeatures {
     }
 
     #[deprecated(since = "2.0.0", note = "use `joliet` instead")]
+    /// Performs the `with_joliet` operation.
     pub fn with_joliet(level: JolietLevel) -> Self {
         Self::joliet(level)
     }
@@ -190,6 +208,7 @@ impl CreationFeatures {
     }
 
     #[deprecated(since = "2.0.0", note = "use `extensions` instead")]
+    /// Performs the `with_extensions` operation.
     pub fn with_extensions() -> Self {
         Self::extensions()
     }
@@ -207,6 +226,7 @@ impl CreationFeatures {
     }
 
     #[deprecated(since = "2.0.0", note = "use `hybrid_boot` instead")]
+    /// Performs the `with_hybrid_boot` operation.
     pub fn with_hybrid_boot(scheme: PartitionScheme) -> Self {
         Self::hybrid_boot(scheme)
     }
