@@ -82,6 +82,9 @@ UDF now follows the contract for its implemented capabilities:
 
 The compatibility root re-exports still select sync whenever sync is enabled.
 New 2.0 code should use `hadris_udf::sync` or `hadris_udf::async` explicitly.
+The leaf crate directly tests async volume opening, nested directory traversal,
+regular-file reads, and directory-as-file rejection using an image produced by
+the synchronous formatter.
 
 ### ISO
 
@@ -97,9 +100,10 @@ ISO now follows the same contract:
 
 ISO async reading now includes collection-oriented directory traversal and
 lookup through `IsoDir::read_entries`, `IsoDir::find`, and
-`IsoImage::find_path`, with nested-file integration coverage through the
-optical facade. A genuine async writer remains a future feature, not a 2.0
-feature-composition or release blocker.
+`IsoImage::find_path`. Direct leaf coverage exercises PVD and descriptor
+iteration, root and nested traversal, and file reads; the optical facade adds
+policy and bridge-image coverage. A genuine async writer remains a future
+feature, not a 2.0 feature-composition or release blocker.
 
 ### FAT
 
@@ -118,9 +122,11 @@ FAT now follows the shared contract:
 
 Async FAT detection, opening, nested traversal, multi-cluster file-content
 read/write, truncation, duplicate rejection, and source recovery have runtime
-integration coverage through the block facade. Further filesystem capabilities
-may still be added before 2.0, but the current async mutation surface is
-release-qualified.
+integration coverage through the block facade. The FAT leaf additionally
+qualifies direct async opening, path normalization, directory lookup, and
+multi-cluster reads against a formatter-produced image. Further filesystem
+capabilities may still be added before 2.0, but the current async mutation
+surface is release-qualified.
 
 ### Partition tables
 
@@ -136,6 +142,8 @@ release-qualified.
 Partition-table async I/O has runtime MBR, GPT, and hybrid write/open round
 trips, corruption and truncation checks, non-destructive detection coverage,
 and an end-to-end GPT partition view opened as FAT through `hadris-block`.
+The partition leaf directly verifies async GPT detection restores the caller's
+position before full validated opening.
 
 ### CPIO
 

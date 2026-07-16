@@ -23,6 +23,9 @@ Each published package owns its version and may be released independently.
 - **hadris-udf:** Public `UdfFs::read_file`; directory listings populate
   `UdfDirEntry::size` from each file ICB.
 - **hadris-udf-cli:** `cat` and `extract` subcommands.
+- **Async integration coverage:** Direct leaf-level runtime tests for FAT
+  traversal and multi-cluster reads, GPT detection/opening, ISO descriptor and
+  file reads, and UDF nested traversal/file reads.
 
 ### Changed
 

@@ -11,11 +11,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# docs.rs builds with default features only, which would hide the cache/tool/
-# exfat APIs and break intra-doc links into them. Build the full sync feature
-# set instead (async is omitted: the cache and tool APIs are sync-only, and
-# the async slice bypasses the cache — see the `cache`/`tool` feature notes
-# below).
+# docs.rs builds with default features only, which would hide the async,
+# cache, and tool APIs. Build both stable I/O modes and the full stable sync
+# capability set; the unstable exFAT preview remains deliberately opt-in.
 [package.metadata.docs.rs]
 features = ["std", "sync", "async", "read", "write", "lfn", "cache", "tool"]
 
