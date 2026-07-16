@@ -36,6 +36,28 @@ pub enum PartitionError {
         actual: u32,
     },
 
+    /// The backup GPT header could not be read from its declared LBA.
+    BackupHeaderIo {
+        /// LBA declared by the primary header for the backup header.
+        lba: u64,
+        /// Underlying I/O failure.
+        source: hadris_io::Error,
+    },
+
+    /// The backup GPT header signature is invalid.
+    InvalidBackupGptSignature {
+        /// The actual signature bytes found.
+        found: [u8; 8],
+    },
+
+    /// The backup GPT header CRC32 checksum does not match.
+    BackupGptHeaderCrcMismatch {
+        /// The expected CRC32 value stored in the backup header.
+        expected: u32,
+        /// The calculated CRC32 value.
+        actual: u32,
+    },
+
     /// Two partitions overlap.
     PartitionOverlap {
         /// Index of the first overlapping partition.
@@ -133,6 +155,21 @@ impl Display for PartitionError {
                     "GPT entries CRC mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
                 )
             }
+            Self::BackupHeaderIo { lba, source } => {
+                write!(f, "failed to read backup GPT header at LBA {lba}: {source}")
+            }
+            Self::InvalidBackupGptSignature { found } => {
+                write!(
+                    f,
+                    "invalid backup GPT signature: expected 'EFI PART', found {found:?}"
+                )
+            }
+            Self::BackupGptHeaderCrcMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "backup GPT header CRC mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
+                )
+            }
             Self::PartitionOverlap {
                 index1,
                 index2,
@@ -211,6 +248,7 @@ impl std::error::Error for PartitionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(err) => Some(err),
+            Self::BackupHeaderIo { source, .. } => Some(source),
             _ => None,
         }
     }

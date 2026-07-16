@@ -69,18 +69,58 @@ impl RootDirs {
         }
     }
 
-    pub fn best_choice(&self) -> RootDir {
-        assert!(
-            !self.dirs.is_empty(),
-            "ISO image contains no directory trees!"
-        );
+    /// Returns the number of directory-tree namespaces in the image.
+    pub fn len(&self) -> usize {
+        self.dirs.len()
+    }
+
+    /// Returns whether the image contains no directory-tree namespaces.
+    pub fn is_empty(&self) -> bool {
+        self.dirs.is_empty()
+    }
+
+    /// Iterates over every directory-tree namespace in descriptor order.
+    pub fn iter(&self) -> core::slice::Iter<'_, RootDir> {
+        self.dirs.iter()
+    }
+
+    /// Finds the root whose entry type exactly matches `ty`.
+    pub fn get(&self, ty: EntryType) -> Option<RootDir> {
+        self.dirs.iter().copied().find(|root| root.ty == ty)
+    }
+
+    /// Selects the most useful directory-tree namespace, if one exists.
+    pub fn try_best_choice(&self) -> Option<RootDir> {
+        if self.dirs.is_empty() {
+            return None;
+        }
         let mut best = (0, EntryType::default());
         for (idx, dir) in self.dirs.iter().enumerate() {
             if dir.ty > best.1 {
                 best = (idx, dir.ty);
             }
         }
-        self.dirs[best.0]
+        Some(self.dirs[best.0])
+    }
+
+    /// Selects the most useful directory-tree namespace.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ISO image contains no directory trees. Use
+    /// [`Self::try_best_choice`] when handling a potentially empty collection.
+    pub fn best_choice(&self) -> RootDir {
+        self.try_best_choice()
+            .expect("ISO image contains no directory trees!")
+    }
+}
+
+impl<'a> IntoIterator for &'a RootDirs {
+    type Item = &'a RootDir;
+    type IntoIter = core::slice::Iter<'a, RootDir>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -91,6 +131,11 @@ pub struct RootDir {
 }
 
 impl RootDir {
+    /// Returns the filename namespace represented by this root.
+    pub fn entry_type(&self) -> EntryType {
+        self.ty
+    }
+
     pub fn iter<'a, DATA: Read + Seek>(&self, iso: &'a IsoImage<DATA>) -> IsoDir<'a, DATA> {
         IsoDir {
             image: iso,

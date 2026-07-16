@@ -673,7 +673,13 @@ pub mod options {
 
     #[derive(Debug, Clone)]
     pub struct BootEntryOptions {
+        /// Number of 512-byte virtual sectors loaded by firmware.
         pub load_size: Option<NonZeroU16>,
+        /// Path of the prepared boot image inside the ISO.
+        ///
+        /// The image is treated as opaque. For floppy or hard-disk emulation,
+        /// callers must provide an image containing the required filesystem
+        /// and partition structures.
         pub boot_image_path: String,
         pub boot_info_table: bool,
         pub grub2_boot_info: bool,

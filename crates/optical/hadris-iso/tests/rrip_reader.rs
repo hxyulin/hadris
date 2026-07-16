@@ -457,6 +457,9 @@ fn test_nm_parent_directory() {
 
 #[test]
 fn test_rrip_detection_with_joliet_and_rock_ridge() {
+    use hadris_iso::file::EntryType;
+    use hadris_iso::joliet::JolietLevel;
+
     let files = vec![IsoFile::File {
         name: Arc::new("hello.txt".to_string()),
         contents: b"Hello, World!".to_vec(),
@@ -466,6 +469,26 @@ fn test_rrip_detection_with_joliet_and_rock_ridge() {
     assert!(
         image.supports_rrip(),
         "RRIP should be detected with Joliet+RR"
+    );
+    let roots = image.root_dirs();
+    assert_eq!(roots.len(), 2);
+    assert!(!roots.is_empty());
+    assert_eq!(roots.iter().count(), 2);
+    assert_eq!(roots.into_iter().count(), 2);
+
+    let rrip = EntryType::Level1 {
+        supports_lowercase: false,
+        supports_rrip: true,
+    };
+    let joliet = EntryType::Joliet {
+        level: JolietLevel::Level3,
+        supports_rrip: false,
+    };
+    assert_eq!(roots.get(rrip).unwrap().entry_type(), rrip);
+    assert_eq!(roots.get(joliet).unwrap().entry_type(), joliet);
+    assert_eq!(
+        roots.try_best_choice().unwrap().entry_type(),
+        roots.best_choice().entry_type()
     );
 }
 
