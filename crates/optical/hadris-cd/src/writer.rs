@@ -128,15 +128,12 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     /// Write ISO 9660 structures
     async fn write_iso_structures(&mut self, tree: &FileTree, _layout_info: &LayoutInfo) -> CdResult<()> {
         use hadris_iso::write::options::{CreationFeatures, FormatOptions};
-        use hadris_iso::write::{InputFiles, IsoImageWriter};
+        use hadris_iso::write::{InputTree, IsoImageWriter};
 
         // Convert our tree to ISO's InputFiles format
         let iso_files = Self::tree_to_iso_files(&tree.root)?;
 
-        let input_files = InputFiles {
-            path_separator: PathSeparator::ForwardSlash,
-            files: iso_files,
-        };
+        let input_files = InputTree::new(PathSeparator::ForwardSlash, iso_files);
 
         // Build ISO format options from our options
         let features = CreationFeatures {
@@ -176,7 +173,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     }
 
     /// Convert our tree to ISO's file format
-    fn tree_to_iso_files(dir: &Directory) -> CdResult<Vec<hadris_iso::write::File>> {
+    fn tree_to_iso_files(dir: &Directory) -> CdResult<Vec<hadris_iso::write::InputEntry>> {
         let mut files = Vec::new();
 
         for file in &dir.files {
@@ -185,17 +182,17 @@ impl<W: Read + Write + Seek> CdWriter<W> {
                 FileData::Path(p) => std::fs::read(p)
                     .map_err(|error| hadris_io::Error::from_source(error).erase())?,
             };
-            files.push(hadris_iso::write::File::File {
-                name: file.name.clone(),
-                contents: data,
-            });
+            files.push(hadris_iso::write::InputEntry::file(
+                file.name.as_ref().clone(),
+                data,
+            ));
         }
 
         for subdir in &dir.subdirs {
-            files.push(hadris_iso::write::File::Directory {
-                name: subdir.name.clone(),
-                children: Self::tree_to_iso_files(subdir)?,
-            });
+            files.push(hadris_iso::write::InputEntry::directory(
+                subdir.name.as_ref().clone(),
+                Self::tree_to_iso_files(subdir)?,
+            ));
         }
 
         Ok(files)

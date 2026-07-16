@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Tests for RRIP (Rock Ridge) reader support.
 //!
 //! Tests RRIP auto-detection, NM name assembly, SL symlink reconstruction,

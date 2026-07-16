@@ -23,7 +23,7 @@ use std::io::{Read, Seek};
 use hadris_iso::directory::DirectoryRef;
 use hadris_iso::read::IsoImage;
 use hadris_iso::write::options::FormatOptions;
-use hadris_iso::write::{InputFiles, estimator};
+use hadris_iso::write::{InputEntry, InputEntryKind, InputTree, estimator};
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -59,8 +59,8 @@ fn navigate_to_path<R: Read + Seek>(iso: &IsoImage<R>, path: &str) -> Result<Dir
 }
 
 /// Compute estimated size using the estimator API.
-fn compute_estimated_size(input: &InputFiles, format_options: &FormatOptions) -> u64 {
-    let estimate = estimator::estimate(input, format_options);
+fn compute_estimated_size(input: &InputTree, format_options: &FormatOptions) -> u64 {
+    let estimate = estimator::estimate_tree(input, format_options);
     estimate.minimum_bytes() + 1024 * 1024 // safety margin
 }
 
@@ -69,17 +69,15 @@ fn normalize_path(path: &str) -> String {
     path.replace('\\', "/")
 }
 
-fn count_files(input: &InputFiles) -> usize {
-    fn count_recursive(files: &[hadris_iso::write::File]) -> usize {
+fn count_files(input: &InputTree) -> usize {
+    fn count_recursive(files: &[InputEntry]) -> usize {
         files
             .iter()
-            .map(|f| match f {
-                hadris_iso::write::File::File { .. } => 1,
-                hadris_iso::write::File::Directory { children, .. } => {
-                    1 + count_recursive(children)
-                }
+            .map(|entry| match &entry.kind {
+                InputEntryKind::Directory(children) => 1 + count_recursive(children),
+                _ => 1,
             })
             .sum()
     }
-    count_recursive(&input.files)
+    count_recursive(&input.entries)
 }

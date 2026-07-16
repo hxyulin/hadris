@@ -1469,7 +1469,7 @@ impl core::fmt::Debug for hadris_iso::boot::BootValidationEntry
 pub fn hadris_iso::boot::BootValidationEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_iso::boot::ElToritoWriter
 impl hadris_iso::boot::ElToritoWriter
-pub fn hadris_iso::boot::ElToritoWriter::create_descriptor(&hadris_iso::boot::options::BootOptions, &mut hadris_iso::write::InputFiles) -> hadris_iso::volume::BootRecordVolumeDescriptor
+pub fn hadris_iso::boot::ElToritoWriter::create_descriptor(&hadris_iso::boot::options::BootOptions, &mut hadris_iso::write::InputTree) -> hadris_iso::volume::BootRecordVolumeDescriptor
 #[repr(C)] pub struct hadris_iso::boot::Grub2BootInfoTable
 pub hadris_iso::boot::Grub2BootInfoTable::checksum: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
 pub hadris_iso::boot::Grub2BootInfoTable::file_lba: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
@@ -2747,7 +2747,7 @@ impl core::fmt::Debug for hadris_iso::boot::BootValidationEntry
 pub fn hadris_iso::boot::BootValidationEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_iso::sync::boot::ElToritoWriter
 impl hadris_iso::boot::ElToritoWriter
-pub fn hadris_iso::boot::ElToritoWriter::create_descriptor(&hadris_iso::boot::options::BootOptions, &mut hadris_iso::write::InputFiles) -> hadris_iso::volume::BootRecordVolumeDescriptor
+pub fn hadris_iso::boot::ElToritoWriter::create_descriptor(&hadris_iso::boot::options::BootOptions, &mut hadris_iso::write::InputTree) -> hadris_iso::volume::BootRecordVolumeDescriptor
 #[repr(C)] pub struct hadris_iso::sync::boot::Grub2BootInfoTable
 pub hadris_iso::sync::boot::Grub2BootInfoTable::checksum: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
 pub hadris_iso::sync::boot::Grub2BootInfoTable::file_lba: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
@@ -4000,6 +4000,7 @@ pub hadris_iso::sync::write::estimator::SizeBreakdown::path_tables: u64
 pub hadris_iso::sync::write::estimator::SizeBreakdown::system_area: u64
 pub hadris_iso::sync::write::estimator::SizeBreakdown::volume_descriptors: u64
 pub fn hadris_iso::sync::write::estimator::estimate(&hadris_iso::write::InputFiles, &hadris_iso::write::options::FormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
+pub fn hadris_iso::sync::write::estimator::estimate_tree(&hadris_iso::write::InputTree, &hadris_iso::write::options::FormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
 pub mod hadris_iso::sync::write::options
 pub enum hadris_iso::sync::write::options::BaseIsoLevel
 pub hadris_iso::sync::write::options::BaseIsoLevel::Level1
@@ -4063,12 +4064,15 @@ pub struct hadris_iso::sync::write::writer::WrittenDirectory
 pub hadris_iso::sync::write::writer::WrittenDirectory::dirs: alloc::vec::Vec<hadris_iso::write::writer::WrittenDirectory>
 pub hadris_iso::sync::write::writer::WrittenDirectory::entries: alloc::collections::btree::map::BTreeMap<hadris_iso::file::EntryType, hadris_iso::directory::DirectoryRef>
 pub hadris_iso::sync::write::writer::WrittenDirectory::files: alloc::vec::Vec<hadris_iso::write::writer::WrittenFile>
+pub hadris_iso::sync::write::writer::WrittenDirectory::metadata: hadris_iso::write::InputMetadata
 pub hadris_iso::sync::write::writer::WrittenDirectory::name: alloc::sync::Arc<alloc::string::String>
 impl hadris_iso::write::writer::WrittenDirectory
 pub fn hadris_iso::write::writer::WrittenDirectory::new(alloc::sync::Arc<alloc::string::String>) -> Self
-pub fn hadris_iso::write::writer::WrittenDirectory::push_dir(&mut self, alloc::sync::Arc<alloc::string::String>) -> usize
+pub fn hadris_iso::write::writer::WrittenDirectory::push_dir(&mut self, alloc::sync::Arc<alloc::string::String>, hadris_iso::write::InputMetadata) -> usize
 pub struct hadris_iso::sync::write::writer::WrittenFile
 pub hadris_iso::sync::write::writer::WrittenFile::entry: hadris_iso::directory::DirectoryRef
+pub hadris_iso::sync::write::writer::WrittenFile::kind: hadris_iso::write::InputEntryKind
+pub hadris_iso::sync::write::writer::WrittenFile::metadata: hadris_iso::write::InputMetadata
 pub hadris_iso::sync::write::writer::WrittenFile::name: alloc::sync::Arc<alloc::string::String>
 pub struct hadris_iso::sync::write::writer::WrittenFiles
 impl hadris_iso::write::writer::WrittenFiles
@@ -4094,16 +4098,56 @@ pub fn hadris_iso::write::File::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 pub enum hadris_iso::sync::write::FileConversionError
 pub hadris_iso::sync::write::FileConversionError::InvalidUtf8Path(std::path::PathBuf)
 pub hadris_iso::sync::write::FileConversionError::Io(core::io::error::Error)
+pub hadris_iso::sync::write::FileConversionError::UnsupportedFileType(std::path::PathBuf)
+pub enum hadris_iso::sync::write::InputEntryKind
+pub hadris_iso::sync::write::InputEntryKind::BlockDevice
+pub hadris_iso::sync::write::InputEntryKind::BlockDevice::major: u32
+pub hadris_iso::sync::write::InputEntryKind::BlockDevice::minor: u32
+pub hadris_iso::sync::write::InputEntryKind::CharacterDevice
+pub hadris_iso::sync::write::InputEntryKind::CharacterDevice::major: u32
+pub hadris_iso::sync::write::InputEntryKind::CharacterDevice::minor: u32
+pub hadris_iso::sync::write::InputEntryKind::Directory(alloc::vec::Vec<hadris_iso::write::InputEntry>)
+pub hadris_iso::sync::write::InputEntryKind::File(alloc::vec::Vec<u8>)
+pub hadris_iso::sync::write::InputEntryKind::Symlink(alloc::string::String)
 pub enum hadris_iso::sync::write::IsoCreationError
 pub hadris_iso::sync::write::IsoCreationError::Io(hadris_io::error::Error)
+pub struct hadris_iso::sync::write::InputEntry
+pub hadris_iso::sync::write::InputEntry::kind: hadris_iso::write::InputEntryKind
+pub hadris_iso::sync::write::InputEntry::metadata: hadris_iso::write::InputMetadata
+pub hadris_iso::sync::write::InputEntry::name: alloc::sync::Arc<alloc::string::String>
+impl hadris_iso::write::InputEntry
+pub fn hadris_iso::write::InputEntry::block_device(impl core::convert::Into<alloc::string::String>, u32, u32) -> Self
+pub fn hadris_iso::write::InputEntry::character_device(impl core::convert::Into<alloc::string::String>, u32, u32) -> Self
+pub fn hadris_iso::write::InputEntry::directory(impl core::convert::Into<alloc::string::String>, alloc::vec::Vec<Self>) -> Self
+pub fn hadris_iso::write::InputEntry::file(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
+pub fn hadris_iso::write::InputEntry::name(&self) -> alloc::sync::Arc<alloc::string::String>
+pub fn hadris_iso::write::InputEntry::symlink(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn hadris_iso::write::InputEntry::with_metadata(self, hadris_iso::write::InputMetadata) -> Self
 pub struct hadris_iso::sync::write::InputFiles
 pub hadris_iso::sync::write::InputFiles::files: alloc::vec::Vec<hadris_iso::write::File>
 pub hadris_iso::sync::write::InputFiles::path_separator: hadris_iso::read::PathSeparator
 impl hadris_iso::write::InputFiles
 pub fn hadris_iso::write::InputFiles::from_fs(&std::path::Path, hadris_iso::read::PathSeparator) -> core::result::Result<Self, hadris_iso::write::FileConversionError>
+impl core::convert::From<hadris_iso::write::InputFiles> for hadris_iso::write::InputTree
+pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
+pub struct hadris_iso::sync::write::InputMetadata
+pub hadris_iso::sync::write::InputMetadata::accessed: core::option::Option<i64>
+pub hadris_iso::sync::write::InputMetadata::created: core::option::Option<i64>
+pub hadris_iso::sync::write::InputMetadata::gid: core::option::Option<u32>
+pub hadris_iso::sync::write::InputMetadata::mode: core::option::Option<u32>
+pub hadris_iso::sync::write::InputMetadata::modified: core::option::Option<i64>
+pub hadris_iso::sync::write::InputMetadata::uid: core::option::Option<u32>
+pub struct hadris_iso::sync::write::InputTree
+pub hadris_iso::sync::write::InputTree::entries: alloc::vec::Vec<hadris_iso::write::InputEntry>
+pub hadris_iso::sync::write::InputTree::path_separator: hadris_iso::read::PathSeparator
+impl hadris_iso::write::InputTree
+pub fn hadris_iso::write::InputTree::from_fs(&std::path::Path, hadris_iso::read::PathSeparator) -> core::result::Result<Self, hadris_iso::write::FileConversionError>
+pub fn hadris_iso::write::InputTree::new(hadris_iso::read::PathSeparator, alloc::vec::Vec<hadris_iso::write::InputEntry>) -> Self
+impl core::convert::From<hadris_iso::write::InputFiles> for hadris_iso::write::InputTree
+pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
 pub struct hadris_iso::sync::write::IsoImageWriter<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::write::IsoImageWriter<DATA>
-pub fn hadris_iso::write::IsoImageWriter<DATA>::create(DATA, hadris_iso::write::InputFiles, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<DATA>
+pub fn hadris_iso::write::IsoImageWriter<DATA>::create<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::format_new(DATA, hadris_iso::write::InputFiles, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<()>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::into_inner(self) -> DATA
 pub type hadris_iso::sync::write::Error = hadris_iso::write::IsoCreationError
@@ -4447,6 +4491,7 @@ pub hadris_iso::write::estimator::SizeBreakdown::path_tables: u64
 pub hadris_iso::write::estimator::SizeBreakdown::system_area: u64
 pub hadris_iso::write::estimator::SizeBreakdown::volume_descriptors: u64
 pub fn hadris_iso::write::estimator::estimate(&hadris_iso::write::InputFiles, &hadris_iso::write::options::FormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
+pub fn hadris_iso::write::estimator::estimate_tree(&hadris_iso::write::InputTree, &hadris_iso::write::options::FormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
 pub mod hadris_iso::write::options
 pub enum hadris_iso::write::options::BaseIsoLevel
 pub hadris_iso::write::options::BaseIsoLevel::Level1
@@ -4510,12 +4555,15 @@ pub struct hadris_iso::write::writer::WrittenDirectory
 pub hadris_iso::write::writer::WrittenDirectory::dirs: alloc::vec::Vec<hadris_iso::write::writer::WrittenDirectory>
 pub hadris_iso::write::writer::WrittenDirectory::entries: alloc::collections::btree::map::BTreeMap<hadris_iso::file::EntryType, hadris_iso::directory::DirectoryRef>
 pub hadris_iso::write::writer::WrittenDirectory::files: alloc::vec::Vec<hadris_iso::write::writer::WrittenFile>
+pub hadris_iso::write::writer::WrittenDirectory::metadata: hadris_iso::write::InputMetadata
 pub hadris_iso::write::writer::WrittenDirectory::name: alloc::sync::Arc<alloc::string::String>
 impl hadris_iso::write::writer::WrittenDirectory
 pub fn hadris_iso::write::writer::WrittenDirectory::new(alloc::sync::Arc<alloc::string::String>) -> Self
-pub fn hadris_iso::write::writer::WrittenDirectory::push_dir(&mut self, alloc::sync::Arc<alloc::string::String>) -> usize
+pub fn hadris_iso::write::writer::WrittenDirectory::push_dir(&mut self, alloc::sync::Arc<alloc::string::String>, hadris_iso::write::InputMetadata) -> usize
 pub struct hadris_iso::write::writer::WrittenFile
 pub hadris_iso::write::writer::WrittenFile::entry: hadris_iso::directory::DirectoryRef
+pub hadris_iso::write::writer::WrittenFile::kind: hadris_iso::write::InputEntryKind
+pub hadris_iso::write::writer::WrittenFile::metadata: hadris_iso::write::InputMetadata
 pub hadris_iso::write::writer::WrittenFile::name: alloc::sync::Arc<alloc::string::String>
 pub struct hadris_iso::write::writer::WrittenFiles
 impl hadris_iso::write::writer::WrittenFiles
@@ -4541,16 +4589,56 @@ pub fn hadris_iso::write::File::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 pub enum hadris_iso::write::FileConversionError
 pub hadris_iso::write::FileConversionError::InvalidUtf8Path(std::path::PathBuf)
 pub hadris_iso::write::FileConversionError::Io(core::io::error::Error)
+pub hadris_iso::write::FileConversionError::UnsupportedFileType(std::path::PathBuf)
+pub enum hadris_iso::write::InputEntryKind
+pub hadris_iso::write::InputEntryKind::BlockDevice
+pub hadris_iso::write::InputEntryKind::BlockDevice::major: u32
+pub hadris_iso::write::InputEntryKind::BlockDevice::minor: u32
+pub hadris_iso::write::InputEntryKind::CharacterDevice
+pub hadris_iso::write::InputEntryKind::CharacterDevice::major: u32
+pub hadris_iso::write::InputEntryKind::CharacterDevice::minor: u32
+pub hadris_iso::write::InputEntryKind::Directory(alloc::vec::Vec<hadris_iso::write::InputEntry>)
+pub hadris_iso::write::InputEntryKind::File(alloc::vec::Vec<u8>)
+pub hadris_iso::write::InputEntryKind::Symlink(alloc::string::String)
 pub enum hadris_iso::write::IsoCreationError
 pub hadris_iso::write::IsoCreationError::Io(hadris_io::error::Error)
+pub struct hadris_iso::write::InputEntry
+pub hadris_iso::write::InputEntry::kind: hadris_iso::write::InputEntryKind
+pub hadris_iso::write::InputEntry::metadata: hadris_iso::write::InputMetadata
+pub hadris_iso::write::InputEntry::name: alloc::sync::Arc<alloc::string::String>
+impl hadris_iso::write::InputEntry
+pub fn hadris_iso::write::InputEntry::block_device(impl core::convert::Into<alloc::string::String>, u32, u32) -> Self
+pub fn hadris_iso::write::InputEntry::character_device(impl core::convert::Into<alloc::string::String>, u32, u32) -> Self
+pub fn hadris_iso::write::InputEntry::directory(impl core::convert::Into<alloc::string::String>, alloc::vec::Vec<Self>) -> Self
+pub fn hadris_iso::write::InputEntry::file(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
+pub fn hadris_iso::write::InputEntry::name(&self) -> alloc::sync::Arc<alloc::string::String>
+pub fn hadris_iso::write::InputEntry::symlink(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn hadris_iso::write::InputEntry::with_metadata(self, hadris_iso::write::InputMetadata) -> Self
 pub struct hadris_iso::write::InputFiles
 pub hadris_iso::write::InputFiles::files: alloc::vec::Vec<hadris_iso::write::File>
 pub hadris_iso::write::InputFiles::path_separator: hadris_iso::read::PathSeparator
 impl hadris_iso::write::InputFiles
 pub fn hadris_iso::write::InputFiles::from_fs(&std::path::Path, hadris_iso::read::PathSeparator) -> core::result::Result<Self, hadris_iso::write::FileConversionError>
+impl core::convert::From<hadris_iso::write::InputFiles> for hadris_iso::write::InputTree
+pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
+pub struct hadris_iso::write::InputMetadata
+pub hadris_iso::write::InputMetadata::accessed: core::option::Option<i64>
+pub hadris_iso::write::InputMetadata::created: core::option::Option<i64>
+pub hadris_iso::write::InputMetadata::gid: core::option::Option<u32>
+pub hadris_iso::write::InputMetadata::mode: core::option::Option<u32>
+pub hadris_iso::write::InputMetadata::modified: core::option::Option<i64>
+pub hadris_iso::write::InputMetadata::uid: core::option::Option<u32>
+pub struct hadris_iso::write::InputTree
+pub hadris_iso::write::InputTree::entries: alloc::vec::Vec<hadris_iso::write::InputEntry>
+pub hadris_iso::write::InputTree::path_separator: hadris_iso::read::PathSeparator
+impl hadris_iso::write::InputTree
+pub fn hadris_iso::write::InputTree::from_fs(&std::path::Path, hadris_iso::read::PathSeparator) -> core::result::Result<Self, hadris_iso::write::FileConversionError>
+pub fn hadris_iso::write::InputTree::new(hadris_iso::read::PathSeparator, alloc::vec::Vec<hadris_iso::write::InputEntry>) -> Self
+impl core::convert::From<hadris_iso::write::InputFiles> for hadris_iso::write::InputTree
+pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
 pub struct hadris_iso::write::IsoImageWriter<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::write::IsoImageWriter<DATA>
-pub fn hadris_iso::write::IsoImageWriter<DATA>::create(DATA, hadris_iso::write::InputFiles, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<DATA>
+pub fn hadris_iso::write::IsoImageWriter<DATA>::create<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::format_new(DATA, hadris_iso::write::InputFiles, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<()>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::into_inner(self) -> DATA
 pub type hadris_iso::write::Error = hadris_iso::write::IsoCreationError

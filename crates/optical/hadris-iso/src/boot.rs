@@ -14,7 +14,7 @@ sync_only! {
 use super::{
     boot::options::BootOptions,
     volume::BootRecordVolumeDescriptor,
-    write::{File, InputFiles},
+    write::{InputEntry, InputEntryKind, InputTree},
 };
 }
 
@@ -620,25 +620,19 @@ impl ElToritoWriter {
     /// (included in the files)
     pub fn create_descriptor(
         opts: &BootOptions,
-        files: &mut InputFiles,
+        files: &mut InputTree,
     ) -> BootRecordVolumeDescriptor {
         if opts.write_boot_catalog {
-            use alloc::string::ToString;
-            use std::sync::Arc;
-
             let size = 96 + opts.entries.len() * 64;
             let size = (size + 2047) & !2047;
             let dir_pos = files
-                .files
+                .entries
                 .iter()
-                .position(|f| matches!(f, File::Directory { .. }))
+                .position(|entry| matches!(entry.kind, InputEntryKind::Directory(_)))
                 .unwrap_or(0);
-            files.files.insert(
+            files.entries.insert(
                 dir_pos.saturating_sub(1),
-                File::File {
-                    name: Arc::new("boot.catalog".to_string()),
-                    contents: alloc::vec![0; size],
-                },
+                InputEntry::file("boot.catalog", alloc::vec![0; size]),
             );
         }
         BootRecordVolumeDescriptor::new(0)

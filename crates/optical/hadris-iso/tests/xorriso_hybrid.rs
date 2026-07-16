@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 mod xorriso_helpers;
 
 use std::io::Cursor;

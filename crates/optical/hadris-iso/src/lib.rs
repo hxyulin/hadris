@@ -253,9 +253,9 @@
 //!
 //! ## Known Limitations
 //!
-//! - **Rock Ridge write:** Modes are hardcoded (`0o755` directories / `0o644` files,
-//!   uid/gid `0`). [`RripOptions`](crate::rrip::RripOptions) (permissions,
-//!   ownership, symlinks, devices) is not yet wired into the writer.
+//! - **Rock Ridge write:** POSIX metadata, timestamps, symlinks, and device
+//!   numbers are supported. Deep-directory relocation (`CL`/`PL`/`RE`) is not
+//!   yet implemented by the writer.
 //! - **Joliet + Rock Ridge on read:** When an image has both namespaces, the
 //!   reader selects a single root via usefulness scoring (`root_dir()` /
 //!   `best_choice()`). Joliet roots are treated as non-RRIP, so a Level-1 +
