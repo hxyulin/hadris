@@ -1,7 +1,0 @@
-!generate.sh
-
-# Generated ISO images
-*.iso
-
-# Generated FAT images
-*.fat.img

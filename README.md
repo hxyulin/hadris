@@ -190,6 +190,9 @@ Users upgrading from Hadris 1.x should read the
 [2.0 migration guide](docs/hadris-1-to-2-migration.md). Prerelease testers
 should also review the
 [`2.0.0-rc.1` release notes](docs/hadris-2.0.0-rc.1-release-notes.md).
+The Docusaurus source for the task-oriented documentation site lives in
+[`website/`](website/); it includes getting-started, crate-selection, and
+FAT, partition, ISO, CPIO, and `no_std` use-case guides.
 
 **MSRV:** Rust 1.88.0 (`rust-toolchain.toml` / workspace `rust-version`).
 

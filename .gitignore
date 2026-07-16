@@ -1,5 +1,8 @@
 /target
 .worktrees/
+/website/node_modules/
+/website/build/
+/website/.docusaurus/
 
 # Macos
 .DS_Store

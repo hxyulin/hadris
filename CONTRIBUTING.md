@@ -83,6 +83,11 @@ python3 scripts/check-spec-annotations.py
 
 ```bash
 cargo doc --workspace --no-deps --document-private-items
+
+# Task-oriented documentation site
+cd website
+npm install
+npm run build
 ```
 
 Public APIs are snapshot-tested under their all-feature configurations. After

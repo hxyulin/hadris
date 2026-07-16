@@ -8,6 +8,19 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Documentation
+
+- Added a Docusaurus documentation site with getting-started, crate-selection,
+  migration, release-candidate, and task-oriented FAT, partition, ISO, CPIO,
+  and `no_std` guides.
+- Added GitHub Pages build and deployment automation for the documentation
+  site.
+
+### Changed
+
+- Removed the unused top-level `tests` and `resources` placeholders; tests and
+  fixtures remain colocated with their owning crates.
+
 ## [2.0.0-rc.1] - 2026-07-16
 
 ### Added
