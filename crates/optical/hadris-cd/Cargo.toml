@@ -24,4 +24,7 @@ hadris-macros = { workspace = true }
 thiserror = { workspace = true, optional = true }
 
 [dev-dependencies]
-hadris-optical = { workspace = true, features = ["detect", "sync"] }
+# Local integration-test dependency only. Keeping it path-only avoids a
+# crates.io publication cycle because hadris-optical optionally depends on
+# hadris-cd.
+hadris-optical = { path = "../hadris-optical", features = ["detect", "sync"] }
