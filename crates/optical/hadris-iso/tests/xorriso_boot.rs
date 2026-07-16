@@ -10,6 +10,103 @@ use tempfile::TempDir;
 use hadris_iso::types::Endian as _;
 
 #[test]
+fn test_hadris_multisection_boot_catalog() {
+    use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
+    use hadris_iso::boot::{EmulationType, PlatformId};
+    use hadris_iso::read::PathSeparator;
+    use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+    use hadris_iso::write::{InputEntry, InputTree, IsoImageWriter};
+    use std::num::NonZeroU16;
+
+    let bios = vec![0x11; 2048];
+    let ppc = vec![0x22; 2048];
+    let uefi = vec![0x33; 4096];
+    let tree = InputTree::new(
+        PathSeparator::ForwardSlash,
+        vec![
+            InputEntry::file("bios.img", bios),
+            InputEntry::file("ppc.img", ppc),
+            InputEntry::file("uefi.img", uefi),
+        ],
+    );
+    let boot = BootOptions {
+        write_boot_catalog: true,
+        default: BootEntryOptions {
+            load_size: Some(NonZeroU16::new(4).unwrap()),
+            boot_image_path: "bios.img".to_string(),
+            boot_info_table: false,
+            grub2_boot_info: false,
+            emulation: EmulationType::NoEmulation,
+        },
+        entries: vec![
+            (
+                BootSectionOptions {
+                    platform: PlatformId::PowerPC,
+                },
+                BootEntryOptions {
+                    load_size: Some(NonZeroU16::new(4).unwrap()),
+                    boot_image_path: "ppc.img".to_string(),
+                    boot_info_table: false,
+                    grub2_boot_info: false,
+                    emulation: EmulationType::NoEmulation,
+                },
+            ),
+            (
+                BootSectionOptions {
+                    platform: PlatformId::UEFI,
+                },
+                BootEntryOptions {
+                    load_size: Some(NonZeroU16::new(8).unwrap()),
+                    boot_image_path: "uefi.img".to_string(),
+                    boot_info_table: false,
+                    grub2_boot_info: false,
+                    emulation: EmulationType::NoEmulation,
+                },
+            ),
+        ],
+    };
+    let options = FormatOptions {
+        volume_name: "MULTIBOOT".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
+        sector_size: 2048,
+        features: CreationFeatures {
+            el_torito: Some(boot),
+            ..CreationFeatures::default()
+        },
+        path_separator: PathSeparator::ForwardSlash,
+        strict_charset: false,
+    };
+    let output = IsoImageWriter::create(Cursor::new(vec![0; 2 * 1024 * 1024]), tree, options)
+        .unwrap()
+        .into_inner();
+
+    let descriptor = (16..32)
+        .map(|sector| &output[sector * 2048..(sector + 1) * 2048])
+        .find(|descriptor| descriptor[0] == 0 && &descriptor[1..6] == b"CD001")
+        .expect("boot record volume descriptor");
+    let catalog_lba = u32::from_le_bytes(descriptor[71..75].try_into().unwrap()) as usize;
+    let catalog = &output[catalog_lba * 2048..];
+    assert_eq!(catalog[64], 0x90);
+    assert_eq!(catalog[65], PlatformId::PowerPC.to_u8());
+    assert_eq!(u16::from_le_bytes([catalog[66], catalog[67]]), 1);
+    assert_eq!(catalog[128], 0x91);
+    assert_eq!(catalog[129], PlatformId::UEFI.to_u8());
+    assert_eq!(u16::from_le_bytes([catalog[130], catalog[131]]), 1);
+    assert_eq!(&catalog[192..224], &[0; 32]);
+
+    let ppc_lba = u32::from_le_bytes(catalog[104..108].try_into().unwrap()) as usize;
+    let uefi_lba = u32::from_le_bytes(catalog[168..172].try_into().unwrap()) as usize;
+    assert_eq!(u16::from_le_bytes([catalog[102], catalog[103]]), 4);
+    assert_eq!(u16::from_le_bytes([catalog[166], catalog[167]]), 8);
+    assert_eq!(output[ppc_lba * 2048], 0x22);
+    assert_eq!(output[uefi_lba * 2048], 0x33);
+}
+
+#[test]
 fn test_eltorito_boot_catalog_comparison() {
     if !xorriso_available() {
         eprintln!("Skipping test: xorriso not available");

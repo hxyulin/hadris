@@ -20,7 +20,7 @@ Related prior plan (shared crates only): [`plans/2026-07-09-shared-crates-profes
 | 5 | P1 | ISO README overclaims **Rock Ridge write** (symlinks / POSIX); `RripOptions` unwired | Spec/marketing mismatch |
 | 6 | P1 | UDF has **no public file-content read**; `UdfDirEntry.size` is placeholder `0`; CLI `cat`/`extract` blocked | Incomplete product surface for a “supported” format |
 | 7 | P1 | CLI naming/UX inconsistent (`fatutil`/`cpioutil` vs `hadris-*-cli`; `ls` vs `list`); **zero CLI tests** | Surface polish lag behind libraries |
-| 8 | P1 | `PartitionError::Io` **discards** underlying I/O error; GPT backup header **silently synthesized** on read failure | Debuggability / correctness honesty |
+| 8 | ~~P1~~ | **Resolved:** partition I/O errors retain their source and unreadable backup GPT headers fail strictly | — |
 | 9 | P1 | Meta-crate / root README claim **“all formats”** but omit UDF (default), `hadris-cd`, `hadris-part` | Umbrella crate oversells |
 | 10 | P1 | In-repo ISO specs WIP; no formal **spec↔test** traceability; async features largely **compile-only** in CI/tests | Hard to claim standards compliance professionally |
 
@@ -111,9 +111,9 @@ Categories: `docs` | `api-ergonomics` | `missing-api` | `spec` | `code-quality` 
 | ID | Sev | Cat | Location | Evidence | Suggested follow-up |
 |----|-----|-----|----------|----------|---------------------|
 | A1 | P0 | api-ergonomics | `crates/tools/hadris-cli` | Installable stub with `unwrap()`; no real subcommands | `publish = false` and/or explicit experimental gate; remove install advice until ready |
-| A2 | P1 | missing-api | `hadris-udf` `fs.rs` / `file.rs` | `size = 0; // Placeholder`; `UdfFile` has only `size()`, no read | Populate size from ICB; add `read_file` / `open_file` |
-| A3 | P1 | missing-api | `hadris-iso` write `File` enum | Only file/dir; no symlink/device despite RRIP write claims | Extend input model + wire RRIP |
-| A4 | P1 | api-ergonomics | `hadris-iso` read | Joliet+RRIP written together; reader `best_choice()` picks one root | Document; expose per-namespace roots |
+| A2 | ~~P1~~ | missing-api | `hadris-udf` `fs.rs` / `file.rs` | **Resolved:** directory sizes and public file reads are implemented and round-tripped | — |
+| A3 | ~~P1~~ | missing-api | `hadris-iso` write input | **Resolved:** metadata-aware files, directories, symlinks, and devices are supported | — |
+| A4 | ~~P1~~ | api-ergonomics | `hadris-iso` read | **Resolved:** roots are enumerable and selectable by namespace while `best_choice()` remains available | — |
 | A5 | P1 | api-ergonomics | `hadris-iso` | Some introspection APIs sync-only (`read_pvd`, boot sections) | Async parity or document |
 | A6 | P1 | api-ergonomics | `hadris-part` | Default features omit `read`; desktop examples imply read works | Add `read` to default or always show features |
 | A7 | P1 | api-ergonomics | `hadris-part` `error.rs` | `PartitionError::Io` unit; `.map_err(|_| …)` | `Io(hadris_io::Error)` + `source()` |
@@ -131,11 +131,11 @@ Categories: `docs` | `api-ergonomics` | `missing-api` | `spec` | `code-quality` 
 | ID | Sev | Cat | Location | Evidence | Suggested follow-up |
 |----|-----|-----|----------|----------|---------------------|
 | S1 | P0 | spec | `crates/optical/hadris-iso/spec/Specification.md` | Stops at PVD with `(WIP)`; Booting.md unfinished | Finish or mark planned sections; link from rustdoc |
-| S2 | P1 | spec | ISO RRIP write | Hardcoded modes/uid/gid; `RripOptions` ignored | Wire options or document non-compliance |
-| S3 | P1 | spec | ISO El-Torito write | `// TODO: Create Virtual FAT` for section entries | Implement or document multi-platform limits |
+| S2 | ~~P1~~ | spec | ISO RRIP write | **Resolved:** metadata, symlinks, devices, and directory relocation are emitted according to `RripOptions` | — |
+| S3 | ~~P1~~ | spec | ISO El-Torito write | **Resolved:** multi-section catalogs reference caller-prepared opaque emulation images; no synthesized Virtual FAT is required | — |
 | S4 | P1 | spec | FAT LFN write | Cross-cluster LFN runs rejected (`DirEntryRunTooLong`) | Implement or document max name vs cluster size |
 | S5 | P1 | spec | exFAT | Fragmented bitmap/upcase → `UnsupportedFatType` | Document hard limits; add fixtures |
-| S6 | P1 | spec | `hadris-part` `scheme_io.rs` | Backup GPT header synthesized on failure without error/flag | Dedicated error or documented fallback |
+| S6 | ~~P1~~ | spec | `hadris-part` `scheme_io.rs` | **Resolved:** backup headers are read and validated strictly with typed failures | — |
 | S7 | P2 | spec | UDF | `UnsupportedRevision` never constructed; NSR mapping coarse | Use variant or remove |
 
 ### 3.4 Tests and CI
@@ -159,7 +159,7 @@ Categories: `docs` | `api-ergonomics` | `missing-api` | `spec` | `code-quality` 
 
 ### 4.1 Filesystem libraries
 
-**hadris-iso** — Richest tests and rustdoc; RRIP/Joliet/El-Torito depth. Gaps: overclaimed RRIP write, Joliet+RRIP read selection, sync-only introspection, WIP in-repo spec excluded from crates.io.
+**hadris-iso** — Richest tests and rustdoc; RRIP/Joliet/El-Torito depth. Remaining gaps: sync-only introspection and the WIP in-repo spec excluded from crates.io.
 
 **hadris-fat** — Strongest library professionalism (builder, cache/tool, fsck roundtrips, docs.rs). Gaps: **broken README**, LFN cross-cluster limit, exFAT fragmentation limits, exFAT outside dual-async pattern.
 
@@ -175,7 +175,7 @@ Categories: `docs` | `api-ergonomics` | `missing-api` | `spec` | `code-quality` 
 
 **hadris-macros** — Critical infrastructure, near-empty README; no edge-case tests for `strip_async!`.
 
-**hadris-part** — Mature on-disk types; P0 README; error context loss; silent backup GPT synthesis; default features omit `read`. Optional `crc`/`rand` deps work as implicit features but are undocumented in `[features]` / README.
+**hadris-part** — Mature on-disk types with strict primary/backup GPT validation and source-preserving I/O errors. Optional `crc`/`rand` feature behavior should remain documented.
 
 ### 4.3 Surface crates
 
@@ -218,14 +218,9 @@ Compliance is **behavioral**: roundtrip tests and external tools (xorriso, fsck.
 
 ### Known mismatches / incompleteness
 
-1. **ISO RRIP write** — not a faithful RRIP writer for permissions/symlinks/devices.
-2. **ISO Joliet + RRIP coexistence on read** — single-root selection loses one namespace’s strengths.
-3. **ISO El-Torito** — virtual FAT for non-default section entries unfinished.
-4. **FAT LFN** — cross-cluster directory entry runs unsupported on write.
-5. **exFAT** — fragmented critical metadata unsupported.
-6. **UDF file content** — directory walk without content read; sizes stubbed.
-7. **GPT backup** — failure path invents a header instead of failing closed.
-8. **In-repo ISO spec** — not a usable compliance oracle yet.
+1. **FAT LFN** — cross-cluster directory entry runs unsupported on write.
+2. **exFAT** — fragmented critical metadata unsupported.
+3. **In-repo ISO spec** — not a usable compliance oracle yet.
 
 ### Existing good practice to build on
 

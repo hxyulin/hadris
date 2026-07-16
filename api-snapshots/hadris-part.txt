@@ -67,6 +67,12 @@ pub async fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::async_api::Wri
 pub async fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 pub mod hadris_part::error
 pub enum hadris_part::error::PartitionError
+pub hadris_part::error::PartitionError::BackupGptHeaderCrcMismatch
+pub hadris_part::error::PartitionError::BackupGptHeaderCrcMismatch::actual: u32
+pub hadris_part::error::PartitionError::BackupGptHeaderCrcMismatch::expected: u32
+pub hadris_part::error::PartitionError::BackupHeaderIo
+pub hadris_part::error::PartitionError::BackupHeaderIo::lba: u64
+pub hadris_part::error::PartitionError::BackupHeaderIo::source: hadris_io::error::Error
 pub hadris_part::error::PartitionError::BackupHeaderMismatch
 pub hadris_part::error::PartitionError::DiskTooSmall
 pub hadris_part::error::PartitionError::DiskTooSmall::available: u64
@@ -78,6 +84,8 @@ pub hadris_part::error::PartitionError::GptEntriesCrcMismatch::expected: u32
 pub hadris_part::error::PartitionError::GptHeaderCrcMismatch
 pub hadris_part::error::PartitionError::GptHeaderCrcMismatch::actual: u32
 pub hadris_part::error::PartitionError::GptHeaderCrcMismatch::expected: u32
+pub hadris_part::error::PartitionError::InvalidBackupGptSignature
+pub hadris_part::error::PartitionError::InvalidBackupGptSignature::found: [u8; 8]
 pub hadris_part::error::PartitionError::InvalidGptSignature
 pub hadris_part::error::PartitionError::InvalidGptSignature::found: [u8; 8]
 pub hadris_part::error::PartitionError::InvalidHybridMbr
@@ -922,6 +930,12 @@ pub const fn hadris_part::mbr::MbrPartitionType::to_u8(&self) -> u8
 impl core::fmt::Display for hadris_part::mbr::MbrPartitionType
 pub fn hadris_part::mbr::MbrPartitionType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum hadris_part::PartitionError
+pub hadris_part::PartitionError::BackupGptHeaderCrcMismatch
+pub hadris_part::PartitionError::BackupGptHeaderCrcMismatch::actual: u32
+pub hadris_part::PartitionError::BackupGptHeaderCrcMismatch::expected: u32
+pub hadris_part::PartitionError::BackupHeaderIo
+pub hadris_part::PartitionError::BackupHeaderIo::lba: u64
+pub hadris_part::PartitionError::BackupHeaderIo::source: hadris_io::error::Error
 pub hadris_part::PartitionError::BackupHeaderMismatch
 pub hadris_part::PartitionError::DiskTooSmall
 pub hadris_part::PartitionError::DiskTooSmall::available: u64
@@ -933,6 +947,8 @@ pub hadris_part::PartitionError::GptEntriesCrcMismatch::expected: u32
 pub hadris_part::PartitionError::GptHeaderCrcMismatch
 pub hadris_part::PartitionError::GptHeaderCrcMismatch::actual: u32
 pub hadris_part::PartitionError::GptHeaderCrcMismatch::expected: u32
+pub hadris_part::PartitionError::InvalidBackupGptSignature
+pub hadris_part::PartitionError::InvalidBackupGptSignature::found: [u8; 8]
 pub hadris_part::PartitionError::InvalidGptSignature
 pub hadris_part::PartitionError::InvalidGptSignature::found: [u8; 8]
 pub hadris_part::PartitionError::InvalidHybridMbr

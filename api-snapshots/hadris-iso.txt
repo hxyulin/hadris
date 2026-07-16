@@ -437,10 +437,20 @@ pub struct hadris_iso::async::read::IsoImageInfo
 pub struct hadris_iso::async::read::RootDir
 impl hadris_iso::async::read::RootDir
 pub fn hadris_iso::async::read::RootDir::dir_ref(&self) -> hadris_iso::async::directory::DirectoryRef
+pub fn hadris_iso::async::read::RootDir::entry_type(&self) -> hadris_iso::file::EntryType
 pub fn hadris_iso::async::read::RootDir::iter<'a, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&self, &'a hadris_iso::async::read::IsoImage<DATA>) -> hadris_iso::async::read::IsoDir<'a, DATA>
 pub struct hadris_iso::async::read::RootDirs
 impl hadris_iso::async::read::RootDirs
 pub fn hadris_iso::async::read::RootDirs::best_choice(&self) -> hadris_iso::async::read::RootDir
+pub fn hadris_iso::async::read::RootDirs::get(&self, hadris_iso::file::EntryType) -> core::option::Option<hadris_iso::async::read::RootDir>
+pub fn hadris_iso::async::read::RootDirs::is_empty(&self) -> bool
+pub fn hadris_iso::async::read::RootDirs::iter(&self) -> core::slice::iter::Iter<'_, hadris_iso::async::read::RootDir>
+pub fn hadris_iso::async::read::RootDirs::len(&self) -> usize
+pub fn hadris_iso::async::read::RootDirs::try_best_choice(&self) -> core::option::Option<hadris_iso::async::read::RootDir>
+impl<'a> core::iter::traits::collect::IntoIterator for &'a hadris_iso::async::read::RootDirs
+pub type &'a hadris_iso::async::read::RootDirs::IntoIter = core::slice::iter::Iter<'a, hadris_iso::async::read::RootDir>
+pub type &'a hadris_iso::async::read::RootDirs::Item = &'a hadris_iso::async::read::RootDir
+pub fn &'a hadris_iso::async::read::RootDirs::into_iter(self) -> Self::IntoIter
 pub struct hadris_iso::async::read::RripDateTime
 pub hadris_iso::async::read::RripDateTime::day: u8
 pub hadris_iso::async::read::RripDateTime::gmt_offset: i8
@@ -1886,10 +1896,20 @@ pub fn hadris_iso::read::RawDirIter<'_, T>::next(&mut self) -> core::option::Opt
 pub struct hadris_iso::read::RootDir
 impl hadris_iso::read::RootDir
 pub fn hadris_iso::read::RootDir::dir_ref(&self) -> hadris_iso::directory::DirectoryRef
+pub fn hadris_iso::read::RootDir::entry_type(&self) -> hadris_iso::file::EntryType
 pub fn hadris_iso::read::RootDir::iter<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::read::IsoDir<'a, DATA>
 pub struct hadris_iso::read::RootDirs
 impl hadris_iso::read::RootDirs
 pub fn hadris_iso::read::RootDirs::best_choice(&self) -> hadris_iso::read::RootDir
+pub fn hadris_iso::read::RootDirs::get(&self, hadris_iso::file::EntryType) -> core::option::Option<hadris_iso::read::RootDir>
+pub fn hadris_iso::read::RootDirs::is_empty(&self) -> bool
+pub fn hadris_iso::read::RootDirs::iter(&self) -> core::slice::iter::Iter<'_, hadris_iso::read::RootDir>
+pub fn hadris_iso::read::RootDirs::len(&self) -> usize
+pub fn hadris_iso::read::RootDirs::try_best_choice(&self) -> core::option::Option<hadris_iso::read::RootDir>
+impl<'a> core::iter::traits::collect::IntoIterator for &'a hadris_iso::read::RootDirs
+pub type &'a hadris_iso::read::RootDirs::IntoIter = core::slice::iter::Iter<'a, hadris_iso::read::RootDir>
+pub type &'a hadris_iso::read::RootDirs::Item = &'a hadris_iso::read::RootDir
+pub fn &'a hadris_iso::read::RootDirs::into_iter(self) -> Self::IntoIter
 pub struct hadris_iso::read::RripDateTime
 pub hadris_iso::read::RripDateTime::day: u8
 pub hadris_iso::read::RripDateTime::gmt_offset: i8
@@ -3107,10 +3127,20 @@ pub fn hadris_iso::read::RawDirIter<'_, T>::next(&mut self) -> core::option::Opt
 pub struct hadris_iso::sync::read::RootDir
 impl hadris_iso::read::RootDir
 pub fn hadris_iso::read::RootDir::dir_ref(&self) -> hadris_iso::directory::DirectoryRef
+pub fn hadris_iso::read::RootDir::entry_type(&self) -> hadris_iso::file::EntryType
 pub fn hadris_iso::read::RootDir::iter<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::read::IsoDir<'a, DATA>
 pub struct hadris_iso::sync::read::RootDirs
 impl hadris_iso::read::RootDirs
 pub fn hadris_iso::read::RootDirs::best_choice(&self) -> hadris_iso::read::RootDir
+pub fn hadris_iso::read::RootDirs::get(&self, hadris_iso::file::EntryType) -> core::option::Option<hadris_iso::read::RootDir>
+pub fn hadris_iso::read::RootDirs::is_empty(&self) -> bool
+pub fn hadris_iso::read::RootDirs::iter(&self) -> core::slice::iter::Iter<'_, hadris_iso::read::RootDir>
+pub fn hadris_iso::read::RootDirs::len(&self) -> usize
+pub fn hadris_iso::read::RootDirs::try_best_choice(&self) -> core::option::Option<hadris_iso::read::RootDir>
+impl<'a> core::iter::traits::collect::IntoIterator for &'a hadris_iso::read::RootDirs
+pub type &'a hadris_iso::read::RootDirs::IntoIter = core::slice::iter::Iter<'a, hadris_iso::read::RootDir>
+pub type &'a hadris_iso::read::RootDirs::Item = &'a hadris_iso::read::RootDir
+pub fn &'a hadris_iso::read::RootDirs::into_iter(self) -> Self::IntoIter
 pub struct hadris_iso::sync::read::RripDateTime
 pub hadris_iso::sync::read::RripDateTime::day: u8
 pub hadris_iso::sync::read::RripDateTime::gmt_offset: i8

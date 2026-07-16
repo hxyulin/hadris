@@ -916,7 +916,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 let boot_entry =
                     BootSectionEntry::new(entry.emulation, 0, load_size, boot_image_lba);
                 if let Some(section) = section {
-                    // TODO: Create Virtual FAT
                     catalog.add_section(section.platform, vec![boot_entry]);
                 } else {
                     catalog.set_default_entry(boot_entry);

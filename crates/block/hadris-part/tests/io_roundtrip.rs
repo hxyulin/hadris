@@ -4,9 +4,10 @@ use hadris_io::Cursor;
 use hadris_io::ErrorKind;
 use hadris_part::hybrid::HybridMbrBuilder;
 use hadris_part::{
-    DiskPartitionScheme, DiskPartitionSchemeReadExt, DiskPartitionSchemeWriteExt,
-    GptPartitionEntry, Guid, MasterBootRecord, MasterBootRecordReadExt, MasterBootRecordWriteExt,
-    MbrPartition, MbrPartitionType, PartitionError, PartitionSchemeType,
+    DiskPartitionScheme, DiskPartitionSchemeReadExt, DiskPartitionSchemeWriteExt, GptHeader,
+    GptHeaderReadExt, GptHeaderWriteExt, GptPartitionEntry, Guid, MasterBootRecord,
+    MasterBootRecordReadExt, MasterBootRecordWriteExt, MbrPartition, MbrPartitionType,
+    PartitionError, PartitionSchemeType,
 };
 use std::io::Cursor as StdCursor;
 use std::io::{Seek, SeekFrom};
@@ -146,6 +147,50 @@ fn sync_open_rejects_truncated_and_corrupt_gpt() {
     assert!(matches!(
         hadris_part::sync::partition_table::open(&mut corrupt, 512),
         Err(PartitionError::InvalidGptSignature { .. })
+    ));
+}
+
+#[test]
+fn sync_open_rejects_missing_and_invalid_backup_gpt_headers() {
+    let scheme = populated_gpt();
+    let mut complete = StdCursor::new(vec![0_u8; 4096 * 512]);
+    scheme.write_to(&mut complete).unwrap();
+    let complete = complete.into_inner();
+
+    let mut missing_backup = StdCursor::new(complete[..4095 * 512].to_vec());
+    assert!(matches!(
+        hadris_part::sync::partition_table::open(&mut missing_backup, 512),
+        Err(PartitionError::BackupHeaderIo { lba: 4095, source })
+            if source.kind() == ErrorKind::UnexpectedEof
+    ));
+
+    let mut invalid_backup = complete;
+    invalid_backup[4095 * 512..4095 * 512 + 8].copy_from_slice(b"NOT GPT!");
+    let mut invalid_backup = StdCursor::new(invalid_backup);
+    assert!(matches!(
+        hadris_part::sync::partition_table::open(&mut invalid_backup, 512),
+        Err(PartitionError::InvalidBackupGptSignature { .. })
+    ));
+
+    let scheme = populated_gpt();
+    let mut bad_crc = StdCursor::new(vec![0_u8; 4096 * 512]);
+    scheme.write_to(&mut bad_crc).unwrap();
+    bad_crc.get_mut()[4095 * 512 + 24] ^= 1;
+    assert!(matches!(
+        hadris_part::sync::partition_table::open(&mut bad_crc, 512),
+        Err(PartitionError::BackupGptHeaderCrcMismatch { .. })
+    ));
+
+    let scheme = populated_gpt();
+    let mut mismatch = StdCursor::new(vec![0_u8; 4096 * 512]);
+    scheme.write_to(&mut mismatch).unwrap();
+    let mut backup = GptHeader::read_from_lba(&mut mismatch, 4095, 512).unwrap();
+    backup.first_usable_lba = hadris_part::Le::<u64>::from_ne(backup.first_usable_lba.to_ne() + 1);
+    backup.update_crc32();
+    backup.write_to_lba(&mut mismatch, 4095, 512).unwrap();
+    assert!(matches!(
+        hadris_part::sync::partition_table::open(&mut mismatch, 512),
+        Err(PartitionError::BackupHeaderMismatch)
     ));
 }
 

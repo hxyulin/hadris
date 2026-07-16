@@ -112,19 +112,52 @@ impl GptDiskReadExt for GptDisk {
             }
         }
 
-        // Try to read backup header
-        let backup_header =
-            match GptHeader::read_from_lba(reader, primary_header.alternate_lba.to_ne(), block_size)
-                .await
-            {
-                Ok(header) => header,
-                Err(_) => GptHeader {
-                    // If backup header read fails, construct it from primary
-                    my_lba: primary_header.alternate_lba,
-                    alternate_lba: primary_header.my_lba,
-                    ..primary_header
-                },
-            };
+        let backup_lba = primary_header.alternate_lba.to_ne();
+        let backup_header = match GptHeader::read_from_lba(reader, backup_lba, block_size).await {
+            Ok(header) => header,
+            Err(PartitionError::Io(source)) => {
+                return Err(PartitionError::BackupHeaderIo {
+                    lba: backup_lba,
+                    source,
+                });
+            }
+            Err(PartitionError::InvalidGptSignature { found }) => {
+                return Err(PartitionError::InvalidBackupGptSignature { found });
+            }
+            Err(error) => return Err(error),
+        };
+
+        #[cfg(feature = "crc")]
+        if !backup_header.verify_crc32() {
+            return Err(PartitionError::BackupGptHeaderCrcMismatch {
+                expected: backup_header.header_crc32.to_ne(),
+                actual: backup_header.calculate_crc32(),
+            });
+        }
+
+        let entry_array_bytes = u64::from(primary_header.num_partition_entries.to_ne())
+            .checked_mul(u64::from(primary_header.size_of_partition_entry.to_ne()))
+            .ok_or(PartitionError::BackupHeaderMismatch)?;
+        let entry_array_blocks = entry_array_bytes.div_ceil(u64::from(block_size));
+        let expected_backup_entries_lba = backup_lba
+            .checked_sub(entry_array_blocks)
+            .ok_or(PartitionError::BackupHeaderMismatch)?;
+
+        if backup_header.my_lba != primary_header.alternate_lba
+            || backup_header.alternate_lba != primary_header.my_lba
+            || backup_header.revision != primary_header.revision
+            || backup_header.header_size != primary_header.header_size
+            || backup_header.first_usable_lba != primary_header.first_usable_lba
+            || backup_header.last_usable_lba != primary_header.last_usable_lba
+            || backup_header.disk_guid != primary_header.disk_guid
+            || backup_header.num_partition_entries != primary_header.num_partition_entries
+            || backup_header.size_of_partition_entry != primary_header.size_of_partition_entry
+            || backup_header.partition_entry_array_crc32
+                != primary_header.partition_entry_array_crc32
+            || backup_header.partition_entry_lba.to_ne() != expected_backup_entries_lba
+        {
+            return Err(PartitionError::BackupHeaderMismatch);
+        }
 
         Ok(Self {
             primary_header,

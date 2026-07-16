@@ -259,9 +259,11 @@
 //!   reader selects a single root via usefulness scoring (`root_dir()` /
 //!   `best_choice()`). Joliet roots are treated as non-RRIP, so a Level-1 +
 //!   RRIP root can win over Joliet and hide Unicode Joliet names. Prefer
-//!   iterating volume descriptors / roots explicitly when you need both.
-//! - **El-Torito multi-section catalogs:** Virtual FAT for non-default section
-//!   entries is incomplete (`TODO` in the writer).
+//!   [`read::RootDirs::iter`] or [`read::RootDirs::get`] when you need an
+//!   explicit namespace.
+//! - **El-Torito emulation images:** Multi-section catalogs are supported, but
+//!   floppy and hard-disk images are caller-supplied opaque disk images; the
+//!   writer does not synthesize a filesystem inside them.
 //! - **High-level `IsoImage`:** Requires the `alloc` feature. `read` alone
 //!   exposes low-level modules suitable for no-alloc bootloaders.
 
