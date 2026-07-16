@@ -474,7 +474,7 @@ pub mod sync {
         /// let image = IsoImage::open(file).unwrap();
         ///
         /// // Read the primary volume descriptor
-        /// let pvd = image.read_pvd();
+        /// let pvd = image.read_pvd().unwrap();
         /// println!("Volume: {}", pvd.volume_identifier.to_str().trim());
         ///
         /// // Navigate directories

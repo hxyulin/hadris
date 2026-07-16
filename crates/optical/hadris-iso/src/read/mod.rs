@@ -1,17 +1,14 @@
 use super::directory::DirectoryRef;
 use super::io::{self, IsoCursor, LogicalSector, Read, Seek};
 use super::path::{PathTableEntry, PathTableInfo, PathTableRef};
-use super::volume::VolumeDescriptorList;
+use super::volume::{PrimaryVolumeDescriptor, VolumeDescriptorList};
 use crate::file::EntryType;
 use crate::joliet::JolietLevel;
 use hadris_common::types::endian::Endian;
 #[cfg(not(feature = "alloc"))]
 use hadris_common::types::no_alloc::ArrayVec;
 use hadris_path::{Component, Separators, VPath};
-sync_only! {
-    use super::volume::{PrimaryVolumeDescriptor, VolumeDescriptor};
-    use volume::VolumeDescriptorIter;
-}
+pub use volume::VolumeDescriptorIter;
 
 mod boot;
 mod directory;
@@ -422,6 +419,18 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         }
     }
 
+    /// Creates a volume-descriptor cursor starting at logical sector 16.
+    ///
+    /// Async callers use [`VolumeDescriptorIter::next_descriptor`]. In sync
+    /// builds the cursor also implements [`Iterator`].
+    pub fn read_volume_descriptors(&self) -> VolumeDescriptorIter<'_, DATA> {
+        VolumeDescriptorIter {
+            data: &self.data,
+            current_sector: LogicalSector(16),
+            done: false,
+        }
+    }
+
     /// Returns the cached path table entries, parsed once during `open()`.
     ///
     /// Each entry contains a directory name, its LBA, and its parent index,
@@ -432,26 +441,23 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
     }
 }
 
-sync_only! {
+io_transform! {
 impl<DATA: Read + Seek> IsoImage<DATA> {
-    pub fn read_volume_descriptors(&self) -> VolumeDescriptorIter<'_, DATA> {
-        VolumeDescriptorIter {
-            data: &self.data,
-            current_sector: LogicalSector(16),
-            done: false,
+    /// Reads the primary volume descriptor.
+    ///
+    /// Returns an I/O error if the descriptor sequence is malformed, truncated,
+    /// or contains no primary descriptor.
+    pub async fn read_pvd(&self) -> io::Result<PrimaryVolumeDescriptor> {
+        let mut descriptors = self.read_volume_descriptors();
+        while let Some(descriptor) = descriptors.next_descriptor().await? {
+            if let super::volume::VolumeDescriptor::Primary(pvd) = descriptor {
+                return Ok(pvd);
+            }
         }
-    }
-
-    pub fn read_pvd(&self) -> PrimaryVolumeDescriptor {
-        self.read_volume_descriptors()
-            .find_map(|vd| {
-                if let Ok(VolumeDescriptor::Primary(vd)) = vd {
-                    Some(vd)
-                } else {
-                    None
-                }
-            })
-            .expect("could not find PVD!")
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "primary volume descriptor not found",
+        ))
     }
 }
-} // sync_only!
+} // io_transform!

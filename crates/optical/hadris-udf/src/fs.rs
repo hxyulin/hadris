@@ -30,7 +30,11 @@ pub struct UdfInfo {
     pub partition_length: u32,
     /// Volume identifier
     pub volume_id: String,
-    /// UDF revision
+    /// Representative UDF revision for the detected VRS family.
+    ///
+    /// NSR02 maps to 1.02 and NSR03 maps to 2.01. The Volume Recognition
+    /// Sequence identifies a revision family and does not by itself guarantee
+    /// the exact revision used by every structure on the medium.
     pub udf_revision: UdfRevision,
 }
 

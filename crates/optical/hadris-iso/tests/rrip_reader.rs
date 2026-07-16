@@ -709,7 +709,7 @@ fn test_pvd_strings_with_spaces() {
 
     // Open the ISO and read the PVD
     let image = hadris_iso::read::IsoImage::open(Cursor::new(iso_data)).unwrap();
-    let pvd = image.read_pvd();
+    let pvd = image.read_pvd().unwrap();
 
     // Verify strings with spaces are not truncated (Issue #8)
     assert_eq!(pvd.publisher_identifier.to_str(), "EXAMPLE PUBLISHER");

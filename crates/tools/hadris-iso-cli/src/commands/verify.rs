@@ -142,7 +142,15 @@ fn check_volume_size<R: Read + Seek>(
     verbose: bool,
 ) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
-    let pvd = iso.read_pvd();
+    let pvd = match iso.read_pvd() {
+        Ok(pvd) => pvd,
+        Err(error) => {
+            issues.push(VerifyIssue::error(format!(
+                "Failed to read primary volume descriptor: {error}"
+            )));
+            return issues;
+        }
+    };
     let declared_size = pvd.volume_space_size.read() as u64 * 2048;
 
     if verbose {
@@ -232,7 +240,15 @@ fn check_extent_bounds<R: Read + Seek>(
     verbose: bool,
 ) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
-    let pvd = iso.read_pvd();
+    let pvd = match iso.read_pvd() {
+        Ok(pvd) => pvd,
+        Err(error) => {
+            issues.push(VerifyIssue::error(format!(
+                "Failed to read primary volume descriptor: {error}"
+            )));
+            return issues;
+        }
+    };
     let volume_size = pvd.volume_space_size.read() as u64 * 2048;
 
     fn walk_dir<R: Read + Seek>(
@@ -361,7 +377,15 @@ fn check_boot_catalog<R: Read + Seek>(
 
 fn check_rrip_fields<R: Read + Seek>(iso: &IsoImage<R>, verbose: bool) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
-    let pvd = iso.read_pvd();
+    let pvd = match iso.read_pvd() {
+        Ok(pvd) => pvd,
+        Err(error) => {
+            issues.push(VerifyIssue::error(format!(
+                "Failed to read primary volume descriptor: {error}"
+            )));
+            return issues;
+        }
+    };
     let volume_sectors = pvd.volume_space_size.read();
 
     fn walk_rrip<R: Read + Seek>(

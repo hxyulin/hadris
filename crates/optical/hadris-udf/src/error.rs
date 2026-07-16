@@ -19,8 +19,6 @@ pub enum UdfError {
     InvalidTag { expected: u16, found: u16 },
     /// Descriptor CRC mismatch
     CrcMismatch { expected: u16, computed: u16 },
-    /// Unsupported UDF revision
-    UnsupportedRevision(u16),
     /// Invalid partition reference
     InvalidPartition(u16),
     /// Invalid ICB (Information Control Block)
@@ -66,9 +64,6 @@ impl core::fmt::Display for UdfError {
                     f,
                     "CRC mismatch: expected {expected:04x}, computed {computed:04x}"
                 )
-            }
-            Self::UnsupportedRevision(rev) => {
-                write!(f, "unsupported UDF revision: {rev:04x}")
             }
             Self::InvalidPartition(num) => write!(f, "invalid partition reference: {num}"),
             Self::InvalidIcb => write!(f, "invalid Information Control Block"),
