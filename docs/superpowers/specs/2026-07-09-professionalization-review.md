@@ -6,23 +6,22 @@
 
 ## Current verdict
 
-The core V2 library surface is close to API freeze. The earlier review's
+Hadris `2.0.0-rc.1` marks the V2 feature and public-API freeze. The earlier review's
 highest-risk correctness and public-API gaps have been resolved: source-carrying
 partition errors, strict backup GPT validation, UDF file reads, ISO namespace
 selection, metadata-complete RRIP writing, El-Torito multi-section coverage,
 and FAT cross-cluster LFN writes.
 
 No remaining P0 correctness or API blocker was found in the supported
-FAT/ISO/UDF/partition paths. The remaining work is intentionally split:
-
-- **Current freeze tranche:** finish public API cleanup and keep this review current.
-- **Later session:** perform CLI/CD release polish.
+FAT/ISO/UDF/partition paths. Changes during the release-candidate period are
+limited to correctness, interoperability, documentation, and release
+engineering. The `unstable-exfat` preview remains outside the freeze.
 
 ## Resolved since the original review
 
 | Area | Resolution |
 |------|------------|
-| Workspace versions and inventory | Packages and examples use independent `2.0.0` versions; root README lists category, leaf, and CLI crates accurately |
+| Workspace versions and inventory | Packages and examples use independent `2.0.0-rc.1` versions; root README lists category, leaf, and CLI crates accurately |
 | Public documentation trust | FAT, partition, I/O, common, ISO, and root documentation use the current APIs and feature model |
 | `hadris-cli` release risk | Unpublished FAT debug stub removed; V2 exposes only the supported specialized CLI family |
 | Partition defaults and errors | `read` is default; `PartitionError::Io` preserves its source |

@@ -12,6 +12,19 @@ facade such as `hadris-block`, or the `hadris` umbrella crate as an application
 grows. Shared I/O, storage, path, feature, and API conventions keep those
 layers coherent without hiding format-specific capabilities.
 
+## Stability and Versioning
+
+Hadris follows [Semantic Versioning](https://semver.org/). The
+`2.0.0-rc.1` prerelease marks the V2 feature and public-API freeze: until the
+final `2.0.0` release, changes are limited to correctness fixes,
+interoperability qualification, documentation, and release engineering.
+Breaking changes to the frozen public API require explicit review and a new
+release-candidate version.
+
+The `unstable-exfat` preview is explicitly outside this stability promise.
+Stable FAT12/16/32, partition, ISO 9660, UDF, CPIO, facade, and storage APIs are
+covered by the V2 public-API snapshots.
+
 ## Architecture
 
 ```text
@@ -129,10 +142,10 @@ Choose the narrowest entry point that fits the application:
 ```toml
 [dependencies]
 # One filesystem:
-hadris-fat = "2.0.0"
+hadris-fat = "2.0.0-rc.1"
 
 # Or the unified storage ecosystem:
-hadris = { version = "2.0.0", features = ["block", "optical"] }
+hadris = { version = "2.0.0-rc.1", features = ["block", "optical"] }
 ```
 
 The umbrella crate re-exports the same underlying format crates through
@@ -140,23 +153,23 @@ The umbrella crate re-exports the same underlying format crates through
 grow into partition detection or additional disk-image formats without
 replacing their filesystem implementation.
 
-Each package now owns its version; all current packages target **2.0.0**:
+Each package now owns its version; all current packages target **2.0.0-rc.1**:
 
 ```toml
 [dependencies]
-hadris-iso = "2.0.0"
-hadris-fat = "2.0.0"
-hadris-part = { version = "2.0.0", features = ["read"] }
-hadris-fixed = "2.0.0"
-hadris-path = "2.0.0"
+hadris-iso = "2.0.0-rc.1"
+hadris-fat = "2.0.0-rc.1"
+hadris-part = { version = "2.0.0-rc.1", features = ["read"] }
+hadris-fixed = "2.0.0-rc.1"
+hadris-path = "2.0.0-rc.1"
 ```
 
 For no-std environments:
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.0.0", default-features = false, features = ["read", "alloc"] }
-hadris-fat = { version = "2.0.0", default-features = false, features = ["read", "sync"] }
+hadris-iso = { version = "2.0.0-rc.1", default-features = false, features = ["read", "alloc"] }
+hadris-fat = { version = "2.0.0-rc.1", default-features = false, features = ["read", "sync"] }
 ```
 
 ## Building
@@ -173,6 +186,10 @@ cargo build -p hadris-fat --no-default-features --features "read,sync"
 ```
 
 See [CLAUDE.md](CLAUDE.md) for detailed build instructions and architecture notes, and [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow.
+Users upgrading from Hadris 1.x should read the
+[2.0 migration guide](docs/hadris-1-to-2-migration.md). Prerelease testers
+should also review the
+[`2.0.0-rc.1` release notes](docs/hadris-2.0.0-rc.1-release-notes.md).
 
 **MSRV:** Rust 1.88.0 (`rust-toolchain.toml` / workspace `rust-version`).
 
