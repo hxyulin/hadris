@@ -1,8 +1,8 @@
-//! Smoke tests for the cpioutil binary.
+//! Smoke tests for the canonical and compatibility CPIO binaries.
 
 #[test]
 fn help_succeeds() {
-    let bin = env!("CARGO_BIN_EXE_cpioutil");
+    let bin = env!("CARGO_BIN_EXE_hadris-cpio");
     let output = std::process::Command::new(bin)
         .arg("--help")
         .output()
@@ -13,7 +13,7 @@ fn help_succeeds() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("list") || stdout.contains("create"));
+    assert!(stdout.contains("ls"));
 }
 
 #[test]
@@ -24,4 +24,14 @@ fn version_succeeds() {
         .status()
         .expect("run --version");
     assert!(status.success());
+}
+
+#[test]
+fn legacy_list_alias_is_accepted() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_hadris-cpio"))
+        .args(["list", "missing.cpio"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("unrecognized subcommand"));
 }

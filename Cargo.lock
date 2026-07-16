@@ -491,16 +491,20 @@ dependencies = [
  "hadris-io",
  "hadris-iso",
  "hadris-macros",
+ "hadris-optical",
  "hadris-udf",
  "thiserror",
 ]
 
 [[package]]
-name = "hadris-cli"
+name = "hadris-cd-cli"
 version = "2.0.0"
 dependencies = [
  "clap",
- "hadris-fat",
+ "hadris-cd",
+ "hadris-iso",
+ "hadris-udf",
+ "tempfile",
 ]
 
 [[package]]
@@ -566,6 +570,7 @@ dependencies = [
  "anyhow",
  "clap",
  "hadris-fat",
+ "tempfile",
 ]
 
 [[package]]

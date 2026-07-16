@@ -2,7 +2,7 @@
 
 #[test]
 fn help_succeeds() {
-    let bin = env!("CARGO_BIN_EXE_hadris-iso-cli");
+    let bin = env!("CARGO_BIN_EXE_hadris-iso");
     let output = std::process::Command::new(bin)
         .arg("--help")
         .output()

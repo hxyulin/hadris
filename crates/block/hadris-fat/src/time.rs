@@ -144,6 +144,7 @@ impl TimeProvider for EpochTimeProvider {
 /// otherwise, so consumers don't have to think about the cfg matrix.
 #[cfg(feature = "std")]
 pub static DEFAULT_TIME_PROVIDER: ChronoTimeProvider = ChronoTimeProvider;
+/// Default epoch-based provider for targets without the standard library.
 #[cfg(not(feature = "std"))]
 pub static DEFAULT_TIME_PROVIDER: EpochTimeProvider = EpochTimeProvider;
 

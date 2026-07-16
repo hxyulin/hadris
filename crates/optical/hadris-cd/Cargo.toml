@@ -22,3 +22,6 @@ hadris-iso = { workspace = true, default-features = false, features = ["std", "w
 hadris-udf = { workspace = true, default-features = false, features = ["std", "write"] }
 hadris-macros = { workspace = true }
 thiserror = { workspace = true, optional = true }
+
+[dev-dependencies]
+hadris-optical = { workspace = true, features = ["detect", "sync"] }

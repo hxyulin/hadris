@@ -3,7 +3,7 @@ use std::io::{self, Write};
 
 use hadris_udf::UdfFs;
 
-use crate::args::CatArgs;
+use super::super::args::CatArgs;
 
 use super::{Result, navigate_to_path};
 

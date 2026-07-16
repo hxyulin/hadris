@@ -10,6 +10,17 @@ description = "CLI utility for ISO 9660 image operations"
 readme = "README.md"
 keywords = ["iso9660", "iso", "cli", "optical", "disk"]
 categories = ["command-line-utilities", "filesystem"]
+autobins = false
+
+[[bin]]
+name = "hadris-iso"
+path = "src/bin/hadris-iso.rs"
+doc = false
+
+[[bin]]
+name = "hadris-iso-cli"
+path = "src/bin/hadris-iso-cli.rs"
+doc = false
 
 [dependencies]
 clap.workspace = true

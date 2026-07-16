@@ -10,12 +10,19 @@ description = "CLI utility for CPIO archive operations"
 readme = "README.md"
 keywords = ["cpio", "archive", "cli", "disk"]
 categories = ["command-line-utilities", "filesystem"]
+autobins = false
+
+[[bin]]
+name = "hadris-cpio"
+path = "src/bin/hadris-cpio.rs"
+doc = false
 
 [[bin]]
 name = "cpioutil"
-path = "src/main.rs"
+path = "src/bin/cpioutil.rs"
+doc = false
 
 [dependencies]
-hadris-cpio = { workspace = true, features = ["std", "read", "write"] }
+hadris-cpio = { workspace = true, features = ["std", "sync", "read", "write"] }
 clap.workspace = true
 anyhow.workspace = true

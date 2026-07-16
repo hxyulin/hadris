@@ -6,7 +6,7 @@ use hadris_iso::read::IsoImage;
 use hadris_iso::types::Endian;
 use hadris_iso::volume::VolumeDescriptor;
 
-use crate::args::InfoArgs;
+use super::super::args::InfoArgs;
 
 use super::Result;
 

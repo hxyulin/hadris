@@ -24,7 +24,7 @@ FAT/ISO/UDF/partition paths. The remaining work is intentionally split:
 |------|------------|
 | Workspace versions and inventory | Packages and examples use independent `2.0.0` versions; root README lists category, leaf, and CLI crates accurately |
 | Public documentation trust | FAT, partition, I/O, common, ISO, and root documentation use the current APIs and feature model |
-| `hadris-cli` release risk | Explicitly experimental and `publish = false` |
+| `hadris-cli` release risk | Unpublished FAT debug stub removed; V2 exposes only the supported specialized CLI family |
 | Partition defaults and errors | `read` is default; `PartitionError::Io` preserves its source |
 | GPT integrity | Primary and backup headers, CRCs, geometry, and reciprocal locations are validated strictly |
 | UDF content access | Public file reads and real directory-entry sizes are implemented and round-tripped |
@@ -45,8 +45,8 @@ Severity: **P0** release blocker, **P1** important before a polished V2 release,
 | A1 | Resolved | ISO API | PVD access is fallible and available in sync/async builds; descriptor and boot-section cursors have async methods; `BootEntryInfo::media_type` spelling is corrected | Freeze after snapshot review |
 | A2 | Resolved | UDF API | Dead `UdfError::UnsupportedRevision` variant removed; VRS continues to report the supported NSR revision family | Freeze after snapshot review |
 | A3 | Resolved | exFAT | Retained as the leaf-only `unstable-exfat` preview, excluded from the stable V2 API snapshot and unified opener | Promote only after metadata, directory-growth, and I/O-mode qualification |
-| A4 | P1 | CLI surface | Binary names and verbs remain inconsistent; feature depth differs between tools | Deferred to CLI polish session |
-| A5 | P1 | `hadris-cd` | Writer exists but needs stronger ISO/UDF reopen verification and a deliberate CLI decision | Deferred with surface polish |
+| A4 | Resolved | CLI surface | Canonical `hadris-*` binaries share common verbs, legacy executable aliases remain available, and FAT now covers create/read/extract workflows | Keep canonical names primary in V2 documentation |
+| A5 | Resolved | `hadris-cd` | Non-empty nested bridge images reopen byte-for-byte through ISO and UDF, and `hadris-cd-cli` provides create/info/verify workflows | Keep bridge qualification in the all-feature suite |
 | A6 | P2 | ISO specification | In-repo specification notes remain incomplete and are excluded from the package | Clearly treat as developer notes or finish as a later documentation project |
 | A7 | P2 | UDF revision reporting | NSR02/NSR03 identify revision families, so `UdfInfo::udf_revision` is a representative family revision rather than guaranteed exact media revision | Document semantics if exact domain-suffix parsing is not added |
 | A8 | Resolved | Async tests | FAT, partition, ISO, and UDF leaf crates directly exercise their public async namespaces in addition to facade coverage | Keep focused leaf and facade tests in the all-feature suite |
@@ -74,8 +74,6 @@ Severity: **P0** release blocker, **P1** important before a polished V2 release,
 
 - Promotion of the exFAT preview, including fragmented metadata, safe directory
   growth/entry placement, and its final sync/async namespace.
-- CLI naming/command normalization and new CLI features.
-- `hadris-cd-cli` and deeper CD verification.
 - Completion of the bundled ISO specification notes.
 
 ## Compliance status

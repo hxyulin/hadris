@@ -13,39 +13,40 @@ Or build from source:
 
 ```bash
 cargo build --release -p hadris-udf-cli
-# binary: target/release/hadris-udf-cli
+# canonical binary: target/release/hadris-udf
 ```
 
-The installed binary is named **`hadris-udf-cli`** (not `hadris-udf`).
+The canonical binary is **`hadris-udf`**. The legacy **`hadris-udf-cli`**
+executable remains available as a compatibility alias.
 
 ## Usage
 
 ```bash
 # Display UDF image information
-hadris-udf-cli info image.udf
+hadris-udf info image.udf
 
 # List directory contents
-hadris-udf-cli ls image.udf
-hadris-udf-cli ls image.udf /subdir -l
+hadris-udf ls image.udf
+hadris-udf ls image.udf /subdir -l
 
 # Display directory tree
-hadris-udf-cli tree image.udf
-hadris-udf-cli tree image.udf --depth 2
+hadris-udf tree image.udf
+hadris-udf tree image.udf --depth 2
 
 # Print a file to stdout
-hadris-udf-cli cat image.udf /readme.txt
+hadris-udf cat image.udf /readme.txt
 
 # Extract files (default output directory: .)
-hadris-udf-cli extract image.udf -o ./out
-hadris-udf-cli extract image.udf -p /subdir -o ./out
+hadris-udf extract image.udf -o ./out
+hadris-udf extract image.udf -p /subdir -o ./out
 
 # Create a new UDF image from a directory
-hadris-udf-cli create ./my-files --output image.udf
-hadris-udf-cli create ./my-files --output image.udf --volume-name MY_DISC --revision 2.50
+hadris-udf create ./my-files --output image.udf
+hadris-udf create ./my-files --output image.udf --volume-name MY_DISC --revision 2.50
 
 # Verify UDF image integrity
-hadris-udf-cli verify image.udf
-hadris-udf-cli verify image.udf --verbose
+hadris-udf verify image.udf
+hadris-udf verify image.udf --verbose
 ```
 
 ## Commands

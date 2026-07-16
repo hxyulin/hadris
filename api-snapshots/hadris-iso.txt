@@ -4207,6 +4207,7 @@ pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
 pub struct hadris_iso::sync::write::IsoImageWriter<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::write::IsoImageWriter<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::create<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<DATA>
+pub fn hadris_iso::write::IsoImageWriter<DATA>::create_with_allocation_floor<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::FormatOptions, core::option::Option<u32>) -> hadris_iso::write::IsoCreationResult<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::format_new(DATA, hadris_iso::write::InputFiles, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<()>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::into_inner(self) -> DATA
 pub type hadris_iso::sync::write::Error = hadris_iso::write::IsoCreationError
@@ -4698,6 +4699,7 @@ pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
 pub struct hadris_iso::write::IsoImageWriter<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::write::IsoImageWriter<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::create<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<DATA>
+pub fn hadris_iso::write::IsoImageWriter<DATA>::create_with_allocation_floor<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::FormatOptions, core::option::Option<u32>) -> hadris_iso::write::IsoCreationResult<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::format_new(DATA, hadris_iso::write::InputFiles, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<()>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::into_inner(self) -> DATA
 pub type hadris_iso::write::Error = hadris_iso::write::IsoCreationError

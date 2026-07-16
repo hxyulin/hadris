@@ -126,7 +126,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     }
 
     /// Write ISO 9660 structures
-    async fn write_iso_structures(&mut self, tree: &FileTree, _layout_info: &LayoutInfo) -> CdResult<()> {
+    async fn write_iso_structures(&mut self, tree: &FileTree, layout_info: &LayoutInfo) -> CdResult<()> {
         use hadris_iso::write::options::{CreationFeatures, FormatOptions};
         use hadris_iso::write::{InputTree, IsoImageWriter};
 
@@ -163,10 +163,14 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             .seek(SeekFrom::Start(0))
             .await
             .map_err(hadris_io::Error::erase)?;
-        IsoImageWriter::create(
+        IsoImageWriter::create_with_allocation_floor(
             Borrowed::new(&mut self.writer),
             input_files,
             format_options,
+            self.options
+                .udf
+                .enabled
+                .then_some(layout_info.file_data_start),
         )?;
 
         Ok(())
