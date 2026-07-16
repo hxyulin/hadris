@@ -5,9 +5,11 @@ on:
     branches:
       - main
       - dev
+      - v2-dev
   pull_request:
     branches:
       - main
+      - v2-dev
 
 # Least-privilege GITHUB_TOKEN. Without an explicit block the token inherits the
 # repo/org default (often write), which CodeQL flags as
@@ -331,8 +333,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
-      - name: Run tests
-        run: cargo test --workspace
+      - name: Run all-feature tests
+        run: cargo test --workspace --all-features
       - name: Run block async integration tests
         run: cargo test -p hadris-block --all-features --test async_volume
       - name: Run optical detection integration tests
@@ -355,8 +357,32 @@ jobs:
           sudo apt-get install -y exfatprogs
       - name: Run exFAT integration tests
         run: |
-          cargo test -p hadris-fat --features "exfat,write" --test integration_exfat -- --nocapture
-          cargo test -p hadris-fat --features "exfat,write" --test exfat_roundtrip -- --nocapture
+          cargo test -p hadris-fat --features "unstable-exfat,write" --test integration_exfat -- --nocapture
+          cargo test -p hadris-fat --features "unstable-exfat,write" --test exfat_roundtrip -- --nocapture
+
+  test-optical:
+    name: Test optical interoperability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install optical image tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xorriso udftools p7zip-full
+      - name: Run ISO interoperability tests
+        run: |
+          cargo test -p hadris-iso --all-features \
+            --test xorriso_basic \
+            --test xorriso_advanced \
+            --test xorriso_boot \
+            --test xorriso_hybrid \
+            -- --nocapture
+      - name: Run UDF interoperability tests
+        run: cargo test -p hadris-udf --all-features --test integration_external -- --nocapture
+      - name: Qualify hybrid ISO/UDF images
+        run: cargo test -p hadris-cd --all-features --test bridge_roundtrip -- --nocapture
 
   test-fat:
     name: Test FAT12/16/32 (with fsck.fat)
