@@ -61,6 +61,7 @@
 //! platform support, while the default feature set selects `sync` explicitly.
 
 #![allow(async_fn_in_trait)]
+#![deny(missing_docs)]
 
 // ---------------------------------------------------------------------------
 // Shared types (compiled once)
@@ -81,6 +82,7 @@ pub mod tree;
 
 #[cfg(feature = "sync")]
 #[path = ""]
+/// Synchronous hybrid optical-image writer API.
 pub mod sync {
     pub use hadris_io::SeekFrom;
     pub use hadris_io::sync::{Borrowed, Read, Seek, Write};

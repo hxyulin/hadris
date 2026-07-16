@@ -1,9 +1,9 @@
 [package]
 name = "hadris-fat"
 version = "2.0.0"
-description = "FAT12/FAT16/FAT32 support with an unstable exFAT preview"
+description = "Rust FAT12/FAT16/FAT32 filesystem library for disk images, embedded devices, and no-std"
 readme = "README.md"
-keywords = ["fat", "fat32", "filesystem", "no-std", "vfat"]
+keywords = ["fat", "fat32", "vfat", "filesystem", "no-std"]
 categories = ["no-std", "filesystem"]
 edition.workspace = true
 rust-version.workspace = true

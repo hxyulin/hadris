@@ -6,6 +6,7 @@
 //! images may validly contain both filesystems.
 
 #![no_std]
+#![deny(missing_docs)]
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -24,10 +25,12 @@ pub use image::OpenPolicy;
 
 #[cfg(all(feature = "open", feature = "sync"))]
 #[path = "image_sync.rs"]
+/// Synchronous optical-image detection and opening.
 pub mod sync;
 
 #[cfg(all(feature = "open", feature = "async"))]
 #[path = "image_async.rs"]
+/// Asynchronous optical-image detection and opening.
 pub mod r#async;
 
 /// ISO 9660 filesystem support.

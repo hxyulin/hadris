@@ -9,6 +9,7 @@ pub enum OpenVolume<'a, S>
 where
     S: Seek,
 {
+    /// An opened FAT12, FAT16, or FAT32 filesystem.
     Fat(hadris_fat::sync::FatFs<Borrowed<'a, S>>),
 }
 
@@ -16,6 +17,9 @@ impl<'a, S> OpenVolume<'a, S>
 where
     S: Read + Seek<Error = <S as Read>::Error>,
 {
+    /// Detects and opens a filesystem at the beginning of `source`.
+    ///
+    /// Partitioned disks must first be narrowed to a partition view.
     pub fn open(source: &'a mut S, logical_block_size: u32) -> Result<Self> {
         match crate::detect::sync::detect(source, logical_block_size)? {
             Some(BlockFormat::Fat(format)) => Self::open_detected(source, format),
@@ -24,6 +28,7 @@ where
         }
     }
 
+    /// Opens a filesystem using a previously detected FAT variant.
     pub fn open_detected(source: &'a mut S, detected: FatVariant) -> Result<Self> {
         if detected == FatVariant::ExFat {
             return Err(Error::UnsupportedFormat(BlockFormat::Fat(detected)));
@@ -39,18 +44,21 @@ where
         Ok(Self::Fat(fat))
     }
 
+    /// Returns the concrete FAT variant of the opened filesystem.
     pub fn format(&self) -> FatVariant {
         match self {
             Self::Fat(fat) => fat_variant(fat.fat_type()),
         }
     }
 
+    /// Borrows the opened FAT filesystem.
     pub fn as_fat(&self) -> Option<&hadris_fat::sync::FatFs<Borrowed<'a, S>>> {
         match self {
             Self::Fat(fat) => Some(fat),
         }
     }
 
+    /// Mutably borrows the opened FAT filesystem.
     pub fn as_fat_mut(&mut self) -> Option<&mut hadris_fat::sync::FatFs<Borrowed<'a, S>>> {
         match self {
             Self::Fat(fat) => Some(fat),
@@ -58,12 +66,14 @@ where
     }
 
     #[allow(clippy::result_large_err)]
+    /// Extracts the FAT filesystem, returning `self` if its format differs.
     pub fn into_fat(self) -> core::result::Result<hadris_fat::sync::FatFs<Borrowed<'a, S>>, Self> {
         match self {
             Self::Fat(fat) => Ok(fat),
         }
     }
 
+    /// Closes the filesystem and returns the borrowed source.
     pub fn into_inner(self) -> &'a mut S {
         match self {
             Self::Fat(fat) => fat.into_inner().0,

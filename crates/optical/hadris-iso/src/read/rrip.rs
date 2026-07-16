@@ -197,11 +197,17 @@ pub async fn collect_su_entries<DATA: Read + Seek>(
 /// A parsed date/time from RRIP TF entries.
 #[derive(Debug, Clone, Copy)]
 pub struct RripDateTime {
+    /// The `year` field.
     pub year: u16,
+    /// The `month` field.
     pub month: u8,
+    /// The `day` field.
     pub day: u8,
+    /// The `hour` field.
     pub hour: u8,
+    /// The `minute` field.
     pub minute: u8,
+    /// The `second` field.
     pub second: u8,
     /// GMT offset in 15-minute intervals (-48..+52)
     pub gmt_offset: i8,
@@ -210,22 +216,34 @@ pub struct RripDateTime {
 /// Parsed RRIP timestamps from a TF entry.
 #[derive(Debug, Clone, Default)]
 pub struct RripTimestamps {
+    /// The `creation` field.
     pub creation: Option<RripDateTime>,
+    /// The `modify` field.
     pub modify: Option<RripDateTime>,
+    /// The `access` field.
     pub access: Option<RripDateTime>,
+    /// The `attributes` field.
     pub attributes: Option<RripDateTime>,
+    /// The `backup` field.
     pub backup: Option<RripDateTime>,
+    /// The `expiration` field.
     pub expiration: Option<RripDateTime>,
+    /// The `effective` field.
     pub effective: Option<RripDateTime>,
 }
 
 /// Assembled RRIP metadata from system use entries.
 #[derive(Debug, Clone, Default)]
 pub struct RripMetadata {
+    /// The `posix_attributes` field.
     pub posix_attributes: Option<PxEntry>,
+    /// The `device_number` field.
     pub device_number: Option<PnEntry>,
+    /// The `alternate_name` field.
     pub alternate_name: Option<String>,
+    /// The `symlink_target` field.
     pub symlink_target: Option<String>,
+    /// The `timestamps` field.
     pub timestamps: Option<RripTimestamps>,
     /// CL - sector of the relocated child directory
     pub child_link: Option<u32>,

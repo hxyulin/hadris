@@ -40,16 +40,24 @@ impl core::fmt::Display for VolumeError {
 impl std::error::Error for VolumeError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Identifies a VolumeDescriptorType value.
 pub enum VolumeDescriptorType {
+    /// The `BootRecord` variant.
     BootRecord,
+    /// The `PrimaryVolumeDescriptor` variant.
     PrimaryVolumeDescriptor,
+    /// The `SupplementaryVolumeDescriptor` variant.
     SupplementaryVolumeDescriptor,
+    /// The `VolumePartitionDescriptor` variant.
     VolumePartitionDescriptor,
+    /// The `VolumeSetTerminator` variant.
     VolumeSetTerminator,
+    /// The `Unknown` variant.
     Unknown(u8),
 }
 
 impl VolumeDescriptorType {
+    /// Performs the `to_u8` operation.
     pub fn to_u8(self) -> u8 {
         match self {
             Self::BootRecord => 0x00,
@@ -60,6 +68,7 @@ impl VolumeDescriptorType {
             Self::Unknown(value) => value,
         }
     }
+    /// Performs the `from_u8` operation.
     pub fn from_u8(value: u8) -> Self {
         match value {
             0x00 => Self::BootRecord,
@@ -73,11 +82,17 @@ impl VolumeDescriptorType {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Identifies a VolumeDescriptor value.
 pub enum VolumeDescriptor {
+    /// The `BootRecord` variant.
     BootRecord(BootRecordVolumeDescriptor),
+    /// The `Primary` variant.
     Primary(PrimaryVolumeDescriptor),
+    /// The `Supplementary` variant.
     Supplementary(SupplementaryVolumeDescriptor),
+    /// The `End` variant.
     End(VolumeDescriptorSetTerminator),
+    /// The `Unknown` variant.
     Unknown(UnknownVolumeDescriptor),
 }
 
@@ -103,6 +118,7 @@ impl Parsable for VolumeDescriptor {
 } // io_transform!
 
 impl VolumeDescriptor {
+    /// Performs the `as_bytes` operation.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             VolumeDescriptor::BootRecord(entry) => bytemuck::bytes_of(entry),
@@ -113,6 +129,7 @@ impl VolumeDescriptor {
         }
     }
 
+    /// Performs the `header` operation.
     pub fn header(&self) -> VolumeDescriptorHeader {
         match self {
             VolumeDescriptor::BootRecord(entry) => entry.header,
@@ -123,6 +140,7 @@ impl VolumeDescriptor {
         }
     }
 
+    /// Performs the `new` operation.
     pub fn new(data: [u8; 2048]) -> Self {
         let ty = VolumeDescriptorType::from_u8(data[0]);
         match ty {
@@ -143,18 +161,22 @@ impl VolumeDescriptor {
 
 #[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
+/// Represents VolumeDescriptorList.
 pub struct VolumeDescriptorList {
+    /// The `descriptors` field.
     pub descriptors: Vec<VolumeDescriptor>,
 }
 
 #[cfg(feature = "alloc")]
 impl VolumeDescriptorList {
+    /// Performs the `empty` operation.
     pub fn empty() -> Self {
         Self {
             descriptors: Vec::new(),
         }
     }
 
+    /// Performs the `primary` operation.
     pub fn primary(&self) -> &PrimaryVolumeDescriptor {
         self.descriptors
             .iter()
@@ -165,6 +187,7 @@ impl VolumeDescriptorList {
             .expect("Primary volume descriptor not found")
     }
 
+    /// Performs the `primary_mut` operation.
     pub fn primary_mut(&mut self) -> &mut PrimaryVolumeDescriptor {
         self.descriptors
             .iter_mut()
@@ -175,6 +198,7 @@ impl VolumeDescriptorList {
             .expect("Primary volume descriptor not found")
     }
 
+    /// Performs the `supplementary` operation.
     pub fn supplementary(&self) -> impl Iterator<Item = &SupplementaryVolumeDescriptor> {
         self.descriptors.iter().filter_map(|d| match d {
             VolumeDescriptor::Supplementary(d) => Some(d),
@@ -182,6 +206,7 @@ impl VolumeDescriptorList {
         })
     }
 
+    /// Performs the `supplementary_mut` operation.
     pub fn supplementary_mut(
         &mut self,
     ) -> impl Iterator<Item = &mut SupplementaryVolumeDescriptor> {
@@ -191,6 +216,7 @@ impl VolumeDescriptorList {
         })
     }
 
+    /// Performs the `boot_record` operation.
     pub fn boot_record(&self) -> Option<&BootRecordVolumeDescriptor> {
         self.descriptors.iter().find_map(|d| match d {
             VolumeDescriptor::BootRecord(d) => Some(d),
@@ -198,6 +224,7 @@ impl VolumeDescriptorList {
         })
     }
 
+    /// Performs the `boot_record_mut` operation.
     pub fn boot_record_mut(&mut self) -> Option<&mut BootRecordVolumeDescriptor> {
         self.descriptors.iter_mut().find_map(|d| match d {
             VolumeDescriptor::BootRecord(d) => Some(d),
@@ -205,14 +232,17 @@ impl VolumeDescriptorList {
         })
     }
 
+    /// Performs the `push` operation.
     pub fn push(&mut self, descriptor: VolumeDescriptor) {
         self.descriptors.push(descriptor);
     }
 
+    /// Performs the `insert` operation.
     pub fn insert(&mut self, index: usize, descriptor: VolumeDescriptor) {
         self.descriptors.insert(index, descriptor);
     }
 
+    /// Performs the `size_required` operation.
     pub fn size_required(&self) -> usize {
         (self.descriptors.len() + 1) * 2048
     }
@@ -254,6 +284,7 @@ impl VolumeDescriptorList {
         Ok(Self { descriptors })
     }
 
+    /// Performs the `write` operation.
     pub async fn write<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
         let mut written = 0;
         for descriptor in &self.descriptors {
@@ -269,9 +300,13 @@ impl VolumeDescriptorList {
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+/// Represents VolumeDescriptorHeader.
 pub struct VolumeDescriptorHeader {
+    /// The `descriptor_type` field.
     pub descriptor_type: u8,
+    /// The `standard_identifier` field.
     pub standard_identifier: IsoStrA<5>,
+    /// The `version` field.
     pub version: u8,
 }
 
@@ -290,6 +325,7 @@ impl Debug for VolumeDescriptorHeader {
 
 impl VolumeDescriptorHeader {
     const IDENTIFIER: IsoStrA<5> = IsoStrA::from_bytes_exact(*b"CD001");
+    /// Performs the `new` operation.
     pub fn new(ty: VolumeDescriptorType) -> Self {
         Self {
             descriptor_type: ty.to_u8(),
@@ -298,10 +334,12 @@ impl VolumeDescriptorHeader {
         }
     }
 
+    /// Performs the `is_valid` operation.
     pub fn is_valid(&self) -> bool {
         self.standard_identifier == Self::IDENTIFIER
     }
 
+    /// Performs the `from_bytes` operation.
     pub fn from_bytes(bytes: &[u8]) -> &Self {
         bytemuck::from_bytes(bytes)
     }
@@ -309,8 +347,11 @@ impl VolumeDescriptorHeader {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+/// Represents UnknownVolumeDescriptor.
 pub struct UnknownVolumeDescriptor {
+    /// The `header` field.
     pub header: VolumeDescriptorHeader,
+    /// The `data` field.
     pub data: [u8; 2041],
 }
 
@@ -334,36 +375,67 @@ unsafe impl bytemuck::Pod for UnknownVolumeDescriptor {}
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PrimaryVolumeDescriptor {
+    /// The `header` field.
     pub header: VolumeDescriptorHeader,
+    /// The `unused0` field.
     pub unused0: u8,
+    /// The `system_identifier` field.
     pub system_identifier: IsoStrA<32>,
+    /// The `volume_identifier` field.
     pub volume_identifier: IsoStrD<32>,
+    /// The `unused1` field.
     pub unused1: [u8; 8],
+    /// The `volume_space_size` field.
     pub volume_space_size: U32LsbMsb,
+    /// The `unused2` field.
     pub unused2: [u8; 32],
+    /// The `volume_set_size` field.
     pub volume_set_size: U16LsbMsb,
+    /// The `volume_sequence_number` field.
     pub volume_sequence_number: U16LsbMsb,
+    /// The `logical_block_size` field.
     pub logical_block_size: U16LsbMsb,
+    /// The `path_table_size` field.
     pub path_table_size: U32LsbMsb,
+    /// The `type_l_path_table` field.
     pub type_l_path_table: U32<LittleEndian>,
+    /// The `opt_type_l_path_table` field.
     pub opt_type_l_path_table: U32<LittleEndian>,
+    /// The `type_m_path_table` field.
     pub type_m_path_table: U32<BigEndian>,
+    /// The `opt_type_m_path_table` field.
     pub opt_type_m_path_table: U32<BigEndian>,
+    /// The `dir_record` field.
     pub dir_record: RootDirectoryEntry,
+    /// The `volume_set_identifier` field.
     pub volume_set_identifier: IsoStrD<128>,
+    /// The `publisher_identifier` field.
     pub publisher_identifier: IsoStrA<128>,
+    /// The `preparer_identifier` field.
     pub preparer_identifier: IsoStrA<128>,
+    /// The `application_identifier` field.
     pub application_identifier: IsoStrA<128>,
+    /// The `copyright_file_identifier` field.
     pub copyright_file_identifier: IsoStrD<37>,
+    /// The `abstract_file_identifier` field.
     pub abstract_file_identifier: IsoStrD<37>,
+    /// The `bibliographic_file_identifier` field.
     pub bibliographic_file_identifier: IsoStrD<37>,
+    /// The `creation_date` field.
     pub creation_date: DecDateTime,
+    /// The `modification_date` field.
     pub modification_date: DecDateTime,
+    /// The `expiration_date` field.
     pub expiration_date: DecDateTime,
+    /// The `effective_date` field.
     pub effective_date: DecDateTime,
+    /// The `file_structure_version` field.
     pub file_structure_version: u8,
+    /// The `unused3` field.
     pub unused3: u8,
+    /// The `app_data` field.
     pub app_data: [u8; 512],
+    /// The `reserved` field.
     pub reserved: [u8; 653],
 }
 
@@ -403,6 +475,7 @@ impl Debug for PrimaryVolumeDescriptor {
 }
 
 impl PrimaryVolumeDescriptor {
+    /// Performs the `new` operation.
     pub fn new(name: &str, sectors: u32) -> Self {
         Self {
             header: VolumeDescriptorHeader {
@@ -449,15 +522,22 @@ unsafe impl bytemuck::Pod for PrimaryVolumeDescriptor {}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+/// Represents BootRecordVolumeDescriptor.
 pub struct BootRecordVolumeDescriptor {
+    /// The `header` field.
     pub header: VolumeDescriptorHeader,
+    /// The `boot_system_identifier` field.
     pub boot_system_identifier: [u8; 32],
+    /// The `unused0` field.
     pub unused0: [u8; 32],
+    /// The `catalog_ptr` field.
     pub catalog_ptr: U32<LittleEndian>,
+    /// The `unused1` field.
     pub unused1: [u8; 1973],
 }
 
 impl BootRecordVolumeDescriptor {
+    /// Performs the `new` operation.
     pub fn new(catalog_sector: u32) -> Self {
         const BOOT_SYSTEM_IDENTIFIER: [u8; 32] = *b"EL TORITO SPECIFICATION\0\0\0\0\0\0\0\0\0";
         Self {
@@ -486,39 +566,70 @@ unsafe impl bytemuck::Pod for BootRecordVolumeDescriptor {}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+/// Represents SupplementaryVolumeDescriptor.
 pub struct SupplementaryVolumeDescriptor {
+    /// The `header` field.
     pub header: VolumeDescriptorHeader,
+    /// The `flags` field.
     pub flags: u8,
+    /// The `system_identifier` field.
     pub system_identifier: IsoStrA<32>,
+    /// The `volume_identifier` field.
     pub volume_identifier: IsoStrD<32>,
+    /// The `unused1` field.
     pub unused1: [u8; 8],
+    /// The `volume_space_size` field.
     pub volume_space_size: U32LsbMsb,
+    /// The `escape_sequences` field.
     pub escape_sequences: [u8; 32],
+    /// The `volume_set_size` field.
     pub volume_set_size: U16LsbMsb,
+    /// The `volume_sequence_number` field.
     pub volume_sequence_number: U16LsbMsb,
+    /// The `logical_block_size` field.
     pub logical_block_size: U16LsbMsb,
+    /// The `path_table_size` field.
     pub path_table_size: U32LsbMsb,
+    /// The `type_l_path_table` field.
     pub type_l_path_table: U32<LittleEndian>,
+    /// The `opt_type_l_path_table` field.
     pub opt_type_l_path_table: U32<LittleEndian>,
+    /// The `type_m_path_table` field.
     pub type_m_path_table: U32<BigEndian>,
+    /// The `opt_type_m_path_table` field.
     pub opt_type_m_path_table: U32<BigEndian>,
+    /// The `dir_record` field.
     pub dir_record: RootDirectoryEntry,
+    /// The `volume_set_identifier` field.
     pub volume_set_identifier: IsoStrD<128>,
+    /// The `publisher_identifier` field.
     pub publisher_identifier: IsoStrA<128>,
+    /// The `preparer_identifier` field.
     pub preparer_identifier: IsoStrA<128>,
+    /// The `application_identifier` field.
     pub application_identifier: IsoStrA<128>,
+    /// The `copyright_file_identifier` field.
     pub copyright_file_identifier: IsoStrD<37>,
+    /// The `abstract_file_identifier` field.
     pub abstract_file_identifier: IsoStrD<37>,
+    /// The `bibliographic_file_identifier` field.
     pub bibliographic_file_identifier: IsoStrD<37>,
+    /// The `creation_date` field.
     pub creation_date: DecDateTime,
+    /// The `modification_date` field.
     pub modification_date: DecDateTime,
+    /// The `expiration_date` field.
     pub expiration_date: DecDateTime,
+    /// The `effective_date` field.
     pub effective_date: DecDateTime,
     /// If set to 1, it is a SVD
     /// If set to 2, it is a EVD
     pub file_structure_version: u8,
+    /// The `unused3` field.
     pub unused3: u8,
+    /// The `app_data` field.
     pub app_data: [u8; 512],
+    /// The `reserved` field.
     pub reserved: [u8; 653],
 }
 
@@ -557,6 +668,7 @@ impl SupplementaryVolumeDescriptor {
         IsoStr::from_bytes_exact(bytes)
     }
 
+    /// Performs the `new_svd` operation.
     pub fn new_svd(name: &str, sectors: u32, escape_sequences: [u8; 32]) -> Self {
         Self {
             header: VolumeDescriptorHeader {
@@ -597,6 +709,7 @@ impl SupplementaryVolumeDescriptor {
         }
     }
 
+    /// Performs the `new_evd` operation.
     pub fn new_evd(name: &str, sectors: u32) -> Self {
         Self {
             header: VolumeDescriptorHeader {
@@ -680,6 +793,7 @@ impl Debug for SupplementaryVolumeDescriptor {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+/// Represents VolumeDescriptorSetTerminator.
 pub struct VolumeDescriptorSetTerminator {
     header: VolumeDescriptorHeader,
     padding: [u8; 2041],
@@ -692,6 +806,7 @@ impl Default for VolumeDescriptorSetTerminator {
 }
 
 impl VolumeDescriptorSetTerminator {
+    /// Performs the `new` operation.
     pub fn new() -> Self {
         Self {
             header: VolumeDescriptorHeader {
@@ -703,6 +818,7 @@ impl VolumeDescriptorSetTerminator {
         }
     }
 
+    /// Performs the `to_bytes` operation.
     pub fn to_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
     }

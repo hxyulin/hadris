@@ -57,6 +57,7 @@
 //! ```
 
 #![no_std]
+#![deny(missing_docs)]
 #![allow(async_fn_in_trait)]
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
@@ -110,11 +111,15 @@ pub mod sync {
 
     #[path = "."]
     mod __inner {
+        /// GPT parsing and serialization extensions.
         pub mod gpt_io;
+        /// MBR parsing and serialization extensions.
         pub mod mbr_io;
         #[cfg(all(feature = "alloc", feature = "read"))]
         #[path = "partition_table_io.rs"]
+        /// Generic partition-table detection and I/O.
         pub mod partition_table;
+        /// Partition-scheme parsing and serialization extensions.
         pub mod scheme_io;
     }
     pub use __inner::*;
@@ -151,11 +156,15 @@ pub mod r#async {
 
     #[path = "."]
     mod __inner {
+        /// GPT parsing and serialization extensions.
         pub mod gpt_io;
+        /// MBR parsing and serialization extensions.
         pub mod mbr_io;
         #[cfg(all(feature = "alloc", feature = "read"))]
         #[path = "partition_table_io.rs"]
+        /// Generic partition-table detection and I/O.
         pub mod partition_table;
+        /// Partition-scheme parsing and serialization extensions.
         pub mod scheme_io;
     }
     pub use __inner::*;

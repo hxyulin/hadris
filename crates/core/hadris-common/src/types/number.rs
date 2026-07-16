@@ -200,6 +200,7 @@ impl<E: Endianness> core::fmt::UpperHex for U64<E> {
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
+/// An unsigned 24-bit integer stored in byte order `E`.
 pub struct U24<E>
 where
     E: Endianness,
@@ -209,6 +210,7 @@ where
 }
 
 impl<E: Endianness> U24<E> {
+    /// Largest value representable by an unsigned 24-bit integer.
     pub const MAX: u32 = 0x00ffffff;
 }
 
@@ -264,6 +266,7 @@ impl<E: Endianness> Endian for U24<E> {
     }
 }
 
+/// Rounds `num` upward to the next multiple of a power-of-two `alignment`.
 pub fn align_up<
     T: Add<Output = T> + Sub<Output = T> + BitAnd<Output = T> + Not<Output = T> + From<u8> + Copy,
 >(

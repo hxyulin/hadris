@@ -77,6 +77,7 @@ impl ScanState {
 }
 
 #[cfg(feature = "sync")]
+/// Synchronous optical-filesystem detection.
 pub mod sync {
     use super::*;
     use hadris_io::sync::{Read, Seek};
@@ -120,6 +121,7 @@ pub mod sync {
 }
 
 #[cfg(feature = "async")]
+/// Asynchronous optical-filesystem detection.
 pub mod r#async {
     use super::*;
     use hadris_io::r#async::{Read, Seek};

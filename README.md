@@ -1,6 +1,61 @@
 # Hadris
 
-A Rust workspace for working with partition tables, filesystems, and disk images. Designed for no-std compatibility, embedded systems, and bootloaders.
+**The Rust storage stack.**
+
+Hadris is a collection of pure Rust storage and filesystem libraries for block
+devices, GPT and MBR partition tables, FAT12/16/32, ISO 9660, UDF, CPIO, and
+disk images. It supports desktop applications as well as `no_std` bootloaders,
+operating-system kernels, firmware, and embedded devices.
+
+Use a focused format crate such as `hadris-fat` or `hadris-iso`, a category
+facade such as `hadris-block`, or the `hadris` umbrella crate as an application
+grows. Shared I/O, storage, path, feature, and API conventions keep those
+layers coherent without hiding format-specific capabilities.
+
+## Architecture
+
+```text
+Applications, bootloaders, kernels, firmware, and embedded systems
+                              │
+                  hadris umbrella crate
+                              │
+       ┌──────────────────────┼──────────────────────┐
+       │                      │                      │
+ hadris-block           hadris-optical        hadris-archive
+       │                      │                      │
+ FAT12/16/32 + GPT/MBR   ISO 9660 + UDF          CPIO
+       │                      │                      │
+       └──────── shared I/O, paths, and storage ────┘
+                              │
+           files, disk images, and block devices
+```
+
+Hadris uses category-level detection and opening APIs while preserving the
+concrete APIs of each filesystem. It does not force unlike formats behind one
+lowest-common-denominator filesystem trait.
+
+## Why Hadris?
+
+- **Pure Rust** - Inspect, create, and modify storage formats without C library
+  bindings.
+- **`std`, `alloc`, and allocation-free configurations** - Select the platform
+  support and capabilities appropriate for the target.
+- **Bootloader and kernel friendly** - Read disk images and filesystems in
+  freestanding environments.
+- **Embedded ready** - Work with storage used by firmware, SD cards, and USB
+  drives through portable I/O abstractions.
+- **Desktop capable** - Build image parsers, filesystem tools, and optical-disc
+  image generators with synchronous or asynchronous APIs.
+- **One ecosystem** - Move from a leaf filesystem crate to category facades or
+  the umbrella crate while retaining the same underlying implementations.
+
+## Who is Hadris for?
+
+- Bootloaders and UEFI or Open Firmware utilities reading FAT and ISO images
+- Operating-system kernels and experimental filesystems
+- Embedded firmware working with SD cards, USB storage, and raw block devices
+- Desktop disk-image, recovery, inspection, and authoring tools
+- Build systems producing initramfs, bootable ISO, UDF, or hybrid disc images
 
 ## Workspace Crates
 
@@ -62,12 +117,28 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ## Key Features
 
-- **No-std compatible** - Use in bootloaders, kernels, and embedded systems
+- **No-std compatible** - Use in bootloaders, kernels, firmware, and embedded systems
 - **Configurable** - Feature flags for read-only, write support, and extensions
 - **Dual sync/async** - Shared implementations via `hadris-macros`
 - **Standards oriented** - ECMA-119, IEEE P1282 / Rock Ridge, El-Torito, Microsoft FAT, ECMA-167 / UDF, CPIO newc
 
 ## Quick Start
+
+Choose the narrowest entry point that fits the application:
+
+```toml
+[dependencies]
+# One filesystem:
+hadris-fat = "2.0.0"
+
+# Or the unified storage ecosystem:
+hadris = { version = "2.0.0", features = ["block", "optical"] }
+```
+
+The umbrella crate re-exports the same underlying format crates through
+`hadris::block`, `hadris::optical`, and `hadris::archive`, so applications can
+grow into partition detection or additional disk-image formats without
+replacing their filesystem implementation.
 
 Each package now owns its version; all current packages target **2.0.0**:
 

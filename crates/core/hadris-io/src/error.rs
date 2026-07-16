@@ -7,25 +7,45 @@ use core::fmt::{self, Display};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ErrorKind {
+    /// An entity was not found.
     NotFound,
+    /// An operation lacked sufficient permissions.
     PermissionDenied,
+    /// A connection attempt was refused.
     ConnectionRefused,
+    /// A connection was reset by its peer.
     ConnectionReset,
+    /// A connection was aborted locally.
     ConnectionAborted,
+    /// The endpoint is not connected.
     NotConnected,
+    /// The requested address is already in use.
     AddrInUse,
+    /// The requested address is unavailable.
     AddrNotAvailable,
+    /// A write targeted a closed pipe or connection.
     BrokenPipe,
+    /// An entity already exists.
     AlreadyExists,
+    /// The operation would block.
     WouldBlock,
+    /// An input parameter was invalid.
     InvalidInput,
+    /// Input data was malformed.
     InvalidData,
+    /// The operation timed out.
     TimedOut,
+    /// A write produced no progress.
     WriteZero,
+    /// The operation was interrupted and may be retried.
     Interrupted,
+    /// Input ended before the requested data was read.
     UnexpectedEof,
+    /// The requested operation is unsupported.
     Unsupported,
+    /// The operation could not allocate required memory.
     OutOfMemory,
+    /// An error without a more specific portable classification.
     Other,
 }
 

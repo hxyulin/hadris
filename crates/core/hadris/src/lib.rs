@@ -1,7 +1,13 @@
 //! # Hadris
 //!
-//! A unified package for working with block devices, optical media, and archives.
-//! The individual format crates are grouped by their storage access model:
+//! **The Rust storage stack.**
+//!
+//! Hadris is a pure Rust toolkit for block devices, partition tables,
+//! filesystems, archives, and disk images. Its feature model supports desktop
+//! applications and `no_std` bootloaders, kernels, firmware, and embedded
+//! systems.
+//!
+//! The umbrella crate groups the individual libraries by storage access model:
 //!
 //! - [`block`] — block filesystems and partition tables
 //! - [`optical`] — optical filesystems and disc image composition
@@ -33,6 +39,8 @@
 //! let pvd = iso.read_pvd().unwrap();
 //! println!("Volume: {}", pvd.volume_identifier);
 //! ```
+
+#![deny(missing_docs)]
 
 /// Block-oriented storage, filesystems, and disk-layout formats.
 #[cfg(any(feature = "storage", feature = "fat", feature = "part"))]

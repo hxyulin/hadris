@@ -19,13 +19,16 @@ use spin::Mutex;
 /// A single extent of a file (sector location + byte length).
 #[derive(Debug, Clone, Copy)]
 pub struct Extent {
+    /// The `sector` field.
     pub sector: LogicalSector,
+    /// The `length` field.
     pub length: u32,
 }
 
 // ── IsoDir ──
 
 #[allow(dead_code)]
+/// Represents IsoDir.
 pub struct IsoDir<'a, T: Read + Seek> {
     pub(crate) image: &'a IsoImage<T>,
     pub(crate) directory: DirectoryRef,
@@ -69,7 +72,9 @@ impl<'a, T: Read + Seek> IsoDir<'a, T> {
 /// in the primary `record`.
 #[derive(Debug, Clone)]
 pub struct DirEntry {
+    /// The `record` field.
     pub record: DirectoryRecord,
+    /// The `rrip` field.
     pub rrip: Option<RripMetadata>,
     /// Additional extents for multi-extent files. Empty for single-extent files.
     pub additional_extents: Vec<Extent>,
@@ -83,6 +88,7 @@ pub struct DirEntry {
 
 impl DirEntry {
     #[inline]
+    /// Performs the `name` operation.
     pub fn name(&self) -> &[u8] {
         self.record.name()
     }
@@ -150,6 +156,7 @@ impl DirEntry {
     }
 
     #[inline]
+    /// Performs the `header` operation.
     pub fn header(&self) -> &DirectoryRecordHeader {
         self.record.header()
     }
@@ -167,11 +174,13 @@ impl DirEntry {
     }
 
     #[inline]
+    /// Performs the `is_special` operation.
     pub fn is_special(&self) -> bool {
         self.record.is_special()
     }
 
     #[inline]
+    /// Performs the `is_file` operation.
     pub fn is_file(&self) -> bool {
         !self.is_directory()
     }
@@ -232,6 +241,7 @@ impl DirEntry {
     }
 
     #[inline]
+    /// Performs the `system_use` operation.
     pub fn system_use(&self) -> &[u8] {
         self.record.system_use()
     }
@@ -372,6 +382,7 @@ pub struct IsoDirIter<'a, T: Read + Seek> {
 }
 
 impl<T: Read + Seek> IsoDirIter<'_, T> {
+    /// Performs the `offset` operation.
     pub fn offset(&self) -> usize {
         self.offset
     }
@@ -529,6 +540,7 @@ pub struct RawDirIter<'a, T: Read + Seek> {
 }
 
 impl<T: Read + Seek> RawDirIter<'_, T> {
+    /// Performs the `offset` operation.
     pub fn offset(&self) -> usize {
         self.offset
     }

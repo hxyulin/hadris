@@ -7,9 +7,13 @@ use crate::types::U32LsbMsb;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
+/// Represents SystemUseHeader.
 pub struct SystemUseHeader {
+    /// The `sig` field.
     pub sig: [u8; 2],
+    /// The `length` field.
     pub length: u8,
+    /// The `version` field.
     pub version: u8,
 }
 
@@ -23,11 +27,13 @@ pub struct ContinuationArea {
     pub sector: U32LsbMsb,
     /// The offset within the sector for the start of the SU
     pub offset: U32LsbMsb,
+    /// The `length` field.
     pub length: U32LsbMsb,
 }
 
 #[cfg(feature = "std")]
 impl ContinuationArea {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"CE",
@@ -38,12 +44,15 @@ impl ContinuationArea {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Represents PaddingField.
 pub struct PaddingField {
+    /// The `length` field.
     pub length: u8,
 }
 
 #[cfg(feature = "std")]
 impl PaddingField {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"PD",
@@ -55,12 +64,16 @@ impl PaddingField {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
+/// Represents SuspIdentifier.
 pub struct SuspIdentifier {
+    /// The `check_bytes` field.
     pub check_bytes: [u8; 2],
+    /// The `bytes_skipped` field.
     pub bytes_skipped: u8,
 }
 
 impl SuspIdentifier {
+    /// Performs the `new` operation.
     pub fn new(bytes_skipped: u8) -> Self {
         Self {
             check_bytes: [0xBE, 0xEF],
@@ -68,6 +81,7 @@ impl SuspIdentifier {
         }
     }
 
+    /// Performs the `is_valid` operation.
     pub fn is_valid(&self) -> bool {
         self.check_bytes == [0xBE, 0xEF]
     }
@@ -75,6 +89,7 @@ impl SuspIdentifier {
 
 #[cfg(feature = "std")]
 impl SuspIdentifier {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"SP",
@@ -85,10 +100,12 @@ impl SuspIdentifier {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Represents SuspTerminator.
 pub struct SuspTerminator;
 
 #[cfg(feature = "std")]
 impl SuspTerminator {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"ST",
@@ -100,16 +117,23 @@ impl SuspTerminator {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+/// Represents ExtensionReference.
 pub struct ExtensionReference {
+    /// The `version` field.
     pub version: u8,
+    /// The `identifier_len` field.
     pub identifier_len: u8,
+    /// The `descriptor_len` field.
     pub descriptor_len: u8,
+    /// The `source_len` field.
     pub source_len: u8,
+    /// The `buf` field.
     pub buf: [u8; 252],
 }
 
 #[cfg(feature = "std")]
 impl ExtensionReference {
+    /// Performs the `header` operation.
     pub fn header(&self) -> SystemUseHeader {
         SystemUseHeader {
             sig: *b"ER",
@@ -139,6 +163,7 @@ impl Writable for ContinuationArea {
 
 #[cfg(feature = "std")]
 impl ContinuationArea {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         assert_eq!(&header.sig, b"CE");
         data.read_struct().await
@@ -157,6 +182,7 @@ impl Writable for PaddingField {
 
 #[cfg(feature = "std")]
 impl PaddingField {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         let len = header.length - 4;
         let mut buf = [0];
@@ -178,6 +204,7 @@ impl Writable for SuspIdentifier {
 
 #[cfg(feature = "std")]
 impl SuspIdentifier {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         assert_eq!(&header.sig, b"SP");
         data.read_struct().await
@@ -193,6 +220,7 @@ impl Writable for SuspTerminator {
 
 #[cfg(feature = "std")]
 impl SuspTerminator {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(_header: SystemUseHeader, _data: &mut R) -> io::Result<Self> {
         Ok(Self)
     }
@@ -217,6 +245,7 @@ impl Writable for ExtensionReference {
 
 #[cfg(feature = "std")]
 impl ExtensionReference {
+    /// Performs the `parse_data` operation.
     pub async fn parse_data<R: Read>(header: SystemUseHeader, data: &mut R) -> io::Result<Self> {
         assert_eq!(&header.sig, b"ER");
         let mut buf = [0u8; 252];
@@ -266,7 +295,10 @@ pub enum SystemUseField {
     Relocated,
 
     /// ES - Extension Selector
-    ExtensionSelector { extension_sequence: u8 },
+    ExtensionSelector {
+        /// Sequence number of the selected extension.
+        extension_sequence: u8,
+    },
 
     /// Unknown entry (not recognized)
     Unknown(SystemUseHeader, [u8; 252]),

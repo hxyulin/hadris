@@ -7,9 +7,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "A rust implementation of the UDF (Universal Disk Format) filesystem."
-keywords = ["udf", "dvd", "blu-ray", "optical", "filesystem"]
-categories = ["filesystem", "encoding"]
+description = "Pure Rust UDF filesystem library for optical media and disk images with no-std support"
+keywords = ["udf", "disk-image", "optical-disc", "filesystem", "no-std"]
+categories = ["filesystem", "embedded", "no-std"]
 
 [package.metadata.docs.rs]
 features = ["std", "read", "write", "sync", "async"]

@@ -88,6 +88,7 @@ unsafe impl bytemuck::AnyBitPattern for RawBpb {}
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+/// FAT12/16 extended BIOS parameter block and boot-sector payload.
 pub struct RawBpbExt16 {
     /// BS_DrvNum
     pub drive_number: u8,
@@ -122,6 +123,7 @@ pub struct RawBpbExt16 {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+/// FAT32 extended BIOS parameter block and boot-sector payload.
 pub struct RawBpbExt32 {
     /// BPB_FatSz32
     ///
@@ -213,6 +215,7 @@ pub struct BpbExt32Flags(u16);
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
+/// Raw 32-byte FAT short-name file or directory entry.
 pub struct RawFileEntry {
     /// DIR_Name
     ///
@@ -338,14 +341,19 @@ pub struct RawLfnEntry {
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
+/// Raw directory entry interpreted as a short entry, LFN entry, or bytes.
 pub union RawDirectoryEntry {
+    /// Short-name file or directory representation.
     pub file: RawFileEntry,
     #[cfg(feature = "lfn")]
+    /// Long-file-name component representation.
     pub lfn: RawLfnEntry,
+    /// Uninterpreted 32-byte representation.
     pub bytes: [u8; 32],
 }
 
 impl RawDirectoryEntry {
+    /// Returns the entry's raw attribute byte.
     pub fn attributes(&self) -> u8 {
         unsafe { self.file }.attributes
     }
@@ -359,6 +367,7 @@ unsafe impl bytemuck::AnyBitPattern for RawDirectoryEntry {}
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
+/// Raw FAT32 FSInfo sector.
 pub struct RawFsInfo {
     /// FSI_LeadSig
     ///
@@ -394,18 +403,26 @@ unsafe impl bytemuck::Zeroable for RawFsInfo {}
 unsafe impl bytemuck::AnyBitPattern for RawFsInfo {}
 
 bitflags::bitflags! {
+    /// Attribute bits stored in a FAT directory entry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct DirEntryAttrFlags: u8 {
+        /// Entry is read-only.
         const READ_ONLY = 1 << 0;
+        /// Entry is hidden.
         const HIDDEN = 1 << 1;
+        /// Entry is a system file.
         const SYSTEM = 1 << 2;
+        /// Entry contains a volume label.
         const VOLUME_ID = 1 << 3;
+        /// Entry is a directory.
         const DIRECTORY = 1 << 4;
+        /// Entry has the archive bit set.
         const ARCHIVE = 1 << 5;
     }
 }
 
 impl DirEntryAttrFlags {
+    /// Attribute combination identifying a long-file-name component.
     pub const LONG_NAME: Self = Self::from_bits_truncate(
         Self::READ_ONLY.bits() | Self::HIDDEN.bits() | Self::SYSTEM.bits() | Self::VOLUME_ID.bits(),
     );

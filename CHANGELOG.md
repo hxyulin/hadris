@@ -29,6 +29,13 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **Project positioning and package metadata:** Reframed Hadris as a layered
+  Rust storage stack, documented its architecture and target environments, and
+  refreshed the `hadris`, FAT, ISO, UDF, block, and storage crate descriptions
+  and search keywords.
+- **Public API documentation:** Completed and now enforce missing-doc coverage
+  for the fixed-capacity, I/O, common, storage, block facade, optical facade,
+  FAT, partition, ISO, UDF, CPIO, and hybrid optical writer crates.
 - **Release process:** Removed shared workspace versioning and the obsolete
   `cargo-release` configuration. Every current package now declares version
   `2.0.0` in its own manifest.

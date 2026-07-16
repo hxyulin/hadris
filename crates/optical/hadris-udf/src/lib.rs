@@ -1,6 +1,8 @@
 //! # Hadris UDF
 //!
-//! A Rust implementation of the UDF (Universal Disk Format) filesystem.
+//! A pure Rust Universal Disk Format (UDF) filesystem library for optical media
+//! and disk images. It supports hosted applications and `no_std` bootloaders,
+//! kernels, firmware, and embedded systems.
 //!
 //! UDF (ECMA-167) is the filesystem used for:
 //! - DVD-ROM, DVD-Video, DVD-RAM
@@ -72,6 +74,7 @@
 
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![deny(missing_docs)]
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
 #![cfg_attr(docsrs, feature(doc_cfg))]

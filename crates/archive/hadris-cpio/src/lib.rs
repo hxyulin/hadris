@@ -111,6 +111,7 @@
 #![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(async_fn_in_trait)]
+#![deny(missing_docs)]
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
 
@@ -219,11 +220,15 @@ pub mod r#async {
 
     #[path = "."]
     mod __inner {
+        /// Decoded CPIO entry metadata.
         pub mod entry;
+        /// Raw newc header constants and parsing.
         pub mod header;
         #[cfg(feature = "read")]
+        /// Streaming archive reader.
         pub mod read;
         #[cfg(feature = "write")]
+        /// Archive writer and in-memory input tree.
         pub mod write;
     }
     pub use __inner::*;

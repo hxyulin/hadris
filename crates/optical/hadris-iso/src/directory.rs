@@ -14,17 +14,25 @@ use crate::types::{U16LsbMsb, U32LsbMsb};
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct DirectoryRecordHeader {
+    /// The `len` field.
     pub len: u8,
+    /// The `extended_attr_record` field.
     pub extended_attr_record: u8,
     /// The LBA of the record
     pub extent: U32LsbMsb,
     /// The length of the data in bytes
     pub data_len: U32LsbMsb,
+    /// The `date_time` field.
     pub date_time: DirDateTime,
+    /// The `flags` field.
     pub flags: u8,
+    /// The `file_unit_size` field.
     pub file_unit_size: u8,
+    /// The `interleave_gap_size` field.
     pub interleave_gap_size: u8,
+    /// The `volume_sequence_number` field.
     pub volume_sequence_number: U16LsbMsb,
+    /// The `file_identifier_len` field.
     pub file_identifier_len: u8,
 }
 
@@ -46,14 +54,17 @@ impl Default for DirectoryRecordHeader {
 }
 
 impl DirectoryRecordHeader {
+    /// Performs the `from_bytes` operation.
     pub fn from_bytes(bytes: &[u8]) -> &Self {
         bytemuck::from_bytes(bytes)
     }
 
+    /// Performs the `to_bytes` operation.
     pub fn to_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
     }
 
+    /// Performs the `is_directory` operation.
     pub fn is_directory(&self) -> bool {
         FileFlags::from_bits_retain(self.flags).contains(FileFlags::DIRECTORY)
     }
@@ -95,16 +106,19 @@ impl DirectoryRecord {
     const DATA_START: usize = size_of::<DirectoryRecordHeader>();
 
     #[inline]
+    /// Performs the `header` operation.
     pub fn header(&self) -> &DirectoryRecordHeader {
         bytemuck::from_bytes(&self.data[0..Self::DATA_START])
     }
 
     #[inline]
+    /// Performs the `header_mut` operation.
     pub fn header_mut(&mut self) -> &mut DirectoryRecordHeader {
         bytemuck::from_bytes_mut(&mut self.data[0..size_of::<DirectoryRecordHeader>()])
     }
 
     #[inline]
+    /// Performs the `name` operation.
     pub fn name(&self) -> &[u8] {
         let len = self.header().file_identifier_len as usize;
         &self.data[Self::DATA_START..Self::DATA_START + len]
@@ -126,6 +140,7 @@ impl DirectoryRecord {
     }
 
     #[inline]
+    /// Performs the `system_use` operation.
     pub fn system_use(&self) -> &[u8] {
         let header = self.header();
         // ISO 9660 requires a padding byte after the file identifier when its
@@ -146,19 +161,23 @@ impl DirectoryRecord {
     }
 
     #[inline]
+    /// Performs the `is_special` operation.
     pub fn is_special(&self) -> bool {
         self.name() == b"\x00" || self.name() == b"\x01"
     }
 
     #[inline]
+    /// Performs the `is_directory` operation.
     pub fn is_directory(&self) -> bool {
         self.header().is_directory()
     }
 
+    /// Performs the `is_file` operation.
     pub fn is_file(&self) -> bool {
         !self.header().is_directory()
     }
 
+    /// Performs the `as_dir_ref` operation.
     pub fn as_dir_ref(&self) -> Result<DirectoryRef, NotADirectoryError> {
         if !self.is_directory() {
             return Err(NotADirectoryError);
@@ -171,14 +190,17 @@ impl DirectoryRecord {
         })
     }
 
+    /// Performs the `size` operation.
     pub fn size(&self) -> usize {
         self.header().len as usize
     }
 
+    /// Performs the `to_bytes` operation.
     pub fn to_bytes(&self) -> &[u8] {
         &self.data[0..self.size()]
     }
 
+    /// Performs the `new` operation.
     pub fn new(name: &[u8], system_use: &[u8], directory: DirectoryRef, flags: FileFlags) -> Self {
         let mut sel = Self::zeroed();
         // ISO 9660 (ECMA-119 9.1): a padding byte follows the file identifier
@@ -212,6 +234,7 @@ impl DirectoryRecord {
         sel
     }
 
+    /// Performs the `with_len` operation.
     pub fn with_len(name_len: usize, su_len: usize) -> Self {
         let mut sel = Self::zeroed();
         let su_start = (Self::DATA_START + name_len + 1) & !1;
@@ -224,6 +247,7 @@ impl DirectoryRecord {
 
 io_transform! {
 impl DirectoryRecord {
+    /// Performs the `parse` operation.
     pub async fn parse<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut sel = Self::zeroed();
         reader.read_exact(&mut sel.data[0..Self::DATA_START]).await?;
@@ -234,6 +258,7 @@ impl DirectoryRecord {
         Ok(sel)
     }
 
+    /// Performs the `write` operation.
     pub async fn write<W: Write>(&self, writer: &mut W) -> io::Result<usize> {
         let size = self.size();
         writer.write_all(&self.data[0..size]).await?;
@@ -246,6 +271,7 @@ impl DirectoryRecord {
 #[repr(C)]
 #[derive(Default, Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RootDirectoryEntry {
+    /// The `header` field.
     pub header: DirectoryRecordHeader,
     /// There is no name on the root directory, so this is always empty
     pub padding: u8,
@@ -253,6 +279,7 @@ pub struct RootDirectoryEntry {
 
 #[repr(C)]
 #[derive(Default, Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+/// Represents DirDateTime.
 pub struct DirDateTime {
     /// Number of years since 1900
     year: u8,
@@ -266,6 +293,7 @@ pub struct DirDateTime {
 
 impl DirDateTime {
     #[cfg(feature = "std")]
+    /// Performs the `now` operation.
     pub fn now() -> Self {
         use chrono::{Datelike, Timelike, Utc};
         let now = Utc::now();
@@ -289,8 +317,11 @@ impl DirDateTime {
 }
 
 #[derive(Default, Debug, Clone, Copy)]
+/// Represents DirectoryRef.
 pub struct DirectoryRef {
+    /// The `extent` field.
     pub extent: LogicalSector,
+    /// The `size` field.
     pub size: usize,
 }
 
@@ -362,13 +393,20 @@ mod tests {
 }
 
 bitflags::bitflags! {
+    /// Flags stored in an ISO 9660 directory record.
     #[derive(Clone, Copy)]
     pub struct FileFlags: u8 {
+        /// Entry is hidden from ordinary directory listings.
         const HIDDEN = 0b0000_0001;
+        /// Entry identifies a directory.
         const DIRECTORY = 0b0000_0010;
+        /// Entry is an associated file.
         const ASSOCIATED_FILE = 0b0000_0100;
+        /// Entry includes an extended-attribute record.
         const EXTENDED_ATTRIBUTES = 0b0000_1000;
+        /// Entry has extended permission information.
         const EXTENDED_PERMISSIONS = 0b0001_0000;
+        /// Entry continues in another directory record.
         const NOT_FINAL = 0b1000_0000;
     }
 }

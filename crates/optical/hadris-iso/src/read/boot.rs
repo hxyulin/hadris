@@ -8,6 +8,7 @@ use bytemuck::Zeroable;
 use spin::Mutex;
 
 #[derive(Debug, Clone)]
+/// Represents BootInfo.
 pub struct BootInfo {
     /// The Base Boot Catalog
     /// This is used to provide basic information about booting
@@ -19,6 +20,7 @@ pub struct BootInfo {
 }
 
 impl BootInfo {
+    /// Performs the `sections` operation.
     pub fn sections<'a, R: Read + Seek>(
         &'a self,
         image: &'a IsoImage<R>,
@@ -55,6 +57,7 @@ impl BootInfo {
 }
 
 #[derive(Debug, Clone)]
+/// Represents BootEntryInfo.
 pub struct BootEntryInfo {
     /// Whether the catalog marks this entry bootable.
     pub bootable: bool,
@@ -70,6 +73,7 @@ pub struct BootEntryInfo {
 
 io_transform! {
 
+/// Represents BootSectionIter.
 pub struct BootSectionIter<'data, DATA: Read + Seek> {
     data: &'data Mutex<IsoCursor<DATA>>,
     current_seek: u64,

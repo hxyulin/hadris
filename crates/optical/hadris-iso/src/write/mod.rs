@@ -4,6 +4,7 @@ use alloc::{collections::BTreeMap, sync::Arc};
 use core::fmt;
 
 pub mod estimator;
+/// APIs for writer.
 pub mod writer;
 
 use super::super::boot::{
@@ -38,21 +39,27 @@ use writer::{DirectoryRelocation, PathTableWriter, WrittenDirectory, WrittenFile
 
 use alloc::{collections::VecDeque, string::String, vec, vec::Vec};
 
+/// APIs for options.
 pub mod options;
 use options::FormatOptions;
 
 #[derive(Debug, thiserror::Error)]
+/// Identifies a FileConversionError value.
 pub enum FileConversionError {
     #[error("I/O error: {0}")]
+    /// The `Io` variant.
     Io(#[from] std::io::Error),
     #[error("Path {0:?} is not a valid UTF-8 string")]
+    /// The `InvalidUtf8Path` variant.
     InvalidUtf8Path(std::path::PathBuf),
     #[error("Unsupported filesystem entry type at {0:?}")]
+    /// The `UnsupportedFileType` variant.
     UnsupportedFileType(std::path::PathBuf),
 }
 
 #[deprecated(since = "2.0.0", note = "use `InputTree::from_fs`")]
 impl InputFiles {
+    /// Performs the `from_fs` operation.
     pub fn from_fs(
         root_path: &std::path::Path,
         path_separator: PathSeparator,
@@ -113,20 +120,30 @@ fn read_directory_recursively(
 }
 
 #[deprecated(since = "2.0.0", note = "use `InputTree`")]
+/// Represents InputFiles.
 pub struct InputFiles {
+    /// The `path_separator` field.
     pub path_separator: PathSeparator,
+    /// The `files` field.
     pub files: Vec<File>,
 }
 
 #[deprecated(since = "2.0.0", note = "use `InputEntry` and `InputEntryKind`")]
 #[derive(Clone, PartialEq, Eq)]
+/// Identifies a File value.
 pub enum File {
+    /// The `File` variant.
     File {
+        /// The `name` field.
         name: Arc<String>,
+        /// The `contents` field.
         contents: Vec<u8>,
     },
+    /// The `Directory` variant.
     Directory {
+        /// The `name` field.
         name: Arc<String>,
+        /// The `children` field.
         children: Vec<File>,
     },
 }
@@ -151,6 +168,7 @@ impl core::fmt::Debug for File {
 
 #[allow(deprecated)]
 impl File {
+    /// Performs the `name` operation.
     pub fn name(&self) -> Arc<String> {
         match self {
             File::File { name, .. } => name.clone(),
@@ -162,15 +180,20 @@ impl File {
 /// A metadata-aware tree used to create an ISO image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputTree {
+    /// The `path_separator` field.
     pub path_separator: PathSeparator,
+    /// The `entries` field.
     pub entries: Vec<InputEntry>,
 }
 
 /// Optional POSIX metadata for an input entry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct InputMetadata {
+    /// The `mode` field.
     pub mode: Option<u32>,
+    /// The `uid` field.
     pub uid: Option<u32>,
+    /// The `gid` field.
     pub gid: Option<u32>,
     /// Creation time as seconds since the Unix epoch.
     pub created: Option<i64>,
@@ -183,47 +206,72 @@ pub struct InputMetadata {
 /// The data represented by an [`InputEntry`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputEntryKind {
+    /// The `File` variant.
     File(Vec<u8>),
+    /// The `Directory` variant.
     Directory(Vec<InputEntry>),
+    /// The `Symlink` variant.
     Symlink(String),
-    CharacterDevice { major: u32, minor: u32 },
-    BlockDevice { major: u32, minor: u32 },
+    /// A POSIX character device.
+    CharacterDevice {
+        /// Device-class identifier.
+        major: u32,
+        /// Device identifier within the class.
+        minor: u32,
+    },
+    /// A POSIX block device.
+    BlockDevice {
+        /// Device-class identifier.
+        major: u32,
+        /// Device identifier within the class.
+        minor: u32,
+    },
 }
 
 /// A named input entry and its optional host metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputEntry {
+    /// The `name` field.
     pub name: Arc<String>,
+    /// The `kind` field.
     pub kind: InputEntryKind,
+    /// The `metadata` field.
     pub metadata: InputMetadata,
 }
 
 impl InputEntry {
+    /// Performs the `file` operation.
     pub fn file(name: impl Into<String>, contents: impl Into<Vec<u8>>) -> Self {
         Self::new(name, InputEntryKind::File(contents.into()))
     }
 
+    /// Performs the `directory` operation.
     pub fn directory(name: impl Into<String>, children: Vec<Self>) -> Self {
         Self::new(name, InputEntryKind::Directory(children))
     }
 
+    /// Performs the `symlink` operation.
     pub fn symlink(name: impl Into<String>, target: impl Into<String>) -> Self {
         Self::new(name, InputEntryKind::Symlink(target.into()))
     }
 
+    /// Performs the `character_device` operation.
     pub fn character_device(name: impl Into<String>, major: u32, minor: u32) -> Self {
         Self::new(name, InputEntryKind::CharacterDevice { major, minor })
     }
 
+    /// Performs the `block_device` operation.
     pub fn block_device(name: impl Into<String>, major: u32, minor: u32) -> Self {
         Self::new(name, InputEntryKind::BlockDevice { major, minor })
     }
 
+    /// Performs the `with_metadata` operation.
     pub fn with_metadata(mut self, metadata: InputMetadata) -> Self {
         self.metadata = metadata;
         self
     }
 
+    /// Performs the `name` operation.
     pub fn name(&self) -> Arc<String> {
         self.name.clone()
     }
@@ -238,6 +286,7 @@ impl InputEntry {
 }
 
 impl InputTree {
+    /// Performs the `new` operation.
     pub fn new(path_separator: PathSeparator, entries: Vec<InputEntry>) -> Self {
         Self {
             path_separator,
@@ -245,6 +294,7 @@ impl InputTree {
         }
     }
 
+    /// Performs the `from_fs` operation.
     pub fn from_fs(
         root_path: &std::path::Path,
         path_separator: PathSeparator,
@@ -490,8 +540,10 @@ fn relocate_deep_directories(files: &mut WrittenFiles) {
 }
 
 #[derive(Debug, thiserror::Error)]
+/// Identifies a IsoCreationError value.
 pub enum IsoCreationError {
     #[error(transparent)]
+    /// The `Io` variant.
     Io(#[from] io::Error),
 }
 
@@ -502,6 +554,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 /// Compatibility alias for the ISO creation result.
 pub type IsoCreationResult<T> = Result<T>;
 
+/// Represents IsoImageWriter.
 pub struct IsoImageWriter<DATA: Read + Write + Seek> {
     data: IsoCursor<DATA>,
     entry_types: Vec<EntryType>,

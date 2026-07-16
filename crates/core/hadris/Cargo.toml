@@ -7,9 +7,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "../../../README.md"
-description = "A collection of crates for working with various file formats."
-keywords = ["filesystem", "iso9660", "fat32", "udf", "cpio"]
-categories = ["filesystem", "encoding"]
+description = "A unified Rust storage toolkit for filesystems, partitions, archives, and disk images"
+keywords = ["filesystem", "disk-image", "fat32", "iso9660", "no-std"]
+categories = ["filesystem", "embedded", "no-std"]
 
 [features]
 default = ["std", "sync", "read", "write", "fixed", "path", "iso", "fat", "cpio"]

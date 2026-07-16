@@ -16,13 +16,16 @@ pub enum Error {
     UnsupportedFormat(BlockFormat),
     /// Cheap detection and full filesystem validation disagreed.
     DetectedFormatMismatch {
+        /// Format reported by lightweight detection.
         detected: FatVariant,
+        /// Format reported after the filesystem was fully opened.
         opened: FatVariant,
     },
     /// FAT validation failed.
     Fat(hadris_fat::FatError),
 }
 
+/// Result type for category-level block operations.
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl fmt::Display for Error {

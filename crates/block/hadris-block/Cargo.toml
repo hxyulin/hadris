@@ -6,8 +6,8 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Hadris block-storage facade for devices, partitions, and filesystems"
-keywords = ["block-device", "partition", "fat", "filesystem", "no-std"]
+description = "Rust block-storage facade for devices, sectors, partitions, and FAT filesystems"
+keywords = ["block-device", "storage", "partition", "filesystem", "no-std"]
 categories = ["no-std", "filesystem"]
 
 [package.metadata.docs.rs]

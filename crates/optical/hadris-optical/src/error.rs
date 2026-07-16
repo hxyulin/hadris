@@ -4,7 +4,9 @@ use core::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum OpticalFormat {
+    /// An ISO 9660 filesystem.
     Iso9660,
+    /// A Universal Disk Format filesystem.
     Udf,
 }
 
@@ -12,13 +14,19 @@ pub enum OpticalFormat {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
+    /// The source could not be read or repositioned during detection.
     Io(hadris_io::Error),
+    /// No supported optical filesystem was recognized.
     UnknownFormat,
+    /// The requested filesystem is not present in the image.
     RequestedFormatUnavailable(OpticalFormat),
+    /// ISO 9660 validation or opening failed.
     Iso(hadris_io::Error),
+    /// UDF validation or opening failed.
     Udf(hadris_udf::UdfError),
 }
 
+/// Result type for category-level optical operations.
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl fmt::Display for Error {

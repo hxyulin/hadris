@@ -17,13 +17,21 @@ const S_IFIFO: u32 = 0o010000;
 /// and [`make_mode`] to combine a file type with permission bits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileType {
+    /// Unix-domain or network socket.
     Socket,
+    /// Symbolic link.
     Symlink,
+    /// Regular file.
     Regular,
+    /// Block device node.
     BlockDevice,
+    /// Directory.
     Directory,
+    /// Character device node.
     CharDevice,
+    /// Named pipe.
     Fifo,
+    /// Unrecognized file-type mode bits.
     Unknown(u32),
 }
 

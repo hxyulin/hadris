@@ -16,29 +16,42 @@ use super::read::IsoImage;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+/// Represents PathTableEntryHeader.
 pub struct PathTableEntryHeader {
+    /// The `len` field.
     pub len: u8,
+    /// The `extended_attr_record` field.
     pub extended_attr_record: u8,
+    /// The `parent_lba` field.
     pub parent_lba: [u8; 4],
+    /// The `parent_directory_number` field.
     pub parent_directory_number: [u8; 2],
 }
 
 impl PathTableEntryHeader {
+    /// Performs the `from_bytes` operation.
     pub fn from_bytes(bytes: &[u8]) -> Self {
         *bytemuck::from_bytes(bytes)
     }
 }
 
 #[derive(Debug, Clone)]
+/// Represents PathTableEntry.
 pub struct PathTableEntry<const N: usize = 256> {
+    /// The `length` field.
     pub length: u8,
+    /// The `extended_attr_record` field.
     pub extended_attr_record: u8,
+    /// The `parent_lba` field.
     pub parent_lba: u32,
+    /// The `parent_index` field.
     pub parent_index: u16,
+    /// The `name` field.
     pub name: FixedBytes<N>,
 }
 
 impl PathTableEntry {
+    /// Performs the `size` operation.
     pub fn size(&self) -> usize {
         (size_of::<PathTableEntryHeader>() + self.name.len() + 1) & !1
     }
@@ -46,6 +59,7 @@ impl PathTableEntry {
 
 io_transform! {
 impl PathTableEntry {
+    /// Performs the `parse` operation.
     pub async fn parse<T: Read>(reader: &mut T, endian: EndianType) -> Result<Self, Error> {
         let mut buf = [0; size_of::<PathTableEntryHeader>()];
         reader.read_exact(&mut buf).await?;
@@ -66,6 +80,7 @@ impl PathTableEntry {
         })
     }
 
+    /// Performs the `write` operation.
     pub async fn write<W: Write>(&self, writer: &mut W, endian: EndianType) -> io::Result<()> {
         let header = PathTableEntryHeader {
             len: self.name.len() as u8,
@@ -86,6 +101,7 @@ impl PathTableEntry {
 
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
+/// Represents PathTableRef.
 pub struct PathTableRef {
     pub(crate) lpt: LogicalSector,
     pub(crate) mpt: LogicalSector,
@@ -102,6 +118,7 @@ pub struct PathTableInfo {
 sync_only! {
 #[cfg(feature = "alloc")]
 impl PathTableInfo {
+    /// Performs the `entries` operation.
     pub fn entries<'a, DATA: Read + Seek>(
         &self,
         image: &'a IsoImage<DATA>,
@@ -123,6 +140,7 @@ impl PathTableInfo {
 }
 
 #[cfg(feature = "alloc")]
+/// Represents PathTableEntryIter.
 pub struct PathTableEntryIter<'a, DATA: Read + Seek> {
     data: &'a Mutex<super::io::IsoCursor<DATA>>,
     current: u64,

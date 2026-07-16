@@ -1,7 +1,9 @@
 //! # hadris-fat
 //!
-//! A `no_std`-compatible library for reading and writing FAT filesystems
-//! (FAT12, FAT16, FAT32), plus an opt-in unstable exFAT preview.
+//! A pure Rust, `no_std`-compatible library for reading, writing, and formatting
+//! FAT12, FAT16, and FAT32 filesystems, plus an opt-in unstable exFAT preview.
+//! It is suitable for disk-image tools, bootloaders, kernels, firmware,
+//! embedded devices, SD cards, and USB drives.
 //!
 //! ## Quick Start
 //!
@@ -91,6 +93,7 @@
 //! - `sync::tool` — Analysis and verification (requires `tool`)
 
 #![no_std]
+#![deny(missing_docs)]
 #![allow(async_fn_in_trait)]
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
@@ -106,8 +109,10 @@ extern crate alloc;
 // ---------------------------------------------------------------------------
 
 pub mod error;
+/// FAT filename types, including 8.3 and long-file-name helpers.
 pub mod file;
 pub mod oem;
+/// Raw on-disk FAT structures and attribute flags.
 pub mod raw;
 pub mod time;
 
@@ -148,11 +153,15 @@ pub mod sync {
     mod __inner {
         #[cfg(feature = "cache")]
         pub mod cache;
+        /// Directory traversal and directory-entry types.
         pub mod dir;
+        /// FAT12, FAT16, and FAT32 allocation-table access.
         pub mod fat_table;
         #[cfg(feature = "write")]
         pub mod format;
+        /// Mounted FAT filesystem handles and builders.
         pub mod fs;
+        /// FAT-specific I/O positioning utilities.
         pub mod io;
         pub mod read;
         #[cfg(feature = "tool")]
@@ -215,11 +224,15 @@ pub mod r#async {
         // synchronous I/O traits and is not yet async-aware; the `cache`
         // feature is gated to `sync` in Cargo.toml so this combination is
         // unreachable. Async-aware caching is deferred to phase C5b.
+        /// Directory traversal and directory-entry types.
         pub mod dir;
+        /// FAT12, FAT16, and FAT32 allocation-table access.
         pub mod fat_table;
         #[cfg(feature = "write")]
         pub mod format;
+        /// Mounted FAT filesystem handles and builders.
         pub mod fs;
+        /// FAT-specific I/O positioning utilities.
         pub mod io;
         pub mod read;
         // Note: `tool` is intentionally absent here. The analysis/verify

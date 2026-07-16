@@ -2,10 +2,12 @@
 //!
 //! Joliet allows Unicode filenames (up to 64 characters) encoded as UTF-16 Big Endian.
 
+/// Public `ESCAPE_SEQUNCES` API.
 pub static ESCAPE_SEQUNCES: [[u8; 3]; 3] = [*b"%/@", *b"%/C", *b"%/E"];
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Identifies a JolietLevel value.
 pub enum JolietLevel {
     /// Level 1 - UCS-2 Level 1 (escape sequence %/@)
     Level1 = 1,
@@ -16,6 +18,7 @@ pub enum JolietLevel {
 }
 
 impl JolietLevel {
+    /// Performs the `all` operation.
     pub fn all() -> &'static [JolietLevel] {
         static LEVELS: [JolietLevel; 3] = [
             JolietLevel::Level1,

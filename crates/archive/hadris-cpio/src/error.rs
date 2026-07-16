@@ -6,18 +6,32 @@ pub enum CpioError {
     /// An I/O error occurred while reading or writing the archive.
     Io(hadris_io::Error),
     /// The header magic bytes are not `070701` or `070702`.
-    InvalidMagic { found: [u8; 6] },
+    InvalidMagic {
+        /// Six bytes read from the archive magic field.
+        found: [u8; 6],
+    },
     /// A header field contains non-hexadecimal characters.
-    InvalidHexField { field: &'static str },
+    InvalidHexField {
+        /// Name of the malformed header field.
+        field: &'static str,
+    },
     /// The entry filename is empty or could not be read.
     InvalidFilename,
     /// The archive ended without a `TRAILER!!!` sentinel.
     MissingTrailer,
     /// The CRC checksum in a `070702` entry does not match the computed value.
-    ChecksumMismatch { expected: u32, computed: u32 },
+    ChecksumMismatch {
+        /// Checksum stored in the entry header.
+        expected: u32,
+        /// Checksum computed from the entry contents.
+        computed: u32,
+    },
     /// A hard link references a target path that was not seen earlier in the archive.
     #[cfg(feature = "write")]
-    UnresolvedHardLink { ino: u32 },
+    UnresolvedHardLink {
+        /// Inode number assigned to the unresolved target.
+        ino: u32,
+    },
     /// The filename exceeds the maximum length representable in a newc header.
     #[cfg(feature = "write")]
     FilenameTooLong,

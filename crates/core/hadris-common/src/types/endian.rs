@@ -44,6 +44,7 @@ impl core::fmt::Display for EndianType {
 }
 
 impl EndianType {
+    /// Returns whether this byte order is little-endian on the current target.
     pub const fn is_le(&self) -> bool {
         #[cfg(target_endian = "little")]
         {
@@ -293,6 +294,7 @@ impl Endianness for BigEndian {
 pub trait MaybePod: bytemuck::Pod + bytemuck::Zeroable {}
 #[cfg(feature = "bytemuck")]
 impl<T: bytemuck::Pod + bytemuck::Zeroable> MaybePod for T {}
+/// Marker trait that accepts any type when the `bytemuck` feature is disabled.
 #[cfg(not(feature = "bytemuck"))]
 pub trait MaybePod {}
 #[cfg(not(feature = "bytemuck"))]
