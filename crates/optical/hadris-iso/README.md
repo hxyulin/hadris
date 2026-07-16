@@ -135,7 +135,7 @@ hadris-iso = "2.0.0"  # Uses default features
 | ISO 9660:1999 | Yes | Yes | Long filenames up to 207 chars (Level 2/3 compliance) |
 | SUSP | Yes | Yes | System Use Sharing Protocol for extension framework |
 | Joliet | Yes | Yes | UTF-16 BE, up to 64 characters |
-| Rock Ridge (RRIP) | Yes | Partial | Read: POSIX semantics, symlinks, devices, and relocation records via SUSP. Write: metadata-aware PX/TF, symlinks (SL), and devices (PN); deep-directory relocation remains unsupported. |
+| Rock Ridge (RRIP) | Yes | Yes | Read/write POSIX metadata, timestamps, symlinks, devices, and deep-directory relocation through SUSP/RRIP. |
 | El-Torito | Yes | Yes | BIOS bootable images |
 | Hybrid Boot (MBR/GPT) | - | Yes | USB bootable images (MBR, GPT, or dual) |
 

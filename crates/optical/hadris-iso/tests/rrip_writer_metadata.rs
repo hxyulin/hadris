@@ -147,3 +147,102 @@ fn rejects_special_entries_when_the_matching_option_is_disabled() {
     let error = IsoImageWriter::create(Cursor::new(Vec::new()), tree, options(rrip)).unwrap_err();
     assert!(error.to_string().contains("preserve_symlinks"));
 }
+
+fn nested_directory(depth: usize) -> InputEntry {
+    let mut children = vec![InputEntry::file("leaf.txt", b"deep".to_vec())];
+    for level in (1..=depth).rev() {
+        children = vec![InputEntry::directory(format!("level{level}"), children)];
+    }
+    children.pop().unwrap()
+}
+
+#[test]
+fn relocates_a_ninth_level_directory_and_preserves_the_rrip_view() {
+    let image = write(vec![nested_directory(9)], RripOptions::default());
+    let mut directory = image.root_dir().dir_ref();
+    let mut saw_child_link = false;
+
+    for level in 1..=9 {
+        let entries: Vec<_> = image
+            .open_dir(directory)
+            .entries()
+            .filter_map(Result::ok)
+            .collect();
+        let names: Vec<_> = entries
+            .iter()
+            .map(|entry| entry.display_name().into_owned())
+            .collect();
+        let entry = entries
+            .into_iter()
+            .find(|entry| entry.matches_name(&format!("level{level}")))
+            .unwrap_or_else(|| panic!("missing logical level {level}; found {names:?}"));
+        saw_child_link |= entry.rrip.as_ref().unwrap().child_link.is_some();
+        directory = entry.as_dir_ref(&image).unwrap();
+    }
+    assert!(saw_child_link);
+
+    assert!(
+        image
+            .open_dir(directory)
+            .entries()
+            .filter_map(Result::ok)
+            .any(|entry| entry.matches_name("leaf.txt"))
+    );
+}
+
+#[test]
+fn relocation_directory_name_does_not_collide_with_user_input() {
+    let image = write(
+        vec![
+            InputEntry::directory("RR_MOVED", Vec::new()),
+            nested_directory(9),
+        ],
+        RripOptions::default(),
+    );
+    let names: Vec<_> = image
+        .root_dir()
+        .iter(&image)
+        .entries()
+        .filter_map(Result::ok)
+        .filter(|entry| !entry.is_special())
+        .map(|entry| entry.display_name().into_owned())
+        .collect();
+    assert!(names.contains(&"RR_MOVED".to_string()));
+    assert!(names.contains(&"RR_MOVED_1".to_string()));
+}
+
+#[test]
+fn rejects_deep_directories_when_relocation_is_disabled() {
+    let rrip = RripOptions {
+        relocate_deep_dirs: false,
+        ..RripOptions::default()
+    };
+    let tree = InputTree::new(PathSeparator::ForwardSlash, vec![nested_directory(9)]);
+    let error = IsoImageWriter::create(Cursor::new(Vec::new()), tree, options(rrip)).unwrap_err();
+    assert!(error.to_string().contains("relocation is disabled"));
+}
+
+#[test]
+fn relocates_paths_that_exceed_the_iso_path_length_limit() {
+    let names: Vec<_> = (0..5)
+        .map(|index| format!("{index}_{}", "x".repeat(58)))
+        .collect();
+    let mut children = vec![InputEntry::file("leaf.txt", Vec::new())];
+    for name in names.iter().rev() {
+        children = vec![InputEntry::directory(name.clone(), children)];
+    }
+    let image = write(children, RripOptions::default());
+    let mut directory = image.root_dir().dir_ref();
+    let mut saw_child_link = false;
+    for name in names {
+        let entry = image
+            .open_dir(directory)
+            .entries()
+            .filter_map(Result::ok)
+            .find(|entry| entry.matches_name(&name))
+            .unwrap();
+        saw_child_link |= entry.rrip.as_ref().unwrap().child_link.is_some();
+        directory = entry.as_dir_ref(&image).unwrap();
+    }
+    assert!(saw_child_link);
+}

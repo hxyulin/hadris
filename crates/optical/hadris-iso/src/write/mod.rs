@@ -34,7 +34,7 @@ use hadris_part::{
     mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionType},
 };
 use options::PartitionScheme;
-use writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
+use writer::{DirectoryRelocation, PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
 
 use alloc::{collections::VecDeque, string::String, vec, vec::Vec};
 
@@ -369,21 +369,30 @@ fn read_input_directory_recursively(
 }
 
 fn validate_input_tree(tree: &InputTree, rrip: Option<&RripOptions>) -> io::Result<()> {
-    fn visit(entries: &[InputEntry], rrip: Option<&RripOptions>, depth: usize) -> io::Result<()> {
+    fn visit(
+        entries: &[InputEntry],
+        rrip: Option<&RripOptions>,
+        depth: usize,
+        path_len: usize,
+    ) -> io::Result<()> {
         for entry in entries {
             match &entry.kind {
                 InputEntryKind::Directory(children) => {
-                    if depth >= 8 {
-                        let message = if rrip
+                    let child_path_len = if path_len == 0 {
+                        entry.name.len()
+                    } else {
+                        path_len + 1 + entry.name.len()
+                    };
+                    if (depth >= 8 || child_path_len > 255)
+                        && !rrip
                             .is_some_and(|options| options.enabled && options.relocate_deep_dirs)
-                        {
-                            "RRIP deep-directory relocation is not implemented"
-                        } else {
-                            "directory depth exceeds ISO 9660 limit and RRIP relocation is disabled"
-                        };
-                        return Err(io::Error::new(io::ErrorKind::InvalidInput, message));
+                    {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "directory depth or path length exceeds ISO 9660 limits and RRIP relocation is disabled",
+                        ));
                     }
-                    visit(children, rrip, depth + 1)?;
+                    visit(children, rrip, depth + 1, child_path_len)?;
                 }
                 InputEntryKind::Symlink(_) => {
                     if !rrip.is_some_and(|options| options.enabled && options.preserve_symlinks) {
@@ -406,7 +415,78 @@ fn validate_input_tree(tree: &InputTree, rrip: Option<&RripOptions>) -> io::Resu
         }
         Ok(())
     }
-    visit(&tree.entries, rrip, 1)
+    visit(&tree.entries, rrip, 1, 0)
+}
+
+fn relocate_deep_directories(files: &mut WrittenFiles) {
+    fn visit(
+        dir: &mut WrittenDirectory,
+        physical_depth: usize,
+        physical_path_len: usize,
+        moved: &mut Vec<WrittenDirectory>,
+        internal_id: &mut usize,
+    ) {
+        let mut retained = Vec::with_capacity(dir.dirs.len());
+        for mut child in core::mem::take(&mut dir.dirs) {
+            let child_path_len = if physical_path_len == 0 {
+                child.name.len()
+            } else {
+                physical_path_len + 1 + child.name.len()
+            };
+            if physical_depth + 1 > 8 || child_path_len > 255 {
+                let target = child.id;
+                let logical_parent = dir.id;
+                let original_name = child.rrip_name.clone();
+                child.name = Arc::new(alloc::format!("RRD{:06}", *internal_id));
+                *internal_id += 1;
+                child.relocation = DirectoryRelocation::Moved {
+                    id: target,
+                    logical_parent,
+                };
+                let relocated_path_len = "RR_MOVED".len() + 1 + child.name.len();
+                visit(&mut child, 3, relocated_path_len, moved, internal_id);
+                moved.push(child);
+
+                let mut placeholder = WrittenDirectory::new(original_name);
+                placeholder.relocation = DirectoryRelocation::Placeholder { target };
+                retained.push(placeholder);
+            } else {
+                visit(
+                    &mut child,
+                    physical_depth + 1,
+                    child_path_len,
+                    moved,
+                    internal_id,
+                );
+                retained.push(child);
+            }
+        }
+        dir.dirs = retained;
+    }
+
+    let root = files.get_mut(&files.root_dir());
+    let mut moved = Vec::new();
+    let mut internal_id = 1;
+    visit(root, 1, 0, &mut moved, &mut internal_id);
+    if moved.is_empty() {
+        return;
+    }
+
+    let occupied = root
+        .dirs
+        .iter()
+        .map(|directory| directory.name.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let mut relocation_name = String::from("RR_MOVED");
+    let mut suffix = 1;
+    while occupied.contains(relocation_name.as_str()) {
+        relocation_name = alloc::format!("RR_MOVED_{suffix}");
+        suffix += 1;
+    }
+    let mut relocation_dir = WrittenDirectory::new(Arc::new(relocation_name));
+    relocation_dir.id = usize::MAX;
+    relocation_dir.dirs = moved;
+    root.dirs.insert(0, relocation_dir);
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1065,39 +1145,22 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     async fn write_files(&mut self, files: &InputTree) -> io::Result<BTreeMap<EntryType, DirectoryRef>> {
-        let roots = {
-            let files = FileTreeWalker::new(files);
+        let mut next_directory_id = 1usize;
+        {
+            let walker = FileTreeWalker::new(files);
             let mut current_dir = self.written_files.root_dir();
-            let mut depth: u32 = 1; // root = level 1
-            for file in files {
+            for file in walker {
                 match file {
                     TreeWalkerItem::EnterDirectory(dir) => {
-                        depth += 1;
-                        if depth > 8 {
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidInput,
-                                "directory depth exceeds ISO 9660 limit of 8",
-                            ));
-                        }
                         let name = dir.name();
                         let metadata = dir.metadata;
                         let written_dir = self.written_files.get_mut(&current_dir);
-                        current_dir.push(written_dir.push_dir(name, metadata));
+                        let index = written_dir.push_dir(name, metadata);
+                        written_dir.dirs[index].id = next_directory_id;
+                        next_directory_id += 1;
+                        current_dir.push(index);
                     }
                     TreeWalkerItem::ExitDirectory(_dir) => {
-                        depth -= 1;
-                        let dir = self.written_files.get_mut(&current_dir);
-                        for &level in &self.entry_types {
-                            Self::write_directory(
-                                &mut self.data,
-                                level,
-                                dir,
-                                false,
-                                &mut self.inode_counter,
-                                self.ops.features.rock_ridge.as_ref(),
-                                &self.rrip_time,
-                            ).await?;
-                        }
                         current_dir.pop();
                     }
                     TreeWalkerItem::File(file) => {
@@ -1140,24 +1203,104 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     }
                 };
             }
+        }
 
-            // Write root directory
-            let dir = self.written_files.get_mut(&current_dir);
+        if self
+            .ops
+            .features
+            .rock_ridge
+            .is_some_and(|options| options.enabled && options.relocate_deep_dirs)
+        {
+            relocate_deep_directories(&mut self.written_files);
+        }
+
+        fn collect_postorder(
+            files: &WrittenFiles,
+            id: &writer::DirectoryId,
+            output: &mut Vec<writer::DirectoryId>,
+        ) {
+            let dir = files.get(id);
+            for (index, child) in dir.dirs.iter().enumerate() {
+                if matches!(child.relocation, DirectoryRelocation::Placeholder { .. }) {
+                    continue;
+                }
+                let mut child_id = id.clone();
+                child_id.push(index);
+                collect_postorder(files, &child_id, output);
+            }
+            output.push(id.clone());
+        }
+
+        let root_id = self.written_files.root_dir();
+        let mut order = Vec::new();
+        collect_postorder(&self.written_files, &root_id, &mut order);
+        let mut relocation_refs = BTreeMap::new();
+        for directory_id in order {
+            let is_root = directory_id == root_id;
             for ty in &self.entry_types {
+                let dir = self.written_files.get_mut(&directory_id);
                 Self::write_directory(
                     &mut self.data,
                     *ty,
                     dir,
-                    true,
+                    is_root,
                     &mut self.inode_counter,
                     self.ops.features.rock_ridge.as_ref(),
                     &self.rrip_time,
+                    &relocation_refs,
                 )
                 .await?;
             }
-
-            self.written_files.root_refs().clone()
-        };
+            let dir = self.written_files.get(&directory_id);
+            for (ty, reference) in &dir.entries {
+                relocation_refs.insert((dir.id, *ty), *reference);
+            }
+            if let DirectoryRelocation::Moved { id, .. } = dir.relocation {
+                for (ty, reference) in &dir.entries {
+                    relocation_refs.insert((id, *ty), *reference);
+                }
+            }
+        }
+        fn collect_moved(
+            directory: &WrittenDirectory,
+            output: &mut Vec<(usize, usize, BTreeMap<EntryType, DirectoryRef>)>,
+        ) {
+            if let DirectoryRelocation::Moved { id, logical_parent } = directory.relocation {
+                output.push((id, logical_parent, directory.entries.clone()));
+            }
+            for child in &directory.dirs {
+                collect_moved(child, output);
+            }
+        }
+        let mut moved = Vec::new();
+        collect_moved(self.written_files.get(&root_id), &mut moved);
+        let directory_end = self
+            .data
+            .stream_position()
+            .await
+            .map_err(io::Error::erase)?;
+        for (_id, logical_parent, entries) in moved {
+            for (ty, directory) in entries {
+                if !ty.supports_rrip() {
+                    continue;
+                }
+                let parent = relocation_refs
+                    .get(&(logical_parent, ty))
+                    .copied()
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "logical parent extent was not written",
+                        )
+                    })?;
+                self.patch_parent_link(directory, parent).await?;
+            }
+        }
+        self.data
+            .seek(SeekFrom::Start(directory_end))
+            .await
+            .map_err(io::Error::erase)?;
+        let roots = self.written_files.root_refs().clone();
 
         let pos = self
             .data
@@ -1606,11 +1749,54 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
+    async fn patch_parent_link(
+        &mut self,
+        directory: DirectoryRef,
+        parent: DirectoryRef,
+    ) -> io::Result<()> {
+        let start = self.data.seek_sector(directory.extent).await?;
+        self.data
+            .seek(SeekFrom::Start(start))
+            .await
+            .map_err(io::Error::erase)?;
+        let dot = DirectoryRecord::parse(&mut self.data).await?;
+        self.data
+            .seek(SeekFrom::Start(start + dot.header().len as u64))
+            .await
+            .map_err(io::Error::erase)?;
+        let mut dotdot = DirectoryRecord::parse(&mut self.data).await?;
+        let system_use = dotdot.system_use_mut();
+        let mut offset = 0;
+        while offset + 4 <= system_use.len() {
+            let length = system_use[offset + 2] as usize;
+            if length < 4 || offset + length > system_use.len() {
+                break;
+            }
+            if &system_use[offset..offset + 2] == b"PL" && length >= 12 {
+                let value = crate::types::U32LsbMsb::new(parent.extent.0 as u32);
+                system_use[offset + 4..offset + 12]
+                    .copy_from_slice(bytemuck::bytes_of(&value));
+                self.data
+                    .seek(SeekFrom::Start(start + dot.header().len as u64))
+                    .await
+                    .map_err(io::Error::erase)?;
+                dotdot.write(&mut self.data).await?;
+                return Ok(());
+            }
+            offset += length;
+        }
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "relocated directory is missing its RRIP PL entry",
+        ))
+    }
+
     /// Write a directory using a three-phase approach:
     ///
     /// 1. Build all RRIP entries and split each against available inline space
     /// 2. If any have overflow: write a shared continuation area, patch CE entries
     /// 3. Write directory records with the inline SU bytes
+    #[allow(clippy::too_many_arguments)]
     async fn write_directory(
         data: &mut IsoCursor<DATA>,
         ty: EntryType,
@@ -1619,6 +1805,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         inode_counter: &mut u32,
         rrip_options: Option<&RripOptions>,
         fallback_time: &[u8; 7],
+        relocation_refs: &BTreeMap<(usize, EntryType), DirectoryRef>,
     ) -> io::Result<()> {
         let rrip_options = rrip_options.filter(|options| options.enabled);
         let has_rrip = ty.supports_rrip() && rrip_options.is_some();
@@ -1668,7 +1855,15 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 }
             };
             let max = available_su_space(1); // name is b"\x01"
-            build_rrip_entries(kind, 0, &options, fallback_time).build_split(max)
+            let mut builder = build_rrip_entries(kind, 0, &options, fallback_time);
+            if let DirectoryRelocation::Moved { logical_parent, .. } = dir.relocation {
+                let parent = relocation_refs
+                    .get(&(logical_parent, ty))
+                    .copied()
+                    .unwrap_or_default();
+                builder.add_pl(parent.extent.0 as u32);
+            }
+            builder.build_split(max)
         } else {
             SplitSu::empty()
         };
@@ -1683,9 +1878,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         for directory in &dir.dirs {
             let WrittenDirectory {
                 name,
+                rrip_name,
                 entries,
                 metadata,
                 dirs,
+                relocation,
                 ..
             } = directory;
             let converted_name = ty.convert_name(name);
@@ -1693,24 +1890,45 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 let inode = *inode_counter;
                 *inode_counter += 1;
                 let max = available_su_space(converted_name.as_bytes().len());
-                build_rrip_entries(
+                let mut builder = build_rrip_entries(
                     RripEntryKind::Directory {
-                        original_name: name,
+                        original_name: rrip_name,
                         metadata: *metadata,
                         nlink: 2 + dirs.len() as u32,
                     },
                     inode,
                     &options,
                     fallback_time,
-                )
-                .build_split(max)
+                );
+                match relocation {
+                    DirectoryRelocation::Placeholder { target } => {
+                        let target = relocation_refs.get(&(*target, ty)).ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "relocated directory extent was not written",
+                            )
+                        })?;
+                        builder.add_cl(target.extent.0 as u32);
+                    }
+                    DirectoryRelocation::Moved { .. } => {
+                        builder.add_re();
+                    }
+                    DirectoryRelocation::None => {}
+                }
+                builder.build_split(max)
             } else {
                 SplitSu::empty()
             };
             records.push(PendingRecord {
                 name: converted_name.as_bytes().to_vec(),
                 split,
-                dir_ref: *entries.get(&ty).unwrap(),
+                dir_ref: match relocation {
+                    DirectoryRelocation::Placeholder { target } => relocation_refs
+                        .get(&(*target, ty))
+                        .copied()
+                        .unwrap_or_default(),
+                    _ => *entries.get(&ty).unwrap(),
+                },
                 flags: FileFlags::DIRECTORY,
             });
         }
