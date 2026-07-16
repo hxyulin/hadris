@@ -48,7 +48,7 @@ impl<E: io::IoError> From<io::Error<E>> for UdfError {
 impl core::fmt::Display for UdfError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Io(e) => write!(f, "I/O error: {}", e),
+            Self::Io(e) => write!(f, "I/O error: {e}"),
             Self::InvalidVrs => write!(f, "invalid or missing Volume Recognition Sequence"),
             Self::InvalidVds(reason) => {
                 write!(f, "invalid or missing Volume Descriptor Sequence. {reason}")
@@ -58,21 +58,19 @@ impl core::fmt::Display for UdfError {
             Self::InvalidTag { expected, found } => {
                 write!(
                     f,
-                    "invalid descriptor tag: expected {}, found {}",
-                    expected, found
+                    "invalid descriptor tag: expected {expected}, found {found}"
                 )
             }
             Self::CrcMismatch { expected, computed } => {
                 write!(
                     f,
-                    "CRC mismatch: expected {:04x}, computed {:04x}",
-                    expected, computed
+                    "CRC mismatch: expected {expected:04x}, computed {computed:04x}"
                 )
             }
             Self::UnsupportedRevision(rev) => {
-                write!(f, "unsupported UDF revision: {:04x}", rev)
+                write!(f, "unsupported UDF revision: {rev:04x}")
             }
-            Self::InvalidPartition(num) => write!(f, "invalid partition reference: {}", num),
+            Self::InvalidPartition(num) => write!(f, "invalid partition reference: {num}"),
             Self::InvalidIcb => write!(f, "invalid Information Control Block"),
             Self::NotFound => write!(f, "file or directory not found"),
             Self::NotADirectory => write!(f, "not a directory"),

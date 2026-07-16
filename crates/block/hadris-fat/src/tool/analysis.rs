@@ -386,9 +386,9 @@ impl<DATA: Read + Seek> FatFs<DATA> {
             }
 
             let full_path = if path_prefix.is_empty() {
-                format!("/{}", name)
+                format!("/{name}")
             } else {
-                format!("{}/{}", path_prefix, name)
+                format!("{path_prefix}/{name}")
             };
 
             if file_entry.is_directory() {

@@ -27,7 +27,7 @@ impl Default for Guid {
 
 impl Debug for Guid {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Guid({})", self)
+        write!(f, "Guid({self})")
     }
 }
 
@@ -954,7 +954,7 @@ mod tests {
     #[test]
     fn test_guid_display() {
         let guid = Guid::EFI_SYSTEM;
-        let s = format!("{}", guid);
+        let s = format!("{guid}");
         assert_eq!(s, "c12a7328-f81f-11d2-ba4b-00a0c93ec93b");
     }
 

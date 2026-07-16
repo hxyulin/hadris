@@ -199,18 +199,18 @@ mod tag_tests {
         tag[5] = 0; // Reserved
 
         let mut sum = 0u8;
-        for i in 0..16 {
+        for (i, byte) in tag.iter().enumerate() {
             if i != 4 {
-                sum = sum.wrapping_add(tag[i]);
+                sum = sum.wrapping_add(*byte);
             }
         }
         tag[4] = sum;
 
         // Verify checksum
         let mut verify_sum = 0u8;
-        for i in 0..16 {
+        for (i, byte) in tag.iter().enumerate() {
             if i != 4 {
-                verify_sum = verify_sum.wrapping_add(tag[i]);
+                verify_sum = verify_sum.wrapping_add(*byte);
             }
         }
         assert_eq!(verify_sum, tag[4]);
@@ -301,20 +301,9 @@ mod file_entry_tests {
     #[test]
     fn test_file_types() {
         // ICBTAG file types
-        let type_unspecified = 0u8;
-        let type_unalloc_space = 1u8;
-        let type_partition_integ = 2u8;
-        let type_indirect = 3u8;
         let type_directory = 4u8;
         let type_regular_file = 5u8;
-        let type_block_device = 6u8;
-        let type_char_device = 7u8;
-        let type_ext_attr = 8u8;
-        let type_fifo = 9u8;
-        let type_socket = 10u8;
-        let type_terminal = 11u8;
         let type_symlink = 12u8;
-        let type_stream_dir = 13u8;
 
         assert_eq!(type_directory, 4);
         assert_eq!(type_regular_file, 5);
@@ -342,14 +331,7 @@ mod file_entry_tests {
 
         // Other ICB flags (bits 3-15)
         let flag_sorted = 1u16 << 3; // Directory is sorted
-        let flag_non_relocatable = 1u16 << 4;
-        let flag_archive = 1u16 << 5;
-        let flag_setuid = 1u16 << 6;
-        let flag_setgid = 1u16 << 7;
-        let flag_sticky = 1u16 << 8;
         let flag_contiguous = 1u16 << 9;
-        let flag_system = 1u16 << 10;
-        let flag_transformed = 1u16 << 11;
         let flag_multi_versions = 1u16 << 12;
         let flag_stream = 1u16 << 13;
 
@@ -744,7 +726,6 @@ mod extended_attr_tests {
         let ea_char_set = 1u32;
         let ea_alt_permissions = 3u32;
         let ea_file_times = 5u32;
-        let ea_info_times = 6u32;
         let ea_device_spec = 12u32;
         let ea_impl_use = 2048u32;
         let ea_app_use = 65536u32;

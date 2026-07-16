@@ -63,7 +63,7 @@ pub fn info(args: InfoArgs) -> Result<()> {
                 let sys_id = core::str::from_utf8(&boot.boot_system_identifier)
                     .unwrap_or("<invalid>")
                     .trim();
-                println!("  System ID:        {}", sys_id);
+                println!("  System ID:        {sys_id}");
                 println!("  Catalog Sector:   {}", boot.catalog_ptr.get());
             }
             VolumeDescriptor::Supplementary(svd) => {
@@ -72,7 +72,7 @@ pub fn info(args: InfoArgs) -> Result<()> {
                     if svd.escape_sequences == level.escape_sequence() {
                         has_joliet = true;
                         println!();
-                        println!("Joliet Extension ({:?}):", level);
+                        println!("Joliet Extension ({level:?}):");
                         // Joliet volume identifier is UTF-16BE encoded
                         let raw = svd.volume_identifier.as_bytes();
                         let utf16: Vec<u16> = raw

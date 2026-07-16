@@ -86,8 +86,8 @@ impl EntrySetBuilder {
             valid_data_length: 0,
             data_length: 0,
             is_contiguous: true, // Default to contiguous
-            created: now.clone(),
-            modified: now.clone(),
+            created: now,
+            modified: now,
             accessed: now,
         })
     }
@@ -131,7 +131,7 @@ impl EntrySetBuilder {
     pub fn build(&self, upcase: &UpcaseTable) -> Vec<RawDirectoryEntry> {
         // Calculate number of name entries needed
         let name_utf16: Vec<u16> = self.name.encode_utf16().collect();
-        let name_entry_count = (name_utf16.len() + CHARS_PER_NAME_ENTRY - 1) / CHARS_PER_NAME_ENTRY;
+        let name_entry_count = name_utf16.len().div_ceil(CHARS_PER_NAME_ENTRY);
         let secondary_count = 1 + name_entry_count; // Stream + name entries
 
         let mut entries = Vec::with_capacity(1 + secondary_count);
@@ -163,7 +163,7 @@ impl EntrySetBuilder {
     #[allow(dead_code)]
     pub fn entry_count(&self) -> usize {
         let name_utf16_len = self.name.encode_utf16().count();
-        let name_entry_count = (name_utf16_len + CHARS_PER_NAME_ENTRY - 1) / CHARS_PER_NAME_ENTRY;
+        let name_entry_count = name_utf16_len.div_ceil(CHARS_PER_NAME_ENTRY);
         1 + 1 + name_entry_count // File + Stream + Name entries
     }
 

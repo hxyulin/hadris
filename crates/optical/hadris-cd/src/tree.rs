@@ -59,7 +59,7 @@ impl std::fmt::Debug for FileData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Buffer(b) => write!(f, "Buffer({} bytes)", b.len()),
-            Self::Path(p) => write!(f, "Path({:?})", p),
+            Self::Path(p) => write!(f, "Path({p:?})"),
         }
     }
 }

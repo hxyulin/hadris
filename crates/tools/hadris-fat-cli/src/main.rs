@@ -123,7 +123,7 @@ fn cmd_info(image: PathBuf) -> Result<()> {
     println!("==========================");
     println!("FAT Type:        {:?}", fs.fat_type());
     println!("OEM Name:        {}", vol.oem_name());
-    println!("Volume Label:    {}", label);
+    println!("Volume Label:    {label}");
     println!("Volume ID:       {:08X}", vol.volume_id());
     println!("FS Type String:  {}", vol.fs_type_str());
 
@@ -138,7 +138,7 @@ fn cmd_stat(image: PathBuf) -> Result<()> {
     println!("FAT Filesystem Statistics");
     println!("=========================");
     println!("FAT Type:            {:?}", stats.fat_type);
-    println!("Volume Label:        {}", label);
+    println!("Volume Label:        {label}");
     println!();
     println!("Cluster Information:");
     println!("  Cluster Size:      {} bytes", stats.cluster_size);
@@ -179,7 +179,7 @@ fn cmd_ls(image: PathBuf, path: &str, long: bool) -> Result<()> {
         fs.root_dir()
     } else {
         fs.open_dir_path(path)
-            .with_context(|| format!("Failed to open directory: {}", path))?
+            .with_context(|| format!("Failed to open directory: {path}"))?
     };
 
     for entry in dir.entries() {
@@ -230,9 +230,9 @@ fn cmd_ls(image: PathBuf, path: &str, long: bool) -> Result<()> {
                 name
             );
         } else if file_entry.is_directory() {
-            println!("{}/", name);
+            println!("{name}/");
         } else {
-            println!("{}", name);
+            println!("{name}");
         }
     }
 
@@ -246,10 +246,10 @@ fn cmd_tree(image: PathBuf, path: &str, max_depth: Option<usize>) -> Result<()> 
         fs.root_dir()
     } else {
         fs.open_dir_path(path)
-            .with_context(|| format!("Failed to open directory: {}", path))?
+            .with_context(|| format!("Failed to open directory: {path}"))?
     };
 
-    println!("{}", path);
+    println!("{path}");
     print_tree(&fs, &dir, "", max_depth, 0)?;
 
     Ok(())
@@ -289,17 +289,17 @@ fn print_tree<DATA: std::io::Read + std::io::Seek>(
         let name = entry.name();
 
         if entry.is_directory() {
-            println!("{}{}{}/", prefix, connector, name);
+            println!("{prefix}{connector}{name}/");
             let new_prefix = if is_last {
-                format!("{}    ", prefix)
+                format!("{prefix}    ")
             } else {
-                format!("{}│   ", prefix)
+                format!("{prefix}│   ")
             };
 
             let subdir = fs.open_dir_entry(&entry)?;
             print_tree(fs, &subdir, &new_prefix, max_depth, current_depth + 1)?;
         } else {
-            println!("{}{}{}", prefix, connector, name);
+            println!("{prefix}{connector}{name}");
         }
     }
 
@@ -358,7 +358,7 @@ fn cmd_verify(image: PathBuf, verbose: bool) -> Result<()> {
         println!();
         println!("Issues:");
         for issue in &report.issues {
-            println!("  - {}", issue);
+            println!("  - {issue}");
             if verbose {
                 // Additional details could be printed here
             }
@@ -373,11 +373,11 @@ fn cmd_chain(image: PathBuf, file_path: &str) -> Result<()> {
 
     let entry = fs
         .open_path(file_path)
-        .with_context(|| format!("Failed to open: {}", file_path))?;
+        .with_context(|| format!("Failed to open: {file_path}"))?;
 
     let first_cluster = entry.cluster().0 as u32;
     if first_cluster < 2 {
-        println!("File '{}' has no cluster chain (empty file)", file_path);
+        println!("File '{file_path}' has no cluster chain (empty file)");
         return Ok(());
     }
 
@@ -385,7 +385,7 @@ fn cmd_chain(image: PathBuf, file_path: &str) -> Result<()> {
         .get_cluster_chain(first_cluster)
         .context("Failed to read cluster chain")?;
 
-    println!("Cluster chain for: {}", file_path);
+    println!("Cluster chain for: {file_path}");
     println!("File size: {} bytes", entry.len());
     println!("Chain length: {} clusters", chain.len());
     println!();
@@ -397,7 +397,7 @@ fn cmd_chain(image: PathBuf, file_path: &str) -> Result<()> {
             fragments += 1;
         }
     }
-    println!("Fragments: {}", fragments);
+    println!("Fragments: {fragments}");
     println!();
 
     // Print chain (abbreviated if very long)
@@ -412,7 +412,7 @@ fn cmd_chain(image: PathBuf, file_path: &str) -> Result<()> {
                     print!(" -> ");
                 }
             }
-            print!("{}", cluster);
+            print!("{cluster}");
         }
         println!();
     } else {
@@ -426,7 +426,7 @@ fn cmd_chain(image: PathBuf, file_path: &str) -> Result<()> {
                     print!(" -> ");
                 }
             }
-            print!("{}", cluster);
+            print!("{cluster}");
         }
         println!(" ... ({} more) ...", chain.len() - 20);
         for (i, cluster) in chain[chain.len() - 10..].iter().enumerate() {
@@ -440,7 +440,7 @@ fn cmd_chain(image: PathBuf, file_path: &str) -> Result<()> {
             } else {
                 print!("... ");
             }
-            print!("{}", cluster);
+            print!("{cluster}");
         }
         println!();
     }
@@ -464,6 +464,6 @@ fn format_size(bytes: u64) -> String {
     } else if bytes >= KB {
         format!("{:.2} KB", bytes as f64 / KB as f64)
     } else {
-        format!("{} B", bytes)
+        format!("{bytes} B")
     }
 }

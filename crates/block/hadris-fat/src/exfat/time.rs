@@ -100,6 +100,7 @@ impl ExFatTimestamp {
     }
 
     /// Create a timestamp from components.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_components(
         year: u16,
         month: u8,
@@ -111,8 +112,8 @@ impl ExFatTimestamp {
         utc_offset_minutes: Option<i16>,
     ) -> Self {
         let year_val = (year.saturating_sub(1980).min(127) as u32) << 25;
-        let month_val = ((month.min(12).max(1)) as u32) << 21;
-        let day_val = ((day.min(31).max(1)) as u32) << 16;
+        let month_val = (month.clamp(1, 12) as u32) << 21;
+        let day_val = (day.clamp(1, 31) as u32) << 16;
         let hour_val = ((hour.min(23)) as u32) << 11;
         let minute_val = ((minute.min(59)) as u32) << 5;
         let second_val = (second.min(59) / 2) as u32;

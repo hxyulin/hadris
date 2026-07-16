@@ -58,14 +58,11 @@ pub fn ls(args: LsArgs) -> Result<()> {
             let size = entry.header().data_len.read();
             let extent = entry.header().extent.read();
 
-            println!(
-                "{}  {:>10}  {:>8}  {}",
-                type_char, size, extent, display_name
-            );
+            println!("{type_char}  {size:>10}  {extent:>8}  {display_name}");
         } else if flags.contains(FileFlags::DIRECTORY) {
-            println!("{}/", display_name);
+            println!("{display_name}/");
         } else {
-            println!("{}", display_name);
+            println!("{display_name}");
         }
     }
 

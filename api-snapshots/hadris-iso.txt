@@ -4093,7 +4093,7 @@ impl core::fmt::Debug for hadris_iso::write::File
 pub fn hadris_iso::write::File::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum hadris_iso::sync::write::FileConversionError
 pub hadris_iso::sync::write::FileConversionError::InvalidUtf8Path(std::path::PathBuf)
-pub hadris_iso::sync::write::FileConversionError::Io(std::io::error::Error)
+pub hadris_iso::sync::write::FileConversionError::Io(core::io::error::Error)
 pub enum hadris_iso::sync::write::IsoCreationError
 pub hadris_iso::sync::write::IsoCreationError::Io(hadris_io::error::Error)
 pub struct hadris_iso::sync::write::InputFiles
@@ -4540,7 +4540,7 @@ impl core::fmt::Debug for hadris_iso::write::File
 pub fn hadris_iso::write::File::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum hadris_iso::write::FileConversionError
 pub hadris_iso::write::FileConversionError::InvalidUtf8Path(std::path::PathBuf)
-pub hadris_iso::write::FileConversionError::Io(std::io::error::Error)
+pub hadris_iso::write::FileConversionError::Io(core::io::error::Error)
 pub enum hadris_iso::write::IsoCreationError
 pub hadris_iso::write::IsoCreationError::Io(hadris_io::error::Error)
 pub struct hadris_iso::write::InputFiles

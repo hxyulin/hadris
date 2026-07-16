@@ -113,7 +113,7 @@ impl core::fmt::Display for MbrPartitionType {
             Self::LinuxRaid => write!(f, "Linux RAID"),
             Self::ProtectiveMbr => write!(f, "GPT Protective"),
             Self::EfiSystemPartition => write!(f, "EFI System"),
-            Self::Unknown(id) => write!(f, "Unknown (0x{:02X})", id),
+            Self::Unknown(id) => write!(f, "Unknown (0x{id:02X})"),
         }
     }
 }

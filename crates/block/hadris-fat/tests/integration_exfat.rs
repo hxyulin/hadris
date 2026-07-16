@@ -102,7 +102,7 @@ fn create_exfat_with_hdiutil(image_path: &Path, size_mb: u32, label: &str) -> bo
         .args([
             "create",
             "-size",
-            &format!("{}m", size_mb),
+            &format!("{size_mb}m"),
             "-fs",
             "ExFAT",
             "-volname",
@@ -259,11 +259,11 @@ fn test_read_exfat_volume_info() {
     let fs = ExFatFs::open(cursor).expect("Should be able to open exFAT image");
 
     let serial = fs.volume_serial();
-    println!("Volume serial: {:#010x}", serial);
+    println!("Volume serial: {serial:#010x}");
 
     let free = fs.free_cluster_count();
     let total = fs.info().cluster_count;
-    println!("Free clusters: {} / {}", free, total);
+    println!("Free clusters: {free} / {total}");
 
     assert!(free <= total, "Free clusters should not exceed total");
     assert!(free > 0, "Should have some free clusters");
@@ -321,9 +321,9 @@ fn test_exfat_boot_sector_structure() {
     let cluster_count = u32::from_le_bytes(exfat_data[92..96].try_into().unwrap());
     let root_cluster = u32::from_le_bytes(exfat_data[96..100].try_into().unwrap());
 
-    println!("Volume length: {} sectors", volume_length);
-    println!("Cluster count: {}", cluster_count);
-    println!("Root cluster: {}", root_cluster);
+    println!("Volume length: {volume_length} sectors");
+    println!("Cluster count: {cluster_count}");
+    println!("Root cluster: {root_cluster}");
 
     assert!(volume_length > 0, "Volume length should be > 0");
     assert!(cluster_count > 0, "Cluster count should be > 0");
@@ -343,19 +343,18 @@ fn test_various_image_sizes() {
     println!("=== exFAT Size Compatibility ===");
 
     for size in sizes {
-        let image_path = temp_dir.path().join(format!("exfat_{}mb.img", size));
+        let image_path = temp_dir.path().join(format!("exfat_{size}mb.img"));
 
         assert!(
-            create_exfat_image(&image_path, size, &format!("SIZE{}", size)),
-            "Failed to create {}MB exFAT image",
-            size
+            create_exfat_image(&image_path, size, &format!("SIZE{size}")),
+            "Failed to create {size}MB exFAT image"
         );
 
         let exfat_data = fs::read(&image_path).unwrap();
         let cursor = Cursor::new(exfat_data);
 
         let fs = ExFatFs::open(cursor)
-            .unwrap_or_else(|e| panic!("Failed to open {}MB image: {:?}", size, e));
+            .unwrap_or_else(|e| panic!("Failed to open {size}MB image: {e:?}"));
 
         let info = fs.info();
         println!(
@@ -365,8 +364,7 @@ fn test_various_image_sizes() {
 
         assert!(
             info.cluster_count > 0,
-            "{}MB image should have clusters",
-            size
+            "{size}MB image should have clusters"
         );
     }
 }
@@ -389,6 +387,7 @@ mod write_tests {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&image_path)
             .expect("Failed to create image");
         file.set_len(size_bytes).expect("Failed to set size");
@@ -426,6 +425,7 @@ mod write_tests {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&image_path)
             .expect("Failed to create image");
         file.set_len(size_bytes).expect("Failed to set size");
@@ -469,6 +469,7 @@ mod write_tests {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&image_path)
             .expect("Failed to create image");
         file.set_len(size_bytes).expect("Failed to set size");
@@ -502,6 +503,7 @@ mod write_tests {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&image_path)
             .expect("Failed to create image");
         file.set_len(size_bytes).expect("Failed to set size");
@@ -518,7 +520,7 @@ mod write_tests {
         // This test documents the current state
         match list_exfat_with_7z(&image_path) {
             Some(listing) => {
-                println!("7z can read hadris-formatted exFAT:\n{}", listing);
+                println!("7z can read hadris-formatted exFAT:\n{listing}");
             }
             None => {
                 println!("7z cannot read raw exFAT images (expected)");

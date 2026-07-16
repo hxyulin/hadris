@@ -232,7 +232,7 @@ pub fn calculate_layout(
     )?;
 
     // Generate volume serial number
-    let volume_serial = options.volume_serial.unwrap_or_else(|| generate_serial());
+    let volume_serial = options.volume_serial.unwrap_or_else(generate_serial);
 
     Ok(ExFatLayoutParams {
         bytes_per_sector,
@@ -291,8 +291,7 @@ fn calculate_fat_and_heap(
 
     // Calculate FAT size needed for this many clusters (+2 for reserved entries)
     let fat_entries_needed = cluster_count_estimate + 2;
-    let fat_length =
-        ((fat_entries_needed as usize + entries_per_sector - 1) / entries_per_sector) as u32;
+    let fat_length = (fat_entries_needed as usize).div_ceil(entries_per_sector) as u32;
 
     // Recalculate with actual FAT size
     let cluster_heap_offset = fat_offset + fat_length * fat_count as u32;
@@ -538,11 +537,11 @@ fn initialize_root_directory<DATA: Write + Seek>(
     // Generate upcase table
     let (upcase_data, upcase_checksum) = generate_compressed_upcase_table();
     let upcase_size = upcase_data.len() as u64;
-    let upcase_clusters = ((upcase_size as usize + cluster_size - 1) / cluster_size) as u32;
+    let upcase_clusters = (upcase_size as usize).div_ceil(cluster_size) as u32;
 
     // Allocation bitmap size: 1 bit per cluster
-    let bitmap_size = ((params.cluster_count as usize + 7) / 8) as u64;
-    let bitmap_clusters = ((bitmap_size as usize + cluster_size - 1) / cluster_size) as u32;
+    let bitmap_size = (params.cluster_count as usize).div_ceil(8) as u64;
+    let bitmap_clusters = (bitmap_size as usize).div_ceil(cluster_size) as u32;
 
     // Layout:
     // Cluster 2: Allocation Bitmap
@@ -704,11 +703,11 @@ fn initialize_allocation_bitmap<DATA: Write + Seek>(
     let cluster_heap_offset = params.cluster_heap_offset as u64 * sector_size as u64;
 
     // Calculate bitmap size
-    let bitmap_size = (params.cluster_count as usize + 7) / 8;
-    let bitmap_clusters = (bitmap_size + cluster_size - 1) / cluster_size;
+    let bitmap_size = (params.cluster_count as usize).div_ceil(8);
+    let bitmap_clusters = bitmap_size.div_ceil(cluster_size);
 
     // Calculate upcase clusters
-    let upcase_clusters = ((upcase_size as usize + cluster_size - 1) / cluster_size) as u32;
+    let upcase_clusters = (upcase_size as usize).div_ceil(cluster_size) as u32;
     let root_cluster = upcase_cluster + upcase_clusters;
 
     // Create bitmap with system clusters marked as used

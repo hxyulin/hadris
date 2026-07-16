@@ -2182,7 +2182,7 @@ mod tests {
             .find(|e| e.is_file() && e.name() == "hello.txt")
             .expect("hello.txt should be listed");
         assert_eq!(entry.size, payload.len() as u64);
-        let bytes = udf.read_file(&entry).expect("read_file");
+        let bytes = udf.read_file(entry).expect("read_file");
         assert_eq!(bytes, payload);
     }
 
@@ -2205,7 +2205,7 @@ mod tests {
             .find(|e| e.name() == "large.bin")
             .expect("large.bin");
         assert_eq!(entry.size, large_data.len() as u64);
-        assert_eq!(udf.read_file(&entry).unwrap(), large_data);
+        assert_eq!(udf.read_file(entry).unwrap(), large_data);
     }
 
     #[test]

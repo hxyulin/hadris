@@ -263,7 +263,7 @@ mod tests {
         layout.layout_files(&mut tree, &options).unwrap();
 
         // First file should have a valid extent
-        let file1 = tree.root.files.get(0).unwrap();
+        let file1 = tree.root.files.first().unwrap();
         assert!(file1.extent.sector > 0);
         assert_eq!(file1.extent.length, 4096);
 
@@ -282,7 +282,7 @@ mod tests {
 
         layout.layout_files(&mut tree, &options).unwrap();
 
-        let file = tree.root.files.get(0).unwrap();
+        let file = tree.root.files.first().unwrap();
         assert_eq!(file.extent.sector, 0);
         assert_eq!(file.extent.length, 0);
     }

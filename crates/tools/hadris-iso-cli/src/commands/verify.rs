@@ -81,13 +81,12 @@ fn check_volume_descriptors<R: Read + Seek>(
             }
             Ok(VolumeDescriptor::Unknown(u)) => {
                 if verbose {
-                    println!("  Found Unknown Volume Descriptor (type {:?})", u);
+                    println!("  Found Unknown Volume Descriptor (type {u:?})");
                 }
             }
             Err(e) => {
                 issues.push(VerifyIssue::error(format!(
-                    "Error reading volume descriptor: {}",
-                    e
+                    "Error reading volume descriptor: {e}"
                 )));
             }
         }
@@ -123,16 +122,15 @@ fn check_root_directory<R: Read + Seek>(iso: &IsoImage<R>, verbose: bool) -> Vec
             }
             Err(e) => {
                 issues.push(VerifyIssue::error(format!(
-                    "Error reading root directory entry: {}",
-                    e
+                    "Error reading root directory entry: {e}"
                 )));
             }
         }
     }
 
     if verbose {
-        println!("  Files in root: {}", file_count);
-        println!("  Directories in root: {}", dir_count);
+        println!("  Files in root: {file_count}");
+        println!("  Directories in root: {dir_count}");
     }
 
     issues
@@ -148,16 +146,12 @@ fn check_volume_size<R: Read + Seek>(
     let declared_size = pvd.volume_space_size.read() as u64 * 2048;
 
     if verbose {
-        println!(
-            "  Volume size: {} bytes (declared), {} bytes (file)",
-            declared_size, file_size
-        );
+        println!("  Volume size: {declared_size} bytes (declared), {file_size} bytes (file)");
     }
 
     if declared_size > file_size {
         issues.push(VerifyIssue::error(format!(
-            "Volume declares {} bytes but file is only {} bytes (truncated image)",
-            declared_size, file_size
+            "Volume declares {declared_size} bytes but file is only {file_size} bytes (truncated image)"
         )));
     } else if file_size > declared_size + 32 * 1024 {
         issues.push(VerifyIssue::warning(format!(
@@ -181,8 +175,7 @@ fn check_path_table_consistency<R: Read + Seek>(
         Ok(e) => e,
         Err(e) => {
             issues.push(VerifyIssue::error(format!(
-                "Failed to read path table: {}",
-                e
+                "Failed to read path table: {e}"
             )));
             return issues;
         }
@@ -190,7 +183,7 @@ fn check_path_table_consistency<R: Read + Seek>(
 
     let total = entries.len();
     if verbose {
-        println!("  Path table entries: {}", total);
+        println!("  Path table entries: {total}");
     }
 
     if total == 0 {
@@ -211,8 +204,7 @@ fn check_path_table_consistency<R: Read + Seek>(
         let parent = entry.parent_index as usize;
         if parent < 1 || parent > total {
             issues.push(VerifyIssue::error(format!(
-                "Path table entry {} has invalid parent_index {} (valid range: 1..{})",
-                idx, parent, total
+                "Path table entry {idx} has invalid parent_index {parent} (valid range: 1..{total})"
             )));
             continue;
         }
@@ -264,8 +256,7 @@ fn check_extent_bounds<R: Read + Seek>(
                 Ok(e) => e,
                 Err(e) => {
                     issues.push(VerifyIssue::error(format!(
-                        "Error reading directory entry at depth {}: {}",
-                        depth, e
+                        "Error reading directory entry at depth {depth}: {e}"
                     )));
                     continue;
                 }
@@ -285,15 +276,13 @@ fn check_extent_bounds<R: Read + Seek>(
             if end_byte > volume_size {
                 let name = String::from_utf8_lossy(entry.name());
                 issues.push(VerifyIssue::error(format!(
-                    "Entry '{}' extent end ({}) exceeds volume size ({})",
-                    name, end_byte, volume_size
+                    "Entry '{name}' extent end ({end_byte}) exceeds volume size ({volume_size})"
                 )));
             }
             if end_byte > file_size {
                 let name = String::from_utf8_lossy(entry.name());
                 issues.push(VerifyIssue::error(format!(
-                    "Entry '{}' extent end ({}) exceeds file size ({})",
-                    name, end_byte, file_size
+                    "Entry '{name}' extent end ({end_byte}) exceeds file size ({file_size})"
                 )));
             }
 
@@ -326,8 +315,7 @@ fn check_boot_catalog<R: Read + Seek>(
 
     if let Err(e) = iso.read_bytes_at(byte_pos, &mut buf) {
         issues.push(VerifyIssue::error(format!(
-            "Failed to read boot catalog at sector {}: {}",
-            catalog_sector, e
+            "Failed to read boot catalog at sector {catalog_sector}: {e}"
         )));
         return issues;
     }
@@ -337,8 +325,7 @@ fn check_boot_catalog<R: Read + Seek>(
         Ok(v) => v,
         Err(e) => {
             issues.push(VerifyIssue::error(format!(
-                "Failed to parse boot catalog validation entry: {}",
-                e
+                "Failed to parse boot catalog validation entry: {e}"
             )));
             return issues;
         }
@@ -361,8 +348,7 @@ fn check_boot_catalog<R: Read + Seek>(
     let calculated = validation.calculate_checksum();
     if stored_checksum != calculated {
         issues.push(VerifyIssue::error(format!(
-            "Boot catalog checksum mismatch: stored {:#06x}, calculated {:#06x}",
-            stored_checksum, calculated
+            "Boot catalog checksum mismatch: stored {stored_checksum:#06x}, calculated {calculated:#06x}"
         )));
     }
 
@@ -418,14 +404,12 @@ fn check_rrip_fields<R: Read + Seek>(iso: &IsoImage<R>, verbose: bool) -> Vec<Ve
                         if is_dir && file_type != 0o040000 && file_type != 0 {
                             let name = String::from_utf8_lossy(entry.name());
                             issues.push(VerifyIssue::warning(format!(
-                                "PX mode type {:#o} doesn't match directory flag for '{}'",
-                                file_type, name
+                                "PX mode type {file_type:#o} doesn't match directory flag for '{name}'"
                             )));
                         } else if !is_dir && file_type == 0o040000 {
                             let name = String::from_utf8_lossy(entry.name());
                             issues.push(VerifyIssue::warning(format!(
-                                "PX mode indicates directory but entry '{}' is not flagged as directory",
-                                name
+                                "PX mode indicates directory but entry '{name}' is not flagged as directory"
                             )));
                         }
                     }

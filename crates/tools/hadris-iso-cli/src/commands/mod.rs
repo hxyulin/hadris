@@ -51,7 +51,7 @@ fn navigate_to_path<R: Read + Seek>(iso: &IsoImage<R>, path: &str) -> Result<Dir
                 name.eq_ignore_ascii_case(component) && e.is_directory()
             })
             .ok_or_else(|| -> Box<dyn std::error::Error> {
-                format!("Directory not found: {}", component).into()
+                format!("Directory not found: {component}").into()
             })?;
         current = found.as_dir_ref(iso)?;
     }

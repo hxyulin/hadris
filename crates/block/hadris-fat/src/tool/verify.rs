@@ -87,11 +87,7 @@ impl core::fmt::Display for VerificationIssue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::ClusterLoop { path, cluster } => {
-                write!(
-                    f,
-                    "Cluster loop detected at cluster {} in '{}'",
-                    cluster, path
-                )
+                write!(f, "Cluster loop detected at cluster {cluster} in '{path}'")
             }
             Self::CrossLinkedCluster { cluster, paths } => {
                 write!(
@@ -107,8 +103,7 @@ impl core::fmt::Display for VerificationIssue {
             } => {
                 write!(
                     f,
-                    "Orphaned cluster chain starting at {} ({} clusters)",
-                    start_cluster, chain_length
+                    "Orphaned cluster chain starting at {start_cluster} ({chain_length} clusters)"
                 )
             }
             Self::SizeMismatch {
@@ -118,12 +113,11 @@ impl core::fmt::Display for VerificationIssue {
             } => {
                 write!(
                     f,
-                    "Size mismatch for '{}': recorded {} bytes, chain suggests {} bytes",
-                    path, recorded_size, chain_size
+                    "Size mismatch for '{path}': recorded {recorded_size} bytes, chain suggests {chain_size} bytes"
                 )
             }
             Self::InvalidFirstCluster { path, cluster } => {
-                write!(f, "Invalid first cluster {} for '{}'", cluster, path)
+                write!(f, "Invalid first cluster {cluster} for '{path}'")
             }
             Self::BadClusterInChain {
                 path,
@@ -132,18 +126,17 @@ impl core::fmt::Display for VerificationIssue {
             } => {
                 write!(
                     f,
-                    "Bad cluster {} at position {} in chain for '{}'",
-                    cluster, position, path
+                    "Bad cluster {cluster} at position {position} in chain for '{path}'"
                 )
             }
             Self::InvalidEntryName {
                 parent_path,
                 raw_name: _,
             } => {
-                write!(f, "Invalid entry name in directory '{}'", parent_path)
+                write!(f, "Invalid entry name in directory '{parent_path}'")
             }
             Self::LostClusters { count } => {
-                write!(f, "{} lost clusters (not referenced by any file)", count)
+                write!(f, "{count} lost clusters (not referenced by any file)")
             }
         }
     }
@@ -287,9 +280,9 @@ impl<DATA: Read + Seek> FatFs<DATA> {
             }
 
             let full_path = if path_prefix.is_empty() {
-                format!("/{}", name)
+                format!("/{name}")
             } else {
-                format!("{}/{}", path_prefix, name)
+                format!("{path_prefix}/{name}")
             };
 
             let first_cluster = file_entry.cluster().0 as u32;

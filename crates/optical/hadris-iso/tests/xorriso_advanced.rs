@@ -21,8 +21,8 @@ fn test_multi_sector_directory() {
 
     let files: Vec<IsoFile> = (0..NUM_FILES)
         .map(|i| IsoFile::File {
-            name: Arc::new(format!("FILE{:03}.TXT", i)),
-            contents: format!("Content of file {}\n", i).into_bytes(),
+            name: Arc::new(format!("FILE{i:03}.TXT")),
+            contents: format!("Content of file {i}\n").into_bytes(),
         })
         .collect();
 
@@ -83,14 +83,13 @@ fn test_multi_sector_directory() {
     }
 
     println!("=== Multi-sector directory test ===");
-    println!("  Created {} files", NUM_FILES);
-    println!("  Found {} files", file_count);
+    println!("  Created {NUM_FILES} files");
+    println!("  Found {file_count} files");
 
     // We should find all 100 files, not just the ~29 that fit in one sector
     assert_eq!(
         file_count, NUM_FILES,
-        "Expected {} files but found {}. Names found: {:?}",
-        NUM_FILES, file_count, file_names
+        "Expected {NUM_FILES} files but found {file_count}. Names found: {file_names:?}"
     );
 
     println!("=== Multi-sector directory test passed ===");
@@ -283,8 +282,8 @@ fn test_hadris_rockridge_roundtrip() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
 
-        println!("xorriso stdout: {}", stdout);
-        println!("xorriso stderr: {}", stderr);
+        println!("xorriso stdout: {stdout}");
+        println!("xorriso stderr: {stderr}");
 
         // xorriso should be able to open the ISO without errors
         // (it may print warnings but shouldn't fail catastrophically)
@@ -300,7 +299,7 @@ fn test_hadris_rockridge_roundtrip() {
             .expect("Failed to run xorriso ls");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        println!("xorriso ls /: {}", stdout);
+        println!("xorriso ls /: {stdout}");
 
         println!("=== xorriso Rock Ridge verification: PASSED ===");
     }

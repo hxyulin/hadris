@@ -25,7 +25,7 @@ pub fn list(archive: PathBuf, long: bool) -> Result<()> {
                 ft_char, mode_str, header.uid, header.gid, header.filesize, mtime, name,
             );
         } else {
-            println!("{}", name);
+            println!("{name}");
         }
 
         reader

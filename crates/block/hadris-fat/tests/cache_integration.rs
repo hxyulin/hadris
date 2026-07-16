@@ -87,7 +87,7 @@ fn read_fat32_entry_raw(buffer: &[u8], layout: &FatLayout, cluster: u32) -> u32 
 }
 
 fn fat32_options() -> FormatOptions {
-    FormatOptions::new(FAT32_SIZE as u64).with_fat_type(FatTypeSelection::Fat32)
+    FormatOptions::new(FAT32_SIZE as u64).fat_type(FatTypeSelection::Fat32)
 }
 
 // =============================================================================
@@ -108,10 +108,7 @@ fn cache_round_trips_fat32_chain() {
     patch_fat32_entry_all_copies(&mut bytes, &layout, 7, 0x0FFF_FFFF); // END
 
     let cursor = Cursor::new(&mut bytes[..]);
-    let fs = FatFs::builder(cursor)
-        .with_fat_cache(8)
-        .open()
-        .expect("open");
+    let fs = FatFs::builder(cursor).fat_cache(8).open().expect("open");
 
     let chain = fs
         .with_cached_fat(|cached, disk| cached.read_chain(disk, 5))
@@ -133,10 +130,7 @@ fn cache_writes_persist_across_remount_after_flush() {
     // Open with cache, write a recognizable value via the cache, flush, drop.
     {
         let cursor = Cursor::new(&mut bytes[..]);
-        let fs = FatFs::builder(cursor)
-            .with_fat_cache(8)
-            .open()
-            .expect("open");
+        let fs = FatFs::builder(cursor).fat_cache(8).open().expect("open");
         fs.with_fat_cache_locked(|cache, disk| {
             cache
                 .write_fat32_entry(disk, 100, 0x0BEE_F123)
@@ -196,7 +190,7 @@ fn cache_dirty_eviction_does_not_lose_data() {
     {
         let cursor = Cursor::new(&mut bytes[..]);
         let fs = FatFs::builder(cursor)
-            .with_fat_cache(2) // < number of sectors written
+            .fat_cache(2) // < number of sectors written
             .open()
             .expect("open");
         fs.with_fat_cache_locked(|cache, disk| {
@@ -242,12 +236,12 @@ fn cache_dirty_eviction_writes_to_all_fat_copies() {
     );
 
     let cluster = 50u32;
-    let value = 0x0DEAD_BEEu32 & 0x0FFF_FFFF;
+    let value = 0x0DEA_DBEE_u32 & 0x0FFF_FFFF;
 
     {
         let cursor = Cursor::new(&mut bytes[..]);
         let fs = FatFs::builder(cursor)
-            .with_fat_cache(1) // cap 1 forces eviction on every new sector
+            .fat_cache(1) // cap 1 forces eviction on every new sector
             .open()
             .expect("open");
         fs.with_fat_cache_locked(|cache, disk| {
@@ -289,10 +283,7 @@ fn cache_read_returns_cache_dirty_eviction_when_all_dirty() {
     let _layout = format_into_buffer(&mut bytes, &opts);
 
     let cursor = Cursor::new(&mut bytes[..]);
-    let fs = FatFs::builder(cursor)
-        .with_fat_cache(2)
-        .open()
-        .expect("open");
+    let fs = FatFs::builder(cursor).fat_cache(2).open().expect("open");
 
     fs.with_fat_cache_locked(|cache, disk| {
         // Fill cache to capacity with dirty writes (two distinct sectors).
@@ -331,10 +322,7 @@ fn cached_fat_read_chain_returns_cluster_loop_on_cycle() {
     patch_fat32_entry_all_copies(&mut bytes, &layout, 4, 3);
 
     let cursor = Cursor::new(&mut bytes[..]);
-    let fs = FatFs::builder(cursor)
-        .with_fat_cache(4)
-        .open()
-        .expect("open");
+    let fs = FatFs::builder(cursor).fat_cache(4).open().expect("open");
 
     let result = fs
         .with_cached_fat(|cached, disk| cached.read_chain(disk, 3))
@@ -356,10 +344,7 @@ fn cached_fat_next_cluster_on_bad_cluster_marker() {
     patch_fat32_entry_all_copies(&mut bytes, &layout, 5, 0x0FFF_FFF7);
 
     let cursor = Cursor::new(&mut bytes[..]);
-    let fs = FatFs::builder(cursor)
-        .with_fat_cache(4)
-        .open()
-        .expect("open");
+    let fs = FatFs::builder(cursor).fat_cache(4).open().expect("open");
 
     let result = fs
         .with_cached_fat(|cached, disk| cached.next_cluster(disk, 5))
@@ -380,10 +365,7 @@ fn cached_fat_next_cluster_out_of_bounds() {
     patch_fat32_entry_all_copies(&mut bytes, &layout, 5, 0x0FFF_0000);
 
     let cursor = Cursor::new(&mut bytes[..]);
-    let fs = FatFs::builder(cursor)
-        .with_fat_cache(4)
-        .open()
-        .expect("open");
+    let fs = FatFs::builder(cursor).fat_cache(4).open().expect("open");
 
     let result = fs
         .with_cached_fat(|cached, disk| cached.next_cluster(disk, 5))
@@ -413,10 +395,7 @@ fn read_status_flags_consults_cache() {
     let _layout = format_into_buffer(&mut bytes, &opts);
 
     let cursor = Cursor::new(&mut bytes[..]);
-    let fs = FatFs::builder(cursor)
-        .with_fat_cache(16)
-        .open()
-        .expect("open");
+    let fs = FatFs::builder(cursor).fat_cache(16).open().expect("open");
 
     fs.with_fat_cache_locked(|cache, _| cache.reset_stats())
         .expect("cache installed");
@@ -476,7 +455,7 @@ fn read_file_chain_walk_consults_cache() {
     // Pass 2: re-open with a cache, reset its stats, and read.
     let cursor = Cursor::new(&mut bytes[..]);
     let fs = FatFs::builder(cursor)
-        .with_fat_cache(16)
+        .fat_cache(16)
         .open()
         .expect("open with cache");
 
@@ -519,7 +498,7 @@ fn writes_then_reads_through_cache_are_consistent() {
 
     let cursor = Cursor::new(&mut bytes[..]);
     let fs = FatFs::builder(cursor)
-        .with_fat_cache(16)
+        .fat_cache(16)
         .open()
         .expect("open with cache");
 
@@ -559,10 +538,7 @@ fn with_fat_cache_zero_treats_as_no_cache() {
     let _layout = format_into_buffer(&mut bytes, &opts);
 
     let cursor = Cursor::new(&mut bytes[..]);
-    let fs = FatFs::builder(cursor)
-        .with_fat_cache(0)
-        .open()
-        .expect("open");
+    let fs = FatFs::builder(cursor).fat_cache(0).open().expect("open");
     assert!(
         fs.fat_cache().is_none(),
         "with_fat_cache(0) must install no cache"
@@ -586,10 +562,7 @@ fn cache_stats_increment_on_hit_miss_eviction() {
     patch_fat32_entry_all_copies(&mut bytes, &layout, 8, 0x0FFF_FFFF);
 
     let cursor = Cursor::new(&mut bytes[..]);
-    let fs = FatFs::builder(cursor)
-        .with_fat_cache(2)
-        .open()
-        .expect("open");
+    let fs = FatFs::builder(cursor).fat_cache(2).open().expect("open");
 
     // First chain walk: all misses, no evictions yet (clusters 5..8 fall
     // in the same FAT sector for these small numbers).

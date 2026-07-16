@@ -169,9 +169,9 @@ impl core::default::Default for hadris_cpio::async::write::file_tree::FileTree
 pub fn hadris_cpio::async::write::file_tree::FileTree::default() -> Self
 pub mod hadris_cpio::async::write::from_fs
 pub enum hadris_cpio::async::write::from_fs::FromFsError
-pub hadris_cpio::async::write::from_fs::FromFsError::Io(std::io::error::Error)
-impl core::convert::From<std::io::error::Error> for hadris_cpio::async::write::from_fs::FromFsError
-pub fn hadris_cpio::async::write::from_fs::FromFsError::from(std::io::error::Error) -> Self
+pub hadris_cpio::async::write::from_fs::FromFsError::Io(core::io::error::Error)
+impl core::convert::From<core::io::error::Error> for hadris_cpio::async::write::from_fs::FromFsError
+pub fn hadris_cpio::async::write::from_fs::FromFsError::from(core::io::error::Error) -> Self
 impl core::error::Error for hadris_cpio::async::write::from_fs::FromFsError
 impl core::fmt::Display for hadris_cpio::async::write::from_fs::FromFsError
 pub fn hadris_cpio::async::write::from_fs::FromFsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -629,9 +629,9 @@ impl core::default::Default for hadris_cpio::write::file_tree::FileTree
 pub fn hadris_cpio::write::file_tree::FileTree::default() -> Self
 pub mod hadris_cpio::sync::write::from_fs
 pub enum hadris_cpio::sync::write::from_fs::FromFsError
-pub hadris_cpio::sync::write::from_fs::FromFsError::Io(std::io::error::Error)
-impl core::convert::From<std::io::error::Error> for hadris_cpio::write::from_fs::FromFsError
-pub fn hadris_cpio::write::from_fs::FromFsError::from(std::io::error::Error) -> Self
+pub hadris_cpio::sync::write::from_fs::FromFsError::Io(core::io::error::Error)
+impl core::convert::From<core::io::error::Error> for hadris_cpio::write::from_fs::FromFsError
+pub fn hadris_cpio::write::from_fs::FromFsError::from(core::io::error::Error) -> Self
 impl core::error::Error for hadris_cpio::write::from_fs::FromFsError
 impl core::fmt::Display for hadris_cpio::write::from_fs::FromFsError
 pub fn hadris_cpio::write::from_fs::FromFsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -868,9 +868,9 @@ impl core::default::Default for hadris_cpio::write::file_tree::FileTree
 pub fn hadris_cpio::write::file_tree::FileTree::default() -> Self
 pub mod hadris_cpio::write::from_fs
 pub enum hadris_cpio::write::from_fs::FromFsError
-pub hadris_cpio::write::from_fs::FromFsError::Io(std::io::error::Error)
-impl core::convert::From<std::io::error::Error> for hadris_cpio::write::from_fs::FromFsError
-pub fn hadris_cpio::write::from_fs::FromFsError::from(std::io::error::Error) -> Self
+pub hadris_cpio::write::from_fs::FromFsError::Io(core::io::error::Error)
+impl core::convert::From<core::io::error::Error> for hadris_cpio::write::from_fs::FromFsError
+pub fn hadris_cpio::write::from_fs::FromFsError::from(core::io::error::Error) -> Self
 impl core::error::Error for hadris_cpio::write::from_fs::FromFsError
 impl core::fmt::Display for hadris_cpio::write::from_fs::FromFsError
 pub fn hadris_cpio::write::from_fs::FromFsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

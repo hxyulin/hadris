@@ -131,7 +131,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         use hadris_iso::write::{InputFiles, IsoImageWriter};
 
         // Convert our tree to ISO's InputFiles format
-        let iso_files = self.tree_to_iso_files(&tree.root)?;
+        let iso_files = Self::tree_to_iso_files(&tree.root)?;
 
         let input_files = InputFiles {
             path_separator: PathSeparator::ForwardSlash,
@@ -176,7 +176,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     }
 
     /// Convert our tree to ISO's file format
-    fn tree_to_iso_files(&self, dir: &Directory) -> CdResult<Vec<hadris_iso::write::File>> {
+    fn tree_to_iso_files(dir: &Directory) -> CdResult<Vec<hadris_iso::write::File>> {
         let mut files = Vec::new();
 
         for file in &dir.files {
@@ -194,7 +194,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         for subdir in &dir.subdirs {
             files.push(hadris_iso::write::File::Directory {
                 name: subdir.name.clone(),
-                children: self.tree_to_iso_files(subdir)?,
+                children: Self::tree_to_iso_files(subdir)?,
             });
         }
 

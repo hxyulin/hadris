@@ -55,21 +55,21 @@ impl<E: Endianness> core::fmt::Debug for U16<E> {
 impl<E: Endianness> core::fmt::Display for U16<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "{}", value)
+        write!(f, "{value}")
     }
 }
 
 impl<E: Endianness> core::fmt::LowerHex for U16<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "0x{:04x}", value)
+        write!(f, "0x{value:04x}")
     }
 }
 
 impl<E: Endianness> core::fmt::UpperHex for U16<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "0x{:04X}", value)
+        write!(f, "0x{value:04X}")
     }
 }
 
@@ -117,21 +117,21 @@ impl<E: Endianness> core::fmt::Debug for U32<E> {
 impl<E: Endianness> core::fmt::Display for U32<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "{}", value)
+        write!(f, "{value}")
     }
 }
 
 impl<E: Endianness> core::fmt::LowerHex for U32<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "0x{:08x}", value)
+        write!(f, "0x{value:08x}")
     }
 }
 
 impl<E: Endianness> core::fmt::UpperHex for U32<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "0x{:08X}", value)
+        write!(f, "0x{value:08X}")
     }
 }
 
@@ -179,21 +179,21 @@ impl<E: Endianness> core::fmt::Debug for U64<E> {
 impl<E: Endianness> core::fmt::Display for U64<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "{}", value)
+        write!(f, "{value}")
     }
 }
 
 impl<E: Endianness> core::fmt::LowerHex for U64<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "0x{:016x}", value)
+        write!(f, "0x{value:016x}")
     }
 }
 
 impl<E: Endianness> core::fmt::UpperHex for U64<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "0x{:016X}", value)
+        write!(f, "0x{value:016X}")
     }
 }
 
@@ -221,21 +221,21 @@ impl<E: Endianness> core::fmt::Debug for U24<E> {
 impl<E: Endianness> core::fmt::Display for U24<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "0x{:06x}", value)
+        write!(f, "0x{value:06x}")
     }
 }
 
 impl<E: Endianness> core::fmt::LowerHex for U24<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "0x{:06x}", value)
+        write!(f, "0x{value:06x}")
     }
 }
 
 impl<E: Endianness> core::fmt::UpperHex for U24<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let value = self.get();
-        write!(f, "0x{:06X}", value)
+        write!(f, "0x{value:06X}")
     }
 }
 

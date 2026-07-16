@@ -48,11 +48,11 @@ fn print_tree(
 
         if entry.is_dir() {
             let extension = if is_last { "    " } else { "\u{2502}   " };
-            let new_prefix = format!("{}{}", prefix, extension);
+            let new_prefix = format!("{prefix}{extension}");
             let icb = entry.icb;
             match udf.read_directory(&icb) {
                 Ok(subdir) => print_tree(udf, &subdir, &new_prefix, depth + 1, max_depth)?,
-                Err(e) => println!("{}{}<error: {}>", new_prefix, connector, e),
+                Err(e) => println!("{new_prefix}{connector}<error: {e}>"),
             }
         }
     }

@@ -58,6 +58,8 @@
 
 #![no_std]
 #![allow(async_fn_in_trait)]
+// Sync and async APIs intentionally compile the same source modules twice.
+#![allow(clippy::duplicate_mod)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(feature = "alloc")]
@@ -330,7 +332,7 @@ mod tests {
         assert_eq!(partition.start_lba(), 2048);
         assert_eq!(partition.size_sectors(), 204800);
         assert_eq!(partition.end_lba(), 2048 + 204800 - 1);
-        assert_eq!(partition.size_bytes(), 204800 * 512);
+        assert_eq!(partition.byte_len(512), Some(204800 * 512));
     }
 
     #[test]

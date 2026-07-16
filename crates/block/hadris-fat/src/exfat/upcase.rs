@@ -167,9 +167,9 @@ impl UpcaseTable {
         for code_unit in name.encode_utf16() {
             let upper = self.to_upper(code_unit);
             // Process low byte
-            hash = hash.rotate_right(1).wrapping_add((upper & 0xFF) as u16);
+            hash = hash.rotate_right(1).wrapping_add(upper & 0xFF);
             // Process high byte
-            hash = hash.rotate_right(1).wrapping_add((upper >> 8) as u16);
+            hash = hash.rotate_right(1).wrapping_add(upper >> 8);
         }
 
         hash
@@ -187,7 +187,7 @@ impl UpcaseTable {
         let mut data = Vec::with_capacity(65536);
 
         for i in 0u16..=65535 {
-            let upper = if i >= 0x61 && i <= 0x7A {
+            let upper = if (0x61..=0x7A).contains(&i) {
                 // ASCII lowercase a-z -> A-Z
                 i - 0x20
             } else {

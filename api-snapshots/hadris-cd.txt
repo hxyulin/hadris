@@ -99,8 +99,8 @@ pub enum hadris_cd::tree::FileData
 pub hadris_cd::tree::FileData::Buffer(alloc::vec::Vec<u8>)
 pub hadris_cd::tree::FileData::Path(std::path::PathBuf)
 impl hadris_cd::tree::FileData
-pub fn hadris_cd::tree::FileData::read_all(&self) -> std::io::error::Result<alloc::vec::Vec<u8>>
-pub fn hadris_cd::tree::FileData::size(&self) -> std::io::error::Result<u64>
+pub fn hadris_cd::tree::FileData::read_all(&self) -> core::io::error::Result<alloc::vec::Vec<u8>>
+pub fn hadris_cd::tree::FileData::size(&self) -> core::io::error::Result<u64>
 impl core::fmt::Debug for hadris_cd::tree::FileData
 pub fn hadris_cd::tree::FileData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for hadris_cd::tree::FileData
@@ -135,7 +135,7 @@ pub hadris_cd::tree::FileEntry::unique_id: u64
 impl hadris_cd::tree::FileEntry
 pub fn hadris_cd::tree::FileEntry::from_buffer(impl core::convert::Into<alloc::string::String>, alloc::vec::Vec<u8>) -> Self
 pub fn hadris_cd::tree::FileEntry::from_path(impl core::convert::Into<alloc::string::String>, std::path::PathBuf) -> Self
-pub fn hadris_cd::tree::FileEntry::size(&self) -> std::io::error::Result<u64>
+pub fn hadris_cd::tree::FileEntry::size(&self) -> core::io::error::Result<u64>
 impl core::fmt::Display for hadris_cd::tree::FileEntry
 pub fn hadris_cd::tree::FileEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_cd::tree::FileExtent
@@ -153,7 +153,7 @@ impl hadris_cd::tree::FileTree
 pub fn hadris_cd::tree::FileTree::add_dir(&mut self, hadris_cd::tree::Directory)
 pub fn hadris_cd::tree::FileTree::add_file(&mut self, hadris_cd::tree::FileEntry)
 pub fn hadris_cd::tree::FileTree::find_file(&self, &str) -> core::option::Option<&hadris_cd::tree::FileEntry>
-pub fn hadris_cd::tree::FileTree::from_fs(&std::path::Path) -> std::io::error::Result<Self>
+pub fn hadris_cd::tree::FileTree::from_fs(&std::path::Path) -> core::io::error::Result<Self>
 pub fn hadris_cd::tree::FileTree::new() -> Self
 pub fn hadris_cd::tree::FileTree::sort(&mut self)
 pub fn hadris_cd::tree::FileTree::total_dirs(&self) -> usize
@@ -185,8 +185,8 @@ pub enum hadris_cd::FileData
 pub hadris_cd::FileData::Buffer(alloc::vec::Vec<u8>)
 pub hadris_cd::FileData::Path(std::path::PathBuf)
 impl hadris_cd::tree::FileData
-pub fn hadris_cd::tree::FileData::read_all(&self) -> std::io::error::Result<alloc::vec::Vec<u8>>
-pub fn hadris_cd::tree::FileData::size(&self) -> std::io::error::Result<u64>
+pub fn hadris_cd::tree::FileData::read_all(&self) -> core::io::error::Result<alloc::vec::Vec<u8>>
+pub fn hadris_cd::tree::FileData::size(&self) -> core::io::error::Result<u64>
 impl core::fmt::Debug for hadris_cd::tree::FileData
 pub fn hadris_cd::tree::FileData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for hadris_cd::tree::FileData
@@ -250,7 +250,7 @@ pub hadris_cd::FileEntry::unique_id: u64
 impl hadris_cd::tree::FileEntry
 pub fn hadris_cd::tree::FileEntry::from_buffer(impl core::convert::Into<alloc::string::String>, alloc::vec::Vec<u8>) -> Self
 pub fn hadris_cd::tree::FileEntry::from_path(impl core::convert::Into<alloc::string::String>, std::path::PathBuf) -> Self
-pub fn hadris_cd::tree::FileEntry::size(&self) -> std::io::error::Result<u64>
+pub fn hadris_cd::tree::FileEntry::size(&self) -> core::io::error::Result<u64>
 impl core::fmt::Display for hadris_cd::tree::FileEntry
 pub fn hadris_cd::tree::FileEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_cd::FileExtent
@@ -268,7 +268,7 @@ impl hadris_cd::tree::FileTree
 pub fn hadris_cd::tree::FileTree::add_dir(&mut self, hadris_cd::tree::Directory)
 pub fn hadris_cd::tree::FileTree::add_file(&mut self, hadris_cd::tree::FileEntry)
 pub fn hadris_cd::tree::FileTree::find_file(&self, &str) -> core::option::Option<&hadris_cd::tree::FileEntry>
-pub fn hadris_cd::tree::FileTree::from_fs(&std::path::Path) -> std::io::error::Result<Self>
+pub fn hadris_cd::tree::FileTree::from_fs(&std::path::Path) -> core::io::error::Result<Self>
 pub fn hadris_cd::tree::FileTree::new() -> Self
 pub fn hadris_cd::tree::FileTree::sort(&mut self)
 pub fn hadris_cd::tree::FileTree::total_dirs(&self) -> usize

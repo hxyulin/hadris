@@ -53,10 +53,7 @@ fn test_eltorito_boot_catalog_comparison() {
     let boot_catalog_lba = boot_catalog_lba.expect("Should find boot record volume descriptor");
     let catalog_offset = boot_catalog_lba as usize * 2048;
 
-    println!(
-        "Boot catalog at LBA {}, offset {:#x}",
-        boot_catalog_lba, catalog_offset
-    );
+    println!("Boot catalog at LBA {boot_catalog_lba}, offset {catalog_offset:#x}");
 
     // Read and parse boot catalog entries
     let validation_entry = &iso_data[catalog_offset..catalog_offset + 32];
@@ -75,7 +72,7 @@ fn test_eltorito_boot_catalog_comparison() {
         String::from_utf8_lossy(&validation_entry[4..28])
     );
     let checksum = u16::from_le_bytes([validation_entry[28], validation_entry[29]]);
-    println!("  Checksum: {:#06x}", checksum);
+    println!("  Checksum: {checksum:#06x}");
     println!(
         "  Key: {:02x} {:02x} (expected 55 AA)",
         validation_entry[30], validation_entry[31]
@@ -91,18 +88,18 @@ fn test_eltorito_boot_catalog_comparison() {
         default_entry[1]
     );
     let load_segment = u16::from_le_bytes([default_entry[2], default_entry[3]]);
-    println!("  Load Segment: {:#06x}", load_segment);
+    println!("  Load Segment: {load_segment:#06x}");
     println!("  System Type: {:#04x}", default_entry[4]);
     println!("  Reserved: {:#04x}", default_entry[5]);
     let sector_count = u16::from_le_bytes([default_entry[6], default_entry[7]]);
-    println!("  Sector Count: {} (512-byte sectors)", sector_count);
+    println!("  Sector Count: {sector_count} (512-byte sectors)");
     let load_rba = u32::from_le_bytes([
         default_entry[8],
         default_entry[9],
         default_entry[10],
         default_entry[11],
     ]);
-    println!("  Load RBA (LBA): {}", load_rba);
+    println!("  Load RBA (LBA): {load_rba}");
     println!("  Selection Criteria: {:#04x}", default_entry[12]);
 
     // Verify validation checksum
@@ -111,10 +108,7 @@ fn test_eltorito_boot_catalog_comparison() {
         let word = u16::from_le_bytes([validation_entry[i], validation_entry[i + 1]]);
         sum = sum.wrapping_add(word);
     }
-    println!(
-        "\n  Checksum verification: sum = {:#06x} (should be 0x0000)",
-        sum
-    );
+    println!("\n  Checksum verification: sum = {sum:#06x} (should be 0x0000)");
     assert_eq!(sum, 0, "Validation entry checksum should sum to 0");
 
     // Verify boot indicator
@@ -137,7 +131,7 @@ fn test_eltorito_boot_catalog_comparison() {
             println!("  Load RBA: {}", entry.load_rba.get());
         }
         Err(e) => {
-            println!("\nError parsing boot catalog with hadris-iso: {:?}", e);
+            println!("\nError parsing boot catalog with hadris-iso: {e:?}");
         }
     }
 
@@ -224,10 +218,7 @@ fn test_hadris_bootable_iso_creation() {
     let catalog_offset = boot_catalog_lba as usize * 2048;
 
     println!("\n=== Hadris-ISO Generated Boot Catalog ===");
-    println!(
-        "Boot catalog at LBA {}, offset {:#x}",
-        boot_catalog_lba, catalog_offset
-    );
+    println!("Boot catalog at LBA {boot_catalog_lba}, offset {catalog_offset:#x}");
 
     let validation_entry = &iso_data[catalog_offset..catalog_offset + 32];
     let default_entry = &iso_data[catalog_offset + 32..catalog_offset + 64];
@@ -239,7 +230,7 @@ fn test_hadris_bootable_iso_creation() {
         validation_entry[1]
     );
     let checksum = u16::from_le_bytes([validation_entry[28], validation_entry[29]]);
-    println!("  Checksum: {:#06x}", checksum);
+    println!("  Checksum: {checksum:#06x}");
     println!(
         "  Key: {:02x} {:02x} (expected 55 AA)",
         validation_entry[30], validation_entry[31]
@@ -251,10 +242,7 @@ fn test_hadris_bootable_iso_creation() {
         let word = u16::from_le_bytes([validation_entry[i], validation_entry[i + 1]]);
         sum = sum.wrapping_add(word);
     }
-    println!(
-        "  Checksum verification: sum = {:#06x} (should be 0x0000)",
-        sum
-    );
+    println!("  Checksum verification: sum = {sum:#06x} (should be 0x0000)");
 
     println!("\nDefault Entry:");
     println!(
@@ -266,18 +254,18 @@ fn test_hadris_bootable_iso_creation() {
         default_entry[1]
     );
     let load_segment = u16::from_le_bytes([default_entry[2], default_entry[3]]);
-    println!("  Load Segment: {:#06x}", load_segment);
+    println!("  Load Segment: {load_segment:#06x}");
     println!("  System Type: {:#04x}", default_entry[4]);
     println!("  Reserved: {:#04x}", default_entry[5]);
     let sector_count = u16::from_le_bytes([default_entry[6], default_entry[7]]);
-    println!("  Sector Count: {} (512-byte sectors)", sector_count);
+    println!("  Sector Count: {sector_count} (512-byte sectors)");
     let load_rba = u32::from_le_bytes([
         default_entry[8],
         default_entry[9],
         default_entry[10],
         default_entry[11],
     ]);
-    println!("  Load RBA (LBA): {}", load_rba);
+    println!("  Load RBA (LBA): {load_rba}");
     println!("  Selection Criteria: {:#04x}", default_entry[12]);
 
     // Basic assertions
@@ -304,7 +292,7 @@ fn test_hadris_bootable_iso_creation() {
         iso_data[pvd_offset + 160],
         iso_data[pvd_offset + 161],
     ]);
-    println!("\nRoot directory at LBA: {}", root_dir_lba);
+    println!("\nRoot directory at LBA: {root_dir_lba}");
 
     // Check that Load RBA is reasonable (should be a valid LBA in the ISO)
     assert!(load_rba > 16, "Load RBA should be after volume descriptors");
@@ -423,14 +411,8 @@ fn test_compare_boot_catalogs() {
     if let (Some((x_br_sector, x_cat_lba)), Some((h_br_sector, h_cat_lba))) =
         (xorriso_boot, hadris_boot)
     {
-        println!(
-            "xorriso: Boot Record at sector {}, Catalog at LBA {}",
-            x_br_sector, x_cat_lba
-        );
-        println!(
-            "hadris:  Boot Record at sector {}, Catalog at LBA {}",
-            h_br_sector, h_cat_lba
-        );
+        println!("xorriso: Boot Record at sector {x_br_sector}, Catalog at LBA {x_cat_lba}");
+        println!("hadris:  Boot Record at sector {h_br_sector}, Catalog at LBA {h_cat_lba}");
 
         let x_cat_offset = x_cat_lba * 2048;
         let h_cat_offset = h_cat_lba * 2048;
@@ -491,10 +473,7 @@ fn test_compare_boot_catalogs() {
         let x_load_seg = u16::from_le_bytes([x_def[2], x_def[3]]);
         let h_load_seg = u16::from_le_bytes([h_def[2], h_def[3]]);
         if x_load_seg != h_load_seg {
-            println!(
-                "DIFF: Load Segment - xorriso={:#06x}, hadris={:#06x}",
-                x_load_seg, h_load_seg
-            );
+            println!("DIFF: Load Segment - xorriso={x_load_seg:#06x}, hadris={h_load_seg:#06x}");
         }
 
         if x_def[4] != h_def[4] {
@@ -507,15 +486,12 @@ fn test_compare_boot_catalogs() {
         let x_sector_count = u16::from_le_bytes([x_def[6], x_def[7]]);
         let h_sector_count = u16::from_le_bytes([h_def[6], h_def[7]]);
         if x_sector_count != h_sector_count {
-            println!(
-                "DIFF: Sector Count - xorriso={}, hadris={}",
-                x_sector_count, h_sector_count
-            );
+            println!("DIFF: Sector Count - xorriso={x_sector_count}, hadris={h_sector_count}");
         }
 
         let x_load_rba = u32::from_le_bytes([x_def[8], x_def[9], x_def[10], x_def[11]]);
         let h_load_rba = u32::from_le_bytes([h_def[8], h_def[9], h_def[10], h_def[11]]);
-        println!("\nLoad RBA: xorriso={}, hadris={}", x_load_rba, h_load_rba);
+        println!("\nLoad RBA: xorriso={x_load_rba}, hadris={h_load_rba}");
 
         // Check what's after the default entry
         println!("\n--- Next 32 bytes (after default entry) ---");
@@ -563,8 +539,8 @@ fn test_compare_boot_catalogs() {
         );
     } else {
         println!("Could not find boot catalogs!");
-        println!("xorriso boot: {:?}", xorriso_boot);
-        println!("hadris boot: {:?}", hadris_boot);
+        println!("xorriso boot: {xorriso_boot:?}");
+        println!("hadris boot: {hadris_boot:?}");
     }
 }
 
@@ -617,7 +593,7 @@ fn test_qemu_boot_xorriso_iso() {
     // Boot with QEMU and capture serial output
     match run_qemu_with_timeout(&iso_path, 5) {
         Some(stdout) => {
-            println!("QEMU stdout: {}", stdout);
+            println!("QEMU stdout: {stdout}");
 
             // Check if our boot code produced the expected output
             if stdout.contains("OK") {
@@ -717,13 +693,13 @@ fn test_qemu_boot_hadris_iso() {
     // Write to file
     fs::write(&iso_path, iso_buffer.into_inner()).expect("Failed to write ISO file");
 
-    println!("Created hadris-iso boot ISO at: {:?}", iso_path);
+    println!("Created hadris-iso boot ISO at: {iso_path:?}");
     println!("ISO size: {} bytes", fs::metadata(&iso_path).unwrap().len());
 
     // Boot with QEMU and capture serial output
     match run_qemu_with_timeout(&iso_path, 5) {
         Some(stdout) => {
-            println!("QEMU stdout: {}", stdout);
+            println!("QEMU stdout: {stdout}");
 
             // Check if our boot code produced the expected output
             if stdout.contains("OK") {
@@ -752,8 +728,8 @@ fn test_qemu_boot_hadris_iso() {
                         let ptr_bytes: [u8; 4] =
                             iso_data[offset + 71..offset + 75].try_into().unwrap();
                         let catalog_lba = u32::from_le_bytes(ptr_bytes);
-                        println!("\nBoot Record found at sector {}", sector);
-                        println!("  Boot catalog LBA: {}", catalog_lba);
+                        println!("\nBoot Record found at sector {sector}");
+                        println!("  Boot catalog LBA: {catalog_lba}");
 
                         let catalog_offset = catalog_lba as usize * 2048;
                         if iso_data.len() > catalog_offset + 64 {
@@ -772,7 +748,7 @@ fn test_qemu_boot_hadris_iso() {
                                 default[10],
                                 default[11],
                             ]);
-                            println!("  Default load RBA: {}", load_rba);
+                            println!("  Default load RBA: {load_rba}");
 
                             // Dump first few bytes of boot image
                             let boot_offset = load_rba as usize * 2048;

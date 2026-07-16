@@ -322,7 +322,7 @@ mod fat16_image {
     /// - Total size: ~2MB (enough clusters to be detected as FAT16)
     pub fn create_fat16_image() -> Cursor<Vec<u8>> {
         // Calculate layout
-        let root_dir_sectors = (ROOT_ENTRY_COUNT as usize * 32 + SECTOR_SIZE - 1) / SECTOR_SIZE;
+        let root_dir_sectors = (ROOT_ENTRY_COUNT as usize * 32).div_ceil(SECTOR_SIZE);
         let data_start_sector = RESERVED_SECTORS as usize
             + FAT_COUNT as usize * SECTORS_PER_FAT as usize
             + root_dir_sectors;
@@ -474,7 +474,7 @@ mod fat12_image {
     /// - Cluster count < 4085 (FAT12 range)
     pub fn create_fat12_image() -> Cursor<Vec<u8>> {
         // Calculate layout
-        let root_dir_sectors = (ROOT_ENTRY_COUNT as usize * 32 + SECTOR_SIZE - 1) / SECTOR_SIZE;
+        let root_dir_sectors = (ROOT_ENTRY_COUNT as usize * 32).div_ceil(SECTOR_SIZE);
         let _data_start_sector = RESERVED_SECTORS as usize
             + FAT_COUNT as usize * SECTORS_PER_FAT as usize
             + root_dir_sectors;
@@ -609,7 +609,7 @@ mod integration_tests {
 
         let image = create_fat32_image();
         let fs = FatFs::builder(image)
-            .with_time_provider(provider)
+            .time_provider(provider)
             .open()
             .expect("builder open should succeed");
 
@@ -634,7 +634,7 @@ mod integration_tests {
             Box::leak(Box::new(StaticTimeProvider(initial)));
         let image = create_fat32_image();
         let fs = FatFs::builder(image)
-            .with_time_provider(provider)
+            .time_provider(provider)
             .open()
             .expect("builder open should succeed");
 
@@ -804,7 +804,7 @@ mod integration_tests {
             .expect("Failed to create file");
 
         assert!(entry.is_file());
-        assert_eq!(entry.size(), 0);
+        assert_eq!(entry.len(), 0);
 
         // Verify file appears in directory listing
         let root = fs.root_dir();
@@ -857,7 +857,7 @@ mod integration_tests {
             .find("HELLO.TXT")
             .expect("Find failed")
             .expect("File not found");
-        assert_eq!(entry.size(), content.len());
+        assert_eq!(entry.len(), content.len() as u64);
 
         // Read back the content
         use hadris_fat::FatFsReadExt;
@@ -902,7 +902,7 @@ mod integration_tests {
             .find("BIG.DAT")
             .expect("Find failed")
             .expect("File not found");
-        assert_eq!(entry.size(), content.len());
+        assert_eq!(entry.len(), content.len() as u64);
 
         use hadris_fat::FatFsReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
@@ -932,13 +932,11 @@ mod integration_tests {
 
         assert!(
             names.iter().any(|n| n.starts_with('.')),
-            "Directory should have . entry: {:?}",
-            names
+            "Directory should have . entry: {names:?}"
         );
         assert!(
             names.iter().any(|n| n.starts_with("..")),
-            "Directory should have .. entry: {:?}",
-            names
+            "Directory should have .. entry: {names:?}"
         );
     }
 
@@ -1064,7 +1062,7 @@ mod integration_tests {
 
         // Create several files
         for i in 0..10 {
-            let name = format!("FILE{}.TXT", i);
+            let name = format!("FILE{i}.TXT");
             // Need to truncate/pad to 8.3 format for the find
             fs.create_file(&root, &name).expect("Failed to create file");
         }
@@ -1165,7 +1163,7 @@ mod fat16_integration_tests {
             .expect("Failed to create file");
 
         assert!(entry.is_file());
-        assert_eq!(entry.size(), 0);
+        assert_eq!(entry.len(), 0);
 
         // Verify file appears in directory listing
         let root = fs.root_dir();
@@ -1199,7 +1197,7 @@ mod fat16_integration_tests {
             .find("HELLO.TXT")
             .expect("Find failed")
             .expect("File not found");
-        assert_eq!(entry.size(), content.len());
+        assert_eq!(entry.len(), content.len() as u64);
 
         // Read back the content
         use hadris_fat::FatFsReadExt;
@@ -1244,7 +1242,7 @@ mod fat16_integration_tests {
             .find("BIG.DAT")
             .expect("Find failed")
             .expect("File not found");
-        assert_eq!(entry.size(), content.len());
+        assert_eq!(entry.len(), content.len() as u64);
 
         use hadris_fat::FatFsReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
@@ -1274,13 +1272,11 @@ mod fat16_integration_tests {
 
         assert!(
             names.iter().any(|n| n.starts_with('.')),
-            "Directory should have . entry: {:?}",
-            names
+            "Directory should have . entry: {names:?}"
         );
         assert!(
             names.iter().any(|n| n.starts_with("..")),
-            "Directory should have .. entry: {:?}",
-            names
+            "Directory should have .. entry: {names:?}"
         );
     }
 
@@ -1352,7 +1348,7 @@ mod fat16_integration_tests {
 
         // Create several files
         for i in 0..10 {
-            let name = format!("FILE{}.TXT", i);
+            let name = format!("FILE{i}.TXT");
             fs.create_file(&root, &name).expect("Failed to create file");
         }
 
@@ -1420,7 +1416,7 @@ mod fat12_integration_tests {
             .expect("Failed to create file");
 
         assert!(entry.is_file());
-        assert_eq!(entry.size(), 0);
+        assert_eq!(entry.len(), 0);
 
         // Verify file appears in directory listing
         let root = fs.root_dir();
@@ -1454,7 +1450,7 @@ mod fat12_integration_tests {
             .find("HELLO.TXT")
             .expect("Find failed")
             .expect("File not found");
-        assert_eq!(entry.size(), content.len());
+        assert_eq!(entry.len(), content.len() as u64);
 
         // Read back the content
         use hadris_fat::FatFsReadExt;
@@ -1499,7 +1495,7 @@ mod fat12_integration_tests {
             .find("BIG.DAT")
             .expect("Find failed")
             .expect("File not found");
-        assert_eq!(entry.size(), content.len());
+        assert_eq!(entry.len(), content.len() as u64);
 
         use hadris_fat::FatFsReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
@@ -1529,13 +1525,11 @@ mod fat12_integration_tests {
 
         assert!(
             names.iter().any(|n| n.starts_with('.')),
-            "Directory should have . entry: {:?}",
-            names
+            "Directory should have . entry: {names:?}"
         );
         assert!(
             names.iter().any(|n| n.starts_with("..")),
-            "Directory should have .. entry: {:?}",
-            names
+            "Directory should have .. entry: {names:?}"
         );
     }
 
@@ -1607,7 +1601,7 @@ mod fat12_integration_tests {
 
         // Create several files
         for i in 0..10 {
-            let name = format!("FILE{}.TXT", i);
+            let name = format!("FILE{i}.TXT");
             fs.create_file(&root, &name).expect("Failed to create file");
         }
 
@@ -1664,7 +1658,7 @@ mod fat12_integration_tests {
             .find("CHAIN.DAT")
             .expect("Find failed")
             .expect("File not found");
-        assert_eq!(entry.size(), content.len());
+        assert_eq!(entry.len(), content.len() as u64);
 
         use hadris_fat::FatFsReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
@@ -1824,7 +1818,7 @@ mod corrupt_image_tests {
             let image = create_fat32_image();
             let fs = if with_cache {
                 FatFs::builder(image)
-                    .with_fat_cache(8)
+                    .fat_cache(8)
                     .open()
                     .expect("builder open")
             } else {
@@ -2037,7 +2031,7 @@ mod lfn_write_edge_tests {
         // silently truncating — quietly losing bytes from a filename is
         // worse than refusing to create the file.
         let mut bytes = fresh_fat32_bytes();
-        let long: String = core::iter::repeat('a').take(256).collect();
+        let long: String = std::iter::repeat_n('a', 256).collect();
         let cursor = Cursor::new(&mut bytes[..]);
         let fs = FatFs::open(cursor).expect("open");
         match fs.create_file(&fs.root_dir(), &long) {
@@ -2060,7 +2054,7 @@ mod lfn_write_edge_tests {
         // fixture with a larger cluster; the related cap is exercised by
         // `lfn_run_too_long_returns_directory_full` below.
         let mut bytes = fresh_fat32_bytes();
-        let long: String = core::iter::repeat('a').take(195).collect();
+        let long: String = std::iter::repeat_n('a', 195).collect();
         {
             let cursor = Cursor::new(&mut bytes[..]);
             let fs = FatFs::open(cursor).expect("open");
@@ -2098,7 +2092,7 @@ mod lfn_write_edge_tests {
         // the boundary.
         let mut bytes = fresh_fat32_bytes();
         // 16 LFN entries × 13 chars = 208 chars, requires 16 + 1 = 17 slots.
-        let too_long: String = core::iter::repeat('a').take(208).collect();
+        let too_long: String = std::iter::repeat_n('a', 208).collect();
         let cursor = Cursor::new(&mut bytes[..]);
         let fs = FatFs::open(cursor).expect("open");
         match fs.create_file(&fs.root_dir(), &too_long) {
@@ -2183,8 +2177,7 @@ mod lfn_write_edge_tests {
         for (i, c) in lfn_checksums.iter().enumerate() {
             assert_eq!(
                 *c, expected,
-                "LFN slot {i} checksum {:#04x} != short-name checksum {:#04x}",
-                c, expected
+                "LFN slot {i} checksum {c:#04x} != short-name checksum {expected:#04x}"
             );
         }
     }
@@ -2368,7 +2361,7 @@ mod fs_metadata_tests {
         {
             let cursor = Cursor::new(&mut bytes[..]);
             let fs = FatFs::builder(cursor)
-                .with_oem_converter(&CP437)
+                .oem_converter(&CP437)
                 .open()
                 .expect("open");
             // The name needs LFN to round-trip the lowercase 'é'; the short
@@ -2499,9 +2492,9 @@ mod lfn_cluster_boundary_tests {
     fn fat32_spc1_fs() -> hadris_fat::FatFs<Cursor<Vec<u8>>> {
         let size = 48 * 1024 * 1024;
         let opts = FormatOptions::new(size as u64)
-            .with_fat_type(FatTypeSelection::Fat32)
-            .with_sectors_per_cluster(1)
-            .with_label("SPC1");
+            .fat_type(FatTypeSelection::Fat32)
+            .sectors_per_cluster(1)
+            .volume_label("SPC1");
         FatVolumeFormatter::format(Cursor::new(vec![0u8; size]), opts).expect("format FAT32 spc=1")
     }
 

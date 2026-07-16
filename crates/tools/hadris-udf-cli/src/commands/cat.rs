@@ -31,7 +31,7 @@ pub fn cat(args: CatArgs) -> Result<()> {
             format!("File not found: {}", args.path).into()
         })?;
 
-    let bytes = udf.read_file(&entry)?;
+    let bytes = udf.read_file(entry)?;
     io::stdout().write_all(&bytes)?;
     Ok(())
 }

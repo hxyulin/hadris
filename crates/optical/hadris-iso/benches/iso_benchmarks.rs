@@ -26,7 +26,7 @@ fn xorriso_available() -> bool {
 /// Create test files in a directory
 fn create_test_files(dir: &Path, count: usize, size: usize) {
     for i in 0..count {
-        let filename = format!("file_{:04}.dat", i);
+        let filename = format!("file_{i:04}.dat");
         let content: Vec<u8> = (0..size).map(|j| ((i + j) % 256) as u8).collect();
         fs::write(dir.join(&filename), &content).unwrap();
     }
@@ -196,7 +196,7 @@ fn bench_boot_catalog(c: &mut Criterion) {
     let mut group = c.benchmark_group("boot_catalog");
 
     group.bench_function("create_default", |b| {
-        b.iter(|| BootCatalog::default());
+        b.iter(BootCatalog::default);
     });
 
     group.bench_function("create_with_section", |b| {

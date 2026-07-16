@@ -145,7 +145,7 @@ mod tests {
         let mut buffer = vec![0u8; 2 * 1024 * 1024];
         let cursor = Cursor::new(&mut buffer[..]);
 
-        let options = FormatOptions::new(2 * 1024 * 1024).with_label("FAT12TEST");
+        let options = FormatOptions::new(2 * 1024 * 1024).volume_label("FAT12TEST");
 
         let fs = FatVolumeFormatter::format(cursor, options).unwrap();
         assert_eq!(fs.fat_type(), super::super::fat_table::FatType::Fat12);
@@ -158,7 +158,7 @@ mod tests {
         let mut buffer = vec![0u8; 64 * 1024 * 1024];
         let cursor = Cursor::new(&mut buffer[..]);
 
-        let options = FormatOptions::new(64 * 1024 * 1024).with_label("FAT16TEST");
+        let options = FormatOptions::new(64 * 1024 * 1024).volume_label("FAT16TEST");
 
         let fs = FatVolumeFormatter::format(cursor, options).unwrap();
         assert_eq!(fs.fat_type(), super::super::fat_table::FatType::Fat16);
@@ -173,8 +173,8 @@ mod tests {
         let cursor = Cursor::new(&mut buffer[..]);
 
         let options = FormatOptions::new(256 * 1024 * 1024)
-            .with_label("FAT32TEST")
-            .with_fat_type(FatTypeSelection::Fat32);
+            .volume_label("FAT32TEST")
+            .fat_type(FatTypeSelection::Fat32);
 
         let fs = FatVolumeFormatter::format(cursor, options).unwrap();
         assert_eq!(fs.fat_type(), super::super::fat_table::FatType::Fat32);

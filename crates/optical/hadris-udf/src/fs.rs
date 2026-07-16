@@ -108,19 +108,19 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
             data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
             data.read_exact(&mut buffer).await?;
 
-            let tag: &DescriptorTag = bytemuck::try_from_bytes(&buffer[..size_of::<DescriptorTag>()]).map_err(|err| UdfError::PodCastError(err))?;
+            let tag: &DescriptorTag = bytemuck::try_from_bytes(&buffer[..size_of::<DescriptorTag>()]).map_err(UdfError::PodCastError)?;
 
             match tag.identifier() {
                 TagIdentifier::PrimaryVolumeDescriptor => {
-                    let desc: PrimaryVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PrimaryVolumeDescriptor>()]).map_err(|err| UdfError::PodCastError(err))?;
+                    let desc: PrimaryVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PrimaryVolumeDescriptor>()]).map_err(UdfError::PodCastError)?;
                     pvd = Some(desc);
                 }
                 TagIdentifier::PartitionDescriptor => {
-                    let desc: PartitionDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PartitionDescriptor>()]).map_err(|err| UdfError::PodCastError(err))?;
+                    let desc: PartitionDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PartitionDescriptor>()]).map_err(UdfError::PodCastError)?;
                     partition = Some(desc);
                 }
                 TagIdentifier::LogicalVolumeDescriptor => {
-                    let desc: LogicalVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<LogicalVolumeDescriptor>()]).map_err(|err| UdfError::PodCastError(err))?;
+                    let desc: LogicalVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<LogicalVolumeDescriptor>()]).map_err(UdfError::PodCastError)?;
                     lvd = Some(desc);
                 }
                 TagIdentifier::TerminatingDescriptor => break,
@@ -128,9 +128,9 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
             }
         }
 
-        let pvd = pvd.ok_or_else(|| UdfError::InvalidVds("PVD"))?;
-        let partition = partition.ok_or_else(|| UdfError::InvalidPartition(0))?;
-        let lvd = lvd.ok_or_else(|| UdfError::InvalidVds("LVD"))?;
+        let pvd = pvd.ok_or(UdfError::InvalidVds("PVD"))?;
+        let partition = partition.ok_or(UdfError::InvalidPartition(0))?;
+        let lvd = lvd.ok_or(UdfError::InvalidVds("LVD"))?;
 
         // Read File Set Descriptor from the location in LVD
         let fsd_location = lvd.file_set_location();

@@ -203,7 +203,7 @@ fn gpt_unused_entry() {
 #[test]
 fn guid_display_format() {
     let guid = Guid::EFI_SYSTEM;
-    let s = format!("{}", guid);
+    let s = format!("{guid}");
     assert_eq!(s.len(), 36);
     assert_eq!(&s[8..9], "-");
     assert_eq!(&s[13..14], "-");
@@ -214,7 +214,7 @@ fn guid_display_format() {
 #[test]
 fn guid_roundtrip_string() {
     let original = Guid::EFI_SYSTEM;
-    let s = format!("{}", original);
+    let s = format!("{original}");
     let parsed = Guid::from_str(&s).unwrap();
     assert_eq!(original, parsed);
 }
@@ -241,13 +241,13 @@ fn partition_info_trait_empty_partition() {
     let partition = MbrPartition::new(MbrPartitionType::Empty, 0, 0);
     assert_eq!(partition.start_lba(), 0);
     assert_eq!(partition.size_sectors(), 0);
-    assert_eq!(partition.size_bytes(), 0);
+    assert_eq!(partition.byte_len(512), Some(0));
 }
 
 #[test]
 fn partition_info_trait_custom_sector_size() {
     let partition = MbrPartition::new(MbrPartitionType::Fat32, 2048, 100);
-    assert_eq!(partition.size_bytes(), 100 * 512);
+    assert_eq!(partition.byte_len(512), Some(100 * 512));
     assert_eq!(partition.size_bytes_with_sector_size(4096), 100 * 4096);
 }
 
@@ -287,14 +287,14 @@ fn partition_error_display() {
     let err = PartitionError::InvalidMbrSignature {
         found: [0x00, 0x00],
     };
-    let msg = format!("{}", err);
+    let msg = format!("{err}");
     assert!(msg.contains("invalid MBR signature"));
 
     let err = PartitionError::DiskTooSmall {
         required: 1000,
         available: 500,
     };
-    let msg = format!("{}", err);
+    let msg = format!("{err}");
     assert!(msg.contains("disk too small"));
 }
 

@@ -91,12 +91,12 @@ fn endian_type_display() {
 #[test]
 fn number_display() {
     let v = U16::<LittleEndian>::new(1234);
-    assert_eq!(format!("{}", v), "1234");
-    assert_eq!(format!("{:x}", v), "0x04d2");
+    assert_eq!(format!("{v}"), "1234");
+    assert_eq!(format!("{v:x}"), "0x04d2");
 
     let v = U32::<BigEndian>::new(0xDEAD);
-    assert_eq!(format!("{}", v), "57005");
-    assert_eq!(format!("{:X}", v), "0x0000DEAD");
+    assert_eq!(format!("{v}"), "57005");
+    assert_eq!(format!("{v:X}"), "0x0000DEAD");
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn extent_exact_sector_boundary() {
 #[test]
 fn extent_display() {
     let e = Extent::new(100, 4096);
-    assert_eq!(format!("{}", e), "sector 100 (4096 bytes)");
+    assert_eq!(format!("{e}"), "sector 100 (4096 bytes)");
 }
 
 #[test]
@@ -207,7 +207,7 @@ fn fixed_filename_truncate() {
 #[test]
 fn fixed_filename_display() {
     let name = FixedBytes::<32>::from(b"test.iso".as_slice());
-    assert_eq!(format!("{}", name), "test.iso");
+    assert_eq!(format!("{name}"), "test.iso");
 }
 
 // ---------------------------------------------------------------------------

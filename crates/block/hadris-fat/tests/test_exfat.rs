@@ -24,7 +24,7 @@
 #![cfg(feature = "exfat")]
 
 use hadris_fat::FatError;
-use hadris_fat::exfat::{ExFatBootSector, ExFatFs, FileAttributes};
+use hadris_fat::exfat::{ExFatBootSector, ExFatFs};
 use std::fs::File;
 use std::io::{Cursor, Read as StdRead};
 
@@ -189,9 +189,7 @@ mod filesystem_tests {
 
         assert!(
             free <= total,
-            "Free clusters ({}) exceeds total ({})",
-            free,
-            total
+            "Free clusters ({free}) exceeds total ({total})"
         );
     }
 }
@@ -217,7 +215,7 @@ mod directory_tests {
                     assert!(!e.name.is_empty(), "Entry has empty name");
                 }
                 Err(e) => {
-                    panic!("Error reading directory entry: {:?}", e);
+                    panic!("Error reading directory entry: {e:?}");
                 }
             }
         }
@@ -248,9 +246,9 @@ mod directory_tests {
                     .filter_map(|e| e.ok())
                     .map(|e| e.name.clone())
                     .collect();
-                panic!("hello.txt not found. Available entries: {:?}", entries);
+                panic!("hello.txt not found. Available entries: {entries:?}");
             }
-            Err(e) => panic!("Error finding file: {:?}", e),
+            Err(e) => panic!("Error finding file: {e:?}"),
         }
     }
 
@@ -274,9 +272,9 @@ mod directory_tests {
                     .filter_map(|e| e.ok())
                     .map(|e| e.name.clone())
                     .collect();
-                panic!("subdir not found. Available entries: {:?}", entries);
+                panic!("subdir not found. Available entries: {entries:?}");
             }
-            Err(e) => panic!("Error finding directory: {:?}", e),
+            Err(e) => panic!("Error finding directory: {e:?}"),
         }
     }
 
@@ -299,7 +297,7 @@ mod directory_tests {
             }
             _ => {
                 // One found, one didn't - that's wrong
-                panic!("Case sensitivity mismatch: {:?} vs {:?}", result1, result2);
+                panic!("Case sensitivity mismatch: {result1:?} vs {result2:?}");
             }
         }
     }
@@ -332,12 +330,10 @@ mod navigation_tests {
             Ok(subdir) => {
                 // Read entries in subdirectory
                 let mut found_nested = false;
-                for entry in subdir.entries() {
-                    if let Ok(e) = entry {
-                        if e.name == "nested.txt" {
-                            found_nested = true;
-                            assert!(!e.is_directory());
-                        }
+                for entry in subdir.entries().flatten() {
+                    if entry.name == "nested.txt" {
+                        found_nested = true;
+                        assert!(!entry.is_directory());
                     }
                 }
                 assert!(found_nested, "nested.txt not found in subdir");
@@ -350,10 +346,7 @@ mod navigation_tests {
                     .filter_map(|e| e.ok())
                     .map(|e| e.name.clone())
                     .collect();
-                panic!(
-                    "Failed to open subdir: {:?}. Root entries: {:?}",
-                    e, entries
-                );
+                panic!("Failed to open subdir: {e:?}. Root entries: {entries:?}");
             }
         }
     }
@@ -372,7 +365,7 @@ mod navigation_tests {
             }
             Err(e) => {
                 // Could be a fixture issue, just note it
-                eprintln!("Note: Could not open /subdir/nested.txt: {:?}", e);
+                eprintln!("Note: Could not open /subdir/nested.txt: {e:?}");
             }
         }
     }
@@ -402,7 +395,7 @@ mod navigation_tests {
             Err(FatError::NotADirectory) => { /* Expected */ }
             Err(FatError::EntryNotFound) => { /* File might not exist in fixture */ }
             Ok(_) => panic!("Should not be able to open a file as a directory"),
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => panic!("Unexpected error: {e:?}"),
         }
     }
 }
@@ -434,12 +427,11 @@ mod file_reading_tests {
 
                 assert!(
                     content.contains("Hello") || content.contains("exFAT"),
-                    "Unexpected content: {}",
-                    content
+                    "Unexpected content: {content}"
                 );
             }
             Err(e) => {
-                eprintln!("Note: Could not open hello.txt: {:?}", e);
+                eprintln!("Note: Could not open hello.txt: {e:?}");
             }
         }
     }
@@ -458,14 +450,14 @@ mod file_reading_tests {
                     match reader.read(&mut buf) {
                         Ok(0) => break,
                         Ok(n) => content.extend_from_slice(&buf[..n]),
-                        Err(e) => panic!("Read error: {:?}", e),
+                        Err(e) => panic!("Read error: {e:?}"),
                     }
                 }
 
                 assert!(!content.is_empty(), "File content is empty");
             }
             Err(e) => {
-                eprintln!("Note: Could not open test.txt: {:?}", e);
+                eprintln!("Note: Could not open test.txt: {e:?}");
             }
         }
     }
@@ -484,22 +476,20 @@ mod attribute_tests {
         let fs = open_exfat_fs();
         let root = fs.root_dir();
 
-        for entry in root.entries() {
-            if let Ok(e) = entry {
-                // Check attribute consistency
-                if e.is_directory() {
-                    assert!(
-                        e.attributes.contains(FileAttributes::DIRECTORY),
-                        "Directory {} missing DIRECTORY attribute",
-                        e.name
-                    );
-                } else {
-                    assert!(
-                        !e.attributes.contains(FileAttributes::DIRECTORY),
-                        "File {} has DIRECTORY attribute",
-                        e.name
-                    );
-                }
+        for entry in root.entries().flatten() {
+            // Check attribute consistency
+            if entry.is_directory() {
+                assert!(
+                    entry.attributes.contains(FileAttributes::DIRECTORY),
+                    "Directory {} missing DIRECTORY attribute",
+                    entry.name
+                );
+            } else {
+                assert!(
+                    !entry.attributes.contains(FileAttributes::DIRECTORY),
+                    "File {} has DIRECTORY attribute",
+                    entry.name
+                );
             }
         }
     }
@@ -534,14 +524,12 @@ mod unicode_tests {
 
         // Look for the Japanese filename
         let mut found_unicode = false;
-        for entry in root.entries() {
-            if let Ok(e) = entry {
-                // Check if filename contains non-ASCII
-                if e.name.chars().any(|c| !c.is_ascii()) {
-                    found_unicode = true;
-                    // Should be able to read the name
-                    assert!(!e.name.is_empty());
-                }
+        for entry in root.entries().flatten() {
+            // Check if filename contains non-ASCII
+            if !entry.name.is_ascii() {
+                found_unicode = true;
+                // Should be able to read the name
+                assert!(!entry.name.is_empty());
             }
         }
 

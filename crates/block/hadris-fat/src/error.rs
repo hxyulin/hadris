@@ -292,21 +292,19 @@ impl fmt::Display for FatError {
             Self::VolumeTooSmall { size, min_size } => {
                 write!(
                     f,
-                    "volume size {} bytes is too small (minimum: {} bytes)",
-                    size, min_size
+                    "volume size {size} bytes is too small (minimum: {min_size} bytes)"
                 )
             }
             #[cfg(feature = "write")]
             Self::VolumeTooLarge { size, max_size } => {
                 write!(
                     f,
-                    "volume size {} bytes is too large (maximum: {} bytes)",
-                    size, max_size
+                    "volume size {size} bytes is too large (maximum: {max_size} bytes)"
                 )
             }
             #[cfg(feature = "write")]
             Self::InvalidFormatOption { option, reason } => {
-                write!(f, "invalid format option '{}': {}", option, reason)
+                write!(f, "invalid format option '{option}': {reason}")
             }
             #[cfg(feature = "exfat")]
             Self::ExFatInvalidSignature { expected, found } => {

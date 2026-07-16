@@ -82,7 +82,7 @@ fn nested_dir(depth: usize) -> IsoFile {
     };
     for i in (0..depth).rev() {
         current = IsoFile::Directory {
-            name: Arc::new(format!("dir{}", i)),
+            name: Arc::new(format!("dir{i}")),
             children: vec![current],
         };
     }
@@ -188,13 +188,13 @@ fn test_name_deduplication_produces_unique_names() {
     let root = image.root_dir();
     let names = entry_names(&image, root.dir_ref());
 
-    assert_eq!(names.len(), 3, "Should have 3 entries, got: {:?}", names);
+    assert_eq!(names.len(), 3, "Should have 3 entries, got: {names:?}");
 
     // All names should be distinct
     let mut unique = names.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), 3, "All names should be distinct: {:?}", names);
+    assert_eq!(unique.len(), 3, "All names should be distinct: {names:?}");
 }
 
 #[test]
@@ -214,12 +214,12 @@ fn test_dedup_with_no_extension() {
     let root = image.root_dir();
     let names = entry_names(&image, root.dir_ref());
 
-    assert_eq!(names.len(), 2, "Should have 2 entries, got: {:?}", names);
+    assert_eq!(names.len(), 2, "Should have 2 entries, got: {names:?}");
 
     let mut unique = names.clone();
     unique.sort();
     unique.dedup();
-    assert_eq!(unique.len(), 2, "Names should be unique: {:?}", names);
+    assert_eq!(unique.len(), 2, "Names should be unique: {names:?}");
 }
 
 #[test]
@@ -383,13 +383,11 @@ fn test_roundtrip_multi_level_directories() {
     let root_names = entry_names(&image, root.dir_ref());
     assert!(
         root_names.iter().any(|n| n.contains("FILE1")),
-        "Root should contain FILE1.TXT: {:?}",
-        root_names
+        "Root should contain FILE1.TXT: {root_names:?}"
     );
     assert!(
         root_names.iter().any(|n| n.contains("DIR_A")),
-        "Root should contain DIR_A: {:?}",
-        root_names
+        "Root should contain DIR_A: {root_names:?}"
     );
 
     // Navigate into dir_a
@@ -409,13 +407,11 @@ fn test_roundtrip_multi_level_directories() {
     let dir_a_names = entry_names(&image, dir_a_ref);
     assert!(
         dir_a_names.iter().any(|n| n.contains("FILE2")),
-        "DIR_A should contain FILE2.TXT: {:?}",
-        dir_a_names
+        "DIR_A should contain FILE2.TXT: {dir_a_names:?}"
     );
     assert!(
         dir_a_names.iter().any(|n| n.contains("DIR_B")),
-        "DIR_A should contain DIR_B: {:?}",
-        dir_a_names
+        "DIR_A should contain DIR_B: {dir_a_names:?}"
     );
 
     // Navigate into dir_b
@@ -435,8 +431,7 @@ fn test_roundtrip_multi_level_directories() {
     let dir_b_names = entry_names(&image, dir_b_ref);
     assert!(
         dir_b_names.iter().any(|n| n.contains("FILE3")),
-        "DIR_B should contain FILE3.TXT: {:?}",
-        dir_b_names
+        "DIR_B should contain FILE3.TXT: {dir_b_names:?}"
     );
 }
 
@@ -468,8 +463,7 @@ fn test_empty_directory_roundtrip() {
     let names = entry_names(&image, empty_ref);
     assert!(
         names.is_empty(),
-        "Empty directory should have no non-special entries: {:?}",
-        names
+        "Empty directory should have no non-special entries: {names:?}"
     );
 }
 

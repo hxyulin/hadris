@@ -521,8 +521,8 @@ where
             valid_data_length: 0,
             no_fat_chain: true,
             name_hash: self.upcase.name_hash(name),
-            created: now.clone(),
-            modified: now.clone(),
+            created: now,
+            modified: now,
             accessed: now,
             parent_cluster: slot_cluster,
             entry_offset: self.info.cluster_to_offset(slot_cluster) + slot_offset,
@@ -584,7 +584,7 @@ where
             };
 
             // Check for any entries in the directory
-            for item in dir.entries() {
+            if let Some(item) = dir.entries().next() {
                 let _ = item?;
                 return Err(FatError::DirectoryNotEmpty);
             }
@@ -594,7 +594,7 @@ where
         if entry.first_cluster >= 2 {
             let cluster_count = if entry.no_fat_chain {
                 let cluster_size = self.info.bytes_per_cluster as u64;
-                ((entry.data_length + cluster_size - 1) / cluster_size) as u32
+                entry.data_length.div_ceil(cluster_size) as u32
             } else {
                 0 // Will follow FAT chain
             };
@@ -697,7 +697,7 @@ where
             // Free all clusters
             if entry.first_cluster >= 2 {
                 let cluster_count = if entry.no_fat_chain {
-                    ((entry.data_length + cluster_size - 1) / cluster_size) as u32
+                    entry.data_length.div_ceil(cluster_size) as u32
                 } else {
                     0
                 };
@@ -706,12 +706,12 @@ where
             self.update_entry_size(entry, 0, 0, 0, false)?;
         } else {
             // Calculate clusters to keep
-            let clusters_to_keep = (new_size + cluster_size - 1) / cluster_size;
+            let clusters_to_keep = new_size.div_ceil(cluster_size);
             let new_data_length = clusters_to_keep * cluster_size;
 
             if entry.no_fat_chain {
                 // For contiguous files, just free the excess clusters
-                let total_clusters = (entry.data_length + cluster_size - 1) / cluster_size;
+                let total_clusters = entry.data_length.div_ceil(cluster_size);
                 let clusters_to_free = total_clusters - clusters_to_keep;
 
                 if clusters_to_free > 0 {

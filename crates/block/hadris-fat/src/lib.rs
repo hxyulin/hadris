@@ -92,6 +92,8 @@
 
 #![no_std]
 #![allow(async_fn_in_trait)]
+// Sync and async APIs intentionally compile the same source modules twice.
+#![allow(clippy::duplicate_mod)]
 
 #[cfg(feature = "std")]
 extern crate std;

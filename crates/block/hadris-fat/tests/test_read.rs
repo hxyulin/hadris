@@ -35,7 +35,7 @@ fn test_parse_boot_sector() {
         }
         Err(e) => {
             // Other errors should be investigated
-            panic!("Unexpected error parsing boot sector: {:?}", e);
+            panic!("Unexpected error parsing boot sector: {e:?}");
         }
     }
 }
@@ -325,8 +325,8 @@ mod integration_tests {
         let mut cursor = Cursor::new(buffer);
 
         let opts = FormatOptions::new(volume_size)
-            .with_label("PMOS_BOOT")
-            .with_fat_type(FatTypeSelection::Fat32);
+            .volume_label("PMOS_BOOT")
+            .fat_type(FatTypeSelection::Fat32);
         let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
 
         let entries: Vec<_> = fs.root_dir().entries().filter_map(|e| e.ok()).collect();
@@ -350,8 +350,8 @@ mod integration_tests {
         let mut cursor = Cursor::new(&mut buffer);
 
         let opts = FormatOptions::new(volume_size)
-            .with_label("PLACEHOLDER")
-            .with_fat_type(FatTypeSelection::Fat32);
+            .volume_label("PLACEHOLDER")
+            .fat_type(FatTypeSelection::Fat32);
         {
             let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
             // mkfs.fat stores the label verbatim, including lowercase (issue #31).
@@ -530,10 +530,10 @@ mod navigation_tests {
     #[test]
     fn test_error_display() {
         let err = FatError::EntryNotFound;
-        assert_eq!(format!("{}", err), "entry not found in directory");
+        assert_eq!(format!("{err}"), "entry not found in directory");
 
         let err = FatError::InvalidPath;
-        assert_eq!(format!("{}", err), "path is invalid (empty or malformed)");
+        assert_eq!(format!("{err}"), "path is invalid (empty or malformed)");
     }
 
     /// Test path-based API with invalid paths
@@ -609,7 +609,7 @@ mod navigation_tests {
 
             let entry = result.unwrap();
             assert!(entry.is_file());
-            assert_eq!(entry.size(), 9); // "Deep file" is 9 bytes
+            assert_eq!(entry.len(), 9); // "Deep file" is 9 bytes
         }
 
         #[test]

@@ -557,7 +557,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     ) -> IsoModifyResult<()> {
         // Build WrittenFiles structure from layout
         let mut written_files = WrittenFiles::new();
-        self.build_written_files(layout, &file_extents, &mut written_files, "")?;
+        Self::build_written_files(layout, &file_extents, &mut written_files, "")?;
 
         // Write directory records for all entry types
         let mut root_dirs = BTreeMap::new();
@@ -603,7 +603,6 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
 
     /// Builds WrittenFiles from DirectoryLayout.
     fn build_written_files(
-        &self,
         layout: &DirectoryLayout,
         file_extents: &BTreeMap<String, Extent>,
         written_files: &mut WrittenFiles,
@@ -645,7 +644,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             let _subdir_idx = dir.push_dir(Arc::new(subdir.name.clone()));
 
             // Recurse
-            self.build_written_files(subdir, file_extents, written_files, &full_path)?;
+            Self::build_written_files(subdir, file_extents, written_files, &full_path)?;
         }
 
         Ok(())

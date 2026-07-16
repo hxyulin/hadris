@@ -55,7 +55,7 @@ impl InputFiles {
         if !root_path.is_dir() {
             return Err(FileConversionError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                alloc::format!("Root path '{:?}' is not a directory", root_path),
+                alloc::format!("Root path '{root_path:?}' is not a directory"),
             )));
         }
 
@@ -256,7 +256,7 @@ fn build_rrip_entries(kind: RripEntryKind<'_>, inode: u32) -> RripBuilder {
 /// The suffix `_N` is inserted before the extension (and before any `;1` version
 /// suffix). The basename is truncated if needed to stay within format limits.
 fn apply_dedup_suffix(name: &[u8], n: usize, ty: EntryType) -> Vec<u8> {
-    let suffix = alloc::format!("_{}", n);
+    let suffix = alloc::format!("_{n}");
     let suffix_bytes = suffix.as_bytes();
 
     match ty {

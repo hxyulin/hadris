@@ -25,7 +25,7 @@ fn main() {
     let iso_path = &args[1];
     let output_dir = Path::new(&args[2]);
 
-    println!("Extracting {} to {:?}", iso_path, output_dir);
+    println!("Extracting {iso_path} to {output_dir:?}");
     println!();
 
     // Create output directory
@@ -46,7 +46,7 @@ fn main() {
     extract_directory(&image, &mut content_reader, &root, output_dir, &mut count);
 
     println!();
-    println!("Extracted {} files", count);
+    println!("Extracted {count} files");
 }
 
 fn extract_directory<R: hadris_io::Read + hadris_io::Seek, C: Read + Seek>(
@@ -62,7 +62,7 @@ fn extract_directory<R: hadris_io::Read + hadris_io::Seek, C: Read + Seek>(
         let entry = match entry_result {
             Ok(e) => e,
             Err(e) => {
-                eprintln!("Error reading entry: {:?}", e);
+                eprintln!("Error reading entry: {e:?}");
                 continue;
             }
         };
@@ -87,7 +87,7 @@ fn extract_directory<R: hadris_io::Read + hadris_io::Seek, C: Read + Seek>(
 
         if flags.contains(FileFlags::DIRECTORY) {
             // Create directory and recurse
-            println!("Creating directory: {:?}", file_path);
+            println!("Creating directory: {file_path:?}");
             fs::create_dir_all(&file_path).expect("Failed to create directory");
             // Note: To fully extract subdirectories, you would need to
             // navigate into them using the directory extent
@@ -96,7 +96,7 @@ fn extract_directory<R: hadris_io::Read + hadris_io::Seek, C: Read + Seek>(
             let extent = header.extent.read() as u64;
             let size = header.data_len.read() as usize;
 
-            println!("Extracting: {} ({} bytes)", clean_name, size);
+            println!("Extracting: {clean_name} ({size} bytes)");
 
             // Seek to file content
             let offset = extent * 2048;

@@ -25,14 +25,14 @@ pub fn create(args: CreateArgs) -> Result<()> {
     let file_count = build_dir(&args.source, &mut root, args.verbose)?;
 
     if args.verbose {
-        println!("Found {} files", file_count);
+        println!("Found {file_count} files");
     }
 
     if args.dry_run {
         println!("Dry run: would create UDF image");
         println!("  Volume name: {}", args.volume_name);
-        println!("  UDF revision: {}", revision);
-        println!("  Files: {}", file_count);
+        println!("  UDF revision: {revision}");
+        println!("  Files: {file_count}");
         return Ok(());
     }
 
@@ -87,11 +87,7 @@ fn build_dir(path: &Path, dir: &mut SimpleDir, verbose: bool) -> Result<usize> {
 /// Parse a UDF revision string like "1.02" into a UdfRevision.
 fn parse_revision(s: &str) -> Result<UdfRevision> {
     let err = || -> Box<dyn std::error::Error> {
-        format!(
-            "invalid UDF revision '{}': expected format like 1.02, 2.50",
-            s
-        )
-        .into()
+        format!("invalid UDF revision '{s}': expected format like 1.02, 2.50").into()
     };
     let (major_str, minor_str) = s.split_once('.').ok_or_else(err)?;
     let major = major_str.parse::<u8>().map_err(|_| err())?;
