@@ -22,6 +22,7 @@ pub enum FatVariant {
     Fat12,
     Fat16,
     Fat32,
+    /// exFAT was recognized; the stable unified opener does not open it.
     ExFat,
 }
 

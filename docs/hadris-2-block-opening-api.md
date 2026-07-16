@@ -125,7 +125,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 The exact I/O variant will follow the error capabilities available from
 `hadris-io`; generic source errors should be preserved where practical. exFAT
 detection is always available, but opening returns `UnsupportedFormat` unless
-the facade's future `exfat` capability is enabled and the implementation is
+the facade's future stable exFAT capability is enabled and the implementation is
 ready for category-level use.
 
 The mismatch check compares the BPB-derived variant reported during detection

@@ -16,8 +16,7 @@ No remaining P0 correctness or API blocker was found in the supported
 FAT/ISO/UDF/partition paths. The remaining work is intentionally split:
 
 - **Current freeze tranche:** finish public API cleanup and keep this review current.
-- **Later session:** decide experimental exFAT positioning and perform CLI/CD
-  release polish.
+- **Later session:** perform CLI/CD release polish.
 
 ## Resolved since the original review
 
@@ -45,7 +44,7 @@ Severity: **P0** release blocker, **P1** important before a polished V2 release,
 |----|-----|------|---------------|-------------|
 | A1 | Resolved | ISO API | PVD access is fallible and available in sync/async builds; descriptor and boot-section cursors have async methods; `BootEntryInfo::media_type` spelling is corrected | Freeze after snapshot review |
 | A2 | Resolved | UDF API | Dead `UdfError::UnsupportedRevision` variant removed; VRS continues to report the supported NSR revision family | Freeze after snapshot review |
-| A3 | P1 | exFAT | Fragmented allocation bitmap/upcase files unsupported; API remains sync-only at crate root | Deferred to dedicated exFAT/API-positioning session |
+| A3 | Resolved | exFAT | Retained as the leaf-only `unstable-exfat` preview, excluded from the stable V2 API snapshot and unified opener | Promote only after metadata, directory-growth, and I/O-mode qualification |
 | A4 | P1 | CLI surface | Binary names and verbs remain inconsistent; feature depth differs between tools | Deferred to CLI polish session |
 | A5 | P1 | `hadris-cd` | Writer exists but needs stronger ISO/UDF reopen verification and a deliberate CLI decision | Deferred with surface polish |
 | A6 | P2 | ISO specification | In-repo specification notes remain incomplete and are excluded from the package | Clearly treat as developer notes or finish as a later documentation project |
@@ -59,8 +58,8 @@ Severity: **P0** release blocker, **P1** important before a polished V2 release,
 - Review and commit the ISO/UDF public API snapshot changes.
 - Keep the worktree clean and run workspace tests, strict clippy, formatting,
   feature checks, and public API validation.
-- Avoid adding new public variants or compatibility aliases solely for
-  experimental exFAT or unfinished CLIs.
+- Keep the `unstable-exfat` preview outside the stable public API snapshot and
+  unified opener.
 
 ### Required before V2 release candidate
 
@@ -72,7 +71,8 @@ Severity: **P0** release blocker, **P1** important before a polished V2 release,
 
 ### Explicitly deferred
 
-- Fragmented exFAT metadata and exFAT sync/async namespace migration.
+- Promotion of the exFAT preview, including fragmented metadata, safe directory
+  growth/entry placement, and its final sync/async namespace.
 - CLI naming/command normalization and new CLI features.
 - `hadris-cd-cli` and deeper CD verification.
 - Completion of the bundled ISO specification notes.
@@ -85,7 +85,7 @@ Severity: **P0** release blocker, **P1** important before a polished V2 release,
 | ISO 9660/Joliet/RRIP | Roundtrips, xorriso comparison, RRIP metadata/relocation, boot catalogs, sync/async traversal | Developer specification notes incomplete |
 | UDF | Descriptor tests, writer-to-reader roundtrips, external-tool tests, public content reads | Exact revision within an NSR family is not always derivable from VRS alone |
 | GPT/MBR | Sync/async lifecycle tests, strict primary/backup validation, typed errors | None identified for the advertised V2 surface |
-| exFAT | Basic format/read/write roundtrips and external-tool checks | Experimental; fragmented critical metadata unsupported |
+| exFAT | Basic format/read/write roundtrips and external-tool checks | `unstable-exfat` preview; not part of the stable V2 support promise |
 | CPIO | Roundtrips, async writer, corruption and allocation-bomb tests | CLI convention polish only |
 
 ## Strengths to preserve

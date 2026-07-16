@@ -21,7 +21,7 @@
 //! dd if=tests/fixtures/exfat_partition.img of=tests/fixtures/exfat_boot_sectors.bin bs=512 count=24
 //! ```
 
-#![cfg(feature = "exfat")]
+#![cfg(feature = "unstable-exfat")]
 
 use hadris_fat::FatError;
 use hadris_fat::exfat::{ExFatBootSector, ExFatFs};

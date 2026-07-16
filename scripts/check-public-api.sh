@@ -38,7 +38,17 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 for crate in "${crates[@]}"; do
   generated="$tmp_dir/$crate.txt"
-  cargo public-api -p "$crate" --all-features -sss --color never >"$generated"
+  if [[ "$crate" == "hadris-fat" ]]; then
+    # The unstable exFAT preview is intentionally outside the V2 API
+    # stability promise. Snapshot every stable hadris-fat capability without
+    # treating preview symbols as frozen public API.
+    cargo public-api -p "$crate" \
+      --no-default-features \
+      --features "std,sync,async,read,write,lfn,cache,tool,defmt,dirty-file-panic" \
+      -sss --color never >"$generated"
+  else
+    cargo public-api -p "$crate" --all-features -sss --color never >"$generated"
+  fi
   if [[ "$mode" == update ]]; then
     cp "$generated" "$snapshot_dir/$crate.txt"
   elif ! diff -u "$snapshot_dir/$crate.txt" "$generated"; then

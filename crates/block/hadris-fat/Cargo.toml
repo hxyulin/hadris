@@ -1,7 +1,7 @@
 [package]
 name = "hadris-fat"
 version = "2.0.0"
-description = "A library for working with FAT filesystems (FAT12/FAT16/FAT32/exFAT)"
+description = "FAT12/FAT16/FAT32 support with an unstable exFAT preview"
 readme = "README.md"
 keywords = ["fat", "fat32", "filesystem", "no-std", "vfat"]
 categories = ["no-std", "filesystem"]
@@ -17,7 +17,7 @@ repository.workspace = true
 # the async slice bypasses the cache — see the `cache`/`tool` feature notes
 # below).
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "read", "write", "lfn", "cache", "tool", "exfat"]
+features = ["std", "sync", "async", "read", "write", "lfn", "cache", "tool"]
 
 [features]
 default = ["read", "write", "lfn", "std", "sync"]
@@ -38,9 +38,9 @@ cache = ["alloc", "sync"]
 # synchronous iterator API (`for entry in dir.entries()`) and is not
 # async-aware, so it is emitted only in the sync slice (mirrors `cache`).
 tool = ["alloc", "read", "sync"]
-# Experimental exFAT filesystem support. The current root-level implementation
-# uses synchronous I/O traits and therefore selects the sync API.
-exfat = ["alloc", "sync"]
+# Unstable exFAT preview. This root-level API is outside the V2 stability
+# promise, uses synchronous I/O traits, and therefore selects the sync API.
+unstable-exfat = ["alloc", "sync"]
 # Embedded-friendly logging: derives `defmt::Format` on public diagnostic
 # types (`FatError`, `FatType`, `FatDateTime`, `FsStatusFlags`) so they can
 # be logged through `defmt::info!` etc. without going through `Debug`.
@@ -76,4 +76,4 @@ tempfile = "3"
 
 [[test]]
 name = "exfat_upcase_dos"
-required-features = ["exfat"]
+required-features = ["unstable-exfat"]

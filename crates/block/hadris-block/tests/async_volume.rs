@@ -5,8 +5,9 @@ use core::task::{Context, Poll};
 use std::sync::Arc;
 use std::task::{Wake, Waker};
 
+use hadris_block::Error;
 use hadris_block::r#async::OpenVolume;
-use hadris_block::detect::FatVariant;
+use hadris_block::detect::{BlockFormat, FatVariant};
 use hadris_io::SeekFrom;
 use hadris_io::r#async::{Read, Seek, Write};
 use hadris_storage::PartitionView;
@@ -148,6 +149,25 @@ fn async_partition_view_enforces_relative_bounds() {
         assert_eq!(view.read(&mut buffer).await.unwrap(), 0);
         assert!(view.seek(SeekFrom::Start(5)).await.is_err());
         assert_eq!(view.seek(SeekFrom::End(-1)).await.unwrap(), 3);
+    });
+}
+
+#[test]
+fn async_detects_exfat_but_rejects_unified_opening() {
+    block_on(async {
+        let mut image = vec![0_u8; 512];
+        image[3..11].copy_from_slice(b"EXFAT   ");
+        image[510..512].copy_from_slice(&[0x55, 0xaa]);
+        let mut source = AsyncCursor::new(image);
+        source.seek(SeekFrom::Start(11)).await.unwrap();
+
+        assert!(matches!(
+            OpenVolume::open(&mut source, 512).await,
+            Err(Error::UnsupportedFormat(BlockFormat::Fat(
+                FatVariant::ExFat
+            )))
+        ));
+        assert_eq!(source.position, 11);
     });
 }
 

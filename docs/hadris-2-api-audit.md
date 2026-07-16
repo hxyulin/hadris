@@ -53,8 +53,9 @@ and `hadris_common::str::utf16::FixedUtf16Str` names remain deprecated aliases.
 `FatDir`, `DirectoryEntry`, `FileReader`, and `FileWriter` retain their current
 names for 2.0. They describe concrete FAT handles, have matching sync/async
 shapes, and a rename would add migration cost without clarifying ownership or
-lifecycle. Experimental exFAT stays outside the stable FAT volume surface for
-2.0 until it meets the same validation and async contracts.
+lifecycle. The `unstable-exfat` leaf-crate preview stays outside the stable FAT
+volume surface and API snapshot for 2.0 until it meets the same validation and
+I/O-mode contracts.
 
 The block facade continuously runs canonical async FAT detection, opening,
 nested directory creation, multi-cluster content write/read, truncation,

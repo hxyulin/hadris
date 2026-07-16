@@ -1,4 +1,4 @@
-//! exFAT filesystem implementation.
+//! Unstable exFAT filesystem preview.
 //!
 //! exFAT (Extended File Allocation Table) is a filesystem designed for flash drives
 //! and external storage. It differs significantly from FAT12/16/32:
@@ -9,6 +9,21 @@
 //! - No 8.3 short names, only Unicode (up to 255 chars)
 //! - 64-bit file sizes
 //! - UTC timestamps with timezone offsets
+//!
+//! # Stability and supported subset
+//!
+//! This module is enabled by `unstable-exfat` and is outside the Hadris V2 API
+//! stability promise. Its APIs may change in V2 minor releases. It supports
+//! basic formatting, reading, traversal, and simple mutation on conventional
+//! layouts, but should not be used with irreplaceable data.
+//!
+//! The preview is synchronous and allocation-backed. Fragmented allocation
+//! bitmap and up-case metadata, directory growth, general cross-cluster
+//! directory entry-set placement, TexFAT, and repair workflows are not
+//! supported. The `hadris-block` facade reports
+//! `detect::FatVariant::ExFat` for format detection, but its stable
+//! block-volume opener intentionally rejects exFAT until this implementation
+//! is release-qualified.
 
 mod bitmap;
 mod boot;
