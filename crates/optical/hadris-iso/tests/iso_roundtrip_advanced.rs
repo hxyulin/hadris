@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Advanced ISO 9660 roundtrip tests:
 //! - BFS path table generation and traversal
 //! - Filename deduplication for ISO compliance

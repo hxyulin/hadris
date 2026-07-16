@@ -3,10 +3,12 @@
 //! Provides a way to estimate the output size of an ISO image before actually
 //! writing it, which is useful for pre-allocating buffers or reporting progress.
 
+#![allow(deprecated)]
+
 use alloc::vec::Vec;
 
 use super::options::{CreationFeatures, FormatOptions};
-use super::{File, InputFiles};
+use super::{File, InputEntry, InputEntryKind, InputFiles, InputTree};
 use crate::file::EntryType;
 
 /// Breakdown of the estimated size by component.
@@ -129,6 +131,51 @@ fn walk_files_stats(
     stats.dir_record_bytes += align_to_sector(dir_total, sector_size) * sector_size;
 }
 
+fn walk_entries_stats(
+    entries: &[InputEntry],
+    entry_types: &[EntryType],
+    sector_size: u64,
+    stats: &mut TreeStats,
+) {
+    let has_rrip = entry_types.iter().any(|entry| entry.supports_rrip());
+    let mut dir_total = if has_rrip { 256 + 128 } else { 34 + 34 };
+    for entry in entries {
+        let name = &entry.name;
+        let name_len = estimate_converted_name_len(name, entry_types);
+        let extra = match &entry.kind {
+            InputEntryKind::Symlink(target) => target.len() as u64 + 8,
+            InputEntryKind::CharacterDevice { .. } | InputEntryKind::BlockDevice { .. } => 20,
+            _ => 0,
+        };
+        let record_size = if has_rrip {
+            let su_size = 68 + name.len() as u64 + extra;
+            let padded = (33 + name_len + 1) & !1;
+            (padded + su_size).min(256)
+        } else {
+            (33 + name_len + 1) & !1
+        };
+        dir_total += record_size;
+        match &entry.kind {
+            InputEntryKind::File(contents) => {
+                stats.file_count += 1;
+                if !contents.is_empty() {
+                    stats.total_file_bytes +=
+                        align_to_sector(contents.len() as u64, sector_size) * sector_size;
+                }
+            }
+            InputEntryKind::Directory(children) => {
+                stats.dir_count += 1;
+                stats.dir_name_bytes += name_len;
+                walk_entries_stats(children, entry_types, sector_size, stats);
+            }
+            InputEntryKind::Symlink(_)
+            | InputEntryKind::CharacterDevice { .. }
+            | InputEntryKind::BlockDevice { .. } => stats.file_count += 1,
+        }
+    }
+    stats.dir_record_bytes += align_to_sector(dir_total, sector_size) * sector_size;
+}
+
 /// Estimate the converted name length for the first entry type.
 fn estimate_converted_name_len(name: &str, entry_types: &[EntryType]) -> u64 {
     match entry_types.first() {
@@ -167,6 +214,22 @@ fn estimate_converted_name_len(name: &str, entry_types: &[EntryType]) -> u64 {
 /// The estimate is conservative (may slightly overestimate) but will never
 /// underestimate the required size.
 pub fn estimate(files: &InputFiles, options: &FormatOptions) -> IsoSizeEstimate {
+    estimate_impl(options, |entry_types, sector_size, stats| {
+        walk_files_stats(&files.files, entry_types, sector_size, stats);
+    })
+}
+
+/// Estimate an image created from the metadata-aware input model.
+pub fn estimate_tree(files: &InputTree, options: &FormatOptions) -> IsoSizeEstimate {
+    estimate_impl(options, |entry_types, sector_size, stats| {
+        walk_entries_stats(&files.entries, entry_types, sector_size, stats);
+    })
+}
+
+fn estimate_impl(
+    options: &FormatOptions,
+    walk: impl FnOnce(&[EntryType], u64, &mut TreeStats),
+) -> IsoSizeEstimate {
     let sector_size = options.sector_size as u64;
     let features = &options.features;
 
@@ -200,7 +263,7 @@ pub fn estimate(files: &InputFiles, options: &FormatOptions) -> IsoSizeEstimate 
         dir_name_bytes: 0,
         dir_record_bytes: 0,
     };
-    walk_files_stats(&files.files, &entry_types, sector_size, &mut stats);
+    walk(&entry_types, sector_size, &mut stats);
     // Add root directory itself
     stats.dir_count += 1;
 

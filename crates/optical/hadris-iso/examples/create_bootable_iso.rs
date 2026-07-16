@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Example: Creating a Bootable ISO
 //!
 //! This example demonstrates how to create a bootable ISO image with El-Torito

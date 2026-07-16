@@ -628,6 +628,8 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             dir.files.push(WrittenFile {
                 name: Arc::new(file.name.clone()),
                 entry: dir_ref,
+                kind: crate::write::InputEntryKind::File(Vec::new()),
+                metadata: crate::write::InputMetadata::default(),
             });
         }
 
@@ -641,7 +643,10 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             // Add subdirectory to written files
             let root_id = written_files.root_dir();
             let dir = written_files.get_mut(&root_id);
-            let _subdir_idx = dir.push_dir(Arc::new(subdir.name.clone()));
+            let _subdir_idx = dir.push_dir(
+                Arc::new(subdir.name.clone()),
+                crate::write::InputMetadata::default(),
+            );
 
             // Recurse
             Self::build_written_files(subdir, file_extents, written_files, &full_path)?;
@@ -680,7 +685,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         }
 
         for file in &dir.files {
-            let WrittenFile { name, entry } = file;
+            let WrittenFile { name, entry, .. } = file;
             let flags = FileFlags::empty();
             let converted_name = ty.convert_name(name);
             let record = DirectoryRecord::new(converted_name.as_bytes(), &[], *entry, flags);

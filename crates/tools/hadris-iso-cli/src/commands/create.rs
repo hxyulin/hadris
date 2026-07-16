@@ -8,7 +8,7 @@ use hadris_iso::joliet::JolietLevel;
 use hadris_iso::read::PathSeparator;
 use hadris_iso::rrip::RripOptions;
 use hadris_iso::write::options::{CreationFeatures, FormatOptions, HybridBootOptions};
-use hadris_iso::write::{InputFiles, IsoImageWriter, estimator};
+use hadris_iso::write::{InputTree, IsoImageWriter, estimator};
 
 use crate::args::CreateArgs;
 
@@ -22,7 +22,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
     }
 
     // Gather input files
-    let input = InputFiles::from_fs(&args.source, PathSeparator::ForwardSlash)?;
+    let input = InputTree::from_fs(&args.source, PathSeparator::ForwardSlash)?;
 
     if args.verbose {
         println!("Found {} files/directories", count_files(&input));
@@ -118,7 +118,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
 
     // Dry run: print estimate and exit
     if args.dry_run {
-        let est = estimator::estimate(&input, &format_options);
+        let est = estimator::estimate_tree(&input, &format_options);
         println!(
             "Estimated size: {} bytes ({} sectors)",
             est.minimum_bytes(),

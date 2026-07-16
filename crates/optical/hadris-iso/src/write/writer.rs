@@ -11,6 +11,7 @@ use crate::file::EntryType;
 use crate::file::{convert_joliet3, convert_l1, convert_l2, convert_l3};
 
 use super::super::directory::DirectoryRef;
+use super::{InputEntryKind, InputMetadata};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DirectoryId {
@@ -112,6 +113,7 @@ pub struct WrittenDirectory {
     pub entries: BTreeMap<EntryType, DirectoryRef>,
     pub dirs: Vec<WrittenDirectory>,
     pub files: Vec<WrittenFile>,
+    pub metadata: InputMetadata,
 }
 
 impl WrittenDirectory {
@@ -121,11 +123,14 @@ impl WrittenDirectory {
             entries: BTreeMap::new(),
             dirs: Vec::new(),
             files: Vec::new(),
+            metadata: InputMetadata::default(),
         }
     }
 
-    pub fn push_dir(&mut self, name: Arc<String>) -> usize {
-        self.dirs.push(Self::new(name));
+    pub fn push_dir(&mut self, name: Arc<String>, metadata: InputMetadata) -> usize {
+        let mut directory = Self::new(name);
+        directory.metadata = metadata;
+        self.dirs.push(directory);
         self.dirs.len() - 1
     }
 }
@@ -134,6 +139,8 @@ impl WrittenDirectory {
 pub struct WrittenFile {
     pub name: Arc<String>,
     pub entry: DirectoryRef,
+    pub kind: InputEntryKind,
+    pub metadata: InputMetadata,
 }
 
 pub(crate) struct PathTableWriter<'a> {

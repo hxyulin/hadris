@@ -8,7 +8,7 @@ use hadris_iso::joliet::JolietLevel;
 use hadris_iso::read::PathSeparator;
 use hadris_iso::rrip::RripOptions;
 use hadris_iso::write::options::{CreationFeatures, FormatOptions, HybridBootOptions};
-use hadris_iso::write::{InputFiles, IsoImageWriter};
+use hadris_iso::write::{InputTree, IsoImageWriter};
 
 use crate::args::MkisofsArgs;
 
@@ -23,7 +23,7 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
     });
 
     // Gather input files
-    let input = InputFiles::from_fs(&args.source, PathSeparator::ForwardSlash)?;
+    let input = InputTree::from_fs(&args.source, PathSeparator::ForwardSlash)?;
 
     // Configure boot options
     let el_torito = if let Some(boot_path) = &args.boot_image {

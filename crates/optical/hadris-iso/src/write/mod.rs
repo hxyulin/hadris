@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::fmt;
 
@@ -12,7 +14,7 @@ use super::super::io::{self, Read, Seek, SeekFrom, Write};
 use super::super::io::{IsoCursor, LogicalSector};
 use super::super::path::PathTableRef;
 use super::super::read::PathSeparator;
-use super::super::rrip::RripBuilder;
+use super::super::rrip::{RripBuilder, RripOptions};
 use super::super::susp::SplitSu;
 use super::super::volume::{
     BootRecordVolumeDescriptor, PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor,
@@ -45,8 +47,11 @@ pub enum FileConversionError {
     Io(#[from] std::io::Error),
     #[error("Path {0:?} is not a valid UTF-8 string")]
     InvalidUtf8Path(std::path::PathBuf),
+    #[error("Unsupported filesystem entry type at {0:?}")]
+    UnsupportedFileType(std::path::PathBuf),
 }
 
+#[deprecated(since = "2.0.0", note = "use `InputTree::from_fs`")]
 impl InputFiles {
     pub fn from_fs(
         root_path: &std::path::Path,
@@ -68,7 +73,8 @@ impl InputFiles {
     }
 }
 
-/// Recursively reads a directory and converts its contents into a vector of `File` enums.
+/// Recursively reads a directory into the legacy input model.
+#[allow(deprecated)]
 fn read_directory_recursively(
     current_path: &std::path::Path,
 ) -> core::result::Result<Vec<File>, FileConversionError> {
@@ -106,11 +112,13 @@ fn read_directory_recursively(
     Ok(children_files)
 }
 
+#[deprecated(since = "2.0.0", note = "use `InputTree`")]
 pub struct InputFiles {
     pub path_separator: PathSeparator,
     pub files: Vec<File>,
 }
 
+#[deprecated(since = "2.0.0", note = "use `InputEntry` and `InputEntryKind`")]
 #[derive(Clone, PartialEq, Eq)]
 pub enum File {
     File {
@@ -123,6 +131,7 @@ pub enum File {
     },
 }
 
+#[allow(deprecated)]
 impl core::fmt::Debug for File {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut dbg = f.debug_struct("File");
@@ -140,6 +149,7 @@ impl core::fmt::Debug for File {
     }
 }
 
+#[allow(deprecated)]
 impl File {
     pub fn name(&self) -> Arc<String> {
         match self {
@@ -147,6 +157,256 @@ impl File {
             File::Directory { name, .. } => name.clone(),
         }
     }
+}
+
+/// A metadata-aware tree used to create an ISO image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputTree {
+    pub path_separator: PathSeparator,
+    pub entries: Vec<InputEntry>,
+}
+
+/// Optional POSIX metadata for an input entry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InputMetadata {
+    pub mode: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    /// Creation time as seconds since the Unix epoch.
+    pub created: Option<i64>,
+    /// Modification time as seconds since the Unix epoch.
+    pub modified: Option<i64>,
+    /// Access time as seconds since the Unix epoch.
+    pub accessed: Option<i64>,
+}
+
+/// The data represented by an [`InputEntry`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputEntryKind {
+    File(Vec<u8>),
+    Directory(Vec<InputEntry>),
+    Symlink(String),
+    CharacterDevice { major: u32, minor: u32 },
+    BlockDevice { major: u32, minor: u32 },
+}
+
+/// A named input entry and its optional host metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputEntry {
+    pub name: Arc<String>,
+    pub kind: InputEntryKind,
+    pub metadata: InputMetadata,
+}
+
+impl InputEntry {
+    pub fn file(name: impl Into<String>, contents: impl Into<Vec<u8>>) -> Self {
+        Self::new(name, InputEntryKind::File(contents.into()))
+    }
+
+    pub fn directory(name: impl Into<String>, children: Vec<Self>) -> Self {
+        Self::new(name, InputEntryKind::Directory(children))
+    }
+
+    pub fn symlink(name: impl Into<String>, target: impl Into<String>) -> Self {
+        Self::new(name, InputEntryKind::Symlink(target.into()))
+    }
+
+    pub fn character_device(name: impl Into<String>, major: u32, minor: u32) -> Self {
+        Self::new(name, InputEntryKind::CharacterDevice { major, minor })
+    }
+
+    pub fn block_device(name: impl Into<String>, major: u32, minor: u32) -> Self {
+        Self::new(name, InputEntryKind::BlockDevice { major, minor })
+    }
+
+    pub fn with_metadata(mut self, metadata: InputMetadata) -> Self {
+        self.metadata = metadata;
+        self
+    }
+
+    pub fn name(&self) -> Arc<String> {
+        self.name.clone()
+    }
+
+    fn new(name: impl Into<String>, kind: InputEntryKind) -> Self {
+        Self {
+            name: Arc::new(name.into()),
+            kind,
+            metadata: InputMetadata::default(),
+        }
+    }
+}
+
+impl InputTree {
+    pub fn new(path_separator: PathSeparator, entries: Vec<InputEntry>) -> Self {
+        Self {
+            path_separator,
+            entries,
+        }
+    }
+
+    pub fn from_fs(
+        root_path: &std::path::Path,
+        path_separator: PathSeparator,
+    ) -> core::result::Result<Self, FileConversionError> {
+        if !root_path.is_dir() {
+            return Err(FileConversionError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                alloc::format!("Root path '{root_path:?}' is not a directory"),
+            )));
+        }
+        Ok(Self::new(
+            path_separator,
+            read_input_directory_recursively(root_path)?,
+        ))
+    }
+}
+
+#[allow(deprecated)]
+impl From<InputFiles> for InputTree {
+    fn from(value: InputFiles) -> Self {
+        fn convert(file: File) -> InputEntry {
+            match file {
+                File::File { name, contents } => InputEntry {
+                    name,
+                    kind: InputEntryKind::File(contents),
+                    metadata: InputMetadata::default(),
+                },
+                File::Directory { name, children } => InputEntry {
+                    name,
+                    kind: InputEntryKind::Directory(children.into_iter().map(convert).collect()),
+                    metadata: InputMetadata::default(),
+                },
+            }
+        }
+        Self::new(
+            value.path_separator,
+            value.files.into_iter().map(convert).collect(),
+        )
+    }
+}
+
+fn system_time_seconds(value: std::io::Result<std::time::SystemTime>) -> Option<i64> {
+    value
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+}
+
+fn read_input_directory_recursively(
+    current_path: &std::path::Path,
+) -> core::result::Result<Vec<InputEntry>, FileConversionError> {
+    use alloc::string::ToString;
+    let mut children = Vec::new();
+    for entry in std::fs::read_dir(current_path)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| FileConversionError::InvalidUtf8Path(path.clone()))?
+            .to_string();
+        let fs_metadata = std::fs::symlink_metadata(&path)?;
+        let file_type = fs_metadata.file_type();
+        let mut metadata = InputMetadata {
+            created: system_time_seconds(fs_metadata.created()),
+            modified: system_time_seconds(fs_metadata.modified()),
+            accessed: system_time_seconds(fs_metadata.accessed()),
+            ..InputMetadata::default()
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            metadata.mode = Some(fs_metadata.mode() & 0o7777);
+            metadata.uid = Some(fs_metadata.uid());
+            metadata.gid = Some(fs_metadata.gid());
+        }
+        let kind = if file_type.is_file() {
+            InputEntryKind::File(std::fs::read(&path)?)
+        } else if file_type.is_dir() {
+            InputEntryKind::Directory(read_input_directory_recursively(&path)?)
+        } else if file_type.is_symlink() {
+            let target = std::fs::read_link(&path)?;
+            InputEntryKind::Symlink(
+                target
+                    .to_str()
+                    .ok_or_else(|| FileConversionError::InvalidUtf8Path(target.clone()))?
+                    .to_string(),
+            )
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::{FileTypeExt, MetadataExt};
+                let device = fs_metadata.rdev();
+                let major = ((device >> 8) & 0xfff) | ((device >> 32) & 0xfffff000);
+                let minor = (device & 0xff) | ((device >> 12) & 0xffffff00);
+                if file_type.is_char_device() {
+                    InputEntryKind::CharacterDevice {
+                        major: major as u32,
+                        minor: minor as u32,
+                    }
+                } else if file_type.is_block_device() {
+                    InputEntryKind::BlockDevice {
+                        major: major as u32,
+                        minor: minor as u32,
+                    }
+                } else {
+                    return Err(FileConversionError::UnsupportedFileType(path));
+                }
+            }
+            #[cfg(not(unix))]
+            return Err(FileConversionError::UnsupportedFileType(path));
+        };
+        children.push(InputEntry {
+            name: Arc::new(name),
+            kind,
+            metadata,
+        });
+    }
+    children.sort_by_key(|entry| entry.name.to_ascii_lowercase());
+    Ok(children)
+}
+
+fn validate_input_tree(tree: &InputTree, rrip: Option<&RripOptions>) -> io::Result<()> {
+    fn visit(entries: &[InputEntry], rrip: Option<&RripOptions>, depth: usize) -> io::Result<()> {
+        for entry in entries {
+            match &entry.kind {
+                InputEntryKind::Directory(children) => {
+                    if depth >= 8 {
+                        let message = if rrip
+                            .is_some_and(|options| options.enabled && options.relocate_deep_dirs)
+                        {
+                            "RRIP deep-directory relocation is not implemented"
+                        } else {
+                            "directory depth exceeds ISO 9660 limit and RRIP relocation is disabled"
+                        };
+                        return Err(io::Error::new(io::ErrorKind::InvalidInput, message));
+                    }
+                    visit(children, rrip, depth + 1)?;
+                }
+                InputEntryKind::Symlink(_) => {
+                    if !rrip.is_some_and(|options| options.enabled && options.preserve_symlinks) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "symbolic links require RRIP preserve_symlinks",
+                        ));
+                    }
+                }
+                InputEntryKind::CharacterDevice { .. } | InputEntryKind::BlockDevice { .. } => {
+                    if !rrip.is_some_and(|options| options.enabled && options.preserve_devices) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "device entries require RRIP preserve_devices",
+                        ));
+                    }
+                }
+                InputEntryKind::File(_) => {}
+            }
+        }
+        Ok(())
+    }
+    visit(&tree.entries, rrip, 1)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -169,22 +429,31 @@ pub struct IsoImageWriter<DATA: Read + Write + Seek> {
     written_files: WrittenFiles,
     path_tables: BTreeMap<EntryType, PathTableRef>,
     inode_counter: u32,
+    rrip_time: [u8; 7],
 }
 
 /// The kind of directory entry, used to select which RRIP entries to emit.
 enum RripEntryKind<'a> {
     /// Root directory's "." entry — needs SP + ER + PX + NM(CURRENT)
-    RootDot,
+    RootDot { metadata: InputMetadata, nlink: u32 },
     /// Root directory's ".." entry — needs PX + NM(PARENT)
-    RootDotDot,
+    RootDotDot { metadata: InputMetadata, nlink: u32 },
     /// Non-root "." entry — needs PX + NM(CURRENT)
-    Dot,
+    Dot { metadata: InputMetadata, nlink: u32 },
     /// Non-root ".." entry — needs PX + NM(PARENT)
-    DotDot,
+    DotDot { metadata: InputMetadata, nlink: u32 },
     /// A named directory entry
-    Directory { original_name: &'a str },
+    Directory {
+        original_name: &'a str,
+        metadata: InputMetadata,
+        nlink: u32,
+    },
     /// A named file entry
-    File { original_name: &'a str },
+    Entry {
+        original_name: &'a str,
+        metadata: InputMetadata,
+        kind: &'a InputEntryKind,
+    },
 }
 
 /// Compute the available system use space in a DirectoryRecord given
@@ -200,51 +469,104 @@ fn available_su_space(iso_name_len: usize) -> usize {
 /// Entries are ordered by priority (most important first, largest last),
 /// so that `build_split` keeps the important ones inline and overflows
 /// the rest via a CE pointer.
-// TODO: Accept `&RripOptions` and use it to:
-//  - Conditionally include PX entries (preserve_permissions / preserve_ownership)
-//  - Use actual file modes/uid/gid instead of hardcoded 0o755/0o644 and 0/0
-//  - Conditionally include TF entries (preserve_timestamps) with real timestamps
-//  - Support symbolic links (preserve_symlinks) and device files (preserve_devices)
-//  - Handle deep directory relocation (relocate_deep_dirs)
-fn build_rrip_entries(kind: RripEntryKind<'_>, inode: u32) -> RripBuilder {
-    use super::super::directory::DirDateTime;
+fn rrip_datetime(timestamp: Option<i64>, fallback: &[u8; 7]) -> [u8; 7] {
+    use chrono::{Datelike, Timelike};
+    let Some(timestamp) = timestamp.and_then(|value| chrono::DateTime::from_timestamp(value, 0))
+    else {
+        return *fallback;
+    };
+    [
+        (timestamp.year() - 1900).clamp(0, 255) as u8,
+        timestamp.month() as u8,
+        timestamp.day() as u8,
+        timestamp.hour() as u8,
+        timestamp.minute() as u8,
+        timestamp.second() as u8,
+        0,
+    ]
+}
 
+fn build_rrip_entries(
+    kind: RripEntryKind<'_>,
+    inode: u32,
+    options: &RripOptions,
+    fallback_time: &[u8; 7],
+) -> RripBuilder {
     let mut builder = RripBuilder::new();
-    let now = DirDateTime::now();
-    let now_bytes: &[u8; 7] = bytemuck::bytes_of(&now).try_into().unwrap();
+    let add_common = |builder: &mut RripBuilder,
+                      metadata: InputMetadata,
+                      type_mode: u32,
+                      default_permissions: u32,
+                      nlink: u32| {
+        let permissions = if options.preserve_permissions {
+            metadata.mode.unwrap_or(default_permissions)
+        } else {
+            default_permissions
+        };
+        let (uid, gid) = if options.preserve_ownership {
+            (metadata.uid.unwrap_or(0), metadata.gid.unwrap_or(0))
+        } else {
+            (0, 0)
+        };
+        builder.add_px(type_mode | permissions, nlink, uid, gid, inode);
+        if options.preserve_timestamps {
+            let modified = rrip_datetime(metadata.modified, fallback_time);
+            let accessed = rrip_datetime(metadata.accessed, fallback_time);
+            builder.add_tf_short(&modified, &accessed);
+        }
+    };
 
     match &kind {
-        RripEntryKind::RootDot => {
+        RripEntryKind::RootDot { metadata, nlink } => {
             builder.add_sp(0);
-            builder.add_px(0o040755, 2, 0, 0, inode);
+            add_common(&mut builder, *metadata, 0o040000, 0o755, *nlink);
             builder.add_nm_current();
-            builder.add_tf_short(now_bytes, now_bytes);
             builder.add_rrip_er(); // full ER, last (largest)
         }
-        RripEntryKind::RootDotDot => {
-            builder.add_px(0o040755, 2, 0, 0, inode);
+        RripEntryKind::RootDotDot { metadata, nlink } => {
+            add_common(&mut builder, *metadata, 0o040000, 0o755, *nlink);
             builder.add_nm_parent();
-            builder.add_tf_short(now_bytes, now_bytes);
         }
-        RripEntryKind::Dot => {
-            builder.add_px(0o040755, 2, 0, 0, inode);
+        RripEntryKind::Dot { metadata, nlink } => {
+            add_common(&mut builder, *metadata, 0o040000, 0o755, *nlink);
             builder.add_nm_current();
-            builder.add_tf_short(now_bytes, now_bytes);
         }
-        RripEntryKind::DotDot => {
-            builder.add_px(0o040755, 2, 0, 0, inode);
+        RripEntryKind::DotDot { metadata, nlink } => {
+            add_common(&mut builder, *metadata, 0o040000, 0o755, *nlink);
             builder.add_nm_parent();
-            builder.add_tf_short(now_bytes, now_bytes);
         }
-        RripEntryKind::Directory { original_name } => {
-            builder.add_px(0o040755, 2, 0, 0, inode);
+        RripEntryKind::Directory {
+            original_name,
+            metadata,
+            nlink,
+        } => {
+            add_common(&mut builder, *metadata, 0o040000, 0o755, *nlink);
             builder.add_nm(original_name.as_bytes());
-            builder.add_tf_short(now_bytes, now_bytes);
         }
-        RripEntryKind::File { original_name } => {
-            builder.add_px(0o100644, 1, 0, 0, inode);
+        RripEntryKind::Entry {
+            original_name,
+            metadata,
+            kind,
+        } => {
+            let (type_mode, default_permissions) = match kind {
+                InputEntryKind::File(_) => (0o100000, 0o644),
+                InputEntryKind::Symlink(_) => (0o120000, 0o777),
+                InputEntryKind::CharacterDevice { .. } => (0o020000, 0o600),
+                InputEntryKind::BlockDevice { .. } => (0o060000, 0o600),
+                InputEntryKind::Directory(_) => unreachable!(),
+            };
+            add_common(&mut builder, *metadata, type_mode, default_permissions, 1);
             builder.add_nm(original_name.as_bytes());
-            builder.add_tf_short(now_bytes, now_bytes);
+            match kind {
+                InputEntryKind::Symlink(target) => {
+                    builder.add_sl(target);
+                }
+                InputEntryKind::CharacterDevice { major, minor }
+                | InputEntryKind::BlockDevice { major, minor } => {
+                    builder.add_pn(*major, *minor);
+                }
+                _ => {}
+            }
         }
     }
 
@@ -334,11 +656,13 @@ struct PendingRecord {
 io_transform! {
 impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     /// Creates a complete ISO image and returns its output target.
-    pub async fn create(
+    pub async fn create<T: Into<InputTree>>(
         data: DATA,
-        mut files: InputFiles,
+        files: T,
         ops: FormatOptions,
     ) -> IsoCreationResult<DATA> {
+        let mut files = files.into();
+        validate_input_tree(&files, ops.features.rock_ridge.as_ref())?;
         let mut writer = Self::new(data, ops);
         writer.write_volume_descriptors(&mut files).await?;
         let root_dirs = writer.write_files(&files).await?;
@@ -363,6 +687,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     fn new(data: DATA, ops: FormatOptions) -> Self {
+        let now = super::super::directory::DirDateTime::now();
+        let rrip_time = *<&[u8; 7]>::try_from(bytemuck::bytes_of(&now)).unwrap();
         let mut entry_types = Vec::new();
         // The base (PVD) entry type inherits supports_rrip from the filenames config
         entry_types.push(ops.features.filenames.into());
@@ -383,6 +709,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             written_files: WrittenFiles::new(),
             path_tables: BTreeMap::new(),
             inode_counter: 1,
+            rrip_time,
         }
     }
 
@@ -401,7 +728,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, field_name))
     }
 
-    async fn write_volume_descriptors(&mut self, files: &mut InputFiles) -> io::Result<()> {
+    async fn write_volume_descriptors(&mut self, files: &mut InputTree) -> io::Result<()> {
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START).await?;
         let mut volume_descriptors = VolumeDescriptorList::empty();
         for &entry in &self.entry_types {
@@ -737,7 +1064,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
-    async fn write_files(&mut self, files: &InputFiles) -> io::Result<BTreeMap<EntryType, DirectoryRef>> {
+    async fn write_files(&mut self, files: &InputTree) -> io::Result<BTreeMap<EntryType, DirectoryRef>> {
         let roots = {
             let files = FileTreeWalker::new(files);
             let mut current_dir = self.written_files.root_dir();
@@ -753,8 +1080,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                             ));
                         }
                         let name = dir.name();
-                        let dir = self.written_files.get_mut(&current_dir);
-                        current_dir.push(dir.push_dir(name));
+                        let metadata = dir.metadata;
+                        let written_dir = self.written_files.get_mut(&current_dir);
+                        current_dir.push(written_dir.push_dir(name, metadata));
                     }
                     TreeWalkerItem::ExitDirectory(_dir) => {
                         depth -= 1;
@@ -766,12 +1094,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                                 dir,
                                 false,
                                 &mut self.inode_counter,
+                                self.ops.features.rock_ridge.as_ref(),
+                                &self.rrip_time,
                             ).await?;
                         }
                         current_dir.pop();
                     }
                     TreeWalkerItem::File(file) => {
-                        if let File::File { name, contents } = file {
+                        if let InputEntryKind::File(contents) = &file.kind {
                             // Handle zero-size files specially:
                             // Per ISO 9660, empty files should have extent location of 0
                             // since there is no data to reference.
@@ -790,8 +1120,21 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                             };
                             let dir = self.written_files.get_mut(&current_dir);
                             dir.files.push(WrittenFile {
-                                name: name.clone(),
+                                name: file.name.clone(),
                                 entry,
+                                kind: file.kind.clone(),
+                                metadata: file.metadata,
+                            });
+                        } else {
+                            let dir = self.written_files.get_mut(&current_dir);
+                            dir.files.push(WrittenFile {
+                                name: file.name.clone(),
+                                entry: DirectoryRef {
+                                    extent: LogicalSector(0),
+                                    size: 0,
+                                },
+                                kind: file.kind.clone(),
+                                metadata: file.metadata,
                             });
                         }
                     }
@@ -801,7 +1144,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             // Write root directory
             let dir = self.written_files.get_mut(&current_dir);
             for ty in &self.entry_types {
-                Self::write_directory(&mut self.data, *ty, dir, true, &mut self.inode_counter).await?;
+                Self::write_directory(
+                    &mut self.data,
+                    *ty,
+                    dir,
+                    true,
+                    &mut self.inode_counter,
+                    self.ops.features.rock_ridge.as_ref(),
+                    &self.rrip_time,
+                )
+                .await?;
             }
 
             self.written_files.root_refs().clone()
@@ -1265,8 +1617,13 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         dir: &mut WrittenDirectory,
         is_root: bool,
         inode_counter: &mut u32,
+        rrip_options: Option<&RripOptions>,
+        fallback_time: &[u8; 7],
     ) -> io::Result<()> {
-        let has_rrip = ty.supports_rrip();
+        let rrip_options = rrip_options.filter(|options| options.enabled);
+        let has_rrip = ty.supports_rrip() && rrip_options.is_some();
+        let options = rrip_options.copied().unwrap_or_else(RripOptions::disabled);
+        let directory_nlink = 2 + dir.dirs.len() as u32;
 
         // ── Phase 1: Build all pending records ──
 
@@ -1275,12 +1632,18 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         // Dot entry (".")
         let dot_split = if has_rrip {
             let kind = if is_root {
-                RripEntryKind::RootDot
+                RripEntryKind::RootDot {
+                    metadata: dir.metadata,
+                    nlink: directory_nlink,
+                }
             } else {
-                RripEntryKind::Dot
+                RripEntryKind::Dot {
+                    metadata: dir.metadata,
+                    nlink: directory_nlink,
+                }
             };
             let max = available_su_space(1); // name is b"\x00"
-            build_rrip_entries(kind, 0).build_split(max)
+            build_rrip_entries(kind, 0, &options, fallback_time).build_split(max)
         } else {
             SplitSu::empty()
         };
@@ -1294,12 +1657,18 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         // Dotdot entry ("..")
         let dotdot_split = if has_rrip {
             let kind = if is_root {
-                RripEntryKind::RootDotDot
+                RripEntryKind::RootDotDot {
+                    metadata: dir.metadata,
+                    nlink: directory_nlink,
+                }
             } else {
-                RripEntryKind::DotDot
+                RripEntryKind::DotDot {
+                    metadata: dir.metadata,
+                    nlink: directory_nlink,
+                }
             };
             let max = available_su_space(1); // name is b"\x01"
-            build_rrip_entries(kind, 0).build_split(max)
+            build_rrip_entries(kind, 0, &options, fallback_time).build_split(max)
         } else {
             SplitSu::empty()
         };
@@ -1312,7 +1681,13 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         // Directory entries
         for directory in &dir.dirs {
-            let WrittenDirectory { name, entries, .. } = directory;
+            let WrittenDirectory {
+                name,
+                entries,
+                metadata,
+                dirs,
+                ..
+            } = directory;
             let converted_name = ty.convert_name(name);
             let split = if has_rrip {
                 let inode = *inode_counter;
@@ -1321,8 +1696,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 build_rrip_entries(
                     RripEntryKind::Directory {
                         original_name: name,
+                        metadata: *metadata,
+                        nlink: 2 + dirs.len() as u32,
                     },
                     inode,
+                    &options,
+                    fallback_time,
                 )
                 .build_split(max)
             } else {
@@ -1338,17 +1717,26 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         // File entries
         for file in &dir.files {
-            let WrittenFile { name, entry } = file;
+            let WrittenFile {
+                name,
+                entry,
+                kind,
+                metadata,
+            } = file;
             let converted_name = ty.convert_name(name);
             let split = if has_rrip {
                 let inode = *inode_counter;
                 *inode_counter += 1;
                 let max = available_su_space(converted_name.as_bytes().len());
                 build_rrip_entries(
-                    RripEntryKind::File {
+                    RripEntryKind::Entry {
                         original_name: name,
+                        metadata: *metadata,
+                        kind,
                     },
                     inode,
+                    &options,
+                    fallback_time,
                 )
                 .build_split(max)
             } else {
@@ -1426,26 +1814,26 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
 #[allow(dead_code)]
 struct FileTreeWalker<'a> {
-    input_files: &'a InputFiles,
+    input_files: &'a InputTree,
     stack: VecDeque<StackFrame<'a>>,
 }
 
 enum StackFrame<'a> {
-    Node(&'a File),
-    DirExit(&'a File),
+    Node(&'a InputEntry),
+    DirExit(&'a InputEntry),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum TreeWalkerItem<'a> {
-    EnterDirectory(&'a File),
-    File(&'a File),
-    ExitDirectory(&'a File),
+    EnterDirectory(&'a InputEntry),
+    File(&'a InputEntry),
+    ExitDirectory(&'a InputEntry),
 }
 
 impl<'a> FileTreeWalker<'a> {
-    pub fn new(input: &'a InputFiles) -> Self {
+    pub fn new(input: &'a InputTree) -> Self {
         let mut stack = VecDeque::new();
-        for file in input.files.iter().rev() {
+        for file in input.entries.iter().rev() {
             stack.push_back(StackFrame::Node(file));
         }
         FileTreeWalker {
@@ -1461,9 +1849,8 @@ impl<'a> Iterator for FileTreeWalker<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let frame = self.stack.pop_back()?;
         match frame {
-            StackFrame::Node(file) => match file {
-                File::File { .. } => Some(TreeWalkerItem::File(file)),
-                File::Directory { children, .. } => {
+            StackFrame::Node(file) => match &file.kind {
+                InputEntryKind::Directory(children) => {
                     // Yield that we are entering this directory (pre-order event)
                     let current_dir = file;
 
@@ -1477,6 +1864,7 @@ impl<'a> Iterator for FileTreeWalker<'a> {
 
                     Some(TreeWalkerItem::EnterDirectory(current_dir))
                 }
+                _ => Some(TreeWalkerItem::File(file)),
             },
             StackFrame::DirExit(dir) => Some(TreeWalkerItem::ExitDirectory(dir)),
         }
@@ -1491,51 +1879,27 @@ mod tests {
     #[test]
     fn test_depth_first_tree_walk_iterator() {
         // Define a test file hierarchy
-        let file_a = File::File {
-            name: Arc::new(String::from("root/dir1/fileA.txt")),
-            contents: Vec::new(),
-        };
-        let file_b = File::File {
-            name: Arc::new(String::from("root/dir1/fileB.txt")),
-            contents: Vec::new(),
-        };
-        let file_c = File::File {
-            name: Arc::new(String::from("root/fileC.txt")),
-            contents: Vec::new(),
-        };
-        let file_d = File::File {
-            name: Arc::new(String::from("root/dir2/fileD.txt")),
-            contents: Vec::new(),
-        };
-        let file_e = File::File {
-            name: Arc::new(String::from("root/dir2/subdir/fileE.txt")),
-            contents: Vec::new(),
-        };
+        let file_a = InputEntry::file("root/dir1/fileA.txt", Vec::new());
+        let file_b = InputEntry::file("root/dir1/fileB.txt", Vec::new());
+        let file_c = InputEntry::file("root/fileC.txt", Vec::new());
+        let file_d = InputEntry::file("root/dir2/fileD.txt", Vec::new());
+        let file_e = InputEntry::file("root/dir2/subdir/fileE.txt", Vec::new());
 
-        let subdir_node = File::Directory {
-            name: Arc::new(String::from("root/dir2/subdir")),
-            children: vec![file_e.clone()],
-        };
+        let subdir_node = InputEntry::directory("root/dir2/subdir", vec![file_e.clone()]);
 
-        let dir1_node = File::Directory {
-            name: Arc::new(String::from("root/dir1")),
-            children: vec![file_a.clone(), file_b.clone()],
-        };
+        let dir1_node = InputEntry::directory("root/dir1", vec![file_a.clone(), file_b.clone()]);
 
-        let dir2_node = File::Directory {
-            name: Arc::new(String::from("root/dir2")),
-            children: vec![
+        let dir2_node = InputEntry::directory(
+            "root/dir2",
+            vec![
                 file_d.clone(),
                 subdir_node.clone(), // Subdirectory
             ],
-        };
+        );
 
         let root_level_files = vec![dir1_node.clone(), file_c.clone(), dir2_node.clone()];
 
-        let input_tree = InputFiles {
-            path_separator: PathSeparator::ForwardSlash,
-            files: root_level_files,
-        };
+        let input_tree = InputTree::new(PathSeparator::ForwardSlash, root_level_files);
 
         // Create the iterator
         let walker = FileTreeWalker::new(&input_tree);
