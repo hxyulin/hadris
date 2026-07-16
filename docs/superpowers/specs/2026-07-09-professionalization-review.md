@@ -49,7 +49,7 @@ Severity: **P0** release blocker, **P1** important before a polished V2 release,
 | A5 | P1 | `hadris-cd` | Writer exists but needs stronger ISO/UDF reopen verification and a deliberate CLI decision | Deferred with surface polish |
 | A6 | P2 | ISO specification | In-repo specification notes remain incomplete and are excluded from the package | Clearly treat as developer notes or finish as a later documentation project |
 | A7 | P2 | UDF revision reporting | NSR02/NSR03 identify revision families, so `UdfInfo::udf_revision` is a representative family revision rather than guaranteed exact media revision | Document semantics if exact domain-suffix parsing is not added |
-| A8 | P2 | Async tests | Category-level async traversal exists, but some leaf crates still rely mainly on compilation coverage | Add focused smoke tests during later polish |
+| A8 | Resolved | Async tests | FAT, partition, ISO, and UDF leaf crates directly exercise their public async namespaces in addition to facade coverage | Keep focused leaf and facade tests in the all-feature suite |
 
 ## Release-candidate checklist
 
@@ -81,10 +81,10 @@ Severity: **P0** release blocker, **P1** important before a polished V2 release,
 
 | Format | Current evidence | Remaining limitation |
 |--------|------------------|----------------------|
-| FAT12/16/32 | Unit/integration roundtrips, corruption guards, `fsck.fat`, cache paths, cross-cluster LFN lifecycle | None identified for the advertised V2 surface |
-| ISO 9660/Joliet/RRIP | Roundtrips, xorriso comparison, RRIP metadata/relocation, boot catalogs, sync/async traversal | Developer specification notes incomplete |
-| UDF | Descriptor tests, writer-to-reader roundtrips, external-tool tests, public content reads | Exact revision within an NSR family is not always derivable from VRS alone |
-| GPT/MBR | Sync/async lifecycle tests, strict primary/backup validation, typed errors | None identified for the advertised V2 surface |
+| FAT12/16/32 | Unit/integration roundtrips, direct and facade async lifecycles, corruption guards, `fsck.fat`, cache paths, cross-cluster LFN lifecycle | None identified for the advertised V2 surface |
+| ISO 9660/Joliet/RRIP | Roundtrips, xorriso comparison, RRIP metadata/relocation, boot catalogs, direct and facade async traversal | Developer specification notes incomplete |
+| UDF | Descriptor tests, writer-to-reader roundtrips, external-tool tests, direct and facade async content reads | Exact revision within an NSR family is not always derivable from VRS alone |
+| GPT/MBR | Direct and facade async lifecycles, strict primary/backup validation, typed errors | None identified for the advertised V2 surface |
 | exFAT | Basic format/read/write roundtrips and external-tool checks | `unstable-exfat` preview; not part of the stable V2 support promise |
 | CPIO | Roundtrips, async writer, corruption and allocation-bomb tests | CLI convention polish only |
 

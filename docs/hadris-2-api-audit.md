@@ -60,6 +60,9 @@ I/O-mode contracts.
 The block facade continuously runs canonical async FAT detection, opening,
 nested directory creation, multi-cluster content write/read, truncation,
 traversal, duplicate rejection, and source-recovery workflows.
+The FAT leaf independently opens a formatter-produced image through
+`hadris_fat::async`, traverses a nested directory, and reads multi-cluster
+content.
 
 ## Partition tables
 
@@ -83,6 +86,8 @@ validation; and truncated or corrupt GPT rejection.
 The asynchronous lifecycle is qualified independently for MBR, GPT, and hybrid
 write-to-open roundtrips; non-destructive detection; truncated and corrupt
 table rejection; and an end-to-end GPT partition view opened as a FAT volume.
+Leaf-level coverage separately verifies the public async GPT detector and
+validated opener without relying on the block facade.
 
 ## ISO 9660
 
@@ -103,6 +108,8 @@ both modes. `IsoDir::find` and `IsoImage::find_path` provide matching
 collection-based lookup without requiring a synchronous iterator. Async facade
 tests traverse nested ISO and UDF directories, read file contents, exercise both
 bridge-image policies, and recover the source.
+Direct ISO and UDF leaf tests additionally exercise their public async
+namespaces, descriptor or volume opening, nested traversal, and file reads.
 
 ## UDF
 

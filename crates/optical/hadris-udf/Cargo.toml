@@ -12,7 +12,7 @@ keywords = ["udf", "dvd", "blu-ray", "optical", "filesystem"]
 categories = ["filesystem", "encoding"]
 
 [package.metadata.docs.rs]
-features = ["std", "read", "write", "sync"]
+features = ["std", "read", "write", "sync", "async"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
