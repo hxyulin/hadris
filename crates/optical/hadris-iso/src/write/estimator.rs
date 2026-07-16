@@ -282,6 +282,17 @@ fn estimate_impl(
     // 5. Directory records (already sector-aligned in stats)
     // Multiply by number of entry types since each type gets its own directory tree
     breakdown.directory_records = stats.dir_record_bytes * num_entry_types;
+    if features
+        .rock_ridge
+        .is_some_and(|rrip| rrip.enabled && rrip.relocate_deep_dirs)
+    {
+        // Relocation can add a root relocation directory plus one CL placeholder
+        // record for each moved directory. Reserve a sector per logical directory
+        // and namespace so the estimate remains conservative without duplicating
+        // the writer's normalization pass here.
+        breakdown.directory_records += stats.dir_count * num_entry_types * sector_size;
+        breakdown.path_tables += num_entry_types * 2 * sector_size;
+    }
 
     // 6. Continuation areas for RRIP
     // Conservatively estimate: root dot entry often needs CE (ER entry is ~250 bytes)

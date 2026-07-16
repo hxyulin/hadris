@@ -109,21 +109,40 @@ impl WrittenFiles {
 
 #[derive(Debug)]
 pub struct WrittenDirectory {
+    pub(crate) id: usize,
     pub name: Arc<String>,
+    pub(crate) rrip_name: Arc<String>,
     pub entries: BTreeMap<EntryType, DirectoryRef>,
     pub dirs: Vec<WrittenDirectory>,
     pub files: Vec<WrittenFile>,
     pub metadata: InputMetadata,
+    pub(crate) relocation: DirectoryRelocation,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) enum DirectoryRelocation {
+    #[default]
+    None,
+    Placeholder {
+        target: usize,
+    },
+    Moved {
+        id: usize,
+        logical_parent: usize,
+    },
 }
 
 impl WrittenDirectory {
     pub fn new(name: Arc<String>) -> Self {
         Self {
+            id: 0,
+            rrip_name: name.clone(),
             name,
             entries: BTreeMap::new(),
             dirs: Vec::new(),
             files: Vec::new(),
             metadata: InputMetadata::default(),
+            relocation: DirectoryRelocation::None,
         }
     }
 
@@ -189,6 +208,12 @@ impl PathTableWriter<'_> {
         while let Some((dir, parent_num)) = queue.pop_front() {
             let my_number = parent_num;
             for child_dir in &dir.dirs {
+                if matches!(
+                    child_dir.relocation,
+                    DirectoryRelocation::Placeholder { .. }
+                ) {
+                    continue;
+                }
                 current_number += 1;
                 let name = self.ty.convert_name(&child_dir.name);
                 let name_bytes = name.as_bytes();
