@@ -1,14 +1,11 @@
-use super::super::boot::BaseBootCatalog;
+use super::super::boot::{BaseBootCatalog, BootSectionHeaderEntry};
 use super::super::io::LogicalSector;
 use hadris_common::types::endian::Endian;
 
-sync_only! {
-use super::super::boot::BootSectionHeaderEntry;
 use super::super::io::{self, IsoCursor, Read, Seek, SeekFrom};
 use super::IsoImage;
 use bytemuck::Zeroable;
 use spin::Mutex;
-}
 
 #[derive(Debug, Clone)]
 pub struct BootInfo {
@@ -22,7 +19,6 @@ pub struct BootInfo {
 }
 
 impl BootInfo {
-    sync_only! {
     pub fn sections<'a, R: Read + Seek>(
         &'a self,
         image: &'a IsoImage<R>,
@@ -39,7 +35,6 @@ impl BootInfo {
             has_more: true,
         }
     }
-    } // sync_only!
 
     /// Returns the default boot entry information.
     ///
@@ -51,7 +46,7 @@ impl BootInfo {
         }
         Some(BootEntryInfo {
             bootable: entry.boot_indicator == 0x88,
-            meadia_type: entry.boot_media_type,
+            media_type: entry.boot_media_type,
             load_segment: entry.load_segment.get(),
             sector_count: entry.sector_count.get(),
             load_rba: entry.load_rba.get(),
@@ -61,14 +56,19 @@ impl BootInfo {
 
 #[derive(Debug, Clone)]
 pub struct BootEntryInfo {
+    /// Whether the catalog marks this entry bootable.
     pub bootable: bool,
-    pub meadia_type: u8,
+    /// El-Torito media/emulation type byte.
+    pub media_type: u8,
+    /// Segment where the boot image is loaded.
     pub load_segment: u16,
+    /// Number of virtual sectors to load.
     pub sector_count: u16,
+    /// Starting logical block of the boot image.
     pub load_rba: u32,
 }
 
-sync_only! {
+io_transform! {
 
 pub struct BootSectionIter<'data, DATA: Read + Seek> {
     data: &'data Mutex<IsoCursor<DATA>>,
@@ -76,40 +76,40 @@ pub struct BootSectionIter<'data, DATA: Read + Seek> {
     has_more: bool,
 }
 
-impl<DATA: Read + Seek> Iterator for BootSectionIter<'_, DATA> {
-    type Item = io::Result<BootSectionHeaderEntry>;
-    fn next(&mut self) -> Option<Self::Item> {
+impl<DATA: Read + Seek> BootSectionIter<'_, DATA> {
+    /// Reads the next boot section header.
+    pub async fn next_section(&mut self) -> io::Result<Option<BootSectionHeaderEntry>> {
         let mut data = self.data.lock();
         if !self.has_more {
-            return None;
+            return Ok(None);
         }
-        use super::super::io::try_io_result_option as try_io;
-        try_io!(data
+        data
             .seek(SeekFrom::Start(self.current_seek))
-            .map_err(io::Error::erase));
+            .await
+            .map_err(io::Error::erase)?;
         let mut header = BootSectionHeaderEntry::zeroed();
 
         // Limit iterations to prevent infinite loop on malformed data
         const MAX_ENTRIES_PER_SECTOR: usize = 64; // 2048 / 32 = 64 entries max per sector
         for _ in 0..MAX_ENTRIES_PER_SECTOR {
-            try_io!(data.read_exact(bytemuck::bytes_of_mut(&mut header)));
+            data.read_exact(bytemuck::bytes_of_mut(&mut header)).await?;
             self.current_seek += 32; // Each entry is 32 bytes
 
             match header.header_type {
                 0x00 => {
                     // Terminator entry - no more sections
                     self.has_more = false;
-                    return None;
+                    return Ok(None);
                 }
                 0x90 => {
                     // Section header with more sections following
                     self.has_more = true;
-                    return Some(Ok(header));
+                    return Ok(Some(header));
                 }
                 0x91 => {
                     // Final section header
                     self.has_more = false;
-                    return Some(Ok(header));
+                    return Ok(Some(header));
                 }
                 // Skip past boot entries (not section headers)
                 _ => continue,
@@ -118,8 +118,18 @@ impl<DATA: Read + Seek> Iterator for BootSectionIter<'_, DATA> {
 
         // Exceeded max iterations - malformed boot catalog
         self.has_more = false;
-        None
+        Ok(None)
     }
 }
 
+} // io_transform!
+
+sync_only! {
+impl<DATA: Read + Seek> Iterator for BootSectionIter<'_, DATA> {
+    type Item = io::Result<BootSectionHeaderEntry>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_section().transpose()
+    }
+}
 } // sync_only!

@@ -32,7 +32,9 @@ fn main() {
 
     // Display volume information
     println!("=== Volume Information ===");
-    let pvd = image.read_pvd();
+    let pvd = image
+        .read_pvd()
+        .expect("Failed to read primary volume descriptor");
     println!(
         "Volume Identifier: {}",
         pvd.volume_identifier.to_str().trim()

@@ -1,10 +1,8 @@
-sync_only! {
-
-use spin::Mutex;
-use super::super::io::{
-    self, IsoCursor, LogicalSector, Read, Seek, try_io_result_option as try_io,
-};
+use super::super::io::{self, IsoCursor, LogicalSector, Read, Seek};
 use super::super::volume::VolumeDescriptor;
+use spin::Mutex;
+
+io_transform! {
 
 pub struct VolumeDescriptorIter<'ctx, DATA: Read + Seek> {
     pub(crate) data: &'ctx Mutex<IsoCursor<DATA>>,
@@ -12,16 +10,15 @@ pub struct VolumeDescriptorIter<'ctx, DATA: Read + Seek> {
     pub(crate) done: bool,
 }
 
-impl<DATA: Read + Seek> Iterator for VolumeDescriptorIter<'_, DATA> {
-    type Item = io::Result<VolumeDescriptor>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<DATA: Read + Seek> VolumeDescriptorIter<'_, DATA> {
+    /// Reads the next volume descriptor.
+    pub async fn next_descriptor(&mut self) -> io::Result<Option<VolumeDescriptor>> {
         if self.done {
-            return None;
+            return Ok(None);
         }
 
         let mut data = self.data.lock();
-        let _current_offset = try_io!(data.seek_sector(self.current_sector));
+        let _current_offset = data.seek_sector(self.current_sector).await?;
         self.current_sector += 1;
 
         #[cfg(feature = "std")]
@@ -32,14 +29,24 @@ impl<DATA: Read + Seek> Iterator for VolumeDescriptorIter<'_, DATA> {
 
         // Read the raw sector data and parse into VolumeDescriptor
         let mut buf = [0u8; 2048];
-        try_io!(data.read_exact(&mut buf));
+        data.read_exact(&mut buf).await?;
 
         let descriptor = VolumeDescriptor::new(buf);
         if matches!(descriptor, VolumeDescriptor::End(_)) {
             self.done = true;
         }
-        Some(Ok(descriptor))
+        Ok(Some(descriptor))
     }
 }
 
+} // io_transform!
+
+sync_only! {
+impl<DATA: Read + Seek> Iterator for VolumeDescriptorIter<'_, DATA> {
+    type Item = io::Result<VolumeDescriptor>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_descriptor().transpose()
+    }
+}
 } // sync_only!

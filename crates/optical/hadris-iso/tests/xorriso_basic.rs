@@ -38,7 +38,7 @@ fn test_read_xorriso_minimal_iso() {
     let image = hadris_iso::read::IsoImage::open(cursor).expect("Failed to open ISO image");
 
     // Verify volume identifier using read_pvd
-    let pvd = image.read_pvd();
+    let pvd = image.read_pvd().unwrap();
     let vol_id = pvd.volume_identifier.to_str().trim();
     assert_eq!(vol_id, "MINIMAL");
 }
@@ -73,7 +73,7 @@ fn test_read_xorriso_joliet_iso() {
     let image = hadris_iso::read::IsoImage::open(cursor).expect("Failed to open ISO image");
 
     // Verify primary volume exists
-    let pvd = image.read_pvd();
+    let pvd = image.read_pvd().unwrap();
     let vol_id = pvd.volume_identifier.to_str().trim();
     assert_eq!(vol_id, "JOLIET_TEST");
 
@@ -117,7 +117,7 @@ fn test_read_xorriso_rockridge_iso() {
     let image = hadris_iso::read::IsoImage::open(cursor).expect("Failed to open ISO image");
 
     // Verify volume info
-    let pvd = image.read_pvd();
+    let pvd = image.read_pvd().unwrap();
     let vol_id = pvd.volume_identifier.to_str().trim();
     assert_eq!(vol_id, "TEST_VOLUME");
 }

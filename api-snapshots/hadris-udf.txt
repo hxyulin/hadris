@@ -1794,7 +1794,6 @@ pub hadris_udf::UdfError::NotAFile
 pub hadris_udf::UdfError::NotFound
 pub hadris_udf::UdfError::PathTooLong
 pub hadris_udf::UdfError::PodCastError(bytemuck::PodCastError)
-pub hadris_udf::UdfError::UnsupportedRevision(u16)
 impl core::error::Error for hadris_udf::UdfError
 pub fn hadris_udf::UdfError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Display for hadris_udf::UdfError

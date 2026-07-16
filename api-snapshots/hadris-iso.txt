@@ -383,11 +383,15 @@ pub struct hadris_iso::async::read::BootEntryInfo
 pub hadris_iso::async::read::BootEntryInfo::bootable: bool
 pub hadris_iso::async::read::BootEntryInfo::load_rba: u32
 pub hadris_iso::async::read::BootEntryInfo::load_segment: u16
-pub hadris_iso::async::read::BootEntryInfo::meadia_type: u8
+pub hadris_iso::async::read::BootEntryInfo::media_type: u8
 pub hadris_iso::async::read::BootEntryInfo::sector_count: u16
 pub struct hadris_iso::async::read::BootInfo
 impl hadris_iso::async::read::BootInfo
 pub fn hadris_iso::async::read::BootInfo::default_entry(&self) -> core::option::Option<hadris_iso::async::read::BootEntryInfo>
+pub fn hadris_iso::async::read::BootInfo::sections<'a, R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&'a self, &'a hadris_iso::async::read::IsoImage<R>) -> hadris_iso::async::read::BootSectionIter<'a, R>
+pub struct hadris_iso::async::read::BootSectionIter<'data, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>
+impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::BootSectionIter<'_, DATA>
+pub async fn hadris_iso::async::read::BootSectionIter<'_, DATA>::next_section(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::boot::BootSectionHeaderEntry>>
 pub struct hadris_iso::async::read::DirEntry
 pub hadris_iso::async::read::DirEntry::additional_extents: alloc::vec::Vec<hadris_iso::async::read::Extent>
 pub hadris_iso::async::read::DirEntry::associated_file: core::option::Option<hadris_iso::async::read::Extent>
@@ -428,9 +432,12 @@ pub fn hadris_iso::async::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::async::read::IsoImage<DATA>::open_dir(&self, hadris_iso::async::directory::DirectoryRef) -> hadris_iso::async::read::IsoDir<'_, DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::async::path::PathTableInfo
 pub fn hadris_iso::async::read::IsoImage<DATA>::path_table_entries(&self) -> &[hadris_iso::async::path::PathTableEntry]
+pub fn hadris_iso::async::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadris_iso::async::read::VolumeDescriptorIter<'_, DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::async::read::RootDir
 pub fn hadris_iso::async::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::async::read::RootDirs
 pub fn hadris_iso::async::read::IsoImage<DATA>::supports_rrip(&self) -> bool
+impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
+pub async fn hadris_iso::async::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::async::volume::PrimaryVolumeDescriptor>
 impl<DATA: hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::async::read::IsoImageInfo
@@ -551,6 +558,9 @@ pub fn hadris_iso::async::read::SupportedFeatures::bitxor_assign(&mut self, Self
 impl core::ops::bit::Not for hadris_iso::async::read::SupportedFeatures
 pub type hadris_iso::async::read::SupportedFeatures::Output = hadris_iso::async::read::SupportedFeatures
 pub fn hadris_iso::async::read::SupportedFeatures::not(self) -> Self
+pub struct hadris_iso::async::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>
+impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::VolumeDescriptorIter<'_, DATA>
+pub async fn hadris_iso::async::read::VolumeDescriptorIter<'_, DATA>::next_descriptor(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::volume::VolumeDescriptor>>
 pub async fn hadris_iso::async::read::collect_su_entries<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&hadris_iso::async::directory::DirectoryRecord, &hadris_iso::async::read::IsoImage<DATA>, u8) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::async::susp::SystemUseField>>
 pub mod hadris_iso::async::rrip
 pub enum hadris_iso::async::rrip::RockRidgeEntry
@@ -1335,9 +1345,12 @@ pub fn hadris_iso::async::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::async::read::IsoImage<DATA>::open_dir(&self, hadris_iso::async::directory::DirectoryRef) -> hadris_iso::async::read::IsoDir<'_, DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::async::path::PathTableInfo
 pub fn hadris_iso::async::read::IsoImage<DATA>::path_table_entries(&self) -> &[hadris_iso::async::path::PathTableEntry]
+pub fn hadris_iso::async::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadris_iso::async::read::VolumeDescriptorIter<'_, DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::async::read::RootDir
 pub fn hadris_iso::async::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::async::read::RootDirs
 pub fn hadris_iso::async::read::IsoImage<DATA>::supports_rrip(&self) -> bool
+impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
+pub async fn hadris_iso::async::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::async::volume::PrimaryVolumeDescriptor>
 impl<DATA: hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub mod hadris_iso::boot
@@ -1819,13 +1832,15 @@ pub struct hadris_iso::read::BootEntryInfo
 pub hadris_iso::read::BootEntryInfo::bootable: bool
 pub hadris_iso::read::BootEntryInfo::load_rba: u32
 pub hadris_iso::read::BootEntryInfo::load_segment: u16
-pub hadris_iso::read::BootEntryInfo::meadia_type: u8
+pub hadris_iso::read::BootEntryInfo::media_type: u8
 pub hadris_iso::read::BootEntryInfo::sector_count: u16
 pub struct hadris_iso::read::BootInfo
 impl hadris_iso::read::BootInfo
 pub fn hadris_iso::read::BootInfo::default_entry(&self) -> core::option::Option<hadris_iso::read::BootEntryInfo>
 pub fn hadris_iso::read::BootInfo::sections<'a, R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&'a self, &'a hadris_iso::read::IsoImage<R>) -> hadris_iso::read::BootSectionIter<'a, R>
 pub struct hadris_iso::read::BootSectionIter<'data, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
+impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::BootSectionIter<'_, DATA>
+pub fn hadris_iso::read::BootSectionIter<'_, DATA>::next_section(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::boot::BootSectionHeaderEntry>>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::BootSectionIter<'_, DATA>
 pub type hadris_iso::read::BootSectionIter<'_, DATA>::Item = core::result::Result<hadris_iso::boot::BootSectionHeaderEntry, hadris_io::error::Error>
 pub fn hadris_iso::read::BootSectionIter<'_, DATA>::next(&mut self) -> core::option::Option<Self::Item>
@@ -1878,12 +1893,12 @@ pub fn hadris_iso::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::read::IsoImage<DATA>::open_dir(&self, hadris_iso::directory::DirectoryRef) -> hadris_iso::read::IsoDir<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::path::PathTableInfo
 pub fn hadris_iso::read::IsoImage<DATA>::path_table_entries(&self) -> &[hadris_iso::path::PathTableEntry]
+pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::read::RootDir
 pub fn hadris_iso::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::read::RootDirs
 pub fn hadris_iso::read::IsoImage<DATA>::supports_rrip(&self) -> bool
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
-pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_iso::volume::PrimaryVolumeDescriptor
-pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadris_iso::sync::__inner::read::volume::VolumeDescriptorIter<'_, DATA>
+pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::volume::PrimaryVolumeDescriptor>
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::read::IsoImageInfo
@@ -2010,6 +2025,12 @@ pub fn hadris_iso::read::SupportedFeatures::bitxor_assign(&mut self, Self)
 impl core::ops::bit::Not for hadris_iso::read::SupportedFeatures
 pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
 pub fn hadris_iso::read::SupportedFeatures::not(self) -> Self
+pub struct hadris_iso::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
+impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
+pub fn hadris_iso::read::VolumeDescriptorIter<'_, DATA>::next_descriptor(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::volume::VolumeDescriptor>>
+impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::VolumeDescriptorIter<'_, DATA>
+pub type hadris_iso::read::VolumeDescriptorIter<'_, DATA>::Item = core::result::Result<hadris_iso::volume::VolumeDescriptor, hadris_io::error::Error>
+pub fn hadris_iso::read::VolumeDescriptorIter<'_, DATA>::next(&mut self) -> core::option::Option<Self::Item>
 pub fn hadris_iso::read::collect_su_entries<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&hadris_iso::directory::DirectoryRecord, &hadris_iso::read::IsoImage<DATA>, u8) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::susp::SystemUseField>>
 pub mod hadris_iso::rrip
 pub enum hadris_iso::rrip::RockRidgeEntry
@@ -3050,13 +3071,15 @@ pub struct hadris_iso::sync::read::BootEntryInfo
 pub hadris_iso::sync::read::BootEntryInfo::bootable: bool
 pub hadris_iso::sync::read::BootEntryInfo::load_rba: u32
 pub hadris_iso::sync::read::BootEntryInfo::load_segment: u16
-pub hadris_iso::sync::read::BootEntryInfo::meadia_type: u8
+pub hadris_iso::sync::read::BootEntryInfo::media_type: u8
 pub hadris_iso::sync::read::BootEntryInfo::sector_count: u16
 pub struct hadris_iso::sync::read::BootInfo
 impl hadris_iso::read::BootInfo
 pub fn hadris_iso::read::BootInfo::default_entry(&self) -> core::option::Option<hadris_iso::read::BootEntryInfo>
 pub fn hadris_iso::read::BootInfo::sections<'a, R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&'a self, &'a hadris_iso::read::IsoImage<R>) -> hadris_iso::read::BootSectionIter<'a, R>
 pub struct hadris_iso::sync::read::BootSectionIter<'data, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
+impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::BootSectionIter<'_, DATA>
+pub fn hadris_iso::read::BootSectionIter<'_, DATA>::next_section(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::boot::BootSectionHeaderEntry>>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::BootSectionIter<'_, DATA>
 pub type hadris_iso::read::BootSectionIter<'_, DATA>::Item = core::result::Result<hadris_iso::boot::BootSectionHeaderEntry, hadris_io::error::Error>
 pub fn hadris_iso::read::BootSectionIter<'_, DATA>::next(&mut self) -> core::option::Option<Self::Item>
@@ -3109,12 +3132,12 @@ pub fn hadris_iso::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::read::IsoImage<DATA>::open_dir(&self, hadris_iso::directory::DirectoryRef) -> hadris_iso::read::IsoDir<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::path::PathTableInfo
 pub fn hadris_iso::read::IsoImage<DATA>::path_table_entries(&self) -> &[hadris_iso::path::PathTableEntry]
+pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::read::RootDir
 pub fn hadris_iso::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::read::RootDirs
 pub fn hadris_iso::read::IsoImage<DATA>::supports_rrip(&self) -> bool
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
-pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_iso::volume::PrimaryVolumeDescriptor
-pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadris_iso::sync::__inner::read::volume::VolumeDescriptorIter<'_, DATA>
+pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::volume::PrimaryVolumeDescriptor>
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::sync::read::IsoImageInfo
@@ -3241,6 +3264,12 @@ pub fn hadris_iso::read::SupportedFeatures::bitxor_assign(&mut self, Self)
 impl core::ops::bit::Not for hadris_iso::read::SupportedFeatures
 pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
 pub fn hadris_iso::read::SupportedFeatures::not(self) -> Self
+pub struct hadris_iso::sync::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
+impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
+pub fn hadris_iso::read::VolumeDescriptorIter<'_, DATA>::next_descriptor(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::volume::VolumeDescriptor>>
+impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::VolumeDescriptorIter<'_, DATA>
+pub type hadris_iso::read::VolumeDescriptorIter<'_, DATA>::Item = core::result::Result<hadris_iso::volume::VolumeDescriptor, hadris_io::error::Error>
+pub fn hadris_iso::read::VolumeDescriptorIter<'_, DATA>::next(&mut self) -> core::option::Option<Self::Item>
 pub fn hadris_iso::sync::read::collect_su_entries<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&hadris_iso::directory::DirectoryRecord, &hadris_iso::read::IsoImage<DATA>, u8) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::susp::SystemUseField>>
 pub mod hadris_iso::sync::rrip
 pub enum hadris_iso::sync::rrip::RockRidgeEntry
@@ -4218,12 +4247,12 @@ pub fn hadris_iso::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::read::IsoImage<DATA>::open_dir(&self, hadris_iso::directory::DirectoryRef) -> hadris_iso::read::IsoDir<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::path::PathTableInfo
 pub fn hadris_iso::read::IsoImage<DATA>::path_table_entries(&self) -> &[hadris_iso::path::PathTableEntry]
+pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::read::RootDir
 pub fn hadris_iso::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::read::RootDirs
 pub fn hadris_iso::read::IsoImage<DATA>::supports_rrip(&self) -> bool
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
-pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_iso::volume::PrimaryVolumeDescriptor
-pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadris_iso::sync::__inner::read::volume::VolumeDescriptorIter<'_, DATA>
+pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::volume::PrimaryVolumeDescriptor>
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub mod hadris_iso::types
@@ -4709,11 +4738,11 @@ pub fn hadris_iso::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::read::IsoImage<DATA>::open_dir(&self, hadris_iso::directory::DirectoryRef) -> hadris_iso::read::IsoDir<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::path::PathTableInfo
 pub fn hadris_iso::read::IsoImage<DATA>::path_table_entries(&self) -> &[hadris_iso::path::PathTableEntry]
+pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::read::RootDir
 pub fn hadris_iso::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::read::RootDirs
 pub fn hadris_iso::read::IsoImage<DATA>::supports_rrip(&self) -> bool
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
-pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_iso::volume::PrimaryVolumeDescriptor
-pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadris_iso::sync::__inner::read::volume::VolumeDescriptorIter<'_, DATA>
+pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::volume::PrimaryVolumeDescriptor>
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA

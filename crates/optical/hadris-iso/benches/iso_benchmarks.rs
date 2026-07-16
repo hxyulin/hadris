@@ -367,7 +367,7 @@ fn bench_directory_traversal(c: &mut Criterion) {
     });
 
     group.bench_function("read_pvd", |b| {
-        b.iter(|| image.read_pvd());
+        b.iter(|| image.read_pvd().unwrap());
     });
 
     group.bench_function("volume_descriptors", |b| {

@@ -204,7 +204,7 @@ fn bench_volume_descriptor_parsing() {
     for _ in 0..iterations {
         let cursor = Cursor::new(iso_data.clone());
         let image = hadris_iso::read::IsoImage::open(cursor).unwrap();
-        let _pvd = image.read_pvd();
+        let _pvd = image.read_pvd().unwrap();
         let mut count = 0;
         for _ in image.read_volume_descriptors() {
             count += 1;
@@ -395,7 +395,7 @@ fn stress_test_many_files() {
     let open_time = start.elapsed();
 
     // Debug: Check PVD root directory info
-    let pvd = image.read_pvd();
+    let pvd = image.read_pvd().unwrap();
     let root_extent = pvd.dir_record.header.extent.read();
     let root_size = pvd.dir_record.header.data_len.read();
 

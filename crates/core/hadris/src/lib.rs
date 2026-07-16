@@ -30,7 +30,7 @@
 //!
 //! let file = std::fs::File::open("image.iso").unwrap();
 //! let iso = IsoImage::open(file).unwrap();
-//! let pvd = iso.read_pvd();
+//! let pvd = iso.read_pvd().unwrap();
 //! println!("Volume: {}", pvd.volume_identifier);
 //! ```
 

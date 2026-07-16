@@ -150,7 +150,7 @@ fn test_hadris_rockridge_roundtrip() {
     let image = hadris_iso::read::IsoImage::open(cursor).expect("Failed to open ISO image");
 
     // Verify volume ID
-    let pvd = image.read_pvd();
+    let pvd = image.read_pvd().unwrap();
     assert_eq!(pvd.volume_identifier.to_str().trim(), "RRIP_TEST");
 
     // Read root directory and verify RRIP entries on dot entry

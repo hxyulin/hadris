@@ -259,7 +259,7 @@ mod volume_descriptor_tests {
         let cursor = Cursor::new(iso);
 
         if let Ok(image) = IsoImage::open(cursor) {
-            let pvd = image.read_pvd();
+            let pvd = image.read_pvd().unwrap();
             let vol_id = pvd.volume_identifier.to_str().trim();
             // Volume ID should be "MY_VOLUME" (possibly padded)
             assert!(
@@ -286,7 +286,7 @@ mod volume_descriptor_tests {
         let cursor = Cursor::new(iso);
 
         if let Ok(image) = IsoImage::open(cursor) {
-            let pvd = image.read_pvd();
+            let pvd = image.read_pvd().unwrap();
             let vol_id = pvd.volume_identifier.to_str();
             assert!(vol_id.len() <= 32);
         }
@@ -323,7 +323,7 @@ mod volume_descriptor_tests {
         let cursor = Cursor::new(iso);
         // Should use the first PVD
         if let Ok(image) = IsoImage::open(cursor) {
-            let pvd = image.read_pvd();
+            let pvd = image.read_pvd().unwrap();
             let vol_id = pvd.volume_identifier.to_str().trim();
             assert!(vol_id.contains("PRIMARY") || vol_id.contains("SECONDARY"));
         }
