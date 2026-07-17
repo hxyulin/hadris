@@ -21,7 +21,7 @@ default = ["std", "write", "sync"]
 # No-std + no-alloc read support (minimal, for bootloaders)
 read = ["hadris-common/bytemuck"]
 # Heap allocation without full std
-alloc = ["read", "hadris-io/alloc", "hadris-path/alloc"]
+alloc = ["read", "hadris-io/alloc", "hadris-path/alloc", "hadris-common/alloc"]
 # Standard library support (includes alloc)
 std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "dep:tracing", "dep:chrono", "chrono/std", "chrono/clock"]
 
@@ -41,7 +41,7 @@ hadris-io = { workspace = true }
 hadris-fixed = { workspace = true }
 hadris-path = { workspace = true }
 hadris-macros = { workspace = true }
-hadris-common = { workspace = true, features = ["alloc", "bytemuck"] }
+hadris-common = { workspace = true, features = ["bytemuck"] }
 hadris-part = { workspace = true, default-features = false }
 spin.workspace = true
 
