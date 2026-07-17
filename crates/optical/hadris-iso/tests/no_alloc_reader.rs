@@ -130,16 +130,12 @@ fn fixture() -> Vec<u8> {
     image
 }
 
-#[test]
-fn navigation_and_streaming_allocate_nothing() {
-    let _guard = TEST_LOCK.lock().unwrap();
-    let image = fixture();
-    let mut primary_output = [0_u8; 11];
-    let mut joliet_output = [0_u8; 7];
-    ALLOCATIONS.store(0, Ordering::Relaxed);
-    COUNTING.store(true, Ordering::SeqCst);
-
-    let mut reader = IsoReader::open(hadris_io::Cursor::new(image.as_slice())).unwrap();
+fn exercise_navigation_and_streaming(
+    image: &[u8],
+    primary_output: &mut [u8; 11],
+    joliet_output: &mut [u8; 7],
+) {
+    let mut reader = IsoReader::open(hadris_io::Cursor::new(image)).unwrap();
     assert_eq!(
         reader.preferred_root().namespace(),
         IsoNamespace::Joliet(JolietLevel::Level3)
@@ -153,14 +149,29 @@ fn navigation_and_streaming_allocate_nothing() {
     assert!(entry.is_multi_extent());
     assert_eq!(entry.total_size(), 11);
     let mut file = reader.open_file(&entry).unwrap();
-    for byte in &mut primary_output {
+    for byte in &mut *primary_output {
         assert_eq!(file.read_chunk(core::slice::from_mut(byte)).unwrap(), 1);
     }
     assert_eq!(file.read_chunk(&mut primary_output[..1]).unwrap(), 0);
 
     let entry = reader.find_path("日本.TXT").unwrap().unwrap();
     let mut file = reader.open_file(&entry).unwrap();
-    assert_eq!(file.read_chunk(&mut joliet_output).unwrap(), 7);
+    assert_eq!(file.read_chunk(joliet_output).unwrap(), 7);
+}
+
+#[test]
+fn navigation_and_streaming_allocate_nothing() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let image = fixture();
+    let mut warm_primary_output = [0_u8; 11];
+    let mut warm_joliet_output = [0_u8; 7];
+    exercise_navigation_and_streaming(&image, &mut warm_primary_output, &mut warm_joliet_output);
+
+    let mut primary_output = [0_u8; 11];
+    let mut joliet_output = [0_u8; 7];
+    ALLOCATIONS.store(0, Ordering::Relaxed);
+    COUNTING.store(true, Ordering::SeqCst);
+    exercise_navigation_and_streaming(&image, &mut primary_output, &mut joliet_output);
 
     COUNTING.store(false, Ordering::SeqCst);
     assert_eq!(ALLOCATIONS.load(Ordering::Relaxed), 0);
