@@ -93,7 +93,7 @@ validated opener without relying on the block facade.
 
 | Current surface | 2.0 direction |
 |---|---|
-| `IsoImage` | retain as primary read handle |
+| `IsoReader` / `IsoImage` | use `IsoReader` for allocation-free navigation and streaming; retain `IsoImage` for owned collections and RRIP-enriched reads |
 | root raw descriptors and high-level handles mixed | retain 1.x exports for 2.0; any future `raw` move must begin as additive aliases and receive a separate compatibility review |
 | writer constructors and modification APIs vary | canonical `create` returns the target; modifier `finish` returns the target; legacy methods deprecated |
 | sync-only writers beside async readers | keep capability explicit; do not synthesize async writers |
@@ -102,6 +102,12 @@ validated opener without relying on the block facade.
 Category-level detection reports ISO independently from UDF. ISO and UDF now
 provide recoverable ownership, and the optical facade implements policy-driven
 unified opening with matching sync and async surfaces.
+
+With `read` and no `alloc`, `IsoReader` opens primary and Joliet namespaces,
+performs allocation-free nested lookup, and streams single- or multi-extent
+files into caller buffers. It prefers the highest recognized Joliet root while
+allowing explicit primary-root selection. Rock Ridge enrichment remains on the
+allocation-backed `IsoImage` surface.
 
 `IsoDir::read_entries` is the collection-oriented traversal operation shared by
 both modes. `IsoDir::find` and `IsoImage::find_path` provide matching

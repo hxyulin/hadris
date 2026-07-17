@@ -98,6 +98,12 @@ ISO now follows the same contract:
 - write, modification, and El-Torito writer APIs are exported only by `sync`;
 - both API modes can be documented and compiled in the same build.
 
+The `read` tier is independently useful without `alloc`: `IsoReader` supports
+primary ISO 9660 and Joliet namespace discovery, nested path lookup, directory
+iteration, and caller-buffered multi-extent file streaming in both I/O modes.
+Enabling `alloc` adds the owned `IsoImage` collections, convenience reads, and
+Rock Ridge metadata enrichment.
+
 ISO async reading now includes collection-oriented directory traversal and
 lookup through `IsoDir::read_entries`, `IsoDir::find`, and
 `IsoImage::find_path`. Direct leaf coverage exercises PVD and descriptor

@@ -1,11 +1,12 @@
 //! # Hadris ISO
 //!
-//! A pure Rust ISO 9660 filesystem and disk-image library with support for
-//! Joliet, Rock Ridge (RRIP), El Torito booting, and `no_std` environments.
+//! A pure Rust ISO 9660 filesystem and disk-image library with allocation-free
+//! ISO 9660/Joliet reading, Rock Ridge (RRIP), El Torito booting, and `no_std`
+//! support.
 //!
 //! This crate provides both reading and writing capabilities for ISO 9660 images,
 //! making it suitable for:
-//! - **Bootloaders**: Minimal no-std + no-alloc read support
+//! - **Bootloaders**: Allocation-free path lookup and caller-buffered file streaming
 //! - **OS Kernels**: Read ISO filesystems with only a heap allocator
 //! - **Desktop Applications**: Full-featured ISO creation and extraction
 //! - **Build Systems**: Automated bootable ISO generation
@@ -132,11 +133,11 @@
 //!
 //! | Feature | Description | Dependencies |
 //! |---------|-------------|--------------|
-//! | `read` | Minimal read support (no-std, no-alloc) | None |
-//! | `alloc` | Heap allocation without full std | `alloc` crate |
+//! | `read` | Allocation-free ISO 9660/Joliet navigation and streaming | No heap allocator |
+//! | `alloc` | Owned collections, RRIP enrichment, and convenience reads | `alloc` crate |
 //! | `std` | Full standard library support | `std`, `alloc`, `thiserror`, `tracing`, `chrono` |
 //! | `write` | ISO creation/formatting | `std`, `alloc` |
-//! | `joliet` | UTF-16 Unicode filename support | `alloc` |
+//! | `joliet` | Allocating Joliet encode/write helpers (`read` already supports Joliet lookup) | `alloc` |
 //!
 //! ### Feature Combinations
 //!
@@ -312,7 +313,7 @@ pub mod types;
 /// - **Level 1**: Escape sequence `%/@`
 /// - **Level 2**: Escape sequence `%/C`
 /// - **Level 3**: Escape sequence `%/E` (recommended)
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "read", feature = "alloc"))]
 pub mod joliet;
 
 // ---------------------------------------------------------------------------
@@ -486,7 +487,21 @@ pub mod sync {
         /// }
         /// ```
         #[cfg(feature = "alloc")]
-        pub mod read;
+        #[path = "read/mod.rs"]
+        mod owned_read;
+
+        #[cfg(feature = "read")]
+        #[path = "read/basic.rs"]
+        mod basic_read;
+
+        /// ISO image reading APIs.
+        #[cfg(any(feature = "read", feature = "alloc"))]
+        pub mod read {
+            #[cfg(feature = "read")]
+            pub use super::basic_read::*;
+            #[cfg(feature = "alloc")]
+            pub use super::owned_read::*;
+        }
 
         /// ISO image creation and formatting.
         ///
@@ -589,16 +604,27 @@ pub mod r#async {
 
     #[path = "."]
     mod __inner {
+        #[cfg(feature = "read")]
+        #[path = "read/basic.rs"]
+        mod basic_read;
         pub mod boot;
         /// APIs for directory.
         pub mod directory;
         /// APIs for io.
         pub mod io;
+        #[cfg(feature = "alloc")]
+        #[path = "read/mod.rs"]
+        mod owned_read;
         /// APIs for path.
         pub mod path;
-        #[cfg(feature = "alloc")]
-        /// APIs for read.
-        pub mod read;
+        #[cfg(any(feature = "read", feature = "alloc"))]
+        /// APIs for reading ISO images.
+        pub mod read {
+            #[cfg(feature = "read")]
+            pub use super::basic_read::*;
+            #[cfg(feature = "alloc")]
+            pub use super::owned_read::*;
+        }
         #[cfg(feature = "alloc")]
         pub mod rrip;
         #[cfg(feature = "alloc")]

@@ -4,11 +4,11 @@ pub use hadris_optical::iso
 pub use hadris_optical::udf
 pub mod hadris_optical::async
 #[non_exhaustive] pub enum hadris_optical::async::OpenOpticalImage<'a, S> where S: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <S as hadris_io::async_api::Read>::Error>
-pub hadris_optical::async::OpenOpticalImage::Iso9660(hadris_iso::async::__inner::read::IsoImage<hadris_io::async_api::Borrowed<'a, S>>)
+pub hadris_optical::async::OpenOpticalImage::Iso9660(hadris_iso::async::__inner::owned_read::IsoImage<hadris_io::async_api::Borrowed<'a, S>>)
 pub hadris_optical::async::OpenOpticalImage::Udf(hadris_udf::async::__inner::fs::UdfFs<hadris_io::async_api::Borrowed<'a, S>>)
 impl<'a, S> hadris_optical::async::OpenOpticalImage<'a, S> where S: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <S as hadris_io::async_api::Read>::Error>
-pub fn hadris_optical::async::OpenOpticalImage<'a, S>::as_iso9660(&self) -> core::option::Option<&hadris_iso::async::__inner::read::IsoImage<hadris_io::async_api::Borrowed<'a, S>>>
-pub fn hadris_optical::async::OpenOpticalImage<'a, S>::as_iso9660_mut(&mut self) -> core::option::Option<&mut hadris_iso::async::__inner::read::IsoImage<hadris_io::async_api::Borrowed<'a, S>>>
+pub fn hadris_optical::async::OpenOpticalImage<'a, S>::as_iso9660(&self) -> core::option::Option<&hadris_iso::async::__inner::owned_read::IsoImage<hadris_io::async_api::Borrowed<'a, S>>>
+pub fn hadris_optical::async::OpenOpticalImage<'a, S>::as_iso9660_mut(&mut self) -> core::option::Option<&mut hadris_iso::async::__inner::owned_read::IsoImage<hadris_io::async_api::Borrowed<'a, S>>>
 pub fn hadris_optical::async::OpenOpticalImage<'a, S>::as_udf(&self) -> core::option::Option<&hadris_udf::async::__inner::fs::UdfFs<hadris_io::async_api::Borrowed<'a, S>>>
 pub fn hadris_optical::async::OpenOpticalImage<'a, S>::as_udf_mut(&mut self) -> core::option::Option<&mut hadris_udf::async::__inner::fs::UdfFs<hadris_io::async_api::Borrowed<'a, S>>>
 pub const fn hadris_optical::async::OpenOpticalImage<'a, S>::format(&self) -> hadris_optical::OpticalFormat
@@ -31,11 +31,11 @@ pub const fn hadris_optical::detect::OpticalFormats::is_empty(self) -> bool
 pub const fn hadris_optical::detect::OpticalFormats::udf(self) -> core::option::Option<hadris_optical::detect::UdfVrs>
 pub mod hadris_optical::sync
 #[non_exhaustive] pub enum hadris_optical::sync::OpenOpticalImage<'a, S> where S: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <S as hadris_io::sync_api::Read>::Error>
-pub hadris_optical::sync::OpenOpticalImage::Iso9660(hadris_iso::sync::__inner::read::IsoImage<hadris_io::sync_api::Borrowed<'a, S>>)
+pub hadris_optical::sync::OpenOpticalImage::Iso9660(hadris_iso::sync::__inner::owned_read::IsoImage<hadris_io::sync_api::Borrowed<'a, S>>)
 pub hadris_optical::sync::OpenOpticalImage::Udf(hadris_udf::sync::__inner::fs::UdfFs<hadris_io::sync_api::Borrowed<'a, S>>)
 impl<'a, S> hadris_optical::sync::OpenOpticalImage<'a, S> where S: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <S as hadris_io::sync_api::Read>::Error>
-pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::as_iso9660(&self) -> core::option::Option<&hadris_iso::sync::__inner::read::IsoImage<hadris_io::sync_api::Borrowed<'a, S>>>
-pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::as_iso9660_mut(&mut self) -> core::option::Option<&mut hadris_iso::sync::__inner::read::IsoImage<hadris_io::sync_api::Borrowed<'a, S>>>
+pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::as_iso9660(&self) -> core::option::Option<&hadris_iso::sync::__inner::owned_read::IsoImage<hadris_io::sync_api::Borrowed<'a, S>>>
+pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::as_iso9660_mut(&mut self) -> core::option::Option<&mut hadris_iso::sync::__inner::owned_read::IsoImage<hadris_io::sync_api::Borrowed<'a, S>>>
 pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::as_udf(&self) -> core::option::Option<&hadris_udf::sync::__inner::fs::UdfFs<hadris_io::sync_api::Borrowed<'a, S>>>
 pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::as_udf_mut(&mut self) -> core::option::Option<&mut hadris_udf::sync::__inner::fs::UdfFs<hadris_io::sync_api::Borrowed<'a, S>>>
 pub const fn hadris_optical::sync::OpenOpticalImage<'a, S>::format(&self) -> hadris_optical::OpticalFormat

@@ -74,6 +74,9 @@ creation. exFAT is available only as a separately gated unstable preview.
 
 ### ISO 9660
 
+- The new `IsoReader` provides allocation-free sync/async ISO 9660 and Joliet
+  traversal, path lookup, and caller-buffered multi-extent file streaming for
+  bootloaders, firmware, and kernels.
 - Reading and writing cover ISO 9660 Levels 1-3, ISO 9660:1999, Joliet, SUSP,
   Rock Ridge, and El Torito workflows.
 - Rock Ridge writing now includes POSIX metadata, timestamps, symlinks, device

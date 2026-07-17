@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-iso:** Added a zero-allocation `IsoReader` for sync and async
+  `no_std` builds, including ISO 9660/Joliet namespace selection, nested path
+  lookup, caller-buffered reads, and multi-extent file streaming.
+
 ### Documentation
 
 - Added a Docusaurus documentation site with getting-started, crate-selection,

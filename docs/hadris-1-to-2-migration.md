@@ -144,8 +144,17 @@ available. Use `checked_end_lba` when values originate from untrusted media.
 
 ### ISO 9660
 
-`IsoImage` remains the primary reader. Existing raw descriptor exports are not
+Choose `IsoReader` for allocation-free ISO 9660/Joliet navigation and streamed
+file reads, or `IsoImage` when owned collections, convenience reads, and Rock
+Ridge-enriched metadata are required. Existing raw descriptor exports are not
 being moved for 2.0.
+
+An allocation-free build selects `read` plus an I/O mode and does not require
+`alloc`:
+
+```toml
+hadris-iso = { version = "2.0.0-rc.1", default-features = false, features = ["read", "sync"] }
+```
 
 Use `IsoDir::read_entries` for collection-oriented traversal in either mode,
 with `IsoDir::find` and `IsoImage::find_path` for lookup. Writing remains under
