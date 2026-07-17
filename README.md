@@ -102,6 +102,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 - **[hadris-optical](crates/optical/hadris-optical)** - Category facade with multi-format ISO/UDF/bridge detection and image composition
 - **[hadris-iso](crates/optical/hadris-iso)** - ISO 9660 filesystem implementation
+  - Allocation-free sync/async ISO 9660 and Joliet navigation with caller-buffered file streaming
   - ISO 9660 Level 1-3 and ISO 9660:1999 (long filenames)
   - Joliet extension (UTF-16 Unicode filenames)
   - Rock Ridge (RRIP) and SUSP (POSIX semantics, symlinks)
@@ -131,6 +132,8 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 ## Key Features
 
 - **No-std compatible** - Use in bootloaders, kernels, firmware, and embedded systems
+- **Allocation-free ISO reading** - Navigate ISO 9660/Joliet paths and stream
+  multi-extent files with caller-owned buffers in sync or async builds
 - **Configurable** - Feature flags for read-only, write support, and extensions
 - **Dual sync/async** - Shared implementations via `hadris-macros`
 - **Standards oriented** - ECMA-119, IEEE P1282 / Rock Ridge, El-Torito, Microsoft FAT, ECMA-167 / UDF, CPIO newc
@@ -164,13 +167,17 @@ hadris-fixed = "2.0.0-rc.1"
 hadris-path = "2.0.0-rc.1"
 ```
 
-For no-std environments:
+For allocation-free `no_std` ISO reading:
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.0.0-rc.1", default-features = false, features = ["read", "alloc"] }
+# No heap allocator: ISO 9660/Joliet lookup and streamed file reads.
+hadris-iso = { version = "2.0.0-rc.1", default-features = false, features = ["read", "sync"] }
 hadris-fat = { version = "2.0.0-rc.1", default-features = false, features = ["read", "sync"] }
 ```
+
+Add the `alloc` feature to `hadris-iso` when owned collections, convenience
+reads, and Rock Ridge metadata enrichment are needed without full `std`.
 
 ## Building
 
