@@ -153,8 +153,10 @@ fn navigation_and_streaming_allocate_nothing() {
     assert!(entry.is_multi_extent());
     assert_eq!(entry.total_size(), 11);
     let mut file = reader.open_file(&entry).unwrap();
-    assert_eq!(file.read_chunk(&mut primary_output[..7]).unwrap(), 7);
-    assert_eq!(file.read_chunk(&mut primary_output[7..]).unwrap(), 4);
+    for byte in &mut primary_output {
+        assert_eq!(file.read_chunk(core::slice::from_mut(byte)).unwrap(), 1);
+    }
+    assert_eq!(file.read_chunk(&mut primary_output[..1]).unwrap(), 0);
 
     let entry = reader.find_path("日本.TXT").unwrap().unwrap();
     let mut file = reader.open_file(&entry).unwrap();

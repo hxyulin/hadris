@@ -374,6 +374,15 @@ pub mod hadris_iso::async::read
 pub enum hadris_iso::async::read::FilenameType
 pub hadris_iso::async::read::FilenameType::Builtin
 pub hadris_iso::async::read::FilenameType::Joliet
+pub enum hadris_iso::async::read::IsoNamespace
+pub hadris_iso::async::read::IsoNamespace::Joliet(hadris_iso::joliet::JolietLevel)
+pub hadris_iso::async::read::IsoNamespace::Primary
+pub enum hadris_iso::async::read::NameError
+pub hadris_iso::async::read::NameError::BufferTooSmall
+pub hadris_iso::async::read::NameError::InvalidEncoding
+impl core::error::Error for hadris_iso::async::read::NameError
+impl core::fmt::Display for hadris_iso::async::read::NameError
+pub fn hadris_iso::async::read::NameError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[repr(u8)] pub enum hadris_iso::async::read::PathSeparator
 pub hadris_iso::async::read::PathSeparator::Backslash = 92
 pub hadris_iso::async::read::PathSeparator::ForwardSlash = 47
@@ -421,6 +430,25 @@ pub struct hadris_iso::async::read::IsoDir<'a, T: hadris_io::async_api::Read + h
 impl<T: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoDir<'_, T>
 pub async fn hadris_iso::async::read::IsoDir<'_, T>::find(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::DirEntry>>
 pub async fn hadris_iso::async::read::IsoDir<'_, T>::read_entries(&self) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::async::read::DirEntry>>
+pub struct hadris_iso::async::read::IsoDirEntry
+impl hadris_iso::async::read::IsoDirEntry
+pub fn hadris_iso::async::read::IsoDirEntry::is_directory(&self) -> bool
+pub fn hadris_iso::async::read::IsoDirEntry::is_file(&self) -> bool
+pub const fn hadris_iso::async::read::IsoDirEntry::is_multi_extent(&self) -> bool
+pub fn hadris_iso::async::read::IsoDirEntry::name(&self) -> hadris_iso::async::read::IsoName<'_>
+pub const fn hadris_iso::async::read::IsoDirEntry::record(&self) -> &hadris_iso::async::directory::DirectoryRecord
+pub fn hadris_iso::async::read::IsoDirEntry::system_use(&self) -> &[u8]
+pub const fn hadris_iso::async::read::IsoDirEntry::total_size(&self) -> u64
+pub struct hadris_iso::async::read::IsoDirReader<'a, R>
+impl<R: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoDirReader<'_, R>
+pub async fn hadris_iso::async::read::IsoDirReader<'_, R>::next_entry(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::IsoDirEntry>>
+pub struct hadris_iso::async::read::IsoFileReader<'a, R>
+impl<R: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoFileReader<'_, R>
+pub async fn hadris_iso::async::read::IsoFileReader<'_, R>::read_chunk(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
+impl<R> hadris_iso::async::read::IsoFileReader<'_, R>
+pub const fn hadris_iso::async::read::IsoFileReader<'_, R>::is_empty(&self) -> bool
+pub const fn hadris_iso::async::read::IsoFileReader<'_, R>::len(&self) -> u64
+pub const fn hadris_iso::async::read::IsoFileReader<'_, R>::position(&self) -> u64
 pub struct hadris_iso::async::read::IsoImage<DATA: hadris_io::async_api::Seek>
 impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::find_path(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::DirEntry>>
@@ -441,6 +469,31 @@ pub async fn hadris_iso::async::read::IsoImage<DATA>::read_pvd(&self) -> hadris_
 impl<DATA: hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::async::read::IsoImageInfo
+pub struct hadris_iso::async::read::IsoName<'a>
+impl<'a> hadris_iso::async::read::IsoName<'a>
+pub fn hadris_iso::async::read::IsoName<'a>::decode_into(self, &mut [u8]) -> core::result::Result<&str, hadris_iso::async::read::NameError>
+pub fn hadris_iso::async::read::IsoName<'a>::matches(self, &str) -> bool
+pub const fn hadris_iso::async::read::IsoName<'a>::namespace(self) -> hadris_iso::async::read::IsoNamespace
+pub const fn hadris_iso::async::read::IsoName<'a>::raw(self) -> &'a [u8]
+pub struct hadris_iso::async::read::IsoReader<R>
+impl<R: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoReader<R>
+pub async fn hadris_iso::async::read::IsoReader<R>::find_path(&mut self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::IsoDirEntry>>
+pub async fn hadris_iso::async::read::IsoReader<R>::find_path_in(&mut self, hadris_iso::async::read::IsoRoot, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::IsoDirEntry>>
+pub async fn hadris_iso::async::read::IsoReader<R>::open(R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::async::read::IsoReader<R>::open_dir(&mut self, hadris_iso::async::read::IsoRoot) -> hadris_iso::async::read::IsoDirReader<'_, R>
+pub fn hadris_iso::async::read::IsoReader<R>::open_file<'a>(&'a mut self, &hadris_iso::async::read::IsoDirEntry) -> hadris_io::error::Result<hadris_iso::async::read::IsoFileReader<'a, R>>
+impl<R> hadris_iso::async::read::IsoReader<R>
+pub fn hadris_iso::async::read::IsoReader<R>::into_inner(self) -> R
+pub const fn hadris_iso::async::read::IsoReader<R>::joliet_root(&self) -> core::option::Option<hadris_iso::async::read::IsoRoot>
+pub const fn hadris_iso::async::read::IsoReader<R>::preferred_root(&self) -> hadris_iso::async::read::IsoRoot
+pub const fn hadris_iso::async::read::IsoReader<R>::primary_root(&self) -> hadris_iso::async::read::IsoRoot
+pub fn hadris_iso::async::read::IsoReader<R>::root(&self, hadris_iso::async::read::IsoNamespace) -> core::option::Option<hadris_iso::async::read::IsoRoot>
+pub fn hadris_iso::async::read::IsoReader<R>::roots(&self) -> impl core::iter::traits::iterator::Iterator<Item = hadris_iso::async::read::IsoRoot>
+pub struct hadris_iso::async::read::IsoRoot
+impl hadris_iso::async::read::IsoRoot
+pub const fn hadris_iso::async::read::IsoRoot::block_size(self) -> u16
+pub const fn hadris_iso::async::read::IsoRoot::namespace(self) -> hadris_iso::async::read::IsoNamespace
+pub const fn hadris_iso::async::read::IsoRoot::size(self) -> u32
 pub struct hadris_iso::async::read::RootDir
 impl hadris_iso::async::read::RootDir
 pub fn hadris_iso::async::read::RootDir::dir_ref(&self) -> hadris_iso::async::directory::DirectoryRef
@@ -1823,6 +1876,15 @@ pub mod hadris_iso::read
 pub enum hadris_iso::read::FilenameType
 pub hadris_iso::read::FilenameType::Builtin
 pub hadris_iso::read::FilenameType::Joliet
+pub enum hadris_iso::read::IsoNamespace
+pub hadris_iso::read::IsoNamespace::Joliet(hadris_iso::joliet::JolietLevel)
+pub hadris_iso::read::IsoNamespace::Primary
+pub enum hadris_iso::read::NameError
+pub hadris_iso::read::NameError::BufferTooSmall
+pub hadris_iso::read::NameError::InvalidEncoding
+impl core::error::Error for hadris_iso::read::NameError
+impl core::fmt::Display for hadris_iso::read::NameError
+pub fn hadris_iso::read::NameError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[repr(u8)] pub enum hadris_iso::read::PathSeparator
 pub hadris_iso::read::PathSeparator::Backslash = 92
 pub hadris_iso::read::PathSeparator::ForwardSlash = 47
@@ -1876,12 +1938,34 @@ pub fn hadris_iso::read::IsoDir<'a, T>::raw_entries(&self) -> hadris_iso::read::
 impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDir<'_, T>
 pub fn hadris_iso::read::IsoDir<'_, T>::find(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::DirEntry>>
 pub fn hadris_iso::read::IsoDir<'_, T>::read_entries(&self) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::read::DirEntry>>
+pub struct hadris_iso::read::IsoDirEntry
+impl hadris_iso::read::IsoDirEntry
+pub fn hadris_iso::read::IsoDirEntry::is_directory(&self) -> bool
+pub fn hadris_iso::read::IsoDirEntry::is_file(&self) -> bool
+pub const fn hadris_iso::read::IsoDirEntry::is_multi_extent(&self) -> bool
+pub fn hadris_iso::read::IsoDirEntry::name(&self) -> hadris_iso::read::IsoName<'_>
+pub const fn hadris_iso::read::IsoDirEntry::record(&self) -> &hadris_iso::directory::DirectoryRecord
+pub fn hadris_iso::read::IsoDirEntry::system_use(&self) -> &[u8]
+pub const fn hadris_iso::read::IsoDirEntry::total_size(&self) -> u64
 pub struct hadris_iso::read::IsoDirIter<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
 impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDirIter<'_, T>
 pub fn hadris_iso::read::IsoDirIter<'_, T>::offset(&self) -> usize
 impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirIter<'_, T>
 pub type hadris_iso::read::IsoDirIter<'_, T>::Item = core::result::Result<hadris_iso::read::DirEntry, hadris_io::error::Error>
 pub fn hadris_iso::read::IsoDirIter<'_, T>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct hadris_iso::read::IsoDirReader<'a, R>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDirReader<'_, R>
+pub fn hadris_iso::read::IsoDirReader<'_, R>::next_entry(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirReader<'_, R>
+pub type hadris_iso::read::IsoDirReader<'_, R>::Item = core::result::Result<hadris_iso::read::IsoDirEntry, hadris_io::error::Error>
+pub fn hadris_iso::read::IsoDirReader<'_, R>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct hadris_iso::read::IsoFileReader<'a, R>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoFileReader<'_, R>
+pub fn hadris_iso::read::IsoFileReader<'_, R>::read_chunk(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
+impl<R> hadris_iso::read::IsoFileReader<'_, R>
+pub const fn hadris_iso::read::IsoFileReader<'_, R>::is_empty(&self) -> bool
+pub const fn hadris_iso::read::IsoFileReader<'_, R>::len(&self) -> u64
+pub const fn hadris_iso::read::IsoFileReader<'_, R>::position(&self) -> u64
 pub struct hadris_iso::read::IsoImage<DATA: hadris_io::sync_api::Seek>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::find_path(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::DirEntry>>
@@ -1902,6 +1986,31 @@ pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Re
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::read::IsoImageInfo
+pub struct hadris_iso::read::IsoName<'a>
+impl<'a> hadris_iso::read::IsoName<'a>
+pub fn hadris_iso::read::IsoName<'a>::decode_into(self, &mut [u8]) -> core::result::Result<&str, hadris_iso::read::NameError>
+pub fn hadris_iso::read::IsoName<'a>::matches(self, &str) -> bool
+pub const fn hadris_iso::read::IsoName<'a>::namespace(self) -> hadris_iso::read::IsoNamespace
+pub const fn hadris_iso::read::IsoName<'a>::raw(self) -> &'a [u8]
+pub struct hadris_iso::read::IsoReader<R>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoReader<R>
+pub fn hadris_iso::read::IsoReader<R>::find_path(&mut self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
+pub fn hadris_iso::read::IsoReader<R>::find_path_in(&mut self, hadris_iso::read::IsoRoot, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
+pub fn hadris_iso::read::IsoReader<R>::open(R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::read::IsoReader<R>::open_dir(&mut self, hadris_iso::read::IsoRoot) -> hadris_iso::read::IsoDirReader<'_, R>
+pub fn hadris_iso::read::IsoReader<R>::open_file<'a>(&'a mut self, &hadris_iso::read::IsoDirEntry) -> hadris_io::error::Result<hadris_iso::read::IsoFileReader<'a, R>>
+impl<R> hadris_iso::read::IsoReader<R>
+pub fn hadris_iso::read::IsoReader<R>::into_inner(self) -> R
+pub const fn hadris_iso::read::IsoReader<R>::joliet_root(&self) -> core::option::Option<hadris_iso::read::IsoRoot>
+pub const fn hadris_iso::read::IsoReader<R>::preferred_root(&self) -> hadris_iso::read::IsoRoot
+pub const fn hadris_iso::read::IsoReader<R>::primary_root(&self) -> hadris_iso::read::IsoRoot
+pub fn hadris_iso::read::IsoReader<R>::root(&self, hadris_iso::read::IsoNamespace) -> core::option::Option<hadris_iso::read::IsoRoot>
+pub fn hadris_iso::read::IsoReader<R>::roots(&self) -> impl core::iter::traits::iterator::Iterator<Item = hadris_iso::read::IsoRoot>
+pub struct hadris_iso::read::IsoRoot
+impl hadris_iso::read::IsoRoot
+pub const fn hadris_iso::read::IsoRoot::block_size(self) -> u16
+pub const fn hadris_iso::read::IsoRoot::namespace(self) -> hadris_iso::read::IsoNamespace
+pub const fn hadris_iso::read::IsoRoot::size(self) -> u32
 pub struct hadris_iso::read::RawDirIter<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
 impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::RawDirIter<'_, T>
 pub fn hadris_iso::read::RawDirIter<'_, T>::offset(&self) -> usize
@@ -3062,6 +3171,15 @@ pub mod hadris_iso::sync::read
 pub enum hadris_iso::sync::read::FilenameType
 pub hadris_iso::sync::read::FilenameType::Builtin
 pub hadris_iso::sync::read::FilenameType::Joliet
+pub enum hadris_iso::sync::read::IsoNamespace
+pub hadris_iso::sync::read::IsoNamespace::Joliet(hadris_iso::joliet::JolietLevel)
+pub hadris_iso::sync::read::IsoNamespace::Primary
+pub enum hadris_iso::sync::read::NameError
+pub hadris_iso::sync::read::NameError::BufferTooSmall
+pub hadris_iso::sync::read::NameError::InvalidEncoding
+impl core::error::Error for hadris_iso::read::NameError
+impl core::fmt::Display for hadris_iso::read::NameError
+pub fn hadris_iso::read::NameError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[repr(u8)] pub enum hadris_iso::sync::read::PathSeparator
 pub hadris_iso::sync::read::PathSeparator::Backslash = 92
 pub hadris_iso::sync::read::PathSeparator::ForwardSlash = 47
@@ -3115,12 +3233,34 @@ pub fn hadris_iso::read::IsoDir<'a, T>::raw_entries(&self) -> hadris_iso::read::
 impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDir<'_, T>
 pub fn hadris_iso::read::IsoDir<'_, T>::find(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::DirEntry>>
 pub fn hadris_iso::read::IsoDir<'_, T>::read_entries(&self) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::read::DirEntry>>
+pub struct hadris_iso::sync::read::IsoDirEntry
+impl hadris_iso::read::IsoDirEntry
+pub fn hadris_iso::read::IsoDirEntry::is_directory(&self) -> bool
+pub fn hadris_iso::read::IsoDirEntry::is_file(&self) -> bool
+pub const fn hadris_iso::read::IsoDirEntry::is_multi_extent(&self) -> bool
+pub fn hadris_iso::read::IsoDirEntry::name(&self) -> hadris_iso::read::IsoName<'_>
+pub const fn hadris_iso::read::IsoDirEntry::record(&self) -> &hadris_iso::directory::DirectoryRecord
+pub fn hadris_iso::read::IsoDirEntry::system_use(&self) -> &[u8]
+pub const fn hadris_iso::read::IsoDirEntry::total_size(&self) -> u64
 pub struct hadris_iso::sync::read::IsoDirIter<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
 impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDirIter<'_, T>
 pub fn hadris_iso::read::IsoDirIter<'_, T>::offset(&self) -> usize
 impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirIter<'_, T>
 pub type hadris_iso::read::IsoDirIter<'_, T>::Item = core::result::Result<hadris_iso::read::DirEntry, hadris_io::error::Error>
 pub fn hadris_iso::read::IsoDirIter<'_, T>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct hadris_iso::sync::read::IsoDirReader<'a, R>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDirReader<'_, R>
+pub fn hadris_iso::read::IsoDirReader<'_, R>::next_entry(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirReader<'_, R>
+pub type hadris_iso::read::IsoDirReader<'_, R>::Item = core::result::Result<hadris_iso::read::IsoDirEntry, hadris_io::error::Error>
+pub fn hadris_iso::read::IsoDirReader<'_, R>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct hadris_iso::sync::read::IsoFileReader<'a, R>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoFileReader<'_, R>
+pub fn hadris_iso::read::IsoFileReader<'_, R>::read_chunk(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
+impl<R> hadris_iso::read::IsoFileReader<'_, R>
+pub const fn hadris_iso::read::IsoFileReader<'_, R>::is_empty(&self) -> bool
+pub const fn hadris_iso::read::IsoFileReader<'_, R>::len(&self) -> u64
+pub const fn hadris_iso::read::IsoFileReader<'_, R>::position(&self) -> u64
 pub struct hadris_iso::sync::read::IsoImage<DATA: hadris_io::sync_api::Seek>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::find_path(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::DirEntry>>
@@ -3141,6 +3281,31 @@ pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Re
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::sync::read::IsoImageInfo
+pub struct hadris_iso::sync::read::IsoName<'a>
+impl<'a> hadris_iso::read::IsoName<'a>
+pub fn hadris_iso::read::IsoName<'a>::decode_into(self, &mut [u8]) -> core::result::Result<&str, hadris_iso::read::NameError>
+pub fn hadris_iso::read::IsoName<'a>::matches(self, &str) -> bool
+pub const fn hadris_iso::read::IsoName<'a>::namespace(self) -> hadris_iso::read::IsoNamespace
+pub const fn hadris_iso::read::IsoName<'a>::raw(self) -> &'a [u8]
+pub struct hadris_iso::sync::read::IsoReader<R>
+impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoReader<R>
+pub fn hadris_iso::read::IsoReader<R>::find_path(&mut self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
+pub fn hadris_iso::read::IsoReader<R>::find_path_in(&mut self, hadris_iso::read::IsoRoot, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
+pub fn hadris_iso::read::IsoReader<R>::open(R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::read::IsoReader<R>::open_dir(&mut self, hadris_iso::read::IsoRoot) -> hadris_iso::read::IsoDirReader<'_, R>
+pub fn hadris_iso::read::IsoReader<R>::open_file<'a>(&'a mut self, &hadris_iso::read::IsoDirEntry) -> hadris_io::error::Result<hadris_iso::read::IsoFileReader<'a, R>>
+impl<R> hadris_iso::read::IsoReader<R>
+pub fn hadris_iso::read::IsoReader<R>::into_inner(self) -> R
+pub const fn hadris_iso::read::IsoReader<R>::joliet_root(&self) -> core::option::Option<hadris_iso::read::IsoRoot>
+pub const fn hadris_iso::read::IsoReader<R>::preferred_root(&self) -> hadris_iso::read::IsoRoot
+pub const fn hadris_iso::read::IsoReader<R>::primary_root(&self) -> hadris_iso::read::IsoRoot
+pub fn hadris_iso::read::IsoReader<R>::root(&self, hadris_iso::read::IsoNamespace) -> core::option::Option<hadris_iso::read::IsoRoot>
+pub fn hadris_iso::read::IsoReader<R>::roots(&self) -> impl core::iter::traits::iterator::Iterator<Item = hadris_iso::read::IsoRoot>
+pub struct hadris_iso::sync::read::IsoRoot
+impl hadris_iso::read::IsoRoot
+pub const fn hadris_iso::read::IsoRoot::block_size(self) -> u16
+pub const fn hadris_iso::read::IsoRoot::namespace(self) -> hadris_iso::read::IsoNamespace
+pub const fn hadris_iso::read::IsoRoot::size(self) -> u32
 pub struct hadris_iso::sync::read::RawDirIter<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
 impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::RawDirIter<'_, T>
 pub fn hadris_iso::read::RawDirIter<'_, T>::offset(&self) -> usize

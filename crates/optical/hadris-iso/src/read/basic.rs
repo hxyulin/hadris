@@ -394,7 +394,14 @@ impl<R: Read + Seek> IsoReader<R> {
     /// Opens a caller-buffered stream for a file entry.
     pub fn open_file<'a>(&'a mut self, entry: &IsoDirEntry) -> io::Result<IsoFileReader<'a, R>> {
         validate_file(entry)?;
-        Ok(IsoFileReader { image: self, entry: *entry, position: 0 })
+        Ok(IsoFileReader {
+            image: self,
+            entry: *entry,
+            current_record: entry.record,
+            current_extent_start: 0,
+            continuation_cursor: entry.continuation_offset,
+            position: 0,
+        })
     }
 
     async fn next_entry(&mut self, directory: DirectoryLocation, offset: &mut u32) -> io::Result<Option<IsoDirEntry>> {
@@ -433,9 +440,9 @@ impl<R: Read + Seek> IsoReader<R> {
             if len < MIN_RECORD_SIZE || (*offset % block) as usize + len > block as usize {
                 return Err(invalid("invalid directory record length"));
             }
-            self.source.seek(SeekFrom::Start(absolute)).await.map_err(io::Error::erase)?;
             let mut header_bytes = [0_u8; core::mem::size_of::<DirectoryRecordHeader>()];
-            self.source.read_exact(&mut header_bytes).await?;
+            header_bytes[0] = len as u8;
+            self.source.read_exact(&mut header_bytes[1..]).await?;
             let header: DirectoryRecordHeader = bytemuck::pod_read_unaligned(&header_bytes);
             let name_end = MIN_RECORD_SIZE - 1 + header.file_identifier_len as usize;
             if name_end > len { return Err(invalid("directory identifier exceeds record")); }
@@ -447,39 +454,6 @@ impl<R: Read + Seek> IsoReader<R> {
         Ok(None)
     }
 
-    async fn read_file_at(&mut self, entry: &IsoDirEntry, file_offset: u64, output: &mut [u8]) -> io::Result<usize> {
-        if file_offset >= entry.total_size || output.is_empty() { return Ok(0); }
-        validate_file(entry)?;
-        let wanted = output.len().min((entry.total_size - file_offset) as usize);
-        let mut written = 0;
-        let mut logical_start = 0_u64;
-        let mut record = entry.record;
-        let mut continuation_cursor = entry.continuation_offset;
-        loop {
-            let extent_len = record.header().data_len.read() as u64;
-            if file_offset < logical_start + extent_len && written < wanted {
-                let within = file_offset.saturating_sub(logical_start);
-                let available = (extent_len - within) as usize;
-                let take = available.min(wanted - written);
-                let xar = record.header().extended_attr_record as u64 * entry.directory.block_size as u64;
-                let absolute = byte_offset(record.header().extent.read(), entry.directory.block_size)?
-                    .checked_add(xar).and_then(|value| value.checked_add(within)).ok_or_else(overflow)?;
-                self.source.seek(SeekFrom::Start(absolute)).await.map_err(io::Error::erase)?;
-                self.source.read_exact(&mut output[written..written + take]).await?;
-                written += take;
-            }
-            logical_start = logical_start.checked_add(extent_len).ok_or_else(overflow)?;
-            if written == wanted { return Ok(written); }
-            let Some(ref mut cursor) = continuation_cursor else { return Ok(written); };
-            let Some(next) = self.next_raw(entry.directory, cursor).await? else {
-                return Err(invalid("truncated multi-extent file"));
-            };
-            validate_continuation(&entry.record, &next)?;
-            let more = FileFlags::from_bits_retain(next.header().flags).contains(FileFlags::NOT_FINAL);
-            record = next;
-            if !more { continuation_cursor = None; }
-        }
-    }
 }
 } // io_transform!
 
@@ -510,6 +484,9 @@ impl<R: Read + Seek> Iterator for IsoDirReader<'_, R> {
 pub struct IsoFileReader<'a, R> {
     image: &'a mut IsoReader<R>,
     entry: IsoDirEntry,
+    current_record: DirectoryRecord,
+    current_extent_start: u64,
+    continuation_cursor: Option<u32>,
     position: u64,
 }
 
@@ -534,9 +511,58 @@ io_transform! {
 impl<R: Read + Seek> IsoFileReader<'_, R> {
     /// Reads the next chunk into a caller-provided buffer.
     pub async fn read_chunk(&mut self, output: &mut [u8]) -> io::Result<usize> {
-        let read = self.image.read_file_at(&self.entry, self.position, output).await?;
-        self.position += read as u64;
-        Ok(read)
+        if self.position >= self.entry.total_size || output.is_empty() {
+            return Ok(0);
+        }
+
+        let wanted = output
+            .len()
+            .min((self.entry.total_size - self.position) as usize);
+        let mut written = 0;
+        while written < wanted {
+            let extent_len = self.current_record.header().data_len.read() as u64;
+            let within = self.position.checked_sub(self.current_extent_start)
+                .ok_or_else(|| invalid("file reader extent state is invalid"))?;
+            if within < extent_len {
+                let available = (extent_len - within) as usize;
+                let take = available.min(wanted - written);
+                let header = self.current_record.header();
+                let xar = header.extended_attr_record as u64
+                    * self.entry.directory.block_size as u64;
+                let absolute = byte_offset(header.extent.read(), self.entry.directory.block_size)?
+                    .checked_add(xar)
+                    .and_then(|value| value.checked_add(within))
+                    .ok_or_else(overflow)?;
+                self.image.source.seek(SeekFrom::Start(absolute)).await
+                    .map_err(io::Error::erase)?;
+                self.image.source.read_exact(&mut output[written..written + take]).await?;
+                written += take;
+                self.position += take as u64;
+            }
+
+            if written == wanted {
+                break;
+            }
+            self.advance_extent(extent_len).await?;
+        }
+        Ok(written)
+    }
+
+    async fn advance_extent(&mut self, extent_len: u64) -> io::Result<()> {
+        self.current_extent_start = self.current_extent_start
+            .checked_add(extent_len)
+            .ok_or_else(overflow)?;
+        let Some(ref mut cursor) = self.continuation_cursor else {
+            return Err(invalid("file extent chain ended before its declared size"));
+        };
+        let next = self.image.next_raw(self.entry.directory, cursor).await?
+            .ok_or_else(|| invalid("truncated multi-extent file"))?;
+        validate_continuation(&self.entry.record, &next)?;
+        if !FileFlags::from_bits_retain(next.header().flags).contains(FileFlags::NOT_FINAL) {
+            self.continuation_cursor = None;
+        }
+        self.current_record = next;
+        Ok(())
     }
 }
 } // io_transform!
