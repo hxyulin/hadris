@@ -8,14 +8,69 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [2.0.0-rc.2] - 2026-07-19
+
 ### Added
 
 - **hadris-iso:** Added a zero-allocation `IsoReader` for sync and async
   `no_std` builds, including ISO 9660/Joliet namespace selection, nested path
   lookup, caller-buffered reads, and multi-extent file streaming.
+- **hadris-fat:** Added `NtCaseFlags` and `FileEntry::nt_case` /
+  `ShortFileName::with_nt_case` so lowercase 8.3 short names round-trip in their
+  original case.
+- **hadris-iso:** `EmulationType` now names the El Torito boot media types
+  (1.2/1.44/2.88 MB floppy and hard-disk emulation) with an `is_emulated`
+  helper, so bootable images can request emulated media. Emulated boot entries
+  default their load size to one virtual sector.
+- **hadris-iso:** Rock Ridge `TF` timestamp entries now include the creation
+  time when the input entry carries one (new `RripBuilder::add_tf`), alongside
+  the existing modify and access times.
+- **hadris-fat:** `Fat12` and `Fat16` now expose `allocate_chain` and
+  `extend_chain`, matching `Fat32`, for callers doing manual multi-cluster
+  allocation.
+- **hadris-iso:** The allocation-free `IsoReader` can now resolve Rock Ridge
+  alternate names: `IsoDirEntry::rrip_name_into` decodes the `NM` field into a
+  caller buffer and `rrip_name_matches` compares it, both without allocating.
+  (Inline system-use areas only; `CE`-continued names are not followed.)
+
+### Removed
+
+- **hadris-iso:** Removed the unused, always-empty `read::SupportedFeatures`
+  bitflags stub.
+
+### Fixed
+
+- **hadris-iso:** `IsoImage::open` now rejects images that declare a logical
+  block size other than 2048 with a clear `Unsupported` error, instead of
+  silently misreading their extents. (The allocation-free `IsoReader` honors the
+  declared block size; full non-2048 support in `IsoImage` remains future work.)
+- **hadris-iso:** Joliet file identifiers are now encoded as conformant UCS-2:
+  characters outside the Basic Multilingual Plane are substituted with `_`
+  instead of leaking UTF-16 surrogate pairs into the field, and names are capped
+  at the Joliet 64-character limit (previously up to 103). `encode_joliet_name`
+  is likewise BMP-safe.
+- **hadris-iso:** Directory records are now written in ascending File Identifier
+  order (ECMA-119 9.3) instead of input/tree order, so images validate against
+  strict readers.
+- **hadris-iso:** Writing a file larger than 4 GiB now fails with a clear error
+  instead of silently truncating its length to 32 bits. Multi-extent records
+  (which would lift the limit) are not yet emitted.
+- **hadris-fat:** Lowercase 8.3 names (e.g. `readme.txt`) are now stored as a
+  single short entry with the Windows NT `DIR_NTRes` case flags and read back in
+  their original case, instead of being uppercased on read or spending a
+  long-file-name entry. `rename` now records case flags for the new name rather
+  than carrying over the source entry's.
 
 ### Documentation
 
+- Expanded the `@hadris-spec` compliance annotations and `docs/spec-coverage.md`
+  to cover more ISO volume descriptors, path tables, and El Torito section
+  entries, the FAT FSInfo sector, and a new `hadris-part` (MBR/GPT) section.
+- Completed the in-repo ISO 9660 specification notes (volume descriptors, path
+  table, directory record, and an extensions index) and documented the ISO
+  writer's known limitations.
+- Added `docs/hadris-2-perf-notes.md` recording the caching/performance findings
+  deferred out of 2.0.
 - Added a Docusaurus documentation site with getting-started, crate-selection,
   migration, release-candidate, and task-oriented FAT, partition, ISO, CPIO,
   and `no_std` guides.
@@ -183,7 +238,8 @@ Each published package owns its version and may be released independently.
 Baseline for this changelog. See the git history for changes at and before this
 tag.
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.2...HEAD
+[2.0.0-rc.2]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.1...v2.0.0-rc.2
 [2.0.0-rc.1]: https://github.com/hxyulin/hadris/compare/v1.2.1...v2.0.0-rc.1
 [1.2.1]: https://github.com/hxyulin/hadris/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/hxyulin/hadris/compare/v1.1.0...v1.2.0

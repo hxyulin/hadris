@@ -55,14 +55,14 @@ assert_eq!(hadris_common::BOOT_SECTOR_BIN[511], 0xAA);
 
 ```toml
 [dependencies]
-hadris-common = { version = "2.0.0-rc.1", default-features = false, features = ["alloc", "bytemuck"] }
+hadris-common = { version = "2.0.0-rc.2", default-features = false, features = ["alloc", "bytemuck"] }
 ```
 
 ### Minimal (No Heap)
 
 ```toml
 [dependencies]
-hadris-common = { version = "2.0.0-rc.1", default-features = false, features = ["bytemuck"] }
+hadris-common = { version = "2.0.0-rc.2", default-features = false, features = ["bytemuck"] }
 ```
 
 ## License
