@@ -43,11 +43,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
       # cargo-public-api generates rustdoc JSON through nightly rustdoc even
       # though the project itself remains pinned to the stable MSRV above.
-      - uses: dtolnay/rust-toolchain@nightly
+      # Pin the nightly: rustdoc's rendering of blanket impls (e.g.
+      # `std::io::Read` vs `alloc::io::read::Read`) drifts between nightlies, so
+      # an unpinned toolchain makes the snapshot diff nondeterministic. Bump
+      # this date deliberately alongside a snapshot refresh.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-public-api
         run: cargo install cargo-public-api --version 0.52.0 --locked
       - name: Check all-feature public API snapshots
+        # cargo-public-api 0.52.0 has no --toolchain flag but honors
+        # RUSTUP_TOOLCHAIN when it names a nightly, so this drives rustdoc with
+        # the pinned dated nightly installed above.
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-07-15
         run: scripts/check-public-api.sh
 
   check:
