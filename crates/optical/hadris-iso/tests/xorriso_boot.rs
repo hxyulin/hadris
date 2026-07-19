@@ -107,6 +107,73 @@ fn test_hadris_multisection_boot_catalog() {
 }
 
 #[test]
+fn test_floppy_emulation_media_type_and_default_load_size() {
+    use hadris_iso::boot::EmulationType;
+    use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
+    use hadris_iso::read::PathSeparator;
+    use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+    use hadris_iso::write::{InputEntry, InputTree, IsoImageWriter};
+
+    // A 1.44 MB floppy image; emulation must be recorded and its default load
+    // size must be a single virtual sector (not the whole image / 512).
+    let floppy = vec![0x44u8; 2048];
+    let tree = InputTree::new(
+        PathSeparator::ForwardSlash,
+        vec![InputEntry::file("floppy.img", floppy)],
+    );
+    let boot = BootOptions {
+        write_boot_catalog: true,
+        default: BootEntryOptions {
+            load_size: None, // exercise the emulation-aware default
+            boot_image_path: "floppy.img".to_string(),
+            boot_info_table: false,
+            grub2_boot_info: false,
+            emulation: EmulationType::Floppy1_44,
+        },
+        entries: vec![],
+    };
+    let options = FormatOptions {
+        volume_name: "FLOPPYBOOT".to_string(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
+        sector_size: 2048,
+        features: CreationFeatures {
+            el_torito: Some(boot),
+            ..CreationFeatures::default()
+        },
+        path_separator: PathSeparator::ForwardSlash,
+        strict_charset: false,
+    };
+    let output = IsoImageWriter::create(Cursor::new(vec![0; 2 * 1024 * 1024]), tree, options)
+        .unwrap()
+        .into_inner();
+
+    let descriptor = (16..32)
+        .map(|sector| &output[sector * 2048..(sector + 1) * 2048])
+        .find(|descriptor| descriptor[0] == 0 && &descriptor[1..6] == b"CD001")
+        .expect("boot record volume descriptor");
+    let catalog_lba = u32::from_le_bytes(descriptor[71..75].try_into().unwrap()) as usize;
+    let catalog = &output[catalog_lba * 2048..];
+
+    // Default/initial entry starts at offset 32 in the catalog.
+    // [0] boot indicator (0x88), [1] media type, [6..8] sector count.
+    assert_eq!(catalog[32], 0x88, "entry must be bootable");
+    assert_eq!(
+        catalog[33],
+        EmulationType::Floppy1_44.to_u8(),
+        "media type must record 1.44 MB floppy emulation"
+    );
+    assert_eq!(
+        u16::from_le_bytes([catalog[38], catalog[39]]),
+        1,
+        "emulated media default load size must be one virtual sector"
+    );
+}
+
+#[test]
 fn test_eltorito_boot_catalog_comparison() {
     if !xorriso_available() {
         eprintln!("Skipping test: xorriso not available");

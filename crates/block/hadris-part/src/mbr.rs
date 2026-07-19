@@ -415,6 +415,10 @@ impl IndexMut<usize> for MbrPartitionTable {
 }
 
 /// The complete Master Boot Record structure (512 bytes).
+///
+/// @hadris-spec MBR:layout
+/// @hadris-compliance full
+/// @hadris-tests roundtrip::mbr_write_read_roundtrip
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct MasterBootRecord {

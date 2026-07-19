@@ -1800,6 +1800,130 @@ mod corrupt_image_tests {
         );
     }
 
+    /// A lowercase 8.3 name must round-trip in its original case without
+    /// spending a long-file-name entry: it is stored uppercase on disk with the
+    /// Windows NT `DIR_NTRes` case flags set. Regression for T0.1 — previously
+    /// `readme.txt` either read back as `README.TXT` (case byte ignored) or
+    /// wasted an LFN slot.
+    #[cfg(feature = "lfn")]
+    #[test]
+    fn test_lowercase_short_name_uses_nt_case_flags() {
+        use hadris_fat::raw::NtCaseFlags;
+
+        // The 8.3 display name carries internal space padding ("readme  .txt");
+        // strip it per-component to compare the logical name and its case.
+        fn normalize_8_3(name: &str) -> String {
+            match name.split_once('.') {
+                Some((base, ext)) => {
+                    let base = base.trim_end_matches(' ');
+                    let ext = ext.trim_end_matches(' ');
+                    if ext.is_empty() {
+                        base.to_string()
+                    } else {
+                        format!("{base}.{ext}")
+                    }
+                }
+                None => name.trim_end_matches(' ').to_string(),
+            }
+        }
+
+        let image = create_fat32_image();
+        let fs = FatFs::open(image).expect("open");
+
+        // base + ext both lowercase, base lowercase / ext uppercase, and a
+        // lowercase name with no extension.
+        for (name, expect_flags) in [
+            (
+                "readme.txt",
+                NtCaseFlags::LOWER_BASE | NtCaseFlags::LOWER_EXT,
+            ),
+            ("kernel.C", NtCaseFlags::LOWER_BASE),
+            ("makefile", NtCaseFlags::LOWER_BASE),
+            ("BOOT.BIN", NtCaseFlags::empty()),
+        ] {
+            fs.create_file(&fs.root_dir(), name).expect("create");
+
+            let entry = fs
+                .root_dir()
+                .find(name)
+                .expect("find")
+                .expect("entry present");
+
+            assert!(
+                entry.long_name().is_none(),
+                "{name}: case-only differences must not spend an LFN entry"
+            );
+            assert_eq!(entry.nt_case(), expect_flags, "{name}: NT case flags");
+            assert_eq!(
+                normalize_8_3(&entry.name()),
+                name,
+                "{name}: display name round-trips case"
+            );
+        }
+    }
+
+    /// FAT16 gains `allocate_chain`/`extend_chain` (previously FAT32-only): a
+    /// freshly allocated chain must be linked cluster-to-cluster and terminate,
+    /// and extending it must splice the new run onto the old tail. Regression
+    /// for T1.5 (FAT12/16 chain-allocator parity).
+    #[test]
+    fn test_fat16_allocate_and_extend_chain_links_clusters() {
+        use hadris_fat::Fat16;
+        use std::io::Cursor;
+
+        // A 512-byte FAT16 region (256 entries), all clusters free.
+        let mut rw = Cursor::new(vec![0u8; 512]);
+        let fat = Fat16::new(0, 512, 1, 32);
+
+        let first = fat.allocate_chain(&mut rw, 3, 2).expect("allocate_chain");
+        assert_eq!(first, 2, "first cluster starts at the hint");
+        assert_eq!(fat.next_cluster(&mut rw, 2).unwrap(), Some(3));
+        assert_eq!(fat.next_cluster(&mut rw, 3).unwrap(), Some(4));
+        assert_eq!(
+            fat.next_cluster(&mut rw, 4).unwrap(),
+            None,
+            "chain terminates"
+        );
+
+        // Extend from the current tail (cluster 4) by two more clusters.
+        let new_first = fat.extend_chain(&mut rw, 4, 2, 5).expect("extend_chain");
+        assert_eq!(
+            fat.next_cluster(&mut rw, 4).unwrap(),
+            Some(new_first as u32),
+            "old tail now links to the extension"
+        );
+
+        // Full walk from the head should now visit five clusters.
+        let mut count = 1;
+        let mut cur = first as u32;
+        while let Some(next) = fat.next_cluster(&mut rw, cur as usize).unwrap() {
+            count += 1;
+            cur = next;
+        }
+        assert_eq!(count, 5, "chain length after extend");
+    }
+
+    /// A mixed-case 8.3 name (e.g. `ReadMe.txt`) cannot be represented by the
+    /// per-part case flags and must fall back to a long-file-name entry.
+    #[cfg(feature = "lfn")]
+    #[test]
+    fn test_mixed_case_short_name_falls_back_to_lfn() {
+        let image = create_fat32_image();
+        let fs = FatFs::open(image).expect("open");
+
+        fs.create_file(&fs.root_dir(), "ReadMe.txt")
+            .expect("create");
+        let entry = fs
+            .root_dir()
+            .find("ReadMe.txt")
+            .expect("find")
+            .expect("entry");
+
+        let lfn = entry.long_name().expect("mixed case requires an LFN");
+        assert!(lfn.eq_str("ReadMe.txt"));
+        assert_eq!(&*entry.name(), "ReadMe.txt");
+    }
+
     /// Mounting via `FatFsBuilder::with_fat_cache` should install the cache
     /// without changing observable read/write behaviour. Compares writing
     /// the same file with cache on vs off and asserts both files round-trip

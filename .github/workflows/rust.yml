@@ -405,13 +405,19 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
-      - name: Install dosfstools
+      - name: Install dosfstools and mtools
         run: |
           sudo apt-get update
-          sudo apt-get install -y dosfstools
+          sudo apt-get install -y dosfstools mtools
       - name: Run FAT roundtrip tests
         run: |
           cargo test -p hadris-fat --features "write" --test fat_roundtrip -- --nocapture
+      # `mtools` (mdir/mtype) verifies filename and content fidelity that
+      # `fsck.fat` (structure only) does not — in particular the NT case bits
+      # for lowercase 8.3 names.
+      - name: Run FAT mtools fidelity tests
+        run: |
+          cargo test -p hadris-fat --features "write,std" --test mtools_fidelity -- --nocapture
       # `cache` is not a default feature, so the workspace `test` job never
       # exercises the FAT-sector cache, its routing on FatFs, or the
       # cache_integration suite. Run them explicitly here.

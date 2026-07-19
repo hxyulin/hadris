@@ -8,13 +8,45 @@ use crate::error::{FatError, Result};
 use crate::file::ShortFileName;
 #[cfg(feature = "lfn")]
 use crate::file::{LfnBuilder, LongFileName};
-use crate::raw::{DirEntryAttrFlags, RawDirectoryEntry};
+use crate::raw::{DirEntryAttrFlags, NtCaseFlags, RawDirectoryEntry};
 use crate::time::FatDateTime;
 use super::fs::FatFs;
 #[cfg(not(feature = "alloc"))]
 use super::io::ReadExt;
 use super::io::{Cluster, ClusterLike, Read, Seek, SeekFrom};
 use super::read::FileReader;
+
+/// Formats a stored 8.3 short name as its human-facing filename: the NT case
+/// flags are applied, trailing space padding is trimmed from the base and
+/// extension, and the `.` separator is dropped when there is no extension.
+///
+/// [`ShortFileName::as_str`] returns the padded on-disk field (`README  .TXT`);
+/// this returns the logical name (`readme.txt`).
+#[cfg(feature = "alloc")]
+fn short_name_display(short: &ShortFileName, flags: NtCaseFlags) -> alloc::string::String {
+    use alloc::string::ToString;
+
+    // The "." and ".." directory entries are stored without 8.3 padding and
+    // carry no case flags; the base/extension split below would corrupt them.
+    let raw = short.as_str();
+    if raw == "." || raw == ".." {
+        return raw.to_string();
+    }
+
+    let cased = short.with_nt_case(flags);
+    let raw = cased.as_str();
+    let (base, ext) = match raw.find('.') {
+        Some(dot) => (raw[..dot].trim_end(), raw[dot + 1..].trim_end()),
+        None => (raw.trim_end(), ""),
+    };
+    let mut name = alloc::string::String::with_capacity(base.len() + 1 + ext.len());
+    name.push_str(base);
+    if !ext.is_empty() {
+        name.push('.');
+        name.push_str(ext);
+    }
+    name
+}
 
 /// A directory within a mounted FAT filesystem.
 pub struct FatDir<'a, DATA: Read + Seek> {
@@ -381,6 +413,7 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
 
             return Some(Ok(DirectoryEntry::Entry(FileEntry {
                 short_name,
+                nt_case: NtCaseFlags::from_bits_truncate(file_entry.reserved),
                 #[cfg(feature = "lfn")]
                 long_name,
                 attr,
@@ -456,6 +489,9 @@ bitflags::bitflags! {
 /// Metadata for a file or subdirectory entry.
 pub struct FileEntry {
     pub(crate) short_name: ShortFileName,
+    /// Windows NT 8.3 name case flags (`DIR_NTRes`); applied to the display
+    /// name when no long name is present.
+    pub(crate) nt_case: NtCaseFlags,
     #[cfg(feature = "lfn")]
     pub(crate) long_name: Option<LongFileName>,
     pub(crate) attr: DirEntryAttrFlags,
@@ -498,12 +534,23 @@ impl FileEntry {
                 return alloc::borrow::Cow::Owned(lfn.to_string());
             }
         }
-        alloc::borrow::Cow::Borrowed(self.short_name.as_str())
+        alloc::borrow::Cow::Owned(short_name_display(&self.short_name, self.nt_case))
     }
 
-    /// Get the short (8.3) filename
+    /// Get the short (8.3) filename, in its canonical on-disk (uppercase) form.
+    ///
+    /// Use [`Self::nt_case`] with [`ShortFileName::with_nt_case`] to recover the
+    /// original lowercase presentation without allocating.
     pub fn short_name(&self) -> &ShortFileName {
         &self.short_name
+    }
+
+    /// Windows NT 8.3 name case flags (`DIR_NTRes`) for this entry.
+    ///
+    /// Records whether the short name's base and/or extension were originally
+    /// lowercase. Meaningful only when the entry has no long file name.
+    pub fn nt_case(&self) -> NtCaseFlags {
+        self.nt_case
     }
 
     /// Get the long filename, if available
@@ -789,6 +836,7 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
 
             return Some(Ok(DirectoryEntry::Entry(FileEntry {
                 short_name,
+                nt_case: NtCaseFlags::from_bits_truncate(file_entry.reserved),
                 #[cfg(feature = "lfn")]
                 long_name,
                 attr,

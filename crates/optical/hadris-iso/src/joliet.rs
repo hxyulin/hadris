@@ -90,12 +90,21 @@ fn strip_version_suffix(bytes: &[u8]) -> &[u8] {
     bytes
 }
 
-/// Encode a string as a Joliet filename (UTF-16 Big Endian)
+/// Encode a string as a Joliet filename (big-endian UCS-2).
+///
+/// Joliet uses UCS-2, which covers only the Basic Multilingual Plane. A
+/// character outside the BMP cannot be represented as a single UCS-2 code unit,
+/// so it is substituted with `_` rather than emitting a UTF-16 surrogate pair.
 #[cfg(feature = "alloc")]
 pub fn encode_joliet_name(name: &str) -> alloc::vec::Vec<u8> {
-    let mut result = alloc::vec::Vec::with_capacity(name.len() * 2);
-    for c in name.encode_utf16() {
-        result.extend_from_slice(&c.to_be_bytes());
+    let mut result = alloc::vec::Vec::with_capacity(name.chars().count() * 2);
+    for c in name.chars() {
+        let unit = if (c as u32) <= 0xFFFF {
+            c as u16
+        } else {
+            b'_' as u16
+        };
+        result.extend_from_slice(&unit.to_be_bytes());
     }
     result
 }

@@ -213,9 +213,15 @@ unsafe impl bytemuck::AnyBitPattern for RawBpbExt32 {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BpbExt32Flags(u16);
 
+/// Raw 32-byte FAT short-name file or directory entry.
+///
+/// @hadris-spec FAT:DirEntry
+/// @hadris-compliance partial
+/// @hadris-note Name/attributes/timestamps/cluster/size and NT case flags (`DIR_NTRes`) are read and written; extended access-time granularity is not modeled.
+/// @hadris-tests test_write::test_lowercase_short_name_uses_nt_case_flags
+/// @hadris-fuzz fat_read
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-/// Raw 32-byte FAT short-name file or directory entry.
 pub struct RawFileEntry {
     /// DIR_Name
     ///
@@ -233,7 +239,10 @@ pub struct RawFileEntry {
     pub attributes: u8,
     /// DIR_NTRes
     ///
-    /// Reserved for use by Windows NT
+    /// Reserved for use by Windows NT. In practice Windows stores 8.3 name
+    /// case information here: bit 3 (`0x08`) marks the base name as originally
+    /// lowercase and bit 4 (`0x10`) marks the extension as originally
+    /// lowercase. See [`NtCaseFlags`].
     pub reserved: u8,
     /// DIR_CrtTimeTenth
     ///
@@ -366,9 +375,14 @@ unsafe impl bytemuck::NoUninit for RawDirectoryEntry {}
 unsafe impl bytemuck::Zeroable for RawDirectoryEntry {}
 unsafe impl bytemuck::AnyBitPattern for RawDirectoryEntry {}
 
+/// Raw FAT32 FSInfo sector.
+///
+/// @hadris-spec FAT:FSInfo
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_fat::test_fsinfo_free_cluster_unknown
+/// @hadris-fuzz fat_read
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-/// Raw FAT32 FSInfo sector.
 pub struct RawFsInfo {
     /// FSI_LeadSig
     ///
@@ -419,6 +433,22 @@ bitflags::bitflags! {
         const DIRECTORY = 1 << 4;
         /// Entry has the archive bit set.
         const ARCHIVE = 1 << 5;
+    }
+}
+
+bitflags::bitflags! {
+    /// Windows NT 8.3 name case flags stored in the `DIR_NTRes` byte.
+    ///
+    /// FAT stores 8.3 short names uppercase on disk. Windows records in this
+    /// byte whether the base name and/or extension were originally lowercase
+    /// so an all-lowercase (or lowercase-base / lowercase-ext) 8.3 name can be
+    /// presented in its original case without spending a long-file-name entry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct NtCaseFlags: u8 {
+        /// The base name (characters before the dot) was originally lowercase.
+        const LOWER_BASE = 0x08;
+        /// The extension (characters after the dot) was originally lowercase.
+        const LOWER_EXT = 0x10;
     }
 }
 

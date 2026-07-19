@@ -460,13 +460,27 @@ fn validate_input_tree(tree: &InputTree, rrip: Option<&RripOptions>) -> io::Resu
                         ));
                     }
                 }
-                InputEntryKind::File(_) => {}
+                InputEntryKind::File(contents) => {
+                    if contents.len() as u64 > MAX_SINGLE_EXTENT_FILE_LEN {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "file exceeds 4 GiB; the ISO writer stores each file in a single \
+                             extent and cannot yet emit multi-extent records",
+                        ));
+                    }
+                }
             }
         }
         Ok(())
     }
     visit(&tree.entries, rrip, 1, 0)
 }
+
+/// Largest file size a single ISO 9660 (ECMA-119 9.1) directory record can
+/// address through its 32-bit `data_len` field. Larger files require
+/// multi-extent records, which the writer does not yet emit — attempting to
+/// write one is rejected up front rather than silently truncated to `u32`.
+pub(crate) const MAX_SINGLE_EXTENT_FILE_LEN: u64 = u32::MAX as u64;
 
 fn relocate_deep_directories(files: &mut WrittenFiles) {
     fn visit(
@@ -645,7 +659,12 @@ fn build_rrip_entries(
         if options.preserve_timestamps {
             let modified = rrip_datetime(metadata.modified, fallback_time);
             let accessed = rrip_datetime(metadata.accessed, fallback_time);
-            builder.add_tf_short(&modified, &accessed);
+            // Emit the creation timestamp when the input carries one; in-memory
+            // entries without a creation time keep the modify/access-only form.
+            let created = metadata
+                .created
+                .map(|created| rrip_datetime(Some(created), fallback_time));
+            builder.add_tf(created.as_ref(), &modified, &accessed);
         }
     };
 
@@ -996,10 +1015,18 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                             "boot image file not found",
                         )
                     })?;
-                let load_size = entry
-                    .load_size
-                    .map(core::num::NonZeroU16::get)
-                    .unwrap_or_else(|| dir_ref.size.div_ceil(512) as u16);
+                let load_size = entry.load_size.map(core::num::NonZeroU16::get).unwrap_or_else(
+                    || {
+                        // Emulated media load a single virtual boot sector; the
+                        // firmware then services the emulated disk. No-emulation
+                        // entries load the whole image as 512-byte sectors.
+                        if entry.emulation.is_emulated() {
+                            1
+                        } else {
+                            dir_ref.size.div_ceil(512) as u16
+                        }
+                    },
+                );
                 let boot_image_lba = dir_ref.extent.0 as u32;
                 let boot_entry =
                     BootSectionEntry::new(entry.emulation, 0, load_size, boot_image_lba);
@@ -2075,6 +2102,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             }
         }
 
+        // ── Phase 1.75: Order records by File Identifier (ECMA-119 9.3) ──
+        // Directory records must be written in ascending File Identifier order.
+        // "." and ".." (identifiers 0x00 / 0x01) sort first; the remaining
+        // entries follow in identifier order. A byte-wise comparison reproduces
+        // the standard's space-padded ordering because the pad byte (0x20) sorts
+        // below every character valid in an ISO 9660 identifier, so a shorter
+        // identifier that is a prefix of a longer one still sorts first. Sorting
+        // after dedup keeps the assigned suffixes intact.
+        records.sort_by(|a, b| a.name.cmp(&b.name));
+
         // ── Phase 2: Write continuation area if any records have overflow ──
 
         let has_overflow = records.iter().any(|r| r.split.has_overflow());
@@ -2180,6 +2217,22 @@ impl<'a> Iterator for FileTreeWalker<'a> {
 mod tests {
     use super::*; // Import items from the outer module
     use alloc::vec;
+
+    /// The single-extent ceiling is exactly the 32-bit `data_len` range, and
+    /// ordinary files validate. The >4 GiB rejection path itself cannot be
+    /// exercised in a unit test without allocating a >4 GiB buffer (files are
+    /// held in memory as `Vec<u8>`); it is guarded by inspection and the
+    /// constant below.
+    #[test]
+    fn single_extent_ceiling_and_normal_files_validate() {
+        assert_eq!(MAX_SINGLE_EXTENT_FILE_LEN, u32::MAX as u64);
+
+        let tree = InputTree::new(
+            PathSeparator::ForwardSlash,
+            vec![InputEntry::file("hello.txt", vec![0u8; 4096])],
+        );
+        assert!(validate_input_tree(&tree, None).is_ok());
+    }
 
     #[test]
     fn test_depth_first_tree_walk_iterator() {

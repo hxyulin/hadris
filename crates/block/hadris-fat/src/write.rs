@@ -546,26 +546,72 @@ fn kanji_short_name_fixup(name: &mut [u8; 11]) {
 #[cfg(all(feature = "write", feature = "lfn"))]
 pub(crate) const MAX_LFN_ENTRIES: usize = 20;
 
-/// Decide whether `name` requires LFN entries to round-trip losslessly.
+/// Decide whether `name` can be stored as a single short (8.3) directory entry
+/// using the Windows NT `DIR_NTRes` case flags, and if so which flags to set.
 ///
-/// Returns `true` for any name that wouldn't survive the 8.3 short-name
-/// conversion: lowercase letters, multiple dots, spaces, length over 8.3,
-/// or non-ASCII characters. Returns `false` for already-conforming names —
-/// those write as a single short entry, the same as before LFN-write existed.
-#[cfg(all(feature = "write", feature = "lfn"))]
-fn name_requires_lfn(name: &str) -> bool {
+/// Returns `Some(bits)` when the name fits 8.3 with at most a per-part *uniform*
+/// case difference — `bits` carries `LOWER_BASE` (0x08) and/or `LOWER_EXT`
+/// (0x10) so a lowercase name round-trips without a long-file-name entry. An
+/// already-uppercase 8.3 name returns `Some(0)`. Returns `None` when the name
+/// needs LFN entries to round-trip: too long, spaces, multiple dots, mixed case
+/// within the base or extension, or characters not representable in the 8.3
+/// character set.
+///
+/// This replaces the older "does this need an LFN?" predicate — a `None` result
+/// is exactly the set of names that previously required LFN entries.
+#[cfg(feature = "write")]
+fn short_name_case_bits(name: &str) -> Option<u8> {
+    const LOWER_BASE: u8 = 0x08;
+    const LOWER_EXT: u8 = 0x10;
+
     let (base, ext) = match name.rfind('.') {
         Some(pos) if pos > 0 => (&name[..pos], &name[pos + 1..]),
         _ => (name, ""),
     };
-    if base.chars().count() > 8 || ext.chars().count() > 3 {
-        return true;
+    if base.is_empty() || base.chars().count() > 8 || ext.chars().count() > 3 {
+        return None;
     }
     if name.matches('.').count() > 1 {
-        return true;
+        return None;
     }
-    name.chars()
-        .any(|c| !c.is_ascii() || c.is_ascii_lowercase() || c == ' ')
+
+    // Returns `Some(true)` for an all-lowercase part, `Some(false)` for an
+    // all-uppercase (or caseless) part, and `None` when the part is not 8.3
+    // representable (invalid character or mixed case).
+    fn part_is_lower(part: &str) -> Option<bool> {
+        let mut seen_lower = false;
+        let mut seen_upper = false;
+        for c in part.chars() {
+            if !c.is_ascii() {
+                return None;
+            }
+            let upper = (c as u8).to_ascii_uppercase();
+            let representable = upper.is_ascii_uppercase()
+                || upper.is_ascii_digit()
+                || ShortFileName::ALLOWED_SYMBOLS.contains(&upper);
+            if !representable {
+                return None;
+            }
+            if c.is_ascii_lowercase() {
+                seen_lower = true;
+            } else if c.is_ascii_uppercase() {
+                seen_upper = true;
+            }
+        }
+        if seen_lower && seen_upper {
+            return None;
+        }
+        Some(seen_lower)
+    }
+
+    let mut bits = 0;
+    if part_is_lower(base)? {
+        bits |= LOWER_BASE;
+    }
+    if part_is_lower(ext)? {
+        bits |= LOWER_EXT;
+    }
+    Some(bits)
 }
 
 /// Maximum number of LFN entries we'll walk backward when cleaning up
@@ -1092,19 +1138,23 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let short_name = ShortFileName::from_long_name_with(name, 0, self.oem_converter())
             .map_err(|_| FatError::InvalidFilename)?;
 
-        // Build LFN entries if the long name doesn't fit 8.3 cleanly, into
-        // a stack buffer. When the lfn feature is off, we never emit LFN.
+        // A name that fits 8.3 apart from per-part case is stored as a single
+        // short entry with the NT case byte set; otherwise it needs LFN entries.
+        // When the lfn feature is off, we never emit LFN.
+        let case_bits = short_name_case_bits(name);
         #[cfg(feature = "lfn")]
         let mut lfn_buf: [RawDirectoryEntry; MAX_LFN_ENTRIES] = unsafe { core::mem::zeroed() };
         #[cfg(feature = "lfn")]
-        let lfn_count = if name_requires_lfn(name) {
-            build_lfn_entries(name, short_name.lfn_checksum(), &mut lfn_buf)
-                .ok_or(FatError::InvalidFilename)?
-        } else {
-            0
+        let (lfn_count, nt_res) = match case_bits {
+            Some(bits) => (0usize, bits),
+            None => (
+                build_lfn_entries(name, short_name.lfn_checksum(), &mut lfn_buf)
+                    .ok_or(FatError::InvalidFilename)?,
+                0u8,
+            ),
         };
         #[cfg(not(feature = "lfn"))]
-        let lfn_count = 0usize;
+        let (lfn_count, nt_res) = (0usize, case_bits.unwrap_or(0));
 
         // Find a free run sized for the LFN preamble + the short entry.
         let total_slots = lfn_count + 1;
@@ -1120,7 +1170,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let entry = RawFileEntry {
             name: raw_name,
             attributes: DirEntryAttrFlags::ARCHIVE.bits(),
-            reserved: 0,
+            reserved: nt_res,
             creation_time_tenth: time_tenth,
             creation_time: time.to_le_bytes(),
             creation_date: date.to_le_bytes(),
@@ -1159,6 +1209,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
         Ok(FileEntry {
             short_name,
+            nt_case: crate::raw::NtCaseFlags::from_bits_truncate(nt_res),
             #[cfg(feature = "lfn")]
             long_name: if lfn_count > 0 {
                 crate::file::LongFileName::from_str_utf16(name)
@@ -1201,19 +1252,23 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         self.decrement_free_count();
         self.update_next_free_hint(new_cluster);
 
-        // Build LFN entries if the long name doesn't fit 8.3 cleanly. When
-        // the lfn feature is off, we never emit LFN.
+        // A name that fits 8.3 apart from per-part case is stored as a single
+        // short entry with the NT case byte set; otherwise it needs LFN entries.
+        // When the lfn feature is off, we never emit LFN.
+        let case_bits = short_name_case_bits(name);
         #[cfg(feature = "lfn")]
         let mut lfn_buf: [RawDirectoryEntry; MAX_LFN_ENTRIES] = unsafe { core::mem::zeroed() };
         #[cfg(feature = "lfn")]
-        let lfn_count = if name_requires_lfn(name) {
-            build_lfn_entries(name, short_name.lfn_checksum(), &mut lfn_buf)
-                .ok_or(FatError::InvalidFilename)?
-        } else {
-            0
+        let (lfn_count, nt_res) = match case_bits {
+            Some(bits) => (0usize, bits),
+            None => (
+                build_lfn_entries(name, short_name.lfn_checksum(), &mut lfn_buf)
+                    .ok_or(FatError::InvalidFilename)?,
+                0u8,
+            ),
         };
         #[cfg(not(feature = "lfn"))]
-        let lfn_count = 0usize;
+        let (lfn_count, nt_res) = (0usize, case_bits.unwrap_or(0));
 
         // Allocate `lfn_count + 1` consecutive slots.
         let total_slots = lfn_count + 1;
@@ -1235,7 +1290,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let entry = RawFileEntry {
             name: raw_name,
             attributes: DirEntryAttrFlags::DIRECTORY.bits(),
-            reserved: 0,
+            reserved: nt_res,
             creation_time_tenth: time_tenth,
             creation_time: time.to_le_bytes(),
             creation_date: date.to_le_bytes(),
@@ -1416,19 +1471,23 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let short_name = ShortFileName::from_long_name_with(new_name, 0, self.oem_converter())
             .map_err(|_| FatError::InvalidFilename)?;
 
-        // Build LFN entries for the new name if it doesn't fit 8.3 cleanly.
-        // When the lfn feature is off, we never emit LFN.
+        // The new name is stored as a single short entry (with NT case bits)
+        // when it fits 8.3 apart from case, otherwise via LFN entries. When the
+        // lfn feature is off, we never emit LFN.
+        let case_bits = short_name_case_bits(new_name);
         #[cfg(feature = "lfn")]
         let mut lfn_buf: [RawDirectoryEntry; MAX_LFN_ENTRIES] = unsafe { core::mem::zeroed() };
         #[cfg(feature = "lfn")]
-        let lfn_count = if name_requires_lfn(new_name) {
-            build_lfn_entries(new_name, short_name.lfn_checksum(), &mut lfn_buf)
-                .ok_or(FatError::InvalidFilename)?
-        } else {
-            0
+        let (lfn_count, nt_res) = match case_bits {
+            Some(bits) => (0usize, bits),
+            None => (
+                build_lfn_entries(new_name, short_name.lfn_checksum(), &mut lfn_buf)
+                    .ok_or(FatError::InvalidFilename)?,
+                0u8,
+            ),
         };
         #[cfg(not(feature = "lfn"))]
-        let lfn_count = 0usize;
+        let (lfn_count, nt_res) = (0usize, case_bits.unwrap_or(0));
 
         // Find a contiguous run sized for LFN entries plus the short entry.
         let total_slots = lfn_count + 1;
@@ -1479,8 +1538,9 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let now = self.time_provider().now();
         let new_entry = RawFileEntry {
             name: raw_name,
+            // Case bits follow the new name, not the original entry's.
+            reserved: nt_res,
             attributes: original_file.attributes,
-            reserved: original_file.reserved,
             creation_time_tenth: original_file.creation_time_tenth,
             creation_time: original_file.creation_time,
             creation_date: original_file.creation_date,
@@ -1542,6 +1602,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
         Ok(FileEntry {
             short_name,
+            nt_case: crate::raw::NtCaseFlags::from_bits_truncate(nt_res),
             #[cfg(feature = "lfn")]
             long_name: if lfn_count > 0 {
                 crate::file::LongFileName::from_str_utf16(new_name)

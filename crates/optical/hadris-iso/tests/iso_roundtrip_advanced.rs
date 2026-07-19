@@ -200,6 +200,54 @@ fn test_name_deduplication_produces_unique_names() {
 }
 
 #[test]
+fn test_directory_records_written_in_collation_order() {
+    // Supply files and directories in deliberately unsorted input order; the
+    // writer must emit them in ascending File Identifier order (ECMA-119 9.3).
+    let files = vec![
+        IsoFile::File {
+            name: Arc::new("zebra.txt".to_string()),
+            contents: b"z".to_vec(),
+        },
+        IsoFile::Directory {
+            name: Arc::new("mango".to_string()),
+            children: vec![IsoFile::File {
+                name: Arc::new("inner.txt".to_string()),
+                contents: b"i".to_vec(),
+            }],
+        },
+        IsoFile::File {
+            name: Arc::new("alpha.txt".to_string()),
+            contents: b"a".to_vec(),
+        },
+        IsoFile::File {
+            name: Arc::new("apple.txt".to_string()),
+            contents: b"p".to_vec(),
+        },
+    ];
+
+    let image = write_and_open(files, default_options());
+    let root = image.root_dir();
+    let names = entry_names(&image, root.dir_ref());
+
+    // Uppercased ISO identifiers, sorted: ALPHA.TXT, APPLE.TXT, MANGO, ZEBRA.TXT.
+    let mut expected = names.clone();
+    expected.sort();
+    assert_eq!(
+        names, expected,
+        "directory records must be in ascending identifier order, got {names:?}"
+    );
+    assert_eq!(
+        names,
+        vec![
+            "ALPHA.TXT".to_string(),
+            "APPLE.TXT".to_string(),
+            "MANGO".to_string(),
+            "ZEBRA.TXT".to_string(),
+        ],
+    );
+}
+
+#[test]
 fn test_dedup_with_no_extension() {
     let files = vec![
         IsoFile::File {

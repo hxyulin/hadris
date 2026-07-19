@@ -153,14 +153,6 @@ impl RootDir {
     }
 }
 
-bitflags::bitflags! {
-    /// Extension features supported by an ISO image reader.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct SupportedFeatures: u64 {
-
-    }
-}
-
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Identifies a PathSeparator value.
@@ -205,6 +197,16 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         let volume_descriptors = VolumeDescriptorList::parse(&mut data).await?;
         let pvd = volume_descriptors.primary();
         let block_size = pvd.logical_block_size.read() as usize;
+        // IsoImage's extent→byte math assumes a 2048-byte logical block. Rather
+        // than silently misread an image that declares a different block size,
+        // reject it. (The allocation-free `IsoReader` honors the PVD block size;
+        // full non-2048 support in `IsoImage` is future work.)
+        if block_size != 2048 {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "ISO logical block size other than 2048 is not supported by IsoImage",
+            ));
+        }
         let root_extent = LogicalSector(pvd.dir_record.header.extent.read() as usize);
         let root_size = pvd.dir_record.header.data_len.read() as usize;
         let root_dir = DirectoryRef {

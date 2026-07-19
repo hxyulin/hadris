@@ -520,9 +520,15 @@ impl PrimaryVolumeDescriptor {
 unsafe impl bytemuck::Zeroable for PrimaryVolumeDescriptor {}
 unsafe impl bytemuck::Pod for PrimaryVolumeDescriptor {}
 
+/// Boot Record Volume Descriptor (ECMA-119 8.2), locating the El Torito boot
+/// catalog.
+///
+/// @hadris-spec ECMA-119:8.2
+/// @hadris-compliance full
+/// @hadris-tests xorriso_boot::test_hadris_multisection_boot_catalog
+/// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]
-/// Represents BootRecordVolumeDescriptor.
 pub struct BootRecordVolumeDescriptor {
     /// The `header` field.
     pub header: VolumeDescriptorHeader,
@@ -564,9 +570,15 @@ impl Debug for BootRecordVolumeDescriptor {
 unsafe impl bytemuck::Zeroable for BootRecordVolumeDescriptor {}
 unsafe impl bytemuck::Pod for BootRecordVolumeDescriptor {}
 
+/// Supplementary / Enhanced Volume Descriptor (ECMA-119 8.5), used here for the
+/// Joliet namespace.
+///
+/// @hadris-spec ECMA-119:8.5
+/// @hadris-compliance partial
+/// @hadris-note Joliet SVD is read/written (UCS-2, BMP only); the version-2 "enhanced" form is repurposed as a UDF-bridge signal rather than a conformant ISO 9660:1999 secondary descriptor.
+/// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]
-/// Represents SupplementaryVolumeDescriptor.
 pub struct SupplementaryVolumeDescriptor {
     /// The `header` field.
     pub header: VolumeDescriptorHeader,
@@ -791,9 +803,14 @@ impl Debug for SupplementaryVolumeDescriptor {
     }
 }
 
+/// Volume Descriptor Set Terminator (ECMA-119 8.3).
+///
+/// @hadris-spec ECMA-119:8.3
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_iso::test_pvd_standard_identifier
+/// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]
-/// Represents VolumeDescriptorSetTerminator.
 pub struct VolumeDescriptorSetTerminator {
     header: VolumeDescriptorHeader,
     padding: [u8; 2041],

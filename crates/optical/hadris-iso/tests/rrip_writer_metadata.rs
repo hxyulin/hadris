@@ -100,6 +100,42 @@ fn writes_posix_metadata_and_special_entries() {
 }
 
 #[test]
+fn writes_and_reads_back_creation_timestamp() {
+    // 2001-09-09 01:46:40 UTC — distinct from modify/access so we can tell them
+    // apart on read-back.
+    let metadata = InputMetadata {
+        created: Some(1_000_000_000),
+        modified: Some(946_684_800),
+        accessed: Some(946_684_801),
+        ..InputMetadata::default()
+    };
+    let image = write(
+        vec![InputEntry::file("data.txt", b"data".to_vec()).with_metadata(metadata)],
+        RripOptions::default(),
+    );
+    let entry = image
+        .root_dir()
+        .iter(&image)
+        .entries()
+        .filter_map(Result::ok)
+        .find(|entry| entry.matches_name("data.txt"))
+        .unwrap();
+    let ts = entry
+        .rrip
+        .as_ref()
+        .unwrap()
+        .timestamps
+        .as_ref()
+        .expect("TF timestamps present");
+    let creation = ts.creation.as_ref().expect("creation timestamp emitted");
+    assert_eq!(creation.year, 2001, "creation year round-trips");
+    // Modify and access must still be present and distinct from creation.
+    assert!(ts.modify.is_some());
+    assert!(ts.access.is_some());
+    assert_ne!(creation.year, ts.modify.as_ref().unwrap().year);
+}
+
+#[test]
 fn disabled_preservation_uses_stable_defaults() {
     let metadata = InputMetadata {
         mode: Some(0o600),

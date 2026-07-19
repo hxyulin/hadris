@@ -49,6 +49,7 @@ pub fn hadris_fat::async::dir::FileEntry::len(&self) -> u64
 pub fn hadris_fat::async::dir::FileEntry::long_name(&self) -> core::option::Option<&hadris_fat::file::LongFileName>
 pub fn hadris_fat::async::dir::FileEntry::modified(&self) -> hadris_fat::time::FatDateTime
 pub fn hadris_fat::async::dir::FileEntry::name(&self) -> alloc::borrow::Cow<'_, str>
+pub fn hadris_fat::async::dir::FileEntry::nt_case(&self) -> hadris_fat::NtCaseFlags
 pub fn hadris_fat::async::dir::FileEntry::short_name(&self) -> &hadris_fat::file::ShortFileName
 pub fn hadris_fat::async::dir::FileEntry::size(&self) -> usize
 pub struct hadris_fat::async::dir::FileSystemErrors(_)
@@ -228,7 +229,9 @@ impl core::fmt::Display for hadris_fat::async::fat_table::FatType
 pub fn hadris_fat::async::fat_table::FatType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fat::async::fat_table::Fat12
 impl hadris_fat::async::fat_table::Fat12
+pub async fn hadris_fat::async::fat_table::Fat12::allocate_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub async fn hadris_fat::async::fat_table::Fat12::allocate_cluster<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub async fn hadris_fat::async::fat_table::Fat12::extend_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub async fn hadris_fat::async::fat_table::Fat12::free_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub async fn hadris_fat::async::fat_table::Fat12::mark_bad<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::async::fat_table::Fat12::max_cluster(&self) -> u16
@@ -238,7 +241,9 @@ pub async fn hadris_fat::async::fat_table::Fat12::truncate_chain<T: hadris_io::a
 pub async fn hadris_fat::async::fat_table::Fat12::write_clus<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<()>
 pub struct hadris_fat::async::fat_table::Fat16
 impl hadris_fat::async::fat_table::Fat16
+pub async fn hadris_fat::async::fat_table::Fat16::allocate_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub async fn hadris_fat::async::fat_table::Fat16::allocate_cluster<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub async fn hadris_fat::async::fat_table::Fat16::extend_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub async fn hadris_fat::async::fat_table::Fat16::free_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub async fn hadris_fat::async::fat_table::Fat16::mark_bad<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::async::fat_table::Fat16::max_cluster(&self) -> u16
@@ -541,7 +546,9 @@ impl core::fmt::Display for hadris_fat::async::fat_table::FatType
 pub fn hadris_fat::async::fat_table::FatType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fat::async::Fat12
 impl hadris_fat::async::fat_table::Fat12
+pub async fn hadris_fat::async::fat_table::Fat12::allocate_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub async fn hadris_fat::async::fat_table::Fat12::allocate_cluster<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub async fn hadris_fat::async::fat_table::Fat12::extend_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub async fn hadris_fat::async::fat_table::Fat12::free_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub async fn hadris_fat::async::fat_table::Fat12::mark_bad<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::async::fat_table::Fat12::max_cluster(&self) -> u16
@@ -551,7 +558,9 @@ pub async fn hadris_fat::async::fat_table::Fat12::truncate_chain<T: hadris_io::a
 pub async fn hadris_fat::async::fat_table::Fat12::write_clus<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<()>
 pub struct hadris_fat::async::Fat16
 impl hadris_fat::async::fat_table::Fat16
+pub async fn hadris_fat::async::fat_table::Fat16::allocate_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub async fn hadris_fat::async::fat_table::Fat16::allocate_cluster<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub async fn hadris_fat::async::fat_table::Fat16::extend_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub async fn hadris_fat::async::fat_table::Fat16::free_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub async fn hadris_fat::async::fat_table::Fat16::mark_bad<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::async::fat_table::Fat16::max_cluster(&self) -> u16
@@ -701,6 +710,7 @@ pub fn hadris_fat::async::dir::FileEntry::len(&self) -> u64
 pub fn hadris_fat::async::dir::FileEntry::long_name(&self) -> core::option::Option<&hadris_fat::file::LongFileName>
 pub fn hadris_fat::async::dir::FileEntry::modified(&self) -> hadris_fat::time::FatDateTime
 pub fn hadris_fat::async::dir::FileEntry::name(&self) -> alloc::borrow::Cow<'_, str>
+pub fn hadris_fat::async::dir::FileEntry::nt_case(&self) -> hadris_fat::NtCaseFlags
 pub fn hadris_fat::async::dir::FileEntry::short_name(&self) -> &hadris_fat::file::ShortFileName
 pub fn hadris_fat::async::dir::FileEntry::size(&self) -> usize
 pub trait hadris_fat::async::FatFsReadExt<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>
@@ -790,6 +800,7 @@ pub fn hadris_fat::dir::FileEntry::len(&self) -> u64
 pub fn hadris_fat::dir::FileEntry::long_name(&self) -> core::option::Option<&hadris_fat::file::LongFileName>
 pub fn hadris_fat::dir::FileEntry::modified(&self) -> hadris_fat::time::FatDateTime
 pub fn hadris_fat::dir::FileEntry::name(&self) -> alloc::borrow::Cow<'_, str>
+pub fn hadris_fat::dir::FileEntry::nt_case(&self) -> hadris_fat::NtCaseFlags
 pub fn hadris_fat::dir::FileEntry::short_name(&self) -> &hadris_fat::file::ShortFileName
 pub fn hadris_fat::dir::FileEntry::size(&self) -> usize
 pub struct hadris_fat::dir::FileSystemErrors(_)
@@ -1025,7 +1036,9 @@ impl core::fmt::Display for hadris_fat::fat_table::FatType
 pub fn hadris_fat::fat_table::FatType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fat::fat_table::Fat12
 impl hadris_fat::fat_table::Fat12
+pub fn hadris_fat::fat_table::Fat12::allocate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat12::allocate_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub fn hadris_fat::fat_table::Fat12::extend_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat12::free_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub fn hadris_fat::fat_table::Fat12::mark_bad<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::fat_table::Fat12::max_cluster(&self) -> u16
@@ -1037,7 +1050,9 @@ impl hadris_fat::fat_table::Fat12
 pub fn hadris_fat::fat_table::Fat12::read_entry<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<u16>
 pub struct hadris_fat::fat_table::Fat16
 impl hadris_fat::fat_table::Fat16
+pub fn hadris_fat::fat_table::Fat16::allocate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat16::allocate_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub fn hadris_fat::fat_table::Fat16::extend_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat16::free_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub fn hadris_fat::fat_table::Fat16::mark_bad<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::fat_table::Fat16::max_cluster(&self) -> u16
@@ -1111,6 +1126,7 @@ pub fn hadris_fat::file::ShortFileName::matches(&self, &str) -> bool
 pub fn hadris_fat::file::ShortFileName::new([u8; 11]) -> core::result::Result<Self, hadris_fat::file::CreateShortFileNameError>
 pub fn hadris_fat::file::ShortFileName::raw_bytes(&self) -> [u8; 11]
 pub fn hadris_fat::file::ShortFileName::to_raw_bytes(&self) -> [u8; 11]
+pub fn hadris_fat::file::ShortFileName::with_nt_case(&self, hadris_fat::NtCaseFlags) -> hadris_fat::file::ShortFileName
 impl core::fmt::Debug for hadris_fat::file::ShortFileName
 pub fn hadris_fat::file::ShortFileName::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const hadris_fat::file::LFN_MAX_UTF16_UNITS: usize
@@ -1457,6 +1473,82 @@ pub fn hadris_fat::DirEntryAttrFlags::bitxor_assign(&mut self, Self)
 impl core::ops::bit::Not for hadris_fat::DirEntryAttrFlags
 pub type hadris_fat::DirEntryAttrFlags::Output = hadris_fat::DirEntryAttrFlags
 pub fn hadris_fat::DirEntryAttrFlags::not(self) -> Self
+pub struct hadris_fat::raw::NtCaseFlags(_)
+impl hadris_fat::NtCaseFlags
+pub const hadris_fat::NtCaseFlags::LOWER_BASE: Self
+pub const hadris_fat::NtCaseFlags::LOWER_EXT: Self
+impl hadris_fat::NtCaseFlags
+pub const fn hadris_fat::NtCaseFlags::all() -> Self
+pub const fn hadris_fat::NtCaseFlags::bits(&self) -> u8
+pub const fn hadris_fat::NtCaseFlags::complement(self) -> Self
+pub const fn hadris_fat::NtCaseFlags::contains(&self, Self) -> bool
+pub const fn hadris_fat::NtCaseFlags::difference(self, Self) -> Self
+pub const fn hadris_fat::NtCaseFlags::empty() -> Self
+pub const fn hadris_fat::NtCaseFlags::from_bits(u8) -> core::option::Option<Self>
+pub const fn hadris_fat::NtCaseFlags::from_bits_retain(u8) -> Self
+pub const fn hadris_fat::NtCaseFlags::from_bits_truncate(u8) -> Self
+pub fn hadris_fat::NtCaseFlags::from_name(&str) -> core::option::Option<Self>
+pub fn hadris_fat::NtCaseFlags::insert(&mut self, Self)
+pub const fn hadris_fat::NtCaseFlags::intersection(self, Self) -> Self
+pub const fn hadris_fat::NtCaseFlags::intersects(&self, Self) -> bool
+pub const fn hadris_fat::NtCaseFlags::is_all(&self) -> bool
+pub const fn hadris_fat::NtCaseFlags::is_empty(&self) -> bool
+pub fn hadris_fat::NtCaseFlags::remove(&mut self, Self)
+pub fn hadris_fat::NtCaseFlags::set(&mut self, Self, bool)
+pub const fn hadris_fat::NtCaseFlags::symmetric_difference(self, Self) -> Self
+pub fn hadris_fat::NtCaseFlags::toggle(&mut self, Self)
+pub const fn hadris_fat::NtCaseFlags::union(self, Self) -> Self
+impl hadris_fat::NtCaseFlags
+pub const fn hadris_fat::NtCaseFlags::iter(&self) -> bitflags::iter::Iter<hadris_fat::NtCaseFlags>
+pub const fn hadris_fat::NtCaseFlags::iter_names(&self) -> bitflags::iter::IterNames<hadris_fat::NtCaseFlags>
+impl bitflags::traits::Flags for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Bits = u8
+pub const hadris_fat::NtCaseFlags::FLAGS: &'static [bitflags::traits::Flag<hadris_fat::NtCaseFlags>]
+pub fn hadris_fat::NtCaseFlags::all_named() -> hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bits(&self) -> u8
+pub fn hadris_fat::NtCaseFlags::from_bits_retain(u8) -> hadris_fat::NtCaseFlags
+impl bitflags::traits::PublicFlags for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Internal = InternalBitFlags
+pub type hadris_fat::NtCaseFlags::Primitive = u8
+impl core::fmt::Binary for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::LowerHex for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Octal for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::UpperHex for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::collect::Extend<hadris_fat::NtCaseFlags> for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::extend<T: core::iter::traits::collect::IntoIterator<Item = Self>>(&mut self, T)
+impl core::iter::traits::collect::FromIterator<hadris_fat::NtCaseFlags> for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::from_iter<T: core::iter::traits::collect::IntoIterator<Item = Self>>(T) -> Self
+impl core::iter::traits::collect::IntoIterator for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::IntoIter = bitflags::iter::Iter<hadris_fat::NtCaseFlags>
+pub type hadris_fat::NtCaseFlags::Item = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::into_iter(self) -> Self::IntoIter
+impl core::ops::arith::Sub for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Output = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::sub(self, Self) -> Self
+impl core::ops::arith::SubAssign for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::sub_assign(&mut self, Self)
+impl core::ops::bit::BitAnd for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Output = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitand(self, Self) -> Self
+impl core::ops::bit::BitAndAssign for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitand_assign(&mut self, Self)
+impl core::ops::bit::BitOr for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Output = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitor(self, hadris_fat::NtCaseFlags) -> Self
+impl core::ops::bit::BitOrAssign for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitor_assign(&mut self, Self)
+impl core::ops::bit::BitXor for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Output = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitxor(self, Self) -> Self
+impl core::ops::bit::BitXorAssign for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitxor_assign(&mut self, Self)
+impl core::ops::bit::Not for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Output = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::not(self) -> Self
 #[repr(C)] pub struct hadris_fat::raw::RawBpb
 pub hadris_fat::raw::RawBpb::bytes_per_sector: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
 pub hadris_fat::raw::RawBpb::fat_count: u8
@@ -1629,6 +1721,7 @@ pub fn hadris_fat::dir::FileEntry::len(&self) -> u64
 pub fn hadris_fat::dir::FileEntry::long_name(&self) -> core::option::Option<&hadris_fat::file::LongFileName>
 pub fn hadris_fat::dir::FileEntry::modified(&self) -> hadris_fat::time::FatDateTime
 pub fn hadris_fat::dir::FileEntry::name(&self) -> alloc::borrow::Cow<'_, str>
+pub fn hadris_fat::dir::FileEntry::nt_case(&self) -> hadris_fat::NtCaseFlags
 pub fn hadris_fat::dir::FileEntry::short_name(&self) -> &hadris_fat::file::ShortFileName
 pub fn hadris_fat::dir::FileEntry::size(&self) -> usize
 pub struct hadris_fat::sync::dir::FileSystemErrors(_)
@@ -1808,7 +1901,9 @@ impl core::fmt::Display for hadris_fat::fat_table::FatType
 pub fn hadris_fat::fat_table::FatType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fat::sync::fat_table::Fat12
 impl hadris_fat::fat_table::Fat12
+pub fn hadris_fat::fat_table::Fat12::allocate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat12::allocate_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub fn hadris_fat::fat_table::Fat12::extend_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat12::free_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub fn hadris_fat::fat_table::Fat12::mark_bad<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::fat_table::Fat12::max_cluster(&self) -> u16
@@ -1820,7 +1915,9 @@ impl hadris_fat::fat_table::Fat12
 pub fn hadris_fat::fat_table::Fat12::read_entry<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<u16>
 pub struct hadris_fat::sync::fat_table::Fat16
 impl hadris_fat::fat_table::Fat16
+pub fn hadris_fat::fat_table::Fat16::allocate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat16::allocate_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub fn hadris_fat::fat_table::Fat16::extend_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat16::free_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub fn hadris_fat::fat_table::Fat16::mark_bad<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::fat_table::Fat16::max_cluster(&self) -> u16
@@ -2305,7 +2402,9 @@ impl core::fmt::Display for hadris_fat::fat_table::FatType
 pub fn hadris_fat::fat_table::FatType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fat::sync::Fat12
 impl hadris_fat::fat_table::Fat12
+pub fn hadris_fat::fat_table::Fat12::allocate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat12::allocate_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub fn hadris_fat::fat_table::Fat12::extend_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat12::free_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub fn hadris_fat::fat_table::Fat12::mark_bad<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::fat_table::Fat12::max_cluster(&self) -> u16
@@ -2317,7 +2416,9 @@ impl hadris_fat::fat_table::Fat12
 pub fn hadris_fat::fat_table::Fat12::read_entry<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<u16>
 pub struct hadris_fat::sync::Fat16
 impl hadris_fat::fat_table::Fat16
+pub fn hadris_fat::fat_table::Fat16::allocate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat16::allocate_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub fn hadris_fat::fat_table::Fat16::extend_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat16::free_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub fn hadris_fat::fat_table::Fat16::mark_bad<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::fat_table::Fat16::max_cluster(&self) -> u16
@@ -2497,6 +2598,7 @@ pub fn hadris_fat::dir::FileEntry::len(&self) -> u64
 pub fn hadris_fat::dir::FileEntry::long_name(&self) -> core::option::Option<&hadris_fat::file::LongFileName>
 pub fn hadris_fat::dir::FileEntry::modified(&self) -> hadris_fat::time::FatDateTime
 pub fn hadris_fat::dir::FileEntry::name(&self) -> alloc::borrow::Cow<'_, str>
+pub fn hadris_fat::dir::FileEntry::nt_case(&self) -> hadris_fat::NtCaseFlags
 pub fn hadris_fat::dir::FileEntry::short_name(&self) -> &hadris_fat::file::ShortFileName
 pub fn hadris_fat::dir::FileEntry::size(&self) -> usize
 pub trait hadris_fat::sync::FatAnalysisExt<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
@@ -2932,7 +3034,9 @@ pub type hadris_fat::DirEntryAttrFlags::Output = hadris_fat::DirEntryAttrFlags
 pub fn hadris_fat::DirEntryAttrFlags::not(self) -> Self
 pub struct hadris_fat::Fat12
 impl hadris_fat::fat_table::Fat12
+pub fn hadris_fat::fat_table::Fat12::allocate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat12::allocate_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub fn hadris_fat::fat_table::Fat12::extend_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat12::free_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub fn hadris_fat::fat_table::Fat12::mark_bad<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::fat_table::Fat12::max_cluster(&self) -> u16
@@ -2944,7 +3048,9 @@ impl hadris_fat::fat_table::Fat12
 pub fn hadris_fat::fat_table::Fat12::read_entry<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<u16>
 pub struct hadris_fat::Fat16
 impl hadris_fat::fat_table::Fat16
+pub fn hadris_fat::fat_table::Fat16::allocate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat16::allocate_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u16>
+pub fn hadris_fat::fat_table::Fat16::extend_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16, usize, u16) -> hadris_fat::error::Result<u16>
 pub fn hadris_fat::fat_table::Fat16::free_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<u32>
 pub fn hadris_fat::fat_table::Fat16::mark_bad<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u16) -> hadris_fat::error::Result<()>
 pub fn hadris_fat::fat_table::Fat16::max_cluster(&self) -> u16
@@ -3124,8 +3230,85 @@ pub fn hadris_fat::dir::FileEntry::len(&self) -> u64
 pub fn hadris_fat::dir::FileEntry::long_name(&self) -> core::option::Option<&hadris_fat::file::LongFileName>
 pub fn hadris_fat::dir::FileEntry::modified(&self) -> hadris_fat::time::FatDateTime
 pub fn hadris_fat::dir::FileEntry::name(&self) -> alloc::borrow::Cow<'_, str>
+pub fn hadris_fat::dir::FileEntry::nt_case(&self) -> hadris_fat::NtCaseFlags
 pub fn hadris_fat::dir::FileEntry::short_name(&self) -> &hadris_fat::file::ShortFileName
 pub fn hadris_fat::dir::FileEntry::size(&self) -> usize
+pub struct hadris_fat::NtCaseFlags(_)
+impl hadris_fat::NtCaseFlags
+pub const hadris_fat::NtCaseFlags::LOWER_BASE: Self
+pub const hadris_fat::NtCaseFlags::LOWER_EXT: Self
+impl hadris_fat::NtCaseFlags
+pub const fn hadris_fat::NtCaseFlags::all() -> Self
+pub const fn hadris_fat::NtCaseFlags::bits(&self) -> u8
+pub const fn hadris_fat::NtCaseFlags::complement(self) -> Self
+pub const fn hadris_fat::NtCaseFlags::contains(&self, Self) -> bool
+pub const fn hadris_fat::NtCaseFlags::difference(self, Self) -> Self
+pub const fn hadris_fat::NtCaseFlags::empty() -> Self
+pub const fn hadris_fat::NtCaseFlags::from_bits(u8) -> core::option::Option<Self>
+pub const fn hadris_fat::NtCaseFlags::from_bits_retain(u8) -> Self
+pub const fn hadris_fat::NtCaseFlags::from_bits_truncate(u8) -> Self
+pub fn hadris_fat::NtCaseFlags::from_name(&str) -> core::option::Option<Self>
+pub fn hadris_fat::NtCaseFlags::insert(&mut self, Self)
+pub const fn hadris_fat::NtCaseFlags::intersection(self, Self) -> Self
+pub const fn hadris_fat::NtCaseFlags::intersects(&self, Self) -> bool
+pub const fn hadris_fat::NtCaseFlags::is_all(&self) -> bool
+pub const fn hadris_fat::NtCaseFlags::is_empty(&self) -> bool
+pub fn hadris_fat::NtCaseFlags::remove(&mut self, Self)
+pub fn hadris_fat::NtCaseFlags::set(&mut self, Self, bool)
+pub const fn hadris_fat::NtCaseFlags::symmetric_difference(self, Self) -> Self
+pub fn hadris_fat::NtCaseFlags::toggle(&mut self, Self)
+pub const fn hadris_fat::NtCaseFlags::union(self, Self) -> Self
+impl hadris_fat::NtCaseFlags
+pub const fn hadris_fat::NtCaseFlags::iter(&self) -> bitflags::iter::Iter<hadris_fat::NtCaseFlags>
+pub const fn hadris_fat::NtCaseFlags::iter_names(&self) -> bitflags::iter::IterNames<hadris_fat::NtCaseFlags>
+impl bitflags::traits::Flags for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Bits = u8
+pub const hadris_fat::NtCaseFlags::FLAGS: &'static [bitflags::traits::Flag<hadris_fat::NtCaseFlags>]
+pub fn hadris_fat::NtCaseFlags::all_named() -> hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bits(&self) -> u8
+pub fn hadris_fat::NtCaseFlags::from_bits_retain(u8) -> hadris_fat::NtCaseFlags
+impl bitflags::traits::PublicFlags for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Internal = InternalBitFlags
+pub type hadris_fat::NtCaseFlags::Primitive = u8
+impl core::fmt::Binary for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::LowerHex for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Octal for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::UpperHex for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::collect::Extend<hadris_fat::NtCaseFlags> for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::extend<T: core::iter::traits::collect::IntoIterator<Item = Self>>(&mut self, T)
+impl core::iter::traits::collect::FromIterator<hadris_fat::NtCaseFlags> for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::from_iter<T: core::iter::traits::collect::IntoIterator<Item = Self>>(T) -> Self
+impl core::iter::traits::collect::IntoIterator for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::IntoIter = bitflags::iter::Iter<hadris_fat::NtCaseFlags>
+pub type hadris_fat::NtCaseFlags::Item = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::into_iter(self) -> Self::IntoIter
+impl core::ops::arith::Sub for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Output = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::sub(self, Self) -> Self
+impl core::ops::arith::SubAssign for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::sub_assign(&mut self, Self)
+impl core::ops::bit::BitAnd for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Output = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitand(self, Self) -> Self
+impl core::ops::bit::BitAndAssign for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitand_assign(&mut self, Self)
+impl core::ops::bit::BitOr for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Output = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitor(self, hadris_fat::NtCaseFlags) -> Self
+impl core::ops::bit::BitOrAssign for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitor_assign(&mut self, Self)
+impl core::ops::bit::BitXor for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Output = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitxor(self, Self) -> Self
+impl core::ops::bit::BitXorAssign for hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::bitxor_assign(&mut self, Self)
+impl core::ops::bit::Not for hadris_fat::NtCaseFlags
+pub type hadris_fat::NtCaseFlags::Output = hadris_fat::NtCaseFlags
+pub fn hadris_fat::NtCaseFlags::not(self) -> Self
 #[repr(C)] pub struct hadris_fat::RawBpb
 pub hadris_fat::RawBpb::bytes_per_sector: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
 pub hadris_fat::RawBpb::fat_count: u8

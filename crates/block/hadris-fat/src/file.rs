@@ -92,6 +92,48 @@ impl ShortFileName {
         self.0.as_str()
     }
 
+    /// Returns a copy of this 8.3 name with the base and/or extension
+    /// lowercased according to the Windows NT `DIR_NTRes` case flags.
+    ///
+    /// FAT stores 8.3 names uppercase on disk; the case flags (see
+    /// [`NtCaseFlags`](crate::raw::NtCaseFlags)) record that the name was
+    /// originally entered lowercase so it can be presented that way without a
+    /// long-file-name entry. Only ASCII letters are re-cased; any other bytes
+    /// (OEM high bytes, digits, symbols, the `.` separator) pass through
+    /// unchanged.
+    pub fn with_nt_case(&self, flags: crate::raw::NtCaseFlags) -> ShortFileName {
+        use crate::raw::NtCaseFlags;
+
+        fn push_maybe_lower(out: &mut FixedBytes<12>, part: &[u8], lower: bool) {
+            for &byte in part {
+                out.push_byte(if lower {
+                    byte.to_ascii_lowercase()
+                } else {
+                    byte
+                });
+            }
+        }
+
+        let bytes = self.0.as_bytes();
+        let dot = bytes.iter().position(|&b| b == b'.');
+        let base_end = dot.unwrap_or(bytes.len());
+        let mut out = FixedBytes::<12>::empty();
+        push_maybe_lower(
+            &mut out,
+            &bytes[..base_end],
+            flags.contains(NtCaseFlags::LOWER_BASE),
+        );
+        if let Some(dot) = dot {
+            out.push_byte(b'.');
+            push_maybe_lower(
+                &mut out,
+                &bytes[dot + 1..],
+                flags.contains(NtCaseFlags::LOWER_EXT),
+            );
+        }
+        ShortFileName(out)
+    }
+
     /// Check if this short filename matches a given name (case-insensitive).
     /// Handles both padded ("TEST    .TXT") and unpadded ("TEST.TXT") formats.
     pub fn matches(&self, name: &str) -> bool {

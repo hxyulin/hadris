@@ -645,6 +645,52 @@ impl Fat12 {
         Err(FatError::NoFreeSpace)
     }
 
+    /// Allocate a linked chain of `count` clusters, returning the first cluster.
+    ///
+    /// Each cluster is allocated from a rolling hint (near the previous one) and
+    /// linked to its successor; the last is marked end-of-chain. Mirrors
+    /// [`Fat32::allocate_chain`]. On partial failure the already-allocated
+    /// clusters are not rolled back (matching the FAT32 behavior).
+    #[cfg(feature = "write")]
+    pub async fn allocate_chain<T: Read + Write + Seek>(
+        &self,
+        rw: &mut T,
+        count: usize,
+        hint: u16,
+    ) -> Result<u16> {
+        if count == 0 {
+            return Err(FatError::NoFreeSpace);
+        }
+        let first = self.allocate_cluster(rw, hint).await?;
+        let mut prev = first;
+        for _ in 1..count {
+            let next = self.allocate_cluster(rw, prev + 1).await?;
+            self.write_clus(rw, prev as usize, next).await?;
+            prev = next;
+        }
+        Ok(first)
+    }
+
+    /// Extend the chain whose current last cluster is `last` by `count`
+    /// clusters, returning the first newly allocated cluster. If `count` is 0,
+    /// no clusters are allocated and `last` is returned unchanged. Mirrors
+    /// [`Fat32::extend_chain`].
+    #[cfg(feature = "write")]
+    pub async fn extend_chain<T: Read + Write + Seek>(
+        &self,
+        rw: &mut T,
+        last: u16,
+        count: usize,
+        hint: u16,
+    ) -> Result<u16> {
+        if count == 0 {
+            return Ok(last);
+        }
+        let first_new = self.allocate_chain(rw, count, hint).await?;
+        self.write_clus(rw, last as usize, first_new).await?;
+        Ok(first_new)
+    }
+
     /// Free a cluster chain starting at `start`, returns count of freed clusters.
     #[cfg(feature = "write")]
     pub async fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, start: u16) -> Result<u32> {
@@ -882,6 +928,52 @@ impl Fat16 {
         }
 
         Err(FatError::NoFreeSpace)
+    }
+
+    /// Allocate a linked chain of `count` clusters, returning the first cluster.
+    ///
+    /// Each cluster is allocated from a rolling hint (near the previous one) and
+    /// linked to its successor; the last is marked end-of-chain. Mirrors
+    /// [`Fat32::allocate_chain`]. On partial failure the already-allocated
+    /// clusters are not rolled back (matching the FAT32 behavior).
+    #[cfg(feature = "write")]
+    pub async fn allocate_chain<T: Read + Write + Seek>(
+        &self,
+        rw: &mut T,
+        count: usize,
+        hint: u16,
+    ) -> Result<u16> {
+        if count == 0 {
+            return Err(FatError::NoFreeSpace);
+        }
+        let first = self.allocate_cluster(rw, hint).await?;
+        let mut prev = first;
+        for _ in 1..count {
+            let next = self.allocate_cluster(rw, prev + 1).await?;
+            self.write_clus(rw, prev as usize, next).await?;
+            prev = next;
+        }
+        Ok(first)
+    }
+
+    /// Extend the chain whose current last cluster is `last` by `count`
+    /// clusters, returning the first newly allocated cluster. If `count` is 0,
+    /// no clusters are allocated and `last` is returned unchanged. Mirrors
+    /// [`Fat32::extend_chain`].
+    #[cfg(feature = "write")]
+    pub async fn extend_chain<T: Read + Write + Seek>(
+        &self,
+        rw: &mut T,
+        last: u16,
+        count: usize,
+        hint: u16,
+    ) -> Result<u16> {
+        if count == 0 {
+            return Ok(last);
+        }
+        let first_new = self.allocate_chain(rw, count, hint).await?;
+        self.write_clus(rw, last as usize, first_new).await?;
+        Ok(first_new)
     }
 
     /// Free a cluster chain starting at `start`, returns count of freed clusters.

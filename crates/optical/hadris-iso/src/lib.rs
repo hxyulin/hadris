@@ -267,6 +267,16 @@
 //!   writer does not synthesize a filesystem inside them.
 //! - **High-level `IsoImage`:** Requires the `alloc` feature. `read` alone
 //!   exposes low-level modules suitable for no-alloc bootloaders.
+//! - **Not supported (writer rejects or does not emit):** files larger than
+//!   4 GiB / multi-extent write; Extended Attribute Record contents; the Volume
+//!   Partition Descriptor body; interleaved files; associated-file write; the
+//!   optional secondary path tables; RRIP `SF` (sparse) and `RR` (legacy
+//!   presence) entries; zisofs compression; and the Apple Partition Map.
+//! - **Non-2048 logical block size:** `IsoImage` requires a 2048-byte logical
+//!   block and rejects other sizes; the allocation-free `IsoReader` honors the
+//!   declared block size.
+//! - **Hybrid GPT backup:** the embedded GPT writes the primary header/entries
+//!   only; a spec-valid backup GPT at end-of-disk is not written.
 
 #![no_std]
 #![deny(missing_docs)]
