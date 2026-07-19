@@ -1,4 +1,10 @@
 //! I/O roundtrip tests for partition table extension traits.
+//!
+//! These exercise the sync write extension traits and GPT CRC helpers, so the
+//! whole module is gated on the features that provide them. Without them (e.g.
+//! a plain `cargo test -p hadris-part` on default features) it compiles to
+//! nothing rather than failing to build; CI runs it via `--all-features`.
+#![cfg(all(feature = "sync", feature = "write", feature = "crc"))]
 
 use hadris_io::Cursor;
 use hadris_io::ErrorKind;
