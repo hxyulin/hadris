@@ -8,9 +8,9 @@ fn canonical_v2_names_open_a_formatted_volume() {
         .volume_label("HADRIS")
         .fat_type(FatTypeSelection::Fat12)
         .volume_id(42);
-    let formatted =
-        FatVolumeFormatter::format(std::io::Cursor::new(&mut image[..]), options).unwrap();
-    drop(formatted);
+    // Bind to `_` so the formatter (which mutably borrows `image`) is dropped
+    // at the end of this statement, releasing the borrow before the read below.
+    let _ = FatVolumeFormatter::format(std::io::Cursor::new(&mut image[..]), options).unwrap();
 
     let volume: FatVolume<_> = FatVolumeBuilder::new(std::io::Cursor::new(&image[..]))
         .open()
