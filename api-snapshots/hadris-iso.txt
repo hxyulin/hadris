@@ -58,10 +58,15 @@ impl core::error::Error for hadris_iso::async::boot::BootError
 impl core::fmt::Display for hadris_iso::async::boot::BootError
 pub fn hadris_iso::async::boot::BootError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum hadris_iso::async::boot::EmulationType
+pub hadris_iso::async::boot::EmulationType::Floppy1_2
+pub hadris_iso::async::boot::EmulationType::Floppy1_44
+pub hadris_iso::async::boot::EmulationType::Floppy2_88
+pub hadris_iso::async::boot::EmulationType::HardDisk
 pub hadris_iso::async::boot::EmulationType::NoEmulation
 pub hadris_iso::async::boot::EmulationType::Unknown(u8)
 impl hadris_iso::async::boot::EmulationType
 pub fn hadris_iso::async::boot::EmulationType::from_u8(u8) -> Self
+pub fn hadris_iso::async::boot::EmulationType::is_emulated(self) -> bool
 pub fn hadris_iso::async::boot::EmulationType::to_u8(self) -> u8
 pub enum hadris_iso::async::boot::PlatformId
 pub hadris_iso::async::boot::PlatformId::Macintosh
@@ -437,6 +442,8 @@ pub fn hadris_iso::async::read::IsoDirEntry::is_file(&self) -> bool
 pub const fn hadris_iso::async::read::IsoDirEntry::is_multi_extent(&self) -> bool
 pub fn hadris_iso::async::read::IsoDirEntry::name(&self) -> hadris_iso::async::read::IsoName<'_>
 pub const fn hadris_iso::async::read::IsoDirEntry::record(&self) -> &hadris_iso::async::directory::DirectoryRecord
+pub fn hadris_iso::async::read::IsoDirEntry::rrip_name_into<'b>(&self, &'b mut [u8]) -> core::option::Option<core::result::Result<&'b str, hadris_iso::async::read::NameError>>
+pub fn hadris_iso::async::read::IsoDirEntry::rrip_name_matches(&self, &str) -> bool
 pub fn hadris_iso::async::read::IsoDirEntry::system_use(&self) -> &[u8]
 pub const fn hadris_iso::async::read::IsoDirEntry::total_size(&self) -> u64
 pub struct hadris_iso::async::read::IsoDirReader<'a, R>
@@ -538,79 +545,6 @@ pub hadris_iso::async::read::RripTimestamps::creation: core::option::Option<hadr
 pub hadris_iso::async::read::RripTimestamps::effective: core::option::Option<hadris_iso::async::read::RripDateTime>
 pub hadris_iso::async::read::RripTimestamps::expiration: core::option::Option<hadris_iso::async::read::RripDateTime>
 pub hadris_iso::async::read::RripTimestamps::modify: core::option::Option<hadris_iso::async::read::RripDateTime>
-pub struct hadris_iso::async::read::SupportedFeatures(_)
-impl hadris_iso::async::read::SupportedFeatures
-pub const fn hadris_iso::async::read::SupportedFeatures::all() -> Self
-pub const fn hadris_iso::async::read::SupportedFeatures::bits(&self) -> u64
-pub const fn hadris_iso::async::read::SupportedFeatures::complement(self) -> Self
-pub const fn hadris_iso::async::read::SupportedFeatures::contains(&self, Self) -> bool
-pub const fn hadris_iso::async::read::SupportedFeatures::difference(self, Self) -> Self
-pub const fn hadris_iso::async::read::SupportedFeatures::empty() -> Self
-pub const fn hadris_iso::async::read::SupportedFeatures::from_bits(u64) -> core::option::Option<Self>
-pub const fn hadris_iso::async::read::SupportedFeatures::from_bits_retain(u64) -> Self
-pub const fn hadris_iso::async::read::SupportedFeatures::from_bits_truncate(u64) -> Self
-pub fn hadris_iso::async::read::SupportedFeatures::from_name(&str) -> core::option::Option<Self>
-pub fn hadris_iso::async::read::SupportedFeatures::insert(&mut self, Self)
-pub const fn hadris_iso::async::read::SupportedFeatures::intersection(self, Self) -> Self
-pub const fn hadris_iso::async::read::SupportedFeatures::intersects(&self, Self) -> bool
-pub const fn hadris_iso::async::read::SupportedFeatures::is_all(&self) -> bool
-pub const fn hadris_iso::async::read::SupportedFeatures::is_empty(&self) -> bool
-pub fn hadris_iso::async::read::SupportedFeatures::remove(&mut self, Self)
-pub fn hadris_iso::async::read::SupportedFeatures::set(&mut self, Self, bool)
-pub const fn hadris_iso::async::read::SupportedFeatures::symmetric_difference(self, Self) -> Self
-pub fn hadris_iso::async::read::SupportedFeatures::toggle(&mut self, Self)
-pub const fn hadris_iso::async::read::SupportedFeatures::union(self, Self) -> Self
-impl hadris_iso::async::read::SupportedFeatures
-pub const fn hadris_iso::async::read::SupportedFeatures::iter(&self) -> bitflags::iter::Iter<hadris_iso::async::read::SupportedFeatures>
-pub const fn hadris_iso::async::read::SupportedFeatures::iter_names(&self) -> bitflags::iter::IterNames<hadris_iso::async::read::SupportedFeatures>
-impl bitflags::traits::Flags for hadris_iso::async::read::SupportedFeatures
-pub type hadris_iso::async::read::SupportedFeatures::Bits = u64
-pub const hadris_iso::async::read::SupportedFeatures::FLAGS: &'static [bitflags::traits::Flag<hadris_iso::async::read::SupportedFeatures>]
-pub fn hadris_iso::async::read::SupportedFeatures::all_named() -> hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::bits(&self) -> u64
-pub fn hadris_iso::async::read::SupportedFeatures::from_bits_retain(u64) -> hadris_iso::async::read::SupportedFeatures
-impl bitflags::traits::PublicFlags for hadris_iso::async::read::SupportedFeatures
-pub type hadris_iso::async::read::SupportedFeatures::Internal = InternalBitFlags
-pub type hadris_iso::async::read::SupportedFeatures::Primitive = u64
-impl core::fmt::Binary for hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::LowerHex for hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Octal for hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::UpperHex for hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::iter::traits::collect::Extend<hadris_iso::async::read::SupportedFeatures> for hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::extend<T: core::iter::traits::collect::IntoIterator<Item = Self>>(&mut self, T)
-impl core::iter::traits::collect::FromIterator<hadris_iso::async::read::SupportedFeatures> for hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::from_iter<T: core::iter::traits::collect::IntoIterator<Item = Self>>(T) -> Self
-impl core::iter::traits::collect::IntoIterator for hadris_iso::async::read::SupportedFeatures
-pub type hadris_iso::async::read::SupportedFeatures::IntoIter = bitflags::iter::Iter<hadris_iso::async::read::SupportedFeatures>
-pub type hadris_iso::async::read::SupportedFeatures::Item = hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::into_iter(self) -> Self::IntoIter
-impl core::ops::arith::Sub for hadris_iso::async::read::SupportedFeatures
-pub type hadris_iso::async::read::SupportedFeatures::Output = hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::sub(self, Self) -> Self
-impl core::ops::arith::SubAssign for hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::sub_assign(&mut self, Self)
-impl core::ops::bit::BitAnd for hadris_iso::async::read::SupportedFeatures
-pub type hadris_iso::async::read::SupportedFeatures::Output = hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::bitand(self, Self) -> Self
-impl core::ops::bit::BitAndAssign for hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::bitand_assign(&mut self, Self)
-impl core::ops::bit::BitOr for hadris_iso::async::read::SupportedFeatures
-pub type hadris_iso::async::read::SupportedFeatures::Output = hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::bitor(self, hadris_iso::async::read::SupportedFeatures) -> Self
-impl core::ops::bit::BitOrAssign for hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::bitor_assign(&mut self, Self)
-impl core::ops::bit::BitXor for hadris_iso::async::read::SupportedFeatures
-pub type hadris_iso::async::read::SupportedFeatures::Output = hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::bitxor(self, Self) -> Self
-impl core::ops::bit::BitXorAssign for hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::bitxor_assign(&mut self, Self)
-impl core::ops::bit::Not for hadris_iso::async::read::SupportedFeatures
-pub type hadris_iso::async::read::SupportedFeatures::Output = hadris_iso::async::read::SupportedFeatures
-pub fn hadris_iso::async::read::SupportedFeatures::not(self) -> Self
 pub struct hadris_iso::async::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>
 impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::VolumeDescriptorIter<'_, DATA>
 pub async fn hadris_iso::async::read::VolumeDescriptorIter<'_, DATA>::next_descriptor(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::volume::VolumeDescriptor>>
@@ -893,6 +827,7 @@ pub fn hadris_iso::async::rrip::RripBuilder::add_rrip_er(&mut self) -> &mut Self
 pub fn hadris_iso::async::rrip::RripBuilder::add_sl(&mut self, &str) -> &mut Self
 pub fn hadris_iso::async::rrip::RripBuilder::add_sp(&mut self, u8) -> &mut Self
 pub fn hadris_iso::async::rrip::RripBuilder::add_st(&mut self) -> &mut Self
+pub fn hadris_iso::async::rrip::RripBuilder::add_tf(&mut self, core::option::Option<&[u8; 7]>, &[u8; 7], &[u8; 7]) -> &mut Self
 pub fn hadris_iso::async::rrip::RripBuilder::add_tf_short(&mut self, &[u8; 7], &[u8; 7]) -> &mut Self
 pub fn hadris_iso::async::rrip::RripBuilder::build(&self) -> alloc::vec::Vec<u8>
 pub fn hadris_iso::async::rrip::RripBuilder::build_split(&self, usize) -> hadris_iso::async::susp::SplitSu
@@ -1444,10 +1379,15 @@ impl core::error::Error for hadris_iso::boot::BootError
 impl core::fmt::Display for hadris_iso::boot::BootError
 pub fn hadris_iso::boot::BootError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum hadris_iso::boot::EmulationType
+pub hadris_iso::boot::EmulationType::Floppy1_2
+pub hadris_iso::boot::EmulationType::Floppy1_44
+pub hadris_iso::boot::EmulationType::Floppy2_88
+pub hadris_iso::boot::EmulationType::HardDisk
 pub hadris_iso::boot::EmulationType::NoEmulation
 pub hadris_iso::boot::EmulationType::Unknown(u8)
 impl hadris_iso::boot::EmulationType
 pub fn hadris_iso::boot::EmulationType::from_u8(u8) -> Self
+pub fn hadris_iso::boot::EmulationType::is_emulated(self) -> bool
 pub fn hadris_iso::boot::EmulationType::to_u8(self) -> u8
 pub enum hadris_iso::boot::PlatformId
 pub hadris_iso::boot::PlatformId::Macintosh
@@ -1729,6 +1669,7 @@ impl core::convert::From<hadris_iso::write::options::BaseIsoLevel> for hadris_is
 pub fn hadris_iso::file::EntryType::from(hadris_iso::write::options::BaseIsoLevel) -> Self
 impl core::default::Default for hadris_iso::file::EntryType
 pub fn hadris_iso::file::EntryType::default() -> Self
+pub const hadris_iso::file::JOLIET_MAX_NAME_CHARS: usize
 pub fn hadris_iso::file::convert_joliet3(&str) -> hadris_fixed::FixedBytes<207>
 pub fn hadris_iso::file::convert_l1(&str, bool) -> hadris_fixed::FixedBytes<14>
 pub fn hadris_iso::file::convert_l2(&str, bool) -> hadris_iso::file::FilenameL2
@@ -1945,6 +1886,8 @@ pub fn hadris_iso::read::IsoDirEntry::is_file(&self) -> bool
 pub const fn hadris_iso::read::IsoDirEntry::is_multi_extent(&self) -> bool
 pub fn hadris_iso::read::IsoDirEntry::name(&self) -> hadris_iso::read::IsoName<'_>
 pub const fn hadris_iso::read::IsoDirEntry::record(&self) -> &hadris_iso::directory::DirectoryRecord
+pub fn hadris_iso::read::IsoDirEntry::rrip_name_into<'b>(&self, &'b mut [u8]) -> core::option::Option<core::result::Result<&'b str, hadris_iso::read::NameError>>
+pub fn hadris_iso::read::IsoDirEntry::rrip_name_matches(&self, &str) -> bool
 pub fn hadris_iso::read::IsoDirEntry::system_use(&self) -> &[u8]
 pub const fn hadris_iso::read::IsoDirEntry::total_size(&self) -> u64
 pub struct hadris_iso::read::IsoDirIter<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
@@ -2061,79 +2004,6 @@ pub hadris_iso::read::RripTimestamps::creation: core::option::Option<hadris_iso:
 pub hadris_iso::read::RripTimestamps::effective: core::option::Option<hadris_iso::read::RripDateTime>
 pub hadris_iso::read::RripTimestamps::expiration: core::option::Option<hadris_iso::read::RripDateTime>
 pub hadris_iso::read::RripTimestamps::modify: core::option::Option<hadris_iso::read::RripDateTime>
-pub struct hadris_iso::read::SupportedFeatures(_)
-impl hadris_iso::read::SupportedFeatures
-pub const fn hadris_iso::read::SupportedFeatures::all() -> Self
-pub const fn hadris_iso::read::SupportedFeatures::bits(&self) -> u64
-pub const fn hadris_iso::read::SupportedFeatures::complement(self) -> Self
-pub const fn hadris_iso::read::SupportedFeatures::contains(&self, Self) -> bool
-pub const fn hadris_iso::read::SupportedFeatures::difference(self, Self) -> Self
-pub const fn hadris_iso::read::SupportedFeatures::empty() -> Self
-pub const fn hadris_iso::read::SupportedFeatures::from_bits(u64) -> core::option::Option<Self>
-pub const fn hadris_iso::read::SupportedFeatures::from_bits_retain(u64) -> Self
-pub const fn hadris_iso::read::SupportedFeatures::from_bits_truncate(u64) -> Self
-pub fn hadris_iso::read::SupportedFeatures::from_name(&str) -> core::option::Option<Self>
-pub fn hadris_iso::read::SupportedFeatures::insert(&mut self, Self)
-pub const fn hadris_iso::read::SupportedFeatures::intersection(self, Self) -> Self
-pub const fn hadris_iso::read::SupportedFeatures::intersects(&self, Self) -> bool
-pub const fn hadris_iso::read::SupportedFeatures::is_all(&self) -> bool
-pub const fn hadris_iso::read::SupportedFeatures::is_empty(&self) -> bool
-pub fn hadris_iso::read::SupportedFeatures::remove(&mut self, Self)
-pub fn hadris_iso::read::SupportedFeatures::set(&mut self, Self, bool)
-pub const fn hadris_iso::read::SupportedFeatures::symmetric_difference(self, Self) -> Self
-pub fn hadris_iso::read::SupportedFeatures::toggle(&mut self, Self)
-pub const fn hadris_iso::read::SupportedFeatures::union(self, Self) -> Self
-impl hadris_iso::read::SupportedFeatures
-pub const fn hadris_iso::read::SupportedFeatures::iter(&self) -> bitflags::iter::Iter<hadris_iso::read::SupportedFeatures>
-pub const fn hadris_iso::read::SupportedFeatures::iter_names(&self) -> bitflags::iter::IterNames<hadris_iso::read::SupportedFeatures>
-impl bitflags::traits::Flags for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Bits = u64
-pub const hadris_iso::read::SupportedFeatures::FLAGS: &'static [bitflags::traits::Flag<hadris_iso::read::SupportedFeatures>]
-pub fn hadris_iso::read::SupportedFeatures::all_named() -> hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bits(&self) -> u64
-pub fn hadris_iso::read::SupportedFeatures::from_bits_retain(u64) -> hadris_iso::read::SupportedFeatures
-impl bitflags::traits::PublicFlags for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Internal = InternalBitFlags
-pub type hadris_iso::read::SupportedFeatures::Primitive = u64
-impl core::fmt::Binary for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::LowerHex for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Octal for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::UpperHex for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::iter::traits::collect::Extend<hadris_iso::read::SupportedFeatures> for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::extend<T: core::iter::traits::collect::IntoIterator<Item = Self>>(&mut self, T)
-impl core::iter::traits::collect::FromIterator<hadris_iso::read::SupportedFeatures> for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::from_iter<T: core::iter::traits::collect::IntoIterator<Item = Self>>(T) -> Self
-impl core::iter::traits::collect::IntoIterator for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::IntoIter = bitflags::iter::Iter<hadris_iso::read::SupportedFeatures>
-pub type hadris_iso::read::SupportedFeatures::Item = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::into_iter(self) -> Self::IntoIter
-impl core::ops::arith::Sub for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::sub(self, Self) -> Self
-impl core::ops::arith::SubAssign for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::sub_assign(&mut self, Self)
-impl core::ops::bit::BitAnd for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitand(self, Self) -> Self
-impl core::ops::bit::BitAndAssign for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitand_assign(&mut self, Self)
-impl core::ops::bit::BitOr for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitor(self, hadris_iso::read::SupportedFeatures) -> Self
-impl core::ops::bit::BitOrAssign for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitor_assign(&mut self, Self)
-impl core::ops::bit::BitXor for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitxor(self, Self) -> Self
-impl core::ops::bit::BitXorAssign for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitxor_assign(&mut self, Self)
-impl core::ops::bit::Not for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::not(self) -> Self
 pub struct hadris_iso::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
 pub fn hadris_iso::read::VolumeDescriptorIter<'_, DATA>::next_descriptor(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::volume::VolumeDescriptor>>
@@ -2419,6 +2289,7 @@ pub fn hadris_iso::rrip::RripBuilder::add_rrip_er(&mut self) -> &mut Self
 pub fn hadris_iso::rrip::RripBuilder::add_sl(&mut self, &str) -> &mut Self
 pub fn hadris_iso::rrip::RripBuilder::add_sp(&mut self, u8) -> &mut Self
 pub fn hadris_iso::rrip::RripBuilder::add_st(&mut self) -> &mut Self
+pub fn hadris_iso::rrip::RripBuilder::add_tf(&mut self, core::option::Option<&[u8; 7]>, &[u8; 7], &[u8; 7]) -> &mut Self
 pub fn hadris_iso::rrip::RripBuilder::add_tf_short(&mut self, &[u8; 7], &[u8; 7]) -> &mut Self
 pub fn hadris_iso::rrip::RripBuilder::build(&self) -> alloc::vec::Vec<u8>
 pub fn hadris_iso::rrip::RripBuilder::build_split(&self, usize) -> hadris_iso::susp::SplitSu
@@ -2796,10 +2667,15 @@ impl core::error::Error for hadris_iso::boot::BootError
 impl core::fmt::Display for hadris_iso::boot::BootError
 pub fn hadris_iso::boot::BootError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum hadris_iso::sync::boot::EmulationType
+pub hadris_iso::sync::boot::EmulationType::Floppy1_2
+pub hadris_iso::sync::boot::EmulationType::Floppy1_44
+pub hadris_iso::sync::boot::EmulationType::Floppy2_88
+pub hadris_iso::sync::boot::EmulationType::HardDisk
 pub hadris_iso::sync::boot::EmulationType::NoEmulation
 pub hadris_iso::sync::boot::EmulationType::Unknown(u8)
 impl hadris_iso::boot::EmulationType
 pub fn hadris_iso::boot::EmulationType::from_u8(u8) -> Self
+pub fn hadris_iso::boot::EmulationType::is_emulated(self) -> bool
 pub fn hadris_iso::boot::EmulationType::to_u8(self) -> u8
 pub enum hadris_iso::sync::boot::PlatformId
 pub hadris_iso::sync::boot::PlatformId::Macintosh
@@ -3240,6 +3116,8 @@ pub fn hadris_iso::read::IsoDirEntry::is_file(&self) -> bool
 pub const fn hadris_iso::read::IsoDirEntry::is_multi_extent(&self) -> bool
 pub fn hadris_iso::read::IsoDirEntry::name(&self) -> hadris_iso::read::IsoName<'_>
 pub const fn hadris_iso::read::IsoDirEntry::record(&self) -> &hadris_iso::directory::DirectoryRecord
+pub fn hadris_iso::read::IsoDirEntry::rrip_name_into<'b>(&self, &'b mut [u8]) -> core::option::Option<core::result::Result<&'b str, hadris_iso::read::NameError>>
+pub fn hadris_iso::read::IsoDirEntry::rrip_name_matches(&self, &str) -> bool
 pub fn hadris_iso::read::IsoDirEntry::system_use(&self) -> &[u8]
 pub const fn hadris_iso::read::IsoDirEntry::total_size(&self) -> u64
 pub struct hadris_iso::sync::read::IsoDirIter<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
@@ -3356,79 +3234,6 @@ pub hadris_iso::sync::read::RripTimestamps::creation: core::option::Option<hadri
 pub hadris_iso::sync::read::RripTimestamps::effective: core::option::Option<hadris_iso::read::RripDateTime>
 pub hadris_iso::sync::read::RripTimestamps::expiration: core::option::Option<hadris_iso::read::RripDateTime>
 pub hadris_iso::sync::read::RripTimestamps::modify: core::option::Option<hadris_iso::read::RripDateTime>
-pub struct hadris_iso::sync::read::SupportedFeatures(_)
-impl hadris_iso::read::SupportedFeatures
-pub const fn hadris_iso::read::SupportedFeatures::all() -> Self
-pub const fn hadris_iso::read::SupportedFeatures::bits(&self) -> u64
-pub const fn hadris_iso::read::SupportedFeatures::complement(self) -> Self
-pub const fn hadris_iso::read::SupportedFeatures::contains(&self, Self) -> bool
-pub const fn hadris_iso::read::SupportedFeatures::difference(self, Self) -> Self
-pub const fn hadris_iso::read::SupportedFeatures::empty() -> Self
-pub const fn hadris_iso::read::SupportedFeatures::from_bits(u64) -> core::option::Option<Self>
-pub const fn hadris_iso::read::SupportedFeatures::from_bits_retain(u64) -> Self
-pub const fn hadris_iso::read::SupportedFeatures::from_bits_truncate(u64) -> Self
-pub fn hadris_iso::read::SupportedFeatures::from_name(&str) -> core::option::Option<Self>
-pub fn hadris_iso::read::SupportedFeatures::insert(&mut self, Self)
-pub const fn hadris_iso::read::SupportedFeatures::intersection(self, Self) -> Self
-pub const fn hadris_iso::read::SupportedFeatures::intersects(&self, Self) -> bool
-pub const fn hadris_iso::read::SupportedFeatures::is_all(&self) -> bool
-pub const fn hadris_iso::read::SupportedFeatures::is_empty(&self) -> bool
-pub fn hadris_iso::read::SupportedFeatures::remove(&mut self, Self)
-pub fn hadris_iso::read::SupportedFeatures::set(&mut self, Self, bool)
-pub const fn hadris_iso::read::SupportedFeatures::symmetric_difference(self, Self) -> Self
-pub fn hadris_iso::read::SupportedFeatures::toggle(&mut self, Self)
-pub const fn hadris_iso::read::SupportedFeatures::union(self, Self) -> Self
-impl hadris_iso::read::SupportedFeatures
-pub const fn hadris_iso::read::SupportedFeatures::iter(&self) -> bitflags::iter::Iter<hadris_iso::read::SupportedFeatures>
-pub const fn hadris_iso::read::SupportedFeatures::iter_names(&self) -> bitflags::iter::IterNames<hadris_iso::read::SupportedFeatures>
-impl bitflags::traits::Flags for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Bits = u64
-pub const hadris_iso::read::SupportedFeatures::FLAGS: &'static [bitflags::traits::Flag<hadris_iso::read::SupportedFeatures>]
-pub fn hadris_iso::read::SupportedFeatures::all_named() -> hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bits(&self) -> u64
-pub fn hadris_iso::read::SupportedFeatures::from_bits_retain(u64) -> hadris_iso::read::SupportedFeatures
-impl bitflags::traits::PublicFlags for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Internal = InternalBitFlags
-pub type hadris_iso::read::SupportedFeatures::Primitive = u64
-impl core::fmt::Binary for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::LowerHex for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Octal for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::UpperHex for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::iter::traits::collect::Extend<hadris_iso::read::SupportedFeatures> for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::extend<T: core::iter::traits::collect::IntoIterator<Item = Self>>(&mut self, T)
-impl core::iter::traits::collect::FromIterator<hadris_iso::read::SupportedFeatures> for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::from_iter<T: core::iter::traits::collect::IntoIterator<Item = Self>>(T) -> Self
-impl core::iter::traits::collect::IntoIterator for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::IntoIter = bitflags::iter::Iter<hadris_iso::read::SupportedFeatures>
-pub type hadris_iso::read::SupportedFeatures::Item = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::into_iter(self) -> Self::IntoIter
-impl core::ops::arith::Sub for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::sub(self, Self) -> Self
-impl core::ops::arith::SubAssign for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::sub_assign(&mut self, Self)
-impl core::ops::bit::BitAnd for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitand(self, Self) -> Self
-impl core::ops::bit::BitAndAssign for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitand_assign(&mut self, Self)
-impl core::ops::bit::BitOr for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitor(self, hadris_iso::read::SupportedFeatures) -> Self
-impl core::ops::bit::BitOrAssign for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitor_assign(&mut self, Self)
-impl core::ops::bit::BitXor for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitxor(self, Self) -> Self
-impl core::ops::bit::BitXorAssign for hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::bitxor_assign(&mut self, Self)
-impl core::ops::bit::Not for hadris_iso::read::SupportedFeatures
-pub type hadris_iso::read::SupportedFeatures::Output = hadris_iso::read::SupportedFeatures
-pub fn hadris_iso::read::SupportedFeatures::not(self) -> Self
 pub struct hadris_iso::sync::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
 pub fn hadris_iso::read::VolumeDescriptorIter<'_, DATA>::next_descriptor(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::volume::VolumeDescriptor>>
@@ -3714,6 +3519,7 @@ pub fn hadris_iso::rrip::RripBuilder::add_rrip_er(&mut self) -> &mut Self
 pub fn hadris_iso::rrip::RripBuilder::add_sl(&mut self, &str) -> &mut Self
 pub fn hadris_iso::rrip::RripBuilder::add_sp(&mut self, u8) -> &mut Self
 pub fn hadris_iso::rrip::RripBuilder::add_st(&mut self) -> &mut Self
+pub fn hadris_iso::rrip::RripBuilder::add_tf(&mut self, core::option::Option<&[u8; 7]>, &[u8; 7], &[u8; 7]) -> &mut Self
 pub fn hadris_iso::rrip::RripBuilder::add_tf_short(&mut self, &[u8; 7], &[u8; 7]) -> &mut Self
 pub fn hadris_iso::rrip::RripBuilder::build(&self) -> alloc::vec::Vec<u8>
 pub fn hadris_iso::rrip::RripBuilder::build_split(&self, usize) -> hadris_iso::susp::SplitSu

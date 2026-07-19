@@ -305,18 +305,69 @@ pub fn convert_l3(name: &str, supports_lowercase: bool) -> FilenameL3 {
     l3
 }
 
+/// Maximum number of characters in a Joliet file identifier.
+///
+/// The Joliet specification limits a file identifier to 64 UCS-2 characters.
+/// (A 255-byte directory record could physically hold up to 103, but 64 is the
+/// conformant limit produced by default by reference tools.)
 #[cfg(feature = "write")]
-/// Performs the `convert_joliet3` operation.
+pub const JOLIET_MAX_NAME_CHARS: usize = 64;
+
+#[cfg(feature = "write")]
+/// Encode `name` as a big-endian UCS-2 Joliet file identifier.
+///
+/// Joliet identifiers are UCS-2 (Basic Multilingual Plane only), not UTF-16:
+/// a character outside the BMP cannot be represented as a single UCS-2 code
+/// unit, so it is substituted with `_` rather than emitting a surrogate pair
+/// into the field. The identifier is limited to [`JOLIET_MAX_NAME_CHARS`]
+/// characters; longer names are truncated.
 pub fn convert_joliet3(name: &str) -> FixedBytes<207> {
     let mut j1 = FixedBytes::empty();
-    for (written, c) in name.encode_utf16().enumerate() {
-        if written >= 206 / 2 {
-            // We reached the maximum we can write
-            break;
-        }
-        let bytes = c.to_be_bytes();
-        j1.push_slice(&bytes);
+    for c in name.chars().take(JOLIET_MAX_NAME_CHARS) {
+        let unit = if (c as u32) <= 0xFFFF {
+            c as u16
+        } else {
+            b'_' as u16
+        };
+        j1.push_slice(&unit.to_be_bytes());
     }
 
     j1
+}
+
+#[cfg(all(test, feature = "write", feature = "alloc"))]
+mod joliet_tests {
+    use super::*;
+    use crate::joliet::decode_joliet_name;
+
+    #[test]
+    fn joliet_name_is_truncated_to_the_conformant_limit() {
+        let long = "a".repeat(200);
+        let encoded = convert_joliet3(&long);
+        // Two bytes per UCS-2 unit, capped at 64 characters.
+        assert_eq!(encoded.as_bytes().len(), JOLIET_MAX_NAME_CHARS * 2);
+        assert_eq!(decode_joliet_name(encoded.as_bytes()).chars().count(), 64);
+    }
+
+    #[test]
+    fn joliet_substitutes_non_bmp_instead_of_emitting_surrogates() {
+        // U+1F600 GRINNING FACE is outside the BMP and cannot be UCS-2 encoded.
+        let encoded = convert_joliet3("a\u{1F600}b.txt");
+        let decoded = decode_joliet_name(encoded.as_bytes());
+        assert_eq!(decoded, "a_b.txt");
+        // No byte pair may fall in the UTF-16 surrogate range 0xD800..=0xDFFF.
+        for pair in encoded.as_bytes().chunks_exact(2) {
+            let unit = u16::from_be_bytes([pair[0], pair[1]]);
+            assert!(
+                !(0xD800..=0xDFFF).contains(&unit),
+                "surrogate leaked into UCS-2"
+            );
+        }
+    }
+
+    #[test]
+    fn joliet_preserves_bmp_unicode() {
+        let encoded = convert_joliet3("日本語.txt");
+        assert_eq!(decode_joliet_name(encoded.as_bytes()), "日本語.txt");
+    }
 }

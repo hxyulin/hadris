@@ -14,9 +14,14 @@ use super::io::{Seek, SeekFrom};
 use super::read::IsoImage;
 }
 
+/// Path Table record header (ECMA-119 9.4).
+///
+/// @hadris-spec ECMA-119:9.4
+/// @hadris-compliance partial
+/// @hadris-note Both L- and M-type path tables are written and read; the optional secondary path tables are not populated.
+/// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-/// Represents PathTableEntryHeader.
 pub struct PathTableEntryHeader {
     /// The `len` field.
     pub len: u8,

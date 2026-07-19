@@ -665,6 +665,10 @@ impl GptPartitionName {
 ///
 /// Numeric fields use [`Le`] so their on-disk little-endian layout is explicit.
 /// Use `to_raw` / `from_raw` or the I/O extension traits for serialization.
+///
+/// @hadris-spec UEFI:GPT-Header
+/// @hadris-compliance full
+/// @hadris-tests io_roundtrip::gpt_scheme_sync_write_open_and_detect_roundtrip
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct GptHeader {
@@ -849,6 +853,10 @@ impl GptHeader {
 }
 
 /// GPT partition entry (128 bytes by default).
+///
+/// @hadris-spec UEFI:GPT-Entry
+/// @hadris-compliance full
+/// @hadris-tests roundtrip::gpt_partition_entry_roundtrip
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GptPartitionEntry {

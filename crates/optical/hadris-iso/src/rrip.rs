@@ -886,15 +886,41 @@ impl RripBuilder {
         self
     }
 
-    /// Add a TF entry for timestamps
+    /// Add a short-form TF entry carrying modify and access timestamps.
     pub fn add_tf_short(&mut self, mtime: &[u8; 7], atime: &[u8; 7]) -> &mut Self {
-        let mut buf = alloc::vec![0u8; 19]; // 5 + 7 + 7
+        self.add_tf(None, mtime, atime)
+    }
+
+    /// Add a short-form (7-byte) TF timestamp entry.
+    ///
+    /// Emits the creation timestamp when provided (RRIP `CREATION` flag, 0x01),
+    /// followed by modify (0x02) and access (0x04). Timestamps are written in
+    /// ascending flag-bit order, as required by RRIP.
+    pub fn add_tf(
+        &mut self,
+        creation: Option<&[u8; 7]>,
+        mtime: &[u8; 7],
+        atime: &[u8; 7],
+    ) -> &mut Self {
+        // CREATION | MODIFY | ACCESS, short form (no LONG_FORM bit).
+        let mut flags = 0x06u8; // MODIFY | ACCESS
+        let mut len = 5 + 7 + 7;
+        if creation.is_some() {
+            flags |= 0x01; // CREATION
+            len += 7;
+        }
+        let mut buf = alloc::vec![0u8; len];
         buf[0..2].copy_from_slice(b"TF");
-        buf[2] = 19;
+        buf[2] = len as u8;
         buf[3] = 1;
-        buf[4] = 0x06; // MODIFY | ACCESS flags
-        buf[5..12].copy_from_slice(mtime);
-        buf[12..19].copy_from_slice(atime);
+        buf[4] = flags;
+        let mut off = 5;
+        if let Some(ctime) = creation {
+            buf[off..off + 7].copy_from_slice(ctime);
+            off += 7;
+        }
+        buf[off..off + 7].copy_from_slice(mtime);
+        buf[off + 7..off + 14].copy_from_slice(atime);
         self.builder.add_raw(buf);
         self
     }

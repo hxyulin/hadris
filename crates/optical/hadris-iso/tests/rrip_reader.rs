@@ -55,6 +55,40 @@ fn test_rrip_detection_with_rock_ridge() {
 }
 
 #[test]
+fn no_alloc_reader_resolves_rrip_names() {
+    use hadris_iso::read::IsoReader;
+
+    // A name that cannot survive the primary ISO namespace unchanged (spaces,
+    // lowercase, long) but is preserved verbatim in the Rock Ridge NM field.
+    let original = "My Long Rock Ridge Name.txt";
+    let files = vec![IsoFile::File {
+        name: Arc::new(original.to_string()),
+        contents: b"payload".to_vec(),
+    }];
+    let iso_data = create_iso(files, CreationFeatures::rock_ridge());
+
+    let mut reader = IsoReader::open(Cursor::new(iso_data)).unwrap();
+    let root = reader.primary_root();
+    let mut dir = reader.open_dir(root);
+
+    let mut found = false;
+    while let Some(entry) = dir.next_entry().unwrap() {
+        if entry.is_directory() {
+            continue;
+        }
+        let mut buffer = [0u8; 255];
+        if let Some(Ok(name)) = entry.rrip_name_into(&mut buffer) {
+            assert_eq!(name, original, "RRIP NM name must round-trip verbatim");
+            assert!(entry.rrip_name_matches(original));
+            assert!(!entry.rrip_name_matches("something else"));
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "the file's Rock Ridge name should be resolvable");
+}
+
+#[test]
 fn test_rrip_detection_without_rock_ridge() {
     let files = vec![IsoFile::File {
         name: Arc::new("hello.txt".to_string()),

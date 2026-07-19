@@ -94,12 +94,52 @@ Each ISO-9660 image contains a list of volume descriptors starting at LBA 16.
 The first descriptor must be the primary volume descriptor, which is the only descriptor that is required to be present.
 There can be any number of other volume descriptors, which can be used to store additional information about the filesystem, and ends with an Volume Set Terminator descriptor, padded to the entire sector.
 
-The following table describes the structure of the primary volume descriptor:
+The following table describes the structure of the primary volume descriptor
+(ECMA-119 8.4; `@hadris-spec ECMA-119:8.4`, implemented by `PrimaryVolumeDescriptor`):
+
 | Offset | Size | Type | Description |
 | --- | --- | --- | --- |
-| 0 | 1 | u8 | Descriptor type |
+| 0 | 1 | u8 | Descriptor type (1) |
+| 1 | 5 | u8[5] | Standard identifier ("CD001") |
+| 6 | 1 | u8 | Version (1) |
+| 8 | 32 | strA | System identifier |
+| 40 | 32 | strD | Volume identifier |
+| 80 | 8 | u32lsbmsb | Volume space size (logical blocks) |
+| 120 | 4 | u16lsbmsb | Volume set size |
+| 124 | 4 | u16lsbmsb | Volume sequence number |
+| 128 | 4 | u16lsbmsb | Logical block size (bytes; 2048) |
+| 132 | 8 | u32lsbmsb | Path table size (bytes) |
+| 140 | 4 | u32lsb | Location of Type-L path table |
+| 144 | 4 | u32lsb | Location of optional Type-L path table |
+| 148 | 4 | u32msb | Location of Type-M path table |
+| 152 | 4 | u32msb | Location of optional Type-M path table |
+| 156 | 34 | — | Root directory record (see [Directory Record](#directory-record)) |
+| 190 | 128 | strD | Volume set identifier |
+| 318 | 128 | strA | Publisher identifier |
+| 446 | 128 | strA | Data preparer identifier |
+| 574 | 128 | strA | Application identifier |
+| 702 | 37 | strD | Copyright file identifier |
+| 739 | 37 | strD | Abstract file identifier |
+| 776 | 37 | strD | Bibliographic file identifier |
+| 813 | 17 | dec-datetime | Volume creation date/time |
+| 830 | 17 | dec-datetime | Volume modification date/time |
+| 847 | 17 | dec-datetime | Volume expiration date/time |
+| 864 | 17 | dec-datetime | Volume effective date/time |
+| 881 | 1 | u8 | File structure version (1) |
+| 883 | 512 | — | Application use |
 
-(WIP)
+The **Supplementary Volume Descriptor** (ECMA-119 8.5; `@hadris-spec ECMA-119:8.5`,
+`SupplementaryVolumeDescriptor`) shares this layout; Hadris uses it for the Joliet
+namespace, distinguished by an escape sequence in the "Escape Sequences" field
+(offset 88) selecting UCS-2 Level 1/2/3.
+
+The **Boot Record Volume Descriptor** (ECMA-119 8.2; `@hadris-spec ECMA-119:8.2`,
+`BootRecordVolumeDescriptor`) carries the boot system identifier
+`"EL TORITO SPECIFICATION"` and a pointer to the El Torito boot catalog.
+
+The **Volume Descriptor Set Terminator** (ECMA-119 8.3; `@hadris-spec ECMA-119:8.3`,
+`VolumeDescriptorSetTerminator`) is a header-only descriptor (type `0xFF`) padded to
+2048 bytes that ends the descriptor sequence.
 
 #### Volume Descriptor Type
 
@@ -117,6 +157,72 @@ The volume descriptor type is an enum, which can be one of the following values:
 
 The standard identifier is a 5-byte ASCII string, which is used to identify the standard that the volume descriptor follows.
 It is the string "CD001".
+
+### Path Table
+
+The path table (ECMA-119 9.4; `@hadris-spec ECMA-119:9.4`, implemented by
+`PathTableEntryHeader` / `PathTableEntry`) is a flat, breadth-first index of every
+directory in the image, allowing a reader to locate a directory without walking the
+tree. Each record is:
+
+| Offset | Size | Type | Description |
+| --- | --- | --- | --- |
+| 0 | 1 | u8 | Length of directory identifier (LEN_DI) |
+| 1 | 1 | u8 | Extended attribute record length |
+| 2 | 4 | u32 | Location of extent (logical block) |
+| 6 | 2 | u16 | Directory number of parent |
+| 8 | LEN_DI | strD | Directory identifier |
+| 8+LEN_DI | 0/1 | u8 | Padding to an even boundary |
+
+Two copies are written: the **Type-L** table stores the extent location little-endian,
+the **Type-M** table big-endian. Hadris writes both; the optional secondary path-table
+pointers in the PVD are left zero.
+
+### Directory Record
+
+A directory record (ECMA-119 9.1; `@hadris-spec ECMA-119:9.1`, implemented by
+`DirectoryRecordHeader` / `DirectoryRecord`) describes one file or directory:
+
+| Offset | Size | Type | Description |
+| --- | --- | --- | --- |
+| 0 | 1 | u8 | Length of directory record (LEN_DR) |
+| 1 | 1 | u8 | Extended attribute record length |
+| 2 | 8 | u32lsbmsb | Location of extent (logical block) |
+| 10 | 8 | u32lsbmsb | Data length (bytes) |
+| 18 | 7 | datetime | Recording date and time |
+| 25 | 1 | u8 | File flags (see below) |
+| 26 | 1 | u8 | File unit size (interleaved mode) |
+| 27 | 1 | u8 | Interleave gap size |
+| 28 | 4 | u16lsbmsb | Volume sequence number |
+| 32 | 1 | u8 | Length of file identifier (LEN_FI) |
+| 33 | LEN_FI | strD | File identifier |
+| 33+LEN_FI | 0/1 | u8 | Padding to an even boundary |
+| … | … | — | System use area (SUSP / Rock Ridge) |
+
+File flags (offset 25): bit 0 Hidden, bit 1 Directory, bit 2 Associated file,
+bit 3 Record format in EAR, bit 4 Permissions in EAR, bit 7 Not-final (multi-extent).
+The special identifiers `0x00` ("." — self) and `0x01` (".." — parent) are the first
+two records of every directory. Hadris writes records in ascending File Identifier
+order (ECMA-119 9.3).
+
+## Extensions
+
+Hadris implements the following on top of base ISO 9660. Each is indexed by its
+`@hadris-spec` id in [`docs/spec-coverage.md`](../../../docs/spec-coverage.md).
+
+- **Joliet** — a Supplementary Volume Descriptor whose names are UCS-2 (BMP only),
+  giving long, case-preserving, Unicode filenames. `@hadris-spec ECMA-119:8.5`.
+- **Rock Ridge / SUSP (RRIP)** — System-use entries in each directory record carrying
+  POSIX metadata: `PX` (mode/uid/gid/inode), `NM` (long name), `SL` (symlink),
+  `TF` (timestamps, incl. creation), `CL`/`PL`/`RE` (deep-directory relocation),
+  `SP`/`CE`/`ER`/`ST` (SUSP framing).
+- **El Torito** — a boot catalog referenced by the Boot Record Volume Descriptor:
+  a validation entry, a default/initial entry, and optional platform section
+  headers/entries. Media emulation types: none, 1.2/1.44/2.88 MB floppy, hard disk.
+  `@hadris-spec El-Torito:validation`, `El-Torito:section-header`,
+  `El-Torito:section-entry`.
+- **Hybrid MBR/GPT** — a partition table embedded so the image also boots as a USB
+  disk (via `hadris-part`).
 
 ## References
 

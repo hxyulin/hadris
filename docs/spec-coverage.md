@@ -38,14 +38,30 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
+| ECMA-119:8.2 | `BootRecordVolumeDescriptor` | full | `xorriso_boot::test_hadris_multisection_boot_catalog` | `iso_read` | Locates the El Torito boot catalog |
+| ECMA-119:8.3 | `VolumeDescriptorSetTerminator` | full | `comprehensive_iso::test_pvd_standard_identifier` | `iso_read` | |
 | ECMA-119:8.4 | `PrimaryVolumeDescriptor` | full | `comprehensive_iso::test_pvd_standard_identifier` | `iso_read` | |
+| ECMA-119:8.5 | `SupplementaryVolumeDescriptor` | partial | | `iso_read` | Joliet SVD (UCS-2, BMP only); version-2 EVD repurposed as a UDF-bridge signal, not conformant ISO 9660:1999 |
 | ECMA-119:9.1 | `DirectoryRecordHeader` | full | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Fixed fields; covered by parse roundtrip |
-| ECMA-119:9.1 | `DirectoryRecord` | partial | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Joliet+RRIP coexistence on read may hide one namespace |
+| ECMA-119:9.1 | `DirectoryRecord` | partial | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Joliet+RRIP coexistence on read may hide one namespace; records written in collation order |
+| ECMA-119:9.4 | `PathTableEntryHeader` | partial | | `iso_read` | L- and M-type tables written/read; optional secondary path tables not populated |
 | El-Torito:validation | `BootValidationEntry` | full | `xorriso_boot::test_eltorito_boot_catalog_comparison` | `iso_read` | |
+| El-Torito:section-header | `BootSectionHeaderEntry` | full | `xorriso_boot::test_hadris_multisection_boot_catalog` | `iso_read` | |
+| El-Torito:section-entry | `BootSectionEntry` | full | `xorriso_boot::test_floppy_emulation_media_type_and_default_load_size` | `iso_read` | Named floppy/HDD emulation media types |
 
 ## hadris-fat
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
 | FAT:BPB | `RawBpb` | full | `comprehensive_fat::test_valid_sector_sizes` | `fat_read` | |
+| FAT:FSInfo | `RawFsInfo` | full | `comprehensive_fat::test_fsinfo_free_cluster_unknown` | `fat_read` | FAT32 free-cluster/next-free tracking |
 | FAT:LFN | `RawLfnEntry` | full | `comprehensive_fat::test_lfn_builder_sequence`, `test_write::lfn_cluster_boundary_tests` | `fat_read` | Read/write supports directory-entry runs across cluster boundaries |
+| FAT:DirEntry | `RawFileEntry` | partial | `test_write::test_lowercase_short_name_uses_nt_case_flags` | `fat_read` | Short-name entry incl. NT `DIR_NTRes` case flags (lowercase 8.3 round-trip); extended access-time granularity not modeled |
+
+## hadris-part
+
+| Spec | Item | Compliance | Tests | Fuzz | Notes |
+|------|------|------------|-------|------|-------|
+| MBR:layout | `MasterBootRecord` | full | `roundtrip::mbr_write_read_roundtrip` | | 512-byte MBR incl. protective/hybrid MBR support |
+| UEFI:GPT-Header | `GptHeader` | full | `io_roundtrip::gpt_scheme_sync_write_open_and_detect_roundtrip` | | Primary/backup header validation |
+| UEFI:GPT-Entry | `GptPartitionEntry` | full | `roundtrip::gpt_partition_entry_roundtrip` | | |

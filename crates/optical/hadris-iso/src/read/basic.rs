@@ -181,6 +181,52 @@ fn joliet_matches(raw: &[u8], candidate: &str) -> bool {
     expected.next().is_none()
 }
 
+/// Copies the Rock Ridge alternate name (SUSP `NM` entries) out of an inline
+/// system-use area into `out`, concatenating a `CONTINUE`-flagged run. Returns
+/// the number of bytes written, or `None` when there is no usable `NM` entry.
+///
+/// Only the inline system-use area is parsed; a name continued into a SUSP `CE`
+/// continuation area is not followed, which keeps this allocation- and I/O-free.
+/// The `CURRENT`/`PARENT` NM aliases (the "." and ".." names) yield `None`.
+fn rrip_nm_into(su: &[u8], out: &mut [u8]) -> Option<usize> {
+    const NM_CONTINUE: u8 = 0x01;
+    const NM_CURRENT: u8 = 0x02;
+    const NM_PARENT: u8 = 0x04;
+
+    let mut written = 0usize;
+    let mut found = false;
+    let mut i = 0usize;
+    // Each SUSP entry is [SIG0, SIG1, LEN, VER, ...]; LEN covers the whole entry.
+    while i + 4 <= su.len() {
+        let len = su[i + 2] as usize;
+        if len < 4 || i + len > su.len() {
+            break;
+        }
+        if &su[i..i + 2] == b"ST" {
+            break; // SUSP terminator
+        }
+        if &su[i..i + 2] == b"NM" && len >= 5 {
+            let flags = su[i + 4];
+            if flags & (NM_CURRENT | NM_PARENT) != 0 {
+                return None;
+            }
+            let content = &su[i + 5..i + len];
+            if written + content.len() > out.len() {
+                return None; // caller buffer too small for the full name
+            }
+            out[written..written + content.len()].copy_from_slice(content);
+            written += content.len();
+            found = true;
+            if flags & NM_CONTINUE == 0 {
+                break;
+            }
+        }
+        i += len;
+    }
+
+    found.then_some(written)
+}
+
 fn decode_joliet_into<'a>(raw: &[u8], output: &'a mut [u8]) -> Result<&'a str, NameError> {
     if raw.len() % 2 != 0 {
         return Err(NameError::InvalidEncoding);
@@ -266,6 +312,31 @@ impl IsoDirEntry {
     /// Returns the raw system-use area.
     pub fn system_use(&self) -> &[u8] {
         self.record.system_use()
+    }
+
+    /// Resolves the Rock Ridge alternate name (SUSP `NM`) into `output`, without
+    /// allocating.
+    ///
+    /// Returns `None` when the entry carries no usable `NM` field — a plain
+    /// ISO 9660/Joliet image, or a "."/".." alias — in which case
+    /// [`Self::name`] is the name to use. Otherwise the RRIP name is validated
+    /// as UTF-8 and written into `output`. Only the inline system-use area is
+    /// parsed; a name continued into a SUSP `CE` area is not followed.
+    pub fn rrip_name_into<'b>(&self, output: &'b mut [u8]) -> Option<Result<&'b str, NameError>> {
+        let len = rrip_nm_into(self.system_use(), output)?;
+        Some(core::str::from_utf8(&output[..len]).map_err(|_| NameError::InvalidEncoding))
+    }
+
+    /// Returns `true` if this entry's Rock Ridge name equals `candidate`.
+    ///
+    /// Returns `false` when the entry has no `NM` field or the name does not
+    /// fit POSIX `NAME_MAX` (255 bytes). Allocation-free.
+    pub fn rrip_name_matches(&self, candidate: &str) -> bool {
+        let mut buffer = [0u8; 255];
+        match rrip_nm_into(self.system_use(), &mut buffer) {
+            Some(len) => &buffer[..len] == candidate.as_bytes(),
+            None => false,
+        }
     }
 }
 

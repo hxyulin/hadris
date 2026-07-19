@@ -444,16 +444,11 @@ mod tests {
 
     #[test]
     fn test_convert_joliet3_long_name_truncation() {
-        // 207 bytes / 2 = 103 UTF-16 code units max
+        // Joliet identifiers are capped at the conformant 64-character limit.
         let long_name = "a".repeat(150);
         let converted = convert_joliet3(&long_name);
-        // 103 code units * 2 bytes = 206 bytes
-        assert!(
-            converted.len() <= 207,
-            "Joliet overflow: {}",
-            converted.len()
-        );
-        assert_eq!(converted.len(), 206);
+        // 64 UCS-2 code units * 2 bytes = 128 bytes.
+        assert_eq!(converted.len(), 128);
     }
 
     #[test]

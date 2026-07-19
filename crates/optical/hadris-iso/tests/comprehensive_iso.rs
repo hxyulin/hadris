@@ -254,6 +254,24 @@ mod volume_descriptor_tests {
     }
 
     #[test]
+    fn test_non_2048_block_size_is_rejected() {
+        // An image declaring a logical block size other than 2048 would be
+        // silently misread by IsoImage (extents are in logical-block units);
+        // opening it must fail cleanly instead. Regression for T0.5.
+        let mut iso = create_minimal_iso("TEST");
+        let pvd_offset = 16 * 2048;
+        // Logical block size field (both-endian) at PVD offset 128.
+        iso[pvd_offset + 128..pvd_offset + 130].copy_from_slice(&512u16.to_le_bytes());
+        iso[pvd_offset + 130..pvd_offset + 132].copy_from_slice(&512u16.to_be_bytes());
+
+        let result = IsoImage::open(Cursor::new(iso));
+        assert!(
+            result.is_err(),
+            "IsoImage must reject a non-2048 logical block size"
+        );
+    }
+
+    #[test]
     fn test_volume_id_extraction() {
         let iso = create_minimal_iso("MY_VOLUME");
         let cursor = Cursor::new(iso);

@@ -347,9 +347,15 @@ impl BootValidationEntry {
     }
 }
 
+/// El Torito section header entry (0x90/0x91) introducing a platform's boot
+/// entries.
+///
+/// @hadris-spec El-Torito:section-header
+/// @hadris-compliance full
+/// @hadris-tests xorriso_boot::test_hadris_multisection_boot_catalog
+/// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]
-/// Represents BootSectionHeaderEntry.
 pub struct BootSectionHeaderEntry {
     /// 0x90 = Header, more headers follow
     /// 0x91 = Final header
@@ -379,12 +385,21 @@ impl Debug for BootSectionHeaderEntry {
 unsafe impl bytemuck::Zeroable for BootSectionHeaderEntry {}
 unsafe impl bytemuck::Pod for BootSectionHeaderEntry {}
 
-#[derive(Debug, Clone, Copy)]
-/// Identifies a EmulationType value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// El Torito boot-media emulation type (the low nibble of the boot media type
+/// byte, ECMA "El Torito" §2.x).
 pub enum EmulationType {
-    /// 0x00 = No emulation
+    /// 0x00 = No emulation. The firmware loads `sector_count` 512-byte sectors.
     NoEmulation,
-    /// The `Unknown` variant.
+    /// 0x01 = 1.2 MB diskette emulation.
+    Floppy1_2,
+    /// 0x02 = 1.44 MB diskette emulation.
+    Floppy1_44,
+    /// 0x03 = 2.88 MB diskette emulation.
+    Floppy2_88,
+    /// 0x04 = Hard-disk emulation (drive 0x80).
+    HardDisk,
+    /// Any other (or flag-decorated) media type byte, preserved verbatim.
     Unknown(u8),
 }
 
@@ -393,6 +408,10 @@ impl EmulationType {
     pub fn from_u8(value: u8) -> Self {
         match value {
             0x00 => Self::NoEmulation,
+            0x01 => Self::Floppy1_2,
+            0x02 => Self::Floppy1_44,
+            0x03 => Self::Floppy2_88,
+            0x04 => Self::HardDisk,
             value => Self::Unknown(value),
         }
     }
@@ -401,14 +420,36 @@ impl EmulationType {
     pub fn to_u8(self) -> u8 {
         match self {
             Self::NoEmulation => 0x00,
+            Self::Floppy1_2 => 0x01,
+            Self::Floppy1_44 => 0x02,
+            Self::Floppy2_88 => 0x03,
+            Self::HardDisk => 0x04,
             Self::Unknown(value) => value,
         }
     }
+
+    /// Returns `true` for any emulated media (floppy or hard disk), i.e. not
+    /// [`NoEmulation`](Self::NoEmulation). Emulated entries load a single
+    /// virtual boot sector; the firmware then services the emulated medium.
+    ///
+    /// Only the media-type nibble (low 4 bits) is examined, matching the El
+    /// Torito layout where the upper bits are flags (continuation, contains
+    /// ATAPI driver). A flag-decorated byte whose low nibble is `0x0` — a
+    /// no-emulation entry — is therefore correctly reported as not emulated.
+    pub fn is_emulated(self) -> bool {
+        (self.to_u8() & 0x0F) != 0
+    }
 }
 
+/// El Torito section/initial entry: the bootable image reference and its
+/// emulation media type.
+///
+/// @hadris-spec El-Torito:section-entry
+/// @hadris-compliance full
+/// @hadris-tests xorriso_boot::test_floppy_emulation_media_type_and_default_load_size
+/// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]
-/// Represents BootSectionEntry.
 pub struct BootSectionEntry {
     /// 0x88 = Bootable, 0x00 = Not bootable
     pub boot_indicator: u8,
@@ -910,15 +951,22 @@ mod tests {
 
     #[test]
     fn test_emulation_type_roundtrip() {
-        let no_emul = EmulationType::NoEmulation;
-        assert_eq!(no_emul.to_u8(), 0x00);
-        assert!(matches!(
-            EmulationType::from_u8(0x00),
-            EmulationType::NoEmulation
-        ));
-
-        let unknown = EmulationType::Unknown(0x42);
-        assert_eq!(unknown.to_u8(), 0x42);
+        for (byte, ty, emulated) in [
+            (0x00u8, EmulationType::NoEmulation, false),
+            (0x01, EmulationType::Floppy1_2, true),
+            (0x02, EmulationType::Floppy1_44, true),
+            (0x03, EmulationType::Floppy2_88, true),
+            (0x04, EmulationType::HardDisk, true),
+            // Flag-decorated byte with a non-zero media nibble (0x2 = 1.44 MB).
+            (0x42, EmulationType::Unknown(0x42), true),
+            // Continuation flag set on a no-emulation entry: the low nibble is
+            // 0x0, so this must NOT be treated as emulated.
+            (0x20, EmulationType::Unknown(0x20), false),
+        ] {
+            assert_eq!(ty.to_u8(), byte, "{ty:?} to_u8");
+            assert_eq!(EmulationType::from_u8(byte), ty, "from_u8({byte:#x})");
+            assert_eq!(ty.is_emulated(), emulated, "{ty:?} is_emulated");
+        }
     }
 }
 }
