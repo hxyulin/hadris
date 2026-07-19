@@ -32,14 +32,14 @@ When the `std` feature is enabled, traits re-export from `std::io`. In `no_std` 
 
 ```toml
 [dependencies]
-hadris-io = "2.0.0-rc.1"
+hadris-io = "2.0.0-rc.2"
 ```
 
 ### No-std
 
 ```toml
 [dependencies]
-hadris-io = { version = "2.0.0-rc.1", default-features = false, features = ["sync"] }
+hadris-io = { version = "2.0.0-rc.2", default-features = false, features = ["sync"] }
 ```
 
 ## Quick Start

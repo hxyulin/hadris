@@ -6,7 +6,7 @@ title: Read a FAT image
 
 ```toml
 [dependencies]
-hadris-fat = "2.0.0-rc.1"
+hadris-fat = "2.0.0-rc.2"
 ```
 
 ```rust

@@ -76,21 +76,21 @@ configurations should enable `sync`, `async`, or both explicitly.
 
 ```toml
 [dependencies]
-hadris-cpio = { version = "2.0.0-rc.1", default-features = false, features = ["read", "sync"] }
+hadris-cpio = { version = "2.0.0-rc.2", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Kernels with Heap (no-std + alloc)
 
 ```toml
 [dependencies]
-hadris-cpio = { version = "2.0.0-rc.1", default-features = false, features = ["read", "alloc", "sync"] }
+hadris-cpio = { version = "2.0.0-rc.2", default-features = false, features = ["read", "alloc", "sync"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-cpio = "2.0.0-rc.1"  # Uses default features
+hadris-cpio = "2.0.0-rc.2"  # Uses default features
 ```
 
 ## Archive Format
