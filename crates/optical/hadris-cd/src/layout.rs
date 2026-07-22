@@ -68,9 +68,12 @@ impl LayoutManager {
         // Main/reserve VDS occupy 257-268 and the LVID occupies 269.
         let udf_partition_start = 270;
 
-        // Reserve space for UDF structures (FSD, directory entries)
-        // We'll use a conservative estimate and may adjust later
-        let udf_metadata_sectors = self.estimate_udf_metadata_sectors(tree);
+        // Plan every UDF metadata object once, globally. Block 0 is the FSD;
+        // directory/file ICBs and exact-sized FID extents follow it.
+        let mut next_udf_block = 1;
+        let udf_root =
+            Self::plan_udf_directory(&tree.root, &mut next_udf_block, None, self.sector_size)?;
+        let udf_metadata_sectors = next_udf_block;
 
         // File data starts after UDF metadata (within UDF partition)
         self.next_udf_block = udf_metadata_sectors;
@@ -91,6 +94,7 @@ impl LayoutManager {
             file_data_start: udf_partition_start + udf_metadata_sectors,
             file_data_end,
             total_sectors: file_data_end + 100, // Reserve space for ISO path tables etc.
+            udf_root,
         })
     }
 
@@ -128,22 +132,61 @@ impl LayoutManager {
         sector
     }
 
-    /// Estimate how many sectors we need for UDF metadata
-    fn estimate_udf_metadata_sectors(&self, tree: &FileTree) -> u32 {
-        // File Set Descriptor: 1 sector
-        // Root directory File Entry: 1 sector
-        // Root directory FIDs: ceil(entry_count * ~40 bytes / sector_size)
-        // For each subdirectory: File Entry + FIDs
+    fn plan_udf_directory(
+        dir: &Directory,
+        next_block: &mut u32,
+        parent_icb: Option<u32>,
+        sector_size: usize,
+    ) -> CdResult<UdfDirectoryLayout> {
+        let icb_block = *next_block;
+        *next_block = next_block
+            .checked_add(1)
+            .ok_or_else(|| CdError::InvalidConfig("UDF metadata block overflow".into()))?;
 
-        let total_dirs = tree.total_dirs();
-        let total_files = tree.total_files();
+        let mut fid_bytes = 40usize; // parent FID (38-byte base, padded to four)
+        for name in dir
+            .files
+            .iter()
+            .map(|file| file.name.as_str())
+            .chain(dir.subdirs.iter().map(|child| child.name.as_str()))
+        {
+            let encoded_len = cs0_filename_len(name)?;
+            fid_bytes = fid_bytes
+                .checked_add((38 + encoded_len + 3) & !3)
+                .ok_or_else(|| CdError::InvalidConfig("UDF FID size overflow".into()))?;
+        }
+        let fid_sectors = fid_bytes.div_ceil(sector_size) as u32;
+        let fid_block = *next_block;
+        *next_block = next_block
+            .checked_add(fid_sectors)
+            .ok_or_else(|| CdError::InvalidConfig("UDF metadata block overflow".into()))?;
 
-        // Each directory needs at least 2 sectors (File Entry + FIDs)
-        // Plus some buffer for larger directories
-        let estimated = (total_dirs * 2 + total_files / 50 + 10) as u32;
+        let mut file_icb_blocks = Vec::with_capacity(dir.files.len());
+        for _ in &dir.files {
+            file_icb_blocks.push(*next_block);
+            *next_block = next_block
+                .checked_add(1)
+                .ok_or_else(|| CdError::InvalidConfig("UDF metadata block overflow".into()))?;
+        }
 
-        // Round up to be safe
-        estimated.max(20)
+        let mut subdirs = Vec::with_capacity(dir.subdirs.len());
+        for child in &dir.subdirs {
+            subdirs.push(Self::plan_udf_directory(
+                child,
+                next_block,
+                Some(icb_block),
+                sector_size,
+            )?);
+        }
+
+        Ok(UdfDirectoryLayout {
+            icb_block,
+            parent_icb_block: parent_icb.unwrap_or(icb_block),
+            fid_block,
+            fid_bytes,
+            file_icb_blocks,
+            subdirs,
+        })
     }
 
     /// Recursively assign file extents
@@ -217,6 +260,37 @@ pub struct LayoutInfo {
     pub file_data_end: u32,
     /// Total sectors needed for the image
     pub total_sectors: u32,
+    /// Complete collision-free UDF directory/ICB plan.
+    pub(crate) udf_root: UdfDirectoryLayout,
+}
+
+/// Planned UDF metadata blocks for one directory and its descendants.
+#[derive(Debug, Clone)]
+pub(crate) struct UdfDirectoryLayout {
+    pub(crate) icb_block: u32,
+    pub(crate) parent_icb_block: u32,
+    pub(crate) fid_block: u32,
+    pub(crate) fid_bytes: usize,
+    pub(crate) file_icb_blocks: Vec<u32>,
+    pub(crate) subdirs: Vec<UdfDirectoryLayout>,
+}
+
+fn cs0_filename_len(name: &str) -> CdResult<usize> {
+    let content_len = if name.chars().all(|ch| (ch as u32) <= 0xff) {
+        name.chars().count()
+    } else {
+        name.encode_utf16()
+            .count()
+            .checked_mul(2)
+            .ok_or_else(|| CdError::InvalidConfig("UDF filename encoded length overflow".into()))?
+    };
+    let encoded_len = content_len + 1;
+    if encoded_len > u8::MAX as usize {
+        return Err(CdError::InvalidPath(format!(
+            "UDF filename exceeds the 255-byte encoded limit: {name}"
+        )));
+    }
+    Ok(encoded_len)
 }
 
 impl core::fmt::Display for LayoutInfo {

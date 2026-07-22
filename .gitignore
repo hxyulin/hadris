@@ -3,6 +3,7 @@
 /website/node_modules/
 /website/build/
 /website/.docusaurus/
+/test-images/output/
 
 # Macos
 .DS_Store

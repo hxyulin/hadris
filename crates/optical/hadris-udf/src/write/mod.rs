@@ -145,7 +145,7 @@ struct AllocatedDir {
     name: String,
     icb_block: u32,        // Block where this dir's File Entry lives
     fid_block: u32,        // Block where FIDs start
-    fid_sectors: u32,      // Number of sectors for FIDs
+    fid_bytes: usize,      // Unpadded information length of the FID stream
     parent_icb_block: u32, // Parent directory's ICB block (self for root)
     unique_id: u64,
     files: Vec<AllocatedFile>,
@@ -453,7 +453,17 @@ impl<W: Write + Seek> UdfFormatter<W> {
         // Write file data
         self.write_file_data(root, &allocated_root)?;
 
-        Ok(partition_start + partition_length)
+        // Leave the partition before the two trailing anchor positions. The
+        // second anchor is 256 sectors before the final sector and must not
+        // overlap partition space.
+        let sector_count = partition_start + partition_length + 257;
+        let last_sector = sector_count - 1;
+        self.write_avdp_at(last_sector, main_vds, reserve_vds)?;
+        if last_sector > 256 {
+            self.write_avdp_at(last_sector - 256, main_vds, reserve_vds)?;
+        }
+
+        Ok(sector_count)
     }
 
     /// Allocate blocks for a directory and all its contents
@@ -522,7 +532,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             name: dir.name.clone(),
             icb_block,
             fid_block,
-            fid_sectors,
+            fid_bytes,
             parent_icb_block: parent_icb,
             unique_id,
             files: allocated_files,
@@ -533,17 +543,15 @@ impl<W: Write + Seek> UdfFormatter<W> {
     /// Write a directory and all its contents
     fn write_directory(&mut self, dir: &AllocatedDir) -> UdfResult<()> {
         // Calculate FID data size
-        let fid_data_size = (dir.fid_sectors as usize) * SECTOR_SIZE;
-
         // Write directory File Entry
         let dir_alloc = vec![ShortAllocationDescriptor {
-            extent_length: fid_data_size as u32,
+            extent_length: dir.fid_bytes as u32,
             extent_position: dir.fid_block,
         }];
         self.write_file_entry(
             dir.icb_block,
             FileType::Directory,
-            fid_data_size as u64,
+            dir.fid_bytes as u64,
             &dir_alloc,
             dir.unique_id,
         )?;
@@ -684,8 +692,17 @@ impl<W: Write + Seek> UdfFormatter<W> {
         main_vds: ExtentDescriptor,
         reserve_vds: ExtentDescriptor,
     ) -> UdfResult<()> {
-        self.seek_to_sector(AVDP_LOCATION)?;
-        let mut buffer = [0u8; 512];
+        self.write_avdp_at(AVDP_LOCATION, main_vds, reserve_vds)
+    }
+
+    fn write_avdp_at(
+        &mut self,
+        location: u32,
+        main_vds: ExtentDescriptor,
+        reserve_vds: ExtentDescriptor,
+    ) -> UdfResult<()> {
+        self.seek_to_sector(location)?;
+        let mut buffer = [0u8; SECTOR_SIZE];
 
         buffer[16..20].copy_from_slice(&main_vds.length.to_le_bytes());
         buffer[20..24].copy_from_slice(&main_vds.location.to_le_bytes());
@@ -694,7 +711,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
 
         let tag = self.create_tag(
             TagIdentifier::AnchorVolumeDescriptorPointer,
-            AVDP_LOCATION,
+            location,
             &buffer[16..],
         );
         buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
@@ -732,10 +749,10 @@ impl<W: Write + Seek> UdfFormatter<W> {
         );
 
         let dcs_offset = vsi_offset + 128;
-        buffer[dcs_offset] = 0;
+        write_osta_charspec(&mut buffer[dcs_offset..dcs_offset + 64]);
 
         let ecs_offset = dcs_offset + 64;
-        buffer[ecs_offset] = 0;
+        write_osta_charspec(&mut buffer[ecs_offset..ecs_offset + 64]);
 
         let abs_offset = ecs_offset + 64;
         let app_offset = abs_offset + 16;
@@ -824,8 +841,8 @@ impl<W: Write + Seek> UdfFormatter<W> {
             &mut buffer[di_offset..di_offset + 32],
             b"*OSTA UDF Compliant",
         );
-        buffer[di_offset + 25] = (self.options.revision.to_raw() & 0xFF) as u8;
-        buffer[di_offset + 26] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
+        buffer[di_offset + 24] = (self.options.revision.to_raw() & 0xFF) as u8;
+        buffer[di_offset + 25] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
 
         let lvcu_offset = di_offset + 32;
         buffer[lvcu_offset..lvcu_offset + 16].copy_from_slice(bytemuck::bytes_of(&fsd_location));
@@ -943,6 +960,12 @@ impl<W: Write + Seek> UdfFormatter<W> {
 
         let iu_offset = fst_offset + 8;
         self.write_entity_identifier(&mut buffer[iu_offset..iu_offset + 32], b"*hadris-udf");
+        let revision = self.options.revision.to_raw().to_le_bytes();
+        // UDF Logical Volume Integrity implementation use: file/dir counts,
+        // minimum read revision, minimum write revision, maximum write revision.
+        buffer[iu_offset + 40..iu_offset + 42].copy_from_slice(&revision);
+        buffer[iu_offset + 42..iu_offset + 44].copy_from_slice(&revision);
+        buffer[iu_offset + 44..iu_offset + 46].copy_from_slice(&revision);
 
         let tag = self.create_tag(
             TagIdentifier::LogicalVolumeIntegrityDescriptor,
@@ -971,7 +994,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         buffer[offset + 28..offset + 32].copy_from_slice(&0u32.to_le_bytes());
 
         let lvics_offset = offset + 32;
-        buffer[lvics_offset] = 0;
+        write_osta_charspec(&mut buffer[lvics_offset..lvics_offset + 64]);
 
         let lvi_offset = lvics_offset + 64;
         self.write_dstring(
@@ -980,7 +1003,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         );
 
         let fscs_offset = lvi_offset + 128;
-        buffer[fscs_offset] = 0;
+        write_osta_charspec(&mut buffer[fscs_offset..fscs_offset + 64]);
 
         let fsi_offset = fscs_offset + 64;
         self.write_dstring(
@@ -996,8 +1019,8 @@ impl<W: Write + Seek> UdfFormatter<W> {
             &mut buffer[di_offset..di_offset + 32],
             b"*OSTA UDF Compliant",
         );
-        buffer[di_offset + 25] = (self.options.revision.to_raw() & 0xFF) as u8;
-        buffer[di_offset + 26] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
+        buffer[di_offset + 24] = (self.options.revision.to_raw() & 0xFF) as u8;
+        buffer[di_offset + 25] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
 
         let tag = self.create_tag(TagIdentifier::FileSetDescriptor, location, &buffer[16..]);
         buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
@@ -1063,7 +1086,12 @@ impl<W: Write + Seek> UdfFormatter<W> {
             buffer[start..start + 8].copy_from_slice(bytemuck::bytes_of(ad));
         }
 
-        let tag = self.create_tag(TagIdentifier::FileEntry, location, &buffer[16..]);
+        let descriptor_end = ad_offset + ad_len;
+        let tag = self.create_tag(
+            TagIdentifier::FileEntry,
+            location,
+            &buffer[16..descriptor_end],
+        );
         buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
 
         self.writer.write_all(&buffer)?;
@@ -1194,8 +1222,8 @@ impl<W: Write + Seek> UdfFormatter<W> {
         let len = id.len().min(23);
         buffer[1..1 + len].copy_from_slice(&id[..len]);
         if id.starts_with(b"*OSTA UDF") {
-            buffer[25] = (self.options.revision.to_raw() & 0xFF) as u8;
-            buffer[26] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
+            buffer[24] = (self.options.revision.to_raw() & 0xFF) as u8;
+            buffer[25] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
         }
     }
 
@@ -1268,9 +1296,19 @@ impl<W: Write + Seek> UdfWriter<W> {
         main_vds_extent: ExtentDescriptor,
         reserve_vds_extent: ExtentDescriptor,
     ) -> UdfResult<()> {
-        self.seek_to_sector(AVDP_LOCATION)?;
+        self.write_avdp_at(AVDP_LOCATION, main_vds_extent, reserve_vds_extent)
+    }
 
-        let mut buffer = [0u8; 512];
+    /// Write an Anchor Volume Descriptor Pointer at an explicit sector.
+    pub fn write_avdp_at(
+        &mut self,
+        location: u32,
+        main_vds_extent: ExtentDescriptor,
+        reserve_vds_extent: ExtentDescriptor,
+    ) -> UdfResult<()> {
+        self.seek_to_sector(location)?;
+
+        let mut buffer = [0u8; SECTOR_SIZE];
 
         // Main VDS extent
         buffer[16..20].copy_from_slice(&main_vds_extent.length.to_le_bytes());
@@ -1283,7 +1321,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         // Write tag at the beginning
         let tag = self.create_tag(
             TagIdentifier::AnchorVolumeDescriptorPointer,
-            AVDP_LOCATION,
+            location,
             &buffer[16..],
         );
         buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
@@ -1334,11 +1372,11 @@ impl<W: Write + Seek> UdfWriter<W> {
 
         // Descriptor Character Set (64 bytes)
         let dcs_offset = vsi_offset + 128;
-        buffer[dcs_offset] = 0; // CS0
+        write_osta_charspec(&mut buffer[dcs_offset..dcs_offset + 64]);
 
         // Explanatory Character Set (64 bytes)
         let ecs_offset = dcs_offset + 64;
-        buffer[ecs_offset] = 0; // CS0
+        write_osta_charspec(&mut buffer[ecs_offset..ecs_offset + 64]);
 
         // Volume Abstract (8 bytes) - empty
         // Volume Copyright Notice (8 bytes) - empty
@@ -1435,7 +1473,7 @@ impl<W: Write + Seek> UdfWriter<W> {
 
         // Descriptor Character Set (64 bytes)
         let dcs_offset = offset + 4;
-        buffer[dcs_offset] = 0; // CS0
+        write_osta_charspec(&mut buffer[dcs_offset..dcs_offset + 64]);
 
         // Logical Volume Identifier (dstring, 128 bytes)
         let lvi_offset = dcs_offset + 64;
@@ -1456,8 +1494,8 @@ impl<W: Write + Seek> UdfWriter<W> {
         );
 
         // Set UDF revision in domain identifier suffix
-        buffer[di_offset + 25] = (self.options.revision.to_raw() & 0xFF) as u8;
-        buffer[di_offset + 26] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
+        buffer[di_offset + 24] = (self.options.revision.to_raw() & 0xFF) as u8;
+        buffer[di_offset + 25] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
 
         // Logical Volume Contents Use (16 bytes) - Long Allocation Descriptor to FSD
         let lvcu_offset = di_offset + 32;
@@ -1543,7 +1581,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         // Implementation Use - LVInformation
         let iu_offset = impl_offset + 32;
         // LVI Character Set (64 bytes)
-        buffer[iu_offset] = 0; // CS0
+        write_osta_charspec(&mut buffer[iu_offset..iu_offset + 64]);
 
         // Logical Volume Identifier (dstring, 128 bytes)
         let lvi_offset = iu_offset + 64;
@@ -1608,7 +1646,7 @@ impl<W: Write + Seek> UdfWriter<W> {
 
         // Logical Volume Identifier Character Set (64 bytes)
         let lvics_offset = offset + 32;
-        buffer[lvics_offset] = 0; // CS0
+        write_osta_charspec(&mut buffer[lvics_offset..lvics_offset + 64]);
 
         // Logical Volume Identifier (dstring, 128 bytes)
         let lvi_offset = lvics_offset + 64;
@@ -1619,7 +1657,7 @@ impl<W: Write + Seek> UdfWriter<W> {
 
         // File Set Character Set (64 bytes)
         let fscs_offset = lvi_offset + 128;
-        buffer[fscs_offset] = 0; // CS0
+        write_osta_charspec(&mut buffer[fscs_offset..fscs_offset + 64]);
 
         // File Set Identifier (dstring, 32 bytes)
         let fsi_offset = fscs_offset + 64;
@@ -1639,8 +1677,8 @@ impl<W: Write + Seek> UdfWriter<W> {
             &mut buffer[di_offset..di_offset + 32],
             b"*OSTA UDF Compliant",
         );
-        buffer[di_offset + 25] = (self.options.revision.to_raw() & 0xFF) as u8;
-        buffer[di_offset + 26] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
+        buffer[di_offset + 24] = (self.options.revision.to_raw() & 0xFF) as u8;
+        buffer[di_offset + 25] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
 
         // Write tag (location is relative to partition)
         let tag = self.create_tag(TagIdentifier::FileSetDescriptor, location, &buffer[16..]);
@@ -1736,7 +1774,12 @@ impl<W: Write + Seek> UdfWriter<W> {
         }
 
         // Write tag
-        let tag = self.create_tag(TagIdentifier::FileEntry, location, &buffer[16..]);
+        let descriptor_end = ad_offset + ad_len;
+        let tag = self.create_tag(
+            TagIdentifier::FileEntry,
+            location,
+            &buffer[16..descriptor_end],
+        );
         buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
 
         self.writer.write_all(&buffer)?;
@@ -1861,6 +1904,10 @@ impl<W: Write + Seek> UdfWriter<W> {
         let iu_offset = fst_offset + 8;
         // Implementation ID (32 bytes)
         self.write_entity_identifier(&mut buffer[iu_offset..iu_offset + 32], b"*hadris-udf");
+        let revision = self.options.revision.to_raw().to_le_bytes();
+        buffer[iu_offset + 40..iu_offset + 42].copy_from_slice(&revision);
+        buffer[iu_offset + 42..iu_offset + 44].copy_from_slice(&revision);
+        buffer[iu_offset + 44..iu_offset + 46].copy_from_slice(&revision);
 
         // Write tag
         let tag = self.create_tag(
@@ -1936,8 +1983,8 @@ impl<W: Write + Seek> UdfWriter<W> {
         buffer[1..1 + len].copy_from_slice(&id[..len]);
         // Suffix (8 bytes) - version info
         if id.starts_with(b"*OSTA UDF") {
-            buffer[25] = (self.options.revision.to_raw() & 0xFF) as u8;
-            buffer[26] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
+            buffer[24] = (self.options.revision.to_raw() & 0xFF) as u8;
+            buffer[25] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
         }
     }
 
@@ -2067,6 +2114,11 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
     (y as i32, m, d)
 }
 
+fn write_osta_charspec(buffer: &mut [u8]) {
+    buffer.fill(0);
+    buffer[1..24].copy_from_slice(b"OSTA Compressed Unicode");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2116,6 +2168,14 @@ mod tests {
             sectors > 270,
             "Should have written at least partition start sectors"
         );
+        for location in [256, sectors - 257, sectors - 1] {
+            let offset = location as usize * SECTOR_SIZE;
+            assert_eq!(
+                u16::from_le_bytes([buffer[offset], buffer[offset + 1]]),
+                TagIdentifier::AnchorVolumeDescriptorPointer.to_u16(),
+                "missing anchor at sector {location}"
+            );
+        }
     }
 
     #[test]
@@ -2208,6 +2268,31 @@ mod tests {
         UdfWriter::create(cursor2, &root2, options2).unwrap();
         let nsr2 = &buffer2[17 * 2048 + 1..17 * 2048 + 6];
         assert_eq!(nsr2, b"NSR03", "UDF 2.01 should use NSR03");
+    }
+
+    #[test]
+    fn mastered_revision_roundtrips_exactly() {
+        for revision in [
+            crate::UdfRevision::V1_02,
+            crate::UdfRevision::V1_50,
+            crate::UdfRevision::V2_00,
+            crate::UdfRevision::V2_01,
+            crate::UdfRevision::V2_50,
+            crate::UdfRevision::V2_60,
+        ] {
+            let mut buffer = vec![0u8; 2 * 1024 * 1024];
+            UdfWriter::create(
+                Cursor::new(&mut buffer[..]),
+                &SimpleDir::root(),
+                UdfWriteOptions {
+                    revision,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let volume = crate::UdfFs::open(Cursor::new(&buffer[..])).unwrap();
+            assert_eq!(volume.info().udf_revision, revision);
+        }
     }
 
     #[test]

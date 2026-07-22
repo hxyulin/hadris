@@ -61,6 +61,54 @@ fn create_info_and_verify_bridge() {
 }
 
 #[test]
+fn create_and_verify_wide_deep_unicode_bridge() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source");
+    let wide = source.join("wide");
+    let deep = source.join("alpha/beta/gamma/delta");
+    std::fs::create_dir_all(&wide).unwrap();
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::create_dir_all(source.join("sibling-one")).unwrap();
+    std::fs::create_dir_all(source.join("sibling-two")).unwrap();
+    std::fs::write(deep.join("文档.txt"), "wide Unicode name").unwrap();
+    std::fs::write(source.join("café.txt"), "Latin-1 CS0 name").unwrap();
+    std::fs::write(source.join("empty.bin"), []).unwrap();
+    for index in 0..72 {
+        std::fs::write(
+            wide.join(format!("entry-{index:03}-long-name.txt")),
+            format!("payload {index}"),
+        )
+        .unwrap();
+    }
+
+    let image = temp.path().join("complex.iso");
+    let binary = env!("CARGO_BIN_EXE_hadris-cd");
+    let created = Command::new(binary)
+        .args(["create", source.to_str().unwrap(), "--output"])
+        .arg(&image)
+        .args(["--volume-name", "COMPLEX", "--udf-revision", "2.01"])
+        .output()
+        .unwrap();
+    assert!(
+        created.status.success(),
+        "create failed: {}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+
+    let verified = Command::new(binary)
+        .arg("verify")
+        .arg(&image)
+        .output()
+        .unwrap();
+    assert!(
+        verified.status.success(),
+        "verify failed: {}",
+        String::from_utf8_lossy(&verified.stderr)
+    );
+    assert!(String::from_utf8_lossy(&verified.stdout).contains("shared entries"));
+}
+
+#[test]
 fn create_supports_efi_only_boot_catalog() {
     let temp = tempfile::tempdir().unwrap();
     let source = temp.path().join("source");

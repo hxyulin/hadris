@@ -532,6 +532,9 @@ mod charset_tests {
 
         let charspec_size = 64;
         assert_eq!(charspec_size, 64);
+        let cs0 = hadris_udf::descriptor::CharSpec::OSTA_COMPRESSED_UNICODE;
+        assert_eq!(cs0.char_set_type, 0);
+        assert_eq!(&cs0.char_set_info[..23], b"OSTA Compressed Unicode");
     }
 
     #[test]

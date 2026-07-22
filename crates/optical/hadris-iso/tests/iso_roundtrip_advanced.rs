@@ -566,8 +566,14 @@ fn test_joliet_subdirectory_roundtrip() {
     let root = image.root_dir();
     let root_ref = root.dir_ref();
 
-    // Check root has entries
+    // ECMA-119 requires the self and parent records to occupy the first two
+    // positions even though ordinary Joliet UTF-16BE identifiers begin at 0x00.
     let dir = image.open_dir(root_ref);
+    let mut raw = dir.raw_entries();
+    assert_eq!(raw.next().unwrap().unwrap().name(), [0x00]);
+    assert_eq!(raw.next().unwrap().unwrap().name(), [0x01]);
+
+    // Check root has entries
     let entries: Vec<_> = dir
         .entries()
         .filter_map(|e| e.ok())

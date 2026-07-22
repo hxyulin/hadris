@@ -1,0 +1,7 @@
+Feature checklist
+
+1. Run info to inspect volume metadata.
+2. Run tree to inspect nested paths.
+3. Run cat on README.txt or docs/guide.txt.
+4. Run verify to check structural integrity.
+5. For bridge.iso, compare the ISO and UDF namespace trees.

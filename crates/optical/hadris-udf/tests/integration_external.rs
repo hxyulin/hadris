@@ -44,10 +44,16 @@ fn udfinfo_available() -> bool {
 
 /// Check if 7z is available
 fn sevenzip_available() -> bool {
-    Command::new("7z")
-        .output()
-        .map(|o| o.status.success() || o.status.code() == Some(0))
-        .unwrap_or(false)
+    sevenzip_program().is_some()
+}
+
+fn sevenzip_program() -> Option<&'static str> {
+    ["7z", "7zz"].into_iter().find(|program| {
+        Command::new(program)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    })
 }
 
 // =============================================================================
@@ -103,7 +109,7 @@ fn get_udf_info(image_path: &Path) -> Option<String> {
 
 /// List files in UDF image using 7z
 fn list_udf_with_7z(image_path: &Path) -> Option<String> {
-    let output = Command::new("7z")
+    let output = Command::new(sevenzip_program()?)
         .args(["l", image_path.to_str().unwrap()])
         .output()
         .ok()?;

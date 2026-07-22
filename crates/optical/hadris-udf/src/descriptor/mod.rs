@@ -217,9 +217,18 @@ pub struct CharSpec {
 
 impl CharSpec {
     /// OSTA Compressed Unicode (CS0)
-    pub const OSTA_COMPRESSED_UNICODE: Self = Self {
-        char_set_type: 0,
-        char_set_info: [0; 63],
+    pub const OSTA_COMPRESSED_UNICODE: Self = {
+        let mut info = [0; 63];
+        let name = b"OSTA Compressed Unicode";
+        let mut index = 0;
+        while index < name.len() {
+            info[index] = name[index];
+            index += 1;
+        }
+        Self {
+            char_set_type: 0,
+            char_set_info: info,
+        }
     };
 }
 
