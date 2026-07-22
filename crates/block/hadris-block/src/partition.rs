@@ -1,4 +1,4 @@
-use hadris_storage::{BlockError, PartitionView};
+use hadris_storage::{Error, PartitionView};
 
 fn view<'a, S>(
     source: &'a mut S,
@@ -8,10 +8,10 @@ fn view<'a, S>(
 ) -> hadris_storage::Result<PartitionView<'a, S>, hadris_io::ErrorKind> {
     let offset = start
         .checked_mul(block_size as u64)
-        .ok_or(BlockError::AddressOverflow)?;
+        .ok_or(Error::AddressOverflow)?;
     let length = count
         .checked_mul(block_size as u64)
-        .ok_or(BlockError::AddressOverflow)?;
+        .ok_or(Error::AddressOverflow)?;
     PartitionView::new(source, offset, length)
 }
 

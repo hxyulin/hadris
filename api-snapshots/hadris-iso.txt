@@ -374,7 +374,14 @@ pub fn hadris_iso::async::path::PathTableEntryHeader::from_bytes(&[u8]) -> Self
 impl bytemuck::pod::Pod for hadris_iso::async::path::PathTableEntryHeader
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::path::PathTableEntryHeader
 pub struct hadris_iso::async::path::PathTableInfo
+impl hadris_iso::async::path::PathTableInfo
+pub fn hadris_iso::async::path::PathTableInfo::reference(&self) -> &hadris_iso::async::path::PathTableRef
 pub struct hadris_iso::async::path::PathTableRef
+impl hadris_iso::async::path::PathTableRef
+pub fn hadris_iso::async::path::PathTableRef::big_endian_sector(&self) -> hadris_iso::async::io::LogicalSector
+pub fn hadris_iso::async::path::PathTableRef::is_empty(&self) -> bool
+pub fn hadris_iso::async::path::PathTableRef::len(&self) -> u64
+pub fn hadris_iso::async::path::PathTableRef::little_endian_sector(&self) -> hadris_iso::async::io::LogicalSector
 pub mod hadris_iso::async::read
 pub enum hadris_iso::async::read::FilenameType
 pub hadris_iso::async::read::FilenameType::Builtin
@@ -477,6 +484,9 @@ pub async fn hadris_iso::async::read::IsoImage<DATA>::read_pvd(&self) -> hadris_
 impl<DATA: hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::async::read::IsoImageInfo
+impl hadris_iso::async::read::IsoImageInfo
+pub fn hadris_iso::async::read::IsoImageInfo::block_size(&self) -> usize
+pub fn hadris_iso::async::read::IsoImageInfo::sector_size(&self) -> usize
 pub struct hadris_iso::async::read::IsoName<'a>
 impl<'a> hadris_iso::async::read::IsoName<'a>
 pub fn hadris_iso::async::read::IsoName<'a>::decode_into(self, &mut [u8]) -> core::result::Result<&str, hadris_iso::async::read::NameError>
@@ -1769,22 +1779,14 @@ pub hadris_iso::modify::ModifyOp::Replace::path: alloc::string::String
 pub struct hadris_iso::modify::IsoModifier<RW: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
 impl<RW: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::modify::IsoModifier<RW>
 pub fn hadris_iso::modify::IsoModifier<RW>::append_file(&mut self, &str, impl core::convert::Into<hadris_iso::modify::FileData>)
-pub fn hadris_iso::modify::IsoModifier<RW>::commit(self) -> hadris_iso::modify::IsoModifyResult<()>
 pub fn hadris_iso::modify::IsoModifier<RW>::create_dir(&mut self, &str)
 pub fn hadris_iso::modify::IsoModifier<RW>::delete(&mut self, &str)
-pub fn hadris_iso::modify::IsoModifier<RW>::finish(self) -> hadris_iso::modify::IsoModifyResult<RW>
+pub fn hadris_iso::modify::IsoModifier<RW>::finish(self) -> hadris_iso::modify::Result<RW>
 pub fn hadris_iso::modify::IsoModifier<RW>::layout(&self) -> &hadris_common::types::layout::DirectoryLayout
-pub fn hadris_iso::modify::IsoModifier<RW>::open(RW) -> hadris_iso::modify::IsoModifyResult<Self>
-pub fn hadris_iso::modify::IsoModifier<RW>::open_with_options(RW, hadris_iso::modify::IsoModifyOptions) -> hadris_iso::modify::IsoModifyResult<Self>
+pub fn hadris_iso::modify::IsoModifier<RW>::open(RW) -> hadris_iso::modify::Result<Self>
 pub fn hadris_iso::modify::IsoModifier<RW>::queue(&mut self, hadris_iso::modify::ModifyOp)
 pub fn hadris_iso::modify::IsoModifier<RW>::replace(&mut self, &str, impl core::convert::Into<hadris_iso::modify::FileData>)
-pub struct hadris_iso::modify::IsoModifyOptions
-pub hadris_iso::modify::IsoModifyOptions::path_separator: hadris_iso::read::PathSeparator
-pub hadris_iso::modify::IsoModifyOptions::volume_name: core::option::Option<alloc::string::String>
-impl core::default::Default for hadris_iso::modify::IsoModifyOptions
-pub fn hadris_iso::modify::IsoModifyOptions::default() -> Self
 pub type hadris_iso::modify::Error = hadris_iso::modify::IsoModifyError
-pub type hadris_iso::modify::IsoModifyResult<T> = hadris_iso::modify::Result<T>
 pub type hadris_iso::modify::Result<T> = core::result::Result<T, hadris_iso::modify::Error>
 pub mod hadris_iso::path
 pub struct hadris_iso::path::PathTableEntry<const N: usize>
@@ -1814,7 +1816,14 @@ pub fn hadris_iso::path::PathTableEntryIter<'_, DATA>::next(&mut self) -> core::
 pub struct hadris_iso::path::PathTableInfo
 impl hadris_iso::path::PathTableInfo
 pub fn hadris_iso::path::PathTableInfo::entries<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::path::PathTableEntryIter<'a, DATA>
+impl hadris_iso::path::PathTableInfo
+pub fn hadris_iso::path::PathTableInfo::reference(&self) -> &hadris_iso::path::PathTableRef
 pub struct hadris_iso::path::PathTableRef
+impl hadris_iso::path::PathTableRef
+pub fn hadris_iso::path::PathTableRef::big_endian_sector(&self) -> hadris_iso::io::LogicalSector
+pub fn hadris_iso::path::PathTableRef::is_empty(&self) -> bool
+pub fn hadris_iso::path::PathTableRef::len(&self) -> u64
+pub fn hadris_iso::path::PathTableRef::little_endian_sector(&self) -> hadris_iso::io::LogicalSector
 pub mod hadris_iso::read
 pub enum hadris_iso::read::FilenameType
 pub hadris_iso::read::FilenameType::Builtin
@@ -1932,6 +1941,9 @@ pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Re
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::read::IsoImageInfo
+impl hadris_iso::read::IsoImageInfo
+pub fn hadris_iso::read::IsoImageInfo::block_size(&self) -> usize
+pub fn hadris_iso::read::IsoImageInfo::sector_size(&self) -> usize
 pub struct hadris_iso::read::IsoName<'a>
 impl<'a> hadris_iso::read::IsoName<'a>
 pub fn hadris_iso::read::IsoName<'a>::decode_into(self, &mut [u8]) -> core::result::Result<&str, hadris_iso::read::NameError>
@@ -3001,22 +3013,14 @@ pub hadris_iso::sync::modify::ModifyOp::Replace::path: alloc::string::String
 pub struct hadris_iso::sync::modify::IsoModifier<RW: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
 impl<RW: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::modify::IsoModifier<RW>
 pub fn hadris_iso::modify::IsoModifier<RW>::append_file(&mut self, &str, impl core::convert::Into<hadris_iso::modify::FileData>)
-pub fn hadris_iso::modify::IsoModifier<RW>::commit(self) -> hadris_iso::modify::IsoModifyResult<()>
 pub fn hadris_iso::modify::IsoModifier<RW>::create_dir(&mut self, &str)
 pub fn hadris_iso::modify::IsoModifier<RW>::delete(&mut self, &str)
-pub fn hadris_iso::modify::IsoModifier<RW>::finish(self) -> hadris_iso::modify::IsoModifyResult<RW>
+pub fn hadris_iso::modify::IsoModifier<RW>::finish(self) -> hadris_iso::modify::Result<RW>
 pub fn hadris_iso::modify::IsoModifier<RW>::layout(&self) -> &hadris_common::types::layout::DirectoryLayout
-pub fn hadris_iso::modify::IsoModifier<RW>::open(RW) -> hadris_iso::modify::IsoModifyResult<Self>
-pub fn hadris_iso::modify::IsoModifier<RW>::open_with_options(RW, hadris_iso::modify::IsoModifyOptions) -> hadris_iso::modify::IsoModifyResult<Self>
+pub fn hadris_iso::modify::IsoModifier<RW>::open(RW) -> hadris_iso::modify::Result<Self>
 pub fn hadris_iso::modify::IsoModifier<RW>::queue(&mut self, hadris_iso::modify::ModifyOp)
 pub fn hadris_iso::modify::IsoModifier<RW>::replace(&mut self, &str, impl core::convert::Into<hadris_iso::modify::FileData>)
-pub struct hadris_iso::sync::modify::IsoModifyOptions
-pub hadris_iso::sync::modify::IsoModifyOptions::path_separator: hadris_iso::read::PathSeparator
-pub hadris_iso::sync::modify::IsoModifyOptions::volume_name: core::option::Option<alloc::string::String>
-impl core::default::Default for hadris_iso::modify::IsoModifyOptions
-pub fn hadris_iso::modify::IsoModifyOptions::default() -> Self
 pub type hadris_iso::sync::modify::Error = hadris_iso::modify::IsoModifyError
-pub type hadris_iso::sync::modify::IsoModifyResult<T> = hadris_iso::modify::Result<T>
 pub type hadris_iso::sync::modify::Result<T> = core::result::Result<T, hadris_iso::modify::Error>
 pub mod hadris_iso::sync::path
 pub struct hadris_iso::sync::path::PathTableEntry<const N: usize>
@@ -3046,7 +3050,14 @@ pub fn hadris_iso::path::PathTableEntryIter<'_, DATA>::next(&mut self) -> core::
 pub struct hadris_iso::sync::path::PathTableInfo
 impl hadris_iso::path::PathTableInfo
 pub fn hadris_iso::path::PathTableInfo::entries<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::path::PathTableEntryIter<'a, DATA>
+impl hadris_iso::path::PathTableInfo
+pub fn hadris_iso::path::PathTableInfo::reference(&self) -> &hadris_iso::path::PathTableRef
 pub struct hadris_iso::sync::path::PathTableRef
+impl hadris_iso::path::PathTableRef
+pub fn hadris_iso::path::PathTableRef::big_endian_sector(&self) -> hadris_iso::io::LogicalSector
+pub fn hadris_iso::path::PathTableRef::is_empty(&self) -> bool
+pub fn hadris_iso::path::PathTableRef::len(&self) -> u64
+pub fn hadris_iso::path::PathTableRef::little_endian_sector(&self) -> hadris_iso::io::LogicalSector
 pub mod hadris_iso::sync::read
 pub enum hadris_iso::sync::read::FilenameType
 pub hadris_iso::sync::read::FilenameType::Builtin
@@ -3164,6 +3175,9 @@ pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Re
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::sync::read::IsoImageInfo
+impl hadris_iso::read::IsoImageInfo
+pub fn hadris_iso::read::IsoImageInfo::block_size(&self) -> usize
+pub fn hadris_iso::read::IsoImageInfo::sector_size(&self) -> usize
 pub struct hadris_iso::sync::read::IsoName<'a>
 impl<'a> hadris_iso::read::IsoName<'a>
 pub fn hadris_iso::read::IsoName<'a>::decode_into(self, &mut [u8]) -> core::result::Result<&str, hadris_iso::read::NameError>
@@ -4035,8 +4049,8 @@ pub hadris_iso::sync::write::estimator::SizeBreakdown::file_data: u64
 pub hadris_iso::sync::write::estimator::SizeBreakdown::path_tables: u64
 pub hadris_iso::sync::write::estimator::SizeBreakdown::system_area: u64
 pub hadris_iso::sync::write::estimator::SizeBreakdown::volume_descriptors: u64
-pub fn hadris_iso::sync::write::estimator::estimate(&hadris_iso::write::InputFiles, &hadris_iso::write::options::FormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
-pub fn hadris_iso::sync::write::estimator::estimate_tree(&hadris_iso::write::InputTree, &hadris_iso::write::options::FormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
+pub fn hadris_iso::sync::write::estimator::estimate(&hadris_iso::write::InputFiles, &hadris_iso::write::options::IsoFormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
+pub fn hadris_iso::sync::write::estimator::estimate_tree(&hadris_iso::write::InputTree, &hadris_iso::write::options::IsoFormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
 pub mod hadris_iso::sync::write::options
 pub enum hadris_iso::sync::write::options::BaseIsoLevel
 pub hadris_iso::sync::write::options::BaseIsoLevel::Level1
@@ -4067,23 +4081,8 @@ pub fn hadris_iso::write::options::CreationFeatures::extensions() -> Self
 pub fn hadris_iso::write::options::CreationFeatures::hybrid_boot(hadris_iso::write::options::PartitionScheme) -> Self
 pub fn hadris_iso::write::options::CreationFeatures::joliet(hadris_iso::joliet::JolietLevel) -> Self
 pub fn hadris_iso::write::options::CreationFeatures::rock_ridge() -> Self
-pub fn hadris_iso::write::options::CreationFeatures::with_extensions() -> Self
-pub fn hadris_iso::write::options::CreationFeatures::with_hybrid_boot(hadris_iso::write::options::PartitionScheme) -> Self
-pub fn hadris_iso::write::options::CreationFeatures::with_joliet(hadris_iso::joliet::JolietLevel) -> Self
-pub fn hadris_iso::write::options::CreationFeatures::with_rock_ridge() -> Self
 impl core::default::Default for hadris_iso::write::options::CreationFeatures
 pub fn hadris_iso::write::options::CreationFeatures::default() -> Self
-pub struct hadris_iso::sync::write::options::FormatOptions
-pub hadris_iso::sync::write::options::FormatOptions::application_id: core::option::Option<alloc::string::String>
-pub hadris_iso::sync::write::options::FormatOptions::features: hadris_iso::write::options::CreationFeatures
-pub hadris_iso::sync::write::options::FormatOptions::path_separator: hadris_iso::read::PathSeparator
-pub hadris_iso::sync::write::options::FormatOptions::preparer_id: core::option::Option<alloc::string::String>
-pub hadris_iso::sync::write::options::FormatOptions::publisher_id: core::option::Option<alloc::string::String>
-pub hadris_iso::sync::write::options::FormatOptions::sector_size: usize
-pub hadris_iso::sync::write::options::FormatOptions::strict_charset: bool
-pub hadris_iso::sync::write::options::FormatOptions::system_id: core::option::Option<alloc::string::String>
-pub hadris_iso::sync::write::options::FormatOptions::volume_name: alloc::string::String
-pub hadris_iso::sync::write::options::FormatOptions::volume_set_id: core::option::Option<alloc::string::String>
 pub struct hadris_iso::sync::write::options::HybridBootOptions
 pub hadris_iso::sync::write::options::HybridBootOptions::bootable: bool
 pub hadris_iso::sync::write::options::HybridBootOptions::mbr_bootstrap: core::option::Option<alloc::vec::Vec<u8>>
@@ -4093,7 +4092,17 @@ pub fn hadris_iso::write::options::HybridBootOptions::bootstrap(self, alloc::vec
 pub fn hadris_iso::write::options::HybridBootOptions::gpt() -> Self
 pub fn hadris_iso::write::options::HybridBootOptions::hybrid() -> Self
 pub fn hadris_iso::write::options::HybridBootOptions::mbr() -> Self
-pub fn hadris_iso::write::options::HybridBootOptions::with_bootstrap(self, alloc::vec::Vec<u8>) -> Self
+pub struct hadris_iso::sync::write::options::IsoFormatOptions
+pub hadris_iso::sync::write::options::IsoFormatOptions::application_id: core::option::Option<alloc::string::String>
+pub hadris_iso::sync::write::options::IsoFormatOptions::features: hadris_iso::write::options::CreationFeatures
+pub hadris_iso::sync::write::options::IsoFormatOptions::path_separator: hadris_iso::read::PathSeparator
+pub hadris_iso::sync::write::options::IsoFormatOptions::preparer_id: core::option::Option<alloc::string::String>
+pub hadris_iso::sync::write::options::IsoFormatOptions::publisher_id: core::option::Option<alloc::string::String>
+pub hadris_iso::sync::write::options::IsoFormatOptions::sector_size: usize
+pub hadris_iso::sync::write::options::IsoFormatOptions::strict_charset: bool
+pub hadris_iso::sync::write::options::IsoFormatOptions::system_id: core::option::Option<alloc::string::String>
+pub hadris_iso::sync::write::options::IsoFormatOptions::volume_name: alloc::string::String
+pub hadris_iso::sync::write::options::IsoFormatOptions::volume_set_id: core::option::Option<alloc::string::String>
 pub mod hadris_iso::sync::write::writer
 pub struct hadris_iso::sync::write::writer::DirectoryId
 impl hadris_iso::write::writer::DirectoryId
@@ -4165,8 +4174,6 @@ pub fn hadris_iso::write::InputEntry::with_metadata(self, hadris_iso::write::Inp
 pub struct hadris_iso::sync::write::InputFiles
 pub hadris_iso::sync::write::InputFiles::files: alloc::vec::Vec<hadris_iso::write::File>
 pub hadris_iso::sync::write::InputFiles::path_separator: hadris_iso::read::PathSeparator
-impl hadris_iso::write::InputFiles
-pub fn hadris_iso::write::InputFiles::from_fs(&std::path::Path, hadris_iso::read::PathSeparator) -> core::result::Result<Self, hadris_iso::write::FileConversionError>
 impl core::convert::From<hadris_iso::write::InputFiles> for hadris_iso::write::InputTree
 pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
 pub struct hadris_iso::sync::write::InputMetadata
@@ -4186,12 +4193,10 @@ impl core::convert::From<hadris_iso::write::InputFiles> for hadris_iso::write::I
 pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
 pub struct hadris_iso::sync::write::IsoImageWriter<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::write::IsoImageWriter<DATA>
-pub fn hadris_iso::write::IsoImageWriter<DATA>::create<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<DATA>
-pub fn hadris_iso::write::IsoImageWriter<DATA>::create_with_allocation_floor<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::FormatOptions, core::option::Option<u32>) -> hadris_iso::write::IsoCreationResult<DATA>
-pub fn hadris_iso::write::IsoImageWriter<DATA>::format_new(DATA, hadris_iso::write::InputFiles, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<()>
+pub fn hadris_iso::write::IsoImageWriter<DATA>::create<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::IsoFormatOptions) -> hadris_iso::write::Result<DATA>
+pub fn hadris_iso::write::IsoImageWriter<DATA>::create_with_allocation_floor<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::IsoFormatOptions, core::option::Option<u32>) -> hadris_iso::write::Result<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::into_inner(self) -> DATA
 pub type hadris_iso::sync::write::Error = hadris_iso::write::IsoCreationError
-pub type hadris_iso::sync::write::IsoCreationResult<T> = hadris_iso::write::Result<T>
 pub type hadris_iso::sync::write::Result<T> = core::result::Result<T, hadris_iso::write::Error>
 pub struct hadris_iso::sync::IsoCursor<DATA: hadris_io::sync_api::Seek>
 pub hadris_iso::sync::IsoCursor::data: DATA
@@ -4530,8 +4535,8 @@ pub hadris_iso::write::estimator::SizeBreakdown::file_data: u64
 pub hadris_iso::write::estimator::SizeBreakdown::path_tables: u64
 pub hadris_iso::write::estimator::SizeBreakdown::system_area: u64
 pub hadris_iso::write::estimator::SizeBreakdown::volume_descriptors: u64
-pub fn hadris_iso::write::estimator::estimate(&hadris_iso::write::InputFiles, &hadris_iso::write::options::FormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
-pub fn hadris_iso::write::estimator::estimate_tree(&hadris_iso::write::InputTree, &hadris_iso::write::options::FormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
+pub fn hadris_iso::write::estimator::estimate(&hadris_iso::write::InputFiles, &hadris_iso::write::options::IsoFormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
+pub fn hadris_iso::write::estimator::estimate_tree(&hadris_iso::write::InputTree, &hadris_iso::write::options::IsoFormatOptions) -> hadris_iso::write::estimator::IsoSizeEstimate
 pub mod hadris_iso::write::options
 pub enum hadris_iso::write::options::BaseIsoLevel
 pub hadris_iso::write::options::BaseIsoLevel::Level1
@@ -4562,23 +4567,8 @@ pub fn hadris_iso::write::options::CreationFeatures::extensions() -> Self
 pub fn hadris_iso::write::options::CreationFeatures::hybrid_boot(hadris_iso::write::options::PartitionScheme) -> Self
 pub fn hadris_iso::write::options::CreationFeatures::joliet(hadris_iso::joliet::JolietLevel) -> Self
 pub fn hadris_iso::write::options::CreationFeatures::rock_ridge() -> Self
-pub fn hadris_iso::write::options::CreationFeatures::with_extensions() -> Self
-pub fn hadris_iso::write::options::CreationFeatures::with_hybrid_boot(hadris_iso::write::options::PartitionScheme) -> Self
-pub fn hadris_iso::write::options::CreationFeatures::with_joliet(hadris_iso::joliet::JolietLevel) -> Self
-pub fn hadris_iso::write::options::CreationFeatures::with_rock_ridge() -> Self
 impl core::default::Default for hadris_iso::write::options::CreationFeatures
 pub fn hadris_iso::write::options::CreationFeatures::default() -> Self
-pub struct hadris_iso::write::options::FormatOptions
-pub hadris_iso::write::options::FormatOptions::application_id: core::option::Option<alloc::string::String>
-pub hadris_iso::write::options::FormatOptions::features: hadris_iso::write::options::CreationFeatures
-pub hadris_iso::write::options::FormatOptions::path_separator: hadris_iso::read::PathSeparator
-pub hadris_iso::write::options::FormatOptions::preparer_id: core::option::Option<alloc::string::String>
-pub hadris_iso::write::options::FormatOptions::publisher_id: core::option::Option<alloc::string::String>
-pub hadris_iso::write::options::FormatOptions::sector_size: usize
-pub hadris_iso::write::options::FormatOptions::strict_charset: bool
-pub hadris_iso::write::options::FormatOptions::system_id: core::option::Option<alloc::string::String>
-pub hadris_iso::write::options::FormatOptions::volume_name: alloc::string::String
-pub hadris_iso::write::options::FormatOptions::volume_set_id: core::option::Option<alloc::string::String>
 pub struct hadris_iso::write::options::HybridBootOptions
 pub hadris_iso::write::options::HybridBootOptions::bootable: bool
 pub hadris_iso::write::options::HybridBootOptions::mbr_bootstrap: core::option::Option<alloc::vec::Vec<u8>>
@@ -4588,7 +4578,17 @@ pub fn hadris_iso::write::options::HybridBootOptions::bootstrap(self, alloc::vec
 pub fn hadris_iso::write::options::HybridBootOptions::gpt() -> Self
 pub fn hadris_iso::write::options::HybridBootOptions::hybrid() -> Self
 pub fn hadris_iso::write::options::HybridBootOptions::mbr() -> Self
-pub fn hadris_iso::write::options::HybridBootOptions::with_bootstrap(self, alloc::vec::Vec<u8>) -> Self
+pub struct hadris_iso::write::options::IsoFormatOptions
+pub hadris_iso::write::options::IsoFormatOptions::application_id: core::option::Option<alloc::string::String>
+pub hadris_iso::write::options::IsoFormatOptions::features: hadris_iso::write::options::CreationFeatures
+pub hadris_iso::write::options::IsoFormatOptions::path_separator: hadris_iso::read::PathSeparator
+pub hadris_iso::write::options::IsoFormatOptions::preparer_id: core::option::Option<alloc::string::String>
+pub hadris_iso::write::options::IsoFormatOptions::publisher_id: core::option::Option<alloc::string::String>
+pub hadris_iso::write::options::IsoFormatOptions::sector_size: usize
+pub hadris_iso::write::options::IsoFormatOptions::strict_charset: bool
+pub hadris_iso::write::options::IsoFormatOptions::system_id: core::option::Option<alloc::string::String>
+pub hadris_iso::write::options::IsoFormatOptions::volume_name: alloc::string::String
+pub hadris_iso::write::options::IsoFormatOptions::volume_set_id: core::option::Option<alloc::string::String>
 pub mod hadris_iso::write::writer
 pub struct hadris_iso::write::writer::DirectoryId
 impl hadris_iso::write::writer::DirectoryId
@@ -4660,8 +4660,6 @@ pub fn hadris_iso::write::InputEntry::with_metadata(self, hadris_iso::write::Inp
 pub struct hadris_iso::write::InputFiles
 pub hadris_iso::write::InputFiles::files: alloc::vec::Vec<hadris_iso::write::File>
 pub hadris_iso::write::InputFiles::path_separator: hadris_iso::read::PathSeparator
-impl hadris_iso::write::InputFiles
-pub fn hadris_iso::write::InputFiles::from_fs(&std::path::Path, hadris_iso::read::PathSeparator) -> core::result::Result<Self, hadris_iso::write::FileConversionError>
 impl core::convert::From<hadris_iso::write::InputFiles> for hadris_iso::write::InputTree
 pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
 pub struct hadris_iso::write::InputMetadata
@@ -4681,12 +4679,10 @@ impl core::convert::From<hadris_iso::write::InputFiles> for hadris_iso::write::I
 pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
 pub struct hadris_iso::write::IsoImageWriter<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::write::IsoImageWriter<DATA>
-pub fn hadris_iso::write::IsoImageWriter<DATA>::create<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<DATA>
-pub fn hadris_iso::write::IsoImageWriter<DATA>::create_with_allocation_floor<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::FormatOptions, core::option::Option<u32>) -> hadris_iso::write::IsoCreationResult<DATA>
-pub fn hadris_iso::write::IsoImageWriter<DATA>::format_new(DATA, hadris_iso::write::InputFiles, hadris_iso::write::options::FormatOptions) -> hadris_iso::write::IsoCreationResult<()>
+pub fn hadris_iso::write::IsoImageWriter<DATA>::create<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::IsoFormatOptions) -> hadris_iso::write::Result<DATA>
+pub fn hadris_iso::write::IsoImageWriter<DATA>::create_with_allocation_floor<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::IsoFormatOptions, core::option::Option<u32>) -> hadris_iso::write::Result<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::into_inner(self) -> DATA
 pub type hadris_iso::write::Error = hadris_iso::write::IsoCreationError
-pub type hadris_iso::write::IsoCreationResult<T> = hadris_iso::write::Result<T>
 pub type hadris_iso::write::Result<T> = core::result::Result<T, hadris_iso::write::Error>
 pub struct hadris_iso::IsoCursor<DATA: hadris_io::sync_api::Seek>
 pub hadris_iso::IsoCursor::data: DATA

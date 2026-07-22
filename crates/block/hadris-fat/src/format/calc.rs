@@ -3,10 +3,10 @@
 //! This module calculates the optimal parameters for formatting a FAT volume
 //! based on the volume size and user options.
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 use super::super::fat_table::FatType;
 
-use super::options::{FatTypeSelection, FormatOptions};
+use super::options::{FatTypeSelection, FatFormatOptions};
 
 /// Calculated parameters for formatting a FAT volume.
 #[derive(Debug, Clone)]
@@ -52,12 +52,12 @@ const FAT12_MAX_CLUSTERS: u32 = 4084;
 const FAT16_MAX_CLUSTERS: u32 = 65524;
 
 /// Calculate formatting parameters from options.
-pub fn calculate_params(options: &FormatOptions) -> Result<FormatParams> {
+pub fn calculate_params(options: &FatFormatOptions) -> Result<FormatParams> {
     let sector_size = options.sector_size.bytes();
     let total_sectors = (options.volume_size / sector_size as u64) as u32;
 
     if total_sectors < 128 {
-        return Err(FatError::VolumeTooSmall {
+        return Err(Error::VolumeTooSmall {
             size: options.volume_size,
             min_size: 128 * sector_size as u64,
         });
@@ -73,7 +73,7 @@ pub fn calculate_params(options: &FormatOptions) -> Result<FormatParams> {
 
     // Validate sectors per cluster is a power of 2 and within bounds
     if !sectors_per_cluster.is_power_of_two() || sectors_per_cluster > 128 {
-        return Err(FatError::InvalidFormatOption {
+        return Err(Error::InvalidFormatOption {
             option: "sectors_per_cluster",
             reason: "must be a power of 2 and <= 128",
         });
@@ -129,12 +129,12 @@ pub fn calculate_params(options: &FormatOptions) -> Result<FormatParams> {
 }
 
 /// Determine the FAT type based on volume size and user preference.
-fn determine_fat_type(options: &FormatOptions) -> Result<FatType> {
+fn determine_fat_type(options: &FatFormatOptions) -> Result<FatType> {
     let size = options.volume_size;
 
     // Check minimum size
     if size < MIN_FAT12_SIZE {
-        return Err(FatError::VolumeTooSmall {
+        return Err(Error::VolumeTooSmall {
             size,
             min_size: MIN_FAT12_SIZE,
         });
@@ -150,7 +150,7 @@ fn determine_fat_type(options: &FormatOptions) -> Result<FatType> {
             } else if size <= MAX_FAT32_SIZE {
                 Ok(FatType::Fat32)
             } else {
-                Err(FatError::VolumeTooLarge {
+                Err(Error::VolumeTooLarge {
                     size,
                     max_size: MAX_FAT32_SIZE,
                 })
@@ -158,7 +158,7 @@ fn determine_fat_type(options: &FormatOptions) -> Result<FatType> {
         }
         FatTypeSelection::Fat12 => {
             if size > MAX_FAT12_SIZE {
-                Err(FatError::VolumeTooLarge {
+                Err(Error::VolumeTooLarge {
                     size,
                     max_size: MAX_FAT12_SIZE,
                 })
@@ -168,12 +168,12 @@ fn determine_fat_type(options: &FormatOptions) -> Result<FatType> {
         }
         FatTypeSelection::Fat16 => {
             if size < MIN_FAT16_SIZE {
-                Err(FatError::VolumeTooSmall {
+                Err(Error::VolumeTooSmall {
                     size,
                     min_size: MIN_FAT16_SIZE,
                 })
             } else if size > MAX_FAT16_SIZE {
-                Err(FatError::VolumeTooLarge {
+                Err(Error::VolumeTooLarge {
                     size,
                     max_size: MAX_FAT16_SIZE,
                 })
@@ -183,12 +183,12 @@ fn determine_fat_type(options: &FormatOptions) -> Result<FatType> {
         }
         FatTypeSelection::Fat32 => {
             if size < MIN_FAT32_SIZE {
-                Err(FatError::VolumeTooSmall {
+                Err(Error::VolumeTooSmall {
                     size,
                     min_size: MIN_FAT32_SIZE,
                 })
             } else if size > MAX_FAT32_SIZE {
-                Err(FatError::VolumeTooLarge {
+                Err(Error::VolumeTooLarge {
                     size,
                     max_size: MAX_FAT32_SIZE,
                 })
@@ -289,7 +289,7 @@ fn calculate_fat_size(
     // Available sectors for FAT and data
     let overhead = reserved_sectors + root_dir_sectors;
     if total_sectors <= overhead {
-        return Err(FatError::VolumeTooSmall {
+        return Err(Error::VolumeTooSmall {
             size: total_sectors as u64 * sector_size as u64,
             min_size: (overhead + 1) as u64 * sector_size as u64,
         });
@@ -316,7 +316,7 @@ fn calculate_fat_size(
                 }
                 fat_sectors = needed_fat_sectors;
                 if fat_sectors > total_sectors {
-                    return Err(FatError::VolumeTooSmall {
+                    return Err(Error::VolumeTooSmall {
                         size: total_sectors as u64 * sector_size as u64,
                         min_size: MIN_FAT12_SIZE,
                     });
@@ -337,7 +337,7 @@ fn calculate_fat_size(
                 }
                 fat_sectors = needed_fat_sectors;
                 if fat_sectors > total_sectors {
-                    return Err(FatError::VolumeTooSmall {
+                    return Err(Error::VolumeTooSmall {
                         size: total_sectors as u64 * sector_size as u64,
                         min_size: MIN_FAT16_SIZE,
                     });
@@ -358,7 +358,7 @@ fn calculate_fat_size(
                 }
                 fat_sectors = needed_fat_sectors;
                 if fat_sectors > total_sectors {
-                    return Err(FatError::VolumeTooSmall {
+                    return Err(Error::VolumeTooSmall {
                         size: total_sectors as u64 * sector_size as u64,
                         min_size: MIN_FAT32_SIZE,
                     });
@@ -375,7 +375,7 @@ fn validate_cluster_count(fat_type: FatType, cluster_count: u32) -> Result<()> {
     match fat_type {
         FatType::Fat12 => {
             if cluster_count > FAT12_MAX_CLUSTERS {
-                return Err(FatError::InvalidFormatOption {
+                return Err(Error::InvalidFormatOption {
                     option: "cluster_count",
                     reason: "too many clusters for FAT12 (max 4084)",
                 });
@@ -383,13 +383,13 @@ fn validate_cluster_count(fat_type: FatType, cluster_count: u32) -> Result<()> {
         }
         FatType::Fat16 => {
             if cluster_count <= FAT12_MAX_CLUSTERS {
-                return Err(FatError::InvalidFormatOption {
+                return Err(Error::InvalidFormatOption {
                     option: "cluster_count",
                     reason: "too few clusters for FAT16 (use FAT12 instead)",
                 });
             }
             if cluster_count > FAT16_MAX_CLUSTERS {
-                return Err(FatError::InvalidFormatOption {
+                return Err(Error::InvalidFormatOption {
                     option: "cluster_count",
                     reason: "too many clusters for FAT16 (max 65524)",
                 });
@@ -397,7 +397,7 @@ fn validate_cluster_count(fat_type: FatType, cluster_count: u32) -> Result<()> {
         }
         FatType::Fat32 => {
             if cluster_count <= FAT16_MAX_CLUSTERS {
-                return Err(FatError::InvalidFormatOption {
+                return Err(Error::InvalidFormatOption {
                     option: "cluster_count",
                     reason: "too few clusters for FAT32 (use FAT16 instead)",
                 });
@@ -413,14 +413,14 @@ mod tests {
 
     #[test]
     fn test_fat12_small_volume() {
-        let options = FormatOptions::new(2 * 1024 * 1024); // 2 MB
+        let options = FatFormatOptions::new(2 * 1024 * 1024); // 2 MB
         let params = calculate_params(&options).unwrap();
         assert_eq!(params.fat_type, FatType::Fat12);
     }
 
     #[test]
     fn test_fat16_medium_volume() {
-        let options = FormatOptions::new(64 * 1024 * 1024); // 64 MB
+        let options = FatFormatOptions::new(64 * 1024 * 1024); // 64 MB
         let params = calculate_params(&options).unwrap();
         assert_eq!(params.fat_type, FatType::Fat16);
     }
@@ -429,14 +429,14 @@ mod tests {
     fn test_fat32_large_volume() {
         // Need a large volume (4 GB) to trigger FAT32 with auto-selection
         // because 1-2 GB is still within FAT16 range
-        let options = FormatOptions::new(4u64 * 1024 * 1024 * 1024); // 4 GB
+        let options = FatFormatOptions::new(4u64 * 1024 * 1024 * 1024); // 4 GB
         let params = calculate_params(&options).unwrap();
         assert_eq!(params.fat_type, FatType::Fat32);
     }
 
     #[test]
     fn test_forced_fat32() {
-        let mut options = FormatOptions::new(64 * 1024 * 1024); // 64 MB
+        let mut options = FatFormatOptions::new(64 * 1024 * 1024); // 64 MB
         options.fat_type = FatTypeSelection::Fat32;
         let params = calculate_params(&options).unwrap();
         assert_eq!(params.fat_type, FatType::Fat32);

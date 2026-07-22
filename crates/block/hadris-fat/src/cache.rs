@@ -7,17 +7,17 @@
 //! # Quick start
 //!
 //! Most callers don't construct [`FatSectorCache`] directly — install one
-//! on a [`crate::FatFs`] via [`crate::FatFsBuilder::with_fat_cache`] and
-//! drive it through [`crate::FatFs::with_cached_fat`]:
+//! on a [`crate::FatVolume`] via [`crate::FatVolumeBuilder::fat_cache`] and
+//! drive it through [`crate::FatVolume::with_cached_fat`]:
 //!
 //! ```rust,no_run
 //! # #[cfg(all(feature = "cache", feature = "std"))]
 //! # {
 //! use std::fs::OpenOptions;
-//! use hadris_fat::FatFs;
+//! use hadris_fat::FatVolume;
 //!
 //! let disk = OpenOptions::new().read(true).write(true).open("disk.img").unwrap();
-//! let fs = FatFs::builder(disk).with_fat_cache(16).open().unwrap();
+//! let fs = FatVolume::builder(disk).fat_cache(16).open().unwrap();
 //!
 //! // Walk the FAT cluster chain starting at cluster 42, using the cache.
 //! // The closure runs with both the cache and disk mutexes held.
@@ -26,23 +26,23 @@
 //!     .expect("cache installed")
 //!     .expect("read_chain ok");
 //!
-//! // After dirty writes, flush before dropping the FatFs to persist.
+//! // After dirty writes, flush before dropping the FatVolume to persist.
 //! fs.flush().unwrap();
 //! # }
 //! ```
 //!
-//! As of phase C5 the built-in `FatFs` operations (`read_file`,
+//! As of phase C5 the built-in `FatVolume` operations (`read_file`,
 //! `create_file`, `delete`, `truncate`, etc.) consult the cache
 //! transparently — internal FAT-table reads go through
 //! `next_cluster_routed` and writes go through `write_clus_routed` /
 //! `allocate_cluster_routed` / `free_chain_routed` /
-//! `truncate_chain_routed`. [`crate::FatFs::with_cached_fat`] remains the
+//! `truncate_chain_routed`. [`crate::FatVolume::with_cached_fat`] remains the
 //! recommended entry point for *bulk* user-driven walks (free-cluster
 //! scans, chain traversal) where holding the cache+disk locks across
 //! many entries is cheaper than re-acquiring them per call.
 //!
 //! Caching is a **synchronous-only** feature: the `cache` Cargo feature
-//! implies `sync`, and the FatFs cache wiring is emitted only in the sync
+//! implies `sync`, and the FatVolume cache wiring is emitted only in the sync
 //! slice. Async builds compile with the same on-disk surface but fall
 //! through to direct `Fat::*` reads/writes (deferred to phase C5b — see
 //! issue #27).
@@ -53,8 +53,8 @@
 //! `Read + Seek` source — they never need to write. If the cache is full of
 //! *dirty* entries (lines you wrote and haven't flushed), a fresh read may
 //! need to evict a dirty entry; in that case it returns
-//! [`FatError::CacheDirtyEviction`] rather than silently dropping bytes.
-//! Call [`FatSectorCache::flush`] (or [`crate::FatFs::flush`]) to empty the
+//! [`Error::CacheDirtyEviction`] rather than silently dropping bytes.
+//! Call [`FatSectorCache::flush`] (or [`crate::FatVolume::flush`]) to empty the
 //! dirty pool.
 //!
 //! Writes ([`FatSectorCache::write_fat12_entry`] etc.) take
@@ -66,7 +66,7 @@ use alloc::vec::Vec;
 
 use super::fat_table::{Fat, FatType};
 use super::io::{Read, Seek, SeekFrom, Write};
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 
 /// Default number of sectors to cache.
 pub const DEFAULT_CACHE_CAPACITY: usize = 16;
@@ -240,7 +240,7 @@ impl FatSectorCache {
     }
 
     /// Read a sector into the cache. Read-only path: never marks the entry
-    /// dirty, never needs a writer. Returns [`FatError::CacheDirtyEviction`]
+    /// dirty, never needs a writer. Returns [`Error::CacheDirtyEviction`]
     /// if the cache is at capacity and *every* resident sector is dirty —
     /// the caller must `flush()` first because dropping a dirty entry would
     /// silently lose unwritten data.
@@ -351,7 +351,7 @@ impl FatSectorCache {
     }
 
     /// Read-path eviction: drops the LRU non-dirty entry. If every entry is
-    /// dirty, returns [`FatError::CacheDirtyEviction`] — read paths can't
+    /// dirty, returns [`Error::CacheDirtyEviction`] — read paths can't
     /// safely drop unwritten data, and there's no writer available here to
     /// flush it.
     fn evict_lru_clean(&mut self) -> Result<()> {
@@ -369,7 +369,7 @@ impl FatSectorCache {
                 // so the caller has a useful breadcrumb (which sector they
                 // need to flush before retrying).
                 let lru = self.find_lru_index().expect("non-empty above");
-                Err(FatError::CacheDirtyEviction {
+                Err(Error::CacheDirtyEviction {
                     sector: self.entries[lru].sector as u32,
                 })
             }
@@ -632,11 +632,11 @@ impl<'a> CachedFat<'a> {
                 if entry >= 0x0FF8 {
                     Ok(None) // End of chain
                 } else if entry == 0x0FF7 {
-                    Err(FatError::BadCluster {
+                    Err(Error::BadCluster {
                         cluster: cluster as u32,
                     })
                 } else if entry < 2 || entry as u32 > self.max_cluster {
-                    Err(FatError::ClusterOutOfBounds {
+                    Err(Error::ClusterOutOfBounds {
                         cluster: entry as u32,
                         max: self.max_cluster,
                     })
@@ -649,11 +649,11 @@ impl<'a> CachedFat<'a> {
                 if entry >= 0xFFF8 {
                     Ok(None) // End of chain
                 } else if entry == 0xFFF7 {
-                    Err(FatError::BadCluster {
+                    Err(Error::BadCluster {
                         cluster: cluster as u32,
                     })
                 } else if entry < 2 || entry as u32 > self.max_cluster {
-                    Err(FatError::ClusterOutOfBounds {
+                    Err(Error::ClusterOutOfBounds {
                         cluster: entry as u32,
                         max: self.max_cluster,
                     })
@@ -666,11 +666,11 @@ impl<'a> CachedFat<'a> {
                 if entry >= 0x0FFF_FFF8 {
                     Ok(None) // End of chain
                 } else if entry == 0x0FFF_FFF7 {
-                    Err(FatError::BadCluster {
+                    Err(Error::BadCluster {
                         cluster: cluster as u32,
                     })
                 } else if entry < 2 || entry > self.max_cluster {
-                    Err(FatError::ClusterOutOfBounds {
+                    Err(Error::ClusterOutOfBounds {
                         cluster: entry,
                         max: self.max_cluster,
                     })
@@ -686,7 +686,7 @@ impl<'a> CachedFat<'a> {
     /// This is efficient because it uses the cache to avoid repeated seeks.
     /// On a chain longer than `max_cluster` clusters (only possible if the
     /// FAT is corrupt and contains a loop), returns
-    /// [`FatError::ClusterLoop`] rather than silently returning a
+    /// [`Error::ClusterLoop`] rather than silently returning a
     /// partial chain.
     pub fn read_chain<T: Read + Seek>(
         &mut self,
@@ -709,7 +709,7 @@ impl<'a> CachedFat<'a> {
             chain.push(current);
 
             if chain.len() > max_iterations {
-                return Err(FatError::ClusterLoop { cluster: current });
+                return Err(Error::ClusterLoop { cluster: current });
             }
 
             match self.next_cluster(reader, current as usize)? {

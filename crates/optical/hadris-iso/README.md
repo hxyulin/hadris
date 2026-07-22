@@ -48,7 +48,7 @@ use std::sync::Arc;
 use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
 use hadris_iso::boot::EmulationType;
 use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
+use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
 use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
 
 // Prepare files
@@ -76,7 +76,7 @@ let boot_options = BootOptions {
 };
 
 // Create ISO
-let format_options = FormatOptions {
+let format_options = IsoFormatOptions {
     volume_name: "BOOTABLE".to_string(),
     sector_size: 2048,
     path_separator: PathSeparator::ForwardSlash,
@@ -89,7 +89,14 @@ let format_options = FormatOptions {
         joliet: None,
         rock_ridge: None,
         el_torito: Some(boot_options),
+        ..CreationFeatures::default()
     },
+    system_id: None,
+    volume_set_id: None,
+    publisher_id: None,
+    preparer_id: None,
+    application_id: None,
+    strict_charset: false,
 };
 
 let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
@@ -117,7 +124,7 @@ only under `sync`.
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.0.0-rc.3", default-features = false, features = ["read", "sync"] }
+hadris-iso = { version = "2.0.0-rc.4", default-features = false, features = ["read", "sync"] }
 ```
 
 The `read` feature exposes `IsoReader`, which opens and navigates ISO 9660 and
@@ -147,14 +154,14 @@ the allocation-free reader exposes raw system-use bytes for custom handling.
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.0.0-rc.3", default-features = false, features = ["read", "alloc", "sync"] }
+hadris-iso = { version = "2.0.0-rc.4", default-features = false, features = ["read", "alloc", "sync"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-iso = "2.0.0-rc.3"  # Uses default features
+hadris-iso = "2.0.0-rc.4"  # Uses default features
 ```
 
 ## Extension Support

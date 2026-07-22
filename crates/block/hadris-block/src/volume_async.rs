@@ -1,7 +1,7 @@
 use crate::detect::{BlockFormat, FatVariant};
 use crate::{Error, Result};
 use hadris_fat::r#async::fat_table::FatType;
-use hadris_fat::r#async::fs::FatFs;
+use hadris_fat::r#async::fs::FatVolume;
 use hadris_io::SeekFrom;
 use hadris_io::r#async::{Borrowed, Read, Seek};
 
@@ -12,7 +12,7 @@ where
     S: Seek,
 {
     /// An opened FAT12, FAT16, or FAT32 filesystem.
-    Fat(FatFs<Borrowed<'a, S>>),
+    Fat(FatVolume<Borrowed<'a, S>>),
 }
 
 impl<'a, S> OpenVolume<'a, S>
@@ -39,7 +39,7 @@ where
             .seek(SeekFrom::Start(0))
             .await
             .map_err(hadris_io::Error::erase)?;
-        let fat = FatFs::open(Borrowed::new(source)).await?;
+        let fat = FatVolume::open(Borrowed::new(source)).await?;
         let opened = fat_variant(fat.fat_type());
         if opened != detected {
             return Err(Error::DetectedFormatMismatch { detected, opened });
@@ -55,14 +55,14 @@ where
     }
 
     /// Borrows the opened FAT filesystem.
-    pub fn as_fat(&self) -> Option<&FatFs<Borrowed<'a, S>>> {
+    pub fn as_fat(&self) -> Option<&FatVolume<Borrowed<'a, S>>> {
         match self {
             Self::Fat(fat) => Some(fat),
         }
     }
 
     /// Mutably borrows the opened FAT filesystem.
-    pub fn as_fat_mut(&mut self) -> Option<&mut FatFs<Borrowed<'a, S>>> {
+    pub fn as_fat_mut(&mut self) -> Option<&mut FatVolume<Borrowed<'a, S>>> {
         match self {
             Self::Fat(fat) => Some(fat),
         }
@@ -70,7 +70,7 @@ where
 
     #[allow(clippy::result_large_err)]
     /// Extracts the FAT filesystem, returning `self` if its format differs.
-    pub fn into_fat(self) -> core::result::Result<FatFs<Borrowed<'a, S>>, Self> {
+    pub fn into_fat(self) -> core::result::Result<FatVolume<Borrowed<'a, S>>, Self> {
         match self {
             Self::Fat(fat) => Ok(fat),
         }

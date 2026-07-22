@@ -22,7 +22,9 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
-use hadris_fat::exfat::{ExFatFormatOptions, ExFatFs, format_exfat};
+use hadris_fat::exfat::{ExFatFormatOptions, ExFatVolume, format_exfat};
+
+const REQUIRE_EXTERNAL_TOOLS: &str = "HADRIS_REQUIRE_EXTERNAL_TOOLS";
 
 // =============================================================================
 // Tool availability checks
@@ -66,6 +68,16 @@ fn sevenzip_available() -> bool {
 /// Check if any exFAT creation tool is available
 fn exfat_tool_available() -> bool {
     mkfs_exfat_available() || hdiutil_available()
+}
+
+/// Skip an optional interoperability check, or fail when the dedicated
+/// interoperability job promised that its host tools are usable.
+fn skip_external(reason: &str) -> bool {
+    if std::env::var_os(REQUIRE_EXTERNAL_TOOLS).is_some() {
+        panic!("required external-tool check cannot run: {reason}");
+    }
+    eprintln!("Skipping external-tool check: {reason}");
+    true
 }
 
 // =============================================================================
@@ -154,13 +166,10 @@ fn create_exfat_with_hdiutil(image_path: &Path, size_mb: u32, label: &str) -> bo
 
 /// Create an exFAT image using the best available tool
 fn create_exfat_image(image_path: &Path, size_mb: u32, label: &str) -> bool {
-    if mkfs_exfat_available() {
-        create_exfat_with_mkfs(image_path, size_mb, label)
-    } else if hdiutil_available() {
-        create_exfat_with_hdiutil(image_path, size_mb, label)
-    } else {
-        false
+    if mkfs_exfat_available() && create_exfat_with_mkfs(image_path, size_mb, label) {
+        return true;
     }
+    hdiutil_available() && create_exfat_with_hdiutil(image_path, size_mb, label)
 }
 
 // =============================================================================
@@ -197,18 +206,18 @@ fn list_exfat_with_7z(image_path: &Path) -> Option<String> {
 
 #[test]
 fn test_read_external_exfat_basic() {
-    if !exfat_tool_available() {
-        eprintln!("Skipping test: no exFAT creation tool available");
+    if !exfat_tool_available() && skip_external("no exFAT creation tool is installed") {
         return;
     }
 
     let temp_dir = TempDir::new().unwrap();
     let image_path = temp_dir.path().join("test_exfat.img");
 
-    assert!(
-        create_exfat_image(&image_path, 32, "TESTEXFAT"),
-        "Failed to create exFAT image"
-    );
+    if !create_exfat_image(&image_path, 32, "TESTEXFAT")
+        && skip_external("installed exFAT creation tools are not operational")
+    {
+        return;
+    }
 
     let mut exfat_data = Vec::new();
     File::open(&image_path)
@@ -217,7 +226,8 @@ fn test_read_external_exfat_basic() {
         .unwrap();
 
     let cursor = Cursor::new(exfat_data);
-    let fs = ExFatFs::open(cursor).expect("hadris-fat should be able to open external exFAT image");
+    let fs =
+        ExFatVolume::open(cursor).expect("hadris-fat should be able to open external exFAT image");
 
     let info = fs.info();
     println!("=== exFAT Info ===");
@@ -240,23 +250,23 @@ fn test_read_external_exfat_basic() {
 
 #[test]
 fn test_read_exfat_volume_info() {
-    if !exfat_tool_available() {
-        eprintln!("Skipping test: no exFAT creation tool available");
+    if !exfat_tool_available() && skip_external("no exFAT creation tool is installed") {
         return;
     }
 
     let temp_dir = TempDir::new().unwrap();
     let image_path = temp_dir.path().join("test_volinfo.img");
 
-    assert!(
-        create_exfat_image(&image_path, 32, "MYVOLUME"),
-        "Failed to create exFAT image"
-    );
+    if !create_exfat_image(&image_path, 32, "MYVOLUME")
+        && skip_external("installed exFAT creation tools are not operational")
+    {
+        return;
+    }
 
     let exfat_data = fs::read(&image_path).unwrap();
     let cursor = Cursor::new(exfat_data);
 
-    let fs = ExFatFs::open(cursor).expect("Should be able to open exFAT image");
+    let fs = ExFatVolume::open(cursor).expect("Should be able to open exFAT image");
 
     let serial = fs.volume_serial();
     println!("Volume serial: {serial:#010x}");
@@ -272,7 +282,7 @@ fn test_read_exfat_volume_info() {
 #[test]
 fn test_fsck_validates_mkfs_image() {
     if !mkfs_exfat_available() || !fsck_exfat_available() {
-        eprintln!("Skipping test: mkfs.exfat or fsck.exfat not available (Linux only)");
+        skip_external("mkfs.exfat or fsck.exfat is not available");
         return;
     }
 
@@ -292,18 +302,18 @@ fn test_fsck_validates_mkfs_image() {
 
 #[test]
 fn test_exfat_boot_sector_structure() {
-    if !exfat_tool_available() {
-        eprintln!("Skipping test: no exFAT creation tool available");
+    if !exfat_tool_available() && skip_external("no exFAT creation tool is installed") {
         return;
     }
 
     let temp_dir = TempDir::new().unwrap();
     let image_path = temp_dir.path().join("analyze.img");
 
-    assert!(
-        create_exfat_image(&image_path, 32, "ANALYZE"),
-        "Failed to create exFAT image"
-    );
+    if !create_exfat_image(&image_path, 32, "ANALYZE")
+        && skip_external("installed exFAT creation tools are not operational")
+    {
+        return;
+    }
 
     let exfat_data = fs::read(&image_path).unwrap();
 
@@ -332,8 +342,7 @@ fn test_exfat_boot_sector_structure() {
 
 #[test]
 fn test_various_image_sizes() {
-    if !exfat_tool_available() {
-        eprintln!("Skipping test: no exFAT creation tool available");
+    if !exfat_tool_available() && skip_external("no exFAT creation tool is installed") {
         return;
     }
 
@@ -345,15 +354,16 @@ fn test_various_image_sizes() {
     for size in sizes {
         let image_path = temp_dir.path().join(format!("exfat_{size}mb.img"));
 
-        assert!(
-            create_exfat_image(&image_path, size, &format!("SIZE{size}")),
-            "Failed to create {size}MB exFAT image"
-        );
+        if !create_exfat_image(&image_path, size, &format!("SIZE{size}"))
+            && skip_external("installed exFAT creation tools are not operational")
+        {
+            return;
+        }
 
         let exfat_data = fs::read(&image_path).unwrap();
         let cursor = Cursor::new(exfat_data);
 
-        let fs = ExFatFs::open(cursor)
+        let fs = ExFatVolume::open(cursor)
             .unwrap_or_else(|e| panic!("Failed to open {size}MB image: {e:?}"));
 
         let info = fs.info();
@@ -392,7 +402,7 @@ mod write_tests {
             .expect("Failed to create image");
         file.set_len(size_bytes).expect("Failed to set size");
 
-        let options = ExFatFormatOptions::default().with_label("HADRIS");
+        let options = ExFatFormatOptions::default().volume_label("HADRIS");
 
         format_exfat(&mut file, size_bytes, &options)
             .expect("hadris-fat should be able to format exFAT");
@@ -430,7 +440,7 @@ mod write_tests {
             .expect("Failed to create image");
         file.set_len(size_bytes).expect("Failed to set size");
 
-        let options = ExFatFormatOptions::default().with_label("HADRIS");
+        let options = ExFatFormatOptions::default().volume_label("HADRIS");
 
         format_exfat(&mut file, size_bytes, &options)
             .expect("hadris-fat should be able to format exFAT");
@@ -442,7 +452,7 @@ mod write_tests {
         let exfat_data = fs::read(&image_path).unwrap();
         let cursor = Cursor::new(exfat_data);
 
-        let fs = ExFatFs::open(cursor)
+        let fs = ExFatVolume::open(cursor)
             .expect("hadris-fat should be able to read its own formatted image");
 
         let info = fs.info();
@@ -474,7 +484,7 @@ mod write_tests {
             .expect("Failed to create image");
         file.set_len(size_bytes).expect("Failed to set size");
 
-        let options = ExFatFormatOptions::default().with_label("FSCKTEST");
+        let options = ExFatFormatOptions::default().volume_label("FSCKTEST");
 
         format_exfat(&mut file, size_bytes, &options)
             .expect("hadris-fat should be able to format exFAT");
@@ -508,7 +518,7 @@ mod write_tests {
             .expect("Failed to create image");
         file.set_len(size_bytes).expect("Failed to set size");
 
-        let options = ExFatFormatOptions::default().with_label("SEVENZIP");
+        let options = ExFatFormatOptions::default().volume_label("SEVENZIP");
 
         format_exfat(&mut file, size_bytes, &options)
             .expect("hadris-fat should be able to format exFAT");

@@ -8,7 +8,7 @@
 
 use alloc::vec::Vec;
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 #[cfg(feature = "write")]
 use crate::io::Write;
 use crate::io::{Read, Seek, SeekFrom};
@@ -65,7 +65,7 @@ impl AllocationBitmap {
         } else {
             // Fragmented bitmaps require following the FAT chain, which is not yet
             // implemented. Return an error rather than silently reading wrong data.
-            return Err(FatError::UnsupportedFatType(
+            return Err(Error::UnsupportedFatType(
                 "fragmented exFAT allocation bitmap not yet supported",
             ));
         }
@@ -84,7 +84,7 @@ impl AllocationBitmap {
         let bit_index = index % 8;
 
         if byte_index >= self.data.len() {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster,
                 max: self.cluster_count + Self::FIRST_DATA_CLUSTER - 1,
             });
@@ -103,7 +103,7 @@ impl AllocationBitmap {
         let bit_index = index % 8;
 
         if byte_index >= self.data.len() {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster,
                 max: self.cluster_count + Self::FIRST_DATA_CLUSTER - 1,
             });
@@ -186,13 +186,13 @@ impl AllocationBitmap {
     /// Validate that a cluster number is within bounds.
     fn validate_cluster(&self, cluster: u32) -> Result<()> {
         if cluster < Self::FIRST_DATA_CLUSTER {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster,
                 max: self.cluster_count + Self::FIRST_DATA_CLUSTER - 1,
             });
         }
         if cluster >= self.cluster_count + Self::FIRST_DATA_CLUSTER {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster,
                 max: self.cluster_count + Self::FIRST_DATA_CLUSTER - 1,
             });

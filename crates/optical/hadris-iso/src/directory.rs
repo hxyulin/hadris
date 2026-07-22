@@ -152,12 +152,15 @@ impl DirectoryRecord {
         &self.data[su_start..header.len as usize]
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn system_use_mut(&mut self) -> &mut [u8] {
-        let name_len = self.header().file_identifier_len as usize;
-        let start = (Self::DATA_START + name_len + 1) & !1;
-        let end = self.header().len as usize;
-        &mut self.data[start..end]
+    sync_only! {
+        /// Returns the mutable system-use area needed by the synchronous writer.
+        #[cfg(feature = "write")]
+        pub(crate) fn system_use_mut(&mut self) -> &mut [u8] {
+            let name_len = self.header().file_identifier_len as usize;
+            let start = (Self::DATA_START + name_len + 1) & !1;
+            let end = self.header().len as usize;
+            &mut self.data[start..end]
+        }
     }
 
     #[inline]

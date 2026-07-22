@@ -12,7 +12,7 @@ stable" ([`hadris-2-roadmap.md`](hadris-2-roadmap.md)).
 
 - **FAT sector cache (sync only).** `hadris-fat` has a feature-gated
   (`cache`) write-back LRU sector cache (`crates/block/hadris-fat/src/cache.rs`).
-  Built-in `FatFs` operations route FAT-table reads/writes through it when
+  Built-in `FatVolume` operations route FAT-table reads/writes through it when
   installed. It is **sync only** — the async path silently bypasses the cache
   (deferred as issue #27 / "phase C5b").
 - **ISO criterion benches.** `hadris-iso` has `benches/iso_benchmarks.rs` plus a
@@ -22,7 +22,7 @@ stable" ([`hadris-2-roadmap.md`](hadris-2-roadmap.md)).
 
 ## Findings / opportunities (post-2.0)
 
-1. **Async FAT cache parity.** The cheapest concrete win: give the async `FatFs`
+1. **Async FAT cache parity.** The cheapest concrete win: give the async `FatVolume`
    the same write-back cache the sync path has. Bounded scope, real benefit.
 2. **`IsoReader` scratch buffer.** A caller-supplied window/scratch buffer would
    cut repeated seeks for sequential directory and file reads while staying

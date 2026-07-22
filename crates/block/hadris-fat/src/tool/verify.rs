@@ -8,7 +8,7 @@ use core::ops::DerefMut;
 
 use super::super::{
     dir::{DirectoryEntry, FatDir},
-    fs::FatFs,
+    fs::FatVolume,
     io::{Read, Seek},
 };
 use crate::error::Result;
@@ -175,7 +175,7 @@ impl VerificationReport {
     }
 }
 
-/// Extension trait for FatFs providing verification operations.
+/// Extension trait for FatVolume providing verification operations.
 pub trait FatVerifyExt<DATA: Read + Seek> {
     /// Verify filesystem integrity.
     ///
@@ -188,7 +188,7 @@ pub trait FatVerifyExt<DATA: Read + Seek> {
     fn verify(&self) -> Result<VerificationReport>;
 }
 
-impl<DATA: Read + Seek> FatVerifyExt<DATA> for FatFs<DATA> {
+impl<DATA: Read + Seek> FatVerifyExt<DATA> for FatVolume<DATA> {
     fn verify(&self) -> Result<VerificationReport> {
         let mut issues = Vec::new();
         let mut files_checked = 0u32;
@@ -256,7 +256,7 @@ impl<DATA: Read + Seek> FatVerifyExt<DATA> for FatFs<DATA> {
 }
 
 // Helper methods
-impl<DATA: Read + Seek> FatFs<DATA> {
+impl<DATA: Read + Seek> FatVolume<DATA> {
     #[allow(clippy::too_many_arguments)]
     fn verify_directory_recursive<'a>(
         &'a self,

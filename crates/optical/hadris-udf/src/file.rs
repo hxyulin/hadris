@@ -305,38 +305,6 @@ impl AllocationType {
     }
 }
 
-/// A UDF file handle
-#[allow(dead_code)]
-pub struct UdfFile {
-    /// File size
-    size: u64,
-    /// ICB location
-    _icb: LongAllocationDescriptor,
-    /// Allocation type
-    _allocation_type: AllocationType,
-}
-
-#[allow(dead_code)]
-impl UdfFile {
-    /// Create a new file handle
-    pub(crate) fn new(
-        size: u64,
-        icb: LongAllocationDescriptor,
-        allocation_type: AllocationType,
-    ) -> Self {
-        Self {
-            size,
-            _icb: icb,
-            _allocation_type: allocation_type,
-        }
-    }
-
-    /// Get the file size
-    pub fn size(&self) -> u64 {
-        self.size
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

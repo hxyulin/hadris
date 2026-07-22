@@ -2,11 +2,11 @@
 
 use std::io::{Cursor, Seek, SeekFrom};
 
-use hadris_cd::{CdOptions, CdWriter, Directory, FileEntry, FileTree};
+use hadris_cd::{Directory, FileEntry, FileTree, OpticalImageOptions, OpticalImageWriter};
 use hadris_iso::sync::read::IsoImage;
 use hadris_optical::detect::sync::detect;
 use hadris_udf::dir::UdfDirEntry;
-use hadris_udf::sync::UdfFs;
+use hadris_udf::sync::UdfVolume;
 
 const VOLUME_ID: &str = "BRIDGE_TEST";
 
@@ -26,9 +26,9 @@ fn fixture() -> (FileTree, Vec<u8>) {
     (tree, large)
 }
 
-fn create(options: CdOptions) -> Vec<u8> {
+fn create(options: OpticalImageOptions) -> Vec<u8> {
     let (tree, _) = fixture();
-    CdWriter::create(Cursor::new(vec![0_u8; 4 * 1024 * 1024]), tree, options)
+    OpticalImageWriter::create(Cursor::new(vec![0_u8; 4 * 1024 * 1024]), tree, options)
         .unwrap()
         .into_inner()
 }
@@ -70,7 +70,7 @@ fn verify_iso(bytes: &[u8], large: &[u8]) {
 }
 
 fn verify_udf(bytes: &[u8], large: &[u8]) {
-    let volume = UdfFs::open(Cursor::new(bytes)).expect("open UDF namespace");
+    let volume = UdfVolume::open(Cursor::new(bytes)).expect("open UDF namespace");
     assert_eq!(volume.info().volume_id.trim_end_matches('\0'), VOLUME_ID);
     let root = volume.root_dir().expect("read UDF root");
 
@@ -96,9 +96,10 @@ fn verify_udf(bytes: &[u8], large: &[u8]) {
 fn bridge_reopens_through_iso_and_udf_and_recovers_source() {
     let (tree, large) = fixture();
     let cursor = Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
-    let output = CdWriter::new(cursor, CdOptions::default().volume_id(VOLUME_ID))
-        .finish(tree)
-        .expect("create bridge");
+    let output =
+        OpticalImageWriter::new(cursor, OpticalImageOptions::default().volume_id(VOLUME_ID))
+            .finish(tree)
+            .expect("create bridge");
     let bytes = output.into_inner();
 
     verify_iso(&bytes, &large);
@@ -113,8 +114,8 @@ fn bridge_reopens_through_iso_and_udf_and_recovers_source() {
 
 #[test]
 fn udf_parent_fids_reference_the_actual_parent() {
-    let bytes = create(CdOptions::default().volume_id(VOLUME_ID));
-    let volume = UdfFs::open(Cursor::new(bytes)).expect("open UDF namespace");
+    let bytes = create(OpticalImageOptions::default().volume_id(VOLUME_ID));
+    let volume = UdfVolume::open(Cursor::new(bytes)).expect("open UDF namespace");
     let root = volume.root_dir().expect("read root");
     let docs_entry = udf_entry(root.entries(), "DOCS");
     let docs = volume.read_directory(&docs_entry.icb).expect("read DOCS");
@@ -151,7 +152,11 @@ fn udf_parent_fids_reference_the_actual_parent() {
 #[test]
 fn detects_and_reopens_iso_only_image() {
     let (_, large) = fixture();
-    let bytes = create(CdOptions::default().volume_id(VOLUME_ID).iso_only());
+    let bytes = create(
+        OpticalImageOptions::default()
+            .volume_id(VOLUME_ID)
+            .iso_only(),
+    );
     let formats = detect(&mut Cursor::new(bytes.as_slice()))
         .unwrap()
         .expect("detect ISO");
@@ -163,7 +168,11 @@ fn detects_and_reopens_iso_only_image() {
 #[test]
 fn detects_and_reopens_udf_only_image() {
     let (_, large) = fixture();
-    let bytes = create(CdOptions::default().volume_id(VOLUME_ID).udf_only());
+    let bytes = create(
+        OpticalImageOptions::default()
+            .volume_id(VOLUME_ID)
+            .udf_only(),
+    );
     let formats = detect(&mut Cursor::new(bytes.as_slice()))
         .unwrap()
         .expect("detect UDF");

@@ -27,7 +27,6 @@ pub struct Extent {
 
 // ── IsoDir ──
 
-#[allow(dead_code)]
 /// Represents IsoDir.
 pub struct IsoDir<'a, T: Read + Seek> {
     pub(crate) image: &'a IsoImage<T>,

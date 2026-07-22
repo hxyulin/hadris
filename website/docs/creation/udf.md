@@ -12,7 +12,7 @@ should be used when authoring a shared ISO/UDF bridge image.
 
 ```toml
 [dependencies]
-hadris-udf = { version = "2.0.0-rc.3", features = ["write", "sync"] }
+hadris-udf = { version = "2.0.0-rc.4", features = ["write", "sync"] }
 ```
 
 ## Create a directory tree
@@ -98,7 +98,7 @@ let mut storage = vec![0_u8; 8 * 1024 * 1024];
 let cursor = Cursor::new(storage.as_mut_slice());
 let output = UdfWriter::create(cursor, &root, UdfWriteOptions::default())?;
 assert!(output.sectors_written > 0);
-# Ok::<(), hadris_udf::UdfError>(())
+# Ok::<(), hadris_udf::Error>(())
 ```
 
 ## Author an ISO/UDF bridge

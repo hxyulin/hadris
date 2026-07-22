@@ -53,13 +53,6 @@ impl HybridBootOptions {
         self.mbr_bootstrap = Some(bootstrap);
         self
     }
-
-    /// Set the MBR bootstrap code.
-    #[deprecated(since = "2.0.0", note = "use `bootstrap` instead")]
-    pub fn with_bootstrap(mut self, bootstrap: alloc::vec::Vec<u8>) -> Self {
-        self.mbr_bootstrap = Some(bootstrap);
-        self
-    }
 }
 
 /// The partition scheme to use for hybrid boot.
@@ -78,8 +71,8 @@ pub enum PartitionScheme {
 }
 
 #[derive(Debug, Clone)]
-/// Represents FormatOptions.
-pub struct FormatOptions {
+/// Represents IsoFormatOptions.
+pub struct IsoFormatOptions {
     /// The `volume_name` field.
     pub volume_name: String,
     /// The `system_id` field.
@@ -184,24 +177,12 @@ impl CreationFeatures {
         }
     }
 
-    #[deprecated(since = "2.0.0", note = "use `rock_ridge` instead")]
-    /// Performs the `with_rock_ridge` operation.
-    pub fn with_rock_ridge() -> Self {
-        Self::rock_ridge()
-    }
-
     /// Create features with Joliet enabled
     pub fn joliet(level: JolietLevel) -> Self {
         Self {
             joliet: Some(level),
             ..Default::default()
         }
-    }
-
-    #[deprecated(since = "2.0.0", note = "use `joliet` instead")]
-    /// Performs the `with_joliet` operation.
-    pub fn with_joliet(level: JolietLevel) -> Self {
-        Self::joliet(level)
     }
 
     /// Create features with both Rock Ridge and Joliet enabled
@@ -217,12 +198,6 @@ impl CreationFeatures {
         }
     }
 
-    #[deprecated(since = "2.0.0", note = "use `extensions` instead")]
-    /// Performs the `with_extensions` operation.
-    pub fn with_extensions() -> Self {
-        Self::extensions()
-    }
-
     /// Create features with hybrid boot enabled (MBR for USB boot)
     pub fn hybrid_boot(scheme: PartitionScheme) -> Self {
         Self {
@@ -233,12 +208,6 @@ impl CreationFeatures {
             }),
             ..Default::default()
         }
-    }
-
-    #[deprecated(since = "2.0.0", note = "use `hybrid_boot` instead")]
-    /// Performs the `with_hybrid_boot` operation.
-    pub fn with_hybrid_boot(scheme: PartitionScheme) -> Self {
-        Self::hybrid_boot(scheme)
     }
 }
 

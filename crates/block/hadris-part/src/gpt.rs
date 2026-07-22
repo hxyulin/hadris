@@ -780,6 +780,13 @@ impl GptHeader {
 /// this packed representation is used for serialization and CRC.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
+#[cfg(any(
+    feature = "crc",
+    all(
+        any(feature = "read", feature = "write"),
+        any(feature = "sync", feature = "async")
+    )
+))]
 pub(crate) struct GptHeaderRaw {
     signature: [u8; 8],
     revision: Le<u32>,
@@ -799,18 +806,41 @@ pub(crate) struct GptHeaderRaw {
 
 // SAFETY: GptHeaderRaw is repr(C, packed) with Pod field types (`Le`, byte arrays).
 // All bit patterns are valid.
+#[cfg(any(
+    feature = "crc",
+    all(
+        any(feature = "read", feature = "write"),
+        any(feature = "sync", feature = "async")
+    )
+))]
 unsafe impl bytemuck::Pod for GptHeaderRaw {}
+#[cfg(any(
+    feature = "crc",
+    all(
+        any(feature = "read", feature = "write"),
+        any(feature = "sync", feature = "async")
+    )
+))]
 unsafe impl bytemuck::Zeroable for GptHeaderRaw {}
 
+#[cfg(any(
+    feature = "crc",
+    all(
+        any(feature = "read", feature = "write"),
+        any(feature = "sync", feature = "async")
+    )
+))]
 impl GptHeaderRaw {
     /// Size of the raw header on disk.
-    #[allow(dead_code)]
     pub(crate) const SIZE: usize = 92;
 }
 
 impl GptHeader {
     /// Converts this header to its on-disk packed representation.
-    #[allow(dead_code)]
+    #[cfg(any(
+        feature = "crc",
+        all(feature = "write", any(feature = "sync", feature = "async"))
+    ))]
     pub(crate) fn to_raw(self) -> GptHeaderRaw {
         GptHeaderRaw {
             signature: self.signature,
@@ -831,7 +861,7 @@ impl GptHeader {
     }
 
     /// Creates a header from its on-disk packed representation.
-    #[allow(dead_code)]
+    #[cfg(all(feature = "read", any(feature = "sync", feature = "async")))]
     pub(crate) fn from_raw(raw: &GptHeaderRaw) -> Self {
         Self {
             signature: raw.signature,
@@ -957,6 +987,7 @@ pub fn calculate_partition_array_crc32(entries: &[GptPartitionEntry]) -> u32 {
 mod tests {
     extern crate alloc;
     use super::*;
+    use crate::PartitionInfoTrait;
     use alloc::format;
 
     #[test]
@@ -994,7 +1025,7 @@ mod tests {
     fn test_partition_entry_size_sectors() {
         let entry = GptPartitionEntry::new(Guid::LINUX_FILESYSTEM, Guid::UNUSED, 2048, 4095);
         assert_eq!(entry.size_sectors(), 2048);
-        assert_eq!(entry.size_bytes(), 2048 * 512);
+        assert_eq!(entry.byte_len(512).unwrap(), 2048 * 512);
     }
 
     #[test]

@@ -8,7 +8,7 @@ use core::ops::DerefMut;
 use super::super::{
     dir::{DirectoryEntry, FatDir, FileEntry},
     fat_table::{Fat, Fat12, Fat16, Fat32, FatType},
-    fs::FatFs,
+    fs::FatVolume,
     io::{Read, Seek},
 };
 use crate::error::Result;
@@ -123,7 +123,7 @@ pub struct FragmentationReport {
     pub fragmentation_percentage: f64,
 }
 
-/// Extension trait for FatFs providing analysis operations.
+/// Extension trait for FatVolume providing analysis operations.
 pub trait FatAnalysisExt<DATA: Read + Seek> {
     /// Gather statistics about the filesystem.
     ///
@@ -145,7 +145,7 @@ pub trait FatAnalysisExt<DATA: Read + Seek> {
     fn get_cluster_chain(&self, first_cluster: u32) -> Result<Vec<u32>>;
 }
 
-impl<DATA: Read + Seek> FatAnalysisExt<DATA> for FatFs<DATA> {
+impl<DATA: Read + Seek> FatAnalysisExt<DATA> for FatVolume<DATA> {
     fn statistics(&self) -> Result<FatStatistics> {
         let fat_type = self.fat_type();
         let cluster_size = self.info.cluster_size;
@@ -308,7 +308,7 @@ impl<DATA: Read + Seek> FatAnalysisExt<DATA> for FatFs<DATA> {
 }
 
 // Helper implementations
-impl<DATA: Read + Seek> FatFs<DATA> {
+impl<DATA: Read + Seek> FatVolume<DATA> {
     /// Read the state of a single cluster from the FAT.
     fn read_cluster_state<T: Read + Seek>(
         &self,

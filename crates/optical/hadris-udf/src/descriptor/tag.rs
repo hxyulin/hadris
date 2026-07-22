@@ -1,6 +1,6 @@
 //! UDF Descriptor Tag (ECMA-167 3/7.2)
 
-use crate::error::{UdfError, UdfResult};
+use crate::error::{Error, Result};
 
 /// Descriptor tag (ECMA-167 3/7.2)
 ///
@@ -65,15 +65,15 @@ impl DescriptorTag {
     }
 
     /// Validate the tag and return an error if invalid
-    pub fn validate(&self, expected: TagIdentifier, location: u32) -> UdfResult<()> {
+    pub fn validate(&self, expected: TagIdentifier, location: u32) -> Result<()> {
         if !self.verify_checksum() {
-            return Err(UdfError::CrcMismatch {
+            return Err(Error::CrcMismatch {
                 expected: 0,
                 computed: self.tag_checksum as u16,
             });
         }
         if self.identifier() != expected {
-            return Err(UdfError::InvalidTag {
+            return Err(Error::InvalidTag {
                 expected: expected.to_u16(),
                 found: self.tag_identifier,
             });

@@ -13,7 +13,7 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use hadris_cd::{CdWriter, CdOptions, FileTree, FileEntry};
+//! use hadris_cd::{OpticalImageWriter, OpticalImageOptions, FileTree, FileEntry};
 //! # use std::io::Cursor;
 //!
 //! // Create a file tree
@@ -24,11 +24,11 @@
 //! # // Use a Cursor for the doctest instead of a real file
 //! # let buffer = vec![0u8; 2 * 1024 * 1024]; // 2MB buffer
 //! # let file = Cursor::new(buffer);
-//! let options = CdOptions::default()
+//! let options = OpticalImageOptions::default()
 //!     .volume_id("MY_DISC")
 //!     .joliet(hadris_cd::JolietLevel::Level3);
 //!
-//! let _file = CdWriter::new(file, options)
+//! let _file = OpticalImageWriter::new(file, options)
 //!     .finish(tree)
 //!     .unwrap();
 //! ```
@@ -107,8 +107,7 @@ pub mod sync {
     }
     pub use __inner::*;
 
-    // Convenience re-exports
-    pub use __inner::writer::CdWriter;
+    pub use __inner::writer::OpticalImageWriter;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,18 +119,10 @@ pub use sync::*;
 
 // Re-exports from shared types
 #[cfg(feature = "sync")]
-pub use error::{CdError, CdResult};
+pub use error::{Error, Result};
 #[cfg(feature = "sync")]
 pub use layout::{LayoutInfo, LayoutManager};
 #[cfg(feature = "sync")]
-pub use options::{CdOptions, IsoOptions, JolietLevel, UdfOptions};
+pub use options::{IsoOptions, JolietLevel, OpticalImageOptions, UdfOptions};
 #[cfg(feature = "sync")]
 pub use tree::{Directory, FileData, FileEntry, FileExtent, FileTree};
-
-/// Canonical writer name for ISO/UDF optical images.
-#[cfg(feature = "sync")]
-pub type OpticalImageWriter<W> = sync::CdWriter<W>;
-
-/// Canonical options name for ISO/UDF optical images.
-#[cfg(feature = "sync")]
-pub type OpticalImageOptions = CdOptions;

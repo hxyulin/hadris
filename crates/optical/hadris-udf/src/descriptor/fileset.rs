@@ -1,7 +1,7 @@
 //! File Set Descriptor (ECMA-167 4/14.1)
 
 use super::{CharSpec, DescriptorTag, EntityIdentifier, LongAllocationDescriptor, TagIdentifier};
-use crate::error::UdfResult;
+use crate::error::Result;
 use crate::time::UdfTimestamp;
 
 /// File Set Descriptor (ECMA-167 4/14.1)
@@ -58,7 +58,7 @@ unsafe impl bytemuck::Pod for FileSetDescriptor {}
 
 impl FileSetDescriptor {
     /// Validate this descriptor
-    pub fn validate(&self, location: u32) -> UdfResult<()> {
+    pub fn validate(&self, location: u32) -> Result<()> {
         self.tag
             .validate(TagIdentifier::FileSetDescriptor, location)
     }

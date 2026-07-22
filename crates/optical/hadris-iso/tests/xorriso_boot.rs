@@ -1,6 +1,5 @@
-#![allow(deprecated)]
-
-mod xorriso_helpers;
+#[path = "common/xorriso.rs"]
+pub mod xorriso_helpers;
 use xorriso_helpers::*;
 
 use std::fs;
@@ -14,7 +13,7 @@ fn test_hadris_multisection_boot_catalog() {
     use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
     use hadris_iso::boot::{EmulationType, PlatformId};
     use hadris_iso::read::PathSeparator;
-    use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+    use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
     use hadris_iso::write::{InputEntry, InputTree, IsoImageWriter};
     use std::num::NonZeroU16;
 
@@ -65,7 +64,7 @@ fn test_hadris_multisection_boot_catalog() {
             ),
         ],
     };
-    let options = FormatOptions {
+    let options = IsoFormatOptions {
         volume_name: "MULTIBOOT".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -111,7 +110,7 @@ fn test_floppy_emulation_media_type_and_default_load_size() {
     use hadris_iso::boot::EmulationType;
     use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
     use hadris_iso::read::PathSeparator;
-    use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+    use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
     use hadris_iso::write::{InputEntry, InputTree, IsoImageWriter};
 
     // A 1.44 MB floppy image; emulation must be recorded and its default load
@@ -132,7 +131,7 @@ fn test_floppy_emulation_media_type_and_default_load_size() {
         },
         entries: vec![],
     };
-    let options = FormatOptions {
+    let options = IsoFormatOptions {
         volume_name: "FLOPPYBOOT".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -308,7 +307,7 @@ fn test_eltorito_boot_catalog_comparison() {
 fn test_hadris_bootable_iso_creation() {
     use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
     use hadris_iso::read::PathSeparator;
-    use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
+    use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
     use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
     use std::sync::Arc;
 
@@ -337,7 +336,7 @@ fn test_hadris_bootable_iso_creation() {
         entries: vec![],
     };
 
-    let format_options = FormatOptions {
+    let format_options = IsoFormatOptions {
         volume_name: "BOOT_TEST".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -474,7 +473,7 @@ fn test_hadris_bootable_iso_creation() {
 fn test_compare_boot_catalogs() {
     use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
     use hadris_iso::read::PathSeparator;
-    use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
+    use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
     use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
     use std::sync::Arc;
 
@@ -522,7 +521,7 @@ fn test_compare_boot_catalogs() {
         entries: vec![],
     };
 
-    let format_options = FormatOptions {
+    let format_options = IsoFormatOptions {
         volume_name: "BOOT_TEST".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -784,7 +783,7 @@ fn test_qemu_boot_hadris_iso() {
 
     use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
     use hadris_iso::read::PathSeparator;
-    use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
+    use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
     use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
     use std::sync::Arc;
 
@@ -828,7 +827,7 @@ fn test_qemu_boot_hadris_iso() {
         entries: vec![],
     };
 
-    let format_options = FormatOptions {
+    let format_options = IsoFormatOptions {
         volume_name: "BOOT_TEST".to_string(),
         system_id: None,
         volume_set_id: None,

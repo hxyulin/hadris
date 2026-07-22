@@ -205,7 +205,7 @@ impl<'a> Cursor<'a> {
         self.data
     }
 
-    #[allow(dead_code)]
+    #[cfg(any(feature = "sync", feature = "async", test))]
     fn read_impl(&mut self, buf: &mut [u8]) -> core::result::Result<usize, ErrorKind> {
         let remaining = self.data.len().saturating_sub(self.cursor);
         let to_read = buf.len().min(remaining);
@@ -216,7 +216,7 @@ impl<'a> Cursor<'a> {
         Ok(to_read)
     }
 
-    #[allow(dead_code)]
+    #[cfg(any(feature = "sync", feature = "async", test))]
     fn seek_impl(&mut self, pos: SeekFrom) -> core::result::Result<u64, ErrorKind> {
         let new_pos = match pos {
             SeekFrom::Start(offset) => offset as i64,

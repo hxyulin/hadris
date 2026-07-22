@@ -1,6 +1,6 @@
 [package]
 name = "hadris-fat"
-version = "2.0.0-rc.3"
+version = "2.0.0-rc.4"
 description = "Rust FAT12/FAT16/FAT32 filesystem library for disk images, embedded devices, and no-std"
 readme = "README.md"
 keywords = ["fat", "fat32", "vfat", "filesystem", "no-std"]
@@ -28,7 +28,7 @@ write = ["alloc", "read"]
 lfn = []
 # FAT sector caching for reduced I/O operations.
 # Implies `sync` because `cache.rs` uses sync I/O traits and the transparent
-# wiring on `FatFs` (`lock_for_fat`, etc.) is only generated in sync mode;
+# wiring on `FatVolume` (`lock_for_fat`, etc.) is only generated in sync mode;
 # async builds skip the cache entirely (deferred to phase C5b).
 cache = ["alloc", "sync"]
 # Analysis and diagnostic APIs.

@@ -20,7 +20,7 @@ use super::entry::{
 };
 use super::time::ExFatTimestamp;
 use super::upcase::UpcaseTable;
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 
 /// Maximum filename length in UTF-16 code units.
 pub const MAX_NAME_LENGTH: usize = 255;
@@ -67,13 +67,13 @@ impl EntrySetBuilder {
         // Validate name length
         let name_len: usize = name.encode_utf16().count();
         if name_len == 0 || name_len > MAX_NAME_LENGTH {
-            return Err(FatError::InvalidFilename);
+            return Err(Error::InvalidFilename);
         }
 
         // Check for invalid characters
         for c in name.chars() {
             if is_invalid_char(c) {
-                return Err(FatError::InvalidFilename);
+                return Err(Error::InvalidFilename);
             }
         }
 
@@ -111,20 +111,6 @@ impl EntrySetBuilder {
         self
     }
 
-    /// Set the timestamps.
-    #[allow(dead_code)]
-    pub fn with_timestamps(
-        mut self,
-        created: ExFatTimestamp,
-        modified: ExFatTimestamp,
-        accessed: ExFatTimestamp,
-    ) -> Self {
-        self.created = created;
-        self.modified = modified;
-        self.accessed = accessed;
-        self
-    }
-
     /// Build the directory entry set.
     ///
     /// Returns a vector of raw directory entries that can be written to disk.
@@ -157,14 +143,6 @@ impl EntrySetBuilder {
         file_entry_bytes.set_checksum = U16::<LittleEndian>::new(checksum);
 
         entries
-    }
-
-    /// Calculate the number of directory entries this entry set will use.
-    #[allow(dead_code)]
-    pub fn entry_count(&self) -> usize {
-        let name_utf16_len = self.name.encode_utf16().count();
-        let name_entry_count = name_utf16_len.div_ceil(CHARS_PER_NAME_ENTRY);
-        1 + 1 + name_entry_count // File + Stream + Name entries
     }
 
     fn build_file_entry(&self, secondary_count: u8) -> RawFileDirectoryEntry {

@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Advanced ISO 9660 roundtrip tests:
 //! - BFS path table generation and traversal
 //! - Filename deduplication for ISO compliance
@@ -14,13 +12,13 @@ use std::sync::Arc;
 use hadris_iso::directory::FileFlags;
 use hadris_iso::read::{IsoImage, PathSeparator};
 use hadris_iso::susp::{SystemUseField, SystemUseIter};
-use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
 use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter, estimator};
 
 // ── Helpers ──
 
-fn default_options() -> FormatOptions {
-    FormatOptions {
+fn default_options() -> IsoFormatOptions {
+    IsoFormatOptions {
         volume_name: "TEST".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -34,8 +32,8 @@ fn default_options() -> FormatOptions {
     }
 }
 
-fn rrip_options() -> FormatOptions {
-    FormatOptions {
+fn rrip_options() -> IsoFormatOptions {
+    IsoFormatOptions {
         volume_name: "RRIP_TEST".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -49,9 +47,9 @@ fn rrip_options() -> FormatOptions {
     }
 }
 
-fn joliet_options() -> FormatOptions {
+fn joliet_options() -> IsoFormatOptions {
     use hadris_iso::joliet::JolietLevel;
-    FormatOptions {
+    IsoFormatOptions {
         volume_name: "JOLIET_TEST".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -65,7 +63,7 @@ fn joliet_options() -> FormatOptions {
     }
 }
 
-fn write_and_open(files: Vec<IsoFile>, options: FormatOptions) -> IsoImage<Cursor<Vec<u8>>> {
+fn write_and_open(files: Vec<IsoFile>, options: IsoFormatOptions) -> IsoImage<Cursor<Vec<u8>>> {
     let input = InputFiles {
         path_separator: PathSeparator::ForwardSlash,
         files,
@@ -300,7 +298,7 @@ fn test_depth_9_fails() {
 
 #[test]
 fn test_size_estimate_is_conservative() {
-    let configs: Vec<(&str, Vec<IsoFile>, FormatOptions)> = vec![
+    let configs: Vec<(&str, Vec<IsoFile>, IsoFormatOptions)> = vec![
         (
             "simple",
             vec![IsoFile::File {

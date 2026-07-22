@@ -4,7 +4,7 @@ use hadris_io as io;
 
 /// Errors that can occur during CD/DVD image creation
 #[derive(Debug, thiserror::Error)]
-pub enum CdError {
+pub enum Error {
     /// I/O error
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
@@ -15,7 +15,7 @@ pub enum CdError {
 
     /// UDF error
     #[error("UDF error: {0}")]
-    Udf(#[from] hadris_udf::UdfError),
+    Udf(#[from] hadris_udf::Error),
 
     /// Invalid file path
     #[error("Invalid file path: {0}")]
@@ -44,4 +44,4 @@ pub enum CdError {
 }
 
 /// Result type for CD operations
-pub type CdResult<T> = Result<T, CdError>;
+pub type Result<T> = core::result::Result<T, Error>;

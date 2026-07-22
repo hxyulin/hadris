@@ -1,7 +1,7 @@
 //! Primary Volume Descriptor (ECMA-167 3/10.1)
 
 use super::{CharSpec, DescriptorTag, EntityIdentifier, ExtentDescriptor, TagIdentifier};
-use crate::error::UdfResult;
+use crate::error::Result;
 use crate::time::UdfTimestamp;
 
 /// Primary Volume Descriptor (ECMA-167 3/10.1)
@@ -63,7 +63,7 @@ unsafe impl bytemuck::Pod for PrimaryVolumeDescriptor {}
 
 impl PrimaryVolumeDescriptor {
     /// Validate this descriptor
-    pub fn validate(&self, location: u32) -> UdfResult<()> {
+    pub fn validate(&self, location: u32) -> Result<()> {
         self.tag
             .validate(TagIdentifier::PrimaryVolumeDescriptor, location)
     }

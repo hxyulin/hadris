@@ -55,7 +55,7 @@ The sync API will be introduced under `hadris_block::sync`:
 ```rust
 #[non_exhaustive]
 pub enum OpenVolume<'a, S> {
-    Fat(hadris_fat::sync::FatFs<hadris_io::sync::Borrowed<'a, S>>),
+    Fat(hadris_fat::sync::FatVolume<hadris_io::sync::Borrowed<'a, S>>),
 }
 
 impl<'a, S> OpenVolume<'a, S>
@@ -71,12 +71,12 @@ where
 
     pub const fn format(&self) -> FatVariant;
     pub fn as_fat(&self)
-        -> Option<&hadris_fat::sync::FatFs<hadris_io::sync::Borrowed<'a, S>>>;
+        -> Option<&hadris_fat::sync::FatVolume<hadris_io::sync::Borrowed<'a, S>>>;
     pub fn as_fat_mut(&mut self)
-        -> Option<&mut hadris_fat::sync::FatFs<hadris_io::sync::Borrowed<'a, S>>>;
+        -> Option<&mut hadris_fat::sync::FatVolume<hadris_io::sync::Borrowed<'a, S>>>;
     pub fn into_fat(self)
         -> core::result::Result<
-            hadris_fat::sync::FatFs<hadris_io::sync::Borrowed<'a, S>>,
+            hadris_fat::sync::FatVolume<hadris_io::sync::Borrowed<'a, S>>,
             Self,
         >;
     pub fn into_inner(self) -> &'a mut S;
@@ -84,7 +84,7 @@ where
 ```
 
 The async module has the same names and shapes, using
-`hadris_io::async::{Read, Seek}` and `hadris_fat::async::FatFs`. Its `open` and
+`hadris_io::async::{Read, Seek}` and `hadris_fat::async::FatVolume`. Its `open` and
 `open_detected` functions are async.
 
 The explicit `Borrowed` adapter is required by `hadris-io` to avoid trait
@@ -129,7 +129,7 @@ the facade's future stable exFAT capability is enabled and the implementation is
 ready for category-level use.
 
 The mismatch check compares the BPB-derived variant reported during detection
-with `FatFs::fat_type()` after full validation. A mismatch is reported rather
+with `FatVolume::fat_type()` after full validation. A mismatch is reported rather
 than silently trusting either layer.
 
 ## Whole-volume workflow
@@ -242,7 +242,7 @@ wrapper until those semantics can be compared with another block filesystem.
 ## Implementation sequence
 
 1. [x] Add `PartitionView` to `hadris-storage`, with checked sync/async I/O.
-2. [x] Add `FatFs::into_inner` in both generated modes.
+2. [x] Add `FatVolume::into_inner` in both generated modes.
 3. [x] Add the `hadris-block` category `Error` and `Result` types.
 4. [x] Implement sync `OpenVolume` for FAT and test source recovery,
    detection/open mismatch, and concrete escape hatches.

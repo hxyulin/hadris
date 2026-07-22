@@ -11,7 +11,7 @@
 
 use std::alloc::{GlobalAlloc, Layout, System};
 
-use hadris_cpio::read::CpioReader;
+use hadris_cpio::read::CpioArchiveReader;
 
 const CAP: usize = 512 * 1024 * 1024; // 512 MiB — far above any legit allocation here
 
@@ -55,7 +55,7 @@ fn oversized_namesize_does_not_preallocate() {
     let mut archive = header_with(94, "FFFFFFFF");
     archive.extend_from_slice(b"AAAA"); // 114 bytes total, far short of the 4 GiB claim
 
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
     // Must return an error (EOF), not abort from a 4 GiB allocation.
     assert!(reader.next_entry_alloc().is_err());
 }
@@ -68,7 +68,7 @@ fn oversized_filesize_does_not_preallocate() {
     archive.extend_from_slice(b"x\0"); // name
     archive.extend_from_slice(b"\0\0"); // pad to 4-byte boundary (110+2=112, already aligned; harmless slack)
 
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
     let entry = reader
         .next_entry_alloc()
         .expect("header parses")

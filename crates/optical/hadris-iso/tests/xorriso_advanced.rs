@@ -1,6 +1,5 @@
-#![allow(deprecated)]
-
-mod xorriso_helpers;
+#[path = "common/xorriso.rs"]
+pub mod xorriso_helpers;
 use xorriso_helpers::*;
 
 use std::fs;
@@ -12,7 +11,7 @@ use tempfile::TempDir;
 #[test]
 fn test_multi_sector_directory() {
     use hadris_iso::read::{IsoImage, PathSeparator};
-    use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
+    use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
     use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
     use std::sync::Arc;
 
@@ -33,7 +32,7 @@ fn test_multi_sector_directory() {
         files,
     };
 
-    let format_options = FormatOptions {
+    let format_options = IsoFormatOptions {
         volume_name: "MULTISECTOR".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -103,7 +102,7 @@ fn test_multi_sector_directory() {
 fn test_hadris_rockridge_roundtrip() {
     use hadris_iso::read::PathSeparator;
     use hadris_iso::susp::{SystemUseField, SystemUseIter};
-    use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+    use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
     use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
     use std::sync::Arc;
 
@@ -125,7 +124,7 @@ fn test_hadris_rockridge_roundtrip() {
         ],
     };
 
-    let format_options = FormatOptions {
+    let format_options = IsoFormatOptions {
         volume_name: "RRIP_TEST".to_string(),
         system_id: None,
         volume_set_id: None,

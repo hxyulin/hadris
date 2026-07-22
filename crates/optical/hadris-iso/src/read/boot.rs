@@ -15,7 +15,6 @@ pub struct BootInfo {
     pub(crate) catalog: BaseBootCatalog,
     /// The Start Sector of the Boot Catalog
     /// This is used to construct an iterator for querying further sections
-    #[allow(dead_code)]
     pub(crate) catalog_ptr: LogicalSector,
 }
 

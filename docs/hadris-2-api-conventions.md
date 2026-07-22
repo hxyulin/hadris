@@ -43,7 +43,7 @@ Constructors use `new` only when they cannot fail and do not perform I/O.
 ## Handles and ownership
 
 - Primary handles use format names such as `FatVolume`, `IsoImage`, `UdfVolume`,
-  `CpioReader`, and `PartitionTable`.
+  `CpioArchiveReader`, and `PartitionTable`.
 - Read-only and writable behavior are expressed through capabilities and trait
   bounds, not duplicated type names unless their state machines differ.
 - Owning handles provide `into_inner`; borrowed access uses `get_ref` and
@@ -86,12 +86,12 @@ Constructors use `new` only when they cannot fail and do not perform I/O.
   use explicit module paths.
 - An API is not advertised as async if its body performs blocking host I/O.
 
-## Initial audit findings
+## RC4 audit disposition
 
-- FAT uses `FatFs`, while UDF uses `UdfFs` and ISO uses `IsoImage`; the `Fs`
-  abbreviation and volume/image vocabulary need normalization.
-- Opening is relatively consistent, while legacy creation varies among `format_new`,
-  formatter objects, writer constructors, and `write` methods.
+- Filesystem handles now use `FatVolume` and `UdfVolume`; optical media uses
+  `IsoImage` and `OpticalImageWriter`.
+- Legacy `format_new`, non-recoverable writer `write`, modifier `commit`, and
+  mixed `with_*` forwarding methods were removed before the RC4 freeze.
 - FAT directory iteration mixes `entries`, `next_entry`, synchronous `Iterator`,
   and mode-specific behavior in the same source.
 - ISO exposes many raw structures at its root alongside high-level APIs, making
@@ -99,15 +99,13 @@ Constructors use `new` only when they cannot fail and do not perform I/O.
 - UDF shared entry types depend on mode-specific descriptor identities.
 - CPIO's sequential `Reader`/`Writer` model is appropriately different from a
   filesystem and should not be forced into volume traits.
-- CD and CPIO builders mix `with_*` and field-name fluent setters.
-- Error aliases vary (`Result`, `FatError`, `UdfResult`, `CdResult`,
-  `IsoModifyResult`) and several crates erase underlying I/O errors.
+- CD and CPIO creation use owning writers and field-name fluent setters.
+- Public crates expose root `Error` and `Result`; operation-specific ISO errors
+  remain where their distinct failure domain is useful.
 - Byte lengths use `usize`, `u32`, and `u64` inconsistently at high-level
   boundaries.
 
 ## Migration policy
 
-The detailed audit will maintain a rename/removal table before implementation.
-For 2.0, prefer direct replacement over long-lived duplicate APIs. Temporary
-deprecated aliases are appropriate only for common, mechanically migratable
-names and should identify the exact replacement in their diagnostic message.
+The detailed audit records the completed rename/removal table. RC4 uses direct
+replacements instead of shipping duplicate pre-release APIs into stable 2.0.

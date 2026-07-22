@@ -296,7 +296,7 @@ impl ExFatFileEntry {
 ///
 /// The checksum is computed over all entries in the set, with the
 /// set_checksum field (bytes 2-3 of the primary entry) set to zero.
-#[allow(dead_code)]
+#[cfg(feature = "write")]
 pub fn compute_entry_set_checksum(entries: &[RawDirectoryEntry]) -> u16 {
     let mut checksum: u16 = 0;
 

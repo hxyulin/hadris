@@ -2,7 +2,7 @@
 
 use super::super::super::{Read, Seek, SeekFrom};
 use super::{DescriptorTag, ExtentDescriptor, TagIdentifier};
-use crate::error::{UdfError, UdfResult};
+use crate::error::{Error, Result};
 
 /// Anchor Volume Descriptor Pointer (AVDP)
 ///
@@ -35,7 +35,7 @@ impl AnchorVolumeDescriptorPointer {
     pub const LOCATION_256: u32 = 256;
 
     /// Read and parse an AVDP from the given location
-    pub async fn read<R: Read + Seek>(reader: &mut R, location: u32) -> UdfResult<Self> {
+    pub async fn read<R: Read + Seek>(reader: &mut R, location: u32) -> Result<Self> {
         reader.seek(SeekFrom::Start((location as u64) * 2048)).await?;
 
         let mut buffer = [0u8; 512];
@@ -49,7 +49,7 @@ impl AnchorVolumeDescriptorPointer {
     /// Find and read the AVDP from standard locations
     ///
     /// Tries sector 256 first, then N-256, then N (last sector)
-    pub async fn find<R: Read + Seek>(reader: &mut R, total_sectors: Option<u64>) -> UdfResult<Self> {
+    pub async fn find<R: Read + Seek>(reader: &mut R, total_sectors: Option<u64>) -> Result<Self> {
         // Try sector 256 first (always present)
         if let Ok(avdp) = Self::read(reader, Self::LOCATION_256).await {
             return Ok(avdp);
@@ -66,11 +66,11 @@ impl AnchorVolumeDescriptorPointer {
             }
         }
 
-        Err(UdfError::NoAnchor)
+        Err(Error::NoAnchor)
     }
 
     /// Validate this AVDP
-    fn validate(&self, location: u32) -> UdfResult<()> {
+    fn validate(&self, location: u32) -> Result<()> {
         self.tag
             .validate(TagIdentifier::AnchorVolumeDescriptorPointer, location)?;
 
@@ -78,7 +78,7 @@ impl AnchorVolumeDescriptorPointer {
         if self.tag.descriptor_crc_length > 0 {
             let data = bytemuck::bytes_of(self);
             if !self.tag.verify_crc(&data[16..]) {
-                return Err(UdfError::CrcMismatch {
+                return Err(Error::CrcMismatch {
                     expected: self.tag.descriptor_crc,
                     computed: 0,
                 });

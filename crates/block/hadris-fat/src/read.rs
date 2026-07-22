@@ -2,15 +2,15 @@
 
 io_transform! {
 
-#[allow(unused_imports)]
+#[cfg(feature = "alloc")]
 use core::ops::DerefMut;
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 use super::{
-    fs::FatFs, dir::FileEntry,
+    fs::FatVolume, dir::FileEntry,
     io::{Cluster, ClusterLike, Read, Seek, SeekFrom},
 };
 
@@ -30,7 +30,7 @@ use super::{
 /// - [`with_cached_chain`](Self::with_cached_chain): Pre-cache the entire cluster chain.
 ///   This is useful for small files where you want to avoid repeated FAT lookups.
 pub struct FileReader<'a, DATA: Read + Seek> {
-    fs: &'a FatFs<DATA>,
+    fs: &'a FatVolume<DATA>,
     cluster: Cluster<usize>,
     /// Offset within the current cluster
     offset_in_cluster: usize,
@@ -39,7 +39,7 @@ pub struct FileReader<'a, DATA: Read + Seek> {
     /// Total size of the file
     size: usize,
     /// Cluster transitions taken so far. Bounded by `Fat::max_cluster()` so a
-    /// corrupt looping chain surfaces as `FatError::ClusterLoop` instead of
+    /// corrupt looping chain surfaces as `Error::ClusterLoop` instead of
     /// hanging the reader.
     cluster_steps: u32,
     /// Optional cluster buffer for reduced I/O
@@ -57,9 +57,9 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     /// Create a new FileReader for a file entry.
     ///
     /// Returns an error if the entry is a directory.
-    pub fn new(fs: &'a FatFs<DATA>, entry: &FileEntry) -> Result<Self> {
+    pub fn new(fs: &'a FatVolume<DATA>, entry: &FileEntry) -> Result<Self> {
         if entry.is_directory() {
-            return Err(FatError::NotAFile);
+            return Err(Error::NotAFile);
         }
 
         Ok(Self {
@@ -269,7 +269,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
                     // Resolve next cluster from the FAT on disk.
                     self.cluster_steps = self.cluster_steps.saturating_add(1);
                     if self.cluster_steps > self.fs.fat.max_cluster() {
-                        return Err(FatError::ClusterLoop {
+                        return Err(Error::ClusterLoop {
                             cluster: self.cluster.0 as u32,
                         });
                     }
@@ -295,7 +295,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
             {
                 self.cluster_steps = self.cluster_steps.saturating_add(1);
                 if self.cluster_steps > self.fs.fat.max_cluster() {
-                    return Err(FatError::ClusterLoop {
+                    return Err(Error::ClusterLoop {
                         cluster: self.cluster.0 as u32,
                     });
                 }
@@ -377,7 +377,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
         let volume_capacity =
             self.fs.info.max_cluster as u64 * self.fs.info.cluster_size as u64;
         if remaining as u64 > volume_capacity {
-            return Err(FatError::CorruptFilesystem {
+            return Err(Error::CorruptFilesystem {
                 context: "file size exceeds volume capacity",
             });
         }
@@ -389,13 +389,13 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     }
 }
 
-/// Extension trait for FatFs to read files directly.
-pub trait FatFsReadExt<DATA: Read + Seek> {
+/// Extension trait for FatVolume to read files directly.
+pub trait FatVolumeReadExt<DATA: Read + Seek> {
     /// Create a reader for a file entry.
     fn read_file<'a>(&'a self, entry: &FileEntry) -> Result<FileReader<'a, DATA>>;
 }
 
-impl<DATA: Read + Seek> FatFsReadExt<DATA> for FatFs<DATA> {
+impl<DATA: Read + Seek> FatVolumeReadExt<DATA> for FatVolume<DATA> {
     fn read_file<'a>(&'a self, entry: &FileEntry) -> Result<FileReader<'a, DATA>> {
         FileReader::new(self, entry)
     }

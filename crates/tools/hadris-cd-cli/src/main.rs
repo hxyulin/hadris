@@ -6,14 +6,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
-use hadris_cd::{CdOptions, CdWriter, FileTree, JolietLevel};
+use hadris_cd::{FileTree, JolietLevel, OpticalImageOptions, OpticalImageWriter};
 use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
 use hadris_iso::boot::{EmulationType, PlatformId};
 use hadris_iso::directory::DirectoryRef;
 use hadris_iso::read::IsoImage;
 use hadris_iso::rrip::RripOptions;
 use hadris_iso::write::options::HybridBootOptions;
-use hadris_udf::{UdfFs, UdfRevision};
+use hadris_udf::{UdfRevision, UdfVolume};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -143,7 +143,7 @@ fn create(args: CreateArgs) -> Result<()> {
         .max(16 * 1024 * 1024);
     let capacity = usize::try_from(capacity).map_err(|_| "image is too large for this platform")?;
 
-    let mut options = CdOptions::default().volume_id(args.volume_name.clone());
+    let mut options = OpticalImageOptions::default().volume_id(args.volume_name.clone());
     options.udf.revision = args.udf_revision.0;
     options.iso.joliet = (!args.no_joliet).then_some(JolietLevel::Level3);
     options.iso.rock_ridge = args.rock_ridge.then(RripOptions::default);
@@ -156,7 +156,7 @@ fn create(args: CreateArgs) -> Result<()> {
     };
 
     let cursor = Cursor::new(vec![0_u8; capacity]);
-    let output = CdWriter::create(cursor, tree, options)?;
+    let output = OpticalImageWriter::create(cursor, tree, options)?;
     let data = output.into_inner();
     let mut file = File::create(&args.output)?;
     file.write_all(&data)?;
@@ -238,7 +238,7 @@ fn normalize(path: &str) -> String {
 
 fn info(path: &Path) -> Result<()> {
     let iso = IsoImage::open(BufReader::new(File::open(path)?)).ok();
-    let udf = UdfFs::open(File::open(path)?).ok();
+    let udf = UdfVolume::open(File::open(path)?).ok();
     if iso.is_none() && udf.is_none() {
         return Err("image contains neither a readable ISO 9660 nor UDF filesystem".into());
     }
@@ -266,7 +266,7 @@ fn info(path: &Path) -> Result<()> {
 fn verify(path: &Path) -> Result<()> {
     let iso = IsoImage::open(BufReader::new(File::open(path)?))
         .map_err(|error| format!("ISO namespace is not readable: {error}"))?;
-    let udf = UdfFs::open(File::open(path)?)
+    let udf = UdfVolume::open(File::open(path)?)
         .map_err(|error| format!("UDF namespace is not readable: {error}"))?;
 
     let mut iso_nodes = BTreeMap::new();
@@ -315,7 +315,7 @@ fn collect_iso<R: Read + Seek>(
 }
 
 fn collect_udf(
-    udf: &UdfFs<File>,
+    udf: &UdfVolume<File>,
     directory: &hadris_udf::UdfDir,
     prefix: &str,
     nodes: &mut BTreeMap<String, Node>,

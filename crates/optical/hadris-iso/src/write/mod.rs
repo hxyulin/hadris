@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::fmt;
 
@@ -41,7 +39,7 @@ use alloc::{collections::VecDeque, string::String, vec, vec::Vec};
 
 /// APIs for options.
 pub mod options;
-use options::FormatOptions;
+use options::IsoFormatOptions;
 
 #[derive(Debug, thiserror::Error)]
 /// Identifies a FileConversionError value.
@@ -57,80 +55,19 @@ pub enum FileConversionError {
     UnsupportedFileType(std::path::PathBuf),
 }
 
-#[deprecated(since = "2.0.0", note = "use `InputTree::from_fs`")]
-impl InputFiles {
-    /// Performs the `from_fs` operation.
-    pub fn from_fs(
-        root_path: &std::path::Path,
-        path_separator: PathSeparator,
-    ) -> core::result::Result<Self, FileConversionError> {
-        if !root_path.is_dir() {
-            return Err(FileConversionError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                alloc::format!("Root path '{root_path:?}' is not a directory"),
-            )));
-        }
-
-        let children = read_directory_recursively(root_path)?;
-
-        Ok(Self {
-            path_separator,
-            files: children,
-        })
-    }
-}
-
-/// Recursively reads a directory into the legacy input model.
-#[allow(deprecated)]
-fn read_directory_recursively(
-    current_path: &std::path::Path,
-) -> core::result::Result<Vec<File>, FileConversionError> {
-    use alloc::string::ToString;
-    let mut children_files: Vec<File> = Vec::new();
-
-    for entry_result in std::fs::read_dir(current_path)? {
-        let entry = entry_result?;
-        let path = entry.path();
-        let name = path
-            .file_name()
-            .and_then(|os_str| os_str.to_str())
-            .ok_or_else(|| FileConversionError::InvalidUtf8Path(path.clone()))?
-            .to_string();
-
-        if path.is_file() {
-            let contents = std::fs::read(&path)?;
-            children_files.push(File::File {
-                name: Arc::new(name),
-                contents,
-            });
-        } else if path.is_dir() {
-            let grand_children = read_directory_recursively(&path)?;
-            children_files.push(File::Directory {
-                name: Arc::new(name),
-                children: grand_children,
-            });
-        }
-        // Else: ignore other file types (e.g., symlinks, pipes) for now
-    }
-
-    // Sort files and directories for consistent ISO ordering (optional, but good practice)
-    children_files.sort_by_key(|f| f.name().to_ascii_lowercase());
-
-    Ok(children_files)
-}
-
-#[deprecated(since = "2.0.0", note = "use `InputTree`")]
-/// Represents InputFiles.
+/// A compact input tree for callers that do not need per-entry metadata.
+///
+/// [`InputTree`] is the richer model for Rock Ridge metadata and host
+/// filesystem imports. Both models are accepted by [`IsoImageWriter::create`].
 pub struct InputFiles {
-    /// The `path_separator` field.
+    /// Separator used by paths referenced from writer options.
     pub path_separator: PathSeparator,
-    /// The `files` field.
+    /// Root-level files and directories.
     pub files: Vec<File>,
 }
 
-#[deprecated(since = "2.0.0", note = "use `InputEntry` and `InputEntryKind`")]
 #[derive(Clone, PartialEq, Eq)]
-/// Identifies a File value.
+/// A file or directory in the compact [`InputFiles`] model.
 pub enum File {
     /// The `File` variant.
     File {
@@ -148,7 +85,6 @@ pub enum File {
     },
 }
 
-#[allow(deprecated)]
 impl core::fmt::Debug for File {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut dbg = f.debug_struct("File");
@@ -166,7 +102,6 @@ impl core::fmt::Debug for File {
     }
 }
 
-#[allow(deprecated)]
 impl File {
     /// Performs the `name` operation.
     pub fn name(&self) -> Arc<String> {
@@ -312,7 +247,6 @@ impl InputTree {
     }
 }
 
-#[allow(deprecated)]
 impl From<InputFiles> for InputTree {
     fn from(value: InputFiles) -> Self {
         fn convert(file: File) -> InputEntry {
@@ -565,14 +499,12 @@ pub enum IsoCreationError {
 pub type Error = IsoCreationError;
 /// Canonical result for ISO creation operations.
 pub type Result<T> = core::result::Result<T, Error>;
-/// Compatibility alias for the ISO creation result.
-pub type IsoCreationResult<T> = Result<T>;
 
 /// Represents IsoImageWriter.
 pub struct IsoImageWriter<DATA: Read + Write + Seek> {
     data: IsoCursor<DATA>,
     entry_types: Vec<EntryType>,
-    ops: FormatOptions,
+    ops: IsoFormatOptions,
     written_files: WrittenFiles,
     path_tables: BTreeMap<EntryType, PathTableRef>,
     inode_counter: u32,
@@ -811,8 +743,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     pub async fn create<T: Into<InputTree>>(
         data: DATA,
         files: T,
-        ops: FormatOptions,
-    ) -> IsoCreationResult<DATA> {
+        ops: IsoFormatOptions,
+    ) -> Result<DATA> {
         Self::create_with_allocation_floor(data, files, ops, None).await
     }
 
@@ -826,9 +758,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     pub async fn create_with_allocation_floor<T: Into<InputTree>>(
         data: DATA,
         files: T,
-        ops: FormatOptions,
+        ops: IsoFormatOptions,
         allocation_floor: Option<u32>,
-    ) -> IsoCreationResult<DATA> {
+    ) -> Result<DATA> {
         let mut files = files.into();
         validate_input_tree(&files, ops.features.rock_ridge.as_ref())?;
         let mut writer = Self::new(data, ops);
@@ -858,22 +790,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(writer.into_inner())
     }
 
-    /// Formats an ISO image while discarding the returned output target.
-    #[deprecated(since = "2.0.0", note = "use `create` to recover the output target")]
-    pub async fn format_new(
-        data: DATA,
-        files: InputFiles,
-        ops: FormatOptions,
-    ) -> IsoCreationResult<()> {
-        Self::create(data, files, ops).await.map(|_| ())
-    }
-
     /// Returns the output target.
     pub fn into_inner(self) -> DATA {
         self.data.into_inner()
     }
 
-    fn new(data: DATA, ops: FormatOptions) -> Self {
+    fn new(data: DATA, ops: IsoFormatOptions) -> Self {
         let now = super::super::directory::DirDateTime::now();
         let rrip_time = *<&[u8; 7]>::try_from(bytemuck::bytes_of(&now)).unwrap();
         let mut entry_types = Vec::new();
@@ -1509,42 +1431,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
-    /// Writes a legacy MBR with a protective partition (current behavior).
-    #[allow(dead_code)]
-    async fn write_legacy_mbr(&mut self, end_sector: LogicalSector) -> io::Result<()> {
-        let start_sector = LogicalSector(16);
-        let start_block = (start_sector.0 * (self.data.sector_size / 512)) as u32;
-        let end_block = (end_sector.0 * (self.data.sector_size / 512)) as u32;
-
-        let mut mbr = MasterBootRecord::default();
-        mbr.with_partition_table(|pt| {
-            pt[0] = MbrPartition {
-                boot_indicator: 0x80,
-                start_chs: Chs::new(start_block),
-                part_type: MbrPartitionType::Iso9660.to_u8(),
-                end_chs: Chs::new(end_block),
-                start_lba: Le::<u32>::from_ne(start_block),
-                sector_count: Le::<u32>::from_ne(end_block - start_block),
-            };
-        });
-
-        // Inject bootstrap code if provided
-        if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot
-            && let Some(ref bootstrap) = hybrid_opts.mbr_bootstrap
-        {
-            let len = bootstrap.len().min(446);
-            mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
-        }
-
-        self.data
-            .seek(SeekFrom::Start(0))
-            .await
-            .map_err(io::Error::erase)?;
-        self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
-
-        Ok(())
-    }
-
     /// Writes an MBR partition table for BIOS USB boot (isohybrid-style).
     async fn write_mbr_boot(&mut self, end_sector: LogicalSector) -> io::Result<()> {
         let end_block = (end_sector.0 * (self.data.sector_size / 512)) as u32;
@@ -2168,9 +2054,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 }
 } // io_transform!
 
-#[allow(dead_code)]
 struct FileTreeWalker<'a> {
-    input_files: &'a InputTree,
     stack: VecDeque<StackFrame<'a>>,
 }
 
@@ -2192,10 +2076,7 @@ impl<'a> FileTreeWalker<'a> {
         for file in input.entries.iter().rev() {
             stack.push_back(StackFrame::Node(file));
         }
-        FileTreeWalker {
-            input_files: input,
-            stack,
-        }
+        FileTreeWalker { stack }
     }
 }
 

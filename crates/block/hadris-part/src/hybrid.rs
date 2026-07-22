@@ -15,7 +15,7 @@ extern crate alloc;
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
-use crate::error::{PartitionError, Result};
+use crate::error::{Error, Result};
 use crate::gpt::GptPartitionEntry;
 use crate::mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionTable, MbrPartitionType};
 use endian_num::Le;
@@ -122,14 +122,14 @@ impl HybridMbrConfig {
     /// Validates the configuration.
     pub fn validate(&self) -> Result<()> {
         if self.protective_slot > 3 {
-            return Err(PartitionError::InvalidHybridMbr {
+            return Err(Error::InvalidHybridMbr {
                 reason: "protective slot must be 0-3",
             });
         }
 
         let count = self.mirrored_count();
         if count > 3 {
-            return Err(PartitionError::TooManyPartitions {
+            return Err(Error::TooManyPartitions {
                 max: 3,
                 requested: count,
             });
@@ -140,7 +140,7 @@ impl HybridMbrConfig {
         for (i, _) in self.mirrored.iter().enumerate() {
             let slot = self.calculate_slot(i);
             if slot == self.protective_slot {
-                return Err(PartitionError::InvalidHybridMbr {
+                return Err(Error::InvalidHybridMbr {
                     reason: "mirrored partition conflicts with protective slot",
                 });
             }
@@ -223,14 +223,14 @@ impl HybridMbrBuilder {
         for (i, mirrored) in mirrored_iter.enumerate() {
             let gpt_idx = mirrored.gpt_partition_index as usize;
             if gpt_idx >= gpt_entries.len() {
-                return Err(PartitionError::InvalidHybridMbr {
+                return Err(Error::InvalidHybridMbr {
                     reason: "GPT partition index out of bounds",
                 });
             }
 
             let gpt_entry = &gpt_entries[gpt_idx];
             if gpt_entry.is_unused() {
-                return Err(PartitionError::InvalidHybridMbr {
+                return Err(Error::InvalidHybridMbr {
                     reason: "referenced GPT partition is unused",
                 });
             }
@@ -240,7 +240,7 @@ impl HybridMbrBuilder {
             let last_native = gpt_entry.last_lba.to_ne();
 
             if last_native > u32::MAX as u64 {
-                return Err(PartitionError::InvalidHybridMbr {
+                return Err(Error::InvalidHybridMbr {
                     reason: "GPT partition extends beyond MBR 32-bit limit",
                 });
             }
@@ -355,10 +355,7 @@ mod tests {
         }
 
         let result = config.validate();
-        assert!(matches!(
-            result,
-            Err(PartitionError::TooManyPartitions { .. })
-        ));
+        assert!(matches!(result, Err(Error::TooManyPartitions { .. })));
     }
 
     #[test]

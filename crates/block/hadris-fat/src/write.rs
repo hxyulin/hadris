@@ -8,12 +8,12 @@ use core::ops::DerefMut;
 #[cfg(feature = "write")]
 use crate::{
     raw::{DirEntryAttrFlags, RawDirectoryEntry, RawFileEntry},
-    error::{FatError, Result},
+    error::{Error, Result},
     file::ShortFileName,
 };
 #[cfg(feature = "write")]
 use super::{
-    fat_table::Fat, dir::{FatDir, FileEntry}, fs::FatFs,
+    fat_table::Fat, dir::{FatDir, FileEntry}, fs::FatVolume,
     io::{Cluster, ClusterLike, Read, ReadExt, Seek, SeekFrom, Write},
 };
 
@@ -23,7 +23,7 @@ use hadris_common::types::endian::{Endian, LittleEndian};
 /// A writer for file content in a FAT filesystem.
 #[cfg(feature = "write")]
 pub struct FileWriter<'a, DATA: Read + Write + Seek> {
-    fs: &'a FatFs<DATA>,
+    fs: &'a FatVolume<DATA>,
     /// First cluster of the file (None if empty file)
     first_cluster: Option<Cluster<usize>>,
     /// Current cluster being written to
@@ -76,9 +76,9 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
     /// Create a new FileWriter for a file entry.
     ///
     /// The entry must be a file (not a directory).
-    pub fn new(fs: &'a FatFs<DATA>, entry: &FileEntry) -> Result<Self> {
+    pub fn new(fs: &'a FatVolume<DATA>, entry: &FileEntry) -> Result<Self> {
         if entry.is_directory() {
-            return Err(FatError::NotAFile);
+            return Err(Error::NotAFile);
         }
 
         let first_cluster = if entry.cluster().0 >= 2 {
@@ -116,9 +116,9 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
     /// Walks the FAT chain to find the last cluster and positions the
     /// writer at the file's current end. Subsequent writes append data
     /// and `finish()` updates the size to include both existing and new data.
-    pub async fn new_append(fs: &'a FatFs<DATA>, entry: &FileEntry) -> Result<Self> {
+    pub async fn new_append(fs: &'a FatVolume<DATA>, entry: &FileEntry) -> Result<Self> {
         if entry.is_directory() {
-            return Err(FatError::NotAFile);
+            return Err(Error::NotAFile);
         }
 
         let fixed_root = if entry.parent_clus.0 == 0 {
@@ -367,9 +367,9 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
     }
 }
 
-/// Extension trait for FatFs to write files.
+/// Extension trait for FatVolume to write files.
 #[cfg(feature = "write")]
-pub trait FatFsWriteExt<DATA: Read + Write + Seek> {
+pub trait FatVolumeWriteExt<DATA: Read + Write + Seek> {
     /// Create a writer for a file entry.
     fn write_file<'a>(&'a self, entry: &FileEntry) -> Result<FileWriter<'a, DATA>>;
 
@@ -381,7 +381,7 @@ pub trait FatFsWriteExt<DATA: Read + Write + Seek> {
     ///
     /// # Errors
     ///
-    /// Returns [`FatError::NotAFile`] if the entry is a directory.
+    /// Returns [`Error::NotAFile`] if the entry is a directory.
     async fn truncate(&self, entry: &FileEntry, new_size: usize) -> Result<()>;
 
     /// Patch the timestamps on an existing entry without rewriting its data.
@@ -404,14 +404,14 @@ pub trait FatFsWriteExt<DATA: Read + Write + Seek> {
 }
 
 #[cfg(feature = "write")]
-impl<DATA: Read + Write + Seek> FatFsWriteExt<DATA> for FatFs<DATA> {
+impl<DATA: Read + Write + Seek> FatVolumeWriteExt<DATA> for FatVolume<DATA> {
     fn write_file<'a>(&'a self, entry: &FileEntry) -> Result<FileWriter<'a, DATA>> {
         FileWriter::new(self, entry)
     }
 
     async fn truncate(&self, entry: &FileEntry, new_size: usize) -> Result<()> {
         if !entry.is_file() {
-            return Err(FatError::NotAFile);
+            return Err(Error::NotAFile);
         }
 
         let current_size = entry.len() as usize;
@@ -543,7 +543,7 @@ fn kanji_short_name_fixup(name: &mut [u8; 11]) {
 /// Maximum number of LFN entries the spec allows: 20 entries × 13 UTF-16 code
 /// units per entry = 260 char "ceiling", though the spec caps the encoded
 /// name itself at 255 code units.
-#[cfg(all(feature = "write", feature = "lfn"))]
+#[cfg(feature = "write")]
 pub(crate) const MAX_LFN_ENTRIES: usize = 20;
 
 /// Decide whether `name` can be stored as a single short (8.3) directory entry
@@ -779,7 +779,7 @@ fn build_lfn_entries(
 
 /// Directory write operations
 #[cfg(feature = "write")]
-impl<DATA: Read + Write + Seek> FatFs<DATA> {
+impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     async fn mark_entry_span_deleted(&self, entry: &FileEntry) -> Result<()> {
         let entry_size = core::mem::size_of::<RawDirectoryEntry>();
         let cluster_size = self.info.cluster_size;
@@ -835,7 +835,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                     pending.clear();
                 }
             }
-            return Err(FatError::EntryNotFound);
+            return Err(Error::EntryNotFound);
         }
 
         let mut current = entry.parent_dir_clus;
@@ -843,7 +843,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         loop {
             steps = steps.saturating_add(1);
             if steps > self.fat.max_cluster() {
-                return Err(FatError::ClusterLoop {
+                return Err(Error::ClusterLoop {
                     cluster: current.0 as u32,
                 });
             }
@@ -876,7 +876,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
                     let raw = data.read_struct::<RawDirectoryEntry>().await?;
                     let bytes = unsafe { raw.bytes };
                     if bytes[0] == 0x00 {
-                        return Err(FatError::EntryNotFound);
+                        return Err(Error::EntryNotFound);
                     }
                     if bytes[0] != 0xE5
                         && unsafe { raw.file }.attributes == DirEntryAttrFlags::LONG_NAME.bits()
@@ -896,7 +896,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
             match self.next_cluster_routed(current.0).await? {
                 Some(next) => current = Cluster(next as usize),
-                None => return Err(FatError::EntryNotFound),
+                None => return Err(Error::EntryNotFound),
             }
         }
     }
@@ -966,7 +966,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             }
         }
 
-        Err(FatError::DirectoryFull)
+        Err(Error::DirectoryFull)
     }
 
     /// Find `count` consecutive free entries starting at the given cluster
@@ -991,7 +991,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         loop {
             steps = steps.saturating_add(1);
             if steps > chain_limit {
-                return Err(FatError::ClusterLoop {
+                return Err(Error::ClusterLoop {
                     cluster: current_cluster.0 as u32,
                 });
             }
@@ -1131,12 +1131,12 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     pub async fn create_file(&self, parent: &FatDir<'_, DATA>, name: &str) -> Result<FileEntry> {
         // Check if entry already exists
         if parent.find(name).await?.is_some() {
-            return Err(FatError::AlreadyExists);
+            return Err(Error::AlreadyExists);
         }
 
         // Generate short filename (suffix=0 means no ~N suffix)
         let short_name = ShortFileName::from_long_name_with(name, 0, self.oem_converter())
-            .map_err(|_| FatError::InvalidFilename)?;
+            .map_err(|_| Error::InvalidFilename)?;
 
         // A name that fits 8.3 apart from per-part case is stored as a single
         // short entry with the NT case byte set; otherwise it needs LFN entries.
@@ -1149,7 +1149,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             Some(bits) => (0usize, bits),
             None => (
                 build_lfn_entries(name, short_name.lfn_checksum(), &mut lfn_buf)
-                    .ok_or(FatError::InvalidFilename)?,
+                    .ok_or(Error::InvalidFilename)?,
                 0u8,
             ),
         };
@@ -1238,12 +1238,12 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ) -> Result<FatDir<'a, DATA>> {
         // Check if entry already exists
         if parent.find(name).await?.is_some() {
-            return Err(FatError::AlreadyExists);
+            return Err(Error::AlreadyExists);
         }
 
         // Generate short filename (suffix=0 means no ~N suffix)
         let short_name = ShortFileName::from_long_name_with(name, 0, self.oem_converter())
-            .map_err(|_| FatError::InvalidFilename)?;
+            .map_err(|_| Error::InvalidFilename)?;
 
         // Allocate a cluster for the directory contents (cache-routed).
         let new_cluster = self.allocate_cluster_routed(2).await?;
@@ -1263,7 +1263,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             Some(bits) => (0usize, bits),
             None => (
                 build_lfn_entries(name, short_name.lfn_checksum(), &mut lfn_buf)
-                    .ok_or(FatError::InvalidFilename)?,
+                    .ok_or(Error::InvalidFilename)?,
                 0u8,
             ),
         };
@@ -1423,7 +1423,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             }
 
             if count > 0 {
-                return Err(FatError::DirectoryNotEmpty);
+                return Err(Error::DirectoryNotEmpty);
             }
         }
 
@@ -1464,12 +1464,12 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
     ) -> Result<FileEntry> {
         // Check if destination already has this name
         if dest_dir.find(new_name).await?.is_some() {
-            return Err(FatError::AlreadyExists);
+            return Err(Error::AlreadyExists);
         }
 
         // Generate short filename
         let short_name = ShortFileName::from_long_name_with(new_name, 0, self.oem_converter())
-            .map_err(|_| FatError::InvalidFilename)?;
+            .map_err(|_| Error::InvalidFilename)?;
 
         // The new name is stored as a single short entry (with NT case bits)
         // when it fits 8.3 apart from case, otherwise via LFN entries. When the
@@ -1482,7 +1482,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
             Some(bits) => (0usize, bits),
             None => (
                 build_lfn_entries(new_name, short_name.lfn_checksum(), &mut lfn_buf)
-                    .ok_or(FatError::InvalidFilename)?,
+                    .ok_or(Error::InvalidFilename)?,
                 0u8,
             ),
         };
@@ -1692,10 +1692,10 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
 /// Volume label modification (root directory entry).
 #[cfg(feature = "write")]
-impl<DATA: Read + Write + Seek> FatFs<DATA> {
+impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     /// Overwrite the volume label stored in the root-directory entry.
     ///
-    /// Returns [`FatError::EntryNotFound`] if no label entry exists today —
+    /// Returns [`Error::EntryNotFound`] if no label entry exists today —
     /// callers should format the volume with a label, or extend the API
     /// later to allocate a new entry. The 11-byte name is written verbatim
     /// (FAT spec: space-padded, conventionally uppercase ASCII).
@@ -1706,7 +1706,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let (pos, raw) = self
             .find_root_label_entry()
             .await?
-            .ok_or(FatError::EntryNotFound)?;
+            .ok_or(Error::EntryNotFound)?;
         let mut updated = raw;
         // Writing to a union field of `Copy` type without `Drop` is safe in
         // modern Rust — the existing memory is overwritten verbatim.
@@ -1722,12 +1722,12 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
 /// File attribute modification
 #[cfg(feature = "write")]
-impl<DATA: Read + Write + Seek> FatFs<DATA> {
+impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     /// Set the attributes of a file or directory entry.
     ///
     /// Only the user-mutable bits (`READ_ONLY`, `HIDDEN`, `SYSTEM`, `ARCHIVE`)
     /// may be changed in place. Attempting to flip `DIRECTORY` or `VOLUME_ID`
-    /// returns [`FatError::InvalidAttributeChange`] — those bits identify the
+    /// returns [`Error::InvalidAttributeChange`] — those bits identify the
     /// kind of entry on disk and changing them would orphan a cluster chain
     /// or break the root volume label.
     pub async fn set_attributes(
@@ -1740,10 +1740,10 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
         let immutable = DirEntryAttrFlags::DIRECTORY | DirEntryAttrFlags::VOLUME_ID;
         let changed = (current ^ attrs) & immutable;
         if changed.contains(DirEntryAttrFlags::DIRECTORY) {
-            return Err(FatError::InvalidAttributeChange { bit: "DIRECTORY" });
+            return Err(Error::InvalidAttributeChange { bit: "DIRECTORY" });
         }
         if changed.contains(DirEntryAttrFlags::VOLUME_ID) {
-            return Err(FatError::InvalidAttributeChange { bit: "VOLUME_ID" });
+            return Err(Error::InvalidAttributeChange { bit: "VOLUME_ID" });
         }
 
         let mut data = self.data.lock();
@@ -1779,7 +1779,7 @@ impl<DATA: Read + Write + Seek> FatFs<DATA> {
 
 /// FSInfo update operations
 #[cfg(feature = "write")]
-impl<DATA: Read + Write + Seek> FatFs<DATA> {
+impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     /// Synchronize the FSInfo sector to disk.
     ///
     /// For FAT32 filesystems, this updates the FSInfo sector with the current

@@ -13,17 +13,17 @@ This crate creates images that contain both ISO 9660 and UDF filesystems sharing
 ## Quick Start
 
 ```rust,no_run
-use hadris_cd::{CdWriter, CdOptions, FileTree, FileEntry};
+use hadris_cd::{OpticalImageWriter, OpticalImageOptions, FileTree, FileEntry};
 
 let mut tree = FileTree::new();
 tree.add_file(FileEntry::from_buffer("readme.txt", b"Hello, World!".to_vec()));
 
-let options = CdOptions::default()
+let options = OpticalImageOptions::default()
     .volume_id("MY_DISC")
     .joliet(hadris_cd::JolietLevel::Level3);
 
 let file = std::fs::File::create("output.iso").unwrap();
-CdWriter::new(file, options)
+OpticalImageWriter::new(file, options)
     .finish(tree)
     .unwrap();
 ```

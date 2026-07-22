@@ -1,5 +1,5 @@
 use hadris_cpio::mode::FileType;
-use hadris_cpio::read::CpioReader;
+use hadris_cpio::read::CpioArchiveReader;
 use hadris_cpio::write::file_tree::{FileNode, FileTree};
 use hadris_cpio::write::{CpioArchiveWriter, CpioWriteOptions};
 
@@ -20,7 +20,7 @@ fn roundtrip_single_file() {
 
     let archive = write_archive(&tree, false);
 
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
     let entry = reader
         .next_entry_alloc()
         .unwrap()
@@ -51,7 +51,7 @@ fn roundtrip_directory_with_files() {
     ));
 
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     // First: the directory
     let entry = reader.next_entry_alloc().unwrap().unwrap();
@@ -82,7 +82,7 @@ fn roundtrip_symlink() {
     tree.add(FileNode::symlink("link", "/usr/bin/target"));
 
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     let entry = reader.next_entry_alloc().unwrap().unwrap();
     assert_eq!(entry.name_str().unwrap(), "link");
@@ -101,7 +101,7 @@ fn roundtrip_device_node() {
     tree.add(FileNode::device("sda", FileType::BlockDevice, 8, 0, 0o660));
 
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     let entry = reader.next_entry_alloc().unwrap().unwrap();
     assert_eq!(entry.name_str().unwrap(), "null");
@@ -126,7 +126,7 @@ fn roundtrip_fifo() {
     tree.add(FileNode::fifo("mypipe", 0o644));
 
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     let entry = reader.next_entry_alloc().unwrap().unwrap();
     assert_eq!(entry.name_str().unwrap(), "mypipe");
@@ -144,7 +144,7 @@ fn roundtrip_hard_link() {
     tree.add(FileNode::hard_link("linked", "original"));
 
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     // First entry: original file
     let entry = reader.next_entry_alloc().unwrap().unwrap();
@@ -171,7 +171,7 @@ fn roundtrip_crc_checksum() {
     // Write with CRC
     let archive = write_archive(&tree, true);
 
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
     let entry = reader.next_entry_alloc().unwrap().unwrap();
 
     assert_eq!(entry.magic(), hadris_cpio::CpioMagic::NewcCrc);
@@ -194,7 +194,7 @@ fn roundtrip_offset_based_seek() {
 
     let archive = write_archive(&tree, false);
     let cursor = hadris_io::Cursor::new(&archive);
-    let mut reader = CpioReader::new(cursor);
+    let mut reader = CpioArchiveReader::new(cursor);
 
     // Read first, record second's offset
     let e1 = reader.next_entry_alloc().unwrap().unwrap();
@@ -227,7 +227,7 @@ fn no_alloc_reader_with_fixed_buffer() {
     ));
 
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     let mut name_buf = [0u8; 256];
     let entry = reader.next_entry_with_buf(&mut name_buf).unwrap().unwrap();
@@ -260,7 +260,7 @@ fn alignment_padding_edge_cases() {
 
     // Data sizes: 1, 2, 3, 4 bytes with corresponding padding
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     for (expected_name, expected_data) in [
         ("a", b"x" as &[u8]),
@@ -282,7 +282,7 @@ fn trailer_detection() {
     // An archive with no entries should still have a TRAILER
     let tree = FileTree::new();
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
     assert!(reader.next_entry_alloc().unwrap().is_none());
 }
 
@@ -291,12 +291,12 @@ fn error_invalid_magic() {
     let mut bad_archive = vec![0u8; 110];
     bad_archive[0..6].copy_from_slice(b"999999");
 
-    let mut reader = CpioReader::new(bad_archive.as_slice());
+    let mut reader = CpioArchiveReader::new(bad_archive.as_slice());
     let result = reader.next_entry_alloc();
     assert!(result.is_err());
 
     match result.unwrap_err() {
-        hadris_cpio::CpioError::InvalidMagic { found } => {
+        hadris_cpio::Error::InvalidMagic { found } => {
             assert_eq!(&found, b"999999");
         }
         e => panic!("expected InvalidMagic, got {e}"),
@@ -306,7 +306,7 @@ fn error_invalid_magic() {
 #[test]
 fn error_truncated_header() {
     let short = b"07070";
-    let mut reader = CpioReader::new(short.as_slice());
+    let mut reader = CpioArchiveReader::new(short.as_slice());
     let result = reader.next_entry_alloc();
     assert!(result.is_err());
 }
@@ -321,7 +321,7 @@ fn error_buffer_too_small() {
     ));
 
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     // Buffer too small for the filename
     let mut tiny_buf = [0u8; 2];
@@ -359,7 +359,7 @@ fn roundtrip_all_node_types() {
     tree.add(FileNode::fifo("myfifo", 0o644));
 
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     // Regular file
     let entry = reader.next_entry_alloc().unwrap().unwrap();
@@ -413,7 +413,7 @@ fn roundtrip_empty_file() {
     tree.add(FileNode::file("empty", Vec::new(), 0o644));
 
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     let entry = reader.next_entry_alloc().unwrap().unwrap();
     assert_eq!(entry.name_str().unwrap(), "empty");
@@ -433,7 +433,7 @@ fn roundtrip_large_data() {
     tree.add(FileNode::file("large.bin", large_data.clone(), 0o644));
 
     let archive = write_archive(&tree, false);
-    let mut reader = CpioReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
 
     let entry = reader.next_entry_alloc().unwrap().unwrap();
     assert_eq!(entry.file_size(), 1024);

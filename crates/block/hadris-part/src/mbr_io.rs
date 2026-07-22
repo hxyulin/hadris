@@ -1,8 +1,10 @@
 io_transform! {
 
-#[allow(unused_imports)]
-use super::super::{Read, Write};
-#[allow(unused_imports)]
+#[cfg(feature = "read")]
+use super::super::Read;
+#[cfg(feature = "write")]
+use super::super::Write;
+#[cfg(any(feature = "read", feature = "write"))]
 use crate::mbr::MasterBootRecord;
 
 // I/O operations
@@ -26,10 +28,10 @@ impl MasterBootRecordReadExt for MasterBootRecord {
         reader
             .read_exact(&mut buf)
             .await
-            .map_err(crate::error::PartitionError::from)?;
+            .map_err(crate::error::Error::from)?;
         let mbr: Self = bytemuck::cast(buf);
         if !mbr.has_valid_signature() {
-            return Err(crate::error::PartitionError::InvalidMbrSignature {
+            return Err(crate::error::Error::InvalidMbrSignature {
                 found: mbr.signature,
             });
         }
@@ -55,7 +57,7 @@ impl MasterBootRecordWriteExt for MasterBootRecord {
         writer
             .write_all(bytemuck::bytes_of(self))
             .await
-            .map_err(crate::error::PartitionError::from)
+            .map_err(crate::error::Error::from)
     }
 }
 

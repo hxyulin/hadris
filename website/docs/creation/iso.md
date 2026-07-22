@@ -13,7 +13,7 @@ synchronous API and requires a target implementing `Read + Write + Seek`.
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.0.0-rc.3", features = ["write", "sync", "joliet"] }
+hadris-iso = { version = "2.0.0-rc.4", features = ["write", "sync", "joliet"] }
 ```
 
 ## Create a basic image
@@ -25,7 +25,7 @@ returns the target so the caller retains ownership of the completed image.
 use std::fs::OpenOptions;
 
 use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
 use hadris_iso::write::{InputEntry, InputTree, IsoImageWriter};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
     );
 
-    let options = FormatOptions {
+    let options = IsoFormatOptions {
         volume_name: "HADRIS_DEMO".into(),
         system_id: None,
         volume_set_id: None,

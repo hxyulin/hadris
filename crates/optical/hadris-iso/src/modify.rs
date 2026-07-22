@@ -37,13 +37,12 @@ use alloc::vec::Vec;
 use super::io::{self, Read, Seek, SeekFrom, Write};
 use hadris_common::types::endian::Endian;
 use hadris_common::types::extent::{Extent, FileType};
-use hadris_common::types::layout::{AllocationMap, DirectoryLayout, FileLayout};
+use hadris_common::types::layout::{DirectoryLayout, FileLayout};
 use hadris_path::split_path;
 
 use super::directory::{DirectoryRecord, DirectoryRef, FileFlags};
 use super::io::{IsoCursor, LogicalSector};
 use super::path::PathTableRef;
-use super::read::PathSeparator;
 use super::volume::{
     PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor, VolumeDescriptorHeader,
     VolumeDescriptorList, VolumeDescriptorType,
@@ -160,8 +159,6 @@ pub enum IsoModifyError {
 pub type Error = IsoModifyError;
 /// Canonical result for ISO modification operations.
 pub type Result<T> = core::result::Result<T, Error>;
-/// Compatibility alias for ISO modification results.
-pub type IsoModifyResult<T> = Result<T>;
 
 /// Modifier for ISO 9660 images.
 ///
@@ -173,14 +170,8 @@ pub struct IsoModifier<RW: Read + Write + Seek> {
     inner: IsoCursor<RW>,
     /// Parsed from existing image.
     existing_layout: DirectoryLayout,
-    /// Tracks used sectors.
-    #[allow(dead_code)]
-    allocation_map: AllocationMap,
     /// Pending operations.
     pending_ops: Vec<ModifyOp>,
-    /// Options for the new session.
-    #[allow(dead_code)]
-    options: IsoModifyOptions,
     /// Entry types from the existing image.
     entry_types: Vec<EntryType>,
     /// Sector size.
@@ -189,33 +180,10 @@ pub struct IsoModifier<RW: Read + Write + Seek> {
     end_sector: LogicalSector,
 }
 
-/// Options for ISO modification.
-#[derive(Debug, Clone)]
-pub struct IsoModifyOptions {
-    /// Path separator to use.
-    pub path_separator: PathSeparator,
-    /// Volume name (if changing).
-    pub volume_name: Option<String>,
-}
-
-impl Default for IsoModifyOptions {
-    fn default() -> Self {
-        Self {
-            path_separator: PathSeparator::ForwardSlash,
-            volume_name: None,
-        }
-    }
-}
-
 io_transform! {
 impl<RW: Read + Write + Seek> IsoModifier<RW> {
     /// Opens an existing ISO image for modification.
-    pub async fn open(inner: RW) -> IsoModifyResult<Self> {
-        Self::open_with_options(inner, IsoModifyOptions::default()).await
-    }
-
-    /// Opens an existing ISO image for modification with custom options.
-    pub async fn open_with_options(inner: RW, options: IsoModifyOptions) -> IsoModifyResult<Self> {
+    pub async fn open(inner: RW) -> Result<Self> {
         // Parse existing image
         let sector_size = 2048;
         let mut cursor = IsoCursor::new(inner, sector_size);
@@ -255,20 +223,13 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             size: pvd.dir_record.header.data_len.read() as usize,
         };
 
-        let (existing_layout, used_extents) =
+        let (existing_layout, _used_extents) =
             Self::build_layout_from_directory(&mut cursor, root_ref, sector_size).await?;
-
-        // Build allocation map
-        let total_sectors = end_sector as u32;
-        let allocation_map =
-            AllocationMap::from_existing(&used_extents, total_sectors, sector_size as u32);
 
         Ok(Self {
             inner: cursor,
             existing_layout,
-            allocation_map,
             pending_ops: Vec::new(),
-            options,
             entry_types,
             sector_size,
             end_sector: LogicalSector(end_sector),
@@ -280,7 +241,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         cursor: &mut IsoCursor<RW>,
         root_ref: DirectoryRef,
         sector_size: usize,
-    ) -> IsoModifyResult<(DirectoryLayout, Vec<Extent>)> {
+    ) -> Result<(DirectoryLayout, Vec<Extent>)> {
         let mut layout = DirectoryLayout::root();
         let mut used_extents = Vec::new();
 
@@ -306,7 +267,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         layout: &mut DirectoryLayout,
         used_extents: &mut Vec<Extent>,
         sector_size: usize,
-    ) -> IsoModifyResult<()> {
+    ) -> Result<()> {
         // Mark directory extent as used
         used_extents.push(Extent::new(dir_ref.extent.0 as u32, dir_ref.size as u64));
 
@@ -427,7 +388,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     }
 
     /// Finishes all pending changes and returns the underlying image target.
-    pub async fn finish(mut self) -> IsoModifyResult<RW> {
+    pub async fn finish(mut self) -> Result<RW> {
         if self.pending_ops.is_empty() {
             return Ok(self.inner.into_inner());
         }
@@ -444,14 +405,8 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         Ok(self.inner.into_inner())
     }
 
-    /// Commits changes while discarding the returned image target.
-    #[deprecated(since = "2.0.0", note = "use `finish` to recover the image target")]
-    pub async fn commit(self) -> IsoModifyResult<()> {
-        self.finish().await.map(|_| ())
-    }
-
     /// Applies pending operations to create a new layout.
-    fn apply_ops(&mut self) -> IsoModifyResult<DirectoryLayout> {
+    fn apply_ops(&mut self) -> Result<DirectoryLayout> {
         let mut layout = self.existing_layout.clone();
 
         for op in &self.pending_ops {
@@ -508,7 +463,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     async fn write_new_data(
         &mut self,
         _layout: &DirectoryLayout,
-    ) -> IsoModifyResult<BTreeMap<String, Extent>> {
+    ) -> Result<BTreeMap<String, Extent>> {
         let mut file_extents = BTreeMap::new();
         let sector_size = self.sector_size as u32;
 
@@ -554,7 +509,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         &mut self,
         layout: &DirectoryLayout,
         file_extents: BTreeMap<String, Extent>,
-    ) -> IsoModifyResult<()> {
+    ) -> Result<()> {
         // Build WrittenFiles structure from layout
         let mut written_files = WrittenFiles::new();
         Self::build_written_files(layout, &file_extents, &mut written_files, "")?;
@@ -607,7 +562,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         file_extents: &BTreeMap<String, Extent>,
         written_files: &mut WrittenFiles,
         path_prefix: &str,
-    ) -> IsoModifyResult<()> {
+    ) -> Result<()> {
         for file in &layout.files {
             let full_path = if path_prefix.is_empty() {
                 file.name.clone()
@@ -812,7 +767,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
     }
 
     /// Splits a path into (directory, filename).
-    fn split_path(path: &str) -> IsoModifyResult<(String, String)> {
+    fn split_path(path: &str) -> Result<(String, String)> {
         split_path(path)
             .ok_or_else(|| IsoModifyError::InvalidPath(path.to_string()))
     }

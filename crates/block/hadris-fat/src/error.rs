@@ -4,7 +4,7 @@ use core::fmt;
 
 /// Errors that can occur when working with FAT file systems.
 #[derive(Debug)]
-pub enum FatError {
+pub enum Error {
     /// Invalid boot signature (expected 0xAA55)
     InvalidBootSignature {
         /// The signature that was found
@@ -110,7 +110,7 @@ pub enum FatError {
     /// A read-only [`crate::cache::FatSectorCache`] operation needed to evict
     /// a sector to make room for a new one, but every cached sector is
     /// dirty. The caller must call [`crate::cache::FatSectorCache::flush`]
-    /// (or [`crate::FatFs::flush`]) before continuing — read paths can't
+    /// (or [`crate::FatVolume::flush`]) before continuing — read paths can't
     /// safely drop unwritten dirty data.
     #[cfg(feature = "cache")]
     CacheDirtyEviction {
@@ -176,7 +176,7 @@ pub enum FatError {
     },
 }
 
-impl fmt::Display for FatError {
+impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidBootSignature { found } => {
@@ -313,9 +313,9 @@ impl fmt::Display for FatError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for FatError {}
+impl std::error::Error for Error {}
 
-impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for FatError {
+impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for Error {
     fn from(e: hadris_io::Error<E>) -> Self {
         Self::Io(e.erase())
     }
@@ -325,7 +325,7 @@ impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for FatError {
 /// `hadris_io::Error` does not (yet) implement `Format`. The Io variant logs
 /// without details; everything else mirrors the Display output.
 #[cfg(feature = "defmt")]
-impl defmt::Format for FatError {
+impl defmt::Format for Error {
     fn format(&self, f: defmt::Formatter) {
         match self {
             Self::InvalidBootSignature { found } => {
@@ -444,4 +444,4 @@ impl defmt::Format for FatError {
 }
 
 /// Result type alias for FAT operations.
-pub type Result<T> = core::result::Result<T, FatError>;
+pub type Result<T> = core::result::Result<T, Error>;

@@ -12,7 +12,7 @@ extern crate alloc;
 use alloc::vec::Vec;
 
 #[cfg(feature = "alloc")]
-use crate::error::{PartitionError, Result};
+use crate::error::{Error, Result};
 use crate::gpt::Guid;
 #[cfg(feature = "alloc")]
 use crate::gpt::{GptHeader, GptPartitionEntry};
@@ -192,7 +192,7 @@ impl GptDisk {
                 return Ok(i);
             }
         }
-        Err(PartitionError::TooManyPartitions {
+        Err(Error::TooManyPartitions {
             max: self.entries.len(),
             requested: self.entries.len() + 1,
         })
@@ -202,7 +202,7 @@ impl GptDisk {
     pub fn validate(&self) -> Result<()> {
         // Check signature
         if !self.primary_header.has_valid_signature() {
-            return Err(PartitionError::InvalidGptSignature {
+            return Err(Error::InvalidGptSignature {
                 found: self.primary_header.signature,
             });
         }
@@ -211,7 +211,7 @@ impl GptDisk {
         #[cfg(feature = "crc")]
         {
             if !self.primary_header.verify_crc32() {
-                return Err(PartitionError::GptHeaderCrcMismatch {
+                return Err(Error::GptHeaderCrcMismatch {
                     expected: self.primary_header.header_crc32.to_ne(),
                     actual: self.primary_header.calculate_crc32(),
                 });
@@ -219,7 +219,7 @@ impl GptDisk {
 
             let entries_crc = crate::gpt::calculate_partition_array_crc32(&self.entries);
             if self.primary_header.partition_entry_array_crc32.to_ne() != entries_crc {
-                return Err(PartitionError::GptEntriesCrcMismatch {
+                return Err(Error::GptEntriesCrcMismatch {
                     expected: self.primary_header.partition_entry_array_crc32.to_ne(),
                     actual: entries_crc,
                 });
@@ -237,7 +237,7 @@ impl GptDisk {
                 {
                     let overlap_start = p1.first_lba.to_ne().max(p2.first_lba.to_ne());
                     let overlap_end = p1.last_lba.to_ne().min(p2.last_lba.to_ne());
-                    return Err(PartitionError::PartitionOverlap {
+                    return Err(Error::PartitionOverlap {
                         index1: idx1,
                         index2: idx2,
                         overlap_start,
@@ -252,7 +252,7 @@ impl GptDisk {
             if entry.first_lba.to_ne() < self.primary_header.first_usable_lba.to_ne()
                 || entry.last_lba.to_ne() > self.primary_header.last_usable_lba.to_ne()
             {
-                return Err(PartitionError::PartitionOutOfBounds {
+                return Err(Error::PartitionOutOfBounds {
                     index: idx,
                     partition_end: entry.last_lba.to_ne(),
                     disk_end: self.primary_header.last_usable_lba.to_ne(),
@@ -292,7 +292,7 @@ impl GptDisk {
 /// A unified partition scheme that can be MBR, GPT, or Hybrid.
 #[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
-pub enum DiskPartitionScheme {
+pub enum PartitionTable {
     /// Pure MBR partitioning.
     Mbr(MasterBootRecord),
     /// GPT partitioning with protective MBR.
@@ -312,7 +312,7 @@ pub enum DiskPartitionScheme {
 }
 
 #[cfg(feature = "alloc")]
-impl DiskPartitionScheme {
+impl PartitionTable {
     /// Creates a new MBR-only partition scheme.
     pub fn new_mbr() -> Self {
         Self::Mbr(MasterBootRecord::default())
@@ -375,13 +375,13 @@ impl DiskPartitionScheme {
         match self {
             Self::Mbr(mbr) => {
                 if !mbr.has_valid_signature() {
-                    return Err(PartitionError::InvalidMbrSignature {
+                    return Err(Error::InvalidMbrSignature {
                         found: mbr.signature,
                     });
                 }
                 let pt = mbr.get_partition_table();
                 if !pt.is_valid() {
-                    return Err(PartitionError::InvalidHybridMbr {
+                    return Err(Error::InvalidHybridMbr {
                         reason: "invalid MBR partition table",
                     });
                 }
@@ -392,24 +392,24 @@ impl DiskPartitionScheme {
                 gpt,
             } => {
                 if !protective_mbr.has_valid_signature() {
-                    return Err(PartitionError::InvalidMbrSignature {
+                    return Err(Error::InvalidMbrSignature {
                         found: protective_mbr.signature,
                     });
                 }
                 let pt = protective_mbr.get_partition_table();
                 if !pt.is_protective() {
-                    return Err(PartitionError::NoProtectiveMbr);
+                    return Err(Error::NoProtectiveMbr);
                 }
                 gpt.validate()
             }
             Self::Hybrid { hybrid_mbr, gpt } => {
                 if !hybrid_mbr.has_valid_signature() {
-                    return Err(PartitionError::InvalidMbrSignature {
+                    return Err(Error::InvalidMbrSignature {
                         found: hybrid_mbr.signature,
                     });
                 }
                 if !is_hybrid_mbr(hybrid_mbr) {
-                    return Err(PartitionError::InvalidHybridMbr {
+                    return Err(Error::InvalidHybridMbr {
                         reason: "not a valid hybrid MBR",
                     });
                 }
@@ -477,7 +477,7 @@ mod tests {
     #[cfg(feature = "alloc")]
     #[test]
     fn test_partition_scheme_new_gpt() {
-        let scheme = DiskPartitionScheme::new_gpt(1000000, 512);
+        let scheme = PartitionTable::new_gpt(1000000, 512);
         assert_eq!(scheme.scheme_type(), PartitionSchemeType::Gpt);
         assert!(scheme.validate().is_ok());
         assert!(scheme.partitions().is_empty());

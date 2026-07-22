@@ -24,31 +24,26 @@ Lexical virtual-path parsing now lives in the independent `hadris-path` crate.
 Its allocation-free `VPath`/`Components` core is shared by FAT, exFAT, ISO,
 UDF, RRIP, and metadata-layout traversal. Format crates retain responsibility
 for case folding, on-disk name decoding, symlinks, and entry lookup errors.
-`hadris_common::path` remains a deprecated forwarding surface for migration.
+The former `hadris_common::path` forwarding surface was removed at the RC4 API
+freeze.
 
 Fixed-capacity storage now lives in the independent `hadris-fixed` crate.
 `FixedBytes` represents arbitrary bytes, `FixedStr` preserves valid UTF-8, and
 `FixedUtf16Le`/`FixedUtf16Be` make byte order explicit. FAT and ISO consume the
-byte-oriented type directly. The former `hadris_common::types::file::FixedFilename`
-and `hadris_common::str::utf16::FixedUtf16Str` names remain deprecated aliases.
+byte-oriented type directly. The former `hadris-common` fixed-string aliases
+were removed at the RC4 API freeze.
 
 ## FAT
 
 | Existing API | Canonical 2.0 API | Compatibility |
 |---|---|---|
-| `FatFs` | `FatVolume` | retained alias during migration |
-| `FatFsBuilder` | `FatVolumeBuilder` | retained alias |
-| `FatFsReadExt` | `FatVolumeReadExt` | retained alias |
-| `FatFsWriteExt` | `FatVolumeWriteExt` | retained alias |
-| `FormatOptions` | `FatFormatOptions` | retained alias |
-| `with_time_provider` | `time_provider` | deprecated forwarding method |
-| `with_oem_converter` | `oem_converter` | deprecated forwarding method |
-| `with_fat_cache` | `fat_cache` | deprecated forwarding method |
-| `with_label` | `volume_label` | deprecated forwarding method |
-| `with_sector_size` | `sector_size` | deprecated forwarding method |
-| `with_fat_type` | `fat_type` | deprecated forwarding method |
-| remaining `with_*` format setters | matching field name | deprecated forwarding methods |
-| `FileEntry::size() -> usize` | `len() -> u64`, `is_empty()` | deprecated forwarding method |
+| `FatFs` | `FatVolume` | old name removed in RC4 |
+| `FatFsBuilder` | `FatVolumeBuilder` | old name removed in RC4 |
+| `FatFsReadExt` | `FatVolumeReadExt` | old name removed in RC4 |
+| `FatFsWriteExt` | `FatVolumeWriteExt` | old name removed in RC4 |
+| `FormatOptions` | `FatFormatOptions` | old name removed in RC4 |
+| `with_*` builder/format setters | matching field name | forwarding methods removed in RC4 |
+| `FileEntry::size() -> usize` | `len() -> u64`, `is_empty()` | old method removed in RC4 |
 
 `FatDir`, `DirectoryEntry`, `FileReader`, and `FileWriter` retain their current
 names for 2.0. They describe concrete FAT handles, have matching sync/async
@@ -68,10 +63,10 @@ content.
 
 | Existing API | Canonical 2.0 API | Compatibility |
 |---|---|---|
-| `DiskPartitionScheme` | `PartitionTable` | retained alias |
-| `DiskPartitionScheme::read_from` | `sync::partition_table::open` / async equivalent | extension trait retained |
+| `DiskPartitionScheme` | `PartitionTable` | old name removed in RC4 |
+| `DiskPartitionScheme::read_from` | `sync::partition_table::open` / async equivalent | canonical `PartitionTableReadExt` retained for direct trait use |
 | `detect_scheme_from_mbr` | `sync::partition_table::detect` / async equivalent | low-level helper retained |
-| implicit 512-byte `size_bytes` | `byte_len(logical_block_size)` | old method deprecated |
+| implicit 512-byte `size_bytes` | `byte_len(logical_block_size)` | old method removed in RC4 |
 | unchecked `end_lba` | `checked_end_lba` for untrusted arithmetic | old method retained |
 | manual partition offset arithmetic | `hadris-block` MBR/GPT `PartitionView` helpers | implemented |
 
@@ -95,7 +90,7 @@ validated opener without relying on the block facade.
 |---|---|
 | `IsoReader` / `IsoImage` | use `IsoReader` for allocation-free navigation and streaming; retain `IsoImage` for owned collections and RRIP-enriched reads |
 | root raw descriptors and high-level handles mixed | retain 1.x exports for 2.0; any future `raw` move must begin as additive aliases and receive a separate compatibility review |
-| writer constructors and modification APIs vary | canonical `create` returns the target; modifier `finish` returns the target; legacy methods deprecated |
+| writer constructors and modification APIs vary | canonical `create` returns the target; modifier `finish` returns the target; legacy methods removed in RC4 |
 | sync-only writers beside async readers | keep capability explicit; do not synthesize async writers |
 | directory traversal naming differs from FAT/UDF | audit against `entries`, `find`, and operational file handles |
 
@@ -121,17 +116,17 @@ namespaces, descriptor or volume opening, nested traversal, and file reads.
 
 | Current surface | 2.0 direction |
 |---|---|
-| `UdfFs` | canonical `UdfVolume` alias implemented; retain `UdfFs` for compatibility |
+| `UdfFs` | canonical `UdfVolume`; old name removed in RC4 |
 | mode-specific descriptor identities | continue separating mode-neutral raw values from I/O handles |
 | sync-only formatting/modification | retain explicit sync capability until genuine async implementation |
-| formatter/modifier lifecycle | `create` and modifier `finish` recover the target; legacy `format`/`commit` retained as deprecated forwarding APIs |
-| modification and writer errors | operation modules expose canonical `Error`/`Result`; descriptive aliases retained |
+| formatter/modifier lifecycle | `create` and modifier `finish` recover the target; legacy `format`/`commit` methods removed in RC4 |
+| modification and writer errors | operation modules expose canonical `Error`/`Result` |
 
 ## CPIO
 
 | Current surface | 2.0 direction |
 |---|---|
-| stateless `CpioWriter` | canonical owning `CpioArchiveWriter`; legacy writer retained |
+| stateless `CpioWriter` | canonical owning `CpioArchiveWriter`; stateless writer removed in RC4 |
 | entry/header mode duplication | move stable header/entry metadata to mode-neutral types where practical |
 | writer completion | consuming `finish` returning the underlying target implemented in both modes |
 | traversal | keep sequential `next_entry`; do not force filesystem directory traits |
@@ -149,8 +144,8 @@ error variants for diagnosis.
 
 | Current surface | 2.0 direction |
 |---|---|
-| `CdWriter::write` and mixed `with_*` setters | canonical consuming `finish` plus field-style setters; deprecated forwarding APIs retained |
-| “CD” naming for DVD/bridge images | canonical `OpticalImageWriter`/`OpticalImageOptions` aliases implemented; retain existing names for compatibility |
+| `CdWriter::write` and mixed `with_*` setters | canonical consuming `finish` plus field-style setters; forwarding APIs removed in RC4 |
+| “CD” naming for DVD/bridge images | canonical `OpticalImageWriter`/`OpticalImageOptions`; old names removed in RC4 |
 | sync-only ISO/UDF bridge construction | remain explicitly sync-only |
 | bridge ISO/UDF validation | layout collision fixed; both concrete readers continuously tested |
 
@@ -162,11 +157,8 @@ no floor and retains its compact standalone layout.
 ## Migration policy
 
 - Canonical names are used in all new documentation and examples.
-- Deprecated forwarding methods identify their exact replacement.
-- Type aliases remain temporarily when migration is mechanical and zero-cost.
-- No deprecated alias is used by library internals.
-- Aliases may be removed at the final 2.0 API freeze if the pre-release cycle
-  provides sufficient migration time.
+- Temporary deprecated aliases and forwarding methods were removed at the RC4
+  API freeze.
 - Raw layout moves require explicit compatibility review because downstream code
   may use them for forensic and bootloader applications.
 - This baseline is not a feature freeze. New capabilities may land before the

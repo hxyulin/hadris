@@ -23,8 +23,8 @@
 
 #![cfg(feature = "unstable-exfat")]
 
-use hadris_fat::FatError;
-use hadris_fat::exfat::{ExFatBootSector, ExFatFs};
+use hadris_fat::Error;
+use hadris_fat::exfat::{ExFatBootSector, ExFatVolume};
 use std::fs::File;
 use std::io::{Cursor, Read as StdRead};
 
@@ -55,10 +55,10 @@ fn load_partition_image() -> Vec<u8> {
 }
 
 /// Open the exFAT filesystem from the partition image
-fn open_exfat_fs() -> ExFatFs<Cursor<Vec<u8>>> {
+fn open_exfat_fs() -> ExFatVolume<Cursor<Vec<u8>>> {
     let data = load_partition_image();
     let cursor = Cursor::new(data);
-    ExFatFs::open(cursor).expect("Failed to open exFAT filesystem")
+    ExFatVolume::open(cursor).expect("Failed to open exFAT filesystem")
 }
 
 // =============================================================================
@@ -111,10 +111,7 @@ mod boot_sector_tests {
         let mut cursor = Cursor::new(data);
         let result = ExFatBootSector::read(&mut cursor);
 
-        assert!(matches!(
-            result,
-            Err(FatError::ExFatInvalidSignature { .. })
-        ));
+        assert!(matches!(result, Err(Error::ExFatInvalidSignature { .. })));
     }
 
     #[test]
@@ -127,7 +124,7 @@ mod boot_sector_tests {
         let mut cursor = Cursor::new(data);
         let result = ExFatBootSector::read(&mut cursor);
 
-        assert!(matches!(result, Err(FatError::InvalidBootSignature { .. })));
+        assert!(matches!(result, Err(Error::InvalidBootSignature { .. })));
     }
 
     #[test]
@@ -376,11 +373,11 @@ mod navigation_tests {
 
         // Empty path should be invalid
         let result = fs.open_path("");
-        assert!(matches!(result, Err(FatError::InvalidPath)));
+        assert!(matches!(result, Err(Error::InvalidPath)));
 
         // Just slash should be invalid
         let result = fs.open_path("/");
-        assert!(matches!(result, Err(FatError::InvalidPath)));
+        assert!(matches!(result, Err(Error::InvalidPath)));
     }
 
     #[test]
@@ -392,8 +389,8 @@ mod navigation_tests {
 
         // Should fail with NotADirectory (if file exists) or EntryNotFound
         match result {
-            Err(FatError::NotADirectory) => { /* Expected */ }
-            Err(FatError::EntryNotFound) => { /* File might not exist in fixture */ }
+            Err(Error::NotADirectory) => { /* Expected */ }
+            Err(Error::EntryNotFound) => { /* File might not exist in fixture */ }
             Ok(_) => panic!("Should not be able to open a file as a directory"),
             Err(e) => panic!("Unexpected error: {e:?}"),
         }
@@ -553,7 +550,7 @@ mod error_tests {
         let data = vec![0u8; 256]; // Way too small for exFAT
         let cursor = Cursor::new(data);
 
-        let result = ExFatFs::open(cursor);
+        let result = ExFatVolume::open(cursor);
 
         // Should fail with some error (IO error or validation error)
         assert!(result.is_err(), "Should fail on truncated image");
@@ -565,7 +562,7 @@ mod error_tests {
         let data = vec![0u8; 1024 * 1024]; // 1MB of zeros
         let cursor = Cursor::new(data);
 
-        let result = ExFatFs::open(cursor);
+        let result = ExFatVolume::open(cursor);
 
         // Should fail validation
         assert!(result.is_err(), "Should fail on all-zeros image");

@@ -48,7 +48,7 @@ pub use entry::{
 };
 pub use fat::ExFatTable;
 pub use file::ExFatFileReader;
-pub use fs::ExFatFs;
+pub use fs::ExFatVolume;
 pub use time::ExFatTimestamp;
 pub use upcase::UpcaseTable;
 

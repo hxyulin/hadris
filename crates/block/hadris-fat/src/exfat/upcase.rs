@@ -6,7 +6,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 use crate::io::{Read, Seek, SeekFrom};
 
 use super::ExFatInfo;
@@ -56,7 +56,7 @@ impl UpcaseTable {
         // ~18 EiB and abort the process on a no-overcommit / embedded target.
         let volume_capacity = info.cluster_count as u64 * info.bytes_per_cluster as u64;
         if size > volume_capacity {
-            return Err(FatError::ExFatInvalidEntry {
+            return Err(Error::ExFatInvalidEntry {
                 reason: "upcase table size exceeds volume capacity",
             });
         }
@@ -72,7 +72,7 @@ impl UpcaseTable {
         } else {
             // Fragmented upcase tables require following the FAT chain, which is not yet
             // implemented. Return an error rather than silently reading wrong data.
-            return Err(FatError::UnsupportedFatType(
+            return Err(Error::UnsupportedFatType(
                 "fragmented exFAT upcase table not yet supported",
             ));
         }
@@ -207,7 +207,7 @@ impl Default for UpcaseTable {
 }
 
 /// Compute the checksum for an up-case table.
-#[allow(dead_code)]
+#[cfg(feature = "write")]
 pub fn compute_upcase_checksum(data: &[u8]) -> u32 {
     let mut checksum: u32 = 0;
 

@@ -5,7 +5,7 @@ use core::mem::size_of;
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 #[cfg(feature = "write")]
 use super::io::Write;
 use super::io::{Read, Seek, SeekFrom};
@@ -103,7 +103,7 @@ where
             break;
         }
         if is_bad_cluster(cluster_u32) {
-            return Err(FatError::BadCluster {
+            return Err(Error::BadCluster {
                 cluster: current as u32,
             });
         }
@@ -221,7 +221,7 @@ impl Fat {
     /// cluster (including `start`) until the chain ends. Returns the last
     /// cluster visited.
     ///
-    /// Aborts with [`FatError::ClusterLoop`] if more than `max_steps`
+    /// Aborts with [`Error::ClusterLoop`] if more than `max_steps`
     /// clusters are walked. The natural upper bound is
     /// [`Self::max_cluster`] — any chain longer than that must repeat a
     /// cluster and is therefore corrupt.
@@ -242,7 +242,7 @@ impl Fat {
             visit(current);
             steps = steps.saturating_add(1);
             if steps > max_steps {
-                return Err(FatError::ClusterLoop { cluster: current });
+                return Err(Error::ClusterLoop { cluster: current });
             }
             match self.next_cluster(reader, current as usize).await? {
                 Some(next) => current = next,
@@ -352,7 +352,7 @@ impl Fat {
         cluster: usize,
     ) -> Result<bool> {
         if self.fat_copy_count() < 2 {
-            return Err(FatError::UnsupportedFatType("no backup FAT copy available"));
+            return Err(Error::UnsupportedFatType("no backup FAT copy available"));
         }
         match self {
             Self::Fat12(f) => {
@@ -390,14 +390,14 @@ impl Fat {
                     Self::Fat12(f) => {
                         let entry = f.read_clus_at(reader, cluster, 1).await? & Fat12::ENTRY_MASK;
                         if Fat12::is_end_of_chain(entry) { return Ok(None); }
-                        if Fat12::is_bad_cluster(entry) { return Err(FatError::BadCluster { cluster: cluster as u32 }); }
+                        if Fat12::is_bad_cluster(entry) { return Err(Error::BadCluster { cluster: cluster as u32 }); }
                         f.validate_cluster(entry)?;
                         Ok(Some(entry as u32))
                     }
                     Self::Fat16(f) => {
                         let entry = f.read_clus_at(reader, cluster, 1).await?;
                         if Fat16::is_end_of_chain(entry) { return Ok(None); }
-                        if Fat16::is_bad_cluster(entry) { return Err(FatError::BadCluster { cluster: cluster as u32 }); }
+                        if Fat16::is_bad_cluster(entry) { return Err(Error::BadCluster { cluster: cluster as u32 }); }
                         f.validate_cluster(entry)?;
                         Ok(Some(entry as u32))
                     }
@@ -405,7 +405,7 @@ impl Fat {
                         let raw = f.read_clus_at(reader, cluster, 1).await?;
                         let entry = raw & Fat32::ENTRY_MASK;
                         if Fat32::is_end_of_chain(entry) { return Ok(None); }
-                        if Fat32::is_bad_cluster(entry) { return Err(FatError::BadCluster { cluster: cluster as u32 }); }
+                        if Fat32::is_bad_cluster(entry) { return Err(Error::BadCluster { cluster: cluster as u32 }); }
                         f.validate_cluster(entry)?;
                         Ok(Some(entry))
                     }
@@ -444,7 +444,6 @@ impl core::fmt::Display for FatType {
 pub struct Fat12 {
     start: usize,
     size: usize,
-    #[allow(dead_code)]
     count: usize,
     max_cluster: u16,
 }
@@ -482,11 +481,12 @@ impl Fat12 {
         self.max_cluster
     }
 
-    /// Calculate byte offset for a FAT12 entry.
-    /// FAT12 packs 2 entries into 3 bytes: entry N starts at byte (N * 3) / 2
-    #[allow(dead_code)]
-    pub(crate) fn entry_byte_offset(&self, cluster: usize) -> usize {
-        self.start + (cluster * 3) / 2
+    sync_only! {
+        /// Calculates the byte offset used by synchronous analysis tooling.
+        #[cfg(feature = "tool")]
+        pub(crate) fn entry_byte_offset(&self, cluster: usize) -> usize {
+            self.start + (cluster * 3) / 2
+        }
     }
 
     async fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u16> {
@@ -523,13 +523,13 @@ impl Fat12 {
     /// Validate that a cluster number is within bounds
     fn validate_cluster(&self, cluster: u16) -> Result<()> {
         if cluster < Self::FIRST_DATA_CLUSTER {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster: cluster as u32,
                 max: self.max_cluster as u32,
             });
         }
         if cluster > self.max_cluster {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster: cluster as u32,
                 max: self.max_cluster as u32,
             });
@@ -550,7 +550,7 @@ impl Fat12 {
         }
 
         if Self::is_bad_cluster(entry) {
-            return Err(FatError::BadCluster {
+            return Err(Error::BadCluster {
                 cluster: cluster as u32,
             });
         }
@@ -642,7 +642,7 @@ impl Fat12 {
             }
         }
 
-        Err(FatError::NoFreeSpace)
+        Err(Error::NoFreeSpace)
     }
 
     /// Allocate a linked chain of `count` clusters, returning the first cluster.
@@ -659,7 +659,7 @@ impl Fat12 {
         hint: u16,
     ) -> Result<u16> {
         if count == 0 {
-            return Err(FatError::NoFreeSpace);
+            return Err(Error::NoFreeSpace);
         }
         let first = self.allocate_cluster(rw, hint).await?;
         let mut prev = first;
@@ -759,7 +759,6 @@ impl Fat12 {
 pub struct Fat16 {
     start: usize,
     size: usize,
-    #[allow(dead_code)]
     count: usize,
     max_cluster: u16,
 }
@@ -795,10 +794,12 @@ impl Fat16 {
         self.max_cluster
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn entry_offset(&self, cluster: usize) -> usize {
-        debug_assert!(cluster * size_of::<u16>() < self.size);
-        self.start + cluster * size_of::<u16>()
+    sync_only! {
+        #[cfg(feature = "tool")]
+        pub(crate) fn entry_offset(&self, cluster: usize) -> usize {
+            debug_assert!(cluster * size_of::<u16>() < self.size);
+            self.start + cluster * size_of::<u16>()
+        }
     }
 
     async fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u16> {
@@ -827,13 +828,13 @@ impl Fat16 {
     /// Validate that a cluster number is within bounds
     fn validate_cluster(&self, cluster: u16) -> Result<()> {
         if cluster < Self::FIRST_DATA_CLUSTER {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster: cluster as u32,
                 max: self.max_cluster as u32,
             });
         }
         if cluster > self.max_cluster {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster: cluster as u32,
                 max: self.max_cluster as u32,
             });
@@ -854,7 +855,7 @@ impl Fat16 {
         }
 
         if Self::is_bad_cluster(entry) {
-            return Err(FatError::BadCluster {
+            return Err(Error::BadCluster {
                 cluster: cluster as u32,
             });
         }
@@ -927,7 +928,7 @@ impl Fat16 {
             }
         }
 
-        Err(FatError::NoFreeSpace)
+        Err(Error::NoFreeSpace)
     }
 
     /// Allocate a linked chain of `count` clusters, returning the first cluster.
@@ -944,7 +945,7 @@ impl Fat16 {
         hint: u16,
     ) -> Result<u16> {
         if count == 0 {
-            return Err(FatError::NoFreeSpace);
+            return Err(Error::NoFreeSpace);
         }
         let first = self.allocate_cluster(rw, hint).await?;
         let mut prev = first;
@@ -1044,7 +1045,6 @@ impl Fat16 {
 pub struct Fat32 {
     start: usize,
     size: usize,
-    #[allow(dead_code)]
     count: usize,
     max_cluster: u32,
 }
@@ -1082,10 +1082,12 @@ impl Fat32 {
         self.max_cluster
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn entry_offset(&self, cluster: usize) -> usize {
-        debug_assert!(cluster * size_of::<u32>() < self.size);
-        self.start + cluster * size_of::<u32>()
+    sync_only! {
+        #[cfg(feature = "tool")]
+        pub(crate) fn entry_offset(&self, cluster: usize) -> usize {
+            debug_assert!(cluster * size_of::<u32>() < self.size);
+            self.start + cluster * size_of::<u32>()
+        }
     }
 
     async fn read_clus<T: Read + Seek>(&self, reader: &mut T, cluster: usize) -> Result<u32> {
@@ -1114,13 +1116,13 @@ impl Fat32 {
     /// Validate that a cluster number is within bounds
     fn validate_cluster(&self, cluster: u32) -> Result<()> {
         if cluster < Self::FIRST_DATA_CLUSTER {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster,
                 max: self.max_cluster,
             });
         }
         if cluster > self.max_cluster {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster,
                 max: self.max_cluster,
             });
@@ -1145,7 +1147,7 @@ impl Fat32 {
 
         // Check for bad cluster
         if Self::is_bad_cluster(entry) {
-            return Err(FatError::BadCluster {
+            return Err(Error::BadCluster {
                 cluster: cluster as u32,
             });
         }
@@ -1223,7 +1225,7 @@ impl Fat32 {
             }
         }
 
-        Err(FatError::NoFreeSpace)
+        Err(Error::NoFreeSpace)
     }
 
     /// Allocate a chain of clusters, linking them together.
@@ -1236,7 +1238,7 @@ impl Fat32 {
         hint: u32,
     ) -> Result<u32> {
         if count == 0 {
-            return Err(FatError::NoFreeSpace);
+            return Err(Error::NoFreeSpace);
         }
 
         let first = self.allocate_cluster(rw, hint).await?;

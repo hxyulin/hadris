@@ -2,7 +2,7 @@ use core::fmt;
 
 /// Errors that can occur during CPIO archive operations.
 #[derive(Debug)]
-pub enum CpioError {
+pub enum Error {
     /// An I/O error occurred while reading or writing the archive.
     Io(hadris_io::Error),
     /// The header magic bytes are not `070701` or `070702`.
@@ -40,7 +40,7 @@ pub enum CpioError {
     FileTooLarge,
 }
 
-impl fmt::Display for CpioError {
+impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(e) => write!(f, "I/O error: {e:?}"),
@@ -75,13 +75,13 @@ impl fmt::Display for CpioError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for CpioError {}
+impl std::error::Error for Error {}
 
-impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for CpioError {
+impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for Error {
     fn from(e: hadris_io::Error<E>) -> Self {
         Self::Io(e.erase())
     }
 }
 
-/// Convenience type alias for `core::result::Result<T, CpioError>`.
-pub type Result<T> = core::result::Result<T, CpioError>;
+/// Convenience type alias for `core::result::Result<T, Error>`.
+pub type Result<T> = core::result::Result<T, Error>;

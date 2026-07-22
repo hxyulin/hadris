@@ -573,14 +573,14 @@ mod charset_tests {
 
 mod edge_case_tests {
     use super::*;
-    use hadris_udf::UdfFs;
+    use hadris_udf::UdfVolume;
 
     #[test]
     fn test_empty_image() {
         let data = vec![0u8; 0];
         let cursor = Cursor::new(data);
 
-        let result = UdfFs::open(cursor);
+        let result = UdfVolume::open(cursor);
         assert!(result.is_err());
     }
 
@@ -590,7 +590,7 @@ mod edge_case_tests {
         let data = vec![0u8; 16 * 2048 - 1];
         let cursor = Cursor::new(data);
 
-        let result = UdfFs::open(cursor);
+        let result = UdfVolume::open(cursor);
         assert!(result.is_err());
     }
 
@@ -600,7 +600,7 @@ mod edge_case_tests {
         let data = vec![0u8; 300 * 2048];
         let cursor = Cursor::new(data);
 
-        let result = UdfFs::open(cursor);
+        let result = UdfVolume::open(cursor);
         assert!(result.is_err());
     }
 
@@ -614,7 +614,7 @@ mod edge_case_tests {
         data[16 * 2048 + 1..16 * 2048 + 6].copy_from_slice(b"WRONG");
 
         let cursor = Cursor::new(data);
-        let result = UdfFs::open(cursor);
+        let result = UdfVolume::open(cursor);
 
         // Should fail with some error
         assert!(result.is_err());

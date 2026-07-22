@@ -20,7 +20,7 @@ use hadris_common::types::{
     number::{U16, U32, U64},
 };
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 use crate::io::{Read, Seek, SeekFrom, Write};
 
 use super::boot::{BOOT_REGION_SECTORS, BOOT_SIGNATURE, EXFAT_SIGNATURE, RawExFatBootSector};
@@ -28,7 +28,7 @@ use super::entry::{
     RawAllocationBitmapEntry, RawDirectoryEntry, RawUpcaseTableEntry, RawVolumeLabelEntry,
     entry_type,
 };
-use super::fs::ExFatFs;
+use super::fs::ExFatVolume;
 use super::upcase::generate_compressed_upcase_table;
 
 /// Minimum volume size for exFAT (1 MB)
@@ -80,25 +80,25 @@ impl ExFatFormatOptions {
     }
 
     /// Set the volume label.
-    pub fn with_label(mut self, label: &str) -> Self {
+    pub fn volume_label(mut self, label: &str) -> Self {
         self.label = Some(label.to_string());
         self
     }
 
     /// Set the bytes per sector.
-    pub fn with_sector_size(mut self, size: usize) -> Self {
+    pub fn sector_size(mut self, size: usize) -> Self {
         self.bytes_per_sector = size;
         self
     }
 
     /// Set the sectors per cluster.
-    pub fn with_sectors_per_cluster(mut self, spc: usize) -> Self {
+    pub fn sectors_per_cluster(mut self, spc: usize) -> Self {
         self.sectors_per_cluster = spc;
         self
     }
 
     /// Set the number of FATs.
-    pub fn with_fat_count(mut self, count: u8) -> Self {
+    pub fn fat_count(mut self, count: u8) -> Self {
         self.fat_count = count;
         self
     }
@@ -106,7 +106,7 @@ impl ExFatFormatOptions {
     fn validate(&self) -> Result<()> {
         // Validate sector size (must be power of 2, 512-4096)
         if !matches!(self.bytes_per_sector, 512 | 1024 | 2048 | 4096) {
-            return Err(FatError::InvalidFormatOption {
+            return Err(Error::InvalidFormatOption {
                 option: "bytes_per_sector",
                 reason: "must be 512, 1024, 2048, or 4096",
             });
@@ -114,7 +114,7 @@ impl ExFatFormatOptions {
 
         // Validate FAT count
         if self.fat_count != 1 && self.fat_count != 2 {
-            return Err(FatError::InvalidFormatOption {
+            return Err(Error::InvalidFormatOption {
                 option: "fat_count",
                 reason: "must be 1 or 2",
             });
@@ -124,7 +124,7 @@ impl ExFatFormatOptions {
         if let Some(ref label) = self.label {
             let utf16_len = label.encode_utf16().count();
             if utf16_len > 11 {
-                return Err(FatError::InvalidFormatOption {
+                return Err(Error::InvalidFormatOption {
                     option: "label",
                     reason: "must be 11 UTF-16 characters or fewer",
                 });
@@ -169,13 +169,13 @@ pub fn calculate_layout(
 ) -> Result<ExFatLayoutParams> {
     // Validate volume size
     if volume_size < MIN_VOLUME_SIZE {
-        return Err(FatError::VolumeTooSmall {
+        return Err(Error::VolumeTooSmall {
             size: volume_size,
             min_size: MIN_VOLUME_SIZE,
         });
     }
     if volume_size > MAX_VOLUME_SIZE {
-        return Err(FatError::VolumeTooLarge {
+        return Err(Error::VolumeTooLarge {
             size: volume_size,
             max_size: MAX_VOLUME_SIZE,
         });
@@ -199,7 +199,7 @@ pub fn calculate_layout(
     // Validate cluster size (max 32 MB)
     let bytes_per_cluster = bytes_per_sector * sectors_per_cluster;
     if bytes_per_cluster > 32 * 1024 * 1024 {
-        return Err(FatError::InvalidFormatOption {
+        return Err(Error::InvalidFormatOption {
             option: "sectors_per_cluster",
             reason: "cluster size exceeds 32 MB maximum",
         });
@@ -298,7 +298,7 @@ fn calculate_fat_and_heap(
     let available_sectors = if volume_length as u32 > cluster_heap_offset {
         volume_length as u32 - cluster_heap_offset
     } else {
-        return Err(FatError::VolumeTooSmall {
+        return Err(Error::VolumeTooSmall {
             size: volume_length * bytes_per_sector as u64,
             min_size: MIN_VOLUME_SIZE,
         });
@@ -306,7 +306,7 @@ fn calculate_fat_and_heap(
     let cluster_count = available_sectors / sectors_per_cluster as u32;
 
     if cluster_count < 1 {
-        return Err(FatError::VolumeTooSmall {
+        return Err(Error::VolumeTooSmall {
             size: volume_length * bytes_per_sector as u64,
             min_size: MIN_VOLUME_SIZE,
         });
@@ -339,12 +339,12 @@ fn generate_serial() -> u32 {
 /// * `options` - Formatting options
 ///
 /// # Returns
-/// An opened `ExFatFs` handle to the newly formatted filesystem.
+/// An opened `ExFatVolume` handle to the newly formatted filesystem.
 pub fn format_exfat<DATA>(
     mut data: DATA,
     volume_size: u64,
     options: &ExFatFormatOptions,
-) -> Result<ExFatFs<DATA>>
+) -> Result<ExFatVolume<DATA>>
 where
     DATA: Read + Write + Seek,
 {
@@ -376,7 +376,7 @@ where
 
     // Seek back to start and open the filesystem
     data.seek(SeekFrom::Start(0))?;
-    ExFatFs::open(data)
+    ExFatVolume::open(data)
 }
 
 /// Write the boot region (main or backup).
@@ -834,7 +834,7 @@ mod tests {
     #[test]
     fn test_format_options_validation() {
         // Invalid sector size
-        let options = ExFatFormatOptions::new().with_sector_size(256);
+        let options = ExFatFormatOptions::new().sector_size(256);
         assert!(options.validate().is_err());
 
         // Invalid FAT count
@@ -861,7 +861,7 @@ mod tests {
         let mut buffer = vec![0u8; size as usize];
         let cursor = Cursor::new(&mut buffer[..]);
 
-        let options = ExFatFormatOptions::new().with_label("TEST");
+        let options = ExFatFormatOptions::new().volume_label("TEST");
         let fs = format_exfat(cursor, size, &options).unwrap();
 
         let info = fs.info();

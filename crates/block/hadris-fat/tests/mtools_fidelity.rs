@@ -15,8 +15,8 @@ use std::io::Seek;
 use std::path::Path;
 use std::process::Command;
 
-use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
-use hadris_fat::{FatFs, FatFsWriteExt};
+use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
+use hadris_fat::{FatVolume, FatVolumeWriteExt};
 
 fn mtools_available() -> bool {
     Command::new("mdir")
@@ -36,7 +36,7 @@ fn make_image_with(path: &Path, size: u64, files: &[(&str, &[u8])]) {
         .open(path)
         .expect("create image");
     file.set_len(size).expect("set length");
-    let options = FormatOptions::new(size)
+    let options = FatFormatOptions::new(size)
         .volume_label("MTOOLS")
         .fat_type(FatTypeSelection::Fat16);
     drop(FatVolumeFormatter::format(file, options).expect("format"));
@@ -47,7 +47,7 @@ fn make_image_with(path: &Path, size: u64, files: &[(&str, &[u8])]) {
         .open(path)
         .expect("reopen image");
     file.seek(std::io::SeekFrom::Start(0)).unwrap();
-    let fs = FatFs::open(file).expect("open FAT");
+    let fs = FatVolume::open(file).expect("open FAT");
     for (name, contents) in files {
         let entry = fs.create_file(&fs.root_dir(), name).expect("create_file");
         let mut writer = fs.write_file(&entry).expect("write_file");

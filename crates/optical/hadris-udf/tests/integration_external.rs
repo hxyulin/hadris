@@ -147,7 +147,7 @@ fn test_read_mkudffs_udf102() {
         .unwrap();
 
     let cursor = Cursor::new(udf_data);
-    let udf = hadris_udf::UdfFs::open(cursor)
+    let udf = hadris_udf::UdfVolume::open(cursor)
         .expect("hadris-udf should be able to open mkudffs UDF 1.02 image");
 
     let info = udf.info();
@@ -183,7 +183,7 @@ fn test_read_mkudffs_udf150() {
         .unwrap();
 
     let cursor = Cursor::new(udf_data);
-    let udf = hadris_udf::UdfFs::open(cursor)
+    let udf = hadris_udf::UdfVolume::open(cursor)
         .expect("hadris-udf should be able to open mkudffs UDF 1.50 image");
 
     let info = udf.info();
@@ -213,7 +213,7 @@ fn test_read_mkudffs_udf201() {
         .unwrap();
 
     let cursor = Cursor::new(udf_data);
-    let udf = hadris_udf::UdfFs::open(cursor)
+    let udf = hadris_udf::UdfVolume::open(cursor)
         .expect("hadris-udf should be able to open mkudffs UDF 2.01 image");
 
     let info = udf.info();

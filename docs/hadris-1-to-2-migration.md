@@ -3,11 +3,11 @@
 Hadris 2.0 reorganizes the project into a storage ecosystem with consistent
 feature flags, explicit synchronous and asynchronous namespaces, category-level
 detection and opening, and recoverable writer lifecycles. This guide targets
-`2.0.0-rc.3`.
+`2.0.0-rc.4`.
 
-Most common FAT and UDF renames have deprecated aliases, but new code should use
-the canonical 2.0 names. The aliases remain available for migration, but are
-not the preferred V2 surface.
+RC4 removes the temporary pre-release aliases. Applications migrating from 1.x
+must use the canonical names listed below; this avoids carrying two public APIs
+into the stable 2.0 release.
 
 ## Choose the right package
 
@@ -22,11 +22,9 @@ Applications can depend at three levels:
 
 Two formerly shared utility families are now independent packages:
 
-- Use `hadris-path` for allocation-free virtual path parsing. The old
-  `hadris_common::path` surface remains as a deprecated forwarding layer.
+- Use `hadris-path` for allocation-free virtual path parsing.
 - Use `hadris-fixed` for fixed-capacity bytes, UTF-8, and endian-aware UTF-16.
-  `hadris_common::types::file::FixedFilename` and
-  `hadris_common::str::utf16::FixedUtf16Str` are deprecated aliases.
+  The former `hadris-common` forwarding modules were removed in RC4.
 
 Start with the narrowest package that meets the application. Moving to a
 category facade or the umbrella later retains access to the same concrete
@@ -34,10 +32,10 @@ implementations.
 
 ```toml
 [dependencies]
-hadris-fat = "2.0.0-rc.3"
+hadris-fat = "2.0.0-rc.4"
 
 # Or select several categories through the umbrella:
-hadris = { version = "2.0.0-rc.3", features = ["block", "optical"] }
+hadris = { version = "2.0.0-rc.4", features = ["block", "optical"] }
 ```
 
 ## Update feature flags
@@ -62,7 +60,7 @@ For explicit or `no_std` configurations, select every required dimension:
 ```toml
 [dependencies]
 hadris-fat = {
-    version = "2.0.0-rc.3",
+    version = "2.0.0-rc.4",
     default-features = false,
     features = ["alloc", "read", "write", "sync"]
 }
@@ -104,8 +102,8 @@ synchronous.
 | `FormatOptions` | `FatFormatOptions` |
 | `FileEntry::size()` | `FileEntry::len()` and `is_empty()` |
 
-The old names remain aliases during migration. `FatDir`, `DirectoryEntry`,
-`FileReader`, and `FileWriter` retain their names.
+The old names were removed in RC4. `FatDir`, `DirectoryEntry`, `FileReader`,
+and `FileWriter` retain their names.
 
 Builder and formatting setters now use field-style names:
 
@@ -153,7 +151,7 @@ An allocation-free build selects `read` plus an I/O mode and does not require
 `alloc`:
 
 ```toml
-hadris-iso = { version = "2.0.0-rc.3", default-features = false, features = ["read", "sync"] }
+hadris-iso = { version = "2.0.0-rc.4", default-features = false, features = ["read", "sync"] }
 ```
 
 Use `IsoDir::read_entries` for collection-oriented traversal in either mode,
@@ -170,13 +168,15 @@ IsoImageWriter::format_new(output, files, options)?;
 let output = IsoImageWriter::create(output, files, options)?;
 ```
 
-`InputTree` replaces legacy filesystem-source and input-file aliases. Writer
-options use field-style names such as `bootstrap`, `rock_ridge`, `joliet`,
-`extensions`, and `hybrid_boot`.
+Use `InputTree` for host filesystem imports and per-entry metadata. The compact
+`InputFiles` model remains supported for in-memory trees that do not need
+metadata. Writer options use field-style names such as `bootstrap`,
+`rock_ridge`, `joliet`, `extensions`, and `hybrid_boot`.
 
 ### UDF
 
-`UdfVolume` is the canonical volume name; `UdfFs` remains a compatibility alias.
+`UdfVolume` is the canonical volume name; the former `UdfFs` alias was removed
+in RC4.
 Use `hadris_udf::sync` or `hadris_udf::async` explicitly.
 
 Formatting now returns both the target and sector count:
@@ -192,7 +192,7 @@ let sectors = created.sectors_written;
 ```
 
 Modification uses consuming `finish` to recover the image target. The old
-`commit` method remains as a deprecated forwarding API.
+`commit` forwarding method was removed in RC4.
 
 ### CPIO and hybrid optical images
 
@@ -200,10 +200,9 @@ Use the owning `CpioArchiveWriter` and call `finish`, which returns the target i
 both modes. CPIO remains a sequential archive API with `next_entry`; it is not
 forced into a filesystem volume abstraction.
 
-For ISO/UDF bridge images, `OpticalImageWriter` and `OpticalImageOptions` are the
-canonical names for the existing `CdWriter` and `CdOptions` types. Use
-field-style option setters and consuming `finish`; `CdWriter::write` remains
-deprecated.
+For ISO/UDF bridge images, use `OpticalImageWriter` and
+`OpticalImageOptions`. Their former `CdWriter`/`CdOptions` names, `with_*`
+setters, and non-recoverable `write` method were removed in RC4.
 
 ## Use the 2.0 lifecycle
 
@@ -271,9 +270,10 @@ Category facades expose root `Error` and `Result<T>` types. They distinguish
 unknown input, unsupported recognized formats, partitioned disks, detection
 mismatches, concrete format validation failures, and I/O failures.
 
-Leaf crates retain descriptive format errors and compatibility aliases where
-format context is useful. Code should match only the cases it can act on and
-include a fallback for non-exhaustive category errors.
+Leaf crates expose root `Error` and `Result<T>` types while retaining
+operation-specific errors where the failure domain is genuinely distinct. Code
+should match only the cases it can act on and include a fallback for
+non-exhaustive category errors.
 
 Detection is not validation. A detected FAT, ISO, UDF, MBR, or GPT structure can
 still fail during `open`, and that concrete validation error is preserved.
@@ -285,7 +285,7 @@ through the leaf crate's opt-in `unstable-exfat` feature:
 
 ```toml
 hadris-fat = {
-    version = "2.0.0-rc.3",
+    version = "2.0.0-rc.4",
     features = ["unstable-exfat"]
 }
 ```
@@ -315,10 +315,10 @@ specialized tools.
 
 ## Migration checklist
 
-1. Change dependency requirements to `2.0.0-rc.3`.
+1. Change dependency requirements to `2.0.0-rc.4`.
 2. Make platform, mode, and operation features explicit when disabling defaults.
 3. Move I/O calls to `sync` or `async` namespaces.
-4. Replace deprecated types and fluent setters with canonical names.
+4. Replace removed pre-release aliases and fluent setters with canonical names.
 5. Recover created or modified targets through `create`, `finish`, or
    `into_inner`.
 6. Replace manual probing and partition arithmetic with category detection,

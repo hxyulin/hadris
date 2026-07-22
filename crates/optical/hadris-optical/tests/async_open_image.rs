@@ -37,11 +37,14 @@ fn populated_tree() -> hadris_optical::cd::FileTree {
     tree
 }
 
-fn create_cd_image(options: hadris_optical::cd::CdOptions) -> Vec<u8> {
+fn create_cd_image(options: hadris_optical::cd::OpticalImageOptions) -> Vec<u8> {
     let mut image = std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
-    hadris_optical::cd::CdWriter::new(hadris_io::sync::Borrowed::new(&mut image), options)
-        .finish(populated_tree())
-        .unwrap();
+    hadris_optical::cd::OpticalImageWriter::new(
+        hadris_io::sync::Borrowed::new(&mut image),
+        options,
+    )
+    .finish(populated_tree())
+    .unwrap();
     image.into_inner()
 }
 
@@ -57,7 +60,7 @@ fn iso_name(entry: &hadris_optical::iso::r#async::read::DirEntry) -> String {
 
 #[test]
 fn asynchronously_opens_and_recovers_an_iso_source() {
-    let bytes = create_cd_image(hadris_optical::cd::CdOptions::default().iso_only());
+    let bytes = create_cd_image(hadris_optical::cd::OpticalImageOptions::default().iso_only());
 
     block_on(async {
         let mut source = hadris_io::Cursor::new(bytes.as_slice());
@@ -138,7 +141,7 @@ fn asynchronously_opens_and_recovers_a_udf_source() {
 
 #[test]
 fn asynchronously_traverses_a_bridge_under_both_policies() {
-    let bytes = create_cd_image(hadris_optical::cd::CdOptions::default());
+    let bytes = create_cd_image(hadris_optical::cd::OpticalImageOptions::default());
 
     block_on(async {
         let mut source = hadris_io::Cursor::new(bytes.as_slice());

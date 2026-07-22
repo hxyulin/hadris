@@ -18,12 +18,12 @@ pub use verify::verify;
 
 use std::fs::File;
 
-use hadris_udf::{UdfDir, UdfFs};
+use hadris_udf::{UdfDir, UdfVolume};
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// Navigate into a directory path within the UDF image.
-pub(super) fn navigate_to_path(udf: &UdfFs<File>, path: &str) -> Result<UdfDir> {
+pub(super) fn navigate_to_path(udf: &UdfVolume<File>, path: &str) -> Result<UdfDir> {
     let mut dir = udf.root_dir()?;
     for component in path.split('/').filter(|s| !s.is_empty()) {
         let icb = dir

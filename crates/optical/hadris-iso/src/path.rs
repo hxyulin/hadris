@@ -105,7 +105,6 @@ impl PathTableEntry {
 } // io_transform!
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 /// Represents PathTableRef.
 pub struct PathTableRef {
     pub(crate) lpt: LogicalSector,
@@ -115,9 +114,38 @@ pub struct PathTableRef {
 
 /// Path table information (requires alloc for iterator support)
 #[cfg(feature = "alloc")]
-#[allow(dead_code)]
 pub struct PathTableInfo {
     pub(crate) path_table: PathTableRef,
+}
+
+#[cfg(feature = "alloc")]
+impl PathTableInfo {
+    /// Returns the underlying path-table locations and encoded length.
+    pub fn reference(&self) -> &PathTableRef {
+        &self.path_table
+    }
+}
+
+impl PathTableRef {
+    /// Returns the little-endian path-table sector.
+    pub fn little_endian_sector(&self) -> LogicalSector {
+        self.lpt
+    }
+
+    /// Returns the big-endian path-table sector.
+    pub fn big_endian_sector(&self) -> LogicalSector {
+        self.mpt
+    }
+
+    /// Returns the encoded path-table length in bytes.
+    pub fn len(&self) -> u64 {
+        self.size
+    }
+
+    /// Returns whether the encoded path table is empty.
+    pub fn is_empty(&self) -> bool {
+        self.size == 0
+    }
 }
 
 sync_only! {

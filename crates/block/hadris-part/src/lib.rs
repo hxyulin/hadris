@@ -15,7 +15,7 @@
 //!
 //! - `std` (default): Enables standard library support and includes `alloc`.
 //! - `read` (default): Enables reading partition tables via `*ReadExt` traits.
-//! - `alloc`: Enables heap allocation for `Vec`-based APIs (e.g., `GptDisk`, `DiskPartitionScheme`).
+//! - `alloc`: Enables heap allocation for `Vec`-based APIs (e.g., `GptDisk`, `PartitionTable`).
 //! - `write`: Enables writing partition tables (requires `alloc` + `read`).
 //! - `sync` / `async`: Synchronous or asynchronous I/O traits (via `hadris-io`).
 //! - `crc`: Enables CRC32 verification/calculation for GPT headers (via the `crc` crate).
@@ -179,17 +179,15 @@ pub use sync::*;
 
 // Re-export commonly used types at the crate root
 pub use endian_num::Le;
-pub use error::{PartitionError, Result};
+pub use error::{Error, Result};
 pub use geometry::{DiskGeometry, validate_partition_alignment};
 pub use gpt::{GptHeader, GptPartitionEntry, Guid};
 pub use mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionTable, MbrPartitionType};
 pub use scheme::{PartitionInfo, PartitionSchemeType, PartitionType};
 
 #[cfg(feature = "alloc")]
-pub use scheme::DiskPartitionScheme as PartitionTable;
-#[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-pub use scheme::{DiskPartitionScheme, GptDisk};
+pub use scheme::{GptDisk, PartitionTable};
 
 // Flatten I/O extension traits to the crate root for discoverability
 #[cfg(all(feature = "sync", feature = "read"))]
@@ -206,10 +204,10 @@ pub use sync::mbr_io::MasterBootRecordReadExt;
 pub use sync::mbr_io::MasterBootRecordWriteExt;
 #[cfg(all(feature = "sync", feature = "alloc", feature = "read"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "read"))))]
-pub use sync::scheme_io::{DiskPartitionSchemeReadExt, GptDiskReadExt};
+pub use sync::scheme_io::{GptDiskReadExt, PartitionTableReadExt};
 #[cfg(all(feature = "sync", feature = "alloc", feature = "write"))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "write"))))]
-pub use sync::scheme_io::{DiskPartitionSchemeWriteExt, GptDiskWriteExt};
+pub use sync::scheme_io::{GptDiskWriteExt, PartitionTableWriteExt};
 
 /// Trait for types that represent partition information.
 ///
@@ -245,17 +243,6 @@ pub trait PartitionInfoTrait {
     /// Returns the partition length in bytes for an explicit logical block size.
     fn byte_len(&self, logical_block_size: u32) -> Option<u64> {
         self.size_sectors().checked_mul(logical_block_size as u64)
-    }
-
-    /// Returns the size of the partition in bytes (assuming 512-byte sectors).
-    #[deprecated(since = "2.0.0", note = "use `byte_len(logical_block_size)` instead")]
-    fn size_bytes(&self) -> u64 {
-        self.size_sectors() * 512
-    }
-
-    /// Returns the size of the partition in bytes for a given sector size.
-    fn size_bytes_with_sector_size(&self, sector_size: u32) -> u64 {
-        self.byte_len(sector_size).unwrap_or(u64::MAX)
     }
 }
 

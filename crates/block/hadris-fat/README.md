@@ -146,21 +146,21 @@ Automatic FAT type selection follows Microsoft recommendations:
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.0.0-rc.3", default-features = false, features = ["read", "sync"] }
+hadris-fat = { version = "2.0.0-rc.4", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Embedded Systems with Heap
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.0.0-rc.3", default-features = false, features = ["read", "write", "alloc", "lfn", "sync"] }
+hadris-fat = { version = "2.0.0-rc.4", default-features = false, features = ["read", "write", "alloc", "lfn", "sync"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-fat = "2.0.0-rc.3"  # Uses default features
+hadris-fat = "2.0.0-rc.4"  # Uses default features
 ```
 
 ## FAT Variant Support
@@ -191,13 +191,13 @@ The `cache` feature enables LRU FAT sector caching (sync API only; silently bypa
 
 ## Analysis Tools
 
-The `tool` feature adds extension traits on `FatFs`:
+The `tool` feature adds extension traits on `FatVolume`:
 
 ```rust,no_run
-use hadris_fat::{FatFs, FatAnalysisExt, FatVerifyExt};
+use hadris_fat::{FatVolume, FatAnalysisExt, FatVerifyExt};
 
 # fn main() -> hadris_fat::Result<()> {
-# let fs = FatFs::open(std::fs::File::open("disk.img")?)?;
+# let fs = FatVolume::open(std::fs::File::open("disk.img")?)?;
 let stats = fs.statistics()?;
 println!("Total clusters: {}", stats.total_clusters);
 println!("Free clusters: {}", stats.free_clusters);

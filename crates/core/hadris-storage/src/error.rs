@@ -2,7 +2,7 @@ use core::fmt;
 
 /// Error produced by block-addressed storage operations.
 #[derive(Debug)]
-pub enum BlockError<E> {
+pub enum Error<E> {
     /// The supplied buffer is not a non-zero multiple of the logical block size.
     InvalidBufferLength {
         /// Supplied buffer length in bytes.
@@ -33,9 +33,9 @@ pub enum BlockError<E> {
 }
 
 /// Result returned by block-addressed storage operations.
-pub type Result<T, E> = core::result::Result<T, BlockError<E>>;
+pub type Result<T, E> = core::result::Result<T, Error<E>>;
 
-impl<E: embedded_io::Error> fmt::Display for BlockError<E> {
+impl<E: embedded_io::Error> fmt::Display for Error<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidBufferLength { length, block_size } => write!(
@@ -63,4 +63,4 @@ impl<E: embedded_io::Error> fmt::Display for BlockError<E> {
 }
 
 #[cfg(feature = "std")]
-impl<E> std::error::Error for BlockError<E> where E: embedded_io::Error + fmt::Debug + 'static {}
+impl<E> std::error::Error for Error<E> where E: embedded_io::Error + fmt::Debug + 'static {}

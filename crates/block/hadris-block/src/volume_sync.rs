@@ -10,7 +10,7 @@ where
     S: Seek,
 {
     /// An opened FAT12, FAT16, or FAT32 filesystem.
-    Fat(hadris_fat::sync::FatFs<Borrowed<'a, S>>),
+    Fat(hadris_fat::sync::FatVolume<Borrowed<'a, S>>),
 }
 
 impl<'a, S> OpenVolume<'a, S>
@@ -36,7 +36,7 @@ where
         source
             .seek(SeekFrom::Start(0))
             .map_err(hadris_io::Error::erase)?;
-        let fat = hadris_fat::sync::FatFs::open(Borrowed::new(source))?;
+        let fat = hadris_fat::sync::FatVolume::open(Borrowed::new(source))?;
         let opened = fat_variant(fat.fat_type());
         if opened != detected {
             return Err(Error::DetectedFormatMismatch { detected, opened });
@@ -52,14 +52,14 @@ where
     }
 
     /// Borrows the opened FAT filesystem.
-    pub fn as_fat(&self) -> Option<&hadris_fat::sync::FatFs<Borrowed<'a, S>>> {
+    pub fn as_fat(&self) -> Option<&hadris_fat::sync::FatVolume<Borrowed<'a, S>>> {
         match self {
             Self::Fat(fat) => Some(fat),
         }
     }
 
     /// Mutably borrows the opened FAT filesystem.
-    pub fn as_fat_mut(&mut self) -> Option<&mut hadris_fat::sync::FatFs<Borrowed<'a, S>>> {
+    pub fn as_fat_mut(&mut self) -> Option<&mut hadris_fat::sync::FatVolume<Borrowed<'a, S>>> {
         match self {
             Self::Fat(fat) => Some(fat),
         }
@@ -67,7 +67,9 @@ where
 
     #[allow(clippy::result_large_err)]
     /// Extracts the FAT filesystem, returning `self` if its format differs.
-    pub fn into_fat(self) -> core::result::Result<hadris_fat::sync::FatFs<Borrowed<'a, S>>, Self> {
+    pub fn into_fat(
+        self,
+    ) -> core::result::Result<hadris_fat::sync::FatVolume<Borrowed<'a, S>>, Self> {
         match self {
             Self::Fat(fat) => Ok(fat),
         }

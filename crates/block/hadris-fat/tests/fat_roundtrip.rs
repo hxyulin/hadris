@@ -16,9 +16,10 @@ use std::io::Seek as _;
 use std::path::Path;
 use tempfile::TempDir;
 
-use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
-use hadris_fat::{FatFs, FatFsReadExt, FatFsWriteExt, FatType};
+use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
+use hadris_fat::{FatType, FatVolume, FatVolumeReadExt, FatVolumeWriteExt};
 
+#[path = "common/fat.rs"]
 mod fat_helpers;
 use fat_helpers::{fsck_check, fsck_fat_available};
 
@@ -33,7 +34,7 @@ fn make_image(path: &Path, size: u64, fat_type: FatTypeSelection, label: &str) {
         .expect("create image file");
     file.set_len(size).expect("set image length");
 
-    let options = FormatOptions::new(size)
+    let options = FatFormatOptions::new(size)
         .volume_label(label)
         .fat_type(fat_type);
 
@@ -41,7 +42,7 @@ fn make_image(path: &Path, size: u64, fat_type: FatTypeSelection, label: &str) {
     // Dropping `_fs` flushes its underlying File handle.
 }
 
-/// Open an image file at the start, ready for FatFs::open.
+/// Open an image file at the start, ready for FatVolume::open.
 fn open_image(path: &Path) -> std::fs::File {
     let mut file = OpenOptions::new()
         .read(true)
@@ -55,7 +56,7 @@ fn open_image(path: &Path) -> std::fs::File {
 /// Write `name` with `contents` into the root directory.
 fn write_root_file(image_path: &Path, name: &str, contents: &[u8]) {
     let file = open_image(image_path);
-    let fs = FatFs::open(file).expect("open FAT");
+    let fs = FatVolume::open(file).expect("open FAT");
 
     let entry = {
         let root = fs.root_dir();
@@ -71,7 +72,7 @@ fn write_root_file(image_path: &Path, name: &str, contents: &[u8]) {
 /// Create a subdirectory `name` in the root directory.
 fn create_root_dir(image_path: &Path, name: &str) {
     let file = open_image(image_path);
-    let fs = FatFs::open(file).expect("open FAT");
+    let fs = FatVolume::open(file).expect("open FAT");
 
     let root = fs.root_dir();
     fs.create_dir(&root, name).expect("create_dir");
@@ -80,7 +81,7 @@ fn create_root_dir(image_path: &Path, name: &str) {
 /// Truncate `name` in the root directory to `new_size`.
 fn truncate_root_file(image_path: &Path, name: &str, new_size: usize) {
     let file = open_image(image_path);
-    let fs = FatFs::open(file).expect("open FAT");
+    let fs = FatVolume::open(file).expect("open FAT");
 
     let entry = {
         let root = fs.root_dir();
@@ -92,7 +93,7 @@ fn truncate_root_file(image_path: &Path, name: &str, new_size: usize) {
 /// Delete `name` from the root directory.
 fn delete_root_file(image_path: &Path, name: &str) {
     let file = open_image(image_path);
-    let fs = FatFs::open(file).expect("open FAT");
+    let fs = FatVolume::open(file).expect("open FAT");
 
     let entry = {
         let root = fs.root_dir();
@@ -104,7 +105,7 @@ fn delete_root_file(image_path: &Path, name: &str) {
 /// Read the full contents of `name` from the root directory.
 fn read_root_file(image_path: &Path, name: &str) -> Vec<u8> {
     let file = open_image(image_path);
-    let fs = FatFs::open(file).expect("reopen FAT");
+    let fs = FatVolume::open(file).expect("reopen FAT");
 
     let entry = {
         let root = fs.root_dir();
@@ -138,7 +139,7 @@ fn maybe_fsck(image_path: &Path) {
 /// expected on-disk FAT type. Catches silent fallbacks.
 fn assert_fat_type(image_path: &Path, expected: FatType) {
     let file = open_image(image_path);
-    let fs = FatFs::open(file).expect("open for fat_type check");
+    let fs = FatVolume::open(file).expect("open for fat_type check");
     assert_eq!(fs.fat_type(), expected, "unexpected FAT type on disk");
 }
 
@@ -293,20 +294,20 @@ fn fat32_rename_dir_into_root_clean_fsck() {
 
     {
         let file = open_image(&img);
-        let fs = FatFs::open(file).expect("open FAT");
+        let fs = FatVolume::open(file).expect("open FAT");
         let root = fs.root_dir();
         let _sub1 = fs.create_dir(&root, "SUB1").expect("create SUB1");
     }
     {
         let file = open_image(&img);
-        let fs = FatFs::open(file).expect("open FAT");
+        let fs = FatVolume::open(file).expect("open FAT");
         let root = fs.root_dir();
         let sub1 = root.open_dir("SUB1").expect("open SUB1");
         let _sub2 = fs.create_dir(&sub1, "SUB2").expect("create SUB2");
     }
     {
         let file = open_image(&img);
-        let fs = FatFs::open(file).expect("open FAT");
+        let fs = FatVolume::open(file).expect("open FAT");
         let root = fs.root_dir();
         let sub1 = root.open_dir("SUB1").expect("open SUB1");
         let sub2_entry = sub1.find("SUB2").expect("find SUB2").expect("present");
@@ -327,7 +328,7 @@ fn fat32_root_extension_clean_fsck() {
 
     {
         let file = open_image(&img);
-        let fs = FatFs::open(file).expect("open FAT");
+        let fs = FatVolume::open(file).expect("open FAT");
         let root = fs.root_dir();
         // 64 MiB / 512-byte cluster → 16 entries per cluster initially;
         // 32 files guarantees at least one extension.
@@ -403,7 +404,7 @@ fn fat32_long_filename_lfn_write_roundtrip_clean_fsck() {
 
     // Re-open and look up by the long name — must hit the LFN entries.
     let file = open_image(&img);
-    let fs = FatFs::open(file).expect("reopen");
+    let fs = FatVolume::open(file).expect("reopen");
     let root = fs.root_dir();
     let entry = root
         .find(long_name)

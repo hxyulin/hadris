@@ -1,8 +1,12 @@
 io_transform! {
 
-#[allow(unused_imports)]
-use super::super::{Read, Write, Seek, SeekFrom};
-#[allow(unused_imports)]
+#[cfg(feature = "read")]
+use super::super::Read;
+#[cfg(any(feature = "read", feature = "write"))]
+use super::super::{Seek, SeekFrom};
+#[cfg(feature = "write")]
+use super::super::Write;
+#[cfg(any(feature = "read", feature = "write"))]
 use crate::gpt::{GptHeader, GptHeaderRaw};
 
 // I/O operations for GptHeader
@@ -39,12 +43,12 @@ impl GptHeaderReadExt for GptHeader {
         reader
             .read_exact(&mut buf)
             .await
-            .map_err(crate::error::PartitionError::from)?;
+            .map_err(crate::error::Error::from)?;
         let raw: GptHeaderRaw = bytemuck::cast(buf);
         let header = Self::from_raw(&raw);
 
         if !header.has_valid_signature() {
-            return Err(crate::error::PartitionError::InvalidGptSignature {
+            return Err(crate::error::Error::InvalidGptSignature {
                 found: header.signature,
             });
         }
@@ -60,7 +64,7 @@ impl GptHeaderReadExt for GptHeader {
         reader
             .seek(SeekFrom::Start(lba * block_size as u64))
             .await
-            .map_err(crate::error::PartitionError::from)?;
+            .map_err(crate::error::Error::from)?;
         Self::read_from(reader).await
     }
 }
@@ -98,7 +102,7 @@ impl GptHeaderWriteExt for GptHeader {
         writer
             .write_all(bytemuck::bytes_of(&raw))
             .await
-            .map_err(crate::error::PartitionError::from)
+            .map_err(crate::error::Error::from)
     }
 
     async fn write_to_lba<W: Write + Seek>(
@@ -110,13 +114,13 @@ impl GptHeaderWriteExt for GptHeader {
         writer
             .seek(SeekFrom::Start(lba * block_size as u64))
             .await
-            .map_err(crate::error::PartitionError::from)?;
+            .map_err(crate::error::Error::from)?;
 
         let raw = self.to_raw();
         writer
             .write_all(bytemuck::bytes_of(&raw))
             .await
-            .map_err(crate::error::PartitionError::from)?;
+            .map_err(crate::error::Error::from)?;
 
         // Pad to block size
         let padding_size = block_size as usize - GptHeaderRaw::SIZE;
@@ -125,7 +129,7 @@ impl GptHeaderWriteExt for GptHeader {
             writer
                 .write_all(&padding[..padding_size.min(512)])
                 .await
-                .map_err(crate::error::PartitionError::from)?;
+                .map_err(crate::error::Error::from)?;
         }
 
         Ok(())

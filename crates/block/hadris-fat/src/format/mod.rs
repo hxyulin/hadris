@@ -35,11 +35,10 @@ mod init;
 mod options;
 
 pub use calc::FormatParams;
-pub use options::{FatTypeSelection, FormatOptions, MediaType, OemName, SectorSize, VolumeLabel};
-pub use options::FormatOptions as FatFormatOptions;
+pub use options::{FatFormatOptions, FatTypeSelection, MediaType, OemName, SectorSize, VolumeLabel};
 
 use crate::error::Result;
-use super::fs::FatFs;
+use super::fs::FatVolume;
 use super::io::{Read, Seek, Write};
 
 /// FAT volume formatter.
@@ -61,7 +60,7 @@ impl FatVolumeFormatter {
     ///
     /// # Returns
     ///
-    /// Returns an opened `FatFs` handle for the newly formatted volume.
+    /// Returns an opened `FatVolume` handle for the newly formatted volume.
     ///
     /// # Errors
     ///
@@ -90,7 +89,7 @@ impl FatVolumeFormatter {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn format<DATA>(mut data: DATA, options: FormatOptions) -> Result<FatFs<DATA>>
+    pub async fn format<DATA>(mut data: DATA, options: FatFormatOptions) -> Result<FatVolume<DATA>>
     where
         DATA: Read + Write + Seek,
     {
@@ -106,7 +105,7 @@ impl FatVolumeFormatter {
         data.seek(SeekFrom::Start(0)).await?;
 
         // Open and return the newly formatted filesystem
-        FatFs::open(data).await
+        FatVolume::open(data).await
     }
 
     /// Calculate formatting parameters without actually formatting.
@@ -125,7 +124,7 @@ impl FatVolumeFormatter {
     /// - Cluster count and size
     /// - FAT size
     /// - Root directory parameters
-    pub fn calculate_params(options: &FormatOptions) -> Result<FormatParams> {
+    pub fn calculate_params(options: &FatFormatOptions) -> Result<FormatParams> {
         calc::calculate_params(options)
     }
 }
@@ -145,7 +144,7 @@ mod tests {
         let mut buffer = vec![0u8; 2 * 1024 * 1024];
         let cursor = Cursor::new(&mut buffer[..]);
 
-        let options = FormatOptions::new(2 * 1024 * 1024).volume_label("FAT12TEST");
+        let options = FatFormatOptions::new(2 * 1024 * 1024).volume_label("FAT12TEST");
 
         let fs = FatVolumeFormatter::format(cursor, options).unwrap();
         assert_eq!(fs.fat_type(), super::super::fat_table::FatType::Fat12);
@@ -158,7 +157,7 @@ mod tests {
         let mut buffer = vec![0u8; 64 * 1024 * 1024];
         let cursor = Cursor::new(&mut buffer[..]);
 
-        let options = FormatOptions::new(64 * 1024 * 1024).volume_label("FAT16TEST");
+        let options = FatFormatOptions::new(64 * 1024 * 1024).volume_label("FAT16TEST");
 
         let fs = FatVolumeFormatter::format(cursor, options).unwrap();
         assert_eq!(fs.fat_type(), super::super::fat_table::FatType::Fat16);
@@ -172,7 +171,7 @@ mod tests {
         let mut buffer = vec![0u8; 256 * 1024 * 1024];
         let cursor = Cursor::new(&mut buffer[..]);
 
-        let options = FormatOptions::new(256 * 1024 * 1024)
+        let options = FatFormatOptions::new(256 * 1024 * 1024)
             .volume_label("FAT32TEST")
             .fat_type(FatTypeSelection::Fat32);
 
@@ -186,7 +185,7 @@ mod tests {
         let mut buffer = vec![0u8; 4 * 1024 * 1024];
         let cursor = Cursor::new(&mut buffer[..]);
 
-        let options = FormatOptions::new(4 * 1024 * 1024);
+        let options = FatFormatOptions::new(4 * 1024 * 1024);
         let fs = FatVolumeFormatter::format(cursor, options).unwrap();
 
         // Create a file

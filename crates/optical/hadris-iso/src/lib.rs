@@ -27,7 +27,7 @@
 //! # use std::sync::Arc;
 //! # use hadris_iso::read::PathSeparator;
 //! # use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
-//! # use hadris_iso::write::options::{FormatOptions, CreationFeatures};
+//! # use hadris_iso::write::options::{IsoFormatOptions, CreationFeatures};
 //! use hadris_iso::read::IsoImage;
 //!
 //! # // Create a minimal ISO image for the example
@@ -40,7 +40,7 @@
 //! #         },
 //! #     ],
 //! # };
-//! # let options = FormatOptions {
+//! # let options = IsoFormatOptions {
 //! #     volume_name: "TEST".to_string(),
 //! #     system_id: None, volume_set_id: None, publisher_id: None,
 //! #     preparer_id: None, application_id: None,
@@ -72,7 +72,7 @@
 //! use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
 //! use hadris_iso::boot::EmulationType;
 //! use hadris_iso::read::PathSeparator;
-//! use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
+//! use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
 //! use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
 //!
 //! // Prepare files to include (use dummy boot image for example)
@@ -101,7 +101,7 @@
 //! };
 //!
 //! // Create the ISO
-//! let format_options = FormatOptions {
+//! let format_options = IsoFormatOptions {
 //!     volume_name: "MY_BOOTABLE_ISO".to_string(),
 //!     system_id: None, volume_set_id: None, publisher_id: None,
 //!     preparer_id: None, application_id: None,
@@ -460,7 +460,7 @@ pub mod sync {
         /// # use std::sync::Arc;
         /// # use hadris_iso::read::PathSeparator;
         /// # use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
-        /// # use hadris_iso::write::options::{FormatOptions, CreationFeatures};
+        /// # use hadris_iso::write::options::{IsoFormatOptions, CreationFeatures};
         /// use hadris_iso::read::IsoImage;
         ///
         /// # // Create a minimal ISO for the example
@@ -471,7 +471,7 @@ pub mod sync {
         /// #         contents: b"test".to_vec(),
         /// #     }],
         /// # };
-        /// # let options = FormatOptions {
+        /// # let options = IsoFormatOptions {
         /// #     volume_name: "TEST".to_string(),
         /// #     system_id: None, volume_set_id: None, publisher_id: None,
         /// #     preparer_id: None, application_id: None,
@@ -525,7 +525,7 @@ pub mod sync {
         /// use std::sync::Arc;
         /// use hadris_iso::read::PathSeparator;
         /// use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
-        /// use hadris_iso::write::options::{FormatOptions, CreationFeatures};
+        /// use hadris_iso::write::options::{IsoFormatOptions, CreationFeatures};
         ///
         /// // Create files to include in the ISO
         /// let files = InputFiles {
@@ -537,7 +537,7 @@ pub mod sync {
         ///         },
         ///     ],
         /// };
-        /// let options = FormatOptions {
+        /// let options = IsoFormatOptions {
         ///     volume_name: "MY_ISO".to_string(),
         ///     system_id: None, volume_set_id: None, publisher_id: None,
         ///     preparer_id: None, application_id: None,

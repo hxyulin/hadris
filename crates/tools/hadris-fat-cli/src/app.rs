@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
-use hadris_fat::{DirEntryAttrFlags, DirectoryEntry, FatDir};
-use hadris_fat::{FatAnalysisExt, FatFs, FatFsWriteExt, FatVerifyExt, Read as FatRead};
+use hadris_fat::raw::DirEntryAttrFlags;
+use hadris_fat::{DirectoryEntry, FatDir};
+use hadris_fat::{FatAnalysisExt, FatVerifyExt, FatVolume, FatVolumeWriteExt, Read as FatRead};
 
 #[derive(Parser)]
 #[command(name = "hadris-fat")]
@@ -149,16 +150,16 @@ pub fn run() -> Result<()> {
     }
 }
 
-fn open_fat_fs(path: PathBuf) -> Result<FatFs<File>> {
+fn open_fat_fs(path: PathBuf) -> Result<FatVolume<File>> {
     let file = File::open(&path)
         .with_context(|| format!("Failed to open image file: {}", path.display()))?;
-    FatFs::open(file).context("Failed to parse FAT filesystem")
+    FatVolume::open(file).context("Failed to parse FAT filesystem")
 }
 
 /// Prefer the root-directory volume label (what Windows/mkfs.fat update) over
 /// the BPB copy, which can drift. Fall back to the BPB label when no root
 /// entry exists.
-fn display_volume_label(fs: &FatFs<File>) -> Result<String> {
+fn display_volume_label(fs: &FatVolume<File>) -> Result<String> {
     if let Some(raw) = fs
         .read_root_label()
         .context("Failed to read root volume label")?
@@ -316,7 +317,7 @@ fn cmd_tree(image: PathBuf, path: &str, max_depth: Option<usize>) -> Result<()> 
 }
 
 fn print_tree<DATA: std::io::Read + std::io::Seek>(
-    fs: &FatFs<DATA>,
+    fs: &FatVolume<DATA>,
     dir: &FatDir<'_, DATA>,
     prefix: &str,
     max_depth: Option<usize>,
@@ -542,7 +543,7 @@ fn cmd_extract(image: PathBuf, output: &Path, path: Option<&str>) -> Result<()> 
 }
 
 fn extract_dir<DATA: FatRead + hadris_fat::Seek>(
-    fs: &FatFs<DATA>,
+    fs: &FatVolume<DATA>,
     dir: &FatDir<'_, DATA>,
     destination: &Path,
 ) -> Result<()> {
@@ -569,7 +570,7 @@ fn extract_dir<DATA: FatRead + hadris_fat::Seek>(
 }
 
 fn extract_file<DATA: FatRead + hadris_fat::Seek>(
-    fs: &FatFs<DATA>,
+    fs: &FatVolume<DATA>,
     entry: &hadris_fat::FileEntry,
     destination: &Path,
 ) -> Result<()> {
@@ -687,7 +688,7 @@ fn estimate_image_size(inventory: &SourceInventory, fat_type: FatKind) -> u64 {
 }
 
 fn import_directory<DATA: FatRead + hadris_fat::Write + hadris_fat::Seek>(
-    fs: &FatFs<DATA>,
+    fs: &FatVolume<DATA>,
     destination: &FatDir<'_, DATA>,
     source: &Path,
 ) -> Result<()> {

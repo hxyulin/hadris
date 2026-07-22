@@ -1,6 +1,6 @@
 //! Integration tests for hadris-part: roundtrip, geometry, edge cases.
 
-use hadris_part::error::PartitionError;
+use hadris_part::error::Error;
 use hadris_part::geometry::{DiskGeometry, validate_partition_alignment};
 use hadris_part::gpt::{GptPartitionEntry, Guid};
 use hadris_part::hybrid::{HybridMbrBuilder, is_hybrid_mbr};
@@ -69,7 +69,7 @@ fn gpt_partition_entry_roundtrip() {
 }
 
 // ---------------------------------------------------------------------------
-// DiskPartitionScheme detection
+// PartitionTable detection
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -164,7 +164,7 @@ fn validate_alignment_misaligned() {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        PartitionError::MisalignedPartition { .. }
+        Error::MisalignedPartition { .. }
     ));
 }
 
@@ -248,7 +248,7 @@ fn partition_info_trait_empty_partition() {
 fn partition_info_trait_custom_sector_size() {
     let partition = MbrPartition::new(MbrPartitionType::Fat32, 2048, 100);
     assert_eq!(partition.byte_len(512), Some(100 * 512));
-    assert_eq!(partition.size_bytes_with_sector_size(4096), 100 * 4096);
+    assert_eq!(partition.byte_len(4096).unwrap(), 100 * 4096);
 }
 
 // ---------------------------------------------------------------------------
@@ -284,13 +284,13 @@ fn hybrid_mbr_builder() {
 
 #[test]
 fn partition_error_display() {
-    let err = PartitionError::InvalidMbrSignature {
+    let err = Error::InvalidMbrSignature {
         found: [0x00, 0x00],
     };
     let msg = format!("{err}");
     assert!(msg.contains("invalid MBR signature"));
 
-    let err = PartitionError::DiskTooSmall {
+    let err = Error::DiskTooSmall {
         required: 1000,
         available: 500,
     };
@@ -308,10 +308,10 @@ fn partition_io_error_preserves_kind() {
     let mut cursor = Cursor::new(&[0u8; 10]); // too short for a 512-byte MBR
     let err = MasterBootRecord::read_from(&mut cursor).unwrap_err();
     match err {
-        PartitionError::Io(io_err) => {
+        Error::Io(io_err) => {
             assert_eq!(io_err.kind(), ErrorKind::UnexpectedEof);
         }
-        other => panic!("expected PartitionError::Io, got {other:?}"),
+        other => panic!("expected Error::Io, got {other:?}"),
     }
 }
 

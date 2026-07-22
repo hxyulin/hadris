@@ -375,6 +375,8 @@ jobs:
   test-exfat:
     name: Test exFAT (with external tools)
     runs-on: ubuntu-latest
+    env:
+      HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.88.0
