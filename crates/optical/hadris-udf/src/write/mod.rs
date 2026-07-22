@@ -461,10 +461,22 @@ impl<W: Write + Seek> UdfFormatter<W> {
         let icb_block = self.allocate_block();
         let unique_id = self.next_unique_id();
 
-        // Calculate FID size
-        let entry_count = 1 + dir.files.len() + dir.subdirs.len(); // parent + files + subdirs
-        let estimated_fid_bytes = entry_count * 50; // ~50 bytes per FID entry
-        let fid_sectors = estimated_fid_bytes.div_ceil(SECTOR_SIZE) as u32;
+        // Every FID is 38 bytes plus the CS0 identifier, padded to four bytes.
+        // Plan from the actual encoded lengths so directory data cannot overlap
+        // the ICB or payload extent that follows it.
+        let mut fid_bytes = 40usize; // parent FID has an empty identifier
+        for name in dir
+            .files
+            .iter()
+            .map(|file| file.name.as_str())
+            .chain(dir.subdirs.iter().map(|subdir| subdir.name.as_str()))
+        {
+            let encoded_len = self.encode_filename(name)?.len();
+            fid_bytes = fid_bytes
+                .checked_add((38 + encoded_len + 3) & !3)
+                .ok_or(crate::error::UdfError::PathTooLong)?;
+        }
+        let fid_sectors = fid_bytes.div_ceil(SECTOR_SIZE) as u32;
 
         let fid_block = self.allocate_block();
         // Allocate additional FID sectors if needed
@@ -1084,7 +1096,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             } else {
                 FileCharacteristics::empty()
             };
-            let encoded_name = self.encode_filename(name);
+            let encoded_name = self.encode_filename(name)?;
             let fid = self.create_fid(location, icb, chars, &encoded_name);
             buffer.extend_from_slice(&fid);
         }
@@ -1159,11 +1171,22 @@ impl<W: Write + Seek> UdfFormatter<W> {
             return;
         }
 
-        let bytes = s.as_bytes();
         let max_content = buffer.len() - 2;
-        let content_len = bytes.len().min(max_content);
-        buffer[0] = 8;
-        buffer[1..1 + content_len].copy_from_slice(&bytes[..content_len]);
+        let mut encoded = Vec::new();
+        if s.chars().all(|ch| (ch as u32) <= 0xff) {
+            buffer[0] = 8;
+            encoded.extend(s.chars().map(|ch| ch as u8));
+        } else {
+            buffer[0] = 16;
+            for unit in s.encode_utf16() {
+                if encoded.len() + 2 > max_content {
+                    break;
+                }
+                encoded.extend_from_slice(&unit.to_be_bytes());
+            }
+        }
+        let content_len = encoded.len().min(max_content);
+        buffer[1..1 + content_len].copy_from_slice(&encoded[..content_len]);
         buffer[buffer.len() - 1] = (content_len + 1) as u8;
     }
 
@@ -1176,12 +1199,8 @@ impl<W: Write + Seek> UdfFormatter<W> {
         }
     }
 
-    fn encode_filename(&self, name: &str) -> Vec<u8> {
-        let bytes = name.as_bytes();
-        let mut result = Vec::with_capacity(bytes.len() + 1);
-        result.push(8);
-        result.extend_from_slice(bytes);
-        result
+    fn encode_filename(&self, name: &str) -> UdfResult<Vec<u8>> {
+        encode_cs0_filename(name)
     }
 }
 
@@ -1751,7 +1770,7 @@ impl<W: Write + Seek> UdfWriter<W> {
             } else {
                 FileCharacteristics::empty()
             };
-            let encoded_name = self.encode_filename(name);
+            let encoded_name = self.encode_filename(name)?;
             let fid = self.create_fid(location, icb, chars, &encoded_name);
             buffer.extend_from_slice(&fid);
         }
@@ -1890,13 +1909,22 @@ impl<W: Write + Seek> UdfWriter<W> {
             return;
         }
 
-        // Use 8-bit encoding for ASCII-compatible strings
-        let bytes = s.as_bytes();
         let max_content = buffer.len() - 2; // Reserve 1 byte for compression ID, 1 for length
-
-        let content_len = bytes.len().min(max_content);
-        buffer[0] = 8; // Compression ID (8-bit)
-        buffer[1..1 + content_len].copy_from_slice(&bytes[..content_len]);
+        let mut encoded = Vec::new();
+        if s.chars().all(|ch| (ch as u32) <= 0xff) {
+            buffer[0] = 8;
+            encoded.extend(s.chars().map(|ch| ch as u8));
+        } else {
+            buffer[0] = 16;
+            for unit in s.encode_utf16() {
+                if encoded.len() + 2 > max_content {
+                    break;
+                }
+                encoded.extend_from_slice(&unit.to_be_bytes());
+            }
+        }
+        let content_len = encoded.len().min(max_content);
+        buffer[1..1 + content_len].copy_from_slice(&encoded[..content_len]);
         buffer[buffer.len() - 1] = (content_len + 1) as u8; // Length including compression ID
     }
 
@@ -1914,13 +1942,49 @@ impl<W: Write + Seek> UdfWriter<W> {
     }
 
     /// Encode a filename for UDF
-    fn encode_filename(&self, name: &str) -> Vec<u8> {
-        // Use 8-bit encoding for ASCII
-        let bytes = name.as_bytes();
-        let mut result = Vec::with_capacity(bytes.len() + 1);
-        result.push(8); // Compression ID
-        result.extend_from_slice(bytes);
-        result
+    fn encode_filename(&self, name: &str) -> UdfResult<Vec<u8>> {
+        encode_cs0_filename(name)
+    }
+}
+
+fn encode_cs0_filename(name: &str) -> UdfResult<Vec<u8>> {
+    let mut result = if name.chars().all(|ch| (ch as u32) <= 0xff) {
+        let mut encoded = Vec::with_capacity(name.chars().count() + 1);
+        encoded.push(8);
+        encoded.extend(name.chars().map(|ch| ch as u8));
+        encoded
+    } else {
+        let mut encoded = Vec::with_capacity(name.encode_utf16().count() * 2 + 1);
+        encoded.push(16);
+        for unit in name.encode_utf16() {
+            encoded.extend_from_slice(&unit.to_be_bytes());
+        }
+        encoded
+    };
+    if result.len() > u8::MAX as usize {
+        result.clear();
+        return Err(crate::error::UdfError::InvalidEncoding);
+    }
+    Ok(result)
+}
+
+#[cfg(test)]
+mod cs0_tests {
+    use super::encode_cs0_filename;
+
+    #[test]
+    fn selects_eight_bit_for_latin1() {
+        assert_eq!(encode_cs0_filename("café").unwrap(), b"\x08caf\xe9");
+    }
+
+    #[test]
+    fn selects_sixteen_bit_for_wide_unicode() {
+        assert_eq!(encode_cs0_filename("文").unwrap(), [16, 0x65, 0x87]);
+    }
+
+    #[test]
+    fn rejects_fid_identifiers_over_255_bytes() {
+        assert!(encode_cs0_filename(&"文".repeat(128)).is_err());
     }
 }
 

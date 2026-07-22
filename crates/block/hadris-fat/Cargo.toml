@@ -1,6 +1,6 @@
 [package]
 name = "hadris-fat"
-version = "2.0.0-rc.2"
+version = "2.0.0-rc.3"
 description = "Rust FAT12/FAT16/FAT32 filesystem library for disk images, embedded devices, and no-std"
 readme = "README.md"
 keywords = ["fat", "fat32", "vfat", "filesystem", "no-std"]

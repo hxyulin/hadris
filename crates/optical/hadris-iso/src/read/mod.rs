@@ -43,8 +43,7 @@ pub struct IsoImageInfo {
     boot_catalog: Option<u32>,
     path_table: PathTableRef,
     pub(crate) susp_info: SuspInfo,
-    /// True if an Enhanced Volume Descriptor (EVD) was found, indicating
-    /// this may be a UDF bridge ISO (combined ISO 9660 + UDF).
+    /// True if an ISO 9660:1999 Enhanced Volume Descriptor (EVD) was found.
     has_evd: bool,
     /// Cached path table entries, parsed once during open() to avoid
     /// repeated seeks for directory hierarchy traversal.
@@ -286,12 +285,18 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                     }
                 }
             } else if svd.file_structure_version == 2 {
-                // Enhanced Volume Descriptor (EVD) — indicates UDF bridge ISO.
-                // The ISO 9660 spec defines this as a supplementary VD with
-                // file_structure_version == 2. Its presence signals that the
-                // image likely also contains a UDF filesystem that can be
-                // accessed via hadris-udf for richer metadata.
+                // ISO 9660:1999 enhanced namespace (ECMA-119, 3rd edition).
                 info.has_evd = true;
+                info.root_dirs.dirs.push(RootDir {
+                    ty: EntryType::Level3 {
+                        supports_lowercase: true,
+                        supports_rrip: false,
+                    },
+                    dir_ref: DirectoryRef {
+                        extent: LogicalSector(svd.dir_record.header.extent.read() as usize),
+                        size: svd.dir_record.header.data_len.read() as usize,
+                    },
+                });
             }
         }
 
@@ -412,10 +417,7 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         self.info.susp_info.rrip_detected
     }
 
-    /// Returns whether an Enhanced Volume Descriptor (EVD) was found.
-    ///
-    /// An EVD indicates this is likely a UDF bridge ISO containing both
-    /// ISO 9660 and UDF filesystems. Use `hadris-udf` for UDF access.
+    /// Returns whether an ISO 9660:1999 Enhanced Volume Descriptor was found.
     pub fn has_evd(&self) -> bool {
         self.info.has_evd
     }

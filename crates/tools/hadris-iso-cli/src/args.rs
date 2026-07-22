@@ -242,7 +242,7 @@ impl FromStr for ArgLevel {
                 supports_lowercase: true,
                 supports_rrip: false,
             }),
-            "3" => Self(BaseIsoLevel::Level2 {
+            "3" => Self(BaseIsoLevel::Level3 {
                 supports_lowercase: true,
                 supports_rrip: false,
             }),

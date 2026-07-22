@@ -6,7 +6,7 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", feature = "sync"))]
 use super::types::layout::DirectoryLayout;
 
 /// Standard sector size for optical media (CD/DVD/Blu-ray).
@@ -87,7 +87,7 @@ impl Default for SessionInfo {
 /// tree with extents already calculated, and writes only the
 /// filesystem metadata (volume descriptors, directory records, etc.)
 /// without writing any file data.
-#[cfg(feature = "alloc")]
+#[cfg(all(feature = "alloc", feature = "sync"))]
 pub trait OpticalMetadataWriter {
     /// Options type for the writer.
     type Options;

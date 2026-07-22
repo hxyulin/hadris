@@ -205,8 +205,8 @@ pub fn decode_filename(data: &[u8]) -> String {
 
     match compression_id {
         8 => {
-            // 8-bit characters (Latin-1/UTF-8)
-            String::from_utf8_lossy(content).into_owned()
+            // CS0 compression ID 8 stores one Unicode code point per byte.
+            content.iter().map(|byte| char::from(*byte)).collect()
         }
         16 => {
             // 16-bit characters (UTF-16 BE)

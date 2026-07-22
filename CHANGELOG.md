@@ -8,6 +8,31 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [2.0.0-rc.3] - 2026-07-22
+
+### Added
+
+- **hadris-iso:** Added an explicit ISO interchange `BaseIsoLevel::Level3` and
+  corrected the CLI `--level 3` mapping.
+- **hadris-iso:** Allocation-free readers now discover and explicitly select
+  the ISO 9660:1999 enhanced namespace, including its root directory.
+
+### Fixed
+
+- **hadris-udf:** Directory FID extents are planned from exact encoded record
+  lengths instead of an unsafe per-entry estimate.
+- **hadris-udf:** OSTA CS0 filenames now select compression ID 8 or 16 from
+  their Unicode contents, enforce the 255-byte encoded limit, and decode
+  8-bit values as one-byte Unicode code points.
+- **hadris-iso:** `has_evd()` now reports an ISO 9660:1999 Enhanced Volume
+  Descriptor rather than implying that UDF is present.
+
+### Changed
+
+- **hadris-io / hadris-common:** `std` no longer activates `sync`; hosted
+  support and I/O mode selection are independent.
+- Broken Markdown links now fail the documentation build.
+
 ## [2.0.0-rc.2] - 2026-07-19
 
 ### Added
@@ -238,7 +263,8 @@ Each published package owns its version and may be released independently.
 Baseline for this changelog. See the git history for changes at and before this
 tag.
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.2...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.3...HEAD
+[2.0.0-rc.3]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.2...v2.0.0-rc.3
 [2.0.0-rc.2]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.1...v2.0.0-rc.2
 [2.0.0-rc.1]: https://github.com/hxyulin/hadris/compare/v1.2.1...v2.0.0-rc.1
 [1.2.1]: https://github.com/hxyulin/hadris/compare/v1.2.0...v1.2.1
