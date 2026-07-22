@@ -41,7 +41,7 @@ use super::descriptor::{
     TagIdentifier,
 };
 use crate::dir::FileCharacteristics;
-use crate::error::UdfResult;
+use crate::error::Result;
 use crate::file::FileType;
 use crate::time::UdfTimestamp;
 use crate::{AVDP_LOCATION, SECTOR_SIZE, UdfRevision};
@@ -283,7 +283,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         writer: W,
         root: &SimpleDir,
         options: UdfWriteOptions,
-    ) -> UdfResult<UdfCreateOutput<W>> {
+    ) -> Result<UdfCreateOutput<W>> {
         let mut formatter = UdfFormatter::new(writer, options);
         let sectors_written = formatter.format(root)?;
         Ok(UdfCreateOutput {
@@ -292,38 +292,6 @@ impl<W: Write + Seek> UdfWriter<W> {
         })
     }
 
-    // =========================================================================
-    // High-Level Format API
-    // =========================================================================
-
-    /// Format a complete UDF filesystem from a directory tree
-    ///
-    /// This is the high-level API for creating UDF filesystems. It handles all
-    /// the complexity of descriptor writing, block allocation, and metadata
-    /// generation automatically.
-    ///
-    /// The writer must have enough space for the filesystem. The space required
-    /// depends on the total size of all files plus metadata overhead.
-    ///
-    /// # Arguments
-    ///
-    /// * `writer` - The output device/file (must support Write + Seek)
-    /// * `root` - Root directory containing all files and subdirectories
-    /// * `options` - UDF formatting options
-    ///
-    /// # Returns
-    ///
-    /// Returns the total number of sectors written on success.
-    #[deprecated(
-        since = "2.0.0",
-        note = "use `create` to recover the output target and sector count"
-    )]
-    pub fn format(writer: W, root: &SimpleDir, options: UdfWriteOptions) -> UdfResult<u32>
-    where
-        W: Write + Seek,
-    {
-        Self::create(writer, root, options).map(|output| output.sectors_written)
-    }
 }
 
 /// Internal formatter that handles the full UDF format process
@@ -360,7 +328,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         id
     }
 
-    fn format(&mut self, root: &SimpleDir) -> UdfResult<u32> {
+    fn format(&mut self, root: &SimpleDir) -> Result<u32> {
         // Phase 1: Plan the layout
         //
         // UDF disk layout:
@@ -467,7 +435,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
     }
 
     /// Allocate blocks for a directory and all its contents
-    fn allocate_directory(&mut self, dir: &SimpleDir, parent_icb: u32) -> UdfResult<AllocatedDir> {
+    fn allocate_directory(&mut self, dir: &SimpleDir, parent_icb: u32) -> Result<AllocatedDir> {
         let icb_block = self.allocate_block();
         let unique_id = self.next_unique_id();
 
@@ -484,7 +452,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             let encoded_len = self.encode_filename(name)?.len();
             fid_bytes = fid_bytes
                 .checked_add((38 + encoded_len + 3) & !3)
-                .ok_or(crate::error::UdfError::PathTooLong)?;
+                .ok_or(crate::error::Error::PathTooLong)?;
         }
         let fid_sectors = fid_bytes.div_ceil(SECTOR_SIZE) as u32;
 
@@ -541,7 +509,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
     }
 
     /// Write a directory and all its contents
-    fn write_directory(&mut self, dir: &AllocatedDir) -> UdfResult<()> {
+    fn write_directory(&mut self, dir: &AllocatedDir) -> Result<()> {
         // Calculate FID data size
         // Write directory File Entry
         let dir_alloc = vec![ShortAllocationDescriptor {
@@ -627,7 +595,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
     }
 
     /// Write file data for all files in the tree
-    fn write_file_data(&mut self, dir: &SimpleDir, alloc_dir: &AllocatedDir) -> UdfResult<()> {
+    fn write_file_data(&mut self, dir: &SimpleDir, alloc_dir: &AllocatedDir) -> Result<()> {
         // Write file data
         for (file, alloc_file) in dir.files.iter().zip(&alloc_dir.files) {
             if !file.data.is_empty() {
@@ -652,20 +620,20 @@ impl<W: Write + Seek> UdfFormatter<W> {
     }
 
     // Low-level descriptor writing methods (delegated to helper)
-    fn seek_to_partition_block(&mut self, block: u32) -> UdfResult<()> {
+    fn seek_to_partition_block(&mut self, block: u32) -> Result<()> {
         let sector = self.options.partition_start + block;
         self.writer
             .seek(SeekFrom::Start((sector as u64) * SECTOR_SIZE as u64))?;
         Ok(())
     }
 
-    fn seek_to_sector(&mut self, sector: u32) -> UdfResult<()> {
+    fn seek_to_sector(&mut self, sector: u32) -> Result<()> {
         self.writer
             .seek(SeekFrom::Start((sector as u64) * SECTOR_SIZE as u64))?;
         Ok(())
     }
 
-    fn write_vrs(&mut self) -> UdfResult<()> {
+    fn write_vrs(&mut self) -> Result<()> {
         let nsr = match self.options.revision {
             r if r >= UdfRevision::V2_00 => b"NSR03",
             _ => b"NSR02",
@@ -678,7 +646,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
-    fn write_vrs_descriptor(&mut self, id: &[u8; 5]) -> UdfResult<()> {
+    fn write_vrs_descriptor(&mut self, id: &[u8; 5]) -> Result<()> {
         let mut buffer = [0u8; SECTOR_SIZE];
         buffer[0] = 0;
         buffer[1..6].copy_from_slice(id);
@@ -691,7 +659,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         &mut self,
         main_vds: ExtentDescriptor,
         reserve_vds: ExtentDescriptor,
-    ) -> UdfResult<()> {
+    ) -> Result<()> {
         self.write_avdp_at(AVDP_LOCATION, main_vds, reserve_vds)
     }
 
@@ -700,7 +668,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         location: u32,
         main_vds: ExtentDescriptor,
         reserve_vds: ExtentDescriptor,
-    ) -> UdfResult<()> {
+    ) -> Result<()> {
         self.seek_to_sector(location)?;
         let mut buffer = [0u8; SECTOR_SIZE];
 
@@ -720,7 +688,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
-    fn write_pvd(&mut self, location: u32, vds_number: u32) -> UdfResult<()> {
+    fn write_pvd(&mut self, location: u32, vds_number: u32) -> Result<()> {
         self.seek_to_sector(location)?;
         let mut buffer = [0u8; 512];
         let offset = 16;
@@ -776,7 +744,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
-    fn write_partition_descriptor(&mut self, location: u32, vds_number: u32) -> UdfResult<()> {
+    fn write_partition_descriptor(&mut self, location: u32, vds_number: u32) -> Result<()> {
         self.seek_to_sector(location)?;
         let mut buffer = [0u8; 512];
         let offset = 16;
@@ -817,7 +785,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         vds_number: u32,
         fsd_location: LongAllocationDescriptor,
         integrity_extent: ExtentDescriptor,
-    ) -> UdfResult<()> {
+    ) -> Result<()> {
         self.seek_to_sector(location)?;
         let mut buffer = [0u8; 512];
         let offset = 16;
@@ -877,7 +845,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
-    fn write_usd(&mut self, location: u32, vds_number: u32) -> UdfResult<()> {
+    fn write_usd(&mut self, location: u32, vds_number: u32) -> Result<()> {
         self.seek_to_sector(location)?;
         let mut buffer = [0u8; 512];
         let offset = 16;
@@ -896,7 +864,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
-    fn write_iuvd(&mut self, location: u32, vds_number: u32) -> UdfResult<()> {
+    fn write_iuvd(&mut self, location: u32, vds_number: u32) -> Result<()> {
         self.seek_to_sector(location)?;
         let mut buffer = [0u8; 512];
         let offset = 16;
@@ -926,7 +894,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
-    fn write_terminating_descriptor(&mut self, location: u32) -> UdfResult<()> {
+    fn write_terminating_descriptor(&mut self, location: u32) -> Result<()> {
         self.seek_to_sector(location)?;
         let mut buffer = [0u8; 512];
 
@@ -937,7 +905,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
-    fn write_lvid(&mut self, location: u32) -> UdfResult<()> {
+    fn write_lvid(&mut self, location: u32) -> Result<()> {
         self.seek_to_sector(location)?;
         let mut buffer = [0u8; 512];
         let offset = 16;
@@ -978,7 +946,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
-    fn write_fsd(&mut self, location: u32, root_icb: LongAllocationDescriptor) -> UdfResult<()> {
+    fn write_fsd(&mut self, location: u32, root_icb: LongAllocationDescriptor) -> Result<()> {
         self.seek_to_partition_block(location)?;
         let mut buffer = [0u8; 512];
         let offset = 16;
@@ -1036,7 +1004,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         info_length: u64,
         allocation_descriptors: &[ShortAllocationDescriptor],
         unique_id: u64,
-    ) -> UdfResult<()> {
+    ) -> Result<()> {
         self.seek_to_partition_block(location)?;
         let mut buffer = [0u8; SECTOR_SIZE];
         let offset = 16;
@@ -1103,7 +1071,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         location: u32,
         parent_icb: LongAllocationDescriptor,
         entries: &[(String, LongAllocationDescriptor, bool)],
-    ) -> UdfResult<usize> {
+    ) -> Result<usize> {
         self.seek_to_partition_block(location)?;
 
         let mut buffer = Vec::new();
@@ -1227,7 +1195,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         }
     }
 
-    fn encode_filename(&self, name: &str) -> UdfResult<Vec<u8>> {
+    fn encode_filename(&self, name: &str) -> Result<Vec<u8>> {
         encode_cs0_filename(name)
     }
 }
@@ -1238,7 +1206,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
 
 impl<W: Write + Seek> UdfWriter<W> {
     /// Seek to a logical block within the partition
-    fn seek_to_partition_block(&mut self, block: u32) -> UdfResult<()> {
+    fn seek_to_partition_block(&mut self, block: u32) -> Result<()> {
         let sector = self.options.partition_start + block;
         self.writer
             .seek(SeekFrom::Start((sector as u64) * SECTOR_SIZE as u64))?;
@@ -1246,7 +1214,7 @@ impl<W: Write + Seek> UdfWriter<W> {
     }
 
     /// Seek to an absolute sector
-    fn seek_to_sector(&mut self, sector: u32) -> UdfResult<()> {
+    fn seek_to_sector(&mut self, sector: u32) -> Result<()> {
         self.writer
             .seek(SeekFrom::Start((sector as u64) * SECTOR_SIZE as u64))?;
         Ok(())
@@ -1255,7 +1223,7 @@ impl<W: Write + Seek> UdfWriter<W> {
     /// Write Volume Recognition Sequence (VRS)
     ///
     /// Writes BEA01, NSR02/NSR03, TEA01 at sectors 16+
-    pub fn write_vrs(&mut self) -> UdfResult<()> {
+    pub fn write_vrs(&mut self) -> Result<()> {
         self.write_vrs_at(16)
     }
 
@@ -1263,7 +1231,7 @@ impl<W: Write + Seek> UdfWriter<W> {
     ///
     /// Standalone UDF images use sector 16. Bridge writers can place the VRS
     /// after the ISO descriptor terminator to avoid overwriting either format.
-    pub fn write_vrs_at(&mut self, start_sector: u32) -> UdfResult<()> {
+    pub fn write_vrs_at(&mut self, start_sector: u32) -> Result<()> {
         let nsr = match self.options.revision {
             r if r >= UdfRevision::V2_00 => b"NSR03",
             _ => b"NSR02",
@@ -1281,7 +1249,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         Ok(())
     }
 
-    fn write_vrs_descriptor(&mut self, id: &[u8; 5]) -> UdfResult<()> {
+    fn write_vrs_descriptor(&mut self, id: &[u8; 5]) -> Result<()> {
         let mut buffer = [0u8; SECTOR_SIZE];
         buffer[0] = 0; // Structure type
         buffer[1..6].copy_from_slice(id);
@@ -1295,7 +1263,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         &mut self,
         main_vds_extent: ExtentDescriptor,
         reserve_vds_extent: ExtentDescriptor,
-    ) -> UdfResult<()> {
+    ) -> Result<()> {
         self.write_avdp_at(AVDP_LOCATION, main_vds_extent, reserve_vds_extent)
     }
 
@@ -1305,7 +1273,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         location: u32,
         main_vds_extent: ExtentDescriptor,
         reserve_vds_extent: ExtentDescriptor,
-    ) -> UdfResult<()> {
+    ) -> Result<()> {
         self.seek_to_sector(location)?;
 
         let mut buffer = [0u8; SECTOR_SIZE];
@@ -1331,7 +1299,7 @@ impl<W: Write + Seek> UdfWriter<W> {
     }
 
     /// Write Primary Volume Descriptor
-    pub fn write_pvd(&mut self, location: u32, vds_number: u32) -> UdfResult<()> {
+    pub fn write_pvd(&mut self, location: u32, vds_number: u32) -> Result<()> {
         self.seek_to_sector(location)?;
 
         let mut buffer = [0u8; 512];
@@ -1408,7 +1376,7 @@ impl<W: Write + Seek> UdfWriter<W> {
     }
 
     /// Write Partition Descriptor
-    pub fn write_partition_descriptor(&mut self, location: u32, vds_number: u32) -> UdfResult<()> {
+    pub fn write_partition_descriptor(&mut self, location: u32, vds_number: u32) -> Result<()> {
         self.seek_to_sector(location)?;
 
         let mut buffer = [0u8; 512];
@@ -1462,7 +1430,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         vds_number: u32,
         fsd_location: LongAllocationDescriptor,
         integrity_extent: ExtentDescriptor,
-    ) -> UdfResult<()> {
+    ) -> Result<()> {
         self.seek_to_sector(location)?;
 
         let mut buffer = [0u8; 512];
@@ -1541,7 +1509,7 @@ impl<W: Write + Seek> UdfWriter<W> {
     }
 
     /// Write Unallocated Space Descriptor
-    pub fn write_usd(&mut self, location: u32, vds_number: u32) -> UdfResult<()> {
+    pub fn write_usd(&mut self, location: u32, vds_number: u32) -> Result<()> {
         self.seek_to_sector(location)?;
 
         let mut buffer = [0u8; 512];
@@ -1565,7 +1533,7 @@ impl<W: Write + Seek> UdfWriter<W> {
     }
 
     /// Write Implementation Use Volume Descriptor
-    pub fn write_iuvd(&mut self, location: u32, vds_number: u32) -> UdfResult<()> {
+    pub fn write_iuvd(&mut self, location: u32, vds_number: u32) -> Result<()> {
         self.seek_to_sector(location)?;
 
         let mut buffer = [0u8; 512];
@@ -1603,7 +1571,7 @@ impl<W: Write + Seek> UdfWriter<W> {
     }
 
     /// Write Terminating Descriptor
-    pub fn write_terminating_descriptor(&mut self, location: u32) -> UdfResult<()> {
+    pub fn write_terminating_descriptor(&mut self, location: u32) -> Result<()> {
         self.seek_to_sector(location)?;
 
         let mut buffer = [0u8; 512];
@@ -1621,7 +1589,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         &mut self,
         location: u32,
         root_icb: LongAllocationDescriptor,
-    ) -> UdfResult<()> {
+    ) -> Result<()> {
         self.seek_to_partition_block(location)?;
 
         let mut buffer = [0u8; 512];
@@ -1696,7 +1664,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         info_length: u64,
         allocation_descriptors: &[ShortAllocationDescriptor],
         unique_id: u64,
-    ) -> UdfResult<()> {
+    ) -> Result<()> {
         self.seek_to_partition_block(location)?;
 
         let mut buffer = [0u8; SECTOR_SIZE];
@@ -1792,7 +1760,7 @@ impl<W: Write + Seek> UdfWriter<W> {
         location: u32,
         parent_icb: LongAllocationDescriptor,
         entries: &[(String, LongAllocationDescriptor, bool)], // (name, icb, is_dir)
-    ) -> UdfResult<usize> {
+    ) -> Result<usize> {
         self.seek_to_partition_block(location)?;
 
         let mut buffer = Vec::new();
@@ -1864,7 +1832,7 @@ impl<W: Write + Seek> UdfWriter<W> {
     }
 
     /// Write Logical Volume Integrity Descriptor
-    pub fn write_lvid(&mut self, location: u32, close: bool) -> UdfResult<()> {
+    pub fn write_lvid(&mut self, location: u32, close: bool) -> Result<()> {
         self.seek_to_sector(location)?;
 
         let mut buffer = [0u8; 512];
@@ -1989,12 +1957,12 @@ impl<W: Write + Seek> UdfWriter<W> {
     }
 
     /// Encode a filename for UDF
-    fn encode_filename(&self, name: &str) -> UdfResult<Vec<u8>> {
+    fn encode_filename(&self, name: &str) -> Result<Vec<u8>> {
         encode_cs0_filename(name)
     }
 }
 
-fn encode_cs0_filename(name: &str) -> UdfResult<Vec<u8>> {
+fn encode_cs0_filename(name: &str) -> Result<Vec<u8>> {
     let mut result = if name.chars().all(|ch| (ch as u32) <= 0xff) {
         let mut encoded = Vec::with_capacity(name.chars().count() + 1);
         encoded.push(8);
@@ -2010,7 +1978,7 @@ fn encode_cs0_filename(name: &str) -> UdfResult<Vec<u8>> {
     };
     if result.len() > u8::MAX as usize {
         result.clear();
-        return Err(crate::error::UdfError::InvalidEncoding);
+        return Err(crate::error::Error::InvalidEncoding);
     }
     Ok(result)
 }
@@ -2122,7 +2090,6 @@ fn write_osta_charspec(buffer: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[allow(unused_imports)]
     use std::io::Cursor;
 
     #[test]
@@ -2290,7 +2257,7 @@ mod tests {
                 },
             )
             .unwrap();
-            let volume = crate::UdfFs::open(Cursor::new(&buffer[..])).unwrap();
+            let volume = crate::UdfVolume::open(Cursor::new(&buffer[..])).unwrap();
             assert_eq!(volume.info().udf_revision, revision);
         }
     }
@@ -2324,7 +2291,7 @@ mod tests {
         assert_eq!(avdp_tag, 2, "AVDP tag ID should be 2");
 
         // Full reader roundtrip
-        let udf = crate::UdfFs::open(Cursor::new(&buffer[..])).expect("open hadris-written image");
+        let udf = crate::UdfVolume::open(Cursor::new(&buffer[..])).expect("open hadris-written image");
         let root = udf.root_dir().expect("root_dir");
         let entry = root
             .entries()
@@ -2347,7 +2314,7 @@ mod tests {
             UdfWriter::create(cursor, &root, UdfWriteOptions::default()).unwrap();
         }
 
-        let udf = crate::UdfFs::open(Cursor::new(&buffer[..])).unwrap();
+        let udf = crate::UdfVolume::open(Cursor::new(&buffer[..])).unwrap();
         let root = udf.root_dir().unwrap();
         let entry = root
             .entries()

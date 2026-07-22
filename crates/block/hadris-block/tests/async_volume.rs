@@ -41,11 +41,11 @@ fn formatted_fat12() -> Vec<u8> {
     image
 }
 
-fn populated_gpt() -> hadris_block::part::DiskPartitionScheme {
-    use hadris_block::part::{DiskPartitionScheme, GptPartitionEntry, Guid};
+fn populated_gpt() -> hadris_block::part::PartitionTable {
+    use hadris_block::part::{GptPartitionEntry, Guid, PartitionTable};
 
-    let mut scheme = DiskPartitionScheme::new_gpt(8192, 512);
-    let DiskPartitionScheme::Gpt { gpt, .. } = &mut scheme else {
+    let mut scheme = PartitionTable::new_gpt(8192, 512);
+    let PartitionTable::Gpt { gpt, .. } = &mut scheme else {
         unreachable!();
     };
     gpt.add_partition(GptPartitionEntry::new(
@@ -58,17 +58,15 @@ fn populated_gpt() -> hadris_block::part::DiskPartitionScheme {
     scheme
 }
 
-fn populated_mbr() -> hadris_block::part::DiskPartitionScheme {
-    use hadris_block::part::{
-        DiskPartitionScheme, MasterBootRecord, MbrPartition, MbrPartitionType,
-    };
+fn populated_mbr() -> hadris_block::part::PartitionTable {
+    use hadris_block::part::{MasterBootRecord, MbrPartition, MbrPartitionType, PartitionTable};
 
     let mut mbr = MasterBootRecord::default();
     mbr.with_partition_table(|table| {
         table[0] = MbrPartition::new(MbrPartitionType::Fat32, 2048, 4096);
         table[1] = MbrPartition::new(MbrPartitionType::LinuxNative, 6144, 2048);
     });
-    DiskPartitionScheme::Mbr(mbr)
+    PartitionTable::Mbr(mbr)
 }
 
 struct AsyncCursor {
@@ -248,7 +246,7 @@ fn async_fat_content_mutation_traversal_and_recovery() {
 #[test]
 fn async_partition_table_gpt_write_detect_open_and_reject_malformed() {
     use hadris_block::part::PartitionSchemeType;
-    use hadris_block::part::r#async::scheme_io::DiskPartitionSchemeWriteExt;
+    use hadris_block::part::r#async::scheme_io::PartitionTableWriteExt;
 
     block_on(async {
         let scheme = populated_gpt();
@@ -273,7 +271,7 @@ fn async_partition_table_gpt_write_detect_open_and_reject_malformed() {
         let mut truncated = AsyncCursor::new(disk.bytes[..512].to_vec());
         assert!(matches!(
             hadris_block::part::r#async::partition_table::open(&mut truncated, 512).await,
-            Err(hadris_block::part::PartitionError::Io(error))
+            Err(hadris_block::part::Error::Io(error))
                 if error.kind() == hadris_io::ErrorKind::UnexpectedEof
         ));
 
@@ -284,15 +282,15 @@ fn async_partition_table_gpt_write_detect_open_and_reject_malformed() {
                 &mut AsyncCursor::new(corrupt),
                 512,
             ).await,
-            Err(hadris_block::part::PartitionError::InvalidGptSignature { .. })
+            Err(hadris_block::part::Error::InvalidGptSignature { .. })
         ));
     });
 }
 
 #[test]
 fn async_partition_table_mbr_write_detect_open_and_reject_malformed() {
-    use hadris_block::part::r#async::scheme_io::DiskPartitionSchemeWriteExt;
-    use hadris_block::part::{PartitionError, PartitionSchemeType};
+    use hadris_block::part::r#async::scheme_io::PartitionTableWriteExt;
+    use hadris_block::part::{Error, PartitionSchemeType};
 
     block_on(async {
         let mut disk = AsyncCursor::new(vec![0_u8; 8192 * 512]);
@@ -329,7 +327,7 @@ fn async_partition_table_mbr_write_detect_open_and_reject_malformed() {
                 512,
             )
             .await,
-            Err(PartitionError::Io(error))
+            Err(Error::Io(error))
                 if error.kind() == hadris_io::ErrorKind::UnexpectedEof
         ));
 
@@ -341,14 +339,14 @@ fn async_partition_table_mbr_write_detect_open_and_reject_malformed() {
                 512,
             )
             .await,
-            Err(PartitionError::InvalidMbrSignature { found: [0x12, 0x34] })
+            Err(Error::InvalidMbrSignature { found: [0x12, 0x34] })
         ));
     });
 }
 
 #[test]
 fn async_partition_table_opens_fat_through_a_gpt_view() {
-    use hadris_block::part::r#async::scheme_io::DiskPartitionSchemeWriteExt;
+    use hadris_block::part::r#async::scheme_io::PartitionTableWriteExt;
 
     let mut bytes = vec![0_u8; 8192 * 512];
     let start = 40 * 512;
@@ -370,7 +368,7 @@ fn async_partition_table_opens_fat_through_a_gpt_view() {
             .await
             .unwrap();
         let entry = match &table {
-            hadris_block::part::DiskPartitionScheme::Gpt { gpt, .. } => &gpt.entries[0],
+            hadris_block::part::PartitionTable::Gpt { gpt, .. } => &gpt.entries[0],
             _ => unreachable!(),
         };
         let mut partition =
@@ -383,11 +381,11 @@ fn async_partition_table_opens_fat_through_a_gpt_view() {
 
 #[test]
 fn async_partition_table_hybrid_write_open_roundtrip() {
-    use hadris_block::part::r#async::scheme_io::DiskPartitionSchemeWriteExt;
+    use hadris_block::part::r#async::scheme_io::PartitionTableWriteExt;
     use hadris_block::part::hybrid::HybridMbrBuilder;
-    use hadris_block::part::{DiskPartitionScheme, MbrPartitionType, PartitionSchemeType};
+    use hadris_block::part::{MbrPartitionType, PartitionSchemeType, PartitionTable};
 
-    let DiskPartitionScheme::Gpt { gpt, .. } = populated_gpt() else {
+    let PartitionTable::Gpt { gpt, .. } = populated_gpt() else {
         unreachable!();
     };
     let hybrid_mbr = HybridMbrBuilder::new(8192)
@@ -395,7 +393,7 @@ fn async_partition_table_hybrid_write_open_roundtrip() {
         .mirror_partition(0, MbrPartitionType::EfiSystemPartition, true)
         .build(&gpt.entries)
         .unwrap();
-    let scheme = DiskPartitionScheme::Hybrid { hybrid_mbr, gpt };
+    let scheme = PartitionTable::Hybrid { hybrid_mbr, gpt };
 
     block_on(async {
         let mut disk = AsyncCursor::new(vec![0_u8; 8192 * 512]);

@@ -3,11 +3,9 @@
 //! Provides a way to estimate the output size of an ISO image before actually
 //! writing it, which is useful for pre-allocating buffers or reporting progress.
 
-#![allow(deprecated)]
-
 use alloc::vec::Vec;
 
-use super::options::{CreationFeatures, FormatOptions};
+use super::options::{CreationFeatures, IsoFormatOptions};
 use super::{File, InputEntry, InputEntryKind, InputFiles, InputTree};
 use crate::file::EntryType;
 
@@ -213,21 +211,21 @@ fn estimate_converted_name_len(name: &str, entry_types: &[EntryType]) -> u64 {
 /// This walks the file tree once, accumulating sizes for each component.
 /// The estimate is conservative (may slightly overestimate) but will never
 /// underestimate the required size.
-pub fn estimate(files: &InputFiles, options: &FormatOptions) -> IsoSizeEstimate {
+pub fn estimate(files: &InputFiles, options: &IsoFormatOptions) -> IsoSizeEstimate {
     estimate_impl(options, |entry_types, sector_size, stats| {
         walk_files_stats(&files.files, entry_types, sector_size, stats);
     })
 }
 
 /// Estimate an image created from the metadata-aware input model.
-pub fn estimate_tree(files: &InputTree, options: &FormatOptions) -> IsoSizeEstimate {
+pub fn estimate_tree(files: &InputTree, options: &IsoFormatOptions) -> IsoSizeEstimate {
     estimate_impl(options, |entry_types, sector_size, stats| {
         walk_entries_stats(&files.entries, entry_types, sector_size, stats);
     })
 }
 
 fn estimate_impl(
-    options: &FormatOptions,
+    options: &IsoFormatOptions,
     walk: impl FnOnce(&[EntryType], u64, &mut TreeStats),
 ) -> IsoSizeEstimate {
     let sector_size = options.sector_size as u64;

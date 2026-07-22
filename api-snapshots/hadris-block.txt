@@ -4,12 +4,12 @@ pub use hadris_block::part
 pub use hadris_block::storage
 pub mod hadris_block::async
 #[non_exhaustive] pub enum hadris_block::async::OpenVolume<'a, S> where S: hadris_io::async_api::Seek
-pub hadris_block::async::OpenVolume::Fat(hadris_fat::async::__inner::fs::FatFs<hadris_io::async_api::Borrowed<'a, S>>)
+pub hadris_block::async::OpenVolume::Fat(hadris_fat::async::__inner::fs::FatVolume<hadris_io::async_api::Borrowed<'a, S>>)
 impl<'a, S> hadris_block::async::OpenVolume<'a, S> where S: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <S as hadris_io::async_api::Read>::Error>
-pub fn hadris_block::async::OpenVolume<'a, S>::as_fat(&self) -> core::option::Option<&hadris_fat::async::__inner::fs::FatFs<hadris_io::async_api::Borrowed<'a, S>>>
-pub fn hadris_block::async::OpenVolume<'a, S>::as_fat_mut(&mut self) -> core::option::Option<&mut hadris_fat::async::__inner::fs::FatFs<hadris_io::async_api::Borrowed<'a, S>>>
+pub fn hadris_block::async::OpenVolume<'a, S>::as_fat(&self) -> core::option::Option<&hadris_fat::async::__inner::fs::FatVolume<hadris_io::async_api::Borrowed<'a, S>>>
+pub fn hadris_block::async::OpenVolume<'a, S>::as_fat_mut(&mut self) -> core::option::Option<&mut hadris_fat::async::__inner::fs::FatVolume<hadris_io::async_api::Borrowed<'a, S>>>
 pub fn hadris_block::async::OpenVolume<'a, S>::format(&self) -> hadris_block::detect::FatVariant
-pub fn hadris_block::async::OpenVolume<'a, S>::into_fat(self) -> core::result::Result<hadris_fat::async::__inner::fs::FatFs<hadris_io::async_api::Borrowed<'a, S>>, Self>
+pub fn hadris_block::async::OpenVolume<'a, S>::into_fat(self) -> core::result::Result<hadris_fat::async::__inner::fs::FatVolume<hadris_io::async_api::Borrowed<'a, S>>, Self>
 pub fn hadris_block::async::OpenVolume<'a, S>::into_inner(self) -> &'a mut S
 pub async fn hadris_block::async::OpenVolume<'a, S>::open(&'a mut S, u32) -> hadris_block::Result<Self>
 pub async fn hadris_block::async::OpenVolume<'a, S>::open_detected(&'a mut S, hadris_block::detect::FatVariant) -> hadris_block::Result<Self>
@@ -36,12 +36,12 @@ pub fn hadris_block::partition::gpt_partition_view<'a, S>(&'a mut S, &hadris_par
 pub fn hadris_block::partition::mbr_partition_view<'a, S>(&'a mut S, &hadris_part::mbr::MbrPartition, u32) -> hadris_storage::error::Result<hadris_storage::view::PartitionView<'a, S>, hadris_io::error::ErrorKind>
 pub mod hadris_block::sync
 #[non_exhaustive] pub enum hadris_block::sync::OpenVolume<'a, S> where S: hadris_io::sync_api::Seek
-pub hadris_block::sync::OpenVolume::Fat(hadris_fat::sync::__inner::fs::FatFs<hadris_io::sync_api::Borrowed<'a, S>>)
+pub hadris_block::sync::OpenVolume::Fat(hadris_fat::sync::__inner::fs::FatVolume<hadris_io::sync_api::Borrowed<'a, S>>)
 impl<'a, S> hadris_block::sync::OpenVolume<'a, S> where S: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <S as hadris_io::sync_api::Read>::Error>
-pub fn hadris_block::sync::OpenVolume<'a, S>::as_fat(&self) -> core::option::Option<&hadris_fat::sync::__inner::fs::FatFs<hadris_io::sync_api::Borrowed<'a, S>>>
-pub fn hadris_block::sync::OpenVolume<'a, S>::as_fat_mut(&mut self) -> core::option::Option<&mut hadris_fat::sync::__inner::fs::FatFs<hadris_io::sync_api::Borrowed<'a, S>>>
+pub fn hadris_block::sync::OpenVolume<'a, S>::as_fat(&self) -> core::option::Option<&hadris_fat::sync::__inner::fs::FatVolume<hadris_io::sync_api::Borrowed<'a, S>>>
+pub fn hadris_block::sync::OpenVolume<'a, S>::as_fat_mut(&mut self) -> core::option::Option<&mut hadris_fat::sync::__inner::fs::FatVolume<hadris_io::sync_api::Borrowed<'a, S>>>
 pub fn hadris_block::sync::OpenVolume<'a, S>::format(&self) -> hadris_block::detect::FatVariant
-pub fn hadris_block::sync::OpenVolume<'a, S>::into_fat(self) -> core::result::Result<hadris_fat::sync::__inner::fs::FatFs<hadris_io::sync_api::Borrowed<'a, S>>, Self>
+pub fn hadris_block::sync::OpenVolume<'a, S>::into_fat(self) -> core::result::Result<hadris_fat::sync::__inner::fs::FatVolume<hadris_io::sync_api::Borrowed<'a, S>>, Self>
 pub fn hadris_block::sync::OpenVolume<'a, S>::into_inner(self) -> &'a mut S
 pub fn hadris_block::sync::OpenVolume<'a, S>::open(&'a mut S, u32) -> hadris_block::Result<Self>
 pub fn hadris_block::sync::OpenVolume<'a, S>::open_detected(&'a mut S, hadris_block::detect::FatVariant) -> hadris_block::Result<Self>
@@ -49,13 +49,13 @@ pub fn hadris_block::sync::OpenVolume<'a, S>::open_detected(&'a mut S, hadris_bl
 pub hadris_block::Error::DetectedFormatMismatch
 pub hadris_block::Error::DetectedFormatMismatch::detected: hadris_block::detect::FatVariant
 pub hadris_block::Error::DetectedFormatMismatch::opened: hadris_block::detect::FatVariant
-pub hadris_block::Error::Fat(hadris_fat::error::FatError)
+pub hadris_block::Error::Fat(hadris_fat::error::Error)
 pub hadris_block::Error::Io(hadris_io::error::Error)
 pub hadris_block::Error::PartitionedDisk(hadris_block::detect::PartitionTableKind)
 pub hadris_block::Error::UnknownFormat
 pub hadris_block::Error::UnsupportedFormat(hadris_block::detect::BlockFormat)
-impl core::convert::From<hadris_fat::error::FatError> for hadris_block::Error
-pub fn hadris_block::Error::from(hadris_fat::error::FatError) -> Self
+impl core::convert::From<hadris_fat::error::Error> for hadris_block::Error
+pub fn hadris_block::Error::from(hadris_fat::error::Error) -> Self
 impl core::convert::From<hadris_io::error::Error> for hadris_block::Error
 pub fn hadris_block::Error::from(hadris_io::error::Error) -> Self
 impl core::error::Error for hadris_block::Error

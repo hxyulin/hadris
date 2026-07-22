@@ -170,23 +170,18 @@ pub mod sync {
     }
     pub use __inner::*;
 
-    // Convenience re-exports for backwards compatibility
     #[cfg(feature = "write")]
     pub use crate::time::FatDateTime;
     pub use __inner::dir::{DirectoryEntry, FatDir, FileEntry};
     pub use __inner::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
-    pub use __inner::fs::{FatFs, FatFsBuilder};
-    pub use __inner::fs::{FatFs as FatVolume, FatFsBuilder as FatVolumeBuilder};
-    pub use __inner::read::FatFsReadExt;
-    pub use __inner::read::FatFsReadExt as FatVolumeReadExt;
+    pub use __inner::fs::{FatVolume, FatVolumeBuilder};
+    pub use __inner::read::FatVolumeReadExt;
     #[cfg(feature = "tool")]
     pub use __inner::tool::analysis::FatAnalysisExt;
     #[cfg(feature = "tool")]
     pub use __inner::tool::verify::FatVerifyExt;
     #[cfg(feature = "write")]
-    pub use __inner::write::FatFsWriteExt;
-    #[cfg(feature = "write")]
-    pub use __inner::write::FatFsWriteExt as FatVolumeWriteExt;
+    pub use __inner::write::FatVolumeWriteExt;
 }
 
 // ---------------------------------------------------------------------------
@@ -245,12 +240,10 @@ pub mod r#async {
     pub use crate::time::FatDateTime;
     pub use __inner::dir::{DirectoryEntry, FatDir, FileEntry};
     pub use __inner::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
-    pub use __inner::fs::{
-        FatFs, FatFs as FatVolume, FatFsBuilder, FatFsBuilder as FatVolumeBuilder,
-    };
-    pub use __inner::read::{FatFsReadExt, FatFsReadExt as FatVolumeReadExt};
+    pub use __inner::fs::{FatVolume, FatVolumeBuilder};
+    pub use __inner::read::FatVolumeReadExt;
     #[cfg(feature = "write")]
-    pub use __inner::write::{FatFsWriteExt, FatFsWriteExt as FatVolumeWriteExt};
+    pub use __inner::write::FatVolumeWriteExt;
     pub use __inner::*;
 }
 
@@ -262,5 +255,4 @@ pub mod r#async {
 pub use sync::*;
 
 // Re-exports from shared types
-pub use error::{FatError, Result};
-pub use raw::*;
+pub use error::{Error, Result};

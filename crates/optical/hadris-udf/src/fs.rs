@@ -16,12 +16,12 @@ use super::dir::{
     FileCharacteristics, FileIdentifierDescriptor, UdfDir, UdfDirEntry, decode_filename,
 };
 use super::file::{AllocationType, ExtendedFileEntry, FileEntry};
-use crate::error::{UdfError, UdfResult};
+use crate::error::{Error, Result};
 use crate::{SECTOR_SIZE, UdfRevision};
 
 /// UDF filesystem information
 #[derive(Debug, Clone)]
-pub struct UdfInfo {
+pub struct UdfVolumeInfo {
     /// Logical block size (usually 2048)
     pub block_size: u32,
     /// Partition start location (in sectors)
@@ -36,13 +36,13 @@ pub struct UdfInfo {
 }
 
 /// Main UDF filesystem handle
-pub struct UdfFs<DATA: Read + Seek> {
+pub struct UdfVolume<DATA: Read + Seek> {
     data: Mutex<DATA>,
-    info: UdfInfo,
+    info: UdfVolumeInfo,
     root_icb: LongAllocationDescriptor,
 }
 
-impl<DATA: Read + Seek> UdfFs<DATA> {
+impl<DATA: Read + Seek> UdfVolume<DATA> {
     /// Consumes the filesystem handle and returns its underlying data source.
     pub fn into_inner(self) -> DATA {
         self.data.into_inner()
@@ -51,9 +51,9 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
 
 io_transform! {
 
-impl<DATA: Read + Seek> UdfFs<DATA> {
+impl<DATA: Read + Seek> UdfVolume<DATA> {
     /// Open a UDF filesystem
-    pub async fn open(mut data: DATA) -> UdfResult<Self> {
+    pub async fn open(mut data: DATA) -> Result<Self> {
         // Parse Volume Recognition Sequence
         let vrs_type = parse_vrs(&mut data).await?;
 
@@ -69,7 +69,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         };
         let udf_revision = exact_domain_revision(&lvd, vrs_type).unwrap_or(fallback_revision);
 
-        let info = UdfInfo {
+        let info = UdfVolumeInfo {
             block_size: lvd.logical_block_size,
             partition_start: partition.partition_starting_location,
             partition_length: partition.partition_length,
@@ -90,7 +90,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
     async fn read_vds(
         data: &mut DATA,
         extent: &ExtentDescriptor,
-    ) -> UdfResult<(
+    ) -> Result<(
         PrimaryVolumeDescriptor,
         PartitionDescriptor,
         LogicalVolumeDescriptor,
@@ -110,19 +110,19 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
             data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
             data.read_exact(&mut buffer).await?;
 
-            let tag: &DescriptorTag = bytemuck::try_from_bytes(&buffer[..size_of::<DescriptorTag>()]).map_err(UdfError::PodCastError)?;
+            let tag: &DescriptorTag = bytemuck::try_from_bytes(&buffer[..size_of::<DescriptorTag>()]).map_err(Error::PodCastError)?;
 
             match tag.identifier() {
                 TagIdentifier::PrimaryVolumeDescriptor => {
-                    let desc: PrimaryVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PrimaryVolumeDescriptor>()]).map_err(UdfError::PodCastError)?;
+                    let desc: PrimaryVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PrimaryVolumeDescriptor>()]).map_err(Error::PodCastError)?;
                     pvd = Some(desc);
                 }
                 TagIdentifier::PartitionDescriptor => {
-                    let desc: PartitionDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PartitionDescriptor>()]).map_err(UdfError::PodCastError)?;
+                    let desc: PartitionDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PartitionDescriptor>()]).map_err(Error::PodCastError)?;
                     partition = Some(desc);
                 }
                 TagIdentifier::LogicalVolumeDescriptor => {
-                    let desc: LogicalVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<LogicalVolumeDescriptor>()]).map_err(UdfError::PodCastError)?;
+                    let desc: LogicalVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<LogicalVolumeDescriptor>()]).map_err(Error::PodCastError)?;
                     lvd = Some(desc);
                 }
                 TagIdentifier::TerminatingDescriptor => break,
@@ -130,9 +130,9 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
             }
         }
 
-        let pvd = pvd.ok_or(UdfError::InvalidVds("PVD"))?;
-        let partition = partition.ok_or(UdfError::InvalidPartition(0))?;
-        let lvd = lvd.ok_or(UdfError::InvalidVds("LVD"))?;
+        let pvd = pvd.ok_or(Error::InvalidVds("PVD"))?;
+        let partition = partition.ok_or(Error::InvalidPartition(0))?;
+        let lvd = lvd.ok_or(Error::InvalidVds("LVD"))?;
 
         // Read File Set Descriptor from the location in LVD
         let fsd_location = lvd.file_set_location();
@@ -146,24 +146,24 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         data: &mut DATA,
         partition: &PartitionDescriptor,
         icb: &LongAllocationDescriptor,
-    ) -> UdfResult<FileSetDescriptor> {
+    ) -> Result<FileSetDescriptor> {
         let sector = partition.partition_starting_location as u64 + icb.logical_block_num as u64;
         data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
 
         let mut buffer = [0u8; SECTOR_SIZE];
         data.read_exact(&mut buffer).await?;
 
-        let fsd: FileSetDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<FileSetDescriptor>()]).map_err(|_| UdfError::InvalidFsd)?;
+        let fsd: FileSetDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<FileSetDescriptor>()]).map_err(|_| Error::InvalidFsd)?;
         Ok(fsd)
     }
 
     /// Get filesystem information
-    pub fn info(&self) -> &UdfInfo {
+    pub fn info(&self) -> &UdfVolumeInfo {
         &self.info
     }
 
     /// Get the root directory
-    pub async fn root_dir(&self) -> UdfResult<UdfDir> {
+    pub async fn root_dir(&self) -> Result<UdfDir> {
         self.read_directory(&self.root_icb).await
     }
 
@@ -171,15 +171,15 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
     ///
     /// Follows the entry's ICB allocation descriptors (embedded, short, or long)
     /// and truncates the result to the File Entry `information_length`.
-    pub async fn read_file(&self, entry: &UdfDirEntry) -> UdfResult<Vec<u8>> {
+    pub async fn read_file(&self, entry: &UdfDirEntry) -> Result<Vec<u8>> {
         if entry.is_dir() {
-            return Err(UdfError::NotAFile);
+            return Err(Error::NotAFile);
         }
 
         let mut data = self.data.lock();
         let meta = self.read_icb(&mut data, &entry.icb).await?;
         if meta.is_directory {
-            return Err(UdfError::NotAFile);
+            return Err(Error::NotAFile);
         }
 
         let mut bytes = self
@@ -192,20 +192,20 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
             )
             .await?;
 
-        let size = usize::try_from(meta.size).map_err(|_| UdfError::InvalidIcb)?;
+        let size = usize::try_from(meta.size).map_err(|_| Error::InvalidIcb)?;
         if bytes.len() < size {
-            return Err(UdfError::InvalidIcb);
+            return Err(Error::InvalidIcb);
         }
         bytes.truncate(size);
         Ok(bytes)
     }
 
     /// Read a directory from its ICB
-    pub async fn read_directory(&self, icb: &LongAllocationDescriptor) -> UdfResult<UdfDir> {
+    pub async fn read_directory(&self, icb: &LongAllocationDescriptor) -> Result<UdfDir> {
         let mut data = self.data.lock();
         let meta = self.read_icb(&mut data, icb).await?;
         if !meta.is_directory {
-            return Err(UdfError::NotADirectory);
+            return Err(Error::NotADirectory);
         }
 
         let entries = self
@@ -226,7 +226,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         &self,
         data: &mut DATA,
         icb: &LongAllocationDescriptor,
-    ) -> UdfResult<IcbMetadata> {
+    ) -> Result<IcbMetadata> {
         let sector = self.info.partition_start as u64 + icb.logical_block_num as u64;
         data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64))
             .await?;
@@ -259,7 +259,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
                         efe.allocation_descriptors_length as usize,
                     )
                 }
-                _ => return Err(UdfError::InvalidIcb),
+                _ => return Err(Error::InvalidIcb),
             };
 
         Ok(IcbMetadata {
@@ -280,7 +280,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         allocation_type: AllocationType,
         alloc_offset: usize,
         alloc_length: usize,
-    ) -> UdfResult<Vec<u8>> {
+    ) -> Result<Vec<u8>> {
         let alloc_range = validated_alloc_range(buffer.len(), alloc_offset, alloc_length)?;
         let mut out = Vec::new();
 
@@ -322,7 +322,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
                     out.extend_from_slice(&extent);
                 }
             }
-            AllocationType::Extended => return Err(UdfError::InvalidIcb),
+            AllocationType::Extended => return Err(Error::InvalidIcb),
         }
 
         Ok(out)
@@ -336,7 +336,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         allocation_type: AllocationType,
         alloc_offset: usize,
         alloc_length: usize,
-    ) -> UdfResult<Vec<UdfDirEntry>> {
+    ) -> Result<Vec<UdfDirEntry>> {
         let mut entries = Vec::new();
         let dir_bytes = self
             .read_allocation_bytes(data, buffer, allocation_type, alloc_offset, alloc_length)
@@ -346,7 +346,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
     }
 
     /// Read an extent from disk
-    async fn read_extent(&self, data: &mut DATA, sector: u64, length: usize) -> UdfResult<Vec<u8>> {
+    async fn read_extent(&self, data: &mut DATA, sector: u64, length: usize) -> Result<Vec<u8>> {
         let start = sector * SECTOR_SIZE as u64;
         // `length` is the untrusted extent length from an on-disk allocation
         // descriptor (30-bit, up to ~1 GiB per descriptor, and the caller chains
@@ -356,7 +356,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         // / embedded targets.
         let image_len = data.seek(SeekFrom::End(0)).await?;
         if start.saturating_add(length as u64) > image_len {
-            return Err(UdfError::InvalidIcb);
+            return Err(Error::InvalidIcb);
         }
         data.seek(SeekFrom::Start(start)).await?;
         let mut buffer = alloc::vec![0u8; length];
@@ -370,7 +370,7 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         data: &mut DATA,
         fid_data: &[u8],
         entries: &mut Vec<UdfDirEntry>,
-    ) -> UdfResult<()> {
+    ) -> Result<()> {
         let mut offset = 0;
 
         while offset < fid_data.len() {
@@ -479,10 +479,10 @@ fn validated_alloc_range(
     buffer_len: usize,
     offset: usize,
     length: usize,
-) -> UdfResult<core::ops::Range<usize>> {
-    let end = offset.checked_add(length).ok_or(UdfError::InvalidIcb)?;
+) -> Result<core::ops::Range<usize>> {
+    let end = offset.checked_add(length).ok_or(Error::InvalidIcb)?;
     if end > buffer_len {
-        return Err(UdfError::InvalidIcb);
+        return Err(Error::InvalidIcb);
     }
     Ok(offset..end)
 }
@@ -494,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_udf_info() {
-        let info = UdfInfo {
+        let info = UdfVolumeInfo {
             block_size: 2048,
             partition_start: 257,
             partition_length: 100000,
@@ -769,7 +769,7 @@ mod tests {
     fn test_udf_open() {
         let data = create_mock_udf_data();
         let cursor = std::io::Cursor::new(data);
-        let result = UdfFs::open(cursor);
+        let result = UdfVolume::open(cursor);
 
         assert!(result.is_ok())
     }

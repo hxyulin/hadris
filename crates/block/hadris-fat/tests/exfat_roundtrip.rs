@@ -12,9 +12,10 @@ use std::io::Seek as _;
 use std::path::Path;
 use tempfile::TempDir;
 
-use hadris_fat::exfat::{ExFatFormatOptions, ExFatFs, format_exfat};
+use hadris_fat::exfat::{ExFatFormatOptions, ExFatVolume, format_exfat};
 use hadris_fat::io::{Read as HadrisRead, Write as HadrisWrite};
 
+#[path = "common/exfat.rs"]
 mod exfat_helpers;
 use exfat_helpers::{fsck_check, fsck_exfat_available};
 
@@ -31,12 +32,12 @@ fn make_image(path: &Path, label: &str) {
         .expect("create image file");
     file.set_len(IMAGE_SIZE).expect("set image length");
 
-    let opts = ExFatFormatOptions::default().with_label(label);
+    let opts = ExFatFormatOptions::default().volume_label(label);
     format_exfat(&mut file, IMAGE_SIZE, &opts).expect("format_exfat");
     file.sync_all().expect("sync");
 }
 
-/// Open an image file at the start, ready for ExFatFs::open.
+/// Open an image file at the start, ready for ExFatVolume::open.
 fn open_image(path: &Path) -> std::fs::File {
     let mut file = OpenOptions::new()
         .read(true)
@@ -50,7 +51,7 @@ fn open_image(path: &Path) -> std::fs::File {
 /// Write `name` with `contents` into the root directory.
 fn write_root_file(image_path: &Path, name: &str, contents: &[u8]) {
     let file = open_image(image_path);
-    let fs = ExFatFs::open(file).expect("open exFAT");
+    let fs = ExFatVolume::open(file).expect("open exFAT");
 
     let entry = {
         let root = fs.root_dir();
@@ -64,7 +65,7 @@ fn write_root_file(image_path: &Path, name: &str, contents: &[u8]) {
 /// Read the full contents of `name` from the root directory.
 fn read_root_file(image_path: &Path, name: &str) -> Vec<u8> {
     let file = open_image(image_path);
-    let fs = ExFatFs::open(file).expect("reopen exFAT");
+    let fs = ExFatVolume::open(file).expect("reopen exFAT");
     let mut reader = fs.open_file(name).expect("open_file");
 
     let mut out = Vec::new();
@@ -161,7 +162,7 @@ fn roundtrip_delete_and_recreate() {
     // Create, then delete: exercises the bitmap free path.
     {
         let file = open_image(&img);
-        let fs = ExFatFs::open(file).expect("open");
+        let fs = ExFatVolume::open(file).expect("open");
         let entry = {
             let root = fs.root_dir();
             fs.create_file(&root, "victim.bin").expect("create")

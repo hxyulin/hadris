@@ -111,7 +111,7 @@ UDF, or both for bridge images rather than forcing a single classification.
 Policy-driven unified ISO/UDF opening is also implemented in both I/O modes;
 see [`hadris-2-optical-opening.md`](hadris-2-optical-opening.md).
 
-The former bridge layout collision is fixed: `CdWriter` output is continuously
+The former bridge layout collision is fixed: `OpticalImageWriter` output is continuously
 opened through both ISO and UDF readers, in addition to lightweight detection.
 
 The accepted block opening and partition traversal design lives in

@@ -8,7 +8,7 @@ use hadris_udf::UdfRevision;
 
 /// Options for creating a hybrid ISO+UDF image
 #[derive(Debug, Clone)]
-pub struct CdOptions {
+pub struct OpticalImageOptions {
     /// Volume identifier (used by both ISO and UDF)
     pub volume_id: String,
     /// Sector size (almost always 2048)
@@ -23,7 +23,7 @@ pub struct CdOptions {
     pub hybrid_boot: Option<HybridBootOptions>,
 }
 
-impl Default for CdOptions {
+impl Default for OpticalImageOptions {
     fn default() -> Self {
         Self {
             volume_id: String::from("CDROM"),
@@ -36,19 +36,7 @@ impl Default for CdOptions {
     }
 }
 
-impl CdOptions {
-    /// Create options with a volume ID
-    #[deprecated(
-        since = "2.0.0",
-        note = "use `CdOptions::default().volume_id(...)` instead"
-    )]
-    pub fn with_volume_id(volume_id: impl Into<String>) -> Self {
-        Self {
-            volume_id: volume_id.into(),
-            ..Default::default()
-        }
-    }
-
+impl OpticalImageOptions {
     /// Set the volume ID
     pub fn volume_id(mut self, id: impl Into<String>) -> Self {
         self.volume_id = id.into();
@@ -61,26 +49,9 @@ impl CdOptions {
         self
     }
 
-    /// Enable Joliet level 3 support.
-    #[deprecated(since = "2.0.0", note = "use `joliet(JolietLevel::Level3)` instead")]
-    pub fn with_joliet(mut self) -> Self {
-        self.iso.joliet = Some(JolietLevel::Level3);
-        self
-    }
-
     /// Set Rock Ridge options.
     pub fn rock_ridge(mut self, options: RripOptions) -> Self {
         self.iso.rock_ridge = Some(options);
-        self
-    }
-
-    /// Enable Rock Ridge with default options.
-    #[deprecated(
-        since = "2.0.0",
-        note = "use `rock_ridge(RripOptions::default())` instead"
-    )]
-    pub fn with_rock_ridge(mut self) -> Self {
-        self.iso.rock_ridge = Some(RripOptions::default());
         self
     }
 
@@ -90,22 +61,8 @@ impl CdOptions {
         self
     }
 
-    /// Set boot options.
-    #[deprecated(since = "2.0.0", note = "use `boot` instead")]
-    pub fn with_boot(mut self, boot: BootOptions) -> Self {
-        self.boot = Some(boot);
-        self
-    }
-
     /// Set hybrid boot options for USB booting.
     pub fn hybrid_boot(mut self, hybrid: HybridBootOptions) -> Self {
-        self.hybrid_boot = Some(hybrid);
-        self
-    }
-
-    /// Set hybrid boot options for USB booting.
-    #[deprecated(since = "2.0.0", note = "use `hybrid_boot` instead")]
-    pub fn with_hybrid_boot(mut self, hybrid: HybridBootOptions) -> Self {
         self.hybrid_boot = Some(hybrid);
         self
     }
@@ -177,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_default_options() {
-        let opts = CdOptions::default();
+        let opts = OpticalImageOptions::default();
         assert_eq!(opts.volume_id, "CDROM");
         assert_eq!(opts.sector_size, 2048);
         assert!(opts.iso.enabled);
@@ -186,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_builder_pattern() {
-        let opts = CdOptions::default()
+        let opts = OpticalImageOptions::default()
             .volume_id("MY_DISC")
             .joliet(JolietLevel::Level3)
             .rock_ridge(RripOptions::default());

@@ -24,8 +24,6 @@
 //!   [`types::number::U64`] — unsigned integers parameterized by endianness.
 //! - **Extent**: [`types::extent::Extent`] — a contiguous region on disk
 //!   (sector + length).
-//! - **Compatibility exports**: [`types::file::FixedFilename`] forwards to
-//!   `hadris_fixed::FixedBytes`; new code should depend on `hadris-fixed`.
 //! - **EndianType / Endianness**: [`types::endian::EndianType`],
 //!   [`types::endian::Endianness`] — runtime and compile-time endianness.
 //!
@@ -51,12 +49,6 @@ extern crate std;
 /// Algorithms (requires std for CRC and random)
 #[cfg(feature = "std")]
 pub mod alg;
-/// Path utilities
-#[cfg(feature = "alloc")]
-pub mod path;
-/// Strings (requires alloc for String/Vec)
-#[cfg(feature = "alloc")]
-pub mod str;
 /// Types
 pub mod types;
 

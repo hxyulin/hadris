@@ -34,7 +34,6 @@ pub enum FilenameType {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 /// Represents IsoImageInfo.
 pub struct IsoImageInfo {
     block_size: usize,
@@ -49,6 +48,18 @@ pub struct IsoImageInfo {
     /// repeated seeks for directory hierarchy traversal.
     #[cfg(feature = "alloc")]
     path_table_cache: alloc::vec::Vec<PathTableEntry>,
+}
+
+impl IsoImageInfo {
+    /// Returns the logical block size declared by the selected volume descriptor.
+    pub fn block_size(&self) -> usize {
+        self.block_size
+    }
+
+    /// Returns the physical sector size used by the image reader.
+    pub fn sector_size(&self) -> usize {
+        self.sector_size
+    }
 }
 
 #[derive(Debug)]

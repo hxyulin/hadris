@@ -45,16 +45,6 @@ pub trait hadris_common::optical::OpticalMetadataWriter
 pub type hadris_common::optical::OpticalMetadataWriter::Error
 pub type hadris_common::optical::OpticalMetadataWriter::Options
 pub fn hadris_common::optical::OpticalMetadataWriter::write_metadata<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&mut W, &hadris_common::types::layout::DirectoryLayout, &Self::Options) -> core::result::Result<(), Self::Error>
-pub mod hadris_common::path
-pub use hadris_common::path::Component
-pub use hadris_common::path::Components
-pub use hadris_common::path::PathError
-pub use hadris_common::path::Separators
-pub use hadris_common::path::VPath
-pub fn hadris_common::path::split_path(&str) -> core::option::Option<(alloc::string::String, alloc::string::String)>
-pub mod hadris_common::str
-pub mod hadris_common::str::utf16
-pub type hadris_common::str::utf16::FixedUtf16Str<const N: usize> = hadris_fixed::FixedUtf16Le<N>
 pub mod hadris_common::types
 pub mod hadris_common::types::endian
 pub enum hadris_common::types::endian::EndianType
@@ -221,8 +211,6 @@ pub const fn hadris_common::types::extent::Timestamps::new(u64) -> Self
 pub const fn hadris_common::types::extent::Timestamps::with_times(u64, u64, u64) -> Self
 impl bytemuck::pod::Pod for hadris_common::types::extent::Timestamps
 impl bytemuck::zeroable::Zeroable for hadris_common::types::extent::Timestamps
-pub mod hadris_common::types::file
-pub type hadris_common::types::file::FixedFilename<const N: usize> = hadris_fixed::FixedBytes<N>
 pub mod hadris_common::types::layout
 pub struct hadris_common::types::layout::AllocationMap
 impl hadris_common::types::layout::AllocationMap

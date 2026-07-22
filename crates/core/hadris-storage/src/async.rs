@@ -2,7 +2,7 @@ use hadris_io::r#async::{Read, Seek, Write};
 use hadris_io::{ErrorKind, SeekFrom};
 
 use crate::PartitionView;
-use crate::{BlockCount, BlockError, BlockGeometry, BlockIndex, BlockRange, Result};
+use crate::{BlockCount, BlockGeometry, BlockIndex, BlockRange, Error, Result};
 
 impl<S> Read for PartitionView<'_, S>
 where
@@ -128,17 +128,17 @@ impl<T> SeekBlockDevice<T> {
     fn checked_request<E>(&self, start: BlockIndex, length: usize) -> Result<u64, E> {
         let block_size = self.geometry.logical_block_size.get() as usize;
         if length == 0 || !length.is_multiple_of(block_size) {
-            return Err(BlockError::InvalidBufferLength {
+            return Err(Error::InvalidBufferLength {
                 length,
                 block_size: block_size as u32,
             });
         }
-        let count = u64::try_from(length / block_size).map_err(|_| BlockError::AddressOverflow)?;
+        let count = u64::try_from(length / block_size).map_err(|_| Error::AddressOverflow)?;
         if !self
             .geometry
             .contains(BlockRange::new(start, BlockCount(count)))
         {
-            return Err(BlockError::OutOfBounds {
+            return Err(Error::OutOfBounds {
                 start: start.0,
                 count,
                 device_blocks: self.geometry.block_count.0,
@@ -147,7 +147,7 @@ impl<T> SeekBlockDevice<T> {
         start
             .0
             .checked_mul(block_size as u64)
-            .ok_or(BlockError::AddressOverflow)
+            .ok_or(Error::AddressOverflow)
     }
 }
 
@@ -170,18 +170,18 @@ where
         self.inner
             .seek(SeekFrom::Start(offset))
             .await
-            .map_err(BlockError::Io)?;
+            .map_err(Error::Io)?;
         let mut read = 0;
         while read < buffer.len() {
             match self.inner.read(&mut buffer[read..]).await {
                 Ok(0) => {
-                    return Err(BlockError::Io(hadris_io::Error::from_kind(
+                    return Err(Error::Io(hadris_io::Error::from_kind(
                         ErrorKind::UnexpectedEof,
                     )));
                 }
                 Ok(count) => read += count,
                 Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-                Err(error) => return Err(BlockError::Io(error)),
+                Err(error) => return Err(Error::Io(error)),
             }
         }
         Ok(())
@@ -197,24 +197,22 @@ where
         self.inner
             .seek(SeekFrom::Start(offset))
             .await
-            .map_err(BlockError::Io)?;
+            .map_err(Error::Io)?;
         let mut written = 0;
         while written < buffer.len() {
             match self.inner.write(&buffer[written..]).await {
                 Ok(0) => {
-                    return Err(BlockError::Io(hadris_io::Error::from_kind(
-                        ErrorKind::WriteZero,
-                    )));
+                    return Err(Error::Io(hadris_io::Error::from_kind(ErrorKind::WriteZero)));
                 }
                 Ok(count) => written += count,
                 Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-                Err(error) => return Err(BlockError::Io(error)),
+                Err(error) => return Err(Error::Io(error)),
             }
         }
         Ok(())
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.inner.flush().await.map_err(BlockError::Io)
+        self.inner.flush().await.map_err(Error::Io)
     }
 }

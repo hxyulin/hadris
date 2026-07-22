@@ -22,7 +22,7 @@ pub mod r#async;
 /// Synchronous block-device traits and adapters.
 pub mod sync;
 
-pub use error::{BlockError, Result};
+pub use error::{Error, Result};
 pub use geometry::{BlockCount, BlockGeometry, BlockIndex, BlockRange, BlockSize};
 pub use view::PartitionView;
 

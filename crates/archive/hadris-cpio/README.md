@@ -17,10 +17,10 @@ A Rust implementation of the CPIO archive format (newc/SVR4) with support for no
 ```rust
 use std::fs::File;
 use std::io::BufReader;
-use hadris_cpio::CpioReader;
+use hadris_cpio::CpioArchiveReader;
 
 let file = File::open("archive.cpio")?;
-let mut reader = CpioReader::new(BufReader::new(file));
+let mut reader = CpioArchiveReader::new(BufReader::new(file));
 
 while let Some(entry) = reader.next_entry_alloc()? {
     let name = entry.name_str().unwrap_or("<invalid>");
@@ -76,21 +76,21 @@ configurations should enable `sync`, `async`, or both explicitly.
 
 ```toml
 [dependencies]
-hadris-cpio = { version = "2.0.0-rc.3", default-features = false, features = ["read", "sync"] }
+hadris-cpio = { version = "2.0.0-rc.4", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Kernels with Heap (no-std + alloc)
 
 ```toml
 [dependencies]
-hadris-cpio = { version = "2.0.0-rc.3", default-features = false, features = ["read", "alloc", "sync"] }
+hadris-cpio = { version = "2.0.0-rc.4", default-features = false, features = ["read", "alloc", "sync"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-cpio = "2.0.0-rc.3"  # Uses default features
+hadris-cpio = "2.0.0-rc.4"  # Uses default features
 ```
 
 ## Archive Format

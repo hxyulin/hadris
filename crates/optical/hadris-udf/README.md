@@ -18,11 +18,11 @@ UDF (ECMA-167) is the filesystem used for DVD-ROM, DVD-Video, DVD-RAM, Blu-ray d
 ```rust,no_run
 use std::fs::File;
 use std::io::BufReader;
-use hadris_udf::UdfFs;
+use hadris_udf::UdfVolume;
 
 let file = File::open("movie.udf").unwrap();
 let reader = BufReader::new(file);
-let udf = UdfFs::open(reader).unwrap();
+let udf = UdfVolume::open(reader).unwrap();
 
 let info = udf.info();
 println!("Volume: {}", info.volume_id);

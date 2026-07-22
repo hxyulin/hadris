@@ -7,7 +7,7 @@ use spin::Mutex;
 use hadris_common::types::endian::Endian;
 use hadris_path::{Component, VPath};
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
 use super::dir::{FatDir, FileEntry};
 use super::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
@@ -53,7 +53,7 @@ impl VolumeInfo {
     /// Get the filesystem type string as a trimmed string.
     ///
     /// Note: This is informational only and should not be used to determine
-    /// the actual FAT type. Use [`FatFs::fat_type()`] instead.
+    /// the actual FAT type. Use [`FatVolume::fat_type()`] instead.
     pub fn fs_type_str(&self) -> &str {
         core::str::from_utf8(&self.fs_type_str)
             .unwrap_or("")
@@ -78,10 +78,10 @@ impl VolumeInfo {
 
 #[derive(Debug)]
 pub(crate) struct FatInfo {
-    #[allow(dead_code)]
+    #[cfg(feature = "alloc")]
     pub(crate) cluster_size: usize,
     pub(crate) data_start: usize,
-    #[allow(dead_code)]
+    #[cfg(feature = "alloc")]
     pub(crate) max_cluster: u32,
 }
 
@@ -92,9 +92,6 @@ pub(crate) struct Fat12_16FsExt {
     root_dir_start: usize,
     /// Root directory size in bytes
     root_dir_size: usize,
-    /// Number of root directory entries
-    #[allow(dead_code)]
-    root_entry_count: u16,
 }
 
 #[derive(Debug)]
@@ -105,7 +102,7 @@ pub(crate) enum FatFsExt {
 
 impl FatFsExt {
     /// Get fixed root directory info for FAT12/16
-    #[allow(dead_code)]
+    #[cfg(feature = "write")]
     fn fixed_root_dir(&self) -> Option<(usize, usize)> {
         match self {
             Self::Fat12_16(ext) => Some((ext.root_dir_start, ext.root_dir_size)),
@@ -117,7 +114,7 @@ impl FatFsExt {
 /// Extension info for FAT32 filesystems.
 ///
 /// Uses `Cell` for `free_count` and `next_free` to allow updating the FSInfo
-/// sector without requiring mutable access to the entire FatFs.
+/// sector without requiring mutable access to the entire FatVolume.
 pub(crate) struct Fat32FsExt {
     /// Sector number of the FSInfo structure
     pub(crate) fs_info_sec: Sector<u16>,
@@ -141,7 +138,7 @@ impl fmt::Debug for Fat32FsExt {
 }
 
 /// A mounted FAT filesystem backed by a seekable data source.
-pub struct FatFs<DATA: Seek> {
+pub struct FatVolume<DATA: Seek> {
     pub(crate) data: Mutex<SectorCursor<DATA>>,
     pub(crate) info: FatInfo,
     pub(crate) fat: Fat,
@@ -154,7 +151,7 @@ pub struct FatFs<DATA: Seek> {
     /// Defaults to [`crate::oem::DEFAULT_OEM_CONVERTER`].
     oem_converter: &'static dyn crate::oem::OemCpConverter,
     /// Optional FAT-sector LRU cache. Installed by the builder via
-    /// [`FatFsBuilder::fat_cache`]; `None` means uncached behaviour
+    /// [`FatVolumeBuilder::fat_cache`]; `None` means uncached behaviour
     /// identical to pre-cache versions of this crate. The cache itself
     /// is sync-only and lives behind a [`spin::Mutex`] so it can be
     /// shared between read paths and write paths.
@@ -162,16 +159,16 @@ pub struct FatFs<DATA: Seek> {
     pub(crate) fat_cache: Option<Mutex<crate::cache::FatSectorCache>>,
 }
 
-impl<DATA: Seek> FatFs<DATA> {
+impl<DATA: Seek> FatVolume<DATA> {
     /// Consumes the filesystem handle and returns its underlying data source.
     pub fn into_inner(self) -> DATA {
         self.data.into_inner().data
     }
 }
 
-impl<DATA: Seek> fmt::Debug for FatFs<DATA> {
+impl<DATA: Seek> fmt::Debug for FatVolume<DATA> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FatFs")
+        f.debug_struct("FatVolume")
             .field("info", &self.info)
             .field("ext", &self.ext)
             .field("time_provider", &self.time_provider)
@@ -180,13 +177,13 @@ impl<DATA: Seek> fmt::Debug for FatFs<DATA> {
     }
 }
 
-/// Builder for [`FatFs`] that lets callers install custom providers (clock,
+/// Builder for [`FatVolume`] that lets callers install custom providers (clock,
 /// codepage) before mounting.
 ///
-/// Construct via [`FatFs::builder`]. Call [`open`](Self::open) once configured.
+/// Construct via [`FatVolume::builder`]. Call [`open`](Self::open) once configured.
 /// Without any with_* calls, [`open`](Self::open) behaves identically to
-/// [`FatFs::open`].
-pub struct FatFsBuilder<DATA: Read + Seek> {
+/// [`FatVolume::open`].
+pub struct FatVolumeBuilder<DATA: Read + Seek> {
     data: DATA,
     time_provider: &'static dyn crate::time::TimeProvider,
     oem_converter: &'static dyn crate::oem::OemCpConverter,
@@ -195,7 +192,7 @@ pub struct FatFsBuilder<DATA: Read + Seek> {
     fat_cache_capacity: Option<usize>,
 }
 
-impl<DATA: Read + Seek> FatFsBuilder<DATA> {
+impl<DATA: Read + Seek> FatVolumeBuilder<DATA> {
     /// Start a new builder with default providers.
     pub fn new(data: DATA) -> Self {
         Self {
@@ -216,12 +213,6 @@ impl<DATA: Read + Seek> FatFsBuilder<DATA> {
         self
     }
 
-    #[deprecated(since = "2.0.0", note = "use `time_provider` instead")]
-    /// Deprecated alias for [`Self::time_provider`].
-    pub fn with_time_provider(self, provider: &'static dyn crate::time::TimeProvider) -> Self {
-        self.time_provider(provider)
-    }
-
     /// Override the codepage converter used for short (8.3) filenames.
     pub fn oem_converter(
         mut self,
@@ -229,12 +220,6 @@ impl<DATA: Read + Seek> FatFsBuilder<DATA> {
     ) -> Self {
         self.oem_converter = converter;
         self
-    }
-
-    #[deprecated(since = "2.0.0", note = "use `oem_converter` instead")]
-    /// Deprecated alias for [`Self::oem_converter`].
-    pub fn with_oem_converter(self, converter: &'static dyn crate::oem::OemCpConverter) -> Self {
-        self.oem_converter(converter)
     }
 
     /// Install an LRU FAT-sector cache backing read and write operations.
@@ -248,7 +233,7 @@ impl<DATA: Read + Seek> FatFsBuilder<DATA> {
     /// the builder unchanged rather than installing a degenerate
     /// zero-capacity cache that would refuse every insert.
     ///
-    /// Without this call, `FatFs` performs a seek + read on the underlying
+    /// Without this call, `FatVolume` performs a seek + read on the underlying
     /// data source for every FAT entry access (today's behaviour).
     #[cfg(feature = "cache")]
     pub fn fat_cache(mut self, capacity_sectors: usize) -> Self {
@@ -260,21 +245,14 @@ impl<DATA: Read + Seek> FatFsBuilder<DATA> {
         self
     }
 
-    #[cfg(feature = "cache")]
-    #[deprecated(since = "2.0.0", note = "use `fat_cache` instead")]
-    /// Deprecated alias for [`Self::fat_cache`].
-    pub fn with_fat_cache(self, capacity_sectors: usize) -> Self {
-        self.fat_cache(capacity_sectors)
-    }
-
     /// Mount the filesystem with the configured providers.
-    pub async fn open(self) -> Result<FatFs<DATA>> {
+    pub async fn open(self) -> Result<FatVolume<DATA>> {
         #[cfg(feature = "cache")]
         let cap = self.fat_cache_capacity;
         #[cfg(not(feature = "cache"))]
-        let fs = FatFs::open_with_providers(self.data, self.time_provider, self.oem_converter).await?;
+        let fs = FatVolume::open_with_providers(self.data, self.time_provider, self.oem_converter).await?;
         #[cfg(feature = "cache")]
-        let mut fs = FatFs::open_with_providers(self.data, self.time_provider, self.oem_converter).await?;
+        let mut fs = FatVolume::open_with_providers(self.data, self.time_provider, self.oem_converter).await?;
         #[cfg(feature = "cache")]
         if let Some(capacity) = cap {
             // Build the cache once we know the FAT layout from the boot sector.
@@ -322,7 +300,7 @@ pub(crate) const FSINFO_STRUC_SIG: u32 = 0x61417272; // "rrAa"
 pub(crate) const FSINFO_TRAIL_SIG: u32 = 0xAA550000;
 
 /// Implementations for Read APIs
-impl<DATA> FatFs<DATA>
+impl<DATA> FatVolume<DATA>
 where
     DATA: Read + Seek,
 {
@@ -331,7 +309,7 @@ where
     /// Automatically detects FAT12, FAT16, or FAT32 based on the BPB fields.
     /// Uses [`crate::time::DEFAULT_TIME_PROVIDER`] and
     /// [`crate::oem::DEFAULT_OEM_CONVERTER`]; for custom providers use
-    /// [`FatFs::builder`].
+    /// [`FatVolume::builder`].
     pub async fn open(data: DATA) -> Result<Self> {
         Self::open_with_providers(
             data,
@@ -341,14 +319,14 @@ where
         .await
     }
 
-    /// Start a [`FatFsBuilder`] for advanced configuration (custom clock,
+    /// Start a [`FatVolumeBuilder`] for advanced configuration (custom clock,
     /// codepage, etc.).
-    pub fn builder(data: DATA) -> FatFsBuilder<DATA> {
-        FatFsBuilder::new(data)
+    pub fn builder(data: DATA) -> FatVolumeBuilder<DATA> {
+        FatVolumeBuilder::new(data)
     }
 
     /// Internal entry point shared by [`open`](Self::open) and
-    /// [`FatFsBuilder::open`].
+    /// [`FatVolumeBuilder::open`].
     pub(crate) async fn open_with_providers(
         mut data: DATA,
         time_provider: &'static dyn crate::time::TimeProvider,
@@ -360,7 +338,7 @@ where
         let bpb = data
             .read_struct::<RawBpb>()
             .await
-            .map_err(|source| FatError::IoContext {
+            .map_err(|source| Error::IoContext {
                 op: "boot sector",
                 sector: Some(0),
                 source: source.erase(),
@@ -394,7 +372,7 @@ where
         let bpb_ext16 = data
             .read_struct::<RawBpbExt16>()
             .await
-            .map_err(|source| FatError::IoContext {
+            .map_err(|source| Error::IoContext {
                 op: "boot sector (FAT12/16 extended fields)",
                 sector: Some(0),
                 source: source.erase(),
@@ -403,7 +381,7 @@ where
         // Validate boot signature
         let signature = u16::from_le_bytes(bpb_ext16.signature_word);
         if signature != 0xAA55 {
-            return Err(FatError::InvalidBootSignature { found: signature });
+            return Err(Error::InvalidBootSignature { found: signature });
         }
 
         // FAT requires 1 or 2 file allocation tables (BPB_NumFATs). A corrupt
@@ -412,12 +390,13 @@ where
         // FAT-copy math — reject it here (after the signature check so a
         // non-FAT sector still surfaces InvalidBootSignature first).
         if bpb.fat_count != 1 && bpb.fat_count != 2 {
-            return Err(FatError::CorruptFilesystem {
+            return Err(Error::CorruptFilesystem {
                 context: "BPB fat_count must be 1 or 2",
             });
         }
 
         let sector_size = data.sector_size;
+        #[cfg(feature = "alloc")]
         let cluster_size = data.cluster_size;
         let reserved_sectors = bpb.reserved_sector_count.get() as usize;
         let fat_count = bpb.fat_count as usize;
@@ -430,18 +409,18 @@ where
         // 32-bit targets and seek to garbage.
         let fat_start = reserved_sectors
             .checked_mul(sector_size)
-            .ok_or(FatError::CorruptFilesystem {
+            .ok_or(Error::CorruptFilesystem {
                 context: "reserved_sectors * sector_size",
             })?;
         let fat_total_size = fat_count
             .checked_mul(sectors_per_fat)
             .and_then(|v| v.checked_mul(sector_size))
-            .ok_or(FatError::CorruptFilesystem {
+            .ok_or(Error::CorruptFilesystem {
                 context: "fat_count * sectors_per_fat * sector_size",
             })?;
         let root_dir_start = fat_start
             .checked_add(fat_total_size)
-            .ok_or(FatError::CorruptFilesystem {
+            .ok_or(Error::CorruptFilesystem {
                 context: "fat_start + fat_total_size",
             })?;
         let root_dir_size = (root_entry_count as usize) * 32;
@@ -450,7 +429,7 @@ where
         // Calculate data area start
         let data_start = root_dir_start
             .checked_add(root_dir_sectors * sector_size)
-            .ok_or(FatError::CorruptFilesystem {
+            .ok_or(Error::CorruptFilesystem {
                 context: "data_start arithmetic",
             })?;
 
@@ -465,12 +444,12 @@ where
         // usize to a huge number.
         let metadata_sectors = reserved_sectors
             .checked_add(fat_count.checked_mul(sectors_per_fat).ok_or(
-                FatError::CorruptFilesystem {
+                Error::CorruptFilesystem {
                     context: "fat_count * sectors_per_fat",
                 },
             )?)
             .and_then(|v| v.checked_add(root_dir_sectors))
-            .ok_or(FatError::CorruptFilesystem {
+            .ok_or(Error::CorruptFilesystem {
                 context: "metadata sector total",
             })?;
         let data_sectors = (total_sectors as usize).saturating_sub(metadata_sectors);
@@ -496,16 +475,19 @@ where
             );
             (Fat::Fat16(fat16), count_of_clusters as u32 + 1)
         };
+        #[cfg(not(feature = "alloc"))]
+        let _ = max_cluster;
 
         let ext = FatFsExt::Fat12_16(Fat12_16FsExt {
             root_dir_start,
             root_dir_size,
-            root_entry_count,
         });
 
         let info = FatInfo {
+            #[cfg(feature = "alloc")]
             cluster_size,
             data_start,
+            #[cfg(feature = "alloc")]
             max_cluster,
         };
 
@@ -540,7 +522,7 @@ where
         let bpb_ext32 = data
             .read_struct::<RawBpbExt32>()
             .await
-            .map_err(|source| FatError::IoContext {
+            .map_err(|source| Error::IoContext {
                 op: "boot sector (FAT32 extended fields)",
                 sector: Some(0),
                 source: source.erase(),
@@ -549,14 +531,14 @@ where
         // Validate boot signature
         let signature = bpb_ext32.signature_word.get();
         if signature != 0xAA55 {
-            return Err(FatError::InvalidBootSignature { found: signature });
+            return Err(Error::InvalidBootSignature { found: signature });
         }
 
         // FAT requires 1 or 2 file allocation tables (BPB_NumFATs) — see the
         // FAT12/16 path. Reject a corrupt count before it reaches Fat32::new's
         // debug_assert (and before it skews FAT-copy math in release).
         if bpb.fat_count != 1 && bpb.fat_count != 2 {
-            return Err(FatError::CorruptFilesystem {
+            return Err(Error::CorruptFilesystem {
                 context: "BPB fat_count must be 1 or 2",
             });
         }
@@ -567,7 +549,7 @@ where
         let fs_info = data
             .read_struct::<RawFsInfo>()
             .await
-            .map_err(|source| FatError::IoContext {
+            .map_err(|source| Error::IoContext {
                 op: "FSInfo",
                 sector: Some(fs_info_sec.0 as u64),
                 source: source.erase(),
@@ -576,7 +558,7 @@ where
         // Validate FSInfo signatures
         let lead_sig = u32::from_le_bytes(fs_info.signature);
         if lead_sig != FSINFO_LEAD_SIG {
-            return Err(FatError::InvalidFsInfoSignature {
+            return Err(Error::InvalidFsInfoSignature {
                 field: "FSI_LeadSig",
                 expected: FSINFO_LEAD_SIG,
                 found: lead_sig,
@@ -585,7 +567,7 @@ where
 
         let struc_sig = u32::from_le_bytes(fs_info.structure_signature);
         if struc_sig != FSINFO_STRUC_SIG {
-            return Err(FatError::InvalidFsInfoSignature {
+            return Err(Error::InvalidFsInfoSignature {
                 field: "FSI_StrucSig",
                 expected: FSINFO_STRUC_SIG,
                 found: struc_sig,
@@ -594,7 +576,7 @@ where
 
         let trail_sig = fs_info.trail_signature.get();
         if trail_sig != FSINFO_TRAIL_SIG {
-            return Err(FatError::InvalidFsInfoSignature {
+            return Err(Error::InvalidFsInfoSignature {
                 field: "FSI_TrailSig",
                 expected: FSINFO_TRAIL_SIG,
                 found: trail_sig,
@@ -608,6 +590,7 @@ where
             next_free: Cell::new(Cluster(fs_info.next_free.get())),
         });
 
+        #[cfg(feature = "alloc")]
         let cluster_size = data.cluster_size;
         let fat_start = Sector(bpb.reserved_sector_count.get()).to_bytes(data.sector_size);
         let fat_size_per_fat =
@@ -633,8 +616,10 @@ where
         ));
 
         let info = FatInfo {
+            #[cfg(feature = "alloc")]
             cluster_size,
             data_start: fat_start + fat_size,
+            #[cfg(feature = "alloc")]
             max_cluster,
         };
 
@@ -674,7 +659,7 @@ where
     /// Required when constructing a `CachedFat` (with the `cache` feature) via
     /// `CachedFat::new`, which needs the FAT type and
     /// max-cluster bound. Otherwise rarely needed by callers — most FAT
-    /// operations go through [`FatFs`] methods directly.
+    /// operations go through [`FatVolume`] methods directly.
     pub fn fat(&self) -> &Fat {
         &self.fat
     }
@@ -711,7 +696,7 @@ where
     /// Get the fixed root directory info for FAT12/16 filesystems.
     ///
     /// Returns `Some((start_offset, size))` for FAT12/16, `None` for FAT32.
-    #[allow(dead_code)]
+    #[cfg(feature = "write")]
     pub(crate) fn fixed_root_dir_info(&self) -> Option<(usize, usize)> {
         self.ext.fixed_root_dir()
     }
@@ -795,7 +780,7 @@ where
                 loop {
                     steps = steps.saturating_add(1);
                     if steps > chain_limit {
-                        return Err(FatError::ClusterLoop { cluster: current as u32 });
+                        return Err(Error::ClusterLoop { cluster: current as u32 });
                     }
                     let cluster_start = Cluster(current).to_bytes(self.info.data_start, cluster_size);
                     let mut offset = 0;
@@ -838,7 +823,7 @@ where
         for component in VPath::new(path).components() {
             let component = match component {
                 Component::Root | Component::Current => continue,
-                Component::Parent => return Err(FatError::InvalidPath),
+                Component::Parent => return Err(Error::InvalidPath),
                 Component::Normal(component) => component,
             };
             if let Some(prev) = last_component.take() {
@@ -849,8 +834,8 @@ where
         }
 
         // Find the final entry
-        let final_name = last_component.ok_or(FatError::InvalidPath)?;
-        current_dir.find(final_name).await?.ok_or(FatError::EntryNotFound)
+        let final_name = last_component.ok_or(Error::InvalidPath)?;
+        current_dir.find(final_name).await?.ok_or(Error::EntryNotFound)
     }
 
     /// Open a file by path for reading.
@@ -869,7 +854,7 @@ where
     pub async fn open_dir_path(&self, path: &str) -> Result<FatDir<'_, DATA>> {
         let entry = self.open_path(path).await?;
         if !entry.is_directory() {
-            return Err(FatError::NotADirectory);
+            return Err(Error::NotADirectory);
         }
         // Subdirectories opened by path are never fixed root
         Ok(FatDir {
@@ -884,7 +869,7 @@ where
     /// The entry must be a directory.
     pub fn open_dir_entry(&self, entry: &FileEntry) -> Result<FatDir<'_, DATA>> {
         if !entry.is_directory() {
-            return Err(FatError::NotADirectory);
+            return Err(Error::NotADirectory);
         }
         Ok(FatDir {
             data: self,
@@ -909,12 +894,12 @@ where
 
 #[cfg(feature = "cache")]
 sync_only! {
-    impl<DATA> FatFs<DATA>
+    impl<DATA> FatVolume<DATA>
     where
         DATA: Read + Seek,
     {
         /// Borrow the optional FAT-sector cache configured via
-        /// [`FatFsBuilder::with_fat_cache`].
+        /// [`FatVolumeBuilder::fat_cache`].
         ///
         /// Returns `None` if no cache was installed. Pair with [`Self::fat`]
         /// and [`crate::cache::CachedFat::new`] to perform cached FAT
@@ -928,11 +913,11 @@ sync_only! {
         /// filesystem's installed FAT cache and underlying disk handle.
         ///
         /// Returns `None` if no cache was installed via
-        /// [`FatFsBuilder::with_fat_cache`]. Otherwise locks the cache mutex
+        /// [`FatVolumeBuilder::fat_cache`]. Otherwise locks the cache mutex
         /// and the data mutex for the duration of the closure and returns
         /// `Some(value)` where `value` is the closure's return.
         ///
-        /// As of phase C5, `FatFs`'s built-in methods consult the cache
+        /// As of phase C5, `FatVolume`'s built-in methods consult the cache
         /// automatically; this helper remains useful for bulk FAT walks
         /// (free-cluster scans, multi-chain traversal) where holding the
         /// cache+disk locks across many entries is cheaper than re-acquiring
@@ -944,10 +929,10 @@ sync_only! {
         /// # #[cfg(all(feature = "cache", feature = "std"))]
         /// # {
         /// use std::fs::OpenOptions;
-        /// use hadris_fat::FatFs;
+        /// use hadris_fat::FatVolume;
         ///
         /// let disk = OpenOptions::new().read(true).write(true).open("disk.img").unwrap();
-        /// let fs = FatFs::builder(disk).with_fat_cache(16).open().unwrap();
+        /// let fs = FatVolume::builder(disk).fat_cache(16).open().unwrap();
         ///
         /// // Walk the cluster chain of the file at first_cluster=42, using the cache.
         /// let chain = fs
@@ -1009,7 +994,7 @@ sync_only! {
 
 #[cfg(feature = "cache")]
 sync_only! {
-    impl<DATA> FatFs<DATA>
+    impl<DATA> FatVolume<DATA>
     where
         DATA: Read + Seek,
     {
@@ -1058,7 +1043,7 @@ sync_only! {
 
 #[cfg(feature = "cache")]
 async_only! {
-    impl<DATA> FatFs<DATA>
+    impl<DATA> FatVolume<DATA>
     where
         DATA: Read + Seek,
     {
@@ -1083,7 +1068,7 @@ async_only! {
 // keeps `io_transform!{}` call sites uniform regardless of feature flags.
 #[cfg(not(feature = "cache"))]
 io_transform! {
-    impl<DATA> FatFs<DATA>
+    impl<DATA> FatVolume<DATA>
     where
         DATA: Read + Seek,
     {
@@ -1121,7 +1106,7 @@ io_transform! {
 
 #[cfg(all(feature = "cache", feature = "write"))]
 sync_only! {
-    impl<DATA> FatFs<DATA>
+    impl<DATA> FatVolume<DATA>
     where
         DATA: Read + super::io::Write + Seek,
     {
@@ -1188,32 +1173,12 @@ sync_only! {
             }
         }
 
-        /// Mark a cluster as bad in the FAT.
-        #[allow(dead_code)] // Surfaced for future fsck-style tooling; nothing in
-        // this crate calls `Fat::mark_bad` today, but the routed variant is
-        // kept symmetric with the rest of the cache surface so a follow-up
-        // does not have to re-derive lock ordering.
-        pub(crate) fn mark_bad_routed(&self, cluster: u32) -> Result<()> {
-            use core::ops::DerefMut;
-            let mut cache_guard = self.fat_cache.as_ref().map(|m| m.lock());
-            let mut data = self.data.lock();
-            if let Some(ref mut cache) = cache_guard {
-                let bad = match self.fat.fat_type() {
-                    FatType::Fat12 => return cache.write_fat12_entry(data.deref_mut(), cluster as usize, 0x0FF7),
-                    FatType::Fat16 => return cache.write_fat16_entry(data.deref_mut(), cluster as usize, 0xFFF7),
-                    FatType::Fat32 => 0x0FFF_FFF7u32,
-                };
-                cache.write_fat32_entry(data.deref_mut(), cluster as usize, bad)
-            } else {
-                self.fat.mark_bad(data.deref_mut(), cluster as usize)
-            }
-        }
     }
 }
 
 #[cfg(all(feature = "cache", feature = "write"))]
 async_only! {
-    impl<DATA> FatFs<DATA>
+    impl<DATA> FatVolume<DATA>
     where
         DATA: Read + super::io::Write + Seek,
     {
@@ -1250,12 +1215,6 @@ async_only! {
             self.fat.truncate_chain(data.deref_mut(), cluster as usize).await
         }
 
-        #[allow(dead_code)]
-        pub(crate) async fn mark_bad_routed(&self, cluster: u32) -> Result<()> {
-            use core::ops::DerefMut;
-            let mut data = self.data.lock();
-            self.fat.mark_bad(data.deref_mut(), cluster as usize).await
-        }
     }
 }
 
@@ -1263,7 +1222,7 @@ async_only! {
 // `self.write_clus_routed(...).await?`. Provide a uniform pass-through.
 #[cfg(all(not(feature = "cache"), feature = "write"))]
 io_transform! {
-    impl<DATA> FatFs<DATA>
+    impl<DATA> FatVolume<DATA>
     where
         DATA: Read + super::io::Write + Seek,
     {
@@ -1299,12 +1258,6 @@ io_transform! {
             self.fat.truncate_chain(data.deref_mut(), cluster as usize).await
         }
 
-        #[allow(dead_code)]
-        pub(crate) async fn mark_bad_routed(&self, cluster: u32) -> Result<()> {
-            use core::ops::DerefMut;
-            let mut data = self.data.lock();
-            self.fat.mark_bad(data.deref_mut(), cluster as usize).await
-        }
     }
 }
 
@@ -1372,7 +1325,7 @@ where
         claim(cache, data, fat, c)?;
         return Ok(c);
     }
-    Err(FatError::NoFreeSpace)
+    Err(Error::NoFreeSpace)
 }
 
 #[cfg(all(feature = "cache", feature = "write"))]
@@ -1498,7 +1451,7 @@ fn is_bad(ty: FatType, value: u32) -> bool {
 // I/O traits.
 #[cfg(all(feature = "cache", feature = "write"))]
 sync_only! {
-    impl<DATA> FatFs<DATA>
+    impl<DATA> FatVolume<DATA>
     where
         DATA: Read + super::io::Write + Seek,
     {
@@ -1507,7 +1460,7 @@ sync_only! {
         /// No-op when no cache was installed. Without an explicit `flush()`,
         /// dirty sectors are written through to disk on LRU eviction (see
         /// `FatSectorCache::evict_lru_flush`) or are still in memory when the
-        /// [`FatFs`] is dropped. Call this before tearing down the
+        /// [`FatVolume`] is dropped. Call this before tearing down the
         /// filesystem to guarantee the on-disk FAT is consistent.
         pub fn flush(&self) -> Result<()> {
             use core::ops::DerefMut;

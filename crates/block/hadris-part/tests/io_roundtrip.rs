@@ -10,10 +10,10 @@ use hadris_io::Cursor;
 use hadris_io::ErrorKind;
 use hadris_part::hybrid::HybridMbrBuilder;
 use hadris_part::{
-    DiskPartitionScheme, DiskPartitionSchemeReadExt, DiskPartitionSchemeWriteExt, GptHeader,
-    GptHeaderReadExt, GptHeaderWriteExt, GptPartitionEntry, Guid, MasterBootRecord,
-    MasterBootRecordReadExt, MasterBootRecordWriteExt, MbrPartition, MbrPartitionType,
-    PartitionError, PartitionSchemeType,
+    Error, GptHeader, GptHeaderReadExt, GptHeaderWriteExt, GptPartitionEntry, Guid,
+    MasterBootRecord, MasterBootRecordReadExt, MasterBootRecordWriteExt, MbrPartition,
+    MbrPartitionType, PartitionSchemeType, PartitionTable, PartitionTableReadExt,
+    PartitionTableWriteExt,
 };
 use std::io::Cursor as StdCursor;
 use std::io::{Seek, SeekFrom};
@@ -47,7 +47,7 @@ fn mbr_read_from_short_buffer_is_io_error() {
     let mut cursor = Cursor::new(&[0u8; 64]);
     let err = MasterBootRecord::read_from(&mut cursor).unwrap_err();
     match err {
-        PartitionError::Io(e) => assert_eq!(e.kind(), ErrorKind::UnexpectedEof),
+        Error::Io(e) => assert_eq!(e.kind(), ErrorKind::UnexpectedEof),
         other => panic!("expected Io, got {other:?}"),
     }
 }
@@ -63,7 +63,7 @@ fn disk_partition_scheme_reads_mbr() {
     disk.copy_from_slice(bytemuck::bytes_of(&mbr));
 
     let mut cursor = StdCursor::new(&disk[..]);
-    let scheme = DiskPartitionScheme::read_from(&mut cursor, 512).unwrap();
+    let scheme = PartitionTable::read_from(&mut cursor, 512).unwrap();
     assert_eq!(scheme.scheme_type(), PartitionSchemeType::Mbr);
     let parts = scheme.partitions();
     assert_eq!(parts.len(), 1);
@@ -90,9 +90,9 @@ fn v2_partition_table_detect_and_open_restore_clear_lifecycle() {
     assert_eq!(table.scheme_type(), PartitionSchemeType::Mbr);
 }
 
-fn populated_gpt() -> DiskPartitionScheme {
-    let mut scheme = DiskPartitionScheme::new_gpt(4096, 512);
-    let DiskPartitionScheme::Gpt { gpt, .. } = &mut scheme else {
+fn populated_gpt() -> PartitionTable {
+    let mut scheme = PartitionTable::new_gpt(4096, 512);
+    let PartitionTable::Gpt { gpt, .. } = &mut scheme else {
         unreachable!();
     };
     gpt.add_partition(GptPartitionEntry::new(
@@ -144,7 +144,7 @@ fn sync_open_rejects_truncated_and_corrupt_gpt() {
     let mut truncated = StdCursor::new(complete[..512].to_vec());
     assert!(matches!(
         hadris_part::sync::partition_table::open(&mut truncated, 512),
-        Err(PartitionError::Io(error)) if error.kind() == ErrorKind::UnexpectedEof
+        Err(Error::Io(error)) if error.kind() == ErrorKind::UnexpectedEof
     ));
 
     let mut corrupt = complete;
@@ -152,7 +152,7 @@ fn sync_open_rejects_truncated_and_corrupt_gpt() {
     let mut corrupt = StdCursor::new(corrupt);
     assert!(matches!(
         hadris_part::sync::partition_table::open(&mut corrupt, 512),
-        Err(PartitionError::InvalidGptSignature { .. })
+        Err(Error::InvalidGptSignature { .. })
     ));
 }
 
@@ -166,7 +166,7 @@ fn sync_open_rejects_missing_and_invalid_backup_gpt_headers() {
     let mut missing_backup = StdCursor::new(complete[..4095 * 512].to_vec());
     assert!(matches!(
         hadris_part::sync::partition_table::open(&mut missing_backup, 512),
-        Err(PartitionError::BackupHeaderIo { lba: 4095, source })
+        Err(Error::BackupHeaderIo { lba: 4095, source })
             if source.kind() == ErrorKind::UnexpectedEof
     ));
 
@@ -175,7 +175,7 @@ fn sync_open_rejects_missing_and_invalid_backup_gpt_headers() {
     let mut invalid_backup = StdCursor::new(invalid_backup);
     assert!(matches!(
         hadris_part::sync::partition_table::open(&mut invalid_backup, 512),
-        Err(PartitionError::InvalidBackupGptSignature { .. })
+        Err(Error::InvalidBackupGptSignature { .. })
     ));
 
     let scheme = populated_gpt();
@@ -184,7 +184,7 @@ fn sync_open_rejects_missing_and_invalid_backup_gpt_headers() {
     bad_crc.get_mut()[4095 * 512 + 24] ^= 1;
     assert!(matches!(
         hadris_part::sync::partition_table::open(&mut bad_crc, 512),
-        Err(PartitionError::BackupGptHeaderCrcMismatch { .. })
+        Err(Error::BackupGptHeaderCrcMismatch { .. })
     ));
 
     let scheme = populated_gpt();
@@ -196,13 +196,13 @@ fn sync_open_rejects_missing_and_invalid_backup_gpt_headers() {
     backup.write_to_lba(&mut mismatch, 4095, 512).unwrap();
     assert!(matches!(
         hadris_part::sync::partition_table::open(&mut mismatch, 512),
-        Err(PartitionError::BackupHeaderMismatch)
+        Err(Error::BackupHeaderMismatch)
     ));
 }
 
 #[test]
 fn hybrid_scheme_sync_write_open_roundtrip() {
-    let DiskPartitionScheme::Gpt { gpt, .. } = populated_gpt() else {
+    let PartitionTable::Gpt { gpt, .. } = populated_gpt() else {
         unreachable!();
     };
     let hybrid_mbr = HybridMbrBuilder::new(4096)
@@ -210,7 +210,7 @@ fn hybrid_scheme_sync_write_open_roundtrip() {
         .mirror_partition(0, MbrPartitionType::EfiSystemPartition, true)
         .build(&gpt.entries)
         .unwrap();
-    let scheme = DiskPartitionScheme::Hybrid { hybrid_mbr, gpt };
+    let scheme = PartitionTable::Hybrid { hybrid_mbr, gpt };
 
     let mut disk = StdCursor::new(vec![0_u8; 4096 * 512]);
     scheme.write_to(&mut disk).unwrap();

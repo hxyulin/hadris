@@ -4,13 +4,13 @@ use core::mem::size_of;
 
 use hadris_common::types::endian::Endian;
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 use crate::file::ShortFileName;
 #[cfg(feature = "lfn")]
 use crate::file::{LfnBuilder, LongFileName};
 use crate::raw::{DirEntryAttrFlags, NtCaseFlags, RawDirectoryEntry};
 use crate::time::FatDateTime;
-use super::fs::FatFs;
+use super::fs::FatVolume;
 #[cfg(not(feature = "alloc"))]
 use super::io::ReadExt;
 use super::io::{Cluster, ClusterLike, Read, Seek, SeekFrom};
@@ -50,7 +50,7 @@ fn short_name_display(short: &ShortFileName, flags: NtCaseFlags) -> alloc::strin
 
 /// A directory within a mounted FAT filesystem.
 pub struct FatDir<'a, DATA: Read + Seek> {
-    pub(crate) data: &'a FatFs<DATA>,
+    pub(crate) data: &'a FatVolume<DATA>,
     /// Cluster for subdirectories, or 0 (sentinel) for FAT12/16 fixed root
     pub(crate) cluster: Cluster,
     /// For FAT12/16 root: (start_byte, size_bytes), None for cluster-based dirs
@@ -64,6 +64,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
         FatDirIter {
             data: self.data,
             cluster: self.cluster,
+            #[cfg(feature = "write")]
             dir_start_cluster: self.cluster,
             offset: 0,
             fixed_root_remaining: self.fixed_root.map(|(_, size)| size),
@@ -83,6 +84,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
         FatDirIter {
             data: self.data,
             cluster: self.cluster,
+            #[cfg(feature = "write")]
             dir_start_cluster: self.cluster,
             offset: 0,
             fixed_root_remaining: self.fixed_root.map(|(_, size)| size),
@@ -100,7 +102,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
     /// The entry must be a directory.
     pub fn open_entry(&self, entry: &FileEntry) -> Result<FatDir<'a, DATA>> {
         if !entry.is_directory() {
-            return Err(FatError::NotADirectory);
+            return Err(Error::NotADirectory);
         }
         Ok(FatDir {
             data: self.data,
@@ -144,10 +146,10 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
     ///
     /// Returns an error if the entry is not found or is not a directory.
     pub async fn open_dir(&self, name: &str) -> Result<FatDir<'a, DATA>> {
-        let entry = self.find(name).await?.ok_or(FatError::EntryNotFound)?;
+        let entry = self.find(name).await?.ok_or(Error::EntryNotFound)?;
 
         if !entry.is_directory() {
-            return Err(FatError::NotADirectory);
+            return Err(Error::NotADirectory);
         }
 
         // Subdirectories always use cluster chains, never fixed root
@@ -162,17 +164,18 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
     ///
     /// Returns an error if the entry is not found or is a directory.
     pub async fn open_file(&self, name: &str) -> Result<FileReader<'a, DATA>> {
-        let entry = self.find(name).await?.ok_or(FatError::EntryNotFound)?;
+        let entry = self.find(name).await?.ok_or(Error::EntryNotFound)?;
         FileReader::new(self.data, &entry)
     }
 }
 
 /// Stateful iterator over the entries in a FAT directory.
 pub struct FatDirIter<'a, DATA: Read + Seek> {
-    data: &'a FatFs<DATA>,
+    data: &'a FatVolume<DATA>,
     /// Current cluster (or 0 for fixed root directory)
     cluster: Cluster,
     /// First cluster of the directory chain (or 0 for a fixed root).
+    #[cfg(feature = "write")]
     dir_start_cluster: Cluster,
     /// Offset within current cluster (or within fixed root dir)
     offset: usize,
@@ -182,7 +185,7 @@ pub struct FatDirIter<'a, DATA: Read + Seek> {
     fixed_root_start: Option<usize>,
     /// Cluster transitions taken so far. A cluster-based directory chain
     /// longer than `max_cluster` clusters has to revisit one — that's a
-    /// loop and we abort with `FatError::ClusterLoop`.
+    /// loop and we abort with `Error::ClusterLoop`.
     cluster_steps: u32,
     #[cfg(feature = "lfn")]
     lfn_builder: LfnBuilder,
@@ -214,7 +217,7 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                 if self.offset >= cluster_size {
                     self.cluster_steps = self.cluster_steps.saturating_add(1);
                     if self.cluster_steps > self.data.fat.max_cluster() {
-                        return Some(Err(FatError::ClusterLoop {
+                        return Some(Err(Error::ClusterLoop {
                             cluster: self.cluster.0 as u32,
                         }));
                     }
@@ -263,12 +266,12 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                     };
 
                     if let Err(e) = data.seek(SeekFrom::Start(seek_pos)).await {
-                        return Some(Err(FatError::Io(e.erase())));
+                        return Some(Err(Error::Io(e.erase())));
                     }
 
                     let mut buffer = alloc::vec![0u8; buffer_size];
                     if let Err(e) = data.read_exact(&mut buffer).await {
-                        return Some(Err(FatError::Io(e.erase())));
+                        return Some(Err(Error::Io(e.erase())));
                     }
 
                     self.cluster_buffer = Some(buffer);
@@ -310,13 +313,13 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                 };
 
                 if let Err(e) = data.seek(SeekFrom::Start(seek_pos)).await {
-                    return Some(Err(FatError::Io(e.erase())));
+                    return Some(Err(Error::Io(e.erase())));
                 }
 
                 // Read the directory entry
                 match data.read_struct::<RawDirectoryEntry>().await {
                     Ok(e) => e,
-                    Err(e) => return Some(Err(FatError::Io(e))),
+                    Err(e) => return Some(Err(Error::Io(e))),
                 }
             };
 
@@ -390,7 +393,7 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
 
             let short_name = match ShortFileName::new(name_bytes) {
                 Ok(n) => n,
-                Err(_) => return Some(Err(FatError::InvalidShortFilename)),
+                Err(_) => return Some(Err(Error::InvalidShortFilename)),
             };
 
             // Try to get the LFN if we've been building one
@@ -418,8 +421,11 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                 long_name,
                 attr,
                 size: file_entry.size.get() as usize,
+                #[cfg(feature = "write")]
                 parent_dir_clus: self.dir_start_cluster,
+                #[cfg(feature = "write")]
                 parent_clus: self.cluster,
+                #[cfg(feature = "write")]
                 offset_within_cluster: self.offset - entry_size,
                 cluster: Cluster::from_parts(
                     file_entry.first_cluster_high.get(),
@@ -497,13 +503,13 @@ pub struct FileEntry {
     pub(crate) attr: DirEntryAttrFlags,
     pub(crate) size: usize,
     /// First cluster of the containing directory (0 for a fixed root).
-    #[cfg_attr(not(feature = "write"), allow(dead_code))]
+    #[cfg(feature = "write")]
     pub(crate) parent_dir_clus: Cluster<usize>,
     /// Cluster containing this short directory entry.
-    #[cfg_attr(not(feature = "write"), allow(dead_code))]
+    #[cfg(feature = "write")]
     pub(crate) parent_clus: Cluster<usize>,
     /// Offset of this entry within the parent cluster (used for write operations)
-    #[cfg_attr(not(feature = "write"), allow(dead_code))]
+    #[cfg(feature = "write")]
     pub(crate) offset_within_cluster: usize,
     pub(crate) cluster: Cluster<usize>,
     /// Creation time (date + time + 10ms-units).
@@ -584,12 +590,6 @@ impl FileEntry {
         self.len() == 0
     }
 
-    /// Get the file size in bytes (0 for directories).
-    #[deprecated(since = "2.0.0", note = "use `len` instead")]
-    pub fn size(&self) -> usize {
-        self.len() as usize
-    }
-
     /// Creation timestamp (date + time + 10-ms units).
     pub fn created(&self) -> FatDateTime {
         self.created
@@ -638,7 +638,7 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                 if self.offset >= cluster_size {
                     self.cluster_steps = self.cluster_steps.saturating_add(1);
                     if self.cluster_steps > self.data.fat.max_cluster() {
-                        return Some(Err(FatError::ClusterLoop {
+                        return Some(Err(Error::ClusterLoop {
                             cluster: self.cluster.0 as u32,
                         }));
                     }
@@ -686,12 +686,12 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                     };
 
                     if let Err(e) = data.seek(SeekFrom::Start(seek_pos)) {
-                        return Some(Err(FatError::Io(e.erase())));
+                        return Some(Err(Error::Io(e.erase())));
                     }
 
                     let mut buffer = alloc::vec![0u8; buffer_size];
                     if let Err(e) = data.read_exact(&mut buffer) {
-                        return Some(Err(FatError::Io(e.erase())));
+                        return Some(Err(Error::Io(e.erase())));
                     }
 
                     self.cluster_buffer = Some(buffer);
@@ -733,13 +733,13 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                 };
 
                 if let Err(e) = data.seek(SeekFrom::Start(seek_pos)) {
-                    return Some(Err(FatError::Io(e.erase())));
+                    return Some(Err(Error::Io(e.erase())));
                 }
 
                 // Read the directory entry
                 match data.read_struct::<RawDirectoryEntry>() {
                     Ok(e) => e,
-                    Err(e) => return Some(Err(FatError::Io(e))),
+                    Err(e) => return Some(Err(Error::Io(e))),
                 }
             };
 
@@ -813,7 +813,7 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
 
             let short_name = match ShortFileName::new(name_bytes) {
                 Ok(n) => n,
-                Err(_) => return Some(Err(FatError::InvalidShortFilename)),
+                Err(_) => return Some(Err(Error::InvalidShortFilename)),
             };
 
             // Try to get the LFN if we've been building one
@@ -841,8 +841,11 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                 long_name,
                 attr,
                 size: file_entry.size.get() as usize,
+                #[cfg(feature = "write")]
                 parent_dir_clus: self.dir_start_cluster,
+                #[cfg(feature = "write")]
                 parent_clus: self.cluster,
+                #[cfg(feature = "write")]
                 offset_within_cluster: self.offset - entry_size,
                 cluster: Cluster::from_parts(
                     file_entry.first_cluster_high.get(),

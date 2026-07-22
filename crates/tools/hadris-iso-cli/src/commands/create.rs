@@ -7,7 +7,7 @@ use hadris_iso::boot::{EmulationType, PlatformId};
 use hadris_iso::joliet::JolietLevel;
 use hadris_iso::read::PathSeparator;
 use hadris_iso::rrip::RripOptions;
-use hadris_iso::write::options::{CreationFeatures, FormatOptions, HybridBootOptions};
+use hadris_iso::write::options::{CreationFeatures, HybridBootOptions, IsoFormatOptions};
 use hadris_iso::write::{InputTree, IsoImageWriter, estimator};
 
 use super::super::args::CreateArgs;
@@ -91,7 +91,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
     }
 
     // Configure format options
-    let format_options = FormatOptions {
+    let format_options = IsoFormatOptions {
         volume_name: args.volume_name.clone(),
         system_id: args.system_id.clone(),
         volume_set_id: args.volume_set_id.clone(),

@@ -36,7 +36,7 @@ use hadris_path::split_path;
 use hadris_io as io;
 
 use super::descriptor::AnchorVolumeDescriptorPointer;
-use crate::{AVDP_LOCATION, SECTOR_SIZE, UdfError, UdfRevision};
+use crate::{AVDP_LOCATION, Error as VolumeError, SECTOR_SIZE, UdfRevision};
 
 /// Operations that can be performed on a UDF image.
 #[derive(Debug, Clone)]
@@ -130,7 +130,7 @@ pub enum UdfModifyError {
     Io(#[from] io::Error),
     /// UDF error.
     #[error(transparent)]
-    Udf(#[from] UdfError),
+    Udf(#[from] VolumeError),
     /// File not found.
     #[error("file not found: {0}")]
     FileNotFound(String),
@@ -149,8 +149,6 @@ pub enum UdfModifyError {
 pub type Error = UdfModifyError;
 /// Canonical result for UDF modification operations.
 pub type Result<T> = core::result::Result<T, Error>;
-/// Compatibility alias for UDF modification results.
-pub type UdfModifyResult<T> = Result<T>;
 
 /// Options for UDF modification.
 #[derive(Debug, Clone, Default)]
@@ -169,24 +167,18 @@ pub struct UdfModifier<RW: Read + Write + Seek> {
     /// Parsed from existing image.
     existing_layout: DirectoryLayout,
     /// Tracks used sectors.
-    #[allow(dead_code)]
     allocation_map: AllocationMap,
     /// Pending operations.
     pending_ops: Vec<ModifyOp>,
     /// Options for modification.
-    #[allow(dead_code)]
     options: UdfModifyOptions,
     /// UDF revision.
-    #[allow(dead_code)]
     revision: UdfRevision,
     /// Partition start sector.
-    #[allow(dead_code)]
     partition_start: u32,
     /// Partition length.
-    #[allow(dead_code)]
     partition_length: u32,
     /// Next unique ID for new files.
-    #[allow(dead_code)]
     next_unique_id: u64,
     /// Current end of the image.
     end_sector: u32,
@@ -194,12 +186,12 @@ pub struct UdfModifier<RW: Read + Write + Seek> {
 
 impl<RW: Read + Write + Seek> UdfModifier<RW> {
     /// Opens an existing UDF image for modification.
-    pub fn open(inner: RW) -> UdfModifyResult<Self> {
+    pub fn open(inner: RW) -> Result<Self> {
         Self::open_with_options(inner, UdfModifyOptions::default())
     }
 
     /// Opens an existing UDF image for modification with custom options.
-    pub fn open_with_options(mut inner: RW, options: UdfModifyOptions) -> UdfModifyResult<Self> {
+    pub fn open_with_options(mut inner: RW, options: UdfModifyOptions) -> Result<Self> {
         // Read AVDP to get VDS location
         inner
             .seek(SeekFrom::Start(AVDP_LOCATION as u64 * SECTOR_SIZE as u64))
@@ -279,7 +271,7 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
     }
 
     /// Finishes all pending changes and returns the underlying image target.
-    pub fn finish(mut self) -> UdfModifyResult<RW> {
+    pub fn finish(mut self) -> Result<RW> {
         if self.pending_ops.is_empty() {
             return Ok(self.inner);
         }
@@ -296,14 +288,8 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
         Ok(self.inner)
     }
 
-    /// Commits changes while discarding the returned image target.
-    #[deprecated(since = "2.0.0", note = "use `finish` to recover the image target")]
-    pub fn commit(self) -> UdfModifyResult<()> {
-        self.finish().map(|_| ())
-    }
-
     /// Applies pending operations to create a new layout.
-    fn apply_ops(&mut self) -> UdfModifyResult<DirectoryLayout> {
+    fn apply_ops(&mut self) -> Result<DirectoryLayout> {
         let mut layout = self.existing_layout.clone();
 
         for op in &self.pending_ops {
@@ -351,7 +337,7 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
     fn write_new_data(
         &mut self,
         _layout: &DirectoryLayout,
-    ) -> UdfModifyResult<BTreeMap<String, Extent>> {
+    ) -> Result<BTreeMap<String, Extent>> {
         let mut file_extents = BTreeMap::new();
 
         // Start writing after current end
@@ -402,7 +388,7 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
         &mut self,
         _layout: &DirectoryLayout,
         _file_extents: BTreeMap<String, Extent>,
-    ) -> UdfModifyResult<()> {
+    ) -> Result<()> {
         // Note: Full implementation would:
         // 1. Create new File Entries for new files
         // 2. Update root directory FIDs
@@ -417,7 +403,7 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
     }
 
     /// Splits a path into (directory, filename).
-    fn split_path(path: &str) -> UdfModifyResult<(String, String)> {
+    fn split_path(path: &str) -> Result<(String, String)> {
         split_path(path).ok_or_else(|| UdfModifyError::InvalidPath(path.to_string()))
     }
 }

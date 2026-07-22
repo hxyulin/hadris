@@ -1,7 +1,7 @@
 use super::super::Read;
 use super::entry::CpioEntryHeader;
 use super::header::{CpioMagic, HEADER_SIZE, RawNewcHeader, TRAILER_NAME};
-use crate::error::{CpioError, Result};
+use crate::error::{Error, Result};
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -13,7 +13,7 @@ fn align4_padding(offset: u64) -> u64 {
 
 /// A decoded CPIO entry that borrows its filename from a caller-provided buffer.
 ///
-/// This is the no-alloc variant returned by [`CpioReader::next_entry_with_buf`].
+/// This is the no-alloc variant returned by [`CpioArchiveReader::next_entry_with_buf`].
 /// For an owned variant that allocates, see [`CpioEntryOwned`].
 #[derive(Debug)]
 pub struct CpioEntry<'a> {
@@ -62,7 +62,7 @@ impl<'a> CpioEntry<'a> {
 
 /// A decoded CPIO entry that owns its filename (requires `alloc`).
 ///
-/// This is the allocating variant returned by [`CpioReader::next_entry_alloc`].
+/// This is the allocating variant returned by [`CpioArchiveReader::next_entry_alloc`].
 /// For a zero-alloc variant, see [`CpioEntry`].
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
@@ -118,9 +118,9 @@ impl CpioEntryOwned {
 /// data before advancing to the next entry.
 ///
 /// Two iteration APIs are provided:
-/// - [`next_entry_with_buf`](CpioReader::next_entry_with_buf) — no-alloc, uses a caller-provided buffer
-/// - [`next_entry_alloc`](CpioReader::next_entry_alloc) — allocates a `Vec` for each filename (requires `alloc`)
-pub struct CpioReader<R> {
+/// - [`next_entry_with_buf`](CpioArchiveReader::next_entry_with_buf) — no-alloc, uses a caller-provided buffer
+/// - [`next_entry_alloc`](CpioArchiveReader::next_entry_alloc) — allocates a `Vec` for each filename (requires `alloc`)
+pub struct CpioArchiveReader<R> {
     reader: R,
     offset: u64,
     finished: bool,
@@ -128,7 +128,7 @@ pub struct CpioReader<R> {
 
 io_transform! {
 
-impl<R: Read> CpioReader<R> {
+impl<R: Read> CpioArchiveReader<R> {
     /// Create a new reader wrapping the given source.
     pub fn new(reader: R) -> Self {
         Self {
@@ -164,27 +164,27 @@ impl<R: Read> CpioReader<R> {
         let magic = raw.magic().ok_or_else(|| {
             let mut found = [0u8; 6];
             found.copy_from_slice(raw.magic_bytes());
-            CpioError::InvalidMagic { found }
+            Error::InvalidMagic { found }
         })?;
 
         let header = CpioEntryHeader::from_raw(&raw)?;
         let namesize = raw.namesize()? as usize;
 
         if namesize == 0 {
-            return Err(CpioError::InvalidFilename);
+            return Err(Error::InvalidFilename);
         }
 
         // Read filename (including NUL terminator)
         let name_with_nul_len = namesize;
         if name_with_nul_len > name_buf.len() + 1 {
-            return Err(CpioError::InvalidFilename);
+            return Err(Error::InvalidFilename);
         }
 
         // Read name bytes into a stack buffer (namesize includes the NUL)
         // We need a temporary buffer for the NUL-terminated name, then copy without NUL
         let name_len = namesize - 1; // without NUL
         if name_len > name_buf.len() {
-            return Err(CpioError::InvalidFilename);
+            return Err(Error::InvalidFilename);
         }
 
         // Read the name portion
@@ -306,14 +306,14 @@ impl<R: Read> CpioReader<R> {
         let magic = raw.magic().ok_or_else(|| {
             let mut found = [0u8; 6];
             found.copy_from_slice(raw.magic_bytes());
-            CpioError::InvalidMagic { found }
+            Error::InvalidMagic { found }
         })?;
 
         let header = CpioEntryHeader::from_raw(&raw)?;
         let namesize = raw.namesize()? as usize;
 
         if namesize == 0 {
-            return Err(CpioError::InvalidFilename);
+            return Err(Error::InvalidFilename);
         }
 
         let name_len = namesize - 1;
@@ -361,7 +361,7 @@ impl<R: Read> CpioReader<R> {
 }
 
 /// Seek support: when the reader supports seeking, allow jumping to recorded offsets.
-impl<R: Read + super::super::Seek> CpioReader<R> {
+impl<R: Read + super::super::Seek> CpioArchiveReader<R> {
     /// Seek to a previously-recorded entry offset to re-read that entry.
     pub async fn seek_to_entry(&mut self, offset: u64) -> Result<()> {
         use super::super::SeekFrom;

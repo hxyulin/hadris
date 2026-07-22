@@ -5,18 +5,18 @@
 
 use core::cmp::min;
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 #[cfg(feature = "write")]
 use crate::io::Write;
 use crate::io::{ErrorKind, Read, Seek, SeekFrom, error_from_kind};
 
 use super::entry::ExFatFileEntry;
-use super::fs::ExFatFs;
+use super::fs::ExFatVolume;
 
 /// A reader for exFAT file contents.
 pub struct ExFatFileReader<'a, DATA: Read + Seek> {
     /// Reference to the filesystem
-    fs: &'a ExFatFs<DATA>,
+    fs: &'a ExFatVolume<DATA>,
     /// First cluster of the file
     first_cluster: u32,
     /// Current cluster being read
@@ -27,9 +27,6 @@ pub struct ExFatFileReader<'a, DATA: Read + Seek> {
     position: u64,
     /// Valid data length (actual file content size)
     valid_length: u64,
-    /// Total data length (allocated size)
-    #[allow(dead_code)]
-    data_length: u64,
     /// Whether the file is stored contiguously
     is_contiguous: bool,
     /// Cluster index (for contiguous files)
@@ -38,9 +35,9 @@ pub struct ExFatFileReader<'a, DATA: Read + Seek> {
 
 impl<'a, DATA: Read + Seek> ExFatFileReader<'a, DATA> {
     /// Create a new file reader from a file entry.
-    pub fn new(fs: &'a ExFatFs<DATA>, entry: &ExFatFileEntry) -> Result<Self> {
+    pub fn new(fs: &'a ExFatVolume<DATA>, entry: &ExFatFileEntry) -> Result<Self> {
         if entry.is_directory() {
-            return Err(FatError::NotAFile);
+            return Err(Error::NotAFile);
         }
 
         Ok(Self {
@@ -50,7 +47,6 @@ impl<'a, DATA: Read + Seek> ExFatFileReader<'a, DATA> {
             cluster_offset: 0,
             position: 0,
             valid_length: entry.valid_data_length,
-            data_length: entry.data_length,
             is_contiguous: entry.no_fat_chain,
             cluster_index: 0,
         })
@@ -198,7 +194,7 @@ impl<DATA: Read + Seek> Seek for ExFatFileReader<'_, DATA> {
 #[cfg(feature = "write")]
 pub struct ExFatFileWriter<'a, DATA: Read + Write + Seek> {
     /// Reference to the filesystem
-    fs: &'a ExFatFs<DATA>,
+    fs: &'a ExFatVolume<DATA>,
     /// The file entry being written to
     entry: ExFatFileEntry,
     /// First cluster (may change if file was empty)
@@ -224,9 +220,9 @@ pub struct ExFatFileWriter<'a, DATA: Read + Write + Seek> {
 #[cfg(feature = "write")]
 impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
     /// Create a new file writer from a file entry.
-    pub fn new(fs: &'a ExFatFs<DATA>, entry: ExFatFileEntry) -> Result<Self> {
+    pub fn new(fs: &'a ExFatVolume<DATA>, entry: ExFatFileEntry) -> Result<Self> {
         if entry.is_directory() {
-            return Err(FatError::NotAFile);
+            return Err(Error::NotAFile);
         }
 
         Ok(Self {

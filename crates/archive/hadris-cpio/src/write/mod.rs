@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 
 use super::super::Write;
 use super::header::{CpioMagic, HEADER_SIZE, RawNewcHeader, TRAILER_NAME};
-use crate::error::{CpioError, Result};
+use crate::error::{Error, Result};
 use crate::mode::{self, FileType};
 use file_tree::{FileNode, FileTree};
 
@@ -30,11 +30,8 @@ impl CpioWriteOptions {
     }
 }
 
-/// CPIO archive writer.
-///
-/// Serializes a [`FileTree`] into a valid newc CPIO archive. Handles inode
-/// assignment, hard link tracking, padding, and the `TRAILER!!!` sentinel.
-pub struct CpioWriter {
+/// Stateless encoder used by the owning writer.
+struct ArchiveEncoder {
     options: CpioWriteOptions,
 }
 
@@ -46,17 +43,12 @@ pub struct CpioArchiveWriter<W> {
 
 io_transform! {
 
-impl CpioWriter {
-    /// Create a new writer with the given options.
-    pub fn new(options: CpioWriteOptions) -> Self {
+impl ArchiveEncoder {
+    fn new(options: CpioWriteOptions) -> Self {
         Self { options }
     }
 
-    /// Write a complete CPIO archive from a file tree.
-    ///
-    /// The tree is flattened depth-first, inodes are assigned sequentially,
-    /// and a `TRAILER!!!` entry is appended at the end.
-    pub async fn write<W: Write>(&self, writer: &mut W, tree: &FileTree) -> Result<()> {
+    async fn write<W: Write>(&self, writer: &mut W, tree: &FileTree) -> Result<()> {
         let magic = if self.options.use_crc {
             CpioMagic::NewcCrc
         } else {
@@ -82,7 +74,7 @@ impl CpioWriter {
                 FileNode::HardLink { link_target, .. } => {
                     let ino = *path_to_ino
                         .get(link_target.as_str())
-                        .ok_or(CpioError::UnresolvedHardLink { ino: 0 })?;
+                        .ok_or(Error::UnresolvedHardLink { ino: 0 })?;
                     assigned_inos.push(ino);
                     hard_links
                         .entry(link_target.clone())
@@ -321,7 +313,7 @@ impl<W: Write> CpioArchiveWriter<W> {
 
     /// Writes the complete archive and returns its target.
     pub async fn finish(mut self, tree: &FileTree) -> Result<W> {
-        CpioWriter::new(self.options)
+        ArchiveEncoder::new(self.options)
             .write(&mut self.writer, tree)
             .await?;
         Ok(self.writer)

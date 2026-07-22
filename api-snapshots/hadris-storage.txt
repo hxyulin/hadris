@@ -55,22 +55,22 @@ pub fn hadris_storage::sync::BlockDeviceMut::write_blocks(&mut self, hadris_stor
 impl<T> hadris_storage::sync::BlockDeviceMut for hadris_storage::sync::SeekBlockDevice<T> where T: hadris_io::sync_api::Read + hadris_io::sync_api::Write<Error = <T as hadris_io::sync_api::Read>::Error> + hadris_io::sync_api::Seek<Error = <T as hadris_io::sync_api::Read>::Error>
 pub fn hadris_storage::sync::SeekBlockDevice<T>::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
 pub fn hadris_storage::sync::SeekBlockDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
-pub enum hadris_storage::BlockError<E>
-pub hadris_storage::BlockError::AddressOverflow
-pub hadris_storage::BlockError::InvalidBufferLength
-pub hadris_storage::BlockError::InvalidBufferLength::block_size: u32
-pub hadris_storage::BlockError::InvalidBufferLength::length: usize
-pub hadris_storage::BlockError::InvalidView
-pub hadris_storage::BlockError::InvalidView::length: u64
-pub hadris_storage::BlockError::InvalidView::offset: u64
-pub hadris_storage::BlockError::Io(hadris_io::error::Error<E>)
-pub hadris_storage::BlockError::OutOfBounds
-pub hadris_storage::BlockError::OutOfBounds::count: u64
-pub hadris_storage::BlockError::OutOfBounds::device_blocks: u64
-pub hadris_storage::BlockError::OutOfBounds::start: u64
-impl<E: embedded_io::Error> core::fmt::Display for hadris_storage::BlockError<E>
-pub fn hadris_storage::BlockError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::error::Error for hadris_storage::BlockError<E> where E: embedded_io::Error + core::fmt::Debug + 'static
+pub enum hadris_storage::Error<E>
+pub hadris_storage::Error::AddressOverflow
+pub hadris_storage::Error::InvalidBufferLength
+pub hadris_storage::Error::InvalidBufferLength::block_size: u32
+pub hadris_storage::Error::InvalidBufferLength::length: usize
+pub hadris_storage::Error::InvalidView
+pub hadris_storage::Error::InvalidView::length: u64
+pub hadris_storage::Error::InvalidView::offset: u64
+pub hadris_storage::Error::Io(hadris_io::error::Error<E>)
+pub hadris_storage::Error::OutOfBounds
+pub hadris_storage::Error::OutOfBounds::count: u64
+pub hadris_storage::Error::OutOfBounds::device_blocks: u64
+pub hadris_storage::Error::OutOfBounds::start: u64
+impl<E: embedded_io::Error> core::fmt::Display for hadris_storage::Error<E>
+pub fn hadris_storage::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::error::Error for hadris_storage::Error<E> where E: embedded_io::Error + core::fmt::Debug + 'static
 pub struct hadris_storage::BlockCount(pub u64)
 pub struct hadris_storage::BlockGeometry
 pub hadris_storage::BlockGeometry::block_count: hadris_storage::BlockCount
@@ -146,4 +146,4 @@ pub fn hadris_storage::BlockDeviceMut::write_blocks(&mut self, hadris_storage::B
 impl<T> hadris_storage::sync::BlockDeviceMut for hadris_storage::sync::SeekBlockDevice<T> where T: hadris_io::sync_api::Read + hadris_io::sync_api::Write<Error = <T as hadris_io::sync_api::Read>::Error> + hadris_io::sync_api::Seek<Error = <T as hadris_io::sync_api::Read>::Error>
 pub fn hadris_storage::sync::SeekBlockDevice<T>::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
 pub fn hadris_storage::sync::SeekBlockDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
-pub type hadris_storage::Result<T, E> = core::result::Result<T, hadris_storage::BlockError<E>>
+pub type hadris_storage::Result<T, E> = core::result::Result<T, hadris_storage::Error<E>>

@@ -5,16 +5,16 @@
 use alloc::vec::Vec;
 use core::mem::size_of;
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 use crate::io::{Read, Seek};
 
 use super::entry::{ExFatFileEntry, RawDirectoryEntry, entry_type, parse_entry_set};
-use super::fs::ExFatFs;
+use super::fs::ExFatVolume;
 
 /// A directory in an exFAT filesystem.
 pub struct ExFatDir<'a, DATA: Read + Seek> {
     /// Reference to the filesystem
-    pub(crate) fs: &'a ExFatFs<DATA>,
+    pub(crate) fs: &'a ExFatVolume<DATA>,
     /// First cluster of the directory
     pub(crate) first_cluster: u32,
     /// Whether the directory is stored contiguously
@@ -54,10 +54,10 @@ impl<'a, DATA: Read + Seek> ExFatDir<'a, DATA> {
 
     /// Open a subdirectory by name.
     pub fn open_dir(&self, name: &str) -> Result<ExFatDir<'a, DATA>> {
-        let entry = self.find(name)?.ok_or(FatError::EntryNotFound)?;
+        let entry = self.find(name)?.ok_or(Error::EntryNotFound)?;
 
         if !entry.is_directory() {
-            return Err(FatError::NotADirectory);
+            return Err(Error::NotADirectory);
         }
 
         Ok(ExFatDir {
@@ -72,7 +72,7 @@ impl<'a, DATA: Read + Seek> ExFatDir<'a, DATA> {
 /// Iterator over exFAT directory entries.
 pub struct ExFatDirIter<'a, DATA: Read + Seek> {
     /// Reference to the filesystem
-    fs: &'a ExFatFs<DATA>,
+    fs: &'a ExFatVolume<DATA>,
     /// First cluster of the directory
     first_cluster: u32,
     /// Whether the directory is stored contiguously

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::task::{Wake, Waker};
 
 use hadris_cpio::r#async::{
-    CpioArchiveWriter, CpioReader, CpioWriteOptions, FileNode, FileTree, Write,
+    CpioArchiveReader, CpioArchiveWriter, CpioWriteOptions, FileNode, FileTree, Write,
 };
 
 #[derive(Default)]
@@ -61,7 +61,7 @@ fn async_finish_recovers_target_and_roundtrips() {
             .unwrap();
         assert!(!target.0.is_empty());
 
-        let mut reader = CpioReader::new(hadris_io::Cursor::new(target.0.as_slice()));
+        let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(target.0.as_slice()));
         let entry = reader.next_entry_alloc().await.unwrap().unwrap();
         assert_eq!(entry.name_str().unwrap(), "hello");
         assert_eq!(
@@ -76,16 +76,16 @@ fn async_reader_rejects_invalid_and_truncated_headers_with_typed_errors() {
     block_on(async {
         let mut invalid = [0_u8; 110];
         invalid[..6].copy_from_slice(b"999999");
-        let mut reader = CpioReader::new(hadris_io::Cursor::new(invalid.as_slice()));
+        let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(invalid.as_slice()));
         assert!(matches!(
             reader.next_entry_alloc().await,
-            Err(hadris_cpio::CpioError::InvalidMagic { found }) if &found == b"999999"
+            Err(hadris_cpio::Error::InvalidMagic { found }) if &found == b"999999"
         ));
 
-        let mut reader = CpioReader::new(hadris_io::Cursor::new(b"07070".as_slice()));
+        let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(b"07070".as_slice()));
         assert!(matches!(
             reader.next_entry_alloc().await,
-            Err(hadris_cpio::CpioError::Io(error))
+            Err(hadris_cpio::Error::Io(error))
                 if error.kind() == hadris_io::ErrorKind::UnexpectedEof
         ));
     });

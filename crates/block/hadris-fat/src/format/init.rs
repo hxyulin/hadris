@@ -21,12 +21,12 @@ use hadris_common::types::endian::{Endian, LittleEndian};
 use hadris_common::types::number::{U16, U32};
 
 use super::calc::FormatParams;
-use super::options::FormatOptions;
+use super::options::FatFormatOptions;
 
 /// Write all required structures to format a FAT volume.
 pub async fn initialize_volume<DATA: Read + Write + Seek>(
     data: &mut DATA,
-    options: &FormatOptions,
+    options: &FatFormatOptions,
     params: &FormatParams,
 ) -> Result<()> {
     // Zero out reserved area
@@ -70,7 +70,7 @@ async fn zero_reserved_area<DATA: Write + Seek>(data: &mut DATA, params: &Format
 /// Write the boot sector (sector 0).
 async fn write_boot_sector<DATA: Write + Seek>(
     data: &mut DATA,
-    options: &FormatOptions,
+    options: &FatFormatOptions,
     params: &FormatParams,
 ) -> Result<()> {
     data.seek(SeekFrom::Start(0)).await?;
@@ -192,7 +192,7 @@ async fn write_fsinfo<DATA: Write + Seek>(data: &mut DATA, params: &FormatParams
 /// Write the backup boot sector (FAT32 only, sector 6).
 async fn write_backup_boot_sector<DATA: Read + Write + Seek>(
     data: &mut DATA,
-    _options: &FormatOptions,
+    _options: &FatFormatOptions,
     params: &FormatParams,
 ) -> Result<()> {
     // Read the primary boot sector
@@ -272,7 +272,7 @@ async fn initialize_fat_tables<DATA: Write + Seek>(data: &mut DATA, params: &For
 /// Initialize the root directory.
 async fn initialize_root_directory<DATA: Write + Seek>(
     data: &mut DATA,
-    options: &FormatOptions,
+    options: &FatFormatOptions,
     params: &FormatParams,
 ) -> Result<()> {
     let root_dir_offset = match params.fat_type {

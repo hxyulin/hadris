@@ -22,8 +22,8 @@
 //! Sector ..:      ISO path tables
 //! ```
 
-use crate::error::{CdError, CdResult};
-use crate::options::CdOptions;
+use crate::error::{Error, Result};
+use crate::options::OpticalImageOptions;
 use crate::tree::{Directory, FileExtent, FileTree};
 
 /// Handles sector allocation for the CD image
@@ -60,8 +60,8 @@ impl LayoutManager {
     pub fn layout_files(
         &mut self,
         tree: &mut FileTree,
-        options: &CdOptions,
-    ) -> CdResult<LayoutInfo> {
+        options: &OpticalImageOptions,
+    ) -> Result<LayoutInfo> {
         // Calculate starting positions based on what we need to write
         let vds_end = self.calculate_vds_end(options);
 
@@ -99,7 +99,7 @@ impl LayoutManager {
     }
 
     /// Calculate where the Volume Descriptor Sequence ends
-    fn calculate_vds_end(&self, options: &CdOptions) -> u32 {
+    fn calculate_vds_end(&self, options: &OpticalImageOptions) -> u32 {
         let mut sector = 16; // VDS starts at sector 16
 
         // ISO Primary Volume Descriptor
@@ -137,11 +137,11 @@ impl LayoutManager {
         next_block: &mut u32,
         parent_icb: Option<u32>,
         sector_size: usize,
-    ) -> CdResult<UdfDirectoryLayout> {
+    ) -> Result<UdfDirectoryLayout> {
         let icb_block = *next_block;
         *next_block = next_block
             .checked_add(1)
-            .ok_or_else(|| CdError::InvalidConfig("UDF metadata block overflow".into()))?;
+            .ok_or_else(|| Error::InvalidConfig("UDF metadata block overflow".into()))?;
 
         let mut fid_bytes = 40usize; // parent FID (38-byte base, padded to four)
         for name in dir
@@ -153,20 +153,20 @@ impl LayoutManager {
             let encoded_len = cs0_filename_len(name)?;
             fid_bytes = fid_bytes
                 .checked_add((38 + encoded_len + 3) & !3)
-                .ok_or_else(|| CdError::InvalidConfig("UDF FID size overflow".into()))?;
+                .ok_or_else(|| Error::InvalidConfig("UDF FID size overflow".into()))?;
         }
         let fid_sectors = fid_bytes.div_ceil(sector_size) as u32;
         let fid_block = *next_block;
         *next_block = next_block
             .checked_add(fid_sectors)
-            .ok_or_else(|| CdError::InvalidConfig("UDF metadata block overflow".into()))?;
+            .ok_or_else(|| Error::InvalidConfig("UDF metadata block overflow".into()))?;
 
         let mut file_icb_blocks = Vec::with_capacity(dir.files.len());
         for _ in &dir.files {
             file_icb_blocks.push(*next_block);
             *next_block = next_block
                 .checked_add(1)
-                .ok_or_else(|| CdError::InvalidConfig("UDF metadata block overflow".into()))?;
+                .ok_or_else(|| Error::InvalidConfig("UDF metadata block overflow".into()))?;
         }
 
         let mut subdirs = Vec::with_capacity(dir.subdirs.len());
@@ -190,12 +190,12 @@ impl LayoutManager {
     }
 
     /// Recursively assign file extents
-    fn assign_file_extents(&mut self, dir: &mut Directory) -> CdResult<()> {
+    fn assign_file_extents(&mut self, dir: &mut Directory) -> Result<()> {
         // Assign extents to files
         for file in &mut dir.files {
             let size = file
                 .size()
-                .map_err(|error| CdError::Io(hadris_io::Error::from_source(error).erase()))?;
+                .map_err(|error| Error::Io(hadris_io::Error::from_source(error).erase()))?;
 
             if size == 0 {
                 // Zero-size files have no extent (sector 0 per ISO spec)
@@ -275,18 +275,18 @@ pub(crate) struct UdfDirectoryLayout {
     pub(crate) subdirs: Vec<UdfDirectoryLayout>,
 }
 
-fn cs0_filename_len(name: &str) -> CdResult<usize> {
+fn cs0_filename_len(name: &str) -> Result<usize> {
     let content_len = if name.chars().all(|ch| (ch as u32) <= 0xff) {
         name.chars().count()
     } else {
         name.encode_utf16()
             .count()
             .checked_mul(2)
-            .ok_or_else(|| CdError::InvalidConfig("UDF filename encoded length overflow".into()))?
+            .ok_or_else(|| Error::InvalidConfig("UDF filename encoded length overflow".into()))?
     };
     let encoded_len = content_len + 1;
     if encoded_len > u8::MAX as usize {
-        return Err(CdError::InvalidPath(format!(
+        return Err(Error::InvalidPath(format!(
             "UDF filename exceeds the 255-byte encoded limit: {name}"
         )));
     }
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn test_layout_empty_tree() {
         let mut tree = FileTree::new();
-        let options = CdOptions::default();
+        let options = OpticalImageOptions::default();
         let mut layout = LayoutManager::new(2048);
 
         let info = layout.layout_files(&mut tree, &options).unwrap();
@@ -331,7 +331,7 @@ mod tests {
         tree.add_file(FileEntry::from_buffer("test.txt", vec![0u8; 4096]));
         tree.add_file(FileEntry::from_buffer("small.txt", vec![0u8; 100]));
 
-        let options = CdOptions::default();
+        let options = OpticalImageOptions::default();
         let mut layout = LayoutManager::new(2048);
 
         layout.layout_files(&mut tree, &options).unwrap();
@@ -351,7 +351,7 @@ mod tests {
         let mut tree = FileTree::new();
         tree.add_file(FileEntry::from_buffer("empty.txt", vec![]));
 
-        let options = CdOptions::default();
+        let options = OpticalImageOptions::default();
         let mut layout = LayoutManager::new(2048);
 
         layout.layout_files(&mut tree, &options).unwrap();

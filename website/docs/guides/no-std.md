@@ -10,7 +10,7 @@ that the target needs:
 ```toml
 [dependencies]
 hadris-fat = {
-  version = "2.0.0-rc.3",
+  version = "2.0.0-rc.4",
   default-features = false,
   features = ["read", "sync"]
 }

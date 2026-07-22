@@ -7,7 +7,7 @@ use hadris_iso::boot::{EmulationType, PlatformId};
 use hadris_iso::joliet::JolietLevel;
 use hadris_iso::read::PathSeparator;
 use hadris_iso::rrip::RripOptions;
-use hadris_iso::write::options::{CreationFeatures, FormatOptions, HybridBootOptions};
+use hadris_iso::write::options::{CreationFeatures, HybridBootOptions, IsoFormatOptions};
 use hadris_iso::write::{InputTree, IsoImageWriter};
 
 use super::super::args::MkisofsArgs;
@@ -65,7 +65,7 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
     };
 
     // Configure format options
-    let format_options = FormatOptions {
+    let format_options = IsoFormatOptions {
         volume_name: args.volume_name.unwrap_or_else(|| "CDROM".to_string()),
         system_id: None,
         volume_set_id: None,

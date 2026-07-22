@@ -22,7 +22,7 @@ pub enum Error {
         opened: FatVariant,
     },
     /// FAT validation failed.
-    Fat(hadris_fat::FatError),
+    Fat(hadris_fat::Error),
 }
 
 /// Result type for category-level block operations.
@@ -58,8 +58,8 @@ impl From<hadris_io::Error> for Error {
     }
 }
 
-impl From<hadris_fat::FatError> for Error {
-    fn from(error: hadris_fat::FatError) -> Self {
+impl From<hadris_fat::Error> for Error {
+    fn from(error: hadris_fat::Error) -> Self {
         Self::Fat(error)
     }
 }

@@ -12,7 +12,7 @@ and other targets implementing the selected Hadris I/O mode.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.0.0-rc.3", features = ["write", "sync", "lfn"] }
+hadris-fat = { version = "2.0.0-rc.4", features = ["write", "sync", "lfn"] }
 ```
 
 ## Format an image file
@@ -24,7 +24,7 @@ part of an external contract.
 ```rust
 use std::fs::OpenOptions;
 
-use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
+use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FatFormatOptions};
 
 fn main() -> hadris_fat::Result<()> {
     const SIZE: u64 = 64 * 1024 * 1024;
@@ -37,7 +37,7 @@ fn main() -> hadris_fat::Result<()> {
         .open("disk.img")?;
     image.set_len(SIZE)?;
 
-    let options = FormatOptions::new(SIZE)
+    let options = FatFormatOptions::new(SIZE)
         .volume_label("HADRIS")
         .fat_type(FatTypeSelection::Fat16);
 
@@ -55,9 +55,9 @@ thumb.
 ## Preview the layout
 
 ```rust
-use hadris_fat::format::{FatVolumeFormatter, FormatOptions};
+use hadris_fat::format::{FatVolumeFormatter, FatFormatOptions};
 
-let options = FormatOptions::new(64 * 1024 * 1024).volume_label("PREVIEW");
+let options = FatFormatOptions::new(64 * 1024 * 1024).volume_label("PREVIEW");
 let params = FatVolumeFormatter::calculate_params(&options)?;
 println!("FAT type: {:?}, clusters: {}", params.fat_type, params.cluster_count);
 # Ok::<(), hadris_fat::Error>(())
@@ -67,13 +67,13 @@ This performs validation without writing the target.
 
 ## Create directories and files
 
-Mutation methods are supplied by `FatFsWriteExt`. File writers must be finished
+Mutation methods are supplied by `FatVolumeWriteExt`. File writers must be finished
 so directory size and cluster-chain metadata are committed.
 
 ```rust
-use hadris_fat::FatFsWriteExt;
+use hadris_fat::FatVolumeWriteExt;
 
-# fn populate<DATA>(fs: &hadris_fat::FatFs<DATA>) -> hadris_fat::Result<()>
+# fn populate<DATA>(fs: &hadris_fat::FatVolume<DATA>) -> hadris_fat::Result<()>
 # where DATA: hadris_fat::io::Read + hadris_fat::io::Write + hadris_fat::io::Seek {
 let root = fs.root_dir();
 let docs = fs.create_dir(&root, "DOCS")?;
@@ -95,11 +95,11 @@ For tests, format a fixed-size byte buffer:
 
 ```rust
 use std::io::Cursor;
-use hadris_fat::format::{FatVolumeFormatter, FormatOptions};
+use hadris_fat::format::{FatVolumeFormatter, FatFormatOptions};
 
 let mut bytes = vec![0_u8; 4 * 1024 * 1024];
 let cursor = Cursor::new(bytes.as_mut_slice());
-let fs = FatVolumeFormatter::format(cursor, FormatOptions::new(bytes.len() as u64))?;
+let fs = FatVolumeFormatter::format(cursor, FatFormatOptions::new(bytes.len() as u64))?;
 # Ok::<(), hadris_fat::Error>(())
 ```
 

@@ -15,7 +15,7 @@ impl<'a, S> PartitionView<'a, S> {
         byte_len: u64,
     ) -> crate::Result<Self, hadris_io::ErrorKind> {
         if byte_len == 0 || byte_offset.checked_add(byte_len).is_none() {
-            return Err(crate::BlockError::InvalidView {
+            return Err(crate::Error::InvalidView {
                 offset: byte_offset,
                 length: byte_len,
             });

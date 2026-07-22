@@ -7,7 +7,7 @@
 // dd if=test.img of=mkfs_sectors.bin bs=512 count=2
 const BOOT_SECTORS: &[u8] = include_bytes!("mkfs_sectors.bin");
 
-use hadris_fat::{FatError, FatFs};
+use hadris_fat::{Error, FatVolume};
 use std::io::Cursor;
 
 /// Test that boot sector parsing works correctly with the mkfs_sectors.bin fixture
@@ -19,7 +19,7 @@ fn test_parse_boot_sector() {
 
     // Try to open the filesystem - this tests our parsing code
     // The open may succeed or fail depending on how much data we need to read
-    let result = FatFs::open(data);
+    let result = FatVolume::open(data);
 
     // Whether it succeeds or fails, it should not panic
     // If it succeeds, great! If it fails, check that it's a reasonable error
@@ -27,10 +27,10 @@ fn test_parse_boot_sector() {
         Ok(_fs) => {
             // Successfully parsed the boot sector - that's fine
         }
-        Err(FatError::Io(_)) => {
+        Err(Error::Io(_)) => {
             // I/O error (e.g., trying to read beyond buffer) is acceptable
         }
-        Err(FatError::InvalidFsInfoSignature { .. }) => {
+        Err(Error::InvalidFsInfoSignature { .. }) => {
             // FSInfo validation error is acceptable if data is truncated
         }
         Err(e) => {
@@ -50,10 +50,10 @@ fn test_invalid_boot_signature() {
     data[511] = 0x00; // Wrong signature (should be 0xAA)
 
     let cursor = Cursor::new(data);
-    let result = FatFs::open(cursor);
+    let result = FatVolume::open(cursor);
 
     match result {
-        Err(FatError::InvalidBootSignature { found }) => {
+        Err(Error::InvalidBootSignature { found }) => {
             assert_eq!(found, 0x0000);
         }
         _ => panic!("Expected InvalidBootSignature error"),
@@ -68,8 +68,8 @@ fn test_invalid_fat_count_rejected() {
     for bad in [0u8, 3, 0xFF] {
         let mut data = BOOT_SECTORS.to_vec();
         data[16] = bad; // BPB_NumFATs
-        match FatFs::open(Cursor::new(data)) {
-            Err(FatError::CorruptFilesystem { .. }) => {}
+        match FatVolume::open(Cursor::new(data)) {
+            Err(Error::CorruptFilesystem { .. }) => {}
             other => panic!("fat_count={bad} should be rejected, got {other:?}"),
         }
     }
@@ -128,7 +128,7 @@ fn test_fat12_16_detection() {
     data[511] = 0xAA;
 
     let cursor = Cursor::new(data);
-    let result = FatFs::open(cursor);
+    let result = FatVolume::open(cursor);
 
     // Now FAT12/16 should be detected, though the filesystem may not be fully valid
     // We just check that it doesn't return UnsupportedFatType
@@ -138,7 +138,7 @@ fn test_fat12_16_detection() {
             use hadris_fat::FatType;
             assert!(matches!(fs.fat_type(), FatType::Fat12 | FatType::Fat16));
         }
-        Err(FatError::UnsupportedFatType(_)) => {
+        Err(Error::UnsupportedFatType(_)) => {
             panic!("FAT12/16 should now be supported");
         }
         Err(_) => {
@@ -254,8 +254,8 @@ mod lfn_tests {
 
 #[cfg(feature = "write")]
 mod integration_tests {
-    use hadris_fat::format::{FatVolumeFormatter, FormatOptions};
-    use hadris_fat::{FatFs, FatFsWriteExt};
+    use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter};
+    use hadris_fat::{FatVolume, FatVolumeWriteExt};
     use std::io::Cursor;
 
     /// Create a test FAT32 image with known directory structure:
@@ -272,7 +272,7 @@ mod integration_tests {
         let buffer = vec![0u8; volume_size as usize];
         let mut cursor = Cursor::new(buffer);
 
-        let opts = FormatOptions::new(volume_size);
+        let opts = FatFormatOptions::new(volume_size);
         let fs =
             FatVolumeFormatter::format(&mut cursor, opts).expect("Failed to format FAT32 volume");
 
@@ -318,13 +318,13 @@ mod integration_tests {
 
     #[test]
     fn test_root_listing_skips_volume_label_entry() {
-        use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
+        use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
 
         let volume_size: u64 = 256 * 1024 * 1024;
         let buffer = vec![0u8; volume_size as usize];
         let mut cursor = Cursor::new(buffer);
 
-        let opts = FormatOptions::new(volume_size)
+        let opts = FatFormatOptions::new(volume_size)
             .volume_label("PMOS_BOOT")
             .fat_type(FatTypeSelection::Fat32);
         let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
@@ -342,14 +342,14 @@ mod integration_tests {
 
     #[test]
     fn test_root_listing_skips_mkfs_style_lowercase_label() {
-        use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
+        use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
         use hadris_io::Seek;
 
         let volume_size: u64 = 256 * 1024 * 1024;
         let mut buffer = vec![0u8; volume_size as usize];
         let mut cursor = Cursor::new(&mut buffer);
 
-        let opts = FormatOptions::new(volume_size)
+        let opts = FatFormatOptions::new(volume_size)
             .volume_label("PLACEHOLDER")
             .fat_type(FatTypeSelection::Fat32);
         {
@@ -359,7 +359,7 @@ mod integration_tests {
         }
 
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
-        let fs = FatFs::open(cursor).expect("re-open FAT32");
+        let fs = FatVolume::open(cursor).expect("re-open FAT32");
 
         let entries: Vec<_> = fs.root_dir().entries().filter_map(|e| e.ok()).collect();
         assert!(
@@ -379,7 +379,7 @@ mod integration_tests {
         let mut cursor = create_test_fat32_image();
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
 
         // Collect all entries (excluding . and ..)
@@ -418,7 +418,7 @@ mod integration_tests {
         let mut cursor = create_test_fat32_image();
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
 
         // Read HELLO.TXT
@@ -445,7 +445,7 @@ mod integration_tests {
         let mut cursor = create_test_fat32_image();
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
 
         // Verify we can read the short filenames (8.3 format)
@@ -472,7 +472,7 @@ mod integration_tests {
 #[cfg(feature = "write")]
 mod navigation_tests {
     use super::integration_tests::create_test_fat32_image;
-    use hadris_fat::{FatError, FatFs};
+    use hadris_fat::{Error, FatVolume};
     use hadris_io::Seek;
 
     /// Test that find() returns None for non-existent entries
@@ -481,7 +481,7 @@ mod navigation_tests {
         let mut cursor = create_test_fat32_image();
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
 
         // Try to find a non-existent file
@@ -496,14 +496,14 @@ mod navigation_tests {
         let mut cursor = create_test_fat32_image();
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
 
         // Try to open a file as a directory
         let result = root.open_dir("HELLO.TXT");
         assert!(result.is_err());
         match result {
-            Err(FatError::NotADirectory) => {}
+            Err(Error::NotADirectory) => {}
             _ => panic!("Expected NotADirectory error"),
         }
     }
@@ -514,14 +514,14 @@ mod navigation_tests {
         let mut cursor = create_test_fat32_image();
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-        let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
         let root = fs.root_dir();
 
         // Try to open a directory as a file
         let result = root.open_file("SUBDIR");
         assert!(result.is_err());
         match result {
-            Err(FatError::NotAFile) => {}
+            Err(Error::NotAFile) => {}
             _ => panic!("Expected NotAFile error"),
         }
     }
@@ -529,43 +529,43 @@ mod navigation_tests {
     /// Test error variants display correctly
     #[test]
     fn test_error_display() {
-        let err = FatError::EntryNotFound;
+        let err = Error::EntryNotFound;
         assert_eq!(format!("{err}"), "entry not found in directory");
 
-        let err = FatError::InvalidPath;
+        let err = Error::InvalidPath;
         assert_eq!(format!("{err}"), "path is invalid (empty or malformed)");
     }
 
     /// Test path-based API with invalid paths
     #[cfg(feature = "alloc")]
     mod path_tests {
-        use hadris_fat::FatError;
+        use hadris_fat::Error;
 
         #[test]
         fn test_invalid_path_empty() {
             // Even if we can't open a real filesystem, we can verify the error type exists
             // and the API surface is correct through compilation
-            let _: Result<(), FatError> = Err(FatError::InvalidPath);
-            let _: Result<(), FatError> = Err(FatError::EntryNotFound);
+            let _: Result<(), Error> = Err(Error::InvalidPath);
+            let _: Result<(), Error> = Err(Error::EntryNotFound);
         }
 
         #[test]
         #[cfg(feature = "write")]
         fn test_open_path_empty_returns_invalid() {
             use super::super::integration_tests::create_test_fat32_image;
-            use hadris_fat::FatFs;
+            use hadris_fat::FatVolume;
             use hadris_io::Seek;
 
             let mut cursor = create_test_fat32_image();
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-            let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+            let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
 
             // Try to open an empty path
             let result = fs.open_path("");
             assert!(result.is_err());
             match result {
-                Err(FatError::InvalidPath) => {}
+                Err(Error::InvalidPath) => {}
                 _ => panic!("Expected InvalidPath error"),
             }
         }
@@ -574,19 +574,19 @@ mod navigation_tests {
         #[cfg(feature = "write")]
         fn test_open_path_slash_only_returns_invalid() {
             use super::super::integration_tests::create_test_fat32_image;
-            use hadris_fat::FatFs;
+            use hadris_fat::FatVolume;
             use hadris_io::Seek;
 
             let mut cursor = create_test_fat32_image();
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-            let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+            let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
 
             // Try to open a slash-only path
             let result = fs.open_path("/");
             assert!(result.is_err());
             match result {
-                Err(FatError::InvalidPath) => {}
+                Err(Error::InvalidPath) => {}
                 _ => panic!("Expected InvalidPath error"),
             }
         }
@@ -595,13 +595,13 @@ mod navigation_tests {
         #[cfg(feature = "write")]
         fn test_open_path_traversal() {
             use super::super::integration_tests::create_test_fat32_image;
-            use hadris_fat::FatFs;
+            use hadris_fat::FatVolume;
             use hadris_io::Seek;
 
             let mut cursor = create_test_fat32_image();
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-            let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+            let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
 
             // Test multi-level path navigation
             let result = fs.open_path("SUBDIR/DEEP/FILE.TXT");
@@ -616,13 +616,13 @@ mod navigation_tests {
         #[cfg(feature = "write")]
         fn test_open_file_path() {
             use super::super::integration_tests::create_test_fat32_image;
-            use hadris_fat::FatFs;
+            use hadris_fat::FatVolume;
             use hadris_io::Seek;
 
             let mut cursor = create_test_fat32_image();
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-            let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+            let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
 
             // Test opening a file by path
             let mut reader = fs.open_file_path("SUBDIR/NESTED.TXT").unwrap();
@@ -634,13 +634,13 @@ mod navigation_tests {
         #[cfg(feature = "write")]
         fn test_open_dir_path() {
             use super::super::integration_tests::create_test_fat32_image;
-            use hadris_fat::FatFs;
+            use hadris_fat::FatVolume;
             use hadris_io::Seek;
 
             let mut cursor = create_test_fat32_image();
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
-            let fs = FatFs::open(cursor).expect("Failed to open FAT32 image");
+            let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
 
             // Test opening a directory by path
             let dir = fs.open_dir_path("SUBDIR/DEEP").unwrap();

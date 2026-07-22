@@ -6,7 +6,7 @@
 
 use core::mem::size_of;
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 #[cfg(feature = "write")]
 use crate::io::Write;
 use crate::io::{Read, Seek, SeekFrom};
@@ -18,10 +18,10 @@ pub struct ExFatTable {
     /// FAT offset in bytes from start of volume
     fat_offset: u64,
     /// FAT length in bytes
-    #[allow(dead_code)]
+    #[cfg(feature = "write")]
     fat_length: u64,
     /// Number of FAT copies (1 or 2)
-    #[allow(dead_code)]
+    #[cfg(feature = "write")]
     fat_count: u8,
     /// Maximum valid cluster number
     max_cluster: u32,
@@ -43,7 +43,9 @@ impl ExFatTable {
     pub fn new(info: &ExFatInfo) -> Self {
         Self {
             fat_offset: info.fat_offset,
+            #[cfg(feature = "write")]
             fat_length: info.fat_length,
+            #[cfg(feature = "write")]
             fat_count: info.fat_count,
             // Cluster count + 2 (for reserved entries 0 and 1)
             max_cluster: info.cluster_count + Self::FIRST_DATA_CLUSTER - 1,
@@ -102,12 +104,12 @@ impl ExFatTable {
 
         // Check for bad cluster
         if entry == Self::BAD_CLUSTER {
-            return Err(FatError::BadCluster { cluster });
+            return Err(Error::BadCluster { cluster });
         }
 
         // Check for free cluster (shouldn't happen in a valid chain)
         if entry == Self::FREE_CLUSTER {
-            return Err(FatError::UnexpectedEndOfChain { cluster });
+            return Err(Error::UnexpectedEndOfChain { cluster });
         }
 
         // Validate the next cluster
@@ -150,7 +152,7 @@ impl ExFatTable {
             }
         }
 
-        Err(FatError::NoFreeSpace)
+        Err(Error::NoFreeSpace)
     }
 
     /// Allocate a chain of clusters.
@@ -164,7 +166,7 @@ impl ExFatTable {
         hint: u32,
     ) -> Result<u32> {
         if count == 0 {
-            return Err(FatError::NoFreeSpace);
+            return Err(Error::NoFreeSpace);
         }
 
         let first = self.allocate_cluster(data, hint)?;
@@ -266,13 +268,13 @@ impl ExFatTable {
     /// Validate that a cluster number is within bounds.
     fn validate_cluster(&self, cluster: u32) -> Result<()> {
         if cluster < Self::FIRST_DATA_CLUSTER {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster,
                 max: self.max_cluster,
             });
         }
         if cluster > self.max_cluster {
-            return Err(FatError::ClusterOutOfBounds {
+            return Err(Error::ClusterOutOfBounds {
                 cluster,
                 max: self.max_cluster,
             });

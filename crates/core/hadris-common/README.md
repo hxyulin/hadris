@@ -6,9 +6,9 @@ Shared types and utilities used by Hadris filesystem crates.
 
 This crate provides common functionality needed across the Hadris workspace,
 including endian-aware types, extents, and optional optical-media types. New
-fixed-capacity buffers and text should use `hadris-fixed`, and new path code
-should use `hadris-path`; the old modules remain as deprecated compatibility
-forwarding surfaces.
+fixed-capacity buffers and text use `hadris-fixed`, and virtual path code uses
+`hadris-path`. The temporary forwarding modules were removed at the RC4 API
+freeze.
 
 ## Features
 
@@ -55,14 +55,14 @@ assert_eq!(hadris_common::BOOT_SECTOR_BIN[511], 0xAA);
 
 ```toml
 [dependencies]
-hadris-common = { version = "2.0.0-rc.3", default-features = false, features = ["alloc", "bytemuck"] }
+hadris-common = { version = "2.0.0-rc.4", default-features = false, features = ["alloc", "bytemuck"] }
 ```
 
 ### Minimal (No Heap)
 
 ```toml
 [dependencies]
-hadris-common = { version = "2.0.0-rc.3", default-features = false, features = ["bytemuck"] }
+hadris-common = { version = "2.0.0-rc.4", default-features = false, features = ["bytemuck"] }
 ```
 
 ## License

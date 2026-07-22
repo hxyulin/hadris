@@ -7,7 +7,7 @@
 //! Western-European Latin set commonly seen on physical-media images.
 //!
 //! Implementations are stateless and `Sync` so they can be installed
-//! per-`FatFs` instance and used freely from any thread.
+//! per-`FatVolume` instance and used freely from any thread.
 
 /// Pluggable OEM code page used to encode/decode short (8.3) filename bytes.
 pub trait OemCpConverter: core::fmt::Debug {
@@ -52,7 +52,7 @@ impl OemCpConverter for LossyAsciiOemCpConverter {
     }
 }
 
-/// Default converter used when none is set on a `FatFs`.
+/// Default converter used when none is set on a `FatVolume`.
 ///
 /// Always [`LossyAsciiOemCpConverter`] — the most embedded-friendly choice
 /// (no tables, ASCII passes through, everything else collapses to `_`).

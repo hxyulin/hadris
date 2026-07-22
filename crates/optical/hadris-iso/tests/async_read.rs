@@ -12,7 +12,7 @@ use std::task::{Wake, Waker};
 
 use hadris_iso::r#async::read::IsoImage;
 use hadris_iso::sync::read::PathSeparator;
-use hadris_iso::sync::write::options::{CreationFeatures, FormatOptions};
+use hadris_iso::sync::write::options::{CreationFeatures, IsoFormatOptions};
 use hadris_iso::sync::write::{InputEntry, InputTree, IsoImageWriter};
 
 struct ThreadWaker(std::thread::Thread);
@@ -45,7 +45,7 @@ fn async_leaf_reads_descriptors_traverses_and_reads_file() {
             vec![InputEntry::file("README.TXT", payload)],
         )],
     );
-    let options = FormatOptions {
+    let options = IsoFormatOptions {
         volume_name: "ASYNC_TEST".to_owned(),
         system_id: None,
         volume_set_id: None,

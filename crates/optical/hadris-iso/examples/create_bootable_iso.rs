@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Example: Creating a Bootable ISO
 //!
 //! This example demonstrates how to create a bootable ISO image with El-Torito
@@ -14,7 +12,7 @@ use std::sync::Arc;
 use hadris_iso::boot::EmulationType;
 use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
 use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, FormatOptions};
+use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
 use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
 
 fn main() {
@@ -65,7 +63,7 @@ fn main() {
     };
 
     // Configure ISO creation options
-    let format_options = FormatOptions {
+    let format_options = IsoFormatOptions {
         volume_name: "BOOTABLE_ISO".to_string(),
         system_id: None,
         volume_set_id: None,

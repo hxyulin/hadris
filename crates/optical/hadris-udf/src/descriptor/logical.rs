@@ -4,7 +4,7 @@ use super::{
     CharSpec, DescriptorTag, EntityIdentifier, ExtentDescriptor, LongAllocationDescriptor,
     TagIdentifier,
 };
-use crate::error::UdfResult;
+use crate::error::Result;
 
 /// Logical Volume Descriptor (ECMA-167 3/10.6)
 ///
@@ -49,7 +49,7 @@ unsafe impl bytemuck::Pod for LogicalVolumeDescriptor {}
 
 impl LogicalVolumeDescriptor {
     /// Validate this descriptor
-    pub fn validate(&self, location: u32) -> UdfResult<()> {
+    pub fn validate(&self, location: u32) -> Result<()> {
         self.tag
             .validate(TagIdentifier::LogicalVolumeDescriptor, location)
     }

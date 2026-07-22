@@ -6,18 +6,18 @@ title: Read a partition table
 
 ```toml
 [dependencies]
-hadris-part = "2.0.0-rc.3"
+hadris-part = "2.0.0-rc.4"
 ```
 
 ```rust
 use hadris_part::{
-    DiskPartitionScheme, DiskPartitionSchemeReadExt, PartitionInfoTrait,
+    PartitionInfoTrait, PartitionTable, PartitionTableReadExt,
 };
 use std::fs::File;
 
 fn main() -> hadris_part::Result<()> {
     let mut disk = File::open("disk.img")?;
-    let table = DiskPartitionScheme::read_from(&mut disk, 512)?;
+    let table = PartitionTable::read_from(&mut disk, 512)?;
 
     for partition in table.partitions() {
         println!(

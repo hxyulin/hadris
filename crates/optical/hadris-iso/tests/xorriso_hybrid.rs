@@ -1,6 +1,5 @@
-#![allow(deprecated)]
-
-mod xorriso_helpers;
+#[path = "common/xorriso.rs"]
+pub mod xorriso_helpers;
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -34,7 +33,7 @@ fn test_hybrid_boot_mbr() {
         entries: vec![],
     };
 
-    let format_options = hadris_iso::write::options::FormatOptions {
+    let format_options = hadris_iso::write::options::IsoFormatOptions {
         volume_name: "HYBRID_TEST".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -108,7 +107,7 @@ fn test_hybrid_boot_gpt() {
         entries: vec![],
     };
 
-    let format_options = hadris_iso::write::options::FormatOptions {
+    let format_options = hadris_iso::write::options::IsoFormatOptions {
         volume_name: "GPT_TEST".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -185,7 +184,7 @@ fn test_hybrid_boot_dual() {
         entries: vec![],
     };
 
-    let format_options = hadris_iso::write::options::FormatOptions {
+    let format_options = hadris_iso::write::options::IsoFormatOptions {
         volume_name: "DUAL_BOOT".to_string(),
         system_id: None,
         volume_set_id: None,

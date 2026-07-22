@@ -18,7 +18,7 @@ pub use primary::PrimaryVolumeDescriptor;
 pub use tag::{DescriptorTag, TagIdentifier};
 
 use super::super::{Read, Seek, SeekFrom};
-use crate::error::{UdfError, UdfResult};
+use crate::error::{Error, Result};
 
 /// Extent descriptor (ECMA-167 3/7.1)
 ///
@@ -260,7 +260,7 @@ io_transform! {
 /// Parse the Volume Recognition Sequence to detect UDF
 ///
 /// Returns the UDF NSR version found, or an error if not UDF
-pub async fn parse_vrs<R: Read + Seek>(reader: &mut R) -> UdfResult<VrsType> {
+pub async fn parse_vrs<R: Read + Seek>(reader: &mut R) -> Result<VrsType> {
     // VRS starts at sector 16
     reader.seek(SeekFrom::Start(16 * 2048)).await?;
 
@@ -290,7 +290,7 @@ pub async fn parse_vrs<R: Read + Seek>(reader: &mut R) -> UdfResult<VrsType> {
 
     match found_nsr {
         Some(nsr) => Ok(nsr),
-        None => Err(UdfError::InvalidVrs),
+        None => Err(Error::InvalidVrs),
     }
 }
 

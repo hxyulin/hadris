@@ -22,7 +22,7 @@ use std::io::{Read, Seek};
 
 use hadris_iso::directory::DirectoryRef;
 use hadris_iso::read::IsoImage;
-use hadris_iso::write::options::FormatOptions;
+use hadris_iso::write::options::IsoFormatOptions;
 use hadris_iso::write::{InputEntry, InputEntryKind, InputTree, estimator};
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -59,7 +59,7 @@ fn navigate_to_path<R: Read + Seek>(iso: &IsoImage<R>, path: &str) -> Result<Dir
 }
 
 /// Compute estimated size using the estimator API.
-fn compute_estimated_size(input: &InputTree, format_options: &FormatOptions) -> u64 {
+fn compute_estimated_size(input: &InputTree, format_options: &IsoFormatOptions) -> u64 {
     let estimate = estimator::estimate_tree(input, format_options);
     estimate.minimum_bytes() + 1024 * 1024 // safety margin
 }

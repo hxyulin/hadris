@@ -1,7 +1,7 @@
 use std::fs::{self, File};
 use std::path::Path;
 
-use hadris_udf::{UdfDir, UdfFs};
+use hadris_udf::{UdfDir, UdfVolume};
 
 use super::super::args::ExtractArgs;
 
@@ -10,7 +10,7 @@ use super::{Result, navigate_to_path};
 /// Extract files from a UDF image
 pub fn extract(args: ExtractArgs) -> Result<()> {
     let file = File::open(&args.input)?;
-    let udf = UdfFs::open(file)?;
+    let udf = UdfVolume::open(file)?;
 
     fs::create_dir_all(&args.output)?;
 
@@ -38,7 +38,7 @@ pub fn extract(args: ExtractArgs) -> Result<()> {
 }
 
 fn extract_dir(
-    udf: &UdfFs<File>,
+    udf: &UdfVolume<File>,
     dir: &UdfDir,
     output_path: &Path,
     verbose: bool,

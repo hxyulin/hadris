@@ -4,7 +4,7 @@
 //! and partition alignment, including support for modern Advanced Format disks.
 
 use crate::PartitionInfoTrait;
-use crate::error::{PartitionError, Result};
+use crate::error::{Error, Result};
 
 /// Disk geometry information.
 ///
@@ -242,14 +242,14 @@ impl DiskGeometry {
 ///
 /// # Errors
 ///
-/// Returns `PartitionError::MisalignedPartition` if the partition is not aligned.
+/// Returns `Error::MisalignedPartition` if the partition is not aligned.
 pub fn validate_partition_alignment<P: PartitionInfoTrait>(
     partition: &P,
     geometry: &DiskGeometry,
     alignment: u64,
 ) -> Result<()> {
     if !geometry.is_aligned(partition.start_lba(), alignment) {
-        return Err(PartitionError::MisalignedPartition {
+        return Err(Error::MisalignedPartition {
             lba: partition.start_lba(),
             required_alignment: alignment,
         });
@@ -267,7 +267,7 @@ pub fn validate_partition_alignment<P: PartitionInfoTrait>(
 ///
 /// # Errors
 ///
-/// Returns `PartitionError::MisalignedPartition` for the first misaligned partition found.
+/// Returns `Error::MisalignedPartition` for the first misaligned partition found.
 pub fn validate_all_partitions_aligned<P: PartitionInfoTrait>(
     partitions: &[P],
     geometry: &DiskGeometry,

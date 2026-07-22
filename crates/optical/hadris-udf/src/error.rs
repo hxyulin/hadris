@@ -4,7 +4,7 @@ use hadris_io as io;
 
 /// Errors that can occur when reading or writing UDF filesystems
 #[derive(Debug)]
-pub enum UdfError {
+pub enum Error {
     /// I/O error
     Io(io::Error),
     /// Invalid or missing Volume Recognition Sequence
@@ -47,13 +47,13 @@ pub enum UdfError {
     PodCastError(bytemuck::PodCastError),
 }
 
-impl<E: io::IoError> From<io::Error<E>> for UdfError {
+impl<E: io::IoError> From<io::Error<E>> for Error {
     fn from(err: io::Error<E>) -> Self {
         Self::Io(err.erase())
     }
 }
 
-impl core::fmt::Display for UdfError {
+impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Io(e) => write!(f, "I/O error: {e}"),
@@ -91,7 +91,7 @@ impl core::fmt::Display for UdfError {
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for UdfError {
+impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(e) => Some(e),
@@ -101,4 +101,4 @@ impl std::error::Error for UdfError {
 }
 
 /// Result type for UDF operations
-pub type UdfResult<T> = Result<T, UdfError>;
+pub type Result<T> = core::result::Result<T, Error>;

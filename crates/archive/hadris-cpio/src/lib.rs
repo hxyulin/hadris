@@ -16,10 +16,10 @@
 //! ```rust,no_run
 //! use std::fs::File;
 //! use std::io::BufReader;
-//! use hadris_cpio::CpioReader;
+//! use hadris_cpio::CpioArchiveReader;
 //!
 //! let file = File::open("archive.cpio").unwrap();
-//! let mut reader = CpioReader::new(BufReader::new(file));
+//! let mut reader = CpioArchiveReader::new(BufReader::new(file));
 //!
 //! while let Some(entry) = reader.next_entry_alloc().unwrap() {
 //!     let name = entry.name_str().unwrap();
@@ -99,7 +99,7 @@
 //! - [`header`] — Raw 110-byte header parsing and construction
 //! - [`entry`] — Decoded entry header with typed fields
 //! - [`mode`] — Unix file type extraction from mode bits
-//! - [`read`] — Streaming archive reader (`CpioReader`)
+//! - [`read`] — Streaming archive reader (`CpioArchiveReader`)
 //! - [`mod@write`] — Archive writer and in-memory file tree
 //!
 //! ## Specification References
@@ -182,11 +182,11 @@ pub mod sync {
     #[cfg(all(feature = "read", feature = "alloc"))]
     pub use __inner::read::CpioEntryOwned;
     #[cfg(feature = "read")]
-    pub use __inner::read::{CpioEntry, CpioReader};
+    pub use __inner::read::{CpioArchiveReader, CpioEntry};
     #[cfg(feature = "write")]
     pub use __inner::write::file_tree::{FileNode, FileTree};
     #[cfg(feature = "write")]
-    pub use __inner::write::{CpioArchiveWriter, CpioWriteOptions, CpioWriter};
+    pub use __inner::write::{CpioArchiveWriter, CpioWriteOptions};
 }
 
 // ---------------------------------------------------------------------------
@@ -240,11 +240,11 @@ pub mod r#async {
     #[cfg(all(feature = "read", feature = "alloc"))]
     pub use __inner::read::CpioEntryOwned;
     #[cfg(feature = "read")]
-    pub use __inner::read::{CpioEntry, CpioReader};
+    pub use __inner::read::{CpioArchiveReader, CpioEntry};
     #[cfg(feature = "write")]
     pub use __inner::write::file_tree::{FileNode, FileTree};
     #[cfg(feature = "write")]
-    pub use __inner::write::{CpioArchiveWriter, CpioWriteOptions, CpioWriter};
+    pub use __inner::write::{CpioArchiveWriter, CpioWriteOptions};
 }
 
 // ---------------------------------------------------------------------------
@@ -255,5 +255,5 @@ pub mod r#async {
 pub use sync::*;
 
 // Re-exports from shared types
-pub use error::{CpioError, Result};
+pub use error::{Error, Result};
 pub use mode::FileType;

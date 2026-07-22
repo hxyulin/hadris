@@ -1,4 +1,5 @@
-mod xorriso_helpers;
+#[path = "common/xorriso.rs"]
+pub mod xorriso_helpers;
 use xorriso_helpers::*;
 
 use std::fs::{self, File};

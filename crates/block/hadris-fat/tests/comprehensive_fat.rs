@@ -3,7 +3,7 @@
 //! These tests cover edge cases, extensions, and various scenarios for FAT12/16/32.
 //! Tests are designed to run without external tools where possible.
 
-use hadris_fat::{FatError, FatFs, FatType};
+use hadris_fat::{Error, FatType, FatVolume};
 use std::io::Cursor;
 
 // =============================================================================
@@ -295,10 +295,10 @@ mod boot_sector_tests {
         data[511] = 0x00;
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         assert!(
-            matches!(result, Err(FatError::InvalidBootSignature { .. })),
+            matches!(result, Err(Error::InvalidBootSignature { .. })),
             "Expected InvalidBootSignature error, got {result:?}"
         );
     }
@@ -310,9 +310,9 @@ mod boot_sector_tests {
         data[511] = 0x00; // Should be 0xAA
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
-        assert!(matches!(result, Err(FatError::InvalidBootSignature { .. })));
+        assert!(matches!(result, Err(Error::InvalidBootSignature { .. })));
     }
 
     #[test]
@@ -322,9 +322,9 @@ mod boot_sector_tests {
         data[511] = 0xAA;
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
-        assert!(matches!(result, Err(FatError::InvalidBootSignature { .. })));
+        assert!(matches!(result, Err(Error::InvalidBootSignature { .. })));
     }
 
     #[test]
@@ -335,7 +335,7 @@ mod boot_sector_tests {
         data[12] = 0;
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         // Should fail with some validation error
         assert!(result.is_err());
@@ -351,7 +351,7 @@ mod boot_sector_tests {
         let cursor = Cursor::new(data);
         // This will panic due to divide by zero - this is actually a library bug
         // that should be fixed to return an error instead
-        let _result = FatFs::open(cursor);
+        let _result = FatVolume::open(cursor);
     }
 
     #[test]
@@ -361,7 +361,7 @@ mod boot_sector_tests {
         data[11..13].copy_from_slice(&500u16.to_le_bytes());
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         // May or may not fail depending on validation strictness
         let _ = result;
@@ -373,12 +373,12 @@ mod boot_sector_tests {
         for &sector_size in &[512u16, 1024, 2048, 4096] {
             let data = create_fat32_boot_sector(sector_size, 8, 32, 2, 100000, 2048, 2);
             let cursor = Cursor::new(data);
-            let result = FatFs::open(cursor);
+            let result = FatVolume::open(cursor);
 
             // May fail due to truncated data, but should not panic
             match result {
                 Ok(_) => {}
-                Err(FatError::Io(_)) => {} // Expected for truncated data
+                Err(Error::Io(_)) => {} // Expected for truncated data
                 Err(e) => {
                     // Check it's not an unexpected error
                     let _ = e;
@@ -415,7 +415,7 @@ mod fat_type_detection_tests {
         data[fat_offset + 2] = 0xFF;
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         match result {
             Ok(fs) => {
@@ -424,7 +424,7 @@ mod fat_type_detection_tests {
             Err(e) => {
                 // Might fail for other reasons, but shouldn't be unsupported
                 assert!(
-                    !matches!(e, FatError::UnsupportedFatType(_)),
+                    !matches!(e, Error::UnsupportedFatType(_)),
                     "FAT12 should be supported"
                 );
             }
@@ -451,7 +451,7 @@ mod fat_type_detection_tests {
         data[fat_offset + 2..fat_offset + 4].copy_from_slice(&0xFFFFu16.to_le_bytes()); // Cluster 1
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         match result {
             Ok(fs) => {
@@ -459,7 +459,7 @@ mod fat_type_detection_tests {
             }
             Err(e) => {
                 assert!(
-                    !matches!(e, FatError::UnsupportedFatType(_)),
+                    !matches!(e, Error::UnsupportedFatType(_)),
                     "FAT16 should be supported"
                 );
             }
@@ -483,7 +483,7 @@ mod fat_type_detection_tests {
         data[fat_offset + 8..fat_offset + 12].copy_from_slice(&0x0FFFFFFFu32.to_le_bytes()); // Root cluster (EOC)
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         match result {
             Ok(fs) => {
@@ -492,7 +492,7 @@ mod fat_type_detection_tests {
             Err(e) => {
                 // May fail for FSInfo validation, but shouldn't be unsupported
                 assert!(
-                    !matches!(e, FatError::UnsupportedFatType(_)),
+                    !matches!(e, Error::UnsupportedFatType(_)),
                     "FAT32 should be supported: {e:?}"
                 );
             }
@@ -516,10 +516,10 @@ mod fsinfo_tests {
         data[512..516].copy_from_slice(&0x00000000u32.to_le_bytes());
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         assert!(
-            matches!(result, Err(FatError::InvalidFsInfoSignature { .. })),
+            matches!(result, Err(Error::InvalidFsInfoSignature { .. })),
             "Expected InvalidFsInfoSignature error"
         );
     }
@@ -533,10 +533,10 @@ mod fsinfo_tests {
         data[512 + 484..512 + 488].copy_from_slice(&0x00000000u32.to_le_bytes());
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         assert!(
-            matches!(result, Err(FatError::InvalidFsInfoSignature { .. })),
+            matches!(result, Err(Error::InvalidFsInfoSignature { .. })),
             "Expected InvalidFsInfoSignature error"
         );
     }
@@ -556,14 +556,14 @@ mod fsinfo_tests {
         // Already set by create_fat32_boot_sector
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         // Should succeed - unknown is valid
         match result {
             Ok(_fs) => {
                 // Could check free cluster count if we had an API for it
             }
-            Err(FatError::InvalidFsInfoSignature { .. }) => {
+            Err(Error::InvalidFsInfoSignature { .. }) => {
                 panic!("FSInfo signatures should be valid");
             }
             Err(_) => {
@@ -887,7 +887,7 @@ mod edge_case_tests {
     fn test_empty_image() {
         let data = vec![0u8; 0];
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         assert!(result.is_err());
     }
@@ -897,7 +897,7 @@ mod edge_case_tests {
         // Less than one sector
         let data = vec![0u8; 256];
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         assert!(result.is_err());
     }
@@ -909,7 +909,7 @@ mod edge_case_tests {
         data[511] = 0xAA;
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         // Should fail - not enough data for a valid filesystem
         assert!(result.is_err());
@@ -931,7 +931,7 @@ mod edge_case_tests {
         let data = create_fat32_boot_sector(512, 8, 32, 2, 204800, 2048, 0); // root_cluster = 0
 
         let cursor = Cursor::new(data);
-        let result = FatFs::open(cursor);
+        let result = FatVolume::open(cursor);
 
         // The result depends on how strictly the library validates
         // Either it should fail, or if it succeeds, accessing root should fail
@@ -950,30 +950,27 @@ mod edge_case_tests {
 // =============================================================================
 
 mod error_display_tests {
-    use hadris_fat::FatError;
+    use hadris_fat::Error;
 
     #[test]
     fn test_error_messages() {
         let errors = [
-            (FatError::EntryNotFound, "entry not found in directory"),
+            (Error::EntryNotFound, "entry not found in directory"),
+            (Error::InvalidPath, "path is invalid (empty or malformed)"),
+            (Error::NotADirectory, "entry is not a directory"),
+            (Error::NotAFile, "entry is not a file"),
             (
-                FatError::InvalidPath,
-                "path is invalid (empty or malformed)",
-            ),
-            (FatError::NotADirectory, "entry is not a directory"),
-            (FatError::NotAFile, "entry is not a file"),
-            (
-                FatError::InvalidBootSignature { found: 0x1234 },
+                Error::InvalidBootSignature { found: 0x1234 },
                 "invalid boot signature",
             ),
             (
-                FatError::CorruptFilesystem {
+                Error::CorruptFilesystem {
                     context: "test arithmetic",
                 },
                 "corrupt filesystem: test arithmetic",
             ),
             (
-                FatError::ClusterLoop { cluster: 7 },
+                Error::ClusterLoop { cluster: 7 },
                 "cluster chain loop detected at cluster 7",
             ),
         ];

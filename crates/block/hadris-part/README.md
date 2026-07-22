@@ -21,7 +21,7 @@ This crate provides read and write support for common partition table formats us
 | `read` | Reading partition tables via `*ReadExt` traits | - | Yes |
 | `sync` | Synchronous I/O traits | - | Yes |
 | `async` | Asynchronous I/O traits | - | - |
-| `alloc` | Heap allocation for `Vec`-based APIs (`GptDisk`, `DiskPartitionScheme`) | - | via `std` |
+| `alloc` | Heap allocation for `Vec`-based APIs (`GptDisk`, `PartitionTable`) | - | via `std` |
 | `write` | Writing partition tables | `alloc`, `read` | - |
 | `crc` | CRC32 verification/calculation for GPT headers | `crc` crate | - |
 | `rand` | Random GUID generation | `rand` crate | - |
@@ -42,12 +42,12 @@ Requires features `read` and `alloc` (included when using `std` + `read`):
 ```rust,no_run
 use std::fs::File;
 use hadris_part::{
-    DiskPartitionScheme, DiskPartitionSchemeReadExt, PartitionInfoTrait,
+    PartitionInfoTrait, PartitionTable, PartitionTableReadExt,
 };
 
 # fn main() -> hadris_part::Result<()> {
 let mut disk = File::open("disk.img")?;
-let scheme = DiskPartitionScheme::read_from(&mut disk, 512)?;
+let scheme = PartitionTable::read_from(&mut disk, 512)?;
 
 for part in scheme.partitions() {
     println!(
@@ -114,16 +114,16 @@ for (idx, entry) in gpt.partitions() {
 
 ```toml
 [dependencies]
-hadris-part = { version = "2.0.0-rc.3", default-features = false, features = ["read", "sync"] }
+hadris-part = { version = "2.0.0-rc.4", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Desktop Applications
 
 ```toml
 [dependencies]
-hadris-part = { version = "2.0.0-rc.3", features = ["write"] }  # read is already default
+hadris-part = { version = "2.0.0-rc.4", features = ["write"] }  # read is already default
 # Optional GPT CRC verification:
-# hadris-part = { version = "2.0.0-rc.3", features = ["write", "crc"] }
+# hadris-part = { version = "2.0.0-rc.4", features = ["write", "crc"] }
 ```
 
 ## Partition Types

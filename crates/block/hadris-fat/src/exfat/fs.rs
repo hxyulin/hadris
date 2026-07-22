@@ -11,7 +11,7 @@ use hadris_common::types::endian::Endian;
 use hadris_path::{Component, VPath};
 use spin::Mutex;
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 #[cfg(feature = "write")]
 use crate::io::Write;
 use crate::io::{Read, ReadExt, SectorCursor, Seek, SeekFrom};
@@ -33,7 +33,7 @@ use super::upcase::UpcaseTable;
 /// exFAT filesystem handle.
 ///
 /// This is the main type for interacting with an exFAT filesystem.
-pub struct ExFatFs<DATA: Seek> {
+pub struct ExFatVolume<DATA: Seek> {
     /// The underlying data source wrapped in a mutex for thread safety
     data: Mutex<SectorCursor<DATA>>,
     /// Computed filesystem information
@@ -52,7 +52,7 @@ pub struct ExFatFs<DATA: Seek> {
     root_size: u64,
 }
 
-impl<DATA> ExFatFs<DATA>
+impl<DATA> ExFatVolume<DATA>
 where
     DATA: Read + Seek,
 {
@@ -180,7 +180,7 @@ where
         let entry = self.open_path(path)?;
 
         if !entry.is_directory() {
-            return Err(FatError::NotADirectory);
+            return Err(Error::NotADirectory);
         }
 
         Ok(ExFatDir {
@@ -198,24 +198,22 @@ where
             .components()
             .filter_map(|component| match component {
                 Component::Root | Component::Current => None,
-                Component::Parent => Some(Err(FatError::InvalidPath)),
+                Component::Parent => Some(Err(Error::InvalidPath)),
                 Component::Normal(component) => Some(Ok(component)),
             })
             .peekable();
         if components.peek().is_none() {
-            return Err(FatError::InvalidPath);
+            return Err(Error::InvalidPath);
         }
 
         while let Some(component) = components.next() {
             let component = component?;
-            let entry = current_dir
-                .find(component)?
-                .ok_or(FatError::EntryNotFound)?;
+            let entry = current_dir.find(component)?.ok_or(Error::EntryNotFound)?;
 
             if components.peek().is_some() {
                 // Not the last component, must be a directory
                 if !entry.is_directory() {
-                    return Err(FatError::NotADirectory);
+                    return Err(Error::NotADirectory);
                 }
                 current_dir = ExFatDir {
                     fs: self,
@@ -228,7 +226,7 @@ where
             }
         }
 
-        Err(FatError::EntryNotFound)
+        Err(Error::EntryNotFound)
     }
 
     /// Get the next cluster in a chain.
@@ -273,12 +271,6 @@ where
         self.bitmap.lock().is_allocated(cluster)
     }
 
-    /// Get a reference to the upcase table.
-    #[allow(dead_code)]
-    pub(crate) fn upcase(&self) -> &UpcaseTable {
-        &self.upcase
-    }
-
     /// Get the volume serial number.
     pub fn volume_serial(&self) -> u32 {
         self.info.volume_serial
@@ -286,7 +278,7 @@ where
 }
 
 #[cfg(feature = "write")]
-impl<DATA> ExFatFs<DATA>
+impl<DATA> ExFatVolume<DATA>
 where
     DATA: Read + Write + Seek,
 {
@@ -309,9 +301,7 @@ where
     /// The cluster is marked as allocated in the bitmap and as end-of-chain in the FAT.
     pub fn allocate_cluster(&self, hint: u32) -> Result<u32> {
         let mut bitmap = self.bitmap.lock();
-        let cluster = bitmap
-            .find_free_cluster(hint)?
-            .ok_or(FatError::NoFreeSpace)?;
+        let cluster = bitmap.find_free_cluster(hint)?.ok_or(Error::NoFreeSpace)?;
 
         // Mark as allocated in bitmap
         bitmap.set_allocated(cluster, true)?;
@@ -472,7 +462,7 @@ where
 
         // Need to extend the directory
         // For now, return an error - directory extension is more complex
-        Err(FatError::DirectoryFull)
+        Err(Error::DirectoryFull)
     }
 
     /// Write a directory entry set to disk.
@@ -497,7 +487,7 @@ where
     pub fn create_file(&self, parent: &ExFatDir<'_, DATA>, name: &str) -> Result<ExFatFileEntry> {
         // Check if entry already exists
         if parent.find(name)?.is_some() {
-            return Err(FatError::AlreadyExists);
+            return Err(Error::AlreadyExists);
         }
 
         // Build the entry set
@@ -539,7 +529,7 @@ where
     ) -> Result<ExFatDir<'_, DATA>> {
         // Check if entry already exists
         if parent.find(name)?.is_some() {
-            return Err(FatError::AlreadyExists);
+            return Err(Error::AlreadyExists);
         }
 
         // Allocate a cluster for the directory contents
@@ -586,7 +576,7 @@ where
             // Check for any entries in the directory
             if let Some(item) = dir.entries().next() {
                 let _ = item?;
-                return Err(FatError::DirectoryNotEmpty);
+                return Err(Error::DirectoryNotEmpty);
             }
         }
 
@@ -684,7 +674,7 @@ where
     /// Truncate a file to the specified size.
     pub fn truncate(&self, entry: &ExFatFileEntry, new_size: u64) -> Result<()> {
         if entry.is_directory() {
-            return Err(FatError::NotAFile);
+            return Err(Error::NotAFile);
         }
 
         if new_size >= entry.valid_data_length {
@@ -747,9 +737,9 @@ where
     }
 }
 
-impl<DATA: Seek> core::fmt::Debug for ExFatFs<DATA> {
+impl<DATA: Seek> core::fmt::Debug for ExFatVolume<DATA> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("ExFatFs")
+        f.debug_struct("ExFatVolume")
             .field("info", &self.info)
             .field("root_cluster", &self.root_cluster)
             .finish_non_exhaustive()

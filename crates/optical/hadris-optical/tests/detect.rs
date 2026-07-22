@@ -53,22 +53,29 @@ fn sync_probe_distinguishes_iso_udf_and_bridge_and_restores_position() {
 fn detects_images_created_by_optical_writer() {
     let cases = [
         (
-            hadris_optical::cd::CdOptions::default().iso_only(),
+            hadris_optical::cd::OpticalImageOptions::default().iso_only(),
             true,
             false,
         ),
         (
-            hadris_optical::cd::CdOptions::default().udf_only(),
+            hadris_optical::cd::OpticalImageOptions::default().udf_only(),
             false,
             true,
         ),
-        (hadris_optical::cd::CdOptions::default(), true, true),
+        (
+            hadris_optical::cd::OpticalImageOptions::default(),
+            true,
+            true,
+        ),
     ];
     for (options, iso, udf) in cases {
         let mut image = std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
-        hadris_optical::cd::CdWriter::new(hadris_io::sync::Borrowed::new(&mut image), options)
-            .finish(hadris_optical::cd::FileTree::new())
-            .unwrap();
+        hadris_optical::cd::OpticalImageWriter::new(
+            hadris_io::sync::Borrowed::new(&mut image),
+            options,
+        )
+        .finish(hadris_optical::cd::FileTree::new())
+        .unwrap();
 
         let formats = hadris_optical::detect::sync::detect(&mut image)
             .unwrap()

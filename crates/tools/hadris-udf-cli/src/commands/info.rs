@@ -1,6 +1,6 @@
 use std::fs::File;
 
-use hadris_udf::UdfFs;
+use hadris_udf::UdfVolume;
 
 use super::super::args::InfoArgs;
 
@@ -9,7 +9,7 @@ use super::Result;
 /// Display information about a UDF image
 pub fn info(args: InfoArgs) -> Result<()> {
     let file = File::open(&args.input)?;
-    let udf = UdfFs::open(file)?;
+    let udf = UdfVolume::open(file)?;
     let info = udf.info();
 
     println!("UDF Image: {}", args.input.display());

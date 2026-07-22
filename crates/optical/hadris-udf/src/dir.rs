@@ -4,7 +4,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::descriptor::{DescriptorTag, LongAllocationDescriptor, TagIdentifier};
-use crate::error::{UdfError, UdfResult};
+use crate::error::{Error, Result};
 
 /// A UDF directory entry
 #[derive(Debug, Clone)]
@@ -92,9 +92,9 @@ impl FileIdentifierDescriptor {
     }
 
     /// Parse from a byte buffer
-    pub fn from_bytes(data: &[u8]) -> UdfResult<(Self, &[u8])> {
+    pub fn from_bytes(data: &[u8]) -> Result<(Self, &[u8])> {
         if data.len() < Self::BASE_SIZE {
-            return Err(UdfError::Io(hadris_io::Error::new(
+            return Err(Error::Io(hadris_io::Error::new(
                 hadris_io::ErrorKind::UnexpectedEof,
                 "buffer too small for FID",
             )));
@@ -119,7 +119,7 @@ impl FileIdentifierDescriptor {
         };
 
         if fid.tag.identifier() != TagIdentifier::FileIdentifierDescriptor {
-            return Err(UdfError::InvalidTag {
+            return Err(Error::InvalidTag {
                 expected: TagIdentifier::FileIdentifierDescriptor.to_u16(),
                 found: fid.tag.tag_identifier,
             });
@@ -127,7 +127,7 @@ impl FileIdentifierDescriptor {
 
         let total_size = fid.total_size();
         if data.len() < total_size {
-            return Err(UdfError::Io(hadris_io::Error::new(
+            return Err(Error::Io(hadris_io::Error::new(
                 hadris_io::ErrorKind::UnexpectedEof,
                 "buffer too small for FID data",
             )));

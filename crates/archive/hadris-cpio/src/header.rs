@@ -1,5 +1,5 @@
 use super::super::{Read, Write};
-use crate::error::{CpioError, Result};
+use crate::error::{Error, Result};
 use core::fmt;
 
 /// Magic bytes for the newc format (`070701`).
@@ -209,11 +209,11 @@ fn parse_hex_field(bytes: &[u8], field: &'static str) -> Result<u32> {
             b'0'..=b'9' => (b - b'0') as u32,
             b'a'..=b'f' => (b - b'a' + 10) as u32,
             b'A'..=b'F' => (b - b'A' + 10) as u32,
-            _ => return Err(CpioError::InvalidHexField { field }),
+            _ => return Err(Error::InvalidHexField { field }),
         };
         value = value
             .checked_shl(4)
-            .ok_or(CpioError::InvalidHexField { field })?
+            .ok_or(Error::InvalidHexField { field })?
             | digit;
     }
     Ok(value)

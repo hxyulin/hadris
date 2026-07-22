@@ -13,8 +13,8 @@ use std::task::{Wake, Waker};
 use hadris_io::SeekFrom;
 use hadris_io::r#async::Seek;
 use hadris_part::r#async::partition_table;
-use hadris_part::sync::scheme_io::DiskPartitionSchemeWriteExt;
-use hadris_part::{DiskPartitionScheme, GptPartitionEntry, Guid, PartitionSchemeType};
+use hadris_part::sync::scheme_io::PartitionTableWriteExt;
+use hadris_part::{GptPartitionEntry, Guid, PartitionSchemeType, PartitionTable};
 
 struct ThreadWaker(std::thread::Thread);
 
@@ -38,8 +38,8 @@ fn block_on<F: Future>(future: F) -> F::Output {
 
 #[test]
 fn async_leaf_detects_and_opens_validated_gpt_non_destructively() {
-    let mut scheme = DiskPartitionScheme::new_gpt(8192, 512);
-    let DiskPartitionScheme::Gpt { gpt, .. } = &mut scheme else {
+    let mut scheme = PartitionTable::new_gpt(8192, 512);
+    let PartitionTable::Gpt { gpt, .. } = &mut scheme else {
         unreachable!();
     };
     gpt.add_partition(GptPartitionEntry::new(

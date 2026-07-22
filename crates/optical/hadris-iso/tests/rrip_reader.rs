@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Tests for RRIP (Rock Ridge) reader support.
 //!
 //! Tests RRIP auto-detection, NM name assembly, SL symlink reconstruction,
@@ -8,7 +6,7 @@
 
 use hadris_iso::read::IsoImage;
 use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
 use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
 use std::io::Cursor;
 use std::sync::Arc;
@@ -19,7 +17,7 @@ fn create_iso(files: Vec<IsoFile>, features: CreationFeatures) -> Vec<u8> {
         path_separator: PathSeparator::ForwardSlash,
         files,
     };
-    let options = FormatOptions {
+    let options = IsoFormatOptions {
         volume_name: "TEST".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -583,7 +581,7 @@ fn test_joliet_svd_volume_name_utf16be() {
         path_separator: PathSeparator::ForwardSlash,
         files,
     };
-    let options = FormatOptions {
+    let options = IsoFormatOptions {
         volume_name: "MYISO".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -652,7 +650,7 @@ fn test_joliet_svd_strings_are_utf16be() {
         path_separator: PathSeparator::ForwardSlash,
         files,
     };
-    let options = FormatOptions {
+    let options = IsoFormatOptions {
         volume_name: "TEST".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -725,7 +723,7 @@ fn test_pvd_strings_with_spaces() {
         path_separator: PathSeparator::ForwardSlash,
         files,
     };
-    let options = FormatOptions {
+    let options = IsoFormatOptions {
         volume_name: "TEST".to_string(),
         system_id: None,
         volume_set_id: None,

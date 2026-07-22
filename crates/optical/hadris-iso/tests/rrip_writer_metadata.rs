@@ -2,11 +2,11 @@ use std::io::Cursor;
 
 use hadris_iso::read::{IsoImage, PathSeparator};
 use hadris_iso::rrip::RripOptions;
-use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
 use hadris_iso::write::{InputEntry, InputMetadata, InputTree, IsoImageWriter};
 
-fn options(rrip: RripOptions) -> FormatOptions {
-    FormatOptions {
+fn options(rrip: RripOptions) -> IsoFormatOptions {
+    IsoFormatOptions {
         volume_name: "RRIP_TEST".to_string(),
         system_id: None,
         volume_set_id: None,

@@ -592,11 +592,11 @@ mod fat12_image {
 mod integration_tests {
     use super::fat32_image::{cluster_size, create_fat32_image};
     use hadris_fat::time::StaticTimeProvider;
-    use hadris_fat::{FatDateTime, FatError, FatFs, FatFsWriteExt};
+    use hadris_fat::{Error, FatDateTime, FatVolume, FatVolumeWriteExt};
 
     /// Builder-driven open should accept a custom `TimeProvider`, and the
     /// timestamps it returns should land verbatim in newly-created entries.
-    /// Catches regressions in the FatFs → FileWriter → directory-entry path
+    /// Catches regressions in the FatVolume → FileWriter → directory-entry path
     /// without needing to read raw bytes.
     #[test]
     fn test_builder_static_time_provider_propagates_to_created_entries() {
@@ -608,7 +608,7 @@ mod integration_tests {
         let provider: &'static StaticTimeProvider = Box::leak(Box::new(StaticTimeProvider(pinned)));
 
         let image = create_fat32_image();
-        let fs = FatFs::builder(image)
+        let fs = FatVolume::builder(image)
             .time_provider(provider)
             .open()
             .expect("builder open should succeed");
@@ -633,7 +633,7 @@ mod integration_tests {
         let provider: &'static StaticTimeProvider =
             Box::leak(Box::new(StaticTimeProvider(initial)));
         let image = create_fat32_image();
-        let fs = FatFs::builder(image)
+        let fs = FatVolume::builder(image)
             .time_provider(provider)
             .open()
             .expect("builder open should succeed");
@@ -673,7 +673,7 @@ mod integration_tests {
     #[test]
     fn test_read_status_flags_on_clean_volume() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("open");
+        let fs = FatVolume::open(image).expect("open");
         let flags = fs.read_status_flags().expect("read_status_flags");
         // Without explicit dirty marking, the volume is clean.
         assert!(!flags.dirty, "freshly created volume must not be dirty");
@@ -689,7 +689,7 @@ mod integration_tests {
     #[test]
     fn test_rename_across_directories_preserves_cluster_chain() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("open");
+        let fs = FatVolume::open(image).expect("open");
         let root = fs.root_dir();
 
         // Build /SRC/ and /DST/ subdirs.
@@ -746,7 +746,7 @@ mod integration_tests {
         use hadris_fat::raw::DirEntryAttrFlags;
 
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("open");
+        let fs = FatVolume::open(image).expect("open");
         let root = fs.root_dir();
         let _ = fs
             .create_file(&root, "PROT.TXT")
@@ -767,14 +767,14 @@ mod integration_tests {
         // Forbidden: trying to flip DIRECTORY on a regular file.
         let bad = entry.attributes() | DirEntryAttrFlags::DIRECTORY;
         match fs.set_attributes(&entry, bad) {
-            Err(FatError::InvalidAttributeChange { bit: "DIRECTORY" }) => {}
+            Err(Error::InvalidAttributeChange { bit: "DIRECTORY" }) => {}
             other => panic!("expected DIRECTORY rejection, got {other:?}"),
         }
 
         // Forbidden: trying to set VOLUME_ID on a regular file.
         let bad = entry.attributes() | DirEntryAttrFlags::VOLUME_ID;
         match fs.set_attributes(&entry, bad) {
-            Err(FatError::InvalidAttributeChange { bit: "VOLUME_ID" }) => {}
+            Err(Error::InvalidAttributeChange { bit: "VOLUME_ID" }) => {}
             other => panic!("expected VOLUME_ID rejection, got {other:?}"),
         }
     }
@@ -782,7 +782,7 @@ mod integration_tests {
     #[test]
     fn test_open_fat32_image() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         // Should be able to get root directory
         let root = fs.root_dir();
@@ -794,7 +794,7 @@ mod integration_tests {
     #[test]
     fn test_create_file() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -815,7 +815,7 @@ mod integration_tests {
     #[test]
     fn test_create_file_already_exists() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -826,7 +826,7 @@ mod integration_tests {
         // Try to create again - should fail
         let result = fs.create_file(&root, "TEST.TXT");
         match result {
-            Err(FatError::AlreadyExists) => {}
+            Err(Error::AlreadyExists) => {}
             _ => panic!("Expected AlreadyExists error"),
         }
     }
@@ -834,7 +834,7 @@ mod integration_tests {
     #[test]
     fn test_write_file_content() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -860,7 +860,7 @@ mod integration_tests {
         assert_eq!(entry.len(), content.len() as u64);
 
         // Read back the content
-        use hadris_fat::FatFsReadExt;
+        use hadris_fat::FatVolumeReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
         let mut buf = vec![0u8; content.len()];
         let mut total = 0;
@@ -877,7 +877,7 @@ mod integration_tests {
     #[test]
     fn test_write_file_multiple_clusters() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -904,7 +904,7 @@ mod integration_tests {
             .expect("File not found");
         assert_eq!(entry.len(), content.len() as u64);
 
-        use hadris_fat::FatFsReadExt;
+        use hadris_fat::FatVolumeReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
         let read_content = reader.read_to_vec().expect("Read failed");
         assert_eq!(read_content, content);
@@ -913,7 +913,7 @@ mod integration_tests {
     #[test]
     fn test_create_directory() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -943,7 +943,7 @@ mod integration_tests {
     #[test]
     fn test_create_file_in_subdirectory() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -971,7 +971,7 @@ mod integration_tests {
     #[test]
     fn test_delete_file() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -1002,7 +1002,7 @@ mod integration_tests {
     #[test]
     fn test_delete_empty_directory() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -1028,7 +1028,7 @@ mod integration_tests {
     #[test]
     fn test_delete_non_empty_directory_fails() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -1048,7 +1048,7 @@ mod integration_tests {
         let result = fs.delete(&entry);
 
         match result {
-            Err(FatError::DirectoryNotEmpty) => {}
+            Err(Error::DirectoryNotEmpty) => {}
             _ => panic!("Expected DirectoryNotEmpty error"),
         }
     }
@@ -1056,7 +1056,7 @@ mod integration_tests {
     #[test]
     fn test_create_multiple_files() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -1076,7 +1076,7 @@ mod integration_tests {
     #[test]
     fn test_case_insensitive_find() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -1094,7 +1094,7 @@ mod integration_tests {
     #[test]
     fn test_write_then_append() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT32 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
 
         let root = fs.root_dir();
 
@@ -1118,7 +1118,7 @@ mod integration_tests {
             .expect("Find failed")
             .expect("File not found");
 
-        use hadris_fat::FatFsReadExt;
+        use hadris_fat::FatVolumeReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
         let content = reader.read_to_vec().expect("Read failed");
         assert_eq!(&content, b"First part. ");
@@ -1129,12 +1129,12 @@ mod integration_tests {
 #[cfg(feature = "std")]
 mod fat16_integration_tests {
     use super::fat16_image::{cluster_size, create_fat16_image};
-    use hadris_fat::{FatError, FatFs, FatFsWriteExt, FatType};
+    use hadris_fat::{Error, FatType, FatVolume, FatVolumeWriteExt};
 
     #[test]
     fn test_open_fat16_image() {
         let image = create_fat16_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT16 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT16 image");
 
         // Verify FAT type is FAT16
         assert!(
@@ -1153,7 +1153,7 @@ mod fat16_integration_tests {
     #[test]
     fn test_fat16_create_file() {
         let image = create_fat16_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT16 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT16 image");
 
         let root = fs.root_dir();
 
@@ -1174,7 +1174,7 @@ mod fat16_integration_tests {
     #[test]
     fn test_fat16_write_file_content() {
         let image = create_fat16_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT16 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT16 image");
 
         let root = fs.root_dir();
 
@@ -1200,7 +1200,7 @@ mod fat16_integration_tests {
         assert_eq!(entry.len(), content.len() as u64);
 
         // Read back the content
-        use hadris_fat::FatFsReadExt;
+        use hadris_fat::FatVolumeReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
         let mut buf = vec![0u8; content.len()];
         let mut total = 0;
@@ -1217,7 +1217,7 @@ mod fat16_integration_tests {
     #[test]
     fn test_fat16_write_file_multiple_clusters() {
         let image = create_fat16_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT16 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT16 image");
 
         let root = fs.root_dir();
 
@@ -1244,7 +1244,7 @@ mod fat16_integration_tests {
             .expect("File not found");
         assert_eq!(entry.len(), content.len() as u64);
 
-        use hadris_fat::FatFsReadExt;
+        use hadris_fat::FatVolumeReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
         let read_content = reader.read_to_vec().expect("Read failed");
         assert_eq!(read_content, content);
@@ -1253,7 +1253,7 @@ mod fat16_integration_tests {
     #[test]
     fn test_fat16_create_directory() {
         let image = create_fat16_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT16 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT16 image");
 
         let root = fs.root_dir();
 
@@ -1283,7 +1283,7 @@ mod fat16_integration_tests {
     #[test]
     fn test_fat16_create_file_in_subdirectory() {
         let image = create_fat16_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT16 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT16 image");
 
         let root = fs.root_dir();
 
@@ -1311,7 +1311,7 @@ mod fat16_integration_tests {
     #[test]
     fn test_fat16_delete_file() {
         let image = create_fat16_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT16 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT16 image");
 
         let root = fs.root_dir();
 
@@ -1342,7 +1342,7 @@ mod fat16_integration_tests {
     #[test]
     fn test_fat16_create_multiple_files() {
         let image = create_fat16_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT16 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT16 image");
 
         let root = fs.root_dir();
 
@@ -1361,7 +1361,7 @@ mod fat16_integration_tests {
     #[test]
     fn test_fat16_file_already_exists() {
         let image = create_fat16_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT16 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT16 image");
 
         let root = fs.root_dir();
 
@@ -1372,7 +1372,7 @@ mod fat16_integration_tests {
         // Try to create again - should fail
         let result = fs.create_file(&root, "TEST.TXT");
         match result {
-            Err(FatError::AlreadyExists) => {}
+            Err(Error::AlreadyExists) => {}
             _ => panic!("Expected AlreadyExists error"),
         }
     }
@@ -1382,12 +1382,12 @@ mod fat16_integration_tests {
 #[cfg(feature = "std")]
 mod fat12_integration_tests {
     use super::fat12_image::{cluster_size, create_fat12_image};
-    use hadris_fat::{FatError, FatFs, FatFsWriteExt, FatType};
+    use hadris_fat::{Error, FatType, FatVolume, FatVolumeWriteExt};
 
     #[test]
     fn test_open_fat12_image() {
         let image = create_fat12_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT12 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT12 image");
 
         // Verify FAT type is FAT12
         assert!(
@@ -1406,7 +1406,7 @@ mod fat12_integration_tests {
     #[test]
     fn test_fat12_create_file() {
         let image = create_fat12_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT12 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT12 image");
 
         let root = fs.root_dir();
 
@@ -1427,7 +1427,7 @@ mod fat12_integration_tests {
     #[test]
     fn test_fat12_write_file_content() {
         let image = create_fat12_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT12 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT12 image");
 
         let root = fs.root_dir();
 
@@ -1453,7 +1453,7 @@ mod fat12_integration_tests {
         assert_eq!(entry.len(), content.len() as u64);
 
         // Read back the content
-        use hadris_fat::FatFsReadExt;
+        use hadris_fat::FatVolumeReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
         let mut buf = vec![0u8; content.len()];
         let mut total = 0;
@@ -1470,7 +1470,7 @@ mod fat12_integration_tests {
     #[test]
     fn test_fat12_write_file_multiple_clusters() {
         let image = create_fat12_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT12 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT12 image");
 
         let root = fs.root_dir();
 
@@ -1497,7 +1497,7 @@ mod fat12_integration_tests {
             .expect("File not found");
         assert_eq!(entry.len(), content.len() as u64);
 
-        use hadris_fat::FatFsReadExt;
+        use hadris_fat::FatVolumeReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
         let read_content = reader.read_to_vec().expect("Read failed");
         assert_eq!(read_content, content);
@@ -1506,7 +1506,7 @@ mod fat12_integration_tests {
     #[test]
     fn test_fat12_create_directory() {
         let image = create_fat12_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT12 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT12 image");
 
         let root = fs.root_dir();
 
@@ -1536,7 +1536,7 @@ mod fat12_integration_tests {
     #[test]
     fn test_fat12_create_file_in_subdirectory() {
         let image = create_fat12_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT12 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT12 image");
 
         let root = fs.root_dir();
 
@@ -1564,7 +1564,7 @@ mod fat12_integration_tests {
     #[test]
     fn test_fat12_delete_file() {
         let image = create_fat12_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT12 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT12 image");
 
         let root = fs.root_dir();
 
@@ -1595,7 +1595,7 @@ mod fat12_integration_tests {
     #[test]
     fn test_fat12_create_multiple_files() {
         let image = create_fat12_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT12 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT12 image");
 
         let root = fs.root_dir();
 
@@ -1614,7 +1614,7 @@ mod fat12_integration_tests {
     #[test]
     fn test_fat12_file_already_exists() {
         let image = create_fat12_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT12 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT12 image");
 
         let root = fs.root_dir();
 
@@ -1625,7 +1625,7 @@ mod fat12_integration_tests {
         // Try to create again - should fail
         let result = fs.create_file(&root, "TEST.TXT");
         match result {
-            Err(FatError::AlreadyExists) => {}
+            Err(Error::AlreadyExists) => {}
             _ => panic!("Expected AlreadyExists error"),
         }
     }
@@ -1634,7 +1634,7 @@ mod fat12_integration_tests {
     #[test]
     fn test_fat12_cluster_chain() {
         let image = create_fat12_image();
-        let fs = FatFs::open(image).expect("Failed to open FAT12 image");
+        let fs = FatVolume::open(image).expect("Failed to open FAT12 image");
 
         let root = fs.root_dir();
 
@@ -1660,7 +1660,7 @@ mod fat12_integration_tests {
             .expect("File not found");
         assert_eq!(entry.len(), content.len() as u64);
 
-        use hadris_fat::FatFsReadExt;
+        use hadris_fat::FatVolumeReadExt;
         let mut reader = fs.read_file(&entry).expect("Failed to get reader");
         let read_content = reader.read_to_vec().expect("Read failed");
         assert_eq!(read_content, content, "FAT12 cluster chain read mismatch");
@@ -1668,14 +1668,14 @@ mod fat12_integration_tests {
 }
 
 /// Corrupt-image robustness tests: cycles in the FAT chain must surface as
-/// `FatError::ClusterLoop` instead of hanging the reader. Regression coverage
+/// `Error::ClusterLoop` instead of hanging the reader. Regression coverage
 /// for issue B4 (chain-walk loop guard).
 #[cfg(feature = "std")]
 mod corrupt_image_tests {
     use super::fat32_image::{
         cluster_size, create_fat32_image, data_start_bytes, fat_start_bytes, fat2_start_bytes,
     };
-    use hadris_fat::{FatError, FatFs, FatFsReadExt};
+    use hadris_fat::{Error, FatVolume, FatVolumeReadExt};
     use std::io::Cursor;
 
     /// Patch a FAT32 entry in *both* FAT copies (primary and backup), so the
@@ -1719,7 +1719,7 @@ mod corrupt_image_tests {
         bytes[entry_offset..entry_offset + 32].copy_from_slice(&entry);
 
         // Mount and read.
-        let fs = FatFs::open(Cursor::new(bytes)).expect("mount");
+        let fs = FatVolume::open(Cursor::new(bytes)).expect("mount");
         let root = fs.root_dir();
         let file = root.find("LOOP.DAT").expect("find").expect("entry present");
         let mut reader = fs.read_file(&file).expect("reader");
@@ -1740,7 +1740,7 @@ mod corrupt_image_tests {
             }
         }
         match last {
-            Err(FatError::ClusterLoop { .. }) => {}
+            Err(Error::ClusterLoop { .. }) => {}
             Err(other) => panic!("expected ClusterLoop, got {other:?}"),
             Ok(_) => panic!("expected ClusterLoop, no error after 10k reads"),
         }
@@ -1754,7 +1754,7 @@ mod corrupt_image_tests {
     #[test]
     fn test_long_name_roundtrips_via_lfn_entries() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("open");
+        let fs = FatVolume::open(image).expect("open");
         let root = fs.root_dir();
 
         let long_name = "My Long Notes.txt";
@@ -1787,7 +1787,7 @@ mod corrupt_image_tests {
     #[test]
     fn test_short_compliant_name_skips_lfn() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("open");
+        let fs = FatVolume::open(image).expect("open");
         let root = fs.root_dir();
 
         fs.create_file(&root, "TEST.TXT").expect("create");
@@ -1828,7 +1828,7 @@ mod corrupt_image_tests {
         }
 
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("open");
+        let fs = FatVolume::open(image).expect("open");
 
         // base + ext both lowercase, base lowercase / ext uppercase, and a
         // lowercase name with no extension.
@@ -1909,7 +1909,7 @@ mod corrupt_image_tests {
     #[test]
     fn test_mixed_case_short_name_falls_back_to_lfn() {
         let image = create_fat32_image();
-        let fs = FatFs::open(image).expect("open");
+        let fs = FatVolume::open(image).expect("open");
 
         fs.create_file(&fs.root_dir(), "ReadMe.txt")
             .expect("create");
@@ -1924,7 +1924,7 @@ mod corrupt_image_tests {
         assert_eq!(&*entry.name(), "ReadMe.txt");
     }
 
-    /// Mounting via `FatFsBuilder::with_fat_cache` should install the cache
+    /// Mounting via `FatVolumeBuilder::fat_cache` should install the cache
     /// without changing observable read/write behaviour. Compares writing
     /// the same file with cache on vs off and asserts both files round-trip
     /// to identical bytes. Regression coverage for issue C (Phase C cache
@@ -1932,7 +1932,7 @@ mod corrupt_image_tests {
     #[cfg(feature = "cache")]
     #[test]
     fn test_with_fat_cache_roundtrips_byte_identical() {
-        use hadris_fat::FatFsWriteExt;
+        use hadris_fat::FatVolumeWriteExt;
 
         let payload: Vec<u8> = (0..(cluster_size() * 3))
             .map(|i| (i & 0xFF) as u8)
@@ -1941,12 +1941,12 @@ mod corrupt_image_tests {
         let read_back = |with_cache: bool| -> Vec<u8> {
             let image = create_fat32_image();
             let fs = if with_cache {
-                FatFs::builder(image)
+                FatVolume::builder(image)
                     .fat_cache(8)
                     .open()
                     .expect("builder open")
             } else {
-                FatFs::builder(image).open().expect("builder open")
+                FatVolume::builder(image).open().expect("builder open")
             };
             let root = fs.root_dir();
             let entry = fs.create_file(&root, "CACHE.DAT").expect("create");
@@ -1989,7 +1989,7 @@ mod corrupt_image_tests {
         bytes[fsi + 492..fsi + 496].copy_from_slice(&0xFFFFFFFFu32.to_le_bytes());
 
         let fs =
-            FatFs::open(Cursor::new(bytes)).expect("mount must succeed with unknown sentinels");
+            FatVolume::open(Cursor::new(bytes)).expect("mount must succeed with unknown sentinels");
         assert_eq!(
             fs.free_cluster_count(),
             None,
@@ -2003,7 +2003,7 @@ mod corrupt_image_tests {
     }
 
     /// A truncated image — too small to even read the boot sector — should
-    /// surface an [`FatError::IoContext`] mentioning "boot sector" so users
+    /// surface an [`Error::IoContext`] mentioning "boot sector" so users
     /// know which structure failed, rather than the bare `Io(...)` they used
     /// to get. Regression coverage for issue B3.
     #[test]
@@ -2011,9 +2011,9 @@ mod corrupt_image_tests {
         // 16 bytes is far less than a boot sector (512 bytes). Any sane FS
         // open must fail here — the question is *how*.
         let tiny = Cursor::new(vec![0u8; 16]);
-        let err = FatFs::open(tiny).expect_err("mount must fail on tiny image");
+        let err = FatVolume::open(tiny).expect_err("mount must fail on tiny image");
         match &err {
-            FatError::IoContext { op, .. } => {
+            Error::IoContext { op, .. } => {
                 assert!(
                     op.contains("boot sector"),
                     "expected op to mention 'boot sector', got {op:?}"
@@ -2056,14 +2056,14 @@ mod corrupt_image_tests {
             bytes[cluster3_start + i * 32] = 0xE5;
         }
 
-        let fs = FatFs::open(Cursor::new(bytes)).expect("mount");
+        let fs = FatVolume::open(Cursor::new(bytes)).expect("mount");
         let root = fs.root_dir();
 
         // Iterate. The cycle should surface as ClusterLoop within
         // max_cluster steps.
         let mut saw_loop = false;
         for entry in root.entries() {
-            if let Err(FatError::ClusterLoop { .. }) = entry {
+            if let Err(Error::ClusterLoop { .. }) = entry {
                 saw_loop = true;
                 break;
             }
@@ -2086,14 +2086,14 @@ mod corrupt_image_tests {
 mod lfn_write_edge_tests {
     use super::fat32_image::{create_fat32_image, data_start_bytes};
     use hadris_fat::raw::{DirEntryAttrFlags, RawDirectoryEntry};
-    use hadris_fat::{FatError, FatFs};
+    use hadris_fat::{Error, FatVolume};
     use std::io::Cursor;
 
     /// LFN entry attribute byte (READ_ONLY | HIDDEN | SYSTEM | VOLUME_ID).
     const LFN_ATTR: u8 = DirEntryAttrFlags::LONG_NAME.bits();
 
     /// Open a FAT32 image and return the inner Vec so the caller can inspect
-    /// the bytes between `FatFs` operations.
+    /// the bytes between `FatVolume` operations.
     fn fresh_fat32_bytes() -> Vec<u8> {
         create_fat32_image().into_inner()
     }
@@ -2138,11 +2138,11 @@ mod lfn_write_edge_tests {
         let long_name = "Star \u{1F31F} Notes.txt";
         {
             let cursor = Cursor::new(&mut bytes[..]);
-            let fs = FatFs::open(cursor).expect("open");
+            let fs = FatVolume::open(cursor).expect("open");
             fs.create_file(&fs.root_dir(), long_name).expect("create");
         }
         let cursor = Cursor::new(&bytes[..]);
-        let fs = FatFs::open(cursor).expect("re-open");
+        let fs = FatVolume::open(cursor).expect("re-open");
         let entry = fs.root_dir().find(long_name).expect("find").expect("entry");
         let lfn = entry.long_name().expect("LFN required");
         assert!(lfn.eq_str(long_name), "LFN must round-trip surrogate pairs");
@@ -2157,9 +2157,9 @@ mod lfn_write_edge_tests {
         let mut bytes = fresh_fat32_bytes();
         let long: String = std::iter::repeat_n('a', 256).collect();
         let cursor = Cursor::new(&mut bytes[..]);
-        let fs = FatFs::open(cursor).expect("open");
+        let fs = FatVolume::open(cursor).expect("open");
         match fs.create_file(&fs.root_dir(), &long) {
-            Err(FatError::InvalidFilename) => {}
+            Err(Error::InvalidFilename) => {}
             Err(other) => panic!("expected InvalidFilename, got {other:?}"),
             Ok(_) => panic!("expected error for 256-unit name"),
         }
@@ -2181,7 +2181,7 @@ mod lfn_write_edge_tests {
         let long: String = std::iter::repeat_n('a', 195).collect();
         {
             let cursor = Cursor::new(&mut bytes[..]);
-            let fs = FatFs::open(cursor).expect("open");
+            let fs = FatVolume::open(cursor).expect("open");
             fs.create_file(&fs.root_dir(), &long)
                 .expect("create 195-char name");
         }
@@ -2200,7 +2200,7 @@ mod lfn_write_edge_tests {
         }
 
         let cursor = Cursor::new(&bytes[..]);
-        let fs = FatFs::open(cursor).expect("re-open");
+        let fs = FatVolume::open(cursor).expect("re-open");
         let entry = fs.root_dir().find(&long).expect("find").expect("entry");
         assert!(entry.long_name().expect("lfn").eq_str(&long));
     }
@@ -2213,13 +2213,13 @@ mod lfn_write_edge_tests {
         let too_long: String = std::iter::repeat_n('a', 208).collect();
         {
             let cursor = Cursor::new(&mut bytes[..]);
-            let fs = FatFs::open(cursor).expect("open");
+            let fs = FatVolume::open(cursor).expect("open");
             fs.create_file(&fs.root_dir(), &too_long)
                 .expect("cross-cluster LFN create");
         }
 
         let cursor = Cursor::new(&bytes[..]);
-        let fs = FatFs::open(cursor).expect("re-open");
+        let fs = FatVolume::open(cursor).expect("re-open");
         let entry = fs.root_dir().find(&too_long).expect("find").expect("entry");
         assert!(entry.long_name().expect("lfn").eq_str(&too_long));
     }
@@ -2235,7 +2235,7 @@ mod lfn_write_edge_tests {
         let name = "longishname.tx"; // 14 ASCII chars
         {
             let cursor = Cursor::new(&mut bytes[..]);
-            let fs = FatFs::open(cursor).expect("open");
+            let fs = FatVolume::open(cursor).expect("open");
             fs.create_file(&fs.root_dir(), name).expect("create");
         }
 
@@ -2268,7 +2268,7 @@ mod lfn_write_edge_tests {
         let name = "Mixed-Case Name.dat";
         {
             let cursor = Cursor::new(&mut bytes[..]);
-            let fs = FatFs::open(cursor).expect("open");
+            let fs = FatVolume::open(cursor).expect("open");
             fs.create_file(&fs.root_dir(), name).expect("create");
         }
 
@@ -2309,7 +2309,7 @@ mod lfn_write_edge_tests {
         let name = "Long Mixed Notes.txt"; // forces LFN
         {
             let cursor = Cursor::new(&mut bytes[..]);
-            let fs = FatFs::open(cursor).expect("open");
+            let fs = FatVolume::open(cursor).expect("open");
             let _entry = fs.create_file(&fs.root_dir(), name).expect("create");
             // Re-find then delete (FileEntry from create may pre-date the
             // disk write order; re-finding gets a fresh, consistent handle).
@@ -2343,13 +2343,13 @@ mod lfn_write_edge_tests {
         let name = "Long Mixed Notes.txt";
         {
             let cursor = Cursor::new(&mut bytes[..]);
-            let fs = FatFs::open(cursor).expect("open");
+            let fs = FatVolume::open(cursor).expect("open");
             let _ = fs.create_file(&fs.root_dir(), name).expect("create");
             let entry = fs.root_dir().find(name).expect("find").expect("entry");
             fs.delete(&entry).expect("delete");
         }
         let cursor = Cursor::new(&bytes[..]);
-        let fs = FatFs::open(cursor).expect("re-open");
+        let fs = FatVolume::open(cursor).expect("re-open");
         assert!(
             fs.root_dir().find(name).expect("find").is_none(),
             "deleted long-name file must not be findable"
@@ -2372,7 +2372,7 @@ mod fs_metadata_tests {
     use super::fat32_image::{
         create_fat32_image, data_start_bytes, fat_start_bytes, fat2_start_bytes,
     };
-    use hadris_fat::FatFs;
+    use hadris_fat::FatVolume;
     use hadris_fat::oem::Cp437OemCpConverter;
     use std::io::Cursor;
 
@@ -2390,7 +2390,7 @@ mod fs_metadata_tests {
     #[test]
     fn read_root_label_returns_none_when_no_label_entry() {
         let bytes = create_fat32_image().into_inner();
-        let fs = FatFs::open(Cursor::new(bytes)).expect("open");
+        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
         assert!(
             fs.read_root_label().expect("read_root_label ok").is_none(),
             "default fixture has no root label entry"
@@ -2411,13 +2411,13 @@ mod fs_metadata_tests {
         // representation (so we know the write hit the disk).
         {
             let cursor = Cursor::new(&mut bytes[..]);
-            let fs = FatFs::open(cursor).expect("open");
+            let fs = FatVolume::open(cursor).expect("open");
             fs.set_root_label(b"NEW_LABEL  ").expect("set_root_label");
         }
         // The label-name bytes were written verbatim.
         assert_eq!(&bytes[dir..dir + 11], b"NEW_LABEL  ");
         // And the label entry is found again after re-mount.
-        let fs = FatFs::open(Cursor::new(&bytes[..])).expect("re-open");
+        let fs = FatVolume::open(Cursor::new(&bytes[..])).expect("re-open");
         assert_eq!(
             fs.read_root_label().expect("read_root_label").unwrap(),
             *b"NEW_LABEL  "
@@ -2431,7 +2431,7 @@ mod fs_metadata_tests {
         let mut bytes = create_fat32_image().into_inner();
         patch_fat1_both_copies(&mut bytes, 0x0FFFFFFFu32 & !0x0800_0000);
 
-        let fs = FatFs::open(Cursor::new(bytes)).expect("open");
+        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
         let flags = fs.read_status_flags().expect("read_status_flags");
         assert!(
             flags.dirty,
@@ -2445,7 +2445,7 @@ mod fs_metadata_tests {
         let mut bytes = create_fat32_image().into_inner();
         patch_fat1_both_copies(&mut bytes, 0x0FFFFFFFu32 & !0x0400_0000);
 
-        let fs = FatFs::open(Cursor::new(bytes)).expect("open");
+        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
         let flags = fs.read_status_flags().expect("read_status_flags");
         assert!(!flags.dirty);
         assert!(
@@ -2459,7 +2459,7 @@ mod fs_metadata_tests {
         let mut bytes = create_fat32_image().into_inner();
         patch_fat1_both_copies(&mut bytes, 0x0FFFFFFFu32 & !0x0C00_0000);
 
-        let fs = FatFs::open(Cursor::new(bytes)).expect("open");
+        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
         let flags = fs.read_status_flags().expect("read_status_flags");
         assert!(flags.dirty && flags.io_errors);
     }
@@ -2476,7 +2476,7 @@ mod fs_metadata_tests {
         let mut bytes = create_fat32_image().into_inner();
         {
             let cursor = Cursor::new(&mut bytes[..]);
-            let fs = FatFs::builder(cursor)
+            let fs = FatVolume::builder(cursor)
                 .oem_converter(&CP437)
                 .open()
                 .expect("open");
@@ -2525,7 +2525,7 @@ mod fs_metadata_tests {
 #[cfg(feature = "std")]
 mod iocontext_tests {
     use super::fat32_image::create_fat32_image;
-    use hadris_fat::{FatError, FatFs};
+    use hadris_fat::{Error, FatVolume};
     use std::io::Cursor;
 
     #[test]
@@ -2539,9 +2539,9 @@ mod iocontext_tests {
         // FSInfo sector.
         let truncated = &bytes[..512];
         let cursor = Cursor::new(truncated.to_vec());
-        let err = FatFs::open(cursor).expect_err("must fail on missing FSInfo");
+        let err = FatVolume::open(cursor).expect_err("must fail on missing FSInfo");
         match &err {
-            FatError::IoContext { op, sector, .. } => {
+            Error::IoContext { op, sector, .. } => {
                 assert!(
                     op.contains("FSInfo"),
                     "expected op to mention 'FSInfo', got {op:?}"
@@ -2563,14 +2563,14 @@ mod iocontext_tests {
 #[cfg(all(feature = "std", feature = "dirty-file-panic"))]
 mod dirty_file_panic_tests {
     use super::fat32_image::create_fat32_image;
-    use hadris_fat::{FatFs, FatFsWriteExt};
+    use hadris_fat::{FatVolume, FatVolumeWriteExt};
     use std::io::Cursor;
 
     #[test]
     #[should_panic]
     fn dropping_writer_without_finish_panics() {
         let bytes = create_fat32_image().into_inner();
-        let fs = FatFs::open(Cursor::new(bytes)).expect("open");
+        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
         let entry = fs.create_file(&fs.root_dir(), "TEST.TXT").expect("create");
         let mut writer = fs.write_file(&entry).expect("writer");
         writer.write(b"oops").expect("write");
@@ -2581,7 +2581,7 @@ mod dirty_file_panic_tests {
     fn calling_finish_does_not_panic() {
         // Sanity: the panic path must NOT fire on the happy path.
         let bytes = create_fat32_image().into_inner();
-        let fs = FatFs::open(Cursor::new(bytes)).expect("open");
+        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
         let entry = fs.create_file(&fs.root_dir(), "OK.TXT").expect("create");
         let mut writer = fs.write_file(&entry).expect("writer");
         writer.write(b"clean exit").expect("write");
@@ -2592,15 +2592,15 @@ mod dirty_file_panic_tests {
 /// Regression tests for LFN runs spanning directory cluster boundaries.
 #[cfg(all(feature = "std", feature = "lfn"))]
 mod lfn_cluster_boundary_tests {
-    use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FormatOptions};
+    use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
     use std::io::Cursor;
 
     /// FAT32 at 1 sector/cluster (512 B) → 16 directory entries per cluster.
     /// FAT32 needs ≥ 65525 clusters, i.e. ≥ ~33.5 MB of data region, so size
     /// the image at 48 MB. Returns the mounted, ready-to-use filesystem.
-    fn fat32_spc1_fs() -> hadris_fat::FatFs<Cursor<Vec<u8>>> {
+    fn fat32_spc1_fs() -> hadris_fat::FatVolume<Cursor<Vec<u8>>> {
         let size = 48 * 1024 * 1024;
-        let opts = FormatOptions::new(size as u64)
+        let opts = FatFormatOptions::new(size as u64)
             .fat_type(FatTypeSelection::Fat32)
             .sectors_per_cluster(1)
             .volume_label("SPC1");

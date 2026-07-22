@@ -91,7 +91,7 @@ impl Default for FatDateTime {
 ///
 /// Implementations only need to provide a single [`now`](Self::now) method.
 /// The type is intentionally trait-object friendly: the writer holds it as
-/// `&dyn TimeProvider` so callers can switch providers per-`FatFs` instance
+/// `&dyn TimeProvider` so callers can switch providers per-`FatVolume` instance
 /// without leaking generics through the public API.
 pub trait TimeProvider: core::fmt::Debug {
     /// Return the current FAT-encoded date/time.
@@ -138,7 +138,7 @@ impl TimeProvider for EpochTimeProvider {
     }
 }
 
-/// Default provider used when none is set on a `FatFs`.
+/// Default provider used when none is set on a `FatVolume`.
 ///
 /// Resolves to [`ChronoTimeProvider`] under `std`, [`EpochTimeProvider`]
 /// otherwise, so consumers don't have to think about the cfg matrix.

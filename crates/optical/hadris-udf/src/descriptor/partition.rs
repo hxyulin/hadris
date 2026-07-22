@@ -1,7 +1,7 @@
 //! Partition Descriptor (ECMA-167 3/10.5)
 
 use super::{DescriptorTag, EntityIdentifier, TagIdentifier};
-use crate::error::UdfResult;
+use crate::error::Result;
 
 /// Partition Descriptor (ECMA-167 3/10.5)
 ///
@@ -43,7 +43,7 @@ unsafe impl bytemuck::Pod for PartitionDescriptor {}
 
 impl PartitionDescriptor {
     /// Validate this descriptor
-    pub fn validate(&self, location: u32) -> UdfResult<()> {
+    pub fn validate(&self, location: u32) -> Result<()> {
         self.tag
             .validate(TagIdentifier::PartitionDescriptor, location)
     }

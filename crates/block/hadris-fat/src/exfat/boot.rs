@@ -16,11 +16,11 @@ use hadris_common::types::{
     number::{U16, U32, U64},
 };
 
-use crate::error::{FatError, Result};
+use crate::error::{Error, Result};
 use crate::io::{Read, ReadExt, Seek, SeekFrom};
 
 /// Size of the boot region in sectors
-#[allow(dead_code)]
+#[cfg(feature = "write")]
 pub const BOOT_REGION_SECTORS: usize = 12;
 
 /// exFAT filesystem signature "EXFAT   " (8 bytes, space-padded)
@@ -89,7 +89,7 @@ impl RawExFatBootSector {
     pub fn validate(&self) -> Result<()> {
         // Check filesystem name
         if self.fs_name != EXFAT_SIGNATURE {
-            return Err(FatError::ExFatInvalidSignature {
+            return Err(Error::ExFatInvalidSignature {
                 expected: EXFAT_SIGNATURE,
                 found: self.fs_name,
             });
@@ -98,19 +98,19 @@ impl RawExFatBootSector {
         // Check boot signature
         let sig = self.boot_signature.get();
         if sig != BOOT_SIGNATURE {
-            return Err(FatError::InvalidBootSignature { found: sig });
+            return Err(Error::InvalidBootSignature { found: sig });
         }
 
         // Check must_be_zero field
         if self.must_be_zero.iter().any(|&b| b != 0) {
-            return Err(FatError::ExFatInvalidBootSector {
+            return Err(Error::ExFatInvalidBootSector {
                 reason: "must_be_zero field contains non-zero bytes",
             });
         }
 
         // Validate bytes_per_sector_shift (9-12 for 512-4096 bytes)
         if !(9..=12).contains(&self.bytes_per_sector_shift) {
-            return Err(FatError::ExFatInvalidBootSector {
+            return Err(Error::ExFatInvalidBootSector {
                 reason: "invalid bytes_per_sector_shift (must be 9-12)",
             });
         }
@@ -118,14 +118,14 @@ impl RawExFatBootSector {
         // Validate sectors_per_cluster_shift (0-25, but bytes_per_sector_shift + sectors_per_cluster_shift <= 25)
         let combined_shift = self.bytes_per_sector_shift + self.sectors_per_cluster_shift;
         if combined_shift > 25 {
-            return Err(FatError::ExFatInvalidBootSector {
+            return Err(Error::ExFatInvalidBootSector {
                 reason: "combined sector/cluster shift too large (max cluster size 32MB)",
             });
         }
 
         // Validate number of FATs (1 or 2)
         if self.number_of_fats != 1 && self.number_of_fats != 2 {
-            return Err(FatError::ExFatInvalidBootSector {
+            return Err(Error::ExFatInvalidBootSector {
                 reason: "invalid number_of_fats (must be 1 or 2)",
             });
         }
@@ -271,7 +271,7 @@ impl ExFatBootSector {
             let stored_checksum = u32::from_le_bytes(stored);
 
             if stored_checksum != checksum {
-                return Err(FatError::ExFatInvalidChecksum {
+                return Err(Error::ExFatInvalidChecksum {
                     expected: checksum,
                     found: stored_checksum,
                 });

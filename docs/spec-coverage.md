@@ -55,7 +55,7 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 |------|------|------------|-------|------|-------|
 | FAT:BPB | `RawBpb` | full | `comprehensive_fat::test_valid_sector_sizes` | `fat_read` | |
 | FAT:FSInfo | `RawFsInfo` | full | `comprehensive_fat::test_fsinfo_free_cluster_unknown` | `fat_read` | FAT32 free-cluster/next-free tracking |
-| FAT:LFN | `RawLfnEntry` | full | `comprehensive_fat::test_lfn_builder_sequence`, `test_write::lfn_cluster_boundary_tests` | `fat_read` | Read/write supports directory-entry runs across cluster boundaries |
+| FAT:LFN | `RawLfnEntry` | partial | `comprehensive_fat::test_lfn_builder_sequence`, `test_write::lfn_cluster_boundary_tests` | `fat_read` | Raw layout and cross-cluster read/write are covered; semantic validation and legacy ANSI fallback behavior are handled above the raw structure |
 | FAT:DirEntry | `RawFileEntry` | partial | `test_write::test_lowercase_short_name_uses_nt_case_flags` | `fat_read` | Short-name entry incl. NT `DIR_NTRes` case flags (lowercase 8.3 round-trip); extended access-time granularity not modeled |
 
 ## hadris-part

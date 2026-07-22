@@ -4,11 +4,11 @@ use std::io::Cursor;
 
 use hadris_iso::read::PathSeparator;
 use hadris_iso::sync::read::IsoImage;
-use hadris_iso::sync::write::options::{CreationFeatures, FormatOptions};
+use hadris_iso::sync::write::options::{CreationFeatures, IsoFormatOptions};
 use hadris_iso::sync::write::{InputEntry, InputTree, IsoImageWriter};
 
-fn options() -> FormatOptions {
-    FormatOptions {
+fn options() -> IsoFormatOptions {
+    IsoFormatOptions {
         volume_name: "FLOOR_TEST".to_owned(),
         system_id: None,
         volume_set_id: None,

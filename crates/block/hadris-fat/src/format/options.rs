@@ -6,7 +6,7 @@ use super::super::fat_table::FatType;
 
 /// FAT volume formatting options.
 #[derive(Debug, Clone)]
-pub struct FormatOptions {
+pub struct FatFormatOptions {
     /// Total volume size in bytes
     pub volume_size: u64,
     /// Volume label (up to 11 characters)
@@ -31,7 +31,7 @@ pub struct FormatOptions {
     pub volume_id: Option<u32>,
 }
 
-impl Default for FormatOptions {
+impl Default for FatFormatOptions {
     fn default() -> Self {
         Self {
             volume_size: 0,
@@ -49,7 +49,7 @@ impl Default for FormatOptions {
     }
 }
 
-impl FormatOptions {
+impl FatFormatOptions {
     /// Create new format options with the specified volume size.
     pub fn new(volume_size: u64) -> Self {
         Self {
@@ -64,19 +64,11 @@ impl FormatOptions {
         self
     }
 
-    #[deprecated(since = "2.0.0", note = "use `volume_label` instead")]
-    /// Deprecated alias for [`Self::volume_label`].
-    pub fn with_label(self, label: &str) -> Self { self.volume_label(label) }
-
     /// Set the sector size.
     pub fn sector_size(mut self, size: SectorSize) -> Self {
         self.sector_size = size;
         self
     }
-
-    #[deprecated(since = "2.0.0", note = "use `sector_size` instead")]
-    /// Deprecated alias for [`Self::sector_size`].
-    pub fn with_sector_size(self, size: SectorSize) -> Self { self.sector_size(size) }
 
     /// Set the FAT type selection.
     pub fn fat_type(mut self, fat_type: FatTypeSelection) -> Self {
@@ -84,19 +76,11 @@ impl FormatOptions {
         self
     }
 
-    #[deprecated(since = "2.0.0", note = "use `fat_type` instead")]
-    /// Deprecated alias for [`Self::fat_type`].
-    pub fn with_fat_type(self, fat_type: FatTypeSelection) -> Self { self.fat_type(fat_type) }
-
     /// Set sectors per cluster.
     pub fn sectors_per_cluster(mut self, spc: u8) -> Self {
         self.sectors_per_cluster = Some(spc);
         self
     }
-
-    #[deprecated(since = "2.0.0", note = "use `sectors_per_cluster` instead")]
-    /// Deprecated alias for [`Self::sectors_per_cluster`].
-    pub fn with_sectors_per_cluster(self, spc: u8) -> Self { self.sectors_per_cluster(spc) }
 
     /// Set the number of FAT copies.
     pub fn fat_copies(mut self, copies: u8) -> Self {
@@ -104,19 +88,11 @@ impl FormatOptions {
         self
     }
 
-    #[deprecated(since = "2.0.0", note = "use `fat_copies` instead")]
-    /// Deprecated alias for [`Self::fat_copies`].
-    pub fn with_fat_copies(self, copies: u8) -> Self { self.fat_copies(copies) }
-
     /// Set the media type.
     pub fn media_type(mut self, media_type: MediaType) -> Self {
         self.media_type = media_type;
         self
     }
-
-    #[deprecated(since = "2.0.0", note = "use `media_type` instead")]
-    /// Deprecated alias for [`Self::media_type`].
-    pub fn with_media_type(self, media_type: MediaType) -> Self { self.media_type(media_type) }
 
     /// Set hidden sectors count.
     pub fn hidden_sectors(mut self, hidden: u32) -> Self {
@@ -124,19 +100,12 @@ impl FormatOptions {
         self
     }
 
-    #[deprecated(since = "2.0.0", note = "use `hidden_sectors` instead")]
-    /// Deprecated alias for [`Self::hidden_sectors`].
-    pub fn with_hidden_sectors(self, hidden: u32) -> Self { self.hidden_sectors(hidden) }
-
     /// Set the volume ID.
     pub fn volume_id(mut self, id: u32) -> Self {
         self.volume_id = Some(id);
         self
     }
 
-    #[deprecated(since = "2.0.0", note = "use `volume_id` instead")]
-    /// Deprecated alias for [`Self::volume_id`].
-    pub fn with_volume_id(self, id: u32) -> Self { self.volume_id(id) }
 }
 
 /// Volume label (11 characters max, space-padded).

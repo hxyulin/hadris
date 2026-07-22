@@ -1,6 +1,6 @@
 //! Main writer for creating hybrid ISO+UDF images
 //!
-//! The `CdWriter` orchestrates the creation of a hybrid image by:
+//! The `OpticalImageWriter` orchestrates the creation of a hybrid image by:
 //! 1. Building a shared file tree
 //! 2. Laying out file data (shared between both filesystems)
 //! 3. Writing ISO 9660 metadata
@@ -16,27 +16,27 @@ use hadris_udf::descriptor::{
 use hadris_udf::write::{UdfWriteOptions, UdfWriter};
 use hadris_udf::{FileType, SECTOR_SIZE as UDF_SECTOR_SIZE};
 
-use crate::error::CdResult;
+use crate::error::Result;
 use crate::layout::{LayoutInfo, LayoutManager, UdfDirectoryLayout};
-use crate::options::CdOptions;
+use crate::options::OpticalImageOptions;
 use crate::tree::{Directory, FileData, FileTree};
 
 /// Writer for creating hybrid ISO+UDF CD/DVD images
-pub struct CdWriter<W: Read + Write + Seek> {
+pub struct OpticalImageWriter<W: Read + Write + Seek> {
     writer: W,
-    options: CdOptions,
+    options: OpticalImageOptions,
 }
 
 io_transform! {
 
-impl<W: Read + Write + Seek> CdWriter<W> {
+impl<W: Read + Write + Seek> OpticalImageWriter<W> {
     /// Create a new CD writer
-    pub fn new(writer: W, options: CdOptions) -> Self {
+    pub fn new(writer: W, options: OpticalImageOptions) -> Self {
         Self { writer, options }
     }
 
     /// Creates an optical image and returns its output target.
-    pub async fn create(writer: W, tree: FileTree, options: CdOptions) -> CdResult<W> {
+    pub async fn create(writer: W, tree: FileTree, options: OpticalImageOptions) -> Result<W> {
         Self::new(writer, options).finish(tree).await
     }
 
@@ -46,7 +46,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     }
 
     /// Finishes the image and returns its output target.
-    pub async fn finish(mut self, mut tree: FileTree) -> CdResult<W> {
+    pub async fn finish(mut self, mut tree: FileTree) -> Result<W> {
         // Sort the tree for consistent output
         tree.sort();
 
@@ -77,7 +77,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         &mut self,
         tree: &mut FileTree,
         layout: &mut LayoutInfo,
-    ) -> CdResult<()> {
+    ) -> Result<()> {
         use hadris_iso::read::IsoImage;
 
         let mut paths = Vec::new();
@@ -87,7 +87,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             let image = IsoImage::open(Borrowed::new(&mut self.writer))?;
             for path in paths {
                 let entry = image.find_path(&path)?.ok_or_else(|| {
-                    crate::error::CdError::InvalidPath(format!(
+                    crate::error::Error::InvalidPath(format!(
                         "ISO writer did not produce the planned file: {path}"
                     ))
                 })?;
@@ -137,7 +137,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         dir: &mut Directory,
         prefix: &str,
         extents: &std::collections::BTreeMap<String, (u32, u64)>,
-    ) -> CdResult<()> {
+    ) -> Result<()> {
         for file in &mut dir.files {
             let path = if prefix.is_empty() {
                 file.name.to_string()
@@ -145,7 +145,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
                 format!("{prefix}/{}", file.name)
             };
             let &(sector, length) = extents.get(&path).ok_or_else(|| {
-                crate::error::CdError::InvalidPath(format!("missing ISO extent for {path}"))
+                crate::error::Error::InvalidPath(format!("missing ISO extent for {path}"))
             })?;
             file.extent.sector = sector;
             file.extent.length = length;
@@ -161,19 +161,13 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         Ok(())
     }
 
-    /// Create an image while discarding the returned output target.
-    #[deprecated(since = "2.0.0", note = "use `finish` to recover the output target")]
-    pub async fn write(self, tree: FileTree) -> CdResult<()> {
-        self.finish(tree).await.map(|_| ())
-    }
-
     /// Write all file data to their pre-assigned sectors
-    async fn write_file_data(&mut self, tree: &FileTree, _layout_info: &LayoutInfo) -> CdResult<()> {
+    async fn write_file_data(&mut self, tree: &FileTree, _layout_info: &LayoutInfo) -> Result<()> {
         self.write_directory_file_data(&tree.root).await?;
         Ok(())
     }
 
-    async fn write_directory_file_data(&mut self, dir: &Directory) -> CdResult<()> {
+    async fn write_directory_file_data(&mut self, dir: &Directory) -> Result<()> {
         for file in &dir.files {
             if file.extent.length == 0 {
                 continue; // Skip zero-size files
@@ -217,8 +211,8 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     }
 
     /// Write ISO 9660 structures
-    async fn write_iso_structures(&mut self, tree: &FileTree, layout_info: &LayoutInfo) -> CdResult<()> {
-        use hadris_iso::write::options::{CreationFeatures, FormatOptions};
+    async fn write_iso_structures(&mut self, tree: &FileTree, layout_info: &LayoutInfo) -> Result<()> {
+        use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
         use hadris_iso::write::{InputTree, IsoImageWriter};
 
         // Convert our tree to ISO's InputFiles format
@@ -236,7 +230,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             hybrid_boot: self.options.hybrid_boot.clone(),
         };
 
-        let format_options = FormatOptions {
+        let format_options = IsoFormatOptions {
             volume_name: self.options.volume_id.clone(),
             system_id: None,
             volume_set_id: None,
@@ -268,7 +262,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     }
 
     /// Convert our tree to ISO's file format
-    fn tree_to_iso_files(dir: &Directory) -> CdResult<Vec<hadris_iso::write::InputEntry>> {
+    fn tree_to_iso_files(dir: &Directory) -> Result<Vec<hadris_iso::write::InputEntry>> {
         let mut files = Vec::new();
 
         for file in &dir.files {
@@ -294,7 +288,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     }
 
     /// Write UDF structures
-    async fn write_udf_structures(&mut self, tree: &FileTree, layout_info: &LayoutInfo) -> CdResult<()> {
+    async fn write_udf_structures(&mut self, tree: &FileTree, layout_info: &LayoutInfo) -> Result<()> {
         let image_bytes = self
             .writer
             .seek(SeekFrom::End(0))
@@ -334,7 +328,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         udf_writer.write_avdp(main_vds, reserve_vds)?;
         if image_sectors > 256 {
             let last = u32::try_from(image_sectors - 1).map_err(|_| {
-                crate::error::CdError::InvalidConfig("image has too many sectors".into())
+                crate::error::Error::InvalidConfig("image has too many sectors".into())
             })?;
             udf_writer.write_avdp_at(last, main_vds, reserve_vds)?;
             udf_writer.write_avdp_at(last - 256, main_vds, reserve_vds)?;
@@ -404,7 +398,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         dir: &Directory,
         plan: &UdfDirectoryLayout,
         layout_info: &LayoutInfo,
-    ) -> CdResult<()> {
+    ) -> Result<()> {
         let mut entries: Vec<(String, LongAllocationDescriptor, bool)> = Vec::new();
         for (file, &file_icb_block) in dir.files.iter().zip(&plan.file_icb_blocks) {
             let file_icb = LongAllocationDescriptor {
@@ -496,8 +490,8 @@ mod tests {
         let buffer = vec![0u8; 1024 * 1024]; // 1MB buffer
         let cursor = Cursor::new(buffer);
 
-        let options = CdOptions::default().volume_id("TEST");
-        let writer = CdWriter::new(cursor, options);
+        let options = OpticalImageOptions::default().volume_id("TEST");
+        let writer = OpticalImageWriter::new(cursor, options);
 
         // This will test the basic flow
         // Note: Full verification would require mounting the resulting image

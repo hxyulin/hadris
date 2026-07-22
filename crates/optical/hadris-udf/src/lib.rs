@@ -92,7 +92,7 @@ extern crate std;
 mod error;
 mod time;
 
-pub use error::{UdfError, UdfResult};
+pub use error::{Error, Result};
 pub use time::UdfTimestamp;
 
 // ---------------------------------------------------------------------------
@@ -134,9 +134,6 @@ pub mod sync {
         #[cfg(feature = "alloc")]
         pub mod fs;
         sync_only! {
-            /// UDF image modification and append support.
-            #[cfg(feature = "write")]
-            pub mod modify;
             #[cfg(feature = "write")]
             pub mod write;
         }
@@ -144,14 +141,11 @@ pub mod sync {
     #[cfg(feature = "alloc")]
     pub use __inner::dir::UdfDir;
     #[cfg(feature = "alloc")]
-    pub use __inner::file::{FileType, UdfFile};
+    pub use __inner::file::FileType;
     pub use __inner::*;
 
-    // Convenience re-exports for backwards compatibility
     #[cfg(feature = "alloc")]
-    pub use __inner::fs::{UdfFs, UdfInfo};
-    #[cfg(feature = "alloc")]
-    pub use __inner::fs::{UdfFs as UdfVolume, UdfInfo as UdfVolumeInfo};
+    pub use __inner::fs::{UdfVolume, UdfVolumeInfo};
 }
 
 // ---------------------------------------------------------------------------
@@ -196,13 +190,11 @@ pub mod r#async {
     #[cfg(feature = "alloc")]
     pub use __inner::dir::UdfDir;
     #[cfg(feature = "alloc")]
-    pub use __inner::file::{FileType, UdfFile};
+    pub use __inner::file::FileType;
     pub use __inner::*;
 
     #[cfg(feature = "alloc")]
-    pub use __inner::fs::{UdfFs, UdfInfo};
-    #[cfg(feature = "alloc")]
-    pub use __inner::fs::{UdfFs as UdfVolume, UdfInfo as UdfVolumeInfo};
+    pub use __inner::fs::{UdfVolume, UdfVolumeInfo};
 }
 
 // ---------------------------------------------------------------------------

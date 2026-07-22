@@ -24,6 +24,6 @@ bridge simultaneously requires a future shared or reopenable source adapter.
 
 ## Writer qualification
 
-`CdWriter` bridge images are continuously opened through both the ISO 9660 and
+`OpticalImageWriter` bridge images are continuously opened through both the ISO 9660 and
 UDF policies. Detection remains only a probe: the unified opener still performs
 and propagates each concrete reader's full validation.

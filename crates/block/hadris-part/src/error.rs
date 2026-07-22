@@ -4,7 +4,7 @@ use core::fmt::{self, Debug, Display};
 
 /// Errors that can occur during partition table operations.
 #[derive(Debug)]
-pub enum PartitionError {
+pub enum Error {
     /// An I/O error occurred.
     Io(hadris_io::Error),
 
@@ -126,7 +126,7 @@ pub enum PartitionError {
     },
 }
 
-impl Display for PartitionError {
+impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(err) => write!(f, "I/O error: {err}"),
@@ -237,14 +237,14 @@ impl Display for PartitionError {
     }
 }
 
-impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for PartitionError {
+impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for Error {
     fn from(err: hadris_io::Error<E>) -> Self {
         Self::Io(err.erase())
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for PartitionError {
+impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(err) => Some(err),
@@ -255,4 +255,4 @@ impl std::error::Error for PartitionError {
 }
 
 /// A specialized `Result` type for partition operations.
-pub type Result<T> = core::result::Result<T, PartitionError>;
+pub type Result<T> = core::result::Result<T, Error>;
