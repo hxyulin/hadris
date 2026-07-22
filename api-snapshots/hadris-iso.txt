@@ -380,6 +380,7 @@ pub enum hadris_iso::async::read::FilenameType
 pub hadris_iso::async::read::FilenameType::Builtin
 pub hadris_iso::async::read::FilenameType::Joliet
 pub enum hadris_iso::async::read::IsoNamespace
+pub hadris_iso::async::read::IsoNamespace::Enhanced
 pub hadris_iso::async::read::IsoNamespace::Joliet(hadris_iso::joliet::JolietLevel)
 pub hadris_iso::async::read::IsoNamespace::Primary
 pub enum hadris_iso::async::read::NameError
@@ -490,6 +491,7 @@ pub async fn hadris_iso::async::read::IsoReader<R>::open(R) -> hadris_io::error:
 pub fn hadris_iso::async::read::IsoReader<R>::open_dir(&mut self, hadris_iso::async::read::IsoRoot) -> hadris_iso::async::read::IsoDirReader<'_, R>
 pub fn hadris_iso::async::read::IsoReader<R>::open_file<'a>(&'a mut self, &hadris_iso::async::read::IsoDirEntry) -> hadris_io::error::Result<hadris_iso::async::read::IsoFileReader<'a, R>>
 impl<R> hadris_iso::async::read::IsoReader<R>
+pub const fn hadris_iso::async::read::IsoReader<R>::enhanced_root(&self) -> core::option::Option<hadris_iso::async::read::IsoRoot>
 pub fn hadris_iso::async::read::IsoReader<R>::into_inner(self) -> R
 pub const fn hadris_iso::async::read::IsoReader<R>::joliet_root(&self) -> core::option::Option<hadris_iso::async::read::IsoRoot>
 pub const fn hadris_iso::async::read::IsoReader<R>::preferred_root(&self) -> hadris_iso::async::read::IsoRoot
@@ -1818,6 +1820,7 @@ pub enum hadris_iso::read::FilenameType
 pub hadris_iso::read::FilenameType::Builtin
 pub hadris_iso::read::FilenameType::Joliet
 pub enum hadris_iso::read::IsoNamespace
+pub hadris_iso::read::IsoNamespace::Enhanced
 pub hadris_iso::read::IsoNamespace::Joliet(hadris_iso::joliet::JolietLevel)
 pub hadris_iso::read::IsoNamespace::Primary
 pub enum hadris_iso::read::NameError
@@ -1943,6 +1946,7 @@ pub fn hadris_iso::read::IsoReader<R>::open(R) -> hadris_io::error::Result<Self>
 pub fn hadris_iso::read::IsoReader<R>::open_dir(&mut self, hadris_iso::read::IsoRoot) -> hadris_iso::read::IsoDirReader<'_, R>
 pub fn hadris_iso::read::IsoReader<R>::open_file<'a>(&'a mut self, &hadris_iso::read::IsoDirEntry) -> hadris_io::error::Result<hadris_iso::read::IsoFileReader<'a, R>>
 impl<R> hadris_iso::read::IsoReader<R>
+pub const fn hadris_iso::read::IsoReader<R>::enhanced_root(&self) -> core::option::Option<hadris_iso::read::IsoRoot>
 pub fn hadris_iso::read::IsoReader<R>::into_inner(self) -> R
 pub const fn hadris_iso::read::IsoReader<R>::joliet_root(&self) -> core::option::Option<hadris_iso::read::IsoRoot>
 pub const fn hadris_iso::read::IsoReader<R>::preferred_root(&self) -> hadris_iso::read::IsoRoot
@@ -3048,6 +3052,7 @@ pub enum hadris_iso::sync::read::FilenameType
 pub hadris_iso::sync::read::FilenameType::Builtin
 pub hadris_iso::sync::read::FilenameType::Joliet
 pub enum hadris_iso::sync::read::IsoNamespace
+pub hadris_iso::sync::read::IsoNamespace::Enhanced
 pub hadris_iso::sync::read::IsoNamespace::Joliet(hadris_iso::joliet::JolietLevel)
 pub hadris_iso::sync::read::IsoNamespace::Primary
 pub enum hadris_iso::sync::read::NameError
@@ -3173,6 +3178,7 @@ pub fn hadris_iso::read::IsoReader<R>::open(R) -> hadris_io::error::Result<Self>
 pub fn hadris_iso::read::IsoReader<R>::open_dir(&mut self, hadris_iso::read::IsoRoot) -> hadris_iso::read::IsoDirReader<'_, R>
 pub fn hadris_iso::read::IsoReader<R>::open_file<'a>(&'a mut self, &hadris_iso::read::IsoDirEntry) -> hadris_io::error::Result<hadris_iso::read::IsoFileReader<'a, R>>
 impl<R> hadris_iso::read::IsoReader<R>
+pub const fn hadris_iso::read::IsoReader<R>::enhanced_root(&self) -> core::option::Option<hadris_iso::read::IsoRoot>
 pub fn hadris_iso::read::IsoReader<R>::into_inner(self) -> R
 pub const fn hadris_iso::read::IsoReader<R>::joliet_root(&self) -> core::option::Option<hadris_iso::read::IsoRoot>
 pub const fn hadris_iso::read::IsoReader<R>::preferred_root(&self) -> hadris_iso::read::IsoRoot
@@ -4039,6 +4045,9 @@ pub hadris_iso::sync::write::options::BaseIsoLevel::Level1::supports_rrip: bool
 pub hadris_iso::sync::write::options::BaseIsoLevel::Level2
 pub hadris_iso::sync::write::options::BaseIsoLevel::Level2::supports_lowercase: bool
 pub hadris_iso::sync::write::options::BaseIsoLevel::Level2::supports_rrip: bool
+pub hadris_iso::sync::write::options::BaseIsoLevel::Level3
+pub hadris_iso::sync::write::options::BaseIsoLevel::Level3::supports_lowercase: bool
+pub hadris_iso::sync::write::options::BaseIsoLevel::Level3::supports_rrip: bool
 impl core::convert::From<hadris_iso::write::options::BaseIsoLevel> for hadris_iso::file::EntryType
 pub fn hadris_iso::file::EntryType::from(hadris_iso::write::options::BaseIsoLevel) -> Self
 pub enum hadris_iso::sync::write::options::PartitionScheme
@@ -4531,6 +4540,9 @@ pub hadris_iso::write::options::BaseIsoLevel::Level1::supports_rrip: bool
 pub hadris_iso::write::options::BaseIsoLevel::Level2
 pub hadris_iso::write::options::BaseIsoLevel::Level2::supports_lowercase: bool
 pub hadris_iso::write::options::BaseIsoLevel::Level2::supports_rrip: bool
+pub hadris_iso::write::options::BaseIsoLevel::Level3
+pub hadris_iso::write::options::BaseIsoLevel::Level3::supports_lowercase: bool
+pub hadris_iso::write::options::BaseIsoLevel::Level3::supports_rrip: bool
 impl core::convert::From<hadris_iso::write::options::BaseIsoLevel> for hadris_iso::file::EntryType
 pub fn hadris_iso::file::EntryType::from(hadris_iso::write::options::BaseIsoLevel) -> Self
 pub enum hadris_iso::write::options::PartitionScheme

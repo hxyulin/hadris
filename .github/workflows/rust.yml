@@ -119,6 +119,9 @@ jobs:
             tier: alloc
             features: "alloc,sync,bytemuck,optical"
           - crate: hadris-common
+            tier: std-without-sync
+            features: "std,bytemuck,optical"
+          - crate: hadris-common
             tier: std
             features: "std,sync,bytemuck,optical"
 

@@ -123,6 +123,16 @@ pub enum BaseIsoLevel {
         /// The `supports_rrip` field.
         supports_rrip: bool,
     },
+    /// ISO 9660 interchange level 3.
+    ///
+    /// Level 3 retains the Level 2 filename rules and permits a logical file
+    /// to be represented by multiple consecutive directory records/extents.
+    Level3 {
+        /// Whether lowercase ASCII names are accepted.
+        supports_lowercase: bool,
+        /// Whether Rock Ridge system-use fields are emitted.
+        supports_rrip: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -243,6 +253,13 @@ impl From<BaseIsoLevel> for crate::file::EntryType {
                 supports_rrip,
             },
             BaseIsoLevel::Level2 {
+                supports_lowercase,
+                supports_rrip,
+            } => Self::Level2 {
+                supports_lowercase,
+                supports_rrip,
+            },
+            BaseIsoLevel::Level3 {
                 supports_lowercase,
                 supports_rrip,
             } => Self::Level2 {

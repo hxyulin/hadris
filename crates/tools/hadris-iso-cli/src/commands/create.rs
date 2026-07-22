@@ -84,6 +84,9 @@ pub fn create(args: CreateArgs) -> Result<()> {
             hadris_iso::write::options::BaseIsoLevel::Level2 { supports_rrip, .. } => {
                 *supports_rrip = true
             }
+            hadris_iso::write::options::BaseIsoLevel::Level3 { supports_rrip, .. } => {
+                *supports_rrip = true
+            }
         }
     }
 

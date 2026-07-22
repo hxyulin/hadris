@@ -1,6 +1,6 @@
 [package]
 name = "hadris-io"
-version = "2.0.0-rc.2"
+version = "2.0.0-rc.3"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -16,7 +16,7 @@ default = ["sync", "std"]
 sync = []
 async = ["dep:embedded-io-async"]
 alloc = []
-std = ["sync", "alloc", "embedded-io/std", "embedded-io-async?/std"]
+std = ["alloc", "embedded-io/std", "embedded-io-async?/std"]
 
 [dependencies]
 cfg-if.workspace = true

@@ -117,7 +117,7 @@ only under `sync`.
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.0.0-rc.2", default-features = false, features = ["read", "sync"] }
+hadris-iso = { version = "2.0.0-rc.3", default-features = false, features = ["read", "sync"] }
 ```
 
 The `read` feature exposes `IsoReader`, which opens and navigates ISO 9660 and
@@ -147,14 +147,14 @@ the allocation-free reader exposes raw system-use bytes for custom handling.
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.0.0-rc.2", default-features = false, features = ["read", "alloc", "sync"] }
+hadris-iso = { version = "2.0.0-rc.3", default-features = false, features = ["read", "alloc", "sync"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-iso = "2.0.0-rc.2"  # Uses default features
+hadris-iso = "2.0.0-rc.3"  # Uses default features
 ```
 
 ## Extension Support

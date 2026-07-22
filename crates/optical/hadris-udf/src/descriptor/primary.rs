@@ -95,8 +95,8 @@ pub fn decode_dstring(data: &[u8]) -> alloc::string::String {
 
     match compression_id {
         8 => {
-            // UTF-8 (or Latin-1 in older implementations)
-            alloc::string::String::from_utf8_lossy(content).into_owned()
+            // CS0 compression ID 8 stores one Unicode code point per byte.
+            content.iter().map(|byte| char::from(*byte)).collect()
         }
         16 => {
             // UTF-16 BE

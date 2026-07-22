@@ -1,6 +1,6 @@
 [package]
 name = "hadris-common"
-version = "2.0.0-rc.2"
+version = "2.0.0-rc.3"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -17,9 +17,9 @@ default = ["bytemuck", "std"]
 sync = ["hadris-io/sync"]
 async = ["hadris-io/async"]
 alloc = ["hadris-fixed/alloc", "hadris-io/alloc", "hadris-path/alloc"]
-std = ["sync", "dep:chrono", "chrono?/std", "dep:crc", "dep:rand", "alloc"]
+std = ["dep:chrono", "chrono?/std", "dep:crc", "dep:rand", "alloc", "hadris-io/std"]
 bytemuck = ["dep:bytemuck", "hadris-fixed/bytemuck"]
-optical = ["alloc"]  # Optical media types (SessionInfo, OpticalMetadataWriter)
+optical = ["alloc"]  # Mode-neutral optical types; writer traits also require `sync`.
 
 [dependencies]
 bytemuck = { workspace = true, optional = true, features = ["derive"] }

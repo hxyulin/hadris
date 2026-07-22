@@ -3,7 +3,7 @@
 Hadris 2.0 reorganizes the project into a storage ecosystem with consistent
 feature flags, explicit synchronous and asynchronous namespaces, category-level
 detection and opening, and recoverable writer lifecycles. This guide targets
-`2.0.0-rc.2`.
+`2.0.0-rc.3`.
 
 Most common FAT and UDF renames have deprecated aliases, but new code should use
 the canonical 2.0 names. The aliases remain available for migration, but are
@@ -34,10 +34,10 @@ implementations.
 
 ```toml
 [dependencies]
-hadris-fat = "2.0.0-rc.2"
+hadris-fat = "2.0.0-rc.3"
 
 # Or select several categories through the umbrella:
-hadris = { version = "2.0.0-rc.2", features = ["block", "optical"] }
+hadris = { version = "2.0.0-rc.3", features = ["block", "optical"] }
 ```
 
 ## Update feature flags
@@ -62,7 +62,7 @@ For explicit or `no_std` configurations, select every required dimension:
 ```toml
 [dependencies]
 hadris-fat = {
-    version = "2.0.0-rc.2",
+    version = "2.0.0-rc.3",
     default-features = false,
     features = ["alloc", "read", "write", "sync"]
 }
@@ -153,7 +153,7 @@ An allocation-free build selects `read` plus an I/O mode and does not require
 `alloc`:
 
 ```toml
-hadris-iso = { version = "2.0.0-rc.2", default-features = false, features = ["read", "sync"] }
+hadris-iso = { version = "2.0.0-rc.3", default-features = false, features = ["read", "sync"] }
 ```
 
 Use `IsoDir::read_entries` for collection-oriented traversal in either mode,
@@ -285,7 +285,7 @@ through the leaf crate's opt-in `unstable-exfat` feature:
 
 ```toml
 hadris-fat = {
-    version = "2.0.0-rc.2",
+    version = "2.0.0-rc.3",
     features = ["unstable-exfat"]
 }
 ```
@@ -315,7 +315,7 @@ specialized tools.
 
 ## Migration checklist
 
-1. Change dependency requirements to `2.0.0-rc.2`.
+1. Change dependency requirements to `2.0.0-rc.3`.
 2. Make platform, mode, and operation features explicit when disabling defaults.
 3. Move I/O calls to `sync` or `async` namespaces.
 4. Replace deprecated types and fluent setters with canonical names.

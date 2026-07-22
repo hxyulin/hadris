@@ -21,6 +21,8 @@ pub enum IsoNamespace {
     Primary,
     /// A Joliet supplementary directory tree.
     Joliet(JolietLevel),
+    /// The ISO 9660:1999 enhanced directory tree.
+    Enhanced,
 }
 
 /// A root directory and the namespace it represents.
@@ -100,6 +102,9 @@ impl<'a> IsoName<'a> {
                 strip_primary_version(self.raw).eq_ignore_ascii_case(candidate.as_bytes())
             }
             IsoNamespace::Joliet(_) => joliet_matches(strip_joliet_version(self.raw), candidate),
+            IsoNamespace::Enhanced => {
+                strip_primary_version(self.raw).eq_ignore_ascii_case(candidate.as_bytes())
+            }
         }
     }
 
@@ -124,6 +129,15 @@ impl<'a> IsoName<'a> {
                 core::str::from_utf8(&output[..raw.len()]).map_err(|_| NameError::InvalidEncoding)
             }
             IsoNamespace::Joliet(_) => decode_joliet_into(strip_joliet_version(self.raw), output),
+            IsoNamespace::Enhanced => {
+                let raw = strip_primary_version(self.raw);
+                core::str::from_utf8(raw).map_err(|_| NameError::InvalidEncoding)?;
+                if raw.len() > output.len() {
+                    return Err(NameError::BufferTooSmall);
+                }
+                output[..raw.len()].copy_from_slice(raw);
+                core::str::from_utf8(&output[..raw.len()]).map_err(|_| NameError::InvalidEncoding)
+            }
         }
     }
 }
@@ -346,6 +360,7 @@ pub struct IsoReader<R> {
     source: R,
     primary: IsoRoot,
     joliet: Option<IsoRoot>,
+    enhanced: Option<IsoRoot>,
 }
 
 impl<R> IsoReader<R> {
@@ -364,17 +379,25 @@ impl<R> IsoReader<R> {
         self.joliet
     }
 
-    /// Returns the preferred root, choosing Joliet over the primary namespace.
+    /// Returns the ISO 9660:1999 enhanced root, when present.
+    pub const fn enhanced_root(&self) -> Option<IsoRoot> {
+        self.enhanced
+    }
+
+    /// Returns the preferred root, choosing Joliet, then enhanced, then primary.
     pub const fn preferred_root(&self) -> IsoRoot {
-        match self.joliet {
-            Some(root) => root,
-            None => self.primary,
+        match (self.joliet, self.enhanced) {
+            (Some(root), _) => root,
+            (None, Some(root)) => root,
+            (None, None) => self.primary,
         }
     }
 
-    /// Iterates over the primary root followed by the optional Joliet root.
+    /// Iterates over the primary, enhanced, and Joliet roots.
     pub fn roots(&self) -> impl Iterator<Item = IsoRoot> {
-        [Some(self.primary), self.joliet].into_iter().flatten()
+        [Some(self.primary), self.enhanced, self.joliet]
+            .into_iter()
+            .flatten()
     }
 
     /// Selects a root by namespace.
@@ -384,6 +407,7 @@ impl<R> IsoReader<R> {
             IsoNamespace::Joliet(level) => self
                 .joliet
                 .filter(|root| root.namespace == IsoNamespace::Joliet(level)),
+            IsoNamespace::Enhanced => self.enhanced,
         }
     }
 }
@@ -394,6 +418,7 @@ impl<R: Read + Seek> IsoReader<R> {
     pub async fn open(mut source: R) -> io::Result<Self> {
         let mut primary = None;
         let mut joliet = None;
+        let mut enhanced = None;
         let mut sector = FIRST_DESCRIPTOR;
         loop {
             source.seek(SeekFrom::Start(sector.checked_mul(DESCRIPTOR_SIZE).ok_or_else(overflow)?))
@@ -409,7 +434,9 @@ impl<R: Read + Seek> IsoReader<R> {
             match VolumeDescriptor::new(bytes) {
                 VolumeDescriptor::Primary(descriptor) => primary = Some(root_from_primary(&descriptor)?),
                 VolumeDescriptor::Supplementary(descriptor) => {
-                    if let Some(root) = root_from_joliet(&descriptor)?
+                    if descriptor.header.version == 2 && descriptor.file_structure_version == 2 {
+                        enhanced = Some(root_from_enhanced(&descriptor)?);
+                    } else if let Some(root) = root_from_joliet(&descriptor)?
                         && joliet.map(|old: IsoRoot| joliet_level(old) < joliet_level(root)).unwrap_or(true)
                     { joliet = Some(root); }
                 }
@@ -418,7 +445,7 @@ impl<R: Read + Seek> IsoReader<R> {
             sector = sector.checked_add(1).ok_or_else(overflow)?;
         }
         let primary = primary.ok_or_else(|| invalid("primary volume descriptor not found"))?;
-        Ok(Self { source, primary, joliet })
+        Ok(Self { source, primary, joliet, enhanced })
     }
 
     /// Opens an allocation-free directory reader.
@@ -661,10 +688,22 @@ fn root_from_joliet(descriptor: &SupplementaryVolumeDescriptor) -> io::Result<Op
     )?))
 }
 
+fn root_from_enhanced(descriptor: &SupplementaryVolumeDescriptor) -> io::Result<IsoRoot> {
+    make_root(
+        IsoNamespace::Enhanced,
+        descriptor.logical_block_size.read(),
+        descriptor.dir_record.header.extent.read(),
+        descriptor.dir_record.header.data_len.read(),
+        descriptor.dir_record.header.extended_attr_record,
+    )
+}
+
 fn joliet_level(root: IsoRoot) -> JolietLevel {
     match root.namespace {
         IsoNamespace::Joliet(level) => level,
-        IsoNamespace::Primary => unreachable!("primary root used as Joliet root"),
+        IsoNamespace::Primary | IsoNamespace::Enhanced => {
+            unreachable!("non-Joliet root used as Joliet root")
+        }
     }
 }
 

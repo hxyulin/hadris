@@ -18,7 +18,7 @@ and asynchronous feature tiers.
 
 :::caution Release candidate
 
-`2.0.0-rc.2` freezes the intended V2 public API while downstream testing is in
+`2.0.0-rc.3` freezes the intended V2 public API while downstream testing is in
 progress. The `unstable-exfat` feature remains outside that stability promise.
 
 :::
