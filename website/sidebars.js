@@ -17,6 +17,15 @@ module.exports = {
     },
     {
       type: "category",
+      label: "Filesystem creation",
+      items: [
+        "creation/iso",
+        "creation/fat",
+        "creation/udf",
+      ],
+    },
+    {
+      type: "category",
       label: "Migration",
       items: ["migration/v1-to-v2"],
     },
