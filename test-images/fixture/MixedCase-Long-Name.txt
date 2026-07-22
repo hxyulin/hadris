@@ -1,0 +1,1 @@
+This long mixed-case filename exercises Joliet, UDF CS0, FAT LFN, and bridge comparison.

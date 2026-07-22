@@ -17,7 +17,7 @@ use hadris_udf::write::{UdfWriteOptions, UdfWriter};
 use hadris_udf::{FileType, SECTOR_SIZE as UDF_SECTOR_SIZE};
 
 use crate::error::CdResult;
-use crate::layout::{LayoutInfo, LayoutManager};
+use crate::layout::{LayoutInfo, LayoutManager, UdfDirectoryLayout};
 use crate::options::CdOptions;
 use crate::tree::{Directory, FileData, FileTree};
 
@@ -52,22 +52,113 @@ impl<W: Read + Write + Seek> CdWriter<W> {
 
         // Phase 1: Layout - determine where all files will be placed
         let mut layout_manager = LayoutManager::new(self.options.sector_size);
-        let layout_info = layout_manager.layout_files(&mut tree, &self.options)?;
+        let mut layout_info = layout_manager.layout_files(&mut tree, &self.options)?;
 
-        // Phase 2: Write file data to their assigned sectors
-        self.write_file_data(&tree, &layout_info).await?;
-
-        // Phase 3: Write ISO 9660 structures (if enabled)
+        // ISO creation writes payloads as well as directory structures. Use its
+        // actual payload extents for the UDF allocation descriptors: the
+        // provisional layout does not account for ISO directory data placed at
+        // the allocation floor before those payloads.
         if self.options.iso.enabled {
             self.write_iso_structures(&tree, &layout_info).await?;
+            self.sync_iso_file_extents(&mut tree, &mut layout_info).await?;
+        } else {
+            self.write_file_data(&tree, &layout_info).await?;
         }
 
-        // Phase 4: Write UDF structures (if enabled)
+        // UDF metadata points at the already-written ISO payloads.
         if self.options.udf.enabled {
             self.write_udf_structures(&tree, &layout_info).await?;
         }
 
         Ok(self.writer)
+    }
+
+    async fn sync_iso_file_extents(
+        &mut self,
+        tree: &mut FileTree,
+        layout: &mut LayoutInfo,
+    ) -> CdResult<()> {
+        use hadris_iso::read::IsoImage;
+
+        let mut paths = Vec::new();
+        Self::collect_file_paths(&tree.root, "", &mut paths);
+        let mut extents = std::collections::BTreeMap::new();
+        {
+            let image = IsoImage::open(Borrowed::new(&mut self.writer))?;
+            for path in paths {
+                let entry = image.find_path(&path)?.ok_or_else(|| {
+                    crate::error::CdError::InvalidPath(format!(
+                        "ISO writer did not produce the planned file: {path}"
+                    ))
+                })?;
+                extents.insert(
+                    path,
+                    (
+                        entry.header().extent.read(),
+                        u64::from(entry.header().data_len.read()),
+                    ),
+                );
+            }
+        }
+        Self::apply_iso_file_extents(&mut tree.root, "", &extents)?;
+
+        let end = extents
+            .values()
+            .filter(|(_, len)| *len != 0)
+            .map(|(sector, len)| {
+                *sector + len.div_ceil(self.options.sector_size as u64) as u32
+            })
+            .max()
+            .unwrap_or(layout.file_data_start);
+        layout.file_data_end = end;
+        layout.total_sectors = end.saturating_add(100);
+        Ok(())
+    }
+
+    fn collect_file_paths(dir: &Directory, prefix: &str, output: &mut Vec<String>) {
+        for file in &dir.files {
+            output.push(if prefix.is_empty() {
+                file.name.to_string()
+            } else {
+                format!("{prefix}/{}", file.name)
+            });
+        }
+        for child in &dir.subdirs {
+            let child_prefix = if prefix.is_empty() {
+                child.name.to_string()
+            } else {
+                format!("{prefix}/{}", child.name)
+            };
+            Self::collect_file_paths(child, &child_prefix, output);
+        }
+    }
+
+    fn apply_iso_file_extents(
+        dir: &mut Directory,
+        prefix: &str,
+        extents: &std::collections::BTreeMap<String, (u32, u64)>,
+    ) -> CdResult<()> {
+        for file in &mut dir.files {
+            let path = if prefix.is_empty() {
+                file.name.to_string()
+            } else {
+                format!("{prefix}/{}", file.name)
+            };
+            let &(sector, length) = extents.get(&path).ok_or_else(|| {
+                crate::error::CdError::InvalidPath(format!("missing ISO extent for {path}"))
+            })?;
+            file.extent.sector = sector;
+            file.extent.length = length;
+        }
+        for child in &mut dir.subdirs {
+            let child_prefix = if prefix.is_empty() {
+                child.name.to_string()
+            } else {
+                format!("{prefix}/{}", child.name)
+            };
+            Self::apply_iso_file_extents(child, &child_prefix, extents)?;
+        }
+        Ok(())
     }
 
     /// Create an image while discarding the returned output target.
@@ -204,6 +295,13 @@ impl<W: Read + Write + Seek> CdWriter<W> {
 
     /// Write UDF structures
     async fn write_udf_structures(&mut self, tree: &FileTree, layout_info: &LayoutInfo) -> CdResult<()> {
+        let image_bytes = self
+            .writer
+            .seek(SeekFrom::End(0))
+            .await
+            .map_err(hadris_io::Error::erase)?;
+        let image_sectors = image_bytes / self.options.sector_size as u64;
+
         let udf_options = UdfWriteOptions {
             volume_id: self.options.volume_id.clone(),
             revision: self.options.udf.revision,
@@ -234,6 +332,13 @@ impl<W: Read + Write + Seek> CdWriter<W> {
             location: reserve_vds_start,
         };
         udf_writer.write_avdp(main_vds, reserve_vds)?;
+        if image_sectors > 256 {
+            let last = u32::try_from(image_sectors - 1).map_err(|_| {
+                crate::error::CdError::InvalidConfig("image has too many sectors".into())
+            })?;
+            udf_writer.write_avdp_at(last, main_vds, reserve_vds)?;
+            udf_writer.write_avdp_at(last - 256, main_vds, reserve_vds)?;
+        }
 
         // File Set Descriptor location (first block in partition)
         let fsd_block = 0u32;
@@ -245,7 +350,7 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         };
 
         // Root directory ICB location
-        let root_icb_block = 1u32;
+        let root_icb_block = layout_info.udf_root.icb_block;
         let root_icb = LongAllocationDescriptor {
             extent_length: UDF_SECTOR_SIZE as u32,
             logical_block_num: root_icb_block,
@@ -283,7 +388,12 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         udf_writer.write_fsd(fsd_block, root_icb)?;
 
         // Write root directory
-        Self::write_udf_directory_static(&mut udf_writer, &tree.root, root_icb_block, layout_info)?;
+        Self::write_udf_directory_static(
+            &mut udf_writer,
+            &tree.root,
+            &layout_info.udf_root,
+            layout_info,
+        )?;
 
         Ok(())
     }
@@ -292,18 +402,11 @@ impl<W: Read + Write + Seek> CdWriter<W> {
     fn write_udf_directory_static<WR: Write + Seek>(
         udf_writer: &mut UdfWriter<WR>,
         dir: &Directory,
-        icb_block: u32,
+        plan: &UdfDirectoryLayout,
         layout_info: &LayoutInfo,
     ) -> CdResult<()> {
-        // Collect child entries for FIDs
         let mut entries: Vec<(String, LongAllocationDescriptor, bool)> = Vec::new();
-        let mut next_icb = icb_block + 2; // After this dir's File Entry and FIDs
-
-        // Process files
-        for file in &dir.files {
-            let file_icb_block = next_icb;
-            next_icb += 1;
-
+        for (file, &file_icb_block) in dir.files.iter().zip(&plan.file_icb_blocks) {
             let file_icb = LongAllocationDescriptor {
                 extent_length: UDF_SECTOR_SIZE as u32,
                 logical_block_num: file_icb_block,
@@ -313,41 +416,25 @@ impl<W: Read + Write + Seek> CdWriter<W> {
 
             entries.push((file.name.to_string(), file_icb, false));
         }
-
-        // Process subdirectories (we'll write them recursively)
-        for subdir in &dir.subdirs {
-            let subdir_icb_block = next_icb;
-            // Reserve space for subdir's File Entry and FIDs
-            let subdir_entries = subdir.files.len() + subdir.subdirs.len() + 1; // +1 for parent
-            let fid_sectors = (subdir_entries * 50).div_ceil(UDF_SECTOR_SIZE);
-            next_icb += 1 + fid_sectors as u32;
-
+        for (subdir, subdir_plan) in dir.subdirs.iter().zip(&plan.subdirs) {
             let subdir_icb = LongAllocationDescriptor {
                 extent_length: UDF_SECTOR_SIZE as u32,
-                logical_block_num: subdir_icb_block,
+                logical_block_num: subdir_plan.icb_block,
                 partition_ref_num: 0,
                 impl_use: [0; 6],
             };
-
             entries.push((subdir.name.to_string(), subdir_icb, true));
         }
 
-        // Calculate directory data size (FIDs)
-        let total_entries = entries.len() + 1; // +1 for parent entry
-        let estimated_fid_size = total_entries * 50; // Rough estimate
-        let dir_data_sectors =
-            estimated_fid_size.div_ceil(UDF_SECTOR_SIZE) as u32;
-        let dir_data_size = (dir_data_sectors as usize) * UDF_SECTOR_SIZE;
-
         // Write directory File Entry
         let dir_alloc = vec![ShortAllocationDescriptor {
-            extent_length: dir_data_size as u32,
-            extent_position: icb_block + 1, // FIDs follow File Entry
+            extent_length: plan.fid_bytes as u32,
+            extent_position: plan.fid_block,
         }];
         udf_writer.write_file_entry(
-            icb_block,
+            plan.icb_block,
             FileType::Directory,
-            dir_data_size as u64,
+            plan.fid_bytes as u64,
             &dir_alloc,
             dir.unique_id,
         )?;
@@ -355,15 +442,13 @@ impl<W: Read + Write + Seek> CdWriter<W> {
         // Write FIDs (parent + children)
         let parent_icb = LongAllocationDescriptor {
             extent_length: UDF_SECTOR_SIZE as u32,
-            logical_block_num: icb_block, // Self for root, or actual parent
+            logical_block_num: plan.parent_icb_block,
             partition_ref_num: 0,
             impl_use: [0; 6],
         };
-        udf_writer.write_fids(icb_block + 1, parent_icb, &entries)?;
+        udf_writer.write_fids(plan.fid_block, parent_icb, &entries)?;
 
-        // Write file File Entries
-        let mut file_icb = icb_block + 2;
-        for file in &dir.files {
+        for (file, &file_icb) in dir.files.iter().zip(&plan.file_icb_blocks) {
             let file_alloc = if file.extent.length > 0 {
                 // Convert absolute sector to logical block within partition
                 let logical_block = file.extent.sector - layout_info.udf_partition_start;
@@ -382,17 +467,10 @@ impl<W: Read + Write + Seek> CdWriter<W> {
                 &file_alloc,
                 file.unique_id,
             )?;
-            file_icb += 1;
         }
 
-        // Recursively write subdirectories
-        let mut subdir_icb = file_icb;
-        for subdir in &dir.subdirs {
-            Self::write_udf_directory_static(udf_writer, subdir, subdir_icb, layout_info)?;
-            // Calculate next subdir's ICB position
-            let subdir_entries = subdir.files.len() + subdir.subdirs.len() + 1;
-            let fid_sectors = (subdir_entries * 50).div_ceil(UDF_SECTOR_SIZE);
-            subdir_icb += 1 + fid_sectors as u32 + subdir.files.len() as u32;
+        for (subdir, subdir_plan) in dir.subdirs.iter().zip(&plan.subdirs) {
+            Self::write_udf_directory_static(udf_writer, subdir, subdir_plan, layout_info)?;
         }
 
         Ok(())

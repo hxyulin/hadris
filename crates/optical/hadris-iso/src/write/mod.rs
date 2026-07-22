@@ -1220,8 +1220,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                             let Some(root_dir) = root_dirs.get(l3) else {
                                 continue;
                             };
+                            let Some(pt) = self.path_tables.get(l3) else {
+                                continue;
+                            };
                             svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
                             svd.dir_record.header.data_len.write(root_dir.size as u32);
+                            svd.type_l_path_table.set(pt.lpt.0 as u32);
+                            svd.type_m_path_table.set(pt.mpt.0 as u32);
+                            svd.path_table_size.write(pt.size as u32);
                             svd.volume_space_size.write(end_sector.0 as u32);
                         }
 
@@ -2104,13 +2110,21 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         // ── Phase 1.75: Order records by File Identifier (ECMA-119 9.3) ──
         // Directory records must be written in ascending File Identifier order.
-        // "." and ".." (identifiers 0x00 / 0x01) sort first; the remaining
-        // entries follow in identifier order. A byte-wise comparison reproduces
-        // the standard's space-padded ordering because the pad byte (0x20) sorts
-        // below every character valid in an ISO 9660 identifier, so a shorter
-        // identifier that is a prefix of a longer one still sorts first. Sorting
-        // after dedup keeps the assigned suffixes intact.
-        records.sort_by(|a, b| a.name.cmp(&b.name));
+        // "." and ".." must be the first two records in that order. A plain
+        // byte-wise sort is insufficient for Joliet because every UTF-16BE ASCII
+        // name begins with 0x00 and would therefore sort before the 0x01 ".."
+        // identifier. Sort ordinary entries byte-wise only after ranking the two
+        // special records explicitly.
+        records.sort_by(|a, b| {
+            let rank = |name: &[u8]| match name {
+                [0x00] => 0,
+                [0x01] => 1,
+                _ => 2,
+            };
+            rank(&a.name)
+                .cmp(&rank(&b.name))
+                .then_with(|| a.name.cmp(&b.name))
+        });
 
         // ── Phase 2: Write continuation area if any records have overflow ──
 

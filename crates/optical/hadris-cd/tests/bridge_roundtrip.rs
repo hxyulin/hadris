@@ -112,6 +112,43 @@ fn bridge_reopens_through_iso_and_udf_and_recovers_source() {
 }
 
 #[test]
+fn udf_parent_fids_reference_the_actual_parent() {
+    let bytes = create(CdOptions::default().volume_id(VOLUME_ID));
+    let volume = UdfFs::open(Cursor::new(bytes)).expect("open UDF namespace");
+    let root = volume.root_dir().expect("read root");
+    let docs_entry = udf_entry(root.entries(), "DOCS");
+    let docs = volume.read_directory(&docs_entry.icb).expect("read DOCS");
+    let docs_parent = docs
+        .all_entries()
+        .find(|entry| entry.is_parent())
+        .expect("DOCS parent FID");
+    assert_eq!(
+        docs_parent.icb.logical_block_num,
+        volume
+            .root_dir()
+            .unwrap()
+            .all_entries()
+            .find(|entry| entry.is_parent())
+            .unwrap()
+            .icb
+            .logical_block_num
+    );
+
+    let nested_entry = udf_entry(docs.entries(), "NESTED");
+    let nested = volume
+        .read_directory(&nested_entry.icb)
+        .expect("read NESTED");
+    let nested_parent = nested
+        .all_entries()
+        .find(|entry| entry.is_parent())
+        .expect("NESTED parent FID");
+    assert_eq!(
+        nested_parent.icb.logical_block_num,
+        docs_entry.icb.logical_block_num
+    );
+}
+
+#[test]
 fn detects_and_reopens_iso_only_image() {
     let (_, large) = fixture();
     let bytes = create(CdOptions::default().volume_id(VOLUME_ID).iso_only());

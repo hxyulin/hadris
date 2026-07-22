@@ -30,11 +30,8 @@ pub struct UdfInfo {
     pub partition_length: u32,
     /// Volume identifier
     pub volume_id: String,
-    /// Representative UDF revision for the detected VRS family.
-    ///
-    /// NSR02 maps to 1.02 and NSR03 maps to 2.01. The Volume Recognition
-    /// Sequence identifies a revision family and does not by itself guarantee
-    /// the exact revision used by every structure on the medium.
+    /// Exact UDF revision from the logical-volume domain identifier when
+    /// present, otherwise a representative revision for the detected VRS family.
     pub udf_revision: UdfRevision,
 }
 
@@ -66,10 +63,11 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         // Read the Main Volume Descriptor Sequence
         let (pvd, partition, lvd, fsd) = Self::read_vds(&mut data, &avdp.main_vds_extent).await?;
 
-        let udf_revision = match vrs_type {
+        let fallback_revision = match vrs_type {
             descriptor::VrsType::Nsr02 => UdfRevision::V1_02,
             descriptor::VrsType::Nsr03 => UdfRevision::V2_01,
         };
+        let udf_revision = exact_domain_revision(&lvd, vrs_type).unwrap_or(fallback_revision);
 
         let info = UdfInfo {
             block_size: lvd.logical_block_size,
@@ -434,6 +432,25 @@ impl<DATA: Read + Seek> UdfFs<DATA> {
         }
 
         Ok(())
+    }
+}
+
+fn exact_domain_revision(
+    lvd: &LogicalVolumeDescriptor,
+    vrs_type: descriptor::VrsType,
+) -> Option<UdfRevision> {
+    if !lvd.is_udf_domain() {
+        return None;
+    }
+    let raw = u16::from_le_bytes([
+        lvd.domain_identifier.suffix[0],
+        lvd.domain_identifier.suffix[1],
+    ]);
+    let revision = UdfRevision::from_raw(raw);
+    match vrs_type {
+        descriptor::VrsType::Nsr02 if raw != 0 && revision < UdfRevision::V2_00 => Some(revision),
+        descriptor::VrsType::Nsr03 if revision >= UdfRevision::V2_00 => Some(revision),
+        _ => None,
     }
 }
 

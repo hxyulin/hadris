@@ -1,0 +1,1 @@
+This nested file exercises recursive directory traversal and extraction.

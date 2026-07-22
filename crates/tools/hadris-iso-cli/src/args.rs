@@ -97,7 +97,7 @@ pub struct CreateArgs {
     /// Volume name (max 32 characters)
     #[arg(short = 'V', long, default_value = "CDROM")]
     pub volume_name: String,
-    /// ISO level (1, 2, 1l, 2l for lowercase support)
+    /// ISO level (1, 2, 3, 1l, or 2l; the `l` variants preserve lowercase)
     #[arg(short, long, default_value = "1")]
     pub level: ArgLevel,
     /// Enable Joliet extension for Windows compatibility
