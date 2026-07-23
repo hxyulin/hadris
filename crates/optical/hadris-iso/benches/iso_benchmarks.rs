@@ -2,8 +2,9 @@
 //!
 //! Run with: cargo bench -p hadris-iso
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use std::fs;
+use std::hint::black_box;
 use std::io::Cursor;
 use std::path::Path;
 use std::process::Command;
