@@ -197,7 +197,7 @@ fn read_file_incrementally() {
 }
 
 #[test]
-fn find_file_case_insensitive() {
+fn find_posix_file_is_case_sensitive() {
     let img = require_image!("CaseFind");
     assert!(img.add_file("CamelCase.Txt", b"data"), "ntfscp failed");
 
@@ -207,10 +207,33 @@ fn find_file_case_insensitive() {
 
     // Exact case
     assert!(root.find("CamelCase.Txt").unwrap().is_some());
-    // Lower case
-    assert!(root.find("camelcase.txt").unwrap().is_some());
-    // Upper case
-    assert!(root.find("CAMELCASE.TXT").unwrap().is_some());
+    assert!(root.find("camelcase.txt").unwrap().is_none());
+    assert!(root.find("CAMELCASE.TXT").unwrap().is_none());
+}
+
+#[test]
+fn system_names_use_ntfs_upcase_table() {
+    let img = require_image!("SystemCase");
+    let file = File::open(img.path()).unwrap();
+    let fs = NtfsFs::open(file).unwrap();
+    let root = fs.root_dir();
+
+    assert!(root.find("$mft").unwrap().is_some());
+    assert!(root.find("$upcase").unwrap().is_some());
+}
+
+#[test]
+fn find_posix_unicode_file_is_case_sensitive() {
+    let img = require_image!("UnicodeCase");
+    assert!(img.add_file("Résumé.Txt", b"data"), "ntfscp failed");
+
+    let file = File::open(img.path()).unwrap();
+    let fs = NtfsFs::open(file).unwrap();
+    let root = fs.root_dir();
+
+    assert!(root.find("Résumé.Txt").unwrap().is_some());
+    assert!(root.find("RÉSUMÉ.TXT").unwrap().is_none());
+    assert!(root.find("résumé.txt").unwrap().is_none());
 }
 
 #[test]
@@ -244,6 +267,26 @@ fn long_filename() {
     let mut reader = fs.read_file(&entry).unwrap();
     let data = reader.read_to_vec().unwrap();
     assert_eq!(data, b"long name content");
+}
+
+#[test]
+fn supplementary_unicode_filename() {
+    let img = require_image!("UnicodeName");
+    let name = "report-\u{1F980}.txt";
+    assert!(img.add_file(name, b"unicode content"), "ntfscp failed");
+
+    let file = File::open(img.path()).unwrap();
+    let fs = NtfsFs::open(file).unwrap();
+    let entry = fs
+        .root_dir()
+        .entries()
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.name() == name)
+        .expect("supplementary Unicode filename not found");
+
+    let mut reader = fs.read_file(&entry).unwrap();
+    assert_eq!(reader.read_to_vec().unwrap(), b"unicode content");
 }
 
 #[test]
@@ -343,6 +386,33 @@ fn subdirectory_listing() {
     let mut reader = subdir.open_file("two.txt").unwrap();
     let data = reader.read_to_vec().unwrap();
     assert_eq!(data, b"22");
+}
+
+#[test]
+fn large_directory_uses_index_allocation() {
+    let img = require_image!("LargeDir");
+    let mounted = img.with_mounted(|mnt| {
+        std::fs::create_dir(mnt.join("many")).unwrap();
+        for index in 0..200 {
+            std::fs::write(mnt.join(format!("many/file-{index:03}.txt")), [index as u8]).unwrap();
+        }
+    });
+    if mounted.is_none() {
+        eprintln!("SKIP: ntfs-3g FUSE mount not available");
+        return;
+    }
+
+    let file = File::open(img.path()).unwrap();
+    let fs = NtfsFs::open(file).unwrap();
+    let entries = fs.root_dir().open_dir("many").unwrap().entries().unwrap();
+
+    for index in 0..200 {
+        let name = format!("file-{index:03}.txt");
+        assert!(
+            entries.iter().any(|entry| entry.name() == name),
+            "missing {name}"
+        );
+    }
 }
 
 #[test]

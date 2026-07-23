@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use crate::attr::{
     apply_fixups, decode_data_runs, is_i30_name, parse_index_entries, AttrBody, AttrIter,
-    DataRun, IndexEntryInfo, ATTR_INDEX_ALLOCATION, ATTR_INDEX_ROOT,
+    DataRun, IndexEntryInfo, ATTR_BITMAP, ATTR_INDEX_ALLOCATION, ATTR_INDEX_ROOT,
 };
 use crate::error::{NtfsError, Result};
 use super::fs::NtfsFs;
@@ -85,6 +85,8 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
 
         let mut entries = Vec::new();
         let mut alloc_info: Option<(Vec<DataRun>, u64)> = None;
+        let mut bitmap = None;
+        let mut bitmap_info: Option<(Vec<DataRun>, u64)> = None;
         let mut index_record_size = self.fs.index_record_size;
 
         let attrs = AttrIter::new(&record)?;
@@ -111,55 +113,86 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
                 ATTR_INDEX_ALLOCATION if is_i30_name(a.name) => {
                     if let AttrBody::NonResident {
                         data_runs,
-                        allocated_size,
+                        data_size,
                         ..
                     } = a.body
                     {
                         let runs = decode_data_runs(data_runs)?;
-                        alloc_info = Some((runs, allocated_size));
+                        alloc_info = Some((runs, data_size));
+                    }
+                }
+                ATTR_BITMAP if is_i30_name(a.name) => {
+                    match a.body {
+                        AttrBody::Resident(value) => bitmap = Some(value.to_vec()),
+                        AttrBody::NonResident {
+                            data_runs,
+                            data_size,
+                            ..
+                        } => {
+                            bitmap_info = Some((decode_data_runs(data_runs)?, data_size));
+                        }
                     }
                 }
                 _ => {}
             }
         }
 
+        if let Some((runs, data_size)) = bitmap_info {
+            let bitmap_size =
+                usize::try_from(data_size).map_err(|_| NtfsError::InvalidAttribute)?;
+            let mut value = vec![0_u8; bitmap_size];
+            let mut data = self.fs.data.lock();
+            read_data_runs(
+                &mut *data,
+                &runs,
+                0,
+                &mut value,
+                self.fs.cluster_size as u64,
+            )
+            .await?;
+            bitmap = Some(value);
+        }
+
         // Read INDEX_ALLOCATION blocks (if the directory is large enough
         // to spill out of INDEX_ROOT).
-        if let Some((runs, alloc_size)) = alloc_info {
-            let num_blocks = alloc_size as usize / index_record_size;
+        if let Some((runs, data_size)) = alloc_info {
+            let bitmap = bitmap.ok_or(NtfsError::InvalidAttribute)?;
+            let data_size =
+                usize::try_from(data_size).map_err(|_| NtfsError::InvalidAttribute)?;
+            if !data_size.is_multiple_of(index_record_size) {
+                return Err(NtfsError::InvalidIndexEntry);
+            }
+            let num_blocks = data_size / index_record_size;
             for i in 0..num_blocks {
+                let bitmap_byte = bitmap.get(i / 8).ok_or(NtfsError::InvalidIndexEntry)?;
+                if bitmap_byte & (1 << (i % 8)) == 0 {
+                    continue;
+                }
+
                 let offset = (i * index_record_size) as u64;
                 let mut block = vec![0u8; index_record_size];
 
                 {
                     let mut data = self.fs.data.lock();
-                    if read_data_runs(
+                    read_data_runs(
                         &mut *data,
                         &runs,
                         offset,
                         &mut block,
                         self.fs.cluster_size as u64,
                     )
-                    .await
-                    .is_err()
-                    {
-                        continue;
-                    }
+                    .await?;
                 }
 
-                // Validate INDX magic — freed blocks won't match.
                 if block.len() < 4 || &block[0..4] != b"INDX" {
-                    continue;
+                    return Err(NtfsError::InvalidIndexMagic);
                 }
 
-                if apply_fixups(&mut block, self.fs.sector_size).is_err() {
-                    continue;
-                }
+                apply_fixups(&mut block, self.fs.sector_size)?;
 
                 // Node header is at offset 0x18 within the INDX record.
-                if let Ok(raw) = parse_index_entries(&block, 0x18) {
-                    append_entries(&raw, &mut entries);
-                }
+                let raw = parse_index_entries(&block, 0x18)?;
+                append_entries(&raw, &mut entries);
             }
         }
 
@@ -169,8 +202,12 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
     /// Find an entry by name (case-insensitive for Win32/DOS names).
     pub async fn find(&self, name: &str) -> Result<Option<NtfsEntry>> {
         let entries = self.entries().await?;
-        Ok(entries.into_iter().find(|e| {
-            e.name().eq_ignore_ascii_case(name)
+        Ok(entries.into_iter().find(|entry| {
+            if entry.namespace == crate::attr::FILE_NAME_POSIX {
+                entry.name() == name
+            } else {
+                self.fs.names_equal(entry.name(), name)
+            }
         }))
     }
 

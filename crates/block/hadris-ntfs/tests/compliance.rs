@@ -1,5 +1,7 @@
 use hadris_ntfs::NtfsError;
-use hadris_ntfs::attr::{AttrIter, DataRun, apply_fixups, decode_data_runs, decode_record_size};
+use hadris_ntfs::attr::{
+    AttrIter, DataRun, apply_fixups, decode_data_runs, decode_record_size, decode_utf16le,
+};
 use hadris_ntfs::sync::NtfsFs;
 
 fn boot_sector() -> Vec<u8> {
@@ -155,5 +157,21 @@ fn attributes_reject_used_sizes_beyond_the_record() {
     assert!(matches!(
         AttrIter::new(&record),
         Err(NtfsError::InvalidAttribute)
+    ));
+}
+
+#[test]
+fn filenames_decode_utf16_surrogate_pairs() {
+    assert_eq!(
+        decode_utf16le(&[0x3E, 0xD8, 0x80, 0xDD]).unwrap(),
+        "\u{1F980}"
+    );
+    assert!(matches!(
+        decode_utf16le(&[0x3E, 0xD8]),
+        Err(NtfsError::InvalidFileName)
+    ));
+    assert!(matches!(
+        decode_utf16le(&[0x41]),
+        Err(NtfsError::InvalidFileName)
     ));
 }

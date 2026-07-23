@@ -11,12 +11,13 @@ use hadris_common::types::endian::Endian;
 
 use crate::attr::{
     self, apply_fixups, decode_data_runs, decode_record_size, AttrBody, AttrIter, DataRun,
-    ATTR_DATA, MFT_RECORD_ROOT_DIR,
+    ATTR_DATA, MFT_RECORD_ROOT_DIR, MFT_RECORD_UPCASE,
 };
 use crate::error::{NtfsError, Result};
 use crate::raw::RawNtfsBootSector;
 use super::dir::NtfsDir;
 use super::io::{Read, ReadExt, Seek, SeekFrom, read_data_runs};
+use super::read::FileReader;
 
 /// Handle for a mounted NTFS filesystem.
 ///
@@ -31,6 +32,7 @@ pub struct NtfsFs<DATA: Seek> {
     pub(crate) index_record_size: usize,
     /// Decoded data runs for the `$MFT` data stream.
     pub(crate) mft_runs: Vec<DataRun>,
+    pub(crate) upcase: Vec<u16>,
     volume_serial: u64,
     total_sectors: u64,
 }
@@ -124,16 +126,43 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
             });
         }
 
-        Ok(Self {
+        let mut fs = Self {
             data: Mutex::new(data),
             cluster_size,
             sector_size,
             mft_record_size,
             index_record_size,
             mft_runs,
+            upcase: Vec::new(),
             volume_serial: boot.volume_serial.get(),
             total_sectors,
-        })
+        };
+        fs.load_upcase().await?;
+        Ok(fs)
+    }
+
+    async fn load_upcase(&mut self) -> Result<()> {
+        let bytes = {
+            let mut reader = FileReader::open_by_mft(self, MFT_RECORD_UPCASE).await?;
+            reader.read_to_vec().await?
+        };
+        if bytes.len() != (u16::MAX as usize + 1) * size_of::<u16>() {
+            return Err(NtfsError::InvalidUpcaseTable);
+        }
+
+        self.upcase = bytes
+            .chunks_exact(2)
+            .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
+            .collect();
+        Ok(())
+    }
+
+    pub(crate) fn names_equal(&self, left: &str, right: &str) -> bool {
+        left.encode_utf16()
+            .map(|unit| self.upcase[unit as usize])
+            .eq(right
+                .encode_utf16()
+                .map(|unit| self.upcase[unit as usize]))
     }
 
     /// Read an MFT record by its record number.

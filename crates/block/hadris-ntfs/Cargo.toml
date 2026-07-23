@@ -28,8 +28,6 @@ bytemuck = { workspace = true, features = [
   "derive",
   "min_const_generics",
 ] }
-ucs2 = "0.3"
-
 [dev-dependencies]
 static_assertions = { workspace = true }
 tempfile = { workspace = true }

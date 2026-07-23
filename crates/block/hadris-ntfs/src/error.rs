@@ -55,6 +55,8 @@ pub enum NtfsError {
     InvalidDataRun,
     /// Could not decode a UTF-16LE filename
     InvalidFileName,
+    /// The `$UpCase` system file is missing or malformed
+    InvalidUpcaseTable,
     /// Malformed index entry
     InvalidIndexEntry,
     /// Entry is not a regular file
@@ -113,6 +115,7 @@ impl fmt::Display for NtfsError {
             Self::InvalidAttribute => write!(f, "malformed attribute header or value"),
             Self::InvalidDataRun => write!(f, "malformed non-resident attribute data run"),
             Self::InvalidFileName => write!(f, "could not decode UTF-16LE filename"),
+            Self::InvalidUpcaseTable => write!(f, "missing or malformed NTFS $UpCase table"),
             Self::InvalidIndexEntry => write!(f, "malformed index entry"),
             Self::NotAFile => write!(f, "entry is not a file"),
             Self::NotADirectory => write!(f, "entry is not a directory"),

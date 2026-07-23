@@ -54,6 +54,7 @@ pub const FILE_NAME_WIN32_AND_DOS: u8 = 3;
 
 pub const MFT_RECORD_MFT: u64 = 0;
 pub const MFT_RECORD_ROOT_DIR: u64 = 5;
+pub const MFT_RECORD_UPCASE: u64 = 10;
 
 // ---------------------------------------------------------------------------
 // Attribute flags
@@ -499,24 +500,20 @@ pub fn parse_file_name(data: &[u8]) -> Result<FileNameInfo> {
     })
 }
 
-/// Decode raw UTF-16LE bytes into a UTF-8 `String` using the `ucs2` crate.
+/// Decode raw UTF-16LE bytes into a UTF-8 `String`.
 pub fn decode_utf16le(raw: &[u8]) -> Result<String> {
-    let char_count = raw.len() / 2;
-    if char_count == 0 {
-        return Ok(String::new());
+    if raw.len() % 2 != 0 {
+        return Err(NtfsError::InvalidFileName);
     }
 
-    // Convert LE bytes to native u16 values
-    let mut u16_buf: Vec<u16> = Vec::with_capacity(char_count);
-    for chunk in raw.chunks_exact(2) {
-        u16_buf.push(u16::from_le_bytes([chunk[0], chunk[1]]));
+    let code_units = raw
+        .chunks_exact(2)
+        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]));
+    let mut name = String::with_capacity(raw.len());
+    for decoded in char::decode_utf16(code_units) {
+        name.push(decoded.map_err(|_| NtfsError::InvalidFileName)?);
     }
-
-    // UCS-2 can expand to at most 3 UTF-8 bytes per character
-    let mut utf8_buf = alloc::vec![0u8; char_count * 3];
-    let len = ucs2::decode(&u16_buf, &mut utf8_buf).map_err(|_| NtfsError::InvalidFileName)?;
-    utf8_buf.truncate(len);
-    String::from_utf8(utf8_buf).map_err(|_| NtfsError::InvalidFileName)
+    Ok(name)
 }
 
 // ---------------------------------------------------------------------------
