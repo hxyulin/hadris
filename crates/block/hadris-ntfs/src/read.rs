@@ -23,7 +23,13 @@ enum FileData {
 
 /// A reader for file content on an NTFS volume.
 ///
-/// Created via [`NtfsFsReadExt::read_file`] or [`NtfsDir::open_file`].
+/// Created via [`NtfsFsReadExt::read_file`] or
+/// [`NtfsDir::open_file`](super::dir::NtfsDir::open_file).
+///
+/// @hadris-spec NTFS:Data-Stream
+/// @hadris-compliance partial
+/// @hadris-tests read::read_large_nonresident_file
+/// @hadris-note Reads resident, non-resident, sparse, and uninitialized unnamed data; compressed, encrypted, named, and attribute-list streams are unsupported.
 pub struct FileReader<'a, DATA: Read + Seek> {
     fs: &'a NtfsFs<DATA>,
     data: FileData,

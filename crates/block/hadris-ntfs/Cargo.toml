@@ -2,6 +2,7 @@
 name = "hadris-ntfs"
 version = "2.0.0-rc.4"
 description = "A library for reading NTFS filesystems"
+readme = "README.md"
 keywords = ["ntfs", "filesystem", "no-std"]
 categories = ["no-std", "filesystem"]
 edition.workspace = true

@@ -110,6 +110,10 @@ pub fn decode_record_size(
 /// Works for both `FILE` (MFT) and `INDX` (index allocation) records.
 /// The update sequence offset and size are read from bytes 4–7 of the
 /// record header, which is the same position in both record types.
+///
+/// @hadris-spec NTFS:Update-Sequence-Array
+/// @hadris-compliance full
+/// @hadris-tests compliance::fixups_restore_each_sector_trailer
 pub fn apply_fixups(record: &mut [u8], sector_size: usize) -> Result<()> {
     if record.len() < 8 || sector_size < 2 {
         return Err(NtfsError::InvalidFixup);
@@ -191,6 +195,11 @@ pub enum AttrBody<'a> {
 }
 
 /// Iterator over the attributes inside an MFT record buffer.
+///
+/// @hadris-spec NTFS:Attribute-Record
+/// @hadris-compliance partial
+/// @hadris-tests compliance::attributes_are_bounded_by_the_file_record_used_size
+/// @hadris-note Resident and non-resident headers are validated; attribute-list extension records are not resolved.
 pub struct AttrIter<'a> {
     data: &'a [u8],
     offset: usize,
@@ -350,6 +359,10 @@ pub struct DataRun {
 ///
 /// Each entry encodes a (length, LCN-delta) pair. The LCN deltas are
 /// cumulative — each is relative to the previous run's LCN.
+///
+/// @hadris-spec NTFS:Mapping-Pairs
+/// @hadris-compliance full
+/// @hadris-tests compliance::data_runs_decode_relative_and_sparse_extents
 pub struct DataRunDecoder<'a> {
     data: &'a [u8],
     offset: usize,
@@ -471,6 +484,11 @@ pub struct FileNameInfo {
 }
 
 /// Parse a `$FILE_NAME` attribute value (the bytes after the attribute header).
+///
+/// @hadris-spec NTFS:File-Name
+/// @hadris-compliance partial
+/// @hadris-tests compliance::filenames_decode_utf16_surrogate_pairs
+/// @hadris-note Parses references, sizes, flags, namespace, and full UTF-16 names; timestamps and reparse/EA data are not exposed.
 pub fn parse_file_name(data: &[u8]) -> Result<FileNameInfo> {
     if data.len() < 0x42 {
         return Err(NtfsError::InvalidFileName);
@@ -536,6 +554,11 @@ pub struct IndexEntryInfo {
 /// `data` is the full buffer (either INDEX_ROOT value or INDX record).
 /// `node_header_offset` is the byte offset of the index node header
 /// within `data` (0x10 for INDEX_ROOT values, 0x18 for INDX records).
+///
+/// @hadris-spec NTFS:Index-Entry
+/// @hadris-compliance partial
+/// @hadris-tests read::large_directory_uses_index_allocation
+/// @hadris-note Enumerates filename-index entries but does not expose child-node VCN pointers for keyed B-tree descent.
 pub fn parse_index_entries(data: &[u8], node_header_offset: usize) -> Result<Vec<IndexEntryInfo>> {
     if node_header_offset + 16 > data.len() {
         return Err(NtfsError::InvalidIndexEntry);

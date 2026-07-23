@@ -38,6 +38,18 @@
 //!
 //! When the `std` feature is enabled (default), the synchronous API types
 //! are re-exported at the crate root for convenience.
+//!
+//! ## Supported Scope
+//!
+//! The reader supports validated boot geometry, update-sequence-protected
+//! MFT/index records, resident and non-resident unnamed data, sparse runs,
+//! initialized-size zero filling, directory index allocation/bitmaps, NTFS
+//! filename namespaces, and `$UpCase` collation.
+//!
+//! It does not yet resolve `$ATTRIBUTE_LIST` extension records, recover from
+//! `$MFTMirr`, decode compressed or encrypted streams, expose named alternate
+//! data streams, or interpret reparse points. See the internal compliance
+//! matrix in `docs/spec-coverage.md`.
 
 #![no_std]
 #![allow(async_fn_in_trait)]

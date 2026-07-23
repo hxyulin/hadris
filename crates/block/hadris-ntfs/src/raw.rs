@@ -14,6 +14,11 @@ use hadris_common::types::{
 ///
 /// Layout follows the standard NTFS BPB at the start of the volume.
 /// The OEM ID must be `"NTFS    "` (space-padded to 8 bytes).
+///
+/// @hadris-spec NTFS:Boot-Sector
+/// @hadris-compliance partial
+/// @hadris-tests compliance::open_rejects_invalid_sector_size
+/// @hadris-note Core geometry and locations are validated; reserved fields, checksum, and backup-boot recovery are not.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct RawNtfsBootSector {

@@ -42,6 +42,11 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
     ///
     /// Reads the boot sector, locates `$MFT`, and caches its data runs so
     /// that any MFT record can subsequently be loaded on demand.
+    ///
+    /// @hadris-spec NTFS:Master-File-Table
+    /// @hadris-compliance partial
+    /// @hadris-tests read::open_blank_volume
+    /// @hadris-note Reads the base `$MFT` extent and validates file references; attribute-list extents and `$MFTMirr` recovery are not supported.
     pub async fn open(mut data: DATA) -> Result<Self> {
         let boot = data.read_struct::<RawNtfsBootSector>().await?;
 

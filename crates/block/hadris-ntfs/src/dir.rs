@@ -81,6 +81,11 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
     /// Reads the `$INDEX_ROOT` and, if present, all `$INDEX_ALLOCATION`
     /// records for the `$I30` filename index.  DOS-only names are
     /// automatically filtered out to avoid duplicates.
+    ///
+    /// @hadris-spec NTFS:Directory-Index
+    /// @hadris-compliance partial
+    /// @hadris-tests read::large_directory_uses_index_allocation
+    /// @hadris-note Honors `$BITMAP`, update sequences, namespaces, and `$UpCase`; attribute-list index extents are not resolved.
     pub async fn entries(&self) -> Result<Vec<NtfsEntry>> {
         let record = self
             .fs
