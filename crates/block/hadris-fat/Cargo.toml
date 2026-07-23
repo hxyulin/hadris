@@ -62,7 +62,7 @@ bytemuck = { workspace = true, features = [
   "min_const_generics",
 ] }
 chrono = { workspace = true, optional = true }
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0", optional = true }
 
 [build-dependencies]
 parse-size = "1.1"
