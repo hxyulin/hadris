@@ -52,10 +52,7 @@ impl NtfsTestImage {
             .ok()?;
 
         if !output.status.success() {
-            eprintln!(
-                "mkntfs failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+            eprintln!("mkntfs failed: {}", String::from_utf8_lossy(&output.stderr));
             return None;
         }
 
@@ -83,11 +80,14 @@ impl NtfsTestImage {
             return false;
         }
 
-        let ok = run_quiet("ntfscp", &[
-            self.image_path.to_str().unwrap(),
-            src.to_str().unwrap(),
-            name,
-        ]);
+        let ok = run_quiet(
+            "ntfscp",
+            &[
+                self.image_path.to_str().unwrap(),
+                src.to_str().unwrap(),
+                name,
+            ],
+        );
 
         // ntfscp may dirty the journal; clear it so subsequent calls succeed
         if ok {

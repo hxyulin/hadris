@@ -180,13 +180,13 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
     /// Paths can use forward or back slashes as separators.
     /// Leading separators are optional.
     pub async fn open_path(&self, path: &str) -> Result<super::dir::NtfsEntry> {
-        let path = path.trim_start_matches(|c| c == '/' || c == '\\');
+        let path = path.trim_start_matches(['/', '\\']);
         if path.is_empty() {
             return Err(NtfsError::InvalidPath);
         }
 
         let mut components = path
-            .split(|c| c == '/' || c == '\\')
+            .split(['/', '\\'])
             .filter(|s| !s.is_empty())
             .peekable();
 

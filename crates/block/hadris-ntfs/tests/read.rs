@@ -7,7 +7,9 @@
 use std::fs::File;
 
 use hadris_ntfs::sync::{NtfsFs, NtfsFsReadExt};
-use hadris_ntfs_tests::NtfsTestImage;
+
+mod common;
+use common::NtfsTestImage;
 
 macro_rules! require_image {
     ($label:expr) => {
@@ -36,7 +38,10 @@ fn volume_metadata() {
     let fs = NtfsFs::open(file).unwrap();
 
     assert!(fs.cluster_size() >= 512, "cluster size too small");
-    assert!(fs.cluster_size().is_power_of_two(), "cluster size not power-of-two");
+    assert!(
+        fs.cluster_size().is_power_of_two(),
+        "cluster size not power-of-two"
+    );
     assert_ne!(fs.volume_serial(), 0, "serial should be non-zero");
     assert!(fs.total_sectors() > 0);
     assert!(fs.mft_record_size() >= 512);
@@ -321,9 +326,18 @@ fn subdirectory_listing() {
     let sub_entries = subdir.entries().unwrap();
     let sub_names: Vec<&str> = sub_entries.iter().map(|e| e.name()).collect();
 
-    assert!(sub_names.contains(&"one.txt"), "missing one.txt: {sub_names:?}");
-    assert!(sub_names.contains(&"two.txt"), "missing two.txt: {sub_names:?}");
-    assert!(sub_names.contains(&"three.txt"), "missing three.txt: {sub_names:?}");
+    assert!(
+        sub_names.contains(&"one.txt"),
+        "missing one.txt: {sub_names:?}"
+    );
+    assert!(
+        sub_names.contains(&"two.txt"),
+        "missing two.txt: {sub_names:?}"
+    );
+    assert!(
+        sub_names.contains(&"three.txt"),
+        "missing three.txt: {sub_names:?}"
+    );
 
     // Read content through the subdirectory handle
     let mut reader = subdir.open_file("two.txt").unwrap();
@@ -338,7 +352,7 @@ fn nested_directories_and_open_path() {
     let mounted = img.with_mounted(|mnt| {
         std::fs::create_dir_all(mnt.join("a/b/c")).unwrap();
         std::fs::write(mnt.join("a/readme.md"), "# A").unwrap();
-        std::fs::write(mnt.join("a/b/data.bin"), &[0xCA, 0xFE]).unwrap();
+        std::fs::write(mnt.join("a/b/data.bin"), [0xCA, 0xFE]).unwrap();
         std::fs::write(mnt.join("a/b/c/deep.txt"), "deep content").unwrap();
     });
     if mounted.is_none() {
@@ -353,12 +367,20 @@ fn nested_directories_and_open_path() {
     let dir_a = fs.root_dir().open_dir("a").unwrap();
     let a_entries = dir_a.entries().unwrap();
     assert!(a_entries.iter().any(|e| e.name() == "readme.md"));
-    assert!(a_entries.iter().any(|e| e.name() == "b" && e.is_directory()));
+    assert!(
+        a_entries
+            .iter()
+            .any(|e| e.name() == "b" && e.is_directory())
+    );
 
     let dir_b = dir_a.open_dir("b").unwrap();
     let b_entries = dir_b.entries().unwrap();
     assert!(b_entries.iter().any(|e| e.name() == "data.bin"));
-    assert!(b_entries.iter().any(|e| e.name() == "c" && e.is_directory()));
+    assert!(
+        b_entries
+            .iter()
+            .any(|e| e.name() == "c" && e.is_directory())
+    );
 
     // Read file in nested dir
     let mut reader = dir_b.open_file("data.bin").unwrap();

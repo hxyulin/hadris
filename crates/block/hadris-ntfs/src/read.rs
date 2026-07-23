@@ -139,11 +139,16 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
 /// Extension trait for reading files through [`NtfsFs`].
 pub trait NtfsFsReadExt<DATA: Read + Seek> {
     /// Create a reader for a file described by an [`NtfsEntry`].
-    async fn read_file<'a>(&'a self, entry: &NtfsEntry) -> Result<FileReader<'a, DATA>>;
+    async fn read_file<'a>(&'a self, entry: &NtfsEntry) -> Result<FileReader<'a, DATA>>
+    where
+        DATA: 'a;
 }
 
 impl<DATA: Read + Seek> NtfsFsReadExt<DATA> for NtfsFs<DATA> {
-    async fn read_file<'a>(&'a self, entry: &NtfsEntry) -> Result<FileReader<'a, DATA>> {
+    async fn read_file<'a>(&'a self, entry: &NtfsEntry) -> Result<FileReader<'a, DATA>>
+    where
+        DATA: 'a,
+    {
         FileReader::open(self, entry).await
     }
 }

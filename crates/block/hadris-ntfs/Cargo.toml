@@ -32,3 +32,4 @@ ucs2 = "0.3"
 
 [dev-dependencies]
 static_assertions = { workspace = true }
+tempfile = { workspace = true }

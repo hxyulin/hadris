@@ -82,7 +82,10 @@ pub fn is_i30_name(name: Option<&[u8]>) -> bool {
 ///
 /// Positive (i8): value × cluster_size.
 /// Negative (i8): 2^|value| bytes.
-pub fn decode_record_size(value: u8, cluster_size: usize) -> core::result::Result<usize, NtfsError> {
+pub fn decode_record_size(
+    value: u8,
+    cluster_size: usize,
+) -> core::result::Result<usize, NtfsError> {
     let signed = value as i8;
     if signed > 0 {
         Ok(signed as usize * cluster_size)
@@ -205,6 +208,7 @@ impl<'a> AttrIter<'a> {
     }
 
     /// Advance to the next attribute. Returns `None` at the end marker.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<NtfsAttr<'a>> {
         loop {
             if self.offset + 8 > self.data.len() {

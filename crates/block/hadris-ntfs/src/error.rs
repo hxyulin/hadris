@@ -111,9 +111,9 @@ impl fmt::Display for NtfsError {
 #[cfg(feature = "std")]
 impl std::error::Error for NtfsError {}
 
-impl From<hadris_io::Error> for NtfsError {
-    fn from(e: hadris_io::Error) -> Self {
-        Self::Io(e)
+impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for NtfsError {
+    fn from(e: hadris_io::Error<E>) -> Self {
+        Self::Io(e.erase())
     }
 }
 

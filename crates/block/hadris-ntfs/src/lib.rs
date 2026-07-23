@@ -41,6 +41,7 @@
 
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(clippy::duplicate_mod)]
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -52,10 +53,10 @@ extern crate alloc;
 // Shared types (compiled once, not duplicated by sync/async modules)
 // ---------------------------------------------------------------------------
 
-pub mod error;
-pub mod raw;
 #[cfg(feature = "read")]
 pub mod attr;
+pub mod error;
+pub mod raw;
 
 // ---------------------------------------------------------------------------
 // Sync module
@@ -88,9 +89,9 @@ pub mod sync {
 
     #[path = "."]
     mod __inner {
-        pub mod io;
-        pub mod fs;
         pub mod dir;
+        pub mod fs;
+        pub mod io;
         pub mod read;
     }
     pub use __inner::*;
@@ -131,9 +132,9 @@ pub mod r#async {
 
     #[path = "."]
     mod __inner {
-        pub mod io;
-        pub mod fs;
         pub mod dir;
+        pub mod fs;
+        pub mod io;
         pub mod read;
     }
     pub use __inner::*;
