@@ -123,19 +123,24 @@ impl NtfsTestImage {
             return None;
         }
 
+        // ntfs-3g-mac can exit successfully even when macFUSE failed to
+        // perform the mount.  Do not let the closure populate the ordinary
+        // staging directory and mistake that for an NTFS fixture.
+        if !is_mount_point(&mount_dir) {
+            eprintln!(
+                "SKIP: ntfs-3g did not mount the image: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return None;
+        }
+
         let result = f(&mount_dir);
 
-        // Unmount (try fusermount3 first, fall back to fusermount)
-        let _ = Command::new("fusermount3")
-            .args(["-u"])
-            .arg(&mount_dir)
-            .status()
-            .or_else(|_| {
-                Command::new("fusermount")
-                    .args(["-u"])
-                    .arg(&mount_dir)
-                    .status()
-            });
+        // Linux typically provides fusermount; macOS uses umount.
+        if !unmount(&mount_dir) {
+            eprintln!("SKIP: failed to unmount {}", mount_dir.display());
+            return None;
+        }
 
         Some(result)
     }
@@ -167,4 +172,47 @@ fn run_quiet(program: &str, args: &[&str]) -> bool {
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|s| s.success())
+}
+
+#[cfg(unix)]
+fn is_mount_point(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(path_metadata) = path.metadata() else {
+        return false;
+    };
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    let Ok(parent_metadata) = parent.metadata() else {
+        return false;
+    };
+
+    path_metadata.dev() != parent_metadata.dev()
+}
+
+#[cfg(not(unix))]
+fn is_mount_point(_path: &Path) -> bool {
+    false
+}
+
+fn unmount(path: &Path) -> bool {
+    for (program, args) in [
+        ("fusermount3", &["-u"][..]),
+        ("fusermount", &["-u"][..]),
+        ("umount", &[][..]),
+    ] {
+        if Command::new(program)
+            .args(args)
+            .arg(path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+        {
+            return true;
+        }
+    }
+
+    false
 }
