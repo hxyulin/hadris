@@ -30,7 +30,7 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 endian-num = { version = "0.2", default-features = false, features = ["bytemuck"] }
 bitflags = "2.9.0"
 static_assertions = "1.1.0"
-criterion = "0.5.1"
+criterion = "0.8.2"
 thiserror = { version = "2.0.12", default-features = false }
 cfg-if = "1.0.0"
 embedded-io = { version = "0.7", default-features = false }
