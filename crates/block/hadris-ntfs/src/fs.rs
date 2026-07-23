@@ -10,7 +10,7 @@ use spin::Mutex;
 use hadris_common::types::endian::Endian;
 
 use crate::attr::{
-    self, apply_fixups, decode_record_size, AttrBody, AttrIter, DataRun, DataRunDecoder,
+    self, apply_fixups, decode_data_runs, decode_record_size, AttrBody, AttrIter, DataRun,
     ATTR_DATA, MFT_RECORD_ROOT_DIR,
 };
 use crate::error::{NtfsError, Result};
@@ -54,34 +54,60 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
             return Err(NtfsError::InvalidBootSignature { found: sig });
         }
 
-        let sector_size = boot.bytes_per_sector.get() as usize;
-        let sectors_per_cluster = boot.sectors_per_cluster as usize;
-        let cluster_size = sector_size * sectors_per_cluster;
+        let sector_size_raw = boot.bytes_per_sector.get();
+        if !(256..=4096).contains(&sector_size_raw) || !sector_size_raw.is_power_of_two() {
+            return Err(NtfsError::InvalidSectorSize {
+                found: sector_size_raw,
+            });
+        }
+        let sector_size = sector_size_raw as usize;
+
+        let sectors_per_cluster_raw = boot.sectors_per_cluster;
+        if sectors_per_cluster_raw == 0 || !sectors_per_cluster_raw.is_power_of_two() {
+            return Err(NtfsError::InvalidSectorsPerCluster {
+                found: sectors_per_cluster_raw,
+            });
+        }
+        let sectors_per_cluster = sectors_per_cluster_raw as usize;
+        let cluster_size = sector_size
+            .checked_mul(sectors_per_cluster)
+            .ok_or(NtfsError::InvalidVolumeGeometry)?;
         let mft_record_size = decode_record_size(boot.clusters_per_mft_record, cluster_size)?;
         let index_record_size = decode_record_size(boot.clusters_per_index_record, cluster_size)?;
+        if mft_record_size < 8 || index_record_size < 8 {
+            return Err(NtfsError::InvalidRecordSize);
+        }
+
+        let total_sectors = boot.total_sectors.get();
         let mft_lcn = boot.mft_lcn.get();
-        let mft_byte_offset = mft_lcn * cluster_size as u64;
+        let total_clusters = total_sectors / sectors_per_cluster as u64;
+        if total_clusters == 0 || mft_lcn >= total_clusters {
+            return Err(NtfsError::InvalidVolumeGeometry);
+        }
+        let mft_byte_offset = mft_lcn
+            .checked_mul(cluster_size as u64)
+            .ok_or(NtfsError::InvalidVolumeGeometry)?;
 
         // Read MFT record 0 ($MFT itself) directly from the known LCN.
         data.seek(SeekFrom::Start(mft_byte_offset)).await?;
         let mut record0 = vec![0u8; mft_record_size];
         data.read_exact(&mut record0).await?;
 
-        apply_fixups(&mut record0)?;
-
         if record0.len() < 4 || &record0[0..4] != b"FILE" {
             return Err(NtfsError::InvalidMftMagic);
         }
+        apply_fixups(&mut record0, sector_size)?;
 
         // Find the unnamed $DATA attribute in record 0.
-        let mut attrs = AttrIter::new(&record0)?;
+        let attrs = AttrIter::new(&record0)?;
         let mut mft_runs: Vec<DataRun> = Vec::new();
 
-        while let Some(a) = attrs.next() {
+        for a in attrs {
+            let a = a?;
             if a.attr_type == ATTR_DATA && a.name.is_none() {
                 match a.body {
                     AttrBody::NonResident { data_runs, .. } => {
-                        mft_runs = DataRunDecoder::new(data_runs).collect();
+                        mft_runs = decode_data_runs(data_runs)?;
                     }
                     AttrBody::Resident(_) => {
                         // $MFT is always non-resident on valid volumes.
@@ -106,7 +132,7 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
             index_record_size,
             mft_runs,
             volume_serial: boot.volume_serial.get(),
-            total_sectors: boot.total_sectors.get(),
+            total_sectors,
         })
     }
 
@@ -130,11 +156,10 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
             .await?;
         }
 
-        apply_fixups(&mut record)?;
-
         if record.len() < 4 || &record[0..4] != b"FILE" {
             return Err(NtfsError::InvalidMftMagic);
         }
+        apply_fixups(&mut record, self.sector_size)?;
 
         // Verify the record is in use
         if record.len() >= 0x18 {

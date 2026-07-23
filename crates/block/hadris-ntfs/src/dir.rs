@@ -7,8 +7,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::attr::{
-    apply_fixups, is_i30_name, parse_index_entries, AttrBody, AttrIter, DataRun,
-    DataRunDecoder, IndexEntryInfo, ATTR_INDEX_ALLOCATION, ATTR_INDEX_ROOT,
+    apply_fixups, decode_data_runs, is_i30_name, parse_index_entries, AttrBody, AttrIter,
+    DataRun, IndexEntryInfo, ATTR_INDEX_ALLOCATION, ATTR_INDEX_ROOT,
 };
 use crate::error::{NtfsError, Result};
 use super::fs::NtfsFs;
@@ -87,8 +87,9 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
         let mut alloc_info: Option<(Vec<DataRun>, u64)> = None;
         let mut index_record_size = self.fs.index_record_size;
 
-        let mut attrs = AttrIter::new(&record)?;
-        while let Some(a) = attrs.next() {
+        let attrs = AttrIter::new(&record)?;
+        for a in attrs {
+            let a = a?;
             match a.attr_type {
                 ATTR_INDEX_ROOT if is_i30_name(a.name) => {
                     if let AttrBody::Resident(value) = a.body {
@@ -114,7 +115,7 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
                         ..
                     } = a.body
                     {
-                        let runs: Vec<DataRun> = DataRunDecoder::new(data_runs).collect();
+                        let runs = decode_data_runs(data_runs)?;
                         alloc_info = Some((runs, allocated_size));
                     }
                 }
@@ -151,7 +152,7 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
                     continue;
                 }
 
-                if apply_fixups(&mut block).is_err() {
+                if apply_fixups(&mut block, self.fs.sector_size).is_err() {
                     continue;
                 }
 

@@ -5,7 +5,7 @@ io_transform! {
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::attr::{AttrBody, AttrIter, DataRun, DataRunDecoder, ATTR_DATA, ATTR_FLAG_COMPRESSED, ATTR_FLAG_ENCRYPTED};
+use crate::attr::{decode_data_runs, AttrBody, AttrIter, DataRun, ATTR_DATA, ATTR_FLAG_COMPRESSED, ATTR_FLAG_ENCRYPTED};
 use crate::error::{NtfsError, Result};
 use super::dir::NtfsEntry;
 use super::fs::NtfsFs;
@@ -43,9 +43,10 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     /// Open a file for reading given its MFT record number directly.
     pub(crate) async fn open_by_mft(fs: &'a NtfsFs<DATA>, mft_index: u64) -> Result<Self> {
         let record = fs.read_mft_record(mft_index).await?;
-        let mut attrs = AttrIter::new(&record)?;
+        let attrs = AttrIter::new(&record)?;
 
-        while let Some(a) = attrs.next() {
+        for a in attrs {
+            let a = a?;
             if a.attr_type != ATTR_DATA || a.name.is_some() {
                 continue;
             }
@@ -69,7 +70,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
                     data_size,
                     ..
                 } => {
-                    let runs: Vec<DataRun> = DataRunDecoder::new(data_runs).collect();
+                    let runs = decode_data_runs(data_runs)?;
                     Ok(Self {
                         fs,
                         data: FileData::NonResident { runs },

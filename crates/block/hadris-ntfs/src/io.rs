@@ -22,13 +22,23 @@ pub(crate) async fn read_data_runs<DATA: Read + Seek>(
     buf: &mut [u8],
     cluster_size: u64,
 ) -> Result<()> {
-    let end = offset + buf.len() as u64;
+    if cluster_size == 0 {
+        return Err(NtfsError::InvalidDataRun);
+    }
+    let end = offset
+        .checked_add(buf.len() as u64)
+        .ok_or(NtfsError::InvalidDataRun)?;
     let mut run_start: u64 = 0;
     let mut filled: usize = 0;
 
     for run in runs {
-        let run_bytes = run.length * cluster_size;
-        let run_end = run_start + run_bytes;
+        let run_bytes = run
+            .length
+            .checked_mul(cluster_size)
+            .ok_or(NtfsError::InvalidDataRun)?;
+        let run_end = run_start
+            .checked_add(run_bytes)
+            .ok_or(NtfsError::InvalidDataRun)?;
 
         if run_end <= offset {
             run_start = run_end;
@@ -49,7 +59,10 @@ pub(crate) async fn read_data_runs<DATA: Read + Seek>(
             }
         } else {
             let offset_in_run = read_start - run_start;
-            let disk_pos = run.lcn as u64 * cluster_size + offset_in_run;
+            let disk_pos = (run.lcn as u64)
+                .checked_mul(cluster_size)
+                .and_then(|start| start.checked_add(offset_in_run))
+                .ok_or(NtfsError::InvalidDataRun)?;
             data.seek(SeekFrom::Start(disk_pos)).await?;
             data.read_exact(&mut buf[filled..filled + bytes_to_read]).await?;
         }
@@ -72,7 +85,8 @@ pub(crate) async fn read_non_resident_data<DATA: Read + Seek>(
     data_size: u64,
     cluster_size: u64,
 ) -> Result<alloc::vec::Vec<u8>> {
-    let mut buf = vec![0u8; data_size as usize];
+    let data_size = usize::try_from(data_size).map_err(|_| NtfsError::InvalidAttribute)?;
+    let mut buf = vec![0u8; data_size];
     read_data_runs(data, runs, 0, &mut buf, cluster_size).await?;
     Ok(buf)
 }

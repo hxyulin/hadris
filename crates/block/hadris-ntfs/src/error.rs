@@ -12,6 +12,18 @@ pub enum NtfsError {
     },
     /// Invalid OEM ID in boot sector (expected "NTFS    ")
     InvalidOemId,
+    /// Invalid logical sector size in the boot sector
+    InvalidSectorSize {
+        /// Sector size that was found
+        found: u16,
+    },
+    /// Invalid sectors-per-cluster value in the boot sector
+    InvalidSectorsPerCluster {
+        /// Cluster factor that was found
+        found: u8,
+    },
+    /// Invalid volume extent or MFT location in the boot sector
+    InvalidVolumeGeometry,
     /// Invalid MFT record magic (expected "FILE")
     InvalidMftMagic,
     /// Invalid index record magic (expected "INDX")
@@ -39,6 +51,8 @@ pub enum NtfsError {
     },
     /// Malformed attribute header or value
     InvalidAttribute,
+    /// Malformed non-resident attribute data run
+    InvalidDataRun,
     /// Could not decode a UTF-16LE filename
     InvalidFileName,
     /// Malformed index entry
@@ -71,6 +85,13 @@ impl fmt::Display for NtfsError {
                 )
             }
             Self::InvalidOemId => write!(f, "invalid OEM ID (expected \"NTFS    \")"),
+            Self::InvalidSectorSize { found } => {
+                write!(f, "invalid NTFS sector size: {found}")
+            }
+            Self::InvalidSectorsPerCluster { found } => {
+                write!(f, "invalid NTFS sectors per cluster: {found}")
+            }
+            Self::InvalidVolumeGeometry => write!(f, "invalid NTFS volume geometry"),
             Self::InvalidMftMagic => write!(f, "invalid MFT record magic (expected \"FILE\")"),
             Self::InvalidIndexMagic => {
                 write!(f, "invalid index record magic (expected \"INDX\")")
@@ -90,6 +111,7 @@ impl fmt::Display for NtfsError {
                 write!(f, "attribute type {attr_type:#06x} not found")
             }
             Self::InvalidAttribute => write!(f, "malformed attribute header or value"),
+            Self::InvalidDataRun => write!(f, "malformed non-resident attribute data run"),
             Self::InvalidFileName => write!(f, "could not decode UTF-16LE filename"),
             Self::InvalidIndexEntry => write!(f, "malformed index entry"),
             Self::NotAFile => write!(f, "entry is not a file"),
