@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Changed
+
+- **Build / MSRV:** The workspace now uses Cargo resolver 3 so dependency
+  resolution prefers releases compatible with the declared Rust 1.88 MSRV.
+
 ## [2.0.0-rc.3] - 2026-07-22
 
 ### Added
