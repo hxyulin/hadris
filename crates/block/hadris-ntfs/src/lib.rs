@@ -21,9 +21,9 @@
 //!
 //! | Feature  | Default | Description |
 //! |----------|---------|-------------|
-//! | `std`    | Yes     | Standard library support (enables `alloc`, `sync`) |
-//! | `alloc`  | No      | Heap allocation without full std |
-//! | `sync`   | No      | Synchronous API via `hadris-io` sync traits |
+//! | `std`    | Yes     | Standard library support (enables `alloc`) |
+//! | `alloc`  | Yes     | Heap allocation without full std |
+//! | `sync`   | Yes     | Synchronous API via `hadris-io` sync traits |
 //! | `async`  | No      | Asynchronous API via `hadris-io` async traits |
 //! | `read`   | Yes     | Read operations (requires `alloc`) |
 //!
@@ -33,11 +33,12 @@
 //! a compile-time code transformation system. The same implementation
 //! source is compiled twice:
 //!
-//! - **`sync`** module: synchronous API (enabled by `sync` or `std` feature)
+//! - **`sync`** module: synchronous API (enabled by the `sync` feature)
 //! - **`async`** module: asynchronous API (enabled by `async` feature)
 //!
-//! When the `std` feature is enabled (default), the synchronous API types
-//! are re-exported at the crate root for convenience.
+//! With the default `sync` and `read` features, the synchronous API types are
+//! re-exported at the crate root for convenience. The `std` feature does not
+//! select an I/O mode.
 //!
 //! ## Supported Scope
 //!

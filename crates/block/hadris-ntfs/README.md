@@ -75,14 +75,15 @@ for entry in filesystem.root_dir().entries()? {
 | Feature | Default | Description |
 | --- | --- | --- |
 | `read` | Yes | Enables filesystem reading and requires `alloc`. |
-| `std` | Yes | Enables standard-library support, `alloc`, and `sync`. |
+| `std` | Yes | Enables standard-library support and `alloc`. |
 | `alloc` | Via `std`/`read` | Enables APIs that allocate. |
-| `sync` | Via `std` | Enables the synchronous API. |
+| `sync` | Yes | Enables the synchronous API. |
 | `async` | No | Enables the asynchronous API. |
 
-The default synchronous API is available under `hadris_ntfs::sync` and is also
-re-exported from the crate root. Enable `async` to use
-`hadris_ntfs::r#async`.
+`std` and the I/O mode are independent: disable default features to select
+`std` without `sync`, or to build an async-only reader. With default features,
+the synchronous API is available under `hadris_ntfs::sync` and is also
+re-exported from the crate root. Enable `async` to use `hadris_ntfs::r#async`.
 
 ## Development
 
