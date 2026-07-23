@@ -1,0 +1,28 @@
+[package]
+name = "hadris-apfs"
+version = "2.0.0-rc.4"
+description = "APFS container and filesystem reader for Hadris"
+readme = "README.md"
+keywords = ["apfs", "filesystem", "apple", "disk"]
+categories = ["filesystem", "no-std"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["std", "read", "sync", "tree"]
+std = ["alloc", "hadris-io/std", "hadris-storage/std"]
+alloc = []
+read = []
+write = ["alloc", "read"]
+sync = ["hadris-io/sync", "hadris-storage/sync"]
+async = ["hadris-io/async", "hadris-storage/async"]
+tree = ["read", "alloc"]
+
+[dependencies]
+hadris-io.workspace = true
+hadris-storage.workspace = true
+hadris-common.workspace = true
+bitflags.workspace = true
