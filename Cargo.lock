@@ -661,6 +661,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-ntfs"
+version = "2.0.0-rc.4"
+dependencies = [
+ "bitflags 2.13.0",
+ "bytemuck",
+ "hadris-common",
+ "hadris-io",
+ "hadris-macros",
+ "spin",
+ "static_assertions",
+ "tempfile",
+]
+
+[[package]]
 name = "hadris-optical"
 version = "2.0.0-rc.4"
 dependencies = [

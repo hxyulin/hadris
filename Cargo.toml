@@ -58,3 +58,4 @@ hadris-udf = { version = "2.0.0-rc.4", path = "crates/optical/hadris-udf", defau
 hadris-cd = { version = "2.0.0-rc.4", path = "crates/optical/hadris-cd", default-features = false }
 hadris-archive = { version = "2.0.0-rc.4", path = "crates/archive/hadris-archive", default-features = false }
 hadris-cpio = { version = "2.0.0-rc.4", path = "crates/archive/hadris-cpio", default-features = false }
+hadris-ntfs = { version = "2.0.0-rc.4", path = "crates/block/hadris-ntfs", default-features = false }

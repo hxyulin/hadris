@@ -16,6 +16,20 @@ Not a public marketing matrix.
 
 Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 
+## hadris-ntfs
+
+| Spec | Item | Compliance | Tests | Fuzz | Notes |
+|------|------|------------|-------|------|-------|
+| NTFS:Boot-Sector | `RawNtfsBootSector` | partial | `compliance::open_rejects_invalid_sector_size` | | Core geometry and locations validated; reserved fields, checksum, and backup-boot recovery are not |
+| NTFS:Update-Sequence-Array | `apply_fixups` | full | `compliance::fixups_restore_each_sector_trailer` | | FILE and INDX sector trailers validated and restored |
+| NTFS:Attribute-Record | `AttrIter` | partial | `compliance::attributes_are_bounded_by_the_file_record_used_size` | | Resident/non-resident records validated; `$ATTRIBUTE_LIST` extension records unresolved |
+| NTFS:Mapping-Pairs | `DataRunDecoder` | full | `compliance::data_runs_decode_relative_and_sparse_extents` | | Signed relative LCNs, sparse runs, termination, and malformed encodings covered |
+| NTFS:File-Name | `parse_file_name` | partial | `compliance::filenames_decode_utf16_surrogate_pairs` | | Core fields and full UTF-16 names parsed; timestamps and reparse/EA data not exposed |
+| NTFS:Index-Entry | `parse_index_entries` | partial | `read::large_directory_uses_index_allocation` | | Filename-index enumeration only; child VCNs are not exposed for keyed descent |
+| NTFS:Master-File-Table | `NtfsFs::open` | partial | `read::open_blank_volume` | | Base `$MFT` extent and sequence checks; no attribute-list extents or `$MFTMirr` recovery |
+| NTFS:Directory-Index | `NtfsDir::entries` | partial | `read::large_directory_uses_index_allocation` | | `$INDEX_ROOT`, active `$INDEX_ALLOCATION`, `$BITMAP`, namespaces, and `$UpCase`; no attribute-list extents |
+| NTFS:Data-Stream | `FileReader` | partial | `read::read_large_nonresident_file` | | Resident/non-resident/sparse/uninitialized unnamed data; no compression, encryption, named streams, or attribute-list extents |
+
 ## hadris-udf
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
