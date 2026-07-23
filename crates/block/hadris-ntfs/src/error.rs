@@ -44,6 +44,15 @@ pub enum NtfsError {
         /// The record index that was requested
         index: u64,
     },
+    /// A file reference points to a reused MFT record
+    StaleFileReference {
+        /// Referenced MFT record
+        index: u64,
+        /// Sequence number stored in the file reference
+        expected: u16,
+        /// Current sequence number in the MFT record
+        found: u16,
+    },
     /// Required attribute was not found in the MFT record
     AttributeNotFound {
         /// The attribute type that was expected
@@ -109,6 +118,14 @@ impl fmt::Display for NtfsError {
             Self::MftRecordOutOfBounds { index } => {
                 write!(f, "MFT record index {index} is out of bounds")
             }
+            Self::StaleFileReference {
+                index,
+                expected,
+                found,
+            } => write!(
+                f,
+                "stale reference to MFT record {index}: expected sequence {expected}, found {found}"
+            ),
             Self::AttributeNotFound { attr_type } => {
                 write!(f, "attribute type {attr_type:#06x} not found")
             }

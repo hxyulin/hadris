@@ -21,6 +21,7 @@ use super::read::FileReader;
 pub struct NtfsDir<'a, DATA: Read + Seek> {
     pub(crate) fs: &'a NtfsFs<DATA>,
     pub(crate) mft_index: u64,
+    pub(crate) mft_seq: u16,
 }
 
 /// A single entry from a directory listing.
@@ -81,7 +82,10 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
     /// records for the `$I30` filename index.  DOS-only names are
     /// automatically filtered out to avoid duplicates.
     pub async fn entries(&self) -> Result<Vec<NtfsEntry>> {
-        let record = self.fs.read_mft_record(self.mft_index).await?;
+        let record = self
+            .fs
+            .read_mft_record_ref(self.mft_index, self.mft_seq)
+            .await?;
 
         let mut entries = Vec::new();
         let mut alloc_info: Option<(Vec<DataRun>, u64)> = None;
@@ -220,6 +224,7 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
         Ok(NtfsDir {
             fs: self.fs,
             mft_index: entry.mft_index,
+            mft_seq: entry.mft_seq,
         })
     }
 

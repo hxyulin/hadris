@@ -170,7 +170,17 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
     /// The returned buffer has had fixups applied and is ready for
     /// attribute iteration via [`AttrIter`].
     pub async fn read_mft_record(&self, index: u64) -> Result<Vec<u8>> {
-        let byte_offset = index * self.mft_record_size as u64;
+        self.read_mft_record_ref(index, 0).await
+    }
+
+    pub(crate) async fn read_mft_record_ref(
+        &self,
+        index: u64,
+        expected_sequence: u16,
+    ) -> Result<Vec<u8>> {
+        let byte_offset = index
+            .checked_mul(self.mft_record_size as u64)
+            .ok_or(NtfsError::MftRecordOutOfBounds { index })?;
         let mut record = vec![0u8; self.mft_record_size];
 
         {
@@ -192,9 +202,17 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
 
         // Verify the record is in use
         if record.len() >= 0x18 {
+            let sequence = u16::from_le_bytes([record[0x10], record[0x11]]);
             let flags = u16::from_le_bytes([record[0x16], record[0x17]]);
             if flags & attr::MFT_RECORD_IN_USE == 0 {
                 return Err(NtfsError::MftRecordOutOfBounds { index });
+            }
+            if expected_sequence != 0 && sequence != expected_sequence {
+                return Err(NtfsError::StaleFileReference {
+                    index,
+                    expected: expected_sequence,
+                    found: sequence,
+                });
             }
         }
 
@@ -206,6 +224,7 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
         NtfsDir {
             fs: self,
             mft_index: MFT_RECORD_ROOT_DIR,
+            mft_seq: 0,
         }
     }
 

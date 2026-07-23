@@ -15,7 +15,10 @@ use super::io::{Read, Seek, read_data_runs};
 /// (resident) or spread across clusters (non-resident).
 enum FileData {
     Resident(Vec<u8>),
-    NonResident { runs: Vec<DataRun> },
+    NonResident {
+        runs: Vec<DataRun>,
+        initialized_size: u64,
+    },
 }
 
 /// A reader for file content on an NTFS volume.
@@ -37,12 +40,22 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
         if entry.is_directory() {
             return Err(NtfsError::NotAFile);
         }
-        Self::open_by_mft(fs, entry.mft_index()).await
+        Self::open_by_mft_ref(fs, entry.mft_index(), entry.mft_seq()).await
     }
 
     /// Open a file for reading given its MFT record number directly.
     pub(crate) async fn open_by_mft(fs: &'a NtfsFs<DATA>, mft_index: u64) -> Result<Self> {
-        let record = fs.read_mft_record(mft_index).await?;
+        Self::open_by_mft_ref(fs, mft_index, 0).await
+    }
+
+    async fn open_by_mft_ref(
+        fs: &'a NtfsFs<DATA>,
+        mft_index: u64,
+        expected_sequence: u16,
+    ) -> Result<Self> {
+        let record = fs
+            .read_mft_record_ref(mft_index, expected_sequence)
+            .await?;
         let attrs = AttrIter::new(&record)?;
 
         for a in attrs {
@@ -68,12 +81,19 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
                 AttrBody::NonResident {
                     data_runs,
                     data_size,
+                    initialized_size,
                     ..
                 } => {
+                    if initialized_size > data_size {
+                        return Err(NtfsError::InvalidAttribute);
+                    }
                     let runs = decode_data_runs(data_runs)?;
                     Ok(Self {
                         fs,
-                        data: FileData::NonResident { runs },
+                        data: FileData::NonResident {
+                            runs,
+                            initialized_size,
+                        },
                         data_size,
                         position: 0,
                     })
@@ -110,16 +130,24 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
                 let start = self.position as usize;
                 buf.copy_from_slice(&resident[start..start + to_read]);
             }
-            FileData::NonResident { runs } => {
-                let mut data = self.fs.data.lock();
-                read_data_runs(
-                    &mut *data,
-                    runs,
-                    self.position,
-                    buf,
-                    self.fs.cluster_size as u64,
-                )
-                .await?;
+            FileData::NonResident {
+                runs,
+                initialized_size,
+            } => {
+                let initialized_remaining = initialized_size.saturating_sub(self.position);
+                let stored_len = (to_read as u64).min(initialized_remaining) as usize;
+                if stored_len > 0 {
+                    let mut data = self.fs.data.lock();
+                    read_data_runs(
+                        &mut *data,
+                        runs,
+                        self.position,
+                        &mut buf[..stored_len],
+                        self.fs.cluster_size as u64,
+                    )
+                    .await?;
+                }
+                buf[stored_len..].fill(0);
             }
         }
 
@@ -129,7 +157,8 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
 
     /// Read the entire remaining file content into a `Vec<u8>`.
     pub async fn read_to_vec(&mut self) -> Result<Vec<u8>> {
-        let remaining = self.remaining() as usize;
+        let remaining =
+            usize::try_from(self.remaining()).map_err(|_| NtfsError::InvalidAttribute)?;
         let mut buf = vec![0u8; remaining];
         let n = self.read(&mut buf).await?;
         buf.truncate(n);
