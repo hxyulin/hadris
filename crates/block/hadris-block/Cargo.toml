@@ -6,6 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 description = "Rust block-storage facade for devices, sectors, partitions, and FAT filesystems"
 keywords = ["block-device", "storage", "partition", "filesystem", "no-std"]
 categories = ["no-std", "filesystem"]
