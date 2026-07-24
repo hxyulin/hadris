@@ -10,8 +10,8 @@
       "official_url": "https://ecma-international.org/wp-content/uploads/ECMA-119_2nd_edition_december_1987.pdf",
       "local_path": ".spec-cache/sources/ecma-119-1987.pdf",
       "redistribution": "ecma-permissive-with-notice",
-      "retrieved": null,
-      "sha256": null,
+      "retrieved": "2026-07-24",
+      "sha256": "a5b915d0f38f4564ac14efe90b187dd2a2a2c75f56063a7055ab6ff1ac99bbd7",
       "profiles": ["iso9660"]
     },
     {
@@ -23,8 +23,8 @@
       "official_url": "https://ecma-international.org/wp-content/uploads/ECMA-167_3rd_edition_june_1997.pdf",
       "local_path": ".spec-cache/sources/ecma-167-1997.pdf",
       "redistribution": "ecma-permissive-with-notice",
-      "retrieved": null,
-      "sha256": null,
+      "retrieved": "2026-07-24",
+      "sha256": "6efe0f591e21da2b17288076b2653dc616800bdc94f83e74acba9279c84c34b7",
       "profiles": ["udf"]
     },
     {
@@ -36,9 +36,22 @@
       "official_url": "https://ecma-international.org/wp-content/uploads/ECMA_TR-71_1st_edition_february_1998.pdf",
       "local_path": ".spec-cache/sources/ecma-tr-71-1998.pdf",
       "redistribution": "ecma-permissive-with-notice",
-      "retrieved": null,
-      "sha256": null,
+      "retrieved": "2026-07-24",
+      "sha256": "2faf3f70f25868b1bbe784dedd67c5fe1a6763c634eeb2c470c04dc45dca7f62",
       "profiles": ["udf-bridge"]
+    },
+    {
+      "id": "ECMA-TR-112-7-2023",
+      "title": "Universal Disk Format Specification - Part 7 (Revision 1.02)",
+      "issuer": "Ecma International",
+      "edition": "1st edition",
+      "published": "2023-12",
+      "official_url": "https://ecma-international.org/wp-content/uploads/ECMA_TR-112-7_1st_edition_december_2023.pdf",
+      "local_path": ".spec-cache/sources/ecma-tr-112-7-2023.pdf",
+      "redistribution": "ecma-permissive-with-notice",
+      "retrieved": "2026-07-24",
+      "sha256": "95a77cf9a4b457b7258cdb73b4bd5ff17931119db3701ee9f6bdcbb675d543f6",
+      "profiles": ["udf-1.02", "udf-bridge"]
     },
     {
       "id": "OSTA-UDF-1.02",
@@ -75,8 +88,8 @@
       "official_url": "https://download.microsoft.com/download/1/6/1/161ba512-40e2-4cc9-843a-923143f3456c/fatgen103.doc",
       "local_path": ".spec-cache/sources/fatgen103.doc",
       "redistribution": "restricted",
-      "retrieved": null,
-      "sha256": null,
+      "retrieved": "2026-07-24",
+      "sha256": "b17d66c796d9cd3070adf4ccbc00add5a8b6b6f5491fe8ea949df778fce60172",
       "profiles": ["fat12", "fat16", "fat32"]
     },
     {
@@ -88,8 +101,8 @@
       "official_url": "https://learn.microsoft.com/en-us/windows/win32/fileio/exfat-specification",
       "local_path": ".spec-cache/sources/exfat-specification.html",
       "redistribution": "cc-by-4.0-source",
-      "retrieved": null,
-      "sha256": null,
+      "retrieved": "2026-07-24",
+      "sha256": "48fddbfa8b7a8991ba3b36cb1f3a80143b35fbc9f5c8cb76f6c1d9f89664e234",
       "profiles": ["exfat"]
     },
     {
@@ -101,8 +114,8 @@
       "official_url": "https://docs.kernel.org/driver-api/early-userspace/buffer-format.html",
       "local_path": ".spec-cache/sources/linux-initramfs-newc.html",
       "redistribution": "linux-documentation-license",
-      "retrieved": null,
-      "sha256": null,
+      "retrieved": "2026-07-24",
+      "sha256": "0fecefe745e347067932b2798191a6be607f85bd1d03f4626e6c45323bedb87d",
       "profiles": ["cpio-newc"]
     },
     {
@@ -114,8 +127,8 @@
       "official_url": "https://www.gnu.org/software/cpio/manual/cpio.html",
       "local_path": ".spec-cache/sources/gnu-cpio.html",
       "redistribution": "gnu-documentation-license",
-      "retrieved": null,
-      "sha256": null,
+      "retrieved": "2026-07-24",
+      "sha256": "a6f86cb1fc79836e957cce748331d56555fed4e458f98a73f8c2d188216cda8f",
       "profiles": ["cpio-newc", "cpio-crc"]
     },
     {
@@ -127,8 +140,8 @@
       "official_url": "https://learn.microsoft.com/en-us/windows/win32/devnotes/master-file-table",
       "local_path": ".spec-cache/sources/microsoft-ntfs-mft.html",
       "redistribution": "microsoft-docs-cc-by-4.0",
-      "retrieved": null,
-      "sha256": null,
+      "retrieved": "2026-07-24",
+      "sha256": "dfd232671daaca21378a32adf9ac539f962a3a702600eb85ee70260a793b17ca",
       "profiles": ["ntfs-partial"]
     }
   ]
