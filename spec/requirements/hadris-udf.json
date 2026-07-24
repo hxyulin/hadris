@@ -130,10 +130,10 @@
       "normativity": "shall",
       "summary": "Anchor descriptors are recorded at exactly two of sector 256, sector N minus 256, and sector N.",
       "direction": "write",
-      "status": "not_implemented",
+      "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "Formatter::format"}],
       "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "test_format_empty_filesystem", "kind": "unit"}],
-      "gap": "The formatter deliberately writes all three candidate anchors."
+      "gap": null
     },
     {
       "id": "ECMA-TR-112-7-2023:2.2.3.1#vds-minimum-length",
@@ -142,10 +142,10 @@
       "normativity": "shall",
       "summary": "Main and reserve Volume Descriptor Sequence extents are each at least sixteen logical sectors.",
       "direction": "write",
-      "status": "not_implemented",
+      "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "Formatter::format"}],
-      "tests": [],
-      "gap": "The formatter records each descriptor sequence extent as six 2048-byte sectors."
+      "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "test_format_empty_filesystem", "kind": "unit"}],
+      "gap": null
     },
     {
       "id": "ECMA-TR-112-7-2023:2.2.4.3#domain-identifier",

@@ -10,9 +10,8 @@ edition while UDF 1.02 was originally based on an earlier edition. Only stable
 base structures are attributed to ECMA-167:1997; UDF-profile restrictions are
 attributed directly to the current ECMA technical report.
 
-The extraction found two concrete writer nonconformances: it records all three
-candidate anchor locations although UDF 1.02 requires exactly two, and it
-declares six-sector main/reserve descriptor extents although each must occupy
-at least sixteen sectors. Reader coverage is also partial for prevailing
-descriptor selection, allocation-extent chaining, and several mandatory
-descriptor families.
+The writer records exactly two permitted anchor locations and declares
+sixteen-sector main and reserve descriptor-sequence extents. Raw-image
+regressions cover both requirements. Reader coverage remains partial for
+prevailing descriptor selection, allocation-extent chaining, and several
+mandatory descriptor families.

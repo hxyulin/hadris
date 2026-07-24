@@ -334,14 +334,18 @@ impl<W: Write + Seek> UdfFormatter<W> {
         // UDF disk layout:
         // Sector 16-18:  VRS (BEA01, NSR02, TEA01)
         // Sector 256:    AVDP
-        // Sector 257-262: Main VDS (PVD, IUVD, PD, LVD, USD, Term)
-        // Sector 263-268: Reserve VDS
-        // Sector 269:    LVID
-        // Sector 270+:   Partition starts here
+        // Sector 257-272: Main VDS (six descriptors plus reserved extent)
+        // Sector 273-288: Reserve VDS
+        // Sector 289:     LVID
+        // Sector 290+:    Partition starts here
         //   Block 0:     FSD
         //   Block 1+:    Root dir File Entry, FIDs, subdirs, file data
 
-        let partition_start = 270u32;
+        let vds_start = 257u32;
+        let vds_length = 16u32;
+        let reserve_vds_start = vds_start + vds_length;
+        let lvid_location = reserve_vds_start + vds_length;
+        let partition_start = lvid_location + 1;
 
         // Phase 2: Allocate all structures within the partition
         let fsd_block = self.allocate_block(); // 0
@@ -360,11 +364,6 @@ impl<W: Write + Seek> UdfFormatter<W> {
         self.write_vrs()?;
 
         // Write AVDP
-        let vds_start = 257u32;
-        let vds_length = 6u32;
-        let reserve_vds_start = 263u32;
-        let lvid_location = reserve_vds_start + vds_length; // 269
-
         let main_vds = ExtentDescriptor {
             length: vds_length * SECTOR_SIZE as u32,
             location: vds_start,
@@ -426,7 +425,8 @@ impl<W: Write + Seek> UdfFormatter<W> {
         // overlap partition space.
         let sector_count = partition_start + partition_length + 257;
         let last_sector = sector_count - 1;
-        self.write_avdp_at(last_sector, main_vds, reserve_vds)?;
+        // UDF 1.02 records exactly two of the three candidate anchors. Use
+        // sector 256 and N-256, leaving sector N free of an anchor.
         if last_sector > 256 {
             self.write_avdp_at(last_sector - 256, main_vds, reserve_vds)?;
         }
@@ -2135,7 +2135,8 @@ mod tests {
             sectors > 270,
             "Should have written at least partition start sectors"
         );
-        for location in [256, sectors - 257, sectors - 1] {
+        let anchor_locations = [256, sectors - 257];
+        for location in anchor_locations {
             let offset = location as usize * SECTOR_SIZE;
             assert_eq!(
                 u16::from_le_bytes([buffer[offset], buffer[offset + 1]]),
@@ -2143,6 +2144,29 @@ mod tests {
                 "missing anchor at sector {location}"
             );
         }
+
+        let last_sector = sectors - 1;
+        let last_offset = last_sector as usize * SECTOR_SIZE;
+        assert_ne!(
+            u16::from_le_bytes([buffer[last_offset], buffer[last_offset + 1]]),
+            TagIdentifier::AnchorVolumeDescriptorPointer.to_u16(),
+            "UDF 1.02 records exactly two of the three candidate anchors"
+        );
+
+        let avdp_offset = 256 * SECTOR_SIZE;
+        let main_length =
+            u32::from_le_bytes(buffer[avdp_offset + 16..avdp_offset + 20].try_into().unwrap());
+        let main_location =
+            u32::from_le_bytes(buffer[avdp_offset + 20..avdp_offset + 24].try_into().unwrap());
+        let reserve_length =
+            u32::from_le_bytes(buffer[avdp_offset + 24..avdp_offset + 28].try_into().unwrap());
+        let reserve_location =
+            u32::from_le_bytes(buffer[avdp_offset + 28..avdp_offset + 32].try_into().unwrap());
+
+        assert_eq!(main_length, 16 * SECTOR_SIZE as u32);
+        assert_eq!(reserve_length, 16 * SECTOR_SIZE as u32);
+        assert_eq!(main_location, 257);
+        assert_eq!(reserve_location, main_location + 16);
     }
 
     #[test]
