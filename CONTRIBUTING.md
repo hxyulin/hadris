@@ -67,7 +67,7 @@ When changing on-disk layouts or public parse/format entry points for a
 standard section, follow the annotation convention and sync the coverage table
 in [`docs/spec-coverage.md`](docs/spec-coverage.md#annotation-convention).
 
-- `full` needs `@hadris-tests` and/or `@hadris-fuzz`.
+- `full` needs `@hadris-tests`; `@hadris-fuzz` is optional additional coverage.
 - `partial` needs `@hadris-note` describing the gap.
 - Fuzz targets are local discovery tools, not CI gates.
 
