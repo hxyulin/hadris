@@ -7,6 +7,7 @@ title: Choosing a crate
 | Need | Start with |
 |---|---|
 | FAT12/16/32 filesystem access | `hadris-fat` |
+| Experimental read-only NTFS access | `hadris-ntfs` |
 | MBR or GPT partition tables | `hadris-part` |
 | Block-format detection and partition views | `hadris-block` |
 | ISO 9660 images | `hadris-iso` |
@@ -19,6 +20,9 @@ title: Choosing a crate
 Leaf crates expose the complete format-specific API. Category facades add
 detection and opening without hiding the concrete types. The `hadris` umbrella
 re-exports those facades for applications spanning several storage categories.
+
+`hadris-ntfs` is currently an experimental leaf crate. It is intentionally not
+opened by `hadris-block` or re-exported by the `hadris` umbrella crate.
 
 Shared building blocks are also published independently:
 `hadris-io`, `hadris-storage`, `hadris-path`, `hadris-fixed`, and

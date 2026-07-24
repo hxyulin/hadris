@@ -8,6 +8,14 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-ntfs:** Added an experimental, read-only NTFS leaf crate with
+  validated boot geometry, MFT and directory traversal, resident/non-resident
+  file reading, sparse runs, Unicode names, and sync/async `no_std` support.
+- **Facade crates:** Added package READMEs for `hadris-archive`,
+  `hadris-block`, and `hadris-optical`.
+
 ### Changed
 
 - **Build / MSRV:** The workspace now uses Cargo resolver 3 so dependency
@@ -17,6 +25,10 @@ Each published package owns its version and may be released independently.
   annotation rules in `docs/spec-coverage.md`.
 - **hadris-fat:** Expanded cache documentation with the builder, transparent
   routing, explicit flush, capacity, and sync-only behavior.
+- **Specification compliance:** Full claims now require runnable test evidence;
+  CI checks evidence existence and bidirectional coverage-table parity.
+- **hadris-ntfs:** Public API documentation is now enforced with
+  `deny(missing_docs)`.
 
 ## [2.0.0-rc.3] - 2026-07-22
 
