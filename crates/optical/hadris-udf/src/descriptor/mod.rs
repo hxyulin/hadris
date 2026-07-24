@@ -23,7 +23,7 @@ use crate::error::{Error, Result};
 /// Extent descriptor (ECMA-167 3/7.1)
 ///
 /// @hadris-spec ECMA-167:3/7.1
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests comprehensive_udf::test_extent_descriptor
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -53,7 +53,7 @@ impl ExtentDescriptor {
 /// Used to reference data that may span multiple partitions
 ///
 /// @hadris-spec ECMA-167:4/14.14.2
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests comprehensive_udf::test_allocation_descriptor_sizes
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -107,7 +107,7 @@ impl LongAllocationDescriptor {
 /// Short allocation descriptor (ECMA-167 4/14.14.1)
 ///
 /// @hadris-spec ECMA-167:4/14.14.1
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests comprehensive_udf::test_allocation_descriptor_sizes
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -176,7 +176,7 @@ pub struct LbAddr {
 /// Entity identifier (ECMA-167 1/7.4)
 ///
 /// @hadris-spec ECMA-167:1/7.4
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests comprehensive_udf::test_partition_contents
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -224,7 +224,7 @@ unsafe impl bytemuck::Pod for EntityIdentifier {}
 /// Character set specification (ECMA-167 1/7.2.1)
 ///
 /// @hadris-spec ECMA-167:1/7.2.1
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests write::cs0_tests::selects_eight_bit_for_latin1, write::cs0_tests::selects_sixteen_bit_for_wide_unicode
 /// @hadris-fuzz udf_read
 #[repr(C)]

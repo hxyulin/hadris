@@ -7,7 +7,7 @@ use crate::time::UdfTimestamp;
 /// Primary Volume Descriptor (ECMA-167 3/10.1)
 ///
 /// @hadris-spec ECMA-167:3/10.1
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests write::tests::test_roundtrip_basic_verification
 /// @hadris-fuzz udf_read
 #[repr(C)]
