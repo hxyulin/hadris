@@ -338,6 +338,30 @@ mod volume_descriptor_tests {
     }
 
     #[test]
+    fn primary_volume_descriptor_is_required() {
+        let mut iso = create_minimal_iso("TEST");
+        let terminator = create_terminator();
+        iso[16 * 2048..17 * 2048].copy_from_slice(&terminator);
+
+        assert!(
+            IsoImage::open(Cursor::new(iso)).is_err(),
+            "a descriptor sequence without a primary descriptor must be rejected"
+        );
+    }
+
+    #[test]
+    fn pvd_rejects_inconsistent_redundant_endian_fields() {
+        let mut iso = create_minimal_iso("TEST");
+        let pvd_offset = 16 * 2048;
+        iso[pvd_offset + 84..pvd_offset + 88].copy_from_slice(&23_u32.to_be_bytes());
+
+        assert!(
+            IsoImage::open(Cursor::new(iso)).is_err(),
+            "the two volume-space-size representations must agree"
+        );
+    }
+
+    #[test]
     fn test_multiple_pvds() {
         // ISO allows multiple PVDs (for different versions)
         let mut iso = create_minimal_iso("PRIMARY");

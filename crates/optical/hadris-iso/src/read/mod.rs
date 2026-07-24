@@ -211,6 +211,24 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                 "volume descriptor sequence has no primary descriptor",
             )
         })?;
+        if !pvd.volume_space_size.is_consistent()
+            || !pvd.volume_set_size.is_consistent()
+            || !pvd.volume_sequence_number.is_consistent()
+            || !pvd.logical_block_size.is_consistent()
+            || !pvd.path_table_size.is_consistent()
+            || !pvd.dir_record.header.extent.is_consistent()
+            || !pvd.dir_record.header.data_len.is_consistent()
+            || !pvd
+                .dir_record
+                .header
+                .volume_sequence_number
+                .is_consistent()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "primary volume descriptor has inconsistent redundant endian fields",
+            ));
+        }
         let block_size = pvd.logical_block_size.read() as usize;
         // IsoImage's extent→byte math assumes a 2048-byte logical block. Rather
         // than silently misread an image that declares a different block size,
