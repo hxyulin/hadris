@@ -12,62 +12,89 @@ use crate::error::{NtfsError, Result};
 // Well-known attribute type codes
 // ---------------------------------------------------------------------------
 
+/// `$STANDARD_INFORMATION` attribute type code.
 pub const ATTR_STANDARD_INFORMATION: u32 = 0x10;
+/// `$ATTRIBUTE_LIST` attribute type code.
 pub const ATTR_ATTRIBUTE_LIST: u32 = 0x20;
+/// `$FILE_NAME` attribute type code.
 pub const ATTR_FILE_NAME: u32 = 0x30;
+/// `$OBJECT_ID` attribute type code.
 pub const ATTR_OBJECT_ID: u32 = 0x40;
+/// `$SECURITY_DESCRIPTOR` attribute type code.
 pub const ATTR_SECURITY_DESCRIPTOR: u32 = 0x50;
+/// `$VOLUME_NAME` attribute type code.
 pub const ATTR_VOLUME_NAME: u32 = 0x60;
+/// `$VOLUME_INFORMATION` attribute type code.
 pub const ATTR_VOLUME_INFORMATION: u32 = 0x70;
+/// `$DATA` attribute type code.
 pub const ATTR_DATA: u32 = 0x80;
+/// `$INDEX_ROOT` attribute type code.
 pub const ATTR_INDEX_ROOT: u32 = 0x90;
+/// `$INDEX_ALLOCATION` attribute type code.
 pub const ATTR_INDEX_ALLOCATION: u32 = 0xA0;
+/// `$BITMAP` attribute type code.
 pub const ATTR_BITMAP: u32 = 0xB0;
+/// End marker for an MFT record's attribute list.
 pub const ATTR_END: u32 = 0xFFFF_FFFF;
 
 // ---------------------------------------------------------------------------
 // MFT record flags (at header offset 0x16)
 // ---------------------------------------------------------------------------
 
+/// MFT record flag indicating that the record is in use.
 pub const MFT_RECORD_IN_USE: u16 = 0x0001;
+/// MFT record flag indicating that the record describes a directory.
 pub const MFT_RECORD_IS_DIRECTORY: u16 = 0x0002;
 
 // ---------------------------------------------------------------------------
 // Index entry flags
 // ---------------------------------------------------------------------------
 
+/// Index-entry flag indicating that a child-node VCN follows the entry.
 pub const INDEX_ENTRY_SUBNODE: u32 = 0x0001;
+/// Index-entry flag marking the final entry in an index node.
 pub const INDEX_ENTRY_LAST: u32 = 0x0002;
 
 // ---------------------------------------------------------------------------
 // File name namespace values ($FILE_NAME offset 0x41)
 // ---------------------------------------------------------------------------
 
+/// POSIX `$FILE_NAME` namespace value.
 pub const FILE_NAME_POSIX: u8 = 0;
+/// Win32 `$FILE_NAME` namespace value.
 pub const FILE_NAME_WIN32: u8 = 1;
+/// DOS 8.3 `$FILE_NAME` namespace value.
 pub const FILE_NAME_DOS: u8 = 2;
+/// Combined Win32 and DOS `$FILE_NAME` namespace value.
 pub const FILE_NAME_WIN32_AND_DOS: u8 = 3;
 
 // ---------------------------------------------------------------------------
 // Well-known MFT record numbers
 // ---------------------------------------------------------------------------
 
+/// MFT record number of the `$MFT` metadata file.
 pub const MFT_RECORD_MFT: u64 = 0;
+/// MFT record number of the root directory.
 pub const MFT_RECORD_ROOT_DIR: u64 = 5;
+/// MFT record number of the `$UpCase` metadata file.
 pub const MFT_RECORD_UPCASE: u64 = 10;
 
 // ---------------------------------------------------------------------------
 // Attribute flags
 // ---------------------------------------------------------------------------
 
+/// Attribute flag indicating compressed storage.
 pub const ATTR_FLAG_COMPRESSED: u16 = 0x0001;
+/// Attribute flag indicating encrypted storage.
 pub const ATTR_FLAG_ENCRYPTED: u16 = 0x4000;
+/// Attribute flag indicating sparse storage.
 pub const ATTR_FLAG_SPARSE: u16 = 0x8000;
 
 // ---------------------------------------------------------------------------
 // $I30 index name (UTF-16LE for "$I30")
 // ---------------------------------------------------------------------------
 
+/// UTF-16LE encoding of the `$I30` directory-index name.
 pub const I30_NAME: &[u8] = &[0x24, 0x00, 0x49, 0x00, 0x33, 0x00, 0x30, 0x00];
 
 /// Check whether an attribute name matches the `$I30` directory index.
@@ -170,10 +197,13 @@ pub fn apply_fixups(record: &mut [u8], sector_size: usize) -> Result<()> {
 /// A parsed NTFS attribute (zero-copy over the record buffer).
 #[derive(Debug)]
 pub struct NtfsAttr<'a> {
+    /// On-disk attribute type code.
     pub attr_type: u32,
+    /// Attribute flags, including compression, encryption, and sparse storage.
     pub flags: u16,
     /// Raw UTF-16LE name bytes, if the attribute is named.
     pub name: Option<&'a [u8]>,
+    /// Resident or non-resident attribute payload.
     pub body: AttrBody<'a>,
 }
 
@@ -184,12 +214,17 @@ pub enum AttrBody<'a> {
     Resident(&'a [u8]),
     /// Non-resident: data is stored in clusters described by data runs.
     NonResident {
+        /// First virtual cluster number covered by this attribute extent.
         start_vcn: u64,
+        /// Last virtual cluster number covered by this attribute extent.
         last_vcn: u64,
         /// Raw data-run bytes (decode with [`DataRunDecoder`]).
         data_runs: &'a [u8],
+        /// Logical length of the attribute data.
         data_size: u64,
+        /// Number of bytes allocated on disk.
         allocated_size: u64,
+        /// Number of initialized bytes; the remaining logical bytes read as zero.
         initialized_size: u64,
     },
 }
@@ -371,6 +406,7 @@ pub struct DataRunDecoder<'a> {
 }
 
 impl<'a> DataRunDecoder<'a> {
+    /// Create a decoder over an NTFS mapping-pairs byte sequence.
     pub fn new(data: &'a [u8]) -> Self {
         Self {
             data,

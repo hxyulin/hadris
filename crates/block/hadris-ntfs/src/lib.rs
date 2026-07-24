@@ -55,6 +55,7 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
 #![allow(clippy::duplicate_mod)]
+#![deny(missing_docs)]
 
 #[cfg(feature = "std")]
 extern crate std;
