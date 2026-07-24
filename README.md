@@ -194,9 +194,7 @@ cargo build -p hadris-fat --no-default-features --features "read,sync"
 ```
 
 See [CLAUDE.md](CLAUDE.md) for detailed build instructions and architecture notes, and [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow.
-Users upgrading from Hadris 1.x should read the
-[2.0 migration guide](docs/hadris-1-to-2-migration.md). Prerelease testers
-should also review the
+Prerelease testers should review the
 [`2.0.0-rc.4` release notes](docs/hadris-2.0.0-rc.4-release-notes.md).
 The Docusaurus source for the task-oriented documentation site lives in
 [`website/`](website/); it includes getting-started, crate-selection, and

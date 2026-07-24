@@ -917,7 +917,7 @@ sync_only! {
         /// and the data mutex for the duration of the closure and returns
         /// `Some(value)` where `value` is the closure's return.
         ///
-        /// As of phase C5, `FatVolume`'s built-in methods consult the cache
+        /// `FatVolume`'s built-in methods consult the cache
         /// automatically; this helper remains useful for bulk FAT walks
         /// (free-cluster scans, multi-chain traversal) where holding the
         /// cache+disk locks across many entries is cheaper than re-acquiring
@@ -1047,7 +1047,7 @@ async_only! {
     where
         DATA: Read + Seek,
     {
-        /// Async pass-through: cache routing is sync-only (deferred to phase C5b).
+        /// Async pass-through: cache routing is sync-only.
         pub(crate) async fn next_cluster_routed(&self, cluster: usize) -> Result<Option<u32>> {
             use core::ops::DerefMut;
             let mut data = self.data.lock();
@@ -1182,7 +1182,7 @@ async_only! {
     where
         DATA: Read + super::io::Write + Seek,
     {
-        /// Async pass-through; cache routing is sync-only (deferred to phase C5b).
+        /// Async pass-through; cache routing is sync-only.
         pub(crate) async fn write_clus_routed(&self, cluster: usize, value: u32) -> Result<()> {
             use core::ops::DerefMut;
             let mut data = self.data.lock();

@@ -29,7 +29,7 @@ lfn = []
 # FAT sector caching for reduced I/O operations.
 # Implies `sync` because `cache.rs` uses sync I/O traits and the transparent
 # wiring on `FatVolume` (`lock_for_fat`, etc.) is only generated in sync mode;
-# async builds skip the cache entirely (deferred to phase C5b).
+# async operations access the FAT directly.
 cache = ["alloc", "sync"]
 # Analysis and diagnostic APIs.
 # Implies `sync`: the analysis/verify code walks directories with the

@@ -183,11 +183,55 @@ When the `lfn` feature is enabled, the crate supports VFAT long filenames:
 
 ## FAT Caching
 
-The `cache` feature enables LRU FAT sector caching (sync API only; silently bypassed under async):
+The `cache` feature enables a write-back LRU cache for FAT-table sectors in the
+synchronous API:
 
 - Reduces redundant disk reads
 - Configurable capacity via `FatVolume::builder(data).fat_cache(n).open()`
-- Dirty entries flush to all FAT copies on eviction
+- Normal filesystem reads and writes use an installed cache transparently
+- Dirty entries flush to all FAT copies on eviction or an explicit
+  `FatVolume::flush()`
+
+Enable the cache alongside the synchronous API and the capabilities your
+application needs:
+
+```toml
+[dependencies]
+hadris-fat = { version = "2.0.0-rc.4", default-features = false, features = ["read", "write", "alloc", "lfn", "sync", "cache"] }
+```
+
+Install it while opening the volume:
+
+```rust,no_run
+use hadris_fat::FatVolume;
+use std::fs::OpenOptions;
+
+# fn main() -> hadris_fat::Result<()> {
+let disk = OpenOptions::new()
+    .read(true)
+    .write(true)
+    .open("disk.img")?;
+let fs = FatVolume::builder(disk)
+    .fat_cache(16) // Capacity is measured in FAT sectors.
+    .open()?;
+
+// Existing FatVolume operations now route FAT-table access through the cache.
+let root = fs.root_dir();
+let mut entries = root.entries();
+while let Some(entry) = entries.next_entry() {
+    println!("{}", entry?.name());
+}
+
+// Required after cached writes to guarantee all dirty sectors reach every
+// on-disk FAT copy before the volume is dropped.
+fs.flush()?;
+# Ok(())
+# }
+```
+
+A capacity of zero disables caching. Read-only users do not need `flush`; a
+writable cached volume should call it before teardown. The cache is sync-only:
+async `FatVolume` operations continue to access the FAT directly.
 
 ## Analysis Tools
 

@@ -31,8 +31,8 @@
 //! # }
 //! ```
 //!
-//! As of phase C5 the built-in `FatVolume` operations (`read_file`,
-//! `create_file`, `delete`, `truncate`, etc.) consult the cache
+//! Built-in `FatVolume` operations (`read_file`, `create_file`, `delete`,
+//! `truncate`, etc.) consult the cache
 //! transparently — internal FAT-table reads go through
 //! `next_cluster_routed` and writes go through `write_clus_routed` /
 //! `allocate_cluster_routed` / `free_chain_routed` /
@@ -42,10 +42,8 @@
 //! many entries is cheaper than re-acquiring them per call.
 //!
 //! Caching is a **synchronous-only** feature: the `cache` Cargo feature
-//! implies `sync`, and the FatVolume cache wiring is emitted only in the sync
-//! slice. Async builds compile with the same on-disk surface but fall
-//! through to direct `Fat::*` reads/writes (deferred to phase C5b — see
-//! issue #27).
+//! implies `sync`, and the `FatVolume` cache wiring is emitted only in the
+//! sync slice. Async operations access the FAT directly.
 //!
 //! # Semantics
 //!

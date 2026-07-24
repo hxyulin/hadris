@@ -24,11 +24,6 @@ module.exports = {
         "creation/udf",
       ],
     },
-    {
-      type: "category",
-      label: "Migration",
-      items: ["migration/v1-to-v2"],
-    },
     "release-candidate",
     "contributing",
   ],

@@ -64,9 +64,8 @@ must be available before packaging the next layer.
 ## Spec annotations
 
 When changing on-disk layouts or public parse/format entry points for a
-standard section, add or update `@hadris-spec` tags (see
-[`docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md`](docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md))
-and sync [`docs/spec-coverage.md`](docs/spec-coverage.md).
+standard section, follow the annotation convention and sync the coverage table
+in [`docs/spec-coverage.md`](docs/spec-coverage.md#annotation-convention).
 
 - `full` needs `@hadris-tests` and/or `@hadris-fuzz`.
 - `partial` needs `@hadris-note` describing the gap.
