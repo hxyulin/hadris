@@ -57,9 +57,11 @@ pub struct RawNtfsBootSector {
     /// If positive (as i8): size in clusters.
     /// If negative: size = 2^|value| bytes (e.g. -10 → 1024).
     pub clusters_per_mft_record: u8,
+    /// Reserved bytes following the MFT record-size encoding.
     pub _unused1: [u8; 3],
     /// Encoded index record size (same encoding as MFT record size).
     pub clusters_per_index_record: u8,
+    /// Reserved bytes following the index record-size encoding.
     pub _unused2: [u8; 3],
     /// Volume serial number
     pub volume_serial: U64<LittleEndian>,
