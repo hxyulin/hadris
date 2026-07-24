@@ -102,11 +102,11 @@ impl FileIdentifierDescriptor {
 
         // Parse fields manually due to alignment differences between
         // on-disk format (38 bytes packed) and Rust struct (40 bytes aligned)
-        let tag: DescriptorTag = *bytemuck::from_bytes(&data[0..16]);
+        let tag = DescriptorTag::from_disk_bytes(&data[0..16])?;
         let file_version_number = u16::from_le_bytes([data[16], data[17]]);
         let file_characteristics = data[18];
         let file_identifier_length = data[19];
-        let icb: LongAllocationDescriptor = *bytemuck::from_bytes(&data[20..36]);
+        let icb = (*bytemuck::from_bytes::<LongAllocationDescriptor>(&data[20..36])).from_disk();
         let implementation_use_length = u16::from_le_bytes([data[36], data[37]]);
 
         let fid = Self {

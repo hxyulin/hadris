@@ -110,22 +110,59 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
             data.seek(SeekFrom::Start(sector * SECTOR_SIZE as u64)).await?;
             data.read_exact(&mut buffer).await?;
 
-            let tag: &DescriptorTag = bytemuck::try_from_bytes(&buffer[..size_of::<DescriptorTag>()]).map_err(Error::PodCastError)?;
+            let tag = DescriptorTag::from_disk_bytes(&buffer[..size_of::<DescriptorTag>()])?;
 
             match tag.identifier() {
                 TagIdentifier::PrimaryVolumeDescriptor => {
-                    let desc: PrimaryVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PrimaryVolumeDescriptor>()]).map_err(Error::PodCastError)?;
+                    DescriptorTag::validate_bytes(
+                        &buffer[..size_of::<PrimaryVolumeDescriptor>()],
+                        TagIdentifier::PrimaryVolumeDescriptor,
+                        sector as u32,
+                    )?;
+                    let desc: PrimaryVolumeDescriptor =
+                        (*bytemuck::try_from_bytes::<PrimaryVolumeDescriptor>(
+                            &buffer[..size_of::<PrimaryVolumeDescriptor>()],
+                        )
+                        .map_err(Error::PodCastError)?)
+                        .from_disk();
                     pvd = Some(desc);
                 }
                 TagIdentifier::PartitionDescriptor => {
-                    let desc: PartitionDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<PartitionDescriptor>()]).map_err(Error::PodCastError)?;
+                    DescriptorTag::validate_bytes(
+                        &buffer[..size_of::<PartitionDescriptor>()],
+                        TagIdentifier::PartitionDescriptor,
+                        sector as u32,
+                    )?;
+                    let desc: PartitionDescriptor =
+                        (*bytemuck::try_from_bytes::<PartitionDescriptor>(
+                            &buffer[..size_of::<PartitionDescriptor>()],
+                        )
+                        .map_err(Error::PodCastError)?)
+                        .from_disk();
                     partition = Some(desc);
                 }
                 TagIdentifier::LogicalVolumeDescriptor => {
-                    let desc: LogicalVolumeDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<LogicalVolumeDescriptor>()]).map_err(Error::PodCastError)?;
+                    DescriptorTag::validate_bytes(
+                        &buffer[..size_of::<LogicalVolumeDescriptor>()],
+                        TagIdentifier::LogicalVolumeDescriptor,
+                        sector as u32,
+                    )?;
+                    let desc: LogicalVolumeDescriptor =
+                        (*bytemuck::try_from_bytes::<LogicalVolumeDescriptor>(
+                            &buffer[..size_of::<LogicalVolumeDescriptor>()],
+                        )
+                        .map_err(Error::PodCastError)?)
+                        .from_disk();
                     lvd = Some(desc);
                 }
-                TagIdentifier::TerminatingDescriptor => break,
+                TagIdentifier::TerminatingDescriptor => {
+                    DescriptorTag::validate_bytes(
+                        &buffer,
+                        TagIdentifier::TerminatingDescriptor,
+                        sector as u32,
+                    )?;
+                    break;
+                }
                 _ => continue,
             }
         }
@@ -153,7 +190,18 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
         let mut buffer = [0u8; SECTOR_SIZE];
         data.read_exact(&mut buffer).await?;
 
-        let fsd: FileSetDescriptor = *bytemuck::try_from_bytes(&buffer[..size_of::<FileSetDescriptor>()]).map_err(|_| Error::InvalidFsd)?;
+        DescriptorTag::validate_bytes(
+            &buffer[..size_of::<FileSetDescriptor>()],
+            TagIdentifier::FileSetDescriptor,
+            icb.logical_block_num,
+        )
+        .map_err(|_| Error::InvalidFsd)?;
+        let fsd: FileSetDescriptor =
+            (*bytemuck::try_from_bytes::<FileSetDescriptor>(
+                &buffer[..size_of::<FileSetDescriptor>()],
+            )
+            .map_err(|_| Error::InvalidFsd)?)
+            .from_disk();
         Ok(fsd)
     }
 
@@ -234,12 +282,20 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
         let mut buffer = [0u8; SECTOR_SIZE];
         data.read_exact(&mut buffer).await?;
 
-        let tag: &descriptor::DescriptorTag = bytemuck::from_bytes(&buffer[..16]);
+        let tag = descriptor::DescriptorTag::from_disk_bytes(&buffer[..16])?;
 
         let (size, is_directory, allocation_type, alloc_offset, alloc_length) =
             match tag.identifier() {
                 TagIdentifier::FileEntry => {
-                    let fe: &FileEntry = bytemuck::from_bytes(&buffer[..FileEntry::BASE_SIZE]);
+                    DescriptorTag::validate_bytes(
+                        &buffer,
+                        TagIdentifier::FileEntry,
+                        icb.logical_block_num,
+                    )?;
+                    let fe = (*bytemuck::from_bytes::<FileEntry>(
+                        &buffer[..FileEntry::BASE_SIZE],
+                    ))
+                    .from_disk();
                     (
                         fe.size(),
                         fe.is_directory(),
@@ -249,8 +305,15 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                     )
                 }
                 TagIdentifier::ExtendedFileEntry => {
-                    let efe: &ExtendedFileEntry =
-                        bytemuck::from_bytes(&buffer[..ExtendedFileEntry::BASE_SIZE]);
+                    DescriptorTag::validate_bytes(
+                        &buffer,
+                        TagIdentifier::ExtendedFileEntry,
+                        icb.logical_block_num,
+                    )?;
+                    let efe = (*bytemuck::from_bytes::<ExtendedFileEntry>(
+                        &buffer[..ExtendedFileEntry::BASE_SIZE],
+                    ))
+                    .from_disk();
                     (
                         efe.size(),
                         efe.is_directory(),
@@ -294,7 +357,10 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                     if chunk.len() < 8 {
                         break;
                     }
-                    let sad: &descriptor::ShortAllocationDescriptor = bytemuck::from_bytes(chunk);
+                    let sad = (*bytemuck::from_bytes::<
+                        descriptor::ShortAllocationDescriptor,
+                    >(chunk))
+                    .from_disk();
                     if sad.length() == 0 {
                         break;
                     }
@@ -311,7 +377,8 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                     if chunk.len() < 16 {
                         break;
                     }
-                    let lad: &LongAllocationDescriptor = bytemuck::from_bytes(chunk);
+                    let lad =
+                        (*bytemuck::from_bytes::<LongAllocationDescriptor>(chunk)).from_disk();
                     if lad.length() == 0 {
                         break;
                     }
@@ -766,12 +833,12 @@ mod tests {
     }
 
     #[test]
-    fn test_udf_open() {
+    fn open_rejects_structurally_invalid_mock_descriptors() {
         let data = create_mock_udf_data();
         let cursor = std::io::Cursor::new(data);
         let result = UdfVolume::open(cursor);
 
-        assert!(result.is_ok())
+        assert!(result.is_err())
     }
 }
 }

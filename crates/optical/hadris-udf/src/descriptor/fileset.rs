@@ -8,7 +8,7 @@ use crate::time::UdfTimestamp;
 ///
 /// @hadris-spec ECMA-167:4/14.1
 /// @hadris-compliance full
-/// @hadris-tests comprehensive_udf::test_allocation_descriptor_sizes
+/// @hadris-tests write::tests::test_roundtrip_basic_verification
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -57,6 +57,22 @@ unsafe impl bytemuck::Zeroable for FileSetDescriptor {}
 unsafe impl bytemuck::Pod for FileSetDescriptor {}
 
 impl FileSetDescriptor {
+    pub(crate) fn from_disk(mut self) -> Self {
+        self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
+            .expect("DescriptorTag has its fixed on-disk size");
+        self.recording_date_time = self.recording_date_time.from_disk();
+        self.interchange_level = self.interchange_level.to_le();
+        self.max_interchange_level = self.max_interchange_level.to_le();
+        self.character_set_list = self.character_set_list.to_le();
+        self.max_character_set_list = self.max_character_set_list.to_le();
+        self.file_set_number = self.file_set_number.to_le();
+        self.file_set_desc_number = self.file_set_desc_number.to_le();
+        self.root_directory_icb = self.root_directory_icb.from_disk();
+        self.next_extent = self.next_extent.from_disk();
+        self.system_stream_directory_icb = self.system_stream_directory_icb.from_disk();
+        self
+    }
+
     /// Validate this descriptor
     pub fn validate(&self, location: u32) -> Result<()> {
         self.tag

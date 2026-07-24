@@ -118,28 +118,25 @@ mod revision_tests {
 // =============================================================================
 
 mod tag_tests {
+    use hadris_udf::descriptor::{DescriptorTag, TagIdentifier};
+
     #[test]
     fn test_descriptor_tag_ids() {
-        // UDF descriptor tag identifiers
-        let tag_primary_vd = 1u16;
-        let tag_anchor_vdp = 2u16;
-        let tag_vd_pointer = 3u16;
-        let tag_impl_use_vd = 4u16;
-        let tag_partition_d = 5u16;
-        let tag_logical_vd = 6u16;
-        let tag_unalloc_sd = 7u16;
-        let tag_terminating = 8u16;
-        let tag_lvid = 9u16;
-
-        assert_eq!(tag_primary_vd, 1);
-        assert_eq!(tag_anchor_vdp, 2);
-        assert_eq!(tag_vd_pointer, 3);
-        assert_eq!(tag_impl_use_vd, 4);
-        assert_eq!(tag_partition_d, 5);
-        assert_eq!(tag_logical_vd, 6);
-        assert_eq!(tag_unalloc_sd, 7);
-        assert_eq!(tag_terminating, 8);
-        assert_eq!(tag_lvid, 9);
+        let expected = [
+            (TagIdentifier::PrimaryVolumeDescriptor, 1),
+            (TagIdentifier::AnchorVolumeDescriptorPointer, 2),
+            (TagIdentifier::VolumeDescriptorPointer, 3),
+            (TagIdentifier::ImplementationUseVolumeDescriptor, 4),
+            (TagIdentifier::PartitionDescriptor, 5),
+            (TagIdentifier::LogicalVolumeDescriptor, 6),
+            (TagIdentifier::UnallocatedSpaceDescriptor, 7),
+            (TagIdentifier::TerminatingDescriptor, 8),
+            (TagIdentifier::LogicalVolumeIntegrityDescriptor, 9),
+        ];
+        for (identifier, value) in expected {
+            assert_eq!(identifier.to_u16(), value);
+            assert_eq!(TagIdentifier::from_u16(value), identifier);
+        }
     }
 
     #[test]
@@ -172,18 +169,17 @@ mod tag_tests {
 
     #[test]
     fn test_tag_structure() {
-        // Descriptor tag is 16 bytes:
-        // - Tag identifier: 2 bytes
-        // - Descriptor version: 2 bytes
-        // - Tag checksum: 1 byte
-        // - Reserved: 1 byte
-        // - Tag serial number: 2 bytes
-        // - Descriptor CRC: 2 bytes
-        // - Descriptor CRC length: 2 bytes
-        // - Tag location: 4 bytes
-
-        let tag_size = 16;
-        assert_eq!(tag_size, 16);
+        assert_eq!(core::mem::size_of::<DescriptorTag>(), DescriptorTag::SIZE);
+        let tag = DescriptorTag::default();
+        let base = core::ptr::addr_of!(tag) as usize;
+        assert_eq!(core::ptr::addr_of!(tag.tag_identifier) as usize - base, 0);
+        assert_eq!(
+            core::ptr::addr_of!(tag.descriptor_version) as usize - base,
+            2
+        );
+        assert_eq!(core::ptr::addr_of!(tag.tag_checksum) as usize - base, 4);
+        assert_eq!(core::ptr::addr_of!(tag.reserved) as usize - base, 5);
+        assert_eq!(core::ptr::addr_of!(tag.tag_location) as usize - base, 12);
     }
 
     #[test]
@@ -222,26 +218,22 @@ mod tag_tests {
 // =============================================================================
 
 mod avdp_tests {
+    use hadris_udf::descriptor::{AnchorVolumeDescriptorPointer, ExtentDescriptor};
+
     #[test]
     fn test_avdp_structure() {
-        // AVDP is 512 bytes (but stored in 2048-byte sector)
-        // Contains:
-        // - Descriptor tag: 16 bytes
-        // - Main VDS extent: 8 bytes (length + location)
-        // - Reserve VDS extent: 8 bytes
-
-        let avdp_min_size = 16 + 8 + 8;
-        assert_eq!(avdp_min_size, 32);
+        assert_eq!(core::mem::size_of::<AnchorVolumeDescriptorPointer>(), 512);
     }
 
     #[test]
     fn test_extent_descriptor() {
-        // Extent descriptor: 8 bytes
-        // - Extent length: 4 bytes
-        // - Extent location: 4 bytes
-
-        let extent_size = 8;
-        assert_eq!(extent_size, 8);
+        assert_eq!(core::mem::size_of::<ExtentDescriptor>(), 8);
+        let extent = ExtentDescriptor {
+            length: 4096,
+            location: 256,
+        };
+        assert_eq!(extent.length, 4096);
+        assert_eq!(extent.location, 256);
     }
 
     #[test]
@@ -261,18 +253,22 @@ mod avdp_tests {
 // =============================================================================
 
 mod partition_tests {
+    use hadris_udf::descriptor::{EntityIdentifier, PartitionContents, PartitionDescriptor};
+
     #[test]
     fn test_partition_contents() {
-        // Partition contents identifiers
-        let contents_fdc01 = b"+FDC01"; // Physical partition
-        let contents_cd001 = b"+CD001"; // Virtual partition
-        let contents_nsr02 = b"+NSR02"; // UDF 1.02-1.50
-        let contents_nsr03 = b"+NSR03"; // UDF 2.00+
+        fn contents(id: &[u8]) -> PartitionContents {
+            let mut entity = EntityIdentifier::EMPTY;
+            entity.identifier[..id.len()].copy_from_slice(id);
+            let mut descriptor: PartitionDescriptor = bytemuck::Zeroable::zeroed();
+            descriptor.partition_contents = entity;
+            descriptor.contents_type()
+        }
 
-        assert_eq!(contents_fdc01.len(), 6);
-        assert_eq!(contents_cd001.len(), 6);
-        assert_eq!(contents_nsr02.len(), 6);
-        assert_eq!(contents_nsr03.len(), 6);
+        assert_eq!(contents(b"+FDC01"), PartitionContents::Fdc01);
+        assert_eq!(contents(b"+CD001"), PartitionContents::Cd001);
+        assert_eq!(contents(b"+NSR02"), PartitionContents::Nsr02);
+        assert_eq!(contents(b"+NSR03"), PartitionContents::Nsr03);
     }
 
     #[test]
@@ -342,20 +338,10 @@ mod file_entry_tests {
 
     #[test]
     fn test_allocation_descriptor_sizes() {
-        // Short allocation descriptor: 8 bytes
-        // - Extent length: 4 bytes (includes type in upper 2 bits)
-        // - Extent position: 4 bytes (logical block number)
+        use hadris_udf::descriptor::{LongAllocationDescriptor, ShortAllocationDescriptor};
 
-        let short_ad_size = 8;
-        assert_eq!(short_ad_size, 8);
-
-        // Long allocation descriptor: 16 bytes
-        // - Extent length: 4 bytes
-        // - Extent location: 6 bytes (logical block + partition)
-        // - Implementation use: 6 bytes
-
-        let long_ad_size = 16;
-        assert_eq!(long_ad_size, 16);
+        assert_eq!(core::mem::size_of::<ShortAllocationDescriptor>(), 8);
+        assert_eq!(core::mem::size_of::<LongAllocationDescriptor>(), 16);
 
         // Extended allocation descriptor: 20 bytes
         // - Extent length: 4 bytes

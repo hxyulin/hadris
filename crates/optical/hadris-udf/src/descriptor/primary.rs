@@ -8,6 +8,7 @@ use crate::time::UdfTimestamp;
 ///
 /// @hadris-spec ECMA-167:3/10.1
 /// @hadris-compliance full
+/// @hadris-tests write::tests::test_roundtrip_basic_verification
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -62,6 +63,25 @@ unsafe impl bytemuck::Zeroable for PrimaryVolumeDescriptor {}
 unsafe impl bytemuck::Pod for PrimaryVolumeDescriptor {}
 
 impl PrimaryVolumeDescriptor {
+    pub(crate) fn from_disk(mut self) -> Self {
+        self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
+            .expect("DescriptorTag has its fixed on-disk size");
+        self.vds_number = self.vds_number.to_le();
+        self.pvd_number = self.pvd_number.to_le();
+        self.volume_sequence_number = self.volume_sequence_number.to_le();
+        self.max_volume_sequence_number = self.max_volume_sequence_number.to_le();
+        self.interchange_level = self.interchange_level.to_le();
+        self.max_interchange_level = self.max_interchange_level.to_le();
+        self.character_set_list = self.character_set_list.to_le();
+        self.max_character_set_list = self.max_character_set_list.to_le();
+        self.volume_abstract = self.volume_abstract.from_disk();
+        self.volume_copyright = self.volume_copyright.from_disk();
+        self.recording_date_time = self.recording_date_time.from_disk();
+        self.predecessor_vds_location = self.predecessor_vds_location.to_le();
+        self.flags = self.flags.to_le();
+        self
+    }
+
     /// Validate this descriptor
     pub fn validate(&self, location: u32) -> Result<()> {
         self.tag

@@ -10,7 +10,7 @@ use crate::error::Result;
 ///
 /// @hadris-spec ECMA-167:3/10.6
 /// @hadris-compliance full
-/// @hadris-tests comprehensive_udf::test_allocation_descriptor_sizes
+/// @hadris-tests write::tests::test_roundtrip_basic_verification
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -48,6 +48,17 @@ unsafe impl bytemuck::Zeroable for LogicalVolumeDescriptor {}
 unsafe impl bytemuck::Pod for LogicalVolumeDescriptor {}
 
 impl LogicalVolumeDescriptor {
+    pub(crate) fn from_disk(mut self) -> Self {
+        self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
+            .expect("DescriptorTag has its fixed on-disk size");
+        self.vds_number = self.vds_number.to_le();
+        self.logical_block_size = self.logical_block_size.to_le();
+        self.map_table_length = self.map_table_length.to_le();
+        self.num_partition_maps = self.num_partition_maps.to_le();
+        self.integrity_sequence_extent = self.integrity_sequence_extent.from_disk();
+        self
+    }
+
     /// Validate this descriptor
     pub fn validate(&self, location: u32) -> Result<()> {
         self.tag
@@ -56,7 +67,8 @@ impl LogicalVolumeDescriptor {
 
     /// Get the File Set Descriptor location
     pub fn file_set_location(&self) -> LongAllocationDescriptor {
-        *bytemuck::from_bytes(&self.logical_volume_contents_use)
+        (*bytemuck::from_bytes::<LongAllocationDescriptor>(&self.logical_volume_contents_use))
+            .from_disk()
     }
 
     /// Get the logical volume identifier as a string
@@ -91,9 +103,11 @@ impl LogicalVolumeDescriptor {
                 let entry = &maps[offset..offset + map_len];
                 offset += map_len;
                 if map_type == 1 && map_len >= core::mem::size_of::<Type1PartitionMap>() {
-                    return Some(*bytemuck::from_bytes(
-                        &entry[..core::mem::size_of::<Type1PartitionMap>()],
-                    ));
+                    let mut map: Type1PartitionMap =
+                        *bytemuck::from_bytes(&entry[..core::mem::size_of::<Type1PartitionMap>()]);
+                    map.volume_sequence_number = map.volume_sequence_number.to_le();
+                    map.partition_number = map.partition_number.to_le();
+                    return Some(map);
                 }
             }
             None

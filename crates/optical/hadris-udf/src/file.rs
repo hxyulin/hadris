@@ -57,6 +57,28 @@ impl FileEntry {
     /// Base size without variable-length fields
     pub const BASE_SIZE: usize = 176;
 
+    pub(crate) fn from_disk(mut self) -> Self {
+        self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
+            .expect("DescriptorTag has its fixed on-disk size");
+        self.icb_tag = self.icb_tag.from_disk();
+        self.uid = self.uid.to_le();
+        self.gid = self.gid.to_le();
+        self.permissions = self.permissions.to_le();
+        self.file_link_count = self.file_link_count.to_le();
+        self.record_length = self.record_length.to_le();
+        self.information_length = self.information_length.to_le();
+        self.logical_blocks_recorded = self.logical_blocks_recorded.to_le();
+        self.access_time = self.access_time.from_disk();
+        self.modification_time = self.modification_time.from_disk();
+        self.attribute_time = self.attribute_time.from_disk();
+        self.checkpoint = self.checkpoint.to_le();
+        self.extended_attribute_icb = self.extended_attribute_icb.from_disk();
+        self.unique_id = self.unique_id.to_le();
+        self.extended_attributes_length = self.extended_attributes_length.to_le();
+        self.allocation_descriptors_length = self.allocation_descriptors_length.to_le();
+        self
+    }
+
     /// Get the file size
     pub fn size(&self) -> u64 {
         self.information_length
@@ -145,6 +167,32 @@ impl ExtendedFileEntry {
     /// Base size without variable-length fields
     pub const BASE_SIZE: usize = 216;
 
+    pub(crate) fn from_disk(mut self) -> Self {
+        self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
+            .expect("DescriptorTag has its fixed on-disk size");
+        self.icb_tag = self.icb_tag.from_disk();
+        self.uid = self.uid.to_le();
+        self.gid = self.gid.to_le();
+        self.permissions = self.permissions.to_le();
+        self.file_link_count = self.file_link_count.to_le();
+        self.record_length = self.record_length.to_le();
+        self.information_length = self.information_length.to_le();
+        self.object_size = self.object_size.to_le();
+        self.logical_blocks_recorded = self.logical_blocks_recorded.to_le();
+        self.access_time = self.access_time.from_disk();
+        self.modification_time = self.modification_time.from_disk();
+        self.creation_time = self.creation_time.from_disk();
+        self.attribute_time = self.attribute_time.from_disk();
+        self.checkpoint = self.checkpoint.to_le();
+        self.reserved = self.reserved.to_le();
+        self.extended_attribute_icb = self.extended_attribute_icb.from_disk();
+        self.stream_directory_icb = self.stream_directory_icb.from_disk();
+        self.unique_id = self.unique_id.to_le();
+        self.extended_attributes_length = self.extended_attributes_length.to_le();
+        self.allocation_descriptors_length = self.allocation_descriptors_length.to_le();
+        self
+    }
+
     /// Get the file size
     pub fn size(&self) -> u64 {
         self.information_length
@@ -194,6 +242,14 @@ pub struct IcbTag {
 }
 
 impl IcbTag {
+    fn from_disk(mut self) -> Self {
+        self.prior_recorded_num_direct_entries = self.prior_recorded_num_direct_entries.to_le();
+        self.strategy_type = self.strategy_type.to_le();
+        self.max_num_entries = self.max_num_entries.to_le();
+        self.flags = self.flags.to_le();
+        self
+    }
+
     /// Get the file type
     pub fn file_type(&self) -> FileType {
         FileType::from_u8(self.file_type)

@@ -436,16 +436,8 @@ mod write_tests {
 
         create_hadris_udf_image(&image_path).expect("Should be able to create hadris UDF image");
 
-        // Note: udfinfo may report issues with our minimal UDF image
-        // This test documents the current state
-        match get_udf_info(&image_path) {
-            Some(info) => {
-                println!("udfinfo output:\n{info}");
-            }
-            None => {
-                println!("udfinfo cannot validate hadris-udf image yet");
-                // This is expected for now - don't fail
-            }
-        }
+        let info =
+            get_udf_info(&image_path).expect("udfinfo must validate images produced by hadris-udf");
+        println!("udfinfo output:\n{info}");
     }
 }
