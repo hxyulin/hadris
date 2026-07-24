@@ -10,7 +10,7 @@ separate scheduled job outside the PR gate).
 | `cpio_read` | `CpioReader::next_entry_alloc` + data | newc header / `namesize` / `filesize` parsing |
 | `fat_read`  | `FatFs::open` + recursive read       | BPB, FAT chain, directory + LFN parsing, file reads |
 | `iso_read`  | `IsoImage::open` + recursive read    | volume descriptors, directory records, RRIP, multi-extent reads |
-| `udf_read`  | `UdfFs::open` + recursive read       | anchor/VDS/FSD, File Entry, allocation descriptors, FIDs |
+| `udf_read`  | `UdfVolume::open` + recursive read   | anchor/VDS/FSD, File Entry, allocation descriptors, FIDs |
 
 **The invariant:** feeding *arbitrary bytes* into a reader must only ever return
 an `Err` or succeed — never panic, abort, or OOM. A crash found here is a bug in

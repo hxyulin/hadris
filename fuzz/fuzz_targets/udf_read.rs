@@ -8,10 +8,10 @@
 use libfuzzer_sys::fuzz_target;
 use std::io::Cursor;
 
-use hadris_udf::UdfFs;
+use hadris_udf::UdfVolume;
 
 fn drive(data: &[u8]) {
-    let Ok(fs) = UdfFs::open(Cursor::new(data)) else {
+    let Ok(fs) = UdfVolume::open(Cursor::new(data)) else {
         return;
     };
     let Ok(root) = fs.root_dir() else {

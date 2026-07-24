@@ -37,6 +37,10 @@ impl DescriptorTag {
 
     /// Verify the tag checksum
     pub fn verify_checksum(&self) -> bool {
+        self.computed_checksum() == self.tag_checksum
+    }
+
+    fn computed_checksum(&self) -> u8 {
         let bytes = self.to_disk_bytes();
         let mut sum: u8 = 0;
         for (i, &byte) in bytes.iter().enumerate() {
@@ -45,7 +49,7 @@ impl DescriptorTag {
                 sum = sum.wrapping_add(byte);
             }
         }
-        sum == self.tag_checksum
+        sum
     }
 
     /// Verify the descriptor CRC
@@ -66,10 +70,11 @@ impl DescriptorTag {
 
     /// Validate the tag and return an error if invalid
     pub fn validate(&self, expected: TagIdentifier, location: u32) -> Result<()> {
-        if !self.verify_checksum() {
+        let computed_checksum = self.computed_checksum();
+        if computed_checksum != self.tag_checksum {
             return Err(Error::CrcMismatch {
-                expected: 0,
-                computed: self.tag_checksum as u16,
+                expected: self.tag_checksum as u16,
+                computed: computed_checksum as u16,
             });
         }
         if self.identifier() != expected {
@@ -392,5 +397,23 @@ mod tests {
             DescriptorTag::validate_bytes(&bad_crc, TagIdentifier::PrimaryVolumeDescriptor, 17)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn validate_reports_stored_and_computed_tag_checksums() {
+        let mut bytes = descriptor_bytes(2, 0, 17);
+        bytes[4] = bytes[4].wrapping_add(1);
+        let tag = DescriptorTag::from_disk_bytes(&bytes).unwrap();
+
+        match tag
+            .validate(TagIdentifier::PrimaryVolumeDescriptor, 17)
+            .unwrap_err()
+        {
+            Error::CrcMismatch { expected, computed } => {
+                assert_eq!(expected, tag.tag_checksum as u16);
+                assert_eq!(computed, tag.computed_checksum() as u16);
+            }
+            error => panic!("unexpected error: {error}"),
+        }
     }
 }
