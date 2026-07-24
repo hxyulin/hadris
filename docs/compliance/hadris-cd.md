@@ -11,6 +11,8 @@ headers, modes, EDC, ECC, subchannels, or physical recording. The available
 report also cannot substantiate El Torito, Joliet, Rock Ridge/SUSP, UEFI
 partitioning, or later UDF bridge profiles.
 
-The extraction identified a concrete profile gap: main and reserve UDF volume
-descriptor sequence extents are currently declared as six sectors, while
-ECMA TR/71 requires each extent to occupy at least sixteen logical sectors.
+The logical-sector writer now has direct raw-image evidence for the pinned
+profile: fixed 2,048-byte sectors, consecutive recognition descriptors,
+permitted anchors, sixteen-sector main and reserve descriptor sequences, a
+single closed integrity descriptor, one partition, and short allocation
+descriptors. Higher recording-layer and extension claims remain out of scope.
