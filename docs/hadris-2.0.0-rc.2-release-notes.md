@@ -88,12 +88,10 @@ candidate:
 
 ## Performance and caching
 
-No performance code landed in this candidate. The caching and performance
-findings deferred out of the 2.0 line — the sync-only FAT sector cache, the
-unbuffered allocation-free `IsoReader`, the unused `hadris-storage` block-device
-traits, and the absence of FAT benchmarks — are recorded in
-[`docs/hadris-2-perf-notes.md`](hadris-2-perf-notes.md) so the decisions are not
-re-derived later.
+No performance code landed in this candidate. At the time, the deferred work
+included broader FAT cache integration, buffering for the allocation-free
+`IsoReader`, adoption of `hadris-storage` block-device traits, and FAT
+benchmarks. Current FAT cache usage is documented in the `hadris-fat` crate.
 
 ## What prerelease testers should exercise
 

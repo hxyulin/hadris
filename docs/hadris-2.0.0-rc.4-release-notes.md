@@ -19,8 +19,8 @@ only release-blocking correctness fixes are expected before 2.0.0.
 - Unreachable UDF modification/file placeholders and duplicated
   `hadris-common` compatibility modules were removed.
 
-These are pre-stable breaking changes from RC3. Applications should follow
-[`hadris-1-to-2-migration.md`](hadris-1-to-2-migration.md) before adopting RC4.
+These are pre-stable breaking changes from RC3. Applications should review the
+API cleanup above and compiler diagnostics before adopting RC4.
 
 ## Implementation and feature cleanup
 

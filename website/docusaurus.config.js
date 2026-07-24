@@ -61,7 +61,6 @@ const config = {
           items: [
             {label: "Get started", to: "/getting-started"},
             {label: "Use cases", to: "/guides"},
-            {label: "Migration guide", to: "/migration/v1-to-v2"},
           ],
         },
         {

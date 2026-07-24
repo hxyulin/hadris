@@ -12,6 +12,11 @@ Each published package owns its version and may be released independently.
 
 - **Build / MSRV:** The workspace now uses Cargo resolver 3 so dependency
   resolution prefers releases compatible with the declared Rust 1.88 MSRV.
+- **Documentation:** Removed superseded V2 planning, migration, performance,
+  and internal agent-design notes; consolidated the active specification
+  annotation rules in `docs/spec-coverage.md`.
+- **hadris-fat:** Expanded cache documentation with the builder, transparent
+  routing, explicit flush, capacity, and sync-only behavior.
 
 ## [2.0.0-rc.3] - 2026-07-22
 
@@ -99,8 +104,7 @@ Each published package owns its version and may be released independently.
 - Completed the in-repo ISO 9660 specification notes (volume descriptors, path
   table, directory record, and an extensions index) and documented the ISO
   writer's known limitations.
-- Added `docs/hadris-2-perf-notes.md` recording the caching/performance findings
-  deferred out of 2.0.
+- Recorded caching and performance findings deferred out of 2.0.
 - Added a Docusaurus documentation site with getting-started, crate-selection,
   migration, release-candidate, and task-oriented FAT, partition, ISO, CPIO,
   and `no_std` guides.
@@ -192,9 +196,7 @@ Each published package owns its version and may be released independently.
 
 ### Documentation
 
-- Workspace and crate READMEs updated for API accuracy and version `1.2.1`
-  (ongoing professionalization; see
-  `docs/superpowers/specs/2026-07-09-professionalization-review.md`).
+- Workspace and crate READMEs updated for API accuracy and version `1.2.1`.
 
 ## [1.2.0] - 2026-06-13
 

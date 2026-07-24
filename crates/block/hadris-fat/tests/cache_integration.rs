@@ -14,8 +14,7 @@
 //!     and out-of-range entries surface their respective errors.
 //!   * Builder ergonomics: `fat_cache(0)` is a silent no-op.
 //!
-//! Together this answers the recurring "how do I actually use the cache?"
-//! question (issue #27) by exercising the recommended `FatVolume::with_cached_fat`
+//! Together these tests exercise the recommended `FatVolume::with_cached_fat`
 //! entry point end-to-end.
 
 #![cfg(all(feature = "cache", feature = "write", feature = "std"))]

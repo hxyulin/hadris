@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Validate @hadris-* spec annotation blocks (Phase E v1).
+"""Validate @hadris-* spec annotation blocks.
 
-Rules (see docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md §7):
+Rules (see docs/spec-coverage.md):
   - @hadris-compliance full  ⇒ @hadris-tests and/or @hadris-fuzz
   - @hadris-compliance partial ⇒ @hadris-note
   - every @hadris-spec value appears in docs/spec-coverage.md (unless --no-table-sync)
@@ -249,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {err}", file=sys.stderr)
         print(
             f"\n{len(errors)} error(s). "
-            "See docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md",
+            "See docs/spec-coverage.md#annotation-convention",
             file=sys.stderr,
         )
         return 1

@@ -132,10 +132,9 @@ Feature selection is also more explicit. Do not assume that `std` selects an
 I/O mode, or that enabling `async` provides asynchronous writers for formats
 whose writer is currently synchronous.
 
-See the [Hadris 1.x to 2.0 migration guide](hadris-1-to-2-migration.md) for
-actionable upgrade instructions. The
-[public API audit](hadris-2-api-audit.md) provides the detailed compatibility
-table.
+Downstream users should update renamed types and builders, select I/O modes
+explicitly, and review compiler errors for removed prerelease compatibility
+aliases.
 
 ## Unstable exFAT preview
 

@@ -27,17 +27,32 @@
 //! cache — before mounting:
 //!
 //! ```rust,no_run
+//! # #[cfg(feature = "cache")]
+//! # {
 //! use hadris_fat::sync::FatVolume;
+//! use std::fs::OpenOptions;
 //!
-//! let file = std::fs::File::open("disk.img").unwrap();
-//! let fs = FatVolume::builder(file).open().unwrap();
-//! # let _ = fs;
+//! let disk = OpenOptions::new()
+//!     .read(true)
+//!     .write(true)
+//!     .open("disk.img")
+//!     .unwrap();
+//! let fs = FatVolume::builder(disk)
+//!     .fat_cache(16)
+//!     .open()
+//!     .unwrap();
+//!
+//! // Normal FatVolume operations use the installed cache transparently.
+//! let _root = fs.root_dir();
+//!
+//! // After cached writes, flush before dropping the volume.
+//! fs.flush().unwrap();
+//! # }
 //! ```
 //!
-//! With the `cache` feature, chain `.fat_cache(capacity_sectors)` before
-//! `.open()` to back FAT reads and writes with an LRU cache. The cache is
-//! sync-only: under the async API it is silently bypassed. See
-//! [`FatVolumeBuilder`].
+//! Without `cache`, omit `.fat_cache(...)`. A zero capacity also disables the
+//! cache. The cache is sync-only; async operations access the FAT directly.
+//! See [`FatVolumeBuilder`].
 //!
 //! ## Feature Flags
 //!
@@ -56,8 +71,8 @@
 //!
 //! ## Known Limitations
 //!
-//! - **async + cache:** The FAT-sector cache is sync-only; under the async API
-//!   it is silently bypassed.
+//! - **async + cache:** The FAT-sector cache is sync-only; async operations
+//!   access the FAT directly.
 //! - **exFAT:** The `unstable-exfat` preview is outside the V2 API stability
 //!   promise and is not recommended for irreplaceable data. It is sync-only
 //!   and does not support fragmented allocation bitmap / upcase metadata,
@@ -217,8 +232,8 @@ pub mod r#async {
     mod __inner {
         // Note: `cache` is intentionally absent here. The cache module uses
         // synchronous I/O traits and is not yet async-aware; the `cache`
-        // feature is gated to `sync` in Cargo.toml so this combination is
-        // unreachable. Async-aware caching is deferred to phase C5b.
+        // feature is gated to `sync` in Cargo.toml, so this module never
+        // exposes cache APIs.
         /// Directory traversal and directory-entry types.
         pub mod dir;
         /// FAT12, FAT16, and FAT32 allocation-table access.

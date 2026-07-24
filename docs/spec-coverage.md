@@ -3,9 +3,29 @@
 Maintainer audit index for standards-facing types in Hadris.
 Not a public marketing matrix.
 
-**Design:** [`docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md`](superpowers/specs/2026-07-09-spec-compliance-program-design.md)
-
 **CI:** `python3 scripts/check-spec-annotations.py` (tag grammar + every `@hadris-spec` id must appear below).
+
+## Annotation convention
+
+Place one annotation block on each standards-facing on-disk type or public
+parse/format entry point:
+
+```rust
+/// @hadris-spec ECMA-167:3/10.5
+/// @hadris-compliance full
+/// @hadris-tests comprehensive_udf::partition_descriptor
+/// @hadris-fuzz udf_read
+```
+
+- `@hadris-spec` is required and uses one stable `DOCUMENT:section` identifier.
+- `@hadris-compliance` is required and accepts `full`, `partial`, `none`, or
+  `n/a`.
+- `full` requires `@hadris-tests` and/or `@hadris-fuzz`.
+- `partial` requires an `@hadris-note` describing the gap.
+- `@hadris-tests` names runnable evidence; `@hadris-fuzz` names a target under
+  `fuzz/`. Fuzz targets are local discovery tools, not CI jobs.
+- Annotate spec-facing layouts and entry points, not private helpers or every
+  call site.
 
 **How to update**
 
