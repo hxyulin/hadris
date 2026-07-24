@@ -17,6 +17,11 @@ pub enum Error {
     },
     /// The entry filename is empty or could not be read.
     InvalidFilename,
+    /// A decoded header violates a newc field invariant.
+    InvalidHeader {
+        /// Description of the violated invariant.
+        reason: &'static str,
+    },
     /// The archive ended without a `TRAILER!!!` sentinel.
     MissingTrailer,
     /// The CRC checksum in a `070702` entry does not match the computed value.
@@ -55,6 +60,7 @@ impl fmt::Display for Error {
                 write!(f, "invalid hex field: {field}")
             }
             Self::InvalidFilename => write!(f, "invalid filename"),
+            Self::InvalidHeader { reason } => write!(f, "invalid CPIO header: {reason}"),
             Self::MissingTrailer => write!(f, "missing TRAILER!!! sentinel"),
             Self::ChecksumMismatch { expected, computed } => {
                 write!(

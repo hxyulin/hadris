@@ -15,6 +15,8 @@ use crate::error::{Error, Result};
 use crate::mode::{self, FileType};
 use file_tree::{FileNode, FileTree};
 
+const PATH_MAX: usize = 4096;
+
 /// Options for writing a CPIO archive.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CpioWriteOptions {
@@ -112,7 +114,14 @@ impl ArchiveEncoder {
         hard_links: &BTreeMap<String, Vec<(String, u32)>>,
     ) -> Result<()> {
         let name_bytes = path.as_bytes();
-        let namesize = (name_bytes.len() + 1) as u32; // +1 for NUL
+        if name_bytes.is_empty()
+            || name_bytes.contains(&0)
+            || name_bytes.len().saturating_add(1) > PATH_MAX
+        {
+            return Err(Error::FilenameTooLong);
+        }
+        let namesize =
+            u32::try_from(name_bytes.len() + 1).map_err(|_| Error::FilenameTooLong)?;
 
         let (file_mode, uid, gid, mtime, filesize, data, nlink, devmajor, devminor, rdevmajor, rdevminor) =
             match node {
@@ -125,7 +134,8 @@ impl ArchiveEncoder {
                     ..
                 } => {
                     let nlink = 1 + hard_links.get(path).map_or(0, |v| v.len() as u32);
-                    let size = contents.len() as u32;
+                    let size =
+                        u32::try_from(contents.len()).map_err(|_| Error::FileTooLarge)?;
                     (
                         mode::make_mode(FileType::Regular, *permissions),
                         *uid,
@@ -168,12 +178,17 @@ impl ArchiveEncoder {
                     ..
                 } => {
                     let data = target.as_bytes();
+                    if data.is_empty() {
+                        return Err(Error::InvalidHeader {
+                            reason: "symbolic-link c_filesize must not be zero",
+                        });
+                    }
                     (
                         mode::make_mode(FileType::Symlink, *permissions),
                         *uid,
                         *gid,
                         *mtime,
-                        data.len() as u32,
+                        u32::try_from(data.len()).map_err(|_| Error::FileTooLarge)?,
                         data,
                         1u32,
                         0u32,
@@ -182,7 +197,7 @@ impl ArchiveEncoder {
                         0u32,
                     )
                 }
-                FileNode::HardLink { .. } => {
+                FileNode::HardLink { link_target, .. } => {
                     // Hard link: written as a regular file with filesize=0
                     (
                         mode::make_mode(FileType::Regular, 0o644),
@@ -191,7 +206,9 @@ impl ArchiveEncoder {
                         0u32,
                         0u32,
                         &[] as &[u8],
-                        2u32,
+                        1 + hard_links
+                            .get(link_target)
+                            .map_or(0, |links| links.len() as u32),
                         0u32,
                         0u32,
                         0u32,

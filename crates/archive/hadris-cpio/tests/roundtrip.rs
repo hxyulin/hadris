@@ -186,6 +186,69 @@ fn roundtrip_crc_checksum() {
 }
 
 #[test]
+fn crc_reader_rejects_corrupt_data() {
+    let mut tree = FileTree::new();
+    tree.add(FileNode::file("crc.bin", b"checksum".to_vec(), 0o644));
+    let mut archive = write_archive(&tree, true);
+
+    let data_offset = {
+        let mut reader = CpioArchiveReader::new(archive.as_slice());
+        let _entry = reader.next_entry_alloc().unwrap().unwrap();
+        reader.offset() as usize
+    };
+    archive[data_offset] ^= 0xff;
+
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
+    let entry = reader.next_entry_alloc().unwrap().unwrap();
+    assert!(matches!(
+        reader.read_entry_data_alloc(&entry),
+        Err(hadris_cpio::Error::ChecksumMismatch { .. })
+    ));
+}
+
+#[test]
+fn reader_rejects_non_nul_filename_terminator() {
+    let mut tree = FileTree::new();
+    tree.add(FileNode::file("name", Vec::new(), 0o644));
+    let mut archive = write_archive(&tree, false);
+    archive[110 + "name".len()] = b'X';
+
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
+    assert!(matches!(
+        reader.next_entry_alloc(),
+        Err(hadris_cpio::Error::InvalidFilename)
+    ));
+}
+
+#[test]
+fn hard_link_group_uses_total_link_count() {
+    let mut tree = FileTree::new();
+    tree.add(FileNode::file("original", b"data".to_vec(), 0o644));
+    tree.add(FileNode::hard_link("one", "original"));
+    tree.add(FileNode::hard_link("two", "original"));
+    let archive = write_archive(&tree, false);
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
+
+    for _ in 0..3 {
+        let entry = reader.next_entry_alloc().unwrap().unwrap();
+        assert_eq!(entry.header().nlink, 3);
+        assert!(entry.header().is_hard_link());
+        reader.skip_entry_data_owned(&entry).unwrap();
+    }
+}
+
+#[test]
+fn writer_rejects_empty_symlink_target() {
+    let mut tree = FileTree::new();
+    tree.add(FileNode::symlink("link", ""));
+    assert!(
+        CpioArchiveWriter::new(Vec::new(), CpioWriteOptions::default())
+            .finish(&tree)
+            .is_err()
+    );
+}
+
+#[test]
 fn roundtrip_offset_based_seek() {
     let mut tree = FileTree::new();
     tree.add(FileNode::file("first.txt", b"first".to_vec(), 0o644));

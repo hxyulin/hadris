@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "crate": "archive/hadris-cpio",
+  "profile": "Linux newc/crc single-archive reader and writer",
+  "requirements": [
+    {
+      "id": "LINUX-INITRAMFS-NEWC:buffer-format#composition",
+      "source": "LINUX-INITRAMFS-NEWC",
+      "clause": "Buffer Format lines 31-49",
+      "normativity": "shall",
+      "summary": "An initramfs buffer may combine zero padding, uncompressed archives, and supported compressed archive members.",
+      "direction": "both",
+      "status": "not_implemented",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "CpioArchiveReader"}],
+      "tests": [],
+      "gap": "The crate intentionally models one uncompressed newc archive rather than a complete initramfs buffer."
+    },
+    {
+      "id": "LINUX-INITRAMFS-NEWC:newc-header#ascii-hex-fields",
+      "source": "LINUX-INITRAMFS-NEWC",
+      "clause": "newc Header lines 52-72",
+      "normativity": "shall",
+      "summary": "A newc header contains a six-byte magic followed by thirteen eight-digit ASCII hexadecimal fields.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/header.rs", "name": "RawNewcHeader"}],
+      "tests": [{"path": "crates/archive/hadris-cpio/src/header.rs", "name": "test_hex_roundtrip", "kind": "unit"}],
+      "gap": null
+    },
+    {
+      "id": "LINUX-INITRAMFS-NEWC:file-layout#four-byte-alignment",
+      "source": "LINUX-INITRAMFS-NEWC",
+      "clause": "Buffer Format lines 39-49",
+      "normativity": "shall",
+      "summary": "Headers, names, and file bodies use the specified four-byte alignment with zero-valued padding.",
+      "direction": "both",
+      "status": "partial",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "skip_zero_padding"}],
+      "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "alignment_padding_edge_cases", "kind": "integration"}],
+      "gap": "Generated alignment is covered across sizes, but malformed nonzero padding lacks a direct regression fixture."
+    },
+    {
+      "id": "LINUX-INITRAMFS-NEWC:c-namesize#nul-and-path-limit",
+      "source": "LINUX-INITRAMFS-NEWC",
+      "clause": "c_namesize lines 82-85",
+      "normativity": "shall",
+      "summary": "The stored name ends in one or more NUL bytes and its encoded size does not exceed PATH_MAX.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "filename_len"}],
+      "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "reader_rejects_non_nul_filename_terminator", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "LINUX-INITRAMFS-NEWC:c-check#crc-byte-sum",
+      "source": "LINUX-INITRAMFS-NEWC",
+      "clause": "c_check lines 87-91",
+      "normativity": "shall",
+      "summary": "For 070702 entries c_check equals the wrapping sum of data bytes; for 070701 it is zero.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "verify_checksum"}],
+      "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "crc_reader_rejects_corrupt_data", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "LINUX-INITRAMFS-NEWC:trailer#zero-filesize",
+      "source": "LINUX-INITRAMFS-NEWC",
+      "clause": "TRAILER!!! lines 93-94",
+      "normativity": "shall",
+      "summary": "The TRAILER!!! end marker has a zero file-data size.",
+      "direction": "both",
+      "status": "partial",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "CpioArchiveReader::next_entry_alloc"}],
+      "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "trailer_detection", "kind": "integration"}],
+      "gap": "Writer output and reader validation are implemented, but the test only exercises a valid marker."
+    },
+    {
+      "id": "LINUX-INITRAMFS-NEWC:hard-links#tuple-and-link-count",
+      "source": "LINUX-INITRAMFS-NEWC",
+      "clause": "Hard Links lines 96-114",
+      "normativity": "shall",
+      "summary": "Nondirectory hard-link members share their device and inode tuple and report the complete link count.",
+      "direction": "both",
+      "status": "partial",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/write/mod.rs", "name": "ArchiveEncoder::write_entry"}],
+      "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "hard_link_group_uses_total_link_count", "kind": "integration"}],
+      "gap": "Manual creation writes consistent groups, but the reader does not reconstruct tuple relationships and filesystem scanning does not preserve host hard links."
+    },
+    {
+      "id": "LINUX-INITRAMFS-NEWC:hard-links#symlink-data",
+      "source": "LINUX-INITRAMFS-NEWC",
+      "clause": "Hard Links lines 108-114",
+      "normativity": "shall",
+      "summary": "A symbolic-link entry carries a nonempty target in its file-data field.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/write/mod.rs", "name": "ArchiveEncoder::write_entry"}],
+      "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "writer_rejects_empty_symlink_target", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "LINUX-INITRAMFS-NEWC:archive#optional-trailer",
+      "source": "LINUX-INITRAMFS-NEWC",
+      "clause": "Buffer Format lines 39 and 49",
+      "normativity": "may",
+      "summary": "An individual archive may end at aligned input exhaustion without a TRAILER!!! marker.",
+      "direction": "read",
+      "status": "not_implemented",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/error.rs", "name": "Error::MissingTrailer"}],
+      "tests": [],
+      "gap": "The streaming reader currently expects another header and reports I/O failure at a trailerless aligned end."
+    },
+    {
+      "id": "GNU-CPIO:newc-format#maximum-file-size",
+      "source": "GNU-CPIO",
+      "clause": "Archive formats lines 864-871",
+      "normativity": "informative",
+      "summary": "GNU documents the newc per-file size ceiling as 4,294,967,295 bytes.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/error.rs", "name": "Error::FileTooLarge"}],
+      "tests": [],
+      "gap": null
+    },
+    {
+      "id": "GNU-CPIO:only-verify-crc#verify-every-file",
+      "source": "GNU-CPIO",
+      "clause": "--only-verify-crc lines 453-456",
+      "normativity": "informative",
+      "summary": "GNU copy-in can verify every CRC-format member without extracting its contents.",
+      "direction": "read",
+      "status": "partial",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "CpioArchiveReader::skip_entry_data_owned"}],
+      "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "crc_reader_rejects_corrupt_data", "kind": "integration"}],
+      "gap": "Skipping now verifies each member checksum, but the crate has no whole-archive convenience operation equivalent to GNU copy-in mode."
+    }
+  ]
+}
