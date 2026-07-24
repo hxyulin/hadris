@@ -76,6 +76,8 @@ CI runs the grammar + table-sync check (never `cargo fuzz`):
 ```bash
 python3 scripts/check-spec-annotations.py --self-test
 python3 scripts/check-spec-annotations.py
+python3 scripts/check-compliance-catalog.py --self-test
+python3 scripts/check-compliance-catalog.py
 ```
 
 ## Docs

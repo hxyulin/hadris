@@ -5,5 +5,10 @@
 /website/.docusaurus/
 /test-images/output/
 
+# Authoritative standards and extracted text are local audit inputs. Their
+# redistribution terms vary, so only provenance and original compliance
+# catalogs are tracked.
+/.spec-cache/
+
 # Macos
 .DS_Store
