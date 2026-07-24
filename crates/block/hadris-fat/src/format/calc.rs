@@ -78,6 +78,12 @@ pub fn calculate_params(options: &FatFormatOptions) -> Result<FormatParams> {
             reason: "must be a power of 2 and <= 128",
         });
     }
+    if sectors_per_cluster as usize * sector_size > 32 * 1024 {
+        return Err(Error::InvalidFormatOption {
+            option: "sectors_per_cluster",
+            reason: "cluster size must not exceed 32 KiB",
+        });
+    }
 
     // Calculate reserved sectors
     let reserved_sectors: u16 = match fat_type {

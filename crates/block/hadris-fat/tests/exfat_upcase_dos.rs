@@ -66,3 +66,16 @@ fn oversized_upcase_data_length_does_not_preallocate() {
     let result = table.load(&mut data, &info, 2, 0x1_0000_0000, true);
     assert!(result.is_err());
 }
+
+#[test]
+fn checked_upcase_load_rejects_checksum_mismatch() {
+    let info = tiny_info();
+    let mut data = Cursor::new(vec![0xFF, 0xFF, 1, 0]);
+    let mut table = UpcaseTable::new();
+
+    let result = table.load_checked(&mut data, &info, 2, 4, true, 0);
+    assert!(matches!(
+        result,
+        Err(hadris_fat::Error::ExFatInvalidChecksum { .. })
+    ));
+}

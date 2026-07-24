@@ -340,6 +340,9 @@ pub fn parse_entry_set(entries: &[RawDirectoryEntry]) -> Option<(ExFatFileEntry,
     if entries.len() < total_entries {
         return None; // Not enough entries
     }
+    if compute_entry_set_checksum(&entries[..total_entries]) != primary.set_checksum.get() {
+        return None;
+    }
 
     // Second entry must be a Stream Extension Entry
     let stream = unsafe { &entries[1].stream };

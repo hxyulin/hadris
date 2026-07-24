@@ -355,6 +355,11 @@ where
             });
         }
         let cluster_size = (bpb.sectors_per_cluster as usize) * sector_size;
+        if cluster_size > 32 * 1024 {
+            return Err(Error::CorruptFilesystem {
+                context: "BPB cluster size must not exceed 32 KiB",
+            });
+        }
         let data = SectorCursor::new(data, sector_size, cluster_size);
 
         // Determine FAT type by checking root_entry_count and sectors_per_fat_16
@@ -542,6 +547,11 @@ where
         let signature = bpb_ext32.signature_word.get();
         if signature != 0xAA55 {
             return Err(Error::InvalidBootSignature { found: signature });
+        }
+        if bpb_ext32.version != [0, 0] {
+            return Err(Error::CorruptFilesystem {
+                context: "unsupported FAT32 filesystem version",
+            });
         }
 
         // FAT requires 1 or 2 file allocation tables (BPB_NumFATs) — see the

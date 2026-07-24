@@ -3,6 +3,7 @@
 //! These tests cover edge cases, extensions, and various scenarios for FAT12/16/32.
 //! Tests are designed to run without external tools where possible.
 
+use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter, SectorSize};
 use hadris_fat::{Error, FatType, FatVolume};
 use std::io::Cursor;
 
@@ -488,6 +489,17 @@ mod fat_type_detection_tests {
             }
         }
     }
+
+    #[test]
+    fn fat32_rejects_unknown_filesystem_version() {
+        let mut data = create_fat32_boot_sector(512, 8, 32, 2, 100000, 2048, 2);
+        data[42..44].copy_from_slice(&1_u16.to_le_bytes());
+
+        assert!(matches!(
+            FatVolume::open(Cursor::new(data)),
+            Err(Error::CorruptFilesystem { .. })
+        ));
+    }
 }
 
 // =============================================================================
@@ -786,6 +798,9 @@ mod directory_entry_tests {
 mod cluster_chain_tests {
     // These tests verify the logic for cluster chain traversal
 
+    use hadris_fat::Fat32;
+    use std::io::Cursor;
+
     #[test]
     fn test_fat12_cluster_values() {
         // FAT12 uses 12 bits per entry
@@ -842,6 +857,27 @@ mod cluster_chain_tests {
     }
 
     #[test]
+    fn fat32_writes_preserve_each_copy_reserved_high_bits() {
+        let mut bytes = vec![0_u8; 32];
+        bytes[8..12].copy_from_slice(&0xA000_0000_u32.to_le_bytes());
+        bytes[24..28].copy_from_slice(&0xB000_0000_u32.to_le_bytes());
+
+        let fat = Fat32::new(0, 16, 2, 3);
+        let mut cursor = Cursor::new(bytes);
+        fat.write_clus(&mut cursor, 2, 0x0FFF_FFF7).unwrap();
+        let bytes = cursor.into_inner();
+
+        assert_eq!(
+            u32::from_le_bytes(bytes[8..12].try_into().unwrap()),
+            0xAFFF_FFF7
+        );
+        assert_eq!(
+            u32::from_le_bytes(bytes[24..28].try_into().unwrap()),
+            0xBFFF_FFF7
+        );
+    }
+
+    #[test]
     fn test_cluster_to_sector_calculation() {
         // Cluster to sector: ((cluster - 2) * sectors_per_cluster) + first_data_sector
         let cluster = 5u32;
@@ -893,12 +929,25 @@ mod edge_case_tests {
     }
 
     #[test]
-    fn test_maximum_cluster_size() {
-        // FAT32 allows up to 64KB clusters (128 sectors of 512 bytes)
-        // But typical maximum is 32KB (64 sectors)
-        let max_sectors_per_cluster = 128u8;
-        let bytes_per_cluster = max_sectors_per_cluster as u32 * 512;
-        assert_eq!(bytes_per_cluster, 65536); // 64KB
+    fn reader_rejects_clusters_larger_than_32k() {
+        let data = create_fat32_boot_sector(512, 128, 32, 2, 100000, 2048, 2);
+        let cursor = Cursor::new(data);
+
+        assert!(matches!(
+            FatVolume::open(cursor),
+            Err(Error::CorruptFilesystem { .. })
+        ));
+
+        let options = FatFormatOptions::new(64 * 1024 * 1024)
+            .sector_size(SectorSize::S4096)
+            .sectors_per_cluster(16);
+        assert!(matches!(
+            FatVolumeFormatter::calculate_params(&options),
+            Err(Error::InvalidFormatOption {
+                option: "sectors_per_cluster",
+                ..
+            })
+        ));
     }
 
     #[test]

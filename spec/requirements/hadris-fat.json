@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "crate": "block/hadris-fat",
+  "profile": "FAT12/FAT16/FAT32 and exFAT reader/writer",
+  "requirements": [
+    {
+      "id": "MICROSOFT-FAT-1.03:bpb#sector-and-cluster-size",
+      "source": "MICROSOFT-FAT-1.03",
+      "clause": "Boot Sector and BPB, BPB_BytsPerSec and BPB_SecPerClus",
+      "normativity": "shall",
+      "summary": "Sector size is one of 512, 1024, 2048, or 4096 bytes; sectors per cluster is a nonzero power of two and the resulting cluster is no larger than 32 KiB.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [
+        {"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_with_providers"},
+        {"path": "crates/block/hadris-fat/src/format/calc.rs", "name": "calculate_params"}
+      ],
+      "tests": [
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_valid_sector_sizes", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "reader_rejects_clusters_larger_than_32k", "kind": "integration"}
+      ],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-FAT-1.03:fat-type-determination#cluster-count-thresholds",
+      "source": "MICROSOFT-FAT-1.03",
+      "clause": "FAT Type Determination",
+      "normativity": "shall",
+      "summary": "FAT12, FAT16, and FAT32 are selected from the count of data clusters rather than the informational filesystem-type string.",
+      "direction": "read",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_fat12_16"}],
+      "tests": [
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_detect_fat12", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_detect_fat16", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_detect_fat32", "kind": "integration"}
+      ],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-FAT-1.03:fat32-bpb#filesystem-version",
+      "source": "MICROSOFT-FAT-1.03",
+      "clause": "FAT32 Structure, BPB_FSVer",
+      "normativity": "shall",
+      "summary": "A FAT32 driver rejects a volume whose filesystem version is not the defined 0.0 version.",
+      "direction": "read",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_fat32"}],
+      "tests": [{"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "fat32_rejects_unknown_filesystem_version", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-FAT-1.03:fat32-bpb#active-fat",
+      "source": "MICROSOFT-FAT-1.03",
+      "clause": "FAT32 Structure, BPB_ExtFlags",
+      "normativity": "shall",
+      "summary": "When FAT mirroring is disabled, reads and writes use only the active FAT selected by BPB_ExtFlags.",
+      "direction": "both",
+      "status": "not_implemented",
+      "symbols": [{"path": "crates/block/hadris-fat/src/raw.rs", "name": "BpbExt32Flags"}],
+      "tests": [],
+      "gap": "The flags are represented but the mounted volume always reads FAT copy zero and mirrors writes to every copy."
+    },
+    {
+      "id": "MICROSOFT-FAT-1.03:fat-data#fat32-reserved-high-bits",
+      "source": "MICROSOFT-FAT-1.03",
+      "clause": "FAT Data Structure, FAT32 entry access",
+      "normativity": "shall",
+      "summary": "Ordinary FAT32 entry updates change only the low 28 bits and preserve the existing reserved high four bits.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [
+        {"path": "crates/block/hadris-fat/src/fat_table.rs", "name": "Fat32::write_clus"},
+        {"path": "crates/block/hadris-fat/src/cache.rs", "name": "FatSectorCache::write_fat32_entry"}
+      ],
+      "tests": [
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "fat32_writes_preserve_each_copy_reserved_high_bits", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/cache_integration.rs", "name": "cache_fat32_writes_preserve_reserved_high_bits", "kind": "integration"}
+      ],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-FAT-1.03:fat-data#chain-markers",
+      "source": "MICROSOFT-FAT-1.03",
+      "clause": "FAT Data Structure, cluster values and end-of-chain marks",
+      "normativity": "shall",
+      "summary": "Each FAT width recognizes its defined free, bad-cluster, and end-of-chain value ranges while traversing allocation chains.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-fat/src/fat_table.rs", "name": "Fat"}],
+      "tests": [
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_fat12_cluster_values", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_fat16_cluster_values", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_fat32_cluster_values", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "test_read_returns_cluster_loop_on_2cycle", "kind": "integration"}
+      ],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-FAT-1.03:fsinfo#signatures-and-unknown-values",
+      "source": "MICROSOFT-FAT-1.03",
+      "clause": "FAT32 FSInfo Sector Structure",
+      "normativity": "shall",
+      "summary": "FAT32 FSInfo signatures are validated and the all-ones free-count and next-free values are accepted as unknown hints.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [
+        {"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_fat32"},
+        {"path": "crates/block/hadris-fat/src/format/init.rs", "name": "write_fsinfo"}
+      ],
+      "tests": [
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_invalid_fsinfo_signature1", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_invalid_fsinfo_signature2", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "test_fsinfo_unknown_sentinels_mount_successfully", "kind": "integration"}
+      ],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-FAT-1.03:backup-boot#recovery-copy",
+      "source": "MICROSOFT-FAT-1.03",
+      "clause": "FAT32 FSInfo Sector Structure and Backup Boot Sector",
+      "normativity": "should",
+      "summary": "A FAT32 formatter creates the backup boot and FSInfo copies and a reader can use the backup when the primary boot record is unusable.",
+      "direction": "both",
+      "status": "partial",
+      "symbols": [{"path": "crates/block/hadris-fat/src/format/init.rs", "name": "write_backup_boot_sector"}],
+      "tests": [{"path": "crates/block/hadris-fat/tests/fat_roundtrip.rs", "name": "fat32_format_is_clean", "kind": "interop"}],
+      "gap": "Formatting writes sectors 6 and 7, but mounting does not attempt recovery from the backup boot record."
+    },
+    {
+      "id": "MICROSOFT-FAT-1.03:directory#free-entry-markers",
+      "source": "MICROSOFT-FAT-1.03",
+      "clause": "FAT Directory Structure, DIR_Name",
+      "normativity": "shall",
+      "summary": "Directory iteration treats 0xE5 as a deleted slot and 0x00 as the end of all used directory entries.",
+      "direction": "read",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-fat/src/dir.rs", "name": "FatDirIter"}],
+      "tests": [
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_deleted_entry_marker", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_end_of_directory_marker", "kind": "integration"}
+      ],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-FAT-1.03:long-directory-entries#sequence-and-checksum",
+      "source": "MICROSOFT-FAT-1.03",
+      "clause": "FAT Long Directory Entries",
+      "normativity": "shall",
+      "summary": "Long-name slots are ordered, carry the long-name attributes, and use the checksum derived from their associated short-name entry.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [
+        {"path": "crates/block/hadris-fat/src/file.rs", "name": "LfnBuilder"},
+        {"path": "crates/block/hadris-fat/src/write.rs", "name": "build_lfn_entries"}
+      ],
+      "tests": [
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_lfn_builder_sequence", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "lfn_checksum_matches_short_name", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "lfn_padding_uses_terminator_then_filler", "kind": "integration"}
+      ],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-EXFAT-1.00:boot-checksum#main-region",
+      "source": "MICROSOFT-EXFAT-1.00",
+      "clause": "3.4 Main and Backup Boot Checksum Sub-regions",
+      "normativity": "shall",
+      "summary": "The main exFAT boot checksum covers sectors zero through ten with the mutable fields excluded, and every checksum-sector entry matches it.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [
+        {"path": "crates/block/hadris-fat/src/exfat/boot.rs", "name": "ExFatBootSector::validate_checksum"},
+        {"path": "crates/block/hadris-fat/src/exfat/format.rs", "name": "write_boot_checksum"}
+      ],
+      "tests": [{"path": "crates/block/hadris-fat/tests/test_exfat.rs", "name": "mount_rejects_invalid_boot_region_checksum", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-EXFAT-1.00:boot-regions#backup-selection",
+      "source": "MICROSOFT-EXFAT-1.00",
+      "clause": "3 Main and Backup Boot Regions",
+      "normativity": "shall",
+      "summary": "Mounting validates both boot regions and selects a usable region according to the specification when one copy is invalid.",
+      "direction": "read",
+      "status": "not_implemented",
+      "symbols": [{"path": "crates/block/hadris-fat/src/exfat/fs.rs", "name": "ExFatVolume::open"}],
+      "tests": [],
+      "gap": "Mounting validates only the main boot region and does not fall back to the backup region."
+    },
+    {
+      "id": "MICROSOFT-EXFAT-1.00:allocation-bitmap#cluster-state",
+      "source": "MICROSOFT-EXFAT-1.00",
+      "clause": "7.1 Allocation Bitmap Directory Entry",
+      "normativity": "shall",
+      "summary": "The allocation bitmap records whether each cluster in the cluster heap is available or allocated.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-fat/src/exfat/bitmap.rs", "name": "AllocationBitmap"}],
+      "tests": [{"path": "crates/block/hadris-fat/src/exfat/bitmap.rs", "name": "test_bitmap_bit_operations", "kind": "unit"}],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-EXFAT-1.00:upcase-table#checksum",
+      "source": "MICROSOFT-EXFAT-1.00",
+      "clause": "7.2 Up-case Table Directory Entry",
+      "normativity": "shall",
+      "summary": "The exFAT up-case table data matches the checksum stored in its root-directory metadata before it is used for name matching.",
+      "direction": "read",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-fat/src/exfat/upcase.rs", "name": "UpcaseTable::load_checked"}],
+      "tests": [{"path": "crates/block/hadris-fat/tests/exfat_upcase_dos.rs", "name": "checked_upcase_load_rejects_checksum_mismatch", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-EXFAT-1.00:upcase-table#fragmented-storage",
+      "source": "MICROSOFT-EXFAT-1.00",
+      "clause": "7.2.5 Up-case Table",
+      "normativity": "shall",
+      "summary": "An up-case table whose allocation is described by a FAT chain can be loaded when it is not physically contiguous.",
+      "direction": "read",
+      "status": "not_implemented",
+      "symbols": [{"path": "crates/block/hadris-fat/src/exfat/upcase.rs", "name": "UpcaseTable::load"}],
+      "tests": [],
+      "gap": "The loader explicitly rejects fragmented up-case tables instead of following their FAT chain."
+    },
+    {
+      "id": "MICROSOFT-EXFAT-1.00:file-entry-set#checksum",
+      "source": "MICROSOFT-EXFAT-1.00",
+      "clause": "7.4 File Directory Entry, SetChecksum",
+      "normativity": "shall",
+      "summary": "A file directory entry set is accepted only when its stored checksum matches the complete primary and secondary entry set.",
+      "direction": "both",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-fat/src/exfat/entry.rs", "name": "parse_entry_set"}],
+      "tests": [{"path": "crates/block/hadris-fat/src/exfat/entry_writer.rs", "name": "parser_rejects_an_invalid_entry_set_checksum", "kind": "unit"}],
+      "gap": null
+    }
+  ]
+}
