@@ -807,7 +807,7 @@ impl Debug for SupplementaryVolumeDescriptor {
 ///
 /// @hadris-spec ECMA-119:8.3
 /// @hadris-compliance full
-/// @hadris-tests comprehensive_iso::test_pvd_standard_identifier
+/// @hadris-tests comprehensive_iso::test_volume_descriptor_set_terminator
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]

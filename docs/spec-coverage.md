@@ -75,7 +75,7 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
 | ECMA-119:8.2 | `BootRecordVolumeDescriptor` | full | `xorriso_boot::test_hadris_multisection_boot_catalog` | `iso_read` | Locates the El Torito boot catalog |
-| ECMA-119:8.3 | `VolumeDescriptorSetTerminator` | full | `comprehensive_iso::test_pvd_standard_identifier` | `iso_read` | |
+| ECMA-119:8.3 | `VolumeDescriptorSetTerminator` | full | `comprehensive_iso::test_volume_descriptor_set_terminator` | `iso_read` | |
 | ECMA-119:8.4 | `PrimaryVolumeDescriptor` | full | `comprehensive_iso::test_pvd_standard_identifier` | `iso_read` | |
 | ECMA-119:8.5 | `SupplementaryVolumeDescriptor` | partial | | `iso_read` | Joliet SVD is read/written (UCS-2, BMP only); the version-2 "enhanced" form is repurposed as a UDF-bridge signal rather than a conformant ISO 9660:1999 secondary descriptor. |
 | ECMA-119:9.1 | `DirectoryRecordHeader` | full | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Fixed fields; covered by parse roundtrip |
