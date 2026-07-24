@@ -111,6 +111,12 @@ impl GptHeaderWriteExt for GptHeader {
         lba: u64,
         block_size: u32,
     ) -> crate::error::Result<()> {
+        if block_size < GptHeaderRaw::SIZE as u32 {
+            return Err(crate::error::Error::InvalidBlockSize {
+                size: block_size,
+                minimum: GptHeaderRaw::SIZE as u32,
+            });
+        }
         writer
             .seek(SeekFrom::Start(lba * block_size as u64))
             .await
@@ -123,13 +129,15 @@ impl GptHeaderWriteExt for GptHeader {
             .map_err(crate::error::Error::from)?;
 
         // Pad to block size
-        let padding_size = block_size as usize - GptHeaderRaw::SIZE;
-        if padding_size > 0 {
-            let padding = [0u8; 512]; // Use 512 as max typical block size
+        let mut padding_size = block_size as usize - GptHeaderRaw::SIZE;
+        let padding = [0u8; 512];
+        while padding_size > 0 {
+            let chunk = padding_size.min(padding.len());
             writer
-                .write_all(&padding[..padding_size.min(512)])
+                .write_all(&padding[..chunk])
                 .await
                 .map_err(crate::error::Error::from)?;
+            padding_size -= chunk;
         }
 
         Ok(())

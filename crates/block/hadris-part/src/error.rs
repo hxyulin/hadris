@@ -94,6 +94,14 @@ pub enum Error {
         size: u32,
     },
 
+    /// A logical block is too small to contain the requested structure.
+    InvalidBlockSize {
+        /// Supplied logical block size in bytes.
+        size: u32,
+        /// Minimum required size in bytes.
+        minimum: u32,
+    },
+
     /// The backup GPT header does not match the primary.
     BackupHeaderMismatch,
 
@@ -154,6 +162,9 @@ impl Display for Error {
                     f,
                     "GPT entries CRC mismatch: expected 0x{expected:08X}, got 0x{actual:08X}"
                 )
+            }
+            Self::InvalidBlockSize { size, minimum } => {
+                write!(f, "invalid block size {size}; minimum is {minimum} bytes")
             }
             Self::BackupHeaderIo { lba, source } => {
                 write!(f, "failed to read backup GPT header at LBA {lba}: {source}")
