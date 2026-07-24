@@ -61,6 +61,7 @@ where
         // Read and validate the boot sector
         let boot = ExFatBootSector::read(&mut data)?;
         let info = boot.info().clone();
+        ExFatBootSector::validate_checksum(&mut data, info.bytes_per_sector)?;
 
         // Create sector cursor
         let cursor = SectorCursor::new(data, info.bytes_per_sector, info.bytes_per_cluster);
@@ -111,16 +112,18 @@ where
                         // We'll load the upcase table after this loop
                         let first_cluster = upcase_entry.first_cluster.get();
                         let size = upcase_entry.data_length.get();
+                        let checksum = upcase_entry.table_checksum.get();
 
                         // Load immediately since we have the guard
                         drop(guard);
                         let mut guard2 = data.lock();
-                        upcase.load(
+                        upcase.load_checked(
                             &mut guard2.data,
                             &info,
                             first_cluster,
                             size,
                             true, // Assume contiguous
+                            checksum,
                         )?;
                         guard = guard2;
                     }

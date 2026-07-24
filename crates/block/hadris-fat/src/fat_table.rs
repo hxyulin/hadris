@@ -1160,29 +1160,34 @@ impl Fat32 {
 
     /// Write a cluster entry to the FAT table at the specified FAT copy
     #[cfg(feature = "write")]
-    async fn write_clus_at<T: Write + Seek>(
+    async fn write_clus_at<T: Read + Write + Seek>(
         &self,
-        writer: &mut T,
+        io: &mut T,
         cluster: usize,
         value: u32,
         fat_index: usize,
     ) -> Result<()> {
         let offset = self.start + fat_index * self.size + cluster * size_of::<u32>();
-        writer.seek(SeekFrom::Start(offset as u64)).await?;
-        writer.write_all(&value.to_le_bytes()).await?;
+        io.seek(SeekFrom::Start(offset as u64)).await?;
+        let mut existing = [0_u8; size_of::<u32>()];
+        io.read_exact(&mut existing).await?;
+        let preserved = u32::from_le_bytes(existing) & !Self::ENTRY_MASK;
+        let updated = preserved | (value & Self::ENTRY_MASK);
+        io.seek(SeekFrom::Start(offset as u64)).await?;
+        io.write_all(&updated.to_le_bytes()).await?;
         Ok(())
     }
 
     /// Write a cluster entry to all FAT table copies
     #[cfg(feature = "write")]
-    pub async fn write_clus<T: Write + Seek>(
+    pub async fn write_clus<T: Read + Write + Seek>(
         &self,
-        writer: &mut T,
+        io: &mut T,
         cluster: usize,
         value: u32,
     ) -> Result<()> {
         for i in 0..self.count {
-            self.write_clus_at(writer, cluster, value, i).await?;
+            self.write_clus_at(io, cluster, value, i).await?;
         }
         Ok(())
     }

@@ -128,6 +128,15 @@ mod boot_sector_tests {
     }
 
     #[test]
+    fn mount_rejects_invalid_boot_region_checksum() {
+        let mut data = load_partition_image();
+        data[512] ^= 1;
+
+        let result = ExFatVolume::open(Cursor::new(data));
+        assert!(matches!(result, Err(Error::ExFatInvalidChecksum { .. })));
+    }
+
+    #[test]
     fn test_cluster_to_offset() {
         let data = load_boot_sectors();
         let mut cursor = Cursor::new(data);

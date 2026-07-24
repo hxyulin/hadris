@@ -236,6 +236,7 @@ fn to_raw_entry<T: bytemuck::NoUninit>(entry: &T) -> RawDirectoryEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exfat::entry::parse_entry_set;
 
     #[test]
     fn test_entry_set_builder() {
@@ -253,6 +254,18 @@ mod tests {
             entry_type::STREAM_EXTENSION
         );
         assert_eq!(unsafe { entries[2].entry_type }, entry_type::FILE_NAME);
+    }
+
+    #[test]
+    fn parser_rejects_an_invalid_entry_set_checksum() {
+        let upcase = UpcaseTable::create_default();
+        let builder = EntrySetBuilder::file("test.txt").unwrap();
+        let mut entries = builder.build(&upcase);
+        unsafe {
+            entries[2].bytes[2] ^= 1;
+        }
+
+        assert!(parse_entry_set(&entries).is_none());
     }
 
     #[test]

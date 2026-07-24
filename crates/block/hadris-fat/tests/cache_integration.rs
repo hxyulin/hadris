@@ -158,6 +158,37 @@ fn cache_writes_persist_across_remount_after_flush() {
     let _ = FatVolume::open(Cursor::new(&bytes[..])).expect("re-open after flush");
 }
 
+#[test]
+fn cache_fat32_writes_preserve_reserved_high_bits() {
+    let mut bytes = vec![0u8; FAT32_SIZE];
+    let opts = fat32_options();
+    let layout = format_into_buffer(&mut bytes, &opts);
+    patch_fat32_entry_all_copies(&mut bytes, &layout, 100, 0xA000_0000);
+
+    {
+        let cursor = Cursor::new(&mut bytes[..]);
+        let fs = FatVolume::builder(cursor)
+            .fat_cache(8)
+            .open()
+            .expect("open");
+        fs.with_fat_cache_locked(|cache, disk| {
+            cache
+                .write_fat32_entry(disk, 100, 0x0FFF_FFF7)
+                .expect("write_fat32_entry");
+        })
+        .expect("with_fat_cache_locked");
+        fs.flush().expect("flush");
+    }
+
+    for copy in 0..layout.fat_count {
+        let offset = layout.fat32_entry_offset(copy, 100);
+        assert_eq!(
+            u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()),
+            0xAFFF_FFF7
+        );
+    }
+}
+
 // =============================================================================
 // Dirty eviction (regression test)
 // =============================================================================

@@ -50,6 +50,38 @@ impl UpcaseTable {
         size: u64,
         is_contiguous: bool,
     ) -> Result<()> {
+        self.load_impl(data, info, first_cluster, size, is_contiguous, None)
+    }
+
+    /// Load an up-case table and validate it against its directory-entry checksum.
+    pub fn load_checked<DATA: Read + Seek>(
+        &mut self,
+        data: &mut DATA,
+        info: &ExFatInfo,
+        first_cluster: u32,
+        size: u64,
+        is_contiguous: bool,
+        expected_checksum: u32,
+    ) -> Result<()> {
+        self.load_impl(
+            data,
+            info,
+            first_cluster,
+            size,
+            is_contiguous,
+            Some(expected_checksum),
+        )
+    }
+
+    fn load_impl<DATA: Read + Seek>(
+        &mut self,
+        data: &mut DATA,
+        info: &ExFatInfo,
+        first_cluster: u32,
+        size: u64,
+        is_contiguous: bool,
+        expected_checksum: Option<u32>,
+    ) -> Result<()> {
         // `size` is the untrusted `data_length` of the up-case table directory
         // entry — a full u64. Bound it against the volume's cluster heap before
         // allocating, otherwise a corrupt entry in a tiny image could claim
@@ -75,6 +107,13 @@ impl UpcaseTable {
             return Err(Error::UnsupportedFatType(
                 "fragmented exFAT upcase table not yet supported",
             ));
+        }
+
+        if let Some(expected) = expected_checksum {
+            let found = compute_upcase_checksum(&raw_data);
+            if found != expected {
+                return Err(Error::ExFatInvalidChecksum { expected, found });
+            }
         }
 
         // Decompress the table

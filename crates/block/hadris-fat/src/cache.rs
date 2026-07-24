@@ -586,7 +586,13 @@ impl FatSectorCache {
         let offset_in_sector = byte_offset % sector_size;
 
         let data = self.get_sector_mut(io, sector)?;
-        let bytes = value.to_le_bytes();
+        let existing = u32::from_le_bytes([
+            data[offset_in_sector],
+            data[offset_in_sector + 1],
+            data[offset_in_sector + 2],
+            data[offset_in_sector + 3],
+        ]);
+        let bytes = ((existing & 0xF000_0000) | (value & 0x0FFF_FFFF)).to_le_bytes();
         data[offset_in_sector] = bytes[0];
         data[offset_in_sector + 1] = bytes[1];
         data[offset_in_sector + 2] = bytes[2];
