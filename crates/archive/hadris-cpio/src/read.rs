@@ -11,6 +11,28 @@ fn align4_padding(offset: u64) -> u64 {
     (4 - (offset % 4)) % 4
 }
 
+const PATH_MAX: usize = 4096;
+
+fn validate_header(magic: CpioMagic, header: &CpioEntryHeader) -> Result<()> {
+    if magic == CpioMagic::Newc && header.check != 0 {
+        return Err(Error::InvalidHeader {
+            reason: "070701 c_check must be zero",
+        });
+    }
+    Ok(())
+}
+
+fn filename_len(bytes: &[u8]) -> Result<usize> {
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    if bytes[end..].iter().any(|byte| *byte != 0) {
+        return Err(Error::InvalidFilename);
+    }
+    Ok(end)
+}
+
 /// A decoded CPIO entry that borrows its filename from a caller-provided buffer.
 ///
 /// This is the no-alloc variant returned by [`CpioArchiveReader::next_entry_with_buf`].
@@ -168,9 +190,10 @@ impl<R: Read> CpioArchiveReader<R> {
         })?;
 
         let header = CpioEntryHeader::from_raw(&raw)?;
+        validate_header(magic, &header)?;
         let namesize = raw.namesize()? as usize;
 
-        if namesize == 0 {
+        if namesize == 0 || namesize > PATH_MAX {
             return Err(Error::InvalidFilename);
         }
 
@@ -195,16 +218,25 @@ impl<R: Read> CpioArchiveReader<R> {
         let mut nul = [0u8; 1];
         self.reader.read_exact(&mut nul).await?;
         self.offset += 1;
+        if nul[0] != 0 {
+            return Err(Error::InvalidFilename);
+        }
+        let name_len = filename_len(&name_buf[..name_len])?;
 
         // Skip padding to align (header + namesize) to 4-byte boundary
         let header_plus_name = HEADER_SIZE as u64 + namesize as u64;
         let pad = align4_padding(header_plus_name);
         if pad > 0 {
-            self.skip_bytes(pad).await?;
+            self.skip_zero_padding(pad).await?;
         }
 
         // Check for TRAILER!!!
         if &name_buf[..name_len] == TRAILER_NAME {
+            if header.filesize != 0 {
+                return Err(Error::InvalidHeader {
+                    reason: "TRAILER!!! c_filesize must be zero",
+                });
+            }
             self.finished = true;
             return Ok(None);
         }
@@ -226,38 +258,85 @@ impl<R: Read> CpioArchiveReader<R> {
             self.reader.read_exact(&mut buf[..size]).await?;
             self.offset += size as u64;
         }
+        self.verify_checksum(entry.magic, entry.header.check, buf)?;
         // Skip data padding
         let pad = align4_padding(entry.file_size() as u64);
         if pad > 0 {
-            self.skip_bytes(pad).await?;
+            self.skip_zero_padding(pad).await?;
         }
         Ok(())
     }
 
     /// Skip over entry data without reading it.
     pub async fn skip_entry_data(&mut self, entry: &CpioEntry<'_>) -> Result<()> {
-        let size = entry.file_size() as u64;
-        let pad = align4_padding(size);
-        self.skip_bytes(size + pad).await?;
+        self.skip_data_and_verify(entry.magic, entry.header.check, entry.file_size())
+            .await?;
         Ok(())
     }
 
     /// Skip over entry data for an owned entry.
     #[cfg(feature = "alloc")]
     pub async fn skip_entry_data_owned(&mut self, entry: &CpioEntryOwned) -> Result<()> {
-        let size = entry.file_size() as u64;
-        let pad = align4_padding(size);
-        self.skip_bytes(size + pad).await?;
+        self.skip_data_and_verify(entry.magic, entry.header.check, entry.file_size())
+            .await?;
         Ok(())
     }
 
-    async fn skip_bytes(&mut self, mut n: u64) -> Result<()> {
+    async fn skip_zero_padding(&mut self, mut n: u64) -> Result<()> {
         let mut discard = [0u8; 256];
         while n > 0 {
             let chunk = n.min(discard.len() as u64) as usize;
             self.reader.read_exact(&mut discard[..chunk]).await?;
             self.offset += chunk as u64;
+            if discard[..chunk].iter().any(|byte| *byte != 0) {
+                return Err(Error::InvalidHeader {
+                    reason: "alignment padding must be zero",
+                });
+            }
             n -= chunk as u64;
+        }
+        Ok(())
+    }
+
+    fn verify_checksum(&self, magic: CpioMagic, expected: u32, data: &[u8]) -> Result<()> {
+        if magic != CpioMagic::NewcCrc {
+            return Ok(());
+        }
+        let computed = data
+            .iter()
+            .fold(0_u32, |sum, byte| sum.wrapping_add(*byte as u32));
+        if computed != expected {
+            return Err(Error::ChecksumMismatch { expected, computed });
+        }
+        Ok(())
+    }
+
+    async fn skip_data_and_verify(
+        &mut self,
+        magic: CpioMagic,
+        expected: u32,
+        size: u32,
+    ) -> Result<()> {
+        let mut remaining = size as u64;
+        let mut computed = 0_u32;
+        let mut discard = [0_u8; 256];
+        while remaining > 0 {
+            let chunk = remaining.min(discard.len() as u64) as usize;
+            self.reader.read_exact(&mut discard[..chunk]).await?;
+            self.offset += chunk as u64;
+            if magic == CpioMagic::NewcCrc {
+                computed = discard[..chunk]
+                    .iter()
+                    .fold(computed, |sum, byte| sum.wrapping_add(*byte as u32));
+            }
+            remaining -= chunk as u64;
+        }
+        if magic == CpioMagic::NewcCrc && computed != expected {
+            return Err(Error::ChecksumMismatch { expected, computed });
+        }
+        let pad = align4_padding(size as u64);
+        if pad > 0 {
+            self.skip_zero_padding(pad).await?;
         }
         Ok(())
     }
@@ -310,9 +389,10 @@ impl<R: Read> CpioArchiveReader<R> {
         })?;
 
         let header = CpioEntryHeader::from_raw(&raw)?;
+        validate_header(magic, &header)?;
         let namesize = raw.namesize()? as usize;
 
-        if namesize == 0 {
+        if namesize == 0 || namesize > PATH_MAX {
             return Err(Error::InvalidFilename);
         }
 
@@ -323,16 +403,27 @@ impl<R: Read> CpioArchiveReader<R> {
         let mut nul = [0u8; 1];
         self.reader.read_exact(&mut nul).await?;
         self.offset += 1;
+        if nul[0] != 0 {
+            return Err(Error::InvalidFilename);
+        }
+        let name_len = filename_len(&name)?;
+        let mut name = name;
+        name.truncate(name_len);
 
         // Skip name padding
         let header_plus_name = HEADER_SIZE as u64 + namesize as u64;
         let pad = align4_padding(header_plus_name);
         if pad > 0 {
-            self.skip_bytes(pad).await?;
+            self.skip_zero_padding(pad).await?;
         }
 
         // Check for TRAILER!!!
         if name.as_slice() == TRAILER_NAME {
+            if header.filesize != 0 {
+                return Err(Error::InvalidHeader {
+                    reason: "TRAILER!!! c_filesize must be zero",
+                });
+            }
             self.finished = true;
             return Ok(None);
         }
@@ -352,9 +443,10 @@ impl<R: Read> CpioArchiveReader<R> {
     pub async fn read_entry_data_alloc(&mut self, entry: &CpioEntryOwned) -> Result<Vec<u8>> {
         let size = entry.file_size() as usize;
         let buf = self.read_exact_alloc(size).await?;
+        self.verify_checksum(entry.magic, entry.header.check, &buf)?;
         let pad = align4_padding(entry.file_size() as u64);
         if pad > 0 {
-            self.skip_bytes(pad).await?;
+            self.skip_zero_padding(pad).await?;
         }
         Ok(buf)
     }

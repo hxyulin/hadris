@@ -75,9 +75,11 @@ impl CpioEntryHeader {
         self.ino == 0 && self.mode == 0 && self.nlink == 1 && self.filesize == 0
     }
 
-    /// Returns true if this is a hard link (regular file with nlink > 1 and filesize == 0).
-    /// The actual data is stored only in the last link entry (with non-zero filesize).
+    /// Returns true if this record belongs to a hard-link group.
+    ///
+    /// Any member may carry the file data; zero size only means that this
+    /// particular record omits it.
     pub fn is_hard_link(&self) -> bool {
-        self.file_type() == FileType::Regular && self.nlink > 1 && self.filesize == 0
+        self.file_type() == FileType::Regular && self.nlink > 1
     }
 }
