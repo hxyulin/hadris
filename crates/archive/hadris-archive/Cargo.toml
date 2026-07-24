@@ -6,6 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 description = "Hadris facade for sequential archive formats"
 keywords = ["archive", "cpio", "initramfs", "no-std"]
 categories = ["no-std", "filesystem", "encoding"]
