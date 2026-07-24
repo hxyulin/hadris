@@ -8,7 +8,7 @@ use crate::error::{Error, Result};
 ///
 /// @hadris-spec ECMA-167:3/7.2
 /// @hadris-compliance full
-/// @hadris-tests comprehensive_udf::test_tag_structure
+/// @hadris-tests descriptor::tag::tests::validate_bytes_enforces_version_reserved_location_and_crc
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, bytemuck::Zeroable, bytemuck::Pod)]
@@ -37,7 +37,7 @@ impl DescriptorTag {
 
     /// Verify the tag checksum
     pub fn verify_checksum(&self) -> bool {
-        let bytes = bytemuck::bytes_of(self);
+        let bytes = self.to_disk_bytes();
         let mut sum: u8 = 0;
         for (i, &byte) in bytes.iter().enumerate() {
             if i != 4 {
@@ -78,11 +78,73 @@ impl DescriptorTag {
                 found: self.tag_identifier,
             });
         }
+        if !matches!(self.descriptor_version, 2 | 3) {
+            return Err(Error::InvalidVds("descriptor tag version must be 2 or 3"));
+        }
+        if self.reserved != 0 {
+            return Err(Error::InvalidVds(
+                "descriptor tag reserved byte must be zero",
+            ));
+        }
         if self.tag_location != location {
-            // Location mismatch is tolerated in some UDF implementations
-            // but we note it for debugging
+            return Err(Error::InvalidVds(
+                "descriptor tag location does not match its recorded block",
+            ));
         }
         Ok(())
+    }
+
+    pub(crate) fn from_disk_bytes(data: &[u8]) -> Result<Self> {
+        if data.len() < Self::SIZE {
+            return Err(Error::InvalidVds("descriptor tag is truncated"));
+        }
+        Ok(Self {
+            tag_identifier: u16::from_le_bytes([data[0], data[1]]),
+            descriptor_version: u16::from_le_bytes([data[2], data[3]]),
+            tag_checksum: data[4],
+            reserved: data[5],
+            tag_serial_number: u16::from_le_bytes([data[6], data[7]]),
+            descriptor_crc: u16::from_le_bytes([data[8], data[9]]),
+            descriptor_crc_length: u16::from_le_bytes([data[10], data[11]]),
+            tag_location: u32::from_le_bytes([data[12], data[13], data[14], data[15]]),
+        })
+    }
+
+    pub(crate) fn validate_bytes(
+        descriptor: &[u8],
+        expected: TagIdentifier,
+        location: u32,
+    ) -> Result<Self> {
+        let tag = Self::from_disk_bytes(descriptor)?;
+        tag.validate(expected, location)?;
+        let payload = descriptor
+            .get(Self::SIZE..)
+            .ok_or(Error::InvalidVds("descriptor payload is truncated"))?;
+        if tag.descriptor_crc_length as usize > payload.len() {
+            return Err(Error::InvalidVds(
+                "descriptor CRC length exceeds descriptor payload",
+            ));
+        }
+        if tag.descriptor_crc_length > 0 && !tag.verify_crc(payload) {
+            return Err(Error::CrcMismatch {
+                expected: tag.descriptor_crc,
+                computed: crc16_itu(&payload[..tag.descriptor_crc_length as usize]),
+            });
+        }
+        Ok(tag)
+    }
+
+    fn to_disk_bytes(self) -> [u8; Self::SIZE] {
+        let mut bytes = [0; Self::SIZE];
+        bytes[0..2].copy_from_slice(&self.tag_identifier.to_le_bytes());
+        bytes[2..4].copy_from_slice(&self.descriptor_version.to_le_bytes());
+        bytes[4] = self.tag_checksum;
+        bytes[5] = self.reserved;
+        bytes[6..8].copy_from_slice(&self.tag_serial_number.to_le_bytes());
+        bytes[8..10].copy_from_slice(&self.descriptor_crc.to_le_bytes());
+        bytes[10..12].copy_from_slice(&self.descriptor_crc_length.to_le_bytes());
+        bytes[12..16].copy_from_slice(&self.tag_location.to_le_bytes());
+        bytes
     }
 }
 
@@ -272,5 +334,63 @@ mod tests {
         tag.tag_checksum = sum;
 
         assert!(tag.verify_checksum());
+    }
+
+    fn descriptor_bytes(version: u16, reserved: u8, location: u32) -> [u8; 20] {
+        let mut bytes = [0u8; 20];
+        bytes[0..2].copy_from_slice(
+            &TagIdentifier::PrimaryVolumeDescriptor
+                .to_u16()
+                .to_le_bytes(),
+        );
+        bytes[2..4].copy_from_slice(&version.to_le_bytes());
+        bytes[5] = reserved;
+        let crc = crc16_itu(&bytes[16..]);
+        bytes[8..10].copy_from_slice(&crc.to_le_bytes());
+        bytes[10..12].copy_from_slice(&4u16.to_le_bytes());
+        bytes[12..16].copy_from_slice(&location.to_le_bytes());
+        bytes[4] = bytes
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index < 16 && *index != 4)
+            .fold(0u8, |sum, (_, byte)| sum.wrapping_add(*byte));
+        bytes
+    }
+
+    #[test]
+    fn validate_bytes_enforces_version_reserved_location_and_crc() {
+        let valid = descriptor_bytes(2, 0, 17);
+        assert!(
+            DescriptorTag::validate_bytes(&valid, TagIdentifier::PrimaryVolumeDescriptor, 17)
+                .is_ok()
+        );
+
+        assert!(
+            DescriptorTag::validate_bytes(
+                &descriptor_bytes(1, 0, 17),
+                TagIdentifier::PrimaryVolumeDescriptor,
+                17
+            )
+            .is_err()
+        );
+        assert!(
+            DescriptorTag::validate_bytes(
+                &descriptor_bytes(2, 1, 17),
+                TagIdentifier::PrimaryVolumeDescriptor,
+                17
+            )
+            .is_err()
+        );
+        assert!(
+            DescriptorTag::validate_bytes(&valid, TagIdentifier::PrimaryVolumeDescriptor, 18)
+                .is_err()
+        );
+
+        let mut bad_crc = valid;
+        bad_crc[16] ^= 1;
+        assert!(
+            DescriptorTag::validate_bytes(&bad_crc, TagIdentifier::PrimaryVolumeDescriptor, 17)
+                .is_err()
+        );
     }
 }

@@ -1,10 +1,9 @@
 #![no_main]
 //! Fuzz the UDF reader: open an arbitrary image and recursively read every
-//! directory. Arbitrary bytes must never panic/abort/OOM.
+//! directory and regular file. Arbitrary bytes must never panic/abort/OOM.
 //!
 //! This exercises the File Entry / allocation-descriptor / FID parsing that the
-//! slice-bounds and extent-allocation fixes hardened. (UDF exposes no public
-//! file-content read API, so the walk is directory-only.)
+//! slice-bounds and extent-allocation fixes hardened.
 
 use libfuzzer_sys::fuzz_target;
 use std::io::Cursor;
@@ -31,6 +30,8 @@ fn drive(data: &[u8]) {
                 if let Ok(child) = fs.read_directory(&entry.icb) {
                     stack.push((child, depth + 1));
                 }
+            } else {
+                let _ = fs.read_file(entry);
             }
         }
     }

@@ -10,7 +10,7 @@ use crate::error::{Error, Result};
 ///
 /// @hadris-spec ECMA-167:3/10.2
 /// @hadris-compliance full
-/// @hadris-tests comprehensive_udf::test_avdp_structure
+/// @hadris-tests integration_external::write_tests::test_hadris_udf_has_valid_avdp
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -41,7 +41,12 @@ impl AnchorVolumeDescriptorPointer {
         let mut buffer = [0u8; 512];
         reader.read_exact(&mut buffer).await?;
 
-        let avdp: Self = *bytemuck::from_bytes(&buffer);
+        DescriptorTag::validate_bytes(
+            &buffer,
+            TagIdentifier::AnchorVolumeDescriptorPointer,
+            location,
+        )?;
+        let avdp = (*bytemuck::from_bytes::<Self>(&buffer)).from_disk();
         avdp.validate(location)?;
         Ok(avdp)
     }
@@ -73,19 +78,15 @@ impl AnchorVolumeDescriptorPointer {
     fn validate(&self, location: u32) -> Result<()> {
         self.tag
             .validate(TagIdentifier::AnchorVolumeDescriptorPointer, location)?;
-
-        // Verify CRC if present
-        if self.tag.descriptor_crc_length > 0 {
-            let data = bytemuck::bytes_of(self);
-            if !self.tag.verify_crc(&data[16..]) {
-                return Err(Error::CrcMismatch {
-                    expected: self.tag.descriptor_crc,
-                    computed: 0,
-                });
-            }
-        }
-
         Ok(())
+    }
+
+    pub(crate) fn from_disk(mut self) -> Self {
+        self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
+            .expect("DescriptorTag has its fixed on-disk size");
+        self.main_vds_extent = self.main_vds_extent.from_disk();
+        self.reserve_vds_extent = self.reserve_vds_extent.from_disk();
+        self
     }
 }
 

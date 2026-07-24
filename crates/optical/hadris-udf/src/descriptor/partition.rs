@@ -42,6 +42,18 @@ unsafe impl bytemuck::Zeroable for PartitionDescriptor {}
 unsafe impl bytemuck::Pod for PartitionDescriptor {}
 
 impl PartitionDescriptor {
+    pub(crate) fn from_disk(mut self) -> Self {
+        self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
+            .expect("DescriptorTag has its fixed on-disk size");
+        self.vds_number = self.vds_number.to_le();
+        self.partition_flags = self.partition_flags.to_le();
+        self.partition_number = self.partition_number.to_le();
+        self.access_type = self.access_type.to_le();
+        self.partition_starting_location = self.partition_starting_location.to_le();
+        self.partition_length = self.partition_length.to_le();
+        self
+    }
+
     /// Validate this descriptor
     pub fn validate(&self, location: u32) -> Result<()> {
         self.tag

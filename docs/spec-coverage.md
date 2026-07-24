@@ -54,19 +54,19 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
-| ECMA-167:3/7.2 | `DescriptorTag` | full | `comprehensive_udf::test_tag_structure` | `udf_read` | |
+| ECMA-167:3/7.2 | `DescriptorTag` | full | `descriptor::tag::tests::validate_bytes_enforces_version_reserved_location_and_crc` | `udf_read` | Version, reserved byte, location, checksum, CRC length, and descriptor CRC fail closed |
 | ECMA-167:3/7.2.1 | `TagIdentifier` | full | `comprehensive_udf::test_descriptor_tag_ids` | `udf_read` | |
 | ECMA-167:3/7.1 | `ExtentDescriptor` | full | `comprehensive_udf::test_extent_descriptor` | `udf_read` | |
 | ECMA-167:1/7.4 | `EntityIdentifier` | full | `comprehensive_udf::test_partition_contents` | `udf_read` | |
-| ECMA-167:1/7.2.1 | `CharSpec` | full | | `udf_read` | |
+| ECMA-167:1/7.2.1 | `CharSpec` | full | `write::cs0_tests::selects_eight_bit_for_latin1`, `write::cs0_tests::selects_sixteen_bit_for_wide_unicode` | `udf_read` | |
 | ECMA-167:4/14.14.2 | `LongAllocationDescriptor` | full | `comprehensive_udf::test_allocation_descriptor_sizes` | `udf_read` | |
 | ECMA-167:4/14.14.1 | `ShortAllocationDescriptor` | full | `comprehensive_udf::test_allocation_descriptor_sizes` | `udf_read` | |
-| ECMA-167:3/10.2 | `AnchorVolumeDescriptorPointer` | full | `comprehensive_udf::test_avdp_structure` | `udf_read` | |
-| ECMA-167:3/10.1 | `PrimaryVolumeDescriptor` | full | | `udf_read` | |
+| ECMA-167:3/10.2 | `AnchorVolumeDescriptorPointer` | full | `integration_external::write_tests::test_hadris_udf_has_valid_avdp` | `udf_read` | |
+| ECMA-167:3/10.1 | `PrimaryVolumeDescriptor` | full | `write::tests::test_roundtrip_basic_verification` | `udf_read` | |
 | ECMA-167:3/10.5 | `PartitionDescriptor` | full | `descriptor::partition::tests::partition_descriptor_layout_and_validate` | `udf_read` | Vertical-slice unit test |
-| ECMA-167:3/10.6 | `LogicalVolumeDescriptor` | full | `comprehensive_udf::test_allocation_descriptor_sizes` | `udf_read` | |
+| ECMA-167:3/10.6 | `LogicalVolumeDescriptor` | full | `write::tests::test_roundtrip_basic_verification` | `udf_read` | |
 | ECMA-167:3/10.7.2 | `Type1PartitionMap` | full | `descriptor::logical::tests::type1_partition_maps_parses_embedded_table` | `udf_read` | |
-| ECMA-167:4/14.1 | `FileSetDescriptor` | full | `comprehensive_udf::test_allocation_descriptor_sizes` | `udf_read` | |
+| ECMA-167:4/14.1 | `FileSetDescriptor` | full | `write::tests::test_roundtrip_basic_verification` | `udf_read` | |
 
 ## hadris-iso
 

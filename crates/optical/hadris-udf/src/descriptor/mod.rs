@@ -40,6 +40,12 @@ impl ExtentDescriptor {
     pub fn is_empty(&self) -> bool {
         self.length == 0
     }
+
+    pub(crate) fn from_disk(mut self) -> Self {
+        self.length = self.length.to_le();
+        self.location = self.location.to_le();
+        self
+    }
 }
 
 /// Long allocation descriptor (ECMA-167 4/14.14.2)
@@ -67,6 +73,13 @@ unsafe impl bytemuck::Zeroable for LongAllocationDescriptor {}
 unsafe impl bytemuck::Pod for LongAllocationDescriptor {}
 
 impl LongAllocationDescriptor {
+    pub(crate) fn from_disk(mut self) -> Self {
+        self.extent_length = self.extent_length.to_le();
+        self.logical_block_num = self.logical_block_num.to_le();
+        self.partition_ref_num = self.partition_ref_num.to_le();
+        self
+    }
+
     /// Get the extent length in bytes (excluding type bits)
     pub fn length(&self) -> u32 {
         self.extent_length & 0x3FFFFFFF
@@ -107,6 +120,12 @@ pub struct ShortAllocationDescriptor {
 }
 
 impl ShortAllocationDescriptor {
+    pub(crate) fn from_disk(mut self) -> Self {
+        self.extent_length = self.extent_length.to_le();
+        self.extent_position = self.extent_position.to_le();
+        self
+    }
+
     /// Get the extent length in bytes
     pub fn length(&self) -> u32 {
         self.extent_length & 0x3FFFFFFF
@@ -205,6 +224,7 @@ unsafe impl bytemuck::Pod for EntityIdentifier {}
 ///
 /// @hadris-spec ECMA-167:1/7.2.1
 /// @hadris-compliance full
+/// @hadris-tests write::cs0_tests::selects_eight_bit_for_latin1, write::cs0_tests::selects_sixteen_bit_for_wide_unicode
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
