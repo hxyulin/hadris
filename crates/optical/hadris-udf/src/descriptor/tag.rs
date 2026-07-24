@@ -7,7 +7,7 @@ use crate::error::{Error, Result};
 /// Every UDF descriptor starts with this 16-byte tag
 ///
 /// @hadris-spec ECMA-167:3/7.2
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests descriptor::tag::tests::validate_bytes_enforces_version_reserved_location_and_crc
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -156,7 +156,7 @@ impl DescriptorTag {
 /// Tag identifier values (ECMA-167 3/7.2.1)
 ///
 /// @hadris-spec ECMA-167:3/7.2.1
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests comprehensive_udf::test_descriptor_tag_ids
 /// @hadris-fuzz udf_read
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

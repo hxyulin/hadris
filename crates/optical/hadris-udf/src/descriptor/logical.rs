@@ -9,7 +9,7 @@ use crate::error::Result;
 /// Logical Volume Descriptor (ECMA-167 3/10.6)
 ///
 /// @hadris-spec ECMA-167:3/10.6
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests write::tests::test_roundtrip_basic_verification
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -119,7 +119,7 @@ impl LogicalVolumeDescriptor {
 /// Type 1 Partition Map (ECMA-167 3/10.7.2)
 ///
 /// @hadris-spec ECMA-167:3/10.7.2
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests descriptor::logical::tests::type1_partition_maps_parses_embedded_table
 /// @hadris-fuzz udf_read
 #[repr(C)]

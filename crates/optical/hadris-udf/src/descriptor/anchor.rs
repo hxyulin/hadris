@@ -9,7 +9,7 @@ use crate::error::{Error, Result};
 /// Located at sector 256 (and optionally at N-256 and N where N is last sector)
 ///
 /// @hadris-spec ECMA-167:3/10.2
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests integration_external::write_tests::test_hadris_udf_has_valid_avdp
 /// @hadris-fuzz udf_read
 #[repr(C)]

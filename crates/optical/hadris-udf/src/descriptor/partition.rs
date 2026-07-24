@@ -6,7 +6,7 @@ use crate::error::Result;
 /// Partition Descriptor (ECMA-167 3/10.5)
 ///
 /// @hadris-spec ECMA-167:3/10.5
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests descriptor::partition::tests::partition_descriptor_layout_and_validate
 /// @hadris-fuzz udf_read
 #[repr(C)]

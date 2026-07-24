@@ -7,7 +7,7 @@ use crate::time::UdfTimestamp;
 /// File Set Descriptor (ECMA-167 4/14.1)
 ///
 /// @hadris-spec ECMA-167:4/14.1
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests write::tests::test_roundtrip_basic_verification
 /// @hadris-fuzz udf_read
 #[repr(C)]
