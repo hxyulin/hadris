@@ -1051,9 +1051,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             None
         };
 
+        let end_position = self
+            .data
+            .stream_position()
+            .await
+            .map_err(io::Error::erase)?;
         let end_sector = self.data.pad_align_sector().await?;
         let image_len = end_sector.0 as u64 * self.ops.sector_size as u64;
-        if image_len != 0 {
+        if alignment_requires_materialization(end_position, image_len) {
             self.data
                 .seek(SeekFrom::Start(image_len - 1))
                 .await
@@ -2084,6 +2089,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 }
 } // io_transform!
 
+fn alignment_requires_materialization(current_position: u64, aligned_position: u64) -> bool {
+    aligned_position > current_position
+}
+
 struct FileTreeWalker<'a> {
     stack: VecDeque<StackFrame<'a>>,
 }
@@ -2157,6 +2166,12 @@ mod tests {
             vec![InputEntry::file("hello.txt", vec![0u8; 4096])],
         );
         assert!(validate_input_tree(&tree, None).is_ok());
+    }
+
+    #[test]
+    fn alignment_only_materializes_new_padding() {
+        assert!(!alignment_requires_materialization(2048, 2048));
+        assert!(alignment_requires_materialization(2047, 2048));
     }
 
     #[test]
