@@ -9,6 +9,12 @@ use hadris_udf::dir::UdfDirEntry;
 use hadris_udf::sync::UdfVolume;
 
 const VOLUME_ID: &str = "BRIDGE_TEST";
+const SECTOR_SIZE: usize = 2048;
+
+fn tag_id_at(bytes: &[u8], sector: usize) -> u16 {
+    let offset = sector * SECTOR_SIZE;
+    u16::from_le_bytes([bytes[offset], bytes[offset + 1]])
+}
 
 fn fixture() -> (FileTree, Vec<u8>) {
     let large: Vec<u8> = (0..5000).map(|index| (index % 251) as u8).collect();
@@ -110,6 +116,152 @@ fn bridge_reopens_through_iso_and_udf_and_recovers_source() {
     let formats = detect(&mut source).unwrap().expect("detect bridge");
     assert!(formats.is_bridge());
     assert_eq!(source.stream_position().unwrap(), 1234);
+}
+
+#[test]
+fn bridge_uses_udf_102_anchor_and_vds_layout() {
+    let bytes = create(OpticalImageOptions::default().volume_id(VOLUME_ID));
+    let sector_count = bytes.len() / SECTOR_SIZE;
+    let last_sector = sector_count - 1;
+
+    assert_eq!(tag_id_at(&bytes, 256), 2, "anchor at sector 256");
+    assert_eq!(
+        tag_id_at(&bytes, last_sector - 256),
+        2,
+        "second anchor at N-256"
+    );
+    assert_ne!(
+        tag_id_at(&bytes, last_sector),
+        2,
+        "UDF 1.02 records exactly two candidate anchors"
+    );
+
+    let avdp = 256 * SECTOR_SIZE;
+    let main_length = u32::from_le_bytes(bytes[avdp + 16..avdp + 20].try_into().unwrap()) as usize;
+    let main_location =
+        u32::from_le_bytes(bytes[avdp + 20..avdp + 24].try_into().unwrap()) as usize;
+    let reserve_length =
+        u32::from_le_bytes(bytes[avdp + 24..avdp + 28].try_into().unwrap()) as usize;
+    let reserve_location =
+        u32::from_le_bytes(bytes[avdp + 28..avdp + 32].try_into().unwrap()) as usize;
+
+    assert_eq!(main_length, 16 * SECTOR_SIZE);
+    assert_eq!(reserve_length, 16 * SECTOR_SIZE);
+    assert_eq!(main_location, 257);
+    assert_eq!(reserve_location, main_location + 16);
+}
+
+#[test]
+fn bridge_descriptor_profile_is_visible_in_raw_sectors() {
+    let bytes = create(OpticalImageOptions::default().volume_id(VOLUME_ID));
+
+    let vrs_start = (16..256)
+        .find(|&sector| {
+            let offset = sector * SECTOR_SIZE;
+            bytes.get(offset + 1..offset + 6) == Some(b"BEA01")
+        })
+        .expect("BEA01 after the ECMA-119 descriptor sequence");
+    for (index, identifier) in [b"BEA01", b"NSR02", b"TEA01"].iter().enumerate() {
+        let offset = (vrs_start + index) * SECTOR_SIZE;
+        assert_eq!(&bytes[offset + 1..offset + 6], *identifier);
+    }
+
+    let descriptor_ids = [1_u16, 4, 5, 6, 7, 8];
+    for (index, expected_id) in descriptor_ids.into_iter().enumerate() {
+        let main_offset = (257 + index) * SECTOR_SIZE;
+        let reserve_offset = (273 + index) * SECTOR_SIZE;
+        assert_eq!(tag_id_at(&bytes, 257 + index), expected_id);
+        assert_eq!(tag_id_at(&bytes, 273 + index), expected_id);
+
+        let mut main = bytes[main_offset..main_offset + SECTOR_SIZE].to_vec();
+        let mut reserve = bytes[reserve_offset..reserve_offset + SECTOR_SIZE].to_vec();
+        main[4] = 0;
+        reserve[4] = 0;
+        main[8..10].fill(0);
+        reserve[8..10].fill(0);
+        main[12..16].fill(0);
+        reserve[12..16].fill(0);
+        if index == 0 {
+            // The two PVD calls may sample the clock independently.
+            main[376..388].fill(0);
+            reserve[376..388].fill(0);
+        }
+        assert_eq!(main, reserve, "reserve VDS descriptor {index} differs");
+    }
+
+    let lvd_offset = 260 * SECTOR_SIZE;
+    let integrity_length = u32::from_le_bytes(
+        bytes[lvd_offset + 432..lvd_offset + 436]
+            .try_into()
+            .unwrap(),
+    );
+    let integrity_location = u32::from_le_bytes(
+        bytes[lvd_offset + 436..lvd_offset + 440]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    assert_eq!(integrity_length, SECTOR_SIZE as u32);
+    assert_eq!(tag_id_at(&bytes, integrity_location), 9);
+    let integrity_offset = integrity_location * SECTOR_SIZE;
+    assert_eq!(
+        u32::from_le_bytes(
+            bytes[integrity_offset + 28..integrity_offset + 32]
+                .try_into()
+                .unwrap()
+        ),
+        1,
+        "the sole integrity descriptor is closed"
+    );
+
+    let partition_descriptor = 259 * SECTOR_SIZE;
+    let partition_number = u16::from_le_bytes(
+        bytes[partition_descriptor + 22..partition_descriptor + 24]
+            .try_into()
+            .unwrap(),
+    );
+    let partition_start = u32::from_le_bytes(
+        bytes[partition_descriptor + 188..partition_descriptor + 192]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let partition_length = u32::from_le_bytes(
+        bytes[partition_descriptor + 192..partition_descriptor + 196]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    assert_eq!(partition_number, 0);
+    assert_eq!(partition_start, 290);
+
+    let mut file_entries = 0;
+    for sector in partition_start..partition_start + partition_length {
+        if tag_id_at(&bytes, sector) == 261 {
+            file_entries += 1;
+            let offset = sector * SECTOR_SIZE;
+            let icb_flags = u16::from_le_bytes(bytes[offset + 34..offset + 36].try_into().unwrap());
+            assert_eq!(
+                icb_flags & 0x7,
+                0,
+                "File Entries must use short allocation descriptors"
+            );
+        }
+    }
+    assert!(file_entries > 0, "fixture should contain File Entries");
+}
+
+#[test]
+fn bridge_rejects_non_2048_byte_logical_sectors() {
+    let mut options = OpticalImageOptions::default().udf_only();
+    options.sector_size = 4096;
+
+    let result = OpticalImageWriter::create(
+        Cursor::new(vec![0_u8; 4 * 1024 * 1024]),
+        FileTree::new(),
+        options,
+    );
+    assert!(
+        matches!(result, Err(hadris_cd::Error::InvalidConfig(_))),
+        "fixed-size UDF bridge structures require 2048-byte sectors"
+    );
 }
 
 #[test]

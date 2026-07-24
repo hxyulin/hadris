@@ -65,8 +65,8 @@ impl LayoutManager {
         // Calculate starting positions based on what we need to write
         let vds_end = self.calculate_vds_end(options);
 
-        // Main/reserve VDS occupy 257-268 and the LVID occupies 269.
-        let udf_partition_start = 270;
+        // Main/reserve VDS occupy 257-288 and the LVID occupies 289.
+        let udf_partition_start = 290;
 
         // Plan every UDF metadata object once, globally. Block 0 is the FSD;
         // directory/file ICBs and exact-sized FID extents follow it.

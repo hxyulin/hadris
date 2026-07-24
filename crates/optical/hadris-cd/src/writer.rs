@@ -47,6 +47,12 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
 
     /// Finishes the image and returns its output target.
     pub async fn finish(mut self, mut tree: FileTree) -> Result<W> {
+        if self.options.udf.enabled && self.options.sector_size != UDF_SECTOR_SIZE {
+            return Err(crate::error::Error::InvalidConfig(format!(
+                "UDF bridge images require {UDF_SECTOR_SIZE}-byte logical sectors"
+            )));
+        }
+
         // Sort the tree for consistent output
         tree.sort();
 
@@ -309,12 +315,13 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
         // streams remain independently parseable.
         udf_writer.write_vrs_at(layout_info.vds_end)?;
 
-        // VDS at sectors 257-262
+        // Each VDS extent occupies sixteen sectors. The six descriptors are
+        // followed by reserved sectors within the declared extent.
         let vds_start = 257u32;
-        let vds_length = 6u32; // 6 descriptors
+        let vds_length = 16u32;
 
         // Reserve VDS extent
-        let reserve_vds_start = 263u32;
+        let reserve_vds_start = vds_start + vds_length;
 
         // Write Anchor Volume Descriptor Pointer
         let main_vds = ExtentDescriptor {
@@ -330,7 +337,8 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
             let last = u32::try_from(image_sectors - 1).map_err(|_| {
                 crate::error::Error::InvalidConfig("image has too many sectors".into())
             })?;
-            udf_writer.write_avdp_at(last, main_vds, reserve_vds)?;
+            // UDF 1.02 records exactly two candidate anchors. Use sector 256
+            // and N-256, leaving N without a third anchor.
             udf_writer.write_avdp_at(last - 256, main_vds, reserve_vds)?;
         }
 
