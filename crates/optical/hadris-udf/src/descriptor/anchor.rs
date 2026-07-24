@@ -10,6 +10,7 @@ use crate::error::{Error, Result};
 ///
 /// @hadris-spec ECMA-167:3/10.2
 /// @hadris-compliance partial
+/// @hadris-note The descriptor is modeled and tested, but clause-complete validation has not yet been established.
 /// @hadris-tests integration_external::write_tests::test_hadris_udf_has_valid_avdp
 /// @hadris-fuzz udf_read
 #[repr(C)]

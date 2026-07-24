@@ -86,6 +86,9 @@ pub hadris_part::error::Error::GptHeaderCrcMismatch::actual: u32
 pub hadris_part::error::Error::GptHeaderCrcMismatch::expected: u32
 pub hadris_part::error::Error::InvalidBackupGptSignature
 pub hadris_part::error::Error::InvalidBackupGptSignature::found: [u8; 8]
+pub hadris_part::error::Error::InvalidBlockSize
+pub hadris_part::error::Error::InvalidBlockSize::minimum: u32
+pub hadris_part::error::Error::InvalidBlockSize::size: u32
 pub hadris_part::error::Error::InvalidGptSignature
 pub hadris_part::error::Error::InvalidGptSignature::found: [u8; 8]
 pub hadris_part::error::Error::InvalidHybridMbr
@@ -896,6 +899,9 @@ pub hadris_part::Error::GptHeaderCrcMismatch::actual: u32
 pub hadris_part::Error::GptHeaderCrcMismatch::expected: u32
 pub hadris_part::Error::InvalidBackupGptSignature
 pub hadris_part::Error::InvalidBackupGptSignature::found: [u8; 8]
+pub hadris_part::Error::InvalidBlockSize
+pub hadris_part::Error::InvalidBlockSize::minimum: u32
+pub hadris_part::Error::InvalidBlockSize::size: u32
 pub hadris_part::Error::InvalidGptSignature
 pub hadris_part::Error::InvalidGptSignature::found: [u8; 8]
 pub hadris_part::Error::InvalidHybridMbr

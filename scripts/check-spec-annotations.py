@@ -23,7 +23,7 @@ TAG_RE = re.compile(
     r"^\s*(?://|///|\*)?\s*"
     r"@(hadris-(?:spec|compliance|tests|fuzz|note))\s*(.*)$"
 )
-COMPLIANCE_VALUES = frozenset({"full", "partial", "none", "n/a"})
+COMPLIANCE_VALUES = frozenset({"full", "partial", "none", "n/a", "unknown"})
 
 
 @dataclass

@@ -7,6 +7,7 @@ use crate::error::Result;
 ///
 /// @hadris-spec ECMA-167:3/10.5
 /// @hadris-compliance partial
+/// @hadris-note The descriptor layout and core fields are validated, but clause-complete semantic validation is not established.
 /// @hadris-tests descriptor::partition::tests::partition_descriptor_layout_and_validate
 /// @hadris-fuzz udf_read
 #[repr(C)]

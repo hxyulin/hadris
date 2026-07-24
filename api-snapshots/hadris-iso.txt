@@ -1321,6 +1321,7 @@ pub fn hadris_iso::async::volume::VolumeDescriptorList::push(&mut self, hadris_i
 pub fn hadris_iso::async::volume::VolumeDescriptorList::size_required(&self) -> usize
 pub fn hadris_iso::async::volume::VolumeDescriptorList::supplementary(&self) -> impl core::iter::traits::iterator::Iterator<Item = &hadris_iso::async::volume::SupplementaryVolumeDescriptor>
 pub fn hadris_iso::async::volume::VolumeDescriptorList::supplementary_mut(&mut self) -> impl core::iter::traits::iterator::Iterator<Item = &mut hadris_iso::async::volume::SupplementaryVolumeDescriptor>
+pub fn hadris_iso::async::volume::VolumeDescriptorList::try_primary(&self) -> core::option::Option<&hadris_iso::async::volume::PrimaryVolumeDescriptor>
 impl hadris_iso::async::volume::VolumeDescriptorList
 pub async fn hadris_iso::async::volume::VolumeDescriptorList::parse<T: hadris_io::async_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
 pub async fn hadris_iso::async::volume::VolumeDescriptorList::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
@@ -1668,6 +1669,7 @@ pub hadris_iso::file::EntryType::Level3
 pub hadris_iso::file::EntryType::Level3::supports_lowercase: bool
 pub hadris_iso::file::EntryType::Level3::supports_rrip: bool
 impl hadris_iso::file::EntryType
+pub fn hadris_iso::file::EntryType::convert_directory_name(self, &str) -> hadris_iso::file::ConvertedName
 pub fn hadris_iso::file::EntryType::convert_name(self, &str) -> hadris_iso::file::ConvertedName
 impl hadris_iso::file::EntryType
 pub fn hadris_iso::file::EntryType::supports_rrip(&self) -> bool
@@ -4021,6 +4023,7 @@ pub fn hadris_iso::volume::VolumeDescriptorList::push(&mut self, hadris_iso::vol
 pub fn hadris_iso::volume::VolumeDescriptorList::size_required(&self) -> usize
 pub fn hadris_iso::volume::VolumeDescriptorList::supplementary(&self) -> impl core::iter::traits::iterator::Iterator<Item = &hadris_iso::volume::SupplementaryVolumeDescriptor>
 pub fn hadris_iso::volume::VolumeDescriptorList::supplementary_mut(&mut self) -> impl core::iter::traits::iterator::Iterator<Item = &mut hadris_iso::volume::SupplementaryVolumeDescriptor>
+pub fn hadris_iso::volume::VolumeDescriptorList::try_primary(&self) -> core::option::Option<&hadris_iso::volume::PrimaryVolumeDescriptor>
 impl hadris_iso::volume::VolumeDescriptorList
 pub fn hadris_iso::volume::VolumeDescriptorList::parse<T: hadris_io::sync_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
 pub fn hadris_iso::volume::VolumeDescriptorList::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
@@ -4320,6 +4323,7 @@ impl<C: hadris_iso::types::Charset> core::fmt::Display for hadris_iso::types::Is
 pub fn hadris_iso::types::IsoString<C>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[repr(C)] pub struct hadris_iso::types::LsbMsb<T: hadris_iso::types::StdNum>
 impl<T: hadris_iso::types::StdNum> hadris_iso::types::LsbMsb<T>
+pub fn hadris_iso::types::LsbMsb<T>::is_consistent(&self) -> bool where T: core::cmp::PartialEq
 pub fn hadris_iso::types::LsbMsb<T>::new(T) -> Self
 pub fn hadris_iso::types::LsbMsb<T>::read(&self) -> T
 pub fn hadris_iso::types::LsbMsb<T>::write(&mut self, T)
@@ -4507,6 +4511,7 @@ pub fn hadris_iso::volume::VolumeDescriptorList::push(&mut self, hadris_iso::vol
 pub fn hadris_iso::volume::VolumeDescriptorList::size_required(&self) -> usize
 pub fn hadris_iso::volume::VolumeDescriptorList::supplementary(&self) -> impl core::iter::traits::iterator::Iterator<Item = &hadris_iso::volume::SupplementaryVolumeDescriptor>
 pub fn hadris_iso::volume::VolumeDescriptorList::supplementary_mut(&mut self) -> impl core::iter::traits::iterator::Iterator<Item = &mut hadris_iso::volume::SupplementaryVolumeDescriptor>
+pub fn hadris_iso::volume::VolumeDescriptorList::try_primary(&self) -> core::option::Option<&hadris_iso::volume::PrimaryVolumeDescriptor>
 impl hadris_iso::volume::VolumeDescriptorList
 pub fn hadris_iso::volume::VolumeDescriptorList::parse<T: hadris_io::sync_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
 pub fn hadris_iso::volume::VolumeDescriptorList::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>

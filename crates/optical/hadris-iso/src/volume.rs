@@ -381,6 +381,7 @@ unsafe impl bytemuck::Pod for UnknownVolumeDescriptor {}
 ///
 /// @hadris-spec ECMA-119:8.4
 /// @hadris-compliance partial
+/// @hadris-note Core fields are modeled, but reserved fields, character sets, redundant endian values, and semantic constraints are not all validated.
 /// @hadris-tests comprehensive_iso::test_pvd_standard_identifier
 /// @hadris-fuzz iso_read
 #[repr(C)]
@@ -536,6 +537,7 @@ unsafe impl bytemuck::Pod for PrimaryVolumeDescriptor {}
 ///
 /// @hadris-spec ECMA-119:8.2
 /// @hadris-compliance partial
+/// @hadris-note The descriptor locates El Torito data, but all ECMA-119 boot-record semantics are not implemented.
 /// @hadris-tests xorriso_boot::test_hadris_multisection_boot_catalog
 /// @hadris-fuzz iso_read
 #[repr(C)]
@@ -818,6 +820,7 @@ impl Debug for SupplementaryVolumeDescriptor {
 ///
 /// @hadris-spec ECMA-119:8.3
 /// @hadris-compliance partial
+/// @hadris-note The descriptor is emitted and recognized, but the audit has not established validation of every reserved byte.
 /// @hadris-tests comprehensive_iso::test_volume_descriptor_set_terminator
 /// @hadris-fuzz iso_read
 #[repr(C)]
