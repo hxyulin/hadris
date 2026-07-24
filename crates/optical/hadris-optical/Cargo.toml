@@ -6,6 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 description = "Hadris facade for optical filesystems and disc images"
 keywords = ["iso9660", "udf", "optical", "cd", "dvd"]
 categories = ["filesystem", "encoding"]
