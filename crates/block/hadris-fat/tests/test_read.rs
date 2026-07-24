@@ -43,9 +43,8 @@ fn test_parse_boot_sector() {
 /// Test that invalid boot signature is detected
 #[test]
 fn test_invalid_boot_signature() {
-    // Create a buffer with invalid boot signature
-    let mut data = vec![0u8; 1024];
-    // Set some BPB fields but with wrong signature
+    // Preserve a valid BPB so this test isolates the signature check.
+    let mut data = BOOT_SECTORS.to_vec();
     data[510] = 0x00; // Wrong signature (should be 0x55)
     data[511] = 0x00; // Wrong signature (should be 0xAA)
 
