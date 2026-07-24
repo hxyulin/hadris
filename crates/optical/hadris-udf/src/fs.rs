@@ -124,7 +124,7 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                             &buffer[..size_of::<PrimaryVolumeDescriptor>()],
                         )
                         .map_err(Error::PodCastError)?)
-                        .from_disk();
+                        .into_native();
                     pvd = Some(desc);
                 }
                 TagIdentifier::PartitionDescriptor => {
@@ -138,7 +138,7 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                             &buffer[..size_of::<PartitionDescriptor>()],
                         )
                         .map_err(Error::PodCastError)?)
-                        .from_disk();
+                        .into_native();
                     partition = Some(desc);
                 }
                 TagIdentifier::LogicalVolumeDescriptor => {
@@ -152,7 +152,7 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                             &buffer[..size_of::<LogicalVolumeDescriptor>()],
                         )
                         .map_err(Error::PodCastError)?)
-                        .from_disk();
+                        .into_native();
                     lvd = Some(desc);
                 }
                 TagIdentifier::TerminatingDescriptor => {
@@ -201,7 +201,7 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                 &buffer[..size_of::<FileSetDescriptor>()],
             )
             .map_err(|_| Error::InvalidFsd)?)
-            .from_disk();
+            .into_native();
         Ok(fsd)
     }
 
@@ -295,7 +295,7 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                     let fe = (*bytemuck::from_bytes::<FileEntry>(
                         &buffer[..FileEntry::BASE_SIZE],
                     ))
-                    .from_disk();
+                    .into_native();
                     (
                         fe.size(),
                         fe.is_directory(),
@@ -313,7 +313,7 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                     let efe = (*bytemuck::from_bytes::<ExtendedFileEntry>(
                         &buffer[..ExtendedFileEntry::BASE_SIZE],
                     ))
-                    .from_disk();
+                    .into_native();
                     (
                         efe.size(),
                         efe.is_directory(),
@@ -360,7 +360,7 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                     let sad = (*bytemuck::from_bytes::<
                         descriptor::ShortAllocationDescriptor,
                     >(chunk))
-                    .from_disk();
+                    .into_native();
                     if sad.length() == 0 {
                         break;
                     }
@@ -378,7 +378,7 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                         break;
                     }
                     let lad =
-                        (*bytemuck::from_bytes::<LongAllocationDescriptor>(chunk)).from_disk();
+                        (*bytemuck::from_bytes::<LongAllocationDescriptor>(chunk)).into_native();
                     if lad.length() == 0 {
                         break;
                     }

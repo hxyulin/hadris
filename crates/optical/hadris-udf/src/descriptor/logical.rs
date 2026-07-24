@@ -48,14 +48,15 @@ unsafe impl bytemuck::Zeroable for LogicalVolumeDescriptor {}
 unsafe impl bytemuck::Pod for LogicalVolumeDescriptor {}
 
 impl LogicalVolumeDescriptor {
-    pub(crate) fn from_disk(mut self) -> Self {
+    #[cfg(feature = "alloc")]
+    pub(crate) fn into_native(mut self) -> Self {
         self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
             .expect("DescriptorTag has its fixed on-disk size");
         self.vds_number = self.vds_number.to_le();
         self.logical_block_size = self.logical_block_size.to_le();
         self.map_table_length = self.map_table_length.to_le();
         self.num_partition_maps = self.num_partition_maps.to_le();
-        self.integrity_sequence_extent = self.integrity_sequence_extent.from_disk();
+        self.integrity_sequence_extent = self.integrity_sequence_extent.into_native();
         self
     }
 
@@ -68,7 +69,7 @@ impl LogicalVolumeDescriptor {
     /// Get the File Set Descriptor location
     pub fn file_set_location(&self) -> LongAllocationDescriptor {
         (*bytemuck::from_bytes::<LongAllocationDescriptor>(&self.logical_volume_contents_use))
-            .from_disk()
+            .into_native()
     }
 
     /// Get the logical volume identifier as a string

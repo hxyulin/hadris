@@ -41,7 +41,7 @@ impl ExtentDescriptor {
         self.length == 0
     }
 
-    pub(crate) fn from_disk(mut self) -> Self {
+    pub(crate) fn into_native(mut self) -> Self {
         self.length = self.length.to_le();
         self.location = self.location.to_le();
         self
@@ -73,7 +73,7 @@ unsafe impl bytemuck::Zeroable for LongAllocationDescriptor {}
 unsafe impl bytemuck::Pod for LongAllocationDescriptor {}
 
 impl LongAllocationDescriptor {
-    pub(crate) fn from_disk(mut self) -> Self {
+    pub(crate) fn into_native(mut self) -> Self {
         self.extent_length = self.extent_length.to_le();
         self.logical_block_num = self.logical_block_num.to_le();
         self.partition_ref_num = self.partition_ref_num.to_le();
@@ -120,7 +120,8 @@ pub struct ShortAllocationDescriptor {
 }
 
 impl ShortAllocationDescriptor {
-    pub(crate) fn from_disk(mut self) -> Self {
+    #[cfg(feature = "alloc")]
+    pub(crate) fn into_native(mut self) -> Self {
         self.extent_length = self.extent_length.to_le();
         self.extent_position = self.extent_position.to_le();
         self

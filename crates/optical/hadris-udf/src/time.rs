@@ -31,7 +31,8 @@ pub struct UdfTimestamp {
 }
 
 impl UdfTimestamp {
-    pub(crate) fn from_disk(mut self) -> Self {
+    #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
+    pub(crate) fn into_native(mut self) -> Self {
         self.type_and_tz = self.type_and_tz.to_le();
         self.year = self.year.to_le();
         self

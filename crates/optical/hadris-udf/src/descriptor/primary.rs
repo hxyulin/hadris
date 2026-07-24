@@ -63,7 +63,8 @@ unsafe impl bytemuck::Zeroable for PrimaryVolumeDescriptor {}
 unsafe impl bytemuck::Pod for PrimaryVolumeDescriptor {}
 
 impl PrimaryVolumeDescriptor {
-    pub(crate) fn from_disk(mut self) -> Self {
+    #[cfg(feature = "alloc")]
+    pub(crate) fn into_native(mut self) -> Self {
         self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
             .expect("DescriptorTag has its fixed on-disk size");
         self.vds_number = self.vds_number.to_le();
@@ -74,9 +75,9 @@ impl PrimaryVolumeDescriptor {
         self.max_interchange_level = self.max_interchange_level.to_le();
         self.character_set_list = self.character_set_list.to_le();
         self.max_character_set_list = self.max_character_set_list.to_le();
-        self.volume_abstract = self.volume_abstract.from_disk();
-        self.volume_copyright = self.volume_copyright.from_disk();
-        self.recording_date_time = self.recording_date_time.from_disk();
+        self.volume_abstract = self.volume_abstract.into_native();
+        self.volume_copyright = self.volume_copyright.into_native();
+        self.recording_date_time = self.recording_date_time.into_native();
         self.predecessor_vds_location = self.predecessor_vds_location.to_le();
         self.flags = self.flags.to_le();
         self

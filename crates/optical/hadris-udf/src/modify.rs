@@ -199,7 +199,7 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
         let mut avdp_buf = [0u8; SECTOR_SIZE];
         inner.read_exact(&mut avdp_buf)?;
         let avdp =
-            (*bytemuck::from_bytes::<AnchorVolumeDescriptorPointer>(&avdp_buf[..512])).from_disk();
+            (*bytemuck::from_bytes::<AnchorVolumeDescriptorPointer>(&avdp_buf[..512])).into_native();
 
         let _vds_location = avdp.main_vds_extent.location;
 

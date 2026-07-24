@@ -42,7 +42,8 @@ unsafe impl bytemuck::Zeroable for PartitionDescriptor {}
 unsafe impl bytemuck::Pod for PartitionDescriptor {}
 
 impl PartitionDescriptor {
-    pub(crate) fn from_disk(mut self) -> Self {
+    #[cfg(feature = "alloc")]
+    pub(crate) fn into_native(mut self) -> Self {
         self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
             .expect("DescriptorTag has its fixed on-disk size");
         self.vds_number = self.vds_number.to_le();
