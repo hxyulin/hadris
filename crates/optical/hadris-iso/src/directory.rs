@@ -8,7 +8,7 @@ use crate::types::{U16LsbMsb, U32LsbMsb};
 /// (ECMA-119 9.1 fixed fields).
 ///
 /// @hadris-spec ECMA-119:9.1
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests directory::tests::directory_record_parse_roundtrip
 /// @hadris-fuzz iso_read
 #[repr(C)]
@@ -206,13 +206,17 @@ impl DirectoryRecord {
     /// Performs the `new` operation.
     pub fn new(name: &[u8], system_use: &[u8], directory: DirectoryRef, flags: FileFlags) -> Self {
         let mut sel = Self::zeroed();
+        assert!(
+            !name.is_empty() && name.len() <= u8::MAX as usize,
+            "ISO directory-record identifier must contain 1..=255 bytes"
+        );
         // ISO 9660 (ECMA-119 9.1): a padding byte follows the file identifier
         // when its length is even, so the system use area starts at an even offset.
         let su_start = (Self::DATA_START + name.len() + 1) & !1;
         let total = su_start + system_use.len();
         // Record length must be even (ECMA-119 7.1.1).
         let record_len = (total + 1) & !1;
-        debug_assert!(
+        assert!(
             record_len <= 255,
             "DirectoryRecord too large: {} bytes (name={}, su={})",
             record_len,
@@ -240,9 +244,14 @@ impl DirectoryRecord {
     /// Performs the `with_len` operation.
     pub fn with_len(name_len: usize, su_len: usize) -> Self {
         let mut sel = Self::zeroed();
+        assert!(
+            (1..=u8::MAX as usize).contains(&name_len),
+            "ISO directory-record identifier must contain 1..=255 bytes"
+        );
         let su_start = (Self::DATA_START + name_len + 1) & !1;
         let total = su_start + su_len;
         let record_len = (total + 1) & !1;
+        assert!(record_len <= u8::MAX as usize, "DirectoryRecord too large");
         sel.header_mut().len = record_len as u8;
         sel
     }
@@ -255,8 +264,34 @@ impl DirectoryRecord {
         let mut sel = Self::zeroed();
         reader.read_exact(&mut sel.data[0..Self::DATA_START]).await?;
         let size = sel.size();
+        if size == 0 {
+            return Ok(sel);
+        }
+        let name_len = sel.header().file_identifier_len as usize;
+        if size < Self::DATA_START + 1
+            || !size.is_multiple_of(2)
+            || Self::DATA_START + name_len > size
+            || sel.header().flags & 0b0110_0000 != 0
+            || !sel.header().extent.is_consistent()
+            || !sel.header().data_len.is_consistent()
+            || !sel.header().volume_sequence_number.is_consistent()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid ISO directory record",
+            ));
+        }
         if size > Self::DATA_START {
             reader.read_exact(&mut sel.data[Self::DATA_START..size]).await?;
+        }
+        if name_len.is_multiple_of(2) {
+            let padding = Self::DATA_START + name_len;
+            if padding >= size || sel.data[padding] != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid ISO directory-record identifier padding",
+                ));
+            }
         }
         Ok(sel)
     }
@@ -391,6 +426,33 @@ mod tests {
         assert_eq!(parsed.name(), made.name());
         assert_eq!(parsed.size(), made.size());
         assert_eq!(parsed.header().extent.read(), 42);
+    }
+
+    #[test]
+    fn directory_record_rejects_invalid_bounds_and_endian_copy() {
+        let mut short = vec![0_u8; 33];
+        short[0] = 32;
+        short[32] = 1;
+        assert_eq!(
+            DirectoryRecord::parse(&mut Cursor::new(short))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+
+        let mut mismatched = vec![0_u8; 34];
+        mismatched[0] = 34;
+        mismatched[2..6].copy_from_slice(&20_u32.to_le_bytes());
+        mismatched[6..10].copy_from_slice(&21_u32.to_be_bytes());
+        mismatched[28..30].copy_from_slice(&1_u16.to_le_bytes());
+        mismatched[30..32].copy_from_slice(&1_u16.to_be_bytes());
+        mismatched[32] = 1;
+        assert_eq!(
+            DirectoryRecord::parse(&mut Cursor::new(mismatched))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 }
 }

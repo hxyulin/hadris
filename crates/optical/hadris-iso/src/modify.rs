@@ -629,7 +629,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         for directory in &dir.dirs {
             let WrittenDirectory { name, entries, .. } = directory;
             let flags = FileFlags::DIRECTORY;
-            let converted_name = ty.convert_name(name);
+            let converted_name = ty.convert_directory_name(name);
             let record = DirectoryRecord::new(
                 converted_name.as_bytes(),
                 &[],

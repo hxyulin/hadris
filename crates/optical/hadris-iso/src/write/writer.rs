@@ -230,15 +230,20 @@ impl PathTableWriter<'_> {
 
         while let Some((dir, parent_num)) = queue.pop_front() {
             let my_number = parent_num;
-            for child_dir in &dir.dirs {
-                if matches!(
-                    child_dir.relocation,
-                    DirectoryRelocation::Placeholder { .. }
-                ) {
-                    continue;
-                }
+            let mut children: Vec<_> = dir
+                .dirs
+                .iter()
+                .filter(|child| {
+                    !matches!(
+                        child.relocation,
+                        DirectoryRelocation::Placeholder { .. }
+                    )
+                })
+                .map(|child| (child, self.ty.convert_directory_name(&child.name)))
+                .collect();
+            children.sort_by(|(_, left), (_, right)| left.as_bytes().cmp(right.as_bytes()));
+            for (child_dir, name) in children {
                 current_number += 1;
-                let name = self.ty.convert_name(&child_dir.name);
                 let name_bytes = name.as_bytes();
                 let extent = child_dir.entries.get(&self.ty).unwrap().extent;
                 write_pt_record(data, &self.endian, my_number, extent, name_bytes).await?;

@@ -4,8 +4,6 @@ pub use hadris_common::types::{endian::*, number::*};
 #[cfg(feature = "std")]
 use std::time::SystemTime;
 
-#[cfg(feature = "std")]
-use alloc::string::ToString;
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
@@ -568,6 +566,14 @@ impl<T: StdNum> LsbMsb<T> {
         }
     }
 
+    /// Returns whether the little- and big-endian copies encode the same value.
+    pub fn is_consistent(&self) -> bool
+    where
+        T: PartialEq,
+    {
+        self.lsb.get() == self.msb.get()
+    }
+
     /// Performs the `write` operation.
     pub fn write(&mut self, value: T) {
         self.lsb.set(value);
@@ -634,18 +640,28 @@ impl Default for DecDateTime {
 
 impl DecDateTime {
     #[cfg(feature = "std")]
+    fn decimal<const N: usize>(mut value: u32) -> IsoStrD<N> {
+        let mut bytes = [b'0'; N];
+        for byte in bytes.iter_mut().rev() {
+            *byte = b'0' + (value % 10) as u8;
+            value /= 10;
+        }
+        IsoStrD::from_bytes_exact(bytes)
+    }
+
+    #[cfg(feature = "std")]
     /// Performs the `now` operation.
     pub fn now() -> Self {
         use chrono::{DateTime, Datelike, Timelike, Utc};
         let now: DateTime<Utc> = SystemTime::now().into();
         Self {
-            year: IsoStrD::from_str(&now.year().to_string()).unwrap(),
-            month: IsoStrD::from_str(&now.month().to_string()).unwrap(),
-            day: IsoStrD::from_str(&now.day().to_string()).unwrap(),
-            hour: IsoStrD::from_str(&now.hour().to_string()).unwrap(),
-            minute: IsoStrD::from_str(&now.minute().to_string()).unwrap(),
-            second: IsoStrD::from_str(&now.second().to_string()).unwrap(),
-            hundredths: IsoStrD::from_str(&(now.nanosecond() / 10_000_000).to_string()).unwrap(),
+            year: Self::decimal(now.year() as u32),
+            month: Self::decimal(now.month()),
+            day: Self::decimal(now.day()),
+            hour: Self::decimal(now.hour()),
+            minute: Self::decimal(now.minute()),
+            second: Self::decimal(now.second()),
+            hundredths: Self::decimal(now.nanosecond() / 10_000_000),
             timezone: 0,
         }
     }
@@ -660,6 +676,22 @@ impl DecDateTime {
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decimal_datetime_uses_zero_padded_digits() {
+        let date = DecDateTime::now();
+        for field in [
+            date.year.as_bytes().as_slice(),
+            date.month.as_bytes().as_slice(),
+            date.day.as_bytes().as_slice(),
+            date.hour.as_bytes().as_slice(),
+            date.minute.as_bytes().as_slice(),
+            date.second.as_bytes().as_slice(),
+            date.hundredths.as_bytes().as_slice(),
+        ] {
+            assert!(field.iter().all(u8::is_ascii_digit));
+        }
+    }
 
     #[test]
     fn test_charset_a_substitute() {

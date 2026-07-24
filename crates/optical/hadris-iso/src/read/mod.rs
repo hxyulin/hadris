@@ -205,7 +205,12 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         data.seek_sector(LogicalSector(16)).await?;
         let mut root_dirs = RootDirs::new();
         let volume_descriptors = VolumeDescriptorList::parse(&mut data).await?;
-        let pvd = volume_descriptors.primary();
+        let pvd = volume_descriptors.try_primary().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "volume descriptor sequence has no primary descriptor",
+            )
+        })?;
         let block_size = pvd.logical_block_size.read() as usize;
         // IsoImage's extent→byte math assumes a 2048-byte logical block. Rather
         // than silently misread an image that declares a different block size,
@@ -217,7 +222,10 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                 "ISO logical block size other than 2048 is not supported by IsoImage",
             ));
         }
-        let root_extent = LogicalSector(pvd.dir_record.header.extent.read() as usize);
+        let root_extent = LogicalSector(
+            pvd.dir_record.header.extent.read() as usize
+                + pvd.dir_record.header.extended_attr_record as usize,
+        );
         let root_size = pvd.dir_record.header.data_len.read() as usize;
         let root_dir = DirectoryRef {
             extent: root_extent,
@@ -289,7 +297,10 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                                 supports_rrip: false,
                             },
                             dir_ref: DirectoryRef {
-                                extent: LogicalSector(svd.dir_record.header.extent.read() as usize),
+                                extent: LogicalSector(
+                                    svd.dir_record.header.extent.read() as usize
+                                        + svd.dir_record.header.extended_attr_record as usize,
+                                ),
                                 size: svd.dir_record.header.data_len.read() as usize,
                             },
                         });
@@ -304,7 +315,10 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
                         supports_rrip: false,
                     },
                     dir_ref: DirectoryRef {
-                        extent: LogicalSector(svd.dir_record.header.extent.read() as usize),
+                        extent: LogicalSector(
+                            svd.dir_record.header.extent.read() as usize
+                                + svd.dir_record.header.extended_attr_record as usize,
+                        ),
                         size: svd.dir_record.header.data_len.read() as usize,
                     },
                 });
@@ -372,6 +386,12 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
     /// concatenates all extents in order.
     #[cfg(feature = "alloc")]
     pub async fn read_file(&self, entry: &directory::DirEntry) -> io::Result<alloc::vec::Vec<u8>> {
+        if entry.header().file_unit_size != 0 || entry.header().interleave_gap_size != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "interleaved ISO files are not supported",
+            ));
+        }
         let total = entry.total_size();
         // `total` comes from on-disk directory-record data-length fields (u32 each,
         // summed across extents) and is untrusted. Bound it against the actual
@@ -402,7 +422,9 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             }
         } else {
             let header = entry.header();
-            let byte_offset = header.extent.read() as u64 * 2048;
+            let byte_offset = (header.extent.read() as u64
+                + header.extended_attr_record as u64)
+                * 2048;
             let len = header.data_len.read() as usize;
             self.read_bytes_at(byte_offset, &mut buf[..len]).await?;
         }

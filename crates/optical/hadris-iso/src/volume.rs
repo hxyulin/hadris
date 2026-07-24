@@ -178,13 +178,16 @@ impl VolumeDescriptorList {
 
     /// Performs the `primary` operation.
     pub fn primary(&self) -> &PrimaryVolumeDescriptor {
-        self.descriptors
-            .iter()
-            .find_map(|d| match d {
-                VolumeDescriptor::Primary(d) => Some(d),
-                _ => None,
-            })
+        self.try_primary()
             .expect("Primary volume descriptor not found")
+    }
+
+    /// Returns the primary volume descriptor, if the sequence contains one.
+    pub fn try_primary(&self) -> Option<&PrimaryVolumeDescriptor> {
+        self.descriptors.iter().find_map(|d| match d {
+            VolumeDescriptor::Primary(d) => Some(d),
+            _ => None,
+        })
     }
 
     /// Performs the `primary_mut` operation.
@@ -265,17 +268,21 @@ impl VolumeDescriptorList {
         loop {
             reader.read_exact(&mut buffer).await?;
             let header = VolumeDescriptorHeader::from_bytes(&buffer[0..7]);
-            let ty = VolumeDescriptorType::from_u8(header.descriptor_type);
-            if let VolumeDescriptorType::VolumeSetTerminator = ty {
-                break;
-            }
             if !header.is_valid() {
-                // Invalid, which means either we are at the wrong place, or the writer didn't
-                // write an end record
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    "Invalid volume descriptor header (missing CD001 signature)",
+                    "invalid volume descriptor identifier or version",
                 ));
+            }
+            let ty = VolumeDescriptorType::from_u8(header.descriptor_type);
+            if let VolumeDescriptorType::VolumeSetTerminator = ty {
+                if buffer[7..].iter().any(|byte| *byte != 0) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "volume descriptor set terminator body is not zero-filled",
+                    ));
+                }
+                break;
             }
 
             descriptors.push(VolumeDescriptor::new(buffer));
@@ -337,6 +344,10 @@ impl VolumeDescriptorHeader {
     /// Performs the `is_valid` operation.
     pub fn is_valid(&self) -> bool {
         self.standard_identifier == Self::IDENTIFIER
+            && (self.version == 1
+                || (self.descriptor_type
+                    == VolumeDescriptorType::SupplementaryVolumeDescriptor.to_u8()
+                    && self.version == 2))
     }
 
     /// Performs the `from_bytes` operation.
@@ -369,7 +380,7 @@ unsafe impl bytemuck::Pod for UnknownVolumeDescriptor {}
 /// Primary Volume Descriptor (ECMA-119 8.4)
 ///
 /// @hadris-spec ECMA-119:8.4
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests comprehensive_iso::test_pvd_standard_identifier
 /// @hadris-fuzz iso_read
 #[repr(C)]
@@ -507,8 +518,8 @@ impl PrimaryVolumeDescriptor {
             bibliographic_file_identifier: IsoStrD::empty(),
             creation_date: DecDateTime::now(),
             modification_date: DecDateTime::now(),
-            expiration_date: DecDateTime::now(),
-            effective_date: DecDateTime::now(),
+            expiration_date: DecDateTime::default(),
+            effective_date: DecDateTime::default(),
             file_structure_version: 1,
             unused3: 0,
             app_data: [0; 512],
@@ -524,7 +535,7 @@ unsafe impl bytemuck::Pod for PrimaryVolumeDescriptor {}
 /// catalog.
 ///
 /// @hadris-spec ECMA-119:8.2
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests xorriso_boot::test_hadris_multisection_boot_catalog
 /// @hadris-fuzz iso_read
 #[repr(C)]
@@ -712,8 +723,8 @@ impl SupplementaryVolumeDescriptor {
             bibliographic_file_identifier: Self::utf16be_empty(),
             creation_date: DecDateTime::now(),
             modification_date: DecDateTime::now(),
-            expiration_date: DecDateTime::now(),
-            effective_date: DecDateTime::now(),
+            expiration_date: DecDateTime::default(),
+            effective_date: DecDateTime::default(),
             file_structure_version: 1,
             unused3: 0,
             app_data: [0; 512],
@@ -753,8 +764,8 @@ impl SupplementaryVolumeDescriptor {
             bibliographic_file_identifier: IsoStrD::empty(),
             creation_date: DecDateTime::now(),
             modification_date: DecDateTime::now(),
-            expiration_date: DecDateTime::now(),
-            effective_date: DecDateTime::now(),
+            expiration_date: DecDateTime::default(),
+            effective_date: DecDateTime::default(),
             file_structure_version: 2,
             unused3: 0,
             app_data: [0; 512],
@@ -806,7 +817,7 @@ impl Debug for SupplementaryVolumeDescriptor {
 /// Volume Descriptor Set Terminator (ECMA-119 8.3).
 ///
 /// @hadris-spec ECMA-119:8.3
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests comprehensive_iso::test_volume_descriptor_set_terminator
 /// @hadris-fuzz iso_read
 #[repr(C)]
@@ -864,4 +875,27 @@ mod tests {
     static_assertions::assert_eq_align!(PrimaryVolumeDescriptor, u8);
     static_assertions::assert_eq_align!(VolumeDescriptorSetTerminator, u8);
     static_assertions::assert_eq_align!(BootRecordVolumeDescriptor, u8);
+
+    sync_only! {
+        use std::io::Cursor;
+
+        #[test]
+        fn descriptor_parser_rejects_invalid_terminator_header() {
+            let mut bytes = [0_u8; 2048];
+            bytes[0] = VolumeDescriptorType::VolumeSetTerminator.to_u8();
+            bytes[1..6].copy_from_slice(b"WRONG");
+            bytes[6] = 1;
+            let error = VolumeDescriptorList::parse(&mut Cursor::new(bytes)).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        }
+
+        #[test]
+        fn descriptor_parser_rejects_nonzero_terminator_body() {
+            let mut bytes = [0_u8; 2048];
+            bytes.copy_from_slice(VolumeDescriptorSetTerminator::new().to_bytes());
+            bytes[7] = 1;
+            let error = VolumeDescriptorList::parse(&mut Cursor::new(bytes)).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        }
+    }
 }

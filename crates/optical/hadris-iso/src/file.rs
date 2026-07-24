@@ -167,6 +167,45 @@ impl EntryType {
             },
         }
     }
+
+    /// Converts a directory name without a file extension or version suffix.
+    pub fn convert_directory_name(self, name: &str) -> ConvertedName {
+        fn primary<const N: usize>(
+            name: &str,
+            max: usize,
+            supports_lowercase: bool,
+        ) -> FixedBytes<N> {
+            let mut converted = FixedBytes::empty();
+            let end = name
+                .char_indices()
+                .map(|(offset, _)| offset)
+                .take_while(|offset| *offset <= max)
+                .last()
+                .unwrap_or(0);
+            let end = if name.len() <= max { name.len() } else { end };
+            let range = converted.push_slice(&name.as_bytes()[..end]);
+            let bytes = converted.as_bytes_mut()[range].iter_mut();
+            if supports_lowercase {
+                CharsetD1::substitute_invalid(bytes);
+            } else {
+                CharsetD::substitute_invalid(bytes);
+            }
+            converted
+        }
+
+        match self {
+            Self::Level1 {
+                supports_lowercase, ..
+            } => ConvertedName::Level1(primary(name, 8, supports_lowercase)),
+            Self::Level2 {
+                supports_lowercase, ..
+            } => ConvertedName::Level2(primary(name, 31, supports_lowercase)),
+            Self::Level3 {
+                supports_lowercase, ..
+            } => ConvertedName::Level3(primary(name, 31, supports_lowercase)),
+            Self::Joliet { .. } => ConvertedName::Joliet(convert_joliet3(name)),
+        }
+    }
 }
 
 #[cfg(feature = "write")]
