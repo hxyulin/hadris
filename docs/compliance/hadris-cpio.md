@@ -13,6 +13,7 @@ specification.
 The compliance pass added mandatory checksum verification to both read and
 skip paths, validates filename termination and zero padding, enforces checked
 name/data lengths, rejects empty symbolic-link targets, validates trailer
-size, and emits a consistent link count for hard-link groups. Remaining gaps
-include trailerless aligned archives, reader-side hard-link reconstruction,
-host hard-link discovery, and full initramfs buffer composition.
+size, accepts trailerless archives at an aligned entry boundary, and emits a
+consistent link count for hard-link groups. Remaining gaps include reader-side
+hard-link reconstruction, host hard-link discovery, and full initramfs buffer
+composition.

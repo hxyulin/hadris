@@ -73,6 +73,20 @@ impl RawNewcHeader {
         Ok(Self { data })
     }
 
+    /// Read a header, returning `None` only when input is exhausted before any
+    /// header byte is read.
+    ///
+    /// A partially present header remains an error.
+    pub async fn parse_optional<R: Read>(reader: &mut R) -> Result<Option<Self>> {
+        let mut data = [0u8; HEADER_SIZE];
+        let read = reader.read(&mut data[..1]).await?;
+        if read == 0 {
+            return Ok(None);
+        }
+        reader.read_exact(&mut data[read..]).await?;
+        Ok(Some(Self { data }))
+    }
+
     /// Write this header to the given writer.
     pub async fn write<W: Write>(&self, writer: &mut W) -> Result<()> {
         writer.write_all(&self.data).await?;
