@@ -34,10 +34,13 @@
       "normativity": "shall",
       "summary": "Headers, names, and file bodies use the specified four-byte alignment with zero-valued padding.",
       "direction": "both",
-      "status": "partial",
+      "status": "verified",
       "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "skip_zero_padding"}],
-      "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "alignment_padding_edge_cases", "kind": "integration"}],
-      "gap": "Generated alignment is covered across sizes, but malformed nonzero padding lacks a direct regression fixture."
+      "tests": [
+        {"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "alignment_padding_edge_cases", "kind": "integration"},
+        {"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "reader_rejects_nonzero_name_and_data_padding", "kind": "integration"}
+      ],
+      "gap": null
     },
     {
       "id": "LINUX-INITRAMFS-NEWC:c-namesize#nul-and-path-limit",
@@ -70,10 +73,13 @@
       "normativity": "shall",
       "summary": "The TRAILER!!! end marker has a zero file-data size.",
       "direction": "both",
-      "status": "partial",
+      "status": "verified",
       "symbols": [{"path": "crates/archive/hadris-cpio/src/read.rs", "name": "CpioArchiveReader::next_entry_alloc"}],
-      "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "trailer_detection", "kind": "integration"}],
-      "gap": "Writer output and reader validation are implemented, but the test only exercises a valid marker."
+      "tests": [
+        {"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "trailer_detection", "kind": "integration"},
+        {"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "reader_rejects_trailer_with_nonzero_filesize", "kind": "integration"}
+      ],
+      "gap": null
     },
     {
       "id": "LINUX-INITRAMFS-NEWC:hard-links#tuple-and-link-count",
@@ -106,10 +112,10 @@
       "normativity": "may",
       "summary": "An individual archive may end at aligned input exhaustion without a TRAILER!!! marker.",
       "direction": "read",
-      "status": "not_implemented",
-      "symbols": [{"path": "crates/archive/hadris-cpio/src/error.rs", "name": "Error::MissingTrailer"}],
-      "tests": [],
-      "gap": "The streaming reader currently expects another header and reports I/O failure at a trailerless aligned end."
+      "status": "verified",
+      "symbols": [{"path": "crates/archive/hadris-cpio/src/header.rs", "name": "RawNewcHeader::parse_optional"}],
+      "tests": [{"path": "crates/archive/hadris-cpio/tests/roundtrip.rs", "name": "reader_accepts_aligned_eof_without_trailer", "kind": "integration"}],
+      "gap": null
     },
     {
       "id": "GNU-CPIO:newc-format#maximum-file-size",

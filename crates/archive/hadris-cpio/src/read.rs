@@ -179,8 +179,11 @@ impl<R: Read> CpioArchiveReader<R> {
 
         let entry_offset = self.offset;
 
-        // Read the 110-byte header
-        let raw = RawNewcHeader::parse(&mut self.reader).await?;
+        // A trailer is optional when input ends at an entry boundary.
+        let Some(raw) = RawNewcHeader::parse_optional(&mut self.reader).await? else {
+            self.finished = true;
+            return Ok(None);
+        };
         self.offset += HEADER_SIZE as u64;
 
         let magic = raw.magic().ok_or_else(|| {
@@ -379,7 +382,10 @@ impl<R: Read> CpioArchiveReader<R> {
 
         let entry_offset = self.offset;
 
-        let raw = RawNewcHeader::parse(&mut self.reader).await?;
+        let Some(raw) = RawNewcHeader::parse_optional(&mut self.reader).await? else {
+            self.finished = true;
+            return Ok(None);
+        };
         self.offset += HEADER_SIZE as u64;
 
         let magic = raw.magic().ok_or_else(|| {

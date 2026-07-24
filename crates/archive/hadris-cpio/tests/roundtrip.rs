@@ -341,12 +341,85 @@ fn alignment_padding_edge_cases() {
 }
 
 #[test]
+fn reader_rejects_nonzero_name_and_data_padding() {
+    let mut tree = FileTree::new();
+    tree.add(FileNode::file("ab", b"xy".to_vec(), 0o644));
+    let archive = write_archive(&tree, false);
+
+    // HEADER_SIZE + namesize ("ab\0") is 113, so bytes 113..116 pad the name.
+    let mut bad_name_padding = archive.clone();
+    bad_name_padding[113] = 1;
+    let mut reader = CpioArchiveReader::new(bad_name_padding.as_slice());
+    assert!(matches!(
+        reader.next_entry_alloc(),
+        Err(hadris_cpio::Error::InvalidHeader {
+            reason: "alignment padding must be zero"
+        })
+    ));
+
+    // The two-byte body starts at 116, so bytes 118..120 pad the data.
+    let mut bad_data_padding = archive;
+    bad_data_padding[118] = 1;
+    let mut reader = CpioArchiveReader::new(bad_data_padding.as_slice());
+    let entry = reader.next_entry_alloc().unwrap().unwrap();
+    assert!(matches!(
+        reader.read_entry_data_alloc(&entry),
+        Err(hadris_cpio::Error::InvalidHeader {
+            reason: "alignment padding must be zero"
+        })
+    ));
+}
+
+#[test]
 fn trailer_detection() {
     // An archive with no entries should still have a TRAILER
     let tree = FileTree::new();
     let archive = write_archive(&tree, false);
     let mut reader = CpioArchiveReader::new(archive.as_slice());
     assert!(reader.next_entry_alloc().unwrap().is_none());
+}
+
+#[test]
+fn reader_rejects_trailer_with_nonzero_filesize() {
+    let tree = FileTree::new();
+    let mut archive = write_archive(&tree, false);
+    archive[54..62].copy_from_slice(b"00000001");
+
+    let mut reader = CpioArchiveReader::new(archive.as_slice());
+    assert!(matches!(
+        reader.next_entry_alloc(),
+        Err(hadris_cpio::Error::InvalidHeader {
+            reason: "TRAILER!!! c_filesize must be zero"
+        })
+    ));
+}
+
+#[test]
+fn reader_accepts_aligned_eof_without_trailer() {
+    let mut tree = FileTree::new();
+    tree.add(FileNode::file("ab", b"xy".to_vec(), 0o644));
+    let archive = write_archive(&tree, false);
+
+    let trailer_offset = {
+        let mut reader = CpioArchiveReader::new(archive.as_slice());
+        let entry = reader.next_entry_alloc().unwrap().unwrap();
+        reader.read_entry_data_alloc(&entry).unwrap();
+        reader.offset() as usize
+    };
+    let trailerless = &archive[..trailer_offset];
+
+    let mut reader = CpioArchiveReader::new(trailerless);
+    let entry = reader.next_entry_alloc().unwrap().unwrap();
+    assert_eq!(reader.read_entry_data_alloc(&entry).unwrap(), b"xy");
+    assert!(reader.next_entry_alloc().unwrap().is_none());
+
+    let mut reader = CpioArchiveReader::new(trailerless);
+    let mut name = [0_u8; 8];
+    let entry = reader.next_entry_with_buf(&mut name).unwrap().unwrap();
+    let mut data = [0_u8; 2];
+    reader.read_entry_data(&entry, &mut data).unwrap();
+    assert_eq!(&data, b"xy");
+    assert!(reader.next_entry_with_buf(&mut name).unwrap().is_none());
 }
 
 #[test]
