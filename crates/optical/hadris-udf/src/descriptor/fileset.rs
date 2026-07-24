@@ -8,6 +8,7 @@ use crate::time::UdfTimestamp;
 ///
 /// @hadris-spec ECMA-167:4/14.1
 /// @hadris-compliance partial
+/// @hadris-note The descriptor is modeled and tested, but clause-complete validation has not yet been established.
 /// @hadris-tests write::tests::test_roundtrip_basic_verification
 /// @hadris-fuzz udf_read
 #[repr(C)]

@@ -10,6 +10,7 @@ use crate::error::Result;
 ///
 /// @hadris-spec ECMA-167:3/10.6
 /// @hadris-compliance partial
+/// @hadris-note The descriptor is modeled and tested, but clause-complete validation has not yet been established.
 /// @hadris-tests write::tests::test_roundtrip_basic_verification
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -120,6 +121,7 @@ impl LogicalVolumeDescriptor {
 ///
 /// @hadris-spec ECMA-167:3/10.7.2
 /// @hadris-compliance partial
+/// @hadris-note Type 1 maps are parsed, while validation of every table-level constraint is not yet established.
 /// @hadris-tests descriptor::logical::tests::type1_partition_maps_parses_embedded_table
 /// @hadris-fuzz udf_read
 #[repr(C)]

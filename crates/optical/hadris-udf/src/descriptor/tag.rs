@@ -8,6 +8,7 @@ use crate::error::{Error, Result};
 ///
 /// @hadris-spec ECMA-167:3/7.2
 /// @hadris-compliance partial
+/// @hadris-note Core tag invariants are checked, but validation across every descriptor context is not yet established.
 /// @hadris-tests descriptor::tag::tests::validate_bytes_enforces_version_reserved_location_and_crc
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -157,6 +158,7 @@ impl DescriptorTag {
 ///
 /// @hadris-spec ECMA-167:3/7.2.1
 /// @hadris-compliance partial
+/// @hadris-note Known identifiers are modeled and tested, but context-specific identifier constraints are not all validated.
 /// @hadris-tests comprehensive_udf::test_descriptor_tag_ids
 /// @hadris-fuzz udf_read
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

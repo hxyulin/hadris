@@ -9,6 +9,7 @@ use crate::types::{U16LsbMsb, U32LsbMsb};
 ///
 /// @hadris-spec ECMA-119:9.1
 /// @hadris-compliance partial
+/// @hadris-note Fixed fields round-trip, but all identifier, flag, and semantic constraints are not yet validated.
 /// @hadris-tests directory::tests::directory_record_parse_roundtrip
 /// @hadris-fuzz iso_read
 #[repr(C)]

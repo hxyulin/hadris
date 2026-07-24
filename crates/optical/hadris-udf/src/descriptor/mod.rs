@@ -24,6 +24,7 @@ use crate::error::{Error, Result};
 ///
 /// @hadris-spec ECMA-167:3/7.1
 /// @hadris-compliance partial
+/// @hadris-note The layout is modeled and tested, but all extent semantics are not validated at this layer.
 /// @hadris-tests comprehensive_udf::test_extent_descriptor
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -54,6 +55,7 @@ impl ExtentDescriptor {
 ///
 /// @hadris-spec ECMA-167:4/14.14.2
 /// @hadris-compliance partial
+/// @hadris-note The layout is modeled and tested, but all partition-reference and extent semantics are not validated at this layer.
 /// @hadris-tests comprehensive_udf::test_allocation_descriptor_sizes
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -108,6 +110,7 @@ impl LongAllocationDescriptor {
 ///
 /// @hadris-spec ECMA-167:4/14.14.1
 /// @hadris-compliance partial
+/// @hadris-note The layout is modeled and tested, but all allocation-length semantics are not validated at this layer.
 /// @hadris-tests comprehensive_udf::test_allocation_descriptor_sizes
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -177,6 +180,7 @@ pub struct LbAddr {
 ///
 /// @hadris-spec ECMA-167:1/7.4
 /// @hadris-compliance partial
+/// @hadris-note The identifier layout is modeled, but suffix-specific constraints are not all validated.
 /// @hadris-tests comprehensive_udf::test_partition_contents
 /// @hadris-fuzz udf_read
 #[repr(C)]
@@ -225,6 +229,7 @@ unsafe impl bytemuck::Pod for EntityIdentifier {}
 ///
 /// @hadris-spec ECMA-167:1/7.2.1
 /// @hadris-compliance partial
+/// @hadris-note OSTA CS0 writing is tested, but every ECMA-167 character-set constraint is not validated.
 /// @hadris-tests write::cs0_tests::selects_eight_bit_for_latin1, write::cs0_tests::selects_sixteen_bit_for_wide_unicode
 /// @hadris-fuzz udf_read
 #[repr(C)]

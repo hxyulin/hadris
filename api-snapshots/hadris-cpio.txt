@@ -367,6 +367,8 @@ pub hadris_cpio::error::Error::ChecksumMismatch::expected: u32
 pub hadris_cpio::error::Error::FileTooLarge
 pub hadris_cpio::error::Error::FilenameTooLong
 pub hadris_cpio::error::Error::InvalidFilename
+pub hadris_cpio::error::Error::InvalidHeader
+pub hadris_cpio::error::Error::InvalidHeader::reason: &'static str
 pub hadris_cpio::error::Error::InvalidHexField
 pub hadris_cpio::error::Error::InvalidHexField::field: &'static str
 pub hadris_cpio::error::Error::InvalidMagic
@@ -882,6 +884,8 @@ pub hadris_cpio::Error::ChecksumMismatch::expected: u32
 pub hadris_cpio::Error::FileTooLarge
 pub hadris_cpio::Error::FilenameTooLong
 pub hadris_cpio::Error::InvalidFilename
+pub hadris_cpio::Error::InvalidHeader
+pub hadris_cpio::Error::InvalidHeader::reason: &'static str
 pub hadris_cpio::Error::InvalidHexField
 pub hadris_cpio::Error::InvalidHexField::field: &'static str
 pub hadris_cpio::Error::InvalidMagic
