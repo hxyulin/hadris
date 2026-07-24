@@ -19,6 +19,11 @@ than read contiguously, directory records are kept within sector boundaries,
 directory identifiers no longer receive file version suffixes, path-table
 siblings are sorted, and descriptor dates use fixed-width digits.
 
+Follow-up regressions now also reject inconsistent redundant PVD integers and
+a descriptor sequence without a primary descriptor. Raw-image tests directly
+prove directory-sector padding, directory identifier grammar, and adversarial
+path-table ordering.
+
 Remaining `partial` entries are intentional work items. A status becomes
 `verified` only when a clause-sized claim has direct executable evidence; a
 successful Hadris-to-Hadris round trip is not by itself a conformance oracle.

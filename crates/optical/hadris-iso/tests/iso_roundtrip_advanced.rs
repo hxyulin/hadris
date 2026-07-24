@@ -63,15 +63,18 @@ fn joliet_options() -> IsoFormatOptions {
     }
 }
 
-fn write_and_open(files: Vec<IsoFile>, options: IsoFormatOptions) -> IsoImage<Cursor<Vec<u8>>> {
+fn write_bytes(files: Vec<IsoFile>, options: IsoFormatOptions) -> Vec<u8> {
     let input = InputFiles {
         path_separator: PathSeparator::ForwardSlash,
         files,
     };
     let mut buffer = Cursor::new(vec![0u8; 8 * 1024 * 1024]);
     IsoImageWriter::create(&mut buffer, input, options).expect("Failed to write ISO");
-    let data = buffer.into_inner();
-    IsoImage::open(Cursor::new(data)).expect("Failed to open ISO")
+    buffer.into_inner()
+}
+
+fn write_and_open(files: Vec<IsoFile>, options: IsoFormatOptions) -> IsoImage<Cursor<Vec<u8>>> {
+    IsoImage::open(Cursor::new(write_bytes(files, options))).expect("Failed to open ISO")
 }
 
 /// Build a chain of N nested directories with a leaf file.
@@ -163,6 +166,96 @@ fn test_path_table_contains_all_subdirectories() {
             "Invalid parent index: {}",
             entry.parent_index
         );
+    }
+}
+
+#[test]
+fn path_table_sorts_adversarial_directory_input() {
+    let directory = |name: &str, child: &str| IsoFile::Directory {
+        name: Arc::new(name.to_string()),
+        children: vec![IsoFile::Directory {
+            name: Arc::new(child.to_string()),
+            children: Vec::new(),
+        }],
+    };
+    let files = vec![
+        directory("z", "zchild"),
+        directory("a", "achild"),
+        directory("m", "mchild"),
+    ];
+
+    let image = write_and_open(files, default_options());
+    let entries: Vec<_> = image
+        .path_table()
+        .entries(&image)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let names: Vec<_> = entries
+        .iter()
+        .skip(1)
+        .map(|entry| String::from_utf8_lossy(entry.name.as_bytes()).into_owned())
+        .collect();
+
+    assert_eq!(names, ["A", "M", "Z", "ACHILD", "MCHILD", "ZCHILD"]);
+    assert!(names.iter().all(|name| !name.contains(';')));
+}
+
+#[test]
+fn raw_directory_records_respect_sector_and_identifier_rules() {
+    let mut files: Vec<_> = (0..100)
+        .map(|index| IsoFile::File {
+            name: Arc::new(format!("FILE{index:03}.TXT")),
+            contents: vec![index as u8],
+        })
+        .collect();
+    files.push(IsoFile::Directory {
+        name: Arc::new("PLAIN_DIR".to_string()),
+        children: Vec::new(),
+    });
+    let bytes = write_bytes(files, default_options());
+
+    let pvd = 16 * 2048;
+    let root_record = pvd + 156;
+    let root_extent =
+        u32::from_le_bytes(bytes[root_record + 2..root_record + 6].try_into().unwrap()) as usize;
+    let root_size = u32::from_le_bytes(
+        bytes[root_record + 10..root_record + 14]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let root = &bytes[root_extent * 2048..root_extent * 2048 + root_size];
+
+    let mut position = 0;
+    while position < root.len() {
+        let remaining_in_sector = 2048 - position % 2048;
+        let record_length = root[position] as usize;
+        if record_length == 0 {
+            assert!(
+                root[position..position + remaining_in_sector]
+                    .iter()
+                    .all(|byte| *byte == 0),
+                "unused directory-sector bytes must be zero"
+            );
+            position += remaining_in_sector;
+            continue;
+        }
+
+        assert!(
+            record_length <= remaining_in_sector,
+            "directory record crosses a logical-sector boundary"
+        );
+        let record = &root[position..position + record_length];
+        let identifier_length = record[32] as usize;
+        let identifier = &record[33..33 + identifier_length];
+        let is_directory = record[25] & 0x02 != 0;
+        let is_special = identifier == [0] || identifier == [1];
+        if is_directory && !is_special {
+            assert!(
+                !identifier.contains(&b';'),
+                "directory identifiers must not have file version suffixes"
+            );
+        }
+        position += record_length;
     }
 }
 

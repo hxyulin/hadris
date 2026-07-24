@@ -70,10 +70,10 @@
       "normativity": "shall",
       "summary": "Every volume descriptor sequence contains a primary volume descriptor.",
       "direction": "both",
-      "status": "partial",
+      "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/volume.rs", "name": "VolumeDescriptorList::try_primary"}],
-      "tests": [],
-      "gap": "The writer emits a primary descriptor and the reader returns InvalidData when absent, but a dedicated regression test is still needed."
+      "tests": [{"path": "crates/optical/hadris-iso/tests/comprehensive_iso.rs", "name": "primary_volume_descriptor_is_required", "kind": "integration"}],
+      "gap": null
     },
     {
       "id": "ECMA-119-1987:8.1.2#descriptor-identifier",
@@ -106,10 +106,10 @@
       "normativity": "shall",
       "summary": "The volume-space size stores equal little- and big-endian 32-bit copies.",
       "direction": "both",
-      "status": "partial",
+      "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/types.rs", "name": "LsbMsb::is_consistent"}],
-      "tests": [{"path": "crates/optical/hadris-iso/src/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
-      "gap": "Directory records validate redundant copies, but descriptor-wide validation has not yet been centralized."
+      "tests": [{"path": "crates/optical/hadris-iso/tests/comprehensive_iso.rs", "name": "pvd_rejects_inconsistent_redundant_endian_fields", "kind": "integration"}],
+      "gap": null
     },
     {
       "id": "ECMA-119-1987:8.4.26.1#decimal-date-format",
@@ -190,10 +190,10 @@
       "normativity": "shall",
       "summary": "A directory record is contained within one logical sector and unused trailing bytes are zero.",
       "direction": "write",
-      "status": "partial",
+      "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/write/mod.rs", "name": "write_directory"}],
-      "tests": [{"path": "crates/optical/hadris-iso/tests/xorriso_advanced.rs", "name": "test_multi_sector_directory", "kind": "interop"}],
-      "gap": "The writer now pads before a crossing record; the external test is useful but not yet a dedicated raw-byte oracle."
+      "tests": [{"path": "crates/optical/hadris-iso/tests/iso_roundtrip_advanced.rs", "name": "raw_directory_records_respect_sector_and_identifier_rules", "kind": "integration"}],
+      "gap": null
     },
     {
       "id": "ECMA-119-1987:7.6.1#directory-identifier",
@@ -202,10 +202,10 @@
       "normativity": "shall",
       "summary": "Ordinary directory identifiers use directory-name grammar and do not carry a file version suffix.",
       "direction": "write",
-      "status": "partial",
+      "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/file.rs", "name": "EntryType::convert_directory_name"}],
-      "tests": [],
-      "gap": "Primary hierarchy conversion is separated from file identifiers, but direct raw-byte coverage remains to be added."
+      "tests": [{"path": "crates/optical/hadris-iso/tests/iso_roundtrip_advanced.rs", "name": "raw_directory_records_respect_sector_and_identifier_rules", "kind": "integration"}],
+      "gap": null
     },
     {
       "id": "ECMA-119-1987:6.9.1#path-table-order",
@@ -214,10 +214,10 @@
       "normativity": "shall",
       "summary": "Path-table records are ordered by level, parent record number, and directory identifier.",
       "direction": "write",
-      "status": "partial",
+      "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/write/writer.rs", "name": "PathTableWriter::write"}],
-      "tests": [{"path": "crates/optical/hadris-iso/tests/iso_roundtrip_advanced.rs", "name": "test_path_table_contains_all_subdirectories", "kind": "integration"}],
-      "gap": "The implementation sorts each breadth-first sibling group; the existing test does not use adversarial input order."
+      "tests": [{"path": "crates/optical/hadris-iso/tests/iso_roundtrip_advanced.rs", "name": "path_table_sorts_adversarial_directory_input", "kind": "integration"}],
+      "gap": null
     },
     {
       "id": "ECMA-119-1987:6.9.2#type-l-and-m-tables",
