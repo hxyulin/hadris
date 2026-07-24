@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "crate": "block/hadris-ntfs",
+  "profile": "Read-only NTFS version 3 MFT behavior from Microsoft's MFT overview; not a complete NTFS profile",
+  "requirements": [
+    {
+      "id": "MICROSOFT-NTFS-MFT:mft-overview#file-retrieval",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Master File Table, paragraph 1",
+      "normativity": "informative",
+      "summary": "The MFT stores information used to retrieve files from an NTFS partition.",
+      "direction": "read",
+      "status": "partial",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::open"}, {"path": "crates/block/hadris-ntfs/src/read.rs", "name": "FileReader"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "read_small_resident_file", "kind": "interop"}, {"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "read_large_nonresident_file", "kind": "interop"}],
+      "gap": "Common unnamed streams are retrievable; attribute-list extents, named streams, compression, encryption, and mirror recovery are unsupported."
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:file-records#multiple-segments",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Master File Table, paragraph 2",
+      "normativity": "informative",
+      "summary": "A file may occupy one or more MFT record segments.",
+      "direction": "read",
+      "status": "not_implemented",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_mft_record_ref"}],
+      "tests": [],
+      "gap": "Only a base record is loaded; extension records referenced by an attribute list are not resolved."
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:file-records#multiple-attributes",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Master File Table, paragraph 2",
+      "normativity": "informative",
+      "summary": "A file record may contain multiple attributes.",
+      "direction": "read",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "AttrIter"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "read_small_resident_file", "kind": "interop"}, {"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "large_directory_uses_index_allocation", "kind": "interop"}],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:file-reference#base-record",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Master File Table, paragraph 2, sentences 2-3",
+      "normativity": "informative",
+      "summary": "A file reference identifies its base file record through an MFT segment reference.",
+      "direction": "read",
+      "status": "partial",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_mft_record_ref"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "nested_directories_and_open_path", "kind": "interop"}],
+      "gap": "Directory references and sequence numbers are checked, but extension-record references are not followed."
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:reserved-records#mft-zero",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Reserved record list, item 0",
+      "normativity": "informative",
+      "summary": "MFT record zero is reserved for the $Mft metadata file.",
+      "direction": "read",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "MFT_RECORD_MFT"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "open_blank_volume", "kind": "interop"}],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:reserved-records#root-five",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Reserved record list, item 5",
+      "normativity": "informative",
+      "summary": "MFT record five is reserved for the root directory.",
+      "direction": "read",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "MFT_RECORD_ROOT_DIR"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "root_dir_lists_system_metafiles", "kind": "interop"}],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:attribute-record#type-name-value",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Record-layout paragraph",
+      "normativity": "informative",
+      "summary": "An attribute record contains a type, an optional name, and a value.",
+      "direction": "read",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "NtfsAttr"}, {"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "AttrIter::next"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "read_small_resident_file", "kind": "interop"}],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:attribute-record#end-marker",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Record-layout paragraph, final sentence",
+      "normativity": "informative",
+      "summary": "The attribute sequence terminates with the value 0xFFFFFFFF.",
+      "direction": "read",
+      "status": "partial",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "ATTR_END"}],
+      "tests": [],
+      "gap": "The parser recognizes the marker, but no focused test covers malformed or missing termination."
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:data-streams#attributes",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Record-layout paragraph, sentence 5",
+      "normativity": "informative",
+      "summary": "User data and other file streams are represented as attributes.",
+      "direction": "read",
+      "status": "partial",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/read.rs", "name": "FileReader"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "read_large_nonresident_file", "kind": "interop"}],
+      "gap": "Only the unnamed $DATA stream is exposed; alternate named and encoded streams are unsupported."
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:mft-data#ordered-records",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Example attributes, $Mft $DATA item",
+      "normativity": "informative",
+      "summary": "The unnamed $DATA attribute of $Mft is the ordered sequence of MFT records.",
+      "direction": "read",
+      "status": "verified",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_mft_record_ref"}],
+      "tests": [{"path": "crates/block/hadris-ntfs/tests/read.rs", "name": "multiple_files_in_root", "kind": "interop"}],
+      "gap": null
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:mft-bitmap#records-in-use",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Example attributes, $Mft $BITMAP item",
+      "normativity": "informative",
+      "summary": "The unnamed $BITMAP attribute of $Mft identifies which MFT records are in use.",
+      "direction": "read",
+      "status": "not_implemented",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/fs.rs", "name": "NtfsFs::read_mft_record_ref"}],
+      "tests": [],
+      "gap": "The reader checks record flags but does not consult the $Mft bitmap before loading a record."
+    },
+    {
+      "id": "MICROSOFT-NTFS-MFT:attribute-list#extension-resolution",
+      "source": "MICROSOFT-NTFS-MFT",
+      "clause": "Attribute-list paragraph",
+      "normativity": "informative",
+      "summary": "An attribute list identifies attributes stored in base and extension records when one record is insufficient.",
+      "direction": "read",
+      "status": "not_implemented",
+      "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "ATTR_ATTRIBUTE_LIST"}],
+      "tests": [],
+      "gap": "The type code exists, but list entries are neither parsed nor followed."
+    }
+  ]
+}

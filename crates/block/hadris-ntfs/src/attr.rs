@@ -139,7 +139,7 @@ pub fn decode_record_size(
 /// record header, which is the same position in both record types.
 ///
 /// @hadris-spec NTFS:Update-Sequence-Array
-/// @hadris-compliance full
+/// @hadris-compliance unknown
 /// @hadris-tests compliance::fixups_restore_each_sector_trailer
 pub fn apply_fixups(record: &mut [u8], sector_size: usize) -> Result<()> {
     if record.len() < 8 || sector_size < 2 {
@@ -396,7 +396,7 @@ pub struct DataRun {
 /// cumulative — each is relative to the previous run's LCN.
 ///
 /// @hadris-spec NTFS:Mapping-Pairs
-/// @hadris-compliance full
+/// @hadris-compliance unknown
 /// @hadris-tests compliance::data_runs_decode_relative_and_sparse_extents
 pub struct DataRunDecoder<'a> {
     data: &'a [u8],
