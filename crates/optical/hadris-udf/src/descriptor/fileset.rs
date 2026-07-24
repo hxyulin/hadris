@@ -57,19 +57,20 @@ unsafe impl bytemuck::Zeroable for FileSetDescriptor {}
 unsafe impl bytemuck::Pod for FileSetDescriptor {}
 
 impl FileSetDescriptor {
-    pub(crate) fn from_disk(mut self) -> Self {
+    #[cfg(feature = "alloc")]
+    pub(crate) fn into_native(mut self) -> Self {
         self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
             .expect("DescriptorTag has its fixed on-disk size");
-        self.recording_date_time = self.recording_date_time.from_disk();
+        self.recording_date_time = self.recording_date_time.into_native();
         self.interchange_level = self.interchange_level.to_le();
         self.max_interchange_level = self.max_interchange_level.to_le();
         self.character_set_list = self.character_set_list.to_le();
         self.max_character_set_list = self.max_character_set_list.to_le();
         self.file_set_number = self.file_set_number.to_le();
         self.file_set_desc_number = self.file_set_desc_number.to_le();
-        self.root_directory_icb = self.root_directory_icb.from_disk();
-        self.next_extent = self.next_extent.from_disk();
-        self.system_stream_directory_icb = self.system_stream_directory_icb.from_disk();
+        self.root_directory_icb = self.root_directory_icb.into_native();
+        self.next_extent = self.next_extent.into_native();
+        self.system_stream_directory_icb = self.system_stream_directory_icb.into_native();
         self
     }
 

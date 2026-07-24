@@ -46,7 +46,7 @@ impl AnchorVolumeDescriptorPointer {
             TagIdentifier::AnchorVolumeDescriptorPointer,
             location,
         )?;
-        let avdp = (*bytemuck::from_bytes::<Self>(&buffer)).from_disk();
+        let avdp = (*bytemuck::from_bytes::<Self>(&buffer)).into_native();
         avdp.validate(location)?;
         Ok(avdp)
     }
@@ -81,11 +81,11 @@ impl AnchorVolumeDescriptorPointer {
         Ok(())
     }
 
-    pub(crate) fn from_disk(mut self) -> Self {
+    pub(crate) fn into_native(mut self) -> Self {
         self.tag = DescriptorTag::from_disk_bytes(bytemuck::bytes_of(&self.tag))
             .expect("DescriptorTag has its fixed on-disk size");
-        self.main_vds_extent = self.main_vds_extent.from_disk();
-        self.reserve_vds_extent = self.reserve_vds_extent.from_disk();
+        self.main_vds_extent = self.main_vds_extent.into_native();
+        self.reserve_vds_extent = self.reserve_vds_extent.into_native();
         self
     }
 }
