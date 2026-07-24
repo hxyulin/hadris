@@ -541,7 +541,7 @@ impl Guid {
         rand::rng().fill_bytes(&mut bytes);
 
         // Set version: 0100xxxx (version 4)
-        bytes[6] = (bytes[6] & 0x0F) | 0x40;
+        bytes[7] = (bytes[7] & 0x0F) | 0x40;
 
         // Set variant: 10xxxxxx (RFC 4122)
         bytes[8] = (bytes[8] & 0x3F) | 0x80;
@@ -667,7 +667,7 @@ impl GptPartitionName {
 /// Use `to_raw` / `from_raw` or the I/O extension traits for serialization.
 ///
 /// @hadris-spec UEFI:GPT-Header
-/// @hadris-compliance full
+/// @hadris-compliance unknown
 /// @hadris-tests io_roundtrip::gpt_scheme_sync_write_open_and_detect_roundtrip
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -885,7 +885,7 @@ impl GptHeader {
 /// GPT partition entry (128 bytes by default).
 ///
 /// @hadris-spec UEFI:GPT-Entry
-/// @hadris-compliance full
+/// @hadris-compliance unknown
 /// @hadris-tests roundtrip::gpt_partition_entry_roundtrip
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
