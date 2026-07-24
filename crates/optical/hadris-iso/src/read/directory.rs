@@ -217,7 +217,9 @@ impl DirEntry {
     pub fn extents(&self) -> impl Iterator<Item = Extent> + '_ {
         let header = self.record.header();
         let first = Extent {
-            sector: LogicalSector(header.extent.read() as usize),
+            sector: LogicalSector(
+                header.extent.read() as usize + header.extended_attr_record as usize,
+            ),
             length: header.data_len.read(),
         };
         core::iter::once(first).chain(self.additional_extents.iter().copied())
@@ -261,9 +263,12 @@ impl DirEntry {
         {
             return rrip::read_dir_size(image, LogicalSector(cl_sector as usize)).await;
         }
-        self.record
+        let mut directory = self
+            .record
             .as_dir_ref()
-            .map_err(|_| io::Error::other("not a directory"))
+            .map_err(|_| io::Error::other("not a directory"))?;
+        directory.extent += self.record.header().extended_attr_record as usize;
+        Ok(directory)
     }
 }
 } // io_transform!
@@ -294,9 +299,18 @@ impl<T: Read + Seek> IsoDir<'_, T> {
             let record = DirectoryRecord::parse(&mut cursor).await?;
             offset += record.size();
             let flags = FileFlags::from_bits_retain(record.header().flags);
+            if record.header().file_unit_size != 0 || record.header().interleave_gap_size != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "interleaved ISO entries are not supported",
+                ));
+            }
             if flags.contains(FileFlags::ASSOCIATED_FILE) {
                 associated_file = Some(Extent {
-                    sector: LogicalSector(record.header().extent.read() as usize),
+                    sector: LogicalSector(
+                        record.header().extent.read() as usize
+                            + record.header().extended_attr_record as usize,
+                    ),
                     length: record.header().data_len.read(),
                 });
                 continue;
@@ -314,8 +328,24 @@ impl<T: Read + Seek> IsoDir<'_, T> {
                     let continuation = DirectoryRecord::parse(&mut cursor).await?;
                     offset += continuation.size();
                     let header = continuation.header();
+                    if continuation.name() != record.name()
+                        || (header.flags ^ record.header().flags)
+                            & !FileFlags::NOT_FINAL.bits()
+                            != 0
+                        || header.volume_sequence_number.read()
+                            != record.header().volume_sequence_number.read()
+                        || header.file_unit_size != 0
+                        || header.interleave_gap_size != 0
+                    {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "invalid ISO multi-extent continuation",
+                        ));
+                    }
                     additional_extents.push(Extent {
-                        sector: LogicalSector(header.extent.read() as usize),
+                        sector: LogicalSector(
+                            header.extent.read() as usize + header.extended_attr_record as usize,
+                        ),
                         length: header.data_len.read(),
                     });
                     if !FileFlags::from_bits_retain(header.flags)
@@ -389,7 +419,10 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
     /// After reading a record with `NOT_FINAL` set, consume subsequent
     /// continuation records (same file identifier) until the final extent.
     /// Returns the additional extents (not including the first/primary record).
-    fn collect_additional_extents(&mut self) -> io::Result<Vec<Extent>> {
+    fn collect_additional_extents(
+        &mut self,
+        first: &DirectoryRecord,
+    ) -> io::Result<Vec<Extent>> {
         let mut extents = Vec::new();
         // Depth limit to prevent infinite loops on malformed images
         const MAX_EXTENTS: usize = 4096;
@@ -406,8 +439,22 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
             };
 
             let header = record.header();
+            if record.name() != first.name()
+                || (header.flags ^ first.header().flags) & !FileFlags::NOT_FINAL.bits() != 0
+                || header.volume_sequence_number.read()
+                    != first.header().volume_sequence_number.read()
+                || header.file_unit_size != 0
+                || header.interleave_gap_size != 0
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid ISO multi-extent continuation",
+                ));
+            }
             extents.push(Extent {
-                sector: LogicalSector(header.extent.read() as usize),
+                sector: LogicalSector(
+                    header.extent.read() as usize + header.extended_attr_record as usize,
+                ),
                 length: header.data_len.read(),
             });
 
@@ -473,13 +520,21 @@ impl<T: Read + Seek> Iterator for IsoDirIter<'_, T> {
             };
 
             let flags = FileFlags::from_bits_retain(record.header().flags);
+            if record.header().file_unit_size != 0 || record.header().interleave_gap_size != 0 {
+                return Some(Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "interleaved ISO entries are not supported",
+                )));
+            }
 
             // If this is an associated file record, save it and continue
             // to the next record (the primary file entry).
             if flags.contains(FileFlags::ASSOCIATED_FILE) {
                 let header = record.header();
                 self.pending_associated = Some(Extent {
-                    sector: LogicalSector(header.extent.read() as usize),
+                    sector: LogicalSector(
+                        header.extent.read() as usize + header.extended_attr_record as usize,
+                    ),
                     length: header.data_len.read(),
                 });
                 continue;
@@ -487,7 +542,7 @@ impl<T: Read + Seek> Iterator for IsoDirIter<'_, T> {
 
             // Check for multi-extent: if NOT_FINAL is set, collect additional extents
             let additional_extents = if flags.contains(FileFlags::NOT_FINAL) {
-                match self.collect_additional_extents() {
+                match self.collect_additional_extents(&record) {
                     Ok(extents) => extents,
                     Err(e) => return Some(Err(e)),
                 }

@@ -762,6 +762,13 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         allocation_floor: Option<u32>,
     ) -> Result<DATA> {
         let mut files = files.into();
+        if ops.sector_size != 2048 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "ISO creation currently requires 2048-byte logical sectors",
+            )
+            .into());
+        }
         validate_input_tree(&files, ops.features.rock_ridge.as_ref())?;
         let mut writer = Self::new(data, ops);
         writer.write_volume_descriptors(&mut files).await?;
@@ -1045,6 +1052,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         };
 
         let end_sector = self.data.pad_align_sector().await?;
+        let image_len = end_sector.0 as u64 * self.ops.sector_size as u64;
+        if image_len != 0 {
+            self.data
+                .seek(SeekFrom::Start(image_len - 1))
+                .await
+                .map_err(io::Error::erase)?;
+            self.data.write_all(&[0]).await?;
+        }
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START).await?;
 
         let mut buffer = vec![0u8; self.ops.sector_size];
@@ -1891,7 +1906,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 relocation,
                 ..
             } = directory;
-            let converted_name = ty.convert_name(name);
+            let converted_name = ty.convert_directory_name(name);
             let split = if has_rrip {
                 let inode = *inode_counter;
                 *inode_counter += 1;
@@ -1979,17 +1994,25 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         // e.g., "readme.txt" and "README.txt" both become "README.TXT;1".
         // Resolve collisions with underscore-based suffixes.
         {
-            use std::collections::HashMap;
-            let mut seen: HashMap<Vec<u8>, usize> = HashMap::new();
+            use std::collections::HashSet;
+            let mut seen: HashSet<Vec<u8>> = HashSet::new();
             for record in &mut records {
                 // Skip dot/dotdot entries
                 if record.name.len() == 1 && (record.name[0] == 0x00 || record.name[0] == 0x01) {
                     continue;
                 }
-                let count = seen.entry(record.name.clone()).or_insert(0);
-                *count += 1;
-                if *count > 1 {
-                    record.name = apply_dedup_suffix(&record.name, *count - 1, ty);
+                if seen.insert(record.name.clone()) {
+                    continue;
+                }
+                let original = record.name.clone();
+                let mut suffix = 1;
+                loop {
+                    let candidate = apply_dedup_suffix(&original, suffix, ty);
+                    suffix += 1;
+                    if seen.insert(candidate.clone()) {
+                        record.name = candidate;
+                        break;
+                    }
                 }
             }
         }
@@ -2031,13 +2054,20 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         let start = data.pad_align_sector().await?;
         for record in &records {
-            DirectoryRecord::new(
+            let directory_record = DirectoryRecord::new(
                 &record.name,
                 &record.split.inline,
                 record.dir_ref,
                 record.flags,
-            )
-            .write(&mut *data).await?;
+            );
+            let position = data.stream_position().await.map_err(io::Error::erase)? as usize;
+            let sector_offset = position % data.sector_size;
+            let remaining = data.sector_size - sector_offset;
+            if directory_record.size() > remaining {
+                let padding = vec![0_u8; remaining];
+                data.write_all(&padding).await?;
+            }
+            directory_record.write(&mut *data).await?;
         }
         let end = data.pad_align_sector().await?;
         let size = (end.0 - start.0) * data.sector_size;

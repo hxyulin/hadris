@@ -245,7 +245,7 @@ impl PlatformId {
 /// El Torito boot catalog validation entry.
 ///
 /// @hadris-spec El-Torito:validation
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests xorriso_boot::test_eltorito_boot_catalog_comparison
 /// @hadris-fuzz iso_read
 #[repr(C)]
@@ -351,7 +351,7 @@ impl BootValidationEntry {
 /// entries.
 ///
 /// @hadris-spec El-Torito:section-header
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests xorriso_boot::test_hadris_multisection_boot_catalog
 /// @hadris-fuzz iso_read
 #[repr(C)]
@@ -445,7 +445,7 @@ impl EmulationType {
 /// emulation media type.
 ///
 /// @hadris-spec El-Torito:section-entry
-/// @hadris-compliance full
+/// @hadris-compliance partial
 /// @hadris-tests xorriso_boot::test_floppy_emulation_media_type_and_default_load_size
 /// @hadris-fuzz iso_read
 #[repr(C)]
