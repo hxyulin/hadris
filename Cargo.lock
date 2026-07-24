@@ -459,6 +459,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "hadris-apfs"
+version = "2.0.0-rc.4"
+dependencies = [
+ "bitflags 2.13.0",
+ "hadris-common",
+ "hadris-io",
+ "hadris-storage",
+]
+
+[[package]]
+name = "hadris-apfs-cli"
+version = "2.0.0-rc.4"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hadris-apfs",
+ "hadris-part",
+ "hadris-storage",
+]
+
+[[package]]
 name = "hadris-archive"
 version = "2.0.0-rc.4"
 dependencies = [
