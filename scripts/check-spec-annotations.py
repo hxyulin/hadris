@@ -2,9 +2,10 @@
 """Validate @hadris-* spec annotation blocks.
 
 Rules (see docs/spec-coverage.md):
-  - @hadris-compliance full  ⇒ @hadris-tests and/or @hadris-fuzz
+  - @hadris-compliance full  ⇒ @hadris-tests
   - @hadris-compliance partial ⇒ @hadris-note
-  - every @hadris-spec value appears in docs/spec-coverage.md (unless --no-table-sync)
+  - cited tests and fuzz targets exist
+  - annotations and docs/spec-coverage.md agree in both directions
 
 Line-oriented only — no Rust AST. Never invokes cargo fuzz.
 """
@@ -12,6 +13,7 @@ Line-oriented only — no Rust AST. Never invokes cargo fuzz.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import re
 import sys
 from dataclasses import dataclass, field
@@ -36,6 +38,15 @@ class Block:
         if name not in self.tags:
             self.tags[name] = value.strip()
             self.tag_lines[name] = line
+
+
+@dataclass(frozen=True)
+class CoverageRow:
+    spec: str
+    compliance: str
+    tests: str
+    fuzz: str
+    notes: str
 
 
 def iter_rust_files(root: Path) -> list[Path]:
@@ -92,11 +103,11 @@ def check_block(block: Block) -> list[str]:
         return errors
 
     if compliance == "full":
-        if "hadris-tests" not in tags and "hadris-fuzz" not in tags:
+        if "hadris-tests" not in tags or not tags["hadris-tests"]:
             cline = block.tag_lines.get("hadris-compliance", block.start_line)
             errors.append(
                 f"{block.path}:{cline}: @hadris-compliance full requires "
-                f"@hadris-tests and/or @hadris-fuzz"
+                "@hadris-tests; fuzzing alone is not conformance evidence"
             )
     elif compliance == "partial":
         if "hadris-note" not in tags or not tags["hadris-note"]:
@@ -109,22 +120,29 @@ def check_block(block: Block) -> list[str]:
     return errors
 
 
-def specs_in_coverage(coverage_path: Path) -> set[str]:
+def coverage_rows(coverage_path: Path) -> list[CoverageRow]:
     text = coverage_path.read_text(encoding="utf-8")
-    # Table cells: | ECMA-167:3/10.5 | ...
-    found: set[str] = set()
+    found: list[CoverageRow] = []
     for line in text.splitlines():
         if not line.startswith("|"):
             continue
         cells = [c.strip() for c in line.strip("|").split("|")]
-        if not cells or cells[0] in {"Spec", "------", ""}:
+        if len(cells) != 6 or cells[0] in {"Spec", "------", ""}:
             continue
         if cells[0].startswith("*") or cells[0].startswith("("):
             continue
         # Skip markdown separator rows
         if set(cells[0]) <= {"-", ":"}:
             continue
-        found.add(cells[0])
+        found.append(
+            CoverageRow(
+                spec=cells[0].strip("`"),
+                compliance=cells[2].strip("`"),
+                tests=cells[3],
+                fuzz=cells[4].strip("`"),
+                notes=cells[5],
+            )
+        )
     return found
 
 
@@ -132,23 +150,114 @@ def check_table_sync(blocks: list[Block], coverage_path: Path) -> list[str]:
     if not coverage_path.is_file():
         return [f"missing coverage table: {coverage_path}"]
 
-    table_specs = specs_in_coverage(coverage_path)
+    rows = coverage_rows(coverage_path)
     errors: list[str] = []
-    seen: set[str] = set()
+    annotated = [
+        block
+        for block in blocks
+        if block.tags.get("hadris-spec") and block.tags.get("hadris-compliance")
+    ]
+    annotation_counts = Counter(
+        (block.tags["hadris-spec"], block.tags["hadris-compliance"])
+        for block in annotated
+    )
+    table_counts = Counter((row.spec, row.compliance) for row in rows)
+
+    for key in sorted(annotation_counts.keys() | table_counts.keys()):
+        annotation_count = annotation_counts[key]
+        table_count = table_counts[key]
+        if annotation_count != table_count:
+            spec, compliance = key
+            errors.append(
+                f"{coverage_path}: {spec} ({compliance}) has {table_count} table "
+                f"row(s) but {annotation_count} annotation block(s)"
+            )
+
+    for block in annotated:
+        matching = [
+            row
+            for row in rows
+            if row.spec == block.tags["hadris-spec"]
+            and row.compliance == block.tags["hadris-compliance"]
+        ]
+        for tag_name, row_field in (
+            ("hadris-tests", "tests"),
+            ("hadris-fuzz", "fuzz"),
+            ("hadris-note", "notes"),
+        ):
+            value = block.tags.get(tag_name, "")
+            if not value:
+                continue
+            if tag_name in {"hadris-tests", "hadris-fuzz"}:
+                agrees = any(
+                    set(evidence_names(value))
+                    <= set(evidence_names(getattr(row, row_field)))
+                    for row in matching
+                )
+            else:
+                agrees = any(value == row.notes for row in matching)
+            if not agrees:
+                line = block.tag_lines.get(tag_name, block.start_line)
+                errors.append(
+                    f"{block.path}:{line}: @{tag_name} value {value!r} does not "
+                    f"match the {coverage_path} row for {block.tags['hadris-spec']}"
+                )
+    return errors
+
+
+def evidence_names(value: str) -> list[str]:
+    return [part.strip().strip("`") for part in value.split(",") if part.strip()]
+
+
+def check_evidence(root: Path, blocks: list[Block]) -> list[str]:
+    errors: list[str] = []
+    rust_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in iter_rust_files(root)
+    )
+    fuzz_targets = {
+        path.stem for path in (root / "fuzz" / "fuzz_targets").glob("*.rs")
+    }
 
     for block in blocks:
-        spec = block.tags.get("hadris-spec")
-        if not spec:
-            continue
-        if spec in seen:
-            continue
-        seen.add(spec)
-        if spec not in table_specs:
-            line = block.tag_lines.get("hadris-spec", block.start_line)
-            errors.append(
-                f"{block.path}:{line}: @hadris-spec {spec} missing from "
-                f"{coverage_path} (add a table row or fix the id)"
-            )
+        for reference in evidence_names(block.tags.get("hadris-tests", "")):
+            function = reference.rsplit("::", 1)[-1]
+            if not re.search(rf"\bfn\s+{re.escape(function)}\b", rust_text):
+                line = block.tag_lines.get("hadris-tests", block.start_line)
+                errors.append(
+                    f"{block.path}:{line}: cited test {reference!r} does not name "
+                    "a Rust test function"
+                )
+        for target in evidence_names(block.tags.get("hadris-fuzz", "")):
+            if target not in fuzz_targets:
+                line = block.tag_lines.get("hadris-fuzz", block.start_line)
+                errors.append(
+                    f"{block.path}:{line}: cited fuzz target {target!r} does not "
+                    "exist under fuzz/fuzz_targets"
+                )
+    return errors
+
+
+def check_coverage_evidence(root: Path, coverage_path: Path) -> list[str]:
+    rust_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in iter_rust_files(root)
+    )
+    fuzz_targets = {
+        path.stem for path in (root / "fuzz" / "fuzz_targets").glob("*.rs")
+    }
+    errors: list[str] = []
+    for row in coverage_rows(coverage_path):
+        for reference in evidence_names(row.tests):
+            function = reference.rsplit("::", 1)[-1]
+            if not re.search(rf"\bfn\s+{re.escape(function)}\b", rust_text):
+                errors.append(
+                    f"{coverage_path}: {row.spec} cites test {reference!r}, "
+                    "which does not name a Rust test function"
+                )
+        for target in evidence_names(row.fuzz):
+            if target not in fuzz_targets:
+                errors.append(
+                    f"{coverage_path}: {row.spec} cites missing fuzz target {target!r}"
+                )
     return errors
 
 
@@ -167,8 +276,12 @@ def run_checks(
             all_blocks.append(block)
             errors.extend(check_block(block))
 
+    errors.extend(check_evidence(root, all_blocks))
+
     if table_sync:
-        errors.extend(check_table_sync(all_blocks, root / coverage_rel))
+        coverage_path = root / coverage_rel
+        errors.extend(check_table_sync(all_blocks, coverage_path))
+        errors.extend(check_coverage_evidence(root, coverage_path))
 
     return errors
 
@@ -203,12 +316,14 @@ def _self_test() -> None:
     e3 = check_block(blocks[3])
     assert e3 == [], e3
 
-    # fuzz alone satisfies full
+    # Fuzzing is robustness evidence, not sufficient conformance evidence.
     fuzz_only = parse_blocks(
         path,
         "/// @hadris-spec X\n/// @hadris-compliance full\n/// @hadris-fuzz udf_read\n",
     )[0]
-    assert check_block(fuzz_only) == []
+    assert any("fuzzing alone" in error for error in check_block(fuzz_only))
+
+    assert evidence_names("foo::one, `bar::two`") == ["foo::one", "bar::two"]
 
     print("self-test: ok")
 
