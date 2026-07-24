@@ -11,6 +11,9 @@ Choose the narrowest crate that covers your application:
 # A single filesystem:
 hadris-fat = "2.0.0-rc.4"
 
+# Experimental read-only NTFS:
+hadris-ntfs = "2.0.0-rc.4"
+
 # Or several storage categories:
 hadris = { version = "2.0.0-rc.4", features = ["block", "optical"] }
 ```
@@ -30,6 +33,10 @@ hadris-fat = {
 For hosted applications, default features provide the ergonomic synchronous
 configuration. Use explicit `sync` or `async` namespaces in new code when an
 application enables both modes.
+
+The NTFS reader is an experimental leaf crate and is outside the V2 stability
+freeze. Its crate README documents the supported read-only scope and known
+gaps.
 
 ## Next steps
 

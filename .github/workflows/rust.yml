@@ -23,8 +23,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Phase E v1: enforce @hadris-* annotation grammar (no cargo / no fuzz).
-  # See docs/superpowers/specs/2026-07-09-spec-compliance-program-design.md §7.
+  # Enforce annotation grammar, evidence references, and coverage-table parity.
+  # See docs/spec-coverage.md#annotation-convention.
   spec-annotations:
     name: Spec annotations
     runs-on: ubuntu-latest

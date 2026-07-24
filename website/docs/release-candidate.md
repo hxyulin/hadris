@@ -12,4 +12,5 @@ Read the complete
 and report real-world compatibility findings through
 [GitHub Issues](https://github.com/hxyulin/hadris/issues).
 
-The `unstable-exfat` preview is explicitly outside the V2 stability promise.
+The `unstable-exfat` preview and experimental `hadris-ntfs` reader are
+explicitly outside the V2 stability promise.

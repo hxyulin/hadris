@@ -4,8 +4,9 @@
 
 Hadris is a collection of pure Rust storage and filesystem libraries for block
 devices, GPT and MBR partition tables, FAT12/16/32, ISO 9660, UDF, CPIO, and
-disk images. It supports desktop applications as well as `no_std` bootloaders,
-operating-system kernels, firmware, and embedded devices.
+disk images, plus an experimental read-only NTFS reader. It supports desktop
+applications as well as `no_std` bootloaders, operating-system kernels,
+firmware, and embedded devices.
 
 Use a focused format crate such as `hadris-fat` or `hadris-iso`, a category
 facade such as `hadris-block`, or the `hadris` umbrella crate as an application
@@ -15,14 +16,15 @@ layers coherent without hiding format-specific capabilities.
 ## Stability and Versioning
 
 Hadris follows [Semantic Versioning](https://semver.org/). The
-The release-candidate series marked the V2 feature and public-API freeze, which
+release-candidate series marked the V2 feature and public-API freeze, which
 the `2.0.0-rc.4` candidate continues: until the
 final `2.0.0` release, changes are limited to correctness fixes,
 interoperability qualification, documentation, and release engineering.
 Breaking changes to the frozen public API require explicit review and a new
 release-candidate version.
 
-The `unstable-exfat` preview is explicitly outside this stability promise.
+The `unstable-exfat` preview and experimental `hadris-ntfs` reader are
+explicitly outside this stability promise.
 Stable FAT12/16/32, partition, ISO 9660, UDF, CPIO, facade, and storage APIs are
 covered by the V2 public-API snapshots.
 
@@ -98,6 +100,9 @@ organizational only: published package names such as `hadris-fat` are unchanged.
   - FAT sector caching for performance
   - Analysis and verification tools
   - exFAT preview (unstable leaf-crate feature; not opened by the block facade)
+- **[hadris-ntfs](crates/block/hadris-ntfs)** - Experimental read-only NTFS
+  reader with sync/async and `no_std` support; currently a leaf crate rather
+  than part of the stable block facade
 
 ### Optical Media
 
