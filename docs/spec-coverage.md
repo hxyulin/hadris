@@ -20,10 +20,12 @@ parse/format entry point:
 - `@hadris-spec` is required and uses one stable `DOCUMENT:section` identifier.
 - `@hadris-compliance` is required and accepts `full`, `partial`, `none`, or
   `n/a`.
-- `full` requires `@hadris-tests` and/or `@hadris-fuzz`.
+- `full` requires at least one runnable `@hadris-tests` function. Fuzzing is
+  supplementary robustness evidence, not proof of conformance.
 - `partial` requires an `@hadris-note` describing the gap.
-- `@hadris-tests` names runnable evidence; `@hadris-fuzz` names a target under
-  `fuzz/`. Fuzz targets are local discovery tools, not CI jobs.
+- `@hadris-tests` names runnable test functions; `@hadris-fuzz` names a target
+  under `fuzz/`. CI verifies that cited functions and targets exist. Fuzz
+  targets are local discovery tools, not CI jobs.
 - Annotate spec-facing layouts and entry points, not private helpers or every
   call site.
 
@@ -40,15 +42,15 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
-| NTFS:Boot-Sector | `RawNtfsBootSector` | partial | `compliance::open_rejects_invalid_sector_size` | | Core geometry and locations validated; reserved fields, checksum, and backup-boot recovery are not |
+| NTFS:Boot-Sector | `RawNtfsBootSector` | partial | `compliance::open_rejects_invalid_sector_size` | | Core geometry and locations are validated; reserved fields, checksum, and backup-boot recovery are not. |
 | NTFS:Update-Sequence-Array | `apply_fixups` | full | `compliance::fixups_restore_each_sector_trailer` | | FILE and INDX sector trailers validated and restored |
-| NTFS:Attribute-Record | `AttrIter` | partial | `compliance::attributes_are_bounded_by_the_file_record_used_size` | | Resident/non-resident records validated; `$ATTRIBUTE_LIST` extension records unresolved |
+| NTFS:Attribute-Record | `AttrIter` | partial | `compliance::attributes_are_bounded_by_the_file_record_used_size` | | Resident and non-resident headers are validated; attribute-list extension records are not resolved. |
 | NTFS:Mapping-Pairs | `DataRunDecoder` | full | `compliance::data_runs_decode_relative_and_sparse_extents` | | Signed relative LCNs, sparse runs, termination, and malformed encodings covered |
-| NTFS:File-Name | `parse_file_name` | partial | `compliance::filenames_decode_utf16_surrogate_pairs` | | Core fields and full UTF-16 names parsed; timestamps and reparse/EA data not exposed |
-| NTFS:Index-Entry | `parse_index_entries` | partial | `read::large_directory_uses_index_allocation` | | Filename-index enumeration only; child VCNs are not exposed for keyed descent |
-| NTFS:Master-File-Table | `NtfsFs::open` | partial | `read::open_blank_volume` | | Base `$MFT` extent and sequence checks; no attribute-list extents or `$MFTMirr` recovery |
-| NTFS:Directory-Index | `NtfsDir::entries` | partial | `read::large_directory_uses_index_allocation` | | `$INDEX_ROOT`, active `$INDEX_ALLOCATION`, `$BITMAP`, namespaces, and `$UpCase`; no attribute-list extents |
-| NTFS:Data-Stream | `FileReader` | partial | `read::read_large_nonresident_file` | | Resident/non-resident/sparse/uninitialized unnamed data; no compression, encryption, named streams, or attribute-list extents |
+| NTFS:File-Name | `parse_file_name` | partial | `compliance::filenames_decode_utf16_surrogate_pairs` | | Parses references, sizes, flags, namespace, and full UTF-16 names; timestamps and reparse/EA data are not exposed. |
+| NTFS:Index-Entry | `parse_index_entries` | partial | `read::large_directory_uses_index_allocation` | | Enumerates filename-index entries but does not expose child-node VCN pointers for keyed B-tree descent. |
+| NTFS:Master-File-Table | `NtfsFs::open` | partial | `read::open_blank_volume` | | Reads the base `$MFT` extent and validates file references; attribute-list extents and `$MFTMirr` recovery are not supported. |
+| NTFS:Directory-Index | `NtfsDir::entries` | partial | `read::large_directory_uses_index_allocation` | | Honors `$BITMAP`, update sequences, namespaces, and `$UpCase`; attribute-list index extents are not resolved. |
+| NTFS:Data-Stream | `FileReader` | partial | `read::read_large_nonresident_file` | | Reads resident, non-resident, sparse, and uninitialized unnamed data; compressed, encrypted, named, and attribute-list streams are unsupported. |
 
 ## hadris-udf
 
@@ -75,10 +77,10 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | ECMA-119:8.2 | `BootRecordVolumeDescriptor` | full | `xorriso_boot::test_hadris_multisection_boot_catalog` | `iso_read` | Locates the El Torito boot catalog |
 | ECMA-119:8.3 | `VolumeDescriptorSetTerminator` | full | `comprehensive_iso::test_pvd_standard_identifier` | `iso_read` | |
 | ECMA-119:8.4 | `PrimaryVolumeDescriptor` | full | `comprehensive_iso::test_pvd_standard_identifier` | `iso_read` | |
-| ECMA-119:8.5 | `SupplementaryVolumeDescriptor` | partial | | `iso_read` | Joliet SVD (UCS-2, BMP only); version-2 EVD repurposed as a UDF-bridge signal, not conformant ISO 9660:1999 |
+| ECMA-119:8.5 | `SupplementaryVolumeDescriptor` | partial | | `iso_read` | Joliet SVD is read/written (UCS-2, BMP only); the version-2 "enhanced" form is repurposed as a UDF-bridge signal rather than a conformant ISO 9660:1999 secondary descriptor. |
 | ECMA-119:9.1 | `DirectoryRecordHeader` | full | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Fixed fields; covered by parse roundtrip |
-| ECMA-119:9.1 | `DirectoryRecord` | partial | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Joliet+RRIP coexistence on read may hide one namespace; records written in collation order |
-| ECMA-119:9.4 | `PathTableEntryHeader` | partial | | `iso_read` | L- and M-type tables written/read; optional secondary path tables not populated |
+| ECMA-119:9.1 | `DirectoryRecord` | partial | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Joliet+RRIP coexistence on read may hide one namespace; see crate Known Limitations |
+| ECMA-119:9.4 | `PathTableEntryHeader` | partial | | `iso_read` | Both L- and M-type path tables are written and read; the optional secondary path tables are not populated. |
 | El-Torito:validation | `BootValidationEntry` | full | `xorriso_boot::test_eltorito_boot_catalog_comparison` | `iso_read` | |
 | El-Torito:section-header | `BootSectionHeaderEntry` | full | `xorriso_boot::test_hadris_multisection_boot_catalog` | `iso_read` | |
 | El-Torito:section-entry | `BootSectionEntry` | full | `xorriso_boot::test_floppy_emulation_media_type_and_default_load_size` | `iso_read` | Named floppy/HDD emulation media types |
@@ -89,8 +91,8 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 |------|------|------------|-------|------|-------|
 | FAT:BPB | `RawBpb` | full | `comprehensive_fat::test_valid_sector_sizes` | `fat_read` | |
 | FAT:FSInfo | `RawFsInfo` | full | `comprehensive_fat::test_fsinfo_free_cluster_unknown` | `fat_read` | FAT32 free-cluster/next-free tracking |
-| FAT:LFN | `RawLfnEntry` | partial | `comprehensive_fat::test_lfn_builder_sequence`, `test_write::lfn_cluster_boundary_tests` | `fat_read` | Raw layout and cross-cluster read/write are covered; semantic validation and legacy ANSI fallback behavior are handled above the raw structure |
-| FAT:DirEntry | `RawFileEntry` | partial | `test_write::test_lowercase_short_name_uses_nt_case_flags` | `fat_read` | Short-name entry incl. NT `DIR_NTRes` case flags (lowercase 8.3 round-trip); extended access-time granularity not modeled |
+| FAT:LFN | `RawLfnEntry` | partial | `comprehensive_fat::test_lfn_builder_sequence`, `test_write::maximum_length_name_spans_clusters`, `test_write::long_name_exceeding_one_cluster_roundtrips_and_deletes` | `fat_read` | This raw on-disk structure is complete, while semantic validation and legacy ANSI fallback behavior are implemented by higher-level LFN readers and writers. |
+| FAT:DirEntry | `RawFileEntry` | partial | `test_write::test_lowercase_short_name_uses_nt_case_flags` | `fat_read` | Name/attributes/timestamps/cluster/size and NT case flags (`DIR_NTRes`) are read and written; extended access-time granularity is not modeled. |
 
 ## hadris-part
 
