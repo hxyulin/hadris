@@ -344,6 +344,16 @@ where
                 source: source.erase(),
             })?;
         let sector_size = bpb.bytes_per_sector.get() as usize;
+        if !matches!(sector_size, 512 | 1024 | 2048 | 4096) {
+            return Err(Error::CorruptFilesystem {
+                context: "BPB bytes_per_sector must be 512, 1024, 2048, or 4096",
+            });
+        }
+        if !bpb.sectors_per_cluster.is_power_of_two() || bpb.sectors_per_cluster > 128 {
+            return Err(Error::CorruptFilesystem {
+                context: "BPB sectors_per_cluster must be a power of two from 1 through 128",
+            });
+        }
         let cluster_size = (bpb.sectors_per_cluster as usize) * sector_size;
         let data = SectorCursor::new(data, sector_size, cluster_size);
 

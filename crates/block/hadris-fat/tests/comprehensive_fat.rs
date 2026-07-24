@@ -290,7 +290,7 @@ mod boot_sector_tests {
 
     #[test]
     fn test_invalid_boot_signature() {
-        let mut data = vec![0u8; 1024];
+        let mut data = create_fat32_boot_sector(512, 8, 32, 2, 100000, 2048, 2);
         data[510] = 0x00;
         data[511] = 0x00;
 
@@ -305,7 +305,7 @@ mod boot_sector_tests {
 
     #[test]
     fn test_wrong_boot_signature_low_byte() {
-        let mut data = vec![0u8; 1024];
+        let mut data = create_fat32_boot_sector(512, 8, 32, 2, 100000, 2048, 2);
         data[510] = 0x55;
         data[511] = 0x00; // Should be 0xAA
 
@@ -317,7 +317,7 @@ mod boot_sector_tests {
 
     #[test]
     fn test_wrong_boot_signature_high_byte() {
-        let mut data = vec![0u8; 1024];
+        let mut data = create_fat32_boot_sector(512, 8, 32, 2, 100000, 2048, 2);
         data[510] = 0x00; // Should be 0x55
         data[511] = 0xAA;
 
@@ -342,16 +342,16 @@ mod boot_sector_tests {
     }
 
     #[test]
-    #[should_panic(expected = "divide by zero")]
     fn test_zero_sectors_per_cluster() {
         let mut data = create_fat32_boot_sector(512, 8, 32, 2, 100000, 2048, 2);
         // Set sectors per cluster to 0
         data[13] = 0;
 
         let cursor = Cursor::new(data);
-        // This will panic due to divide by zero - this is actually a library bug
-        // that should be fixed to return an error instead
-        let _result = FatVolume::open(cursor);
+        assert!(matches!(
+            FatVolume::open(cursor),
+            Err(Error::CorruptFilesystem { .. })
+        ));
     }
 
     #[test]
@@ -363,8 +363,7 @@ mod boot_sector_tests {
         let cursor = Cursor::new(data);
         let result = FatVolume::open(cursor);
 
-        // May or may not fail depending on validation strictness
-        let _ = result;
+        assert!(matches!(result, Err(Error::CorruptFilesystem { .. })));
     }
 
     #[test]
@@ -373,17 +372,8 @@ mod boot_sector_tests {
         for &sector_size in &[512u16, 1024, 2048, 4096] {
             let data = create_fat32_boot_sector(sector_size, 8, 32, 2, 100000, 2048, 2);
             let cursor = Cursor::new(data);
-            let result = FatVolume::open(cursor);
-
-            // May fail due to truncated data, but should not panic
-            match result {
-                Ok(_) => {}
-                Err(Error::Io(_)) => {} // Expected for truncated data
-                Err(e) => {
-                    // Check it's not an unexpected error
-                    let _ = e;
-                }
-            }
+            FatVolume::open(cursor)
+                .unwrap_or_else(|error| panic!("{sector_size}-byte sectors must open: {error}"));
         }
     }
 }
@@ -556,20 +546,7 @@ mod fsinfo_tests {
         // Already set by create_fat32_boot_sector
 
         let cursor = Cursor::new(data);
-        let result = FatVolume::open(cursor);
-
-        // Should succeed - unknown is valid
-        match result {
-            Ok(_fs) => {
-                // Could check free cluster count if we had an API for it
-            }
-            Err(Error::InvalidFsInfoSignature { .. }) => {
-                panic!("FSInfo signatures should be valid");
-            }
-            Err(_) => {
-                // Other errors might occur
-            }
-        }
+        FatVolume::open(cursor).expect("0xFFFF_FFFF is a valid unknown FSInfo free-cluster count");
     }
 }
 
