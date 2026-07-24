@@ -94,10 +94,13 @@
       "normativity": "informative",
       "summary": "The attribute sequence terminates with the value 0xFFFFFFFF.",
       "direction": "read",
-      "status": "partial",
+      "status": "verified",
       "symbols": [{"path": "crates/block/hadris-ntfs/src/attr.rs", "name": "ATTR_END"}],
-      "tests": [],
-      "gap": "The parser recognizes the marker, but no focused test covers malformed or missing termination."
+      "tests": [
+        {"path": "crates/block/hadris-ntfs/tests/compliance.rs", "name": "attributes_stop_at_end_marker", "kind": "integration"},
+        {"path": "crates/block/hadris-ntfs/tests/compliance.rs", "name": "attributes_reject_a_missing_end_marker", "kind": "integration"}
+      ],
+      "gap": null
     },
     {
       "id": "MICROSOFT-NTFS-MFT:data-streams#attributes",

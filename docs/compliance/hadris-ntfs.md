@@ -10,5 +10,8 @@ pairs, directory-index wire layouts, attribute offsets, compression,
 encryption, or filename encoding. Existing implementation and tests for those
 areas remain useful, but cannot be labeled source-verified from this document.
 
+Focused parser evidence verifies that `0xFFFFFFFF` terminates the attribute
+sequence and that exhaustion without the marker is rejected.
+
 The most important source-backed gap is attribute-list processing: files that
 spill attributes into extension MFT records cannot yet be assembled.

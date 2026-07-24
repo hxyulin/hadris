@@ -1,6 +1,7 @@
 use hadris_ntfs::NtfsError;
 use hadris_ntfs::attr::{
-    AttrIter, DataRun, apply_fixups, decode_data_runs, decode_record_size, decode_utf16le,
+    ATTR_DATA, ATTR_END, AttrIter, DataRun, apply_fixups, decode_data_runs, decode_record_size,
+    decode_utf16le,
 };
 use hadris_ntfs::sync::NtfsFs;
 
@@ -158,6 +159,41 @@ fn attributes_reject_used_sizes_beyond_the_record() {
         AttrIter::new(&record),
         Err(NtfsError::InvalidAttribute)
     ));
+}
+
+fn record_with_one_resident_attribute() -> Vec<u8> {
+    let mut record = vec![0_u8; 1024];
+    record[0x14..0x16].copy_from_slice(&0x30_u16.to_le_bytes());
+    record[0x18..0x1C].copy_from_slice(&0x4C_u32.to_le_bytes());
+
+    record[0x30..0x34].copy_from_slice(&ATTR_DATA.to_le_bytes());
+    record[0x34..0x38].copy_from_slice(&0x18_u32.to_le_bytes());
+    record[0x44..0x46].copy_from_slice(&0x18_u16.to_le_bytes());
+    record
+}
+
+#[test]
+fn attributes_stop_at_end_marker() {
+    let mut record = record_with_one_resident_attribute();
+    record[0x48..0x4C].copy_from_slice(&ATTR_END.to_le_bytes());
+
+    let mut attrs = AttrIter::new(&record).unwrap();
+    assert_eq!(attrs.next().unwrap().unwrap().attr_type, ATTR_DATA);
+    assert!(attrs.next().is_none());
+    assert!(attrs.next().is_none());
+}
+
+#[test]
+fn attributes_reject_a_missing_end_marker() {
+    let record = record_with_one_resident_attribute();
+
+    let mut attrs = AttrIter::new(&record).unwrap();
+    assert_eq!(attrs.next().unwrap().unwrap().attr_type, ATTR_DATA);
+    assert!(matches!(
+        attrs.next(),
+        Some(Err(NtfsError::InvalidAttribute))
+    ));
+    assert!(attrs.next().is_none());
 }
 
 #[test]
