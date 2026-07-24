@@ -228,15 +228,28 @@ mod volume_descriptor_tests {
         let iso = create_minimal_iso("TEST");
         let cursor = Cursor::new(iso);
 
-        let result = IsoImage::open(cursor);
-        // Should parse successfully with valid CD001 identifier
-        match result {
-            Ok(_) => {}
-            Err(e) => {
-                // May fail for other reasons
-                let _ = e;
-            }
-        }
+        let image =
+            IsoImage::open(cursor).expect("a valid PVD and root directory must open successfully");
+        let pvd = image
+            .read_pvd()
+            .expect("the opened image must expose its primary descriptor");
+        assert_eq!(pvd.header.descriptor_type, 1);
+        assert_eq!(pvd.header.standard_identifier.to_str(), "CD001");
+        assert_eq!(pvd.header.version, 1);
+        assert_eq!(pvd.volume_identifier.to_str().trim_end(), "TEST");
+    }
+
+    #[test]
+    fn test_volume_descriptor_set_terminator() {
+        let iso = create_minimal_iso("TEST");
+        let terminator = &iso[17 * 2048..18 * 2048];
+
+        assert_eq!(terminator[0], 0xff);
+        assert_eq!(&terminator[1..6], b"CD001");
+        assert_eq!(terminator[6], 1);
+        assert!(terminator[7..].iter().all(|byte| *byte == 0));
+        IsoImage::open(Cursor::new(iso))
+            .expect("the descriptor sequence with its terminator must be accepted");
     }
 
     #[test]
