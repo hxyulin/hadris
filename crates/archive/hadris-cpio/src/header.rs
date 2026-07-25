@@ -77,7 +77,7 @@ impl RawNewcHeader {
     /// header byte is read.
     ///
     /// A partially present header remains an error.
-    pub async fn parse_optional<R: Read>(reader: &mut R) -> Result<Option<Self>> {
+    pub(crate) async fn parse_optional<R: Read>(reader: &mut R) -> Result<Option<Self>> {
         let mut data = [0u8; HEADER_SIZE];
         let read = reader.read(&mut data[..1]).await?;
         if read == 0 {
