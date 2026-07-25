@@ -300,13 +300,27 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
             .seek(SeekFrom::End(0))
             .await
             .map_err(hadris_io::Error::erase)?;
-        let image_sectors = image_bytes / self.options.sector_size as u64;
+        let image_sectors = image_bytes.div_ceil(self.options.sector_size as u64);
+        let required_sectors = u64::from(layout_info.total_sectors)
+            .checked_add(257)
+            .ok_or_else(|| crate::error::Error::InvalidConfig("image is too large".into()))?;
+        let final_sector_count = image_sectors.max(required_sectors);
+        let last_sector = u32::try_from(final_sector_count - 1)
+            .map_err(|_| crate::error::Error::InvalidConfig("image has too many sectors".into()))?;
+        let trailing_anchor = last_sector - 256;
+        let partition_length = trailing_anchor
+            .checked_sub(layout_info.udf_partition_start)
+            .ok_or_else(|| {
+                crate::error::Error::InvalidConfig(
+                    "UDF partition overlaps the trailing anchor".into(),
+                )
+            })?;
 
         let udf_options = UdfWriteOptions {
             volume_id: self.options.volume_id.clone(),
             revision: self.options.udf.revision,
             partition_start: layout_info.udf_partition_start,
-            partition_length: layout_info.udf_partition_length(),
+            partition_length,
         };
 
         let mut udf_writer = UdfWriter::new(Borrowed::new(&mut self.writer), udf_options);
@@ -333,14 +347,9 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
             location: reserve_vds_start,
         };
         udf_writer.write_avdp(main_vds, reserve_vds)?;
-        if image_sectors > 256 {
-            let last = u32::try_from(image_sectors - 1).map_err(|_| {
-                crate::error::Error::InvalidConfig("image has too many sectors".into())
-            })?;
-            // UDF 1.02 records exactly two candidate anchors. Use sector 256
-            // and N-256, leaving N without a third anchor.
-            udf_writer.write_avdp_at(last - 256, main_vds, reserve_vds)?;
-        }
+        // The partition ends before this anchor, and the final 256 sectors are
+        // reserved so its N-256 position cannot overlap ISO or UDF content.
+        udf_writer.write_avdp_at(trailing_anchor, main_vds, reserve_vds)?;
 
         // File Set Descriptor location (first block in partition)
         let fsd_block = 0u32;
@@ -396,6 +405,19 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
             &layout_info.udf_root,
             layout_info,
         )?;
+        drop(udf_writer);
+
+        if final_sector_count > image_sectors {
+            self.writer
+                .seek(SeekFrom::Start(
+                    u64::from(last_sector) * self.options.sector_size as u64,
+                ))
+                .await
+                .map_err(hadris_io::Error::erase)?;
+            self.writer
+                .write_all(&vec![0_u8; self.options.sector_size])
+                .await?;
+        }
 
         Ok(())
     }
