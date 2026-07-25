@@ -261,7 +261,7 @@ pub fn hadris_fat::async::fat_table::Fat32::max_cluster(&self) -> u32
 pub fn hadris_fat::async::fat_table::Fat32::new(usize, usize, usize, u32) -> Self
 pub async fn hadris_fat::async::fat_table::Fat32::next_cluster<T: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<core::option::Option<u32>>
 pub async fn hadris_fat::async::fat_table::Fat32::truncate_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u32) -> hadris_fat::error::Result<u32>
-pub async fn hadris_fat::async::fat_table::Fat32::write_clus<T: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
+pub async fn hadris_fat::async::fat_table::Fat32::write_clus<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
 pub mod hadris_fat::async::format
 pub enum hadris_fat::async::format::FatTypeSelection
 pub hadris_fat::async::format::FatTypeSelection::Auto
@@ -535,7 +535,7 @@ pub fn hadris_fat::async::fat_table::Fat32::max_cluster(&self) -> u32
 pub fn hadris_fat::async::fat_table::Fat32::new(usize, usize, usize, u32) -> Self
 pub async fn hadris_fat::async::fat_table::Fat32::next_cluster<T: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<core::option::Option<u32>>
 pub async fn hadris_fat::async::fat_table::Fat32::truncate_chain<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, u32) -> hadris_fat::error::Result<u32>
-pub async fn hadris_fat::async::fat_table::Fat32::write_clus<T: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
+pub async fn hadris_fat::async::fat_table::Fat32::write_clus<T: hadris_io::async_api::Read + hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
 pub struct hadris_fat::async::FatDateTime
 pub hadris_fat::async::FatDateTime::date: u16
 pub hadris_fat::async::FatDateTime::time: u16
@@ -963,7 +963,7 @@ pub fn hadris_fat::fat_table::Fat32::max_cluster(&self) -> u32
 pub fn hadris_fat::fat_table::Fat32::new(usize, usize, usize, u32) -> Self
 pub fn hadris_fat::fat_table::Fat32::next_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<core::option::Option<u32>>
 pub fn hadris_fat::fat_table::Fat32::truncate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u32) -> hadris_fat::error::Result<u32>
-pub fn hadris_fat::fat_table::Fat32::write_clus<T: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
+pub fn hadris_fat::fat_table::Fat32::write_clus<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
 impl hadris_fat::fat_table::Fat32
 pub fn hadris_fat::fat_table::Fat32::read_entry<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<u32>
 pub mod hadris_fat::file
@@ -1784,7 +1784,7 @@ pub fn hadris_fat::fat_table::Fat32::max_cluster(&self) -> u32
 pub fn hadris_fat::fat_table::Fat32::new(usize, usize, usize, u32) -> Self
 pub fn hadris_fat::fat_table::Fat32::next_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<core::option::Option<u32>>
 pub fn hadris_fat::fat_table::Fat32::truncate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u32) -> hadris_fat::error::Result<u32>
-pub fn hadris_fat::fat_table::Fat32::write_clus<T: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
+pub fn hadris_fat::fat_table::Fat32::write_clus<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
 impl hadris_fat::fat_table::Fat32
 pub fn hadris_fat::fat_table::Fat32::read_entry<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<u32>
 pub mod hadris_fat::sync::format
@@ -2242,7 +2242,7 @@ pub fn hadris_fat::fat_table::Fat32::max_cluster(&self) -> u32
 pub fn hadris_fat::fat_table::Fat32::new(usize, usize, usize, u32) -> Self
 pub fn hadris_fat::fat_table::Fat32::next_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<core::option::Option<u32>>
 pub fn hadris_fat::fat_table::Fat32::truncate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u32) -> hadris_fat::error::Result<u32>
-pub fn hadris_fat::fat_table::Fat32::write_clus<T: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
+pub fn hadris_fat::fat_table::Fat32::write_clus<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
 impl hadris_fat::fat_table::Fat32
 pub fn hadris_fat::fat_table::Fat32::read_entry<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<u32>
 pub struct hadris_fat::sync::FatDateTime
@@ -2703,7 +2703,7 @@ pub fn hadris_fat::fat_table::Fat32::max_cluster(&self) -> u32
 pub fn hadris_fat::fat_table::Fat32::new(usize, usize, usize, u32) -> Self
 pub fn hadris_fat::fat_table::Fat32::next_cluster<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<core::option::Option<u32>>
 pub fn hadris_fat::fat_table::Fat32::truncate_chain<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, u32) -> hadris_fat::error::Result<u32>
-pub fn hadris_fat::fat_table::Fat32::write_clus<T: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
+pub fn hadris_fat::fat_table::Fat32::write_clus<T: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut T, usize, u32) -> hadris_fat::error::Result<()>
 impl hadris_fat::fat_table::Fat32
 pub fn hadris_fat::fat_table::Fat32::read_entry<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &mut T, usize) -> hadris_fat::error::Result<u32>
 pub struct hadris_fat::FatDateTime
