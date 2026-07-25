@@ -1,6 +1,7 @@
 #![cfg(all(feature = "std", feature = "sync", feature = "read"))]
 
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::cell::Cell;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Mutex;
 
@@ -17,13 +18,22 @@ use hadris_iso::volume::{
 
 struct CountingAllocator;
 
-static COUNTING: AtomicBool = AtomicBool::new(false);
 static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
+thread_local! {
+    static COUNTING: Cell<bool> = const { Cell::new(false) };
+}
+
+fn is_counting() -> bool {
+    COUNTING
+        .try_with(|counting| counting.get())
+        .unwrap_or(false)
+}
+
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if COUNTING.load(Ordering::Relaxed) {
+        if is_counting() {
             ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
         }
         unsafe { System.alloc(layout) }
@@ -34,7 +44,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        if COUNTING.load(Ordering::Relaxed) {
+        if is_counting() {
             ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
         }
         unsafe { System.realloc(ptr, layout, size) }
@@ -170,10 +180,10 @@ fn navigation_and_streaming_allocate_nothing() {
     let mut primary_output = [0_u8; 11];
     let mut joliet_output = [0_u8; 7];
     ALLOCATIONS.store(0, Ordering::Relaxed);
-    COUNTING.store(true, Ordering::SeqCst);
+    COUNTING.set(true);
     exercise_navigation_and_streaming(&image, &mut primary_output, &mut joliet_output);
 
-    COUNTING.store(false, Ordering::SeqCst);
+    COUNTING.set(false);
     assert_eq!(ALLOCATIONS.load(Ordering::Relaxed), 0);
     assert_eq!(&primary_output, b"hello world");
     assert_eq!(&joliet_output, b"unicode");
