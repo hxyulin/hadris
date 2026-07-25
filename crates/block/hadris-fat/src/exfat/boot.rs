@@ -239,16 +239,13 @@ impl ExFatBootSector {
     /// The checksum is computed over sectors 0-10 and stored in sector 11.
     /// This validates both the main boot region and optionally the backup.
     pub fn validate_checksum<DATA: Read + Seek>(data: &mut DATA, sector_size: usize) -> Result<()> {
-        // Read sectors 0-10 and compute checksum
         let mut checksum: u32 = 0;
+        let mut sector_data = [0_u8; 4096];
 
         for sector in 0..11 {
             data.seek(SeekFrom::Start(sector as u64 * sector_size as u64))?;
-
-            for byte_idx in 0..sector_size {
-                let mut byte = [0u8; 1];
-                data.read_exact(&mut byte)?;
-
+            data.read_exact(&mut sector_data[..sector_size])?;
+            for (byte_idx, &byte) in sector_data[..sector_size].iter().enumerate() {
                 // Skip VolumeFlags (bytes 106-107) and PercentInUse (byte 112)
                 // in sector 0 as they may change
                 if sector == 0 && (byte_idx == 106 || byte_idx == 107 || byte_idx == 112) {
@@ -256,7 +253,7 @@ impl ExFatBootSector {
                 }
 
                 // Rotate right and add
-                checksum = checksum.rotate_right(1).wrapping_add(byte[0] as u32);
+                checksum = checksum.rotate_right(1).wrapping_add(byte as u32);
             }
         }
 
