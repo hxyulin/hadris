@@ -119,6 +119,28 @@ fn bridge_reopens_through_iso_and_udf_and_recovers_source() {
 }
 
 #[test]
+fn bridge_extends_a_compact_image_to_reserve_the_trailing_anchor() {
+    let (tree, large) = fixture();
+    let initial_sector_count = 512;
+    let cursor = Cursor::new(vec![0_u8; initial_sector_count * SECTOR_SIZE]);
+    let bytes =
+        OpticalImageWriter::new(cursor, OpticalImageOptions::default().volume_id(VOLUME_ID))
+            .finish(tree)
+            .expect("create compact bridge")
+            .into_inner();
+    let sector_count = bytes.len() / SECTOR_SIZE;
+    let trailing_anchor = sector_count - 1 - 256;
+
+    assert!(
+        sector_count > initial_sector_count,
+        "the image must grow to reserve 256 sectors after the trailing anchor"
+    );
+    assert_eq!(tag_id_at(&bytes, trailing_anchor), 2);
+    verify_iso(&bytes, &large);
+    verify_udf(&bytes, &large);
+}
+
+#[test]
 fn bridge_uses_udf_102_anchor_and_vds_layout() {
     let bytes = create(OpticalImageOptions::default().volume_id(VOLUME_ID));
     let sector_count = bytes.len() / SECTOR_SIZE;
@@ -231,6 +253,11 @@ fn bridge_descriptor_profile_is_visible_in_raw_sectors() {
     ) as usize;
     assert_eq!(partition_number, 0);
     assert_eq!(partition_start, 290);
+    assert_eq!(
+        partition_start + partition_length,
+        bytes.len() / SECTOR_SIZE - 1 - 256,
+        "the UDF partition must end before the N-256 anchor"
+    );
 
     let mut file_entries = 0;
     for sector in partition_start..partition_start + partition_length {
