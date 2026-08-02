@@ -1,19 +1,20 @@
 use std::fs::{self, File};
-use std::io::{BufReader, Read, Seek, Write};
-use std::path::Path;
+use std::io::{self, BufReader, Read, Seek, Write};
+use std::path::{Component, Path, PathBuf};
 
 use hadris_iso::directory::{DirectoryRef, FileFlags};
 use hadris_iso::read::IsoImage;
 
 use super::super::args::ExtractArgs;
 
-use super::{Result, clean_name, navigate_to_path};
+use super::{Result, display_name, navigate_to_path};
 
 /// Extract files from an ISO image
 pub fn extract(args: ExtractArgs) -> Result<()> {
     let file = File::open(&args.input)?;
     let reader = BufReader::new(file);
     let iso = IsoImage::open(reader)?;
+    let entry_type = iso.root_dir().entry_type();
 
     // Create output directory
     fs::create_dir_all(&args.output)?;
@@ -28,6 +29,7 @@ pub fn extract(args: ExtractArgs) -> Result<()> {
     extract_dir(
         &iso,
         start_ref,
+        entry_type,
         &args.output,
         args.verbose,
         &mut extracted_count,
@@ -44,6 +46,7 @@ pub fn extract(args: ExtractArgs) -> Result<()> {
 fn extract_dir<R: Read + Seek>(
     iso: &IsoImage<R>,
     dir_ref: DirectoryRef,
+    entry_type: hadris_iso::file::EntryType,
     output_path: &Path,
     verbose: bool,
     count: &mut usize,
@@ -52,41 +55,38 @@ fn extract_dir<R: Read + Seek>(
 
     for entry in dir.entries() {
         let entry = entry?;
-        let name_bytes = entry.name();
-
         // Skip . and ..
         if entry.is_special() {
             continue;
         }
 
-        let display_name = clean_name(name_bytes);
+        let display_name = display_name(&entry, entry_type);
+        let entry_path = safe_entry_path(output_path, &display_name)?;
         let flags = FileFlags::from_bits_truncate(entry.header().flags);
 
         if flags.contains(FileFlags::DIRECTORY) {
-            let child_path = output_path.join(&display_name);
-            fs::create_dir_all(&child_path)?;
+            fs::create_dir_all(&entry_path)?;
             if verbose {
-                println!("Creating directory: {}", child_path.display());
+                println!("Creating directory: {}", entry_path.display());
             }
             let child_ref = entry.as_dir_ref(iso)?;
-            extract_dir(iso, child_ref, &child_path, verbose, count)?;
+            extract_dir(iso, child_ref, entry_type, &entry_path, verbose, count)?;
         } else {
             let extent = entry.header().extent.read() as u64;
             let size = entry.header().data_len.read() as usize;
 
-            let file_path = output_path.join(&display_name);
             if verbose {
-                println!("Extracting: {} ({} bytes)", file_path.display(), size);
+                println!("Extracting: {} ({} bytes)", entry_path.display(), size);
             }
 
             if size > 0 {
                 let mut buffer = vec![0u8; size];
                 iso.read_bytes_at(extent * 2048, &mut buffer)?;
-                let mut output_file = File::create(&file_path)?;
+                let mut output_file = File::create(&entry_path)?;
                 output_file.write_all(&buffer)?;
             } else {
                 // Create empty file
-                File::create(&file_path)?;
+                File::create(&entry_path)?;
             }
 
             *count += 1;
@@ -94,4 +94,19 @@ fn extract_dir<R: Read + Seek>(
     }
 
     Ok(())
+}
+
+fn safe_entry_path(output_path: &Path, name: &str) -> Result<PathBuf> {
+    let path = Path::new(name);
+    let mut components = path.components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(component)), None) if component == std::ffi::OsStr::new(name) => {
+            Ok(output_path.join(path))
+        }
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsafe filename in ISO image: {name:?}"),
+        )
+        .into()),
+    }
 }

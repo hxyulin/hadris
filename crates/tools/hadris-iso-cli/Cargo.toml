@@ -28,3 +28,6 @@ clap.workspace = true
 hadris-iso = { workspace = true, features = ["std", "sync", "write", "joliet"] }
 tracing.workspace = true
 tracing-subscriber = "0.3.20"
+
+[dev-dependencies]
+tempfile.workspace = true

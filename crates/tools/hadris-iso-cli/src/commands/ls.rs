@@ -6,24 +6,22 @@ use hadris_iso::read::IsoImage;
 
 use super::super::args::LsArgs;
 
-use super::{Result, navigate_to_path};
+use super::{Result, display_name, navigate_to_path};
 
 /// List directory contents
 pub fn ls(args: LsArgs) -> Result<()> {
     let file = File::open(&args.input)?;
     let reader = BufReader::new(file);
     let iso = IsoImage::open(reader)?;
+    let entry_type = iso.root_dir().entry_type();
 
     let target = navigate_to_path(&iso, &args.path)?;
     let dir = iso.open_dir(target);
 
     for entry in dir.entries() {
         let entry = entry?;
-        let name_bytes = entry.name();
-        let name = String::from_utf8_lossy(name_bytes);
-
         // Handle special entries
-        let display_name = match name_bytes {
+        let display_name = match entry.name() {
             [0x00] => {
                 if !args.all {
                     continue;
@@ -36,15 +34,7 @@ pub fn ls(args: LsArgs) -> Result<()> {
                 }
                 "..".to_string()
             }
-            _ => {
-                // Strip version number (;1) if present
-                let name_str = name.to_string();
-                if let Some(pos) = name_str.rfind(';') {
-                    name_str[..pos].to_string()
-                } else {
-                    name_str
-                }
-            }
+            _ => display_name(&entry, entry_type),
         };
 
         let flags = FileFlags::from_bits_truncate(entry.header().flags);
