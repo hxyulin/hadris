@@ -641,6 +641,7 @@ version = "2.0.0-rc.4"
 dependencies = [
  "clap",
  "hadris-iso",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

@@ -21,19 +21,32 @@ pub use verify::verify;
 use std::io::{Read, Seek};
 
 use hadris_iso::directory::DirectoryRef;
-use hadris_iso::read::IsoImage;
+use hadris_iso::file::EntryType;
+use hadris_iso::read::{DirEntry, IsoImage};
 use hadris_iso::write::options::IsoFormatOptions;
 use hadris_iso::write::{InputEntry, InputEntryKind, InputTree, estimator};
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-/// Strip the ";1" version suffix from an ISO filename.
-fn clean_name(name_bytes: &[u8]) -> String {
-    let name = String::from_utf8_lossy(name_bytes);
-    if let Some(pos) = name.rfind(';') {
-        name[..pos].to_string()
+/// Return the most capable name exposed by the image, without an ISO version suffix.
+fn display_name(entry: &DirEntry, entry_type: EntryType) -> String {
+    let name = if matches!(entry_type, EntryType::Joliet { .. }) && entry.rrip.is_none() {
+        let units: Vec<u16> = entry
+            .name()
+            .chunks_exact(2)
+            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+            .collect();
+        std::borrow::Cow::Owned(String::from_utf16_lossy(&units))
     } else {
-        name.to_string()
+        entry.display_name()
+    };
+    match name.rsplit_once(';') {
+        Some((base, version))
+            if !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            base.to_string()
+        }
+        _ => name.into_owned(),
     }
 }
 
@@ -46,10 +59,7 @@ fn navigate_to_path<R: Read + Seek>(iso: &IsoImage<R>, path: &str) -> Result<Dir
         let found = dir
             .entries()
             .filter_map(|e| e.ok())
-            .find(|e| {
-                let name = clean_name(e.name());
-                name.eq_ignore_ascii_case(component) && e.is_directory()
-            })
+            .find(|e| e.is_directory() && e.matches_name(component))
             .ok_or_else(|| -> Box<dyn std::error::Error> {
                 format!("Directory not found: {component}").into()
             })?;

@@ -5,7 +5,7 @@ use hadris_iso::read::IsoImage;
 
 use super::super::args::CatArgs;
 
-use super::{Result, clean_name, navigate_to_path};
+use super::{Result, navigate_to_path};
 
 /// Print file contents to stdout
 pub fn cat(args: CatArgs) -> Result<()> {
@@ -27,13 +27,7 @@ pub fn cat(args: CatArgs) -> Result<()> {
     let file_entry = dir
         .entries()
         .filter_map(|e| e.ok())
-        .find(|e| {
-            if e.is_special() || e.is_directory() {
-                return false;
-            }
-            let name = clean_name(e.name());
-            name.eq_ignore_ascii_case(filename)
-        })
+        .find(|e| !e.is_special() && !e.is_directory() && e.matches_name(filename))
         .ok_or_else(|| -> Box<dyn std::error::Error> {
             format!("File not found: {}", args.path).into()
         })?;
