@@ -10,7 +10,7 @@ validly contain both filesystems.
 
 ```toml
 [dependencies]
-hadris-optical = "2.0.0-rc.4"
+hadris-optical = "2.0.0"
 ```
 
 ```rust,no_run

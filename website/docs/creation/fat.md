@@ -12,7 +12,7 @@ and other targets implementing the selected Hadris I/O mode.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.0.0-rc.4", features = ["write", "sync", "lfn"] }
+hadris-fat = { version = "2.0.0", features = ["write", "sync", "lfn"] }
 ```
 
 ## Format an image file

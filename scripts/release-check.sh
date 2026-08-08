@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_version="${1:-2.0.0-rc.4}"
+expected_version="${1:-2.0.0}"
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "release check failed: working tree is not clean" >&2
@@ -22,12 +22,13 @@ if [[ "$manifest_versions" != "$expected_version" ]]; then
   exit 1
 fi
 
-if rg -n '2\.0\.0-rc\.[123]' Cargo.toml Cargo.lock README.md crates website \
+if rg -n '2\.0\.0-rc\.[1234]' Cargo.toml Cargo.lock README.md crates website \
   --glob '!**/CHANGELOG.md' \
   --glob '!**/hadris-2.0.0-rc.1-release-notes.md' \
   --glob '!**/hadris-2.0.0-rc.2-release-notes.md' \
-  --glob '!**/hadris-2.0.0-rc.3-release-notes.md'; then
-  echo "release check failed: stale active pre-RC4 reference" >&2
+  --glob '!**/hadris-2.0.0-rc.3-release-notes.md' \
+  --glob '!**/hadris-2.0.0-rc.4-release-notes.md'; then
+  echo "release check failed: stale release-candidate reference" >&2
   exit 1
 fi
 
@@ -47,4 +48,4 @@ else
 fi
 
 echo "release check passed for $expected_version"
-echo "publish in workspace dependency order; do not promote before the soak completes"
+echo "publish in workspace dependency order"

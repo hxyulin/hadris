@@ -146,21 +146,21 @@ Automatic FAT type selection follows Microsoft recommendations:
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.0.0-rc.4", default-features = false, features = ["read", "sync"] }
+hadris-fat = { version = "2.0.0", default-features = false, features = ["read", "sync"] }
 ```
 
 ### For Embedded Systems with Heap
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.0.0-rc.4", default-features = false, features = ["read", "write", "alloc", "lfn", "sync"] }
+hadris-fat = { version = "2.0.0", default-features = false, features = ["read", "write", "alloc", "lfn", "sync"] }
 ```
 
 ### For Desktop Applications (full features)
 
 ```toml
 [dependencies]
-hadris-fat = "2.0.0-rc.4"  # Uses default features
+hadris-fat = "2.0.0"  # Uses default features
 ```
 
 ## FAT Variant Support
@@ -197,7 +197,7 @@ application needs:
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.0.0-rc.4", default-features = false, features = ["read", "write", "alloc", "lfn", "sync", "cache"] }
+hadris-fat = { version = "2.0.0", default-features = false, features = ["read", "write", "alloc", "lfn", "sync", "cache"] }
 ```
 
 Install it while opening the volume:

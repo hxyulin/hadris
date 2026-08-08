@@ -17,10 +17,10 @@ and asynchronous feature tiers.
 [Get started](./getting-started.md) or jump directly to the
 [use-case guides](./guides/index.md).
 
-:::caution Release candidate
+:::note Stability
 
-`2.0.0-rc.4` freezes the intended V2 public API while downstream testing is in
-progress. The `unstable-exfat` feature and experimental `hadris-ntfs` crate
-remain outside that stability promise.
+`2.0.0` is the stable V2 public API, released under Semantic Versioning. The
+`unstable-exfat` feature and experimental `hadris-ntfs` crate remain outside
+that stability promise.
 
 :::

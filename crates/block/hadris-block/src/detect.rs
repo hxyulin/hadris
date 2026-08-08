@@ -313,8 +313,7 @@ mod tests {
 
         let mut image = std::vec![0u8; 2 * 1024 * 1024];
         let options = FatFormatOptions::new(image.len() as u64).fat_type(FatTypeSelection::Fat12);
-        let fs = FatVolumeFormatter::format(std::io::Cursor::new(&mut image[..]), options).unwrap();
-        drop(fs);
+        FatVolumeFormatter::format(std::io::Cursor::new(&mut image[..]), options).unwrap();
 
         let mut cursor = std::io::Cursor::new(image);
         assert_eq!(

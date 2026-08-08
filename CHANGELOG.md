@@ -8,6 +8,13 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-09
+
+First stable release of the V2 API. This entry consolidates the changes made
+across the `2.0.0-rc.4` candidate and the subsequent specification-conformance
+work; the public API frozen during the release-candidate series is now stable
+under Semantic Versioning.
+
 ### Added
 
 - **hadris-ntfs:** Added an experimental, read-only NTFS leaf crate with
@@ -15,6 +22,26 @@ Each published package owns its version and may be released independently.
   file reading, sparse runs, Unicode names, and sync/async `no_std` support.
 - **Facade crates:** Added package READMEs for `hadris-archive`,
   `hadris-block`, and `hadris-optical`.
+- **Specification compliance:** Added a compliance catalog framework with
+  pinned source digests and extracted requirement sets for ECMA-119, ECMA-167,
+  UDF 1.02, the ECMA TR/71 bridge format, and source-bounded NTFS MFT
+  behavior.
+
+### Fixed
+
+- **hadris-iso:** Enforced ECMA-119 invariants and validated descriptor
+  conformance; the aligned image tail is now preserved.
+- **hadris-udf:** Corrected anchor and Volume Descriptor Sequence layout, and
+  made descriptor validation and decoding portable across targets.
+- **hadris-cd:** Conformed the UDF bridge descriptor layout and reserved space
+  for the trailing UDF anchor.
+- **hadris-cpio:** Enforced `newc` archive invariants and accepted aligned
+  trailerless archives.
+- **hadris-fat:** Validated BPB geometry, enforced filesystem integrity rules,
+  and supported checksum validation across read tiers.
+- **hadris-part:** Hardened partition metadata handling.
+- **hadris-iso-cli:** Extension filenames are displayed correctly and filename
+  namespace semantics are respected.
 
 ### Changed
 
@@ -29,6 +56,7 @@ Each published package owns its version and may be released independently.
   CI checks evidence existence and bidirectional coverage-table parity.
 - **hadris-ntfs:** Public API documentation is now enforced with
   `deny(missing_docs)`.
+- **hadris-cpio:** The optional parser is now crate-internal.
 
 ## [2.0.0-rc.3] - 2026-07-22
 
@@ -282,7 +310,8 @@ Each published package owns its version and may be released independently.
 Baseline for this changelog. See the git history for changes at and before this
 tag.
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.3...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.4...v2.0.0
 [2.0.0-rc.3]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.2...v2.0.0-rc.3
 [2.0.0-rc.2]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.1...v2.0.0-rc.2
 [2.0.0-rc.1]: https://github.com/hxyulin/hadris/compare/v1.2.1...v2.0.0-rc.1

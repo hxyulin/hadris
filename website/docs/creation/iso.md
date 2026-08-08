@@ -13,7 +13,7 @@ synchronous API and requires a target implementing `Read + Write + Seek`.
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.0.0-rc.4", features = ["write", "sync", "joliet"] }
+hadris-iso = { version = "2.0.0", features = ["write", "sync", "joliet"] }
 ```
 
 ## Create a basic image

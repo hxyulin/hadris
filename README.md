@@ -16,12 +16,11 @@ layers coherent without hiding format-specific capabilities.
 ## Stability and Versioning
 
 Hadris follows [Semantic Versioning](https://semver.org/). The
-release-candidate series marked the V2 feature and public-API freeze, which
-the `2.0.0-rc.4` candidate continues: until the
-final `2.0.0` release, changes are limited to correctness fixes,
-interoperability qualification, documentation, and release engineering.
-Breaking changes to the frozen public API require explicit review and a new
-release-candidate version.
+release-candidate series completed the V2 feature and public-API freeze, and
+`2.0.0` is the stable release of that API. Within the `2.x` series, breaking
+changes to the public API require a new major version; minor releases add
+backward-compatible functionality, and patch releases are limited to
+correctness fixes, interoperability qualification, and documentation.
 
 The `unstable-exfat` preview and experimental `hadris-ntfs` reader are
 explicitly outside this stability promise.
@@ -151,10 +150,10 @@ Choose the narrowest entry point that fits the application:
 ```toml
 [dependencies]
 # One filesystem:
-hadris-fat = "2.0.0-rc.4"
+hadris-fat = "2.0.0"
 
 # Or the unified storage ecosystem:
-hadris = { version = "2.0.0-rc.4", features = ["block", "optical"] }
+hadris = { version = "2.0.0", features = ["block", "optical"] }
 ```
 
 The umbrella crate re-exports the same underlying format crates through
@@ -162,15 +161,15 @@ The umbrella crate re-exports the same underlying format crates through
 grow into partition detection or additional disk-image formats without
 replacing their filesystem implementation.
 
-Each package now owns its version; all current packages target **2.0.0-rc.4**:
+Each package now owns its version; all current packages target **2.0.0**:
 
 ```toml
 [dependencies]
-hadris-iso = "2.0.0-rc.4"
-hadris-fat = "2.0.0-rc.4"
-hadris-part = { version = "2.0.0-rc.4", features = ["read"] }
-hadris-fixed = "2.0.0-rc.4"
-hadris-path = "2.0.0-rc.4"
+hadris-iso = "2.0.0"
+hadris-fat = "2.0.0"
+hadris-part = { version = "2.0.0", features = ["read"] }
+hadris-fixed = "2.0.0"
+hadris-path = "2.0.0"
 ```
 
 For allocation-free `no_std` ISO reading:
@@ -178,8 +177,8 @@ For allocation-free `no_std` ISO reading:
 ```toml
 [dependencies]
 # No heap allocator: ISO 9660/Joliet lookup and streamed file reads.
-hadris-iso = { version = "2.0.0-rc.4", default-features = false, features = ["read", "sync"] }
-hadris-fat = { version = "2.0.0-rc.4", default-features = false, features = ["read", "sync"] }
+hadris-iso = { version = "2.0.0", default-features = false, features = ["read", "sync"] }
+hadris-fat = { version = "2.0.0", default-features = false, features = ["read", "sync"] }
 ```
 
 Add the `alloc` feature to `hadris-iso` when owned collections, convenience
@@ -199,8 +198,8 @@ cargo build -p hadris-fat --no-default-features --features "read,sync"
 ```
 
 See [CLAUDE.md](CLAUDE.md) for detailed build instructions and architecture notes, and [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow.
-Prerelease testers should review the
-[`2.0.0-rc.4` release notes](docs/hadris-2.0.0-rc.4-release-notes.md).
+See the [`2.0.0` release notes](docs/hadris-2.0.0-release-notes.md) for the
+stable-release summary and upgrade notes.
 The Docusaurus source for the task-oriented documentation site lives in
 [`website/`](website/); it includes getting-started, crate-selection, and
 FAT, partition, ISO, CPIO, and `no_std` use-case guides.
