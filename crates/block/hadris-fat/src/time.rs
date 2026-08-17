@@ -93,7 +93,11 @@ impl Default for FatDateTime {
 /// The type is intentionally trait-object friendly: the writer holds it as
 /// `&dyn TimeProvider` so callers can switch providers per-`FatVolume` instance
 /// without leaking generics through the public API.
-pub trait TimeProvider: core::fmt::Debug {
+/// The bound on `Sync` lets `FatVolume` stay `Send`: the volume holds the
+/// provider as a `&'static dyn TimeProvider`, and a shared reference is only
+/// `Send` if what it points at is `Sync`. Without it a volume cannot be moved
+/// into a mutex and shared across threads, which rules out kernel use.
+pub trait TimeProvider: core::fmt::Debug + Sync {
     /// Return the current FAT-encoded date/time.
     fn now(&self) -> FatDateTime;
 }
