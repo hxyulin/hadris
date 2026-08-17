@@ -128,6 +128,12 @@ Archives created with this crate are compatible with:
 - Linux kernel `usr/gen_init_cpio.c`
 - RPM file format specification
 
+## Documentation
+
+- [Read and create CPIO archives](https://hxyulin.github.io/hadris/guides/cpio-archives)
+- [Build a CPIO initramfs](https://hxyulin.github.io/hadris/guides/build-initramfs)
+- [API reference](https://docs.rs/hadris-cpio)
+
 ## License
 
-This project is licensed under the [MIT license](../../LICENSE-MIT).
+This project is licensed under the [MIT license](../../../LICENSE-MIT).

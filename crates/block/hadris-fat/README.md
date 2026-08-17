@@ -301,6 +301,13 @@ Implements the following specifications:
 - VFAT (Long Filename) extension
 - exFAT specification (partial, experimental)
 
+## Documentation
+
+- [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
+- [Modify FAT safely](https://hxyulin.github.io/hadris/guides/modify-fat)
+- [Create FAT filesystems](https://hxyulin.github.io/hadris/creation/fat)
+- [API reference](https://docs.rs/hadris-fat)
+
 ## License
 
-This project is licensed under the [MIT license](../../LICENSE-MIT).
+This project is licensed under the [MIT license](../../../LICENSE-MIT).

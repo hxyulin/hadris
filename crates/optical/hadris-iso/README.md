@@ -219,6 +219,13 @@ ISOs created with this crate are compatible with:
 - Joliet Specification (Microsoft)
 - El-Torito Bootable CD-ROM Format Specification
 
+## Documentation
+
+- [Read ISO images](https://hxyulin.github.io/hadris/guides/read-iso)
+- [Create ISO images](https://hxyulin.github.io/hadris/creation/iso)
+- [Validate generated images](https://hxyulin.github.io/hadris/guides/validate-images)
+- [API reference](https://docs.rs/hadris-iso)
+
 ## License
 
-This project is licensed under the [MIT license](LICENSE-MIT).
+This project is licensed under the [MIT license](../../../LICENSE-MIT).

@@ -49,7 +49,7 @@
 //! ## Features
 //!
 //! - ISO 9660 with Joliet (Windows long filenames) and Rock Ridge (POSIX)
-//! - UDF 1.02/1.50/2.00+ support
+//! - Selectable mastered UDF revisions from 1.02 through 2.60
 //! - El-Torito bootable images
 //! - Hybrid MBR+GPT for USB booting
 //!

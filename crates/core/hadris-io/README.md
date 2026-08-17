@@ -21,10 +21,13 @@ When the `std` feature is enabled, traits re-export from `std::io`. In `no_std` 
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| `std` | Standard library support (implies `sync`, `alloc`) | Yes |
+| `std` | Standard library support; implies `alloc` | Yes |
 | `sync` | Synchronous I/O traits | Yes |
 | `async` | Asynchronous I/O traits | No |
 | `alloc` | Heap allocation (dynamic error messages in no-std) | via `std` |
+
+`std` and the I/O mode are independent. Defaults enable both `std` and `sync`,
+while custom configurations may select `sync`, `async`, or both.
 
 ## Usage
 
@@ -80,6 +83,13 @@ pub trait Seek {
 }
 ```
 
+## Documentation
+
+- [Storage and I/O model](https://hxyulin.github.io/hadris/concepts/storage-model)
+- [Adapt a custom device](https://hxyulin.github.io/hadris/guides/custom-io)
+- [Use asynchronous I/O](https://hxyulin.github.io/hadris/guides/async-io)
+- [API reference](https://docs.rs/hadris-io)
+
 ## License
 
-Licensed under the [MIT license](../../LICENSE-MIT).
+Licensed under the [MIT license](../../../LICENSE-MIT).
