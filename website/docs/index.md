@@ -16,8 +16,8 @@ and asynchronous feature tiers.
 
 ![Hadris architecture: applications use the umbrella crate over block, optical, and archive formats backed by shared I/O, paths, and storage](/img/architecture.svg)
 
-[Get started](./getting-started.md) or jump directly to the
-[use-case guides](./guides/index.md).
+[Get started](./getting-started.md), [choose a crate](./crates.md), or jump
+directly to the [use-case guides](./guides/index.md).
 
 :::note Stability
 

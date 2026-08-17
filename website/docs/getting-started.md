@@ -38,9 +38,13 @@ The NTFS reader is an experimental leaf crate and is outside the V2 stability
 freeze. Its crate README documents the supported read-only scope and known
 gaps.
 
+For the complete support table and feature recipes, see
+[Features and capabilities](./concepts/features.md).
+
 ## Next steps
 
 - [Choose a crate](./crates.md)
+- [Understand the storage and I/O model](./concepts/storage-model.md)
 - [Read a FAT image](./guides/read-fat-image.md)
 - [Inspect a partition table](./guides/read-partition-table.md)
 - [Read an ISO](./guides/read-iso.md)

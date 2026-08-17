@@ -5,6 +5,14 @@ module.exports = {
     "crates",
     {
       type: "category",
+      label: "Concepts",
+      items: [
+        "concepts/features",
+        "concepts/storage-model",
+      ],
+    },
+    {
+      type: "category",
       label: "Use cases",
       link: {type: "doc", id: "guides/index"},
       items: [
