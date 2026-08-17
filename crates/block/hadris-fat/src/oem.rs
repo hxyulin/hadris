@@ -10,7 +10,10 @@
 //! per-`FatVolume` instance and used freely from any thread.
 
 /// Pluggable OEM code page used to encode/decode short (8.3) filename bytes.
-pub trait OemCpConverter: core::fmt::Debug {
+/// See [`crate::time::TimeProvider`] for why this is `Sync`: `FatVolume` keeps
+/// the converter as a `&'static dyn OemCpConverter` and would otherwise not be
+/// `Send`.
+pub trait OemCpConverter: core::fmt::Debug + Sync {
     /// Encode a Unicode scalar to a single OEM byte, or `None` if the
     /// character is not representable.
     ///
