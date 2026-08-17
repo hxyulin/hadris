@@ -64,4 +64,4 @@ writing, VAT, sparing, metadata partitions, or pseudo-overwrite.
 
 ## License
 
-MIT
+Licensed under the [MIT license](../../../LICENSE-MIT).

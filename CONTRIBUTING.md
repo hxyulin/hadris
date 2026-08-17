@@ -84,12 +84,18 @@ python3 scripts/check-compliance-catalog.py
 
 ```bash
 cargo doc --workspace --no-deps --document-private-items
+python3 scripts/check-docs.py
 
 # Task-oriented documentation site
 cd website
-npm install
+npm ci
 npm run build
 ```
+
+Keep the documentation layers focused: the root README is the project
+overview, the website contains concepts and workflows, crate READMEs cover
+package selection and features, and rustdoc documents individual APIs. Prefer
+linking to compiled examples over duplicating snippets that can drift.
 
 Public APIs are snapshot-tested under their all-feature configurations. After
 an intentional additive or breaking API change, review the diff and refresh the

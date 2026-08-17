@@ -4,10 +4,16 @@ on:
   push:
     branches: [main]
     paths:
+      - "README.md"
+      - "crates/**/README.md"
+      - "scripts/check-docs.py"
       - "website/**"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
+      - "README.md"
+      - "crates/**/README.md"
+      - "scripts/check-docs.py"
       - "website/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
@@ -24,6 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Self-test documentation checker
+        run: python3 scripts/check-docs.py --self-test
+      - name: Check documentation links and package READMEs
+        run: python3 scripts/check-docs.py
       - uses: actions/setup-node@v7
         with:
           node-version: 22

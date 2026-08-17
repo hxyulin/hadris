@@ -99,4 +99,4 @@ the result with those consumers.
 
 ## License
 
-MIT
+Licensed under the [MIT license](../../../LICENSE-MIT).
