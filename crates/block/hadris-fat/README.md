@@ -32,9 +32,21 @@ let mut iter = root.entries();
 while let Some(Ok(entry)) = iter.next_entry() {
     println!("{}", entry.name());
 }
+
+if let Some(entry) = root.find("README.TXT")? {
+    let mut reader = fs.read_file(&entry)?;
+    reader.seek(hadris_fat::SeekFrom::Start(128))?;
+    let mut buffer = [0_u8; 64];
+    let read = reader.read(&mut buffer)?;
+    println!("{}", String::from_utf8_lossy(&buffer[..read]));
+}
 # Ok(())
 # }
 ```
+
+`FileReader::seek` accepts start-, current-, and end-relative positions. As
+with `std::io::Seek`, positions past the end are valid and reads there return
+zero bytes.
 
 ### Writing to a FAT Filesystem
 

@@ -440,9 +440,11 @@ pub mod hadris_fat::async::read
 pub struct hadris_fat::async::read::FileReader<'a, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>
 impl<'a, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_fat::async::read::FileReader<'a, DATA>
 pub fn hadris_fat::async::read::FileReader<'a, DATA>::new(&'a hadris_fat::async::fs::FatVolume<DATA>, &hadris_fat::async::dir::FileEntry) -> hadris_fat::error::Result<Self>
+pub fn hadris_fat::async::read::FileReader<'a, DATA>::position(&self) -> u64
 pub async fn hadris_fat::async::read::FileReader<'a, DATA>::read(&mut self, &mut [u8]) -> hadris_fat::error::Result<usize>
 pub async fn hadris_fat::async::read::FileReader<'a, DATA>::read_to_vec(&mut self) -> hadris_fat::error::Result<alloc::vec::Vec<u8>>
 pub fn hadris_fat::async::read::FileReader<'a, DATA>::remaining(&self) -> usize
+pub async fn hadris_fat::async::read::FileReader<'a, DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_fat::error::Result<u64>
 pub fn hadris_fat::async::read::FileReader<'a, DATA>::size(&self) -> usize
 pub fn hadris_fat::async::read::FileReader<'a, DATA>::with_buffer(self) -> Self
 pub async fn hadris_fat::async::read::FileReader<'a, DATA>::with_cached_chain(self) -> hadris_fat::error::Result<Self>
@@ -1485,9 +1487,11 @@ pub mod hadris_fat::read
 pub struct hadris_fat::read::FileReader<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
 impl<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_fat::read::FileReader<'a, DATA>
 pub fn hadris_fat::read::FileReader<'a, DATA>::new(&'a hadris_fat::fs::FatVolume<DATA>, &hadris_fat::dir::FileEntry) -> hadris_fat::error::Result<Self>
+pub fn hadris_fat::read::FileReader<'a, DATA>::position(&self) -> u64
 pub fn hadris_fat::read::FileReader<'a, DATA>::read(&mut self, &mut [u8]) -> hadris_fat::error::Result<usize>
 pub fn hadris_fat::read::FileReader<'a, DATA>::read_to_vec(&mut self) -> hadris_fat::error::Result<alloc::vec::Vec<u8>>
 pub fn hadris_fat::read::FileReader<'a, DATA>::remaining(&self) -> usize
+pub fn hadris_fat::read::FileReader<'a, DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_fat::error::Result<u64>
 pub fn hadris_fat::read::FileReader<'a, DATA>::size(&self) -> usize
 pub fn hadris_fat::read::FileReader<'a, DATA>::with_buffer(self) -> Self
 pub fn hadris_fat::read::FileReader<'a, DATA>::with_cached_chain(self) -> hadris_fat::error::Result<Self>
@@ -1979,9 +1983,11 @@ pub mod hadris_fat::sync::read
 pub struct hadris_fat::sync::read::FileReader<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
 impl<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_fat::read::FileReader<'a, DATA>
 pub fn hadris_fat::read::FileReader<'a, DATA>::new(&'a hadris_fat::fs::FatVolume<DATA>, &hadris_fat::dir::FileEntry) -> hadris_fat::error::Result<Self>
+pub fn hadris_fat::read::FileReader<'a, DATA>::position(&self) -> u64
 pub fn hadris_fat::read::FileReader<'a, DATA>::read(&mut self, &mut [u8]) -> hadris_fat::error::Result<usize>
 pub fn hadris_fat::read::FileReader<'a, DATA>::read_to_vec(&mut self) -> hadris_fat::error::Result<alloc::vec::Vec<u8>>
 pub fn hadris_fat::read::FileReader<'a, DATA>::remaining(&self) -> usize
+pub fn hadris_fat::read::FileReader<'a, DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_fat::error::Result<u64>
 pub fn hadris_fat::read::FileReader<'a, DATA>::size(&self) -> usize
 pub fn hadris_fat::read::FileReader<'a, DATA>::with_buffer(self) -> Self
 pub fn hadris_fat::read::FileReader<'a, DATA>::with_cached_chain(self) -> hadris_fat::error::Result<Self>

@@ -18,6 +18,7 @@ use tempfile::TempDir;
 
 use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
 use hadris_fat::{FatType, FatVolume, FatVolumeReadExt, FatVolumeWriteExt};
+use hadris_io::SeekFrom;
 
 #[path = "common/fat.rs"]
 mod fat_helpers;
@@ -143,6 +144,50 @@ fn assert_fat_type(image_path: &Path, expected: FatType) {
     assert_eq!(fs.fat_type(), expected, "unexpected FAT type on disk");
 }
 
+fn assert_seek_behavior<DATA>(reader: &mut hadris_fat::read::FileReader<'_, DATA>, payload: &[u8])
+where
+    DATA: hadris_fat::Read + hadris_fat::Seek,
+{
+    let mut buf = [0_u8; 37];
+
+    assert_eq!(reader.position(), 0);
+    assert_eq!(reader.seek(SeekFrom::Start(12_345)).unwrap(), 12_345);
+    assert_eq!(reader.read(&mut buf).unwrap(), buf.len());
+    assert_eq!(&buf, &payload[12_345..12_345 + buf.len()]);
+
+    assert_eq!(reader.seek(SeekFrom::Current(-20)).unwrap(), 12_362);
+    assert_eq!(reader.read(&mut buf[..20]).unwrap(), 20);
+    assert_eq!(&buf[..20], &payload[12_362..12_382]);
+
+    assert_eq!(
+        reader.seek(SeekFrom::End(-64)).unwrap(),
+        payload.len() as u64 - 64
+    );
+    assert_eq!(reader.read(&mut buf).unwrap(), buf.len());
+    assert_eq!(&buf, &payload[payload.len() - 64..payload.len() - 27]);
+
+    let past_end = payload.len() as u64 + 17;
+    assert_eq!(reader.seek(SeekFrom::Start(past_end)).unwrap(), past_end);
+    assert_eq!(reader.remaining(), 0);
+    assert_eq!(reader.read(&mut buf).unwrap(), 0);
+    assert_eq!(
+        reader.seek(SeekFrom::Current(-18)).unwrap(),
+        payload.len() as u64 - 1
+    );
+    assert_eq!(reader.read(&mut buf).unwrap(), 1);
+    assert_eq!(buf[0], payload[payload.len() - 1]);
+
+    assert_eq!(reader.seek(SeekFrom::Start(u64::MAX)).unwrap(), u64::MAX);
+    assert_eq!(reader.seek(SeekFrom::Current(-1)).unwrap(), u64::MAX - 1);
+    assert_eq!(reader.read(&mut buf).unwrap(), 0);
+
+    assert_eq!(reader.seek(SeekFrom::Start(10)).unwrap(), 10);
+    assert!(reader.seek(SeekFrom::Current(-11)).is_err());
+    assert_eq!(reader.position(), 10);
+    assert_eq!(reader.read(&mut buf[..1]).unwrap(), 1);
+    assert_eq!(buf[0], payload[10]);
+}
+
 // =============================================================================
 // FAT12 — small volume (~2 MB)
 // =============================================================================
@@ -188,6 +233,45 @@ fn fat12_roundtrip_multi_cluster_file() {
     let got = read_root_file(&img, "BLOB.BIN");
     assert_eq!(got.len(), payload.len(), "FAT12 size mismatch");
     assert_eq!(got, payload, "FAT12 content mismatch");
+}
+
+#[test]
+fn fat12_file_reader_seek() {
+    let tmp = TempDir::new().unwrap();
+    let img = tmp.path().join("fat12_seek.img");
+    make_image(&img, FAT12_SIZE, FatTypeSelection::Fat12, "FAT12SEEK");
+
+    let payload: Vec<u8> = (0..(32 * 1024)).map(|i| (i * 31 + 7) as u8).collect();
+    write_root_file(&img, "SEEK.BIN", &payload);
+
+    let file = open_image(&img);
+    let fs = FatVolume::open(file).expect("open FAT");
+    let entry = fs
+        .root_dir()
+        .find("SEEK.BIN")
+        .expect("find")
+        .expect("present");
+
+    let mut reader = fs.read_file(&entry).expect("read_file");
+    assert_seek_behavior(&mut reader, &payload);
+
+    let mut buffered = fs.read_file(&entry).expect("read_file").with_buffer();
+    assert_seek_behavior(&mut buffered, &payload);
+
+    let mut cached = fs
+        .read_file(&entry)
+        .expect("read_file")
+        .with_buffer()
+        .with_cached_chain()
+        .expect("cache chain");
+    assert_seek_behavior(&mut cached, &payload);
+
+    let empty = fs.create_file(&fs.root_dir(), "EMPTY.BIN").unwrap();
+    let mut empty_reader = fs.read_file(&empty).unwrap();
+    assert_eq!(empty_reader.seek(SeekFrom::End(17)).unwrap(), 17);
+    assert_eq!(empty_reader.seek(SeekFrom::Current(-17)).unwrap(), 0);
+    assert!(empty_reader.seek(SeekFrom::End(-1)).is_err());
+    assert_eq!(empty_reader.position(), 0);
 }
 
 // =============================================================================
