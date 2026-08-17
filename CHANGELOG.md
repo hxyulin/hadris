@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-fat:** Directory entries and parse results now implement `Clone`,
+  allowing parsed metadata to be retained independently of directory iterators.
+
 ## [2.0.0] - 2026-08-09
 
 First stable release of the V2 API. This entry consolidates the changes made
