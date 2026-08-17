@@ -45,9 +45,13 @@ For the complete support table and feature recipes, see
 
 - [Choose a crate](./crates.md)
 - [Understand the storage and I/O model](./concepts/storage-model.md)
+- [Detect and open an unknown image](./guides/detect-open-images.md)
 - [Read a FAT image](./guides/read-fat-image.md)
 - [Inspect a partition table](./guides/read-partition-table.md)
+- [Open FAT inside a partition](./guides/open-partitioned-fat.md)
 - [Read an ISO](./guides/read-iso.md)
+- [Read UDF](./guides/read-udf.md)
 - [Create an ISO](./creation/iso.md)
 - [Build a CPIO initramfs](./guides/build-initramfs.md)
+- [Use asynchronous I/O](./guides/async-io.md)
 - [Configure a `no_std` target](./guides/no-std.md)

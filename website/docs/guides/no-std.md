@@ -23,3 +23,20 @@ does not implicitly select `sync` or `async`.
 All storage I/O flows through `hadris-io`, allowing callers to adapt firmware,
 kernel, memory, or device-specific readers rather than depending on
 `std::io`.
+
+## Choose the narrowest tier
+
+| Need | Features |
+|---|---|
+| Allocation-free synchronous reader | `read,sync` |
+| Allocation-free asynchronous reader | `read,async` |
+| Owned names or buffers | Add `alloc` |
+| Filesystem mutation | Add `write` and its required platform tier |
+| Both I/O modes | Enable `sync,async` and use explicit namespaces |
+
+The exact minimum differs by format. NTFS reading requires `alloc`; ISO and UDF
+image creation require `std`. See the complete
+[feature and capability matrix](../concepts/features.md).
+
+For integration examples, see [Adapt a custom device](./custom-io.md) and
+[Use asynchronous I/O](./async-io.md).

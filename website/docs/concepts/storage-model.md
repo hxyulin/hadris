@@ -81,6 +81,5 @@ metadata when it must outlive an iterator or intermediate lookup.
 | A custom firmware device | Implement or adapt `hadris-io` traits |
 | A logical-block-native device | Start with `hadris-storage` |
 
-See [Inspect an MBR or GPT image](../guides/read-partition-table.md) for the
-first half of this stack; the task guides also cover opening a filesystem
-through a bounded partition view.
+See [Open FAT inside a partition](../guides/open-partitioned-fat.md) for an
+end-to-end example of the full stack.
