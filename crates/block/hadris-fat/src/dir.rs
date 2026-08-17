@@ -491,8 +491,13 @@ bitflags::bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Metadata for a file or subdirectory entry.
+///
+/// `Clone` lets callers keep an entry after the iterator that produced it has
+/// been dropped, which is what any path-resolving layer on top of this crate
+/// needs: it walks a path component by component and has to carry the entry
+/// out of the borrow of its parent directory.
 pub struct FileEntry {
     pub(crate) short_name: ShortFileName,
     /// Windows NT 8.3 name case flags (`DIR_NTRes`); applied to the display
