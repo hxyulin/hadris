@@ -1217,7 +1217,7 @@ impl hadris_fat::oem::OemCpConverter for hadris_fat::oem::LossyAsciiOemCpConvert
 pub fn hadris_fat::oem::LossyAsciiOemCpConverter::decode(&self, u8) -> char
 pub fn hadris_fat::oem::LossyAsciiOemCpConverter::encode(&self, char) -> core::option::Option<u8>
 pub static hadris_fat::oem::DEFAULT_OEM_CONVERTER: hadris_fat::oem::LossyAsciiOemCpConverter
-pub trait hadris_fat::oem::OemCpConverter: core::fmt::Debug
+pub trait hadris_fat::oem::OemCpConverter: core::fmt::Debug + core::marker::Sync
 pub fn hadris_fat::oem::OemCpConverter::decode(&self, u8) -> char
 pub fn hadris_fat::oem::OemCpConverter::encode(&self, char) -> core::option::Option<u8>
 impl hadris_fat::oem::OemCpConverter for hadris_fat::oem::Cp437OemCpConverter
@@ -2387,7 +2387,7 @@ pub struct hadris_fat::time::StaticTimeProvider(pub hadris_fat::time::FatDateTim
 impl hadris_fat::time::TimeProvider for hadris_fat::time::StaticTimeProvider
 pub fn hadris_fat::time::StaticTimeProvider::now(&self) -> hadris_fat::time::FatDateTime
 pub static hadris_fat::time::DEFAULT_TIME_PROVIDER: hadris_fat::time::ChronoTimeProvider
-pub trait hadris_fat::time::TimeProvider: core::fmt::Debug
+pub trait hadris_fat::time::TimeProvider: core::fmt::Debug + core::marker::Sync
 pub fn hadris_fat::time::TimeProvider::now(&self) -> hadris_fat::time::FatDateTime
 impl hadris_fat::time::TimeProvider for hadris_fat::time::ChronoTimeProvider
 pub fn hadris_fat::time::ChronoTimeProvider::now(&self) -> hadris_fat::time::FatDateTime

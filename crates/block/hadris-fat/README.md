@@ -81,6 +81,39 @@ let options = FatFormatOptions::new(64 * 1024 * 1024)
 # }
 ```
 
+### Sharing a Volume Between Threads
+
+`FatVolume` is `Send` when its backing storage is `Send`. Put it behind a
+mutex to share it safely between worker threads. Custom time providers and OEM
+code-page converters must implement `Sync`.
+
+```rust,no_run
+use hadris_fat::FatVolume;
+use std::{fs::File, sync::{Arc, Mutex}, thread};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let volume = FatVolume::open(File::options()
+    .read(true)
+    .write(true)
+    .open("disk.img")?)?;
+let volume = Arc::new(Mutex::new(volume));
+
+let worker_volume = Arc::clone(&volume);
+let fat_type = thread::spawn(move || worker_volume.lock().unwrap().fat_type())
+    .join()
+    .expect("volume worker panicked");
+
+println!("mounted {fat_type}");
+# Ok(())
+# }
+```
+
+See the runnable `shared_volume` example for configuring a custom clock:
+
+```console
+cargo run -p hadris-fat --example shared_volume -- disk.img
+```
+
 ## Feature Flags
 
 | Feature | Description | Dependencies |
