@@ -439,7 +439,7 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// A parsed FAT directory record.
 pub enum DirectoryEntry {
     /// A file or directory entry
@@ -466,7 +466,7 @@ impl DirectoryEntry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// A parsed value together with non-fatal filesystem diagnostics.
 pub struct ParseInfo<T> {
     /// Parsed value.
@@ -491,7 +491,7 @@ bitflags::bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Metadata for a file or subdirectory entry.
 pub struct FileEntry {
     pub(crate) short_name: ShortFileName,
