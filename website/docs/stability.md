@@ -1,8 +1,8 @@
 ---
-title: 2.0.0
+title: Stability and compatibility
 ---
 
-# Hadris 2.0.0
+# Stability and compatibility
 
 Hadris 2.0.0 is the first stable release of the V2 API. The public surface
 frozen during the release-candidate series is now stable under Semantic
@@ -18,3 +18,14 @@ and report real-world compatibility findings through
 
 The `unstable-exfat` preview and experimental `hadris-ntfs` reader are
 explicitly outside the V2 stability promise.
+
+## Compatibility policy
+
+- Stable crates follow Semantic Versioning within the `2.x` series.
+- New format support and additive APIs may arrive in minor releases.
+- Correctness and interoperability fixes may arrive in patch releases.
+- Feature-gated experimental APIs can change before they are declared stable.
+- On-disk compatibility fixes take priority over preserving incorrect output.
+
+Public API snapshots cover every stable crate and run in CI. Format behavior is
+also tracked in the repository's specification-compliance catalog.

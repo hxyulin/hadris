@@ -8,7 +8,7 @@ These guides are organized around tasks rather than workspace internals:
 
 - [Read files from a FAT image](./read-fat-image.md)
 - [Inspect an MBR or GPT disk image](./read-partition-table.md)
-- [Read and create ISO 9660 images](./read-and-create-iso.md)
+- [Read ISO 9660 images](./read-iso.md)
 - [Build a CPIO initramfs](./build-initramfs.md)
 - [Use Hadris without the standard library](./no-std.md)
 

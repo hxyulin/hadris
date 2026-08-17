@@ -1,5 +1,7 @@
 // @ts-check
 
+const {themes: prismThemes} = require("prism-react-renderer");
+
 const config = {
   title: "Hadris",
   tagline: "The Rust storage stack",
@@ -35,6 +37,11 @@ const config = {
     ],
   ],
   themeConfig: {
+    prism: {
+      theme: prismThemes.github,
+      darkTheme: prismThemes.dracula,
+      additionalLanguages: ["bash", "rust", "toml"],
+    },
     navbar: {
       title: "Hadris",
       items: [

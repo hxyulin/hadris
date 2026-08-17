@@ -10,7 +10,7 @@ module.exports = {
       items: [
         "guides/read-fat-image",
         "guides/read-partition-table",
-        "guides/read-and-create-iso",
+        "guides/read-iso",
         "guides/build-initramfs",
         "guides/no-std",
       ],
@@ -24,7 +24,7 @@ module.exports = {
         "creation/udf",
       ],
     },
-    "release-candidate",
+    "stability",
     "contributing",
   ],
 };

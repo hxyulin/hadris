@@ -29,21 +29,7 @@ covered by the V2 public-API snapshots.
 
 ## Architecture
 
-```text
-Applications, bootloaders, kernels, firmware, and embedded systems
-                              │
-                  hadris umbrella crate
-                              │
-       ┌──────────────────────┼──────────────────────┐
-       │                      │                      │
- hadris-block           hadris-optical        hadris-archive
-       │                      │                      │
- FAT12/16/32 + GPT/MBR   ISO 9660 + UDF          CPIO
-       │                      │                      │
-       └──────── shared I/O, paths, and storage ────┘
-                              │
-           files, disk images, and block devices
-```
+![Hadris architecture: applications use the umbrella crate over block, optical, and archive formats backed by shared I/O, paths, and storage](website/static/img/architecture.svg)
 
 Hadris uses category-level detection and opening APIs while preserving the
 concrete APIs of each filesystem. It does not force unlike formats behind one

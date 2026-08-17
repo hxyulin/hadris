@@ -43,6 +43,7 @@ gaps.
 - [Choose a crate](./crates.md)
 - [Read a FAT image](./guides/read-fat-image.md)
 - [Inspect a partition table](./guides/read-partition-table.md)
-- [Read or create an ISO](./guides/read-and-create-iso.md)
+- [Read an ISO](./guides/read-iso.md)
+- [Create an ISO](./creation/iso.md)
 - [Build a CPIO initramfs](./guides/build-initramfs.md)
 - [Configure a `no_std` target](./guides/no-std.md)
