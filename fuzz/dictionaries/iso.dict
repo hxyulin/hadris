@@ -1,0 +1,12 @@
+# ISO 9660 / Joliet magic tokens for libFuzzer (-dict=fuzz/dictionaries/iso.dict)
+vd_primary="\x01CD001"
+vd_boot="\x00CD001"
+vd_supplementary="\x02CD001"
+vd_partition="\x03CD001"
+vd_terminator="\xffCD001"
+beacon="BEA01"
+boot_spec="EL TORITO SPECIFICATION"
+rrip_nm="NM"
+rrip_px="PX"
+rrip_sl="SL"
+rrip_rock_ridge="RRIP_1991A"

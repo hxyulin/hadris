@@ -1,0 +1,10 @@
+# UDF (ECMA-167) magic tokens for libFuzzer (-dict=fuzz/dictionaries/udf.dict)
+beacon="BEA01"
+nsr02="NSR02"
+nsr03="NSR03"
+terminator="TEA01"
+iso_vd="\x01CD001"
+anchor_tag="\x02\x00"
+fid_tag="\x01\x01"
+fe_tag="\x05\x01"
+efe_tag="\xfa\x01"

@@ -4,6 +4,9 @@
 //!
 //! This exercises the File Entry / allocation-descriptor / FID parsing that the
 //! slice-bounds and extent-allocation fixes hardened.
+//!
+//! Self-consistency oracle (failures are tagged `ORACLE:`): every file is
+//! read twice and the bytes must match.
 
 use libfuzzer_sys::fuzz_target;
 use std::io::Cursor;
@@ -18,20 +21,44 @@ fn drive(data: &[u8]) {
         return;
     };
 
-    // Depth-guarded worklist: `read_directory` follows an ICB with no cycle
-    // detection, so a self-referential directory would otherwise loop forever.
+    // Depth-guarded worklist. The depth cap alone is NOT enough: a corrupt
+    // directory graph (ICBs pointing at sibling/ancestor dirs — `read_directory`
+    // has no cycle detection) has a path count that grows like branching^depth,
+    // so a naive walk fans out and hangs — a harness DoS, not a library bug.
+    // A flat work budget bounds total entries processed on ANY input.
+    let mut budget: u32 = 200_000;
     let mut stack = vec![(root, 0u32)];
     while let Some((dir, depth)) = stack.pop() {
         if depth > 64 {
             continue;
         }
         for entry in dir.entries() {
+            if budget == 0 {
+                return;
+            }
+            budget -= 1;
             if entry.is_dir() {
                 if let Ok(child) = fs.read_directory(&entry.icb) {
                     stack.push((child, depth + 1));
                 }
             } else {
-                let _ = fs.read_file(entry);
+                // Read-twice oracle: two reads must yield identical bytes.
+                let first = fs.read_file(entry);
+                let second = fs.read_file(entry);
+                assert_eq!(
+                    first.is_ok(),
+                    second.is_ok(),
+                    "ORACLE: repeated reads of {:?} disagree on success",
+                    entry.name()
+                );
+                if let (Ok(a), Ok(b)) = (first, second) {
+                    assert_eq!(
+                        a,
+                        b,
+                        "ORACLE: repeated reads of {:?} returned different bytes",
+                        entry.name()
+                    );
+                }
             }
         }
     }
