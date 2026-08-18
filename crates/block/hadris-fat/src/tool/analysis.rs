@@ -123,6 +123,12 @@ pub struct FragmentationReport {
     pub fragmentation_percentage: f64,
 }
 
+/// Maximum directory nesting depth for the recursive tree walks. A corrupt
+/// image can make a directory (transitively) contain itself; without a cap
+/// the recursion overflows the stack. Matches the 64-level depth guard used
+/// by the fuzz harnesses.
+pub(super) const MAX_DIRECTORY_DEPTH: u32 = 64;
+
 /// Extension trait for FatVolume providing analysis operations.
 pub trait FatAnalysisExt<DATA: Read + Seek> {
     /// Gather statistics about the filesystem.
@@ -198,7 +204,7 @@ impl<DATA: Read + Seek> FatAnalysisExt<DATA> for FatVolume<DATA> {
 
     fn fragmentation_report(&self, max_files: usize) -> Result<FragmentationReport> {
         let mut all_files = Vec::new();
-        self.collect_files_recursive(&self.root_dir(), String::new(), &mut all_files)?;
+        self.collect_files_recursive(&self.root_dir(), String::new(), 0, &mut all_files)?;
 
         let mut total_fragments = 0u32;
         let mut fragmented_files = 0u32;
@@ -264,7 +270,14 @@ impl<DATA: Read + Seek> FatAnalysisExt<DATA> for FatVolume<DATA> {
     fn scan_fat(&self) -> Result<Vec<ClusterState>> {
         let mut data = self.data.lock();
         let total_clusters = self.info.max_cluster;
-        let mut states = Vec::with_capacity(total_clusters as usize + 1);
+        // `total_clusters` derives from the untrusted BPB total_sectors, so a
+        // corrupt image can claim ~4 billion clusters on a tiny image. Cap the
+        // up-front reservation (same 16 MiB idiom as `read_to_vec`); the Vec
+        // still grows as real entries are scanned.
+        const MAX_PREALLOC_BYTES: usize = 16 * 1024 * 1024;
+        let prealloc = (MAX_PREALLOC_BYTES / core::mem::size_of::<ClusterState>())
+            .min(total_clusters as usize + 1);
+        let mut states = Vec::with_capacity(prealloc);
 
         // Cluster 0 and 1 are reserved
         states.push(ClusterState::Reserved);
@@ -335,16 +348,22 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
     fn count_entries(&self) -> Result<(u32, u32)> {
         let mut files = 0u32;
         let mut dirs = 0u32;
-        self.count_entries_recursive(&self.root_dir(), &mut files, &mut dirs)?;
+        self.count_entries_recursive(&self.root_dir(), 0, &mut files, &mut dirs)?;
         Ok((files, dirs))
     }
 
     fn count_entries_recursive<'a>(
         &'a self,
         dir: &FatDir<'a, DATA>,
+        depth: u32,
         files: &mut u32,
         dirs: &mut u32,
     ) -> Result<()> {
+        if depth > MAX_DIRECTORY_DEPTH {
+            return Err(crate::error::Error::CorruptFilesystem {
+                context: "directory nesting depth limit exceeded",
+            });
+        }
         for entry in dir.entries() {
             let entry = entry?;
             let DirectoryEntry::Entry(file_entry) = entry;
@@ -361,7 +380,7 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
                     cluster: file_entry.cluster(),
                     fixed_root: None,
                 };
-                self.count_entries_recursive(&subdir, files, dirs)?;
+                self.count_entries_recursive(&subdir, depth + 1, files, dirs)?;
             } else {
                 *files += 1;
             }
@@ -374,8 +393,14 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
         &'a self,
         dir: &FatDir<'a, DATA>,
         path_prefix: String,
+        depth: u32,
         files: &mut Vec<(String, FileEntry)>,
     ) -> Result<()> {
+        if depth > MAX_DIRECTORY_DEPTH {
+            return Err(crate::error::Error::CorruptFilesystem {
+                context: "directory nesting depth limit exceeded",
+            });
+        }
         for entry in dir.entries() {
             let entry = entry?;
             let DirectoryEntry::Entry(file_entry) = entry;
@@ -397,7 +422,7 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
                     cluster: file_entry.cluster(),
                     fixed_root: None,
                 };
-                self.collect_files_recursive(&subdir, full_path, files)?;
+                self.collect_files_recursive(&subdir, full_path, depth + 1, files)?;
             } else {
                 files.push((full_path, file_entry));
             }

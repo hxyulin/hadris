@@ -48,7 +48,9 @@ impl ExFatTable {
             #[cfg(feature = "write")]
             fat_count: info.fat_count,
             // Cluster count + 2 (for reserved entries 0 and 1)
-            max_cluster: info.cluster_count + Self::FIRST_DATA_CLUSTER - 1,
+            max_cluster: info
+                .cluster_count
+                .saturating_add(Self::FIRST_DATA_CLUSTER - 1),
         }
     }
 

@@ -371,6 +371,51 @@ mod integration_tests {
         );
     }
 
+    /// A corrupt entry combining VOLUME_ID with DIRECTORY is not a listable
+    /// entry per the FAT spec and must be skipped (not listed and recursed
+    /// into) — reference tools like mtools skip it too.
+    /// (differential-fuzz regression: mdir vs fs_dump on mutated images)
+    #[test]
+    fn test_root_listing_skips_corrupt_volume_id_directory_entry() {
+        use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter};
+
+        let volume_size: u64 = 4 * 1024 * 1024;
+        let buffer = vec![0u8; volume_size as usize];
+        let mut cursor = Cursor::new(buffer);
+        {
+            let opts = FatFormatOptions::new(volume_size);
+            let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
+            let root = fs.root_dir();
+            let entry = fs.create_file(&root, "BADVOL.TXT").unwrap();
+            let mut writer = fs.write_file(&entry).unwrap();
+            writer.write(b"x").unwrap();
+            writer.finish().unwrap();
+            fs.sync().unwrap();
+        }
+
+        // Corrupt the entry: VOLUME_ID | DIRECTORY | ARCHIVE.
+        let image = cursor.get_mut();
+        let needle = b"BADVOL  TXT";
+        let pos = image
+            .windows(needle.len())
+            .position(|w| w == needle)
+            .expect("directory entry present in image");
+        image[pos + 11] = 0x38;
+
+        cursor.set_position(0);
+        let fs = FatVolume::open(cursor).expect("re-open FAT32");
+        let names: Vec<_> = fs
+            .root_dir()
+            .entries()
+            .filter_map(|e| e.ok())
+            .map(|e| e.name().into_owned())
+            .collect();
+        assert!(
+            !names.iter().any(|n| n == "BADVOL.TXT"),
+            "VOLUME_ID|DIRECTORY entry must be skipped, got {names:?}"
+        );
+    }
+
     #[test]
     fn test_read_directory_entries() {
         use hadris_io::Seek;
@@ -658,5 +703,163 @@ mod navigation_tests {
             assert_eq!(entries.len(), 1);
             assert!(entries[0].name().starts_with("FILE"));
         }
+    }
+}
+
+/// Regression tests for inputs found by the `fat_read` fuzz target.
+#[cfg(test)]
+#[cfg(feature = "write")]
+mod fuzz_regression_tests {
+    use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
+    use hadris_fat::{Error, FatVolume, FatVolumeWriteExt};
+    use hadris_io::Seek;
+    use std::io::Cursor;
+
+    /// Minimal FAT32 image (auto-select would pick FAT16 at this size) with
+    /// HELLO.TXT and SUBDIR in the root directory.
+    fn create_fat32_image() -> Cursor<Vec<u8>> {
+        let volume_size: u64 = 256 * 1024 * 1024;
+        let mut cursor = Cursor::new(vec![0u8; volume_size as usize]);
+        let opts = FatFormatOptions::new(volume_size).fat_type(FatTypeSelection::Fat32);
+        let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
+
+        let root = fs.root_dir();
+        let entry = fs.create_file(&root, "HELLO.TXT").unwrap();
+        let mut writer = fs.write_file(&entry).unwrap();
+        writer.write(b"Hello, World!").unwrap();
+        writer.finish().unwrap();
+        fs.create_dir(&root, "SUBDIR").unwrap();
+        fs.sync().unwrap();
+
+        cursor
+    }
+
+    /// Byte offset of the FAT32 root directory (always cluster 2).
+    fn root_dir_offset(img: &[u8]) -> usize {
+        let bps = u16::from_le_bytes([img[11], img[12]]) as usize;
+        let reserved = u16::from_le_bytes([img[14], img[15]]) as usize;
+        let fats = img[16] as usize;
+        let spf32 = u32::from_le_bytes([img[36], img[37], img[38], img[39]]) as usize;
+        (reserved + fats * spf32) * bps
+    }
+
+    /// Byte offset of the 8.3-named entry in the root directory.
+    fn find_root_entry(img: &[u8], name: &[u8; 11]) -> usize {
+        let start = root_dir_offset(img);
+        (0..64)
+            .map(|i| start + i * 32)
+            .take_while(|&off| off + 32 <= img.len())
+            .find(|&off| &img[off..off + 11] == name)
+            .expect("entry present in root directory")
+    }
+
+    /// Overwrite the first-cluster field (high + low words) of a directory entry.
+    fn set_entry_cluster(img: &mut [u8], entry_off: usize, cluster: u32) {
+        img[entry_off + 20..entry_off + 22]
+            .copy_from_slice(&((cluster >> 16) as u16).to_le_bytes());
+        img[entry_off + 26..entry_off + 28].copy_from_slice(&(cluster as u16).to_le_bytes());
+    }
+
+    #[test]
+    fn test_fat32_huge_sectors_per_fat_rejected() {
+        // Fuzz crash: fat_count * sectors_per_fat_32 overflowed u32 while
+        // computing the FAT32 geometry at mount.
+        let mut cursor = create_fat32_image();
+        cursor.get_mut()[36..40].copy_from_slice(&0xFFFF0640u32.to_le_bytes());
+        cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
+        assert!(FatVolume::open(cursor).is_err());
+    }
+
+    #[test]
+    fn test_fat32_invalid_root_cluster_rejected() {
+        for cluster in [0u32, 1] {
+            let mut cursor = create_fat32_image();
+            cursor.get_mut()[44..48].copy_from_slice(&cluster.to_le_bytes());
+            cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
+            match FatVolume::open(cursor) {
+                Err(Error::ClusterOutOfBounds { cluster: c, .. }) => assert_eq!(c, cluster),
+                Err(e) => panic!("expected ClusterOutOfBounds, got {e}"),
+                Ok(_) => panic!("expected ClusterOutOfBounds, got Ok"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_zero_cluster_subdirectory_reads_empty() {
+        for cluster in [0u32, 1] {
+            let mut cursor = create_fat32_image();
+            let off = find_root_entry(cursor.get_ref(), b"SUBDIR     ");
+            set_entry_cluster(cursor.get_mut(), off, cluster);
+            cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
+
+            let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
+            let root = fs.root_dir();
+            let subdir = root.open_dir("SUBDIR").unwrap();
+            assert!(subdir.entries().next().is_none());
+        }
+    }
+
+    #[test]
+    fn test_zero_cluster_file_reads_empty() {
+        for cluster in [0u32, 1] {
+            let mut cursor = create_fat32_image();
+            let off = find_root_entry(cursor.get_ref(), b"HELLO   TXT");
+            set_entry_cluster(cursor.get_mut(), off, cluster);
+            cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
+
+            let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
+            let root = fs.root_dir();
+            let mut reader = root.open_file("HELLO.TXT").unwrap();
+            assert!(reader.read_to_vec().unwrap().is_empty());
+        }
+    }
+
+    /// Fuzz crash: OEM high bytes in an 8.3 name (legitimate on disk, invalid
+    /// UTF-8) panicked `FileEntry::name` via `FixedBytes::as_str`.
+    #[test]
+    fn test_non_utf8_short_name_does_not_panic() {
+        let mut cursor = create_fat32_image();
+        let off = find_root_entry(cursor.get_ref(), b"HELLO   TXT");
+        cursor.get_mut()[off] = 0x82; // CP437 'é', invalid as standalone UTF-8
+        cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
+
+        let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
+        let root = fs.root_dir();
+        let names: Vec<_> = root
+            .entries()
+            .filter_map(|e| e.ok())
+            .map(|e| {
+                let name = e.name().into_owned();
+                let _ = format!("{e:?}"); // Debug must not panic either
+                name
+            })
+            .collect();
+        assert!(
+            names.iter().any(|n| n.contains('\u{FFFD}')),
+            "expected lossy replacement char in {names:?}"
+        );
+
+        // find()/matches() must not panic on the non-UTF-8 entry either
+        assert!(root.find("HELLO.TXT").is_ok());
+    }
+
+    /// Fuzz OOM: a corrupt size field far beyond the actual cluster chain made
+    /// `read_to_vec` pre-allocate the claimed size (gigabytes).
+    #[test]
+    fn test_oversized_file_read_is_bounded() {
+        let mut cursor = create_fat32_image();
+        let off = find_root_entry(cursor.get_ref(), b"HELLO   TXT");
+        // Below the 256 MiB volume capacity, far beyond the real chain.
+        cursor.get_mut()[off + 28..off + 32].copy_from_slice(&200_000_000u32.to_le_bytes());
+        cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
+
+        let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
+        let root = fs.root_dir();
+        let mut reader = root.open_file("HELLO.TXT").unwrap();
+        let data = reader.read_to_vec().unwrap();
+        // The chain holds one cluster: real content plus zero padding, and
+        // certainly not the claimed ~200 MB.
+        assert!(data.starts_with(b"Hello, World!"));
+        assert!(data.len() < 1024 * 1024);
     }
 }

@@ -246,6 +246,13 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
             return Ok(0);
         }
 
+        // A directory entry whose first cluster is 0 has no data allocated
+        // (1 is reserved); report EOF instead of underflowing the
+        // cluster-to-offset math.
+        if self.cluster.0 < 2 {
+            return Ok(0);
+        }
+
         let mut data = self.fs.data.lock();
         let cluster_size = data.cluster_size;
 
@@ -364,8 +371,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     /// Data is read starting at this reader's current offset in the file (the same
     /// position the next [`read`](Self::read) would use—not necessarily offset 0). Bytes
     /// already consumed by earlier [`read`](Self::read) or `read_to_vec` calls are not read
-    /// again. The allocation size is [`remaining`](Self::remaining); bytes are read using the
-    /// same internal bulk-read path as [`read`](Self::read).
+    /// again. Bytes are read using the same internal bulk-read path as [`read`](Self::read).
     #[cfg(feature = "alloc")]
     pub async fn read_to_vec(&mut self) -> Result<Vec<u8>> {
         let remaining = self.remaining();
@@ -374,17 +380,31 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
         // up-front allocation against it — otherwise a corrupt entry in a tiny
         // image could force a multi-gigabyte allocation (a DoS that aborts the
         // process on no-overcommit / embedded targets).
-        let volume_capacity =
-            self.fs.info.max_cluster as u64 * self.fs.info.cluster_size as u64;
+        let volume_capacity = self.fs.info.max_cluster as u64 * self.fs.info.cluster_size as u64;
         if remaining as u64 > volume_capacity {
             return Err(Error::CorruptFilesystem {
                 context: "file size exceeds volume capacity",
             });
         }
-        // One allocation sized to what's left from the current read cursor.
-        let mut buf = alloc::vec![0u8; remaining];
-        let n = self.read_to_buf(&mut buf).await?;
-        buf.truncate(n);
+        // The capacity check above is not sufficient on its own: a corrupt BPB
+        // can also claim a huge volume (total_sectors), letting a ~4 GiB file
+        // size through on a tiny image. So cap the up-front allocation and
+        // grow only as actual data arrives — reads past the real data yield
+        // short reads or I/O errors, not gigabytes of zeros.
+        const MAX_PREALLOC: usize = 16 * 1024 * 1024;
+        let mut buf = alloc::vec![0u8; remaining.min(MAX_PREALLOC)];
+        let mut filled = 0;
+        while filled < remaining {
+            if filled == buf.len() {
+                buf.resize((buf.len() * 2).min(remaining), 0);
+            }
+            let n = self.read_to_buf(&mut buf[filled..]).await?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        buf.truncate(filled);
         Ok(buf)
     }
 }

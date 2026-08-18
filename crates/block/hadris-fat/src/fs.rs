@@ -612,10 +612,20 @@ where
 
         #[cfg(feature = "alloc")]
         let cluster_size = data.cluster_size;
+        // sectors_per_fat_32 is a 32-bit BPB field (the FAT12/16 field is only
+        // 16-bit), so these products overflow u32 — and usize on 32-bit
+        // targets — on corrupt images. Keep the geometry math checked.
         let fat_start = Sector(bpb.reserved_sector_count.get()).to_bytes(data.sector_size);
-        let fat_size_per_fat =
-            Sector(bpb_ext32.sectors_per_fat_32.get()).to_bytes(data.sector_size);
-        let fat_size = bpb.fat_count as usize * fat_size_per_fat;
+        let fat_size_per_fat = (bpb_ext32.sectors_per_fat_32.get() as usize)
+            .checked_mul(data.sector_size)
+            .ok_or(Error::CorruptFilesystem {
+                context: "sectors_per_fat_32 * sector_size",
+            })?;
+        let fat_size = (bpb.fat_count as usize)
+            .checked_mul(fat_size_per_fat)
+            .ok_or(Error::CorruptFilesystem {
+                context: "fat_count * sectors_per_fat_32",
+            })?;
 
         // Calculate total data sectors and max cluster
         let total_sectors = if bpb.total_sectors_16 != [0, 0] {
@@ -623,10 +633,23 @@ where
         } else {
             u32::from_le_bytes(bpb.total_sectors_32)
         };
-        let reserved_sectors = bpb.reserved_sector_count.get() as u32;
-        let fat_sectors = bpb_ext32.sectors_per_fat_32.get() * bpb.fat_count as u32;
-        let data_sectors = total_sectors.saturating_sub(reserved_sectors + fat_sectors);
-        let max_cluster = (data_sectors / bpb.sectors_per_cluster as u32) + 1; // +1 because clusters start at 2
+        // u64: fat_count * sectors_per_fat_32 alone can exceed u32.
+        let metadata_sectors = bpb.reserved_sector_count.get() as u64
+            + bpb_ext32.sectors_per_fat_32.get() as u64 * bpb.fat_count as u64;
+        let data_sectors = (total_sectors as u64).saturating_sub(metadata_sectors);
+        let max_cluster =
+            (data_sectors / bpb.sectors_per_cluster as u64).min(u32::MAX as u64 - 1) as u32 + 1; // +1 because clusters start at 2
+
+        // The FAT32 root directory is an ordinary cluster chain, so its first
+        // cluster must be a valid data cluster; anything else would underflow
+        // the cluster-to-offset math when the root is iterated.
+        let root_cluster = bpb_ext32.root_cluster.get();
+        if !(2..=max_cluster).contains(&root_cluster) {
+            return Err(Error::ClusterOutOfBounds {
+                cluster: root_cluster,
+                max: max_cluster,
+            });
+        }
 
         let fat = Fat::Fat32(Fat32::new(
             fat_start,
@@ -635,10 +658,16 @@ where
             max_cluster,
         ));
 
+        let data_start = fat_start
+            .checked_add(fat_size)
+            .ok_or(Error::CorruptFilesystem {
+                context: "fat_start + fat_size",
+            })?;
+
         let info = FatInfo {
             #[cfg(feature = "alloc")]
             cluster_size,
-            data_start: fat_start + fat_size,
+            data_start,
             #[cfg(feature = "alloc")]
             max_cluster,
         };

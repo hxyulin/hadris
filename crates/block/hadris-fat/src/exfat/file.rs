@@ -31,6 +31,10 @@ pub struct ExFatFileReader<'a, DATA: Read + Seek> {
     is_contiguous: bool,
     /// Cluster index (for contiguous files)
     cluster_index: u32,
+    /// FAT-chain hops taken so far (fragmented files). Bounded by the
+    /// volume's cluster count so a corrupt looping chain errors out instead
+    /// of hanging the reader.
+    cluster_steps: u32,
 }
 
 impl<'a, DATA: Read + Seek> ExFatFileReader<'a, DATA> {
@@ -49,6 +53,7 @@ impl<'a, DATA: Read + Seek> ExFatFileReader<'a, DATA> {
             valid_length: entry.valid_data_length,
             is_contiguous: entry.no_fat_chain,
             cluster_index: 0,
+            cluster_steps: 0,
         })
     }
 
@@ -65,6 +70,25 @@ impl<'a, DATA: Read + Seek> ExFatFileReader<'a, DATA> {
     /// Get remaining bytes to read.
     pub fn remaining(&self) -> u64 {
         self.valid_length.saturating_sub(self.position)
+    }
+}
+
+impl<DATA: Read + Seek> ExFatFileReader<'_, DATA> {
+    /// Follow the FAT chain one hop. A chain longer than the volume's cluster
+    /// count must contain a loop; report an error instead of hanging.
+    fn follow_chain(&mut self) -> crate::io::IoResult<bool> {
+        self.cluster_steps = self.cluster_steps.saturating_add(1);
+        if self.cluster_steps > self.fs.info().cluster_count {
+            return Err(error_from_kind(ErrorKind::Other));
+        }
+        match self.fs.next_cluster(self.current_cluster) {
+            Ok(Some(next)) => {
+                self.current_cluster = next;
+                Ok(true)
+            }
+            Ok(None) => Ok(false),
+            Err(_e) => Err(error_from_kind(ErrorKind::Other)),
+        }
     }
 }
 
@@ -89,10 +113,8 @@ impl<DATA: Read + Seek> Read for ExFatFileReader<'_, DATA> {
                     self.current_cluster = self.first_cluster + self.cluster_index;
                 } else {
                     // Fragmented file: follow FAT chain
-                    match self.fs.next_cluster(self.current_cluster) {
-                        Ok(Some(next)) => self.current_cluster = next,
-                        Ok(None) => break, // End of chain
-                        Err(_e) => return Err(error_from_kind(ErrorKind::Other)),
+                    if !self.follow_chain()? {
+                        break; // End of chain
                     }
                 }
                 self.cluster_offset = 0;
@@ -170,11 +192,10 @@ impl<DATA: Read + Seek> Seek for ExFatFileReader<'_, DATA> {
             // For fragmented files, we need to follow the FAT chain
             // This is inefficient for large seeks, but necessary
             self.current_cluster = self.first_cluster;
+            self.cluster_steps = 0;
             for _ in 0..cluster_index {
-                match self.fs.next_cluster(self.current_cluster) {
-                    Ok(Some(next)) => self.current_cluster = next,
-                    Ok(None) => return Err(error_from_kind(ErrorKind::InvalidInput)),
-                    Err(_) => return Err(error_from_kind(ErrorKind::Other)),
+                if !self.follow_chain()? {
+                    return Err(error_from_kind(ErrorKind::InvalidInput));
                 }
             }
         }

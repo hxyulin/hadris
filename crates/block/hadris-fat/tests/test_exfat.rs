@@ -577,3 +577,54 @@ mod error_tests {
         assert!(result.is_err(), "Should fail on all-zeros image");
     }
 }
+
+/// Regression tests for inputs found by the `exfat_read` fuzz target.
+mod fuzz_regression_tests {
+    use super::*;
+    use hadris_fat::exfat::ExFatTable;
+
+    /// Minimal boot sector passing signature checks, with attacker-controlled fields.
+    fn minimal_boot_sector() -> Vec<u8> {
+        let mut data = vec![0u8; 512];
+        data[3..11].copy_from_slice(b"EXFAT   ");
+        data[510] = 0x55;
+        data[511] = 0xAA;
+        data
+    }
+
+    #[test]
+    fn test_cluster_shift_add_overflow_rejected() {
+        // Fuzz crash: bytes_per_sector_shift (9) + sectors_per_cluster_shift (0xFF)
+        // overflowed u8 while validating the combined shift.
+        let mut data = minimal_boot_sector();
+        data[108] = 9; // bytes_per_sector_shift
+        data[109] = 0xFF; // sectors_per_cluster_shift
+        data[110] = 1; // number_of_fats
+
+        let result = ExFatVolume::open(Cursor::new(data));
+        assert!(matches!(result, Err(Error::ExFatInvalidBootSector { .. })));
+    }
+
+    #[test]
+    fn test_max_cluster_count_arithmetic() {
+        // cluster_count = u32::MAX overflowed in is_valid_cluster (cluster_count + 2)
+        // and in ExFatTable::new; cluster_to_offset underflowed for clusters < 2.
+        let info = hadris_fat::exfat::ExFatInfo {
+            bytes_per_sector: 512,
+            sectors_per_cluster: 1,
+            bytes_per_cluster: 512,
+            fat_offset: 0,
+            fat_length: 0,
+            cluster_heap_offset: 24 * 512,
+            cluster_count: u32::MAX,
+            root_cluster: 2,
+            volume_serial: 0,
+            fat_count: 1,
+        };
+
+        assert!(!info.is_valid_cluster(1));
+        assert!(info.is_valid_cluster(u32::MAX));
+        assert_eq!(info.cluster_to_offset(0), info.cluster_heap_offset);
+        let _ = ExFatTable::new(&info);
+    }
+}

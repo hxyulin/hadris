@@ -116,7 +116,8 @@ impl RawExFatBootSector {
         }
 
         // Validate sectors_per_cluster_shift (0-25, but bytes_per_sector_shift + sectors_per_cluster_shift <= 25)
-        let combined_shift = self.bytes_per_sector_shift + self.sectors_per_cluster_shift;
+        let combined_shift =
+            self.bytes_per_sector_shift as u32 + self.sectors_per_cluster_shift as u32;
         if combined_shift > 25 {
             return Err(Error::ExFatInvalidBootSector {
                 reason: "combined sector/cluster shift too large (max cluster size 32MB)",
@@ -197,12 +198,13 @@ impl ExFatInfo {
     /// Convert a cluster number to a byte offset from the start of the volume
     pub fn cluster_to_offset(&self, cluster: u32) -> u64 {
         // Clusters start at 2
-        self.cluster_heap_offset + (cluster as u64 - 2) * self.bytes_per_cluster as u64
+        self.cluster_heap_offset
+            + (cluster as u64).saturating_sub(2) * self.bytes_per_cluster as u64
     }
 
     /// Check if a cluster number is valid
     pub fn is_valid_cluster(&self, cluster: u32) -> bool {
-        cluster >= 2 && cluster < self.cluster_count + 2
+        cluster >= 2 && cluster - 2 < self.cluster_count
     }
 }
 

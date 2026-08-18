@@ -36,6 +36,13 @@ impl AllocationBitmap {
     /// Minimum cluster number (clusters start at 2)
     const FIRST_DATA_CLUSTER: u32 = 2;
 
+    /// Highest valid cluster number. Saturating: a corrupt boot sector may
+    /// claim `cluster_count` near u32::MAX, where plain addition overflows.
+    fn max_cluster(&self) -> u32 {
+        self.cluster_count
+            .saturating_add(Self::FIRST_DATA_CLUSTER - 1)
+    }
+
     /// Create a new allocation bitmap.
     ///
     /// # Arguments
@@ -55,6 +62,16 @@ impl AllocationBitmap {
 
     /// Load the bitmap data from disk.
     pub fn load<DATA: Read + Seek>(&mut self, data: &mut DATA, info: &ExFatInfo) -> Result<()> {
+        // `size` is the untrusted `data_length` of the bitmap directory entry
+        // — a full u64. Bound it against the volume's cluster heap before
+        // allocating, mirroring the up-case table loader.
+        let volume_capacity = info.cluster_count as u64 * info.bytes_per_cluster as u64;
+        if self.size > volume_capacity {
+            return Err(Error::ExFatInvalidEntry {
+                reason: "allocation bitmap size exceeds volume capacity",
+            });
+        }
+
         if self.is_contiguous {
             // Read contiguous bitmap
             let offset = info.cluster_to_offset(self.first_cluster);
@@ -86,7 +103,7 @@ impl AllocationBitmap {
         if byte_index >= self.data.len() {
             return Err(Error::ClusterOutOfBounds {
                 cluster,
-                max: self.cluster_count + Self::FIRST_DATA_CLUSTER - 1,
+                max: self.max_cluster(),
             });
         }
 
@@ -105,7 +122,7 @@ impl AllocationBitmap {
         if byte_index >= self.data.len() {
             return Err(Error::ClusterOutOfBounds {
                 cluster,
-                max: self.cluster_count + Self::FIRST_DATA_CLUSTER - 1,
+                max: self.max_cluster(),
             });
         }
 
@@ -127,11 +144,13 @@ impl AllocationBitmap {
             return Ok(None);
         }
 
-        let max_cluster = self.cluster_count + Self::FIRST_DATA_CLUSTER - 1;
+        let max_cluster = self.max_cluster();
         let start = hint.max(Self::FIRST_DATA_CLUSTER).min(max_cluster);
 
         // Search from hint to end
-        if let Some(found) = self.find_contiguous_in_range(start, max_cluster + 1, count)? {
+        if let Some(found) =
+            self.find_contiguous_in_range(start, max_cluster.saturating_add(1), count)?
+        {
             return Ok(Some(found));
         }
 
@@ -164,7 +183,7 @@ impl AllocationBitmap {
 
         // Adjust for any padding bits at the end
         let total_bits = self.data.len() * 8;
-        let extra_bits = total_bits - self.cluster_count as usize;
+        let extra_bits = total_bits.saturating_sub(self.cluster_count as usize);
         count = count.saturating_sub(extra_bits as u32);
 
         count
@@ -188,13 +207,13 @@ impl AllocationBitmap {
         if cluster < Self::FIRST_DATA_CLUSTER {
             return Err(Error::ClusterOutOfBounds {
                 cluster,
-                max: self.cluster_count + Self::FIRST_DATA_CLUSTER - 1,
+                max: self.max_cluster(),
             });
         }
-        if cluster >= self.cluster_count + Self::FIRST_DATA_CLUSTER {
+        if cluster > self.max_cluster() {
             return Err(Error::ClusterOutOfBounds {
                 cluster,
-                max: self.cluster_count + Self::FIRST_DATA_CLUSTER - 1,
+                max: self.max_cluster(),
             });
         }
         Ok(())
