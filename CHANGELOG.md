@@ -13,6 +13,14 @@ Each published package owns its version and may be released independently.
 - **hadris-fat:** Directory entries and parse results now implement `Clone`,
   allowing parsed metadata to be retained independently of directory iterators.
 
+### Fixed
+
+- **hadris-common:** Replaced the GPL-licensed `noalloc` dependency with a
+  compatibility layer backed by `heapless` while preserving the existing
+  fixed-capacity collection API.
+- **Build:** Added a `cargo-deny` CI gate that rejects dependencies outside the
+  workspace's permissive-license allowlist.
+
 ## [2.0.0] - 2026-08-09
 
 First stable release of the V2 API. This entry consolidates the changes made

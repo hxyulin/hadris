@@ -23,6 +23,17 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  licenses:
+    name: Dependency licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: "1.88.0"
+          command: check
+          command-arguments: licenses
+
   # Enforce annotation grammar, evidence references, and coverage-table parity.
   # See docs/spec-coverage.md#annotation-convention.
   spec-annotations:

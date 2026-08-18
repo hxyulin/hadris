@@ -262,9 +262,50 @@ pub fn hadris_common::types::layout::FileLayout::with_symlink_target(self, impl 
 pub fn hadris_common::types::layout::FileLayout::with_timestamps(self, hadris_common::types::extent::Timestamps) -> Self
 pub fn hadris_common::types::layout::FileLayout::with_type(self, hadris_common::types::extent::FileType) -> Self
 pub mod hadris_common::types::no_alloc
-pub use hadris_common::types::no_alloc::ArrayVec
-pub use hadris_common::types::no_alloc::ArrayVecError
-pub use hadris_common::types::no_alloc::RingBuf
+pub enum hadris_common::types::no_alloc::ArrayVecError
+pub hadris_common::types::no_alloc::ArrayVecError::CapacityOverflow
+impl core::error::Error for hadris_common::types::no_alloc::ArrayVecError
+impl core::fmt::Display for hadris_common::types::no_alloc::ArrayVecError
+pub fn hadris_common::types::no_alloc::ArrayVecError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_common::types::no_alloc::ArrayVec<T, const N: usize>
+impl<T, const N: usize> hadris_common::types::no_alloc::ArrayVec<T, N> where T: core::marker::Copy + core::cmp::Ord
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::sort_unstable(&mut self)
+impl<T, const N: usize> hadris_common::types::no_alloc::ArrayVec<T, N> where T: core::marker::Copy + core::cmp::PartialEq
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::contains(&self, &T) -> bool
+impl<T, const N: usize> hadris_common::types::no_alloc::ArrayVec<T, N>
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::as_mut_ptr(&mut self) -> *mut T
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::as_mut_slice(&mut self) -> &mut [T]
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::as_ptr(&self) -> *const T
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::as_slice(&self) -> &[T]
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::is_empty(&self) -> bool
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::iter(&self) -> core::slice::iter::Iter<'_, T>
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::iter_mut(&mut self) -> core::slice::iter::IterMut<'_, T>
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::len(&self) -> usize
+pub const fn hadris_common::types::no_alloc::ArrayVec<T, N>::new() -> Self
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::push(&mut self, T)
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::reverse(&mut self)
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::try_push(&mut self, T) -> core::result::Result<(), hadris_common::types::no_alloc::ArrayVecError>
+impl<T, const N: usize> core::default::Default for hadris_common::types::no_alloc::ArrayVec<T, N>
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::default() -> Self
+impl<T, const N: usize> core::ops::index::Index<usize> for hadris_common::types::no_alloc::ArrayVec<T, N> where T: core::marker::Copy
+pub type hadris_common::types::no_alloc::ArrayVec<T, N>::Output = T
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::index(&self, usize) -> &Self::Output
+impl<T, const N: usize> core::ops::index::IndexMut<usize> for hadris_common::types::no_alloc::ArrayVec<T, N> where T: core::marker::Copy
+pub fn hadris_common::types::no_alloc::ArrayVec<T, N>::index_mut(&mut self, usize) -> &mut Self::Output
+pub struct hadris_common::types::no_alloc::RingBuf<T: core::marker::Copy, const N: usize>
+impl<T: core::marker::Copy, const N: usize> hadris_common::types::no_alloc::RingBuf<T, N>
+pub const hadris_common::types::no_alloc::RingBuf<T, N>::SIZE: usize
+pub const fn hadris_common::types::no_alloc::RingBuf<T, N>::is_empty(&self) -> bool
+pub const fn hadris_common::types::no_alloc::RingBuf<T, N>::is_full(&self) -> bool
+pub const fn hadris_common::types::no_alloc::RingBuf<T, N>::len(&self) -> usize
+pub const fn hadris_common::types::no_alloc::RingBuf<T, N>::max_capacity(&self) -> usize
+pub const fn hadris_common::types::no_alloc::RingBuf<T, N>::new() -> Self
+pub fn hadris_common::types::no_alloc::RingBuf<T, N>::pop(&mut self) -> core::option::Option<T>
+pub fn hadris_common::types::no_alloc::RingBuf<T, N>::push(&mut self, T)
+pub unsafe fn hadris_common::types::no_alloc::RingBuf<T, N>::push_unchecked(&mut self, T)
+pub fn hadris_common::types::no_alloc::RingBuf<T, N>::try_push(&mut self, T) -> core::result::Result<(), T>
+impl<T: core::marker::Copy, const N: usize> core::default::Default for hadris_common::types::no_alloc::RingBuf<T, N>
+pub fn hadris_common::types::no_alloc::RingBuf<T, N>::default() -> Self
 pub mod hadris_common::types::number
 pub use hadris_common::types::number::I16Be
 pub use hadris_common::types::number::I16Le

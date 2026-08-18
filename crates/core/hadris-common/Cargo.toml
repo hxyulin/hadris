@@ -27,7 +27,7 @@ zerocopy = { workspace = true }
 chrono = { workspace = true, optional = true }
 crc = { version = "3.2.1", optional = true }
 rand = { version = "0.10.2", optional = true }
-noalloc = "0.0.1"
+heapless = "0.9.3"
 hadris-io = { workspace = true }  # For I/O traits in optical module
 hadris-fixed = { workspace = true }
 hadris-path = { workspace = true }
