@@ -281,6 +281,21 @@ impl<T: Read + Seek> IsoDir<'_, T> {
     /// available with both synchronous and asynchronous I/O.
     pub async fn read_entries(&self) -> io::Result<Vec<DirEntry>> {
         const SECTOR_SIZE: usize = 2048;
+        // `directory.size` comes from an on-disk data-length field and is
+        // untrusted. Bound it against the actual image size before allocating,
+        // like `IsoImage::read_file` does.
+        let image_len = {
+            let mut data = self.image.data.lock();
+            data.seek(io::SeekFrom::End(0))
+                .await
+                .map_err(io::Error::erase)?
+        };
+        if self.directory.size as u64 > image_len {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "directory claims more data than the image contains",
+            ));
+        }
         let mut bytes = alloc::vec![0_u8; self.directory.size];
         self.image
             .read_bytes_at(self.directory.extent.0 as u64 * SECTOR_SIZE as u64, &mut bytes)

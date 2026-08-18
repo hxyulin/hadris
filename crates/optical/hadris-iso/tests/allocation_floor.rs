@@ -51,6 +51,8 @@ fn allocation_floor_is_honored() {
     .unwrap();
     let image = IsoImage::open(Cursor::new(output.into_inner())).unwrap();
     let entry = image.find_path("PAYLOAD.BIN").unwrap().unwrap();
-    assert_eq!(entry.header().extent.read(), 400);
+    // The floor reserves the low sectors; the directory region now starts at
+    // the floor and file data follows it, so the payload lands at or past it.
+    assert!(entry.header().extent.read() >= 400);
     assert_eq!(image.read_file(&entry).unwrap(), vec![0x5a; 4096]);
 }

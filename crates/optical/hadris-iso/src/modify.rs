@@ -193,7 +193,12 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         let volume_descriptors = VolumeDescriptorList::parse(&mut cursor).await?;
 
         // Get primary volume descriptor info
-        let pvd = volume_descriptors.primary();
+        let pvd = volume_descriptors.try_primary().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "volume descriptor sequence has no primary descriptor",
+            )
+        })?;
         let end_sector = pvd.volume_space_size.read() as usize;
 
         // Build entry types from volume descriptors
@@ -254,6 +259,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             &mut layout,
             &mut used_extents,
             sector_size,
+            0,
         ).await?;
 
         Ok((layout, used_extents))
@@ -267,7 +273,28 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         layout: &mut DirectoryLayout,
         used_extents: &mut Vec<Extent>,
         sector_size: usize,
+        depth: usize,
     ) -> Result<()> {
+        const MAX_DIRECTORY_DEPTH: usize = 64;
+        if depth > MAX_DIRECTORY_DEPTH {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "directory nesting exceeds depth limit",
+            )
+            .into());
+        }
+        // Directory extents come from untrusted on-disk records; a child
+        // pointing at an already-visited extent would recurse forever.
+        if used_extents
+            .iter()
+            .any(|extent| extent.sector == dir_ref.extent.0 as u32)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "cyclic directory extent reference",
+            )
+            .into());
+        }
         // Mark directory extent as used
         used_extents.push(Extent::new(dir_ref.extent.0 as u32, dir_ref.size as u64));
 
@@ -300,6 +327,14 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                 name_str
             };
 
+            // An identifier that is only a version suffix (e.g. ";1") decodes
+            // to an empty name; such entries cannot be represented in the new
+            // session, so drop them.
+            if clean_name.is_empty() {
+                offset += record.header().len as usize;
+                continue;
+            }
+
             if record.is_directory() {
                 // Recurse into subdirectory
                 let sub_ref = DirectoryRef {
@@ -322,6 +357,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                     &mut subdir,
                     used_extents,
                     sector_size,
+                    depth + 1,
                 ).await?;
 
                 // Restore position

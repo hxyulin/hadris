@@ -328,8 +328,9 @@ pub hadris_iso::async::io::IsoCursor::sector_size: usize
 impl<DATA: hadris_io::async_api::Seek> hadris_iso::async::io::IsoCursor<DATA>
 pub fn hadris_iso::async::io::IsoCursor<DATA>::into_inner(self) -> DATA
 pub fn hadris_iso::async::io::IsoCursor<DATA>::new(DATA, usize) -> Self
-pub async fn hadris_iso::async::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::async::io::LogicalSector>
 pub async fn hadris_iso::async::io::IsoCursor<DATA>::seek_sector(&mut self, hadris_iso::async::io::LogicalSector) -> hadris_io::error::Result<u64>
+impl<DATA: hadris_io::async_api::Write + hadris_io::async_api::Seek> hadris_iso::async::io::IsoCursor<DATA>
+pub async fn hadris_iso::async::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::async::io::LogicalSector>
 impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_io::async_api::Read for hadris_iso::async::io::IsoCursor<DATA>
 pub type hadris_iso::async::io::IsoCursor<DATA>::Error = <DATA as hadris_io::async_api::Read>::Error
 pub async fn hadris_iso::async::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize, Self::Error>
@@ -1709,8 +1710,9 @@ pub hadris_iso::io::IsoCursor::sector_size: usize
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::into_inner(self) -> DATA
 pub fn hadris_iso::io::IsoCursor<DATA>::new(DATA, usize) -> Self
-pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
 pub fn hadris_iso::io::IsoCursor<DATA>::seek_sector(&mut self, hadris_iso::io::LogicalSector) -> hadris_io::error::Result<u64>
+impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_io::sync_api::Read for hadris_iso::io::IsoCursor<DATA>
 pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Read>::Error
 pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize, Self::Error>
@@ -2958,8 +2960,9 @@ pub hadris_iso::sync::io::IsoCursor::sector_size: usize
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::into_inner(self) -> DATA
 pub fn hadris_iso::io::IsoCursor<DATA>::new(DATA, usize) -> Self
-pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
 pub fn hadris_iso::io::IsoCursor<DATA>::seek_sector(&mut self, hadris_iso::io::LogicalSector) -> hadris_io::error::Result<u64>
+impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_io::sync_api::Read for hadris_iso::io::IsoCursor<DATA>
 pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Read>::Error
 pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize, Self::Error>
@@ -4207,8 +4210,9 @@ pub hadris_iso::sync::IsoCursor::sector_size: usize
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::into_inner(self) -> DATA
 pub fn hadris_iso::io::IsoCursor<DATA>::new(DATA, usize) -> Self
-pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
 pub fn hadris_iso::io::IsoCursor<DATA>::seek_sector(&mut self, hadris_iso::io::LogicalSector) -> hadris_io::error::Result<u64>
+impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_io::sync_api::Read for hadris_iso::io::IsoCursor<DATA>
 pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Read>::Error
 pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize, Self::Error>
@@ -4695,8 +4699,9 @@ pub hadris_iso::IsoCursor::sector_size: usize
 impl<DATA: hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::into_inner(self) -> DATA
 pub fn hadris_iso::io::IsoCursor<DATA>::new(DATA, usize) -> Self
-pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
 pub fn hadris_iso::io::IsoCursor<DATA>::seek_sector(&mut self, hadris_iso::io::LogicalSector) -> hadris_io::error::Result<u64>
+impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
 impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_io::sync_api::Read for hadris_iso::io::IsoCursor<DATA>
 pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Read>::Error
 pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize, Self::Error>

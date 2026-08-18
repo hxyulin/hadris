@@ -1619,6 +1619,7 @@ pub enum hadris_udf::Error
 pub hadris_udf::Error::CrcMismatch
 pub hadris_udf::Error::CrcMismatch::computed: u16
 pub hadris_udf::Error::CrcMismatch::expected: u16
+pub hadris_udf::Error::DirectoryNestingTooDeep
 pub hadris_udf::Error::InvalidEncoding
 pub hadris_udf::Error::InvalidFsd
 pub hadris_udf::Error::InvalidIcb
@@ -1635,6 +1636,7 @@ pub hadris_udf::Error::NotAFile
 pub hadris_udf::Error::NotFound
 pub hadris_udf::Error::PathTooLong
 pub hadris_udf::Error::PodCastError(bytemuck::PodCastError)
+pub hadris_udf::Error::TooManyAllocationDescriptors
 impl core::error::Error for hadris_udf::Error
 pub fn hadris_udf::Error::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Display for hadris_udf::Error

@@ -77,26 +77,36 @@ impl<DATA: Seek> IsoCursor<DATA> {
         self.data
     }
 
-    /// Performs the `pad_align_sector` operation.
-    pub async fn pad_align_sector(&mut self) -> Result<LogicalSector> {
-        let stream_pos = self.stream_position().await.map_err(Error::erase)?;
-        let sector_size_minus_one = self.sector_size as u64 - 1;
-        let aligned_pos = (stream_pos + sector_size_minus_one) & !sector_size_minus_one;
-        if aligned_pos != stream_pos {
-            self.seek(SeekFrom::Start(aligned_pos))
-                .await
-                .map_err(Error::erase)?;
-        }
-        Ok(LogicalSector(
-            (aligned_pos / self.sector_size as u64) as usize,
-        ))
-    }
-
     /// Performs the `seek_sector` operation.
     pub async fn seek_sector(&mut self, sector: LogicalSector) -> Result<u64> {
         self.seek(SeekFrom::Start(sector.0 as u64 * self.sector_size as u64))
             .await
             .map_err(Error::erase)
+    }
+}
+
+impl<DATA: Write + Seek> IsoCursor<DATA> {
+    /// Advance to the next sector boundary, zero-filling the gap.
+    ///
+    /// The gap is written rather than skipped with a seek: `Write + Seek`
+    /// targets are not guaranteed to read unwritten regions back as zeros
+    /// (reused buffers, block devices with stale data), and readers scan
+    /// some padding (e.g. the zero record-length terminator at the end of
+    /// a directory's sector span). Gaps are always smaller than one sector.
+    pub async fn pad_align_sector(&mut self) -> Result<LogicalSector> {
+        const ZEROES: [u8; 512] = [0u8; 512];
+        let stream_pos = self.stream_position().await.map_err(Error::erase)?;
+        let sector_size_minus_one = self.sector_size as u64 - 1;
+        let aligned_pos = (stream_pos + sector_size_minus_one) & !sector_size_minus_one;
+        let mut remaining = (aligned_pos - stream_pos) as usize;
+        while remaining > 0 {
+            let n = remaining.min(ZEROES.len());
+            self.write_all(&ZEROES[..n]).await.map_err(Error::erase)?;
+            remaining -= n;
+        }
+        Ok(LogicalSector(
+            (aligned_pos / self.sector_size as u64) as usize,
+        ))
     }
 }
 

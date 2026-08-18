@@ -47,7 +47,7 @@ impl AnchorVolumeDescriptorPointer {
             TagIdentifier::AnchorVolumeDescriptorPointer,
             location,
         )?;
-        let avdp = (*bytemuck::from_bytes::<Self>(&buffer)).into_native();
+        let avdp = bytemuck::pod_read_unaligned::<Self>(&buffer).into_native();
         avdp.validate(location)?;
         Ok(avdp)
     }
