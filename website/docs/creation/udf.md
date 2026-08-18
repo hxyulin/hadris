@@ -12,7 +12,7 @@ should be used when authoring a shared ISO/UDF bridge image.
 
 ```toml
 [dependencies]
-hadris-udf = { version = "2.0.0", features = ["write", "sync"] }
+hadris-udf = { version = "2.1.0", features = ["write", "sync"] }
 ```
 
 ## Create a directory tree

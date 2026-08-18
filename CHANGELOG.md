@@ -8,10 +8,15 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-18
+
 ### Added
 
 - **hadris-fat:** Directory entries and parse results now implement `Clone`,
   allowing parsed metadata to be retained independently of directory iterators.
+- **Release automation:** Added a manually triggered GitHub Actions workflow
+  that validates and publishes the workspace crates in dependency order, tags
+  the release, and creates GitHub release notes from this changelog entry.
 
 ### Fixed
 
@@ -425,7 +430,8 @@ under Semantic Versioning.
 Baseline for this changelog. See the git history for changes at and before this
 tag.
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/hxyulin/hadris/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.4...v2.0.0
 [2.0.0-rc.3]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.2...v2.0.0-rc.3
 [2.0.0-rc.2]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.1...v2.0.0-rc.2

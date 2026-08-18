@@ -34,9 +34,7 @@ See [CLAUDE.md](CLAUDE.md) for the full per-crate feature matrix used in CI.
 
 Each package declares its own version in its `Cargo.toml`; the workspace does
 not impose a shared version. Update only the packages being released and keep
-their requirements in `[workspace.dependencies]` aligned. Releases are handled
-manually or by package-specific automation—do not use `cargo-release` for this
-workspace.
+their requirements in `[workspace.dependencies]` aligned.
 
 When several unpublished versions depend on one another, publish in dependency
 order: `hadris-macros`/`hadris-io`/`hadris-path`; then
@@ -44,6 +42,13 @@ order: `hadris-macros`/`hadris-io`/`hadris-path`; then
 facades and `hadris-cd`; then the `hadris` umbrella and CLI packages. Cargo
 validates dependent packages against crates.io, so each prerequisite version
 must be available before packaging the next layer.
+
+The `Release` GitHub Actions workflow automates this ordering for coordinated
+workspace releases. Run it from `main` in `dry-run` mode first, then rerun it in
+`publish` mode. Publishing requires a `CARGO_REGISTRY_TOKEN` repository secret.
+The workflow derives the tag and GitHub release notes from the matching
+`CHANGELOG.md` section and can safely resume after a partially completed
+crates.io publication.
 
 ## Pull requests
 
@@ -105,8 +110,9 @@ baseline with:
 scripts/check-public-api.sh update
 ```
 
-The snapshot is a review aid, not a feature freeze. New APIs are welcome before
-2.0 when their documentation, feature-matrix tier, and tests land with them.
+The snapshot is a review aid, not a feature freeze. Backward-compatible APIs
+are welcome in the 2.x series when their documentation, feature-matrix tier,
+and tests land with them.
 
 Feature-gated items should use `#[cfg_attr(docsrs, doc(cfg(...)))]` where the
 crate already enables `docsrs` (see `hadris-part`, `hadris-fat`).

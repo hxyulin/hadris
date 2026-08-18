@@ -1,0 +1,224 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the v prefix
+        required: true
+        default: 2.1.0
+        type: string
+      mode:
+        description: Validate packages or publish the release
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - publish
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: ${{ inputs.mode }} v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - name: Validate release metadata
+        env:
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Releases must run from main, not $GITHUB_REF" >&2
+            exit 1
+          fi
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must be a stable semantic version such as 2.1.0" >&2
+            exit 1
+          fi
+          if [[ $(grep -Fc "## [$VERSION] - " CHANGELOG.md) -ne 1 ]]; then
+            echo "CHANGELOG.md must contain exactly one dated [$VERSION] section" >&2
+            exit 1
+          fi
+
+          mapfile -t mismatches < <(
+            cargo metadata --no-deps --format-version 1 |
+              jq -r --arg version "$VERSION" '
+                .packages[] |
+                select(.publish != []) |
+                select(.version != $version) |
+                "\(.name) is \(.version), expected \($version)"
+              '
+          )
+          if (( ${#mismatches[@]} )); then
+            printf '%s\n' "${mismatches[@]}" >&2
+            exit 1
+          fi
+
+          awk -v version="$VERSION" '
+            index($0, "## [" version "] - ") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md
+
+      - name: Check workspace
+        env:
+          RUSTFLAGS: -D warnings
+        run: |
+          cargo fmt --all -- --check
+          cargo check --workspace --locked
+          cargo test --workspace --locked
+
+      - name: Check release packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=(
+            hadris-fixed hadris-io hadris-path hadris-macros
+            hadris-common hadris-storage hadris-part
+            hadris-fat hadris-ntfs hadris-iso hadris-udf hadris-cpio
+            hadris-archive hadris-block hadris-cd hadris-optical
+            hadris hadris-cd-cli hadris-cpio-cli hadris-fat-cli
+            hadris-iso-cli hadris-udf-cli
+          )
+          mapfile -t publishable < <(
+            cargo metadata --no-deps --format-version 1 |
+              jq -r '.packages[] | select(.publish != []) | .name' |
+              sort
+          )
+          mapfile -t expected < <(printf '%s\n' "${packages[@]}" | sort)
+          if [[ "${publishable[*]}" != "${expected[*]}" ]]; then
+            echo "The release package order does not match the publishable workspace crates" >&2
+            diff <(printf '%s\n' "${expected[@]}") <(printf '%s\n' "${publishable[@]}") || true
+            exit 1
+          fi
+          for package in "${packages[@]}"; do
+            cargo package --locked --list -p "$package" > /dev/null
+          done
+          for package in hadris-fixed hadris-io hadris-path hadris-macros; do
+            cargo publish --locked --dry-run --no-verify -p "$package"
+          done
+
+      - name: Publish crates
+        if: inputs.mode == 'publish'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
+            echo "The CARGO_REGISTRY_TOKEN secret is required" >&2
+            exit 1
+          fi
+
+          packages=(
+            hadris-fixed hadris-io hadris-path hadris-macros
+            hadris-common hadris-storage hadris-part
+            hadris-fat hadris-ntfs hadris-iso hadris-udf hadris-cpio
+            hadris-archive hadris-block hadris-cd hadris-optical
+            hadris hadris-cd-cli hadris-cpio-cli hadris-fat-cli
+            hadris-iso-cli hadris-udf-cli
+          )
+
+          crate_exists() {
+            curl --fail --silent \
+              --user-agent "hadris-release-workflow ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY)" \
+              "https://crates.io/api/v1/crates/$1/$VERSION" > /dev/null 2>&1
+          }
+
+          crate_is_indexed() {
+            local package="$1"
+            local index_path="${package:0:2}/${package:2:2}/$package"
+            local index
+            index=$(curl --fail --silent \
+              --user-agent "hadris-release-workflow ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY)" \
+              "https://index.crates.io/$index_path" 2> /dev/null) || return 1
+            grep -Fq "\"vers\":\"$VERSION\"" <<< "$index"
+          }
+
+          wait_for_crate() {
+            for attempt in {1..30}; do
+              if crate_exists "$1" && crate_is_indexed "$1"; then
+                return 0
+              fi
+              sleep 10
+            done
+            echo "$1 $VERSION did not become available on crates.io" >&2
+            return 1
+          }
+
+          for package in "${packages[@]}"; do
+            if crate_exists "$package"; then
+              echo "$package $VERSION is already published; skipping"
+              wait_for_crate "$package"
+              continue
+            fi
+            cargo publish --locked -p "$package"
+            wait_for_crate "$package"
+          done
+
+
+  github-release:
+    name: Tag and create GitHub release
+    if: inputs.mode == 'publish'
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          awk -v version="$VERSION" '
+            index($0, "## [" version "] - ") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > release-notes.md
+
+          tag="v$VERSION"
+          if git rev-parse --verify --quiet "refs/tags/$tag" > /dev/null; then
+            if [[ $(git rev-list -n 1 "$tag") != "$GITHUB_SHA" ]]; then
+              echo "$tag already exists on a different commit" >&2
+              exit 1
+            fi
+          else
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git tag --annotate "$tag" --message "Hadris $VERSION"
+            git push origin "$tag"
+          fi
+
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "GitHub release $tag already exists; skipping"
+          else
+            gh release create "$tag" \
+              --verify-tag \
+              --title "Hadris $VERSION" \
+              --notes-file release-notes.md
+          fi

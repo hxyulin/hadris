@@ -21,7 +21,7 @@ directly to the [use-case guides](./guides/index.md).
 
 :::note Stability
 
-`2.0.0` is the stable V2 public API, released under Semantic Versioning. The
+`2.1.0` is the current stable V2 release under Semantic Versioning. The
 `unstable-exfat` feature and experimental `hadris-ntfs` crate remain outside
 that stability promise.
 

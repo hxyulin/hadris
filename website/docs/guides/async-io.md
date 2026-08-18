@@ -11,11 +11,11 @@ and drives the future with its chosen runtime.
 ```toml
 [dependencies]
 hadris-fat = {
-  version = "2.0.0",
+  version = "2.1.0",
   default-features = false,
   features = ["alloc", "async", "read", "lfn"]
 }
-hadris-io = { version = "2.0.0", default-features = false, features = ["async"] }
+hadris-io = { version = "2.1.0", default-features = false, features = ["async"] }
 ```
 
 ```rust

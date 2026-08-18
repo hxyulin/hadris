@@ -11,7 +11,7 @@ byte range.
 ```toml
 [dependencies]
 anyhow = "1"
-hadris-block = "2.0.0"
+hadris-block = "2.1.0"
 ```
 
 ```rust,no_run

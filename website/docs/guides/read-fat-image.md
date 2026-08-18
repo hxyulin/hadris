@@ -10,7 +10,7 @@ filesystem.
 ```toml
 [dependencies]
 anyhow = "1"
-hadris-fat = "2.0.0"
+hadris-fat = "2.1.0"
 ```
 
 ```rust,no_run

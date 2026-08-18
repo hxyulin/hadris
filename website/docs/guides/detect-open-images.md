@@ -12,7 +12,7 @@ metadata. Opening performs the format's full validation.
 
 ```toml
 [dependencies]
-hadris-block = "2.0.0"
+hadris-block = "2.1.0"
 ```
 
 ```rust,no_run
@@ -47,7 +47,7 @@ and create a bounded view before opening its filesystem.
 
 ```toml
 [dependencies]
-hadris-optical = "2.0.0"
+hadris-optical = "2.1.0"
 ```
 
 ```rust,no_run

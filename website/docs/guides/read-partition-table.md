@@ -6,7 +6,7 @@ title: Read a partition table
 
 ```toml
 [dependencies]
-hadris-part = "2.0.0"
+hadris-part = "2.1.0"
 ```
 
 ```rust
