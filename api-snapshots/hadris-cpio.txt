@@ -361,6 +361,9 @@ impl core::fmt::Display for hadris_cpio::entry::CpioEntryHeader
 pub fn hadris_cpio::entry::CpioEntryHeader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub mod hadris_cpio::error
 pub enum hadris_cpio::error::Error
+pub hadris_cpio::error::Error::BufferSizeMismatch
+pub hadris_cpio::error::Error::BufferSizeMismatch::actual: usize
+pub hadris_cpio::error::Error::BufferSizeMismatch::expected: usize
 pub hadris_cpio::error::Error::ChecksumMismatch
 pub hadris_cpio::error::Error::ChecksumMismatch::computed: u32
 pub hadris_cpio::error::Error::ChecksumMismatch::expected: u32
@@ -878,6 +881,9 @@ pub fn hadris_cpio::header::CpioMagic::as_bytes(&self) -> &[u8; 6]
 impl core::fmt::Display for hadris_cpio::header::CpioMagic
 pub fn hadris_cpio::header::CpioMagic::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum hadris_cpio::Error
+pub hadris_cpio::Error::BufferSizeMismatch
+pub hadris_cpio::Error::BufferSizeMismatch::actual: usize
+pub hadris_cpio::Error::BufferSizeMismatch::expected: usize
 pub hadris_cpio::Error::ChecksumMismatch
 pub hadris_cpio::Error::ChecksumMismatch::computed: u32
 pub hadris_cpio::Error::ChecksumMismatch::expected: u32

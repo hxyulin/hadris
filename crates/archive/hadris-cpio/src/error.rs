@@ -31,6 +31,13 @@ pub enum Error {
         /// Checksum computed from the entry contents.
         computed: u32,
     },
+    /// A caller-provided data buffer does not match the entry's file size.
+    BufferSizeMismatch {
+        /// The entry's file size in bytes.
+        expected: usize,
+        /// The length of the provided buffer.
+        actual: usize,
+    },
     /// A hard link references a target path that was not seen earlier in the archive.
     #[cfg(feature = "write")]
     UnresolvedHardLink {
@@ -66,6 +73,12 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "checksum mismatch: expected {expected:#010x}, computed {computed:#010x}"
+                )
+            }
+            Self::BufferSizeMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "buffer size mismatch: entry is {expected} bytes, buffer is {actual} bytes"
                 )
             }
             #[cfg(feature = "write")]
