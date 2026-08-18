@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 use crate::error::{Error, Result};
 use super::{
     fs::FatVolume, dir::FileEntry,
-    io::{Cluster, ClusterLike, Read, Seek, SeekFrom},
+    io::{Cluster, ClusterLike, ErrorKind, Read, Seek, SeekFrom},
 };
 
 /// A reader for file content in a FAT filesystem.
@@ -31,11 +31,13 @@ use super::{
 ///   This is useful for small files where you want to avoid repeated FAT lookups.
 pub struct FileReader<'a, DATA: Read + Seek> {
     fs: &'a FatVolume<DATA>,
+    /// First cluster of the file, as recorded in the directory entry.
+    first_cluster: Cluster<usize>,
     cluster: Cluster<usize>,
     /// Offset within the current cluster
     offset_in_cluster: usize,
-    /// Total bytes read so far
-    total_read: usize,
+    /// Current logical position in the file
+    position: u64,
     /// Total size of the file
     size: usize,
     /// Cluster transitions taken so far. Bounded by `Fat::max_cluster()` so a
@@ -64,9 +66,10 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
 
         Ok(Self {
             fs,
+            first_cluster: entry.cluster(),
             cluster: entry.cluster(),
             offset_in_cluster: 0,
-            total_read: 0,
+            position: 0,
             size: entry.len() as usize,
             cluster_steps: 0,
             #[cfg(feature = "alloc")]
@@ -83,9 +86,14 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
         self.size
     }
 
+    /// Returns the current logical position in the file.
+    pub fn position(&self) -> u64 {
+        self.position
+    }
+
     /// Returns the number of bytes remaining to be read.
     pub fn remaining(&self) -> usize {
-        self.size.saturating_sub(self.total_read)
+        (self.size as u64).saturating_sub(self.position) as usize
     }
 
     /// Enable cluster-level buffering.
@@ -105,12 +113,13 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     ///
     /// This reads the entire FAT chain for the file into memory, eliminating
     /// the need for FAT lookups during sequential reads. This is most beneficial
-    /// for fragmented files or when performing many random seeks.
+    /// for fragmented files or when performing many random seeks. The current
+    /// logical position is preserved.
     ///
     /// Memory usage: 4 bytes per cluster in the file.
     #[cfg(feature = "alloc")]
     pub async fn with_cached_chain(mut self) -> Result<Self> {
-        if self.cluster.0 < 2 {
+        if self.first_cluster.0 < 2 {
             // Empty file, no chain to cache
             self.cached_chain = Some(Vec::new());
             return Ok(self);
@@ -118,15 +127,34 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
 
         let max_clusters = self.fs.info.max_cluster as usize;
         let mut data = self.fs.data.lock();
+        let cluster_size = data.cluster_size;
         let chain = self
             .fs
             .fat
-            .read_chain(data.deref_mut(), self.cluster.0 as u32, max_clusters)
+            .read_chain(
+                data.deref_mut(),
+                self.first_cluster.0 as u32,
+                max_clusters,
+            )
             .await?;
         drop(data);
 
+        if self.position < self.size as u64 {
+            let chain_index = self.position as usize / cluster_size;
+            let cluster = chain
+                .get(chain_index)
+                .copied()
+                .ok_or(Error::UnexpectedEndOfChain {
+                    cluster: chain
+                        .last()
+                        .copied()
+                        .unwrap_or(self.first_cluster.0 as u32),
+                })?;
+            self.cluster.0 = cluster as usize;
+            self.offset_in_cluster = self.position as usize % cluster_size;
+            self.chain_index = chain_index;
+        }
         self.cached_chain = Some(chain);
-        self.chain_index = 0;
         Ok(self)
     }
 
@@ -204,7 +232,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
                     data.read_exact(&mut buf[total..total + to_read]).await?;
 
                     total += to_read;
-                    self.total_read += to_read;
+                    self.position += to_read as u64;
 
                     // Advance by clusters we consumed
                     let new_offset = offset_in_cluster + to_read;
@@ -242,7 +270,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     /// cached; advances to the next FAT cluster when the current one is exhausted.
     async fn read_one_chunk(&mut self, buf: &mut [u8]) -> Result<usize> {
         // End of logical file
-        if self.total_read >= self.size {
+        if self.position >= self.size as u64 {
             return Ok(0);
         }
 
@@ -323,7 +351,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
 
         // How much we can copy from the current cluster in this step.
         let bytes_left_in_cluster = cluster_size - self.offset_in_cluster;
-        let bytes_left_in_file = self.size - self.total_read;
+        let bytes_left_in_file = (self.size as u64 - self.position) as usize;
         let read_max = buf.len().min(bytes_left_in_cluster).min(bytes_left_in_file);
 
         if read_max == 0 {
@@ -361,9 +389,98 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
         };
 
         self.offset_in_cluster += bytes_read;
-        self.total_read += bytes_read;
+        self.position += bytes_read as u64;
 
         Ok(bytes_read)
+    }
+
+    /// Reposition the reader within the file.
+    ///
+    /// Follows `std::io::Seek` semantics: `Start`/`Current`/`End` are all
+    /// supported, seeking beyond the end of the file is allowed (subsequent
+    /// reads return 0), and seeking before the start is an error. Returns the
+    /// new position from the start of the file.
+    pub async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+        fn invalid(message: &'static str) -> Error {
+            Error::Io(hadris_io::Error::new(ErrorKind::InvalidInput, message))
+        }
+
+        let target = match pos {
+            SeekFrom::Start(position) => Some(position),
+            SeekFrom::Current(offset) => self.position.checked_add_signed(offset),
+            SeekFrom::End(offset) => (self.size as u64).checked_add_signed(offset),
+        }
+        .ok_or_else(|| invalid("invalid seek position"))?;
+
+        if target >= self.size as u64 || self.first_cluster.0 < 2 {
+            self.position = target;
+            return Ok(target);
+        }
+
+        let target_usize = target as usize;
+        let cluster_size = self.fs.data.lock().cluster_size;
+        let target_cluster = target_usize / cluster_size;
+        let target_offset = target_usize % cluster_size;
+
+        #[cfg(feature = "alloc")]
+        if let Some(ref chain) = self.cached_chain {
+            let cluster = *chain
+                .get(target_cluster)
+                .ok_or(Error::UnexpectedEndOfChain {
+                    cluster: chain.last().copied().unwrap_or(self.first_cluster.0 as u32),
+                })?;
+            if let Some(ref mut buffer) = self.cluster_buffer {
+                buffer.clear();
+            }
+            self.chain_index = target_cluster;
+            self.cluster.0 = cluster as usize;
+            self.offset_in_cluster = target_offset;
+            self.position = target;
+            return Ok(target);
+        }
+
+        let current_cluster = (self.position as usize).saturating_sub(self.offset_in_cluster)
+            / cluster_size;
+
+        let (mut cluster, mut hops, mut cluster_steps) = if self.position >= self.size as u64 {
+            (self.first_cluster.0, target_cluster, 0)
+        } else if target_cluster >= current_cluster {
+            (
+                self.cluster.0,
+                target_cluster - current_cluster,
+                self.cluster_steps,
+            )
+        } else {
+            (self.first_cluster.0, target_cluster, 0)
+        };
+
+        while hops > 0 {
+            cluster_steps = cluster_steps.saturating_add(1);
+            if cluster_steps > self.fs.fat.max_cluster() {
+                return Err(Error::ClusterLoop {
+                    cluster: cluster as u32,
+                });
+            }
+            cluster = self
+                .fs
+                .next_cluster_routed(cluster)
+                .await?
+                .ok_or(Error::UnexpectedEndOfChain {
+                    cluster: cluster as u32,
+                })? as usize;
+            hops -= 1;
+        }
+
+        #[cfg(feature = "alloc")]
+        if let Some(ref mut buffer) = self.cluster_buffer {
+            buffer.clear();
+        }
+        self.cluster_steps = cluster_steps;
+        self.cluster.0 = cluster;
+        self.offset_in_cluster = target_offset;
+        self.position = target;
+
+        Ok(target)
     }
 
     /// Read all bytes from the current read position through the end of the file.

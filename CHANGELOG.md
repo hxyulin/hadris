@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-fat:** `FileReader` now supports start-, current-, and end-relative
+  seeking in both the synchronous and asynchronous APIs, including buffered
+  and cached-chain readers.
+
 ## [2.1.0] - 2026-08-18
 
 ### Added
