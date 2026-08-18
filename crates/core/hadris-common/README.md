@@ -22,14 +22,17 @@ freeze.
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| `std` | Standard library support (CRC, chrono, rand; implies `sync`, `alloc`) | Yes |
+| `std` | Standard library support for CRC, time, and random helpers; implies `alloc` | Yes |
 | `alloc` | Heap allocation without full std | via `std` |
 | `bytemuck` | Zero-copy serialization support | Yes |
 | `optical` | Optical media types (`SessionInfo`, metadata writers) | No |
-| `sync` | Synchronous I/O feature forwarded to `hadris-io` (for dependents) | via `std` |
+| `sync` | Synchronous I/O feature forwarded to `hadris-io` (for dependents) | No |
 | `async` | Asynchronous I/O feature forwarded to `hadris-io` | No |
 
 > `sync` / `async` enable the matching `hadris-io` features for crates that depend on `hadris-common`. This crate does **not** re-export `hadris-io` traits at the root.
+
+`std` and the I/O mode are independent. The default feature set enables
+`std` and `bytemuck`, but not `sync` or `async`.
 
 ## Usage
 
@@ -65,6 +68,11 @@ hadris-common = { version = "2.0.0", default-features = false, features = ["allo
 hadris-common = { version = "2.0.0", default-features = false, features = ["bytemuck"] }
 ```
 
+## Documentation
+
+- [Feature and capability guide](https://hxyulin.github.io/hadris/concepts/features)
+- [API reference](https://docs.rs/hadris-common)
+
 ## License
 
-Licensed under the [MIT license](../../LICENSE-MIT).
+Licensed under the [MIT license](../../../LICENSE-MIT).

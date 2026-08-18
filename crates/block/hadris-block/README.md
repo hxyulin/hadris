@@ -50,3 +50,14 @@ NTFS support likewise remains in the separate `hadris-ntfs` crate.
 
 For `no_std` targets, disable default features and select one I/O mode
 explicitly.
+
+## Documentation
+
+- [Choose a crate](https://hxyulin.github.io/hadris/crates)
+- [Detect and open images](https://hxyulin.github.io/hadris/guides/detect-open-images)
+- [Open FAT inside a partition](https://hxyulin.github.io/hadris/guides/open-partitioned-fat)
+- [API reference](https://docs.rs/hadris-block)
+
+## License
+
+Licensed under the [MIT license](../../../LICENSE-MIT).

@@ -129,6 +129,12 @@ find . -depth -print | cpio -o -H newc > archive.cpio
 cpioutil list -l archive.cpio
 ```
 
+## Documentation
+
+- [Read and create CPIO archives](https://hxyulin.github.io/hadris/guides/cpio-archives)
+- [Build a CPIO initramfs](https://hxyulin.github.io/hadris/guides/build-initramfs)
+- [Library API](https://docs.rs/hadris-cpio)
+
 ## License
 
-Licensed under the [MIT license](../../LICENSE-MIT).
+Licensed under the [MIT license](../../../LICENSE-MIT).

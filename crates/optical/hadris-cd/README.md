@@ -44,7 +44,7 @@ File data:      Shared between ISO and UDF (both point to same sectors)
 ## Features
 
 - **ISO 9660** with Joliet (Windows long filenames) and Rock Ridge (POSIX)
-- **UDF 1.02/1.50/2.00+** support
+- **Selectable mastered UDF revisions** from 1.02 through 2.60
 - **El-Torito** bootable images (BIOS and UEFI)
 - **Hybrid MBR+GPT** for USB booting
 
@@ -52,6 +52,16 @@ Hybrid image creation currently delegates to the synchronous ISO and UDF
 writers. The crate therefore exposes a sync-only writer API. Its default features
 select both `std` and `sync` explicitly.
 
+Revision selection describes mastered Type-1 output; it does not add packet
+writing, VAT, sparing, metadata partitions, or pseudo-overwrite.
+
+## Documentation
+
+- [Create UDF filesystems](https://hxyulin.github.io/hadris/creation/udf)
+- [Create ISO 9660 images](https://hxyulin.github.io/hadris/creation/iso)
+- [Validate generated images](https://hxyulin.github.io/hadris/guides/validate-images)
+- [API reference](https://docs.rs/hadris-cd)
+
 ## License
 
-MIT
+Licensed under the [MIT license](../../../LICENSE-MIT).

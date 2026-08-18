@@ -23,3 +23,12 @@ fn main() -> hadris_cpio::Result<()> {
 
 Hadris writes the newc/SVR4 format used by Linux initramfs images. The reader
 also supports allocation-free entry iteration for constrained consumers.
+
+Inspect the result with an independent implementation before booting it:
+
+```bash
+cpio -itv < initramfs.cpio
+```
+
+See [Read and create CPIO archives](./cpio-archives.md) for streaming entry and
+payload handling.

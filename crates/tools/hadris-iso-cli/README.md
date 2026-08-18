@@ -95,6 +95,12 @@ hadris-iso create ./iso-contents \
 hadris-iso info image.iso
 ```
 
+## Documentation
+
+- [Read ISO images](https://hxyulin.github.io/hadris/guides/read-iso)
+- [Create ISO images](https://hxyulin.github.io/hadris/creation/iso)
+- [Library API](https://docs.rs/hadris-iso)
+
 ## License
 
-Licensed under the [MIT license](../../LICENSE-MIT).
+Licensed under the [MIT license](../../../LICENSE-MIT).

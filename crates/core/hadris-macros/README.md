@@ -83,6 +83,11 @@ Shared implementation files wrap bodies in `io_transform! { ... }` and use
 3. **`sync_only!` / `async_only!`** — use for code that cannot be shared (e.g. sync-only caches).
 4. **Feature gates** — gate the modules with `sync` / `async` features; re-export `sync::*` at the crate root when `sync` is the default desktop path.
 
+## Documentation
+
+- [Feature and capability guide](https://hxyulin.github.io/hadris/concepts/features)
+- [API reference](https://docs.rs/hadris-macros)
+
 ## License
 
-Licensed under the [MIT license](../../LICENSE-MIT).
+Licensed under the [MIT license](../../../LICENSE-MIT).

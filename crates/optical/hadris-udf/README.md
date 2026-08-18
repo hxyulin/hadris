@@ -15,6 +15,11 @@ UDF (ECMA-167) is the filesystem used for DVD-ROM, DVD-Video, DVD-RAM, Blu-ray d
 
 ## Quick Start
 
+```toml
+[dependencies]
+hadris-udf = "2.0.0"
+```
+
 ```rust,no_run
 use std::fs::File;
 use std::io::BufReader;
@@ -33,6 +38,13 @@ for entry in udf.root_dir().unwrap().entries() {
 ```
 
 ### Writing a UDF image
+
+Enable the writer explicitly:
+
+```toml
+[dependencies]
+hadris-udf = { version = "2.0.0", features = ["write"] }
+```
 
 ```rust,no_run
 use hadris_udf::write::{UdfWriter, UdfWriteOptions, SimpleFile, SimpleDir};
@@ -56,16 +68,29 @@ let _cursor = output.into_inner();
 | `read`  | Yes     | Read support |
 | `alloc` | No      | Heap allocation without full std |
 | `std`   | Yes     | Full standard library support |
-| `write` | No      | Write/format support (requires std) |
+| `write` | No      | Mastered image creation; requires `std`, `alloc`, and `read` |
+| `sync`  | Yes     | Synchronous filesystem API |
+| `async` | No      | Asynchronous filesystem API |
 
-## Supported UDF Revisions
+`std` and the I/O mode are independent. Default features select `std`, `read`,
+and `sync`; custom builds may select `sync`, `async`, or both.
 
-| Revision | Use case | Status |
-|----------|----------|--------|
-| UDF 1.02 | DVD-ROM | Supported |
-| UDF 1.50 | DVD-RAM, packet writing | Planned |
-| UDF 2.01 | DVD-RW, streaming | Planned |
-| UDF 2.50 | Blu-ray | Planned |
+## UDF scope
+
+The reader and writer support mastered, read-only Type-1 images. The writer can
+label output as UDF 1.02, 1.50, 2.00, 2.01, 2.50, or 2.60 and emits the matching
+NSR identifier. This does not implement the rewritable-media features often
+associated with those revisions, such as packet writing, VAT, sparing tables,
+metadata partitions, or pseudo-overwrite.
+
+Use the oldest mastered revision accepted by the target consumers and validate
+the result with those consumers.
+
+## Documentation
+
+- [Read and extract UDF](https://hxyulin.github.io/hadris/guides/read-udf)
+- [Create UDF filesystems](https://hxyulin.github.io/hadris/creation/udf)
+- [API reference](https://docs.rs/hadris-udf)
 
 ## Specifications
 
@@ -74,4 +99,4 @@ let _cursor = output.into_inner();
 
 ## License
 
-MIT
+Licensed under the [MIT license](../../../LICENSE-MIT).

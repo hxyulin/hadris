@@ -150,6 +150,12 @@ Common partition type GUIDs:
 
 Constants are available on [`Guid`](https://docs.rs/hadris-part/latest/hadris_part/struct.Guid.html) (e.g. `Guid::EFI_SYSTEM`).
 
+## Documentation
+
+- [Inspect a partition table](https://hxyulin.github.io/hadris/guides/read-partition-table)
+- [Open FAT inside a partition](https://hxyulin.github.io/hadris/guides/open-partitioned-fat)
+- [API reference](https://docs.rs/hadris-part)
+
 ## License
 
-Licensed under the [MIT license](../../LICENSE-MIT).
+Licensed under the [MIT license](../../../LICENSE-MIT).

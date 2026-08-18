@@ -95,6 +95,12 @@ hadris-fat ls disk.img /
 - Fragmentation and cluster-chain analysis
 - Filesystem verification
 
+## Documentation
+
+- [Read a FAT image](https://hxyulin.github.io/hadris/guides/read-fat-image)
+- [Modify FAT safely](https://hxyulin.github.io/hadris/guides/modify-fat)
+- [Library API](https://docs.rs/hadris-fat)
+
 ## License
 
-Licensed under the [MIT license](../../LICENSE-MIT).
+Licensed under the [MIT license](../../../LICENSE-MIT).

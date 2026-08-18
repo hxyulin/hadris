@@ -35,3 +35,7 @@ fn main() -> hadris_part::Result<()> {
 Use a real logical block size instead of assuming 512 bytes when the backing
 device reports different geometry. Enable the `crc` feature when GPT CRC
 validation is required.
+
+The returned start and size values are expressed in logical blocks. To open a
+filesystem safely, convert them with checked arithmetic and create a bounded
+partition view. See [Open FAT inside a partition](./open-partitioned-fat.md).

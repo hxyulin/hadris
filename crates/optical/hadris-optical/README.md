@@ -48,3 +48,13 @@ handle.
 
 The hybrid `cd` writer is currently synchronous. For format-specific controls,
 use the re-exported `iso`, `udf`, and `cd` modules directly.
+
+## Documentation
+
+- [Choose a crate](https://hxyulin.github.io/hadris/crates)
+- [Detect and open images](https://hxyulin.github.io/hadris/guides/detect-open-images)
+- [API reference](https://docs.rs/hadris-optical)
+
+## License
+
+Licensed under the [MIT license](../../../LICENSE-MIT).

@@ -11,9 +11,13 @@
 //!
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
-//! | `std`   | yes     | Standard library support (implies `sync`) |
+//! | `std`   | yes     | Standard library support (implies `alloc`) |
 //! | `sync`  | yes     | Synchronous I/O traits |
 //! | `async` | no      | Asynchronous I/O traits (uses async fn in trait) |
+//! | `alloc` | via `std` | Heap-backed error messages without `std` |
+//!
+//! `std` and the I/O mode are independent. The default feature set enables
+//! both `std` and `sync`; custom builds can select `sync`, `async`, or both.
 //!
 //! ## Quick Start
 //!

@@ -45,3 +45,13 @@ hadris-archive = { version = "2.0.0", default-features = false, features = ["cpi
 
 For format-specific examples and limitations, see the
 [`hadris-cpio`](../hadris-cpio) documentation.
+
+## Documentation
+
+- [Choose a crate](https://hxyulin.github.io/hadris/crates)
+- [Read and create CPIO archives](https://hxyulin.github.io/hadris/guides/cpio-archives)
+- [API reference](https://docs.rs/hadris-archive)
+
+## License
+
+Licensed under the [MIT license](../../../LICENSE-MIT).

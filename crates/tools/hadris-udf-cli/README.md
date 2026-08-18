@@ -71,6 +71,15 @@ hadris-udf verify image.udf --verbose
 | `2.50`   | Blu-ray               |
 | `2.60`   | Blu-ray pseudo-OW     |
 
+The revision selects mastered Type-1 output. It does not enable packet writing,
+VAT, sparing, metadata partitions, or pseudo-overwrite.
+
+## Documentation
+
+- [Read and extract UDF](https://hxyulin.github.io/hadris/guides/read-udf)
+- [Create UDF images](https://hxyulin.github.io/hadris/creation/udf)
+- [Library API](https://docs.rs/hadris-udf)
+
 ## License
 
-Licensed under the [MIT license](../../LICENSE-MIT).
+Licensed under the [MIT license](../../../LICENSE-MIT).

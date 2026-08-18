@@ -99,3 +99,13 @@ Pass a command to the same script to run an individual check:
 ```console
 scripts/test-ntfs.sh cargo test -p hadris-ntfs --all-features
 ```
+
+## Documentation
+
+- [Feature and capability matrix](https://hxyulin.github.io/hadris/concepts/features)
+- [Specification coverage](../../../docs/spec-coverage.md#hadris-ntfs)
+- [API reference](https://docs.rs/hadris-ntfs)
+
+## License
+
+Licensed under the [MIT license](../../../LICENSE-MIT).
