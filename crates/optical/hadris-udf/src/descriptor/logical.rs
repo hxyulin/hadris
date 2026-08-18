@@ -69,7 +69,7 @@ impl LogicalVolumeDescriptor {
 
     /// Get the File Set Descriptor location
     pub fn file_set_location(&self) -> LongAllocationDescriptor {
-        (*bytemuck::from_bytes::<LongAllocationDescriptor>(&self.logical_volume_contents_use))
+        bytemuck::pod_read_unaligned::<LongAllocationDescriptor>(&self.logical_volume_contents_use)
             .into_native()
     }
 
@@ -105,8 +105,9 @@ impl LogicalVolumeDescriptor {
                 let entry = &maps[offset..offset + map_len];
                 offset += map_len;
                 if map_type == 1 && map_len >= core::mem::size_of::<Type1PartitionMap>() {
-                    let mut map: Type1PartitionMap =
-                        *bytemuck::from_bytes(&entry[..core::mem::size_of::<Type1PartitionMap>()]);
+                    let mut map = bytemuck::pod_read_unaligned::<Type1PartitionMap>(
+                        &entry[..core::mem::size_of::<Type1PartitionMap>()],
+                    );
                     map.volume_sequence_number = map.volume_sequence_number.to_le();
                     map.partition_number = map.partition_number.to_le();
                     return Some(map);

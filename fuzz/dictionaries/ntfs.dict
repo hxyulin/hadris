@@ -1,0 +1,7 @@
+# NTFS magic tokens for libFuzzer (-dict=fuzz/dictionaries/ntfs.dict)
+oem_ntfs="NTFS    "
+record_file="FILE"
+record_bad="BAAD"
+record_index="INDX"
+boot_sig="\x55\xaa"
+mft_mirror="FILE0\x00\x00\x00"

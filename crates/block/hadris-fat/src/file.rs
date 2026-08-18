@@ -9,9 +9,13 @@ pub struct ShortFileName(FixedBytes<12>);
 
 impl fmt::Debug for ShortFileName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ShortFileName")
-            .field(&self.as_str())
-            .finish()
+        let mut tuple = f.debug_tuple("ShortFileName");
+        // On-disk names are OEM-encoded; high bytes may not be valid UTF-8.
+        match self.0.try_as_str() {
+            Ok(name) => tuple.field(&name),
+            Err(_) => tuple.field(&self.0.as_bytes()),
+        };
+        tuple.finish()
     }
 }
 
@@ -88,8 +92,28 @@ impl ShortFileName {
     }
 
     /// Returns the formatted short filename as a string.
+    ///
+    /// # Panics
+    /// Panics if the name is not valid UTF-8 (possible with OEM high bytes on
+    /// untrusted images). Use [`Self::try_as_str`] on untrusted images, or
+    /// [`FileEntry::name`] / [`Self::matches`], which tolerate such names.
+    ///
+    /// [`FileEntry::name`]: crate::dir::FileEntry::name
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+
+    /// Returns the formatted short filename, or an error if it is not valid
+    /// UTF-8 (possible with OEM high bytes on untrusted images).
+    pub fn try_as_str(&self) -> Result<&str, core::str::Utf8Error> {
+        self.0.try_as_str()
+    }
+
+    /// The stored `BASE    .EXT` bytes without UTF-8 validation — short names
+    /// are OEM-encoded, so high bytes are not necessarily valid UTF-8.
+    #[cfg(feature = "alloc")]
+    pub(crate) fn as_padded_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
     }
 
     /// Returns a copy of this 8.3 name with the base and/or extension
@@ -136,24 +160,32 @@ impl ShortFileName {
 
     /// Check if this short filename matches a given name (case-insensitive).
     /// Handles both padded ("TEST    .TXT") and unpadded ("TEST.TXT") formats.
+    ///
+    /// Operates on raw bytes: OEM high bytes in untrusted on-disk names are
+    /// not necessarily valid UTF-8, and ASCII case comparison is well-defined
+    /// on bytes.
     pub fn matches(&self, name: &str) -> bool {
-        let raw = self.0.as_str();
+        fn trim_end_spaces(mut bytes: &[u8]) -> &[u8] {
+            while let [rest @ .., b' '] = bytes {
+                bytes = rest;
+            }
+            bytes
+        }
 
-        // Parse our stored name (format: "BASE    .EXT")
-        let (our_base, our_ext) = if let Some(dot_pos) = raw.find('.') {
-            (raw[..dot_pos].trim_end(), raw[dot_pos + 1..].trim_end())
-        } else {
-            (raw.trim_end(), "")
+        let raw = self.0.as_bytes();
+        // Stored format: "BASE    .EXT"
+        let (our_base, our_ext) = match raw.iter().position(|&b| b == b'.') {
+            Some(dot) => (&raw[..dot], &raw[dot + 1..]),
+            None => (raw, &[][..]),
+        };
+        let (our_base, our_ext) = (trim_end_spaces(our_base), trim_end_spaces(our_ext));
+
+        let name = name.as_bytes();
+        let (search_base, search_ext) = match name.iter().rposition(|&b| b == b'.') {
+            Some(dot) => (&name[..dot], &name[dot + 1..]),
+            None => (name, &[][..]),
         };
 
-        // Parse the search name
-        let (search_base, search_ext) = if let Some(dot_pos) = name.rfind('.') {
-            (&name[..dot_pos], &name[dot_pos + 1..])
-        } else {
-            (name, "")
-        };
-
-        // Compare base and extension (case-insensitive)
         our_base.eq_ignore_ascii_case(search_base) && our_ext.eq_ignore_ascii_case(search_ext)
     }
 
@@ -536,10 +568,15 @@ impl LfnBuilder {
     /// Start building a new LFN from the first (last physical) entry
     pub fn start(&mut self, seq_number: u8, checksum: u8) {
         self.reset();
+        // The sequence number indicates how many entries there are; a count
+        // of zero is invalid and would underflow the countdown in add_entry.
+        let count = seq_number & Self::SEQ_NUMBER_MASK;
+        if count == 0 {
+            return;
+        }
         self.building = true;
         self.checksum = checksum;
-        // The sequence number indicates how many entries there are
-        self.expected_seq = seq_number & Self::SEQ_NUMBER_MASK;
+        self.expected_seq = count;
     }
 
     /// Add an LFN entry to the builder.
@@ -554,8 +591,8 @@ impl LfnBuilder {
     ) -> bool {
         let seq = seq_number & Self::SEQ_NUMBER_MASK;
 
-        // Check sequence number
-        if seq != self.expected_seq {
+        // Check sequence number; zero is not a valid LFN sequence count
+        if seq == 0 || seq != self.expected_seq {
             self.reset();
             return false;
         }
@@ -699,5 +736,16 @@ mod lfn_unicode_tests {
 
         assert!(lfn.eq_str("\u{1F600}"));
         assert!(!lfn.eq_str("X"));
+    }
+
+    /// Regression test: an LFN entry with the last-entry flag set but a
+    /// sequence count of zero is invalid; starting a sequence with it would
+    /// underflow the countdown in `add_entry` (fuzz-found panic).
+    #[test]
+    fn lfn_start_rejects_zero_sequence_count() {
+        let mut builder = LfnBuilder::new();
+        builder.start(0x40, 0);
+        assert!(!builder.building);
+        assert!(!builder.add_entry(0x40, 0, &[0; 10], &[0; 12], &[0; 4]));
     }
 }

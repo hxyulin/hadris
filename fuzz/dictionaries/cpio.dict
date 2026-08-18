@@ -1,0 +1,6 @@
+# CPIO magic tokens for libFuzzer (-dict=fuzz/dictionaries/cpio.dict)
+newc="070701"
+crc="070702"
+odc="070707"
+trailer="TRAILER!!!"
+bin_magic="\x71\xc7"

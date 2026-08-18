@@ -1,6 +1,6 @@
 //! Filesystem integrity verification for FAT filesystems.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -199,13 +199,17 @@ impl<DATA: Read + Seek> FatVerifyExt<DATA> for FatVolume<DATA> {
         // Map of cluster -> list of paths that reference it
         let mut cluster_usage: BTreeMap<u32, Vec<String>> = BTreeMap::new();
 
-        // Track which clusters are used by files
-        let mut used_by_files = alloc::vec![false; max_cluster as usize + 1];
+        // Track which clusters are used by files. A set, not a vec indexed
+        // by cluster: `max_cluster` derives from the untrusted BPB and a
+        // corrupt image could claim ~4 billion clusters, forcing a
+        // multi-gigabyte allocation on a tiny image.
+        let mut used_by_files: BTreeSet<u32> = BTreeSet::new();
 
         // Verify all files and directories
         self.verify_directory_recursive(
             &self.root_dir(),
             String::new(),
+            0,
             &mut issues,
             &mut files_checked,
             &mut directories_checked,
@@ -230,7 +234,7 @@ impl<DATA: Read + Seek> FatVerifyExt<DATA> for FatVolume<DATA> {
         let mut orphaned_count = 0u32;
 
         for cluster in 2..=max_cluster {
-            if !used_by_files[cluster as usize] {
+            if !used_by_files.contains(&cluster) {
                 // Check if this cluster is marked as used in the FAT
                 if let Ok(Some(_)) = self.fat.next_cluster(data.deref_mut(), cluster as usize) {
                     orphaned_count += 1;
@@ -262,14 +266,23 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
         &'a self,
         dir: &FatDir<'a, DATA>,
         path_prefix: String,
+        depth: u32,
         issues: &mut Vec<VerificationIssue>,
         files_checked: &mut u32,
         directories_checked: &mut u32,
         cluster_usage: &mut BTreeMap<u32, Vec<String>>,
-        used_by_files: &mut [bool],
+        used_by_files: &mut BTreeSet<u32>,
         cluster_size: usize,
         max_cluster: u32,
     ) -> Result<()> {
+        // A corrupt image can make a directory (transitively) contain
+        // itself; cap recursion depth so verification cannot overflow the
+        // stack. Matches the analysis walk's limit.
+        if depth > super::analysis::MAX_DIRECTORY_DEPTH {
+            return Err(crate::error::Error::CorruptFilesystem {
+                context: "directory nesting depth limit exceeded",
+            });
+        }
         for entry in dir.entries() {
             let entry = entry?;
             let DirectoryEntry::Entry(file_entry) = entry;
@@ -320,6 +333,7 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
                 self.verify_directory_recursive(
                     &subdir,
                     full_path,
+                    depth + 1,
                     issues,
                     files_checked,
                     directories_checked,
@@ -380,7 +394,7 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
         path: &str,
         issues: &mut Vec<VerificationIssue>,
         cluster_usage: &mut BTreeMap<u32, Vec<String>>,
-        used_by_files: &mut [bool],
+        used_by_files: &mut BTreeSet<u32>,
         max_cluster: u32,
     ) -> Result<u32> {
         let mut chain_length = 0u32;
@@ -408,7 +422,7 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
             }
 
             visited[current as usize] = true;
-            used_by_files[current as usize] = true;
+            used_by_files.insert(current);
             chain_length += 1;
 
             // Record cluster usage

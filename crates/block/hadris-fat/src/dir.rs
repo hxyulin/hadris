@@ -24,17 +24,15 @@ use super::read::FileReader;
 /// this returns the logical name (`readme.txt`).
 #[cfg(feature = "alloc")]
 fn short_name_display(short: &ShortFileName, flags: NtCaseFlags) -> alloc::string::String {
-    use alloc::string::ToString;
-
-    // The "." and ".." directory entries are stored without 8.3 padding and
-    // carry no case flags; the base/extension split below would corrupt them.
-    let raw = short.as_str();
+    // Short names are OEM-encoded on disk, so high bytes are not necessarily
+    // valid UTF-8 — decode lossily instead of panicking (as `as_str` would).
+    let raw = alloc::string::String::from_utf8_lossy(short.as_padded_bytes());
     if raw == "." || raw == ".." {
-        return raw.to_string();
+        return raw.into_owned();
     }
 
     let cased = short.with_nt_case(flags);
-    let raw = cased.as_str();
+    let raw = alloc::string::String::from_utf8_lossy(cased.as_padded_bytes());
     let (base, ext) = match raw.find('.') {
         Some(dot) => (raw[..dot].trim_end(), raw[dot + 1..].trim_end()),
         None => (raw.trim_end(), ""),
@@ -75,6 +73,8 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
             cluster_buffer: None,
             #[cfg(feature = "alloc")]
             buffer_valid: false,
+            #[cfg(feature = "alloc")]
+            buffer_base: 0,
         }
     }
 
@@ -94,6 +94,8 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
             cluster_buffer: None,
             #[cfg(feature = "alloc")]
             buffer_valid: false,
+            #[cfg(feature = "alloc")]
+            buffer_base: 0,
         }
     }
 
@@ -195,6 +197,13 @@ pub struct FatDirIter<'a, DATA: Read + Seek> {
     /// Whether the buffer is valid for the current cluster
     #[cfg(feature = "alloc")]
     buffer_valid: bool,
+    /// Directory-region-relative offset the buffer starts at. Always 0 for
+    /// cluster-based directories (the buffer holds one whole cluster); for
+    /// fixed root directories it tracks which 4 KiB window of the root region
+    /// is buffered so the iterator can slide the window forward instead of
+    /// stopping at the first 4096 bytes.
+    #[cfg(feature = "alloc")]
+    buffer_base: usize,
 }
 
 impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
@@ -212,7 +221,13 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                     return None; // End of fixed root directory
                 }
             } else {
-                // Cluster-based directory (FAT32 or subdirectory)
+                // Cluster-based directory (FAT32 or subdirectory).
+                // A directory entry whose first cluster is 0 has no data
+                // allocated (1 is reserved); treat it as an empty directory
+                // instead of underflowing the cluster-to-offset math.
+                if self.cluster.0 < 2 {
+                    return None;
+                }
                 // Check if we need to move to the next cluster
                 if self.offset >= cluster_size {
                     self.cluster_steps = self.cluster_steps.saturating_add(1);
@@ -247,8 +262,17 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
             // Read the entry - use buffering when alloc is available
             #[cfg(feature = "alloc")]
             let raw_entry = {
-                // Ensure buffer is filled
-                if !self.buffer_valid || self.cluster_buffer.is_none() {
+                // Refill when the buffer is stale or, for a fixed root, when
+                // the read offset has walked past the buffered window — the
+                // window slides forward in 4 KiB chunks instead of ending the
+                // directory at the first 4096 bytes.
+                let needs_refill = !self.buffer_valid
+                    || self.cluster_buffer.is_none()
+                    || (self.fixed_root_remaining.is_some()
+                        && (self.offset < self.buffer_base
+                            || self.offset + entry_size
+                                > self.buffer_base + self.cluster_buffer.as_ref().unwrap().len()));
+                if needs_refill {
                     let buffer_size = if let Some(remaining) = self.fixed_root_remaining {
                         // For fixed root, buffer the remaining bytes (up to a reasonable size)
                         remaining.min(4096)
@@ -256,9 +280,14 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                         cluster_size
                     };
 
+                    self.buffer_base = if self.fixed_root_remaining.is_some() {
+                        self.offset
+                    } else {
+                        0
+                    };
                     let seek_pos = if self.fixed_root_remaining.is_some() {
                         let start = self.fixed_root_start.unwrap();
-                        start as u64
+                        (start + self.buffer_base) as u64
                     } else {
                         self.cluster
                             .to_bytes(self.data.info.data_start, cluster_size)
@@ -280,11 +309,11 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
 
                 // Read entry from buffer
                 let buffer = self.cluster_buffer.as_ref().unwrap();
-                let offset = self.offset;
+                let offset = self.offset - self.buffer_base;
 
                 if offset + entry_size > buffer.len() {
                     // Buffer exhausted, need to handle this case
-                    // For fixed root: we're done
+                    // For fixed root: fewer than entry_size bytes remain
                     // For cluster-based: handled by cluster transition above
                     if self.fixed_root_remaining.is_some() {
                         return None;
@@ -379,7 +408,11 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
             let file_entry = unsafe { raw_entry.file };
 
             let attr = DirEntryAttrFlags::from_bits_retain(file_entry.attributes);
-            if attr.is_volume_label_entry() {
+            // Skip any entry carrying VOLUME_ID: both plain label entries and
+            // corrupt combinations (e.g. VOLUME_ID|DIRECTORY), which the FAT
+            // spec does not define as listable entries. LFN components
+            // (exactly LONG_NAME) were already handled above.
+            if attr.contains(DirEntryAttrFlags::VOLUME_ID) {
                 #[cfg(feature = "lfn")]
                 self.lfn_builder.reset();
                 continue;
@@ -633,7 +666,13 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                     return None; // End of fixed root directory
                 }
             } else {
-                // Cluster-based directory (FAT32 or subdirectory)
+                // Cluster-based directory (FAT32 or subdirectory).
+                // A directory entry whose first cluster is 0 has no data
+                // allocated (1 is reserved); treat it as an empty directory
+                // instead of underflowing the cluster-to-offset math.
+                if self.cluster.0 < 2 {
+                    return None;
+                }
                 // Check if we need to move to the next cluster
                 if self.offset >= cluster_size {
                     self.cluster_steps = self.cluster_steps.saturating_add(1);
@@ -667,8 +706,17 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
             // Read the entry - use buffering when alloc is available
             #[cfg(feature = "alloc")]
             let raw_entry = {
-                // Ensure buffer is filled
-                if !self.buffer_valid || self.cluster_buffer.is_none() {
+                // Refill when the buffer is stale or, for a fixed root, when
+                // the read offset has walked past the buffered window — the
+                // window slides forward in 4 KiB chunks instead of ending the
+                // directory at the first 4096 bytes.
+                let needs_refill = !self.buffer_valid
+                    || self.cluster_buffer.is_none()
+                    || (self.fixed_root_remaining.is_some()
+                        && (self.offset < self.buffer_base
+                            || self.offset + entry_size
+                                > self.buffer_base + self.cluster_buffer.as_ref().unwrap().len()));
+                if needs_refill {
                     let buffer_size = if let Some(remaining) = self.fixed_root_remaining {
                         // For fixed root, buffer the remaining bytes (up to a reasonable size)
                         remaining.min(4096)
@@ -676,9 +724,14 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                         cluster_size
                     };
 
+                    self.buffer_base = if self.fixed_root_remaining.is_some() {
+                        self.offset
+                    } else {
+                        0
+                    };
                     let seek_pos = if self.fixed_root_remaining.is_some() {
                         let start = self.fixed_root_start.unwrap();
-                        start as u64
+                        (start + self.buffer_base) as u64
                     } else {
                         self.cluster
                             .to_bytes(self.data.info.data_start, cluster_size)
@@ -700,11 +753,11 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
 
                 // Read entry from buffer
                 let buffer = self.cluster_buffer.as_ref().unwrap();
-                let offset = self.offset;
+                let offset = self.offset - self.buffer_base;
 
                 if offset + entry_size > buffer.len() {
                     // Buffer exhausted, need to handle this case
-                    // For fixed root: we're done
+                    // For fixed root: fewer than entry_size bytes remain
                     // For cluster-based: handled by cluster transition above
                     if self.fixed_root_remaining.is_some() {
                         return None;
@@ -799,7 +852,11 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
             let file_entry = unsafe { raw_entry.file };
 
             let attr = DirEntryAttrFlags::from_bits_retain(file_entry.attributes);
-            if attr.is_volume_label_entry() {
+            // Skip any entry carrying VOLUME_ID: both plain label entries and
+            // corrupt combinations (e.g. VOLUME_ID|DIRECTORY), which the FAT
+            // spec does not define as listable entries. LFN components
+            // (exactly LONG_NAME) were already handled above.
+            if attr.contains(DirEntryAttrFlags::VOLUME_ID) {
                 #[cfg(feature = "lfn")]
                 self.lfn_builder.reset();
                 continue;

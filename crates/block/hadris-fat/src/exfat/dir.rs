@@ -34,6 +34,7 @@ impl<'a, DATA: Read + Seek> ExFatDir<'a, DATA> {
             current_cluster: self.first_cluster,
             cluster_offset: 0,
             dir_offset: 0,
+            cluster_steps: 0,
         }
     }
 
@@ -85,6 +86,9 @@ pub struct ExFatDirIter<'a, DATA: Read + Seek> {
     cluster_offset: usize,
     /// Total byte offset from start of directory
     dir_offset: u64,
+    /// FAT-chain hops taken so far. Bounded by `cluster_count` so a corrupt
+    /// looping chain surfaces as `Error::ClusterLoop` instead of hanging.
+    cluster_steps: u32,
 }
 
 impl<DATA: Read + Seek> Iterator for ExFatDirIter<'_, DATA> {
@@ -100,6 +104,25 @@ impl<DATA: Read + Seek> Iterator for ExFatDirIter<'_, DATA> {
 }
 
 impl<DATA: Read + Seek> ExFatDirIter<'_, DATA> {
+    /// Advance to the next cluster of a FAT-chained directory. Returns `false`
+    /// at end of chain. A chain longer than the volume's cluster count must
+    /// contain a loop, so the walk is bounded and reports `ClusterLoop`.
+    fn follow_chain(&mut self) -> Result<bool> {
+        self.cluster_steps = self.cluster_steps.saturating_add(1);
+        if self.cluster_steps > self.fs.info().cluster_count {
+            return Err(Error::ClusterLoop {
+                cluster: self.current_cluster,
+            });
+        }
+        match self.fs.next_cluster(self.current_cluster)? {
+            Some(next) => {
+                self.current_cluster = next;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
     /// Read the next file entry from the directory.
     fn read_next_entry(&mut self) -> Result<Option<ExFatFileEntry>> {
         let info = self.fs.info();
@@ -122,9 +145,8 @@ impl<DATA: Read + Seek> ExFatDirIter<'_, DATA> {
                     }
                 } else {
                     // Follow FAT chain
-                    match self.fs.next_cluster(self.current_cluster)? {
-                        Some(next) => self.current_cluster = next,
-                        None => return Ok(None),
+                    if !self.follow_chain()? {
+                        return Ok(None);
                     }
                 }
                 self.cluster_offset = 0;
@@ -205,11 +227,8 @@ impl<DATA: Read + Seek> ExFatDirIter<'_, DATA> {
                     if !info.is_valid_cluster(self.current_cluster) {
                         return Ok(None);
                     }
-                } else {
-                    match self.fs.next_cluster(self.current_cluster)? {
-                        Some(next) => self.current_cluster = next,
-                        None => return Ok(None),
-                    }
+                } else if !self.follow_chain()? {
+                    return Ok(None);
                 }
                 self.cluster_offset = 0;
             }

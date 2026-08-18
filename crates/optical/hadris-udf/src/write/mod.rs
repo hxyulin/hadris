@@ -294,6 +294,10 @@ impl<W: Write + Seek> UdfWriter<W> {
 
 }
 
+/// Maximum `SimpleDir` nesting accepted by the formatter; deeper trees would
+/// overflow the stack in the recursive allocation and write passes.
+const MAX_DIRECTORY_DEPTH: usize = 128;
+
 /// Internal formatter that handles the full UDF format process
 struct UdfFormatter<W: Write + Seek> {
     writer: W,
@@ -349,7 +353,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
 
         // Phase 2: Allocate all structures within the partition
         let fsd_block = self.allocate_block(); // 0
-        let allocated_root = self.allocate_directory(root, fsd_block)?;
+        let allocated_root = self.allocate_directory(root, fsd_block, 0)?;
 
         // Calculate partition length
         let partition_length = self.next_block;
@@ -435,7 +439,15 @@ impl<W: Write + Seek> UdfFormatter<W> {
     }
 
     /// Allocate blocks for a directory and all its contents
-    fn allocate_directory(&mut self, dir: &SimpleDir, parent_icb: u32) -> Result<AllocatedDir> {
+    fn allocate_directory(
+        &mut self,
+        dir: &SimpleDir,
+        parent_icb: u32,
+        depth: usize,
+    ) -> Result<AllocatedDir> {
+        if depth >= MAX_DIRECTORY_DEPTH {
+            return Err(crate::error::Error::DirectoryNestingTooDeep);
+        }
         let icb_block = self.allocate_block();
         let unique_id = self.next_unique_id();
 
@@ -492,7 +504,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         // Recursively allocate subdirectories
         let mut allocated_subdirs = Vec::new();
         for subdir in &dir.subdirs {
-            let allocated_subdir = self.allocate_directory(subdir, icb_block)?;
+            let allocated_subdir = self.allocate_directory(subdir, icb_block, depth + 1)?;
             allocated_subdirs.push(allocated_subdir);
         }
 
@@ -1049,6 +1061,9 @@ impl<W: Write + Seek> UdfFormatter<W> {
         buffer[lea_offset + 4..lea_offset + 8].copy_from_slice(&(ad_len as u32).to_le_bytes());
 
         let ad_offset = lea_offset + 8;
+        if ad_offset + ad_len > buffer.len() {
+            return Err(crate::error::Error::TooManyAllocationDescriptors);
+        }
         for (i, ad) in allocation_descriptors.iter().enumerate() {
             let start = ad_offset + i * size_of::<ShortAllocationDescriptor>();
             buffer[start..start + 8].copy_from_slice(bytemuck::bytes_of(ad));
@@ -1736,6 +1751,9 @@ impl<W: Write + Seek> UdfWriter<W> {
 
         // Allocation Descriptors
         let ad_offset = lea_offset + 8;
+        if ad_offset + ad_len > buffer.len() {
+            return Err(crate::error::Error::TooManyAllocationDescriptors);
+        }
         for (i, ad) in allocation_descriptors.iter().enumerate() {
             let start = ad_offset + i * size_of::<ShortAllocationDescriptor>();
             buffer[start..start + 8].copy_from_slice(bytemuck::bytes_of(ad));

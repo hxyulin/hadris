@@ -1016,6 +1016,7 @@ pub fn hadris_fat::file::ShortFileName::matches(&self, &str) -> bool
 pub fn hadris_fat::file::ShortFileName::new([u8; 11]) -> core::result::Result<Self, hadris_fat::file::CreateShortFileNameError>
 pub fn hadris_fat::file::ShortFileName::raw_bytes(&self) -> [u8; 11]
 pub fn hadris_fat::file::ShortFileName::to_raw_bytes(&self) -> [u8; 11]
+pub fn hadris_fat::file::ShortFileName::try_as_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
 pub fn hadris_fat::file::ShortFileName::with_nt_case(&self, hadris_fat::raw::NtCaseFlags) -> hadris_fat::file::ShortFileName
 impl core::fmt::Debug for hadris_fat::file::ShortFileName
 pub fn hadris_fat::file::ShortFileName::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

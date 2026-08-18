@@ -20,6 +20,108 @@ Each published package owns its version and may be released independently.
   fixed-capacity collection API.
 - **Build:** Added a `cargo-deny` CI gate that rejects dependencies outside the
   workspace's permissive-license allowlist.
+- **hadris-fat:** Rejected FAT32 images whose BPB root cluster is outside the
+  data-cluster range at mount time, and treated directory entries whose first
+  cluster is below 2 as empty, fixing `attempt to subtract with overflow`
+  panics on corrupt images (found by `cargo fuzz run fat_read`).
+- **hadris-fat:** Short (8.3) names containing OEM high bytes no longer panic
+  `FileEntry::name`, `ShortFileName::matches`, or the `Debug` impl on
+  untrusted images; such names are decoded lossily, and a non-panicking
+  `ShortFileName::try_as_str` was added.
+- **hadris-fat:** `FileReader::read_to_vec` no longer pre-allocates the full
+  claimed file size, so a corrupt entry advertising gigabytes on a tiny image
+  cannot force an out-of-memory abort.
+- **hadris-part:** Partition end-LBA and size computations now saturate
+  instead of panicking on corrupt MBR/GPT entries whose start + size exceeds
+  the integer range (found by the new `part_read` fuzz target).
+- **hadris-part:** GPT reads bound the untrusted partition-entry array
+  (entry count and LBAs) against the actual image size before allocating or
+  seeking, returning `DiskTooSmall`/`BackupHeaderIo` instead of panicking on
+  multiply overflow or allocating hundreds of GiB.
+- **hadris-fat (exFAT):** Boot-sector validation no longer panics on shift
+  fields whose sum overflows `u8`, and cluster arithmetic (`cluster_to_offset`,
+  `is_valid_cluster`, FAT table bounds) saturates instead of over- or
+  underflowing on corrupt boot-region values (found by the new `exfat_read`
+  fuzz target).
+- **hadris-ntfs:** Mount-time record sizes (MFT/index) and per-stream sizes
+  (`$BITMAP`, index allocation blocks, `FileReader::read_to_vec`) derived
+  from untrusted on-disk fields are now bounded against the actual data
+  source or volume capacity, so a corrupt boot sector or attribute cannot
+  force an out-of-memory abort (found by `cargo fuzz run ntfs_read`).
+- **hadris-ntfs:** Mount rejects a `$UpCase` stream whose declared size is
+  not exactly the 128 KiB table before reading it, so a corrupt attribute
+  claiming gigabytes (backed by a huge claimed volume) cannot force an
+  out-of-memory abort (found by `cargo fuzz run ntfs_read`).
+- **hadris-fat:** An LFN entry with the last-entry flag but a sequence count
+  of zero no longer starts a long-name sequence, fixing an
+  `attempt to subtract with overflow` panic in the sequence countdown
+  (found by `cargo fuzz run fat_read`).
+- **hadris-fat:** FAT12/16 fixed-root directory iteration no longer stops
+  after the first 4 KiB window, which silently dropped entries past slot 128
+  of larger roots (e.g. the standard 224-entry floppy root) and could make
+  `find`/`open_path` miss existing files (found by manual audit).
+- **hadris-fat (exFAT):** Mount rejects an allocation bitmap whose claimed
+  `data_length` exceeds the cluster heap, directory iteration and file
+  reads/seeks return `ClusterLoop` on cyclic FAT chains instead of looping
+  forever, and allocation-bitmap cluster arithmetic saturates instead of
+  over- or underflowing (found by manual audit).
+- **hadris-fat (tool):** `scan_fat`/`verify` no longer pre-allocate from
+  claimed BPB geometry, and the recursive directory walks cap nesting depth
+  with a `CorruptFilesystem` error instead of overflowing the stack on cyclic
+  directory graphs (found by manual audit).
+- **hadris-ntfs:** `attr::parse_index_entries` validates a caller-supplied
+  node-header offset with checked arithmetic and returns
+  `InvalidIndexEntry` instead of panicking on out-of-range values
+  (found by manual audit).
+- **hadris-part:** `PartitionInfo::size_bytes`, CHS-to-LBA conversion,
+  hybrid-MBR building, `GptDisk` geometry helpers, and the GPT write path
+  now use checked or saturating arithmetic, fixing divide-by-zero and
+  overflow panics on crafted tables — and, in release builds, potential
+  writes to wrapped offsets. Reading a GPT with `block_size` below the
+  header size returns `InvalidBlockSize`. The GPT fuzz-regression tests are
+  now gated off the `crc` feature, which rejects the crafted images earlier
+  with a checksum error (found by manual audit).
+- **hadris-iso:** `IsoDir::read_entries` bounds a directory's claimed size
+  against the actual image before allocating, matching `read_file`.
+  `IsoModifier::open` returns an error on images without a primary volume
+  descriptor instead of panicking, rejects cyclic directory graphs (depth
+  cap plus extent-visit tracking) instead of overflowing the stack, and
+  skips version-only (`;1`) directory names instead of panicking in
+  `finish()` (found by manual audit).
+- **hadris-iso:** Rock Ridge continuation areas are now written after the
+  directory records that reference them, directory extents are assigned
+  pre-order (parents before children), and file data is written after the
+  whole directory region. Streaming readers only follow CE pointers to
+  later positions and ignore directories whose extent is lower than their
+  scan position, so libarchive/bsdtar previously rejected hadris-written
+  Rock Ridge images outright with "Invalid parameter in SUSP CE
+  extension" and still could not list nested directories once the CE
+  placement was fixed. bsdtar now lists hadris-written images cleanly.
+  The writer plans the full layout (sizes are extent-independent) before
+  writing, so emitted images are deterministic and the floor set by
+  `create_with_allocation_floor` still reserves the low sectors.
+- **hadris-iso:** `pad_align_sector` now zero-fills padding instead of
+  seeking past it, so emitted bytes no longer depend on the target
+  reading unwritten regions back as zeros (reused buffers, block
+  devices). Output on fresh files and memory cursors is unchanged.
+- **hadris-udf:** `UdfWriter::write_file_entry` returns
+  `TooManyAllocationDescriptors` instead of panicking when the descriptors
+  exceed a file entry, and `UdfWriter::create` rejects directory trees
+  deeper than 128 levels with `DirectoryNestingTooDeep` instead of
+  overflowing the stack (found by manual audit).
+- **hadris-udf:** Allocation descriptors and file-identifier ICBs are now
+  parsed without requiring pointer alignment, so a corrupt File Entry with an
+  odd `extended_attributes_length` (or FIDs at unaligned offsets) no longer
+  panics inside bytemuck on the misaligned cast (found by
+  `cargo fuzz run udf_read`).
+- **hadris-cpio:** `read_entry_data` returns `Error::BufferSizeMismatch`
+  before consuming any bytes instead of panicking when the caller's buffer
+  does not match the entry's claimed file size (found by manual audit).
+- **hadris-fat:** Directory enumeration now skips any entry carrying the
+  `VOLUME_ID` attribute bit (except exact LFN components), so a corrupt
+  entry combining `VOLUME_ID` with `DIRECTORY` is no longer listed and
+  recursed into as a directory, matching the FAT spec and mtools (found by
+  differential fuzzing against mdir).
 
 ## [2.0.0] - 2026-08-09
 

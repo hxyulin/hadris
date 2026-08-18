@@ -163,11 +163,39 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
 
     /// Read the entire remaining file content into a `Vec<u8>`.
     pub async fn read_to_vec(&mut self) -> Result<Vec<u8>> {
-        let remaining =
-            usize::try_from(self.remaining()).map_err(|_| NtfsError::InvalidAttribute)?;
-        let mut buf = vec![0u8; remaining];
-        let n = self.read(&mut buf).await?;
-        buf.truncate(n);
+        let remaining = self.remaining();
+        // `data_size` derives from an untrusted on-disk u64. A file cannot
+        // exceed the volume, so bound the up-front allocation against it —
+        // otherwise a corrupt attribute in a tiny image could force a huge
+        // allocation (a DoS that aborts the process on no-overcommit /
+        // embedded targets).
+        let volume_capacity = self
+            .fs
+            .total_sectors()
+            .saturating_mul(self.fs.sector_size as u64);
+        if remaining > volume_capacity {
+            return Err(NtfsError::InvalidAttribute);
+        }
+        // The capacity check above is not sufficient on its own: a corrupt
+        // boot sector can also claim a huge volume (total_sectors), letting
+        // a bogus size through on a tiny image. So cap the up-front
+        // allocation and grow only as actual data arrives — reads past the
+        // real data yield short reads or I/O errors, not gigabytes of zeros.
+        const MAX_PREALLOC: usize = 16 * 1024 * 1024;
+        let remaining = usize::try_from(remaining).map_err(|_| NtfsError::InvalidAttribute)?;
+        let mut buf = vec![0u8; remaining.min(MAX_PREALLOC)];
+        let mut filled = 0;
+        while filled < remaining {
+            if filled == buf.len() {
+                buf.resize((buf.len() * 2).min(remaining), 0);
+            }
+            let n = self.read(&mut buf[filled..]).await?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        buf.truncate(filled);
         Ok(buf)
     }
 }

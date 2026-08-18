@@ -149,6 +149,11 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
         if let Some((runs, data_size)) = bitmap_info {
             let bitmap_size =
                 usize::try_from(data_size).map_err(|_| NtfsError::InvalidAttribute)?;
+            // Untrusted $BITMAP length; it sizes the bitmap buffer, so bound
+            // it against the actual data source before allocating.
+            if bitmap_size as u64 > self.fs.data_len().await? {
+                return Err(NtfsError::InvalidAttribute);
+            }
             let mut value = vec![0_u8; bitmap_size];
             let mut data = self.fs.data.lock();
             read_data_runs(
@@ -168,6 +173,12 @@ impl<'a, DATA: Read + Seek> NtfsDir<'a, DATA> {
             let bitmap = bitmap.ok_or(NtfsError::InvalidAttribute)?;
             let data_size =
                 usize::try_from(data_size).map_err(|_| NtfsError::InvalidAttribute)?;
+            // `index_record_size` may have been overridden by an untrusted
+            // u32 in the INDEX_ROOT header; it sizes each block buffer, so
+            // bound it against the actual data source before allocating.
+            if index_record_size as u64 > self.fs.data_len().await? {
+                return Err(NtfsError::InvalidAttribute);
+            }
             if !data_size.is_multiple_of(index_record_size) {
                 return Err(NtfsError::InvalidIndexEntry);
             }

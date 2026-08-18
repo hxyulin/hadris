@@ -254,6 +254,17 @@ impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for Error {
     }
 }
 
+#[cfg(all(feature = "write", any(feature = "sync", feature = "async")))]
+impl Error {
+    /// An on-disk LBA field whose byte offset is not representable.
+    pub(crate) fn lba_offset_overflow() -> Self {
+        Self::Io(hadris_io::Error::new(
+            hadris_io::ErrorKind::InvalidInput,
+            "LBA value overflows byte offset",
+        ))
+    }
+}
+
 #[cfg(feature = "std")]
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {

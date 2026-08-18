@@ -1226,42 +1226,19 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                         current_dir.pop();
                     }
                     TreeWalkerItem::File(file) => {
-                        if let InputEntryKind::File(contents) = &file.kind {
-                            // Handle zero-size files specially:
-                            // Per ISO 9660, empty files should have extent location of 0
-                            // since there is no data to reference.
-                            let entry = if contents.is_empty() {
-                                DirectoryRef {
-                                    extent: LogicalSector(0),
-                                    size: 0,
-                                }
-                            } else {
-                                let start = self.data.pad_align_sector().await?;
-                                self.data.write_all(contents).await?;
-                                DirectoryRef {
-                                    extent: start,
-                                    size: contents.len(),
-                                }
-                            };
-                            let dir = self.written_files.get_mut(&current_dir);
-                            dir.files.push(WrittenFile {
-                                name: file.name.clone(),
-                                entry,
-                                kind: file.kind.clone(),
-                                metadata: file.metadata,
-                            });
-                        } else {
-                            let dir = self.written_files.get_mut(&current_dir);
-                            dir.files.push(WrittenFile {
-                                name: file.name.clone(),
-                                entry: DirectoryRef {
-                                    extent: LogicalSector(0),
-                                    size: 0,
-                                },
-                                kind: file.kind.clone(),
-                                metadata: file.metadata,
-                            });
-                        }
+                        // Extents are assigned in the planning pass below.
+                        // Empty files keep extent 0 (per ISO 9660 they have no
+                        // data to reference).
+                        let dir = self.written_files.get_mut(&current_dir);
+                        dir.files.push(WrittenFile {
+                            name: file.name.clone(),
+                            entry: DirectoryRef {
+                                extent: LogicalSector(0),
+                                size: 0,
+                            },
+                            kind: file.kind.clone(),
+                            metadata: file.metadata,
+                        });
                     }
                 };
             }
@@ -1276,11 +1253,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             relocate_deep_directories(&mut self.written_files);
         }
 
-        fn collect_postorder(
+        // Pre-order: parents before children. libarchive (bsdtar) scans
+        // directories as a stream and ignores a directory whose extent is
+        // lower than its current position, so extents must ascend from
+        // parents to children.
+        fn collect_preorder(
             files: &WrittenFiles,
             id: &writer::DirectoryId,
             output: &mut Vec<writer::DirectoryId>,
         ) {
+            output.push(id.clone());
             let dir = files.get(id);
             for (index, child) in dir.dirs.iter().enumerate() {
                 if matches!(child.relocation, DirectoryRelocation::Placeholder { .. }) {
@@ -1288,41 +1270,152 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 }
                 let mut child_id = id.clone();
                 child_id.push(index);
-                collect_postorder(files, &child_id, output);
+                collect_preorder(files, &child_id, output);
             }
-            output.push(id.clone());
         }
 
         let root_id = self.written_files.root_dir();
         let mut order = Vec::new();
-        collect_postorder(&self.written_files, &root_id, &mut order);
-        let mut relocation_refs = BTreeMap::new();
-        for directory_id in order {
-            let is_root = directory_id == root_id;
-            for ty in &self.entry_types {
-                let dir = self.written_files.get_mut(&directory_id);
-                Self::write_directory(
-                    &mut self.data,
-                    *ty,
-                    dir,
-                    is_root,
-                    &mut self.inode_counter,
-                    self.ops.features.rock_ridge.as_ref(),
-                    &self.rrip_time,
-                    &relocation_refs,
-                )
-                .await?;
-            }
-            let dir = self.written_files.get(&directory_id);
-            for (ty, reference) in &dir.entries {
-                relocation_refs.insert((dir.id, *ty), *reference);
-            }
-            if let DirectoryRelocation::Moved { id, .. } = dir.relocation {
-                for (ty, reference) in &dir.entries {
-                    relocation_refs.insert((id, *ty), *reference);
+        collect_preorder(&self.written_files, &root_id, &mut order);
+
+        let mut file_order = Vec::new();
+        for directory_id in &order {
+            let dir = self.written_files.get(directory_id);
+            for (index, file) in dir.files.iter().enumerate() {
+                if matches!(&file.kind, InputEntryKind::File(contents) if !contents.is_empty()) {
+                    file_order.push((directory_id.clone(), index));
                 }
             }
         }
+
+        let sector_size = self.ops.sector_size as u64;
+        let rrip_options = self.ops.features.rock_ridge;
+        let rrip_time = self.rrip_time;
+        let entry_types = self.entry_types.clone();
+        let mut inode_counter = self.inode_counter;
+
+        // ── Planning pass ──
+        //
+        // Build every directory's records once to measure its size, then
+        // assign directory extents in pre-order and file data extents after
+        // the whole directory region. Record sizes never depend on extent
+        // *values*, so the write pass below reproduces this layout exactly.
+        // libarchive requires continuation areas to precede the data extents
+        // of regular files carrying CE entries, which file-data-last gives.
+        let mut cursor = self
+            .data
+            .stream_position()
+            .await
+            .map_err(io::Error::erase)?;
+        let mut relocation_refs: BTreeMap<(usize, EntryType), DirectoryRef> = BTreeMap::new();
+        // Default refs tolerate forward references (unassigned child extents,
+        // relocation targets) while sizing; the write pass rebuilds the
+        // records with the real values.
+        let mut default_refs: BTreeMap<(usize, EntryType), DirectoryRef> = BTreeMap::new();
+        for directory_id in &order {
+            let dir = self.written_files.get(directory_id);
+            for ty in &entry_types {
+                default_refs.insert((dir.id, *ty), DirectoryRef::default());
+                if let DirectoryRelocation::Moved { id, .. } = dir.relocation {
+                    default_refs.insert((id, *ty), DirectoryRef::default());
+                }
+            }
+            let dir = self.written_files.get_mut(directory_id);
+            for ty in &entry_types {
+                dir.entries.entry(*ty).or_default();
+            }
+        }
+        for directory_id in &order {
+            let is_root = directory_id == &root_id;
+            for ty in &entry_types {
+                let dir = self.written_files.get(directory_id);
+                let records = Self::build_directory_records(
+                    *ty,
+                    dir,
+                    is_root,
+                    &mut inode_counter,
+                    rrip_options.as_ref(),
+                    &rrip_time,
+                    &default_refs,
+                )?;
+                let (extent, size_sectors) =
+                    Self::layout_directory_records(cursor, sector_size, &records);
+                let ca_len = records
+                    .iter()
+                    .filter(|r| r.split.has_overflow())
+                    .map(|r| r.split.overflow.len() as u64)
+                    .sum::<u64>();
+                let reference = DirectoryRef {
+                    extent: LogicalSector(extent as usize),
+                    size: (size_sectors * sector_size) as usize,
+                };
+                let dir = self.written_files.get_mut(directory_id);
+                dir.entries.insert(*ty, reference);
+                relocation_refs.insert((dir.id, *ty), reference);
+                if let DirectoryRelocation::Moved { id, .. } = dir.relocation {
+                    relocation_refs.insert((id, *ty), reference);
+                }
+                cursor = (extent + size_sectors) * sector_size + ca_len;
+            }
+        }
+        for (directory_id, index) in &file_order {
+            let aligned = (cursor + sector_size - 1) & !(sector_size - 1);
+            let dir = self.written_files.get_mut(directory_id);
+            let file = &mut dir.files[*index];
+            let len = match &file.kind {
+                InputEntryKind::File(contents) => contents.len() as u64,
+                _ => 0,
+            };
+            file.entry = DirectoryRef {
+                extent: LogicalSector((aligned / sector_size) as usize),
+                size: len as usize,
+            };
+            cursor = aligned + len;
+        }
+
+        // ── Write pass ──
+        //
+        // Rebuild the records now that every extent is known and write
+        // directories in pre-order, each followed by its continuation area,
+        // then all file contents.
+        for directory_id in &order {
+            let is_root = directory_id == &root_id;
+            for ty in &entry_types {
+                let dir = self.written_files.get(directory_id);
+                let expected = dir.entries.get(ty).copied().unwrap_or_default();
+                let mut records = Self::build_directory_records(
+                    *ty,
+                    dir,
+                    is_root,
+                    &mut inode_counter,
+                    rrip_options.as_ref(),
+                    &rrip_time,
+                    &relocation_refs,
+                )?;
+                Self::write_directory_records(&mut self.data, sector_size, expected, &mut records)
+                    .await?;
+            }
+        }
+        self.inode_counter = inode_counter;
+
+        for (directory_id, index) in &file_order {
+            let expected = {
+                let dir = self.written_files.get(directory_id);
+                dir.files[*index].entry
+            };
+            let start = self.data.pad_align_sector().await?;
+            if start != expected.extent {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "file extent prediction did not match the written layout",
+                ));
+            }
+            let dir = self.written_files.get(directory_id);
+            if let InputEntryKind::File(contents) = &dir.files[*index].kind {
+                self.data.write_all(contents).await?;
+            }
+        }
+
         fn collect_moved(
             directory: &WrittenDirectory,
             output: &mut Vec<(usize, usize, BTreeMap<EntryType, DirectoryRef>)>,
@@ -1823,22 +1916,25 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     /// 2. If any have overflow: write a shared continuation area, patch CE entries
     /// 3. Write directory records with the inline SU bytes
     #[allow(clippy::too_many_arguments)]
-    async fn write_directory(
-        data: &mut IsoCursor<DATA>,
+    /// Build the pending records for one directory: dot/dotdot, child
+    /// directories, and files, with RRIP system-use areas split against the
+    /// inline budget, names deduplicated, and records ordered by File
+    /// Identifier (ECMA-119 9.3). Sizes never depend on extent values, so
+    /// the planning pass calls this with placeholder refs and the write pass
+    /// rebuilds with the real ones.
+    fn build_directory_records(
         ty: EntryType,
-        dir: &mut WrittenDirectory,
+        dir: &WrittenDirectory,
         is_root: bool,
         inode_counter: &mut u32,
         rrip_options: Option<&RripOptions>,
         fallback_time: &[u8; 7],
         relocation_refs: &BTreeMap<(usize, EntryType), DirectoryRef>,
-    ) -> io::Result<()> {
+    ) -> io::Result<Vec<PendingRecord>> {
         let rrip_options = rrip_options.filter(|options| options.enabled);
         let has_rrip = ty.supports_rrip() && rrip_options.is_some();
         let options = rrip_options.copied().unwrap_or_else(RripOptions::disabled);
         let directory_nlink = 2 + dir.dirs.len() as u32;
-
-        // ── Phase 1: Build all pending records ──
 
         let mut records: Vec<PendingRecord> = Vec::new();
 
@@ -2040,25 +2136,67 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 .then_with(|| a.name.cmp(&b.name))
         });
 
-        // ── Phase 2: Write continuation area if any records have overflow ──
+        Ok(records)
+    }
 
+    /// Compute the sector span `records` will occupy when written at byte
+    /// position `pos`: returns (start sector, size in sectors). Mirrors the
+    /// write logic in [`Self::write_directory_records`] exactly.
+    fn layout_directory_records(
+        pos: u64,
+        sector_size: u64,
+        records: &[PendingRecord],
+    ) -> (u64, u64) {
+        let align = |pos: u64| (pos + sector_size - 1) & !(sector_size - 1);
+        let start = align(pos);
+        let mut pos = start;
+        for record in records {
+            let record_size = DirectoryRecord::new(
+                &record.name,
+                &record.split.inline,
+                record.dir_ref,
+                record.flags,
+            )
+            .size() as u64;
+            let remaining = sector_size - pos % sector_size;
+            if record_size > remaining {
+                pos += remaining;
+            }
+            pos += record_size;
+        }
+        let end = align(pos);
+        (start / sector_size, (end - start) / sector_size)
+    }
+
+    /// Write records at the extent the planning pass assigned, followed by
+    /// the continuation area their CE entries are patched to point at.
+    /// Fails if the written layout does not match the plan.
+    async fn write_directory_records(
+        data: &mut IsoCursor<DATA>,
+        sector_size: u64,
+        expected: DirectoryRef,
+        records: &mut [PendingRecord],
+    ) -> io::Result<()> {
         let has_overflow = records.iter().any(|r| r.split.has_overflow());
         if has_overflow {
-            let ca_sector = data.pad_align_sector().await?;
+            let ca_sector = expected.extent.0 as u64 + expected.size as u64 / sector_size;
             let mut offset = 0u32;
-            for record in &mut records {
+            for record in records.iter_mut() {
                 if record.split.has_overflow() {
-                    record.split.patch_ce(ca_sector.0 as u32, offset);
-                    data.write_all(&record.split.overflow).await?;
+                    record.split.patch_ce(ca_sector as u32, offset);
                     offset += record.split.overflow.len() as u32;
                 }
             }
         }
 
-        // ── Phase 3: Write directory records with inline SU bytes ──
-
         let start = data.pad_align_sector().await?;
-        for record in &records {
+        if start != expected.extent {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "directory extent prediction did not match the written layout",
+            ));
+        }
+        for record in records.iter() {
             let directory_record = DirectoryRecord::new(
                 &record.name,
                 &record.split.inline,
@@ -2076,14 +2214,20 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         }
         let end = data.pad_align_sector().await?;
         let size = (end.0 - start.0) * data.sector_size;
+        if size != expected.size {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "directory size prediction did not match the written layout",
+            ));
+        }
 
-        dir.entries.insert(
-            ty,
-            DirectoryRef {
-                extent: start,
-                size,
-            },
-        );
+        if has_overflow {
+            for record in records.iter() {
+                if record.split.has_overflow() {
+                    data.write_all(&record.split.overflow).await?;
+                }
+            }
+        }
         Ok(())
     }
 }

@@ -1,0 +1,5 @@
+# Partition table magic tokens for libFuzzer (-dict=fuzz/dictionaries/part.dict)
+mbr_sig="\x55\xaa"
+gpt_sig="EFI PART"
+protective_type="\xee"
+gpt_header_size="\x5c\x00\x00\x00"

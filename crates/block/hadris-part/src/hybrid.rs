@@ -239,6 +239,12 @@ impl HybridMbrBuilder {
             let first_native = gpt_entry.first_lba.to_ne();
             let last_native = gpt_entry.last_lba.to_ne();
 
+            if first_native > last_native {
+                return Err(Error::InvalidHybridMbr {
+                    reason: "GPT partition has an inverted LBA range",
+                });
+            }
+
             if last_native > u32::MAX as u64 {
                 return Err(Error::InvalidHybridMbr {
                     reason: "GPT partition extends beyond MBR 32-bit limit",

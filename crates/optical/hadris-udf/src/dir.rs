@@ -106,7 +106,10 @@ impl FileIdentifierDescriptor {
         let file_version_number = u16::from_le_bytes([data[16], data[17]]);
         let file_characteristics = data[18];
         let file_identifier_length = data[19];
-        let icb = (*bytemuck::from_bytes::<LongAllocationDescriptor>(&data[20..36])).into_native();
+        // `data` starts at an arbitrary FID offset, so the ICB field can be
+        // unaligned; read it without requiring alignment.
+        let icb =
+            bytemuck::pod_read_unaligned::<LongAllocationDescriptor>(&data[20..36]).into_native();
         let implementation_use_length = u16::from_le_bytes([data[36], data[37]]);
 
         let fid = Self {

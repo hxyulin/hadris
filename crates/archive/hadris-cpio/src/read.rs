@@ -254,9 +254,17 @@ impl<R: Read> CpioArchiveReader<R> {
 
     /// Read entry data into `buf`. The buffer must be exactly `entry.file_size()` bytes.
     /// After reading, skips any padding to align to 4-byte boundary.
+    ///
+    /// Returns [`Error::BufferSizeMismatch`] if `buf.len()` differs from the
+    /// entry's file size, before any data is read.
     pub async fn read_entry_data(&mut self, entry: &CpioEntry<'_>, buf: &mut [u8]) -> Result<()> {
         let size = entry.file_size() as usize;
-        assert_eq!(buf.len(), size, "buffer size must match entry file size");
+        if buf.len() != size {
+            return Err(Error::BufferSizeMismatch {
+                expected: size,
+                actual: buf.len(),
+            });
+        }
         if size > 0 {
             self.reader.read_exact(&mut buf[..size]).await?;
             self.offset += size as u64;

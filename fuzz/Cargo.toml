@@ -22,8 +22,10 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 hadris-cpio = { path = "../crates/archive/hadris-cpio" }
-hadris-fat = { path = "../crates/block/hadris-fat" }
+hadris-fat = { path = "../crates/block/hadris-fat", features = ["unstable-exfat"] }
 hadris-iso = { path = "../crates/optical/hadris-iso", features = ["read", "joliet"] }
+hadris-ntfs = { path = "../crates/block/hadris-ntfs" }
+hadris-part = { path = "../crates/block/hadris-part" }
 hadris-udf = { path = "../crates/optical/hadris-udf" }
 
 # Keep line-table debug info so crash backtraces point at real source lines.
@@ -38,6 +40,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "exfat_read"
+path = "fuzz_targets/exfat_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "fat_read"
 path = "fuzz_targets/fat_read.rs"
 test = false
@@ -45,8 +54,29 @@ doc = false
 bench = false
 
 [[bin]]
+name = "fat_ops"
+path = "fuzz_targets/fat_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "iso_read"
 path = "fuzz_targets/iso_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ntfs_read"
+path = "fuzz_targets/ntfs_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "part_read"
+path = "fuzz_targets/part_read.rs"
 test = false
 doc = false
 bench = false

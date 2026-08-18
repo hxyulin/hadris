@@ -126,7 +126,7 @@ impl DiskGeometry {
             return lba;
         }
         let mask = alignment_sectors - 1;
-        (lba + mask) & !mask
+        (lba.saturating_add(mask)) & !mask
     }
 
     /// Aligns an LBA down to the previous alignment boundary.
@@ -204,7 +204,7 @@ impl DiskGeometry {
         let entry_sectors = entry_bytes.div_ceil(self.block_size as u64);
         // Last LBA is total_blocks - 1
         // Backup header at last LBA, backup entries before that
-        self.total_blocks - 1 - entry_sectors - 1
+        self.total_blocks.saturating_sub(entry_sectors + 2)
     }
 
     /// Calculates the last usable LBA aligned down to the default alignment.
@@ -216,7 +216,8 @@ impl DiskGeometry {
     pub const fn gpt_last_usable_lba_aligned(&self, num_entries: u32, entry_size: u32) -> u64 {
         let last = self.gpt_last_usable_lba(num_entries, entry_size);
         // Align down and subtract 1 to stay within bounds
-        self.align_down(last + 1, self.default_alignment()) - 1
+        self.align_down(last.saturating_add(1), self.default_alignment())
+            .saturating_sub(1)
     }
 
     /// Calculates the usable space in sectors for GPT partitions.

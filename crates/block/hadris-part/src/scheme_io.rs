@@ -64,6 +64,13 @@ impl GptDiskReadExt for GptDisk {
         reader: &mut R,
         block_size: u32,
     ) -> Result<Self> {
+        if block_size < GptHeader::STANDARD_HEADER_SIZE {
+            return Err(Error::InvalidBlockSize {
+                size: block_size,
+                minimum: GptHeader::STANDARD_HEADER_SIZE,
+            });
+        }
+
         // Read primary GPT header at LBA 1
         let primary_header = GptHeader::read_from_lba(reader, 1, block_size).await?;
 
@@ -84,12 +91,41 @@ impl GptDiskReadExt for GptDisk {
 
         // Read partition entries
         let num_entries = primary_header.num_partition_entries.to_ne() as usize;
+
+        // `num_entries` and `partition_entry_lba` are untrusted on-disk
+        // values; bound the entry array against the image size before
+        // allocating, otherwise a bogus count forces a huge allocation.
+        let image_len = reader
+            .seek(SeekFrom::End(0))
+            .await
+            .map_err(Error::from)?;
+        let entry_array = primary_header
+            .partition_entry_lba
+            .to_ne()
+            .checked_mul(u64::from(block_size))
+            .and_then(|start| {
+                start
+                    .checked_add(num_entries as u64 * u64::from(entry_size))
+                    .map(|end| (start, end))
+            });
+        let available = image_len / u64::from(block_size);
+        let Some((entries_start, entries_end)) = entry_array else {
+            return Err(Error::DiskTooSmall {
+                required: u64::MAX,
+                available,
+            });
+        };
+        if entries_end > image_len {
+            return Err(Error::DiskTooSmall {
+                required: entries_end.div_ceil(u64::from(block_size)),
+                available,
+            });
+        }
+
         let mut entries = alloc::vec![GptPartitionEntry::default(); num_entries];
 
         reader
-            .seek(SeekFrom::Start(
-                primary_header.partition_entry_lba.to_ne() * block_size as u64,
-            ))
+            .seek(SeekFrom::Start(entries_start))
             .await
             .map_err(Error::from)?;
 
@@ -228,10 +264,16 @@ impl GptDiskWriteExt for GptDisk {
             .await?;
 
         // Write primary partition entries starting at partition_entry_lba
+        let Some(primary_entries_offset) = self
+            .primary_header
+            .partition_entry_lba
+            .to_ne()
+            .checked_mul(u64::from(self.block_size))
+        else {
+            return Err(Error::lba_offset_overflow());
+        };
         writer
-            .seek(SeekFrom::Start(
-                self.primary_header.partition_entry_lba.to_ne() * self.block_size as u64,
-            ))
+            .seek(SeekFrom::Start(primary_entries_offset))
             .await
             .map_err(Error::from)?;
 
@@ -243,10 +285,16 @@ impl GptDiskWriteExt for GptDisk {
         }
 
         // Write backup partition entries
+        let Some(backup_entries_offset) = self
+            .backup_header
+            .partition_entry_lba
+            .to_ne()
+            .checked_mul(u64::from(self.block_size))
+        else {
+            return Err(Error::lba_offset_overflow());
+        };
         writer
-            .seek(SeekFrom::Start(
-                self.backup_header.partition_entry_lba.to_ne() * self.block_size as u64,
-            ))
+            .seek(SeekFrom::Start(backup_entries_offset))
             .await
             .map_err(Error::from)?;
 
@@ -283,10 +331,16 @@ impl GptDiskWriteExt for GptDisk {
             .await?;
 
         // Write primary partition entries
+        let Some(primary_entries_offset) = self
+            .primary_header
+            .partition_entry_lba
+            .to_ne()
+            .checked_mul(u64::from(self.block_size))
+        else {
+            return Err(Error::lba_offset_overflow());
+        };
         writer
-            .seek(SeekFrom::Start(
-                self.primary_header.partition_entry_lba.to_ne() * self.block_size as u64,
-            ))
+            .seek(SeekFrom::Start(primary_entries_offset))
             .await
             .map_err(Error::from)?;
 
@@ -298,10 +352,16 @@ impl GptDiskWriteExt for GptDisk {
         }
 
         // Write backup partition entries
+        let Some(backup_entries_offset) = self
+            .backup_header
+            .partition_entry_lba
+            .to_ne()
+            .checked_mul(u64::from(self.block_size))
+        else {
+            return Err(Error::lba_offset_overflow());
+        };
         writer
-            .seek(SeekFrom::Start(
-                self.backup_header.partition_entry_lba.to_ne() * self.block_size as u64,
-            ))
+            .seek(SeekFrom::Start(backup_entries_offset))
             .await
             .map_err(Error::from)?;
 

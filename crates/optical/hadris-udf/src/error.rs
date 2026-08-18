@@ -43,6 +43,10 @@ pub enum Error {
     PathTooLong,
     /// Invalid filename encoding
     InvalidEncoding,
+    /// Allocation descriptors do not fit in a File Entry sector
+    TooManyAllocationDescriptors,
+    /// Directory nesting exceeds the supported depth
+    DirectoryNestingTooDeep,
     /// byte casting failed - the data buffer size doesn't match the target struct size.
     PodCastError(bytemuck::PodCastError),
 }
@@ -82,6 +86,10 @@ impl core::fmt::Display for Error {
             Self::NotAFile => write!(f, "not a file"),
             Self::PathTooLong => write!(f, "path too long"),
             Self::InvalidEncoding => write!(f, "invalid filename encoding"),
+            Self::TooManyAllocationDescriptors => {
+                write!(f, "allocation descriptors exceed one File Entry sector")
+            }
+            Self::DirectoryNestingTooDeep => write!(f, "directory nesting too deep"),
             Self::PodCastError(err) => write!(
                 f,
                 "byte casting failed - the data buffer size doesn't match the target struct size. {err}"

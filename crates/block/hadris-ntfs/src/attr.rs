@@ -596,7 +596,10 @@ pub struct IndexEntryInfo {
 /// @hadris-tests read::large_directory_uses_index_allocation
 /// @hadris-note Enumerates filename-index entries but does not expose child-node VCN pointers for keyed B-tree descent.
 pub fn parse_index_entries(data: &[u8], node_header_offset: usize) -> Result<Vec<IndexEntryInfo>> {
-    if node_header_offset + 16 > data.len() {
+    let Some(header_end) = node_header_offset.checked_add(16) else {
+        return Err(NtfsError::InvalidIndexEntry);
+    };
+    if header_end > data.len() {
         return Err(NtfsError::InvalidIndexEntry);
     }
 

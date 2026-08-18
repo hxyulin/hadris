@@ -119,12 +119,11 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                         TagIdentifier::PrimaryVolumeDescriptor,
                         sector as u32,
                     )?;
-                    let desc: PrimaryVolumeDescriptor =
-                        (*bytemuck::try_from_bytes::<PrimaryVolumeDescriptor>(
-                            &buffer[..size_of::<PrimaryVolumeDescriptor>()],
-                        )
-                        .map_err(Error::PodCastError)?)
-                        .into_native();
+                    let desc = bytemuck::try_pod_read_unaligned::<PrimaryVolumeDescriptor>(
+                        &buffer[..size_of::<PrimaryVolumeDescriptor>()],
+                    )
+                    .map_err(Error::PodCastError)?
+                    .into_native();
                     pvd = Some(desc);
                 }
                 TagIdentifier::PartitionDescriptor => {
@@ -133,12 +132,11 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                         TagIdentifier::PartitionDescriptor,
                         sector as u32,
                     )?;
-                    let desc: PartitionDescriptor =
-                        (*bytemuck::try_from_bytes::<PartitionDescriptor>(
-                            &buffer[..size_of::<PartitionDescriptor>()],
-                        )
-                        .map_err(Error::PodCastError)?)
-                        .into_native();
+                    let desc = bytemuck::try_pod_read_unaligned::<PartitionDescriptor>(
+                        &buffer[..size_of::<PartitionDescriptor>()],
+                    )
+                    .map_err(Error::PodCastError)?
+                    .into_native();
                     partition = Some(desc);
                 }
                 TagIdentifier::LogicalVolumeDescriptor => {
@@ -147,12 +145,11 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                         TagIdentifier::LogicalVolumeDescriptor,
                         sector as u32,
                     )?;
-                    let desc: LogicalVolumeDescriptor =
-                        (*bytemuck::try_from_bytes::<LogicalVolumeDescriptor>(
-                            &buffer[..size_of::<LogicalVolumeDescriptor>()],
-                        )
-                        .map_err(Error::PodCastError)?)
-                        .into_native();
+                    let desc = bytemuck::try_pod_read_unaligned::<LogicalVolumeDescriptor>(
+                        &buffer[..size_of::<LogicalVolumeDescriptor>()],
+                    )
+                    .map_err(Error::PodCastError)?
+                    .into_native();
                     lvd = Some(desc);
                 }
                 TagIdentifier::TerminatingDescriptor => {
@@ -196,12 +193,11 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
             icb.logical_block_num,
         )
         .map_err(|_| Error::InvalidFsd)?;
-        let fsd: FileSetDescriptor =
-            (*bytemuck::try_from_bytes::<FileSetDescriptor>(
-                &buffer[..size_of::<FileSetDescriptor>()],
-            )
-            .map_err(|_| Error::InvalidFsd)?)
-            .into_native();
+        let fsd = bytemuck::try_pod_read_unaligned::<FileSetDescriptor>(
+            &buffer[..size_of::<FileSetDescriptor>()],
+        )
+        .map_err(|_| Error::InvalidFsd)?
+        .into_native();
         Ok(fsd)
     }
 
@@ -292,9 +288,9 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                         TagIdentifier::FileEntry,
                         icb.logical_block_num,
                     )?;
-                    let fe = (*bytemuck::from_bytes::<FileEntry>(
+                    let fe = bytemuck::pod_read_unaligned::<FileEntry>(
                         &buffer[..FileEntry::BASE_SIZE],
-                    ))
+                    )
                     .into_native();
                     (
                         fe.size(),
@@ -310,9 +306,9 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                         TagIdentifier::ExtendedFileEntry,
                         icb.logical_block_num,
                     )?;
-                    let efe = (*bytemuck::from_bytes::<ExtendedFileEntry>(
+                    let efe = bytemuck::pod_read_unaligned::<ExtendedFileEntry>(
                         &buffer[..ExtendedFileEntry::BASE_SIZE],
-                    ))
+                    )
                     .into_native();
                     (
                         efe.size(),
@@ -357,9 +353,12 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                     if chunk.len() < 8 {
                         break;
                     }
-                    let sad = (*bytemuck::from_bytes::<
+                    // `alloc_offset` includes the untrusted extended-attributes
+                    // length, so chunks can be unaligned; read without
+                    // requiring alignment.
+                    let sad = bytemuck::pod_read_unaligned::<
                         descriptor::ShortAllocationDescriptor,
-                    >(chunk))
+                    >(chunk)
                     .into_native();
                     if sad.length() == 0 {
                         break;
@@ -378,7 +377,8 @@ impl<DATA: Read + Seek> UdfVolume<DATA> {
                         break;
                     }
                     let lad =
-                        (*bytemuck::from_bytes::<LongAllocationDescriptor>(chunk)).into_native();
+                        bytemuck::pod_read_unaligned::<LongAllocationDescriptor>(chunk)
+                            .into_native();
                     if lad.length() == 0 {
                         break;
                     }
