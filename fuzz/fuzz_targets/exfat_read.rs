@@ -15,10 +15,14 @@ use std::io::Cursor;
 use hadris_fat::exfat::{ExFatFileEntry, ExFatFileReader, ExFatVolume};
 use hadris_fat::io::Read;
 
-/// `find` re-scans a directory from the start, so cap name re-resolution
-/// lookups per directory to keep the walk from going quadratic under the
-/// flat work budget.
+/// `find` re-scans a directory from the start, so bound name re-resolution
+/// lookups two ways: a per-directory cap keeps coverage spread across
+/// directories, and a flat per-input budget bounds the total — on
+/// budget-exhausting inputs (tens of thousands of directories) a per-dir
+/// cap alone still adds up to seconds of oracle time per exec, which
+/// libFuzzer flags as slow units.
 const MAX_LOOKUPS_PER_DIR: usize = 32;
+const LOOKUP_BUDGET: u32 = 8192;
 
 fn drive(data: &[u8]) {
     let Ok(fs) = ExFatVolume::open(Cursor::new(data)) else {
@@ -49,6 +53,7 @@ fn drive(data: &[u8]) {
     // fat_read — a corrupt directory graph fans out exponentially, so bound
     // total entries processed on ANY input.
     let mut budget: u32 = 200_000;
+    let mut lookup_budget = LOOKUP_BUDGET;
     let mut stack = vec![(fs.root_dir(), 0u32)];
     while let Some((dir, depth)) = stack.pop() {
         if depth > 64 {
@@ -72,8 +77,9 @@ fn drive(data: &[u8]) {
             // re-resolve. Kind/size are only compared when the resolved name is
             // byte-identical and unseen before — a corrupt up-case table can
             // otherwise legitimately alias the name to a different entry.
-            if !saw_error && lookups < MAX_LOOKUPS_PER_DIR {
+            if !saw_error && lookups < MAX_LOOKUPS_PER_DIR && lookup_budget > 0 {
                 lookups += 1;
+                lookup_budget -= 1;
                 match dir.find(&entry.name) {
                     Ok(Some(found)) => {
                         if is_new_name && found.name == entry.name {

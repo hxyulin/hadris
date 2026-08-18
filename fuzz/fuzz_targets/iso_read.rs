@@ -13,10 +13,14 @@ use std::io::Cursor;
 
 use hadris_iso::read::{DirEntry, IsoImage};
 
-/// `find` re-reads the whole directory, so cap name re-resolution lookups
-/// per directory to keep the walk from going quadratic under the flat work
-/// budget.
+/// `find` re-reads the whole directory, so bound name re-resolution lookups
+/// two ways: a per-directory cap keeps coverage spread across directories,
+/// and a flat per-input budget bounds the total — on budget-exhausting
+/// inputs (tens of thousands of directories) a per-dir cap alone still adds
+/// up to seconds of oracle time per exec, which libFuzzer flags as slow
+/// units.
 const MAX_LOOKUPS_PER_DIR: usize = 32;
+const LOOKUP_BUDGET: u32 = 8192;
 
 /// A query string that `IsoDir::find` (via `matches_name`) is guaranteed to
 /// match against this entry, or `None` if no such query can be derived.
@@ -54,6 +58,7 @@ fn drive(data: &[u8]) {
     // entries processed on ANY input.
     // ponytail: budget over visited-set — no per-format extent accessor needed.
     let mut budget: u32 = 200_000;
+    let mut lookup_budget = LOOKUP_BUDGET;
     let mut stack = vec![(image.root_dir().dir_ref(), 0u32)];
     while let Some((dref, depth)) = stack.pop() {
         if depth > 64 {
@@ -81,9 +86,10 @@ fn drive(data: &[u8]) {
             // different path than the streaming iterator, so an `Err` is not
             // asserted on — but an `Ok(None)` for a self-matching query is a
             // genuine wrong result.
-            if !saw_error && lookups < MAX_LOOKUPS_PER_DIR {
+            if !saw_error && lookups < MAX_LOOKUPS_PER_DIR && lookup_budget > 0 {
                 lookups += 1;
                 if let Some(query) = lookup_query(&entry) {
+                    lookup_budget -= 1;
                     match dir.find(&query) {
                         Ok(Some(found)) => {
                             if is_new_name && found.name() == entry.name() {

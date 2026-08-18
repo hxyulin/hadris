@@ -13,10 +13,14 @@ use std::io::Cursor;
 
 use hadris_fat::{FatVolume, FatVolumeReadExt, FileEntry};
 
-/// `find` re-scans a directory from the start, so cap name re-resolution
-/// lookups per directory to keep the walk from going quadratic under the
-/// flat work budget.
+/// `find` re-scans a directory from the start, so bound name re-resolution
+/// lookups two ways: a per-directory cap keeps coverage spread across
+/// directories, and a flat per-input budget bounds the total — on
+/// budget-exhausting inputs (tens of thousands of directories) a per-dir
+/// cap alone still adds up to seconds of oracle time per exec, which
+/// libFuzzer flags as slow units.
 const MAX_LOOKUPS_PER_DIR: usize = 32;
+const LOOKUP_BUDGET: u32 = 8192;
 
 fn drive(data: &[u8]) {
     let Ok(fs) = FatVolume::open(Cursor::new(data)) else {
@@ -52,6 +56,7 @@ fn drive(data: &[u8]) {
     // work budget bounds total entries processed on ANY input.
     // ponytail: budget over visited-set — no per-format cluster accessor needed.
     let mut budget: u32 = 200_000;
+    let mut lookup_budget = LOOKUP_BUDGET;
     let mut stack = vec![(fs.root_dir(), 0u32)];
     while let Some((dir, depth)) = stack.pop() {
         if depth > 64 {
@@ -80,13 +85,14 @@ fn drive(data: &[u8]) {
             // display name round-trips through `find`'s matcher (lossy OEM
             // decoding can break that for short names) and no earlier item in
             // this directory errored (`find` would hit the same error first).
-            if !saw_error && lookups < MAX_LOOKUPS_PER_DIR {
+            if !saw_error && lookups < MAX_LOOKUPS_PER_DIR && lookup_budget > 0 {
                 lookups += 1;
                 let self_findable = match fe.long_name() {
                     Some(lfn) => lfn.eq_str(&name),
                     None => fe.short_name().matches(&name),
                 };
                 if self_findable {
+                    lookup_budget -= 1;
                     match dir.find(&name) {
                         Ok(Some(found)) => {
                             if is_new_name && found.name() == name {
