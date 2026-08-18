@@ -70,13 +70,19 @@ pub enum PartitionType {
 
 impl PartitionInfo {
     /// Returns the size in bytes (assuming 512-byte sectors).
+    ///
+    /// Saturates to `u64::MAX` on corrupt inputs whose sector count is
+    /// not representable in bytes.
     pub const fn size_bytes(&self) -> u64 {
-        self.size_sectors * 512
+        self.size_sectors.saturating_mul(512)
     }
 
     /// Returns the size in bytes for a given sector size.
+    ///
+    /// Saturates to `u64::MAX` on corrupt inputs whose sector count is
+    /// not representable in bytes.
     pub const fn size_bytes_with_sector_size(&self, sector_size: u32) -> u64 {
-        self.size_sectors * sector_size as u64
+        self.size_sectors.saturating_mul(sector_size as u64)
     }
 }
 
@@ -103,13 +109,13 @@ impl GptDisk {
     pub fn new(disk_sectors: u64, block_size: u32) -> Self {
         let entry_count = Self::DEFAULT_ENTRY_COUNT;
         let entry_size = core::mem::size_of::<GptPartitionEntry>() as u32;
-        let entries_per_sector = block_size / entry_size;
+        let entries_per_sector = (block_size / entry_size).max(1);
         let entry_sectors = entry_count.div_ceil(entries_per_sector);
 
         // First usable LBA is after: MBR (1) + GPT header (1) + entries
         let first_usable = 2 + entry_sectors as u64;
         // Last usable LBA is before: backup entries + backup header (1)
-        let last_usable = disk_sectors - 2 - entry_sectors as u64;
+        let last_usable = disk_sectors.saturating_sub(2 + entry_sectors as u64);
 
         let disk_guid = {
             #[cfg(feature = "rand")]
@@ -130,7 +136,7 @@ impl GptDisk {
             header_crc32: Le::<u32>::from_ne(0),
             reserved: Le::<u32>::from_ne(0),
             my_lba: Le::<u64>::from_ne(1),
-            alternate_lba: Le::<u64>::from_ne(disk_sectors - 1),
+            alternate_lba: Le::<u64>::from_ne(disk_sectors.saturating_sub(1)),
             first_usable_lba: Le::<u64>::from_ne(first_usable),
             last_usable_lba: Le::<u64>::from_ne(last_usable),
             disk_guid,
@@ -142,9 +148,11 @@ impl GptDisk {
 
         #[cfg_attr(not(feature = "crc"), allow(unused_mut))]
         let mut backup_header = GptHeader {
-            my_lba: Le::<u64>::from_ne(disk_sectors - 1),
+            my_lba: Le::<u64>::from_ne(disk_sectors.saturating_sub(1)),
             alternate_lba: Le::<u64>::from_ne(1),
-            partition_entry_lba: Le::<u64>::from_ne(disk_sectors - 1 - entry_sectors as u64),
+            partition_entry_lba: Le::<u64>::from_ne(
+                disk_sectors.saturating_sub(1 + entry_sectors as u64),
+            ),
             ..primary_header
         };
 

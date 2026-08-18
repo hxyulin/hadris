@@ -209,9 +209,13 @@ impl Chs {
 
     /// Converts this CHS address to an LBA address.
     ///
-    /// Returns `u32::MAX` for out-of-range CHS values.
+    /// Returns `u32::MAX` for out-of-range CHS values, and for invalid values
+    /// with a sector component of 0 (CHS sectors are 1-based).
     pub const fn as_lba(&self) -> u32 {
         if self.0[0] == 0xFF && self.0[1] == 0xFF && self.0[2] == 0xFF {
+            return u32::MAX;
+        }
+        if self.sector() == 0 {
             return u32::MAX;
         }
 
@@ -257,7 +261,7 @@ impl MbrPartition {
     /// Creates a new MBR partition entry.
     pub const fn new(part_type: MbrPartitionType, start_lba: u32, sector_count: u32) -> Self {
         let end_lba = if sector_count > 0 {
-            start_lba + sector_count - 1
+            start_lba.saturating_add(sector_count - 1)
         } else {
             start_lba
         };
@@ -308,10 +312,18 @@ impl MbrPartition {
     }
 
     /// Returns the ending LBA (inclusive).
+    ///
+    /// Saturates to `u32::MAX`: `start_lba` and `sector_count` come straight
+    /// from the on-disk entry, so their sum can exceed `u32::MAX` on a
+    /// corrupt image.
     pub const fn end_lba(&self) -> u32 {
         let start = self.start_lba.to_ne();
         let count = self.sector_count.to_ne();
-        if count == 0 { start } else { start + count - 1 }
+        if count == 0 {
+            start
+        } else {
+            start.saturating_add(count - 1)
+        }
     }
 }
 

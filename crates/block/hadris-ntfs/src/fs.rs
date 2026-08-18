@@ -95,6 +95,22 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
             .checked_mul(cluster_size as u64)
             .ok_or(NtfsError::InvalidVolumeGeometry)?;
 
+        // The record sizes derive from untrusted boot-sector fields (the
+        // exponent encoding reaches 2^63) and size every record buffer this
+        // filesystem allocates. A record must fit in the actual data source,
+        // so bound them before allocating — otherwise a tiny image with a
+        // bogus boot sector forces a huge allocation up front.
+        let image_len = data.seek(SeekFrom::End(0)).await?;
+        if mft_byte_offset
+            .saturating_add(mft_record_size as u64)
+            > image_len
+        {
+            return Err(NtfsError::InvalidVolumeGeometry);
+        }
+        if index_record_size as u64 > image_len {
+            return Err(NtfsError::InvalidRecordSize);
+        }
+
         // Read MFT record 0 ($MFT itself) directly from the known LCN.
         data.seek(SeekFrom::Start(mft_byte_offset)).await?;
         let mut record0 = vec![0u8; mft_record_size];
@@ -147,11 +163,18 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
     }
 
     async fn load_upcase(&mut self) -> Result<()> {
+        const UPCASE_BYTES: u64 = (u16::MAX as u64 + 1) * size_of::<u16>() as u64;
         let bytes = {
             let mut reader = FileReader::open_by_mft(self, MFT_RECORD_UPCASE).await?;
+            // The upcase table has exactly one u16 per code point; reject any
+            // other declared size up front so a corrupt $UpCase attribute
+            // cannot force an unbounded allocation in read_to_vec.
+            if reader.size() != UPCASE_BYTES {
+                return Err(NtfsError::InvalidUpcaseTable);
+            }
             reader.read_to_vec().await?
         };
-        if bytes.len() != (u16::MAX as usize + 1) * size_of::<u16>() {
+        if bytes.len() != UPCASE_BYTES as usize {
             return Err(NtfsError::InvalidUpcaseTable);
         }
 
@@ -251,6 +274,11 @@ impl<DATA: Read + Seek> NtfsFs<DATA> {
     /// Bytes per MFT record.
     pub fn mft_record_size(&self) -> usize {
         self.mft_record_size
+    }
+
+    /// Length of the underlying data source in bytes.
+    pub(crate) async fn data_len(&self) -> Result<u64> {
+        Ok(self.data.lock().seek(SeekFrom::End(0)).await?)
     }
 
     /// Open a file or directory by path (e.g., "/dir/subdir/file.txt").

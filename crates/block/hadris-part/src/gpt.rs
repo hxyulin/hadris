@@ -949,24 +949,28 @@ impl GptPartitionEntry {
     }
 
     /// Returns the partition size in sectors.
+    ///
+    /// Saturates to `u64::MAX`: an entry spanning `first_lba = 0` to
+    /// `last_lba = u64::MAX` is representable on disk but its size exceeds
+    /// `u64`.
     pub const fn size_sectors(&self) -> u64 {
         let first = self.first_lba.to_ne();
         let last = self.last_lba.to_ne();
         if self.is_unused() || last < first {
             0
         } else {
-            last - first + 1
+            (last - first).saturating_add(1)
         }
     }
 
     /// Returns the partition size in bytes (assuming 512-byte sectors).
     pub const fn size_bytes(&self) -> u64 {
-        self.size_sectors() * 512
+        self.size_sectors().saturating_mul(512)
     }
 
     /// Returns the partition size in bytes for a given sector size.
     pub const fn size_bytes_with_sector_size(&self, sector_size: u32) -> u64 {
-        self.size_sectors() * sector_size as u64
+        self.size_sectors().saturating_mul(sector_size as u64)
     }
 
     /// Sets the partition name from ASCII.

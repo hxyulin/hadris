@@ -221,12 +221,15 @@ pub trait PartitionInfoTrait {
     fn size_sectors(&self) -> u64;
 
     /// Returns the ending LBA of the partition (inclusive).
+    ///
+    /// Saturates to `u64::MAX` on corrupt inputs where
+    /// `start_lba + size_sectors` would overflow.
     fn end_lba(&self) -> u64 {
         let size = self.size_sectors();
         if size == 0 {
             self.start_lba()
         } else {
-            self.start_lba() + size - 1
+            self.start_lba().saturating_add(size - 1)
         }
     }
 
@@ -267,7 +270,9 @@ impl PartitionInfoTrait for GptPartitionEntry {
         if self.is_unused() || last < first {
             0
         } else {
-            last - first + 1
+            // Saturating: first=0/last=u64::MAX is representable on disk but
+            // its size exceeds u64.
+            (last - first).saturating_add(1)
         }
     }
 

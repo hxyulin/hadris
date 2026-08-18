@@ -61,8 +61,10 @@ impl GptHeaderReadExt for GptHeader {
         lba: u64,
         block_size: u32,
     ) -> crate::error::Result<Self> {
+        // `lba` may be an untrusted on-disk value; saturate instead of
+        // overflowing and let the seek/read fail on the impossible offset.
         reader
-            .seek(SeekFrom::Start(lba * block_size as u64))
+            .seek(SeekFrom::Start(lba.saturating_mul(u64::from(block_size))))
             .await
             .map_err(crate::error::Error::from)?;
         Self::read_from(reader).await
@@ -117,8 +119,11 @@ impl GptHeaderWriteExt for GptHeader {
                 minimum: GptHeaderRaw::SIZE as u32,
             });
         }
+        let Some(offset) = lba.checked_mul(u64::from(block_size)) else {
+            return Err(crate::error::Error::lba_offset_overflow());
+        };
         writer
-            .seek(SeekFrom::Start(lba * block_size as u64))
+            .seek(SeekFrom::Start(offset))
             .await
             .map_err(crate::error::Error::from)?;
 

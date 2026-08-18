@@ -86,6 +86,11 @@ pub(crate) async fn read_non_resident_data<DATA: Read + Seek>(
     cluster_size: u64,
 ) -> Result<alloc::vec::Vec<u8>> {
     let data_size = usize::try_from(data_size).map_err(|_| NtfsError::InvalidAttribute)?;
+    // Untrusted attribute length; bound it against the actual data source
+    // before allocating.
+    if data_size as u64 > data.seek(SeekFrom::End(0)).await? {
+        return Err(NtfsError::InvalidAttribute);
+    }
     let mut buf = vec![0u8; data_size];
     read_data_runs(data, runs, 0, &mut buf, cluster_size).await?;
     Ok(buf)
