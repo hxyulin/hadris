@@ -200,20 +200,35 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
         while written < buf.len() {
             // Check if we need a new cluster
             if self.current_cluster.is_none() || self.offset_in_cluster >= cluster_size {
-                // Allocate via the routed helper so the FAT cache (when
-                // installed) sees the mutation. The helper acquires both
-                // cache+data locks internally in canonical order.
-                let hint = self.current_cluster.map(|c| c.0 as u32 + 1).unwrap_or(2);
-                let new_cluster = self.fs.allocate_cluster_routed(hint).await?;
+                // Reuse the file's existing chain before allocating: an
+                // overwrite must not orphan the old clusters (issue #90).
+                let existing_next = match self.current_cluster {
+                    Some(cur) => self.fs.next_cluster_routed(cur.0).await?,
+                    None => None,
+                };
 
-                // Update FSInfo tracking (FAT32 only)
-                self.fs.decrement_free_count();
-                self.fs.update_next_free_hint(new_cluster);
+                let new_cluster = match existing_next {
+                    Some(next) => next,
+                    None => {
+                        // Allocate via the routed helper so the FAT cache
+                        // (when installed) sees the mutation. The helper
+                        // acquires both cache+data locks internally in
+                        // canonical order.
+                        let hint = self.current_cluster.map(|c| c.0 as u32 + 1).unwrap_or(2);
+                        let new_cluster = self.fs.allocate_cluster_routed(hint).await?;
 
-                // Link previous cluster to the new one (also routed).
-                if let Some(prev) = self.current_cluster {
-                    self.fs.write_clus_routed(prev.0, new_cluster).await?;
-                }
+                        // Update FSInfo tracking (FAT32 only)
+                        self.fs.decrement_free_count();
+                        self.fs.update_next_free_hint(new_cluster);
+
+                        // Link previous cluster to the new one (also routed).
+                        if let Some(prev) = self.current_cluster {
+                            self.fs.write_clus_routed(prev.0, new_cluster).await?;
+                        }
+
+                        new_cluster
+                    }
+                };
 
                 // Update first cluster if this is the first allocation
                 if self.first_cluster.is_none() {
@@ -290,6 +305,20 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
     /// without calling `finish` panics — the most common cause of "the file
     /// I just wrote shows up as zero bytes" bugs.
     pub async fn finish(mut self) -> Result<()> {
+        // Release clusters the rewrite no longer needs and terminate the
+        // chain at the last written cluster. Must run before the data lock
+        // below — the routed helpers acquire their own locks.
+        if self.total_written == 0 {
+            if let Some(first) = self.first_cluster.take() {
+                let freed_count = self.fs.free_chain_routed(first.0 as u32).await?;
+                self.fs.increment_free_count(freed_count);
+                self.current_cluster = None;
+            }
+        } else if let Some(last) = self.current_cluster {
+            let freed_count = self.fs.truncate_chain_routed(last.0 as u32).await?;
+            self.fs.increment_free_count(freed_count);
+        }
+
         {
             let mut data = self.fs.data.lock();
             let cluster_size = data.cluster_size;

@@ -14,6 +14,16 @@ Each published package owns its version and may be released independently.
   seeking in both the synchronous and asynchronous APIs, including buffered
   and cached-chain readers.
 
+### Fixed
+
+- **hadris-fat:** Overwriting an existing file through `write_file` no longer
+  leaks the file's previous cluster chain. The writer now follows and reuses
+  the existing chain, and `finish()` frees any tail clusters left over when
+  the new contents are shorter than the old, keeping the FAT and the FSInfo
+  free-cluster count consistent. Previously every overwrite of a multi-cluster
+  file orphaned all but its first cluster, eventually failing with
+  `NoFreeSpace` (#90).
+
 ## [2.1.0] - 2026-08-18
 
 ### Added
