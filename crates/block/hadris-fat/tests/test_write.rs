@@ -1123,6 +1123,196 @@ mod integration_tests {
         let content = reader.read_to_vec().expect("Read failed");
         assert_eq!(&content, b"First part. ");
     }
+
+    /// Regression test for issue #90: overwriting an existing multi-cluster
+    /// file must reuse the old chain instead of allocating fresh clusters and
+    /// orphaning the old ones. The test image has 256 data clusters; with the
+    /// historical leak of (file_clusters - 1) per pass, 100 passes exhausted
+    /// the volume with `NoFreeSpace`.
+    #[test]
+    fn test_overwrite_file_does_not_leak_clusters() {
+        let image = create_fat32_image();
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
+
+        let root = fs.root_dir();
+        let entry = fs
+            .create_file(&root, "DATA.BIN")
+            .expect("Failed to create file");
+
+        let content_len = cluster_size() * 4;
+        let pattern = |seed: u8| -> Vec<u8> {
+            (0..content_len)
+                .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed))
+                .collect()
+        };
+
+        {
+            let mut writer = fs.write_file(&entry).expect("Failed to get writer");
+            writer.write(&pattern(0)).expect("Failed to write");
+            writer.finish().expect("Failed to finish");
+        }
+        let baseline_free = fs.free_cluster_count().expect("FAT32 free count");
+
+        for pass in 0..100u8 {
+            let entry = fs
+                .root_dir()
+                .find("DATA.BIN")
+                .expect("Find failed")
+                .expect("File not found");
+            let contents = pattern(pass.wrapping_add(1));
+            let mut writer = fs.write_file(&entry).expect("Failed to get writer");
+            writer
+                .write(&contents)
+                .unwrap_or_else(|e| panic!("write failed on pass {pass}: {e:?}"));
+            writer.finish().expect("Failed to finish");
+
+            assert_eq!(
+                fs.free_cluster_count().expect("FAT32 free count"),
+                baseline_free,
+                "overwrite leaked clusters on pass {pass}",
+            );
+        }
+
+        let entry = fs
+            .root_dir()
+            .find("DATA.BIN")
+            .expect("Find failed")
+            .expect("File not found");
+        assert_eq!(entry.len() as usize, content_len);
+        use hadris_fat::FatVolumeReadExt;
+        let mut reader = fs.read_file(&entry).expect("Failed to get reader");
+        assert_eq!(reader.read_to_vec().expect("Read failed"), pattern(100));
+
+        // FSInfo must agree with the FAT itself, so a fudged free count
+        // cannot mask a real leak.
+        let free_count = fs.free_cluster_count().expect("FAT32 free count");
+        let image = fs.into_inner().into_inner();
+        let fat_start = super::fat32_image::fat_start_bytes();
+        let fat_free = (2..2 + 256usize)
+            .filter(|&c| {
+                let off = fat_start + c * 4;
+                let entry = u32::from_le_bytes(image[off..off + 4].try_into().unwrap());
+                entry & 0x0FFF_FFFF == 0
+            })
+            .count() as u32;
+        assert_eq!(
+            fat_free, free_count,
+            "FSInfo free count disagrees with the FAT"
+        );
+    }
+
+    /// Overwriting with less data than before must terminate the chain at the
+    /// new last cluster and free the tail clusters.
+    #[test]
+    fn test_overwrite_shrinking_file_frees_tail_clusters() {
+        let image = create_fat32_image();
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
+
+        let root = fs.root_dir();
+        let entry = fs
+            .create_file(&root, "SHRINK.BIN")
+            .expect("Failed to create file");
+
+        {
+            let mut writer = fs.write_file(&entry).expect("Failed to get writer");
+            writer
+                .write(&vec![0xAAu8; cluster_size() * 4])
+                .expect("Failed to write");
+            writer.finish().expect("Failed to finish");
+        }
+        let free_after_big = fs.free_cluster_count().expect("FAT32 free count");
+
+        let entry = fs
+            .root_dir()
+            .find("SHRINK.BIN")
+            .expect("Find failed")
+            .expect("File not found");
+        let small = b"tiny";
+        {
+            let mut writer = fs.write_file(&entry).expect("Failed to get writer");
+            writer.write(small).expect("Failed to write");
+            writer.finish().expect("Failed to finish");
+        }
+
+        assert_eq!(
+            fs.free_cluster_count().expect("FAT32 free count"),
+            free_after_big + 3,
+            "tail clusters were not freed on shrinking overwrite",
+        );
+
+        let entry = fs
+            .root_dir()
+            .find("SHRINK.BIN")
+            .expect("Find failed")
+            .expect("File not found");
+        assert_eq!(entry.len(), small.len() as u64);
+        use hadris_fat::FatVolumeReadExt;
+        let mut reader = fs.read_file(&entry).expect("Failed to get reader");
+        assert_eq!(reader.read_to_vec().expect("Read failed"), small);
+
+        // The chain must be exactly one cluster, terminated with EOC.
+        let first = entry.cluster().0;
+        let image = fs.into_inner().into_inner();
+        let fat_start = super::fat32_image::fat_start_bytes();
+        let off = fat_start + first * 4;
+        let fat_entry = u32::from_le_bytes(image[off..off + 4].try_into().unwrap()) & 0x0FFF_FFFF;
+        assert!(
+            fat_entry >= 0x0FFF_FFF8,
+            "first cluster does not terminate the chain: FAT[{first}] = {fat_entry:#x}",
+        );
+    }
+
+    /// Deleting a file must return every cluster of its chain to the free
+    /// pool, in both the FSInfo count and the FAT itself.
+    #[test]
+    fn test_delete_file_frees_all_clusters() {
+        let image = create_fat32_image();
+        let fs = FatVolume::open(image).expect("Failed to open FAT32 image");
+
+        let free_before = fs.free_cluster_count().expect("FAT32 free count");
+
+        let root = fs.root_dir();
+        let entry = fs
+            .create_file(&root, "DOOMED.BIN")
+            .expect("Failed to create file");
+        {
+            let mut writer = fs.write_file(&entry).expect("Failed to get writer");
+            writer
+                .write(&vec![0x55u8; cluster_size() * 4])
+                .expect("Failed to write");
+            writer.finish().expect("Failed to finish");
+        }
+        let entry = fs
+            .root_dir()
+            .find("DOOMED.BIN")
+            .expect("Find failed")
+            .expect("File not found");
+        let first = entry.cluster().0;
+
+        fs.delete(&entry).expect("Failed to delete");
+
+        assert_eq!(
+            fs.free_cluster_count().expect("FAT32 free count"),
+            free_before,
+            "delete did not return all clusters to the free pool",
+        );
+        assert!(
+            fs.root_dir()
+                .find("DOOMED.BIN")
+                .expect("Find failed")
+                .is_none(),
+            "deleted file still resolvable",
+        );
+
+        let image = fs.into_inner().into_inner();
+        let fat_start = super::fat32_image::fat_start_bytes();
+        let off = fat_start + first * 4;
+        let fat_entry = u32::from_le_bytes(image[off..off + 4].try_into().unwrap()) & 0x0FFF_FFFF;
+        assert_eq!(
+            fat_entry, 0,
+            "first cluster of deleted file still allocated"
+        );
+    }
 }
 
 /// Integration tests using in-memory FAT16 images
