@@ -157,6 +157,12 @@ pub struct FatVolume<DATA: Seek> {
     /// shared between read paths and write paths.
     #[cfg(feature = "cache")]
     pub(crate) fat_cache: Option<Mutex<crate::cache::FatSectorCache>>,
+    /// Directory slots `(parent_cluster, offset_within_cluster)` that currently
+    /// have an open `FileWriter`. A second writer for the same slot is rejected
+    /// so two writers cannot independently allocate and cross-link one file's
+    /// chain (last-finish-wins would orphan the other's clusters).
+    #[cfg(feature = "write")]
+    pub(crate) open_writers: Mutex<alloc::vec::Vec<(usize, usize)>>,
 }
 
 impl<DATA: Seek> FatVolume<DATA> {
@@ -524,6 +530,8 @@ where
             oem_converter,
             #[cfg(feature = "cache")]
             fat_cache: None,
+            #[cfg(feature = "write")]
+            open_writers: Mutex::new(alloc::vec::Vec::new()),
         })
     }
 
@@ -690,6 +698,8 @@ where
             oem_converter,
             #[cfg(feature = "cache")]
             fat_cache: None,
+            #[cfg(feature = "write")]
+            open_writers: Mutex::new(alloc::vec::Vec::new()),
         })
     }
 
@@ -720,11 +730,15 @@ where
                 data: self,
                 cluster: Cluster(0), // Sentinel for fixed root directory
                 fixed_root: Some((ext.root_dir_start, ext.root_dir_size)),
+                #[cfg(feature = "write")]
+                dir_entry: None, // Root has no parent entry.
             },
             FatFsExt::Fat32(ext) => FatDir {
                 data: self,
                 cluster: Cluster(ext.root_clus.0 as usize),
                 fixed_root: None,
+                #[cfg(feature = "write")]
+                dir_entry: None, // Root has no parent entry.
             },
         }
     }
@@ -910,6 +924,8 @@ where
             data: self,
             cluster: entry.cluster(),
             fixed_root: None,
+            #[cfg(feature = "write")]
+            dir_entry: Some(super::dir::DirSlot::from_entry(&entry)),
         })
     }
 
@@ -924,6 +940,8 @@ where
             data: self,
             cluster: entry.cluster(),
             fixed_root: None,
+            #[cfg(feature = "write")]
+            dir_entry: Some(super::dir::DirSlot::from_entry(entry)),
         })
     }
 }

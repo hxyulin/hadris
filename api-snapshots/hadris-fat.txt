@@ -884,6 +884,7 @@ pub hadris_fat::error::Error::IoContext::source: hadris_io::error::Error
 pub hadris_fat::error::Error::NoFreeSpace
 pub hadris_fat::error::Error::NotADirectory
 pub hadris_fat::error::Error::NotAFile
+pub hadris_fat::error::Error::StaleEntry
 pub hadris_fat::error::Error::UnexpectedEndOfChain
 pub hadris_fat::error::Error::UnexpectedEndOfChain::cluster: u32
 pub hadris_fat::error::Error::UnsupportedFatType(&'static str)
@@ -893,6 +894,7 @@ pub hadris_fat::error::Error::VolumeTooLarge::size: u64
 pub hadris_fat::error::Error::VolumeTooSmall
 pub hadris_fat::error::Error::VolumeTooSmall::min_size: u64
 pub hadris_fat::error::Error::VolumeTooSmall::size: u64
+pub hadris_fat::error::Error::WriterConflict
 impl core::error::Error for hadris_fat::error::Error
 impl core::fmt::Display for hadris_fat::error::Error
 pub fn hadris_fat::error::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -2631,6 +2633,7 @@ pub hadris_fat::Error::IoContext::source: hadris_io::error::Error
 pub hadris_fat::Error::NoFreeSpace
 pub hadris_fat::Error::NotADirectory
 pub hadris_fat::Error::NotAFile
+pub hadris_fat::Error::StaleEntry
 pub hadris_fat::Error::UnexpectedEndOfChain
 pub hadris_fat::Error::UnexpectedEndOfChain::cluster: u32
 pub hadris_fat::Error::UnsupportedFatType(&'static str)
@@ -2640,6 +2643,7 @@ pub hadris_fat::Error::VolumeTooLarge::size: u64
 pub hadris_fat::Error::VolumeTooSmall
 pub hadris_fat::Error::VolumeTooSmall::min_size: u64
 pub hadris_fat::Error::VolumeTooSmall::size: u64
+pub hadris_fat::Error::WriterConflict
 impl core::error::Error for hadris_fat::error::Error
 impl core::fmt::Display for hadris_fat::error::Error
 pub fn hadris_fat::error::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

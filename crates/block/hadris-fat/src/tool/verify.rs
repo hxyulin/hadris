@@ -329,6 +329,8 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
                     data: self,
                     cluster: file_entry.cluster(),
                     fixed_root: None,
+                    #[cfg(feature = "write")]
+                    dir_entry: None, // Read-only traversal.
                 };
                 self.verify_directory_recursive(
                     &subdir,

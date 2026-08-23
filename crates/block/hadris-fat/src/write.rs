@@ -13,7 +13,7 @@ use crate::{
 };
 #[cfg(feature = "write")]
 use super::{
-    fat_table::Fat, dir::{FatDir, FileEntry}, fs::FatVolume,
+    fat_table::Fat, dir::{DirSlot, FatDir, FileEntry}, fs::FatVolume,
     io::{Cluster, ClusterLike, Read, ReadExt, Seek, SeekFrom, Write},
 };
 
@@ -36,6 +36,12 @@ pub struct FileWriter<'a, DATA: Read + Write + Seek> {
     entry_parent: Cluster<usize>,
     /// Offset of the directory entry within the parent
     entry_offset: usize,
+    /// Short name captured at open time. `finish()` revalidates the slot
+    /// against this before rewriting size/first-cluster, so a writer whose
+    /// entry was deleted (and its slot reused) cannot clobber another file.
+    entry_short_name: ShortFileName,
+    /// Creation timestamp captured at open, revalidated alongside the name.
+    entry_created: crate::time::FatDateTime,
     /// Fixed root directory info (for FAT12/16)
     fixed_root: Option<(usize, usize)>,
     /// Override for the modified timestamp written by `finish()`. When `None`,
@@ -55,6 +61,11 @@ pub struct FileWriter<'a, DATA: Read + Write + Seek> {
 #[cfg(feature = "write")]
 impl<'a, DATA: Read + Write + Seek> Drop for FileWriter<'a, DATA> {
     fn drop(&mut self) {
+        // Release this slot's exclusive-writer registration first, so it runs
+        // even when the `dirty-file-panic` check below unwinds.
+        self.fs
+            .unregister_writer(self.entry_parent, self.entry_offset);
+
         // Without `dirty-file-panic`, drop is a no-op: callers that forget
         // `finish()` silently lose the size/timestamp commit (the data
         // bytes themselves are already on disk because `write()` flushes
@@ -95,6 +106,9 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             None
         };
 
+        // Claim exclusive write access to this slot; a second writer is rejected.
+        fs.register_writer(entry.parent_clus, entry.offset_within_cluster)?;
+
         Ok(Self {
             fs,
             first_cluster,
@@ -103,6 +117,8 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             total_written: 0,
             entry_parent: entry.parent_clus,
             entry_offset: entry.offset_within_cluster,
+            entry_short_name: entry.short_name,
+entry_created: entry.created,
             fixed_root,
             pending_modified: None,
             pending_accessed: None,
@@ -136,6 +152,7 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
 
         if file_size == 0 || first_cluster.is_none() {
             // Empty file — same as a regular new writer
+            fs.register_writer(entry.parent_clus, entry.offset_within_cluster)?;
             return Ok(Self {
                 fs,
                 first_cluster,
@@ -144,6 +161,8 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
                 total_written: 0,
                 entry_parent: entry.parent_clus,
                 entry_offset: entry.offset_within_cluster,
+                entry_short_name: entry.short_name,
+entry_created: entry.created,
                 fixed_root,
                 pending_modified: None,
                 pending_accessed: None,
@@ -168,7 +187,17 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
         };
         let current = Cluster(last as usize);
 
-        let offset_in_last = file_size % cluster_size;
+        // When the size is an exact multiple of the cluster size the last
+        // cluster is full, so `file_size % cluster_size` is 0. Positioning the
+        // writer at offset 0 would overwrite that full cluster; instead point
+        // it one past the end so the first write allocates a fresh cluster
+        // (#B2). `file_size > 0` is guaranteed by the early return above.
+        let offset_in_last = match file_size % cluster_size {
+            0 => cluster_size,
+            rem => rem,
+        };
+
+        fs.register_writer(entry.parent_clus, entry.offset_within_cluster)?;
 
         Ok(Self {
             fs,
@@ -178,6 +207,8 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             total_written: file_size,
             entry_parent: entry.parent_clus,
             entry_offset: entry.offset_within_cluster,
+            entry_short_name: entry.short_name,
+entry_created: entry.created,
             fixed_root,
             pending_modified: None,
             pending_accessed: None,
@@ -305,6 +336,31 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
     /// without calling `finish` panics — the most common cause of "the file
     /// I just wrote shows up as zero bytes" bugs.
     pub async fn finish(mut self) -> Result<()> {
+        // The `dirty-file-panic` Drop guard exists to catch a *forgotten*
+        // `finish()`, not a failed one. Record the attempt up front so that
+        // every `?` below propagates its real error instead of being masked by
+        // a panic while unwinding.
+        self.finished = true;
+
+        // Reject a stale handle before any chain surgery or entry rewrite: if
+        // the file was deleted and its slot reused while this writer was open,
+        // committing here would clobber the unrelated entry now in the slot and
+        // (with chain reuse) mangle its clusters.
+        //
+        // Do not free any clusters on mismatch: on an overwrite this writer's
+        // `first_cluster` is the file's pre-existing chain, which `delete` has
+        // already freed and the reusing entry may now own, so releasing it
+        // would corrupt live data. Leaking the writer's own orphaned clusters
+        // on this misuse path is the strictly safer failure.
+        self.fs
+            .revalidate_slot(
+                self.entry_parent,
+                self.entry_offset,
+                &self.entry_short_name,
+                &self.entry_created,
+            )
+            .await?;
+
         // Release clusters the rewrite no longer needs and terminate the
         // chain at the last written cluster. Must run before the data lock
         // below — the routed helpers acquire their own locks.
@@ -388,9 +444,6 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
         // write_fsinfo also acquires it.
         self.fs.write_fsinfo().await?;
 
-        // Mark as cleanly finished so the Drop guard (under
-        // `dirty-file-panic`) accepts the consume.
-        self.finished = true;
 
         Ok(())
     }
@@ -423,6 +476,11 @@ pub trait FatVolumeWriteExt<DATA: Read + Write + Seek> {
     /// image — every other write path stamps "now" via the configured
     /// [`TimeProvider`](crate::time::TimeProvider), which is the wrong
     /// behaviour for those workflows.
+    ///
+    /// Passing `created` invalidates every other [`FileEntry`] handle for this
+    /// file: stale-handle detection compares the creation timestamp, so those
+    /// handles will report [`Error::StaleEntry`]. Look the entry up again after
+    /// rewriting it.
     async fn set_times(
         &self,
         entry: &FileEntry,
@@ -442,6 +500,9 @@ impl<DATA: Read + Write + Seek> FatVolumeWriteExt<DATA> for FatVolume<DATA> {
         if !entry.is_file() {
             return Err(Error::NotAFile);
         }
+        // Reject a stale handle before freeing/truncating a chain by its
+        // snapshotted first cluster.
+        self.revalidate_entry(entry).await?;
 
         let current_size = entry.len() as usize;
         if new_size >= current_size {
@@ -516,6 +577,8 @@ impl<DATA: Read + Write + Seek> FatVolumeWriteExt<DATA> for FatVolume<DATA> {
         if modified.is_none() && accessed_date.is_none() && created.is_none() {
             return Ok(());
         }
+        // Reject a stale handle before rewriting the slot's timestamp bytes.
+        self.revalidate_entry(entry).await?;
 
         let mut data = self.data.lock();
         let cluster_size = data.cluster_size;
@@ -807,6 +870,130 @@ fn build_lfn_entries(
 }
 
 /// Directory write operations
+#[cfg(feature = "write")]
+impl<DATA: Read + Seek> FatVolume<DATA> {
+    /// Confirm that `entry` still refers to the same on-disk directory entry it
+    /// was looked up from, before a mutating operation rewrites those bytes.
+    ///
+    /// A [`FileEntry`] captures a slot location (`parent_clus` +
+    /// `offset_within_cluster`) and the short name at lookup time. If the file
+    /// is later deleted or its slot reused by a different file, mutating
+    /// through the stale handle would silently corrupt an unrelated entry (or
+    /// free a live file's chain). This re-reads the slot and returns
+    /// [`Error::StaleEntry`] unless the slot is still in use and both its short
+    /// name and creation timestamp still match.
+    ///
+    /// FAT stores no per-entry identity, so this is a best-effort check rather
+    /// than a guarantee. A slot re-taken by a same-named file is caught only by
+    /// the creation timestamp, which has 10 ms resolution, is constant under
+    /// the `no_std` [`EpochTimeProvider`](crate::time::EpochTimeProvider), and
+    /// can be rewritten by [`set_times`](FatVolumeWriteExt::set_times). Treat a
+    /// handle held across a delete as suspect regardless.
+    pub(crate) async fn revalidate_entry(&self, entry: &FileEntry) -> Result<()> {
+        self.revalidate_slot(
+            entry.parent_clus,
+            entry.offset_within_cluster,
+            &entry.short_name,
+            &entry.created,
+        )
+        .await
+    }
+
+    /// Confirm a parent directory handle still refers to a live directory before
+    /// writing new entries into its clusters. The root (`dir_entry == None`) can
+    /// never be deleted, so it is always valid.
+    pub(crate) async fn revalidate_parent_dir(&self, parent: &FatDir<'_, DATA>) -> Result<()> {
+        match parent.dir_entry {
+            Some(slot) => {
+                self.revalidate_slot(
+                    slot.parent_clus,
+                    slot.offset_within_cluster,
+                    &slot.short_name,
+                    &slot.created,
+                )
+                .await
+            }
+            None => Ok(()),
+        }
+    }
+
+    /// Register an open writer for a directory slot, rejecting a second writer
+    /// for the same slot. Balanced by [`Self::unregister_writer`] in
+    /// `FileWriter`'s `Drop`.
+    pub(crate) fn register_writer(&self, parent: Cluster<usize>, offset: usize) -> Result<()> {
+        let key = (parent.0, offset);
+        let mut open = self.open_writers.lock();
+        if open.contains(&key) {
+            return Err(Error::WriterConflict);
+        }
+        open.push(key);
+        Ok(())
+    }
+
+    /// Drop the open-writer registration for a directory slot. Idempotent.
+    pub(crate) fn unregister_writer(&self, parent: Cluster<usize>, offset: usize) {
+        let key = (parent.0, offset);
+        let mut open = self.open_writers.lock();
+        if let Some(pos) = open.iter().position(|k| *k == key) {
+            open.swap_remove(pos);
+        }
+    }
+
+    /// Slot-level revalidation used by both [`Self::revalidate_entry`] and
+    /// [`FileWriter::finish`], which holds the slot coordinates directly rather
+    /// than a whole [`FileEntry`].
+    pub(crate) async fn revalidate_slot(
+        &self,
+        parent_clus: Cluster<usize>,
+        offset_within_cluster: usize,
+        short_name: &ShortFileName,
+        created: &crate::time::FatDateTime,
+    ) -> Result<()> {
+        let mut data = self.data.lock();
+        let cluster_size = data.cluster_size;
+
+        let entry_pos = if parent_clus.0 == 0 {
+            let (root_start, _) = self.fixed_root_dir_info().ok_or(Error::StaleEntry)?;
+            root_start + offset_within_cluster
+        } else {
+            parent_clus.to_bytes(self.info.data_start, cluster_size) + offset_within_cluster
+        };
+
+        data.seek(SeekFrom::Start(entry_pos as u64)).await?;
+        let raw_entry = data.read_struct::<RawDirectoryEntry>().await?;
+        let file_entry = unsafe { &raw_entry.file };
+
+        // A free (0x00) or deleted (0xE5) slot can never match a live handle.
+        // A real name whose first byte is logically 0xE5 is stored as 0x05, so
+        // an on-disk 0xE5 is unambiguously the deleted marker.
+        let mut disk_name = file_entry.name;
+        if disk_name[0] == 0x00 || disk_name[0] == 0xE5 {
+            return Err(Error::StaleEntry);
+        }
+        if disk_name[0] == 0x05 {
+            disk_name[0] = 0xE5;
+        }
+        if disk_name != short_name.raw_bytes() {
+            return Err(Error::StaleEntry);
+        }
+
+        // The name alone cannot distinguish a live handle from one whose slot
+        // was freed and re-taken by a *same-named* file (delete + recreate).
+        // The creation timestamp is the only field on a FAT short entry that a
+        // normal write leaves alone, so compare it too. This narrows the window
+        // rather than closing it: `EpochTimeProvider` (the `no_std` default)
+        // stamps every entry identically, and `set_times` can rewrite the field
+        // out from under a handle.
+        if file_entry.creation_time_tenth != created.time_tenth
+            || u16::from_le_bytes(file_entry.creation_time) != created.time
+            || u16::from_le_bytes(file_entry.creation_date) != created.date
+        {
+            return Err(Error::StaleEntry);
+        }
+        Ok(())
+    }
+}
+
 #[cfg(feature = "write")]
 impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     async fn mark_entry_span_deleted(&self, entry: &FileEntry) -> Result<()> {
@@ -1158,6 +1345,11 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     ///
     /// Returns the FileEntry for the newly created file.
     pub async fn create_file(&self, parent: &FatDir<'_, DATA>, name: &str) -> Result<FileEntry> {
+        // Reject a stale parent handle before scanning or writing into its
+        // clusters: if the directory was deleted and its cluster reused, new
+        // entries would land in an unrelated file's data.
+        self.revalidate_parent_dir(parent).await?;
+
         // Check if entry already exists
         if parent.find(name).await?.is_some() {
             return Err(Error::AlreadyExists);
@@ -1265,6 +1457,10 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         parent: &FatDir<'a, DATA>,
         name: &str,
     ) -> Result<FatDir<'a, DATA>> {
+        // Reject a stale parent handle before scanning or writing into its
+        // clusters (see create_file).
+        self.revalidate_parent_dir(parent).await?;
+
         // Check if entry already exists
         if parent.find(name).await?.is_some() {
             return Err(Error::AlreadyExists);
@@ -1273,13 +1469,6 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         // Generate short filename (suffix=0 means no ~N suffix)
         let short_name = ShortFileName::from_long_name_with(name, 0, self.oem_converter())
             .map_err(|_| Error::InvalidFilename)?;
-
-        // Allocate a cluster for the directory contents (cache-routed).
-        let new_cluster = self.allocate_cluster_routed(2).await?;
-
-        // Update FSInfo tracking (FAT32 only)
-        self.decrement_free_count();
-        self.update_next_free_hint(new_cluster);
 
         // A name that fits 8.3 apart from per-part case is stored as a single
         // short entry with the NT case byte set; otherwise it needs LFN entries.
@@ -1302,6 +1491,13 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         // Allocate `lfn_count + 1` consecutive slots.
         let total_slots = lfn_count + 1;
         let run = self.find_free_entry_run_in_dir(parent, total_slots).await?;
+
+        // Allocate the directory's data cluster only after the fallible steps
+        // above (name generation, LFN build, slot search) have succeeded, so a
+        // late failure cannot leak a cluster or skew the free count (#B1).
+        let new_cluster = self.allocate_cluster_routed(2).await?;
+        self.decrement_free_count();
+        self.update_next_free_hint(new_cluster);
 
         // Create the directory entry in parent
         let now = self.time_provider().now();
@@ -1428,17 +1624,29 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
             data: self,
             cluster: Cluster(new_cluster as usize),
             fixed_root: None, // Newly created directories are never fixed root
+            dir_entry: Some(DirSlot {
+                parent_clus: slot_cluster,
+                offset_within_cluster: slot_offset,
+                short_name,
+                created: now,
+            }),
         })
     }
 
     /// Delete a file or empty directory.
     pub async fn delete(&self, entry: &FileEntry) -> Result<()> {
+        // Reject a stale handle before freeing anything: without this, a
+        // handle whose slot was reused would free a live file's chain.
+        self.revalidate_entry(entry).await?;
+
         // If it's a directory, check if it's empty (only . and ..)
         if entry.is_directory() {
             let dir = FatDir {
                 data: self,
                 cluster: entry.cluster(),
                 fixed_root: None, // User-created directories are never fixed root
+                // Read-only emptiness scan; never used to write entries.
+                dir_entry: None,
             };
 
             let mut count = 0;
@@ -1456,19 +1664,21 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
             }
         }
 
+        // Mark the directory entry as deleted first, plus any LFN slots that
+        // precede it. Without the LFN cleanup, a delete would leave orphaned
+        // LFN slots on disk — fsck.fat flags those as "stray long-name slots"
+        // and they'd confuse a fresh-mount lookup until the slots are
+        // eventually overwritten. Marking before freeing means that if the
+        // free step below fails the worst case is a leaked chain, not a live
+        // entry pointing at freed (and soon-reused) clusters.
+        self.mark_entry_span_deleted(entry).await?;
+
         // Free the cluster chain if there is one (cache-routed).
         if entry.cluster().0 >= 2 {
             let freed_count = self.free_chain_routed(entry.cluster().0 as u32).await?;
             // Update FSInfo tracking (FAT32 only)
             self.increment_free_count(freed_count);
         }
-
-        // Mark the directory entry as deleted, plus any LFN slots that
-        // precede it. Without the LFN cleanup, a delete would leave
-        // orphaned LFN slots on disk — fsck.fat flags those as "stray
-        // long-name slots" and they'd confuse a fresh-mount lookup until
-        // the slots are eventually overwritten.
-        self.mark_entry_span_deleted(entry).await?;
 
         // Flush FSInfo so on-disk free_count matches in-memory state (FAT32).
         self.write_fsinfo().await?;
@@ -1491,6 +1701,11 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         dest_dir: &FatDir<'_, DATA>,
         new_name: &str,
     ) -> Result<FileEntry> {
+        // Reject a stale source handle before copying its metadata into a new
+        // slot: otherwise a reused handle would clone another file's chain
+        // under `new_name`, or resurrect a deleted entry.
+        self.revalidate_entry(entry).await?;
+
         // Check if destination already has this name
         if dest_dir.find(new_name).await?.is_some() {
             return Err(Error::AlreadyExists);
@@ -1764,6 +1979,11 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         entry: &FileEntry,
         attrs: DirEntryAttrFlags,
     ) -> Result<()> {
+        // Reject a stale handle before rewriting the slot's attribute byte —
+        // otherwise the immutable-bit guard below, which checks the snapshot,
+        // could clear the DIRECTORY bit of a different file now in this slot.
+        self.revalidate_entry(entry).await?;
+
         // Reject flips on the immutable bits before touching disk.
         let current = entry.attributes();
         let immutable = DirEntryAttrFlags::DIRECTORY | DirEntryAttrFlags::VOLUME_ID;

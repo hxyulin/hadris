@@ -13,6 +13,12 @@ Each published package owns its version and may be released independently.
 - **hadris-fat:** `FileReader` now supports start-, current-, and end-relative
   seeking in both the synchronous and asynchronous APIs, including buffered
   and cached-chain readers.
+- **hadris-fat:** New `Error::StaleEntry` (with the `write` feature) reported by
+  the mutating APIs and `FileReader` when a `FileEntry` handle no longer refers
+  to the same on-disk directory entry (see below).
+- **hadris-fat:** New `Error::WriterConflict` (with the `write` feature) returned
+  when a second `FileWriter` is opened for a directory entry that already has one
+  open (see below).
 
 ### Fixed
 
@@ -23,6 +29,47 @@ Each published package owns its version and may be released independently.
   free-cluster count consistent. Previously every overwrite of a multi-cluster
   file orphaned all but its first cluster, eventually failing with
   `NoFreeSpace` (#90).
+- **hadris-fat:** `create_dir` no longer leaks a cluster when it fails after
+  allocating the directory's data cluster (e.g. `DirectoryFull` on a full
+  fixed root, or an over-long name). The data cluster is now allocated only
+  after the fallible name/slot steps succeed, matching `create_file`.
+- **hadris-fat:** `FileWriter::new_append` no longer overwrites the last
+  cluster of a file whose size is an exact multiple of the cluster size. The
+  writer now positions past the full final cluster so appended data extends
+  the file instead of clobbering its tail.
+- **hadris-fat:** Stale `FileEntry` handles can no longer corrupt an unrelated
+  file. If a file is deleted and its directory slot reused, operating through
+  the old handle previously freed the new file's chain, cleared its
+  `DIRECTORY` bit, moved it, or clobbered its entry. `delete`, `rename`,
+  `truncate`, `set_attributes`, `set_times`, and `FileWriter::finish` now
+  revalidate the slot's on-disk short name, creation timestamp, and
+  not-deleted marker before acting and return `Error::StaleEntry` on mismatch.
+  FAT carries no per-entry identity, so this is best-effort: a slot re-taken by
+  a same-named file is distinguished only by the creation timestamp, which has
+  10 ms resolution and is constant under the `no_std` `EpochTimeProvider`.
+  Passing `created` to `set_times` rewrites that field and therefore
+  invalidates other handles to the same file. `delete` also marks the
+  entry deleted before freeing its chain so a mid-operation error cannot leave
+  a live entry pointing at freed clusters.
+- **hadris-fat:** A `FileReader` held across a delete and cluster reuse no
+  longer discloses the reusing file's data. The reader revalidates its
+  directory slot before serving bytes and returns `Error::StaleEntry` instead.
+- **hadris-fat:** `create_file` and `create_dir` through a stale `FatDir` (its
+  directory was deleted and the cluster reused) no longer write directory
+  entries into an unrelated file's data. Both revalidate the directory's own
+  entry first and return `Error::StaleEntry` on mismatch. The root directory,
+  which cannot be deleted, is always accepted.
+- **hadris-fat:** `FileWriter::finish` now reports I/O and FAT-update failures
+  instead of masking them. With the `dirty-file-panic` feature, an error
+  returned part-way through `finish` used to trip the drop guard on the way
+  out, panicking about a writer that had in fact been finished. The guard now
+  fires only for a genuinely forgotten `finish()`.
+- **hadris-fat:** Opening two `FileWriter`s for the same file no longer lets
+  them independently allocate and cross-link one cluster chain (the last
+  `finish()` won and orphaned the other writer's clusters). The volume now
+  tracks the directory slot of each open writer and returns
+  `Error::WriterConflict` for a second writer on the same entry; the slot is
+  released when the writer is finished or dropped.
 
 ## [2.1.0] - 2026-08-18
 

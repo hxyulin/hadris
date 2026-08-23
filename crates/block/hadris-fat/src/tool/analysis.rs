@@ -379,6 +379,8 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
                     data: self,
                     cluster: file_entry.cluster(),
                     fixed_root: None,
+                    #[cfg(feature = "write")]
+                    dir_entry: None, // Read-only traversal.
                 };
                 self.count_entries_recursive(&subdir, depth + 1, files, dirs)?;
             } else {
@@ -421,6 +423,8 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
                     data: self,
                     cluster: file_entry.cluster(),
                     fixed_root: None,
+                    #[cfg(feature = "write")]
+                    dir_entry: None, // Read-only traversal.
                 };
                 self.collect_files_recursive(&subdir, full_path, depth + 1, files)?;
             } else {
