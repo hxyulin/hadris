@@ -271,24 +271,43 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
         self.new_length
     }
 
-    /// Allocate a new cluster, linking it to the previous one if needed.
+    /// Allocate a new cluster and link it onto the current tail in the FAT.
+    ///
+    /// A contiguous exFAT file carries no FAT links, so the first time a file
+    /// becomes fragmented the existing contiguous prefix must be linearized
+    /// before the new cluster is appended; otherwise the chain is unreachable
+    /// past its first cluster on read-back.
     fn allocate_next_cluster(&mut self) -> Result<u32> {
+        self.linearize_contiguous_prefix()?;
+
         let hint = self.current_cluster.saturating_add(1);
         let new_cluster = self.fs.allocate_cluster(hint)?;
 
-        // If we have a previous cluster, we're no longer contiguous
-        // (unless the new cluster is adjacent)
-        if let Some(prev) = self.prev_cluster {
-            if new_cluster != prev + 1 {
-                self.is_contiguous = false;
-            }
+        // `allocate_cluster` wrote the new cluster as END_OF_CHAIN; link the
+        // current tail to it so the chain is contiguous in the FAT.
+        if self.current_cluster >= 2 {
+            self.fs.set_fat_entry(self.current_cluster, new_cluster)?;
         }
+        self.is_contiguous = false;
 
-        // Update allocated length
         let cluster_size = self.fs.info().bytes_per_cluster as u64;
         self.allocated_length += cluster_size;
 
         Ok(new_cluster)
+    }
+
+    /// Write FAT links for the still-contiguous prefix
+    /// `[first_cluster ..= current_cluster]` so the file can continue as a
+    /// fragmented chain. A no-op once the file is already fragmented.
+    fn linearize_contiguous_prefix(&mut self) -> Result<()> {
+        if self.is_contiguous && self.first_cluster >= 2 {
+            let mut c = self.first_cluster;
+            while c < self.current_cluster {
+                self.fs.set_fat_entry(c, c + 1)?;
+                c += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Finish writing and update the directory entry.
@@ -339,7 +358,16 @@ impl<DATA: Read + Write + Seek> Write for ExFatFileWriter<'_, DATA> {
                 } else if self.is_contiguous {
                     // Try to use next adjacent cluster
                     let next = self.current_cluster + 1;
-                    if info.is_valid_cluster(next) {
+                    let owned_clusters = (self.allocated_length / cluster_size as u64) as u32;
+                    if next >= self.first_cluster
+                        && next < self.first_cluster.saturating_add(owned_clusters)
+                    {
+                        // Overwrite in place: `next` is one of this file's own,
+                        // already-allocated contiguous clusters. Reuse it rather
+                        // than allocating a fresh cluster, which would orphan the
+                        // old one and needlessly fragment the file.
+                        next
+                    } else if info.is_valid_cluster(next) {
                         // Check if the next cluster is available
                         match self.fs.is_cluster_allocated(next) {
                             Ok(false) => {
@@ -350,8 +378,9 @@ impl<DATA: Read + Write + Seek> Write for ExFatFileWriter<'_, DATA> {
                                         c
                                     }
                                     Ok(_) | Err(_) => {
-                                        // Not contiguous anymore - need to convert to FAT chain
-                                        self.is_contiguous = false;
+                                        // Not contiguous anymore - convert to a
+                                        // FAT chain (allocate_next_cluster
+                                        // linearizes the prefix and links).
                                         match self.allocate_next_cluster() {
                                             Ok(c) => c,
                                             Err(_) => return Ok(total_written),
@@ -360,8 +389,8 @@ impl<DATA: Read + Write + Seek> Write for ExFatFileWriter<'_, DATA> {
                                 }
                             }
                             _ => {
-                                // Already allocated - convert to FAT chain
-                                self.is_contiguous = false;
+                                // Already allocated - convert to a FAT chain
+                                // (allocate_next_cluster linearizes and links).
                                 match self.allocate_next_cluster() {
                                     Ok(c) => c,
                                     Err(_) => return Ok(total_written),

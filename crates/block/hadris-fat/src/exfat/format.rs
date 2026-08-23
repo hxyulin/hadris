@@ -277,40 +277,52 @@ fn calculate_fat_and_heap(
     sectors_per_cluster: usize,
     fat_count: u8,
 ) -> Result<(u32, u32, u32)> {
-    // Each FAT entry is 4 bytes
-    // FAT length = ceil(cluster_count / entries_per_sector) where entries_per_sector = bytes_per_sector / 4
-    let entries_per_sector = bytes_per_sector / 4;
+    // All geometry math is done in u64: `volume_length` (in sectors) can exceed
+    // u32 for volumes above ~2 TiB, and the intermediate offsets/lengths must
+    // not silently truncate. The final values are exFAT u32 fields, so they are
+    // range-checked before returning.
+    let entries_per_sector = (bytes_per_sector / 4) as u64;
+    let sectors_per_cluster = sectors_per_cluster as u64;
+    let fat_count = fat_count as u64;
+    let fat_offset = fat_offset as u64;
+    let bytes_per_sector = bytes_per_sector as u64;
 
-    // Initial estimate: all remaining space for data
-    let total_fat_sectors_estimate = 1u32;
-    let cluster_heap_offset_estimate = fat_offset + total_fat_sectors_estimate * fat_count as u32;
-
-    // Available sectors for cluster heap
-    let available_sectors = volume_length as u32 - cluster_heap_offset_estimate;
-    let cluster_count_estimate = available_sectors / sectors_per_cluster as u32;
-
-    // Calculate FAT size needed for this many clusters (+2 for reserved entries)
-    let fat_entries_needed = cluster_count_estimate + 2;
-    let fat_length = (fat_entries_needed as usize).div_ceil(entries_per_sector) as u32;
-
-    // Recalculate with actual FAT size
-    let cluster_heap_offset = fat_offset + fat_length * fat_count as u32;
-    let available_sectors = if volume_length as u32 > cluster_heap_offset {
-        volume_length as u32 - cluster_heap_offset
-    } else {
-        return Err(Error::VolumeTooSmall {
-            size: volume_length * bytes_per_sector as u64,
-            min_size: MIN_VOLUME_SIZE,
-        });
+    let too_small = || Error::VolumeTooSmall {
+        size: volume_length * bytes_per_sector,
+        min_size: MIN_VOLUME_SIZE,
     };
-    let cluster_count = available_sectors / sectors_per_cluster as u32;
+    let too_large = || Error::VolumeTooLarge {
+        size: volume_length * bytes_per_sector,
+        max_size: MAX_VOLUME_SIZE,
+    };
+
+    // Initial estimate: assume a 1-sector FAT so the heap gets all remaining
+    // space, then size the FAT to cover that many clusters.
+    let cluster_heap_offset_estimate = fat_offset + fat_count;
+    let available_sectors = volume_length
+        .checked_sub(cluster_heap_offset_estimate)
+        .ok_or_else(too_small)?;
+    let cluster_count_estimate = available_sectors / sectors_per_cluster;
+
+    // FAT size needed for this many clusters (+2 for the reserved entries 0, 1).
+    let fat_entries_needed = cluster_count_estimate + 2;
+    let fat_length = fat_entries_needed.div_ceil(entries_per_sector);
+
+    // Recalculate the heap with the actual FAT size.
+    let cluster_heap_offset = fat_offset + fat_length * fat_count;
+    let available_sectors = volume_length
+        .checked_sub(cluster_heap_offset)
+        .ok_or_else(too_small)?;
+    let cluster_count = available_sectors / sectors_per_cluster;
 
     if cluster_count < 1 {
-        return Err(Error::VolumeTooSmall {
-            size: volume_length * bytes_per_sector as u64,
-            min_size: MIN_VOLUME_SIZE,
-        });
+        return Err(too_small());
     }
+
+    // exFAT stores these as u32; reject volumes whose geometry overflows.
+    let cluster_heap_offset = u32::try_from(cluster_heap_offset).map_err(|_| too_large())?;
+    let fat_length = u32::try_from(fat_length).map_err(|_| too_large())?;
+    let cluster_count = u32::try_from(cluster_count).map_err(|_| too_large())?;
 
     Ok((cluster_heap_offset, fat_length, cluster_count))
 }
@@ -852,6 +864,41 @@ mod tests {
         let size = 512 * 1024u64; // 512 KB - too small
         let options = ExFatFormatOptions::new();
         assert!(calculate_layout(size, &options).is_err());
+    }
+
+    #[test]
+    fn test_calculate_fat_and_heap_beyond_u32_sectors() {
+        // A ~3 TiB volume at 512-byte sectors has a sector count above u32::MAX.
+        // The old code truncated `volume_length as u32`, silently sizing the
+        // heap to a fraction of the real capacity. The geometry must now be
+        // computed in u64 and reflect the full volume.
+        let bytes_per_sector = 512usize;
+        let sectors_per_cluster = 512usize; // 256 KiB clusters
+        let fat_count = 1u8;
+        let fat_offset = 24u32;
+
+        let volume_length: u64 = 6 * 1024 * 1024 * 1024; // 6 Gi-sectors ~= 3 TiB
+        assert!(volume_length > u32::MAX as u64);
+
+        let (heap_offset, fat_length, cluster_count) = calculate_fat_and_heap(
+            volume_length,
+            fat_offset,
+            bytes_per_sector,
+            sectors_per_cluster,
+            fat_count,
+        )
+        .expect("3 TiB volume geometry should fit u32 fields");
+
+        // Heap must sit after the FAT and the cluster count must account for
+        // (almost) the entire volume, not a u32-truncated remainder.
+        assert!(heap_offset as u64 >= fat_offset as u64 + fat_length as u64);
+        let truncated_estimate = ((volume_length as u32) / sectors_per_cluster as u32) as u64;
+        assert!(
+            cluster_count as u64 > truncated_estimate,
+            "cluster_count {cluster_count} looks u32-truncated (<= {truncated_estimate})"
+        );
+        let expected = (volume_length - heap_offset as u64) / sectors_per_cluster as u64;
+        assert_eq!(cluster_count as u64, expected);
     }
 
     #[test]

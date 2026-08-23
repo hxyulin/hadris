@@ -70,6 +70,38 @@ Each published package owns its version and may be released independently.
   tracks the directory slot of each open writer and returns
   `Error::WriterConflict` for a second writer on the same entry; the slot is
   released when the writer is finished or dropped.
+- **hadris-fat (`unstable-exfat`):** Extending a file across a cluster boundary
+  onto a fragmented layout now writes the FAT chain links, so data past the
+  first cluster is reachable on read-back. The writer linearizes a contiguous
+  file's prefix into the FAT when it first becomes fragmented and links each
+  appended cluster onto the tail.
+- **hadris-fat (`unstable-exfat`):** `allocate_clusters` is now authoritative
+  against the allocation bitmap. Its fragmented fallback previously scanned the
+  FAT for zero entries and re-handed-out clusters the contiguous (bitmap-only)
+  path had already allocated; it now reserves clusters from the bitmap and
+  links them in the FAT, rolling the reservations back if either step fails
+  and returning `NoFreeSpace` when the volume is full.
+- **hadris-fat (`unstable-exfat`):** `create_dir`, `delete`, and `truncate` now
+  flush the allocation bitmap. Previously only the file writer persisted it, so
+  a directory's allocation or a freed chain was lost on remount.
+- **hadris-fat (`unstable-exfat`):** Truncating a fragmented file now frees the
+  dropped tail clusters in the allocation bitmap, not only in the FAT, so the
+  space is reclaimed and the bitmap and FAT stay consistent.
+- **hadris-fat (`unstable-exfat`):** Directory entry sets are no longer placed
+  across a cluster boundary (they were written linearly, which is wrong for a
+  fragmented directory), and scanning a directory with an unknown size no longer
+  walks past its allocation into unrelated data.
+- **hadris-fat (`unstable-exfat`):** Overwriting a contiguous, multi-cluster
+  file in place now reuses the file's own already-allocated clusters. Crossing a
+  cluster boundary during an overwrite previously saw the file's next cluster as
+  "already allocated" and allocated a brand-new cluster instead, orphaning the
+  old one in the bitmap and needlessly fragmenting the file (the #90 pattern for
+  the exFAT path).
+- **hadris-fat (`unstable-exfat`):** exFAT formatting computes its cluster-heap
+  geometry in 64-bit arithmetic and range-checks the results. A volume larger
+  than ~2 TiB previously truncated the sector count to `u32`, silently sizing
+  the filesystem to a fraction of the device; oversized geometry now returns
+  `VolumeTooLarge` instead of corrupting the layout.
 
 ## [2.1.0] - 2026-08-18
 
