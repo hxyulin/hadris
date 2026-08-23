@@ -46,6 +46,34 @@ fn short_name_display(short: &ShortFileName, flags: NtCaseFlags) -> alloc::strin
     name
 }
 
+/// Directory-slot coordinates of a subdirectory's own entry in its parent,
+/// captured so write operations can confirm the directory still exists before
+/// writing entries into its clusters (a stale `FatDir` whose directory was
+/// deleted and whose cluster was reused would otherwise corrupt another file).
+/// `None` for the root directory, which can never be deleted.
+#[cfg(feature = "write")]
+#[derive(Clone, Copy)]
+pub(crate) struct DirSlot {
+    pub(crate) parent_clus: Cluster<usize>,
+    pub(crate) offset_within_cluster: usize,
+    pub(crate) short_name: ShortFileName,
+    /// Creation timestamp captured at lookup, used alongside the short name to
+    /// tell a live handle from one whose slot was reused by a same-named file.
+    pub(crate) created: FatDateTime,
+}
+
+#[cfg(feature = "write")]
+impl DirSlot {
+    pub(crate) fn from_entry(entry: &FileEntry) -> Self {
+        Self {
+            parent_clus: entry.parent_clus,
+            offset_within_cluster: entry.offset_within_cluster,
+            short_name: entry.short_name,
+            created: entry.created,
+        }
+    }
+}
+
 /// A directory within a mounted FAT filesystem.
 pub struct FatDir<'a, DATA: Read + Seek> {
     pub(crate) data: &'a FatVolume<DATA>,
@@ -53,6 +81,10 @@ pub struct FatDir<'a, DATA: Read + Seek> {
     pub(crate) cluster: Cluster,
     /// For FAT12/16 root: (start_byte, size_bytes), None for cluster-based dirs
     pub(crate) fixed_root: Option<(usize, usize)>,
+    /// Slot of this directory's own entry in its parent, for stale-handle
+    /// revalidation on write. `None` for the root.
+    #[cfg(feature = "write")]
+    pub(crate) dir_entry: Option<DirSlot>,
 }
 
 impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
@@ -110,6 +142,8 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
             data: self.data,
             cluster: entry.cluster(),
             fixed_root: None, // Subdirectories are never fixed root
+            #[cfg(feature = "write")]
+            dir_entry: Some(DirSlot::from_entry(entry)),
         })
     }
 
@@ -159,6 +193,8 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
             data: self.data,
             cluster: entry.cluster(),
             fixed_root: None,
+            #[cfg(feature = "write")]
+            dir_entry: Some(DirSlot::from_entry(&entry)),
         })
     }
 

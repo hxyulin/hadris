@@ -107,6 +107,23 @@ pub enum Error {
         bit: &'static str,
     },
 
+    /// A [`crate::dir::FileEntry`] handle no longer matches what is on disk at
+    /// the location it was looked up from: the slot was deleted, or reused by
+    /// a different file. Mutating through such a stale handle would corrupt an
+    /// unrelated entry, so the mutating APIs (`delete`, `rename`,
+    /// `set_attributes`, `set_times`, `truncate`, and `FileWriter::finish`)
+    /// revalidate the on-disk short name first and return this instead.
+    #[cfg(feature = "write")]
+    StaleEntry,
+
+    /// A second [`crate::write::FileWriter`] was requested for a directory entry
+    /// that already has one open. Two concurrent writers would independently
+    /// allocate and cross-link the file's cluster chain, leaking the loser's
+    /// clusters when the last `finish()` wins. Drop or `finish()` the existing
+    /// writer before opening another for the same file.
+    #[cfg(feature = "write")]
+    WriterConflict,
+
     /// A read-only [`crate::cache::FatSectorCache`] operation needed to evict
     /// a sector to make room for a new one, but every cached sector is
     /// dirty. The caller must call [`crate::cache::FatSectorCache::flush`]
@@ -259,6 +276,17 @@ impl fmt::Display for Error {
             Self::InvalidAttributeChange { bit } => {
                 write!(f, "cannot change immutable attribute bit `{bit}` in place")
             }
+            #[cfg(feature = "write")]
+            Self::StaleEntry => {
+                write!(
+                    f,
+                    "directory entry handle is stale (its on-disk slot was deleted or reused)"
+                )
+            }
+            #[cfg(feature = "write")]
+            Self::WriterConflict => {
+                write!(f, "a FileWriter is already open for this directory entry")
+            }
             #[cfg(feature = "cache")]
             Self::CacheDirtyEviction { sector } => {
                 write!(
@@ -392,6 +420,14 @@ impl defmt::Format for Error {
             #[cfg(feature = "write")]
             Self::InvalidAttributeChange { bit } => {
                 defmt::write!(f, "cannot change immutable attribute bit `{=str}`", *bit)
+            }
+            #[cfg(feature = "write")]
+            Self::StaleEntry => {
+                defmt::write!(f, "directory entry handle is stale (deleted or reused)")
+            }
+            #[cfg(feature = "write")]
+            Self::WriterConflict => {
+                defmt::write!(f, "a FileWriter is already open for this directory entry")
             }
             #[cfg(feature = "cache")]
             Self::CacheDirtyEviction { sector } => defmt::write!(

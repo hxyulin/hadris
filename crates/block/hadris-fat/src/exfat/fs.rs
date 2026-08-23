@@ -317,10 +317,21 @@ where
         Ok(cluster)
     }
 
-    /// Allocate contiguous clusters for an exFAT file.
+    /// Write a single raw FAT entry. Used by the file writer to maintain chain
+    /// links when a file becomes fragmented (a contiguous exFAT file carries no
+    /// FAT links, so converting it to a chain requires writing them).
+    pub(crate) fn set_fat_entry(&self, cluster: u32, value: u32) -> Result<()> {
+        let mut data = self.data.lock();
+        self.fat.write_entry(&mut data.data, cluster, value)
+    }
+
+    /// Allocate `count` clusters for an exFAT file.
     ///
-    /// Returns (first_cluster, is_contiguous). If contiguous allocation fails,
-    /// falls back to FAT chain allocation.
+    /// Returns (first_cluster, is_contiguous). Allocation is authoritative
+    /// against the allocation bitmap — the FAT is not a reliable free map in
+    /// exFAT because contiguous files consume bitmap clusters while leaving
+    /// their FAT entries zero. When a contiguous run is unavailable, a
+    /// fragmented chain is allocated from the bitmap and linked in the FAT.
     pub fn allocate_clusters(&self, count: u32, hint: u32) -> Result<(u32, bool)> {
         if count == 0 {
             return Ok((0, true));
@@ -328,36 +339,60 @@ where
 
         let mut bitmap = self.bitmap.lock();
 
-        // Try to allocate contiguously first
+        // Try to allocate contiguously first.
         if let Some(first) = bitmap.find_contiguous_free(count, hint)? {
-            // Mark all clusters as allocated
             for i in 0..count {
                 bitmap.set_allocated(first + i, true)?;
             }
             return Ok((first, true));
         }
 
-        // Fall back to FAT chain allocation
-        drop(bitmap); // Release bitmap lock before FAT operations
-
-        let mut data = self.data.lock();
-        let first = self.fat.allocate_chain(&mut data.data, count, hint)?;
-
-        // Also mark in bitmap
-        drop(data);
-        let mut bitmap = self.bitmap.lock();
-        let mut current = first;
-        let mut data = self.data.lock();
+        // Fragmented fallback: reserve `count` free clusters from the bitmap,
+        // rolling back on exhaustion, then link them into a FAT chain. This
+        // never consults the FAT for free space, so it cannot re-hand-out a
+        // cluster the contiguous path already took (bitmap-only) from the FAT.
+        let mut allocated: alloc::vec::Vec<u32> = alloc::vec::Vec::with_capacity(count as usize);
+        let mut next_hint = hint;
         for _ in 0..count {
-            bitmap.set_allocated(current, true)?;
-            if let Some(next) = self.fat.next_cluster(&mut data.data, current)? {
-                current = next;
-            } else {
-                break;
+            match bitmap.find_free_cluster(next_hint)? {
+                Some(c) => {
+                    bitmap.set_allocated(c, true)?;
+                    next_hint = c.saturating_add(1);
+                    allocated.push(c);
+                }
+                None => {
+                    for &c in &allocated {
+                        let _ = bitmap.set_allocated(c, false);
+                    }
+                    return Err(Error::NoFreeSpace);
+                }
             }
         }
+        drop(bitmap);
 
-        Ok((first, false))
+        // Link the reserved clusters into a chain, terminating the last. A
+        // failure part-way through must release the reservations, or the
+        // clusters leak: nothing references them and the bitmap still calls
+        // them used.
+        let linked = (|| {
+            let mut data = self.data.lock();
+            for pair in allocated.windows(2) {
+                self.fat.write_entry(&mut data.data, pair[0], pair[1])?;
+            }
+            let last = *allocated.last().expect("count >= 1");
+            self.fat
+                .write_entry(&mut data.data, last, ExFatTable::END_OF_CHAIN)
+        })();
+
+        if let Err(err) = linked {
+            let mut bitmap = self.bitmap.lock();
+            for &c in &allocated {
+                let _ = bitmap.set_allocated(c, false);
+            }
+            return Err(err);
+        }
+
+        Ok((allocated[0], false))
     }
 
     /// Free clusters.
@@ -446,13 +481,18 @@ where
                 }
             }
 
-            // Move to next cluster
+            // Move to the next cluster. Reset the run first: an entry set must
+            // never span a cluster boundary, because write_entry_set writes
+            // linearly and a fragmented directory's next cluster is not
+            // physically adjacent to this one.
+            consecutive_free = 0;
             if dir.is_contiguous {
                 current_cluster += 1;
-                // Check if we've exceeded the directory size
-                if (current_cluster - dir.first_cluster) as u64 * cluster_size as u64 >= dir.size
-                    && dir.size > 0
-                {
+                // Stop at the end of the directory's allocation. A contiguous
+                // directory with an unknown size (0) is treated as one cluster
+                // rather than scanning off the end into unrelated data.
+                let scanned = (current_cluster - dir.first_cluster) as u64 * cluster_size as u64;
+                if dir.size == 0 || scanned >= dir.size {
                     break;
                 }
             } else {
@@ -557,6 +597,9 @@ where
         // Write the entry set
         self.write_entry_set(slot_cluster, slot_offset, &entries)?;
 
+        // Persist the bitmap: allocate_cluster only updated the in-memory copy.
+        self.sync_bitmap()?;
+
         Ok(ExFatDir {
             fs: self,
             first_cluster: dir_cluster,
@@ -598,6 +641,9 @@ where
         // Mark the directory entry as deleted (0x05)
         let deleted_marker = [entry_type::DELETED_FILE];
         self.write_at(entry.entry_offset, &deleted_marker)?;
+
+        // Persist the freed bitmap clusters so the space is reclaimed on remount.
+        self.sync_bitmap()?;
 
         Ok(())
     }
@@ -712,7 +758,10 @@ where
                     self.free_clusters(first_to_free, clusters_to_free as u32, true)?;
                 }
             } else {
-                // For fragmented files, walk the chain and truncate
+                // For fragmented files, walk the chain to the last cluster to
+                // keep, terminate it, and free the tail in BOTH the FAT and the
+                // bitmap. `fat.truncate_chain` alone clears only the FAT, which
+                // would leak the tail clusters in the bitmap.
                 let mut current = entry.first_cluster;
                 for _ in 1..clusters_to_keep {
                     let mut data = self.data.lock();
@@ -723,9 +772,17 @@ where
                     }
                 }
 
-                // Truncate after this cluster
-                let mut data = self.data.lock();
-                self.fat.truncate_chain(&mut data.data, current)?;
+                let tail = {
+                    let mut data = self.data.lock();
+                    let next = self.fat.read_entry(&mut data.data, current)?;
+                    self.fat
+                        .write_entry(&mut data.data, current, ExFatTable::END_OF_CHAIN)?;
+                    next
+                };
+                if (ExFatTable::FIRST_DATA_CLUSTER..=self.fat.max_cluster()).contains(&tail) {
+                    // Follows the chain from `tail`, clearing FAT and bitmap.
+                    self.free_clusters(tail, 0, false)?;
+                }
             }
             self.update_entry_size(
                 entry,
@@ -735,6 +792,9 @@ where
                 entry.no_fat_chain,
             )?;
         }
+
+        // Persist the freed bitmap clusters so the space is reclaimed on remount.
+        self.sync_bitmap()?;
 
         Ok(())
     }
