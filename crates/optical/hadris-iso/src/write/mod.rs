@@ -1697,7 +1697,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 let start = dir_ref.extent.0 as u64 * blocks_per_sector;
                 let sectors = (dir_ref.size as u64).div_ceil(512).max(1);
                 let end = start + sectors - 1;
-                if start < first_usable || end > iso_end {
+                if start < iso_part_start || end > iso_end {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "EFI boot partition lies outside the ISO data area",
