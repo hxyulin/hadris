@@ -28,7 +28,7 @@ std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", 
 sync = ["hadris-io/sync", "hadris-common/sync", "hadris-part/sync"]
 async = ["hadris-io/async", "hadris-common/async", "hadris-part/async"]
 
-write = ["alloc", "std", "hadris-part/write"]
+write = ["alloc", "std", "hadris-part/write", "hadris-part/crc"]
 joliet = ["alloc"]
 
 [dependencies]
@@ -46,6 +46,7 @@ hadris-part = { workspace = true, default-features = false }
 spin.workspace = true
 
 [dev-dependencies]
+hadris-part = { workspace = true, features = ["std", "sync", "read", "write", "crc"] }
 static_assertions.workspace = true
 tempfile.workspace = true
 criterion.workspace = true

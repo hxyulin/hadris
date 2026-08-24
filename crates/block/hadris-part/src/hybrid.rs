@@ -268,10 +268,10 @@ impl HybridMbrBuilder {
             mirror_count += 1;
         }
 
-        // Create protective MBR entry
-        // The protective entry should cover areas not covered by mirrored partitions
-        // For simplicity, we'll make it cover from sector 1 to the end of the disk
-        // (or the first mirrored partition, whichever comes first)
+        // Create protective MBR entry covering LBA 1 through `protective_end`
+        // (the last LBA before the first mirrored partition, or the last LBA of
+        // the disk when no mirrored partition starts after LBA 1)
+        let last_disk_lba = self.disk_sectors.saturating_sub(1).min(u32::MAX as u64) as u32;
         let protective_end = if mirror_count > 0 {
             // Find the start of the first mirrored partition
             let mut first_start = u64::MAX;
@@ -282,19 +282,15 @@ impl HybridMbrBuilder {
             }
             if first_start == u64::MAX {
                 // All mirrored partitions start at sector 1 or less
-                self.disk_sectors.min(u32::MAX as u64) as u32
+                last_disk_lba
             } else {
                 (first_start - 1).min(u32::MAX as u64) as u32
             }
         } else {
-            self.disk_sectors.min(u32::MAX as u64) as u32
+            last_disk_lba
         };
-
-        let protective_size = if protective_end > 1 {
-            protective_end - 1
-        } else {
-            1
-        };
+        let protective_end = protective_end.max(1);
+        let protective_size = protective_end;
 
         partition_table[self.config.protective_slot] = MbrPartition {
             boot_indicator: 0x00,
@@ -379,6 +375,45 @@ mod tests {
 
         assert!(mbr.has_valid_signature());
         assert!(is_hybrid_mbr(&mbr));
+    }
+
+    #[test]
+    fn test_protective_entry_covers_gap_before_first_mirror() {
+        let gpt_entries = [GptPartitionEntry::new(
+            Guid::EFI_SYSTEM,
+            Guid::UNUSED,
+            34,
+            206847,
+        )];
+
+        let mbr = HybridMbrBuilder::new(1_000_000)
+            .protective_slot(0)
+            .mirror_partition(0, MbrPartitionType::EfiSystemPartition, false)
+            .build(&gpt_entries)
+            .unwrap();
+
+        let pt = mbr.get_partition_table();
+        let protective = &pt.partitions[0];
+        assert_eq!(protective.start_lba.to_ne(), 1);
+        assert_eq!(protective.sector_count.to_ne(), 33);
+        assert_eq!(protective.end_chs, Chs::new(33));
+
+        let mirrored = &pt.partitions[1];
+        assert_eq!(mirrored.start_lba.to_ne(), 34);
+    }
+
+    #[test]
+    fn test_protective_entry_covers_disk_without_mirrors() {
+        let mbr = HybridMbrBuilder::new(1_000_000)
+            .protective_slot(0)
+            .build(&[])
+            .unwrap();
+
+        let pt = mbr.get_partition_table();
+        let protective = &pt.partitions[0];
+        assert_eq!(protective.start_lba.to_ne(), 1);
+        assert_eq!(protective.sector_count.to_ne(), 999_999);
+        assert_eq!(protective.end_chs, Chs::new(999_999));
     }
 
     #[test]

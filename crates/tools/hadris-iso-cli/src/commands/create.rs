@@ -143,6 +143,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
         );
         println!("  File data:          {:>10}", est.breakdown.file_data);
         println!("  Boot catalog:       {:>10}", est.breakdown.boot_catalog);
+        println!("  Backup GPT:         {:>10}", est.breakdown.backup_gpt);
         return Ok(());
     }
 

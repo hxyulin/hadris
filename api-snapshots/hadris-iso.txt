@@ -4048,6 +4048,7 @@ pub hadris_iso::sync::write::estimator::IsoSizeEstimate::minimum_sectors: u64
 impl hadris_iso::write::estimator::IsoSizeEstimate
 pub fn hadris_iso::write::estimator::IsoSizeEstimate::minimum_bytes(&self) -> u64
 pub struct hadris_iso::sync::write::estimator::SizeBreakdown
+pub hadris_iso::sync::write::estimator::SizeBreakdown::backup_gpt: u64
 pub hadris_iso::sync::write::estimator::SizeBreakdown::boot_catalog: u64
 pub hadris_iso::sync::write::estimator::SizeBreakdown::continuation_areas: u64
 pub hadris_iso::sync::write::estimator::SizeBreakdown::directory_records: u64
@@ -4091,6 +4092,7 @@ impl core::default::Default for hadris_iso::write::options::CreationFeatures
 pub fn hadris_iso::write::options::CreationFeatures::default() -> Self
 pub struct hadris_iso::sync::write::options::HybridBootOptions
 pub hadris_iso::sync::write::options::HybridBootOptions::bootable: bool
+pub hadris_iso::sync::write::options::HybridBootOptions::efi_boot_partition: core::option::Option<alloc::string::String>
 pub hadris_iso::sync::write::options::HybridBootOptions::mbr_bootstrap: core::option::Option<alloc::vec::Vec<u8>>
 pub hadris_iso::sync::write::options::HybridBootOptions::partition_scheme: hadris_iso::write::options::PartitionScheme
 impl hadris_iso::write::options::HybridBootOptions
@@ -4098,6 +4100,7 @@ pub fn hadris_iso::write::options::HybridBootOptions::bootstrap(self, alloc::vec
 pub fn hadris_iso::write::options::HybridBootOptions::gpt() -> Self
 pub fn hadris_iso::write::options::HybridBootOptions::hybrid() -> Self
 pub fn hadris_iso::write::options::HybridBootOptions::mbr() -> Self
+pub fn hadris_iso::write::options::HybridBootOptions::with_efi_boot_partition(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub struct hadris_iso::sync::write::options::IsoFormatOptions
 pub hadris_iso::sync::write::options::IsoFormatOptions::application_id: core::option::Option<alloc::string::String>
 pub hadris_iso::sync::write::options::IsoFormatOptions::features: hadris_iso::write::options::CreationFeatures
@@ -4537,6 +4540,7 @@ pub hadris_iso::write::estimator::IsoSizeEstimate::minimum_sectors: u64
 impl hadris_iso::write::estimator::IsoSizeEstimate
 pub fn hadris_iso::write::estimator::IsoSizeEstimate::minimum_bytes(&self) -> u64
 pub struct hadris_iso::write::estimator::SizeBreakdown
+pub hadris_iso::write::estimator::SizeBreakdown::backup_gpt: u64
 pub hadris_iso::write::estimator::SizeBreakdown::boot_catalog: u64
 pub hadris_iso::write::estimator::SizeBreakdown::continuation_areas: u64
 pub hadris_iso::write::estimator::SizeBreakdown::directory_records: u64
@@ -4580,6 +4584,7 @@ impl core::default::Default for hadris_iso::write::options::CreationFeatures
 pub fn hadris_iso::write::options::CreationFeatures::default() -> Self
 pub struct hadris_iso::write::options::HybridBootOptions
 pub hadris_iso::write::options::HybridBootOptions::bootable: bool
+pub hadris_iso::write::options::HybridBootOptions::efi_boot_partition: core::option::Option<alloc::string::String>
 pub hadris_iso::write::options::HybridBootOptions::mbr_bootstrap: core::option::Option<alloc::vec::Vec<u8>>
 pub hadris_iso::write::options::HybridBootOptions::partition_scheme: hadris_iso::write::options::PartitionScheme
 impl hadris_iso::write::options::HybridBootOptions
@@ -4587,6 +4592,7 @@ pub fn hadris_iso::write::options::HybridBootOptions::bootstrap(self, alloc::vec
 pub fn hadris_iso::write::options::HybridBootOptions::gpt() -> Self
 pub fn hadris_iso::write::options::HybridBootOptions::hybrid() -> Self
 pub fn hadris_iso::write::options::HybridBootOptions::mbr() -> Self
+pub fn hadris_iso::write::options::HybridBootOptions::with_efi_boot_partition(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub struct hadris_iso::write::options::IsoFormatOptions
 pub hadris_iso::write::options::IsoFormatOptions::application_id: core::option::Option<alloc::string::String>
 pub hadris_iso::write::options::IsoFormatOptions::features: hadris_iso::write::options::CreationFeatures

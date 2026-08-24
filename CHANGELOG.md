@@ -19,8 +19,47 @@ Each published package owns its version and may be released independently.
 - **hadris-fat:** New `Error::WriterConflict` (with the `write` feature) returned
   when a second `FileWriter` is opened for a directory entry that already has one
   open (see below).
+- **hadris-iso:** New `HybridBootOptions::efi_boot_partition` field and
+  `with_efi_boot_partition` builder to expose an El Torito UEFI boot image as a
+  GPT EFI System Partition (the equivalent of xorriso's
+  `-efi-boot-part --efi-boot-image`). When unset, the writer automatically uses
+  the boot image of the single `PlatformId::UEFI` El Torito entry, if there is
+  exactly one, so existing UEFI/hybrid consumers gain the ESP without code
+  changes. `PlatformId` now derives `PartialEq`/`Eq`.
+- **hadris-iso:** New `SizeBreakdown::backup_gpt` estimator component covering
+  the backup-GPT region appended to GPT/Hybrid images, so size estimates keep
+  their never-underestimates contract for those schemes.
 
 ### Fixed
+
+- **hadris-iso:** GPT and Hybrid images now write a complete GPT. The writer
+  appends a backup-GPT region (backup entry array plus backup header) after the
+  ISO data, so `alternate_lba` points at a real backup header instead of
+  unwritten sectors, and both headers use the standard 128-entry array via
+  `hadris-part::GptDisk` (previously 4 or 2 entries were advertised and no
+  backup was written). `volume_space_size` covers the appended region, so tools
+  that copy `volume_space_size` logical sectors preserve the backup GPT.
+- **hadris-iso:** The GPT partition layout is now meaningful: basic-data
+  partitions cover exactly the ISO data area (the previous single partition
+  spanned LBA 34 to `disk_size - 34`, an extent with no valid filesystem), and
+  the EFI System Partition entry covers the El Torito UEFI image's exact
+  sectors. Partitions start no earlier than 512-byte LBA 64, where the ISO
+  volume descriptors begin; tools that convert ISOHYBRID GPT images to MBR
+  (such as `limine bios-install`) embed boot code below sector 63 and reject
+  partitions starting earlier. The hybrid MBR mirrors the ESP as type `0xEF` alongside the `0x17`
+  ISO partition instead of mirroring only the bogus basic-data range.
+- **hadris-part:** `HybridMbrBuilder` no longer undersizes the protective MBR
+  entry by one sector. The entry now covers LBA 1 through the sector before the
+  first mirrored partition inclusive (33 sectors for a partition starting at
+  LBA 34), and `end_chs` is consistent with `sector_count` in every branch.
+- **hadris-part:** Corrected the byte values of many well-known partition-type
+  `Guid` constants, which did not match their canonical GUIDs (all `FREEBSD_*`,
+  `SOLARIS_*`, `NETBSD_*`, and `VMWARE_*` constants, the `LINUX_ROOT_*`,
+  `LINUX_HOME`, `LINUX_SRV`, and `LINUX_LUKS` constants,
+  `WINDOWS_STORAGE_SPACES`, and several `APPLE_*` constants). All constants are
+  now defined from their canonical GUID strings at compile time, with the
+  sources referenced in the code and a regression test asserting each
+  constant's textual form.
 
 - **hadris-fat:** Overwriting an existing file through `write_file` no longer
   leaks the file's previous cluster chain. The writer now follows and reuses

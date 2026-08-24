@@ -159,6 +159,13 @@ impl Guid {
             d5_5,
         ]))
     }
+
+    const fn from_canonical(s: &str) -> Self {
+        match Self::from_str(s) {
+            Some(g) => g,
+            None => panic!("invalid GUID literal"),
+        }
+    }
 }
 
 // Helper functions for const GUID parsing
@@ -207,7 +214,16 @@ const fn parse_hex_u32(chars: &[u8; 8]) -> Option<u32> {
     Some(((b0 as u32) << 16) | (b1 as u32))
 }
 
-// Well-known partition type GUIDs
+// Well-known partition type GUIDs.
+//
+// Canonical values sourced from, and re-checkable against:
+// - UEFI Specification 2.10, section 5.3 (EFI System Partition, unused entry)
+// - Microsoft's documented partition type GUIDs (Microsoft section)
+// - systemd/UAPI Discoverable Partitions Specification (Linux root/home/srv/swap):
+//   https://uapi-group.org/specifications/specs/discoverable_partitions_specification/
+// - Wikipedia "GUID Partition Table" partition type table, the aggregate
+//   reference against which every value below was cross-checked on 2026-08-24:
+//   https://en.wikipedia.org/wiki/GUID_Partition_Table#Partition_type_GUIDs
 impl Guid {
     /// Unused/empty partition entry.
     pub const UNUSED: Self = Self([0; 16]);
@@ -215,320 +231,178 @@ impl Guid {
     // === EFI/UEFI ===
 
     /// EFI System Partition (ESP).
-    pub const EFI_SYSTEM: Self = Self([
-        0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9,
-        0x3b,
-    ]);
+    pub const EFI_SYSTEM: Self = Self::from_canonical("C12A7328-F81F-11D2-BA4B-00A0C93EC93B");
 
     /// BIOS Boot Partition (for GRUB on GPT disks).
-    pub const BIOS_BOOT: Self = Self([
-        0x48, 0x61, 0x68, 0x21, 0x49, 0x64, 0x6f, 0x6e, 0x74, 0x4e, 0x65, 0x65, 0x64, 0x45, 0x46,
-        0x49,
-    ]);
+    pub const BIOS_BOOT: Self = Self::from_canonical("21686148-6449-6E6F-744E-656564454649");
 
     // === Microsoft ===
 
     /// Microsoft Reserved Partition (MSR).
-    pub const MICROSOFT_RESERVED: Self = Self([
-        0x16, 0xe3, 0xc9, 0xe3, 0x5c, 0x0b, 0xb8, 0x4d, 0x81, 0x7d, 0xf9, 0x2d, 0xf0, 0x02, 0x15,
-        0xae,
-    ]);
+    pub const MICROSOFT_RESERVED: Self =
+        Self::from_canonical("E3C9E316-0B5C-4DB8-817D-F92DF00215AE");
 
     /// Basic Data Partition (Windows NTFS/FAT).
-    pub const BASIC_DATA: Self = Self([
-        0xa2, 0xa0, 0xd0, 0xeb, 0xe5, 0xb9, 0x33, 0x44, 0x87, 0xc0, 0x68, 0xb6, 0xb7, 0x26, 0x99,
-        0xc7,
-    ]);
+    pub const BASIC_DATA: Self = Self::from_canonical("EBD0A0A2-B9E5-4433-87C0-68B6B72699C7");
 
     /// Windows LDM Metadata Partition.
-    pub const WINDOWS_LDM_METADATA: Self = Self([
-        0xaa, 0xc8, 0x08, 0x58, 0x8f, 0x7e, 0xe0, 0x42, 0x85, 0xd2, 0xe1, 0xe9, 0x04, 0x34, 0xcf,
-        0xb3,
-    ]);
+    pub const WINDOWS_LDM_METADATA: Self =
+        Self::from_canonical("5808C8AA-7E8F-42E0-85D2-E1E90434CFB3");
 
     /// Windows LDM Data Partition.
-    pub const WINDOWS_LDM_DATA: Self = Self([
-        0xa0, 0x60, 0x9b, 0xaf, 0x31, 0x14, 0x62, 0x4f, 0xbc, 0x68, 0x33, 0x11, 0x71, 0x4a, 0x69,
-        0xad,
-    ]);
+    pub const WINDOWS_LDM_DATA: Self = Self::from_canonical("AF9B60A0-1431-4F62-BC68-3311714A69AD");
 
     /// Windows Recovery Environment.
-    pub const WINDOWS_RECOVERY: Self = Self([
-        0xa4, 0xbb, 0x94, 0xde, 0xd1, 0x06, 0x40, 0x4d, 0xa1, 0x6a, 0xbf, 0xd5, 0x01, 0x79, 0xd6,
-        0xac,
-    ]);
+    pub const WINDOWS_RECOVERY: Self = Self::from_canonical("DE94BBA4-06D1-4D40-A16A-BFD50179D6AC");
 
     /// Windows Storage Spaces.
-    pub const WINDOWS_STORAGE_SPACES: Self = Self([
-        0xe7, 0x5c, 0xaf, 0xe7, 0xa0, 0x1a, 0x4d, 0x4d, 0xbe, 0xe7, 0x47, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const WINDOWS_STORAGE_SPACES: Self =
+        Self::from_canonical("E75CAF8F-F680-4CEE-AFA3-B001E56EFC2D");
 
     // === Linux ===
 
     /// Linux Filesystem Data.
-    pub const LINUX_FILESYSTEM: Self = Self([
-        0xaf, 0x3d, 0xc6, 0x0f, 0x83, 0x84, 0x72, 0x47, 0x8e, 0x79, 0x3d, 0x69, 0xd8, 0x47, 0x7d,
-        0xe4,
-    ]);
+    pub const LINUX_FILESYSTEM: Self = Self::from_canonical("0FC63DAF-8483-4772-8E79-3D69D8477DE4");
 
     /// Linux RAID.
-    pub const LINUX_RAID: Self = Self([
-        0x0f, 0x88, 0x9d, 0xa1, 0xfc, 0x05, 0x3b, 0x4d, 0xa0, 0x06, 0x74, 0x3f, 0x0f, 0x84, 0x91,
-        0x1e,
-    ]);
+    pub const LINUX_RAID: Self = Self::from_canonical("A19D880F-05FC-4D3B-A006-743F0F84911E");
 
     /// Linux Root Partition (x86).
-    pub const LINUX_ROOT_X86: Self = Self([
-        0x10, 0xd7, 0xda, 0x44, 0x96, 0xe5, 0xe9, 0x4c, 0xb1, 0x6b, 0x00, 0xa5, 0x24, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const LINUX_ROOT_X86: Self = Self::from_canonical("44479540-F297-41B2-9AF7-D131D5F0458A");
 
     /// Linux Root Partition (x86-64).
-    pub const LINUX_ROOT_X86_64: Self = Self([
-        0x02, 0xb9, 0x2f, 0x4f, 0xbe, 0x39, 0x3e, 0x4e, 0xb2, 0xc8, 0x23, 0x54, 0x61, 0x6c, 0x02,
-        0x72,
-    ]);
+    pub const LINUX_ROOT_X86_64: Self =
+        Self::from_canonical("4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709");
 
     /// Linux Root Partition (ARM).
-    pub const LINUX_ROOT_ARM: Self = Self([
-        0xb1, 0x21, 0xb0, 0x69, 0xda, 0xf3, 0x4c, 0x4c, 0x8d, 0x5a, 0x52, 0x57, 0x4c, 0x02, 0x37,
-        0x00,
-    ]);
+    pub const LINUX_ROOT_ARM: Self = Self::from_canonical("69DAD710-2CE4-4E3C-B16C-21A1D49ABED3");
 
     /// Linux Root Partition (ARM64/AArch64).
-    pub const LINUX_ROOT_ARM64: Self = Self([
-        0xd5, 0x7e, 0x44, 0xb7, 0x85, 0x00, 0x4c, 0x49, 0x8a, 0x82, 0x7f, 0x05, 0x39, 0x45, 0x00,
-        0x00,
-    ]);
+    pub const LINUX_ROOT_ARM64: Self = Self::from_canonical("B921B045-1DF0-41C3-AF44-4C6F280D3FAE");
 
     /// Linux Swap.
-    pub const LINUX_SWAP: Self = Self([
-        0x6d, 0xfd, 0x57, 0x06, 0xab, 0xa4, 0xc4, 0x43, 0x84, 0xe5, 0x09, 0x33, 0xc8, 0x4b, 0x4f,
-        0x4f,
-    ]);
+    pub const LINUX_SWAP: Self = Self::from_canonical("0657FD6D-A4AB-43C4-84E5-0933C84B4F4F");
 
     /// Linux LVM.
-    pub const LINUX_LVM: Self = Self([
-        0x79, 0xd3, 0xd6, 0xe6, 0x07, 0xf5, 0xc2, 0x44, 0xa2, 0x3c, 0x23, 0x8f, 0x2a, 0x3d, 0xf9,
-        0x28,
-    ]);
+    pub const LINUX_LVM: Self = Self::from_canonical("E6D6D379-F507-44C2-A23C-238F2A3DF928");
 
     /// Linux /home Partition.
-    pub const LINUX_HOME: Self = Self([
-        0x33, 0xe7, 0xd1, 0x93, 0xd8, 0x0c, 0x4d, 0x4e, 0x90, 0x4a, 0xac, 0x2d, 0x04, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const LINUX_HOME: Self = Self::from_canonical("933AC7E1-2EB4-4F13-B844-0E14E2AEF915");
 
     /// Linux /srv (Server Data) Partition.
-    pub const LINUX_SRV: Self = Self([
-        0x33, 0xe7, 0xd1, 0x93, 0xd8, 0x0c, 0x4d, 0x4e, 0x90, 0x4a, 0xac, 0x2d, 0x05, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const LINUX_SRV: Self = Self::from_canonical("3B8F8425-20E0-4F3B-907F-1A25A76F98E8");
 
     /// Linux dm-crypt / LUKS Partition.
-    pub const LINUX_LUKS: Self = Self([
-        0x7f, 0xff, 0xff, 0xca, 0xbc, 0xcd, 0x43, 0x4d, 0xa9, 0x17, 0x87, 0xe1, 0x14, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const LINUX_LUKS: Self = Self::from_canonical("CA7D7CCB-63ED-4C53-861C-1742536059CC");
 
     // === Apple ===
 
     /// Apple HFS+ Partition.
-    pub const APPLE_HFS_PLUS: Self = Self([
-        0x00, 0x53, 0x46, 0x48, 0x00, 0x00, 0xaa, 0x11, 0xaa, 0x11, 0x00, 0x30, 0x65, 0x43, 0xec,
-        0xac,
-    ]);
+    pub const APPLE_HFS_PLUS: Self = Self::from_canonical("48465300-0000-11AA-AA11-00306543ECAC");
 
     /// Apple APFS Container.
-    pub const APPLE_APFS: Self = Self([
-        0xef, 0x57, 0x34, 0x7c, 0x00, 0x00, 0xaa, 0x11, 0xaa, 0x11, 0x00, 0x30, 0x65, 0x43, 0xec,
-        0xac,
-    ]);
+    pub const APPLE_APFS: Self = Self::from_canonical("7C3457EF-0000-11AA-AA11-00306543ECAC");
 
     /// Apple UFS.
-    pub const APPLE_UFS: Self = Self([
-        0x00, 0x53, 0x46, 0x55, 0x00, 0x00, 0xaa, 0x11, 0xaa, 0x11, 0x00, 0x30, 0x65, 0x43, 0xec,
-        0xac,
-    ]);
+    pub const APPLE_UFS: Self = Self::from_canonical("55465300-0000-11AA-AA11-00306543ECAC");
 
     /// Apple RAID Partition.
-    pub const APPLE_RAID: Self = Self([
-        0x2d, 0x52, 0x41, 0x49, 0x00, 0x00, 0xaa, 0x11, 0xaa, 0x11, 0x00, 0x30, 0x65, 0x43, 0xec,
-        0xac,
-    ]);
+    pub const APPLE_RAID: Self = Self::from_canonical("52414944-0000-11AA-AA11-00306543ECAC");
 
     /// Apple RAID Partition (offline).
-    pub const APPLE_RAID_OFFLINE: Self = Self([
-        0x2d, 0x52, 0x41, 0x49, 0x4f, 0x46, 0xaa, 0x11, 0xaa, 0x11, 0x00, 0x30, 0x65, 0x43, 0xec,
-        0xac,
-    ]);
+    pub const APPLE_RAID_OFFLINE: Self =
+        Self::from_canonical("52414944-5F4F-11AA-AA11-00306543ECAC");
 
     /// Apple Boot Partition (Recovery HD).
-    pub const APPLE_BOOT: Self = Self([
-        0x00, 0x74, 0x6f, 0x6f, 0x42, 0x65, 0xaa, 0x11, 0xaa, 0x11, 0x00, 0x30, 0x65, 0x43, 0xec,
-        0xac,
-    ]);
+    pub const APPLE_BOOT: Self = Self::from_canonical("426F6F74-0000-11AA-AA11-00306543ECAC");
 
     /// Apple Label.
-    pub const APPLE_LABEL: Self = Self([
-        0x6c, 0x65, 0x62, 0x61, 0x4c, 0x00, 0xaa, 0x11, 0xaa, 0x11, 0x00, 0x30, 0x65, 0x43, 0xec,
-        0xac,
-    ]);
+    pub const APPLE_LABEL: Self = Self::from_canonical("4C616265-6C00-11AA-AA11-00306543ECAC");
 
     /// Apple TV Recovery Partition.
-    pub const APPLE_TV_RECOVERY: Self = Self([
-        0x52, 0x65, 0x63, 0x76, 0x65, 0x72, 0xaa, 0x11, 0xaa, 0x11, 0x00, 0x30, 0x65, 0x43, 0xec,
-        0xac,
-    ]);
+    pub const APPLE_TV_RECOVERY: Self =
+        Self::from_canonical("5265636F-7665-11AA-AA11-00306543ECAC");
 
     /// Apple Core Storage (FileVault).
-    pub const APPLE_CORE_STORAGE: Self = Self([
-        0xb6, 0x7c, 0x6e, 0x53, 0x56, 0x43, 0xaa, 0x11, 0xaa, 0x11, 0x00, 0x30, 0x65, 0x43, 0xec,
-        0xac,
-    ]);
+    pub const APPLE_CORE_STORAGE: Self =
+        Self::from_canonical("53746F72-6167-11AA-AA11-00306543ECAC");
 
     // === FreeBSD ===
 
     /// FreeBSD Boot Partition.
-    pub const FREEBSD_BOOT: Self = Self([
-        0x00, 0x08, 0x00, 0x83, 0x01, 0x00, 0xb0, 0x11, 0x00, 0x00, 0xe4, 0x00, 0x00, 0x69, 0x00,
-        0x00,
-    ]);
+    pub const FREEBSD_BOOT: Self = Self::from_canonical("83BD6B9D-7F41-11DC-BE0B-001560B84F0F");
 
     /// FreeBSD Data Partition.
-    pub const FREEBSD_DATA: Self = Self([
-        0xa5, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const FREEBSD_DATA: Self = Self::from_canonical("516E7CB4-6ECF-11D6-8FF8-00022D09712B");
 
     /// FreeBSD Swap Partition.
-    pub const FREEBSD_SWAP: Self = Self([
-        0x00, 0x08, 0x00, 0x83, 0x01, 0x00, 0xb0, 0x11, 0x00, 0x01, 0xe4, 0x00, 0x00, 0x69, 0x00,
-        0x00,
-    ]);
+    pub const FREEBSD_SWAP: Self = Self::from_canonical("516E7CB5-6ECF-11D6-8FF8-00022D09712B");
 
     /// FreeBSD UFS Partition.
-    pub const FREEBSD_UFS: Self = Self([
-        0x00, 0x08, 0x00, 0x83, 0x01, 0x00, 0xb0, 0x11, 0x00, 0x02, 0xe4, 0x00, 0x00, 0x69, 0x00,
-        0x00,
-    ]);
+    pub const FREEBSD_UFS: Self = Self::from_canonical("516E7CB6-6ECF-11D6-8FF8-00022D09712B");
 
     /// FreeBSD ZFS Partition.
-    pub const FREEBSD_ZFS: Self = Self([
-        0x00, 0x08, 0x00, 0x83, 0x01, 0x00, 0xb0, 0x11, 0x00, 0x05, 0xe4, 0x00, 0x00, 0x69, 0x00,
-        0x00,
-    ]);
+    pub const FREEBSD_ZFS: Self = Self::from_canonical("516E7CBA-6ECF-11D6-8FF8-00022D09712B");
 
     /// FreeBSD Vinum/RAID Partition.
-    pub const FREEBSD_VINUM: Self = Self([
-        0x00, 0x08, 0x00, 0x83, 0x01, 0x00, 0xb0, 0x11, 0x00, 0x03, 0xe4, 0x00, 0x00, 0x69, 0x00,
-        0x00,
-    ]);
+    pub const FREEBSD_VINUM: Self = Self::from_canonical("516E7CB8-6ECF-11D6-8FF8-00022D09712B");
 
     // === Solaris / illumos ===
 
     /// Solaris Boot Partition.
-    pub const SOLARIS_BOOT: Self = Self([
-        0x45, 0xcb, 0x82, 0x6a, 0xd2, 0x1d, 0x11, 0xd3, 0x81, 0x52, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const SOLARIS_BOOT: Self = Self::from_canonical("6A82CB45-1DD2-11B2-99A6-080020736631");
 
     /// Solaris Root Partition.
-    pub const SOLARIS_ROOT: Self = Self([
-        0x45, 0xcb, 0x82, 0x6a, 0xd2, 0x1d, 0x11, 0xd3, 0x81, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const SOLARIS_ROOT: Self = Self::from_canonical("6A85CF4D-1DD2-11B2-99A6-080020736631");
 
     /// Solaris Swap Partition.
-    pub const SOLARIS_SWAP: Self = Self([
-        0x45, 0xcb, 0x82, 0x6a, 0xd2, 0x1d, 0x11, 0xd3, 0x81, 0x54, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const SOLARIS_SWAP: Self = Self::from_canonical("6A87C46F-1DD2-11B2-99A6-080020736631");
 
     /// Solaris Backup Partition.
-    pub const SOLARIS_BACKUP: Self = Self([
-        0x45, 0xcb, 0x82, 0x6a, 0xd2, 0x1d, 0x11, 0xd3, 0x81, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const SOLARIS_BACKUP: Self = Self::from_canonical("6A8B642B-1DD2-11B2-99A6-080020736631");
 
     /// Solaris /var Partition.
-    pub const SOLARIS_VAR: Self = Self([
-        0x45, 0xcb, 0x82, 0x6a, 0xd2, 0x1d, 0x11, 0xd3, 0x81, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const SOLARIS_VAR: Self = Self::from_canonical("6A8EF2E9-1DD2-11B2-99A6-080020736631");
 
     /// Solaris /home Partition.
-    pub const SOLARIS_HOME: Self = Self([
-        0x45, 0xcb, 0x82, 0x6a, 0xd2, 0x1d, 0x11, 0xd3, 0x81, 0x57, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const SOLARIS_HOME: Self = Self::from_canonical("6A90BA39-1DD2-11B2-99A6-080020736631");
 
     /// Solaris Reserved.
-    pub const SOLARIS_RESERVED: Self = Self([
-        0x45, 0xcb, 0x82, 0x6a, 0xd2, 0x1d, 0x11, 0xd3, 0x81, 0x5f, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const SOLARIS_RESERVED: Self = Self::from_canonical("6A945A3B-1DD2-11B2-99A6-080020736631");
 
     // === NetBSD ===
 
     /// NetBSD Swap Partition.
-    pub const NETBSD_SWAP: Self = Self([
-        0x32, 0x8d, 0xf4, 0x49, 0x19, 0xf8, 0xd2, 0x11, 0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9,
-        0x3b,
-    ]);
+    pub const NETBSD_SWAP: Self = Self::from_canonical("49F48D32-B10E-11DC-B99B-0019D1879648");
 
     /// NetBSD FFS Partition.
-    pub const NETBSD_FFS: Self = Self([
-        0x32, 0x8d, 0xf4, 0x49, 0x19, 0xf8, 0xd2, 0x11, 0xba, 0x4c, 0x00, 0xa0, 0xc9, 0x3e, 0xc9,
-        0x3b,
-    ]);
+    pub const NETBSD_FFS: Self = Self::from_canonical("49F48D5A-B10E-11DC-B99B-0019D1879648");
 
     /// NetBSD LFS Partition.
-    pub const NETBSD_LFS: Self = Self([
-        0x32, 0x8d, 0xf4, 0x49, 0x19, 0xf8, 0xd2, 0x11, 0xba, 0x4d, 0x00, 0xa0, 0xc9, 0x3e, 0xc9,
-        0x3b,
-    ]);
+    pub const NETBSD_LFS: Self = Self::from_canonical("49F48D82-B10E-11DC-B99B-0019D1879648");
 
     /// NetBSD RAID Partition.
-    pub const NETBSD_RAID: Self = Self([
-        0x32, 0x8d, 0xf4, 0x49, 0x19, 0xf8, 0xd2, 0x11, 0xba, 0x4f, 0x00, 0xa0, 0xc9, 0x3e, 0xc9,
-        0x3b,
-    ]);
+    pub const NETBSD_RAID: Self = Self::from_canonical("49F48DAA-B10E-11DC-B99B-0019D1879648");
 
     // === Chrome OS ===
 
     /// Chrome OS Kernel.
-    pub const CHROMEOS_KERNEL: Self = Self([
-        0x5d, 0x2a, 0x3a, 0xfe, 0x32, 0x4f, 0xa7, 0x41, 0xb7, 0x25, 0xac, 0xcc, 0x32, 0x85, 0xa3,
-        0x09,
-    ]);
+    pub const CHROMEOS_KERNEL: Self = Self::from_canonical("FE3A2A5D-4F32-41A7-B725-ACCC3285A309");
 
     /// Chrome OS Root Filesystem.
-    pub const CHROMEOS_ROOTFS: Self = Self([
-        0x02, 0xe2, 0xb8, 0x3c, 0x7e, 0x3b, 0xdd, 0x47, 0x8a, 0x3c, 0x7f, 0xf2, 0xa1, 0x3c, 0xfc,
-        0xec,
-    ]);
+    pub const CHROMEOS_ROOTFS: Self = Self::from_canonical("3CB8E202-3B7E-47DD-8A3C-7FF2A13CFCEC");
 
     /// Chrome OS Reserved (future use).
-    pub const CHROMEOS_RESERVED: Self = Self([
-        0x3d, 0x75, 0x0a, 0x2e, 0x48, 0x9e, 0xb0, 0x43, 0x83, 0x37, 0xb1, 0x51, 0x92, 0xcb, 0x1b,
-        0x5e,
-    ]);
+    pub const CHROMEOS_RESERVED: Self =
+        Self::from_canonical("2E0A753D-9E48-43B0-8337-B15192CB1B5E");
 
     // === VMware ===
 
     /// VMware VMFS Partition.
-    pub const VMWARE_VMFS: Self = Self([
-        0x10, 0x04, 0x1d, 0xaa, 0xd1, 0xf4, 0x50, 0x4a, 0x98, 0xba, 0xfa, 0x28, 0x80, 0x9d, 0x61,
-        0x12,
-    ]);
+    pub const VMWARE_VMFS: Self = Self::from_canonical("AA31E02A-400F-11DB-9590-000C2911D1B8");
 
     /// VMware Reserved.
-    pub const VMWARE_RESERVED: Self = Self([
-        0x8d, 0x61, 0x00, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00,
-    ]);
+    pub const VMWARE_RESERVED: Self = Self::from_canonical("9198EFFC-31C0-11DB-8F78-000C2911D1B8");
 }
 
 #[cfg(feature = "rand")]
@@ -823,12 +697,9 @@ unsafe impl bytemuck::Pod for GptHeaderRaw {}
 ))]
 unsafe impl bytemuck::Zeroable for GptHeaderRaw {}
 
-#[cfg(any(
-    feature = "crc",
-    all(
-        any(feature = "read", feature = "write"),
-        any(feature = "sync", feature = "async")
-    )
+#[cfg(all(
+    any(feature = "read", feature = "write"),
+    any(feature = "sync", feature = "async")
 ))]
 impl GptHeaderRaw {
     /// Size of the raw header on disk.
@@ -1011,6 +882,142 @@ mod tests {
     fn test_guid_is_unused() {
         assert!(Guid::UNUSED.is_unused());
         assert!(!Guid::EFI_SYSTEM.is_unused());
+    }
+
+    #[test]
+    fn test_well_known_guids_match_canonical_strings() {
+        const CANONICAL: &[(Guid, &str)] = &[
+            (Guid::EFI_SYSTEM, "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"),
+            (Guid::BIOS_BOOT, "21686148-6449-6E6F-744E-656564454649"),
+            (
+                Guid::MICROSOFT_RESERVED,
+                "E3C9E316-0B5C-4DB8-817D-F92DF00215AE",
+            ),
+            (Guid::BASIC_DATA, "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7"),
+            (
+                Guid::WINDOWS_LDM_METADATA,
+                "5808C8AA-7E8F-42E0-85D2-E1E90434CFB3",
+            ),
+            (
+                Guid::WINDOWS_LDM_DATA,
+                "AF9B60A0-1431-4F62-BC68-3311714A69AD",
+            ),
+            (
+                Guid::WINDOWS_RECOVERY,
+                "DE94BBA4-06D1-4D40-A16A-BFD50179D6AC",
+            ),
+            (
+                Guid::WINDOWS_STORAGE_SPACES,
+                "E75CAF8F-F680-4CEE-AFA3-B001E56EFC2D",
+            ),
+            (
+                Guid::LINUX_FILESYSTEM,
+                "0FC63DAF-8483-4772-8E79-3D69D8477DE4",
+            ),
+            (Guid::LINUX_RAID, "A19D880F-05FC-4D3B-A006-743F0F84911E"),
+            (Guid::LINUX_ROOT_X86, "44479540-F297-41B2-9AF7-D131D5F0458A"),
+            (
+                Guid::LINUX_ROOT_X86_64,
+                "4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709",
+            ),
+            (Guid::LINUX_ROOT_ARM, "69DAD710-2CE4-4E3C-B16C-21A1D49ABED3"),
+            (
+                Guid::LINUX_ROOT_ARM64,
+                "B921B045-1DF0-41C3-AF44-4C6F280D3FAE",
+            ),
+            (Guid::LINUX_SWAP, "0657FD6D-A4AB-43C4-84E5-0933C84B4F4F"),
+            (Guid::LINUX_LVM, "E6D6D379-F507-44C2-A23C-238F2A3DF928"),
+            (Guid::LINUX_HOME, "933AC7E1-2EB4-4F13-B844-0E14E2AEF915"),
+            (Guid::LINUX_SRV, "3B8F8425-20E0-4F3B-907F-1A25A76F98E8"),
+            (Guid::LINUX_LUKS, "CA7D7CCB-63ED-4C53-861C-1742536059CC"),
+            (Guid::APPLE_HFS_PLUS, "48465300-0000-11AA-AA11-00306543ECAC"),
+            (Guid::APPLE_APFS, "7C3457EF-0000-11AA-AA11-00306543ECAC"),
+            (Guid::APPLE_UFS, "55465300-0000-11AA-AA11-00306543ECAC"),
+            (Guid::APPLE_RAID, "52414944-0000-11AA-AA11-00306543ECAC"),
+            (
+                Guid::APPLE_RAID_OFFLINE,
+                "52414944-5F4F-11AA-AA11-00306543ECAC",
+            ),
+            (Guid::APPLE_BOOT, "426F6F74-0000-11AA-AA11-00306543ECAC"),
+            (Guid::APPLE_LABEL, "4C616265-6C00-11AA-AA11-00306543ECAC"),
+            (
+                Guid::APPLE_TV_RECOVERY,
+                "5265636F-7665-11AA-AA11-00306543ECAC",
+            ),
+            (
+                Guid::APPLE_CORE_STORAGE,
+                "53746F72-6167-11AA-AA11-00306543ECAC",
+            ),
+            (Guid::FREEBSD_BOOT, "83BD6B9D-7F41-11DC-BE0B-001560B84F0F"),
+            (Guid::FREEBSD_DATA, "516E7CB4-6ECF-11D6-8FF8-00022D09712B"),
+            (Guid::FREEBSD_SWAP, "516E7CB5-6ECF-11D6-8FF8-00022D09712B"),
+            (Guid::FREEBSD_UFS, "516E7CB6-6ECF-11D6-8FF8-00022D09712B"),
+            (Guid::FREEBSD_ZFS, "516E7CBA-6ECF-11D6-8FF8-00022D09712B"),
+            (Guid::FREEBSD_VINUM, "516E7CB8-6ECF-11D6-8FF8-00022D09712B"),
+            (Guid::SOLARIS_BOOT, "6A82CB45-1DD2-11B2-99A6-080020736631"),
+            (Guid::SOLARIS_ROOT, "6A85CF4D-1DD2-11B2-99A6-080020736631"),
+            (Guid::SOLARIS_SWAP, "6A87C46F-1DD2-11B2-99A6-080020736631"),
+            (Guid::SOLARIS_BACKUP, "6A8B642B-1DD2-11B2-99A6-080020736631"),
+            (Guid::SOLARIS_VAR, "6A8EF2E9-1DD2-11B2-99A6-080020736631"),
+            (Guid::SOLARIS_HOME, "6A90BA39-1DD2-11B2-99A6-080020736631"),
+            (
+                Guid::SOLARIS_RESERVED,
+                "6A945A3B-1DD2-11B2-99A6-080020736631",
+            ),
+            (Guid::NETBSD_SWAP, "49F48D32-B10E-11DC-B99B-0019D1879648"),
+            (Guid::NETBSD_FFS, "49F48D5A-B10E-11DC-B99B-0019D1879648"),
+            (Guid::NETBSD_LFS, "49F48D82-B10E-11DC-B99B-0019D1879648"),
+            (Guid::NETBSD_RAID, "49F48DAA-B10E-11DC-B99B-0019D1879648"),
+            (
+                Guid::CHROMEOS_KERNEL,
+                "FE3A2A5D-4F32-41A7-B725-ACCC3285A309",
+            ),
+            (
+                Guid::CHROMEOS_ROOTFS,
+                "3CB8E202-3B7E-47DD-8A3C-7FF2A13CFCEC",
+            ),
+            (
+                Guid::CHROMEOS_RESERVED,
+                "2E0A753D-9E48-43B0-8337-B15192CB1B5E",
+            ),
+            (Guid::VMWARE_VMFS, "AA31E02A-400F-11DB-9590-000C2911D1B8"),
+            (
+                Guid::VMWARE_RESERVED,
+                "9198EFFC-31C0-11DB-8F78-000C2911D1B8",
+            ),
+        ];
+
+        assert_eq!(
+            format!("{}", Guid::UNUSED),
+            "00000000-0000-0000-0000-000000000000"
+        );
+        for (guid, canonical) in CANONICAL {
+            assert_eq!(
+                format!("{guid}"),
+                canonical.to_ascii_lowercase(),
+                "constant does not match canonical GUID {canonical}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_well_known_guids_roundtrip() {
+        for guid in [
+            Guid::UNUSED,
+            Guid::EFI_SYSTEM,
+            Guid::BIOS_BOOT,
+            Guid::BASIC_DATA,
+            Guid::LINUX_FILESYSTEM,
+            Guid::APPLE_APFS,
+            Guid::FREEBSD_ZFS,
+            Guid::SOLARIS_ROOT,
+            Guid::NETBSD_RAID,
+            Guid::CHROMEOS_KERNEL,
+            Guid::VMWARE_VMFS,
+        ] {
+            let s = format!("{guid}");
+            assert_eq!(Guid::from_str(&s), Some(guid));
+        }
     }
 
     #[test]

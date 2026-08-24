@@ -203,7 +203,7 @@ impl BootCatalogEntry {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Identifies a PlatformId value.
 pub enum PlatformId {
     /// This is for X8086, X86, and X86_64 architectures.

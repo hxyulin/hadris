@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 
-use super::options::{CreationFeatures, IsoFormatOptions};
+use super::options::{CreationFeatures, IsoFormatOptions, PartitionScheme};
 use super::{File, InputEntry, InputEntryKind, InputFiles, InputTree};
 use crate::file::EntryType;
 
@@ -26,6 +26,8 @@ pub struct SizeBreakdown {
     pub file_data: u64,
     /// Boot catalog (1 sector if El-Torito enabled).
     pub boot_catalog: u64,
+    /// Backup GPT region appended after the ISO data (GPT/Hybrid schemes).
+    pub backup_gpt: u64,
 }
 
 /// Estimated size of an ISO image.
@@ -309,13 +311,24 @@ fn estimate_impl(
         breakdown.boot_catalog = sector_size;
     }
 
+    // 9. Appended backup GPT region (backup entry array plus backup header,
+    // padded to a logical-sector boundary)
+    if matches!(
+        features.hybrid_boot.as_ref().map(|h| h.partition_scheme),
+        Some(PartitionScheme::Gpt) | Some(PartitionScheme::Hybrid)
+    ) {
+        let blocks_per_sector = sector_size / 512;
+        breakdown.backup_gpt = 33u64.div_ceil(blocks_per_sector) * blocks_per_sector * 512;
+    }
+
     let total_bytes = breakdown.system_area
         + breakdown.volume_descriptors
         + breakdown.path_tables
         + breakdown.directory_records
         + breakdown.continuation_areas
         + breakdown.file_data
-        + breakdown.boot_catalog;
+        + breakdown.boot_catalog
+        + breakdown.backup_gpt;
 
     let minimum_sectors = align_to_sector(total_bytes, sector_size);
 
