@@ -1619,7 +1619,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     /// [`GptDisk::validate`]): a basic-data partition covers the ISO area
     /// before the EFI System Partition, the ESP covers the El Torito UEFI
     /// image exactly, and a second basic-data partition covers any remaining
-    /// ISO data after it.
+    /// ISO data after it. Partitions start no earlier than 512-byte LBA 64,
+    /// where the ISO volume descriptors begin: tools that convert ISOHYBRID
+    /// GPT images to MBR (e.g. `limine bios-install`) embed boot code in
+    /// sectors 1..63 and reject partitions starting below sector 63.
     ///
     /// Returns the disk together with the entry indices of the leading
     /// ISO9660 partition and the ESP, for hybrid MBR mirroring.
@@ -1666,9 +1669,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         gpt.primary_header.disk_guid = disk_guid;
         gpt.backup_header.disk_guid = disk_guid;
 
+        const ISO_DATA_START_512: u64 = 64;
+
         let first_usable = gpt.primary_header.first_usable_lba.to_ne();
+        let iso_part_start = first_usable.max(ISO_DATA_START_512);
         let iso_end = iso_512.saturating_sub(1);
-        if iso_end <= first_usable {
+        if iso_end <= iso_part_start {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "image too small for a GPT partition table",
@@ -1706,11 +1712,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let mut esp_index = None;
         match esp {
             Some((esp_start, esp_end)) => {
-                if esp_start > first_usable {
+                if esp_start > iso_part_start {
                     let mut data = GptPartitionEntry::new(
                         Guid::BASIC_DATA,
                         Self::generate_guid_from_string(&self.ops.volume_name),
-                        first_usable,
+                        iso_part_start,
                         esp_start - 1,
                     );
                     data.set_name_ascii(b"ISO9660");
@@ -1745,7 +1751,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 let mut data = GptPartitionEntry::new(
                     Guid::BASIC_DATA,
                     Self::generate_guid_from_string(&self.ops.volume_name),
-                    first_usable,
+                    iso_part_start,
                     iso_end,
                 );
                 data.set_name_ascii(b"ISO9660");

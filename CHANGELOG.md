@@ -40,7 +40,10 @@ Each published package owns its version and may be released independently.
   partitions cover exactly the ISO data area (the previous single partition
   spanned LBA 34 to `disk_size - 34`, an extent with no valid filesystem), and
   the EFI System Partition entry covers the El Torito UEFI image's exact
-  sectors. The hybrid MBR mirrors the ESP as type `0xEF` alongside the `0x17`
+  sectors. Partitions start no earlier than 512-byte LBA 64, where the ISO
+  volume descriptors begin; tools that convert ISOHYBRID GPT images to MBR
+  (such as `limine bios-install`) embed boot code below sector 63 and reject
+  partitions starting earlier. The hybrid MBR mirrors the ESP as type `0xEF` alongside the `0x17`
   ISO partition instead of mirroring only the bogus basic-data range.
 - **hadris-part:** `HybridMbrBuilder` no longer undersizes the protective MBR
   entry by one sector. The entry now covers LBA 1 through the sector before the

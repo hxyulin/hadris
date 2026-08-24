@@ -153,7 +153,7 @@ fn check_gpt_with_esp(iso: &[u8]) -> (u64, u64) {
         .find(|(_, e)| e.type_guid == Guid::BASIC_DATA)
         .map(|(_, e)| *e)
         .expect("no basic data partition in GPT");
-    assert_eq!(data.first_lba.to_ne(), 34);
+    assert_eq!(data.first_lba.to_ne(), 64);
     assert_eq!(data.last_lba.to_ne(), esp_start - 1);
 
     if let Some((_, tail)) = gpt
@@ -224,13 +224,13 @@ fn hybrid_backup_esp_and_mbr_mirror() {
         .find(|e| e.part_type == 0xEE)
         .expect("no protective MBR entry");
     assert_eq!(protective.start_lba, 1);
-    assert_eq!(protective.sector_count, 33);
+    assert_eq!(protective.sector_count, 63);
 
     let iso_part = entries
         .iter()
         .find(|e| e.part_type == 0x17)
         .expect("no mirrored ISO9660 MBR entry");
-    assert_eq!(iso_part.start_lba, 34);
+    assert_eq!(iso_part.start_lba, 64);
     assert_eq!(iso_part.boot, 0x80);
 
     let esp = entries
