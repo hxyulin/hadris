@@ -10,7 +10,7 @@ backing device is removed.
 
 ```toml
 [dependencies]
-hadris-fat = { version = "2.1.0", features = ["cache", "dirty-file-panic"] }
+hadris-fat = { version = "2.2.0", features = ["cache", "dirty-file-panic"] }
 ```
 
 ```rust,no_run

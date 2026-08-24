@@ -8,6 +8,8 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-24
+
 ### Added
 
 - **hadris-fat:** `FileReader` now supports start-, current-, and end-relative
@@ -564,7 +566,8 @@ under Semantic Versioning.
 Baseline for this changelog. See the git history for changes at and before this
 tag.
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/hxyulin/hadris/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/hxyulin/hadris/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.4...v2.0.0
 [2.0.0-rc.3]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.2...v2.0.0-rc.3

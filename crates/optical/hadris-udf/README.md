@@ -17,7 +17,7 @@ UDF (ECMA-167) is the filesystem used for DVD-ROM, DVD-Video, DVD-RAM, Blu-ray d
 
 ```toml
 [dependencies]
-hadris-udf = "2.1.0"
+hadris-udf = "2.2.0"
 ```
 
 ```rust,no_run
@@ -43,7 +43,7 @@ Enable the writer explicitly:
 
 ```toml
 [dependencies]
-hadris-udf = { version = "2.1.0", features = ["write"] }
+hadris-udf = { version = "2.2.0", features = ["write"] }
 ```
 
 ```rust,no_run

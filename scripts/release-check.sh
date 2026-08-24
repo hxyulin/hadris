@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_version="${1:-2.1.0}"
+expected_version="${1:-2.2.0}"
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "release check failed: working tree is not clean" >&2

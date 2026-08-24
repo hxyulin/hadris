@@ -6,7 +6,7 @@ on:
       version:
         description: Version without the v prefix
         required: true
-        default: 2.1.0
+        default: 2.2.0
         type: string
       mode:
         description: Validate packages or publish the release
@@ -48,7 +48,7 @@ jobs:
             exit 1
           fi
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Version must be a stable semantic version such as 2.1.0" >&2
+            echo "Version must be a stable semantic version such as 2.2.0" >&2
             exit 1
           fi
           if [[ $(grep -Fc "## [$VERSION] - " CHANGELOG.md) -ne 1 ]]; then

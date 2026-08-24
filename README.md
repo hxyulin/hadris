@@ -17,7 +17,7 @@ layers coherent without hiding format-specific capabilities.
 
 Hadris follows [Semantic Versioning](https://semver.org/). The
 release-candidate series completed the V2 feature and public-API freeze, and
-`2.1.0` is the current stable release of that API. Within the `2.x` series,
+`2.2.0` is the current stable release of that API. Within the `2.x` series,
 breaking changes to the public API require a new major version; minor releases
 add backward-compatible functionality, and patch releases are limited to
 correctness fixes, interoperability qualification, and documentation.
@@ -136,10 +136,10 @@ Choose the narrowest entry point that fits the application:
 ```toml
 [dependencies]
 # One filesystem:
-hadris-fat = "2.1.0"
+hadris-fat = "2.2.0"
 
 # Or the unified storage ecosystem:
-hadris = { version = "2.1.0", features = ["block", "optical"] }
+hadris = { version = "2.2.0", features = ["block", "optical"] }
 ```
 
 The umbrella crate re-exports the same underlying format crates through
@@ -147,15 +147,15 @@ The umbrella crate re-exports the same underlying format crates through
 grow into partition detection or additional disk-image formats without
 replacing their filesystem implementation.
 
-Each package now owns its version; all current packages target **2.1.0**:
+Each package now owns its version; all current packages target **2.2.0**:
 
 ```toml
 [dependencies]
-hadris-iso = "2.1.0"
-hadris-fat = "2.1.0"
-hadris-part = { version = "2.1.0", features = ["read"] }
-hadris-fixed = "2.1.0"
-hadris-path = "2.1.0"
+hadris-iso = "2.2.0"
+hadris-fat = "2.2.0"
+hadris-part = { version = "2.2.0", features = ["read"] }
+hadris-fixed = "2.2.0"
+hadris-path = "2.2.0"
 ```
 
 For allocation-free `no_std` ISO reading:
@@ -163,8 +163,8 @@ For allocation-free `no_std` ISO reading:
 ```toml
 [dependencies]
 # No heap allocator: ISO 9660/Joliet lookup and streamed file reads.
-hadris-iso = { version = "2.1.0", default-features = false, features = ["read", "sync"] }
-hadris-fat = { version = "2.1.0", default-features = false, features = ["read", "sync"] }
+hadris-iso = { version = "2.2.0", default-features = false, features = ["read", "sync"] }
+hadris-fat = { version = "2.2.0", default-features = false, features = ["read", "sync"] }
 ```
 
 Add the `alloc` feature to `hadris-iso` when owned collections, convenience
@@ -184,7 +184,7 @@ cargo build -p hadris-fat --no-default-features --features "read,sync"
 ```
 
 See [CLAUDE.md](CLAUDE.md) for detailed build instructions and architecture notes, and [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow.
-See the [`2.1.0` changelog](CHANGELOG.md#210---2026-08-18) for the current
+See the [`2.2.0` changelog](CHANGELOG.md#220---2026-08-24) for the current
 release summary and the [`2.0.0` release notes](docs/hadris-2.0.0-release-notes.md)
 for the V2 upgrade guide.
 The Docusaurus source for the task-oriented documentation site lives in

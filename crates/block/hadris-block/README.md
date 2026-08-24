@@ -11,7 +11,7 @@ needed.
 
 ```toml
 [dependencies]
-hadris-block = "2.1.0"
+hadris-block = "2.2.0"
 ```
 
 ```rust
