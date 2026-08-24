@@ -221,8 +221,8 @@ const fn parse_hex_u32(chars: &[u8; 8]) -> Option<u32> {
 // - Microsoft's documented partition type GUIDs (Microsoft section)
 // - systemd/UAPI Discoverable Partitions Specification (Linux root/home/srv/swap):
 //   https://uapi-group.org/specifications/specs/discoverable_partitions_specification/
-// - Wikipedia "GUID Partition Table" partition type table, the aggregate reference
-//   each value below was cross-checked against on 2026-08-24:
+// - Wikipedia "GUID Partition Table" partition type table, the aggregate
+//   reference against which every value below was cross-checked on 2026-08-24:
 //   https://en.wikipedia.org/wiki/GUID_Partition_Table#Partition_type_GUIDs
 impl Guid {
     /// Unused/empty partition entry.
@@ -697,12 +697,9 @@ unsafe impl bytemuck::Pod for GptHeaderRaw {}
 ))]
 unsafe impl bytemuck::Zeroable for GptHeaderRaw {}
 
-#[cfg(any(
-    feature = "crc",
-    all(
-        any(feature = "read", feature = "write"),
-        any(feature = "sync", feature = "async")
-    )
+#[cfg(all(
+    any(feature = "read", feature = "write"),
+    any(feature = "sync", feature = "async")
 ))]
 impl GptHeaderRaw {
     /// Size of the raw header on disk.
