@@ -106,35 +106,34 @@ pub fn decode_dstring(data: &[u8]) -> alloc::string::String {
 
     // First byte is compression ID
     let compression_id = data[0];
-    // Last byte is length
+    // Last byte is the dstring length, which includes the compression ID byte
     let len = data[data.len() - 1] as usize;
 
-    if len == 0 || len > data.len() - 1 {
+    if len <= 1 || len > data.len() - 1 {
         return alloc::string::String::new();
     }
 
-    let content = &data[1..=len.min(data.len() - 2)];
+    let content = &data[1..len];
 
     match compression_id {
         8 => {
             // CS0 compression ID 8 stores one Unicode code point per byte.
             content.iter().map(|byte| char::from(*byte)).collect()
         }
-        16 => {
-            // UTF-16 BE
-            let mut result = alloc::string::String::new();
-            for chunk in content.chunks(2) {
-                if chunk.len() == 2 {
-                    let code_unit = u16::from_be_bytes([chunk[0], chunk[1]]);
-                    if let Some(c) = char::from_u32(code_unit as u32) {
-                        result.push(c);
-                    }
-                }
-            }
-            result
-        }
+        16 => decode_utf16_be(content),
         _ => alloc::string::String::new(),
     }
+}
+
+#[cfg(feature = "alloc")]
+pub(crate) fn decode_utf16_be(content: &[u8]) -> alloc::string::String {
+    char::decode_utf16(
+        content
+            .chunks_exact(2)
+            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]])),
+    )
+    .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
+    .collect()
 }
 
 #[cfg(test)]
@@ -142,4 +141,52 @@ mod tests {
     use super::*;
 
     static_assertions::const_assert_eq!(size_of::<PrimaryVolumeDescriptor>(), 512);
+
+    #[cfg(feature = "alloc")]
+    fn dstring_field<const N: usize>(compression_id: u8, content: &[u8]) -> [u8; N] {
+        let mut field = [0u8; N];
+        field[0] = compression_id;
+        field[1..1 + content.len()].copy_from_slice(content);
+        field[N - 1] = (content.len() + 1) as u8;
+        field
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_decode_dstring_8bit_no_trailing_nul() {
+        let field: [u8; 32] = dstring_field(8, b"SMOKETEST");
+        let decoded = decode_dstring(&field);
+        assert_eq!(decoded, "SMOKETEST");
+        assert!(!decoded.contains('\0'));
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_decode_dstring_16bit_surrogate_pair() {
+        let mut content = alloc::vec::Vec::new();
+        for unit in "a\u{1F600}b".encode_utf16() {
+            content.extend_from_slice(&unit.to_be_bytes());
+        }
+        let field: [u8; 32] = dstring_field(16, &content);
+        assert_eq!(decode_dstring(&field), "a\u{1F600}b");
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_decode_dstring_unpaired_surrogate_is_replaced() {
+        let field: [u8; 8] = dstring_field(16, &0xD800u16.to_be_bytes());
+        assert_eq!(decode_dstring(&field), "\u{FFFD}");
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn test_decode_dstring_hostile_lengths() {
+        assert_eq!(decode_dstring(&[]), "");
+        assert_eq!(decode_dstring(&[8]), "");
+        assert_eq!(decode_dstring(&[8, 0]), "");
+        assert_eq!(decode_dstring(&[8, b'a', 1]), "");
+        assert_eq!(decode_dstring(&[8, b'a', 0xFF]), "");
+        assert_eq!(decode_dstring(&[8, b'a', b'b', b'c', 5]), "");
+        assert_eq!(decode_dstring(&[8, b'a', b'b', 3]), "ab");
+    }
 }

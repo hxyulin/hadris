@@ -3,7 +3,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use super::descriptor::{DescriptorTag, LongAllocationDescriptor, TagIdentifier};
+use super::descriptor::{DescriptorTag, LongAllocationDescriptor, TagIdentifier, decode_utf16_be};
 use crate::error::{Error, Result};
 
 /// A UDF directory entry
@@ -211,19 +211,7 @@ pub fn decode_filename(data: &[u8]) -> String {
             // CS0 compression ID 8 stores one Unicode code point per byte.
             content.iter().map(|byte| char::from(*byte)).collect()
         }
-        16 => {
-            // 16-bit characters (UTF-16 BE)
-            let mut result = String::new();
-            for chunk in content.chunks(2) {
-                if chunk.len() == 2 {
-                    let code_unit = u16::from_be_bytes([chunk[0], chunk[1]]);
-                    if let Some(c) = char::from_u32(code_unit as u32) {
-                        result.push(c);
-                    }
-                }
-            }
-            result
-        }
+        16 => decode_utf16_be(content),
         _ => String::new(),
     }
 }
@@ -253,5 +241,23 @@ mod tests {
         // UTF-16 BE: "hi"
         let data = [16, 0x00, b'h', 0x00, b'i'];
         assert_eq!(decode_filename(&data), "hi");
+    }
+
+    #[test]
+    fn test_decode_filename_16bit_surrogate_pair() {
+        let name = "emoji-\u{1F600}.bin";
+        let mut data = alloc::vec![16u8];
+        for unit in name.encode_utf16() {
+            data.extend_from_slice(&unit.to_be_bytes());
+        }
+        assert_eq!(decode_filename(&data), name);
+    }
+
+    #[test]
+    fn test_decode_filename_unpaired_surrogate_is_replaced() {
+        let mut data = alloc::vec![16u8];
+        data.extend_from_slice(&0xD83Du16.to_be_bytes());
+        data.extend_from_slice(&0x0041u16.to_be_bytes());
+        assert_eq!(decode_filename(&data), "\u{FFFD}A");
     }
 }
