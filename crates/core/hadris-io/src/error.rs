@@ -251,7 +251,39 @@ pub type Result<T, E = ErrorKind> = core::result::Result<T, Error<E>>;
 #[cfg(feature = "std")]
 impl From<ErrorKind> for std::io::ErrorKind {
     fn from(kind: ErrorKind) -> Self {
-        let embedded = embedded_io::ErrorKind::from(kind);
-        embedded.into()
+        match kind {
+            ErrorKind::WouldBlock => std::io::ErrorKind::WouldBlock,
+            ErrorKind::UnexpectedEof => std::io::ErrorKind::UnexpectedEof,
+            _ => embedded_io::ErrorKind::from(kind).into(),
+        }
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod std_tests {
+    extern crate std;
+    use super::*;
+
+    #[test]
+    fn error_kind_to_std_preserves_unexpected_eof() {
+        assert_eq!(
+            std::io::ErrorKind::from(ErrorKind::UnexpectedEof),
+            std::io::ErrorKind::UnexpectedEof
+        );
+    }
+
+    #[test]
+    fn error_kind_to_std_preserves_would_block() {
+        assert_eq!(
+            std::io::ErrorKind::from(ErrorKind::WouldBlock),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn error_to_std_io_error_preserves_kind() {
+        let error: Error<std::io::Error> = Error::from_kind(ErrorKind::UnexpectedEof);
+        let std_error = std::io::Error::from(error);
+        assert_eq!(std_error.kind(), std::io::ErrorKind::UnexpectedEof);
     }
 }

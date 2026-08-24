@@ -3,9 +3,10 @@
 //! Portable I/O trait abstractions for the Hadris filesystem crates.
 //!
 //! This crate provides [`Read`], [`Write`], and [`Seek`] traits that work in
-//! both `std` and `no_std` environments. When the `std` feature is enabled,
-//! the traits re-export directly from `std::io`. In `no_std` mode, minimal
-//! custom trait definitions are provided with the same API surface.
+//! both `std` and `no_std` environments. The traits are always this crate's
+//! own definitions; enabling the `std` feature adds blanket implementations
+//! for types implementing the corresponding `std::io` traits, so standard
+//! readers, writers, and seekers can be used directly.
 //!
 //! ## Feature Flags
 //!
@@ -14,7 +15,7 @@
 //! | `std`   | yes     | Standard library support (implies `alloc`) |
 //! | `sync`  | yes     | Synchronous I/O traits |
 //! | `async` | no      | Asynchronous I/O traits (uses async fn in trait) |
-//! | `alloc` | via `std` | Heap-backed error messages without `std` |
+//! | `alloc` | via `std` | Currently a no-op; reserved for future use |
 //!
 //! `std` and the I/O mode are independent. The default feature set enables
 //! both `std` and `sync`; custom builds can select `sync`, `async`, or both.
@@ -223,16 +224,13 @@ impl<'a> Cursor<'a> {
     #[cfg(any(feature = "sync", feature = "async", test))]
     fn seek_impl(&mut self, pos: SeekFrom) -> core::result::Result<u64, ErrorKind> {
         let new_pos = match pos {
-            SeekFrom::Start(offset) => offset as i64,
-            SeekFrom::End(offset) => self.data.len() as i64 + offset,
-            SeekFrom::Current(offset) => self.cursor as i64 + offset,
-        };
-
-        if new_pos < 0 {
-            return Err(ErrorKind::InvalidInput);
+            SeekFrom::Start(offset) => Some(offset),
+            SeekFrom::End(offset) => (self.data.len() as u64).checked_add_signed(offset),
+            SeekFrom::Current(offset) => (self.cursor as u64).checked_add_signed(offset),
         }
+        .ok_or(ErrorKind::InvalidInput)?;
 
-        self.cursor = new_pos as usize;
+        self.cursor = usize::try_from(new_pos).map_err(|_| ErrorKind::InvalidInput)?;
         Ok(self.cursor as u64)
     }
 }
@@ -413,6 +411,38 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn cursor_seek_end_large_offset_does_not_panic() {
+        let data = [0u8; 5];
+        let mut cursor = Cursor::new(&data);
+        let result = cursor.seek_impl(SeekFrom::End(i64::MAX));
+        match result {
+            Ok(pos) => assert_eq!(pos, 5 + i64::MAX as u64),
+            Err(err) => assert_eq!(err.kind(), ErrorKind::InvalidInput),
+        }
+    }
+
+    #[test]
+    fn cursor_seek_current_overflow_errors() {
+        let data = [0u8; 5];
+        let mut cursor = Cursor::new(&data);
+        cursor.set_position(usize::MAX);
+        let result = cursor.seek_impl(SeekFrom::Current(i64::MAX));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn cursor_seek_start_u64_max_accepted() {
+        let data = [1u8, 2, 3];
+        let mut cursor = Cursor::new(&data);
+        let pos = cursor.seek_impl(SeekFrom::Start(u64::MAX)).unwrap();
+        assert_eq!(pos, u64::MAX);
+        let mut buf = [0u8; 4];
+        let n = cursor.read_impl(&mut buf).unwrap();
+        assert_eq!(n, 0);
     }
 
     #[test]

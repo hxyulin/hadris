@@ -6,7 +6,7 @@ No-std I/O abstraction layer for the Hadris filesystem crates.
 
 This crate provides `Read`, `Write`, and `Seek` traits that work in no-std environments, enabling filesystem implementations to run on bare-metal systems, bootloaders, and embedded devices.
 
-When the `std` feature is enabled, traits re-export from `std::io`. In `no_std` mode, a minimal custom trait surface is provided. The no-std [`Error`](https://docs.rs/hadris-io) type is intentionally smaller than `std::io::Error` (no OS error codes; message storage requires `alloc`).
+The traits are always this crate's own definitions; enabling the `std` feature adds blanket implementations for `std::io` readers, writers, and seekers so they can be used directly. The [`Error`](https://docs.rs/hadris-io) type is intentionally smaller than `std::io::Error` (no OS error codes; context messages are static strings).
 
 ## Features
 
@@ -24,7 +24,7 @@ When the `std` feature is enabled, traits re-export from `std::io`. In `no_std` 
 | `std` | Standard library support; implies `alloc` | Yes |
 | `sync` | Synchronous I/O traits | Yes |
 | `async` | Asynchronous I/O traits | No |
-| `alloc` | Heap allocation (dynamic error messages in no-std) | via `std` |
+| `alloc` | Currently a no-op; reserved for future use | via `std` |
 
 `std` and the I/O mode are independent. Defaults enable both `std` and `sync`,
 while custom configurations may select `sync`, `async`, or both.
@@ -64,7 +64,7 @@ assert_eq!(&buf, b"HD");
 
 ## Core Traits
 
-With `std`, these are `std::io::{Read, Write, Seek}`. Without `std`, this crate defines compatible traits returning [`hadris_io::Result`](https://docs.rs/hadris-io):
+The traits below are always this crate's own definitions, returning [`hadris_io::Result`](https://docs.rs/hadris-io). With `std`, blanket implementations cover any `std::io::{Read, Write, Seek}` type:
 
 ```rust,ignore
 pub trait Read {
