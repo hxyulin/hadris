@@ -438,11 +438,19 @@ mod tests {
     fn cursor_seek_start_u64_max_accepted() {
         let data = [1u8, 2, 3];
         let mut cursor = Cursor::new(&data);
-        let pos = cursor.seek_impl(SeekFrom::Start(u64::MAX)).unwrap();
-        assert_eq!(pos, u64::MAX);
-        let mut buf = [0u8; 4];
-        let n = cursor.read_impl(&mut buf).unwrap();
-        assert_eq!(n, 0);
+        match cursor.seek_impl(SeekFrom::Start(u64::MAX)) {
+            Ok(pos) => {
+                assert!(usize::try_from(u64::MAX).is_ok());
+                assert_eq!(pos, u64::MAX);
+                let mut buf = [0u8; 4];
+                let n = cursor.read_impl(&mut buf).unwrap();
+                assert_eq!(n, 0);
+            }
+            Err(err) => {
+                assert!(usize::try_from(u64::MAX).is_err());
+                assert_eq!(err.kind(), ErrorKind::InvalidInput);
+            }
+        }
     }
 
     #[test]

@@ -151,23 +151,34 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
         let base = convert(name);
         let mut mapped = base.clone();
         let mut suffix = 0_usize;
+        let mut trim = 0_usize;
         while !seen.insert(mapped.clone()) {
             suffix += 1;
             if suffix > 4096 {
                 break;
             }
-            mapped = convert(&Self::with_dedup_suffix(&base, suffix, is_directory));
+            // The conversion truncates over-long stems, which can swallow the
+            // suffix; trim the stem until the suffixed name survives conversion.
+            loop {
+                let candidate = convert(&Self::with_dedup_suffix(&base, suffix, trim, is_directory));
+                let stalled = candidate == mapped && trim < base.len();
+                mapped = candidate;
+                if !stalled {
+                    break;
+                }
+                trim += 1;
+            }
         }
         mapped
     }
 
-    fn with_dedup_suffix(name: &str, suffix: usize, is_directory: bool) -> String {
-        match name.rfind('.') {
-            Some(position) if !is_directory => {
-                format!("{}_{suffix}{}", &name[..position], &name[position..])
-            }
-            _ => format!("{name}_{suffix}"),
-        }
+    fn with_dedup_suffix(name: &str, suffix: usize, trim: usize, is_directory: bool) -> String {
+        let (stem, ext) = match name.rfind('.') {
+            Some(position) if !is_directory => (&name[..position], &name[position..]),
+            _ => (name, ""),
+        };
+        let keep = stem.len().saturating_sub(trim);
+        format!("{}_{suffix}{ext}", &stem[..keep])
     }
 
     /// Decodes a converted identifier the way readers present it: lossy UTF-8
@@ -669,5 +680,49 @@ mod tests {
         // Note: Full verification would require mounting the resulting image
         let output = writer.finish(tree).unwrap();
         assert!(!output.get_ref().is_empty());
+    }
+
+    #[test]
+    fn test_dedup_suffix_survives_level1_truncation() {
+        let ty = hadris_iso::file::EntryType::Level1 {
+            supports_lowercase: false,
+            supports_rrip: false,
+        };
+        let mut seen = std::collections::HashSet::new();
+        let file_names = ["ABCDEFGHI.TXT", "ABCDEFGHJ.TXT", "ABCDEFGHK.TXT"];
+        let mapped: Vec<String> = file_names
+            .iter()
+            .map(|name| {
+                OpticalImageWriter::<Cursor<Vec<u8>>>::unique_mapped_name(
+                    &mut seen, ty, name, false,
+                )
+            })
+            .collect();
+        let unique: std::collections::HashSet<_> = mapped.iter().collect();
+        assert_eq!(
+            unique.len(),
+            file_names.len(),
+            "mapped names collide: {mapped:?}"
+        );
+
+        let mut dir_seen = std::collections::HashSet::new();
+        let dir_names = ["LONGDIRNAMEA", "LONGDIRNAMEB", "LONGDIRNAMEC"];
+        let mapped_dirs: Vec<String> = dir_names
+            .iter()
+            .map(|name| {
+                OpticalImageWriter::<Cursor<Vec<u8>>>::unique_mapped_name(
+                    &mut dir_seen,
+                    ty,
+                    name,
+                    true,
+                )
+            })
+            .collect();
+        let unique_dirs: std::collections::HashSet<_> = mapped_dirs.iter().collect();
+        assert_eq!(
+            unique_dirs.len(),
+            dir_names.len(),
+            "mapped directory names collide: {mapped_dirs:?}"
+        );
     }
 }
