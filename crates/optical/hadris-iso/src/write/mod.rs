@@ -6,7 +6,7 @@ pub mod estimator;
 pub mod writer;
 
 use super::super::boot::{
-    BootCatalog, BootInfoTable, BootSectionEntry, ElToritoWriter, Grub2BootInfoTable,
+    BootCatalog, BootInfoTable, BootSectionEntry, ElToritoWriter, Grub2BootInfoTable, PlatformId,
 };
 use super::super::directory::{DirectoryRecord, DirectoryRef, FileFlags};
 use super::super::io::{self, Read, Seek, SeekFrom, Write};
@@ -27,7 +27,7 @@ use hadris_common::types::{
     number::U32,
 };
 use hadris_part::{
-    Le,
+    GptDisk, GptDiskWriteExt, Le,
     gpt::{GptPartitionEntry, Guid},
     hybrid::HybridMbrBuilder,
     mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionType},
@@ -1057,6 +1057,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             .await
             .map_err(io::Error::erase)?;
         let end_sector = self.data.pad_align_sector().await?;
+        let volume_space = self.volume_space_sectors(end_sector);
         let image_len = end_sector.0 as u64 * self.ops.sector_size as u64;
         if alignment_requires_materialization(end_position, image_len) {
             self.data
@@ -1112,7 +1113,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     pvd.type_l_path_table.set(pt.lpt.0 as u32);
                     pvd.type_m_path_table.set(pt.mpt.0 as u32);
                     pvd.path_table_size.write(pt.size as u32);
-                    pvd.volume_space_size.write(end_sector.0 as u32);
+                    pvd.volume_space_size.write(volume_space);
                 }
                 VolumeDescriptorType::SupplementaryVolumeDescriptor => {
                     let svd =
@@ -1142,7 +1143,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                                     svd.type_l_path_table.set(pt.lpt.0 as u32);
                                     svd.type_m_path_table.set(pt.mpt.0 as u32);
                                     svd.path_table_size.write(pt.size as u32);
-                                    svd.volume_space_size.write(end_sector.0 as u32);
+                                    svd.volume_space_size.write(volume_space);
                                 }
                             }
                         }
@@ -1170,7 +1171,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                             svd.type_l_path_table.set(pt.lpt.0 as u32);
                             svd.type_m_path_table.set(pt.mpt.0 as u32);
                             svd.path_table_size.write(pt.size as u32);
-                            svd.volume_space_size.write(end_sector.0 as u32);
+                            svd.volume_space_size.write(volume_space);
                         }
 
                         // Unknown version
@@ -1514,10 +1515,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     /// Writes the partition tables (MBR, GPT, or Hybrid) based on configuration.
+    ///
+    /// The GPT and Hybrid schemes append 33 sectors of 512 bytes (backup
+    /// entry array plus backup header) after the ISO data, padded so that
+    /// the image length stays a multiple of the logical sector size and the
+    /// backup header occupies the last 512-byte sector. The appended region
+    /// is outside the area described by `volume_space_size`, matching
+    /// xorriso's appended-GPT practice.
     async fn write_partition_tables(&mut self, end_sector: LogicalSector) -> io::Result<()> {
-        // Calculate disk size in 512-byte sectors (for MBR/GPT compatibility)
-        let disk_size_512 = (end_sector.0 * self.data.sector_size / 512) as u64;
-
         match self
             .ops
             .features
@@ -1534,10 +1539,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 self.write_mbr_boot(end_sector).await?;
             }
             Some(PartitionScheme::Gpt) => {
-                self.write_gpt_boot(end_sector, disk_size_512).await?;
+                self.write_gpt_boot(end_sector).await?;
             }
             Some(PartitionScheme::Hybrid) => {
-                self.write_hybrid_boot(end_sector, disk_size_512).await?;
+                self.write_hybrid_boot(end_sector).await?;
             }
         }
 
@@ -1582,107 +1587,213 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
-    /// Writes a GPT partition table for UEFI boot.
-    async fn write_gpt_boot(&mut self, _end_sector: LogicalSector, disk_size_512: u64) -> io::Result<()> {
-        // For GPT, we need:
-        // 1. Protective MBR at sector 0
-        // 2. Primary GPT header at sector 1
-        // 3. GPT partition entries at sectors 2-33 (128 entries * 128 bytes = 32 sectors)
-        // 4. Backup GPT entries and header at end of disk
+    /// Resolves the ISO path of the El Torito UEFI image to expose as a GPT
+    /// EFI System Partition.
+    ///
+    /// Uses `HybridBootOptions::efi_boot_partition` when set; otherwise falls
+    /// back to the boot image of the single `PlatformId::UEFI` El Torito
+    /// section entry, if there is exactly one.
+    fn efi_boot_partition_path(&self) -> Option<String> {
+        let hybrid = self.ops.features.hybrid_boot.as_ref()?;
+        if let Some(path) = &hybrid.efi_boot_partition {
+            return Some(path.clone());
+        }
+        let boot = self.ops.features.el_torito.as_ref()?;
+        let mut uefi_entries = boot
+            .entries
+            .iter()
+            .filter(|(section, _)| section.platform == PlatformId::UEFI)
+            .map(|(_, entry)| &entry.boot_image_path);
+        let first = uefi_entries.next()?;
+        if uefi_entries.next().is_some() {
+            return None;
+        }
+        Some(first.clone())
+    }
 
-        // Write protective MBR
-        let mbr = MasterBootRecord::protective(disk_size_512);
-        self.data
-            .seek(SeekFrom::Start(0))
-            .await
-            .map_err(io::Error::erase)?;
-        self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
+    /// Builds the GPT structures for the image.
+    ///
+    /// The disk spans the ISO data plus an appended backup-GPT region; the
+    /// backup header sits in the last 512-byte sector of the padded image.
+    /// The layout is non-overlapping (overlap is rejected by
+    /// [`GptDisk::validate`]): a basic-data partition covers the ISO area
+    /// before the EFI System Partition, the ESP covers the El Torito UEFI
+    /// image exactly, and a second basic-data partition covers any remaining
+    /// ISO data after it.
+    ///
+    /// Returns the disk together with the entry indices of the leading
+    /// ISO9660 partition and the ESP, for hybrid MBR mirroring.
+    /// Total image size in 512-byte sectors for GPT/Hybrid images: the ISO
+    /// data plus the appended backup-GPT region, padded to a logical-sector
+    /// boundary.
+    fn gpt_total_512(&self, end_sector: LogicalSector) -> u64 {
+        const BACKUP_GPT_SECTORS: u64 = 33;
+        let blocks_per_sector = (self.ops.sector_size / 512) as u64;
+        let iso_512 = end_sector.0 as u64 * blocks_per_sector;
+        (iso_512 + BACKUP_GPT_SECTORS).div_ceil(blocks_per_sector) * blocks_per_sector
+    }
 
-        // Create GPT partition entry for the ISO data
-        // Start after GPT structures (sector 34 in 512-byte sectors)
-        let iso_start_lba = 34u64;
-        let iso_end_lba = disk_size_512.saturating_sub(34); // Leave room for backup GPT
+    /// The `volume_space_size` to declare: for GPT/Hybrid images it covers the
+    /// whole image including the appended backup-GPT region, so tools that
+    /// copy `volume_space_size` logical sectors preserve the backup GPT.
+    fn volume_space_sectors(&self, end_sector: LogicalSector) -> u32 {
+        match self
+            .ops
+            .features
+            .hybrid_boot
+            .as_ref()
+            .map(|h| h.partition_scheme)
+        {
+            Some(PartitionScheme::Gpt) | Some(PartitionScheme::Hybrid) => {
+                let blocks_per_sector = (self.ops.sector_size / 512) as u64;
+                (self.gpt_total_512(end_sector) / blocks_per_sector) as u32
+            }
+            _ => end_sector.0 as u32,
+        }
+    }
 
-        // Create a deterministic partition GUID based on the volume name
-        let partition_guid = Self::generate_guid_from_string(&self.ops.volume_name);
+    fn build_gpt_disk(
+        &self,
+        end_sector: LogicalSector,
+    ) -> io::Result<(GptDisk, Option<usize>, Option<usize>)> {
+        let blocks_per_sector = (self.data.sector_size / 512) as u64;
+        let iso_512 = end_sector.0 as u64 * blocks_per_sector;
+        let total_512 = self.gpt_total_512(end_sector);
+
+        let mut gpt = GptDisk::new(total_512, 512);
         let disk_guid =
             Self::generate_guid_from_string(&alloc::format!("disk-{}", self.ops.volume_name));
+        gpt.primary_header.disk_guid = disk_guid;
+        gpt.backup_header.disk_guid = disk_guid;
 
-        let mut entries = [GptPartitionEntry::default(); 4];
-        entries[0] = GptPartitionEntry::new(
-            Guid::BASIC_DATA, // or could use a custom ISO GUID
-            partition_guid,
-            iso_start_lba,
-            iso_end_lba,
-        );
+        let first_usable = gpt.primary_header.first_usable_lba.to_ne();
+        let iso_end = iso_512.saturating_sub(1);
+        if iso_end <= first_usable {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "image too small for a GPT partition table",
+            ));
+        }
 
-        // Calculate CRC32 of partition entries
-        let entries_bytes = bytemuck::bytes_of(&entries);
-        let entries_crc = Self::crc32(entries_bytes);
+        let map_part_err = |_| io::Error::new(io::ErrorKind::InvalidData, "invalid GPT layout");
 
-        // Create and write primary GPT header
-        let header_bytes = Self::write_gpt_header_bytes(
-            disk_guid,
-            1,                 // my_lba (primary is at sector 1)
-            disk_size_512 - 1, // alternate_lba (backup at last sector)
-            iso_start_lba,     // first_usable_lba
-            iso_end_lba,       // last_usable_lba
-            2,                 // partition_entry_lba
-            4,                 // num_partition_entries
-            entries_crc,
-        );
+        let esp = match self.efi_boot_partition_path() {
+            Some(path) => {
+                let dir_ref = self
+                    .written_files
+                    .find_file(&path, self.ops.path_separator)
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::NotFound,
+                            "EFI boot partition image not found in the ISO tree",
+                        )
+                    })?;
+                let start = dir_ref.extent.0 as u64 * blocks_per_sector;
+                let sectors = (dir_ref.size as u64).div_ceil(512).max(1);
+                let end = start + sectors - 1;
+                if start < first_usable || end > iso_end {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "EFI boot partition lies outside the ISO data area",
+                    ));
+                }
+                Some((start, end))
+            }
+            None => None,
+        };
 
-        // Write primary GPT header
-        self.data
-            .seek(SeekFrom::Start(512))
-            .await
-            .map_err(io::Error::erase)?; // Sector 1
-        self.data.write_all(&header_bytes).await?;
+        let mut iso_index = None;
+        let mut esp_index = None;
+        match esp {
+            Some((esp_start, esp_end)) => {
+                if esp_start > first_usable {
+                    let mut data = GptPartitionEntry::new(
+                        Guid::BASIC_DATA,
+                        Self::generate_guid_from_string(&self.ops.volume_name),
+                        first_usable,
+                        esp_start - 1,
+                    );
+                    data.set_name_ascii(b"ISO9660");
+                    iso_index = Some(gpt.add_partition(data).map_err(map_part_err)?);
+                }
+                let mut esp_entry = GptPartitionEntry::new(
+                    Guid::EFI_SYSTEM,
+                    Self::generate_guid_from_string(&alloc::format!(
+                        "esp-{}",
+                        self.ops.volume_name
+                    )),
+                    esp_start,
+                    esp_end,
+                );
+                esp_entry.set_name_ascii(b"EFI System Partition");
+                esp_index = Some(gpt.add_partition(esp_entry).map_err(map_part_err)?);
+                if esp_end < iso_end {
+                    let mut tail = GptPartitionEntry::new(
+                        Guid::BASIC_DATA,
+                        Self::generate_guid_from_string(&alloc::format!(
+                            "data-{}",
+                            self.ops.volume_name
+                        )),
+                        esp_end + 1,
+                        iso_end,
+                    );
+                    tail.set_name_ascii(b"ISO9660");
+                    gpt.add_partition(tail).map_err(map_part_err)?;
+                }
+            }
+            None => {
+                let mut data = GptPartitionEntry::new(
+                    Guid::BASIC_DATA,
+                    Self::generate_guid_from_string(&self.ops.volume_name),
+                    first_usable,
+                    iso_end,
+                );
+                data.set_name_ascii(b"ISO9660");
+                iso_index = Some(gpt.add_partition(data).map_err(map_part_err)?);
+            }
+        }
 
-        // Write partition entries (starting at sector 2)
-        self.data
-            .seek(SeekFrom::Start(1024))
-            .await
-            .map_err(io::Error::erase)?; // Sector 2
-        self.data.write_all(entries_bytes).await?;
+        gpt.update_crcs();
+        gpt.validate().map_err(map_part_err)?;
+        Ok((gpt, iso_index, esp_index))
+    }
 
-        // Note: In a full implementation, we'd also write the backup GPT at the end
-        // For now, we skip this as ISOs are typically read-only
-
+    /// Writes a GPT partition table (protective MBR, primary and backup GPT)
+    /// for UEFI boot. See [`Self::write_partition_tables`] for the appended
+    /// backup region and [`Self::build_gpt_disk`] for the partition layout.
+    async fn write_gpt_boot(&mut self, end_sector: LogicalSector) -> io::Result<()> {
+        let (gpt, _, _) = self.build_gpt_disk(end_sector)?;
+        gpt.write_to(&mut self.data).await.map_err(part_io_error)?;
         Ok(())
     }
 
     /// Writes a Hybrid MBR + GPT for dual BIOS/UEFI boot.
-    async fn write_hybrid_boot(
-        &mut self,
-        _end_sector: LogicalSector,
-        disk_size_512: u64,
-    ) -> io::Result<()> {
+    ///
+    /// The MBR carries a protective entry over the pre-partition gap, mirrors
+    /// the leading ISO9660 basic-data partition as type 0x17, and mirrors the
+    /// EFI System Partition as type 0xEF.
+    async fn write_hybrid_boot(&mut self, end_sector: LogicalSector) -> io::Result<()> {
         let hybrid_opts = self.ops.features.hybrid_boot.as_ref();
         let bootable = hybrid_opts.map(|h| h.bootable).unwrap_or(true);
 
-        // Create GPT partition entry for the ISO
-        let iso_start_lba = 34u64;
-        let iso_end_lba = disk_size_512.saturating_sub(34);
+        let (gpt, iso_index, esp_index) = self.build_gpt_disk(end_sector)?;
+        let total_512 = gpt.backup_header.my_lba.to_ne() + 1;
 
-        // Create deterministic GUIDs
-        let partition_guid = Self::generate_guid_from_string(&self.ops.volume_name);
-        let disk_guid =
-            Self::generate_guid_from_string(&alloc::format!("disk-{}", self.ops.volume_name));
-
-        let gpt_entries = [
-            GptPartitionEntry::new(Guid::BASIC_DATA, partition_guid, iso_start_lba, iso_end_lba),
-            GptPartitionEntry::default(),
-        ];
-
-        // Build hybrid MBR using hadris-part
-        let mut mbr = HybridMbrBuilder::new(disk_size_512)
-            .protective_slot(0)
-            .mirror_partition(0, MbrPartitionType::Iso9660, bootable)
-            .build(&gpt_entries)
+        let mut builder = HybridMbrBuilder::new(total_512).protective_slot(0);
+        if let Some(iso_index) = iso_index {
+            builder = builder.mirror_partition(iso_index as u32, MbrPartitionType::Iso9660, bootable);
+        }
+        if let Some(esp_index) = esp_index {
+            builder = builder.mirror_partition(
+                esp_index as u32,
+                MbrPartitionType::EfiSystemPartition,
+                false,
+            );
+        }
+        let mut mbr = builder
+            .build(&gpt.entries)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid hybrid MBR"))?;
 
-        // Inject bootstrap code if provided
         if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot
             && let Some(ref bootstrap) = hybrid_opts.mbr_bootstrap
         {
@@ -1690,61 +1801,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
         }
 
-        // Write hybrid MBR
-        self.data
-            .seek(SeekFrom::Start(0))
+        gpt.write_to_with_mbr(&mut self.data, &mbr)
             .await
-            .map_err(io::Error::erase)?;
-        self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
-
-        // Calculate CRC32 of partition entries
-        let entries_bytes = bytemuck::bytes_of(&gpt_entries);
-        let entries_crc = Self::crc32(entries_bytes);
-
-        // Create and write primary GPT header
-        let header_bytes = Self::write_gpt_header_bytes(
-            disk_guid,
-            1,
-            disk_size_512 - 1,
-            iso_start_lba,
-            iso_end_lba,
-            2,
-            2, // Only 2 entries in our case
-            entries_crc,
-        );
-
-        // Write primary GPT header
-        self.data
-            .seek(SeekFrom::Start(512))
-            .await
-            .map_err(io::Error::erase)?;
-        self.data.write_all(&header_bytes).await?;
-
-        // Write partition entries
-        self.data
-            .seek(SeekFrom::Start(1024))
-            .await
-            .map_err(io::Error::erase)?;
-        self.data.write_all(entries_bytes).await?;
+            .map_err(part_io_error)?;
 
         Ok(())
-    }
-
-    /// Simple CRC32 calculation for GPT.
-    fn crc32(data: &[u8]) -> u32 {
-        // Using the standard CRC-32 polynomial
-        let mut crc = !0u32;
-        for &byte in data {
-            crc ^= byte as u32;
-            for _ in 0..8 {
-                crc = if crc & 1 != 0 {
-                    (crc >> 1) ^ 0xEDB88320
-                } else {
-                    crc >> 1
-                };
-            }
-        }
-        !crc
     }
 
     /// Generates a deterministic GUID from a string (simple hash-based).
@@ -1769,56 +1830,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant 1
 
         Guid::from_bytes(bytes)
-    }
-
-    /// Writes a GPT header to the given buffer (92 bytes).
-    #[allow(clippy::too_many_arguments)]
-    fn write_gpt_header_bytes(
-        disk_guid: Guid,
-        my_lba: u64,
-        alternate_lba: u64,
-        first_usable_lba: u64,
-        last_usable_lba: u64,
-        partition_entry_lba: u64,
-        num_partition_entries: u32,
-        partition_entry_array_crc32: u32,
-    ) -> [u8; 92] {
-        let mut buf = [0u8; 92];
-
-        // Signature: "EFI PART"
-        buf[0..8].copy_from_slice(b"EFI PART");
-        // Revision: 1.0
-        buf[8..12].copy_from_slice(&0x00010000u32.to_le_bytes());
-        // Header size: 92
-        buf[12..16].copy_from_slice(&92u32.to_le_bytes());
-        // Header CRC32: placeholder, will be calculated
-        buf[16..20].copy_from_slice(&0u32.to_le_bytes());
-        // Reserved
-        buf[20..24].copy_from_slice(&0u32.to_le_bytes());
-        // My LBA
-        buf[24..32].copy_from_slice(&my_lba.to_le_bytes());
-        // Alternate LBA
-        buf[32..40].copy_from_slice(&alternate_lba.to_le_bytes());
-        // First usable LBA
-        buf[40..48].copy_from_slice(&first_usable_lba.to_le_bytes());
-        // Last usable LBA
-        buf[48..56].copy_from_slice(&last_usable_lba.to_le_bytes());
-        // Disk GUID
-        buf[56..72].copy_from_slice(&disk_guid.to_bytes());
-        // Partition entry LBA
-        buf[72..80].copy_from_slice(&partition_entry_lba.to_le_bytes());
-        // Number of partition entries
-        buf[80..84].copy_from_slice(&num_partition_entries.to_le_bytes());
-        // Size of partition entry: 128
-        buf[84..88].copy_from_slice(&128u32.to_le_bytes());
-        // Partition entry array CRC32
-        buf[88..92].copy_from_slice(&partition_entry_array_crc32.to_le_bytes());
-
-        // Calculate and set header CRC32
-        let crc = Self::crc32(&buf);
-        buf[16..20].copy_from_slice(&crc.to_le_bytes());
-
-        buf
     }
 
     async fn update_directory(
@@ -2235,6 +2246,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
 fn alignment_requires_materialization(current_position: u64, aligned_position: u64) -> bool {
     aligned_position > current_position
+}
+
+fn part_io_error(err: hadris_part::Error) -> io::Error {
+    match err {
+        hadris_part::Error::Io(err) => err,
+        _ => io::Error::new(
+            io::ErrorKind::InvalidData,
+            "failed to write partition table",
+        ),
+    }
 }
 
 struct FileTreeWalker<'a> {

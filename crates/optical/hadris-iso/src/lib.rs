@@ -275,8 +275,10 @@
 //! - **Non-2048 logical block size:** `IsoImage` requires a 2048-byte logical
 //!   block and rejects other sizes; the allocation-free `IsoReader` honors the
 //!   declared block size.
-//! - **Hybrid GPT backup:** the embedded GPT writes the primary header/entries
-//!   only; a spec-valid backup GPT at end-of-disk is not written.
+//! - **GPT/Hybrid images:** the writer appends a backup-GPT region (backup
+//!   entry array plus backup header) after the ISO data. `volume_space_size`
+//!   covers the whole image including that region, so copying
+//!   `volume_space_size` logical sectors preserves the backup GPT.
 
 #![no_std]
 #![deny(missing_docs)]

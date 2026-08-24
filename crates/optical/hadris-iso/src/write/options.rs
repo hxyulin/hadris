@@ -18,6 +18,16 @@ pub struct HybridBootOptions {
     pub mbr_bootstrap: Option<alloc::vec::Vec<u8>>,
     /// Whether to mark the ISO partition as bootable in the MBR.
     pub bootable: bool,
+    /// Path (in the ISO tree, using the configured path separator) of the
+    /// El Torito UEFI boot image to additionally expose as a GPT EFI System
+    /// Partition.
+    ///
+    /// Applies to [`PartitionScheme::Gpt`] and [`PartitionScheme::Hybrid`].
+    /// When `None`, and the El Torito options contain exactly one
+    /// `PlatformId::UEFI` section entry, that entry's boot image is exposed
+    /// automatically. Formatting fails with a not-found error when the
+    /// configured path does not resolve to a file in the ISO tree.
+    pub efi_boot_partition: Option<String>,
 }
 
 impl HybridBootOptions {
@@ -27,6 +37,7 @@ impl HybridBootOptions {
             partition_scheme: PartitionScheme::Mbr,
             mbr_bootstrap: None,
             bootable: true,
+            efi_boot_partition: None,
         }
     }
 
@@ -36,6 +47,7 @@ impl HybridBootOptions {
             partition_scheme: PartitionScheme::Gpt,
             mbr_bootstrap: None,
             bootable: false,
+            efi_boot_partition: None,
         }
     }
 
@@ -45,12 +57,20 @@ impl HybridBootOptions {
             partition_scheme: PartitionScheme::Hybrid,
             mbr_bootstrap: None,
             bootable: true,
+            efi_boot_partition: None,
         }
     }
 
     /// Set the MBR bootstrap code.
     pub fn bootstrap(mut self, bootstrap: alloc::vec::Vec<u8>) -> Self {
         self.mbr_bootstrap = Some(bootstrap);
+        self
+    }
+
+    /// Set the path of the El Torito UEFI boot image to expose as a GPT EFI
+    /// System Partition. See [`HybridBootOptions::efi_boot_partition`].
+    pub fn with_efi_boot_partition(mut self, path: impl Into<String>) -> Self {
+        self.efi_boot_partition = Some(path.into());
         self
     }
 }
@@ -205,6 +225,7 @@ impl CreationFeatures {
                 partition_scheme: scheme,
                 mbr_bootstrap: None,
                 bootable: true,
+                efi_boot_partition: None,
             }),
             ..Default::default()
         }
