@@ -62,6 +62,7 @@ enum Commands {
 
 /// Parse command-line arguments and run the CPIO utility.
 pub fn run() -> Result<()> {
+    reset_sigpipe();
     let cli = Cli::parse();
 
     match cli.command {
@@ -76,3 +77,13 @@ pub fn run() -> Result<()> {
         Commands::Cat { archive, path } => commands::cat(archive, &path),
     }
 }
+
+#[cfg(unix)]
+fn reset_sigpipe() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}

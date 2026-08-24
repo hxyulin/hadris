@@ -124,6 +124,7 @@ enum FatKind {
 
 /// Parse command-line arguments and run the FAT utility.
 pub fn run() -> Result<()> {
+    reset_sigpipe();
     let cli = Cli::parse();
 
     match cli.command {
@@ -162,7 +163,7 @@ fn open_fat_fs(path: PathBuf) -> Result<FatVolume<File>> {
 fn display_volume_label(fs: &FatVolume<File>) -> Result<String> {
     if let Some(raw) = fs
         .read_root_label()
-        .context("Failed to read root volume label")?
+        .context("Failed to read root directory from image (image may be truncated)")?
     {
         let label = core::str::from_utf8(&raw)
             .unwrap_or("")
@@ -782,3 +783,13 @@ fn format_size(bytes: u64) -> String {
         format!("{bytes} B")
     }
 }
+
+#[cfg(unix)]
+fn reset_sigpipe() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}

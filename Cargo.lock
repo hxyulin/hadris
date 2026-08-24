@@ -501,6 +501,7 @@ dependencies = [
  "hadris-cd",
  "hadris-iso",
  "hadris-udf",
+ "libc",
  "tempfile",
 ]
 
@@ -538,6 +539,7 @@ dependencies = [
  "anyhow",
  "clap",
  "hadris-cpio",
+ "libc",
 ]
 
 [[package]]
@@ -599,6 +601,7 @@ dependencies = [
  "anyhow",
  "clap",
  "hadris-fat",
+ "libc",
  "tempfile",
 ]
 
@@ -646,6 +649,7 @@ version = "2.2.0"
 dependencies = [
  "clap",
  "hadris-iso",
+ "libc",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -728,6 +732,7 @@ version = "2.2.0"
 dependencies = [
  "clap",
  "hadris-udf",
+ "libc",
  "tracing",
  "tracing-subscriber",
 ]
