@@ -1520,8 +1520,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     /// entry array plus backup header) after the ISO data, padded so that
     /// the image length stays a multiple of the logical sector size and the
     /// backup header occupies the last 512-byte sector. The appended region
-    /// is outside the area described by `volume_space_size`, matching
-    /// xorriso's appended-GPT practice.
+    /// lies outside the ISO file-data area but is still counted in
+    /// `volume_space_size`, so tools that copy `volume_space_size` logical
+    /// sectors preserve the backup GPT, matching xorriso's appended-GPT
+    /// practice.
     async fn write_partition_tables(&mut self, end_sector: LogicalSector) -> io::Result<()> {
         match self
             .ops

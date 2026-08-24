@@ -26,6 +26,9 @@ Each published package owns its version and may be released independently.
   the boot image of the single `PlatformId::UEFI` El Torito entry, if there is
   exactly one, so existing UEFI/hybrid consumers gain the ESP without code
   changes. `PlatformId` now derives `PartialEq`/`Eq`.
+- **hadris-iso:** New `SizeBreakdown::backup_gpt` estimator component covering
+  the backup-GPT region appended to GPT/Hybrid images, so size estimates keep
+  their never-underestimates contract for those schemes.
 
 ### Fixed
 

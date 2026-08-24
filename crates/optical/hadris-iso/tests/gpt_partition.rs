@@ -6,7 +6,7 @@ use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOption
 use hadris_iso::write::options::{
     BaseIsoLevel, CreationFeatures, HybridBootOptions, IsoFormatOptions,
 };
-use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter, estimator};
 use hadris_part::gpt::Guid;
 use hadris_part::{GptDisk, GptDiskReadExt};
 
@@ -16,14 +16,12 @@ fn efi_image_content() -> Vec<u8> {
     (0..3000u32).map(|i| (i % 251) as u8).collect()
 }
 
-fn build_iso(
-    hybrid_boot: HybridBootOptions,
-) -> Result<Vec<u8>, hadris_iso::write::IsoCreationError> {
+fn input_files() -> InputFiles {
     let mut bios_image = vec![0u8; 2048];
     bios_image[0] = 0xEB;
     bios_image[1] = 0xFE;
 
-    let files = InputFiles {
+    InputFiles {
         path_separator: hadris_iso::read::PathSeparator::ForwardSlash,
         files: vec![
             IsoFile::File {
@@ -35,8 +33,10 @@ fn build_iso(
                 contents: efi_image_content(),
             },
         ],
-    };
+    }
+}
 
+fn format_options(hybrid_boot: HybridBootOptions) -> IsoFormatOptions {
     let boot_options = BootOptions {
         write_boot_catalog: true,
         default: BootEntryOptions {
@@ -60,7 +60,7 @@ fn build_iso(
         )],
     };
 
-    let format_options = IsoFormatOptions {
+    IsoFormatOptions {
         volume_name: "GPT_ESP_TEST".to_string(),
         system_id: None,
         volume_set_id: None,
@@ -81,9 +81,17 @@ fn build_iso(
             hybrid_boot: Some(hybrid_boot),
         },
         strict_charset: false,
-    };
+    }
+}
 
-    let buffer = IsoImageWriter::create(Cursor::new(Vec::new()), files, format_options)?;
+fn build_iso(
+    hybrid_boot: HybridBootOptions,
+) -> Result<Vec<u8>, hadris_iso::write::IsoCreationError> {
+    let buffer = IsoImageWriter::create(
+        Cursor::new(Vec::new()),
+        input_files(),
+        format_options(hybrid_boot),
+    )?;
     Ok(buffer.into_inner())
 }
 
@@ -190,6 +198,21 @@ fn parse_mbr(iso: &[u8]) -> Vec<MbrEntry> {
         })
         .filter(|e| e.part_type != 0)
         .collect()
+}
+
+#[test]
+fn estimate_covers_appended_backup_gpt() {
+    for opts in [HybridBootOptions::gpt(), HybridBootOptions::hybrid()] {
+        let est = estimator::estimate(&input_files(), &format_options(opts.clone()));
+        let iso = build_iso(opts).expect("failed to create ISO");
+        assert_eq!(est.breakdown.backup_gpt, 36 * 512);
+        assert!(
+            est.minimum_bytes() >= iso.len() as u64,
+            "estimate {} smaller than actual image {}",
+            est.minimum_bytes(),
+            iso.len()
+        );
+    }
 }
 
 #[test]
