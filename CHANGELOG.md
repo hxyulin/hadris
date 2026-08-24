@@ -8,6 +8,69 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Fixed
+
+- **hadris-udf:** dstring decoding no longer includes one trailing garbage byte
+  (usually a NUL). The dstring length byte counts the compression-ID byte, so
+  `PrimaryVolumeDescriptor::volume_id()`, `LogicalVolumeDescriptor::volume_id()`,
+  and `FileSetDescriptor::file_set_id()` previously returned values like
+  `"LABEL\0"` and equality comparisons against the written label failed. The
+  decoder also guards hostile length bytes without panicking.
+- **hadris-udf:** 16-bit (UTF-16) dstrings and filenames are now decoded with
+  proper surrogate-pair handling. Characters outside the Basic Multilingual
+  Plane (such as emoji) were previously dropped from names, so files written
+  with such names could not be listed or found by name; unpaired surrogates
+  decode to U+FFFD.
+- **hadris-cd:** Creating an image without a name-preserving namespace (Joliet
+  disabled and Rock Ridge off) no longer fails with `ISO writer did not produce
+  the planned file` for names the ISO 9660 charset sanitizes (such as
+  hyphenated filenames), and no longer produces images whose ISO and UDF
+  namespaces diverge for sanitized directory names. The writer now applies the
+  ISO name mapping to the shared tree up front, with per-directory
+  deduplication, so both namespaces present the same sanitized logical tree.
+- **hadris-cd:** Rock Ridge metadata requested via `rock_ridge` creation
+  options (or the CLI's `-R`) is now actually written. The base ISO namespace
+  did not advertise RRIP support, so hadris-iso silently skipped emitting the
+  system-use fields.
+- **hadris-cd:** The CLI's `verify` command now compares Rock Ridge alternate
+  names when present, so `-R` images verify cleanly.
+- **hadris-iso:** `PrimaryVolumeDescriptor::new` and
+  `SupplementaryVolumeDescriptor::new_evd` no longer panic on volume names
+  longer than 32 characters; the constructors are truly lossy (truncate and
+  substitute), and the writer's validation still rejects over-long
+  `volume_name` values with a clean `InvalidInput` error, so
+  `hadris-iso create -V <long name>` exits with an error instead of a panic.
+- **hadris-io:** Converting `ErrorKind::UnexpectedEof` and
+  `ErrorKind::WouldBlock` to `std::io::ErrorKind` now preserves the kind
+  instead of collapsing both to `Other` via the embedded-io mapping, so
+  EOF detection through the std interop works.
+- **hadris-io:** `Cursor::seek` uses checked position arithmetic: seeks that
+  overflow return `InvalidInput` instead of panicking in debug builds or
+  wrapping in release builds, and `SeekFrom::Start` offsets above `i64::MAX`
+  are accepted as in `std::io::Cursor`.
+- **hadris-storage:** Building with neither the `sync` nor `async` feature no
+  longer emits dead-code warnings.
+- **tools:** All five CLI tools reset `SIGPIPE` to the default disposition on
+  Unix, so piping output into commands like `head` terminates quietly instead
+  of panicking with a broken-pipe message.
+- **hadris-udf-cli:** `create --revision` now validates against the supported
+  UDF revisions (1.02, 1.50, 2.00, 2.01, 2.50, 2.60) instead of accepting any
+  numeric value.
+
+### Documentation
+
+- **hadris-io:** Corrected the claim that the I/O traits re-export from
+  `std::io` under the `std` feature (they are always hadris's own traits with
+  blanket impls for std types), documented the `alloc` feature as currently a
+  no-op, and removed a dead, never-compiled `traits.rs` from the package.
+- **hadris-cd:** The README quick start now opens the output file readable as
+  well as writable, which `OpticalImageWriter::finish` requires; the runtime
+  error for a write-only target now says so explicitly.
+- **hadris-fixed:** Documented that `From<&[u8]>` for `FixedBytes` panics on
+  over-long slices and that `try_from_slice` is the fallible alternative.
+- **hadris-common:** Corrected the `sync` feature's default in the crate-level
+  feature table.
+
 ## [2.2.0] - 2026-08-24
 
 ### Added
