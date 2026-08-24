@@ -24,3 +24,6 @@ hadris-udf = { workspace = true, features = ["std", "sync", "write"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

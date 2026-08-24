@@ -102,7 +102,7 @@ pub struct CreateArgs {
     /// Volume name
     #[arg(short = 'V', long, default_value = "UDF_VOLUME")]
     pub volume_name: String,
-    /// UDF revision (e.g. 1.02, 1.50, 2.01, 2.50)
+    /// UDF revision (1.02, 1.50, 2.00, 2.01, 2.50, or 2.60)
     #[arg(short, long, default_value = "1.02")]
     pub revision: String,
     /// Verbose output

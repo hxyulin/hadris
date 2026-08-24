@@ -2,6 +2,7 @@
 #[derive(Debug)]
 pub struct PartitionView<'a, S> {
     pub(crate) source: &'a mut S,
+    #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
     pub(crate) byte_offset: u64,
     pub(crate) byte_len: u64,
     pub(crate) position: u64,
@@ -47,7 +48,10 @@ impl<'a, S> PartitionView<'a, S> {
     pub fn into_inner(self) -> &'a mut S {
         self.source
     }
+}
 
+#[cfg(any(feature = "sync", feature = "async"))]
+impl<S> PartitionView<'_, S> {
     pub(crate) fn seek_position(&self, from: hadris_io::SeekFrom) -> hadris_io::Result<u64> {
         let position = match from {
             hadris_io::SeekFrom::Start(position) => Some(position),

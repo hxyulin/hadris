@@ -177,6 +177,9 @@ impl<const N: usize> Default for FixedBytes<N> {
 }
 
 impl<const N: usize> From<&[u8]> for FixedBytes<N> {
+    /// # Panics
+    /// Panics if the slice is longer than `N`. Use
+    /// [`FixedBytes::try_from_slice`] for a fallible conversion.
     fn from(value: &[u8]) -> Self {
         Self::try_from_slice(value).expect("FixedBytes capacity exceeded")
     }

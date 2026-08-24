@@ -110,7 +110,18 @@ enum Node {
     File(Vec<u8>),
 }
 
+#[cfg(unix)]
+fn reset_sigpipe() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
+
 fn main() {
+    reset_sigpipe();
     let result = match Args::parse().command {
         Command::Create(args) => create(args),
         Command::Info(args) => info(&args.input),
@@ -302,7 +313,14 @@ fn collect_iso<R: Read + Seek>(
         if entry.is_special() {
             continue;
         }
-        let name = clean_iso_name(entry.name());
+        let name = match entry
+            .rrip
+            .as_ref()
+            .and_then(|m| m.alternate_name.as_deref())
+        {
+            Some(rrip_name) => rrip_name.to_string(),
+            None => clean_iso_name(entry.name()),
+        };
         let path = join(prefix, &name);
         if entry.is_directory() {
             nodes.insert(path.clone(), Node::Directory);

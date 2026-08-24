@@ -15,7 +15,7 @@
 //! | `alloc`    | via std | Heap allocation (`String`, `Vec` types) |
 //! | `bytemuck` | yes     | Zero-copy serialization for number types |
 //! | `optical`  | no      | Optical media types for CD/DVD/Blu-ray |
-//! | `sync`     | via std | Synchronous I/O (forwarded to `hadris-io`) |
+//! | `sync`     | no      | Synchronous I/O (forwarded to `hadris-io`) |
 //! | `async`    | no      | Asynchronous I/O (forwarded to `hadris-io`) |
 //!
 //! ## Key Types

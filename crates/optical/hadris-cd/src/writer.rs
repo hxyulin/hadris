@@ -53,6 +53,12 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
             )));
         }
 
+        // Without a name-preserving ISO namespace (Joliet or Rock Ridge), the
+        // ISO writer sanitizes identifiers. Apply the same mapping to the
+        // shared tree so both namespaces present identical names and the ISO
+        // readback below can locate every planned entry.
+        self.apply_iso_name_mapping(&mut tree);
+
         // Sort the tree for consistent output
         tree.sort();
 
@@ -79,6 +85,116 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
         Ok(self.writer)
     }
 
+    /// Returns the entry type whose sanitized identifiers the ISO reader will
+    /// present, or `None` when a name-preserving namespace (Joliet or Rock
+    /// Ridge) keeps the original names visible.
+    fn iso_presented_entry_type(&self) -> Option<hadris_iso::file::EntryType> {
+        use hadris_iso::file::EntryType;
+
+        if !self.options.iso.enabled
+            || self.options.iso.joliet.is_some()
+            || self
+                .options
+                .iso
+                .rock_ridge
+                .is_some_and(|options| options.enabled)
+        {
+            return None;
+        }
+        Some(if self.options.iso.long_filenames {
+            EntryType::Level3 {
+                supports_lowercase: true,
+                supports_rrip: false,
+            }
+        } else {
+            self.options.iso.level.into()
+        })
+    }
+
+    fn apply_iso_name_mapping(&self, tree: &mut FileTree) {
+        if let Some(ty) = self.iso_presented_entry_type() {
+            Self::map_directory_names(&mut tree.root, ty);
+        }
+    }
+
+    fn map_directory_names(dir: &mut Directory, ty: hadris_iso::file::EntryType) {
+        let mut seen = std::collections::HashSet::new();
+        for file in &mut dir.files {
+            let mapped = Self::unique_mapped_name(&mut seen, ty, &file.name, false);
+            if *file.name != mapped {
+                file.name = std::sync::Arc::new(mapped);
+            }
+        }
+        for subdir in &mut dir.subdirs {
+            let mapped = Self::unique_mapped_name(&mut seen, ty, &subdir.name, true);
+            if *subdir.name != mapped {
+                subdir.name = std::sync::Arc::new(mapped);
+            }
+            Self::map_directory_names(subdir, ty);
+        }
+    }
+
+    fn unique_mapped_name(
+        seen: &mut std::collections::HashSet<String>,
+        ty: hadris_iso::file::EntryType,
+        name: &str,
+        is_directory: bool,
+    ) -> String {
+        let convert = |name: &str| {
+            let converted = if is_directory {
+                ty.convert_directory_name(name)
+            } else {
+                ty.convert_name(name)
+            };
+            Self::presented_name(converted.as_bytes())
+        };
+        let base = convert(name);
+        let mut mapped = base.clone();
+        let mut suffix = 0_usize;
+        let mut trim = 0_usize;
+        while !seen.insert(mapped.clone()) {
+            suffix += 1;
+            if suffix > 4096 {
+                break;
+            }
+            // The conversion truncates over-long stems, which can swallow the
+            // suffix; trim the stem until the suffixed name survives conversion.
+            loop {
+                let candidate = convert(&Self::with_dedup_suffix(&base, suffix, trim, is_directory));
+                let stalled = candidate == mapped && trim < base.len();
+                mapped = candidate;
+                if !stalled {
+                    break;
+                }
+                trim += 1;
+            }
+        }
+        mapped
+    }
+
+    fn with_dedup_suffix(name: &str, suffix: usize, trim: usize, is_directory: bool) -> String {
+        let (stem, ext) = match name.rfind('.') {
+            Some(position) if !is_directory => (&name[..position], &name[position..]),
+            _ => (name, ""),
+        };
+        let keep = stem.len().saturating_sub(trim);
+        format!("{}_{suffix}{ext}", &stem[..keep])
+    }
+
+    /// Decodes a converted identifier the way readers present it: lossy UTF-8
+    /// with any numeric version suffix removed.
+    fn presented_name(bytes: &[u8]) -> String {
+        let name = String::from_utf8_lossy(bytes);
+        match name.rsplit_once(';') {
+            Some((base, version))
+                if !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit()) =>
+            {
+                base.to_string()
+            }
+            _ => name.into_owned(),
+        }
+    }
+
     async fn sync_iso_file_extents(
         &mut self,
         tree: &mut FileTree,
@@ -90,7 +206,12 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
         Self::collect_file_paths(&tree.root, "", &mut paths);
         let mut extents = std::collections::BTreeMap::new();
         {
-            let image = IsoImage::open(Borrowed::new(&mut self.writer))?;
+            let image = IsoImage::open(Borrowed::new(&mut self.writer)).map_err(|error| {
+                crate::error::Error::InvalidConfig(format!(
+                    "cannot read back the written ISO structures (the output target must be \
+                     opened readable as well as writable): {error}"
+                ))
+            })?;
             for path in paths {
                 let entry = image.find_path(&path)?.ok_or_else(|| {
                     crate::error::Error::InvalidPath(format!(
@@ -226,9 +347,41 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
 
         let input_files = InputTree::new(PathSeparator::ForwardSlash, iso_files);
 
+        // The ISO writer only emits Rock Ridge system-use fields when the base
+        // entry type advertises RRIP support, so derive that flag from the
+        // Rock Ridge options instead of forwarding the level untouched.
+        let supports_rrip = self
+            .options
+            .iso
+            .rock_ridge
+            .is_some_and(|options| options.enabled);
+        let filenames = match self.options.iso.level {
+            hadris_iso::write::options::BaseIsoLevel::Level1 {
+                supports_lowercase,
+                supports_rrip: level_rrip,
+            } => hadris_iso::write::options::BaseIsoLevel::Level1 {
+                supports_lowercase,
+                supports_rrip: level_rrip || supports_rrip,
+            },
+            hadris_iso::write::options::BaseIsoLevel::Level2 {
+                supports_lowercase,
+                supports_rrip: level_rrip,
+            } => hadris_iso::write::options::BaseIsoLevel::Level2 {
+                supports_lowercase,
+                supports_rrip: level_rrip || supports_rrip,
+            },
+            hadris_iso::write::options::BaseIsoLevel::Level3 {
+                supports_lowercase,
+                supports_rrip: level_rrip,
+            } => hadris_iso::write::options::BaseIsoLevel::Level3 {
+                supports_lowercase,
+                supports_rrip: level_rrip || supports_rrip,
+            },
+        };
+
         // Build ISO format options from our options
         let features = CreationFeatures {
-            filenames: self.options.iso.level,
+            filenames,
             long_filenames: self.options.iso.long_filenames,
             joliet: self.options.iso.joliet,
             rock_ridge: self.options.iso.rock_ridge,
@@ -527,5 +680,49 @@ mod tests {
         // Note: Full verification would require mounting the resulting image
         let output = writer.finish(tree).unwrap();
         assert!(!output.get_ref().is_empty());
+    }
+
+    #[test]
+    fn test_dedup_suffix_survives_level1_truncation() {
+        let ty = hadris_iso::file::EntryType::Level1 {
+            supports_lowercase: false,
+            supports_rrip: false,
+        };
+        let mut seen = std::collections::HashSet::new();
+        let file_names = ["ABCDEFGHI.TXT", "ABCDEFGHJ.TXT", "ABCDEFGHK.TXT"];
+        let mapped: Vec<String> = file_names
+            .iter()
+            .map(|name| {
+                OpticalImageWriter::<Cursor<Vec<u8>>>::unique_mapped_name(
+                    &mut seen, ty, name, false,
+                )
+            })
+            .collect();
+        let unique: std::collections::HashSet<_> = mapped.iter().collect();
+        assert_eq!(
+            unique.len(),
+            file_names.len(),
+            "mapped names collide: {mapped:?}"
+        );
+
+        let mut dir_seen = std::collections::HashSet::new();
+        let dir_names = ["LONGDIRNAMEA", "LONGDIRNAMEB", "LONGDIRNAMEC"];
+        let mapped_dirs: Vec<String> = dir_names
+            .iter()
+            .map(|name| {
+                OpticalImageWriter::<Cursor<Vec<u8>>>::unique_mapped_name(
+                    &mut dir_seen,
+                    ty,
+                    name,
+                    true,
+                )
+            })
+            .collect();
+        let unique_dirs: std::collections::HashSet<_> = mapped_dirs.iter().collect();
+        assert_eq!(
+            unique_dirs.len(),
+            dir_names.len(),
+            "mapped directory names collide: {mapped_dirs:?}"
+        );
     }
 }

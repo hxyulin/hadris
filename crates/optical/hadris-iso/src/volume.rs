@@ -377,6 +377,16 @@ impl Debug for UnknownVolumeDescriptor {
 unsafe impl bytemuck::Zeroable for UnknownVolumeDescriptor {}
 unsafe impl bytemuck::Pod for UnknownVolumeDescriptor {}
 
+/// Builds a lossy identifier: truncates to fit and substitutes invalid
+/// characters instead of failing.
+fn lossy_identifier<C: Charset, const N: usize>(s: &str) -> IsoStr<C, N> {
+    let mut chars = [b' '; N];
+    let len = s.len().min(N);
+    chars[..len].copy_from_slice(&s.as_bytes()[..len]);
+    C::substitute_invalid(chars[..len].iter_mut());
+    IsoStr::from_bytes_exact(chars)
+}
+
 /// Primary Volume Descriptor (ECMA-119 8.4)
 ///
 /// @hadris-spec ECMA-119:8.4
@@ -497,7 +507,7 @@ impl PrimaryVolumeDescriptor {
             },
             unused0: 0,
             system_identifier: IsoStrA::empty(),
-            volume_identifier: IsoStrD::from_str_lossy(name).unwrap(),
+            volume_identifier: lossy_identifier(name),
             unused1: [0; 8],
             volume_space_size: U32LsbMsb::new(sectors),
             unused2: [0; 32],
@@ -744,7 +754,7 @@ impl SupplementaryVolumeDescriptor {
             },
             flags: 0,
             system_identifier: IsoStrA::empty(),
-            volume_identifier: IsoStrD::from_str_lossy(name).unwrap(),
+            volume_identifier: lossy_identifier(name),
             unused1: [0; 8],
             volume_space_size: U32LsbMsb::new(sectors),
             escape_sequences: [b' '; 32],
@@ -878,6 +888,20 @@ mod tests {
     static_assertions::assert_eq_align!(PrimaryVolumeDescriptor, u8);
     static_assertions::assert_eq_align!(VolumeDescriptorSetTerminator, u8);
     static_assertions::assert_eq_align!(BootRecordVolumeDescriptor, u8);
+
+    #[test]
+    fn pvd_new_truncates_overlong_volume_name_without_panicking() {
+        let name = "A".repeat(40);
+        let pvd = PrimaryVolumeDescriptor::new(&name, 0);
+        assert_eq!(pvd.volume_identifier.to_str(), "A".repeat(32));
+    }
+
+    #[test]
+    fn evd_new_truncates_overlong_volume_name_without_panicking() {
+        let name = "B".repeat(40);
+        let evd = SupplementaryVolumeDescriptor::new_evd(&name, 0);
+        assert_eq!(evd.volume_identifier.to_str(), "B".repeat(32));
+    }
 
     sync_only! {
         use std::io::Cursor;

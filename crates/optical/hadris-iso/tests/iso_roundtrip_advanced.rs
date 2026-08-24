@@ -772,3 +772,21 @@ fn test_rrip_typed_fields_roundtrip() {
     assert!(found_nm, "Should find typed AlternateName entries");
     assert!(found_tf, "Should find typed Timestamps entries");
 }
+
+#[test]
+fn test_overlong_volume_name_returns_error_instead_of_panicking() {
+    let mut options = default_options();
+    options.volume_name = "A".repeat(40);
+    let input = InputFiles {
+        path_separator: PathSeparator::ForwardSlash,
+        files: vec![IsoFile::File {
+            name: Arc::new("hello.txt".to_string()),
+            contents: b"hello".to_vec(),
+        }],
+    };
+    let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
+    let hadris_iso::write::IsoCreationError::Io(error) =
+        IsoImageWriter::create(&mut buffer, input, options).unwrap_err();
+    assert_eq!(error.kind(), hadris_iso::ErrorKind::InvalidInput);
+    assert!(error.to_string().contains("volume name"));
+}

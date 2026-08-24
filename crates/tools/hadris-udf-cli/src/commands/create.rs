@@ -84,13 +84,36 @@ fn build_dir(path: &Path, dir: &mut SimpleDir, verbose: bool) -> Result<usize> {
     Ok(count)
 }
 
-/// Parse a UDF revision string like "1.02" into a UdfRevision.
+/// Parse a UDF revision string like "1.02" into a supported UdfRevision.
 fn parse_revision(s: &str) -> Result<UdfRevision> {
-    let err = || -> Box<dyn std::error::Error> {
-        format!("invalid UDF revision '{s}': expected format like 1.02, 2.50").into()
-    };
-    let (major_str, minor_str) = s.split_once('.').ok_or_else(err)?;
-    let major = major_str.parse::<u8>().map_err(|_| err())?;
-    let minor = u8::from_str_radix(minor_str, 16).map_err(|_| err())?;
-    Ok(UdfRevision::from_raw((major as u16) << 8 | minor as u16))
+    match s {
+        "1.02" => Ok(UdfRevision::V1_02),
+        "1.50" => Ok(UdfRevision::V1_50),
+        "2.00" => Ok(UdfRevision::V2_00),
+        "2.01" => Ok(UdfRevision::V2_01),
+        "2.50" => Ok(UdfRevision::V2_50),
+        "2.60" => Ok(UdfRevision::V2_60),
+        _ => Err(format!(
+            "invalid UDF revision '{s}': expected 1.02, 1.50, 2.00, 2.01, 2.50, or 2.60"
+        )
+        .into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_revision_supported() {
+        assert_eq!(parse_revision("1.02").unwrap(), UdfRevision::V1_02);
+        assert_eq!(parse_revision("2.60").unwrap(), UdfRevision::V2_60);
+    }
+
+    #[test]
+    fn test_parse_revision_rejects_unsupported() {
+        for input in ["9.99", "1.03", "2.5", "abc", ""] {
+            assert!(parse_revision(input).is_err(), "should reject {input:?}");
+        }
+    }
 }

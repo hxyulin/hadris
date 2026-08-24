@@ -15,6 +15,8 @@ pub use fileset::FileSetDescriptor;
 pub use logical::{LogicalVolumeDescriptor, Type1PartitionMap};
 pub use partition::{PartitionContents, PartitionDescriptor};
 pub use primary::PrimaryVolumeDescriptor;
+#[cfg(feature = "alloc")]
+pub(crate) use primary::decode_utf16_be;
 pub use tag::{DescriptorTag, TagIdentifier};
 
 use super::super::{Read, Seek, SeekFrom};

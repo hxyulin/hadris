@@ -2345,6 +2345,33 @@ mod tests {
     }
 
     #[test]
+    fn test_roundtrip_volume_id_and_unicode_filename() {
+        let mut buffer = vec![0u8; 4 * 1024 * 1024];
+        let file_name = "emoji-\u{1F600}.bin";
+
+        {
+            let cursor = Cursor::new(&mut buffer[..]);
+            let mut root = SimpleDir::root();
+            root.add_file(SimpleFile::new(file_name, b"payload".to_vec()));
+
+            let options = UdfWriteOptions {
+                volume_id: String::from("SMOKETEST"),
+                ..Default::default()
+            };
+
+            UdfWriter::create(cursor, &root, options).expect("Format should succeed");
+        }
+
+        let udf = crate::UdfVolume::open(Cursor::new(&buffer[..])).expect("open");
+        assert_eq!(udf.info().volume_id, "SMOKETEST");
+
+        let root = udf.root_dir().expect("root_dir");
+        let entry = root.find(file_name).expect("find by exact unicode name");
+        assert_eq!(entry.name(), file_name);
+        assert_eq!(udf.read_file(entry).expect("read_file"), b"payload");
+    }
+
+    #[test]
     fn test_roundtrip_large_file_read() {
         let mut buffer = vec![0u8; 8 * 1024 * 1024];
         let large_data = vec![0x55; 10000];

@@ -8,6 +8,7 @@ use clap::Parser;
 
 /// Parse command-line arguments and run the UDF utility.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    reset_sigpipe();
     let args = Args::parse();
 
     match args.cmd {
@@ -20,3 +21,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::Verify(args) => commands::verify(args),
     }
 }
+
+#[cfg(unix)]
+fn reset_sigpipe() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn reset_sigpipe() {}
