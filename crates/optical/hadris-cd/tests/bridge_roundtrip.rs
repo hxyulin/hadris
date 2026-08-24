@@ -359,3 +359,144 @@ fn detects_and_reopens_udf_only_image() {
     assert!(formats.udf().is_some());
     verify_udf(&bytes, &large);
 }
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Node {
+    Directory,
+    File(Vec<u8>),
+}
+
+fn clean_iso_name(bytes: &[u8]) -> String {
+    let name = String::from_utf8_lossy(bytes);
+    match name.rsplit_once(';') {
+        Some((base, version))
+            if !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            base.to_string()
+        }
+        _ => name.into_owned(),
+    }
+}
+
+fn join(prefix: &str, name: &str) -> String {
+    if prefix.is_empty() {
+        name.to_string()
+    } else {
+        format!("{prefix}/{name}")
+    }
+}
+
+fn collect_iso_nodes(
+    image: &IsoImage<Cursor<&[u8]>>,
+    directory: hadris_iso::directory::DirectoryRef,
+    prefix: &str,
+    nodes: &mut std::collections::BTreeMap<String, Node>,
+) {
+    for entry in image.open_dir(directory).entries() {
+        let entry = entry.expect("read ISO directory entry");
+        if entry.is_special() {
+            continue;
+        }
+        let path = join(prefix, &clean_iso_name(entry.name()));
+        if entry.is_directory() {
+            nodes.insert(path.clone(), Node::Directory);
+            let child = entry.as_dir_ref(image).expect("resolve ISO directory");
+            collect_iso_nodes(image, child, &path, nodes);
+        } else {
+            nodes.insert(
+                path,
+                Node::File(image.read_file(&entry).expect("read ISO file")),
+            );
+        }
+    }
+}
+
+fn collect_udf_nodes(
+    volume: &UdfVolume<Cursor<&[u8]>>,
+    directory: &hadris_udf::UdfDir,
+    prefix: &str,
+    nodes: &mut std::collections::BTreeMap<String, Node>,
+) {
+    for entry in directory.entries().filter(|entry| !entry.is_parent()) {
+        let path = join(prefix, &entry.name);
+        if entry.is_dir() {
+            nodes.insert(path.clone(), Node::Directory);
+            let child = volume
+                .read_directory(&entry.icb)
+                .expect("read UDF directory");
+            collect_udf_nodes(volume, &child, &path, nodes);
+        } else {
+            nodes.insert(
+                path,
+                Node::File(volume.read_file(entry).expect("read UDF file")),
+            );
+        }
+    }
+}
+
+#[test]
+fn no_joliet_bridge_presents_sanitized_names_in_both_namespaces() {
+    let mut tree = FileTree::new();
+    tree.add_file(FileEntry::from_buffer("my-file.txt", b"hyphen".to_vec()));
+    tree.add_file(FileEntry::from_buffer("a-b.txt", b"first".to_vec()));
+    tree.add_file(FileEntry::from_buffer("a_b.txt", b"second".to_vec()));
+    tree.add_dir(Directory::new("empty-dir"));
+    let mut data = Directory::new("data-dir");
+    data.add_file(FileEntry::from_buffer("inner-file.txt", b"nested".to_vec()));
+    tree.add_dir(data);
+
+    let mut options = OpticalImageOptions::default().volume_id(VOLUME_ID);
+    options.iso.joliet = None;
+    let bytes = OpticalImageWriter::create(Cursor::new(vec![0_u8; 4 * 1024 * 1024]), tree, options)
+        .expect("create no-joliet bridge with hyphenated names")
+        .into_inner();
+
+    let image = IsoImage::open(Cursor::new(bytes.as_slice())).expect("open ISO namespace");
+    let mut iso_nodes = std::collections::BTreeMap::new();
+    collect_iso_nodes(&image, image.root_dir().dir_ref(), "", &mut iso_nodes);
+
+    let volume = UdfVolume::open(Cursor::new(bytes.as_slice())).expect("open UDF namespace");
+    let root = volume.root_dir().expect("read UDF root");
+    let mut udf_nodes = std::collections::BTreeMap::new();
+    collect_udf_nodes(&volume, &root, "", &mut udf_nodes);
+
+    assert_eq!(iso_nodes, udf_nodes, "ISO and UDF namespaces must agree");
+    assert_eq!(
+        iso_nodes.get("my_file.txt"),
+        Some(&Node::File(b"hyphen".to_vec()))
+    );
+    assert_eq!(iso_nodes.get("empty_dir"), Some(&Node::Directory));
+    assert_eq!(
+        iso_nodes.get("data_dir/inner_file.txt"),
+        Some(&Node::File(b"nested".to_vec()))
+    );
+    let colliding: Vec<_> = iso_nodes
+        .iter()
+        .filter(|(path, _)| path.starts_with("a_b"))
+        .collect();
+    assert_eq!(colliding.len(), 2, "colliding names must be deduplicated");
+}
+
+#[test]
+fn rock_ridge_flag_survives_to_the_written_image() {
+    let mut tree = FileTree::new();
+    tree.add_file(FileEntry::from_buffer("readme.txt", b"posix".to_vec()));
+
+    let options = OpticalImageOptions::default()
+        .volume_id(VOLUME_ID)
+        .rock_ridge(hadris_iso::rrip::RripOptions::default());
+    let bytes = OpticalImageWriter::create(Cursor::new(vec![0_u8; 4 * 1024 * 1024]), tree, options)
+        .expect("create bridge with Rock Ridge")
+        .into_inner();
+
+    let image = IsoImage::open(Cursor::new(bytes.as_slice())).expect("open ISO namespace");
+    assert!(
+        image.supports_rrip(),
+        "the written image must carry Rock Ridge extensions"
+    );
+    let entry = image
+        .find_path("readme.txt")
+        .unwrap()
+        .expect("Rock Ridge name lookup");
+    assert_eq!(image.read_file(&entry).unwrap(), b"posix");
+}

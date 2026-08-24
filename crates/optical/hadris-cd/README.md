@@ -22,7 +22,15 @@ let options = OpticalImageOptions::default()
     .volume_id("MY_DISC")
     .joliet(hadris_cd::JolietLevel::Level3);
 
-let file = std::fs::File::create("output.iso").unwrap();
+// The writer reads back the ISO structures while finishing the image, so the
+// output file must be opened readable as well as writable.
+let file = std::fs::OpenOptions::new()
+    .read(true)
+    .write(true)
+    .create(true)
+    .truncate(true)
+    .open("output.iso")
+    .unwrap();
 OpticalImageWriter::new(file, options)
     .finish(tree)
     .unwrap();
