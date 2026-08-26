@@ -129,6 +129,25 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 - **Dual sync/async** - Shared implementations via `hadris-macros`
 - **Standards oriented** - ECMA-119, IEEE P1282 / Rock Ridge, El-Torito, Microsoft FAT, ECMA-167 / UDF, CPIO newc
 
+## FAT Interoperability
+
+Hadris-generated images are checked against an independent raw-image oracle
+and common FAT implementations. These results cover the same filesystem
+operations on every listed FAT variant.
+
+| Consumer | FAT12 | FAT16 | FAT32 |
+|----------|-------|-------|-------|
+| Hadris specification oracle | Pass (17/17) | Pass (17/17) | Pass (17/17) |
+| mtools 4.0.49 reader | Pass (17/17) | Pass (17/17) | Pass (17/17) |
+| dosfstools `fsck.fat` 4.2 | Pass (17/17) | Pass (17/17) | Pass (17/17) |
+| Rust `fatfs` 0.3.6 reader | Pass (17/17) | Pass (17/17) | Pass (17/17) |
+| macOS `fsck_msdos` | Pass (2/2) | Pass (2/2) | Pass (2/2) |
+
+“Pass” means that the consumer read the expected semantic tree or that the
+checker accepted the completed image. See the
+[FAT compliance profile](docs/compliance/hadris-fat.md#interoperability-results)
+for the test method, peer-writer conformance, and known tool defects.
+
 ## Quick Start
 
 Choose the narrowest entry point that fits the application:

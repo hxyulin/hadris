@@ -1650,9 +1650,10 @@ fn measure_external_tools(
         if let Err(error) = adapter.apply(operation) {
             accuracy.command_failures += 1;
             accuracy.details.push(format!(
-                "{} {scenario} mtools operation {index} failed ({}): {error}",
+                "{} {scenario} mtools operation {index} failed ({}): {error}\ntrace:\n{}",
                 case.name,
-                summarize_operation(operation)
+                summarize_operation(operation),
+                format_trace(&operations[..=index])
             ));
             return Ok(());
         }
