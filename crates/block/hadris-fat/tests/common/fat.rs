@@ -1,47 +1,75 @@
 use std::path::Path;
-use std::process::Command;
+use std::path::PathBuf;
 
-/// Locate the standard read-only FAT validator. Some systems install it under
-/// the `fsck.vfat` compatibility name.
-fn fsck_fat_program() -> Option<&'static str> {
-    if program_runs("fsck.fat") {
-        Some("fsck.fat")
-    } else if program_runs("fsck.vfat") {
-        Some("fsck.vfat")
-    } else {
-        None
+use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
+use hadris_fat::{FatType, FatVolume};
+use tempfile::TempDir;
+
+#[derive(Clone, Copy)]
+pub struct FatCase {
+    pub name: &'static str,
+    pub size: u64,
+    pub selection: FatTypeSelection,
+    pub expected: FatType,
+}
+
+pub const FAT_CASES: [FatCase; 3] = [
+    FatCase {
+        name: "fat12",
+        size: 2 * 1024 * 1024,
+        selection: FatTypeSelection::Fat12,
+        expected: FatType::Fat12,
+    },
+    FatCase {
+        name: "fat16",
+        size: 16 * 1024 * 1024,
+        selection: FatTypeSelection::Fat16,
+        expected: FatType::Fat16,
+    },
+    FatCase {
+        name: "fat32",
+        size: 64 * 1024 * 1024,
+        selection: FatTypeSelection::Fat32,
+        expected: FatType::Fat32,
+    },
+];
+
+pub struct FatImage {
+    _temp: TempDir,
+    path: PathBuf,
+}
+
+impl FatImage {
+    pub fn new(case: FatCase) -> Self {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join(format!("{}.img", case.name));
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        file.set_len(case.size).unwrap();
+        let options = FatFormatOptions::new(case.size)
+            .fat_type(case.selection)
+            .volume_label("HADRIS");
+        let volume = FatVolumeFormatter::format(file, options).unwrap();
+        assert_eq!(volume.fat_type(), case.expected);
+        drop(volume);
+        Self { _temp: temp, path }
     }
-}
 
-fn program_runs(program: &str) -> bool {
-    Command::new(program)
-        .arg("-V")
-        .output()
-        .map(|output| output.status.success() || output.status.code().is_some())
-        .unwrap_or(false)
-}
+    pub fn open(&self) -> FatVolume<std::fs::File> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.path)
+            .unwrap();
+        FatVolume::open(file).unwrap()
+    }
 
-pub fn fsck_fat_available() -> bool {
-    fsck_fat_program().is_some()
-}
-
-/// Run `fsck.fat -n`. Only exit code zero represents a clean image; with
-/// read-only validation, code one means errors were found but not repaired.
-pub fn fsck_check(image_path: &Path) -> Result<(), String> {
-    let program = fsck_fat_program().ok_or_else(|| "fsck.fat not available".to_string())?;
-    let output = Command::new(program)
-        .args(["-n", image_path.to_str().unwrap()])
-        .output()
-        .map_err(|error| format!("failed to spawn {program}: {error}"))?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "{program} reported errors (exit {:?}):\nstdout:\n{}\nstderr:\n{}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        ))
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }

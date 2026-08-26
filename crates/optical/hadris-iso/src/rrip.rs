@@ -1022,6 +1022,7 @@ pub enum RockRidgeEntry {
     Unknown(SystemUseHeader),
 }
 
+sync_only! {
 #[cfg(all(feature = "std", test))]
 mod tests {
     use super::*;
@@ -1313,4 +1314,5 @@ mod tests {
         // First entry should have CONTINUE flag set
         assert_eq!(data[4] & 0x01, 0x01);
     }
+}
 }

@@ -18,7 +18,8 @@ pre-commit install --hook-type pre-push
 ```bash
 # Workspace (default features)
 cargo check --workspace
-cargo test --workspace
+cargo test --workspace --tests
+cargo test --workspace --all-features --doc
 
 # Match CI warning policy
 RUSTFLAGS="-D warnings" cargo check --workspace

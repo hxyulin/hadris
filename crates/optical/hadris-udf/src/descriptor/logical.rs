@@ -138,6 +138,7 @@ pub struct Type1PartitionMap {
     pub partition_number: u16,
 }
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,4 +179,5 @@ mod tests {
         assert_eq!(first.volume_sequence_number, 1);
         assert_eq!(first.partition_number, 0);
     }
+}
 }

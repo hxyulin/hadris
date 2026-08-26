@@ -361,6 +361,7 @@ impl AllocationType {
     }
 }
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,4 +381,5 @@ mod tests {
             assert_eq!(FileType::from_u8(value), ft);
         }
     }
+}
 }

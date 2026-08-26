@@ -747,6 +747,7 @@ impl Default for SystemUseBuilder {
     }
 }
 
+sync_only! {
 #[cfg(all(feature = "std", test))]
 mod tests {
     use super::*;
@@ -806,7 +807,7 @@ mod tests {
                 assert!(sp.is_valid());
                 assert_eq!(sp.bytes_skipped, 0);
             }
-            other => panic!("expected SP entry, got {:?}", other),
+            other => panic!("expected SP entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -818,7 +819,7 @@ mod tests {
         let mut iter = SystemUseIter::new(data, 0);
         match iter.next() {
             Some(SystemUseField::Terminator) => {}
-            other => panic!("expected ST entry, got {:?}", other),
+            other => panic!("expected ST entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -839,7 +840,7 @@ mod tests {
                 assert_eq!(ce.offset.read(), 0);
                 assert_eq!(ce.length.read(), 100);
             }
-            other => panic!("expected CE entry, got {:?}", other),
+            other => panic!("expected CE entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -853,7 +854,7 @@ mod tests {
             Some(SystemUseField::Padding(pd)) => {
                 assert_eq!(pd.length, 4);
             }
-            other => panic!("expected PD entry, got {:?}", other),
+            other => panic!("expected PD entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -869,7 +870,7 @@ mod tests {
                 assert_eq!(header.length, 6);
                 assert_eq!(&buf[0..2], &[0x42, 0x43]);
             }
-            other => panic!("expected Unknown entry, got {:?}", other),
+            other => panic!("expected Unknown entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -1074,7 +1075,7 @@ mod tests {
                 assert_eq!(px.file_gid.read(), 2000);
                 assert_eq!(px.file_serial.read(), 42);
             }
-            other => panic!("expected PX entry, got {:?}", other),
+            other => panic!("expected PX entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -1094,7 +1095,7 @@ mod tests {
                 assert!(nm.flags.is_empty());
                 assert_eq!(nm.name, b"hello.txt");
             }
-            other => panic!("expected NM entry, got {:?}", other),
+            other => panic!("expected NM entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -1119,7 +1120,7 @@ mod tests {
                 assert!(!tf.flags.contains(TfFlags::LONG_FORM));
                 assert_eq!(tf.timestamps.len(), 14);
             }
-            other => panic!("expected TF entry, got {:?}", other),
+            other => panic!("expected TF entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -1157,7 +1158,7 @@ mod tests {
                 assert_eq!(sl.components[1].content, b"usr");
                 assert_eq!(sl.components[2].content, b"bin");
             }
-            other => panic!("expected SL entry, got {:?}", other),
+            other => panic!("expected SL entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -1179,17 +1180,17 @@ mod tests {
             Some(SystemUseField::ChildLink(cl)) => {
                 assert_eq!(cl.child_directory_location.read(), 100);
             }
-            other => panic!("expected CL entry, got {:?}", other),
+            other => panic!("expected CL entry, got {other:?}"),
         }
         match iter.next() {
             Some(SystemUseField::ParentLink(pl)) => {
                 assert_eq!(pl.parent_directory_location.read(), 50);
             }
-            other => panic!("expected PL entry, got {:?}", other),
+            other => panic!("expected PL entry, got {other:?}"),
         }
         match iter.next() {
             Some(SystemUseField::Relocated) => {}
-            other => panic!("expected RE entry, got {:?}", other),
+            other => panic!("expected RE entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -1207,7 +1208,7 @@ mod tests {
                 assert_eq!(pn.dev_high.read(), 8);
                 assert_eq!(pn.dev_low.read(), 1);
             }
-            other => panic!("expected PN entry, got {:?}", other),
+            other => panic!("expected PN entry, got {other:?}"),
         }
         assert!(iter.next().is_none());
     }
@@ -1248,4 +1249,5 @@ mod tests {
         assert_eq!(fields[3].signature(), *b"TF");
         assert_eq!(fields[4].signature(), *b"ST");
     }
+}
 }

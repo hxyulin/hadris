@@ -413,6 +413,7 @@ fn validate_cluster_count(fat_type: FatType, cluster_count: u32) -> Result<()> {
     Ok(())
 }
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,4 +448,5 @@ mod tests {
         let params = calculate_params(&options).unwrap();
         assert_eq!(params.fat_type, FatType::Fat32);
     }
+}
 }

@@ -136,6 +136,7 @@ pub(crate) fn decode_utf16_be(content: &[u8]) -> alloc::string::String {
     .collect()
 }
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,4 +190,5 @@ mod tests {
         assert_eq!(decode_dstring(&[8, b'a', b'b', b'c', 5]), "");
         assert_eq!(decode_dstring(&[8, b'a', b'b', 3]), "ab");
     }
+}
 }

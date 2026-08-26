@@ -93,9 +93,11 @@ impl AnchorVolumeDescriptorPointer {
 
 } // io_transform!
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
 
     static_assertions::const_assert_eq!(size_of::<AnchorVolumeDescriptorPointer>(), 512);
+}
 }

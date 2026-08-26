@@ -3,7 +3,7 @@
 //! a graceful error on cyclic directory graphs instead of overflowing the
 //! stack.
 //!
-//! Run: cargo test -p hadris-fat --features tool --test poc_audit_fat_recursion
+//! Run: cargo test -p hadris-fat --features tool --lib poc_audit_fat_recursion::
 
 #![cfg(feature = "tool")]
 

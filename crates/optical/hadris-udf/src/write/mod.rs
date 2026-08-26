@@ -278,6 +278,12 @@ impl<W: Write + Seek> UdfWriter<W> {
         self.writer
     }
 
+    fn next_unique_id(&mut self) -> u64 {
+        let id = self.unique_id_counter;
+        self.unique_id_counter += 1;
+        id
+    }
+
     /// Creates a complete UDF filesystem and returns its target and size.
     pub fn create(
         writer: W,
@@ -300,36 +306,26 @@ const MAX_DIRECTORY_DEPTH: usize = 128;
 
 /// Internal formatter that handles the full UDF format process
 struct UdfFormatter<W: Write + Seek> {
-    writer: W,
-    options: UdfWriteOptions,
+    writer: UdfWriter<W>,
     next_block: u32,
-    unique_id_counter: u64,
 }
 
 impl<W: Write + Seek> UdfFormatter<W> {
     fn new(writer: W, options: UdfWriteOptions) -> Self {
         Self {
-            writer,
-            options,
+            writer: UdfWriter::new(writer, options),
             next_block: 0,
-            unique_id_counter: 16, // UDF reserves IDs 0-15
         }
     }
 
     fn into_inner(self) -> W {
-        self.writer
+        self.writer.into_inner()
     }
 
     fn allocate_block(&mut self) -> u32 {
         let block = self.next_block;
         self.next_block += 1;
         block
-    }
-
-    fn next_unique_id(&mut self) -> u64 {
-        let id = self.unique_id_counter;
-        self.unique_id_counter += 1;
-        id
     }
 
     fn format(&mut self, root: &SimpleDir) -> Result<u32> {
@@ -359,13 +355,13 @@ impl<W: Write + Seek> UdfFormatter<W> {
         let partition_length = self.next_block;
 
         // Update options with calculated values
-        self.options.partition_start = partition_start;
-        self.options.partition_length = partition_length;
+        self.writer.options.partition_start = partition_start;
+        self.writer.options.partition_length = partition_length;
 
         // Phase 3: Write all structures
 
         // Write VRS
-        self.write_vrs()?;
+        self.writer.write_vrs()?;
 
         // Write AVDP
         let main_vds = ExtentDescriptor {
@@ -376,7 +372,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             length: vds_length * SECTOR_SIZE as u32,
             location: reserve_vds_start,
         };
-        self.write_avdp(main_vds, reserve_vds)?;
+        self.writer.write_avdp(main_vds, reserve_vds)?;
 
         // Write VDS
         let fsd_icb = LongAllocationDescriptor {
@@ -391,23 +387,28 @@ impl<W: Write + Seek> UdfFormatter<W> {
         };
 
         // Main VDS
-        self.write_pvd(vds_start, 0)?;
-        self.write_iuvd(vds_start + 1, 1)?;
-        self.write_partition_descriptor(vds_start + 2, 2)?;
-        self.write_lvd(vds_start + 3, 3, fsd_icb, integrity_extent)?;
-        self.write_usd(vds_start + 4, 4)?;
-        self.write_terminating_descriptor(vds_start + 5)?;
+        self.writer.write_pvd(vds_start, 0)?;
+        self.writer.write_iuvd(vds_start + 1, 1)?;
+        self.writer
+            .write_partition_descriptor(vds_start + 2, 2)?;
+        self.writer
+            .write_lvd(vds_start + 3, 3, fsd_icb, integrity_extent)?;
+        self.writer.write_usd(vds_start + 4, 4)?;
+        self.writer.write_terminating_descriptor(vds_start + 5)?;
 
         // Reserve VDS (copy)
-        self.write_pvd(reserve_vds_start, 0)?;
-        self.write_iuvd(reserve_vds_start + 1, 1)?;
-        self.write_partition_descriptor(reserve_vds_start + 2, 2)?;
-        self.write_lvd(reserve_vds_start + 3, 3, fsd_icb, integrity_extent)?;
-        self.write_usd(reserve_vds_start + 4, 4)?;
-        self.write_terminating_descriptor(reserve_vds_start + 5)?;
+        self.writer.write_pvd(reserve_vds_start, 0)?;
+        self.writer.write_iuvd(reserve_vds_start + 1, 1)?;
+        self.writer
+            .write_partition_descriptor(reserve_vds_start + 2, 2)?;
+        self.writer
+            .write_lvd(reserve_vds_start + 3, 3, fsd_icb, integrity_extent)?;
+        self.writer.write_usd(reserve_vds_start + 4, 4)?;
+        self.writer
+            .write_terminating_descriptor(reserve_vds_start + 5)?;
 
         // Write LVID
-        self.write_lvid(lvid_location)?;
+        self.writer.write_lvid(lvid_location, true)?;
 
         // Write FSD
         let root_icb = LongAllocationDescriptor {
@@ -416,7 +417,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             partition_ref_num: 0,
             impl_use: [0; 6],
         };
-        self.write_fsd(fsd_block, root_icb)?;
+        self.writer.write_fsd(fsd_block, root_icb)?;
 
         // Write directory structures
         self.write_directory(&allocated_root)?;
@@ -432,7 +433,8 @@ impl<W: Write + Seek> UdfFormatter<W> {
         // UDF 1.02 records exactly two of the three candidate anchors. Use
         // sector 256 and N-256, leaving sector N free of an anchor.
         if last_sector > 256 {
-            self.write_avdp_at(last_sector - 256, main_vds, reserve_vds)?;
+            self.writer
+                .write_avdp_at(last_sector - 256, main_vds, reserve_vds)?;
         }
 
         Ok(sector_count)
@@ -449,7 +451,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             return Err(crate::error::Error::DirectoryNestingTooDeep);
         }
         let icb_block = self.allocate_block();
-        let unique_id = self.next_unique_id();
+        let unique_id = self.writer.next_unique_id();
 
         // Every FID is 38 bytes plus the CS0 identifier, padded to four bytes.
         // Plan from the actual encoded lengths so directory data cannot overlap
@@ -461,7 +463,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             .map(|file| file.name.as_str())
             .chain(dir.subdirs.iter().map(|subdir| subdir.name.as_str()))
         {
-            let encoded_len = self.encode_filename(name)?.len();
+            let encoded_len = encode_cs0_filename(name)?.len();
             fid_bytes = fid_bytes
                 .checked_add((38 + encoded_len + 3) & !3)
                 .ok_or(crate::error::Error::PathTooLong)?;
@@ -478,7 +480,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
         let mut allocated_files = Vec::new();
         for file in &dir.files {
             let file_icb_block = self.allocate_block();
-            let file_unique_id = self.next_unique_id();
+            let file_unique_id = self.writer.next_unique_id();
 
             // Allocate data blocks for non-empty files
             let data_block = if !file.data.is_empty() {
@@ -528,7 +530,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             extent_length: dir.fid_bytes as u32,
             extent_position: dir.fid_block,
         }];
-        self.write_file_entry(
+        self.writer.write_file_entry(
             dir.icb_block,
             FileType::Directory,
             dir.fid_bytes as u64,
@@ -568,14 +570,10 @@ impl<W: Write + Seek> UdfFormatter<W> {
             partition_ref_num: 0,
             impl_use: [0; 6],
         };
-        self.write_fids(dir.fid_block, parent_icb, &entries)?;
+        self.writer.write_fids(dir.fid_block, parent_icb, &entries)?;
 
         // Write file File Entries and data
-        for (file, orig_file) in dir.files.iter().zip(
-            // We need to get the original file data - this is a bit awkward
-            // For now, we'll rely on the caller to ensure data is available
-            core::iter::repeat(&Vec::<u8>::new()),
-        ) {
+        for file in &dir.files {
             let file_alloc = if file.data_length > 0 {
                 vec![ShortAllocationDescriptor {
                     extent_length: file.data_length as u32,
@@ -585,7 +583,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
                 vec![]
             };
 
-            self.write_file_entry(
+            self.writer.write_file_entry(
                 file.icb_block,
                 FileType::RegularFile,
                 file.data_length,
@@ -593,9 +591,6 @@ impl<W: Write + Seek> UdfFormatter<W> {
                 file.unique_id,
             )?;
 
-            // Write file data (if any) - we need the original data here
-            // This is handled by passing it through the allocation
-            let _ = orig_file; // Placeholder - actual data writing happens below
         }
 
         // Recursively write subdirectories
@@ -611,14 +606,15 @@ impl<W: Write + Seek> UdfFormatter<W> {
         // Write file data
         for (file, alloc_file) in dir.files.iter().zip(&alloc_dir.files) {
             if !file.data.is_empty() {
-                self.seek_to_partition_block(alloc_file.data_block)?;
-                self.writer.write_all(&file.data)?;
+                self.writer
+                    .seek_to_partition_block(alloc_file.data_block)?;
+                self.writer.writer.write_all(&file.data)?;
 
                 // Pad to sector boundary
                 let padded = file.data.len().div_ceil(SECTOR_SIZE) * SECTOR_SIZE;
                 if padded > file.data.len() {
                     let padding = vec![0u8; padded - file.data.len()];
-                    self.writer.write_all(&padding)?;
+                    self.writer.writer.write_all(&padding)?;
                 }
             }
         }
@@ -631,588 +627,6 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
-    // Low-level descriptor writing methods (delegated to helper)
-    fn seek_to_partition_block(&mut self, block: u32) -> Result<()> {
-        let sector = self.options.partition_start + block;
-        self.writer
-            .seek(SeekFrom::Start((sector as u64) * SECTOR_SIZE as u64))?;
-        Ok(())
-    }
-
-    fn seek_to_sector(&mut self, sector: u32) -> Result<()> {
-        self.writer
-            .seek(SeekFrom::Start((sector as u64) * SECTOR_SIZE as u64))?;
-        Ok(())
-    }
-
-    fn write_vrs(&mut self) -> Result<()> {
-        let nsr = match self.options.revision {
-            r if r >= UdfRevision::V2_00 => b"NSR03",
-            _ => b"NSR02",
-        };
-
-        self.seek_to_sector(16)?;
-        self.write_vrs_descriptor(b"BEA01")?;
-        self.write_vrs_descriptor(nsr)?;
-        self.write_vrs_descriptor(b"TEA01")?;
-        Ok(())
-    }
-
-    fn write_vrs_descriptor(&mut self, id: &[u8; 5]) -> Result<()> {
-        let mut buffer = [0u8; SECTOR_SIZE];
-        buffer[0] = 0;
-        buffer[1..6].copy_from_slice(id);
-        buffer[6] = 1;
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_avdp(
-        &mut self,
-        main_vds: ExtentDescriptor,
-        reserve_vds: ExtentDescriptor,
-    ) -> Result<()> {
-        self.write_avdp_at(AVDP_LOCATION, main_vds, reserve_vds)
-    }
-
-    fn write_avdp_at(
-        &mut self,
-        location: u32,
-        main_vds: ExtentDescriptor,
-        reserve_vds: ExtentDescriptor,
-    ) -> Result<()> {
-        self.seek_to_sector(location)?;
-        let mut buffer = [0u8; SECTOR_SIZE];
-
-        buffer[16..20].copy_from_slice(&main_vds.length.to_le_bytes());
-        buffer[20..24].copy_from_slice(&main_vds.location.to_le_bytes());
-        buffer[24..28].copy_from_slice(&reserve_vds.length.to_le_bytes());
-        buffer[28..32].copy_from_slice(&reserve_vds.location.to_le_bytes());
-
-        let tag = self.create_tag(
-            TagIdentifier::AnchorVolumeDescriptorPointer,
-            location,
-            &buffer[16..],
-        );
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_pvd(&mut self, location: u32, vds_number: u32) -> Result<()> {
-        self.seek_to_sector(location)?;
-        let mut buffer = [0u8; 512];
-        let offset = 16;
-
-        buffer[offset..offset + 4].copy_from_slice(&vds_number.to_le_bytes());
-        buffer[offset + 4..offset + 8].copy_from_slice(&0u32.to_le_bytes());
-
-        let vol_id_offset = offset + 8;
-        self.write_dstring(
-            &mut buffer[vol_id_offset..vol_id_offset + 32],
-            &self.options.volume_id,
-        );
-
-        let vsn_offset = vol_id_offset + 32;
-        buffer[vsn_offset..vsn_offset + 2].copy_from_slice(&1u16.to_le_bytes());
-        buffer[vsn_offset + 2..vsn_offset + 4].copy_from_slice(&1u16.to_le_bytes());
-        buffer[vsn_offset + 4..vsn_offset + 6].copy_from_slice(&2u16.to_le_bytes());
-        buffer[vsn_offset + 6..vsn_offset + 8].copy_from_slice(&3u16.to_le_bytes());
-        buffer[vsn_offset + 8..vsn_offset + 12].copy_from_slice(&1u32.to_le_bytes());
-        buffer[vsn_offset + 12..vsn_offset + 16].copy_from_slice(&1u32.to_le_bytes());
-
-        let vsi_offset = vsn_offset + 16;
-        self.write_dstring(
-            &mut buffer[vsi_offset..vsi_offset + 128],
-            &self.options.volume_id,
-        );
-
-        let dcs_offset = vsi_offset + 128;
-        write_osta_charspec(&mut buffer[dcs_offset..dcs_offset + 64]);
-
-        let ecs_offset = dcs_offset + 64;
-        write_osta_charspec(&mut buffer[ecs_offset..ecs_offset + 64]);
-
-        let abs_offset = ecs_offset + 64;
-        let app_offset = abs_offset + 16;
-        self.write_entity_identifier(&mut buffer[app_offset..app_offset + 32], b"*hadris-udf");
-
-        let rdt_offset = app_offset + 32;
-        let now = UdfTimestamp::now();
-        buffer[rdt_offset..rdt_offset + 12].copy_from_slice(bytemuck::bytes_of(&now));
-
-        let impl_offset = rdt_offset + 12;
-        self.write_entity_identifier(&mut buffer[impl_offset..impl_offset + 32], b"*hadris-udf");
-
-        let tag = self.create_tag(
-            TagIdentifier::PrimaryVolumeDescriptor,
-            location,
-            &buffer[16..],
-        );
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_partition_descriptor(&mut self, location: u32, vds_number: u32) -> Result<()> {
-        self.seek_to_sector(location)?;
-        let mut buffer = [0u8; 512];
-        let offset = 16;
-
-        buffer[offset..offset + 4].copy_from_slice(&vds_number.to_le_bytes());
-        buffer[offset + 4..offset + 6].copy_from_slice(&1u16.to_le_bytes());
-        buffer[offset + 6..offset + 8].copy_from_slice(&0u16.to_le_bytes());
-
-        let nsr = match self.options.revision {
-            r if r >= UdfRevision::V2_00 => b"+NSR03",
-            _ => b"+NSR02",
-        };
-        let pc_offset = offset + 8;
-        self.write_entity_identifier(&mut buffer[pc_offset..pc_offset + 32], nsr);
-
-        let at_offset = pc_offset + 32 + 128;
-        buffer[at_offset..at_offset + 4].copy_from_slice(&1u32.to_le_bytes());
-
-        let psl_offset = at_offset + 4;
-        buffer[psl_offset..psl_offset + 4]
-            .copy_from_slice(&self.options.partition_start.to_le_bytes());
-        buffer[psl_offset + 4..psl_offset + 8]
-            .copy_from_slice(&self.options.partition_length.to_le_bytes());
-
-        let impl_offset = psl_offset + 8;
-        self.write_entity_identifier(&mut buffer[impl_offset..impl_offset + 32], b"*hadris-udf");
-
-        let tag = self.create_tag(TagIdentifier::PartitionDescriptor, location, &buffer[16..]);
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_lvd(
-        &mut self,
-        location: u32,
-        vds_number: u32,
-        fsd_location: LongAllocationDescriptor,
-        integrity_extent: ExtentDescriptor,
-    ) -> Result<()> {
-        self.seek_to_sector(location)?;
-        let mut buffer = [0u8; 512];
-        let offset = 16;
-
-        buffer[offset..offset + 4].copy_from_slice(&vds_number.to_le_bytes());
-
-        let dcs_offset = offset + 4;
-        buffer[dcs_offset] = 0;
-
-        let lvi_offset = dcs_offset + 64;
-        self.write_dstring(
-            &mut buffer[lvi_offset..lvi_offset + 128],
-            &self.options.volume_id,
-        );
-
-        let lbs_offset = lvi_offset + 128;
-        buffer[lbs_offset..lbs_offset + 4].copy_from_slice(&(SECTOR_SIZE as u32).to_le_bytes());
-
-        let di_offset = lbs_offset + 4;
-        self.write_entity_identifier(
-            &mut buffer[di_offset..di_offset + 32],
-            b"*OSTA UDF Compliant",
-        );
-        buffer[di_offset + 24] = (self.options.revision.to_raw() & 0xFF) as u8;
-        buffer[di_offset + 25] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
-
-        let lvcu_offset = di_offset + 32;
-        buffer[lvcu_offset..lvcu_offset + 16].copy_from_slice(bytemuck::bytes_of(&fsd_location));
-
-        let mtl_offset = lvcu_offset + 16;
-        buffer[mtl_offset..mtl_offset + 4].copy_from_slice(&6u32.to_le_bytes());
-        buffer[mtl_offset + 4..mtl_offset + 8].copy_from_slice(&1u32.to_le_bytes());
-
-        let impl_offset = mtl_offset + 8;
-        self.write_entity_identifier(&mut buffer[impl_offset..impl_offset + 32], b"*hadris-udf");
-
-        let iu_offset = impl_offset + 32;
-        let ise_offset = iu_offset + 128;
-        buffer[ise_offset..ise_offset + 4].copy_from_slice(&integrity_extent.length.to_le_bytes());
-        buffer[ise_offset + 4..ise_offset + 8]
-            .copy_from_slice(&integrity_extent.location.to_le_bytes());
-
-        let pm_offset = ise_offset + 8;
-        buffer[pm_offset] = 1;
-        buffer[pm_offset + 1] = 6;
-        buffer[pm_offset + 2..pm_offset + 4].copy_from_slice(&1u16.to_le_bytes());
-        buffer[pm_offset + 4..pm_offset + 6].copy_from_slice(&0u16.to_le_bytes());
-
-        let tag = self.create_tag(
-            TagIdentifier::LogicalVolumeDescriptor,
-            location,
-            &buffer[16..],
-        );
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_usd(&mut self, location: u32, vds_number: u32) -> Result<()> {
-        self.seek_to_sector(location)?;
-        let mut buffer = [0u8; 512];
-        let offset = 16;
-
-        buffer[offset..offset + 4].copy_from_slice(&vds_number.to_le_bytes());
-        buffer[offset + 4..offset + 8].copy_from_slice(&0u32.to_le_bytes());
-
-        let tag = self.create_tag(
-            TagIdentifier::UnallocatedSpaceDescriptor,
-            location,
-            &buffer[16..],
-        );
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_iuvd(&mut self, location: u32, vds_number: u32) -> Result<()> {
-        self.seek_to_sector(location)?;
-        let mut buffer = [0u8; 512];
-        let offset = 16;
-
-        buffer[offset..offset + 4].copy_from_slice(&vds_number.to_le_bytes());
-
-        let impl_offset = offset + 4;
-        self.write_entity_identifier(&mut buffer[impl_offset..impl_offset + 32], b"*UDF LV Info");
-
-        let iu_offset = impl_offset + 32;
-        buffer[iu_offset] = 0;
-
-        let lvi_offset = iu_offset + 64;
-        self.write_dstring(
-            &mut buffer[lvi_offset..lvi_offset + 128],
-            &self.options.volume_id,
-        );
-
-        let tag = self.create_tag(
-            TagIdentifier::ImplementationUseVolumeDescriptor,
-            location,
-            &buffer[16..],
-        );
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_terminating_descriptor(&mut self, location: u32) -> Result<()> {
-        self.seek_to_sector(location)?;
-        let mut buffer = [0u8; 512];
-
-        let tag = self.create_tag(TagIdentifier::TerminatingDescriptor, location, &[]);
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_lvid(&mut self, location: u32) -> Result<()> {
-        self.seek_to_sector(location)?;
-        let mut buffer = [0u8; 512];
-        let offset = 16;
-
-        let now = UdfTimestamp::now();
-        buffer[offset..offset + 12].copy_from_slice(bytemuck::bytes_of(&now));
-        buffer[offset + 12..offset + 16].copy_from_slice(&1u32.to_le_bytes()); // Closed
-
-        let lvcu_offset = offset + 24;
-        buffer[lvcu_offset..lvcu_offset + 8].copy_from_slice(&self.unique_id_counter.to_le_bytes());
-
-        let np_offset = lvcu_offset + 32;
-        buffer[np_offset..np_offset + 4].copy_from_slice(&1u32.to_le_bytes());
-        buffer[np_offset + 4..np_offset + 8].copy_from_slice(&46u32.to_le_bytes());
-
-        let fst_offset = np_offset + 8;
-        buffer[fst_offset..fst_offset + 4].copy_from_slice(&0u32.to_le_bytes());
-        buffer[fst_offset + 4..fst_offset + 8]
-            .copy_from_slice(&self.options.partition_length.to_le_bytes());
-
-        let iu_offset = fst_offset + 8;
-        self.write_entity_identifier(&mut buffer[iu_offset..iu_offset + 32], b"*hadris-udf");
-        let revision = self.options.revision.to_raw().to_le_bytes();
-        // UDF Logical Volume Integrity implementation use: file/dir counts,
-        // minimum read revision, minimum write revision, maximum write revision.
-        buffer[iu_offset + 40..iu_offset + 42].copy_from_slice(&revision);
-        buffer[iu_offset + 42..iu_offset + 44].copy_from_slice(&revision);
-        buffer[iu_offset + 44..iu_offset + 46].copy_from_slice(&revision);
-
-        let tag = self.create_tag(
-            TagIdentifier::LogicalVolumeIntegrityDescriptor,
-            location,
-            &buffer[16..],
-        );
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_fsd(&mut self, location: u32, root_icb: LongAllocationDescriptor) -> Result<()> {
-        self.seek_to_partition_block(location)?;
-        let mut buffer = [0u8; 512];
-        let offset = 16;
-
-        let now = UdfTimestamp::now();
-        buffer[offset..offset + 12].copy_from_slice(bytemuck::bytes_of(&now));
-
-        buffer[offset + 12..offset + 14].copy_from_slice(&3u16.to_le_bytes());
-        buffer[offset + 14..offset + 16].copy_from_slice(&3u16.to_le_bytes());
-        buffer[offset + 16..offset + 20].copy_from_slice(&1u32.to_le_bytes());
-        buffer[offset + 20..offset + 24].copy_from_slice(&1u32.to_le_bytes());
-        buffer[offset + 24..offset + 28].copy_from_slice(&0u32.to_le_bytes());
-        buffer[offset + 28..offset + 32].copy_from_slice(&0u32.to_le_bytes());
-
-        let lvics_offset = offset + 32;
-        write_osta_charspec(&mut buffer[lvics_offset..lvics_offset + 64]);
-
-        let lvi_offset = lvics_offset + 64;
-        self.write_dstring(
-            &mut buffer[lvi_offset..lvi_offset + 128],
-            &self.options.volume_id,
-        );
-
-        let fscs_offset = lvi_offset + 128;
-        write_osta_charspec(&mut buffer[fscs_offset..fscs_offset + 64]);
-
-        let fsi_offset = fscs_offset + 64;
-        self.write_dstring(
-            &mut buffer[fsi_offset..fsi_offset + 32],
-            &self.options.volume_id,
-        );
-
-        let root_offset = fsi_offset + 32 + 32 + 32;
-        buffer[root_offset..root_offset + 16].copy_from_slice(bytemuck::bytes_of(&root_icb));
-
-        let di_offset = root_offset + 16;
-        self.write_entity_identifier(
-            &mut buffer[di_offset..di_offset + 32],
-            b"*OSTA UDF Compliant",
-        );
-        buffer[di_offset + 24] = (self.options.revision.to_raw() & 0xFF) as u8;
-        buffer[di_offset + 25] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
-
-        let tag = self.create_tag(TagIdentifier::FileSetDescriptor, location, &buffer[16..]);
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_file_entry(
-        &mut self,
-        location: u32,
-        file_type: FileType,
-        info_length: u64,
-        allocation_descriptors: &[ShortAllocationDescriptor],
-        unique_id: u64,
-    ) -> Result<()> {
-        self.seek_to_partition_block(location)?;
-        let mut buffer = [0u8; SECTOR_SIZE];
-        let offset = 16;
-
-        let icb_offset = offset;
-        buffer[icb_offset + 4..icb_offset + 6].copy_from_slice(&4u16.to_le_bytes());
-        buffer[icb_offset + 8..icb_offset + 10].copy_from_slice(&1u16.to_le_bytes());
-        buffer[icb_offset + 11] = file_type as u8;
-        buffer[icb_offset + 18..icb_offset + 20].copy_from_slice(&0u16.to_le_bytes());
-
-        let uid_offset = icb_offset + 20;
-        buffer[uid_offset..uid_offset + 4].copy_from_slice(&0xFFFFFFFFu32.to_le_bytes());
-        buffer[uid_offset + 4..uid_offset + 8].copy_from_slice(&0xFFFFFFFFu32.to_le_bytes());
-        buffer[uid_offset + 8..uid_offset + 12].copy_from_slice(&0x7FFFu32.to_le_bytes());
-        buffer[uid_offset + 12..uid_offset + 14].copy_from_slice(&1u16.to_le_bytes());
-
-        let il_offset = uid_offset + 20;
-        buffer[il_offset..il_offset + 8].copy_from_slice(&info_length.to_le_bytes());
-
-        let blocks = info_length.div_ceil(SECTOR_SIZE as u64);
-        buffer[il_offset + 8..il_offset + 16].copy_from_slice(&blocks.to_le_bytes());
-
-        let now = UdfTimestamp::now();
-        let time_offset = il_offset + 16;
-        buffer[time_offset..time_offset + 12].copy_from_slice(bytemuck::bytes_of(&now));
-        buffer[time_offset + 12..time_offset + 24].copy_from_slice(bytemuck::bytes_of(&now));
-        buffer[time_offset + 24..time_offset + 36].copy_from_slice(bytemuck::bytes_of(&now));
-
-        let cp_offset = time_offset + 36;
-        buffer[cp_offset..cp_offset + 4].copy_from_slice(&1u32.to_le_bytes());
-
-        let impl_offset = cp_offset + 4 + 16;
-        self.write_entity_identifier(&mut buffer[impl_offset..impl_offset + 32], b"*hadris-udf");
-
-        let uid_offset2 = impl_offset + 32;
-        buffer[uid_offset2..uid_offset2 + 8].copy_from_slice(&unique_id.to_le_bytes());
-
-        let lea_offset = uid_offset2 + 8;
-        buffer[lea_offset..lea_offset + 4].copy_from_slice(&0u32.to_le_bytes());
-
-        let ad_len = core::mem::size_of_val(allocation_descriptors);
-        buffer[lea_offset + 4..lea_offset + 8].copy_from_slice(&(ad_len as u32).to_le_bytes());
-
-        let ad_offset = lea_offset + 8;
-        if ad_offset + ad_len > buffer.len() {
-            return Err(crate::error::Error::TooManyAllocationDescriptors);
-        }
-        for (i, ad) in allocation_descriptors.iter().enumerate() {
-            let start = ad_offset + i * size_of::<ShortAllocationDescriptor>();
-            buffer[start..start + 8].copy_from_slice(bytemuck::bytes_of(ad));
-        }
-
-        let descriptor_end = ad_offset + ad_len;
-        let tag = self.create_tag(
-            TagIdentifier::FileEntry,
-            location,
-            &buffer[16..descriptor_end],
-        );
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        self.writer.write_all(&buffer)?;
-        Ok(())
-    }
-
-    fn write_fids(
-        &mut self,
-        location: u32,
-        parent_icb: LongAllocationDescriptor,
-        entries: &[(String, LongAllocationDescriptor, bool)],
-    ) -> Result<usize> {
-        self.seek_to_partition_block(location)?;
-
-        let mut buffer = Vec::new();
-
-        // Parent entry
-        let parent_fid = self.create_fid(
-            location,
-            &parent_icb,
-            FileCharacteristics::PARENT | FileCharacteristics::DIRECTORY,
-            &[],
-        );
-        buffer.extend_from_slice(&parent_fid);
-
-        // Child entries
-        for (name, icb, is_dir) in entries {
-            let chars = if *is_dir {
-                FileCharacteristics::DIRECTORY
-            } else {
-                FileCharacteristics::empty()
-            };
-            let encoded_name = self.encode_filename(name)?;
-            let fid = self.create_fid(location, icb, chars, &encoded_name);
-            buffer.extend_from_slice(&fid);
-        }
-
-        // Pad to sector boundary
-        let padded_len = buffer.len().div_ceil(SECTOR_SIZE) * SECTOR_SIZE;
-        buffer.resize(padded_len, 0);
-
-        self.writer.write_all(&buffer)?;
-        Ok(padded_len / SECTOR_SIZE)
-    }
-
-    fn create_fid(
-        &self,
-        dir_location: u32,
-        icb: &LongAllocationDescriptor,
-        characteristics: FileCharacteristics,
-        encoded_name: &[u8],
-    ) -> Vec<u8> {
-        let base_size = 38;
-        let total_size = (base_size + encoded_name.len() + 3) & !3;
-        let mut buffer = vec![0u8; total_size];
-
-        buffer[16..18].copy_from_slice(&1u16.to_le_bytes());
-        buffer[18] = characteristics.bits();
-        buffer[19] = encoded_name.len() as u8;
-        buffer[20..36].copy_from_slice(bytemuck::bytes_of(icb));
-        buffer[36..38].copy_from_slice(&0u16.to_le_bytes());
-        if !encoded_name.is_empty() {
-            buffer[38..38 + encoded_name.len()].copy_from_slice(encoded_name);
-        }
-
-        let tag = self.create_tag(
-            TagIdentifier::FileIdentifierDescriptor,
-            dir_location,
-            &buffer[16..],
-        );
-        buffer[0..16].copy_from_slice(bytemuck::bytes_of(&tag));
-
-        buffer
-    }
-
-    fn create_tag(&self, identifier: TagIdentifier, location: u32, data: &[u8]) -> DescriptorTag {
-        let crc_length = data.len().min(496) as u16;
-        let crc = crc16_itu(&data[..crc_length as usize]);
-
-        let mut tag = DescriptorTag {
-            tag_identifier: identifier.to_u16(),
-            descriptor_version: 2,
-            tag_checksum: 0,
-            reserved: 0,
-            tag_serial_number: 0,
-            descriptor_crc: crc,
-            descriptor_crc_length: crc_length,
-            tag_location: location,
-        };
-
-        let bytes = bytemuck::bytes_of(&tag);
-        let mut sum: u8 = 0;
-        for (i, &byte) in bytes.iter().enumerate() {
-            if i != 4 {
-                sum = sum.wrapping_add(byte);
-            }
-        }
-        tag.tag_checksum = sum;
-
-        tag
-    }
-
-    fn write_dstring(&self, buffer: &mut [u8], s: &str) {
-        if s.is_empty() || buffer.is_empty() {
-            return;
-        }
-
-        let max_content = buffer.len() - 2;
-        let mut encoded = Vec::new();
-        if s.chars().all(|ch| (ch as u32) <= 0xff) {
-            buffer[0] = 8;
-            encoded.extend(s.chars().map(|ch| ch as u8));
-        } else {
-            buffer[0] = 16;
-            for unit in s.encode_utf16() {
-                if encoded.len() + 2 > max_content {
-                    break;
-                }
-                encoded.extend_from_slice(&unit.to_be_bytes());
-            }
-        }
-        let content_len = encoded.len().min(max_content);
-        buffer[1..1 + content_len].copy_from_slice(&encoded[..content_len]);
-        buffer[buffer.len() - 1] = (content_len + 1) as u8;
-    }
-
-    fn write_entity_identifier(&self, buffer: &mut [u8], id: &[u8]) {
-        let len = id.len().min(23);
-        buffer[1..1 + len].copy_from_slice(&id[..len]);
-        if id.starts_with(b"*OSTA UDF") {
-            buffer[24] = (self.options.revision.to_raw() & 0xFF) as u8;
-            buffer[25] = ((self.options.revision.to_raw() >> 8) & 0xFF) as u8;
-        }
-    }
-
-    fn encode_filename(&self, name: &str) -> Result<Vec<u8>> {
-        encode_cs0_filename(name)
-    }
 }
 
 // =============================================================================

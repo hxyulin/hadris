@@ -255,8 +255,8 @@ where
     }
 
     /// Compare two names using the up-case table (case-insensitive).
-    pub(crate) fn names_equal(&self, name1: &str, name2: &str) -> Result<bool> {
-        Ok(self.upcase.names_equal(name1, name2))
+    pub(crate) fn names_equal(&self, name1: &str, name2: &str) -> bool {
+        self.upcase.names_equal(name1, name2)
     }
 
     /// Compute the name hash for a filename.

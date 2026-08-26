@@ -1,6 +1,3 @@
-#[path = "common/xorriso.rs"]
-pub mod xorriso_helpers;
-
 use std::io::Cursor;
 use std::sync::Arc;
 

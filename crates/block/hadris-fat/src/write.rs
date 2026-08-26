@@ -2155,6 +2155,7 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     }
 }
 
+sync_only! {
 /// Miri-targeted unit tests for `build_lfn_entries`. These exercise the
 /// `unsafe { lfn: ... }` union writes inside the staging buffer and the
 /// 0xFFFF padding writes that previously OOB'd at the spec cap (255 UTF-16
@@ -2273,6 +2274,7 @@ mod lfn_write_safety_tests {
         assert_eq!(second.sequence_number, 0x01); // no mask
         assert_eq!(second.checksum, 0xAB);
     }
+}
 }
 
 } // end io_transform!

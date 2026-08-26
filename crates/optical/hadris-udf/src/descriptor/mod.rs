@@ -27,7 +27,6 @@ use crate::error::{Error, Result};
 /// @hadris-spec ECMA-167:3/7.1
 /// @hadris-compliance partial
 /// @hadris-note The layout is modeled and tested, but all extent semantics are not validated at this layer.
-/// @hadris-tests comprehensive_udf::test_extent_descriptor
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, bytemuck::Zeroable, bytemuck::Pod)]
@@ -58,7 +57,6 @@ impl ExtentDescriptor {
 /// @hadris-spec ECMA-167:4/14.14.2
 /// @hadris-compliance partial
 /// @hadris-note The layout is modeled and tested, but all partition-reference and extent semantics are not validated at this layer.
-/// @hadris-tests comprehensive_udf::test_allocation_descriptor_sizes
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -113,7 +111,6 @@ impl LongAllocationDescriptor {
 /// @hadris-spec ECMA-167:4/14.14.1
 /// @hadris-compliance partial
 /// @hadris-note The layout is modeled and tested, but all allocation-length semantics are not validated at this layer.
-/// @hadris-tests comprehensive_udf::test_allocation_descriptor_sizes
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, bytemuck::Zeroable, bytemuck::Pod)]
@@ -183,7 +180,6 @@ pub struct LbAddr {
 /// @hadris-spec ECMA-167:1/7.4
 /// @hadris-compliance partial
 /// @hadris-note The identifier layout is modeled, but suffix-specific constraints are not all validated.
-/// @hadris-tests comprehensive_udf::test_partition_contents
 /// @hadris-fuzz udf_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -333,6 +329,7 @@ pub enum VrsType {
     Nsr03,
 }
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,4 +339,5 @@ mod tests {
     static_assertions::const_assert_eq!(size_of::<ShortAllocationDescriptor>(), 8);
     static_assertions::const_assert_eq!(size_of::<EntityIdentifier>(), 32);
     static_assertions::const_assert_eq!(size_of::<CharSpec>(), 64);
+}
 }

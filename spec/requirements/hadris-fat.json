@@ -15,10 +15,7 @@
         {"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_with_providers"},
         {"path": "crates/block/hadris-fat/src/format/calc.rs", "name": "calculate_params"}
       ],
-      "tests": [
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_valid_sector_sizes", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "reader_rejects_clusters_larger_than_32k", "kind": "integration"}
-      ],
+      "tests": [{"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "bpb_size_validation_uses_production_reader_and_formatter", "kind": "integration"}],
       "gap": null
     },
     {
@@ -30,11 +27,7 @@
       "direction": "read",
       "status": "verified",
       "symbols": [{"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_fat12_16"}],
-      "tests": [
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_detect_fat12", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_detect_fat16", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_detect_fat32", "kind": "integration"}
-      ],
+      "tests": [{"path": "crates/block/hadris-fat/tests/fat_roundtrip.rs", "name": "fat12_fat16_and_fat32_support_core_file_and_directory_operations", "kind": "integration"}],
       "gap": null
     },
     {
@@ -46,7 +39,7 @@
       "direction": "read",
       "status": "verified",
       "symbols": [{"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_fat32"}],
-      "tests": [{"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "fat32_rejects_unknown_filesystem_version", "kind": "integration"}],
+      "tests": [{"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "fat32_rejects_unknown_version_and_invalid_fsinfo_signatures", "kind": "integration"}],
       "gap": null
     },
     {
@@ -89,9 +82,7 @@
       "status": "verified",
       "symbols": [{"path": "crates/block/hadris-fat/src/fat_table.rs", "name": "Fat"}],
       "tests": [
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_fat12_cluster_values", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_fat16_cluster_values", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_fat32_cluster_values", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "fat_table_traversal_recognizes_bad_and_end_markers_for_every_width", "kind": "integration"},
         {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "test_read_returns_cluster_loop_on_2cycle", "kind": "integration"}
       ],
       "gap": null
@@ -109,8 +100,7 @@
         {"path": "crates/block/hadris-fat/src/format/init.rs", "name": "write_fsinfo"}
       ],
       "tests": [
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_invalid_fsinfo_signature1", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_invalid_fsinfo_signature2", "kind": "integration"},
+        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "fat32_rejects_unknown_version_and_invalid_fsinfo_signatures", "kind": "integration"},
         {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "test_fsinfo_unknown_sentinels_mount_successfully", "kind": "integration"}
       ],
       "gap": null
@@ -124,7 +114,7 @@
       "direction": "both",
       "status": "partial",
       "symbols": [{"path": "crates/block/hadris-fat/src/format/init.rs", "name": "write_backup_boot_sector"}],
-      "tests": [{"path": "crates/block/hadris-fat/tests/fat_roundtrip.rs", "name": "fat32_format_is_clean", "kind": "interop"}],
+      "tests": [{"path": "crates/block/hadris-fat/tests/fat_roundtrip.rs", "name": "formatted_images_remain_compatible_with_fsck_fat_when_available", "kind": "interop"}],
       "gap": "Formatting writes sectors 6 and 7, but mounting does not attempt recovery from the backup boot record."
     },
     {
@@ -136,10 +126,7 @@
       "direction": "read",
       "status": "verified",
       "symbols": [{"path": "crates/block/hadris-fat/src/dir.rs", "name": "FatDirIter"}],
-      "tests": [
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_deleted_entry_marker", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_end_of_directory_marker", "kind": "integration"}
-      ],
+      "tests": [{"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "directory_iteration_skips_deleted_slots_and_stops_at_end_marker", "kind": "integration"}],
       "gap": null
     },
     {
@@ -155,7 +142,6 @@
         {"path": "crates/block/hadris-fat/src/write.rs", "name": "build_lfn_entries"}
       ],
       "tests": [
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "test_lfn_builder_sequence", "kind": "integration"},
         {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "lfn_checksum_matches_short_name", "kind": "integration"},
         {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "lfn_padding_uses_terminator_then_filler", "kind": "integration"}
       ],

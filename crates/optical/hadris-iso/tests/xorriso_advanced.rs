@@ -1,6 +1,4 @@
-#[path = "common/xorriso.rs"]
-pub mod xorriso_helpers;
-use xorriso_helpers::*;
+use super::xorriso_helpers::*;
 
 use std::fs;
 use std::io::Cursor;
