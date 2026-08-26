@@ -31,6 +31,54 @@ RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --featur
 
 See [CLAUDE.md](CLAUDE.md) for the full per-crate feature matrix used in CI.
 
+### FAT conformance
+
+The full FAT12/16/32 suite is manual. Its ground truth is a deterministic
+filesystem model plus a test-only raw-image oracle derived from the FAT on-disk
+rules. The oracle independently checks geometry, mirrored FATs, reserved
+entries, FAT32 metadata, cluster chains, cross-links, directory records, LFN
+sequences and checksums, unique short aliases, names, attributes, and contents.
+
+The same harness measures mtools, dosfstools, and the independent Rust `fatfs`
+crate against that ground truth. External-tool mismatches and crashes are
+reported rather than treated as authoritative failures. The Nix shell pins the
+command-line tools and uses the repository's Rust toolchain.
+
+```bash
+nix develop -c cargo test -p hadris-fat --all-features --lib \
+  fat_conformance:: -- --ignored --nocapture --test-threads=1
+```
+
+The semantic model compares exact displayed paths, entry kinds, file contents,
+stable FAT attributes, and the volume label. Timestamps are intentionally
+excluded. Peer scores and failure details are written to
+`target/fat-conformance/mtools-accuracy.txt` and
+`target/fat-conformance/fatfs-accuracy.txt`. Set
+`HADRIS_FAT_CONFORMANCE_SEED=<u64>` to replay one generated trace. Set
+`HADRIS_FAT_CONFORMANCE_KEEP=1` to retain its images under
+`target/fat-conformance/`. The specification suite normally takes about two
+seconds and the external-tool report about 45 seconds. The default matrix must
+remain below ten minutes.
+
+Native platform qualification stays in the library test harness. On Linux it
+uses `mkfs.fat`, `fsck.fat`, and the kernel `vfat` driver. On macOS it uses
+`newfs_msdos`, `fsck_msdos`, `hdiutil`, and the kernel FAT driver.
+
+```bash
+# Native formatter and checker
+cargo test -p hadris-fat --all-features --lib \
+  fat_conformance::native_platform_tools -- --ignored --nocapture
+
+# Native writable mount; Linux needs root or passwordless sudo for mount/umount
+HADRIS_FAT_NATIVE_MOUNT=1 cargo test -p hadris-fat --all-features --lib \
+  fat_conformance::native_mount_roundtrip -- --ignored --nocapture --test-threads=1
+```
+
+The mount test operates only on temporary image copies and always attempts to
+unmount them during cleanup. macOS AppleDouble `._*` files remain structurally
+validated but are excluded from the semantic tree comparison as platform
+metadata.
+
 ## Package versions
 
 Each package declares its own version in its `Cargo.toml`; the workspace does

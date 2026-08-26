@@ -10,6 +10,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-fat:** File and directory creation and rename now allocate distinct
+  8.3 aliases when long filenames share the same generated short name. Such
+  entries previously appeared through their long names but were rejected as
+  duplicate directory entries by `fsck.fat`.
 - **hadris-udf:** dstring decoding no longer includes one trailing garbage byte
   (usually a NUL). The dstring length byte counts the compression-ID byte, so
   `PrimaryVolumeDescriptor::volume_id()`, `LogicalVolumeDescriptor::volume_id()`,

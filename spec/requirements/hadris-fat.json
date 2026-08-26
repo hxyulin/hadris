@@ -114,7 +114,7 @@
       "direction": "both",
       "status": "partial",
       "symbols": [{"path": "crates/block/hadris-fat/src/format/init.rs", "name": "write_backup_boot_sector"}],
-      "tests": [{"path": "crates/block/hadris-fat/tests/fat_roundtrip.rs", "name": "formatted_images_remain_compatible_with_fsck_fat_when_available", "kind": "interop"}],
+      "tests": [{"path": "crates/block/hadris-fat/tests/fat_conformance.rs", "name": "fat_spec_conformance", "kind": "integration"}],
       "gap": "Formatting writes sectors 6 and 7, but mounting does not attempt recovery from the backup boot record."
     },
     {

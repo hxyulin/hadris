@@ -69,6 +69,7 @@ impl FatImage {
         FatVolume::open(file).unwrap()
     }
 
+    #[allow(dead_code)]
     pub fn path(&self) -> &Path {
         &self.path
     }

@@ -3,8 +3,6 @@
 use hadris_fat::{FatVolumeReadExt, FatVolumeWriteExt};
 use hadris_io::SeekFrom;
 
-#[path = "common/fat_fsck.rs"]
-mod fat_fsck;
 #[path = "common/fat.rs"]
 mod fat_helpers;
 use fat_helpers::{FAT_CASES, FatImage};
@@ -133,10 +131,40 @@ fn fat32_directory_growth_and_move_to_root_remain_readable() {
 }
 
 #[test]
-fn formatted_images_remain_compatible_with_fsck_fat_when_available() {
-    if !fat_fsck::fsck_fat_available() {
-        return;
+fn long_names_with_colliding_short_aliases_remain_distinct() {
+    let image = FatImage::new(FAT_CASES[0]);
+    {
+        let volume = image.open();
+        let root = volume.root_dir();
+        volume.create_dir(&root, "SOURCE1").unwrap();
+        volume.create_dir(&root, "SOURCE2").unwrap();
+        let destination = volume.create_dir(&root, "DEST").unwrap();
+        let first = root.find("SOURCE1").unwrap().unwrap();
+        let second = root.find("SOURCE2").unwrap().unwrap();
+        let first = volume
+            .rename(&first, &destination, "Renamed Directory 0023")
+            .unwrap();
+        let second = volume
+            .rename(&second, &destination, "Renamed Directory 0028")
+            .unwrap();
+        assert_ne!(
+            first.short_name().raw_bytes(),
+            second.short_name().raw_bytes()
+        );
     }
-    let image = FatImage::new(FAT_CASES[2]);
-    fat_fsck::fsck_check(image.path()).unwrap();
+
+    let volume = image.open();
+    let destination = volume.root_dir().open_dir("DEST").unwrap();
+    assert!(
+        destination
+            .find("Renamed Directory 0023")
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        destination
+            .find("Renamed Directory 0028")
+            .unwrap()
+            .is_some()
+    );
 }

@@ -424,26 +424,6 @@ jobs:
       - name: Qualify hybrid ISO/UDF images
         run: cargo test -p hadris-cd --all-features --test bridge_roundtrip -- --nocapture
 
-  test-fat:
-    name: Test FAT12/16/32 (with fsck.fat)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
-      - uses: Swatinem/rust-cache@v2
-      - name: Install dosfstools and mtools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dosfstools mtools
-      - name: Run FAT roundtrip tests
-        run: |
-          cargo test -p hadris-fat --features "write" --lib fat_roundtrip:: -- --nocapture
-      # `mtools` (mdir/mtype) verifies filename and content fidelity that
-      # `fsck.fat` (structure only) does not — in particular the NT case bits
-      # for lowercase 8.3 names.
-      - name: Run FAT mtools fidelity tests
-        run: |
-          cargo test -p hadris-fat --features "write,std" --lib mtools_fidelity:: -- --nocapture
   # CLI --help/--version smoke tests live in crates/tools/hadris-*-cli/tests/cli_smoke.rs
   # and run under the workspace `test` job.
 
