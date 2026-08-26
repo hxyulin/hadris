@@ -11,8 +11,11 @@ use hadris_path::{Component, Separators, VPath};
 pub use volume::VolumeDescriptorIter;
 
 mod boot;
+mod chunk;
 mod directory;
+
 pub use boot::*;
+pub use chunk::*;
 pub use directory::{DirEntry, Extent, IsoDir};
 sync_only! {
     pub use directory::{IsoDirIter, RawDirIter};
@@ -404,7 +407,9 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
     /// concatenates all extents in order.
     #[cfg(feature = "alloc")]
     pub async fn read_file(&self, entry: &directory::DirEntry) -> io::Result<alloc::vec::Vec<u8>> {
-        if entry.header().file_unit_size != 0 || entry.header().interleave_gap_size != 0 {
+        let header = entry.header();
+
+        if header.file_unit_size != 0 || header.interleave_gap_size != 0 {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "interleaved ISO files are not supported",
@@ -448,6 +453,16 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
         }
 
         Ok(buf)
+    }
+
+    /// Returns a chunked iterator over a file's contents.
+    ///
+    /// Each chunk is up to `N` bytes. Handles multi-extent files transparently.
+    pub async fn read_file_chunked<const N: usize>(
+        &self,
+        entry: &DirEntry,
+    ) -> io::Result<FileChunkIterator<'_, DATA, N>> {
+        Ok(FileChunkIterator::new(self, entry))
     }
 }
 } // io_transform!

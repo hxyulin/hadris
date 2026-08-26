@@ -132,6 +132,7 @@ pub trait Endianness: Copy + Sized {
     fn set_u64(value: u64, bytes: &mut [u8; 8]);
 
     /// Reads a `u24` (stored in 3 bytes) as a `u32` in the specified endianness.
+    #[inline]
     fn get_u24(bytes: [u8; 3]) -> u32 {
         let mut buf = [0u8; 4];
         if Self::get().is_le() {
@@ -143,6 +144,7 @@ pub trait Endianness: Copy + Sized {
     }
 
     /// Writes a `u24` value (as `u32`) to 3 bytes in the specified endianness.
+    #[inline]
     fn set_u24(value: u32, bytes: &mut [u8; 3]) {
         let mut buf = [0u8; 4];
         Self::set_u32(value, &mut buf);

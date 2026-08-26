@@ -16,12 +16,14 @@ use super::rrip::collect_su_entries;
 use spin::Mutex;
 }
 
-/// A single extent of a file (sector location + byte length).
+/// A single extent of a file.
+///
+/// Each extent points to a contiguous region of the ISO image.
 #[derive(Debug, Clone, Copy)]
 pub struct Extent {
-    /// The `sector` field.
+    /// Starting logical sector of this extent.
     pub sector: LogicalSector,
-    /// The `length` field.
+    /// Size of this extent in bytes.
     pub length: u32,
 }
 
@@ -206,7 +208,7 @@ impl DirEntry {
     }
 
     /// Returns true if this is a multi-extent file.
-    pub fn is_multi_extent(&self) -> bool {
+    pub const fn is_multi_extent(&self) -> bool {
         !self.additional_extents.is_empty()
     }
 
@@ -454,6 +456,7 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
             };
 
             let header = record.header();
+      
             if record.name() != first.name()
                 || (header.flags ^ first.header().flags) & !FileFlags::NOT_FINAL.bits() != 0
                 || header.volume_sequence_number.read()
@@ -466,13 +469,16 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
                     "invalid ISO multi-extent continuation",
                 ));
             }
-            extents.push(Extent {
+
+            let extent = Extent {
                 sector: LogicalSector(
                     header.extent.read() as usize + header.extended_attr_record as usize,
                 ),
                 length: header.data_len.read(),
-            });
+            };
 
+            extents.push(extent);
+ 
             // If this record does NOT have NOT_FINAL, it's the last extent
             if !FileFlags::from_bits_retain(header.flags).contains(FileFlags::NOT_FINAL) {
                 break;
@@ -554,7 +560,7 @@ impl<T: Read + Seek> Iterator for IsoDirIter<'_, T> {
                 });
                 continue;
             }
-
+  
             // Check for multi-extent: if NOT_FINAL is set, collect additional extents
             let additional_extents = if flags.contains(FileFlags::NOT_FINAL) {
                 match self.collect_additional_extents(&record) {

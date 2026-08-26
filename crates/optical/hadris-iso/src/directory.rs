@@ -1,3 +1,5 @@
+use std::println;
+
 use super::io::{self, Read, Write};
 use bytemuck::Zeroable;
 
@@ -107,19 +109,33 @@ impl DirectoryRecord {
     const DATA_START: usize = size_of::<DirectoryRecordHeader>();
 
     #[inline]
-    /// Performs the `header` operation.
+    /// Returns the directory record header.
     pub fn header(&self) -> &DirectoryRecordHeader {
         bytemuck::from_bytes(&self.data[0..Self::DATA_START])
     }
 
     #[inline]
-    /// Performs the `header_mut` operation.
+    /// Returns the total length of this directory record.
+    pub fn len(&self) -> u8 {
+        let header = self.header();
+        header.len
+    }
+
+    #[inline]
+    /// Returns the file flags (directory, hidden, etc.).
+    pub fn flags(&self) -> FileFlags {
+        let header = self.header();
+        FileFlags::from_bits_truncate(header.flags)
+    }
+
+    #[inline]
+    /// Returns a mutable reference to the header.
     pub fn header_mut(&mut self) -> &mut DirectoryRecordHeader {
         bytemuck::from_bytes_mut(&mut self.data[0..size_of::<DirectoryRecordHeader>()])
     }
 
     #[inline]
-    /// Performs the `name` operation.
+    /// Returns the file or directory name bytes.
     pub fn name(&self) -> &[u8] {
         let len = self.header().file_identifier_len as usize;
         &self.data[Self::DATA_START..Self::DATA_START + len]
@@ -157,9 +173,10 @@ impl DirectoryRecord {
         /// Returns the mutable system-use area needed by the synchronous writer.
         #[cfg(feature = "write")]
         pub(crate) fn system_use_mut(&mut self) -> &mut [u8] {
-            let name_len = self.header().file_identifier_len as usize;
+            let header = self.header();
+            let name_len = header.file_identifier_len as usize;
             let start = (Self::DATA_START + name_len + 1) & !1;
-            let end = self.header().len as usize;
+            let end = header.len as usize;
             &mut self.data[start..end]
         }
     }
@@ -277,6 +294,7 @@ impl DirectoryRecord {
             || !sel.header().data_len.is_consistent()
             || !sel.header().volume_sequence_number.is_consistent()
         {
+            println!("sel.header().flags  {}", sel.header().flags );
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid ISO directory record",
@@ -355,13 +373,25 @@ impl DirDateTime {
     }
 }
 
+/// Reference to a file or directory location on the ISO image.
+///
+/// Points to where the data starts (extent) and how large it is.
 #[derive(Default, Debug, Clone, Copy)]
-/// Represents DirectoryRef.
 pub struct DirectoryRef {
     /// The `extent` field.
     pub extent: LogicalSector,
     /// The `size` field.
     pub size: usize,
+}
+
+impl DirectoryRef {
+    /// Creates a new directory reference.
+    pub const fn new(extent: usize, size: usize) -> Self {
+        Self {
+            extent: LogicalSector(extent),
+            size,
+        }
+    }
 }
 
 sync_only! {
@@ -460,7 +490,7 @@ mod tests {
 
 bitflags::bitflags! {
     /// Flags stored in an ISO 9660 directory record.
-    #[derive(Clone, Copy)]
+    #[derive(Debug, Clone, Copy)]
     pub struct FileFlags: u8 {
         /// Entry is hidden from ordinary directory listings.
         const HIDDEN = 0b0000_0001;

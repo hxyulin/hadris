@@ -1,4 +1,5 @@
 use super::super::io::{self, Write};
+use alloc::vec;
 use alloc::{collections::BTreeMap, collections::VecDeque, string::String, sync::Arc, vec::Vec};
 use hadris_common::types::endian::EndianType;
 use hadris_path::{Component, Separators, VPath};
@@ -13,21 +14,43 @@ use crate::file::{convert_joliet3, convert_l1, convert_l2, convert_l3};
 use super::super::directory::DirectoryRef;
 use super::{InputEntryKind, InputMetadata};
 
+/// Path to a directory in the written file tree.
+///
+/// Used to track the current directory during tree traversal.
+/// Each index represents a child directory index at that level.
+///
+/// # Example
+/// ```ignore
+/// // Root directory: []
+/// // Child at index 2: [2]
+/// // Grandchild at index 5: [2, 5]
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-/// Represents DirectoryId.
-pub struct DirectoryId {
-    indices: Vec<usize>,
-}
+pub struct DirectoryId(Vec<usize>);
 
 impl DirectoryId {
-    /// Performs the `push` operation.
-    pub fn push(&mut self, index: usize) {
-        self.indices.push(index);
+    /// Creates a new root directory ID.
+    pub const fn new() -> Self {
+        Self(vec![])
     }
 
-    /// Performs the `pop` operation.
+    /// Pushes a child index onto the path.
+    ///
+    /// # Arguments
+    /// * `index` - Child directory index
+    pub fn push(&mut self, index: usize) {
+        self.0.push(index);
+    }
+
+    /// Pops the last child index from the path.
+    ///
+    /// # Panics
+    /// Panics if the path is empty (root directory).
+    ///
+    /// # Returns
+    /// The popped index
     pub fn pop(&mut self) -> usize {
-        self.indices.pop().expect("directory underflow")
+        self.0.pop().expect("directory underflow")
     }
 }
 
@@ -53,9 +76,7 @@ impl WrittenFiles {
 
     /// Performs the `find_file` operation.
     pub fn find_file(&self, name: &str, _sep: PathSeparator) -> Option<DirectoryRef> {
-        let mut current_dir = DirectoryId {
-            indices: Vec::new(),
-        };
+        let mut current_dir = DirectoryId::new();
         let mut parts = VPath::with_separators(name, Separators::SlashOrBackslash)
             .components()
             .filter_map(|component| match component {
@@ -88,9 +109,7 @@ impl WrittenFiles {
 
     /// Performs the `root_dir` operation.
     pub fn root_dir(&self) -> DirectoryId {
-        DirectoryId {
-            indices: Vec::new(),
-        }
+        DirectoryId::new()
     }
 
     /// Performs the `root_refs` operation.
@@ -101,7 +120,7 @@ impl WrittenFiles {
     /// Performs the `get` operation.
     pub fn get(&self, id: &DirectoryId) -> &WrittenDirectory {
         let mut dir = &self.root;
-        for index in &id.indices {
+        for index in &id.0 {
             dir = &dir.dirs[*index];
         }
         dir
@@ -110,46 +129,73 @@ impl WrittenFiles {
     /// Performs the `get_mut` operation.
     pub fn get_mut(&mut self, id: &DirectoryId) -> &mut WrittenDirectory {
         let mut dir = &mut self.root;
-        for index in &id.indices {
+        for index in &id.0 {
             dir = &mut dir.dirs[*index];
         }
         dir
     }
 }
 
+/// A directory that has been written to the ISO image.
+///
+/// Contains child directories, files, and their locations on disk.
 #[derive(Debug)]
-/// Represents WrittenDirectory.
 pub struct WrittenDirectory {
+     /// Unique identifier for this directory.
     pub(crate) id: usize,
-    /// The `name` field.
+
+    /// Directory name (ISO 9660 formatted).
     pub name: Arc<String>,
+
+    /// Original name for RRIP (Rock Ridge) extensions.
     pub(crate) rrip_name: Arc<String>,
-    /// The `entries` field.
+
+    /// Directory references for each entry type (ISO levels, Joliet, etc.).
     pub entries: BTreeMap<EntryType, DirectoryRef>,
-    /// The `dirs` field.
+
+    /// Child directories.
     pub dirs: Vec<WrittenDirectory>,
-    /// The `files` field.
+
+    /// Files in this directory.
     pub files: Vec<WrittenFile>,
-    /// The `metadata` field.
+
+    /// File metadata (timestamps, permissions, etc.).
     pub metadata: InputMetadata,
+
+    /// Relocation status for deep directory support (RRIP).
     pub(crate) relocation: DirectoryRelocation,
 }
 
+/// Directory relocation state for RRIP deep directory support.
+///
+/// When ISO 9660 path depth limits are exceeded, directories are relocated
+/// to the root and tracked via Rock Ridge extensions.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) enum DirectoryRelocation {
+    /// Not relocated.
     #[default]
     None,
+
+    /// Placeholder entry pointing to the actual relocated directory.
     Placeholder {
+        /// ID of the target directory.
         target: usize,
     },
+
+    /// Directory that was moved to the root.
     Moved {
+        /// New directory ID.
         id: usize,
+        /// Original parent ID (logical location).
         logical_parent: usize,
     },
 }
 
 impl WrittenDirectory {
-    /// Performs the `new` operation.
+    /// Creates a new empty directory.
+    ///
+    /// # Arguments
+    /// * `name` - Directory name
     pub fn new(name: Arc<String>) -> Self {
         Self {
             id: 0,
@@ -163,7 +209,22 @@ impl WrittenDirectory {
         }
     }
 
-    /// Performs the `push_dir` operation.
+    /// Adds a file to this directory.
+    ///
+    /// # Arguments
+    /// * `file` - The file to add
+    pub fn push_file(&mut self, file: WrittenFile) {
+        self.files.push(file);
+    }
+
+    /// Adds a child directory and returns its index.
+    ///
+    /// # Arguments
+    /// * `name` - Directory name
+    /// * `metadata` - Directory metadata
+    ///
+    /// # Returns
+    /// Index of the new directory in `self.dirs`
     pub fn push_dir(&mut self, name: Arc<String>, metadata: InputMetadata) -> usize {
         let mut directory = Self::new(name);
         directory.metadata = metadata;
@@ -172,17 +233,79 @@ impl WrittenDirectory {
     }
 }
 
+/// A file that has been written to the ISO image.
+///
+/// Contains the file's name, location on disk, and metadata.
+/// Large files (>4 GiB) may have multiple extents.
 #[derive(Debug)]
-/// Represents WrittenFile.
 pub struct WrittenFile {
-    /// The `name` field.
+    /// Original filename.
     pub name: Arc<String>,
-    /// The `entry` field.
+
+    /// First extent (location and size) of the file data.
+    ///
+    /// For most files, this is the only extent.
+    /// For multi-extent files (>4 GiB), this is the first chunk.
     pub entry: DirectoryRef,
-    /// The `kind` field.
+
+    /// Additional extents for files larger than 4 GiB.
+    ///
+    /// ISO 9660 limits each extent to 4 GiB (u32::MAX bytes).
+    /// Files exceeding this are split into multiple extents.
+    /// This vector contains all extents after the first.
+    ///
+    /// # Example
+    /// A 10 GiB file would have:
+    /// - `entry`: first 4 GiB
+    /// - `additional_extents[0]`: next 4 GiB
+    /// - `additional_extents[1]`: remaining 2 GiB
+    pub additional_extents: Vec<DirectoryRef>,
+
+    /// File contents or directory children.
     pub kind: InputEntryKind,
-    /// The `metadata` field.
+
+    /// File metadata (timestamps, permissions, etc.).
     pub metadata: InputMetadata,
+}
+
+impl WrittenFile {
+    /// Creates a new file with default (empty) extent.
+    ///
+    /// Used during tree walking before extents are assigned.
+    pub fn new(name: Arc<String>, kind: InputEntryKind, metadata: InputMetadata) -> Self {
+        Self {
+            name,
+            entry: DirectoryRef::default(),
+            additional_extents: Vec::new(),
+            kind,
+            metadata,
+        }
+    }
+
+    /// Creates a new file with a single extent.
+    ///
+    /// Used when the file size is known and fits in one extent (<= 4 GiB).
+    pub fn with_extent(
+        name: Arc<String>,
+        kind: InputEntryKind,
+        metadata: InputMetadata,
+        extent: DirectoryRef,
+    ) -> Self {
+        Self {
+            name,
+            entry: extent,
+            additional_extents: Vec::new(),
+            kind,
+            metadata,
+        }
+    }
+
+    /// Returns all extents for this file.
+    ///
+    /// The first extent is `entry`, followed by any additional extents.
+    pub fn extents(&self) -> impl Iterator<Item = &DirectoryRef> {
+        core::iter::once(&self.entry).chain(self.additional_extents.iter())
+    }
 }
 
 pub(crate) struct PathTableWriter<'a> {

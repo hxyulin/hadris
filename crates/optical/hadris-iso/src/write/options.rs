@@ -1,8 +1,10 @@
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use super::super::boot::options::BootOptions;
 use super::super::read::PathSeparator;
 use super::super::rrip::RripOptions;
+use crate::file::EntryType;
 use crate::joliet::JolietLevel;
 
 /// Hybrid boot options for creating bootable ISO images from USB/disk.
@@ -117,6 +119,42 @@ pub struct IsoFormatOptions {
     pub strict_charset: bool,
 }
 
+impl IsoFormatOptions {
+    /// Returns the partition scheme for hybrid boot.
+    pub fn partition_scheme(&self) -> Option<PartitionScheme> {
+        self.features
+            .hybrid_boot
+            .as_ref()
+            .map(|h| h.partition_scheme)
+    }
+
+    /// Returns true if Rock Ridge is enabled and deep directory relocation is active.
+    pub fn has_rock_ridge_deep_dirs(&self) -> bool {
+        self.features.rock_ridge.is_some_and(|options| options.enabled && options.relocate_deep_dirs)
+    }
+
+    /// Builds the list of entry types (ISO levels, Joliet, etc.) to write.
+    ///
+    /// Order: PVD base -> Level3 (if long filenames) -> Joliet (if enabled).
+    pub fn entry_types(&self) -> Vec<EntryType> {
+        let mut entry_types = Vec::new();
+        entry_types.push(self.features.filenames.into());
+
+        if self.features.long_filenames {
+            entry_types.push(EntryType::Level3 {
+                supports_lowercase: true,
+                supports_rrip: false,
+            });
+        }
+
+        if let Some(joliet) = self.features.joliet {
+            entry_types.push(joliet.into());
+        }
+
+        entry_types
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Identifies a BaseIsoLevel value.
 pub enum BaseIsoLevel {
@@ -185,6 +223,7 @@ impl Default for CreationFeatures {
 }
 
 impl CreationFeatures {
+
     /// Create features with Rock Ridge enabled (default settings)
     pub fn rock_ridge() -> Self {
         Self {

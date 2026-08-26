@@ -695,6 +695,7 @@ impl SystemUseBuilder {
 
 /// Result of splitting a system use area into inline and overflow portions.
 #[cfg(feature = "alloc")]
+#[derive(Debug, Clone)]
 pub struct SplitSu {
     /// Bytes that fit inline in the directory record's SU area.
     pub inline: alloc::vec::Vec<u8>,
