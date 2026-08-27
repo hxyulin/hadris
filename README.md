@@ -133,20 +133,42 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 Hadris-generated images are checked against an independent raw-image oracle
 and common FAT implementations. These results cover the same filesystem
-operations on every listed FAT variant.
+operations on every listed FAT variant. The oracle row counts the 18 peer
+scenarios and the three geometry-sized limit exercises; its three open
+failures per width are recorded library bugs (a refused case-only rename, an
+invalid 8.3 alias for a name starting with two periods, and clusters leaked
+when the volume fills).
 
 | Consumer | FAT12 | FAT16 | FAT32 |
 |----------|-------|-------|-------|
-| Hadris specification oracle | Pass (23/23) | Pass (23/23) | Pass (23/23) |
-| mtools 4.0.49 reader | Pass (7/7) | Pass (7/7) | Pass (7/7) |
-| dosfstools `fsck.fat` 4.2 | Pass (7/7) | Pass (7/7) | Pass (7/7) |
-| Rust `fatfs` master (`2aefc2a`) reader | Pass (7/7) | Pass (7/7) | Pass (7/7) |
+| Hadris specification oracle | 18/21 | 18/21 | 18/21 |
+| mtools 4.0.49 reader | Pass (14/16) | Pass (14/16) | Pass (14/16) |
+| dosfstools `fsck.fat` 4.2 | Pass (16/16) | Pass (16/16) | Pass (16/16) |
+| Rust `fatfs` master (`2aefc2a`) reader | Pass (16/16) | Pass (16/16) | Pass (16/16) |
 | macOS `fsck_msdos` | Pass (2/2) | Pass (2/2) | Pass (2/2) |
 
 “Pass” means that the consumer read the expected semantic tree or that the
-checker accepted the completed image. See the
+checker accepted the completed image; the two mtools read failures per width
+are names outside the Basic Multilingual Plane, which mtools transliterates.
+See the
 [FAT compliance profile](docs/compliance/hadris-fat.md#interoperability-results)
 for the test method, peer-writer conformance, and known tool defects.
+
+## ISO Interoperability
+
+Hadris-generated ISO images are checked against an independent ECMA-119
+raw-image oracle and common ISO readers.
+
+| Consumer | Result |
+|----------|--------|
+| Hadris specification oracle | Pass (2/2) |
+| xorriso/libisofs 1.5.8 | Pass (2/2) |
+| Linux kernel ISO driver | Pass (2/2) |
+| macOS 26.6.2 built-in ISO reader | Pass (2/2) |
+| Windows `Mount-DiskImage` | Available manual target; not yet measured |
+
+See the [ISO compliance profile](docs/compliance/hadris-iso.md#consumers-of-hadris-images)
+for the test method, peer-producer conformance, and known tool deviations.
 
 ## Quick Start
 

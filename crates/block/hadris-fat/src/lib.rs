@@ -287,15 +287,6 @@ mod comprehensive_fat;
 #[cfg(all(test, feature = "unstable-exfat", feature = "write"))]
 #[path = "../tests/exfat_roundtrip.rs"]
 mod exfat_roundtrip;
-#[cfg(all(
-    test,
-    feature = "std",
-    feature = "sync",
-    feature = "write",
-    feature = "lfn"
-))]
-#[path = "../tests/fat_conformance.rs"]
-mod fat_conformance;
 #[cfg(all(test, feature = "sync", feature = "write"))]
 #[path = "../tests/fat_roundtrip.rs"]
 mod fat_roundtrip;

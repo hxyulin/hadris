@@ -685,18 +685,3 @@ mod rrip_reader;
 #[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
 #[path = "../tests/rrip_writer_metadata.rs"]
 mod rrip_writer_metadata;
-#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
-#[path = "../tests/xorriso_advanced.rs"]
-mod xorriso_advanced;
-#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
-#[path = "../tests/xorriso_basic.rs"]
-mod xorriso_basic;
-#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
-#[path = "../tests/xorriso_boot.rs"]
-mod xorriso_boot;
-#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
-#[path = "../tests/common/xorriso.rs"]
-mod xorriso_helpers;
-#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
-#[path = "../tests/xorriso_hybrid.rs"]
-mod xorriso_hybrid;

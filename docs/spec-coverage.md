@@ -74,16 +74,17 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
-| ECMA-119:8.2 | `BootRecordVolumeDescriptor` | partial | `xorriso_boot::test_hadris_multisection_boot_catalog` | `iso_read` | The descriptor locates El Torito data, but all ECMA-119 boot-record semantics are not implemented. |
+| ECMA-119:7.5.1 | `convert_l1` | full | `iso::spec::hadris_iso_matches_ecma_119_oracle` | | Level 1 file identifiers include the required file-version separator and version number. |
+| ECMA-119:8.2 | `BootRecordVolumeDescriptor` | partial | `iso::boot::test_hadris_multisection_boot_catalog` | `iso_read` | The descriptor locates El Torito data, but all ECMA-119 boot-record semantics are not implemented. |
 | ECMA-119:8.3 | `VolumeDescriptorSetTerminator` | partial | `comprehensive_iso::malformed_primary_descriptor_and_terminator_cases_are_rejected` | `iso_read` | The descriptor is emitted and recognized, but the audit has not established validation of every reserved byte. |
-| ECMA-119:8.4 | `PrimaryVolumeDescriptor` | partial | `comprehensive_iso::descriptor_sequence_opens_primary_volume_and_root_directory` | `iso_read` | Core fields are modeled, but reserved fields, character sets, redundant endian values, and semantic constraints are not all validated. |
+| ECMA-119:8.4 | `PrimaryVolumeDescriptor` | partial | `comprehensive_iso::descriptor_sequence_opens_primary_volume_and_root_directory`, `iso::spec::hadris_iso_matches_ecma_119_oracle` | `iso_read` | Core fields are modeled, but reserved fields, character sets, redundant endian values, and semantic constraints are not all validated. |
 | ECMA-119:8.5 | `SupplementaryVolumeDescriptor` | partial | | `iso_read` | Joliet SVD is read/written (UCS-2, BMP only); the version-2 "enhanced" form is repurposed as a UDF-bridge signal rather than a conformant ISO 9660:1999 secondary descriptor. |
 | ECMA-119:9.1 | `DirectoryRecordHeader` | partial | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Fixed fields round-trip, but all identifier, flag, and semantic constraints are not yet validated. |
 | ECMA-119:9.1 | `DirectoryRecord` | partial | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Joliet+RRIP coexistence on read may hide one namespace; see crate Known Limitations |
-| ECMA-119:9.4 | `PathTableEntryHeader` | partial | | `iso_read` | Both L- and M-type path tables are written and read; the optional secondary path tables are not populated. |
-| El-Torito:validation | `BootValidationEntry` | partial | `xorriso_boot::test_eltorito_boot_catalog_comparison` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
-| El-Torito:section-header | `BootSectionHeaderEntry` | partial | `xorriso_boot::test_hadris_multisection_boot_catalog` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
-| El-Torito:section-entry | `BootSectionEntry` | partial | `xorriso_boot::test_floppy_emulation_media_type_and_default_load_size` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
+| ECMA-119:9.4 | `PathTableEntryHeader` | partial | `iso::spec::hadris_iso_matches_ecma_119_oracle` | `iso_read` | Both L- and M-type path tables are written and read; the optional secondary path tables are not populated. |
+| El-Torito:validation | `BootValidationEntry` | partial | `iso::boot::test_eltorito_boot_catalog_comparison` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
+| El-Torito:section-header | `BootSectionHeaderEntry` | partial | `iso::boot::test_hadris_multisection_boot_catalog` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
+| El-Torito:section-entry | `BootSectionEntry` | partial | `iso::boot::test_floppy_emulation_media_type_and_default_load_size` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
 
 ## hadris-fat
 

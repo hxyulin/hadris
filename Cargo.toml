@@ -36,7 +36,6 @@ cfg-if = "1.0.0"
 embedded-io = { version = "0.7", default-features = false }
 embedded-io-async = { version = "0.7", default-features = false }
 tempfile = "3.19.1"
-fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "2aefc2a027ce94ed0671752814dac203f0450e11", default-features = false, features = ["alloc", "lfn", "std", "unicode"] }
 chrono = { version = "0.4.40", default-features = false }
 tracing = "0.1.41"
 spin = "0.12.1"

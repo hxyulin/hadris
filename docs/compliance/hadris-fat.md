@@ -23,47 +23,95 @@ changing the expected FAT semantics.
 
 ## Interoperability results
 
-The specification suite applies one curated trace, six focused edge-case
+The specification suite applies one curated trace, 17 focused edge-case
 traces, and 16 deterministic generated traces to each of FAT12, FAT16, and
-FAT32. Peer scoring uses only the curated and focused traces so a peer failure
-cannot mask the rest of a 64-operation generated trace. The harness compares
-displayed paths, entry kinds, file contents, stable attributes, and volume
-labels. Timestamps are excluded. The raw oracle additionally validates
-geometry, mirrored FATs, reserved entries, FAT32 metadata, cluster chains,
-cross-links, directory records, LFN sequences and checksums, and unique short
-aliases.
+FAT32, then 29 rejection scenarios whose final operation must fail without
+touching the image, and three limit exercises sized from the formatted
+geometry. Peer scoring uses the curated, focused, rejection, and limit
+scenarios so a peer failure cannot mask the rest of a 64-operation generated
+trace. The harness compares displayed paths, entry kinds, file contents,
+stable attributes, and volume labels. Timestamps are excluded. The raw oracle
+additionally validates geometry, mirrored FATs, reserved entries, the FAT32
+FSInfo free count against the FAT, cluster chains, cross-links, directory
+records, dot-entry placement, LFN sequences and checksums, the 8.3 alias
+character set, and unique short aliases.
 
 ### Consumers of Hadris images
 
 | Consumer | FAT12 | FAT16 | FAT32 | Interpretation |
 |----------|-------|-------|-------|----------------|
-| Hadris specification oracle | 23/23 | 23/23 | 23/23 | Every image was structurally valid and matched the semantic model. |
-| mtools 4.0.49 reader | 7/7 | 7/7 | 7/7 | `mdir`, `mtype`, and related commands reconstructed every peer-scenario tree. |
-| dosfstools `fsck.fat` 4.2 | 7/7 | 7/7 | 7/7 | Every peer-scenario Hadris image passed a read-only structural check. |
-| Rust `fatfs` master (`2aefc2a`) reader | 7/7 | 7/7 | 7/7 | The independent Rust reader reconstructed every peer-scenario tree. |
+| Hadris specification oracle | 18/21 | 18/21 | 18/21 | The 16 generated traces, 16 peer scenarios, and two limit exercises match the model. The failures are the open library bugs listed below. |
+| mtools 4.0.49 reader | 14/16 | 14/16 | 14/16 | The two failures are names outside the Basic Multilingual Plane, which mtools transliterates instead of reading as surrogate pairs. |
+| dosfstools `fsck.fat` 4.2 | 16/16 | 16/16 | 16/16 | Every oracle-valid Hadris image passed a read-only structural check. |
+| Rust `fatfs` master (`2aefc2a`) reader | 16/16 | 16/16 | 16/16 | The independent Rust reader reconstructed every oracle-valid tree, surrogate pairs included. |
 | macOS `fsck_msdos` | 2/2 | 2/2 | 2/2 | The curated trace and one deterministic trace passed read-only checks on macOS 26.6.2. |
 
-These are bounded interoperability results, not claims that the tools accept
-every possible image Hadris can produce. Native writable-mount tests for the
-Linux `vfat` and macOS FAT drivers are also available in the harness, but are
-reported separately because they require host mount privileges.
+The per-width oracle count covers the 18 peer scenarios and three limit
+exercises; peers are only measured on the 16 scenarios where Hadris produced
+an oracle-valid reference image. These are bounded interoperability results,
+not claims that the tools accept every possible image Hadris can produce.
+Native writable-mount tests for the Linux `vfat` and macOS FAT drivers are
+also available in the harness, but are reported separately because they
+require host mount privileges.
+
+### Open Hadris findings
+
+The extended suite records the following library defects; the hosted tests
+`fat::spec::fat_edge_cases_match_spec`,
+`fat::limits::hadris_rejects_invalid_operations`, and
+`fat::limits::hadris_data_region_exhaustion` fail until they are fixed.
+
+- A rename that only changes the case of an 8.3 name (`lower.txt` to
+  `LOWER.TXT`) is refused as an existing entry.
+- Long-name lookups are case-sensitive, so `MIXED CASE NAME.BIN` is created
+  next to `Mixed Case Name.bin`, a directory can be created next to another
+  differing only in case, and a rename onto such a name succeeds.
+- Moving a directory into its own subtree (`/A` to `/A/B/A` or `/A/A`) is
+  accepted and detaches the subtree into an unreachable cycle.
+- The reserved characters `: * ? " < > |` and control characters are accepted
+  in long names.
+- `..dots` receives the alias `        DOT`, which starts with a space and
+  which `fsck.fat` reports as a bad short name.
+- When the data region fills, the aborted write leaks the clusters it had
+  already allocated on FAT12 and FAT16, and leaves the FAT32 FSInfo free
+  count stale.
 
 ### Peer writers
 
 | Producer and operations | Completed | Oracle-valid | Additional result |
 |-------------------------|-----------|--------------|-------------------|
-| Hadris | 69/69 | 69/69 | mtools, Rust `fatfs`, and `fsck.fat` accepted all 21 peer-scenario images. |
-| `mkfs.fat` + mtools 4.0.49 | 18/21 | 18/18 completed traces | Hadris read and `fsck.fat` accepted all completed images. Three traces aborted inside `mren`. |
-| Rust `fatfs` master (`2aefc2a`) | 15/21 | 12/15 completed traces | Six traces panic on a leading multibyte filename and three completed directory-move traces have an incorrect `..` entry. |
+| Hadris | 51/54 traces, 48/87 rejections, 6/9 limits | 48/51 completed traces, 6/9 limits | The failures are the open findings above. |
+| `mkfs.fat` + mtools 4.0.49 | 44/54 traces, 63/87 rejections, 8/9 limits | 42/44 completed traces, 8/9 limits | Hadris read and `fsck.fat` accepted all completed images. |
+| Rust `fatfs` master (`2aefc2a`) | 39/54 traces, 60/87 rejections, 2/9 limits | 30/39 completed traces, 2/9 limits | Hadris read every oracle-valid image. |
 
-The aggregate bidirectional semantic scores are 39/42 (92.86%) for mtools and
-33/42 (78.57%) for Rust `fatfs` master. An aborted command is counted as a
-failed writer attempt, while a peer mismatch never changes the Hadris ground
-truth. Rust `fatfs` master fixes the invalid dot-entry layout previously
-reported in [issue #117](https://github.com/rafalh/rust-fatfs/issues/117); the
-remaining failures are tracked in
-[issue #118](https://github.com/rafalh/rust-fatfs/issues/118) and
-[issue #119](https://github.com/rafalh/rust-fatfs/issues/119).
+The aggregate bidirectional semantic scores are 155/198 (78.28%) for mtools
+and 140/198 (70.71%) for Rust `fatfs` master. An aborted command is counted as
+a failed writer attempt, while a peer mismatch never changes the Hadris ground
+truth.
+
+mtools: three traces abort inside `mren` (below); `mren` refuses a case-only
+rename; names outside the Basic Multilingual Plane are transliterated, so
+`mcopy` cannot address a directory it just created under such a name and a
+255-unit name whose first character is a surrogate pair is rejected as too
+long; and moving a directory under a FAT32 parent whose cluster number is
+above 65535 writes only the low 16 bits into the `..` entry (`37690` for
+parent `103226`). Accepted rejections are mostly `cp`-like semantics rather
+than defects: copying onto an existing directory or `.` places the file
+inside it, and `mren` onto an existing directory moves the source into it.
+mtools also creates case-insensitive duplicates.
+
+Rust `fatfs`: the leading-multibyte-character panic
+([issue #118](https://github.com/rafalh/rust-fatfs/issues/118)) now also fires
+for `σigma.txt` and a 255-unit name beginning with an emoji; names outside the
+BMP are rejected as unsupported characters; moved directories keep a stale
+`..` ([issue #119](https://github.com/rafalh/rust-fatfs/issues/119)); a
+case-only rename is silently ignored; case-insensitive duplicates, moves into
+a directory's own subtree, and `.`/`..` file names are accepted. At the
+limits, a long-name entry is written for every 8.3 name
+([issue #17](https://github.com/rafalh/rust-fatfs/issues/17)), so a FAT12/16
+root holds 255 files and the 256th fails with `Write zero`; filling a FAT16
+volume leaves orphaned long-name entries in the root; and filling a FAT32
+volume leaves the FSInfo next-free hint outside the cluster heap.
 
 ### Focused edge cases
 
@@ -75,20 +123,43 @@ failure mechanism:
 - filling a 512-byte subdirectory entry cluster, reusing adjacent deleted
   slots, and extending the directory;
 - generating unique aliases for six long names that collapse to the same
-  short-name base;
+  short-name base, and for basenames shorter than the six characters that
+  precede a numeric tail;
 - moving a nested directory between two parents and then back to the root;
 - truncating a multi-cluster file across exact and off-by-one boundaries,
-  freeing it to zero, and allocating it again; and
+  freeing it to zero, and allocating it again;
 - writing names at and immediately above 13-UTF-16-unit LFN slot boundaries,
-  including a name beginning with a multibyte UTF-8 character.
+  up to the 255-unit maximum, including names beginning with a multibyte
+  UTF-8 character or a surrogate pair;
+- names that fit 8.3 apart from case, and renames that change only case;
+- twelve long names sharing one alias prefix with an explicit `~1` name
+  already present, then churn on the freed tails;
+- deleting alternate entries in a subdirectory so later names need runs
+  wider than any hole, including a 20-slot name;
+- twelve levels of long directory names with moves of the top and the
+  deepest directory;
+- hidden and system directories and read-only files through renames, moves,
+  and attribute changes;
+- appends and truncations landing exactly on multiples of every cluster size
+  the suite formats with; and
+- reusing clusters freed from a directory full of entries and from a file
+  whose contents look like directory entries.
 
-These cases were informed by the mtools directory-cache failure and by Rust
-`fatfs` regressions including
+The limit exercises fill a fixed FAT12/16 root directory to its last slot and
+then try an overflow, a long name that does not fit the single free slot,
+and a final 8.3 name; write files until the data region is exhausted, check
+that every cluster can be allocated and that deleted space is reusable; and
+write one extent covering most of the volume so its chain crosses every FAT
+sector boundary and, on FAT32, pushes later allocations above cluster 65535.
+
+These cases were informed by the mtools directory-cache failure, the mtools
+and dosfstools change logs, and Rust `fatfs` regressions including
+[#17](https://github.com/rafalh/rust-fatfs/issues/17),
 [#42](https://github.com/rafalh/rust-fatfs/issues/42),
 [#118](https://github.com/rafalh/rust-fatfs/issues/118), and
-[#119](https://github.com/rafalh/rust-fatfs/issues/119). The normal test suite
-runs the six Hadris/oracle traces in about 0.2 seconds; tool-dependent reports
-remain manual.
+[#119](https://github.com/rafalh/rust-fatfs/issues/119). The hosted suite runs
+the Hadris/oracle traces and limit exercises in about seven seconds;
+tool-dependent reports remain manual.
 
 ### Why the mtools rename is a valid test
 
@@ -120,5 +191,5 @@ describes generating a companion short alias for names that do not fit 8.3.
 The failure is therefore recorded as an mtools writer crash rather than an
 invalid generated operation or a rejection of a Hadris image.
 
-The exact reports are regenerated under `target/fat-conformance/` by the manual
+The exact reports are regenerated under `tests/target/reports/fat/` by the manual
 commands documented in [`CONTRIBUTING.md`](../../CONTRIBUTING.md#fat-conformance).

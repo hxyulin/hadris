@@ -416,8 +416,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xorriso udftools p7zip-full
-      - name: Run ISO interoperability tests
-        run: cargo test -p hadris-iso --all-features --lib xorriso_ -- --nocapture
+      - name: Run ISO conformance and interoperability tests
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+        run: "cargo test --manifest-path tests/Cargo.toml iso:: -- --nocapture"
       - name: Run UDF interoperability tests
         run: >-
           cargo test -p hadris-udf --all-features --lib integration_external:: -- --nocapture
@@ -453,6 +455,8 @@ jobs:
           components: rustfmt
       - name: Check formatting
         run: cargo fmt --all -- --check
+      - name: Check conformance suite formatting
+        run: cargo fmt --manifest-path tests/Cargo.toml --all -- --check
 
   clippy:
     name: Clippy
@@ -463,8 +467,14 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            tests -> target
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Run clippy on conformance suite
+        run: cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings
 
   miri:
     name: Miri (UB detection)
