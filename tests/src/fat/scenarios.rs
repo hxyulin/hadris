@@ -9,9 +9,9 @@ use crate::harness::{Rng, join_path, path_depth};
 pub const SEED_ENV: &str = "HADRIS_TESTS_SEED";
 const TRACE_LEN: usize = 64;
 
-pub fn payload(len: usize, salt: u8) -> Vec<u8> {
+pub fn payload(len: usize, byte_offset: u8) -> Vec<u8> {
     (0..len)
-        .map(|index| (index as u8).wrapping_mul(31).wrapping_add(salt))
+        .map(|index| (index as u8).wrapping_mul(31).wrapping_add(byte_offset))
         .collect()
 }
 

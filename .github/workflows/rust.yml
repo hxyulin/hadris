@@ -416,6 +416,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xorriso udftools p7zip-full
+      - name: Run ISO conformance and interoperability tests
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+        run: "cargo test --manifest-path tests/Cargo.toml iso:: -- --nocapture"
       - name: Run UDF interoperability tests
         run: >-
           cargo test -p hadris-udf --all-features --lib integration_external:: -- --nocapture

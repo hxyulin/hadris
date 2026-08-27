@@ -9,8 +9,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use super::MUTABLE_ATTRS;
 use super::model::{EntryState, FsState};
+use super::{MUTABLE_ATTRS, fat_path_eq};
 use crate::harness::join_path;
 use crate::harness::tree::EntryData;
 
@@ -200,6 +200,9 @@ impl Oracle {
             };
             lfn.clear();
             let path = join_path(parent, &name);
+            if output.keys().any(|existing| fat_path_eq(existing, &path)) {
+                return Err(format!("duplicate name {path} in {parent}"));
+            }
             let cluster = u32::from(read_u16(raw, 26)?) | (u32::from(read_u16(raw, 20)?) << 16);
             let size = read_u32(raw, 28)? as usize;
             let stable_attrs = attrs & MUTABLE_ATTRS;

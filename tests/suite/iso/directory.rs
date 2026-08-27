@@ -85,15 +85,18 @@ fn test_large_file() {
 
     let image = open_file(&iso_path);
     let root = image.root_dir();
+    let mut found_file = false;
     for entry_result in root.iter(&image).entries() {
         let entry = entry_result.expect("Failed to read directory entry");
         let name = String::from_utf8_lossy(entry.name()).to_string();
         if name.to_uppercase().contains("LARGE") && !entry.is_directory() {
+            found_file = true;
             let size = entry.header().data_len.read() as usize;
             assert_eq!(size, 1024 * 1024, "Large file should be 1MB");
             break;
         }
     }
+    assert!(found_file, "Should have found the large file");
 }
 
 /// A root directory with 100 files spans several logical sectors; every
