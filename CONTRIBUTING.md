@@ -46,7 +46,8 @@ The oracles are the ground truth. Hadris is measured as one adapter among its
 peers, and a Hadris-to-Hadris round trip is never evidence on its own.
 
 ```bash
-# Hosted suite; CI runs it on every platform and xorriso tests skip when absent
+# Hosted suite; run it locally. CI only formats and lints the package while
+# the recorded hadris-fat findings keep three FAT tests red.
 cargo test --manifest-path tests/Cargo.toml
 
 # One format or topic
@@ -81,6 +82,16 @@ short, isolated scenarios so one failed operation does not mask the remainder
 of a generated trace. The Nix shell supplies the command-line tools and uses
 the repository's Rust toolchain.
 
+Besides the operation traces, every implementation is scored on rejection
+scenarios (case-insensitive duplicates, moves into a directory's own subtree,
+reserved characters, `.` and `..` names, over-long names) where the operation
+must fail and the image must be unchanged, and on limit exercises sized from
+the image geometry: filling a fixed FAT12/16 root directory to its last slot,
+exhausting the data region and reclaiming it, and writing an extent that
+spans most of the volume. The Hadris side of these runs in the hosted suite
+under `fat::limits::`; a Hadris failure there is a library bug, not a peer
+measurement.
+
 ```bash
 cargo test --manifest-path tests/Cargo.toml \
   fat::spec::fat_spec_conformance -- --ignored --exact --nocapture
@@ -97,7 +108,8 @@ stable FAT attributes, and the volume label. Timestamps are intentionally
 excluded. Peer scores and failure details are written to
 `tests/target/reports/fat/mtools-accuracy.txt` and
 `tests/target/reports/fat/fatfs-accuracy.txt`. The specification suite and
-each peer report run in well under ten seconds after compilation.
+the `fatfs` report run in well under a minute after compilation; the mtools
+report spawns a process per operation and takes about two minutes.
 
 Native platform qualification uses `mkfs.fat`, `fsck.fat`, and the kernel
 `vfat` driver on Linux, and `newfs_msdos`, `fsck_msdos`, `hdiutil`, and the

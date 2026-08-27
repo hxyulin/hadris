@@ -36,6 +36,44 @@ struct Geometry {
     media: u8,
 }
 
+/// The parts of the BPB that scenarios size themselves from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImageGeometry {
+    pub bits: u8,
+    pub cluster_size: usize,
+    pub cluster_count: u32,
+    /// Zero for FAT32, whose root directory grows like any other.
+    pub root_entry_count: usize,
+}
+
+pub fn geometry(path: &Path) -> Result<ImageGeometry, String> {
+    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    let geometry = parse_geometry(&bytes)?;
+    Ok(ImageGeometry {
+        bits: fat_bits(geometry.kind),
+        cluster_size: geometry.bytes_per_sector * geometry.sectors_per_cluster,
+        cluster_count: geometry.cluster_count,
+        root_entry_count: geometry.root_entry_count,
+    })
+}
+
+/// Counts clusters whose FAT entry is zero, independently of any FSInfo hint.
+pub fn free_clusters(path: &Path) -> Result<u32, String> {
+    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    let geometry = parse_geometry(&bytes)?;
+    count_free_clusters(&bytes, &geometry)
+}
+
+fn count_free_clusters(bytes: &[u8], geometry: &Geometry) -> Result<u32, String> {
+    let mut free = 0;
+    for cluster in 2..=geometry.cluster_count + 1 {
+        if fat_entry(bytes, geometry, cluster)? == 0 {
+            free += 1;
+        }
+    }
+    Ok(free)
+}
+
 /// Validates the image at `path` and returns its semantic tree. `expected_bits`
 /// guards against a formatter silently choosing a different FAT width.
 pub fn snapshot(path: &Path, expected_bits: u8) -> Result<FsState, String> {
@@ -104,7 +142,7 @@ impl Oracle {
         let mut aliases = BTreeSet::new();
         let mut lfn = Vec::new();
         let mut pending_dirs = Vec::new();
-        for raw in bytes.chunks_exact(32) {
+        for (index, raw) in bytes.chunks_exact(32).enumerate() {
             match raw[0] {
                 0x00 => break,
                 0xe5 => {
@@ -133,9 +171,22 @@ impl Oracle {
                 .map_err(|_| "short alias has wrong width".to_string())?;
             let short_name = decode_short_name(&alias, raw[12]);
             if short_name == "." || short_name == ".." {
-                lfn.clear();
+                if parent == "/" {
+                    return Err(format!("root directory contains a {short_name} entry"));
+                }
+                if !lfn.is_empty() {
+                    return Err(format!(
+                        "long-name entries precede the {short_name} entry in {parent}"
+                    ));
+                }
+                if index > 1 {
+                    return Err(format!(
+                        "{short_name} entry at slot {index} of {parent} is not one of the first two"
+                    ));
+                }
                 continue;
             }
+            validate_short_alias(&alias, parent)?;
             if !aliases.insert(alias) {
                 return Err(format!(
                     "duplicate short alias {:?} in {parent}",
@@ -439,8 +490,13 @@ fn validate_fat32_metadata(bytes: &[u8], geometry: &Geometry) -> Result<(), Stri
     }
     let free_count = read_u32(bytes, fsinfo + 488)?;
     let next_free = read_u32(bytes, fsinfo + 492)?;
-    if free_count != u32::MAX && free_count > geometry.cluster_count {
-        return Err("FAT32 FSInfo free count exceeds the cluster count".to_string());
+    if free_count != u32::MAX {
+        let actual = count_free_clusters(bytes, geometry)?;
+        if free_count != actual {
+            return Err(format!(
+                "FAT32 FSInfo free count {free_count} differs from the {actual} free clusters in the FAT"
+            ));
+        }
     }
     if next_free != u32::MAX && !(2..=geometry.cluster_count + 1).contains(&next_free) {
         return Err("FAT32 FSInfo next-free hint is outside the cluster heap".to_string());
@@ -544,6 +600,32 @@ fn short_checksum(alias: &[u8; 11]) -> u8 {
     alias.iter().fold(0_u8, |checksum, byte| {
         checksum.rotate_right(1).wrapping_add(*byte)
     })
+}
+
+/// The 8.3 character rules from the Microsoft FAT specification: no
+/// lowercase letters, no leading space or period, and none of the reserved
+/// punctuation. `0x05` may only stand in for a leading `0xE5`.
+fn validate_short_alias(alias: &[u8; 11], parent: &str) -> Result<(), String> {
+    const RESERVED: &[u8] = b"\"*+,./:;<=>?[\\]|";
+    let display = String::from_utf8_lossy(alias);
+    if matches!(alias[0], b' ' | b'.') {
+        return Err(format!(
+            "short alias {display:?} in {parent} starts with {:?}",
+            alias[0] as char
+        ));
+    }
+    for (index, byte) in alias.iter().enumerate() {
+        let bad = (*byte < 0x20 && !(index == 0 && *byte == 0x05))
+            || *byte == 0x7f
+            || byte.is_ascii_lowercase()
+            || RESERVED.contains(byte);
+        if bad {
+            return Err(format!(
+                "short alias {display:?} in {parent} contains invalid byte {byte:#04x}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn decode_short_name(alias: &[u8; 11], case: u8) -> String {

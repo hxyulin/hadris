@@ -3,6 +3,7 @@
 pub mod adapter;
 pub mod fatfs;
 pub mod hadris;
+pub mod limits;
 pub mod model;
 pub mod mtools;
 pub mod native;
@@ -10,7 +11,8 @@ pub mod scenarios;
 pub mod spec;
 
 pub use adapter::{
-    FatAdapter, apply_operations, apply_operations_without_attrs, clear_mutable_attrs,
+    FatAdapter, apply_operations, apply_operations_without_attrs, apply_rejection,
+    clear_mutable_attrs,
 };
 pub use model::{
     EntryState, FsState, Operation, compare_snapshot, format_trace, summarize_operation,

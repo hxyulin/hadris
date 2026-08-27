@@ -85,9 +85,14 @@ impl FsState {
                 contents.truncate(*len);
             }
             Operation::Rename { from, to } => {
-                self.ensure_parent(to)?;
-                self.ensure_absent(to)?;
                 let prefix = format!("{from}/");
+                if to == from || to.starts_with(&prefix) {
+                    return Err(format!("cannot move {from} into itself"));
+                }
+                self.ensure_parent(to)?;
+                if !fat_path_eq(from, to) {
+                    self.ensure_absent(to)?;
+                }
                 let mut moved = Vec::new();
                 for (path, entry) in &self.entries {
                     if path == from || path.starts_with(&prefix) {

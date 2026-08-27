@@ -29,18 +29,27 @@ pub fn run_spec_matrix(operations: &[Operation]) -> Result<(), String> {
 #[test]
 #[ignore = "manual FAT specification conformance suite"]
 fn fat_spec_conformance() {
-    for (scenario, operations) in specification_scenarios() {
-        run_spec_matrix(&operations).unwrap_or_else(|error| {
-            panic!("{scenario}: {error}\ntrace:\n{}", format_trace(&operations))
-        });
-    }
+    report_failures(specification_scenarios());
+}
+
+fn report_failures(scenarios: Vec<(String, Vec<Operation>)>) {
+    let failures: Vec<String> = scenarios
+        .into_iter()
+        .filter_map(|(scenario, operations)| {
+            run_spec_matrix(&operations)
+                .err()
+                .map(|error| format!("{scenario}: {error}\ntrace:\n{}", format_trace(&operations)))
+        })
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "{} scenarios failed:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
 }
 
 #[test]
 fn fat_edge_cases_match_spec() {
-    for (scenario, operations) in edge_case_scenarios() {
-        run_spec_matrix(&operations).unwrap_or_else(|error| {
-            panic!("{scenario}: {error}\ntrace:\n{}", format_trace(&operations))
-        });
-    }
+    report_failures(edge_case_scenarios());
 }

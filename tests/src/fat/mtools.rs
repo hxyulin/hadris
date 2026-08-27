@@ -264,7 +264,7 @@ impl FatAdapter for MtoolsFatAdapter {
         let mut dirs = VecDeque::from(["/".to_string()]);
         while let Some(dir) = dirs.pop_front() {
             for (path, is_directory) in self.list_dir(&dir)? {
-                if entries.contains_key(&path) {
+                if path == "/" || entries.contains_key(&path) {
                     continue;
                 }
                 let data = if is_directory {

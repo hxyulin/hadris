@@ -31,7 +31,8 @@ tests/
       model.rs        FsState / Operation reference model
       adapter.rs      FatAdapter trait and trace drivers
       spec.rs         raw-image oracle
-      scenarios.rs    curated, edge-case, and seeded traces
+      scenarios.rs    curated, edge-case, rejection, and seeded traces
+      limits.rs       root-directory, data-region, and long-extent exercises
       hadris.rs       Hadris adapter
       fatfs.rs        rust-fatfs adapter
       mtools.rs       GNU mtools + dosfstools adapter
@@ -47,7 +48,7 @@ tests/
       native.rs       hdiutil producer and kernel ISO reader
   suite/              the single test binary
     main.rs
-    fat/{spec,peers,native}.rs
+    fat/{spec,limits,peers,native}.rs
     iso/{spec,peers,native,volume_descriptors,directory,rock_ridge,boot,hybrid}.rs
 ```
 
@@ -71,13 +72,21 @@ Reports are written to `tests/target/reports/<format>/`.
   `suite/<format>/mod.rs`. Start a new topic file rather than growing an
   unrelated one.
 - Put reusable scenario data in `src/<format>/scenarios.rs` (FAT) or
-  `src/<format>/model.rs` (ISO) so every adapter can run it.
+  `src/<format>/model.rs` (ISO) so every adapter can run it. FAT scenarios
+  come in three shapes: operation traces every implementation must complete,
+  rejection scenarios whose final operation every implementation must refuse
+  while leaving the image untouched, and geometry-sized limit exercises in
+  `src/fat/limits.rs` that fill the root directory or the data region.
 - Add a new implementation by implementing the format's adapter trait in
   `src/<format>/<peer>.rs`; the existing measurement drivers then score it
   without further changes.
 - Tests that need an external tool should call the tool module's `require()`
-  (or `harness::require_or_skip`) so they skip locally and fail in CI jobs
-  that set `HADRIS_REQUIRE_EXTERNAL_TOOLS=1`.
+  (or `harness::require_or_skip`) so they skip locally and fail when
+  `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
+
+CI does not run the suite at the moment: three hosted FAT tests fail on
+recorded `hadris-fat` defects (see the compliance profile). CI still formats
+and lints the package.
 - When a test is cited as compliance evidence, reference it as
   `<format>::<topic>::<name>` in `@hadris-tests` annotations and
   `docs/spec-coverage.md`, and by file path in `spec/requirements/*.json`.

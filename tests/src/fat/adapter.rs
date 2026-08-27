@@ -1,4 +1,5 @@
 use super::model::{FsState, Operation, format_trace, summarize_operation};
+use super::scenarios::RejectionScenario;
 
 /// A mutable FAT implementation driven through the shared operation model.
 ///
@@ -60,5 +61,21 @@ pub fn apply_operations_without_attrs(
 pub fn clear_mutable_attrs(state: &mut FsState) {
     for entry in state.entries.values_mut() {
         entry.attrs = 0;
+    }
+}
+
+/// Applies a rejection scenario: the setup must succeed, the final operation
+/// must fail, and the returned model is the state the image must still show.
+pub fn apply_rejection(
+    adapter: &mut dyn FatAdapter,
+    scenario: &RejectionScenario,
+) -> Result<FsState, String> {
+    let expected = apply_operations(adapter, &scenario.setup)?;
+    match adapter.apply(&scenario.rejected) {
+        Ok(()) => Err(format!(
+            "accepted an invalid operation: {}",
+            summarize_operation(&scenario.rejected)
+        )),
+        Err(_) => Ok(expected),
     }
 }
