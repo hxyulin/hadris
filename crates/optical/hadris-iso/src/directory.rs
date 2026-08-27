@@ -1,5 +1,3 @@
-use std::println;
-
 use super::io::{self, Read, Write};
 use bytemuck::Zeroable;
 
@@ -294,7 +292,6 @@ impl DirectoryRecord {
             || !sel.header().data_len.is_consistent()
             || !sel.header().volume_sequence_number.is_consistent()
         {
-            println!("sel.header().flags  {}", sel.header().flags );
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "invalid ISO directory record",

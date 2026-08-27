@@ -40,7 +40,8 @@ use writer::{DirectoryRelocation, PathTableWriter, WrittenDirectory, WrittenFile
 
 use alloc::{string::String, vec, vec::Vec};
 
-pub use types::*;
+use types::*;
+pub use types::{InputEntry, InputFiles, File, FileContent, InputEntryKind, InputTree, InputMetadata, IsoCreationError};
 
 /// APIs for options.
 pub mod options;
@@ -764,7 +765,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         mut cursor: u64,
         sector_size: u64,
     ) -> io::Result<u64> {
-        const MAX_EXTENT_SIZE: u64 = u32::MAX as u64; // 4 GiB
 
         for (directory_id, index) in file_order {
             let dir = self.written_files.get_mut(directory_id);
@@ -781,22 +781,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 continue;
             }
 
-            let mut remaining = len;
-            let mut extents = Vec::new();
+            let extents_iter = ExtentIter::new(len, cursor, sector_size);
+            let (mut extents_vec, new_cursor) = extents_iter.collect_with_cursor();
 
-            while remaining > 0 {
-                let chunk = remaining.min(MAX_EXTENT_SIZE);
-                let aligned = (cursor + sector_size - 1) & !(sector_size - 1);
-                let extent = DirectoryRef::new((aligned / sector_size) as usize, chunk as usize);
-
-                extents.push(extent);
-
-                cursor = aligned + chunk;
-                remaining -= chunk;
+            if !extents_vec.is_empty() {
+                let first = extents_vec.remove(0);
+                file.entry = first;
+                file.additional_extents = extents_vec;
             }
 
-            file.entry = extents[0];
-            file.additional_extents = extents[1..].to_vec();
+            cursor = new_cursor;
         }
 
         Ok(cursor)
@@ -884,8 +878,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 }
 
                 if let InputEntryKind::File(contents) = &file.kind {
-                    let chunk_end = (offset + extent.size).min(contents.len());
-                    self.data.write_all(&contents[offset..chunk_end]).await?;
+                    let chunk_end = (offset + extent.size).min(contents.len() as _);
+                    let slice = contents
+                        .slice_range(offset..chunk_end)
+                        .ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "could not retrieve file content",
+                            )
+                        })?;
+                    self.data.write_all(&slice).await?;
                     offset += extent.size;
                 }
             }
@@ -1576,7 +1578,7 @@ mod tests {
         let input = InputFiles {
             path_separator: PathSeparator::ForwardSlash,
             files: vec![
-                File::File { name: Arc::new("TESTFILE".into()), contents: vec![0; 999] }
+                File::File { name: Arc::new("TESTFILE".into()), contents: vec![0; 999].into() }
             ],
         };
         let options = IsoFormatOptions {
@@ -1624,7 +1626,7 @@ mod tests {
         let input = InputFiles {
             path_separator: PathSeparator::ForwardSlash,
             files: vec![
-                File::File { name: Arc::new("TESTFILE".into()), contents: vec![0; size] }
+                File::File { name: Arc::new("TESTFILE".into()), contents: vec![0; size].into() }
             ],
         };
         let options = IsoFormatOptions {
@@ -1680,7 +1682,7 @@ mod tests {
             files: vec![
                 File::File { 
                     name: Arc::new("boot.bin".into()), 
-                    contents: vec![0x55; 2048] // Boot image
+                    contents: vec![0x55; 2048].into() // Boot image
                 }
             ],
         };
@@ -1735,7 +1737,7 @@ mod tests {
             files: vec![
                 File::File { 
                     name: Arc::new("efi.img".into()), 
-                    contents: vec![0xAA; 2048] // EFI boot image
+                    contents: vec![0xAA; 2048].into() // EFI boot image
                 }
             ],
         };
@@ -1790,11 +1792,11 @@ mod tests {
             files: vec![
                 File::File { 
                     name: Arc::new("boot.bin".into()), 
-                    contents: vec![0x55; 2048] // BIOS boot image
+                    contents: vec![0x55; 2048].into() // BIOS boot image
                 },
                 File::File { 
                     name: Arc::new("efi.img".into()), 
-                    contents: vec![0xAA; 2048] // EFI boot image
+                    contents: vec![0xAA; 2048].into() // EFI boot image
                 }
             ],
         };

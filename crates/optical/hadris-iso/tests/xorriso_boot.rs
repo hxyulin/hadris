@@ -320,7 +320,7 @@ fn test_hadris_bootable_iso_creation() {
         path_separator: PathSeparator::ForwardSlash,
         files: vec![IsoFile::File {
             name: Arc::new("boot.bin".to_string()),
-            contents: boot_data.clone(),
+            contents: boot_data.clone().into(),
         }],
     };
 
@@ -505,7 +505,7 @@ fn test_compare_boot_catalogs() {
         path_separator: PathSeparator::ForwardSlash,
         files: vec![IsoFile::File {
             name: Arc::new("boot.bin".to_string()),
-            contents: boot_data.clone(),
+            contents: boot_data.clone().into(),
         }],
     };
 
@@ -811,7 +811,7 @@ fn test_qemu_boot_hadris_iso() {
         path_separator: PathSeparator::ForwardSlash,
         files: vec![IsoFile::File {
             name: Arc::new("boot.bin".to_string()),
-            contents: boot_data.clone(),
+            contents: boot_data.clone().into(),
         }],
     };
 

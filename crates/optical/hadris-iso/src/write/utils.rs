@@ -8,7 +8,6 @@ pub fn system_time_seconds(value: std::io::Result<std::time::SystemTime>) -> Opt
         .and_then(|duration| i64::try_from(duration.as_secs()).ok())
 }
 
-
 pub fn read_input_directory_recursively(
     current_path: &std::path::Path,
 ) -> core::result::Result<Vec<InputEntry>, FileConversionError> {
@@ -22,57 +21,11 @@ pub fn read_input_directory_recursively(
             .and_then(|value| value.to_str())
             .ok_or_else(|| FileConversionError::InvalidUtf8Path(path.clone()))?
             .to_string();
-        let fs_metadata = std::fs::symlink_metadata(&path)?;
+        let fs_metadata: std::fs::Metadata = std::fs::symlink_metadata(&path)?;
         let file_type = fs_metadata.file_type();
-        let metadata = InputMetadata {
-            created: system_time_seconds(fs_metadata.created()),
-            modified: system_time_seconds(fs_metadata.modified()),
-            accessed: system_time_seconds(fs_metadata.accessed()),
-            ..InputMetadata::default()
-        };
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            metadata.mode = Some(fs_metadata.mode() & 0o7777);
-            metadata.uid = Some(fs_metadata.uid());
-            metadata.gid = Some(fs_metadata.gid());
-        }
-        let kind = if file_type.is_file() {
-            InputEntryKind::File(std::fs::read(&path)?)
-        } else if file_type.is_dir() {
-            InputEntryKind::Directory(read_input_directory_recursively(&path)?)
-        } else if file_type.is_symlink() {
-            let target = std::fs::read_link(&path)?;
-            InputEntryKind::Symlink(
-                target
-                    .to_str()
-                    .ok_or_else(|| FileConversionError::InvalidUtf8Path(target.clone()))?
-                    .to_string(),
-            )
-        } else {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::{FileTypeExt, MetadataExt};
-                let device = fs_metadata.rdev();
-                let major = ((device >> 8) & 0xfff) | ((device >> 32) & 0xfffff000);
-                let minor = (device & 0xff) | ((device >> 12) & 0xffffff00);
-                if file_type.is_char_device() {
-                    InputEntryKind::CharacterDevice {
-                        major: major as u32,
-                        minor: minor as u32,
-                    }
-                } else if file_type.is_block_device() {
-                    InputEntryKind::BlockDevice {
-                        major: major as u32,
-                        minor: minor as u32,
-                    }
-                } else {
-                    return Err(FileConversionError::UnsupportedFileType(path));
-                }
-            }
-            #[cfg(not(unix))]
-            return Err(FileConversionError::UnsupportedFileType(path));
-        };
+        let metadata = InputMetadata::from_fs(fs_metadata);
+        let kind = InputEntryKind::new(file_type, path)?;
+
         children.push(InputEntry {
             name: Arc::new(name),
             kind,
@@ -90,70 +43,91 @@ pub fn read_input_directory_recursively(
 /// suffix). The basename is truncated if needed to stay within format limits.
 pub fn apply_dedup_suffix(name: &[u8], n: usize, ty: EntryType) -> Vec<u8> {
     let suffix = alloc::format!("_{n}");
-    let suffix_bytes = suffix.as_bytes();
 
     match ty {
-        EntryType::Joliet { .. } => {
-            // Joliet: UTF-16 BE, find the dot (0x00 0x2E) or end
-            let mut dot_pos = None;
-            let mut i = 0;
-            while i + 1 < name.len() {
-                if name[i] == 0x00 && name[i + 1] == 0x2E {
-                    dot_pos = Some(i);
-                }
-                i += 2;
-            }
-            let (basename, ext) = match dot_pos {
-                Some(pos) => (&name[..pos], &name[pos..]),
-                None => (name, &[][..]),
-            };
-            // Convert suffix to UTF-16 BE
-            let suffix_u16: Vec<u8> = suffix
-                .encode_utf16()
-                .flat_map(|c| c.to_be_bytes())
-                .collect();
-            // Max 206 bytes (103 code units) for Joliet
-            let max_basename = 206usize.saturating_sub(ext.len() + suffix_u16.len());
-            let trunc_basename = &basename[..basename.len().min(max_basename) & !1];
-            let mut result =
-                Vec::with_capacity(trunc_basename.len() + suffix_u16.len() + ext.len());
-            result.extend_from_slice(trunc_basename);
-            result.extend_from_slice(&suffix_u16);
-            result.extend_from_slice(ext);
-            result
-        }
-        _ => {
-            // ASCII-based names (L1, L2, L3)
-            // Strip ";1" version suffix if present
-            let (base_name, version) = if name.ends_with(b";1") {
-                (&name[..name.len() - 2], &b";1"[..])
-            } else {
-                (name, &[][..])
-            };
-            // Find the dot separator
-            let dot_pos = base_name.iter().rposition(|&b| b == b'.');
-            let (basename, ext) = match dot_pos {
-                Some(pos) => (&base_name[..pos], &base_name[pos..]),
-                None => (base_name, &[][..]),
-            };
-            // Determine max basename length based on level
-            let max_total = match ty {
-                EntryType::Level1 { .. } => 8,
-                EntryType::Level2 { .. } => 30usize.saturating_sub(ext.len()),
-                _ => 207usize.saturating_sub(ext.len() + version.len()),
-            };
-            let max_basename = max_total.saturating_sub(suffix_bytes.len());
-            let trunc_basename = &basename[..basename.len().min(max_basename)];
-            let mut result = Vec::with_capacity(
-                trunc_basename.len() + suffix_bytes.len() + ext.len() + version.len(),
-            );
-            result.extend_from_slice(trunc_basename);
-            result.extend_from_slice(suffix_bytes);
-            result.extend_from_slice(ext);
-            result.extend_from_slice(version);
-            result
-        }
+        EntryType::Joliet { .. } => apply_joliet_dedup_suffix(name, &suffix),
+        _ => apply_iso_dedup_suffix(name, &suffix, ty)
     }
+}
+
+/// Applies a deduplication suffix to a Joliet (UTF‑16 BE) name.
+///
+/// Joliet names are UCS‑2 (UTF‑16 BE) encoded. This function finds the extension
+/// (dot) position, inserts the suffix before it, and truncates to the maximum
+/// Joliet name length (103 code units = 206 bytes).
+fn apply_joliet_dedup_suffix(name: &[u8], suffix: &str) -> Vec<u8> {
+    let suffix_u16: Vec<u8> = suffix
+        .encode_utf16()
+        .flat_map(|c| c.to_be_bytes())
+        .collect();
+
+    let mut dot_pos = None;
+    let mut i = 0;
+    while i + 1 < name.len() {
+        if name[i] == 0x00 && name[i + 1] == 0x2E {
+            dot_pos = Some(i);
+            break; // Only the first dot matters
+        }
+        i += 2;
+    }
+
+    let (basename, ext) = match dot_pos {
+        Some(pos) => (&name[..pos], &name[pos..]),
+        None => (name, &[][..]),
+    };
+
+    // Max 206 bytes = 103 code units (UCS‑2)
+    let max_basename = 206usize.saturating_sub(ext.len() + suffix_u16.len());
+    let trunc_basename = &basename[..basename.len().min(max_basename) & !1];
+
+    let mut result = Vec::with_capacity(trunc_basename.len() + suffix_u16.len() + ext.len());
+    result.extend_from_slice(trunc_basename);
+    result.extend_from_slice(&suffix_u16);
+    result.extend_from_slice(ext);
+    result
+}
+
+/// Applies a deduplication suffix to an ISO Level 1, 2, or 3 name.
+///
+/// ISO names are ASCII-based and may include a `;1` version suffix.
+/// The suffix is inserted before the extension (and before `;1` if present).
+fn apply_iso_dedup_suffix(name: &[u8], suffix: &str, ty: EntryType) -> Vec<u8> {
+    let suffix_bytes = suffix.as_bytes();
+
+    // Strip ";1" version suffix if present
+    let (base_name, version) = if name.ends_with(b";1") {
+        (&name[..name.len() - 2], &b";1"[..])
+    } else {
+        (name, &[][..])
+    };
+
+    // Find the extension separator (last dot)
+    let dot_pos = base_name.iter().rposition(|&b| b == b'.');
+    let (basename, ext) = match dot_pos {
+        Some(pos) => (&base_name[..pos], &base_name[pos..]),
+        None => (base_name, &[][..]),
+    };
+
+    // Determine max basename length based on ISO level
+    let max_total = match ty {
+        EntryType::Level1 { .. } => 8, // 8.3 format
+        EntryType::Level2 { .. } => 30usize.saturating_sub(ext.len()),
+        _ => 207usize.saturating_sub(ext.len() + version.len()), // Level 3
+    };
+
+    // Truncate basename to fit suffix
+    let max_basename = max_total.saturating_sub(suffix_bytes.len());
+    let trunc_basename = &basename[..basename.len().min(max_basename)];
+
+    // Build result: basename + suffix + extension + version
+    let mut result = Vec::with_capacity(
+        trunc_basename.len() + suffix_bytes.len() + ext.len() + version.len(),
+    );
+    result.extend_from_slice(trunc_basename);
+    result.extend_from_slice(suffix_bytes);
+    result.extend_from_slice(ext);
+    result.extend_from_slice(version);
+    result
 }
 
 pub fn relocate_deep_directories(files: &mut WrittenFiles) {
@@ -250,7 +224,6 @@ pub fn generate_guid_from_string(s: &str) -> Guid {
 
     Guid::from_bytes(bytes)
 }
-
 
 /// Compute the available system use space in a DirectoryRecord given
 /// the ISO name length. The record is 256 bytes max; the fixed header

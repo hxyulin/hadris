@@ -1,9 +1,9 @@
-use core::fmt;
+use core::{fmt, ops::Deref};
+use std::{fs::FileType, path::{PathBuf}};
 
-use alloc::{collections::{BTreeMap, BTreeSet,VecDeque}, string::String, sync::Arc, vec::Vec};
-use alloc::vec;
+use alloc::{borrow::Cow, collections::{BTreeMap, BTreeSet,VecDeque}, string::{String, ToString}, sync::Arc, vec::Vec};
 
-use crate::{directory::{DirectoryRef, FileFlags}, file::EntryType, io::{self}, read::PathSeparator, rrip::RripOptions, susp::SplitSu, write::{utils::*, writer::*}};
+use crate::{directory::{DirectoryRef, FileFlags}, file::{ConvertedName, EntryType}, io::{self}, read::PathSeparator, rrip::RripOptions, susp::SplitSu, write::{utils::*, writer::*}};
 
 /// Canonical error for ISO creation operations.
 pub type Error = IsoCreationError;
@@ -52,6 +52,105 @@ pub struct InputFiles {
     pub files: Vec<File>,
 }
 
+/// File content that can be stored in different forms.
+///
+/// This enum represents the actual data of a file being written to an ISO image.
+/// It supports three storage strategies to balance memory usage and performance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileContent {
+    /// Empty file or placeholder (no data).
+    None,
+    /// Static data with a `'static` lifetime (no allocation).
+    Static(&'static [u8]),
+    /// Heap-allocated data shared via an atomic reference counter.
+    Raw(Arc<[u8]>),
+    /// Test-only variant that simulates a file of a given size with a repeating pattern.
+    #[cfg(test)]
+    Test {
+        /// Total size of the simulated file in bytes.
+        size: usize,
+        /// Byte pattern to repeat for the entire file.
+        pattern: u8,
+    },
+}
+
+impl From<Vec<u8>> for FileContent {
+    fn from(value: Vec<u8>) -> Self {
+        Self::Raw(value.into())
+    }
+}
+
+impl From<&'static [u8]> for FileContent {
+    fn from(value: &'static [u8]) -> Self {
+        Self::Static(value)
+    }
+}
+
+impl From<Arc<[u8]>> for FileContent {
+    fn from(value: Arc<[u8]>) -> Self {
+        Self::Raw(value)
+    }
+}
+
+impl FileContent {
+    /// Returns `true` if the content is empty or `None`.
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::None => true,
+            Self::Static(data) => data.is_empty(),
+            Self::Raw(data) => data.is_empty(),
+            #[cfg(test)]
+            Self::Test { size, .. } => *size == 0,
+        }
+    }
+
+    /// Returns the length of the content in bytes.
+    pub fn len(&self) -> u64 {
+        match self {
+            Self::None => 0,
+            Self::Static(data) => data.len() as u64,
+            Self::Raw(data) => data.len() as u64,
+            #[cfg(test)]
+            Self::Test { size, .. } => *size as u64,
+        }
+    }
+
+    /// Returns a slice starting at `offset` to the end.
+    pub fn slice_range(&self, range: core::ops::Range<usize>) -> Option<Cow<'_, [u8]>> {
+        let (start, end) = (range.start, range.end);
+        if start > end {
+            return None;
+        }
+        match self {
+            Self::None => None,
+            Self::Static(data) => {
+                if end <= data.len() {
+                    Some(Cow::Borrowed(&data[start..end]))
+                } else {
+                    None
+                }
+            }
+            Self::Raw(data) => {
+                if end <= data.len() {
+                    Some(Cow::Borrowed(&data[start..end]))
+                } else {
+                    None
+                }
+            }
+            #[cfg(test)]
+            Self::Test { size, pattern } => {
+                if end <= *size {
+                    let len = end - start;
+                    let vec = alloc::vec![*pattern; len];
+                    Some(Cow::Owned(vec))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 /// A file or directory in the compact [`InputFiles`] model.
 pub enum File {
@@ -60,7 +159,7 @@ pub enum File {
         /// The `name` field.
         name: Arc<String>,
         /// The `contents` field.
-        contents: Vec<u8>,
+        contents: FileContent,
     },
     /// The `Directory` variant.
     Directory {
@@ -196,11 +295,34 @@ pub struct InputMetadata {
     pub accessed: Option<i64>,
 }
 
+impl InputMetadata {
+    /// Creates metadata from filesystem metadata.
+    pub fn from_fs(fs_metadata: std::fs::Metadata) -> Self {
+        #[allow(unused_mut)]
+        let mut metadata = Self {
+            created: system_time_seconds(fs_metadata.created()),
+            modified: system_time_seconds(fs_metadata.modified()),
+            accessed: system_time_seconds(fs_metadata.accessed()),
+            ..Self::default()
+        };
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            metadata.mode = Some(fs_metadata.mode() & 0o7777);
+            metadata.uid = Some(fs_metadata.uid());
+            metadata.gid = Some(fs_metadata.gid());
+        }
+
+        metadata
+    }
+}
+
 /// The data represented by an [`InputEntry`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputEntryKind {
     /// The `File` variant.
-    File(Vec<u8>),
+    File(FileContent),
     /// The `Directory` variant.
     Directory(Vec<InputEntry>),
     /// The `Symlink` variant.
@@ -221,50 +343,107 @@ pub enum InputEntryKind {
     },
 }
 
-/// A named input entry and its optional host metadata.
+impl InputEntryKind {
+    /// Creates an `InputEntryKind` from a filesystem file type and path.
+    ///
+    /// This function inspects the file type and constructs the appropriate variant:
+    /// - Regular files → `File` (contents are read into memory).
+    /// - Directories → `Directory` (recursively reads all children).
+    /// - Symlinks → `Symlink` (reads the link target as a string).
+    /// - Character/block devices → `CharacterDevice` or `BlockDevice` (Unix only).
+    pub fn new(file_type: FileType, path: PathBuf) -> core::result::Result<Self, FileConversionError> {
+        if file_type.is_file() {
+            let content = std::fs::read(&path)?.into();
+            Ok(InputEntryKind::File(content))
+        } else if file_type.is_dir() {
+            let dir = read_input_directory_recursively(&path)?;
+            Ok(InputEntryKind::Directory(dir))
+        } else if file_type.is_symlink() {
+            let target = std::fs::read_link(&path)?;
+            let symlink = target
+                .to_str()
+                .ok_or_else(|| FileConversionError::InvalidUtf8Path(target.clone()))?
+                .to_string();
+            Ok(InputEntryKind::Symlink(symlink))
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::{FileTypeExt, MetadataExt};
+                const DEV_MAJOR_MASK_LOW: u64 = 0xfff;
+                const DEV_MAJOR_MASK_HIGH: u64 = 0xfffff000;
+                const DEV_MINOR_MASK_LOW: u64 = 0xff;
+                const DEV_MINOR_MASK_HIGH: u64 = 0xffffff00;
+
+                let device = fs_metadata.rdev();
+                let major = ((device >> 8) & DEV_MAJOR_MASK_LOW) | ((device >> 32) & DEV_MAJOR_MASK_HIGH);
+                let minor = (device & DEV_MINOR_MASK_LOW) | ((device >> 12) & DEV_MINOR_MASK_HIGH);
+                if file_type.is_char_device() {
+                    InputEntryKind::CharacterDevice {
+                        major: major as u32,
+                        minor: minor as u32,
+                    }
+                } else if file_type.is_block_device() {
+                    InputEntryKind::BlockDevice {
+                        major: major as u32,
+                        minor: minor as u32,
+                    }
+                } else {
+                    return Err(FileConversionError::UnsupportedFileType(path));
+                }
+            }
+            #[cfg(not(unix))]
+            return Err(FileConversionError::UnsupportedFileType(path));
+        }
+    }
+}
+
+/// A named entry in the input tree, representing a file, directory, symlink, or device.
+///
+/// This struct is the building block of [`InputTree`]. Each entry has a name,
+/// a kind (file, directory, symlink, or device), and optional POSIX metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputEntry {
-    /// The `name` field.
+    /// The name of the entry (e.g., `"README.txt"` or `"src"`).
     pub name: Arc<String>,
-    /// The `kind` field.
+    /// The kind of entry (file, directory, symlink, or device).
     pub kind: InputEntryKind,
-    /// The `metadata` field.
+    /// Optional POSIX metadata (permissions, ownership, timestamps).
     pub metadata: InputMetadata,
 }
 
 impl InputEntry {
-    /// Performs the `file` operation.
-    pub fn file(name: impl Into<String>, contents: impl Into<Vec<u8>>) -> Self {
+    /// Creates a regular file entry with content.
+    pub fn file(name: impl Into<String>, contents: impl Into<FileContent>) -> Self {
         Self::new(name, InputEntryKind::File(contents.into()))
     }
 
-    /// Performs the `directory` operation.
+    /// Creates a directory entry with children.
     pub fn directory(name: impl Into<String>, children: Vec<Self>) -> Self {
         Self::new(name, InputEntryKind::Directory(children))
     }
 
-    /// Performs the `symlink` operation.
+    /// Creates a symbolic link entry.
     pub fn symlink(name: impl Into<String>, target: impl Into<String>) -> Self {
         Self::new(name, InputEntryKind::Symlink(target.into()))
     }
 
-    /// Performs the `character_device` operation.
+    /// Creates a character device entry (Unix only).
     pub fn character_device(name: impl Into<String>, major: u32, minor: u32) -> Self {
         Self::new(name, InputEntryKind::CharacterDevice { major, minor })
     }
 
-    /// Performs the `block_device` operation.
+    /// Creates a block device entry (Unix only).
     pub fn block_device(name: impl Into<String>, major: u32, minor: u32) -> Self {
         Self::new(name, InputEntryKind::BlockDevice { major, minor })
     }
 
-    /// Performs the `with_metadata` operation.
+    /// Sets the metadata for this entry.
     pub fn with_metadata(mut self, metadata: InputMetadata) -> Self {
         self.metadata = metadata;
         self
     }
 
-    /// Performs the `name` operation.
+    /// Returns the name of the entry.
     pub fn name(&self) -> Arc<String> {
         self.name.clone()
     }
@@ -661,18 +840,12 @@ impl PendingRecords {
                 SplitSu::empty()
             };
 
-            let record = PendingRecord {
-                name: converted_name.as_bytes().to_vec(),
+            let dir_ref = directory.get_dir_ref(ty, relocation_refs);
+            let record = PendingRecord::new(
+                &converted_name,
                 split,
-                dir_ref: match directory.relocation {
-                    DirectoryRelocation::Placeholder { target } => relocation_refs
-                        .get(&(target, ty))
-                        .copied()
-                        .unwrap_or_default(),
-                    _ => *directory.entries.get(&ty).unwrap(),
-                },
-                flags: FileFlags::DIRECTORY,
-            };
+                dir_ref,
+                FileFlags::DIRECTORY);
 
             records.push(record);
         }
@@ -718,19 +891,14 @@ impl PendingRecords {
                 FileFlags::NOT_FINAL
             };
             
-            let first = PendingRecord {
-                name: converted_name.as_bytes().to_vec(),
-                split,
-                dir_ref: file.entry,
-                flags: first_flags,
-            };
+            let first = PendingRecord::new(&converted_name, split, file.entry, first_flags);
             records.push(first);
 
             // Push additional extents (multi-extent files)
             // ECMA-119 9.1.4: Each extent gets its own directory record
             // with the same file identifier.
             let len = file.additional_extents.len();
-            for (i, ext) in file.additional_extents.iter().enumerate() {
+            for (i, dir_ref) in file.additional_extents.iter().cloned().enumerate() {
 
                 let flags = if i == len - 1 {
                     FileFlags::empty()  // Last extent
@@ -738,13 +906,7 @@ impl PendingRecords {
                     FileFlags::NOT_FINAL  // Middle extents
                 };
                 
-                let record = PendingRecord {
-                    name: converted_name.as_bytes().to_vec(),
-                    split: SplitSu::empty(),
-                    dir_ref: *ext,
-                    flags
-                };
-
+                let record = PendingRecord::new(&converted_name, SplitSu::empty(), dir_ref, flags);
                 records.push(record);
             }
         }
@@ -752,31 +914,35 @@ impl PendingRecords {
     }
 
     fn deduplicate_names(records: &mut Vec<PendingRecord>, ty: EntryType) {
-        
-        let mut seen: BTreeSet<Vec<u8>> = BTreeSet::new();
-        for record in records {
-            // Skip dot/dotdot entries
+        let mut groups: BTreeMap<PendingRecordName, Vec<usize>> = BTreeMap::new();
+
+        for (idx, record) in records.iter().enumerate() {
             if record.name.len() == 1 && (record.name[0] == 0x00 || record.name[0] == 0x01) {
                 continue;
             }
+            groups.entry(record.name.clone()).or_default().push(idx);
+        }
 
-            if record.flags.contains(FileFlags::NOT_FINAL) {
-                continue;
-            }
-                
-            if seen.insert(record.name.clone()) {
-                continue;
-            }
+        let mut seen: BTreeSet<PendingRecordName> = BTreeSet::new();
 
-            let original = record.name.clone();
-            let mut suffix = 1;
-            loop {
-                let candidate = apply_dedup_suffix(&original, suffix, ty);
-                suffix += 1;
-                if seen.insert(candidate.clone()) {
-                    record.name = candidate;
-                    break;
+        for (original_name, indices) in groups {
+            let unique_name = if seen.contains(&original_name) {
+                let mut suffix = 1;
+                loop {
+                    let candidate = apply_dedup_suffix(&original_name, suffix, ty).into();
+                    suffix += 1;
+                    if !seen.contains(&candidate) {
+                        break candidate;
+                    }
                 }
+            } else {
+                original_name.clone()
+            };
+
+            seen.insert(unique_name.clone());
+
+            for &idx in &indices {
+                records[idx].name = unique_name.clone();
             }
         }
     }
@@ -819,11 +985,33 @@ impl PendingRecords {
     }
 }
 
+/// A reference-counted, cloneable name for a pending directory record.
+///
+/// This type wraps an `Arc<[u8]>`, allowing efficient sharing of the name
+/// across multiple records (e.g., multi-extent files where all extents share
+/// the same name). It is cheap to clone and can be compared and hashed.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PendingRecordName(Arc<[u8]>);
+
+impl From<Vec<u8>> for PendingRecordName {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value.into())
+    }
+}
+
+impl Deref for PendingRecordName {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// A pending directory record, built in phase 1 and written in phases 2-3.
 #[derive(Debug, Clone)]
 pub struct PendingRecord {
     /// File or directory name.
-    pub name: Vec<u8>,
+    pub name: PendingRecordName,
     /// System Use data (split into inline and overflow).
     pub split: SplitSu,
     /// Location and size of the file/dir.
@@ -833,10 +1021,20 @@ pub struct PendingRecord {
 }
 
 impl PendingRecord {
+    /// Creates a new pending directory record.
+    pub fn new(name: &ConvertedName, split: SplitSu, dir_ref: DirectoryRef, flags: FileFlags) -> Self {
+        Self {
+            name: PendingRecordName(name.as_bytes().into()),
+            split,
+            dir_ref,
+            flags
+        }
+    }
+
     /// Current directory "." entry.
     pub fn current_dir(dot_split: SplitSu) -> Self {
         Self {
-            name: vec![0x00],
+            name: PendingRecordName([0x00].into()),
             split: dot_split,
             dir_ref: DirectoryRef::default(),
             flags: FileFlags::DIRECTORY,
@@ -846,10 +1044,108 @@ impl PendingRecord {
     /// Parent directory ".." entry.
     pub fn parent_dir(dotdot_split: SplitSu) -> Self {
         Self {
-            name: vec![0x01],
+            name: PendingRecordName([0x01].into()),
             split: dotdot_split,
             dir_ref: DirectoryRef::default(),
             flags: FileFlags::DIRECTORY,
         }
+    }
+}
+
+/// An iterator that splits a file into ISO 9660 extents.
+pub struct ExtentIter {
+    remaining: u64,
+    cursor: u64,
+    sector_size: u64,
+}
+
+impl ExtentIter {
+    // ECMA-119 6.5.4: Non-final extents must be multiples of the logical block size.
+    // Maximum extent size is floor(u32::MAX / 2048) * 2048 = 4,294,965,248.
+    const MAX_EXTENT_SIZE: u64 = (u32::MAX as u64 / 2048) * 2048;
+
+    /// Creates a new extent iterator.
+    pub fn new(len: u64, cursor: u64, sector_size: u64) -> Self {
+        Self {
+            remaining: len,
+            cursor,
+            sector_size,
+        }
+    }
+
+    /// Collects all extents into a `Vec<DirectoryRef>` and returns the final cursor.
+    pub fn collect_with_cursor(self) -> (Vec<DirectoryRef>, u64) {
+        let mut extents = Vec::new();
+        let mut cursor = self.cursor;
+
+        for (extent, new_cursor) in self {
+            extents.push(extent);
+            cursor = new_cursor;
+        }
+
+        (extents, cursor)
+    }
+}
+
+impl Iterator for ExtentIter {
+    type Item = (DirectoryRef, u64);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        let chunk = if self.remaining > Self::MAX_EXTENT_SIZE {
+            Self::MAX_EXTENT_SIZE
+        } else {
+            self.remaining
+        };
+
+        let aligned = (self.cursor + self.sector_size - 1) & !(self.sector_size - 1);
+        let extent = DirectoryRef::new((aligned / self.sector_size) as usize, chunk as usize);
+
+        self.cursor = aligned + chunk;
+        self.remaining -= chunk;
+
+        Some((extent, self.cursor))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extent_iter_splits_correctly() {
+        let sector_size = 2048;
+        let cursor = 0;
+
+        let len = u32::MAX as u64 + 1;
+        let iter = ExtentIter::new(len, cursor, sector_size);
+        let (extents, final_cursor) = iter.collect_with_cursor();
+
+        assert_eq!(extents.len(), 2);
+
+        assert_eq!(extents[0].size, 4_294_965_248);
+        assert_eq!(extents[0].extent.0, 0);
+
+        assert_eq!(extents[1].size, 2048);
+        let expected_sector: u64 = 4_294_965_248 / 2048;
+        assert_eq!(extents[1].extent.0, expected_sector as usize);
+
+        assert_eq!(final_cursor, len);
+    }
+
+    #[test]
+    fn extent_iter_small_file() {
+        let sector_size = 2048;
+        let len = 1024; // < 4 GiB
+        let iter = ExtentIter::new(len, 0, sector_size);
+        let (extents, final_cursor) = iter.collect_with_cursor();
+
+        assert_eq!(extents.len(), 1);
+        assert_eq!(extents[0].size, 1024);
+        assert_eq!(extents[0].extent.0, 0);
+        assert_eq!(final_cursor, 1024);
     }
 }

@@ -81,7 +81,7 @@ fn write_and_open(files: Vec<IsoFile>, options: IsoFormatOptions) -> IsoImage<Cu
 fn nested_dir(depth: usize) -> IsoFile {
     let mut current = IsoFile::File {
         name: Arc::new("deep.txt".to_string()),
-        contents: b"deep content".to_vec(),
+        contents: b"deep content".to_vec().into(),
     };
     for i in (0..depth).rev() {
         current = IsoFile::Directory {
@@ -126,7 +126,7 @@ fn test_path_table_contains_all_subdirectories() {
                     name: Arc::new("c".to_string()),
                     children: vec![IsoFile::File {
                         name: Arc::new("deep.txt".to_string()),
-                        contents: b"deep".to_vec(),
+                        contents: b"deep".to_vec().into(),
                     }],
                 }],
             }],
@@ -137,7 +137,7 @@ fn test_path_table_contains_all_subdirectories() {
                 name: Arc::new("y".to_string()),
                 children: vec![IsoFile::File {
                     name: Arc::new("leaf.txt".to_string()),
-                    contents: b"leaf".to_vec(),
+                    contents: b"leaf".to_vec().into(),
                 }],
             }],
         },
@@ -205,7 +205,7 @@ fn raw_directory_records_respect_sector_and_identifier_rules() {
     let mut files: Vec<_> = (0..100)
         .map(|index| IsoFile::File {
             name: Arc::new(format!("FILE{index:03}.TXT")),
-            contents: vec![index as u8],
+            contents: vec![index as u8].into(),
         })
         .collect();
     files.push(IsoFile::Directory {
@@ -265,15 +265,15 @@ fn test_name_deduplication_produces_unique_names() {
     let files = vec![
         IsoFile::File {
             name: Arc::new("readme.txt".to_string()),
-            contents: b"a".to_vec(),
+            contents: b"a".to_vec().into(),
         },
         IsoFile::File {
             name: Arc::new("README.txt".to_string()),
-            contents: b"b".to_vec(),
+            contents: b"b".to_vec().into(),
         },
         IsoFile::File {
             name: Arc::new("ReadMe.txt".to_string()),
-            contents: b"c".to_vec(),
+            contents: b"c".to_vec().into(),
         },
     ];
 
@@ -297,22 +297,22 @@ fn test_directory_records_written_in_collation_order() {
     let files = vec![
         IsoFile::File {
             name: Arc::new("zebra.txt".to_string()),
-            contents: b"z".to_vec(),
+            contents: b"z".to_vec().into(),
         },
         IsoFile::Directory {
             name: Arc::new("mango".to_string()),
             children: vec![IsoFile::File {
                 name: Arc::new("inner.txt".to_string()),
-                contents: b"i".to_vec(),
+                contents: b"i".to_vec().into(),
             }],
         },
         IsoFile::File {
             name: Arc::new("alpha.txt".to_string()),
-            contents: b"a".to_vec(),
+            contents: b"a".to_vec().into(),
         },
         IsoFile::File {
             name: Arc::new("apple.txt".to_string()),
-            contents: b"p".to_vec(),
+            contents: b"p".to_vec().into(),
         },
     ];
 
@@ -343,11 +343,11 @@ fn test_dedup_with_no_extension() {
     let files = vec![
         IsoFile::File {
             name: Arc::new("README".to_string()),
-            contents: b"a".to_vec(),
+            contents: b"a".to_vec().into(),
         },
         IsoFile::File {
             name: Arc::new("readme".to_string()),
-            contents: b"b".to_vec(),
+            contents: b"b".to_vec().into(),
         },
     ];
 
@@ -396,7 +396,7 @@ fn test_size_estimate_is_conservative() {
             "simple",
             vec![IsoFile::File {
                 name: Arc::new("test.txt".to_string()),
-                contents: b"hello".to_vec(),
+                contents: b"hello".to_vec().into(),
             }],
             default_options(),
         ),
@@ -406,7 +406,7 @@ fn test_size_estimate_is_conservative() {
                 name: Arc::new("sub".to_string()),
                 children: vec![IsoFile::File {
                     name: Arc::new("inner.txt".to_string()),
-                    contents: vec![0u8; 4096],
+                    contents: vec![0u8; 4096].into(),
                 }],
             }],
             default_options(),
@@ -415,7 +415,7 @@ fn test_size_estimate_is_conservative() {
             "rrip",
             vec![IsoFile::File {
                 name: Arc::new("rrip_file.txt".to_string()),
-                contents: b"rrip content".to_vec(),
+                contents: b"rrip content".to_vec().into(),
             }],
             rrip_options(),
         ),
@@ -423,7 +423,7 @@ fn test_size_estimate_is_conservative() {
             "joliet",
             vec![IsoFile::File {
                 name: Arc::new("joliet_file.txt".to_string()),
-                contents: b"joliet content".to_vec(),
+                contents: b"joliet content".to_vec().into(),
             }],
             joliet_options(),
         ),
@@ -462,7 +462,7 @@ fn test_size_estimate_is_conservative() {
 fn test_rrip_tf_timestamps_present() {
     let files = vec![IsoFile::File {
         name: Arc::new("timestamped.txt".to_string()),
-        contents: b"hello".to_vec(),
+        contents: b"hello".to_vec().into(),
     }];
 
     let image = write_and_open(files, rrip_options());
@@ -497,20 +497,20 @@ fn test_roundtrip_multi_level_directories() {
     let files = vec![
         IsoFile::File {
             name: Arc::new("file1.txt".to_string()),
-            contents: b"root file".to_vec(),
+            contents: b"root file".to_vec().into(),
         },
         IsoFile::Directory {
             name: Arc::new("dir_a".to_string()),
             children: vec![
                 IsoFile::File {
                     name: Arc::new("file2.txt".to_string()),
-                    contents: b"level 2 file".to_vec(),
+                    contents: b"level 2 file".to_vec().into(),
                 },
                 IsoFile::Directory {
                     name: Arc::new("dir_b".to_string()),
                     children: vec![IsoFile::File {
                         name: Arc::new("file3.txt".to_string()),
-                        contents: b"level 3 file".to_vec(),
+                        contents: b"level 3 file".to_vec().into(),
                     }],
                 },
             ],
@@ -612,7 +612,7 @@ fn test_empty_directory_roundtrip() {
 fn test_zero_size_file_roundtrip() {
     let files = vec![IsoFile::File {
         name: Arc::new("empty.txt".to_string()),
-        contents: vec![],
+        contents: vec![].into(),
     }];
 
     let image = write_and_open(files, default_options());
@@ -647,7 +647,7 @@ fn test_joliet_subdirectory_roundtrip() {
         name: Arc::new("subdir".to_string()),
         children: vec![IsoFile::File {
             name: Arc::new("inner.txt".to_string()),
-            contents: b"joliet inner".to_vec(),
+            contents: b"joliet inner".to_vec().into(),
         }],
     }];
 
@@ -696,12 +696,12 @@ fn test_rrip_typed_fields_roundtrip() {
             name: Arc::new("subdir".to_string()),
             children: vec![IsoFile::File {
                 name: Arc::new("inner.txt".to_string()),
-                contents: b"rrip typed test".to_vec(),
+                contents: b"rrip typed test".to_vec().into(),
             }],
         },
         IsoFile::File {
             name: Arc::new("readme.txt".to_string()),
-            contents: b"hello rrip".to_vec(),
+            contents: b"hello rrip".to_vec().into(),
         },
     ];
 
@@ -781,7 +781,7 @@ fn test_overlong_volume_name_returns_error_instead_of_panicking() {
         path_separator: PathSeparator::ForwardSlash,
         files: vec![IsoFile::File {
             name: Arc::new("hello.txt".to_string()),
-            contents: b"hello".to_vec(),
+            contents: b"hello".to_vec().into(),
         }],
     };
     let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);

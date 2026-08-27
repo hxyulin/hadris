@@ -23,7 +23,7 @@ fn test_multi_sector_directory() {
     let files: Vec<IsoFile> = (0..NUM_FILES)
         .map(|i| IsoFile::File {
             name: Arc::new(format!("FILE{i:03}.TXT")),
-            contents: format!("Content of file {i}\n").into_bytes(),
+            contents: format!("Content of file {i}\n").into_bytes().into(),
         })
         .collect();
 
@@ -112,13 +112,13 @@ fn test_hadris_rockridge_roundtrip() {
         files: vec![
             IsoFile::File {
                 name: Arc::new("hello.txt".to_string()),
-                contents: b"Hello, Rock Ridge!\n".to_vec(),
+                contents: b"Hello, Rock Ridge!\n".to_vec().into(),
             },
             IsoFile::Directory {
                 name: Arc::new("subdir".to_string()),
                 children: vec![IsoFile::File {
                     name: Arc::new("nested.txt".to_string()),
-                    contents: b"Nested content\n".to_vec(),
+                    contents: b"Nested content\n".to_vec().into(),
                 }],
             },
         ],

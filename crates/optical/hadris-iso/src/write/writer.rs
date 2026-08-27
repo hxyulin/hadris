@@ -209,6 +209,26 @@ impl WrittenDirectory {
         }
     }
 
+    /// Returns the directory reference for a given entry type, handling relocation.
+    ///
+    /// For placeholder directories, this returns the target's reference from the
+    /// relocation map. For normal directories, it returns the entry from `entries`.
+    pub fn get_dir_ref(
+        &self,
+        ty: EntryType,
+        relocation_refs: &BTreeMap<(usize, EntryType), DirectoryRef>,
+    ) -> DirectoryRef {
+        match self.relocation {
+            DirectoryRelocation::Placeholder { target } => {
+                relocation_refs
+                    .get(&(target, ty))
+                    .copied()
+                    .unwrap_or_default()
+            }
+            _ => *self.entries.get(&ty).unwrap(),
+        }
+    }
+
     /// Adds a file to this directory.
     ///
     /// # Arguments

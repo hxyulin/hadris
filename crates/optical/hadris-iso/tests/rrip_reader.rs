@@ -42,7 +42,7 @@ fn create_iso(files: Vec<IsoFile>, features: CreationFeatures) -> Vec<u8> {
 fn test_rrip_detection_with_rock_ridge() {
     let files = vec![IsoFile::File {
         name: Arc::new("hello.txt".to_string()),
-        contents: b"Hello, World!".to_vec(),
+        contents: b"Hello, World!".to_vec().into(),
     }];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
@@ -61,7 +61,7 @@ fn no_alloc_reader_resolves_rrip_names() {
     let original = "My Long Rock Ridge Name.txt";
     let files = vec![IsoFile::File {
         name: Arc::new(original.to_string()),
-        contents: b"payload".to_vec(),
+        contents: b"payload".to_vec().into(),
     }];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
 
@@ -90,7 +90,7 @@ fn no_alloc_reader_resolves_rrip_names() {
 fn test_rrip_detection_without_rock_ridge() {
     let files = vec![IsoFile::File {
         name: Arc::new("hello.txt".to_string()),
-        contents: b"Hello, World!".to_vec(),
+        contents: b"Hello, World!".to_vec().into(),
     }];
     let iso_data = create_iso(files, CreationFeatures::default());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
@@ -109,11 +109,11 @@ fn test_rrip_nm_names() {
     let files = vec![
         IsoFile::File {
             name: Arc::new("readme.txt".to_string()),
-            contents: b"readme content".to_vec(),
+            contents: b"readme content".to_vec().into(),
         },
         IsoFile::File {
             name: Arc::new("LongFileName_WithMixedCase.dat".to_string()),
-            contents: b"data".to_vec(),
+            contents: b"data".to_vec().into(),
         },
     ];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
@@ -151,7 +151,7 @@ fn test_rrip_nm_names() {
 fn test_rrip_tf_timestamps() {
     let files = vec![IsoFile::File {
         name: Arc::new("test.txt".to_string()),
-        contents: b"test".to_vec(),
+        contents: b"test".to_vec().into(),
     }];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
@@ -190,7 +190,7 @@ fn test_rrip_px_attributes() {
     let files = vec![
         IsoFile::File {
             name: Arc::new("file.txt".to_string()),
-            contents: b"content".to_vec(),
+            contents: b"content".to_vec().into(),
         },
         IsoFile::Directory {
             name: Arc::new("subdir".to_string()),
@@ -237,11 +237,11 @@ fn test_rrip_directory_iteration() {
     let files = vec![
         IsoFile::File {
             name: Arc::new("alpha.txt".to_string()),
-            contents: b"alpha".to_vec(),
+            contents: b"alpha".to_vec().into(),
         },
         IsoFile::File {
             name: Arc::new("beta.txt".to_string()),
-            contents: b"beta".to_vec(),
+            contents: b"beta".to_vec().into(),
         },
         IsoFile::Directory {
             name: Arc::new("gamma_dir".to_string()),
@@ -281,7 +281,7 @@ fn test_rrip_subdirectory_navigation() {
         name: Arc::new("mydir".to_string()),
         children: vec![IsoFile::File {
             name: Arc::new("inner.txt".to_string()),
-            contents: b"inner content".to_vec(),
+            contents: b"inner content".to_vec().into(),
         }],
     }];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
@@ -494,7 +494,7 @@ fn test_rrip_detection_with_joliet_and_rock_ridge() {
 
     let files = vec![IsoFile::File {
         name: Arc::new("hello.txt".to_string()),
-        contents: b"Hello, World!".to_vec(),
+        contents: b"Hello, World!".to_vec().into(),
     }];
     let iso_data = create_iso(files, CreationFeatures::extensions());
     let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
@@ -530,7 +530,7 @@ fn test_pvd_root_directory_has_directory_flag() {
 
     let files = vec![IsoFile::File {
         name: Arc::new("test.txt".to_string()),
-        contents: b"test".to_vec(),
+        contents: b"test".to_vec().into(),
     }];
     let iso_data = create_iso(files, CreationFeatures::default());
 
@@ -548,7 +548,7 @@ fn test_pvd_root_directory_has_directory_flag() {
 fn test_pvd_root_directory_record_fields() {
     let files = vec![IsoFile::File {
         name: Arc::new("test.txt".to_string()),
-        contents: b"test".to_vec(),
+        contents: b"test".to_vec().into(),
     }];
     let iso_data = create_iso(files, CreationFeatures::default());
 
@@ -573,7 +573,7 @@ fn test_pvd_root_directory_record_fields() {
 fn test_joliet_svd_volume_name_utf16be() {
     let files = vec![IsoFile::File {
         name: Arc::new("test.txt".to_string()),
-        contents: b"test".to_vec(),
+        contents: b"test".to_vec().into(),
     }];
 
     // Create ISO with Joliet and custom volume name
@@ -643,7 +643,7 @@ fn test_joliet_svd_volume_name_utf16be() {
 fn test_joliet_svd_strings_are_utf16be() {
     let files = vec![IsoFile::File {
         name: Arc::new("test.txt".to_string()),
-        contents: b"test".to_vec(),
+        contents: b"test".to_vec().into(),
     }];
 
     let input = InputFiles {
@@ -716,7 +716,7 @@ fn test_joliet_svd_strings_are_utf16be() {
 fn test_pvd_strings_with_spaces() {
     let files = vec![IsoFile::File {
         name: Arc::new("test.txt".to_string()),
-        contents: b"test".to_vec(),
+        contents: b"test".to_vec().into(),
     }];
 
     let input = InputFiles {

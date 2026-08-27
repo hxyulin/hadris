@@ -693,7 +693,15 @@ impl SystemUseBuilder {
     }
 }
 
-/// Result of splitting a system use area into inline and overflow portions.
+/// System Use data (RRIP) split into inline and overflow parts.
+///
+/// RRIP (Rock Ridge) extensions store additional metadata (permissions, symlinks,
+/// device nodes, etc.) in the System Use area of directory records. However, the
+/// System Use area is limited to the remaining space in the directory record.
+///
+/// When the RRIP data exceeds the available inline space, the excess is written
+/// to a separate continuation area, and a `CE` (Continuation Area) entry is
+/// placed in the inline part to point to it.
 #[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
 pub struct SplitSu {

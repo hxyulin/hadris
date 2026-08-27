@@ -443,6 +443,7 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
         let mut extents = Vec::new();
         // Depth limit to prevent infinite loops on malformed images
         const MAX_EXTENTS: usize = 4096;
+        let mut seen_final = false;
 
         loop {
             if extents.len() >= MAX_EXTENTS {
@@ -455,37 +456,62 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
                 None => break,
             };
 
-            let header = record.header();
-      
-            if record.name() != first.name()
-                || (header.flags ^ first.header().flags) & !FileFlags::NOT_FINAL.bits() != 0
-                || header.volume_sequence_number.read()
-                    != first.header().volume_sequence_number.read()
-                || header.file_unit_size != 0
-                || header.interleave_gap_size != 0
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "invalid ISO multi-extent continuation",
-                ));
-            }
-
-            let extent = Extent {
-                sector: LogicalSector(
-                    header.extent.read() as usize + header.extended_attr_record as usize,
-                ),
-                length: header.data_len.read(),
-            };
-
+            let extent = self.parse_continuation_extent(&record, first)?;
             extents.push(extent);
  
             // If this record does NOT have NOT_FINAL, it's the last extent
-            if !FileFlags::from_bits_retain(header.flags).contains(FileFlags::NOT_FINAL) {
+            if !record.flags().contains(FileFlags::NOT_FINAL) {
+                seen_final = true;
                 break;
             }
         }
 
+        if !seen_final {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "truncated multi-extent file: final record not found",
+            ));
+        }
+
         Ok(extents)
+    }
+
+    /// Parses and validates a continuation record for a multi‑extent file.
+    ///
+    /// Multi‑extent files (files larger than 4 GiB) are split across multiple
+    /// directory records with the same file identifier. This function validates
+    /// that a continuation record:
+    /// - Has the same name as the first record.
+    /// - Differs only in the `NOT_FINAL` flag (all other flags must match).
+    /// - Has the same volume sequence number.
+    /// - Does not use unsupported interleaving (`file_unit_size`/`interleave_gap_size`).
+    fn parse_continuation_extent(
+        &self,
+        cont: &DirectoryRecord,
+        first: &DirectoryRecord,
+    ) -> io::Result<Extent> {
+        let cont_header = cont.header();
+        let first_header = first.header();
+
+        if cont.name() != first.name()
+            || (cont_header.flags ^ first_header.flags) & !FileFlags::NOT_FINAL.bits() != 0
+            || cont_header.volume_sequence_number.read()
+                != first_header.volume_sequence_number.read()
+            || cont_header.file_unit_size != 0
+            || cont_header.interleave_gap_size != 0
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid ISO multi-extent continuation",
+            ));
+        }
+
+        Ok(Extent {
+            sector: LogicalSector(
+                cont_header.extent.read() as usize + cont_header.extended_attr_record as usize,
+            ),
+            length: cont_header.data_len.read(),
+        })
     }
 
     /// Read the next raw DirectoryRecord from the directory data.

@@ -30,16 +30,16 @@ pub struct FileChunkIterator<'a, DATA: Read + Seek, const N: usize> {
     pub(crate) extents: alloc::vec::Vec<Extent>,
     pub(crate) current_extent: usize,
     pub(crate) offset_in_extent: usize,
-    pub(crate) bytes_remaining: usize,
-    pub(crate) total_size: usize,
+    pub(crate) bytes_remaining: u64,
+    pub(crate) total_size: u64,
 }
 
 impl<'a, DATA: Read + Seek, const N: usize> FileChunkIterator<'a, DATA, N> {
     /// Creates a new chunked iterator for a file entry.
     pub(crate) fn new(image: &'a IsoImage<DATA>, entry: &DirEntry) -> Self {
         let extents: Vec<Extent> = entry.extents().collect();
-        let bytes_remaining = entry.total_size() as usize;
-        let total_size = entry.total_size() as usize;
+        let bytes_remaining = entry.total_size();
+        let total_size = entry.total_size();
 
         Self {
             image,
@@ -59,7 +59,7 @@ impl<'a, DATA: Read + Seek, const N: usize> FileChunkIterator<'a, DATA, N> {
             return Ok(None);
         }
 
-        let chunk_size = N.min(self.bytes_remaining);
+        let chunk_size = N.min(self.bytes_remaining as usize);
         let mut buffer = Vec::with_capacity(chunk_size);
         buffer.resize(chunk_size, 0);
         let mut read = 0;
@@ -78,7 +78,7 @@ impl<'a, DATA: Read + Seek, const N: usize> FileChunkIterator<'a, DATA, N> {
 
             read += to_read;
             self.offset_in_extent += to_read;
-            self.bytes_remaining -= to_read;
+            self.bytes_remaining -= to_read as u64;
 
             if self.offset_in_extent >= extent.length as usize {
                 self.current_extent += 1;
@@ -91,12 +91,12 @@ impl<'a, DATA: Read + Seek, const N: usize> FileChunkIterator<'a, DATA, N> {
     }
 
     /// Returns the total size of the file in bytes.
-    pub fn total_size(&self) -> usize {
+    pub fn total_size(&self) -> u64 {
         self.total_size 
     }
 
     /// Returns the current position in the file (bytes read so far).
-    pub fn position(&self) -> usize {
+    pub fn position(&self) -> u64 {
         self.total_size - self.bytes_remaining
     }
 }
@@ -114,12 +114,16 @@ mod tests {
     #[test]
     fn should_read_multi_extent_file_in_chunks() {
         const CHUNK_SIZE: usize = 4096;
-        let size = 1024 * 1024;
+        const SIZE: usize = 1024 * 1024 * 1024 * 4;
 
         let input = InputFiles {
             path_separator: PathSeparator::ForwardSlash,
             files: vec![
-                File::File { name: Arc::new("TESTFILE".into()), contents: vec![0xAA; size] }
+                    File::File {
+                        name: Arc::new("TESTFILE".into()),
+                        contents: FileContent::Test { size: SIZE, pattern: 0xAA
+                    }
+                }
             ],
         };
         let options = IsoFormatOptions {
@@ -137,9 +141,11 @@ mod tests {
             strict_charset: false,
         };
 
-        let cursor = Cursor::new(vec![0u8; 512]);
+        // ISO metadata overhead: volume descriptors, path tables, directory records, etc.
+        // 21 sectors of 2048 bytes = 43,008 bytes (~42 KiB)
+        let cursor = Cursor::new(vec![0u8; SIZE + 2048 * 21]);
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
-        
+     
         output.seek(SeekFrom::Start(0)).expect("Failed to verify ISO image");
         let image = IsoImage::open(output).expect("Failed to parse ISO image");
         
@@ -150,6 +156,7 @@ mod tests {
         entries.next().unwrap().expect("Failed to parse iso dir");
         entries.next().unwrap().expect("Failed to parse iso dir");
         let file = entries.next().unwrap().expect("Failed to parse iso file");
+        assert!(!file.additional_extents.is_empty());
 
         let mut iter = image.read_file_chunked::<CHUNK_SIZE>(&file).unwrap();
         let mut total_read = 0;
@@ -158,19 +165,19 @@ mod tests {
         while let Some(chunk) = iter.next_chunk().unwrap() {
             chunk_count += 1;
             total_read += chunk.len();
-            
+
             assert!(chunk.iter().all(|&b| b == 0xAA), 
                 "Chunk {} contains unexpected bytes", chunk_count);
         }
 
-        assert_eq!(total_read, size, "Total bytes read should match file size");
+        assert_eq!(total_read, SIZE, "Total bytes read should match file size");
         
-        let expected_chunks = size.div_ceil(CHUNK_SIZE);
+        let expected_chunks = SIZE.div_ceil(CHUNK_SIZE);
         assert_eq!(chunk_count, expected_chunks, 
             "Chunk count should match expected");
         
-        assert_eq!(iter.position(), size, "Position should be at EOF");
-        assert_eq!(iter.total_size(), size, "Total size should remain unchanged")
+        assert_eq!(iter.position(), SIZE as u64, "Position should be at EOF");
+        assert_eq!(iter.total_size(), SIZE as u64, "Total size should remain unchanged")
     }
 
 }

@@ -17,7 +17,7 @@ fn test_hybrid_boot_mbr() {
         path_separator: hadris_iso::read::PathSeparator::ForwardSlash,
         files: vec![hadris_iso::write::File::File {
             name: Arc::new("boot.bin".to_string()),
-            contents: boot_image,
+            contents: boot_image.into(),
         }],
     };
 
@@ -91,7 +91,7 @@ fn test_hybrid_boot_gpt() {
         path_separator: hadris_iso::read::PathSeparator::ForwardSlash,
         files: vec![hadris_iso::write::File::File {
             name: Arc::new("boot.bin".to_string()),
-            contents: boot_image,
+            contents: boot_image.into(),
         }],
     };
 
@@ -168,7 +168,7 @@ fn test_hybrid_boot_dual() {
         path_separator: hadris_iso::read::PathSeparator::ForwardSlash,
         files: vec![hadris_iso::write::File::File {
             name: Arc::new("boot.bin".to_string()),
-            contents: boot_image,
+            contents: boot_image.into(),
         }],
     };
 
