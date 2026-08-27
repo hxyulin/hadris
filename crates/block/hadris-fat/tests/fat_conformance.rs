@@ -881,6 +881,10 @@ fn curated_operations() -> Vec<Operation> {
             data: b"lowercase short name".to_vec(),
         },
         Operation::CreateFile {
+            path: "/.hidden".into(),
+            data: b"leading dot filename".to_vec(),
+        },
+        Operation::CreateFile {
             path: "/Mixed Case Name.bin".into(),
             data: payload(513, 0x11),
         },
@@ -937,6 +941,133 @@ fn curated_operations() -> Vec<Operation> {
     ]
 }
 
+fn edge_case_scenarios() -> Vec<(String, Vec<Operation>)> {
+    let deleted_slot_lfn_expansion = vec![
+        Operation::CreateDir {
+            path: "/D000".into(),
+        },
+        Operation::CreateDir {
+            path: "/TEMP".into(),
+        },
+        Operation::Delete {
+            path: "/TEMP".into(),
+        },
+        Operation::Rename {
+            from: "/D000".into(),
+            to: "/Renamed Directory 0009".into(),
+        },
+    ];
+
+    let mut subdirectory_entry_boundary = vec![Operation::CreateDir {
+        path: "/Entries".into(),
+    }];
+    subdirectory_entry_boundary.extend((0..15).map(|index| Operation::CreateFile {
+        path: format!("/Entries/F{index:02}.TXT"),
+        data: vec![index as u8],
+    }));
+    subdirectory_entry_boundary.extend([
+        Operation::Delete {
+            path: "/Entries/F04.TXT".into(),
+        },
+        Operation::Delete {
+            path: "/Entries/F05.TXT".into(),
+        },
+        Operation::CreateFile {
+            path: "/Entries/Long Name Reusing Adjacent Slots.txt".into(),
+            data: payload(513, 0x41),
+        },
+    ]);
+
+    let short_alias_collisions = ["x+.txt", "x,.txt", "x=.txt", "x;.txt", "x'.txt", "x].txt"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| Operation::CreateFile {
+            path: format!("/{name}"),
+            data: vec![index as u8],
+        })
+        .collect();
+
+    let directory_moves = vec![
+        Operation::CreateDir {
+            path: "/Parent A".into(),
+        },
+        Operation::CreateDir {
+            path: "/Parent B".into(),
+        },
+        Operation::CreateDir {
+            path: "/Parent A/Child".into(),
+        },
+        Operation::CreateDir {
+            path: "/Parent A/Child/Deep".into(),
+        },
+        Operation::Rename {
+            from: "/Parent A/Child".into(),
+            to: "/Parent B/Moved Child".into(),
+        },
+        Operation::Rename {
+            from: "/Parent B/Moved Child".into(),
+            to: "/Moved Again".into(),
+        },
+    ];
+
+    let truncate_reallocate = vec![
+        Operation::CreateFile {
+            path: "/CHAIN.BIN".into(),
+            data: payload(16_385, 0x52),
+        },
+        Operation::TruncateFile {
+            path: "/CHAIN.BIN".into(),
+            len: 8_192,
+        },
+        Operation::TruncateFile {
+            path: "/CHAIN.BIN".into(),
+            len: 4_097,
+        },
+        Operation::TruncateFile {
+            path: "/CHAIN.BIN".into(),
+            len: 4_096,
+        },
+        Operation::TruncateFile {
+            path: "/CHAIN.BIN".into(),
+            len: 0,
+        },
+        Operation::AppendFile {
+            path: "/CHAIN.BIN".into(),
+            data: payload(513, 0x53),
+        },
+    ];
+
+    let lfn_boundaries = [
+        "123456789.txt",
+        "1234567890.txt",
+        "1234567890123456789012.txt",
+        "12345678901234567890123.txt",
+        "日本語.txt",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, name)| Operation::CreateFile {
+        path: format!("/{name}"),
+        data: vec![index as u8],
+    })
+    .collect();
+
+    vec![
+        (
+            "deleted-slot-lfn-expansion".into(),
+            deleted_slot_lfn_expansion,
+        ),
+        (
+            "subdirectory-entry-boundary".into(),
+            subdirectory_entry_boundary,
+        ),
+        ("short-alias-collisions".into(), short_alias_collisions),
+        ("directory-moves".into(), directory_moves),
+        ("truncate-reallocate".into(), truncate_reallocate),
+        ("lfn-boundaries".into(), lfn_boundaries),
+    ]
+}
+
 fn payload(len: usize, salt: u8) -> Vec<u8> {
     (0..len)
         .map(|index| (index as u8).wrapping_mul(31).wrapping_add(salt))
@@ -982,7 +1113,7 @@ fn generate_trace(seed: u64) -> Vec<Operation> {
                 .collect();
             let parent = &parents[rng.index(parents.len())];
             Operation::CreateDir {
-                path: join_path(parent, &generated_name(index, true)),
+                path: join_path(parent, &generated_name(&mut rng, index, true)),
             }
         } else if can_create && (writable_files.is_empty() || roll < 45) {
             let parents: Vec<_> = dirs
@@ -992,7 +1123,7 @@ fn generate_trace(seed: u64) -> Vec<Operation> {
                 .collect();
             let parent = &parents[rng.index(parents.len())];
             Operation::CreateFile {
-                path: join_path(parent, &generated_name(index, false)),
+                path: join_path(parent, &generated_name(&mut rng, index, false)),
                 data: generated_payload(&mut rng),
             }
         } else if !writable_files.is_empty() && roll < 58 {
@@ -1016,7 +1147,7 @@ fn generate_trace(seed: u64) -> Vec<Operation> {
             generate_rename(&mut rng, &model, index).unwrap_or_else(|| {
                 let parent = &dirs[rng.index(dirs.len())];
                 Operation::CreateFile {
-                    path: join_path(parent, &generated_name(index, false)),
+                    path: join_path(parent, &generated_name(&mut rng, index, false)),
                     data: generated_payload(&mut rng),
                 }
             })
@@ -1039,7 +1170,7 @@ fn generate_trace(seed: u64) -> Vec<Operation> {
         } else {
             let parent = &dirs[rng.index(dirs.len())];
             Operation::CreateFile {
-                path: join_path(parent, &generated_name(index, false)),
+                path: join_path(parent, &generated_name(&mut rng, index, false)),
                 data: generated_payload(&mut rng),
             }
         };
@@ -1086,9 +1217,9 @@ fn generate_rename(rng: &mut Rng, model: &FsState, index: usize) -> Option<Opera
     })
 }
 
-fn generated_name(index: usize, directory: bool) -> String {
+fn generated_name(rng: &mut Rng, index: usize, directory: bool) -> String {
     let suffix = if directory { "" } else { ".bin" };
-    match index % 4 {
+    match rng.index(4) {
         0 => format!("{}{:03}{suffix}", if directory { "D" } else { "F" }, index),
         1 => format!(
             "{}{:03}{suffix}",
@@ -1347,12 +1478,14 @@ fn measure_fatfs(
     )?;
 
     accuracy.reads_attempted += 1;
-    match fat_peer::snapshot(&hadris_image).and_then(|snapshot| {
-        compare_snapshot(
-            &format!("{} rust-fatfs reading Hadris", case.name),
-            &expected,
-            &snapshot,
-        )
+    match catch_peer_panic(|| {
+        fat_peer::snapshot(&hadris_image).and_then(|snapshot| {
+            compare_snapshot(
+                &format!("{} rust-fatfs reading Hadris", case.name),
+                &expected,
+                &snapshot,
+            )
+        })
     }) {
         Ok(()) => accuracy.reads_passed += 1,
         Err(error) => accuracy.details.push(format!(
@@ -1363,7 +1496,7 @@ fn measure_fatfs(
 
     accuracy.writes_attempted += 1;
     let fatfs_image = workspace.path.join("fatfs.img");
-    let writer_result = (|| {
+    let writer_result = catch_peer_panic(|| {
         fat_peer::format(&fatfs_image, case)?;
         let mut expected = apply_operations_without_attrs(
             &mut fat_peer::FatfsAdapter::new(fatfs_image.clone()),
@@ -1384,7 +1517,7 @@ fn measure_fatfs(
             &expected,
             &hadris,
         )
-    })();
+    });
     match writer_result {
         Ok(()) => accuracy.writes_passed += 1,
         Err(error) => accuracy.details.push(format!(
@@ -1393,6 +1526,17 @@ fn measure_fatfs(
         )),
     }
     Ok(())
+}
+
+fn catch_peer_panic<T>(operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation)).map_err(|payload| {
+        let message = payload
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("unknown panic payload");
+        format!("rust-fatfs panicked: {message}")
+    })?
 }
 
 fn apply_operations_without_attrs(
@@ -1586,8 +1730,14 @@ fn selected_seeds() -> Vec<u64> {
     }
 }
 
-fn all_scenarios() -> Vec<(String, Vec<Operation>)> {
+fn interoperability_scenarios() -> Vec<(String, Vec<Operation>)> {
     let mut scenarios = vec![("curated".to_string(), curated_operations())];
+    scenarios.extend(edge_case_scenarios());
+    scenarios
+}
+
+fn specification_scenarios() -> Vec<(String, Vec<Operation>)> {
+    let mut scenarios = interoperability_scenarios();
     scenarios.extend(
         selected_seeds()
             .into_iter()
@@ -1686,7 +1836,16 @@ fn measure_external_tools(
 #[test]
 #[ignore = "manual FAT specification conformance suite"]
 fn fat_spec_conformance() {
-    for (scenario, operations) in all_scenarios() {
+    for (scenario, operations) in specification_scenarios() {
+        run_spec_matrix(&operations).unwrap_or_else(|error| {
+            panic!("{scenario}: {error}\ntrace:\n{}", format_trace(&operations))
+        });
+    }
+}
+
+#[test]
+fn fat_edge_cases_match_spec() {
+    for (scenario, operations) in edge_case_scenarios() {
         run_spec_matrix(&operations).unwrap_or_else(|error| {
             panic!("{scenario}: {error}\ntrace:\n{}", format_trace(&operations))
         });
@@ -1697,7 +1856,7 @@ fn fat_spec_conformance() {
 #[ignore = "manual bidirectional rust-fatfs accuracy suite"]
 fn fatfs_accuracy_report() {
     let mut accuracy = FatfsAccuracy::default();
-    for (scenario, operations) in all_scenarios() {
+    for (scenario, operations) in interoperability_scenarios() {
         for case in FAT_CASES {
             measure_fatfs(case, &scenario, &operations, &mut accuracy).unwrap_or_else(|error| {
                 panic!(
@@ -1714,6 +1873,31 @@ fn fatfs_accuracy_report() {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../target/fat-conformance");
     std::fs::create_dir_all(&report_dir).unwrap();
     std::fs::write(report_dir.join("fatfs-accuracy.txt"), format!("{report}\n")).unwrap();
+}
+
+#[test]
+fn fatfs_dot_entries_match_spec() {
+    let operations = vec![
+        Operation::CreateDir {
+            path: "/Empty".into(),
+        },
+        Operation::CreateDir {
+            path: "/Nested".into(),
+        },
+        Operation::CreateDir {
+            path: "/Nested/Deep".into(),
+        },
+    ];
+    let mut accuracy = FatfsAccuracy::default();
+    for case in FAT_CASES {
+        measure_fatfs(case, "dot-entries", &operations, &mut accuracy).unwrap();
+    }
+    assert_eq!(
+        accuracy.writes_passed,
+        accuracy.writes_attempted,
+        "{}",
+        accuracy.report()
+    );
 }
 
 #[test]
@@ -1735,7 +1919,7 @@ fn native_mount_roundtrip() {
 fn mtools_accuracy_report() {
     require_tools().unwrap();
     let mut accuracy = Accuracy::default();
-    for (scenario, operations) in all_scenarios() {
+    for (scenario, operations) in interoperability_scenarios() {
         for case in FAT_CASES {
             measure_external_tools(case, &scenario, &operations, &mut accuracy).unwrap_or_else(
                 |error| {

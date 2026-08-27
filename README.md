@@ -137,10 +137,10 @@ operations on every listed FAT variant.
 
 | Consumer | FAT12 | FAT16 | FAT32 |
 |----------|-------|-------|-------|
-| Hadris specification oracle | Pass (17/17) | Pass (17/17) | Pass (17/17) |
-| mtools 4.0.49 reader | Pass (17/17) | Pass (17/17) | Pass (17/17) |
-| dosfstools `fsck.fat` 4.2 | Pass (17/17) | Pass (17/17) | Pass (17/17) |
-| Rust `fatfs` 0.3.6 reader | Pass (17/17) | Pass (17/17) | Pass (17/17) |
+| Hadris specification oracle | Pass (23/23) | Pass (23/23) | Pass (23/23) |
+| mtools 4.0.49 reader | Pass (7/7) | Pass (7/7) | Pass (7/7) |
+| dosfstools `fsck.fat` 4.2 | Pass (7/7) | Pass (7/7) | Pass (7/7) |
+| Rust `fatfs` master (`2aefc2a`) reader | Pass (7/7) | Pass (7/7) | Pass (7/7) |
 | macOS `fsck_msdos` | Pass (2/2) | Pass (2/2) | Pass (2/2) |
 
 “Pass” means that the consumer read the expected semantic tree or that the

@@ -4,7 +4,10 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use fatfs::{Dir, FileSystem, FormatVolumeOptions, FsOptions, ReadWriteSeek};
+use fatfs::{
+    DefaultTimeProvider, Dir, FileSystem, FormatVolumeOptions, FsOptions, LossyOemCpConverter,
+    StdIoWrapper,
+};
 
 use super::{
     EntryData, EntryState, FatAdapter, FatCase, FsState, LABEL, MUTABLE_ATTRS, Operation,
@@ -20,7 +23,7 @@ impl FatfsAdapter {
         Self { image }
     }
 
-    fn open(&self) -> Result<FileSystem<File>, String> {
+    fn open(&self) -> Result<FileSystem<StdIoWrapper<File>>, String> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -102,8 +105,8 @@ pub(super) fn snapshot(path: &Path) -> Result<FsState, String> {
     Ok(state)
 }
 
-fn snapshot_dir<T: ReadWriteSeek>(
-    dir: &Dir<'_, T>,
+fn snapshot_dir(
+    dir: &Dir<'_, StdIoWrapper<File>, DefaultTimeProvider, LossyOemCpConverter>,
     path: &str,
     entries: &mut BTreeMap<String, EntryState>,
 ) -> Result<(), String> {
@@ -151,8 +154,9 @@ pub(super) fn format(path: &Path, case: FatCase) -> Result<(), String> {
         "32" => fatfs::FatType::Fat32,
         other => return Err(format!("unsupported FAT width {other}")),
     };
+    let mut storage = StdIoWrapper::new(file);
     fatfs::format_volume(
-        file,
+        &mut storage,
         FormatVolumeOptions::new()
             .fat_type(fat_type)
             .volume_label(*b"HADRISCONF "),

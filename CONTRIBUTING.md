@@ -41,12 +41,20 @@ sequences and checksums, unique short aliases, names, attributes, and contents.
 
 The same harness measures mtools, dosfstools, and the independent Rust `fatfs`
 crate against that ground truth. External-tool mismatches and crashes are
-reported rather than treated as authoritative failures. The Nix shell pins the
-command-line tools and uses the repository's Rust toolchain.
+reported rather than treated as authoritative failures. The peer reports use
+short, isolated scenarios so one failed operation does not mask the remainder
+of a generated trace. The Nix shell supplies the command-line tools and uses
+the repository's Rust toolchain.
 
 ```bash
+cargo test -p hadris-fat --all-features --lib \
+  fat_conformance::fat_spec_conformance -- --ignored --exact --nocapture
+
+cargo test -p hadris-fat --all-features --lib \
+  fat_conformance::fatfs_accuracy_report -- --ignored --exact --nocapture
+
 nix develop -c cargo test -p hadris-fat --all-features --lib \
-  fat_conformance:: -- --ignored --nocapture --test-threads=1
+  fat_conformance::mtools_accuracy_report -- --ignored --exact --nocapture
 ```
 
 The semantic model compares exact displayed paths, entry kinds, file contents,
@@ -56,9 +64,8 @@ excluded. Peer scores and failure details are written to
 `target/fat-conformance/fatfs-accuracy.txt`. Set
 `HADRIS_FAT_CONFORMANCE_SEED=<u64>` to replay one generated trace. Set
 `HADRIS_FAT_CONFORMANCE_KEEP=1` to retain its images under
-`target/fat-conformance/`. The specification suite normally takes about two
-seconds and the external-tool report about 45 seconds. The default matrix must
-remain below ten minutes.
+`target/fat-conformance/`. The specification suite and each peer report run in
+well under ten seconds after compilation.
 
 Native platform qualification stays in the library test harness. On Linux it
 uses `mkfs.fat`, `fsck.fat`, and the kernel `vfat` driver. On macOS it uses
