@@ -247,7 +247,7 @@ impl PlatformId {
 /// @hadris-spec El-Torito:validation
 /// @hadris-compliance partial
 /// @hadris-note The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation.
-/// @hadris-tests xorriso_boot::test_eltorito_boot_catalog_comparison
+/// @hadris-tests iso::boot::test_eltorito_boot_catalog_comparison
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
@@ -354,7 +354,7 @@ impl BootValidationEntry {
 /// @hadris-spec El-Torito:section-header
 /// @hadris-compliance partial
 /// @hadris-note The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation.
-/// @hadris-tests xorriso_boot::test_hadris_multisection_boot_catalog
+/// @hadris-tests iso::boot::test_hadris_multisection_boot_catalog
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -449,7 +449,7 @@ impl EmulationType {
 /// @hadris-spec El-Torito:section-entry
 /// @hadris-compliance partial
 /// @hadris-note The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation.
-/// @hadris-tests xorriso_boot::test_floppy_emulation_media_type_and_default_load_size
+/// @hadris-tests iso::boot::test_floppy_emulation_media_type_and_default_load_size
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]

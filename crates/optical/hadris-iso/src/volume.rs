@@ -392,7 +392,7 @@ fn lossy_identifier<C: Charset, const N: usize>(s: &str) -> IsoStr<C, N> {
 /// @hadris-spec ECMA-119:8.4
 /// @hadris-compliance partial
 /// @hadris-note Core fields are modeled, but reserved fields, character sets, redundant endian values, and semantic constraints are not all validated.
-/// @hadris-tests comprehensive_iso::test_pvd_standard_identifier
+/// @hadris-tests comprehensive_iso::descriptor_sequence_opens_primary_volume_and_root_directory, iso::spec::hadris_iso_matches_ecma_119_oracle
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -548,7 +548,7 @@ unsafe impl bytemuck::Pod for PrimaryVolumeDescriptor {}
 /// @hadris-spec ECMA-119:8.2
 /// @hadris-compliance partial
 /// @hadris-note The descriptor locates El Torito data, but all ECMA-119 boot-record semantics are not implemented.
-/// @hadris-tests xorriso_boot::test_hadris_multisection_boot_catalog
+/// @hadris-tests iso::boot::test_hadris_multisection_boot_catalog
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -831,7 +831,7 @@ impl Debug for SupplementaryVolumeDescriptor {
 /// @hadris-spec ECMA-119:8.3
 /// @hadris-compliance partial
 /// @hadris-note The descriptor is emitted and recognized, but the audit has not established validation of every reserved byte.
-/// @hadris-tests comprehensive_iso::test_volume_descriptor_set_terminator
+/// @hadris-tests comprehensive_iso::malformed_primary_descriptor_and_terminator_cases_are_rejected
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -876,6 +876,7 @@ impl Debug for VolumeDescriptorSetTerminator {
 unsafe impl bytemuck::Zeroable for VolumeDescriptorSetTerminator {}
 unsafe impl bytemuck::Pod for VolumeDescriptorSetTerminator {}
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -925,4 +926,5 @@ mod tests {
             assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         }
     }
+}
 }

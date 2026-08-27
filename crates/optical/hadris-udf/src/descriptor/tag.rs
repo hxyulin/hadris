@@ -159,7 +159,7 @@ impl DescriptorTag {
 /// @hadris-spec ECMA-167:3/7.2.1
 /// @hadris-compliance partial
 /// @hadris-note Known identifiers are modeled and tested, but context-specific identifier constraints are not all validated.
-/// @hadris-tests comprehensive_udf::test_descriptor_tag_ids
+/// @hadris-tests comprehensive_udf::tag_identifier_conversions_cover_volume_and_file_descriptors
 /// @hadris-fuzz udf_read
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
@@ -297,6 +297,7 @@ fn crc16_itu(data: &[u8]) -> u16 {
     crc
 }
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,4 +419,5 @@ mod tests {
             error => panic!("unexpected error: {error}"),
         }
     }
+}
 }

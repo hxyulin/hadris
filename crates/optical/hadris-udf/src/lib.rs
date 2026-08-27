@@ -72,7 +72,7 @@
 //! - ECMA-167: Volume and File Structure for Write-Once and Rewritable Media
 //! - OSTA UDF Specification (udf260.pdf)
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
 #![deny(missing_docs)]
 // Sync and async APIs intentionally compile the same source modules twice.
@@ -82,8 +82,11 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(test)))]
 extern crate std;
+
+#[cfg(test)]
+extern crate self as hadris_udf;
 
 // ---------------------------------------------------------------------------
 // Shared types (compiled once, not duplicated by sync/async modules)
@@ -280,3 +283,19 @@ mod tests {
         assert_eq!(format!("{}", UdfRevision::V2_50), "2.50");
     }
 }
+
+#[cfg(all(test, feature = "async", feature = "alloc", feature = "read"))]
+#[path = "../tests/async_read.rs"]
+mod async_read;
+#[cfg(all(test, feature = "sync", feature = "write"))]
+#[path = "../tests/comprehensive_udf.rs"]
+mod comprehensive_udf;
+#[cfg(all(test, feature = "std", feature = "sync", feature = "read"))]
+#[path = "../tests/integration_external.rs"]
+mod integration_external;
+#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
+#[path = "../tests/poc_audit_udf.rs"]
+mod poc_audit_udf;
+#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
+#[path = "../tests/poc_fuzz_udf.rs"]
+mod poc_fuzz_udf;

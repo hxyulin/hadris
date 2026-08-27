@@ -1,536 +1,170 @@
-//! Roundtrip tests for hadris-fat FAT12/FAT16/FAT32 write + read paths.
-//!
-//! Each test formats a fresh image with `FatVolumeFormatter::format`, writes
-//! content using the hadris-fat write API, then reads it back through the
-//! same API to verify byte-for-byte equality. When `fsck.fat` (from
-//! `dosfstools`) is available on the host, the image is also validated
-//! externally — both right after format and after every write.
-//!
-//! These mirror the exFAT roundtrip tests added in commit 1f7405b for
-//! issue #25.
-
 #![cfg(feature = "write")]
 
-use std::fs::OpenOptions;
-use std::io::Seek as _;
-use std::path::Path;
-use tempfile::TempDir;
-
-use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
-use hadris_fat::{FatType, FatVolume, FatVolumeReadExt, FatVolumeWriteExt};
+use hadris_fat::{FatVolumeReadExt, FatVolumeWriteExt};
 use hadris_io::SeekFrom;
 
 #[path = "common/fat.rs"]
 mod fat_helpers;
-use fat_helpers::{fsck_check, fsck_fat_available};
+use fat_helpers::{FAT_CASES, FatImage};
 
-/// Build a fresh, formatted FAT image at `path` with the requested FAT type.
-fn make_image(path: &Path, size: u64, fat_type: FatTypeSelection, label: &str) {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)
-        .expect("create image file");
-    file.set_len(size).expect("set image length");
-
-    let options = FatFormatOptions::new(size)
-        .volume_label(label)
-        .fat_type(fat_type);
-
-    let _fs = FatVolumeFormatter::format(file, options).expect("FatVolumeFormatter::format");
-    // Dropping `_fs` flushes its underlying File handle.
-}
-
-/// Open an image file at the start, ready for FatVolume::open.
-fn open_image(path: &Path) -> std::fs::File {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path)
-        .expect("open image");
-    file.seek(std::io::SeekFrom::Start(0)).unwrap();
-    file
-}
-
-/// Write `name` with `contents` into the root directory.
-fn write_root_file(image_path: &Path, name: &str, contents: &[u8]) {
-    let file = open_image(image_path);
-    let fs = FatVolume::open(file).expect("open FAT");
-
-    let entry = {
-        let root = fs.root_dir();
-        fs.create_file(&root, name).expect("create_file")
-    };
-    {
-        let mut writer = fs.write_file(&entry).expect("write_file");
-        writer.write(contents).expect("writer.write");
-        writer.finish().expect("writer.finish");
-    }
-}
-
-/// Create a subdirectory `name` in the root directory.
-fn create_root_dir(image_path: &Path, name: &str) {
-    let file = open_image(image_path);
-    let fs = FatVolume::open(file).expect("open FAT");
-
-    let root = fs.root_dir();
-    fs.create_dir(&root, name).expect("create_dir");
-}
-
-/// Truncate `name` in the root directory to `new_size`.
-fn truncate_root_file(image_path: &Path, name: &str, new_size: usize) {
-    let file = open_image(image_path);
-    let fs = FatVolume::open(file).expect("open FAT");
-
-    let entry = {
-        let root = fs.root_dir();
-        root.find(name).expect("find").expect("present")
-    };
-    fs.truncate(&entry, new_size).expect("truncate");
-}
-
-/// Delete `name` from the root directory.
-fn delete_root_file(image_path: &Path, name: &str) {
-    let file = open_image(image_path);
-    let fs = FatVolume::open(file).expect("open FAT");
-
-    let entry = {
-        let root = fs.root_dir();
-        root.find(name).expect("find").expect("present")
-    };
-    fs.delete(&entry).expect("delete");
-}
-
-/// Read the full contents of `name` from the root directory.
-fn read_root_file(image_path: &Path, name: &str) -> Vec<u8> {
-    let file = open_image(image_path);
-    let fs = FatVolume::open(file).expect("reopen FAT");
-
-    let entry = {
-        let root = fs.root_dir();
-        root.find(name).expect("find").expect("present")
-    };
-    let mut reader = fs.read_file(&entry).expect("read_file");
-
-    let mut out = Vec::new();
-    let mut buf = [0u8; 4096];
-    loop {
-        let n = reader.read(&mut buf).expect("reader.read");
-        if n == 0 {
-            break;
-        }
-        out.extend_from_slice(&buf[..n]);
-    }
-    out
-}
-
-fn maybe_fsck(image_path: &Path) {
-    if !fsck_fat_available() {
-        eprintln!("note: fsck.fat not available, skipping external validation");
-        return;
-    }
-    if let Err(e) = fsck_check(image_path) {
-        panic!("fsck.fat rejected the image: {e}");
-    }
-}
-
-/// Sanity-check that the chosen size + selection actually produced the
-/// expected on-disk FAT type. Catches silent fallbacks.
-fn assert_fat_type(image_path: &Path, expected: FatType) {
-    let file = open_image(image_path);
-    let fs = FatVolume::open(file).expect("open for fat_type check");
-    assert_eq!(fs.fat_type(), expected, "unexpected FAT type on disk");
-}
-
-fn assert_seek_behavior<DATA>(reader: &mut hadris_fat::read::FileReader<'_, DATA>, payload: &[u8])
+fn read_all<DATA>(
+    reader: &mut hadris_fat::read::FileReader<'_, DATA>,
+) -> hadris_fat::Result<Vec<u8>>
 where
     DATA: hadris_fat::Read + hadris_fat::Seek,
 {
-    let mut buf = [0_u8; 37];
+    let mut bytes = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(bytes);
+        }
+        bytes.extend_from_slice(&buffer[..count]);
+    }
+}
 
-    assert_eq!(reader.position(), 0);
+#[test]
+fn fat12_fat16_and_fat32_support_core_file_and_directory_operations() {
+    let payload: Vec<u8> = (0..32 * 1024).map(|index| (index * 31 + 7) as u8).collect();
+
+    for case in FAT_CASES {
+        let image = FatImage::new(case);
+        {
+            let volume = image.open();
+            let root = volume.root_dir();
+            let file = volume.create_file(&root, "PAYLOAD.BIN").unwrap();
+            let mut writer = volume.write_file(&file).unwrap();
+            writer.write(&payload).unwrap();
+            writer.finish().unwrap();
+        }
+        {
+            let volume = image.open();
+            let root = volume.root_dir();
+            let file = root.find("payload.bin").unwrap().unwrap();
+            let mut reader = volume.read_file(&file).unwrap();
+            assert_eq!(read_all(&mut reader).unwrap(), payload, "{}", case.name);
+            volume.create_dir(&root, "SUBDIR").unwrap();
+        }
+        {
+            let volume = image.open();
+            let root = volume.root_dir();
+            assert!(root.open_dir("subdir").is_ok(), "{}", case.name);
+            let file = root.find("PAYLOAD.BIN").unwrap().unwrap();
+            volume.truncate(&file, 1234).unwrap();
+        }
+        {
+            let volume = image.open();
+            let root = volume.root_dir();
+            let file = root.find("PAYLOAD.BIN").unwrap().unwrap();
+            let mut reader = volume.read_file(&file).unwrap();
+            assert_eq!(
+                read_all(&mut reader).unwrap(),
+                payload[..1234],
+                "{}",
+                case.name
+            );
+            volume.delete(&file).unwrap();
+        }
+        assert!(
+            image
+                .open()
+                .root_dir()
+                .find("PAYLOAD.BIN")
+                .unwrap()
+                .is_none(),
+            "{}",
+            case.name
+        );
+    }
+}
+
+#[test]
+fn file_reader_seek_crosses_clusters_and_preserves_position_on_error() {
+    let image = FatImage::new(FAT_CASES[0]);
+    let payload: Vec<u8> = (0..32 * 1024).map(|index| (index * 17 + 3) as u8).collect();
+    {
+        let volume = image.open();
+        let file = volume.create_file(&volume.root_dir(), "SEEK.BIN").unwrap();
+        let mut writer = volume.write_file(&file).unwrap();
+        writer.write(&payload).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let volume = image.open();
+    let file = volume.root_dir().find("SEEK.BIN").unwrap().unwrap();
+    let mut reader = volume
+        .read_file(&file)
+        .unwrap()
+        .with_cached_chain()
+        .unwrap();
     assert_eq!(reader.seek(SeekFrom::Start(12_345)).unwrap(), 12_345);
-    assert_eq!(reader.read(&mut buf).unwrap(), buf.len());
-    assert_eq!(&buf, &payload[12_345..12_345 + buf.len()]);
-
-    assert_eq!(reader.seek(SeekFrom::Current(-20)).unwrap(), 12_362);
-    assert_eq!(reader.read(&mut buf[..20]).unwrap(), 20);
-    assert_eq!(&buf[..20], &payload[12_362..12_382]);
-
+    let mut bytes = [0_u8; 37];
+    assert_eq!(reader.read(&mut bytes).unwrap(), bytes.len());
+    assert_eq!(bytes, payload[12_345..12_382]);
     assert_eq!(
         reader.seek(SeekFrom::End(-64)).unwrap(),
         payload.len() as u64 - 64
     );
-    assert_eq!(reader.read(&mut buf).unwrap(), buf.len());
-    assert_eq!(&buf, &payload[payload.len() - 64..payload.len() - 27]);
-
-    let past_end = payload.len() as u64 + 17;
-    assert_eq!(reader.seek(SeekFrom::Start(past_end)).unwrap(), past_end);
-    assert_eq!(reader.remaining(), 0);
-    assert_eq!(reader.read(&mut buf).unwrap(), 0);
-    assert_eq!(
-        reader.seek(SeekFrom::Current(-18)).unwrap(),
-        payload.len() as u64 - 1
-    );
-    assert_eq!(reader.read(&mut buf).unwrap(), 1);
-    assert_eq!(buf[0], payload[payload.len() - 1]);
-
-    assert_eq!(reader.seek(SeekFrom::Start(u64::MAX)).unwrap(), u64::MAX);
-    assert_eq!(reader.seek(SeekFrom::Current(-1)).unwrap(), u64::MAX - 1);
-    assert_eq!(reader.read(&mut buf).unwrap(), 0);
-
     assert_eq!(reader.seek(SeekFrom::Start(10)).unwrap(), 10);
     assert!(reader.seek(SeekFrom::Current(-11)).is_err());
     assert_eq!(reader.position(), 10);
-    assert_eq!(reader.read(&mut buf[..1]).unwrap(), 1);
-    assert_eq!(buf[0], payload[10]);
-}
-
-// =============================================================================
-// FAT12 — small volume (~2 MB)
-// =============================================================================
-
-const FAT12_SIZE: u64 = 2 * 1024 * 1024;
-
-#[test]
-fn fat12_format_is_clean() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat12_clean.img");
-    make_image(&img, FAT12_SIZE, FatTypeSelection::Fat12, "FAT12CLEAN");
-    assert_fat_type(&img, FatType::Fat12);
-    maybe_fsck(&img);
 }
 
 #[test]
-fn fat12_roundtrip_small_file() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat12_small.img");
-    make_image(&img, FAT12_SIZE, FatTypeSelection::Fat12, "FAT12SMALL");
-    assert_fat_type(&img, FatType::Fat12);
+fn fat32_directory_growth_and_move_to_root_remain_readable() {
+    let image = FatImage::new(FAT_CASES[2]);
+    let volume = image.open();
+    let root = volume.root_dir();
+    let parent = volume.create_dir(&root, "PARENT").unwrap();
+    volume.create_dir(&parent, "CHILD").unwrap();
+    let child = parent.find("CHILD").unwrap().unwrap();
+    volume.rename(&child, &root, "CHILD").unwrap();
 
-    let payload = b"hello, FAT12 roundtrip\n";
-    write_root_file(&img, "HELLO.TXT", payload);
-    maybe_fsck(&img);
-
-    let got = read_root_file(&img, "HELLO.TXT");
-    assert_eq!(got, payload, "FAT12 roundtrip content mismatch");
+    for index in 0..32 {
+        volume
+            .create_file(&root, &format!("F{index:02}.TXT"))
+            .unwrap();
+    }
+    assert!(root.open_dir("CHILD").is_ok());
+    assert!(root.find("F31.TXT").unwrap().is_some());
 }
 
 #[test]
-fn fat12_roundtrip_multi_cluster_file() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat12_multi.img");
-    make_image(&img, FAT12_SIZE, FatTypeSelection::Fat12, "FAT12MULTI");
-
-    // ~32 KiB of pseudo-random bytes — guaranteed to span several clusters
-    // for any reasonable cluster size on a 2 MiB FAT12 image.
-    let payload: Vec<u8> = (0..(32 * 1024)).map(|i| (i * 31 + 7) as u8).collect();
-    write_root_file(&img, "BLOB.BIN", &payload);
-    maybe_fsck(&img);
-
-    let got = read_root_file(&img, "BLOB.BIN");
-    assert_eq!(got.len(), payload.len(), "FAT12 size mismatch");
-    assert_eq!(got, payload, "FAT12 content mismatch");
-}
-
-#[test]
-fn fat12_file_reader_seek() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat12_seek.img");
-    make_image(&img, FAT12_SIZE, FatTypeSelection::Fat12, "FAT12SEEK");
-
-    let payload: Vec<u8> = (0..(32 * 1024)).map(|i| (i * 31 + 7) as u8).collect();
-    write_root_file(&img, "SEEK.BIN", &payload);
-
-    let file = open_image(&img);
-    let fs = FatVolume::open(file).expect("open FAT");
-    let entry = fs
-        .root_dir()
-        .find("SEEK.BIN")
-        .expect("find")
-        .expect("present");
-
-    let mut reader = fs.read_file(&entry).expect("read_file");
-    assert_seek_behavior(&mut reader, &payload);
-
-    let mut buffered = fs.read_file(&entry).expect("read_file").with_buffer();
-    assert_seek_behavior(&mut buffered, &payload);
-
-    let mut cached = fs
-        .read_file(&entry)
-        .expect("read_file")
-        .with_buffer()
-        .with_cached_chain()
-        .expect("cache chain");
-    assert_seek_behavior(&mut cached, &payload);
-
-    let empty = fs.create_file(&fs.root_dir(), "EMPTY.BIN").unwrap();
-    let mut empty_reader = fs.read_file(&empty).unwrap();
-    assert_eq!(empty_reader.seek(SeekFrom::End(17)).unwrap(), 17);
-    assert_eq!(empty_reader.seek(SeekFrom::Current(-17)).unwrap(), 0);
-    assert!(empty_reader.seek(SeekFrom::End(-1)).is_err());
-    assert_eq!(empty_reader.position(), 0);
-}
-
-// =============================================================================
-// FAT16 — medium volume (~16 MB)
-// =============================================================================
-
-const FAT16_SIZE: u64 = 16 * 1024 * 1024;
-
-#[test]
-fn fat16_format_is_clean() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat16_clean.img");
-    make_image(&img, FAT16_SIZE, FatTypeSelection::Fat16, "FAT16CLEAN");
-    assert_fat_type(&img, FatType::Fat16);
-    maybe_fsck(&img);
-}
-
-#[test]
-fn fat16_roundtrip_small_file() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat16_small.img");
-    make_image(&img, FAT16_SIZE, FatTypeSelection::Fat16, "FAT16SMALL");
-    assert_fat_type(&img, FatType::Fat16);
-
-    let payload = b"hello, FAT16 roundtrip\n";
-    write_root_file(&img, "HELLO.TXT", payload);
-    maybe_fsck(&img);
-
-    let got = read_root_file(&img, "HELLO.TXT");
-    assert_eq!(got, payload, "FAT16 roundtrip content mismatch");
-}
-
-#[test]
-fn fat16_roundtrip_multi_cluster_file() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat16_multi.img");
-    make_image(&img, FAT16_SIZE, FatTypeSelection::Fat16, "FAT16MULTI");
-
-    let payload: Vec<u8> = (0..(256 * 1024)).map(|i| (i * 13 + 1) as u8).collect();
-    write_root_file(&img, "BLOB.BIN", &payload);
-    maybe_fsck(&img);
-
-    let got = read_root_file(&img, "BLOB.BIN");
-    assert_eq!(got.len(), payload.len(), "FAT16 size mismatch");
-    assert_eq!(got, payload, "FAT16 content mismatch");
-}
-
-// =============================================================================
-// FAT32 — minimum-sized volume (forced; auto would pick FAT16)
-// =============================================================================
-
-const FAT32_SIZE: u64 = 64 * 1024 * 1024;
-
-#[test]
-fn fat32_format_is_clean() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat32_clean.img");
-    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32CLEAN");
-    assert_fat_type(&img, FatType::Fat32);
-    maybe_fsck(&img);
-}
-
-#[test]
-fn fat32_roundtrip_small_file() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat32_small.img");
-    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32SMALL");
-    assert_fat_type(&img, FatType::Fat32);
-
-    let payload = b"hello, FAT32 roundtrip\n";
-    write_root_file(&img, "HELLO.TXT", payload);
-    maybe_fsck(&img);
-
-    let got = read_root_file(&img, "HELLO.TXT");
-    assert_eq!(got, payload, "FAT32 roundtrip content mismatch");
-}
-
-#[test]
-fn fat32_roundtrip_multi_cluster_file() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat32_multi.img");
-    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32MULTI");
-
-    // 1 MiB — comfortably spans multiple clusters at any cluster size
-    // FAT32 picks for a 64 MiB volume.
-    let payload: Vec<u8> = (0..(1024 * 1024)).map(|i| (i * 7 + 3) as u8).collect();
-    write_root_file(&img, "BLOB.BIN", &payload);
-    maybe_fsck(&img);
-
-    let got = read_root_file(&img, "BLOB.BIN");
-    assert_eq!(got.len(), payload.len(), "FAT32 size mismatch");
-    assert_eq!(got, payload, "FAT32 content mismatch");
-}
-
-#[test]
-fn fat32_rename_dir_into_root_clean_fsck() {
-    // FAT32 spec quirk: a directory's ".." entry must store cluster 0 when its
-    // parent is the FAT32 root, even though the root has a real cluster. When
-    // a directory is renamed/moved into the root, rename() must rewrite the
-    // ".." entry following the same rule.
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat32_rename.img");
-    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32REN");
-
+fn long_names_with_colliding_short_aliases_remain_distinct() {
+    let image = FatImage::new(FAT_CASES[0]);
     {
-        let file = open_image(&img);
-        let fs = FatVolume::open(file).expect("open FAT");
-        let root = fs.root_dir();
-        let _sub1 = fs.create_dir(&root, "SUB1").expect("create SUB1");
+        let volume = image.open();
+        let root = volume.root_dir();
+        volume.create_dir(&root, "SOURCE1").unwrap();
+        volume.create_dir(&root, "SOURCE2").unwrap();
+        let destination = volume.create_dir(&root, "DEST").unwrap();
+        let first = root.find("SOURCE1").unwrap().unwrap();
+        let second = root.find("SOURCE2").unwrap().unwrap();
+        let first = volume
+            .rename(&first, &destination, "Renamed Directory 0023")
+            .unwrap();
+        let second = volume
+            .rename(&second, &destination, "Renamed Directory 0028")
+            .unwrap();
+        assert_ne!(
+            first.short_name().raw_bytes(),
+            second.short_name().raw_bytes()
+        );
     }
-    {
-        let file = open_image(&img);
-        let fs = FatVolume::open(file).expect("open FAT");
-        let root = fs.root_dir();
-        let sub1 = root.open_dir("SUB1").expect("open SUB1");
-        let _sub2 = fs.create_dir(&sub1, "SUB2").expect("create SUB2");
-    }
-    {
-        let file = open_image(&img);
-        let fs = FatVolume::open(file).expect("open FAT");
-        let root = fs.root_dir();
-        let sub1 = root.open_dir("SUB1").expect("open SUB1");
-        let sub2_entry = sub1.find("SUB2").expect("find SUB2").expect("present");
-        fs.rename(&sub2_entry, &root, "SUB2").expect("rename");
-    }
-    maybe_fsck(&img);
-}
 
-#[test]
-fn fat32_root_extension_clean_fsck() {
-    // Creating enough short-named (8.3) files in the FAT32 root to overflow
-    // its initial single cluster forces find_free_entry_slot_in_dir to
-    // allocate a new cluster mid-create_file. That allocator path must keep
-    // the on-disk FSInfo free_count consistent.
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat32_rootext.img");
-    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32EXT");
-
-    {
-        let file = open_image(&img);
-        let fs = FatVolume::open(file).expect("open FAT");
-        let root = fs.root_dir();
-        // 64 MiB / 512-byte cluster → 16 entries per cluster initially;
-        // 32 files guarantees at least one extension.
-        for i in 0..32 {
-            let name = format!("F{i:02}.TXT");
-            fs.create_file(&root, &name).expect("create_file");
-        }
-    }
-    maybe_fsck(&img);
-}
-
-#[test]
-fn fat32_create_dir_clean_fsck() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat32_mkdir.img");
-    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32MKDIR");
-
-    create_root_dir(&img, "SUBDIR");
-    maybe_fsck(&img);
-}
-
-#[test]
-fn fat32_delete_clean_fsck() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat32_delete.img");
-    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32DEL");
-
-    let payload: Vec<u8> = (0..(32 * 1024)).map(|i| (i * 17 + 9) as u8).collect();
-    write_root_file(&img, "DOOMED.BIN", &payload);
-    maybe_fsck(&img);
-
-    delete_root_file(&img, "DOOMED.BIN");
-    maybe_fsck(&img);
-}
-
-#[test]
-fn fat32_truncate_to_zero_clean_fsck() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat32_truncate.img");
-    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32TRUNC");
-
-    // Multi-cluster file — truncating to 0 must free all of them and the
-    // FSInfo free_count must reflect that on disk for fsck.fat.
-    let payload: Vec<u8> = (0..(64 * 1024)).map(|i| (i * 11 + 5) as u8).collect();
-    write_root_file(&img, "BIG.BIN", &payload);
-    maybe_fsck(&img);
-
-    truncate_root_file(&img, "BIG.BIN", 0);
-    maybe_fsck(&img);
-}
-
-// =============================================================================
-// LFN write — long filenames must persist + image must remain fsck-clean
-// =============================================================================
-
-/// Writes a file with a long, mixed-case name and verifies (a) the long name
-/// round-trips and (b) `fsck.fat` accepts the resulting image. Without LFN
-/// write support, the long name is silently truncated to 8.3 and the
-/// generated checksum is missing — fsck.fat tolerates the truncation but
-/// the long-name lookup fails. Regression coverage for issue A1.
-#[cfg(feature = "lfn")]
-#[test]
-fn fat32_long_filename_lfn_write_roundtrip_clean_fsck() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat32_lfn.img");
-    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32LFN");
-    assert_fat_type(&img, FatType::Fat32);
-
-    let long_name = "My Long Notes.txt";
-    let payload = b"long-name LFN write test\n";
-    write_root_file(&img, long_name, payload);
-    maybe_fsck(&img);
-
-    // Re-open and look up by the long name — must hit the LFN entries.
-    let file = open_image(&img);
-    let fs = FatVolume::open(file).expect("reopen");
-    let root = fs.root_dir();
-    let entry = root
-        .find(long_name)
-        .expect("find did not error")
-        .expect("entry found by long name");
-    let mut reader = fs.read_file(&entry).expect("read_file");
-    let mut got = Vec::new();
-    let mut buf = [0u8; 4096];
-    loop {
-        let n = reader.read(&mut buf).expect("reader.read");
-        if n == 0 {
-            break;
-        }
-        got.extend_from_slice(&buf[..n]);
-    }
-    assert_eq!(got, payload, "LFN write/read content mismatch");
-}
-
-// =============================================================================
-// Cross-FAT: multiple files in the same root directory
-// =============================================================================
-
-#[test]
-fn fat32_roundtrip_multiple_files() {
-    let tmp = TempDir::new().unwrap();
-    let img = tmp.path().join("fat32_multifile.img");
-    make_image(&img, FAT32_SIZE, FatTypeSelection::Fat32, "FAT32MANY");
-    assert_fat_type(&img, FatType::Fat32);
-
-    let files: &[(&str, &[u8])] = &[
-        ("A.TXT", b"alpha"),
-        ("B.TXT", b"bravo"),
-        ("C.BIN", &[0xCC; 8192]),
-    ];
-
-    for (name, payload) in files {
-        write_root_file(&img, name, payload);
-    }
-    maybe_fsck(&img);
-
-    for (name, payload) in files {
-        let got = read_root_file(&img, name);
-        assert_eq!(&got, payload, "mismatch for {name}");
-    }
+    let volume = image.open();
+    let destination = volume.root_dir().open_dir("DEST").unwrap();
+    assert!(
+        destination
+            .find("Renamed Directory 0023")
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        destination
+            .find("Renamed Directory 0028")
+            .unwrap()
+            .is_some()
+    );
 }

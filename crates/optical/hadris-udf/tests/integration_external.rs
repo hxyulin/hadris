@@ -15,7 +15,9 @@
 //! - Arch: `sudo pacman -S udftools p7zip`
 
 use std::fs::File;
-use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+use std::io::{Cursor, Read};
+#[cfg(feature = "write")]
+use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;

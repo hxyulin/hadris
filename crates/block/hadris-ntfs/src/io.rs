@@ -5,8 +5,6 @@ io_transform! {
 pub use super::super::{Read, ReadExt, Seek, Error, ErrorKind, SeekFrom, Parsable};
 pub use super::super::IoResult;
 
-use alloc::vec;
-
 use crate::attr::DataRun;
 use crate::error::{NtfsError, Result};
 
@@ -75,25 +73,6 @@ pub(crate) async fn read_data_runs<DATA: Read + Seek>(
         return Err(NtfsError::UnexpectedEndOfData);
     }
     Ok(())
-}
-
-/// Read an entire non-resident attribute's data using its data runs.
-#[allow(dead_code)]
-pub(crate) async fn read_non_resident_data<DATA: Read + Seek>(
-    data: &mut DATA,
-    runs: &[DataRun],
-    data_size: u64,
-    cluster_size: u64,
-) -> Result<alloc::vec::Vec<u8>> {
-    let data_size = usize::try_from(data_size).map_err(|_| NtfsError::InvalidAttribute)?;
-    // Untrusted attribute length; bound it against the actual data source
-    // before allocating.
-    if data_size as u64 > data.seek(SeekFrom::End(0)).await? {
-        return Err(NtfsError::InvalidAttribute);
-    }
-    let mut buf = vec![0u8; data_size];
-    read_data_runs(data, runs, 0, &mut buf, cluster_size).await?;
-    Ok(buf)
 }
 
 } // end io_transform!

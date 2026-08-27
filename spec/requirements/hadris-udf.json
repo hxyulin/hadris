@@ -96,7 +96,7 @@
       "direction": "read",
       "status": "partial",
       "symbols": [{"path": "crates/optical/hadris-udf/src/dir.rs", "name": "FileIdentifierDescriptor::from_bytes"}],
-      "tests": [{"path": "crates/optical/hadris-udf/tests/comprehensive_udf.rs", "name": "test_fid_padding", "kind": "integration"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/comprehensive_udf.rs", "name": "writer_fids_are_aligned_parseable_and_roundtrip_the_filename", "kind": "integration"}],
       "gap": "Bounds are parsed, but tag checksum, CRC, version, location, reserved flags, and padding contents are not fully validated."
     },
     {
@@ -131,7 +131,7 @@
       "summary": "Anchor descriptors are recorded at exactly two of sector 256, sector N minus 256, and sector N.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "Formatter::format"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "UdfFormatter::format"}],
       "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "test_format_empty_filesystem", "kind": "unit"}],
       "gap": null
     },
@@ -143,7 +143,7 @@
       "summary": "Main and reserve Volume Descriptor Sequence extents are each at least sixteen logical sectors.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "Formatter::format"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "UdfFormatter::format"}],
       "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "test_format_empty_filesystem", "kind": "unit"}],
       "gap": null
     },
@@ -179,8 +179,8 @@
       "summary": "A Logical Volume Integrity Descriptor is recorded and updated when logical-volume contents change.",
       "direction": "write",
       "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "Formatter::write_lvid"}],
-      "tests": [{"path": "crates/optical/hadris-udf/tests/comprehensive_udf.rs", "name": "test_lvid_structure", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "UdfWriter::write_lvid"}],
+      "tests": [{"path": "crates/optical/hadris-udf/tests/comprehensive_udf.rs", "name": "writer_closes_lvid_with_partition_size_metadata", "kind": "integration"}],
       "gap": "Creation records a closed descriptor, but modification lacks open-before-change and close-after-consistency transitions."
     },
     {
@@ -191,7 +191,7 @@
       "summary": "Rewritable or overwritable media records exactly one File Set Descriptor per logical volume.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "Formatter::format"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "UdfFormatter::format"}],
       "tests": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "test_roundtrip_basic_verification", "kind": "unit"}],
       "gap": null
     },
@@ -203,7 +203,7 @@
       "summary": "Every UDF directory begins with a parent-directory File Identifier Descriptor.",
       "direction": "write",
       "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "Formatter::write_fids"}],
+      "symbols": [{"path": "crates/optical/hadris-udf/src/write/mod.rs", "name": "UdfWriter::write_fids"}],
       "tests": [{"path": "crates/optical/hadris-udf/tests/async_read.rs", "name": "async_leaf_opens_traverses_and_reads_nested_file", "kind": "integration"}],
       "gap": "The writer emits the parent first, but the test proves traversal rather than raw descriptor order."
     }

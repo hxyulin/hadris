@@ -107,14 +107,17 @@
 //! - `sync::format` — Filesystem formatting (requires `write`)
 //! - `sync::tool` — Analysis and verification (requires `tool`)
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
 #![allow(async_fn_in_trait)]
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
 
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(test)))]
 extern crate std;
+
+#[cfg(test)]
+extern crate self as hadris_fat;
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -271,3 +274,49 @@ pub use sync::*;
 
 // Re-exports from shared types
 pub use error::{Error, Result};
+
+#[cfg(all(test, feature = "async", feature = "alloc", feature = "read"))]
+#[path = "../tests/async_roundtrip.rs"]
+mod async_roundtrip;
+#[cfg(all(test, feature = "cache", feature = "write", feature = "std"))]
+#[path = "../tests/cache_integration.rs"]
+mod cache_integration;
+#[cfg(all(test, feature = "sync", feature = "write"))]
+#[path = "../tests/comprehensive_fat.rs"]
+mod comprehensive_fat;
+#[cfg(all(test, feature = "unstable-exfat", feature = "write"))]
+#[path = "../tests/exfat_roundtrip.rs"]
+mod exfat_roundtrip;
+#[cfg(all(test, feature = "sync", feature = "write"))]
+#[path = "../tests/fat_roundtrip.rs"]
+mod fat_roundtrip;
+#[cfg(all(test, feature = "unstable-exfat"))]
+#[path = "../tests/integration_exfat.rs"]
+mod integration_exfat;
+#[cfg(all(test, feature = "sync", feature = "read"))]
+#[path = "../tests/poc_audit_fat.rs"]
+mod poc_audit_fat;
+#[cfg(all(test, feature = "tool"))]
+#[path = "../tests/poc_audit_fat_recursion.rs"]
+mod poc_audit_fat_recursion;
+#[cfg(all(test, feature = "sync", feature = "write"))]
+#[path = "../tests/poc_seek.rs"]
+mod poc_seek;
+#[cfg(all(test, feature = "unstable-exfat", feature = "write", feature = "std"))]
+#[path = "../tests/regression_audit_exfat.rs"]
+mod regression_audit_exfat;
+#[cfg(all(test, feature = "sync", feature = "write", feature = "std"))]
+#[path = "../tests/regression_audit_fat.rs"]
+mod regression_audit_fat;
+#[cfg(all(test, feature = "unstable-exfat"))]
+#[path = "../tests/test_exfat.rs"]
+mod test_exfat;
+#[cfg(all(test, feature = "sync", feature = "read"))]
+#[path = "../tests/test_read.rs"]
+mod test_read;
+#[cfg(all(test, feature = "sync", feature = "write"))]
+#[path = "../tests/test_write.rs"]
+mod test_write;
+#[cfg(all(test, feature = "sync", feature = "read"))]
+#[path = "../tests/v2_api.rs"]
+mod v2_api;

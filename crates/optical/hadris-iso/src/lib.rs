@@ -280,7 +280,7 @@
 //!   covers the whole image including that region, so copying
 //!   `volume_space_size` logical sectors preserves the backup GPT.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
 #![allow(async_fn_in_trait)]
 // Sync and async APIs intentionally compile the same source modules twice.
@@ -290,7 +290,7 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(test)))]
 extern crate std;
 
 // ---------------------------------------------------------------------------
@@ -657,3 +657,31 @@ pub mod r#async {
 
 #[cfg(feature = "sync")]
 pub use sync::*;
+
+#[cfg(test)]
+extern crate self as hadris_iso;
+
+#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
+#[path = "../tests/allocation_floor.rs"]
+mod allocation_floor;
+#[cfg(all(test, feature = "async", feature = "alloc", feature = "read"))]
+#[path = "../tests/async_read.rs"]
+mod async_read;
+#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
+#[path = "../tests/comprehensive_iso.rs"]
+mod comprehensive_iso;
+#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
+#[path = "../tests/gpt_partition.rs"]
+mod gpt_partition;
+#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
+#[path = "../tests/iso_roundtrip_advanced.rs"]
+mod iso_roundtrip_advanced;
+#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
+#[path = "../tests/poc_audit_iso.rs"]
+mod poc_audit_iso;
+#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
+#[path = "../tests/rrip_reader.rs"]
+mod rrip_reader;
+#[cfg(all(test, feature = "std", feature = "sync", feature = "write"))]
+#[path = "../tests/rrip_writer_metadata.rs"]
+mod rrip_writer_metadata;

@@ -216,6 +216,7 @@ pub fn decode_filename(data: &[u8]) -> String {
     }
 }
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,4 +261,5 @@ mod tests {
         data.extend_from_slice(&0x0041u16.to_be_bytes());
         assert_eq!(decode_filename(&data), "\u{FFFD}A");
     }
+}
 }

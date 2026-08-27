@@ -46,7 +46,7 @@ impl<'a, DATA: Read + Seek> ExFatDir<'a, DATA> {
             let entry = entry?;
 
             // Perform case-insensitive comparison
-            if self.fs.names_equal(&entry.name, name)? {
+            if self.fs.names_equal(&entry.name, name) {
                 return Ok(Some(entry));
             }
         }

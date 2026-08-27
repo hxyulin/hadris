@@ -1,5 +1,6 @@
 [package]
 name = "hadris-ntfs"
+autotests = false
 version = "2.2.0"
 description = "A library for reading NTFS filesystems"
 readme = "README.md"

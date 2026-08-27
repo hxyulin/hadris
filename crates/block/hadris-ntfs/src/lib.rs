@@ -52,13 +52,16 @@
 //! data streams, or interpret reparse points. See the internal compliance
 //! matrix in `docs/spec-coverage.md`.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
 #![allow(clippy::duplicate_mod)]
 #![deny(missing_docs)]
 
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(test)))]
 extern crate std;
+
+#[cfg(test)]
+extern crate self as hadris_ntfs;
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -163,3 +166,13 @@ pub use sync::*;
 
 pub use error::{NtfsError, Result};
 pub use raw::*;
+
+#[cfg(all(test, feature = "alloc", feature = "sync", feature = "read"))]
+#[path = "../tests/compliance.rs"]
+mod compliance;
+#[cfg(all(test, feature = "alloc", feature = "sync", feature = "read"))]
+#[path = "../tests/read.rs"]
+mod integration_read;
+#[cfg(all(test, feature = "alloc", feature = "sync", feature = "read"))]
+#[path = "../tests/poc_audit_ntfs.rs"]
+mod poc_audit_ntfs;

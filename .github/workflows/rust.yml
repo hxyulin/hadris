@@ -367,7 +367,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run all-feature tests
         if: runner.os != 'Windows'
-        run: cargo test --workspace --all-features
+        run: cargo test --workspace --all-features --tests
       # `hadris-fat/defmt` is an embedded logging integration. It can be
       # type-checked on every host, but its runtime symbols are supplied by an
       # embedded target and therefore cannot be linked into Windows test
@@ -376,8 +376,8 @@ jobs:
       - name: Run portable hosted tests
         if: runner.os == 'Windows'
         run: |
-          cargo test --workspace --all-features --exclude hadris-fat
-          cargo test -p hadris-fat --features "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,dirty-file-panic"
+          cargo test --workspace --all-features --tests --exclude hadris-fat
+          cargo test -p hadris-fat --features "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,dirty-file-panic" --tests
       - name: Run block async integration tests
         run: cargo test -p hadris-block --all-features --test async_volume
       - name: Run optical detection integration tests
@@ -402,8 +402,8 @@ jobs:
           sudo apt-get install -y exfatprogs
       - name: Run exFAT integration tests
         run: |
-          cargo test -p hadris-fat --features "unstable-exfat,write" --test integration_exfat -- --nocapture
-          cargo test -p hadris-fat --features "unstable-exfat,write" --test exfat_roundtrip -- --nocapture
+          cargo test -p hadris-fat --features "unstable-exfat,write" --lib integration_exfat:: -- --nocapture
+          cargo test -p hadris-fat --features "unstable-exfat,write" --lib exfat_roundtrip:: -- --nocapture
 
   test-optical:
     name: Test optical interoperability
@@ -416,45 +416,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xorriso udftools p7zip-full
-      - name: Run ISO interoperability tests
-        run: |
-          cargo test -p hadris-iso --all-features \
-            --test xorriso_basic \
-            --test xorriso_advanced \
-            --test xorriso_boot \
-            --test xorriso_hybrid \
-            -- --nocapture
+      - name: Run ISO conformance and interoperability tests
+        env:
+          HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
+        run: "cargo test --manifest-path tests/Cargo.toml iso:: -- --nocapture"
       - name: Run UDF interoperability tests
-        run: cargo test -p hadris-udf --all-features --test integration_external -- --nocapture
+        run: >-
+          cargo test -p hadris-udf --all-features --lib integration_external:: -- --nocapture
       - name: Qualify hybrid ISO/UDF images
         run: cargo test -p hadris-cd --all-features --test bridge_roundtrip -- --nocapture
-
-  test-fat:
-    name: Test FAT12/16/32 (with fsck.fat)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
-      - uses: Swatinem/rust-cache@v2
-      - name: Install dosfstools and mtools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dosfstools mtools
-      - name: Run FAT roundtrip tests
-        run: |
-          cargo test -p hadris-fat --features "write" --test fat_roundtrip -- --nocapture
-      # `mtools` (mdir/mtype) verifies filename and content fidelity that
-      # `fsck.fat` (structure only) does not — in particular the NT case bits
-      # for lowercase 8.3 names.
-      - name: Run FAT mtools fidelity tests
-        run: |
-          cargo test -p hadris-fat --features "write,std" --test mtools_fidelity -- --nocapture
-      # `cache` is not a default feature, so the workspace `test` job never
-      # exercises the FAT-sector cache, its routing on FatFs, or the
-      # cache_integration suite. Run them explicitly here.
-      - name: Run FAT cache tests
-        run: |
-          cargo test -p hadris-fat --features "cache,write,std" -- --nocapture
 
   # CLI --help/--version smoke tests live in crates/tools/hadris-*-cli/tests/cli_smoke.rs
   # and run under the workspace `test` job.
@@ -471,7 +441,7 @@ jobs:
       - name: cargo doc --workspace
         run: cargo doc --workspace --no-deps
       - name: Compile rustdoc examples
-        run: cargo test --workspace --doc
+        run: cargo test --workspace --all-features --doc
       - name: Compile Cargo example targets
         run: cargo check --workspace --all-features --examples
 
@@ -485,6 +455,8 @@ jobs:
           components: rustfmt
       - name: Check formatting
         run: cargo fmt --all -- --check
+      - name: Check conformance suite formatting
+        run: cargo fmt --manifest-path tests/Cargo.toml --all -- --check
 
   clippy:
     name: Clippy
@@ -495,8 +467,14 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            tests -> target
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Run clippy on conformance suite
+        run: cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings
 
   miri:
     name: Miri (UB detection)

@@ -3,9 +3,9 @@
 //! the bug is present.
 //!
 //! Run:
-//!   cargo test -p hadris-fat --test poc_audit_fat
-//!   cargo test -p hadris-fat --features unstable-exfat --test poc_audit_fat
-//!   cargo test -p hadris-fat --features tool --test poc_audit_fat
+//!   cargo test -p hadris-fat --lib poc_audit_fat::
+//!   cargo test -p hadris-fat --features unstable-exfat --lib poc_audit_fat::
+//!   cargo test -p hadris-fat --features tool --lib poc_audit_fat::
 
 use std::io::Cursor;
 

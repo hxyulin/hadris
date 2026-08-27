@@ -1,5 +1,6 @@
 [package]
 name = "hadris-iso"
+autotests = false
 version = "2.2.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -50,6 +51,10 @@ hadris-part = { workspace = true, features = ["std", "sync", "read", "write", "c
 static_assertions.workspace = true
 tempfile.workspace = true
 criterion.workspace = true
+
+[[test]]
+name = "no_alloc_reader"
+required-features = ["std", "sync", "read"]
 
 [[bench]]
 name = "iso_benchmarks"

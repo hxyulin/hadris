@@ -13,7 +13,7 @@ use crate::{
 };
 #[cfg(feature = "write")]
 use super::{
-    fat_table::Fat, dir::{DirSlot, FatDir, FileEntry}, fs::FatVolume,
+    fat_table::Fat, dir::{DirSlot, DirectoryEntry, FatDir, FileEntry}, fs::FatVolume,
     io::{Cluster, ClusterLike, Read, ReadExt, Seek, SeekFrom, Write},
 };
 
@@ -872,6 +872,31 @@ fn build_lfn_entries(
 /// Directory write operations
 #[cfg(feature = "write")]
 impl<DATA: Read + Seek> FatVolume<DATA> {
+    async fn unique_short_name(
+        &self,
+        parent: &FatDir<'_, DATA>,
+        name: &str,
+    ) -> Result<(ShortFileName, bool)> {
+        for suffix in 0..=u8::MAX {
+            let candidate =
+                ShortFileName::from_long_name_with(name, suffix, self.oem_converter())
+                    .map_err(|_| Error::InvalidFilename)?;
+            let mut collision = false;
+            let mut entries = parent.entries();
+            while let Some(entry) = entries.next_entry().await {
+                let DirectoryEntry::Entry(entry) = entry?;
+                if entry.short_name().raw_bytes() == candidate.raw_bytes() {
+                    collision = true;
+                    break;
+                }
+            }
+            if !collision {
+                return Ok((candidate, suffix != 0));
+            }
+        }
+        Err(Error::InvalidFilename)
+    }
+
     /// Confirm that `entry` still refers to the same on-disk directory entry it
     /// was looked up from, before a mutating operation rewrites those bytes.
     ///
@@ -1355,9 +1380,9 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
             return Err(Error::AlreadyExists);
         }
 
-        // Generate short filename (suffix=0 means no ~N suffix)
-        let short_name = ShortFileName::from_long_name_with(name, 0, self.oem_converter())
-            .map_err(|_| Error::InvalidFilename)?;
+        let (short_name, collided) = self.unique_short_name(parent, name).await?;
+        #[cfg(not(feature = "lfn"))]
+        let _ = collided;
 
         // A name that fits 8.3 apart from per-part case is stored as a single
         // short entry with the NT case byte set; otherwise it needs LFN entries.
@@ -1366,9 +1391,9 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         #[cfg(feature = "lfn")]
         let mut lfn_buf: [RawDirectoryEntry; MAX_LFN_ENTRIES] = unsafe { core::mem::zeroed() };
         #[cfg(feature = "lfn")]
-        let (lfn_count, nt_res) = match case_bits {
-            Some(bits) => (0usize, bits),
-            None => (
+        let (lfn_count, nt_res) = match (case_bits, collided) {
+            (Some(bits), false) => (0usize, bits),
+            _ => (
                 build_lfn_entries(name, short_name.lfn_checksum(), &mut lfn_buf)
                     .ok_or(Error::InvalidFilename)?,
                 0u8,
@@ -1466,9 +1491,9 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
             return Err(Error::AlreadyExists);
         }
 
-        // Generate short filename (suffix=0 means no ~N suffix)
-        let short_name = ShortFileName::from_long_name_with(name, 0, self.oem_converter())
-            .map_err(|_| Error::InvalidFilename)?;
+        let (short_name, collided) = self.unique_short_name(parent, name).await?;
+        #[cfg(not(feature = "lfn"))]
+        let _ = collided;
 
         // A name that fits 8.3 apart from per-part case is stored as a single
         // short entry with the NT case byte set; otherwise it needs LFN entries.
@@ -1477,9 +1502,9 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         #[cfg(feature = "lfn")]
         let mut lfn_buf: [RawDirectoryEntry; MAX_LFN_ENTRIES] = unsafe { core::mem::zeroed() };
         #[cfg(feature = "lfn")]
-        let (lfn_count, nt_res) = match case_bits {
-            Some(bits) => (0usize, bits),
-            None => (
+        let (lfn_count, nt_res) = match (case_bits, collided) {
+            (Some(bits), false) => (0usize, bits),
+            _ => (
                 build_lfn_entries(name, short_name.lfn_checksum(), &mut lfn_buf)
                     .ok_or(Error::InvalidFilename)?,
                 0u8,
@@ -1711,9 +1736,9 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
             return Err(Error::AlreadyExists);
         }
 
-        // Generate short filename
-        let short_name = ShortFileName::from_long_name_with(new_name, 0, self.oem_converter())
-            .map_err(|_| Error::InvalidFilename)?;
+        let (short_name, collided) = self.unique_short_name(dest_dir, new_name).await?;
+        #[cfg(not(feature = "lfn"))]
+        let _ = collided;
 
         // The new name is stored as a single short entry (with NT case bits)
         // when it fits 8.3 apart from case, otherwise via LFN entries. When the
@@ -1722,9 +1747,9 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         #[cfg(feature = "lfn")]
         let mut lfn_buf: [RawDirectoryEntry; MAX_LFN_ENTRIES] = unsafe { core::mem::zeroed() };
         #[cfg(feature = "lfn")]
-        let (lfn_count, nt_res) = match case_bits {
-            Some(bits) => (0usize, bits),
-            None => (
+        let (lfn_count, nt_res) = match (case_bits, collided) {
+            (Some(bits), false) => (0usize, bits),
+            _ => (
                 build_lfn_entries(new_name, short_name.lfn_checksum(), &mut lfn_buf)
                     .ok_or(Error::InvalidFilename)?,
                 0u8,
@@ -2155,6 +2180,7 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     }
 }
 
+sync_only! {
 /// Miri-targeted unit tests for `build_lfn_entries`. These exercise the
 /// `unsafe { lfn: ... }` union writes inside the staging buffer and the
 /// 0xFFFF padding writes that previously OOB'd at the spec cap (255 UTF-16
@@ -2273,6 +2299,7 @@ mod lfn_write_safety_tests {
         assert_eq!(second.sequence_number, 0x01); // no mask
         assert_eq!(second.checksum, 0xAB);
     }
+}
 }
 
 } // end io_transform!

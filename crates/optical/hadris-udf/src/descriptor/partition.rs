@@ -98,6 +98,7 @@ pub enum PartitionContents {
     Unknown,
 }
 
+sync_only! {
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,4 +166,5 @@ mod tests {
         desc.tag = tag_with_checksum(TagIdentifier::PrimaryVolumeDescriptor, location);
         assert!(desc.validate(location).is_err());
     }
+}
 }

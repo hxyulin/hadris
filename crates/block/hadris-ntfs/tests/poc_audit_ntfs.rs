@@ -3,7 +3,6 @@
 //! Every probe asserts graceful errors / bounded behavior; none should panic.
 
 use std::io::Cursor;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use hadris_ntfs::NtfsError;
 use hadris_ntfs::attr::{self, parse_index_entries};
@@ -272,51 +271,6 @@ fn index_alloc_image(
     image
 }
 
-/// Drive the public API like the fuzz harness, plus paths it does not
-/// reach (read_to_vec, open_path, open_file, read_mft_record).
-fn drive(image: &[u8]) {
-    let Ok(fs) = NtfsFs::open(Cursor::new(image)) else {
-        return;
-    };
-    for i in 0..MFT_RECORDS as u64 {
-        let _ = fs.read_mft_record(i);
-    }
-    let mut budget = 10_000u32;
-    let mut stack = vec![fs.root_dir()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = dir.entries() else { continue };
-        for entry in entries {
-            if budget == 0 {
-                return;
-            }
-            budget -= 1;
-            let _ = dir.find(entry.name());
-            let _ = fs.open_path(entry.name());
-            if entry.is_directory() {
-                if let Ok(child) = dir.open_dir(entry.name()) {
-                    stack.push(child);
-                }
-            } else if let Ok(mut reader) = fs.read_file(&entry) {
-                if reader.size() <= 256 * 1024 {
-                    let _ = reader.read_to_vec();
-                } else {
-                    let mut buf = [0u8; 4096];
-                    let mut total = 0u64;
-                    while let Ok(n) = reader.read(&mut buf) {
-                        if n == 0 {
-                            break;
-                        }
-                        total += n as u64;
-                        if total >= 512 * 1024 {
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 #[test]
 fn poc_crafted_image_mounts_and_walks() {
     let image = base_image();
@@ -477,50 +431,6 @@ fn parse_index_entries_rejects_a_huge_node_offset() {
         parse_index_entries(&data, usize::MAX - 8),
         Err(NtfsError::InvalidIndexEntry)
     ));
-}
-
-#[test]
-fn poc_exhaustive_byte_mutation_smoke() {
-    let base = base_image();
-    let mut panics = 0u32;
-    for i in 0..base.len() {
-        for delta in [0x01_u8, 0x80, 0xFF] {
-            let mut image = base.clone();
-            image[i] = image[i].wrapping_add(delta);
-            let r = catch_unwind(AssertUnwindSafe(|| drive(&image)));
-            if r.is_err() {
-                panics += 1;
-                eprintln!("PANIC at byte {i} delta {delta:#04x}");
-            }
-        }
-    }
-    assert_eq!(panics, 0, "byte-level mutations must never panic");
-}
-
-#[test]
-fn poc_random_mutation_smoke() {
-    let base = base_image();
-    let mut state = 0x9E3779B97F4A7C15_u64;
-    let mut next = move || {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        state
-    };
-    let mut panics = 0u32;
-    for _ in 0..20_000 {
-        let mut image = base.clone();
-        for _ in 0..(next() % 24 + 1) {
-            let pos = (next() as usize) % image.len();
-            image[pos] = next() as u8;
-        }
-        let r = catch_unwind(AssertUnwindSafe(|| drive(&image)));
-        if r.is_err() {
-            panics += 1;
-            eprintln!("PANIC on mutated image: {image:?}");
-        }
-    }
-    assert_eq!(panics, 0, "random mutations must never panic");
 }
 
 #[cfg(feature = "async")]

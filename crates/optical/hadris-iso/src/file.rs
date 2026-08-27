@@ -209,7 +209,11 @@ impl EntryType {
 }
 
 #[cfg(feature = "write")]
-/// Performs the `convert_l1` operation.
+/// Converts a file name to an ECMA-119 Level 1 File Identifier.
+///
+/// @hadris-spec ECMA-119:7.5.1
+/// @hadris-compliance full
+/// @hadris-tests iso::spec::hadris_iso_matches_ecma_119_oracle
 pub fn convert_l1(name: &str, supports_lowercase: bool) -> FixedBytes<14> {
     let mut l1 = FixedBytes::empty();
     let name_bytes = name.as_bytes();

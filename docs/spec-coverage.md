@@ -57,12 +57,12 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
 | ECMA-167:3/7.2 | `DescriptorTag` | partial | `descriptor::tag::tests::validate_bytes_enforces_version_reserved_location_and_crc` | `udf_read` | Core tag invariants are checked, but validation across every descriptor context is not yet established. |
-| ECMA-167:3/7.2.1 | `TagIdentifier` | partial | `comprehensive_udf::test_descriptor_tag_ids` | `udf_read` | Known identifiers are modeled and tested, but context-specific identifier constraints are not all validated. |
-| ECMA-167:3/7.1 | `ExtentDescriptor` | partial | `comprehensive_udf::test_extent_descriptor` | `udf_read` | The layout is modeled and tested, but all extent semantics are not validated at this layer. |
-| ECMA-167:1/7.4 | `EntityIdentifier` | partial | `comprehensive_udf::test_partition_contents` | `udf_read` | The identifier layout is modeled, but suffix-specific constraints are not all validated. |
+| ECMA-167:3/7.2.1 | `TagIdentifier` | partial | `comprehensive_udf::tag_identifier_conversions_cover_volume_and_file_descriptors` | `udf_read` | Known identifiers are modeled and tested, but context-specific identifier constraints are not all validated. |
+| ECMA-167:3/7.1 | `ExtentDescriptor` | partial |  | `udf_read` | The layout is modeled and tested, but all extent semantics are not validated at this layer. |
+| ECMA-167:1/7.4 | `EntityIdentifier` | partial |  | `udf_read` | The identifier layout is modeled, but suffix-specific constraints are not all validated. |
 | ECMA-167:1/7.2.1 | `CharSpec` | partial | `write::cs0_tests::selects_eight_bit_for_latin1`, `write::cs0_tests::selects_sixteen_bit_for_wide_unicode` | `udf_read` | OSTA CS0 writing is tested, but every ECMA-167 character-set constraint is not validated. |
-| ECMA-167:4/14.14.2 | `LongAllocationDescriptor` | partial | `comprehensive_udf::test_allocation_descriptor_sizes` | `udf_read` | The layout is modeled and tested, but all partition-reference and extent semantics are not validated at this layer. |
-| ECMA-167:4/14.14.1 | `ShortAllocationDescriptor` | partial | `comprehensive_udf::test_allocation_descriptor_sizes` | `udf_read` | The layout is modeled and tested, but all allocation-length semantics are not validated at this layer. |
+| ECMA-167:4/14.14.2 | `LongAllocationDescriptor` | partial |  | `udf_read` | The layout is modeled and tested, but all partition-reference and extent semantics are not validated at this layer. |
+| ECMA-167:4/14.14.1 | `ShortAllocationDescriptor` | partial |  | `udf_read` | The layout is modeled and tested, but all allocation-length semantics are not validated at this layer. |
 | ECMA-167:3/10.2 | `AnchorVolumeDescriptorPointer` | partial | `integration_external::write_tests::test_hadris_udf_has_valid_avdp` | `udf_read` | The descriptor is modeled and tested, but clause-complete validation has not yet been established. |
 | ECMA-167:3/10.1 | `PrimaryVolumeDescriptor` | partial | `write::tests::test_roundtrip_basic_verification` | `udf_read` | The descriptor is modeled and round-trip tested, but clause-complete validation has not yet been established. |
 | ECMA-167:3/10.5 | `PartitionDescriptor` | partial | `descriptor::partition::tests::partition_descriptor_layout_and_validate` | `udf_read` | The descriptor layout and core fields are validated, but clause-complete semantic validation is not established. |
@@ -74,24 +74,25 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
-| ECMA-119:8.2 | `BootRecordVolumeDescriptor` | partial | `xorriso_boot::test_hadris_multisection_boot_catalog` | `iso_read` | The descriptor locates El Torito data, but all ECMA-119 boot-record semantics are not implemented. |
-| ECMA-119:8.3 | `VolumeDescriptorSetTerminator` | partial | `comprehensive_iso::test_volume_descriptor_set_terminator` | `iso_read` | The descriptor is emitted and recognized, but the audit has not established validation of every reserved byte. |
-| ECMA-119:8.4 | `PrimaryVolumeDescriptor` | partial | `comprehensive_iso::test_pvd_standard_identifier` | `iso_read` | Core fields are modeled, but reserved fields, character sets, redundant endian values, and semantic constraints are not all validated. |
+| ECMA-119:7.5.1 | `convert_l1` | full | `iso::spec::hadris_iso_matches_ecma_119_oracle` | | Level 1 file identifiers include the required file-version separator and version number. |
+| ECMA-119:8.2 | `BootRecordVolumeDescriptor` | partial | `iso::boot::test_hadris_multisection_boot_catalog` | `iso_read` | The descriptor locates El Torito data, but all ECMA-119 boot-record semantics are not implemented. |
+| ECMA-119:8.3 | `VolumeDescriptorSetTerminator` | partial | `comprehensive_iso::malformed_primary_descriptor_and_terminator_cases_are_rejected` | `iso_read` | The descriptor is emitted and recognized, but the audit has not established validation of every reserved byte. |
+| ECMA-119:8.4 | `PrimaryVolumeDescriptor` | partial | `comprehensive_iso::descriptor_sequence_opens_primary_volume_and_root_directory`, `iso::spec::hadris_iso_matches_ecma_119_oracle` | `iso_read` | Core fields are modeled, but reserved fields, character sets, redundant endian values, and semantic constraints are not all validated. |
 | ECMA-119:8.5 | `SupplementaryVolumeDescriptor` | partial | | `iso_read` | Joliet SVD is read/written (UCS-2, BMP only); the version-2 "enhanced" form is repurposed as a UDF-bridge signal rather than a conformant ISO 9660:1999 secondary descriptor. |
 | ECMA-119:9.1 | `DirectoryRecordHeader` | partial | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Fixed fields round-trip, but all identifier, flag, and semantic constraints are not yet validated. |
 | ECMA-119:9.1 | `DirectoryRecord` | partial | `directory::tests::directory_record_parse_roundtrip` | `iso_read` | Joliet+RRIP coexistence on read may hide one namespace; see crate Known Limitations |
-| ECMA-119:9.4 | `PathTableEntryHeader` | partial | | `iso_read` | Both L- and M-type path tables are written and read; the optional secondary path tables are not populated. |
-| El-Torito:validation | `BootValidationEntry` | partial | `xorriso_boot::test_eltorito_boot_catalog_comparison` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
-| El-Torito:section-header | `BootSectionHeaderEntry` | partial | `xorriso_boot::test_hadris_multisection_boot_catalog` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
-| El-Torito:section-entry | `BootSectionEntry` | partial | `xorriso_boot::test_floppy_emulation_media_type_and_default_load_size` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
+| ECMA-119:9.4 | `PathTableEntryHeader` | partial | `iso::spec::hadris_iso_matches_ecma_119_oracle` | `iso_read` | Both L- and M-type path tables are written and read; the optional secondary path tables are not populated. |
+| El-Torito:validation | `BootValidationEntry` | partial | `iso::boot::test_eltorito_boot_catalog_comparison` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
+| El-Torito:section-header | `BootSectionHeaderEntry` | partial | `iso::boot::test_hadris_multisection_boot_catalog` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
+| El-Torito:section-entry | `BootSectionEntry` | partial | `iso::boot::test_floppy_emulation_media_type_and_default_load_size` | `iso_read` | The catalog entry is modeled and interoperability-tested, but the audit has not established clause-complete validation. |
 
 ## hadris-fat
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
-| FAT:BPB | `RawBpb` | full | `comprehensive_fat::test_valid_sector_sizes` | `fat_read` | |
-| FAT:FSInfo | `RawFsInfo` | full | `comprehensive_fat::test_fsinfo_free_cluster_unknown` | `fat_read` | FAT32 free-cluster/next-free tracking |
-| FAT:LFN | `RawLfnEntry` | partial | `comprehensive_fat::test_lfn_builder_sequence`, `test_write::maximum_length_name_spans_clusters`, `test_write::long_name_exceeding_one_cluster_roundtrips_and_deletes` | `fat_read` | This raw on-disk structure is complete, while semantic validation and legacy ANSI fallback behavior are implemented by higher-level LFN readers and writers. |
+| FAT:BPB | `RawBpb` | full | `comprehensive_fat::bpb_size_validation_uses_production_reader_and_formatter` | `fat_read` | |
+| FAT:FSInfo | `RawFsInfo` | full | `test_write::test_fsinfo_unknown_sentinels_mount_successfully` | `fat_read` | FAT32 free-cluster/next-free tracking |
+| FAT:LFN | `RawLfnEntry` | partial | `test_write::lfn_checksum_matches_short_name`, `test_write::lfn_padding_uses_terminator_then_filler`, `test_write::maximum_length_name_spans_clusters`, `test_write::long_name_exceeding_one_cluster_roundtrips_and_deletes` | `fat_read` | This raw on-disk structure is complete, while semantic validation and legacy ANSI fallback behavior are implemented by higher-level LFN readers and writers. |
 | FAT:DirEntry | `RawFileEntry` | partial | `test_write::test_lowercase_short_name_uses_nt_case_flags` | `fat_read` | Name/attributes/timestamps/cluster/size and NT case flags (`DIR_NTRes`) are read and written; extended access-time granularity is not modeled. |
 
 ## hadris-part

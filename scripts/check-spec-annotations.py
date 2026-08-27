@@ -50,10 +50,17 @@ class CoverageRow:
 
 
 def iter_rust_files(root: Path) -> list[Path]:
-    crates = root / "crates"
-    if not crates.is_dir():
-        return []
-    return sorted(p for p in crates.rglob("*.rs") if p.is_file())
+    """Rust sources under crates/ and the standalone tests/ package."""
+    files: list[Path] = []
+    for directory in (root / "crates", root / "tests"):
+        if not directory.is_dir():
+            continue
+        files.extend(
+            path
+            for path in directory.rglob("*.rs")
+            if path.is_file() and "target" not in path.relative_to(directory).parts
+        )
+    return sorted(files)
 
 
 def parse_blocks(path: Path, text: str) -> list[Block]:
@@ -370,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     n_files = len(iter_rust_files(root))
-    print(f"Spec annotation check passed ({n_files} Rust files under crates/).")
+    print(f"Spec annotation check passed ({n_files} Rust files under crates/ and tests/).")
     return 0
 
 

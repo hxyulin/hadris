@@ -11,7 +11,7 @@ use hadris_common::types::{
 ///
 /// @hadris-spec FAT:BPB
 /// @hadris-compliance full
-/// @hadris-tests comprehensive_fat::test_valid_sector_sizes
+/// @hadris-tests comprehensive_fat::bpb_size_validation_uses_production_reader_and_formatter
 /// @hadris-fuzz fat_read
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -297,7 +297,7 @@ unsafe impl bytemuck::AnyBitPattern for RawFileEntry {}
 /// @hadris-spec FAT:LFN
 /// @hadris-compliance partial
 /// @hadris-note This raw on-disk structure is complete, while semantic validation and legacy ANSI fallback behavior are implemented by higher-level LFN readers and writers.
-/// @hadris-tests comprehensive_fat::test_lfn_builder_sequence
+/// @hadris-tests test_write::lfn_checksum_matches_short_name, test_write::lfn_padding_uses_terminator_then_filler
 /// @hadris-fuzz fat_read
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -379,7 +379,7 @@ unsafe impl bytemuck::AnyBitPattern for RawDirectoryEntry {}
 ///
 /// @hadris-spec FAT:FSInfo
 /// @hadris-compliance full
-/// @hadris-tests comprehensive_fat::test_fsinfo_free_cluster_unknown
+/// @hadris-tests test_write::test_fsinfo_unknown_sentinels_mount_successfully
 /// @hadris-fuzz fat_read
 #[repr(C, packed)]
 #[derive(Clone, Copy)]

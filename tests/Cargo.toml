@@ -1,0 +1,40 @@
+# Centralized conformance and interoperability suite.
+#
+# This package is deliberately detached from the parent workspace (it declares
+# its own `[workspace]`), mirroring `fuzz/`. It depends on the Hadris crates by
+# path and treats them as one implementation among several peers: the ground
+# truth is the specification oracles under `src/*/spec.rs`, and every
+# implementation (Hadris, rust-fatfs, mtools, xorriso, native kernels, ...) is
+# driven through the adapter traits in `src/*/adapter.rs`.
+#
+#   cargo test --manifest-path tests/Cargo.toml                 # hosted suite
+#   cargo test --manifest-path tests/Cargo.toml fat::           # one format
+#   cargo test --manifest-path tests/Cargo.toml -- --ignored    # manual peers
+#
+# See README.md for the layout and CONTRIBUTING.md for the manual reports.
+
+[package]
+name = "hadris-tests"
+version = "0.0.0"
+publish = false
+edition = "2024"
+rust-version = "1.88.0"
+autotests = false
+autobenches = false
+
+[lib]
+name = "hadris_tests"
+path = "src/lib.rs"
+
+[[test]]
+name = "suite"
+path = "suite/main.rs"
+harness = true
+
+[dependencies]
+hadris-fat = { path = "../crates/block/hadris-fat", default-features = false, features = ["std", "sync", "read", "write", "lfn"] }
+hadris-iso = { path = "../crates/optical/hadris-iso", default-features = false, features = ["std", "sync", "read", "write", "joliet"] }
+fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "2aefc2a027ce94ed0671752814dac203f0450e11", default-features = false, features = ["alloc", "lfn", "std", "unicode"] }
+tempfile = "3"
+
+[workspace]
