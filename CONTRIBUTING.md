@@ -31,7 +31,42 @@ RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --featur
 
 See [CLAUDE.md](CLAUDE.md) for the full per-crate feature matrix used in CI.
 
-### FAT conformance
+### Conformance and interoperability suite
+
+Specification conformance and peer interoperability tests live in the
+standalone `tests/` package (`hadris-tests`). Like `fuzz/`, it is detached from
+the workspace so it can grow independently of the library crates and be
+extracted later. `src/` holds the shared harness, the per-format semantic
+models, the raw-image oracles, and one adapter per implementation (Hadris,
+rust-fatfs, mtools, xorriso, mkisofs, and the native kernels). `suite/` holds
+the tests, addressed as `<format>::<topic>::<name>`. See
+[`tests/README.md`](tests/README.md) for the layout.
+
+The oracles are the ground truth. Hadris is measured as one adapter among its
+peers, and a Hadris-to-Hadris round trip is never evidence on its own.
+
+```bash
+# Hosted suite; CI runs it on every platform and xorriso tests skip when absent
+cargo test --manifest-path tests/Cargo.toml
+
+# One format or topic
+cargo test --manifest-path tests/Cargo.toml fat::
+cargo test --manifest-path tests/Cargo.toml iso::boot::
+
+# Match the CI lint and format gates for the suite
+cargo fmt --manifest-path tests/Cargo.toml --all -- --check
+cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings
+```
+
+| Variable | Effect |
+|----------|--------|
+| `HADRIS_TESTS_KEEP=1` | Retain images and peer artifacts under the report directory |
+| `HADRIS_TESTS_REPORT_DIR=<dir>` | Report root; defaults to `tests/target/reports` |
+| `HADRIS_TESTS_SEED=<u64>` | Replay one generated FAT trace |
+| `HADRIS_TESTS_NATIVE_MOUNT=1` | Enable privileged kernel mount tests |
+| `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` | Fail instead of skipping when a peer tool is missing |
+
+#### FAT conformance
 
 The full FAT12/16/32 suite is manual. Its ground truth is a deterministic
 filesystem model plus a test-only raw-image oracle derived from the FAT on-disk
@@ -47,44 +82,82 @@ of a generated trace. The Nix shell supplies the command-line tools and uses
 the repository's Rust toolchain.
 
 ```bash
-cargo test -p hadris-fat --all-features --lib \
-  fat_conformance::fat_spec_conformance -- --ignored --exact --nocapture
+cargo test --manifest-path tests/Cargo.toml \
+  fat::spec::fat_spec_conformance -- --ignored --exact --nocapture
 
-cargo test -p hadris-fat --all-features --lib \
-  fat_conformance::fatfs_accuracy_report -- --ignored --exact --nocapture
+cargo test --manifest-path tests/Cargo.toml \
+  fat::peers::fatfs_accuracy_report -- --ignored --exact --nocapture
 
-nix develop -c cargo test -p hadris-fat --all-features --lib \
-  fat_conformance::mtools_accuracy_report -- --ignored --exact --nocapture
+nix develop -c cargo test --manifest-path tests/Cargo.toml \
+  fat::peers::mtools_accuracy_report -- --ignored --exact --nocapture
 ```
 
 The semantic model compares exact displayed paths, entry kinds, file contents,
 stable FAT attributes, and the volume label. Timestamps are intentionally
 excluded. Peer scores and failure details are written to
-`target/fat-conformance/mtools-accuracy.txt` and
-`target/fat-conformance/fatfs-accuracy.txt`. Set
-`HADRIS_FAT_CONFORMANCE_SEED=<u64>` to replay one generated trace. Set
-`HADRIS_FAT_CONFORMANCE_KEEP=1` to retain its images under
-`target/fat-conformance/`. The specification suite and each peer report run in
-well under ten seconds after compilation.
+`tests/target/reports/fat/mtools-accuracy.txt` and
+`tests/target/reports/fat/fatfs-accuracy.txt`. The specification suite and
+each peer report run in well under ten seconds after compilation.
 
-Native platform qualification stays in the library test harness. On Linux it
-uses `mkfs.fat`, `fsck.fat`, and the kernel `vfat` driver. On macOS it uses
-`newfs_msdos`, `fsck_msdos`, `hdiutil`, and the kernel FAT driver.
+Native platform qualification uses `mkfs.fat`, `fsck.fat`, and the kernel
+`vfat` driver on Linux, and `newfs_msdos`, `fsck_msdos`, `hdiutil`, and the
+kernel FAT driver on macOS.
 
 ```bash
 # Native formatter and checker
-cargo test -p hadris-fat --all-features --lib \
-  fat_conformance::native_platform_tools -- --ignored --nocapture
+cargo test --manifest-path tests/Cargo.toml \
+  fat::native::native_platform_tools -- --ignored --nocapture
 
 # Native writable mount; Linux needs root or passwordless sudo for mount/umount
-HADRIS_FAT_NATIVE_MOUNT=1 cargo test -p hadris-fat --all-features --lib \
-  fat_conformance::native_mount_roundtrip -- --ignored --nocapture --test-threads=1
+HADRIS_TESTS_NATIVE_MOUNT=1 cargo test --manifest-path tests/Cargo.toml \
+  fat::native::native_mount_roundtrip -- --ignored --nocapture --test-threads=1
 ```
 
 The mount test operates only on temporary image copies and always attempts to
 unmount them during cleanup. macOS AppleDouble `._*` files remain structurally
 validated but are excluded from the semantic tree comparison as platform
 metadata.
+
+#### ISO conformance
+
+The ISO suite uses a test-only raw-image oracle derived from the ECMA-119:1987
+primary-volume rules. It independently checks the descriptor sequence,
+redundant endian fields, volume bounds, both path tables, directory hierarchy,
+record bounds and padding, Level 1 identifiers, file extents, and file content.
+
+The fast Hadris writer/reader check runs in the hosted suite:
+
+```bash
+cargo test --manifest-path tests/Cargo.toml \
+  iso::spec::hadris_iso_matches_ecma_119_oracle -- --exact
+```
+
+The Nix shell supplies xorriso/libisofs and the original cdrtools `mkisofs`.
+The peer report checks images in both directions where the tool supports them:
+
+```bash
+nix develop -c cargo test --manifest-path tests/Cargo.toml \
+  iso::peers::external_iso_tool_accuracy_report -- --ignored --exact --nocapture
+```
+
+Native read qualification uses the Linux kernel ISO driver, macOS `hdiutil`,
+or Windows `Mount-DiskImage`. Linux requires root or passwordless `sudo` for
+`mount` and `umount`. The macOS producer report also measures `hdiutil
+makehybrid`; peer deviations are reported rather than treated as ground truth.
+
+```bash
+HADRIS_TESTS_NATIVE_MOUNT=1 cargo test --manifest-path tests/Cargo.toml \
+  iso::native::native_iso_reader_accuracy_report -- --ignored --exact --nocapture
+
+cargo test --manifest-path tests/Cargo.toml \
+  iso::native::native_iso_producer_accuracy_report -- --ignored --exact --nocapture
+```
+
+These peer reports are manual and are not part of CI. Test images and mount
+points are temporary, and each native adapter attempts to detach or unmount
+before returning. Summaries are written to `external-tools-accuracy.txt`,
+`macos-hdiutil-accuracy.txt`, or `native-<os>-accuracy.txt` under
+`tests/target/reports/iso/` even when a peer deviates from the specification.
 
 ## Package versions
 

@@ -18,9 +18,11 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = [
+            pkgs.cdrtools
             pkgs.dosfstools
             pkgs.mtools
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            pkgs.xorriso
+          ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.util-linux
           ];
           LC_ALL = "C.UTF-8";

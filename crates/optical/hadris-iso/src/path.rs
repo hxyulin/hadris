@@ -19,6 +19,7 @@ use super::read::IsoImage;
 /// @hadris-spec ECMA-119:9.4
 /// @hadris-compliance partial
 /// @hadris-note Both L- and M-type path tables are written and read; the optional secondary path tables are not populated.
+/// @hadris-tests iso::spec::hadris_iso_matches_ecma_119_oracle
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

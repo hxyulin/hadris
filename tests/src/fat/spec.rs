@@ -1,7 +1,18 @@
+//! Test-only raw-image oracle derived from the FAT on-disk rules.
+//!
+//! It reads an image with no help from any implementation under test and
+//! rejects structural violations: bad geometry, divergent FAT copies, invalid
+//! reserved entries, FAT32 metadata inconsistencies, cluster loops and
+//! cross-links, malformed directory records, orphaned or inconsistent long
+//! names, duplicate short aliases, and unowned allocated clusters.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use super::{EntryData, EntryState, FsState, MUTABLE_ATTRS};
+use super::MUTABLE_ATTRS;
+use super::model::{EntryState, FsState};
+use crate::harness::join_path;
+use crate::harness::tree::EntryData;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FatKind {
@@ -25,7 +36,9 @@ struct Geometry {
     media: u8,
 }
 
-pub(super) fn snapshot(path: &Path, expected_bits: u8) -> Result<FsState, String> {
+/// Validates the image at `path` and returns its semantic tree. `expected_bits`
+/// guards against a formatter silently choosing a different FAT width.
+pub fn snapshot(path: &Path, expected_bits: u8) -> Result<FsState, String> {
     let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
     let geometry = parse_geometry(&bytes)?;
     if fat_bits(geometry.kind) != expected_bits {
@@ -604,14 +617,6 @@ fn fat_bits(kind: FatKind) -> u8 {
         FatKind::Fat12 => 12,
         FatKind::Fat16 => 16,
         FatKind::Fat32 => 32,
-    }
-}
-
-fn join_path(parent: &str, name: &str) -> String {
-    if parent == "/" {
-        format!("/{name}")
-    } else {
-        format!("{parent}/{name}")
     }
 }
 

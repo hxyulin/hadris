@@ -12,7 +12,7 @@
       "direction": "both",
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/write/mod.rs", "name": "VOLUME_DESCRIPTOR_SET_START"}],
-      "tests": [{"path": "crates/optical/hadris-iso/tests/comprehensive_iso.rs", "name": "descriptor_sequence_opens_primary_volume_and_root_directory", "kind": "integration"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
     {
@@ -72,7 +72,7 @@
       "direction": "both",
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/volume.rs", "name": "VolumeDescriptorList::try_primary"}],
-      "tests": [{"path": "crates/optical/hadris-iso/tests/comprehensive_iso.rs", "name": "malformed_primary_descriptor_and_terminator_cases_are_rejected", "kind": "integration"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
     {
@@ -108,7 +108,7 @@
       "direction": "both",
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/types.rs", "name": "LsbMsb::is_consistent"}],
-      "tests": [{"path": "crates/optical/hadris-iso/tests/comprehensive_iso.rs", "name": "malformed_primary_descriptor_and_terminator_cases_are_rejected", "kind": "integration"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "oracle_rejects_structural_corruption", "kind": "integration"}],
       "gap": null
     },
     {
@@ -192,7 +192,19 @@
       "direction": "write",
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/write/mod.rs", "name": "write_directory"}],
-      "tests": [{"path": "crates/optical/hadris-iso/tests/iso_roundtrip_advanced.rs", "name": "raw_directory_records_respect_sector_and_identifier_rules", "kind": "integration"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
+      "gap": null
+    },
+    {
+      "id": "ECMA-119-1987:7.5.1#file-identifier-version",
+      "source": "ECMA-119-1987",
+      "clause": "7.5.1",
+      "normativity": "shall",
+      "summary": "A file identifier contains a file-version separator and a version number from 1 through 32767.",
+      "direction": "write",
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-iso/src/file.rs", "name": "convert_l1"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
     {
@@ -204,7 +216,7 @@
       "direction": "write",
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/file.rs", "name": "EntryType::convert_directory_name"}],
-      "tests": [{"path": "crates/optical/hadris-iso/tests/iso_roundtrip_advanced.rs", "name": "raw_directory_records_respect_sector_and_identifier_rules", "kind": "integration"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
     {
@@ -216,7 +228,7 @@
       "direction": "write",
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/write/writer.rs", "name": "PathTableWriter::write"}],
-      "tests": [{"path": "crates/optical/hadris-iso/tests/iso_roundtrip_advanced.rs", "name": "path_table_sorts_adversarial_directory_input", "kind": "integration"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
     {
@@ -228,7 +240,7 @@
       "direction": "write",
       "status": "verified",
       "symbols": [{"path": "crates/optical/hadris-iso/src/write/mod.rs", "name": "write_path_tables"}],
-      "tests": [{"path": "crates/optical/hadris-iso/tests/iso_roundtrip_advanced.rs", "name": "test_path_table_contains_all_subdirectories", "kind": "integration"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
     {

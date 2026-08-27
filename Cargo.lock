@@ -441,15 +441,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
-name = "fatfs"
-version = "0.4.0"
-source = "git+https://github.com/rafalh/rust-fatfs?rev=2aefc2a027ce94ed0671752814dac203f0450e11#2aefc2a027ce94ed0671752814dac203f0450e11"
-dependencies = [
- "bitflags 2.13.1",
- "log",
-]
-
-[[package]]
 name = "getrandom"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -591,7 +582,6 @@ dependencies = [
  "bytemuck",
  "chrono",
  "defmt",
- "fatfs",
  "hadris-common",
  "hadris-fixed",
  "hadris-io",

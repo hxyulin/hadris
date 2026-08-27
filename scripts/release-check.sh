@@ -35,6 +35,7 @@ fi
 cargo fmt --all -- --check
 cargo check --workspace --all-features
 cargo test --workspace --all-features
+cargo test --manifest-path tests/Cargo.toml
 if [[ "${RELEASE_DEPENDENCIES_PUBLISHED:-0}" == "1" ]]; then
   cargo package --workspace --allow-dirty
 else

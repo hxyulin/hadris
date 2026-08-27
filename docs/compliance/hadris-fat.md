@@ -120,5 +120,5 @@ describes generating a companion short alias for names that do not fit 8.3.
 The failure is therefore recorded as an mtools writer crash rather than an
 invalid generated operation or a rejection of a Hadris image.
 
-The exact reports are regenerated under `target/fat-conformance/` by the manual
+The exact reports are regenerated under `tests/target/reports/fat/` by the manual
 commands documented in [`CONTRIBUTING.md`](../../CONTRIBUTING.md#fat-conformance).

@@ -205,11 +205,19 @@ cargo run --example create_bootable_iso
 
 ## Compatibility
 
-ISOs created with this crate are compatible with:
-- Linux (`mount`, `isoinfo`, `xorriso`)
-- Windows (built-in ISO support)
-- macOS (built-in ISO support)
-- QEMU/VirtualBox (bootable ISOs)
+The conformance harness checks Hadris images with an independent ECMA-119
+oracle and measures widely available ISO readers. Current bounded results are:
+
+| Consumer of Hadris images | Result |
+|---|---:|
+| ECMA-119 raw-image oracle | 2/2 |
+| xorriso/libisofs 1.5.8 | 2/2 |
+| Linux kernel ISO driver | 2/2 |
+| macOS 26.6.2 built-in ISO reader | 2/2 |
+| Windows `Mount-DiskImage` | Available manual target; not yet measured |
+
+The [compliance profile](../../../docs/compliance/hadris-iso.md) contains the
+producer matrix, methodology, and known peer deviations.
 
 ## Specification References
 

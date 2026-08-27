@@ -148,6 +148,22 @@ checker accepted the completed image. See the
 [FAT compliance profile](docs/compliance/hadris-fat.md#interoperability-results)
 for the test method, peer-writer conformance, and known tool defects.
 
+## ISO Interoperability
+
+Hadris-generated ISO images are checked against an independent ECMA-119
+raw-image oracle and common ISO readers.
+
+| Consumer | Result |
+|----------|--------|
+| Hadris specification oracle | Pass (2/2) |
+| xorriso/libisofs 1.5.8 | Pass (2/2) |
+| Linux kernel ISO driver | Pass (2/2) |
+| macOS 26.6.2 built-in ISO reader | Pass (2/2) |
+| Windows `Mount-DiskImage` | Available manual target; not yet measured |
+
+See the [ISO compliance profile](docs/compliance/hadris-iso.md#consumers-of-hadris-images)
+for the test method, peer-producer conformance, and known tool deviations.
+
 ## Quick Start
 
 Choose the narrowest entry point that fits the application:
