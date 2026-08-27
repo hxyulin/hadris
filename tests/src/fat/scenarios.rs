@@ -373,8 +373,11 @@ fn truncate(path: &str, len: usize) -> Operation {
     }
 }
 
-/// Names that fit 8.3 apart from case must round-trip through the NT
-/// reserved-byte case flags or an LFN without changing how they display.
+/// Names that fit 8.3 apart from case must round-trip without changing how
+/// they display. The specification only offers a long name for that; the
+/// `DIR_NTRes` case bits (0x08 lowercase base, 0x10 lowercase extension)
+/// are a Windows NT extension of a field the specification reserves as
+/// zero, which the oracle and the peers decode as well.
 fn nt_case_flags() -> Vec<Operation> {
     [
         "ALPHA.txt",

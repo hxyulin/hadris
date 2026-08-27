@@ -93,8 +93,10 @@ pub fn snapshot(bytes: &[u8]) -> Result<IsoState, String> {
     Ok(IsoState { volume_id, entries })
 }
 
+/// ECMA-119 6.7.1.1 records the primary descriptor "at least once", so
+/// repeated copies are accepted as long as they are identical.
 fn find_primary_descriptor(bytes: &[u8]) -> Result<&[u8], String> {
-    let mut primary = None;
+    let mut primary: Option<&[u8]> = None;
     for sector in 16..=255 {
         let descriptor = image_slice(bytes, sector * SECTOR_SIZE, SECTOR_SIZE, bytes.len())?;
         if &descriptor[1..6] != b"CD001" || descriptor[6] != 1 {
@@ -103,11 +105,14 @@ fn find_primary_descriptor(bytes: &[u8]) -> Result<&[u8], String> {
             ));
         }
         match descriptor[0] {
-            1 => {
-                if primary.replace(descriptor).is_some() {
-                    return Err("multiple primary volume descriptors".to_string());
+            1 => match primary {
+                Some(first) if first != descriptor => {
+                    return Err(format!(
+                        "primary volume descriptor at sector {sector} differs from the first copy"
+                    ));
                 }
-            }
+                _ => primary = Some(descriptor),
+            },
             255 => {
                 if descriptor[7..].iter().any(|byte| *byte != 0) {
                     return Err("volume descriptor terminator body is not zero-filled".to_string());
@@ -296,14 +301,27 @@ fn decode_primary_identifier(identifier: &[u8], directory: bool) -> Result<Strin
         }
         return Ok(text.to_string());
     }
+    // ECMA-119 7.5.1: under a primary descriptor a file identifier is
+    // `name . extension ; version`, both separators mandatory, either name
+    // part possibly empty but not both, version 1 to 32767 without leading
+    // zeros; 10.1 limits Level 1 to 8 and 3 d-characters.
     let (name, version) = text
         .rsplit_once(';')
         .ok_or_else(|| format!("file identifier {text:?} has no version"))?;
-    if version != "1" {
+    let valid_version = !version.is_empty()
+        && version.len() <= 5
+        && !version.starts_with('0')
+        && version.bytes().all(|byte| byte.is_ascii_digit())
+        && version
+            .parse::<u16>()
+            .is_ok_and(|value| (1..=32767).contains(&value));
+    if !valid_version {
         return Err(format!("file identifier {text:?} has invalid version"));
     }
-    let (stem, extension) = name.split_once('.').unwrap_or((name, ""));
-    if stem.is_empty()
+    let (stem, extension) = name
+        .split_once('.')
+        .ok_or_else(|| format!("file identifier {text:?} has no extension separator"))?;
+    if (stem.is_empty() && extension.is_empty())
         || stem.len() > 8
         || extension.len() > 3
         || !stem.bytes().all(is_d_character)

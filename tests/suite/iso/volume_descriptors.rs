@@ -91,15 +91,18 @@ fn test_volume_descriptor_chain() {
             _ => {}
         }
     }
-    assert_eq!(
-        primary_count, 1,
-        "Should have exactly 1 primary volume descriptor"
+    assert!(
+        primary_count >= 1,
+        "ECMA-119 6.7.1.1: the primary volume descriptor is recorded at least once"
     );
     assert!(
         supplementary_count >= 1,
         "Should have at least 1 supplementary (Joliet) descriptor"
     );
-    assert!(terminator_count <= 1, "Should have at most 1 terminator");
+    assert!(
+        terminator_count >= 1,
+        "ECMA-119 6.7.1.6: the descriptor set ends with one or more terminators"
+    );
 }
 
 #[test]

@@ -490,6 +490,8 @@ fn validate_fat32_metadata(bytes: &[u8], geometry: &Geometry) -> Result<(), Stri
     }
     let free_count = read_u32(bytes, fsinfo + 488)?;
     let next_free = read_u32(bytes, fsinfo + 492)?;
+    // Stricter than the specification, which only recommends an accurate
+    // count at dismount; dosfstools reports a stale count as an error.
     if free_count != u32::MAX {
         let actual = count_free_clusters(bytes, geometry)?;
         if free_count != actual {

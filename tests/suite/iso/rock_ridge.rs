@@ -65,7 +65,6 @@ fn test_hadris_rockridge_roundtrip() {
     let mut found_sp = false;
     let mut found_ce = false;
     let mut found_px = false;
-    let mut found_nm = false;
     let mut ce_sector = 0u64;
     let mut ce_offset = 0u64;
     let mut ce_length = 0usize;
@@ -82,14 +81,14 @@ fn test_hadris_rockridge_roundtrip() {
                 found_ce = true;
             }
             SystemUseField::PosixAttributes(_) => found_px = true,
-            SystemUseField::AlternateName(_) => found_nm = true,
             _ => {}
         }
     }
     assert!(found_sp, "Root dot should have SP entry");
+    // RRIP 4.1.4 permits but never requires an NM on the root dot record,
+    // so none is asserted; a CE carrying the ER is mkisofs/xorriso practice.
     assert!(found_ce, "Root dot should have CE entry (for full ER)");
     assert!(found_px, "Root dot should have PX entry");
-    assert!(found_nm, "Root dot should have NM entry");
 
     assert!(ce_length > 0, "CE length should be non-zero");
     let byte_pos = ce_sector * 2048 + ce_offset;
