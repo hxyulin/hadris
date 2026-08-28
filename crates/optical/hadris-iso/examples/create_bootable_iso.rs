@@ -31,17 +31,17 @@ fn main() {
         files: vec![
             IsoFile::File {
                 name: Arc::new("boot.bin".to_string()),
-                contents: boot_image.into(),
+                contents: boot_image,
             },
             IsoFile::File {
                 name: Arc::new("README.TXT".to_string()),
-                contents: readme_content.to_vec().into(),
+                contents: readme_content.to_vec(),
             },
             IsoFile::Directory {
                 name: Arc::new("docs".to_string()),
                 children: vec![IsoFile::File {
                     name: Arc::new("MANUAL.TXT".to_string()),
-                    contents: b"User manual goes here.\n".to_vec().into(),
+                    contents: b"User manual goes here.\n".to_vec(),
                 }],
             },
         ],

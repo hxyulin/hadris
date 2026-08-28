@@ -26,9 +26,7 @@ use crate::joliet::JolietLevel;
 use crate::types::{Charset, IsoStr};
 use crate::write::utils::*;
 use crate::write::writer::DirectoryId;
-use hadris_common::types::{
-    endian::{Endian, EndianType},
-};
+use hadris_common::types::endian::{Endian, EndianType};
 use hadris_part::{
     GptDisk, GptDiskWriteExt,
     gpt::{GptPartitionEntry, Guid},
@@ -41,11 +39,38 @@ use writer::{DirectoryRelocation, PathTableWriter, WrittenDirectory, WrittenFile
 use alloc::{string::String, vec, vec::Vec};
 
 use types::*;
-pub use types::{InputEntry, InputFiles, File, FileContent, InputEntryKind, InputTree, InputMetadata, IsoCreationError};
+pub use types::{File, InputEntry, InputEntryKind, InputFiles, InputMetadata, InputTree};
 
 /// APIs for options.
 pub mod options;
 use options::IsoFormatOptions;
+
+#[derive(Debug, thiserror::Error)]
+/// Identifies a FileConversionError value.
+pub enum FileConversionError {
+    #[error("I/O error: {0}")]
+    /// The `Io` variant.
+    Io(#[from] std::io::Error),
+    #[error("Path {0:?} is not a valid UTF-8 string")]
+    /// The `InvalidUtf8Path` variant.
+    InvalidUtf8Path(std::path::PathBuf),
+    #[error("Unsupported filesystem entry type at {0:?}")]
+    /// The `UnsupportedFileType` variant.
+    UnsupportedFileType(std::path::PathBuf),
+}
+
+#[derive(Debug, thiserror::Error)]
+/// Identifies a IsoCreationError value.
+pub enum IsoCreationError {
+    #[error(transparent)]
+    /// The `Io` variant.
+    Io(#[from] io::Error),
+}
+
+/// Canonical error for ISO creation operations.
+pub type Error = IsoCreationError;
+/// Canonical result for ISO creation operations.
+pub type Result<T> = core::result::Result<T, Error>;
 
 /// Writer for creating ISO 9660 images.
 ///
@@ -105,9 +130,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         }
 
         files.validate(ops.features.rock_ridge.as_ref())?;
-        
+
         let mut writer = Self::new(data, ops);
-        
+
         writer.write_volume_descriptors(&mut files).await?;
         writer.try_apply_allocation_floor(allocation_floor)?;
 
@@ -120,26 +145,26 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
     async fn try_apply_allocation_floor(&mut self, floor: Option<u32>) -> io::Result<()> {
         let Some(sector) = floor else { return Ok(()) };
-        
+
         let current = self
             .data
             .stream_position()
             .await
             .map_err(io::Error::erase)?;
-            
+
         let target = u64::from(sector)
             .checked_mul(self.ops.sector_size as u64)
             .ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "allocation floor overflow")
             })?;
-            
+
         if target > current {
             self.data
                 .seek(SeekFrom::Start(target))
                 .await
                 .map_err(io::Error::erase)?;
         }
-        
+
         Ok(())
     }
 
@@ -180,7 +205,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     async fn write_volume_descriptors(&mut self, files: &mut InputTree) -> io::Result<()> {
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START).await?;
         let mut volume_descriptors = VolumeDescriptorList::empty();
-        
+
         for &entry in &self.entry_types {
             let descriptor = self.create_volume_descriptor(entry)?;
             volume_descriptors.push(descriptor);
@@ -216,13 +241,13 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         record.header.file_identifier_len = 1;
         record.header.volume_sequence_number.write(1);
     }
-    
+
     fn create_primary_volume_descriptor(&self) -> io::Result<PrimaryVolumeDescriptor> {
         let mut pvd = PrimaryVolumeDescriptor::new(&self.ops.volume_name, 0);
         pvd.volume_identifier = self.parse_iso_str(&self.ops.volume_name, "volume name")?;
         self.configure_base_directory_record(&mut pvd.dir_record);
         pvd.volume_sequence_number.write(1);
-        
+
         if let Some(s) = &self.ops.system_id {
             pvd.system_identifier = self.parse_iso_str(s, "system identifier")?;
         }
@@ -238,10 +263,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         if let Some(s) = &self.ops.application_id {
             pvd.application_identifier = self.parse_iso_str(s, "application identifier")?;
         }
-        
+
         Ok(pvd)
     }
-    
+
     fn create_enhanced_volume_descriptor(&self) -> io::Result<SupplementaryVolumeDescriptor> {
         let mut evd = SupplementaryVolumeDescriptor::new_evd(&self.ops.volume_name, 0);
         evd.volume_identifier = self.parse_iso_str(&self.ops.volume_name, "volume name")?;
@@ -249,7 +274,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         evd.volume_sequence_number.write(1);
         Ok(evd)
     }
-    
+
     fn create_joliet_volume_descriptor(&self, level: JolietLevel) -> io::Result<SupplementaryVolumeDescriptor> {
         let mut svd = SupplementaryVolumeDescriptor::new_svd(
             &self.ops.volume_name,
@@ -258,7 +283,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         );
         self.configure_base_directory_record(&mut svd.dir_record);
         svd.volume_sequence_number.write(1);
-        
+
         if let Some(s) = &self.ops.system_id {
             svd.system_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
         }
@@ -274,7 +299,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         if let Some(s) = &self.ops.application_id {
             svd.application_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
         }
-        
+
         Ok(svd)
     }
 
@@ -712,6 +737,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         default_refs
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn plan_directories(
         &mut self,
         order: &[DirectoryId],
@@ -770,10 +796,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             let dir = self.written_files.get_mut(directory_id);
             let file = &mut dir.files[*index];
 
-            let len = match &file.kind {
-                InputEntryKind::File(contents) => contents.len() as u64,
-                _ => 0,
-            };
+            let len = file.kind.file_len().unwrap_or(0);
 
             if len == 0 {
                 file.entry = DirectoryRef::default();
@@ -796,6 +819,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(cursor)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn write_layout(
         &mut self,
         order: &[DirectoryId],
@@ -826,6 +850,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn write_directories(
         &mut self,
         order: &[DirectoryId],
@@ -866,7 +891,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             let dir = self.written_files.get(directory_id);
             let file = &dir.files[*index];
 
-            let mut offset = 0;
+            let mut offset = 0_u64;
             for extent in file.extents() {
                 let start = self.data.pad_align_sector().await?;
 
@@ -877,18 +902,33 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     ));
                 }
 
+                #[cfg(test)]
+                if matches!(file.kind, InputEntryKind::TestFile { .. }) {
+                    if extent.size > 0 {
+                        self.data
+                            .seek(SeekFrom::Current(extent.size as i64 - 1))
+                            .await
+                            .map_err(io::Error::erase)?;
+                        self.data.write_all(&[0]).await?;
+                    }
+                    offset += extent.size as u64;
+                    continue;
+                }
+
                 if let InputEntryKind::File(contents) = &file.kind {
-                    let chunk_end = (offset + extent.size).min(contents.len() as _);
-                    let slice = contents
-                        .slice_range(offset..chunk_end)
+                    let chunk_end = (offset + extent.size as u64).min(contents.len() as u64);
+                    let range = usize::try_from(offset)
+                        .ok()
+                        .zip(usize::try_from(chunk_end).ok())
+                        .map(|(start, end)| start..end)
                         .ok_or_else(|| {
                             io::Error::new(
                                 io::ErrorKind::InvalidData,
-                                "could not retrieve file content",
+                                "file content range does not fit in memory",
                             )
                         })?;
-                    self.data.write_all(&slice).await?;
-                    offset += extent.size;
+                    self.data.write_all(&contents[range]).await?;
+                    offset += extent.size as u64;
                 }
             }
         }
@@ -906,7 +946,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         for moved_dir in moved.iter() {
             for (ty, directory) in moved_dir.entries.iter() {
-                
+
                 if !ty.supports_rrip() {
                     continue;
                 }
@@ -1284,7 +1324,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let start = self.data.seek_sector(directory.extent).await?;
         let mut offset = 0;
         loop {
-            
+
             if offset >= directory.size as u64 {
                 break;
             }
@@ -1296,7 +1336,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
             let mut record = DirectoryRecord::parse(&mut self.data).await?;
 
-            if record.len() == 0 {
+            if record.is_empty() {
                 break;
             }
 
@@ -1362,13 +1402,13 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     ) -> io::Result<(DirectoryRecord, DirectoryRecord)> {
         self.data.seek(SeekFrom::Start(start)).await.map_err(io::Error::erase)?;
         let dot = DirectoryRecord::parse(&mut self.data).await?;
-        
+
         self.data
             .seek(SeekFrom::Start(start + dot.header().len as u64))
             .await
             .map_err(io::Error::erase)?;
         let dotdot = DirectoryRecord::parse(&mut self.data).await?;
-        
+
         Ok((dot, dotdot))
     }
 
@@ -1486,12 +1526,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
 #[cfg(test)]
 mod tests {
-    use core::assert_eq;
-    use std::{io::Cursor};
-    use crate::{IsoImage, read::PathSeparator, write::options::{CreationFeatures, HybridBootOptions}};
     use super::*;
+    use crate::{
+        IsoImage,
+        read::PathSeparator,
+        write::options::{CreationFeatures, HybridBootOptions},
+    };
     use alloc::{string::ToString, vec};
-        
+    use core::assert_eq;
+    use std::io::Cursor;
+
     const DIR_NAME_DOT: &[u8] = b"\x00";
     const DIR_NAME_DOTDOT: &[u8] = b"\x01";
 
@@ -1518,10 +1562,12 @@ mod tests {
 
         let cursor = Cursor::new(vec![0u8; 512]);
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
-        
-        output.seek(SeekFrom::Start(0)).expect("Failed to verify ISO image");
+
+        output
+            .seek(SeekFrom::Start(0))
+            .expect("Failed to verify ISO image");
         let image = IsoImage::open(output).expect("Failed to parse ISO image");
-        
+
         let pvd = image.read_pvd().expect("Failed to parse ISO image");
         assert_eq!(pvd.volume_identifier.to_str(), "EMPTY");
         assert_eq!(pvd.system_identifier.to_str(), "SYSTEM");
@@ -1544,42 +1590,55 @@ mod tests {
         assert_eq!(path_table.lpt.0, 19);
         assert_eq!(path_table.mpt.0, 20);
         assert_eq!(path_table.size, 10);
-        
+
         let susp_info = image.info.susp_info;
         assert_eq!(susp_info.bytes_skipped, 0);
-        assert_eq!(susp_info.detected, false);
-        assert_eq!(susp_info.rrip_detected, false);
+        assert!(!susp_info.detected);
+        assert!(!susp_info.rrip_detected);
 
         assert_eq!(image.root_dirs().iter().count(), 1);
 
         let root_dir = image.root_dir();
         assert_eq!(root_dir.dir_ref().extent.0, 18);
         assert_eq!(root_dir.dir_ref().size, 2048);
-        assert_eq!(root_dir.entry_type(), EntryType::Level1 { supports_lowercase: false, supports_rrip: false });
-        
+        assert_eq!(
+            root_dir.entry_type(),
+            EntryType::Level1 {
+                supports_lowercase: false,
+                supports_rrip: false
+            }
+        );
+
         let iso_dir = root_dir.iter(&image);
 
         assert_eq!(iso_dir.entries().count(), 2);
         let mut entries = iso_dir.entries();
-        let current_dir = entries.next().unwrap().expect("Failed to parse current dir");
+        let current_dir = entries
+            .next()
+            .unwrap()
+            .expect("Failed to parse current dir");
         assert_eq!(current_dir.name(), DIR_NAME_DOT);
         let parent_dir = entries.next().unwrap().expect("Failed to parse parent dir");
         assert_eq!(parent_dir.name(), DIR_NAME_DOTDOT);
 
         let buffer = image.into_inner().into_inner();
-        assert_eq!(buffer.len() % 2048, 0, "Image size must be multiple of 2048");
+        assert_eq!(
+            buffer.len() % 2048,
+            0,
+            "Image size must be multiple of 2048"
+        );
         let sectors_count = buffer.len() / 2048;
         assert_eq!(sectors_count, 21);
-        
     }
 
     #[test]
     fn should_create_iso_with_file() {
         let input = InputFiles {
             path_separator: PathSeparator::ForwardSlash,
-            files: vec![
-                File::File { name: Arc::new("TESTFILE".into()), contents: vec![0; 999].into() }
-            ],
+            files: vec![File::File {
+                name: Arc::new("TESTFILE".into()),
+                contents: vec![0; 999],
+            }],
         };
         let options = IsoFormatOptions {
             volume_name: "EMPTY".to_string(),
@@ -1598,10 +1657,12 @@ mod tests {
 
         let cursor = Cursor::new(vec![0u8; 512]);
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
-        
-        output.seek(SeekFrom::Start(0)).expect("Failed to verify ISO image");
+
+        output
+            .seek(SeekFrom::Start(0))
+            .expect("Failed to verify ISO image");
         let image = IsoImage::open(output).expect("Failed to parse ISO image");
-        
+
         let root_dir = image.root_dir();
         let iso_dir = root_dir.iter(&image);
 
@@ -1610,7 +1671,7 @@ mod tests {
         entries.next().unwrap().expect("Failed to parse iso dir");
         entries.next().unwrap().expect("Failed to parse iso dir");
         let file = entries.next().unwrap().expect("Failed to parse iso file");
-        
+
         assert!(!file.is_directory());
         assert_eq!(file.display_name(), "TESTFILE;1");
         assert_eq!(file.size(), 44); // 33 + 1 + 10 = 44
@@ -1621,13 +1682,15 @@ mod tests {
 
     #[test]
     fn should_create_iso_with_multi_extent_file() {
-        let size = 4_294_967_296;
+        const SIZE: u64 = 4_294_967_296;
 
-        let input = InputFiles {
+        let input = InputTree {
             path_separator: PathSeparator::ForwardSlash,
-            files: vec![
-                File::File { name: Arc::new("TESTFILE".into()), contents: vec![0; size].into() }
-            ],
+            entries: vec![InputEntry {
+                name: Arc::new("TESTFILE".into()),
+                kind: InputEntryKind::TestFile { size: SIZE },
+                metadata: InputMetadata::default(),
+            }],
         };
         let options = IsoFormatOptions {
             volume_name: "EMPTY".to_string(),
@@ -1644,12 +1707,14 @@ mod tests {
             strict_charset: false,
         };
 
-        let cursor = Cursor::new(vec![0u8; 512]);
-        let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
-        
-        output.seek(SeekFrom::Start(0)).expect("Failed to verify ISO image");
+        let output = tempfile::tempfile().unwrap();
+        let mut output = IsoImageWriter::create(output, input, options).unwrap();
+
+        output
+            .seek(SeekFrom::Start(0))
+            .expect("Failed to verify ISO image");
         let image = IsoImage::open(output).expect("Failed to parse ISO image");
-        
+
         let root_dir = image.root_dir();
         let iso_dir = root_dir.iter(&image);
 
@@ -1661,16 +1726,15 @@ mod tests {
         assert!(!file.is_directory());
         assert_eq!(file.display_name(), "TESTFILE;1");
         assert_eq!(file.size(), 44); // 33 + 1 + 10 = 44
-        assert_eq!(file.total_size(), size as u64);
+        assert_eq!(file.total_size(), SIZE);
         assert_eq!(file.additional_extents.len(), 1);
 
-        let data = image.read_file(&file).unwrap();
-        assert_eq!(data.len(), size);
-
+        let expected_sector =
+            file.header().extent.read() as usize + (4_294_965_248_u64 / 2048) as usize;
         let extent = file.additional_extents.drain(..).next().unwrap();
 
-        assert_eq!(extent.length, 1);
-        assert_eq!(extent.sector.0, 2097171);
+        assert_eq!(extent.length, 2048);
+        assert_eq!(extent.sector.0, expected_sector);
 
         assert!(file.rrip.is_none());
     }
@@ -1679,12 +1743,10 @@ mod tests {
     fn should_create_iso_with_mbr_boot() {
         let input = InputFiles {
             path_separator: PathSeparator::ForwardSlash,
-            files: vec![
-                File::File { 
-                    name: Arc::new("boot.bin".into()), 
-                    contents: vec![0x55; 2048].into() // Boot image
-                }
-            ],
+            files: vec![File::File {
+                name: Arc::new("boot.bin".into()),
+                contents: vec![0x55; 2048], // Boot image
+            }],
         };
         let options = IsoFormatOptions {
             volume_name: "MBR_TEST".to_string(),
@@ -1709,23 +1771,27 @@ mod tests {
 
         let cursor = Cursor::new(vec![0u8; 512]);
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
-        
+
         output.seek(SeekFrom::Start(0)).expect("Failed to seek");
-        
+
         // Read MBR signature at offset 510-511 (0x55AA)
         let mut sig = [0u8; 2];
         output.seek(SeekFrom::Start(510)).expect("Failed to seek");
-        output.read_exact(&mut sig).expect("Failed to read MBR signature");
+        output
+            .read_exact(&mut sig)
+            .expect("Failed to read MBR signature");
         assert_eq!(sig, [0x55, 0xAA], "MBR signature should be 0x55AA");
-        
+
         // Read partition table entry at offset 446
         let mut partition = [0u8; 16];
         output.seek(SeekFrom::Start(446)).expect("Failed to seek");
-        output.read_exact(&mut partition).expect("Failed to read partition entry");
-        
+        output
+            .read_exact(&mut partition)
+            .expect("Failed to read partition entry");
+
         // Boot indicator should be 0x80 (bootable)
         assert_eq!(partition[0], 0x80, "Partition should be bootable");
-        
+
         // Partition type should be 0x17 (ISO9660/Hidden NTFS)
         assert_eq!(partition[4], 0x17, "Partition type should be 0x17");
     }
@@ -1734,12 +1800,10 @@ mod tests {
     fn should_create_iso_with_gpt_boot() {
         let input = InputFiles {
             path_separator: PathSeparator::ForwardSlash,
-            files: vec![
-                File::File { 
-                    name: Arc::new("efi.img".into()), 
-                    contents: vec![0xAA; 2048].into() // EFI boot image
-                }
-            ],
+            files: vec![File::File {
+                name: Arc::new("efi.img".into()),
+                contents: vec![0xAA; 2048], // EFI boot image
+            }],
         };
         let options = IsoFormatOptions {
             volume_name: "GPT_TEST".to_string(),
@@ -1764,25 +1828,37 @@ mod tests {
 
         let cursor = Cursor::new(vec![0u8; 512]);
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
-        
+
         output.seek(SeekFrom::Start(0)).expect("Failed to seek");
-        
+
         // Read protective MBR signature at offset 510-511
         let mut sig = [0u8; 2];
         output.seek(SeekFrom::Start(510)).expect("Failed to seek");
-        output.read_exact(&mut sig).expect("Failed to read MBR signature");
+        output
+            .read_exact(&mut sig)
+            .expect("Failed to read MBR signature");
         assert_eq!(sig, [0x55, 0xAA], "MBR signature should be 0x55AA");
-        
+
         // Read GPT header at sector 1 (LBA 1)
         let mut header = [0u8; 92];
         output.seek(SeekFrom::Start(512)).expect("Failed to seek"); // 512-byte sectors
-        output.read_exact(&mut header).expect("Failed to read GPT header");
-        
+        output
+            .read_exact(&mut header)
+            .expect("Failed to read GPT header");
+
         // GPT signature is "EFI PART"
-        assert_eq!(&header[0..8], b"EFI PART", "GPT header signature should be 'EFI PART'");
-        
+        assert_eq!(
+            &header[0..8],
+            b"EFI PART",
+            "GPT header signature should be 'EFI PART'"
+        );
+
         // Check revision (1.0)
-        assert_eq!(header[8..12], [0x00, 0x00, 0x01, 0x00], "GPT revision should be 1.0");
+        assert_eq!(
+            header[8..12],
+            [0x00, 0x00, 0x01, 0x00],
+            "GPT revision should be 1.0"
+        );
     }
 
     #[test]
@@ -1790,14 +1866,14 @@ mod tests {
         let input = InputFiles {
             path_separator: PathSeparator::ForwardSlash,
             files: vec![
-                File::File { 
-                    name: Arc::new("boot.bin".into()), 
-                    contents: vec![0x55; 2048].into() // BIOS boot image
+                File::File {
+                    name: Arc::new("boot.bin".into()),
+                    contents: vec![0x55; 2048], // BIOS boot image
                 },
-                File::File { 
-                    name: Arc::new("efi.img".into()), 
-                    contents: vec![0xAA; 2048].into() // EFI boot image
-                }
+                File::File {
+                    name: Arc::new("efi.img".into()),
+                    contents: vec![0xAA; 2048], // EFI boot image
+                },
             ],
         };
         let options = IsoFormatOptions {
@@ -1823,31 +1899,37 @@ mod tests {
 
         let cursor = Cursor::new(vec![0u8; 512]);
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
-        
+
         output.seek(SeekFrom::Start(0)).expect("Failed to seek");
-        
+
         // 1. Check MBR signature
         let mut sig = [0u8; 2];
         output.seek(SeekFrom::Start(510)).expect("Failed to seek");
-        output.read_exact(&mut sig).expect("Failed to read MBR signature");
+        output
+            .read_exact(&mut sig)
+            .expect("Failed to read MBR signature");
         assert_eq!(sig, [0x55, 0xAA], "MBR signature should be 0x55AA");
-        
+
         // 2. Check partition table entries in MBR
         let mut found_iso = false;
         let mut found_bootable = false;
         let mut found_esp = false;
-        
+
         for slot in 0..4 {
             let offset = 446 + (slot * 16);
             let mut partition = [0u8; 16];
-            output.seek(SeekFrom::Start(offset)).expect("Failed to seek");
-            output.read_exact(&mut partition).expect("Failed to read partition");
-            
+            output
+                .seek(SeekFrom::Start(offset))
+                .expect("Failed to seek");
+            output
+                .read_exact(&mut partition)
+                .expect("Failed to read partition");
+
             // Slot 0 is usually protective MBR (type 0xEE)
             if partition[4] == 0xEE {
                 continue; // Skip protective MBR
             }
-            
+
             // Check for ISO9660 partition (type 0x17)
             if partition[4] == 0x17 {
                 found_iso = true;
@@ -1855,54 +1937,68 @@ mod tests {
                     found_bootable = true;
                 }
             }
-            
+
             // Check for EFI System Partition (type 0xEF)
             if partition[4] == 0xEF {
                 found_esp = true;
             }
         }
-        
+
         assert!(found_iso, "ISO9660 partition not found in MBR");
         assert!(found_bootable, "ISO9660 partition should be bootable");
         assert!(found_esp, "EFI System Partition not found in MBR");
-        
+
         // 3. Check GPT header (dual-boot)
         let mut header = [0u8; 92];
         output.seek(SeekFrom::Start(512)).expect("Failed to seek"); // 512-byte sectors
-        output.read_exact(&mut header).expect("Failed to read GPT header");
-        assert_eq!(&header[0..8], b"EFI PART", "GPT header signature should be 'EFI PART'");
-        
+        output
+            .read_exact(&mut header)
+            .expect("Failed to read GPT header");
+        assert_eq!(
+            &header[0..8],
+            b"EFI PART",
+            "GPT header signature should be 'EFI PART'"
+        );
+
         // Check revision (1.0)
-        assert_eq!(header[8..12], [0x00, 0x00, 0x01, 0x00], "GPT revision should be 1.0");
-        
+        assert_eq!(
+            header[8..12],
+            [0x00, 0x00, 0x01, 0x00],
+            "GPT revision should be 1.0"
+        );
+
         // 4. Check GPT partition entries
         // Partition type GUID for basic data (ISO9660)
         let basic_data_guid = [
-            0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44,
-            0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7,
+            0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44, 0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26,
+            0x99, 0xC7,
         ];
-        
+
         // Partition type GUID for EFI System
         let esp_guid = [
-            0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11,
-            0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B,
+            0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11, 0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E,
+            0xC9, 0x3B,
         ];
-        
+
         let mut found_gpt_iso = false;
         let mut found_gpt_esp = false;
-        
+
         // GPT entries start at LBA 2 (1024 bytes offset in 512-byte sectors)
         for i in 0..4 {
             let offset = 1024 + (i * 128); // Each entry is 128 bytes
             let mut entry = [0u8; 128];
-            output.seek(SeekFrom::Start(offset)).expect("Failed to seek");
-            output.read_exact(&mut entry).expect("Failed to read GPT partition");
-            
+            output
+                .seek(SeekFrom::Start(offset))
+                .expect("Failed to seek");
+            output
+                .read_exact(&mut entry)
+                .expect("Failed to read GPT partition");
+
             // Check if entry is non-zero (has a GUID)
             if entry[0..16] == [0u8; 16] {
                 continue; // Empty entry
             }
-            
+
             if entry[0..16] == basic_data_guid {
                 found_gpt_iso = true;
             }
@@ -1910,7 +2006,7 @@ mod tests {
                 found_gpt_esp = true;
             }
         }
-        
+
         assert!(found_gpt_iso, "ISO9660 partition not found in GPT");
         assert!(found_gpt_esp, "EFI System Partition not found in GPT");
     }

@@ -50,7 +50,7 @@ use super::volume::{
 use super::write::writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
 use crate::file::EntryType;
 use crate::joliet::JolietLevel;
-use crate::write::{FileContent, InputEntryKind, InputMetadata};
+use crate::write::{InputEntryKind, InputMetadata};
 
 /// Operations that can be performed on an ISO image.
 #[derive(Debug, Clone)]
@@ -603,17 +603,17 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         path_prefix: &str,
     ) -> Result<()> {
         for file in &layout.files {
-            let full_path = Self::join_path(&path_prefix, &file.name);
+            let full_path = Self::join_path(path_prefix, &file.name);
 
             // Look up extent from our written data or existing layout
             let extent = file_extents.get(&full_path).copied().unwrap_or(file.extent);
-            let dir_ref = DirectoryRef::new(extent.sector as usize, extent.length as usize); 
+            let dir_ref = DirectoryRef::new(extent.sector as usize, extent.length as usize);
 
             let root_id = written_files.root_dir();
             let dir = written_files.get_mut(&root_id);
             let written = WrittenFile::with_extent(
                 Arc::new(file.name.clone()),
-                InputEntryKind::File(FileContent::None),
+                InputEntryKind::File(Vec::new()),
                 InputMetadata::default(),
                 dir_ref
             );
@@ -622,7 +622,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         }
 
         for subdir in &layout.subdirs {
-            let full_path = Self::join_path(&path_prefix, &subdir.name);
+            let full_path = Self::join_path(path_prefix, &subdir.name);
 
             // Add subdirectory to written files
             let root_id = written_files.root_dir();
@@ -643,7 +643,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         if path_prefix.is_empty() {
             name.to_string()
         } else {
-            alloc::format!("{}/{}", path_prefix, name)
+            alloc::format!("{path_prefix}/{name}")
         }
     }
 

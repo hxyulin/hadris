@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-iso:** The ISO writer now emits multi-extent files larger than 4 GiB,
+  and the allocating reader can consume those files incrementally through
+  `read_file_chunked`.
+
 ### Fixed
 
 - **hadris-fat:** File and directory creation and rename now allocate distinct

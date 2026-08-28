@@ -26,11 +26,11 @@ fn input_files() -> InputFiles {
         files: vec![
             IsoFile::File {
                 name: Arc::new("boot.bin".to_string()),
-                contents: bios_image.into(),
+                contents: bios_image,
             },
             IsoFile::File {
                 name: Arc::new("efi-boot.img".to_string()),
-                contents: efi_image_content().into(),
+                contents: efi_image_content(),
             },
         ],
     }

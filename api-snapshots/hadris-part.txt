@@ -682,6 +682,7 @@ pub const fn hadris_part::mbr::MbrPartition::end_lba(&self) -> u32
 pub const fn hadris_part::mbr::MbrPartition::is_bootable(&self) -> bool
 pub const fn hadris_part::mbr::MbrPartition::is_empty(&self) -> bool
 pub const fn hadris_part::mbr::MbrPartition::new(hadris_part::mbr::MbrPartitionType, u32, u32) -> Self
+pub fn hadris_part::mbr::MbrPartition::new_iso_partition(u32, bool) -> Self
 pub const fn hadris_part::mbr::MbrPartition::partition_type(&self) -> hadris_part::mbr::MbrPartitionType
 pub const fn hadris_part::mbr::MbrPartition::protective(u64) -> Self
 pub fn hadris_part::mbr::MbrPartition::set_bootable(&mut self, bool)
@@ -1221,6 +1222,7 @@ pub const fn hadris_part::mbr::MbrPartition::end_lba(&self) -> u32
 pub const fn hadris_part::mbr::MbrPartition::is_bootable(&self) -> bool
 pub const fn hadris_part::mbr::MbrPartition::is_empty(&self) -> bool
 pub const fn hadris_part::mbr::MbrPartition::new(hadris_part::mbr::MbrPartitionType, u32, u32) -> Self
+pub fn hadris_part::mbr::MbrPartition::new_iso_partition(u32, bool) -> Self
 pub const fn hadris_part::mbr::MbrPartition::partition_type(&self) -> hadris_part::mbr::MbrPartitionType
 pub const fn hadris_part::mbr::MbrPartition::protective(u64) -> Self
 pub fn hadris_part::mbr::MbrPartition::set_bootable(&mut self, bool)

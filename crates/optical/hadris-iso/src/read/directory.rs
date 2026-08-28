@@ -336,6 +336,7 @@ impl<T: Read + Seek> IsoDir<'_, T> {
             let mut additional_extents = Vec::new();
             if flags.contains(FileFlags::NOT_FINAL) {
                 const MAX_EXTENTS: usize = 4096;
+                let mut seen_final = false;
                 while additional_extents.len() < MAX_EXTENTS && offset < bytes.len() {
                     if bytes[offset] == 0 {
                         offset = (offset / SECTOR_SIZE + 1) * SECTOR_SIZE;
@@ -368,8 +369,15 @@ impl<T: Read + Seek> IsoDir<'_, T> {
                     if !FileFlags::from_bits_retain(header.flags)
                         .contains(FileFlags::NOT_FINAL)
                     {
+                        seen_final = true;
                         break;
                     }
+                }
+                if !seen_final {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "truncated multi-extent file: final record not found",
+                    ));
                 }
             }
 
@@ -458,7 +466,7 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
 
             let extent = self.parse_continuation_extent(&record, first)?;
             extents.push(extent);
- 
+
             // If this record does NOT have NOT_FINAL, it's the last extent
             if !record.flags().contains(FileFlags::NOT_FINAL) {
                 seen_final = true;
@@ -586,7 +594,7 @@ impl<T: Read + Seek> Iterator for IsoDirIter<'_, T> {
                 });
                 continue;
             }
-  
+
             // Check for multi-extent: if NOT_FINAL is set, collect additional extents
             let additional_extents = if flags.contains(FileFlags::NOT_FINAL) {
                 match self.collect_additional_extents(&record) {

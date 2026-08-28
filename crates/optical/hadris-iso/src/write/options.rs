@@ -121,7 +121,7 @@ pub struct IsoFormatOptions {
 
 impl IsoFormatOptions {
     /// Returns the partition scheme for hybrid boot.
-    pub fn partition_scheme(&self) -> Option<PartitionScheme> {
+    pub(crate) fn partition_scheme(&self) -> Option<PartitionScheme> {
         self.features
             .hybrid_boot
             .as_ref()
@@ -129,14 +129,16 @@ impl IsoFormatOptions {
     }
 
     /// Returns true if Rock Ridge is enabled and deep directory relocation is active.
-    pub fn has_rock_ridge_deep_dirs(&self) -> bool {
-        self.features.rock_ridge.is_some_and(|options| options.enabled && options.relocate_deep_dirs)
+    pub(crate) fn has_rock_ridge_deep_dirs(&self) -> bool {
+        self.features
+            .rock_ridge
+            .is_some_and(|options| options.enabled && options.relocate_deep_dirs)
     }
 
     /// Builds the list of entry types (ISO levels, Joliet, etc.) to write.
     ///
     /// Order: PVD base -> Level3 (if long filenames) -> Joliet (if enabled).
-    pub fn entry_types(&self) -> Vec<EntryType> {
+    pub(crate) fn entry_types(&self) -> Vec<EntryType> {
         let mut entry_types = Vec::new();
         entry_types.push(self.features.filenames.into());
 
@@ -223,7 +225,6 @@ impl Default for CreationFeatures {
 }
 
 impl CreationFeatures {
-
     /// Create features with Rock Ridge enabled (default settings)
     pub fn rock_ridge() -> Self {
         Self {

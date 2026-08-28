@@ -114,14 +114,22 @@ impl DirectoryRecord {
 
     #[inline]
     /// Returns the total length of this directory record.
-    pub fn len(&self) -> u8 {
+    #[allow(dead_code)]
+    pub(crate) fn len(&self) -> u8 {
         let header = self.header();
         header.len
     }
 
+    /// Returns whether this is a sector-padding record.
+    #[allow(dead_code)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     #[inline]
     /// Returns the file flags (directory, hidden, etc.).
-    pub fn flags(&self) -> FileFlags {
+    #[allow(dead_code)]
+    pub(crate) fn flags(&self) -> FileFlags {
         let header = self.header();
         FileFlags::from_bits_truncate(header.flags)
     }
@@ -383,7 +391,8 @@ pub struct DirectoryRef {
 
 impl DirectoryRef {
     /// Creates a new directory reference.
-    pub const fn new(extent: usize, size: usize) -> Self {
+    #[allow(dead_code)]
+    pub(crate) const fn new(extent: usize, size: usize) -> Self {
         Self {
             extent: LogicalSector(extent),
             size,

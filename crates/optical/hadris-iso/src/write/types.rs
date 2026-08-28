@@ -1,14 +1,23 @@
 use core::{fmt, ops::Deref};
-use std::{fs::FileType, path::{PathBuf}};
+use std::{fs::FileType, path::PathBuf};
 
-use alloc::{borrow::Cow, collections::{BTreeMap, BTreeSet,VecDeque}, string::{String, ToString}, sync::Arc, vec::Vec};
+use alloc::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
 
-use crate::{directory::{DirectoryRef, FileFlags}, file::{ConvertedName, EntryType}, io::{self}, read::PathSeparator, rrip::RripOptions, susp::SplitSu, write::{utils::*, writer::*}};
-
-/// Canonical error for ISO creation operations.
-pub type Error = IsoCreationError;
-/// Canonical result for ISO creation operations.
-pub type Result<T> = core::result::Result<T, Error>;
+use super::FileConversionError;
+use crate::{
+    directory::{DirectoryRef, FileFlags},
+    file::{ConvertedName, EntryType},
+    io::{self},
+    read::PathSeparator,
+    rrip::RripOptions,
+    susp::SplitSu,
+    write::{utils::*, writer::*},
+};
 
 /// Represents a file in the write order: (directory ID, file index).
 pub type FileOrder = (DirectoryId, usize);
@@ -19,136 +28,16 @@ pub type RelocationMap = BTreeMap<(usize, EntryType), DirectoryRef>;
 /// RRIP timestamp (7 bytes: year, month, day, hour, minute, second, offset).
 pub type RripTime = [u8; 7];
 
-#[derive(Debug, thiserror::Error)]
-/// Identifies a IsoCreationError value.
-pub enum IsoCreationError {
-    #[error(transparent)]
-    /// The `Io` variant.
-    Io(#[from] crate::io::Error),
-}
-
-#[derive(Debug, thiserror::Error)]
-/// Identifies a FileConversionError value.
-pub enum FileConversionError {
-    #[error("I/O error: {0}")]
-    /// The `Io` variant.
-    Io(#[from] std::io::Error),
-    #[error("Path {0:?} is not a valid UTF-8 string")]
-    /// The `InvalidUtf8Path` variant.
-    InvalidUtf8Path(std::path::PathBuf),
-    #[error("Unsupported filesystem entry type at {0:?}")]
-    /// The `UnsupportedFileType` variant.
-    UnsupportedFileType(std::path::PathBuf),
-}
-
 /// A compact input tree for callers that do not need per-entry metadata.
 ///
 /// [`InputTree`] is the richer model for Rock Ridge metadata and host
-/// filesystem imports. Both models are accepted by [`IsoImageWriter::create`].
+/// filesystem imports. Both models are accepted by
+/// [`IsoImageWriter::create`](crate::write::IsoImageWriter::create).
 pub struct InputFiles {
     /// Separator used by paths referenced from writer options.
     pub path_separator: PathSeparator,
     /// Root-level files and directories.
     pub files: Vec<File>,
-}
-
-/// File content that can be stored in different forms.
-///
-/// This enum represents the actual data of a file being written to an ISO image.
-/// It supports three storage strategies to balance memory usage and performance.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FileContent {
-    /// Empty file or placeholder (no data).
-    None,
-    /// Static data with a `'static` lifetime (no allocation).
-    Static(&'static [u8]),
-    /// Heap-allocated data shared via an atomic reference counter.
-    Raw(Arc<[u8]>),
-    /// Test-only variant that simulates a file of a given size with a repeating pattern.
-    #[cfg(test)]
-    Test {
-        /// Total size of the simulated file in bytes.
-        size: usize,
-        /// Byte pattern to repeat for the entire file.
-        pattern: u8,
-    },
-}
-
-impl From<Vec<u8>> for FileContent {
-    fn from(value: Vec<u8>) -> Self {
-        Self::Raw(value.into())
-    }
-}
-
-impl From<&'static [u8]> for FileContent {
-    fn from(value: &'static [u8]) -> Self {
-        Self::Static(value)
-    }
-}
-
-impl From<Arc<[u8]>> for FileContent {
-    fn from(value: Arc<[u8]>) -> Self {
-        Self::Raw(value)
-    }
-}
-
-impl FileContent {
-    /// Returns `true` if the content is empty or `None`.
-    pub fn is_empty(&self) -> bool {
-        match self {
-            Self::None => true,
-            Self::Static(data) => data.is_empty(),
-            Self::Raw(data) => data.is_empty(),
-            #[cfg(test)]
-            Self::Test { size, .. } => *size == 0,
-        }
-    }
-
-    /// Returns the length of the content in bytes.
-    pub fn len(&self) -> u64 {
-        match self {
-            Self::None => 0,
-            Self::Static(data) => data.len() as u64,
-            Self::Raw(data) => data.len() as u64,
-            #[cfg(test)]
-            Self::Test { size, .. } => *size as u64,
-        }
-    }
-
-    /// Returns a slice starting at `offset` to the end.
-    pub fn slice_range(&self, range: core::ops::Range<usize>) -> Option<Cow<'_, [u8]>> {
-        let (start, end) = (range.start, range.end);
-        if start > end {
-            return None;
-        }
-        match self {
-            Self::None => None,
-            Self::Static(data) => {
-                if end <= data.len() {
-                    Some(Cow::Borrowed(&data[start..end]))
-                } else {
-                    None
-                }
-            }
-            Self::Raw(data) => {
-                if end <= data.len() {
-                    Some(Cow::Borrowed(&data[start..end]))
-                } else {
-                    None
-                }
-            }
-            #[cfg(test)]
-            Self::Test { size, pattern } => {
-                if end <= *size {
-                    let len = end - start;
-                    let vec = alloc::vec![*pattern; len];
-                    Some(Cow::Owned(vec))
-                } else {
-                    None
-                }
-            }
-        }
-    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -159,7 +48,7 @@ pub enum File {
         /// The `name` field.
         name: Arc<String>,
         /// The `contents` field.
-        contents: FileContent,
+        contents: Vec<u8>,
     },
     /// The `Directory` variant.
     Directory {
@@ -197,7 +86,6 @@ impl File {
     }
 }
 
-
 /// A metadata-aware tree used to create an ISO image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputTree {
@@ -208,7 +96,6 @@ pub struct InputTree {
 }
 
 impl InputTree {
-
     /// Recursive validation.
     ///
     /// Checks:
@@ -217,7 +104,7 @@ impl InputTree {
     /// - Symlinks: require RRIP preserve_symlinks
     /// - Devices: require RRIP preserve_devices
     /// - File size: max 4 GiB
-    pub fn validate(&self, rrip: Option<&RripOptions>) -> crate::io::Result<()> {
+    pub(crate) fn validate(&self, rrip: Option<&RripOptions>) -> crate::io::Result<()> {
         Self::visit(&self.entries, rrip, 1, 0)
     }
 
@@ -272,6 +159,8 @@ impl InputTree {
                     //     ));
                     // }
                 }
+                #[cfg(test)]
+                InputEntryKind::TestFile { .. } => {}
             }
         }
         Ok(())
@@ -297,7 +186,7 @@ pub struct InputMetadata {
 
 impl InputMetadata {
     /// Creates metadata from filesystem metadata.
-    pub fn from_fs(fs_metadata: std::fs::Metadata) -> Self {
+    pub(crate) fn from_fs(fs_metadata: std::fs::Metadata) -> Self {
         #[allow(unused_mut)]
         let mut metadata = Self {
             created: system_time_seconds(fs_metadata.created()),
@@ -322,7 +211,13 @@ impl InputMetadata {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputEntryKind {
     /// The `File` variant.
-    File(FileContent),
+    File(Vec<u8>),
+    /// A virtual sparse file used by large-file regression tests.
+    #[cfg(test)]
+    TestFile {
+        /// Virtual file size in bytes.
+        size: u64,
+    },
     /// The `Directory` variant.
     Directory(Vec<InputEntry>),
     /// The `Symlink` variant.
@@ -344,6 +239,15 @@ pub enum InputEntryKind {
 }
 
 impl InputEntryKind {
+    pub(crate) fn file_len(&self) -> Option<u64> {
+        match self {
+            Self::File(contents) => Some(contents.len() as u64),
+            #[cfg(test)]
+            Self::TestFile { size } => Some(*size),
+            _ => None,
+        }
+    }
+
     /// Creates an `InputEntryKind` from a filesystem file type and path.
     ///
     /// This function inspects the file type and constructs the appropriate variant:
@@ -351,9 +255,12 @@ impl InputEntryKind {
     /// - Directories → `Directory` (recursively reads all children).
     /// - Symlinks → `Symlink` (reads the link target as a string).
     /// - Character/block devices → `CharacterDevice` or `BlockDevice` (Unix only).
-    pub fn new(file_type: FileType, path: PathBuf) -> core::result::Result<Self, FileConversionError> {
+    pub(crate) fn new(
+        file_type: FileType,
+        path: PathBuf,
+    ) -> core::result::Result<Self, FileConversionError> {
         if file_type.is_file() {
-            let content = std::fs::read(&path)?.into();
+            let content = std::fs::read(&path)?;
             Ok(InputEntryKind::File(content))
         } else if file_type.is_dir() {
             let dir = read_input_directory_recursively(&path)?;
@@ -374,21 +281,23 @@ impl InputEntryKind {
                 const DEV_MINOR_MASK_LOW: u64 = 0xff;
                 const DEV_MINOR_MASK_HIGH: u64 = 0xffffff00;
 
+                let fs_metadata = std::fs::symlink_metadata(&path)?;
                 let device = fs_metadata.rdev();
-                let major = ((device >> 8) & DEV_MAJOR_MASK_LOW) | ((device >> 32) & DEV_MAJOR_MASK_HIGH);
+                let major =
+                    ((device >> 8) & DEV_MAJOR_MASK_LOW) | ((device >> 32) & DEV_MAJOR_MASK_HIGH);
                 let minor = (device & DEV_MINOR_MASK_LOW) | ((device >> 12) & DEV_MINOR_MASK_HIGH);
                 if file_type.is_char_device() {
-                    InputEntryKind::CharacterDevice {
+                    Ok(InputEntryKind::CharacterDevice {
                         major: major as u32,
                         minor: minor as u32,
-                    }
+                    })
                 } else if file_type.is_block_device() {
-                    InputEntryKind::BlockDevice {
+                    Ok(InputEntryKind::BlockDevice {
                         major: major as u32,
                         minor: minor as u32,
-                    }
+                    })
                 } else {
-                    return Err(FileConversionError::UnsupportedFileType(path));
+                    Err(FileConversionError::UnsupportedFileType(path))
                 }
             }
             #[cfg(not(unix))]
@@ -413,7 +322,7 @@ pub struct InputEntry {
 
 impl InputEntry {
     /// Creates a regular file entry with content.
-    pub fn file(name: impl Into<String>, contents: impl Into<FileContent>) -> Self {
+    pub fn file(name: impl Into<String>, contents: impl Into<Vec<u8>>) -> Self {
         Self::new(name, InputEntryKind::File(contents.into()))
     }
 
@@ -682,7 +591,6 @@ pub enum RripEntryKind<'a> {
 pub struct PendingRecords(Vec<PendingRecord>);
 
 impl PendingRecords {
-
     /// Build the pending records for one directory: dot/dotdot, child
     /// directories, and files, with RRIP system-use areas split against the
     /// inline budget, names deduplicated, and records ordered by File
@@ -705,8 +613,23 @@ impl PendingRecords {
 
         let mut records: Vec<PendingRecord> = Vec::new();
 
-        records.push(Self::build_dot_record(has_rrip, is_root, &dir.metadata, directory_nlink, &options, fallback_time));
-        records.push(Self::build_dotdot_record(has_rrip, is_root, dir, ty, &options, fallback_time, relocation_refs)?);
+        records.push(Self::build_dot_record(
+            has_rrip,
+            is_root,
+            &dir.metadata,
+            directory_nlink,
+            &options,
+            fallback_time,
+        ));
+        records.push(Self::build_dotdot_record(
+            has_rrip,
+            is_root,
+            dir,
+            ty,
+            &options,
+            fallback_time,
+            relocation_refs,
+        )?);
 
         Self::build_directory_records(
             &mut records,
@@ -745,9 +668,15 @@ impl PendingRecords {
     ) -> PendingRecord {
         let split = if has_rrip {
             let kind = if is_root {
-                RripEntryKind::RootDot { metadata: *metadata, nlink }
+                RripEntryKind::RootDot {
+                    metadata: *metadata,
+                    nlink,
+                }
             } else {
-                RripEntryKind::Dot { metadata: *metadata, nlink }
+                RripEntryKind::Dot {
+                    metadata: *metadata,
+                    nlink,
+                }
             };
             let max = available_su_space(1); // name is b"\x00"
             build_rrip_entries(kind, 0, options, fallback_time).build_split(max)
@@ -794,6 +723,7 @@ impl PendingRecords {
         Ok(PendingRecord::parent_dir(split))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_directory_records(
         records: &mut Vec<PendingRecord>,
         dirs: &[WrittenDirectory],
@@ -841,11 +771,7 @@ impl PendingRecords {
             };
 
             let dir_ref = directory.get_dir_ref(ty, relocation_refs);
-            let record = PendingRecord::new(
-                &converted_name,
-                split,
-                dir_ref,
-                FileFlags::DIRECTORY);
+            let record = PendingRecord::new(&converted_name, split, dir_ref, FileFlags::DIRECTORY);
 
             records.push(record);
         }
@@ -863,7 +789,7 @@ impl PendingRecords {
     ) -> io::Result<()> {
         for file in files {
             let converted_name = ty.convert_name(&file.name);
-            
+
             // Main file entry (with RRIP if enabled)
             let split = if has_rrip {
                 let inode = *inode_counter;
@@ -874,13 +800,7 @@ impl PendingRecords {
                     metadata: file.metadata,
                     kind: &file.kind,
                 };
-                build_rrip_entries(
-                    kind,
-                    inode,
-                    options,
-                    fallback_time,
-                )
-                .build_split(max)
+                build_rrip_entries(kind, inode, options, fallback_time).build_split(max)
             } else {
                 SplitSu::empty()
             };
@@ -890,7 +810,7 @@ impl PendingRecords {
             } else {
                 FileFlags::NOT_FINAL
             };
-            
+
             let first = PendingRecord::new(&converted_name, split, file.entry, first_flags);
             records.push(first);
 
@@ -899,13 +819,12 @@ impl PendingRecords {
             // with the same file identifier.
             let len = file.additional_extents.len();
             for (i, dir_ref) in file.additional_extents.iter().cloned().enumerate() {
-
                 let flags = if i == len - 1 {
-                    FileFlags::empty()  // Last extent
+                    FileFlags::empty() // Last extent
                 } else {
-                    FileFlags::NOT_FINAL  // Middle extents
+                    FileFlags::NOT_FINAL // Middle extents
                 };
-                
+
                 let record = PendingRecord::new(&converted_name, SplitSu::empty(), dir_ref, flags);
                 records.push(record);
             }
@@ -913,19 +832,24 @@ impl PendingRecords {
         Ok(())
     }
 
-    fn deduplicate_names(records: &mut Vec<PendingRecord>, ty: EntryType) {
-        let mut groups: BTreeMap<PendingRecordName, Vec<usize>> = BTreeMap::new();
+    fn deduplicate_names(records: &mut [PendingRecord], ty: EntryType) {
+        let mut seen: BTreeSet<PendingRecordName> = BTreeSet::new();
+        let mut start = 0;
 
-        for (idx, record) in records.iter().enumerate() {
-            if record.name.len() == 1 && (record.name[0] == 0x00 || record.name[0] == 0x01) {
+        while start < records.len() {
+            if records[start].name.len() == 1
+                && (records[start].name[0] == 0x00 || records[start].name[0] == 0x01)
+            {
+                start += 1;
                 continue;
             }
-            groups.entry(record.name.clone()).or_default().push(idx);
-        }
 
-        let mut seen: BTreeSet<PendingRecordName> = BTreeSet::new();
+            let mut end = start + 1;
+            while end < records.len() && records[end - 1].flags.contains(FileFlags::NOT_FINAL) {
+                end += 1;
+            }
 
-        for (original_name, indices) in groups {
+            let original_name = records[start].name.clone();
             let unique_name = if seen.contains(&original_name) {
                 let mut suffix = 1;
                 loop {
@@ -941,13 +865,15 @@ impl PendingRecords {
 
             seen.insert(unique_name.clone());
 
-            for &idx in &indices {
-                records[idx].name = unique_name.clone();
+            for record in &mut records[start..end] {
+                record.name = unique_name.clone();
             }
+
+            start = end;
         }
     }
 
-    fn sort_records(records: &mut Vec<PendingRecord>) {
+    fn sort_records(records: &mut [PendingRecord]) {
         records.sort_by(|a, b| {
             let rank = |name: &[u8]| match name {
                 [0x00] => 0,
@@ -1022,12 +948,17 @@ pub struct PendingRecord {
 
 impl PendingRecord {
     /// Creates a new pending directory record.
-    pub fn new(name: &ConvertedName, split: SplitSu, dir_ref: DirectoryRef, flags: FileFlags) -> Self {
+    pub fn new(
+        name: &ConvertedName,
+        split: SplitSu,
+        dir_ref: DirectoryRef,
+        flags: FileFlags,
+    ) -> Self {
         Self {
             name: PendingRecordName(name.as_bytes().into()),
             split,
             dir_ref,
-            flags
+            flags,
         }
     }
 
@@ -1147,5 +1078,25 @@ mod tests {
         assert_eq!(extents[0].size, 1024);
         assert_eq!(extents[0].extent.0, 0);
         assert_eq!(final_cursor, 1024);
+    }
+
+    #[test]
+    fn deduplicates_logical_files_without_splitting_extent_names() {
+        let record = |flags| PendingRecord {
+            name: b"README.TXT;1".to_vec().into(),
+            split: SplitSu::empty(),
+            dir_ref: DirectoryRef::default(),
+            flags,
+        };
+        let mut records = vec![
+            record(FileFlags::NOT_FINAL),
+            record(FileFlags::empty()),
+            record(FileFlags::empty()),
+        ];
+
+        PendingRecords::deduplicate_names(&mut records, EntryType::default());
+
+        assert_eq!(records[0].name, records[1].name);
+        assert_ne!(records[1].name, records[2].name);
     }
 }

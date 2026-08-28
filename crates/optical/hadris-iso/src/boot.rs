@@ -567,7 +567,8 @@ pub struct BootInfoTable {
 
 impl BootInfoTable {
     /// Creates a new boot information table.
-    pub fn new(file_lba: u32, file_len: u32, checksum: u32) -> Self {
+    #[allow(dead_code)]
+    pub(crate) fn new(file_lba: u32, file_len: u32, checksum: u32) -> Self {
         Self {
             iso_start: U32::new(16),
             file_lba: U32::new(file_lba),
@@ -599,7 +600,8 @@ pub struct Grub2BootInfoTable {
 
 impl Grub2BootInfoTable {
     /// Creates a new GRUB2/ISOLINUX boot information table.
-    pub fn new(file_lba: u32, file_len: u32, checksum: u32) -> Self {
+    #[allow(dead_code)]
+    pub(crate) fn new(file_lba: u32, file_len: u32, checksum: u32) -> Self {
         Self {
             pvd_lba: U32::new(16),
             file_lba: U32::new(file_lba),

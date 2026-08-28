@@ -1,4 +1,7 @@
-use crate::{rrip::RripBuilder, write::{writer::DirectoryId, *}};
+use crate::{
+    rrip::RripBuilder,
+    write::{writer::DirectoryId, *},
+};
 
 pub fn system_time_seconds(value: std::io::Result<std::time::SystemTime>) -> Option<i64> {
     value
@@ -36,7 +39,6 @@ pub fn read_input_directory_recursively(
     Ok(children)
 }
 
-
 /// Apply a deduplication suffix to a name, producing e.g. `READM_1.TXT;1`.
 ///
 /// The suffix `_N` is inserted before the extension (and before any `;1` version
@@ -46,7 +48,7 @@ pub fn apply_dedup_suffix(name: &[u8], n: usize, ty: EntryType) -> Vec<u8> {
 
     match ty {
         EntryType::Joliet { .. } => apply_joliet_dedup_suffix(name, &suffix),
-        _ => apply_iso_dedup_suffix(name, &suffix, ty)
+        _ => apply_iso_dedup_suffix(name, &suffix, ty),
     }
 }
 
@@ -120,9 +122,8 @@ fn apply_iso_dedup_suffix(name: &[u8], suffix: &str, ty: EntryType) -> Vec<u8> {
     let trunc_basename = &basename[..basename.len().min(max_basename)];
 
     // Build result: basename + suffix + extension + version
-    let mut result = Vec::with_capacity(
-        trunc_basename.len() + suffix_bytes.len() + ext.len() + version.len(),
-    );
+    let mut result =
+        Vec::with_capacity(trunc_basename.len() + suffix_bytes.len() + ext.len() + version.len());
     result.extend_from_slice(trunc_basename);
     result.extend_from_slice(suffix_bytes);
     result.extend_from_slice(ext);
@@ -259,6 +260,7 @@ pub fn rrip_datetime(timestamp: Option<i64>, fallback: &[u8; 7]) -> [u8; 7] {
 ///
 /// Includes POSIX attributes (mode, nlink, uid, gid, inode) and
 /// timestamps if preservation is enabled.
+#[allow(clippy::too_many_arguments)]
 pub fn add_posix_attributes(
     options: &RripOptions,
     fallback_time: &RripTime,
@@ -267,8 +269,8 @@ pub fn add_posix_attributes(
     metadata: InputMetadata,
     type_mode: u32,
     default_permissions: u32,
-    nlink: u32) {
-
+    nlink: u32,
+) {
     let permissions = if options.preserve_permissions {
         metadata.mode.unwrap_or(default_permissions)
     } else {
@@ -279,7 +281,7 @@ pub fn add_posix_attributes(
     } else {
         (0, 0)
     };
-    
+
     builder.add_px(type_mode | permissions, nlink, uid, gid, inode);
 
     if options.preserve_timestamps {
@@ -305,20 +307,56 @@ pub fn build_rrip_entries(
     match &kind {
         RripEntryKind::RootDot { metadata, nlink } => {
             builder.add_sp(0);
-            add_posix_attributes(options, fallback_time, inode, &mut builder, *metadata, 0o040000, 0o755, *nlink);
+            add_posix_attributes(
+                options,
+                fallback_time,
+                inode,
+                &mut builder,
+                *metadata,
+                0o040000,
+                0o755,
+                *nlink,
+            );
             builder.add_nm_current();
             builder.add_rrip_er(); // full ER, last (largest)
         }
         RripEntryKind::RootDotDot { metadata, nlink } => {
-            add_posix_attributes(options, fallback_time, inode, &mut builder, *metadata, 0o040000, 0o755, *nlink);
+            add_posix_attributes(
+                options,
+                fallback_time,
+                inode,
+                &mut builder,
+                *metadata,
+                0o040000,
+                0o755,
+                *nlink,
+            );
             builder.add_nm_parent();
         }
         RripEntryKind::Dot { metadata, nlink } => {
-            add_posix_attributes(options, fallback_time, inode, &mut builder, *metadata, 0o040000, 0o755, *nlink);
+            add_posix_attributes(
+                options,
+                fallback_time,
+                inode,
+                &mut builder,
+                *metadata,
+                0o040000,
+                0o755,
+                *nlink,
+            );
             builder.add_nm_current();
         }
         RripEntryKind::DotDot { metadata, nlink } => {
-            add_posix_attributes(options, fallback_time, inode, &mut builder, *metadata, 0o040000, 0o755, *nlink);
+            add_posix_attributes(
+                options,
+                fallback_time,
+                inode,
+                &mut builder,
+                *metadata,
+                0o040000,
+                0o755,
+                *nlink,
+            );
             builder.add_nm_parent();
         }
         RripEntryKind::Directory {
@@ -326,7 +364,16 @@ pub fn build_rrip_entries(
             metadata,
             nlink,
         } => {
-            add_posix_attributes(options, fallback_time, inode, &mut builder, *metadata, 0o040000, 0o755, *nlink);
+            add_posix_attributes(
+                options,
+                fallback_time,
+                inode,
+                &mut builder,
+                *metadata,
+                0o040000,
+                0o755,
+                *nlink,
+            );
             builder.add_nm(original_name.as_bytes());
         }
         RripEntryKind::Entry {
@@ -336,12 +383,23 @@ pub fn build_rrip_entries(
         } => {
             let (type_mode, default_permissions) = match kind {
                 InputEntryKind::File(_) => (0o100000, 0o644),
+                #[cfg(test)]
+                InputEntryKind::TestFile { .. } => (0o100000, 0o644),
                 InputEntryKind::Symlink(_) => (0o120000, 0o777),
                 InputEntryKind::CharacterDevice { .. } => (0o020000, 0o600),
                 InputEntryKind::BlockDevice { .. } => (0o060000, 0o600),
                 InputEntryKind::Directory(_) => unreachable!(),
             };
-            add_posix_attributes(options, fallback_time, inode, &mut builder, *metadata, type_mode, default_permissions, 1);
+            add_posix_attributes(
+                options,
+                fallback_time,
+                inode,
+                &mut builder,
+                *metadata,
+                type_mode,
+                default_permissions,
+                1,
+            );
             builder.add_nm(original_name.as_bytes());
             match kind {
                 InputEntryKind::Symlink(target) => {
@@ -367,8 +425,16 @@ pub struct MovedDirectory {
 }
 
 impl MovedDirectory {
-    pub const fn new(id: usize, logical_parent: usize, entries: BTreeMap<EntryType, DirectoryRef>) -> Self {
-        Self { id, logical_parent, entries }
+    pub const fn new(
+        id: usize,
+        logical_parent: usize,
+        entries: BTreeMap<EntryType, DirectoryRef>,
+    ) -> Self {
+        Self {
+            id,
+            logical_parent,
+            entries,
+        }
     }
 
     pub fn collect(directory: &WrittenDirectory) -> Vec<MovedDirectory> {
@@ -426,16 +492,16 @@ pub fn layout_directory_records(
 // parents to children.
 pub fn collect_preorder(
     files: &WrittenFiles,
-    id: &DirectoryId
+    id: &DirectoryId,
 ) -> (Vec<DirectoryId>, Vec<(DirectoryId, usize)>) {
     let mut order = vec![];
     collect_preorder_recursive(files, id, &mut order);
-    
+
     let mut file_order = Vec::new();
     for directory_id in &order {
         let dir = files.get(directory_id);
         for (index, file) in dir.files.iter().enumerate() {
-            if matches!(&file.kind, InputEntryKind::File(contents) if !contents.is_empty()) {
+            if file.kind.file_len().is_some_and(|len| len > 0) {
                 file_order.push((directory_id.clone(), index));
             }
         }
@@ -461,7 +527,10 @@ fn collect_preorder_recursive(
     }
 }
 
-pub const fn alignment_requires_materialization(current_position: u64, aligned_position: u64) -> bool {
+pub const fn alignment_requires_materialization(
+    current_position: u64,
+    aligned_position: u64,
+) -> bool {
     aligned_position > current_position
 }
 

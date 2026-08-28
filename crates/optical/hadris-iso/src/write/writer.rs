@@ -20,18 +20,20 @@ use super::{InputEntryKind, InputMetadata};
 /// Each index represents a child directory index at that level.
 ///
 /// # Example
-/// ```ignore
+/// ```text
 /// // Root directory: []
 /// // Child at index 2: [2]
 /// // Grandchild at index 5: [2, 5]
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DirectoryId(Vec<usize>);
+pub struct DirectoryId {
+    indices: Vec<usize>,
+}
 
 impl DirectoryId {
     /// Creates a new root directory ID.
-    pub const fn new() -> Self {
-        Self(vec![])
+    pub(crate) const fn new() -> Self {
+        Self { indices: vec![] }
     }
 
     /// Pushes a child index onto the path.
@@ -39,7 +41,7 @@ impl DirectoryId {
     /// # Arguments
     /// * `index` - Child directory index
     pub fn push(&mut self, index: usize) {
-        self.0.push(index);
+        self.indices.push(index);
     }
 
     /// Pops the last child index from the path.
@@ -50,7 +52,7 @@ impl DirectoryId {
     /// # Returns
     /// The popped index
     pub fn pop(&mut self) -> usize {
-        self.0.pop().expect("directory underflow")
+        self.indices.pop().expect("directory underflow")
     }
 }
 
@@ -120,7 +122,7 @@ impl WrittenFiles {
     /// Performs the `get` operation.
     pub fn get(&self, id: &DirectoryId) -> &WrittenDirectory {
         let mut dir = &self.root;
-        for index in &id.0 {
+        for index in &id.indices {
             dir = &dir.dirs[*index];
         }
         dir
@@ -129,7 +131,7 @@ impl WrittenFiles {
     /// Performs the `get_mut` operation.
     pub fn get_mut(&mut self, id: &DirectoryId) -> &mut WrittenDirectory {
         let mut dir = &mut self.root;
-        for index in &id.0 {
+        for index in &id.indices {
             dir = &mut dir.dirs[*index];
         }
         dir
@@ -141,7 +143,7 @@ impl WrittenFiles {
 /// Contains child directories, files, and their locations on disk.
 #[derive(Debug)]
 pub struct WrittenDirectory {
-     /// Unique identifier for this directory.
+    /// Unique identifier for this directory.
     pub(crate) id: usize,
 
     /// Directory name (ISO 9660 formatted).
@@ -213,18 +215,16 @@ impl WrittenDirectory {
     ///
     /// For placeholder directories, this returns the target's reference from the
     /// relocation map. For normal directories, it returns the entry from `entries`.
-    pub fn get_dir_ref(
+    pub(crate) fn get_dir_ref(
         &self,
         ty: EntryType,
         relocation_refs: &BTreeMap<(usize, EntryType), DirectoryRef>,
     ) -> DirectoryRef {
         match self.relocation {
-            DirectoryRelocation::Placeholder { target } => {
-                relocation_refs
-                    .get(&(target, ty))
-                    .copied()
-                    .unwrap_or_default()
-            }
+            DirectoryRelocation::Placeholder { target } => relocation_refs
+                .get(&(target, ty))
+                .copied()
+                .unwrap_or_default(),
             _ => *self.entries.get(&ty).unwrap(),
         }
     }
@@ -233,7 +233,7 @@ impl WrittenDirectory {
     ///
     /// # Arguments
     /// * `file` - The file to add
-    pub fn push_file(&mut self, file: WrittenFile) {
+    pub(crate) fn push_file(&mut self, file: WrittenFile) {
         self.files.push(file);
     }
 
@@ -292,7 +292,7 @@ impl WrittenFile {
     /// Creates a new file with default (empty) extent.
     ///
     /// Used during tree walking before extents are assigned.
-    pub fn new(name: Arc<String>, kind: InputEntryKind, metadata: InputMetadata) -> Self {
+    pub(crate) fn new(name: Arc<String>, kind: InputEntryKind, metadata: InputMetadata) -> Self {
         Self {
             name,
             entry: DirectoryRef::default(),
@@ -305,7 +305,7 @@ impl WrittenFile {
     /// Creates a new file with a single extent.
     ///
     /// Used when the file size is known and fits in one extent (<= 4 GiB).
-    pub fn with_extent(
+    pub(crate) fn with_extent(
         name: Arc<String>,
         kind: InputEntryKind,
         metadata: InputMetadata,
@@ -323,7 +323,7 @@ impl WrittenFile {
     /// Returns all extents for this file.
     ///
     /// The first extent is `entry`, followed by any additional extents.
-    pub fn extents(&self) -> impl Iterator<Item = &DirectoryRef> {
+    pub(crate) fn extents(&self) -> impl Iterator<Item = &DirectoryRef> {
         core::iter::once(&self.entry).chain(self.additional_extents.iter())
     }
 }
