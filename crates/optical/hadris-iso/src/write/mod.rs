@@ -1,5 +1,7 @@
 use alloc::{collections::BTreeMap, sync::Arc};
-use core::fmt;
+
+mod types;
+mod utils;
 
 pub mod estimator;
 /// APIs for writer.
@@ -12,30 +14,32 @@ use super::super::directory::{DirectoryRecord, DirectoryRef, FileFlags};
 use super::super::io::{self, Read, Seek, SeekFrom, Write};
 use super::super::io::{IsoCursor, LogicalSector};
 use super::super::path::PathTableRef;
-use super::super::read::PathSeparator;
-use super::super::rrip::{RripBuilder, RripOptions};
-use super::super::susp::SplitSu;
+use super::super::rrip::RripOptions;
 use super::super::volume::{
     BootRecordVolumeDescriptor, PrimaryVolumeDescriptor, SupplementaryVolumeDescriptor,
     VolumeDescriptor, VolumeDescriptorHeader, VolumeDescriptorList, VolumeDescriptorType,
 };
+use crate::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
+use crate::directory::RootDirectoryEntry;
 use crate::file::EntryType;
 use crate::joliet::JolietLevel;
 use crate::types::{Charset, IsoStr};
-use hadris_common::types::{
-    endian::{Endian, EndianType},
-    number::U32,
-};
+use crate::write::utils::*;
+use crate::write::writer::DirectoryId;
+use hadris_common::types::endian::{Endian, EndianType};
 use hadris_part::{
-    GptDisk, GptDiskWriteExt, Le,
+    GptDisk, GptDiskWriteExt,
     gpt::{GptPartitionEntry, Guid},
     hybrid::HybridMbrBuilder,
-    mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionType},
+    mbr::{MasterBootRecord, MbrPartition, MbrPartitionType},
 };
 use options::PartitionScheme;
-use writer::{DirectoryRelocation, PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
+use writer::{DirectoryRelocation, PathTableWriter, WrittenDirectory, WrittenFiles};
 
-use alloc::{collections::VecDeque, string::String, vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
+
+use types::*;
+pub use types::{File, InputEntry, InputEntryKind, InputFiles, InputMetadata, InputTree};
 
 /// APIs for options.
 pub mod options;
@@ -55,438 +59,6 @@ pub enum FileConversionError {
     UnsupportedFileType(std::path::PathBuf),
 }
 
-/// A compact input tree for callers that do not need per-entry metadata.
-///
-/// [`InputTree`] is the richer model for Rock Ridge metadata and host
-/// filesystem imports. Both models are accepted by [`IsoImageWriter::create`].
-pub struct InputFiles {
-    /// Separator used by paths referenced from writer options.
-    pub path_separator: PathSeparator,
-    /// Root-level files and directories.
-    pub files: Vec<File>,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-/// A file or directory in the compact [`InputFiles`] model.
-pub enum File {
-    /// The `File` variant.
-    File {
-        /// The `name` field.
-        name: Arc<String>,
-        /// The `contents` field.
-        contents: Vec<u8>,
-    },
-    /// The `Directory` variant.
-    Directory {
-        /// The `name` field.
-        name: Arc<String>,
-        /// The `children` field.
-        children: Vec<File>,
-    },
-}
-
-impl core::fmt::Debug for File {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut dbg = f.debug_struct("File");
-        match self {
-            Self::Directory { name, children } => {
-                dbg.field("name", name);
-                dbg.field("children", children);
-            }
-            Self::File { name, contents } => {
-                dbg.field("name", name);
-                dbg.field("data_len", &contents.len());
-            }
-        }
-        dbg.finish()
-    }
-}
-
-impl File {
-    /// Performs the `name` operation.
-    pub fn name(&self) -> Arc<String> {
-        match self {
-            File::File { name, .. } => name.clone(),
-            File::Directory { name, .. } => name.clone(),
-        }
-    }
-}
-
-/// A metadata-aware tree used to create an ISO image.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InputTree {
-    /// The `path_separator` field.
-    pub path_separator: PathSeparator,
-    /// The `entries` field.
-    pub entries: Vec<InputEntry>,
-}
-
-/// Optional POSIX metadata for an input entry.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct InputMetadata {
-    /// The `mode` field.
-    pub mode: Option<u32>,
-    /// The `uid` field.
-    pub uid: Option<u32>,
-    /// The `gid` field.
-    pub gid: Option<u32>,
-    /// Creation time as seconds since the Unix epoch.
-    pub created: Option<i64>,
-    /// Modification time as seconds since the Unix epoch.
-    pub modified: Option<i64>,
-    /// Access time as seconds since the Unix epoch.
-    pub accessed: Option<i64>,
-}
-
-/// The data represented by an [`InputEntry`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InputEntryKind {
-    /// The `File` variant.
-    File(Vec<u8>),
-    /// The `Directory` variant.
-    Directory(Vec<InputEntry>),
-    /// The `Symlink` variant.
-    Symlink(String),
-    /// A POSIX character device.
-    CharacterDevice {
-        /// Device-class identifier.
-        major: u32,
-        /// Device identifier within the class.
-        minor: u32,
-    },
-    /// A POSIX block device.
-    BlockDevice {
-        /// Device-class identifier.
-        major: u32,
-        /// Device identifier within the class.
-        minor: u32,
-    },
-}
-
-/// A named input entry and its optional host metadata.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InputEntry {
-    /// The `name` field.
-    pub name: Arc<String>,
-    /// The `kind` field.
-    pub kind: InputEntryKind,
-    /// The `metadata` field.
-    pub metadata: InputMetadata,
-}
-
-impl InputEntry {
-    /// Performs the `file` operation.
-    pub fn file(name: impl Into<String>, contents: impl Into<Vec<u8>>) -> Self {
-        Self::new(name, InputEntryKind::File(contents.into()))
-    }
-
-    /// Performs the `directory` operation.
-    pub fn directory(name: impl Into<String>, children: Vec<Self>) -> Self {
-        Self::new(name, InputEntryKind::Directory(children))
-    }
-
-    /// Performs the `symlink` operation.
-    pub fn symlink(name: impl Into<String>, target: impl Into<String>) -> Self {
-        Self::new(name, InputEntryKind::Symlink(target.into()))
-    }
-
-    /// Performs the `character_device` operation.
-    pub fn character_device(name: impl Into<String>, major: u32, minor: u32) -> Self {
-        Self::new(name, InputEntryKind::CharacterDevice { major, minor })
-    }
-
-    /// Performs the `block_device` operation.
-    pub fn block_device(name: impl Into<String>, major: u32, minor: u32) -> Self {
-        Self::new(name, InputEntryKind::BlockDevice { major, minor })
-    }
-
-    /// Performs the `with_metadata` operation.
-    pub fn with_metadata(mut self, metadata: InputMetadata) -> Self {
-        self.metadata = metadata;
-        self
-    }
-
-    /// Performs the `name` operation.
-    pub fn name(&self) -> Arc<String> {
-        self.name.clone()
-    }
-
-    fn new(name: impl Into<String>, kind: InputEntryKind) -> Self {
-        Self {
-            name: Arc::new(name.into()),
-            kind,
-            metadata: InputMetadata::default(),
-        }
-    }
-}
-
-impl InputTree {
-    /// Performs the `new` operation.
-    pub fn new(path_separator: PathSeparator, entries: Vec<InputEntry>) -> Self {
-        Self {
-            path_separator,
-            entries,
-        }
-    }
-
-    /// Performs the `from_fs` operation.
-    pub fn from_fs(
-        root_path: &std::path::Path,
-        path_separator: PathSeparator,
-    ) -> core::result::Result<Self, FileConversionError> {
-        if !root_path.is_dir() {
-            return Err(FileConversionError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                alloc::format!("Root path '{root_path:?}' is not a directory"),
-            )));
-        }
-        Ok(Self::new(
-            path_separator,
-            read_input_directory_recursively(root_path)?,
-        ))
-    }
-}
-
-impl From<InputFiles> for InputTree {
-    fn from(value: InputFiles) -> Self {
-        fn convert(file: File) -> InputEntry {
-            match file {
-                File::File { name, contents } => InputEntry {
-                    name,
-                    kind: InputEntryKind::File(contents),
-                    metadata: InputMetadata::default(),
-                },
-                File::Directory { name, children } => InputEntry {
-                    name,
-                    kind: InputEntryKind::Directory(children.into_iter().map(convert).collect()),
-                    metadata: InputMetadata::default(),
-                },
-            }
-        }
-        Self::new(
-            value.path_separator,
-            value.files.into_iter().map(convert).collect(),
-        )
-    }
-}
-
-fn system_time_seconds(value: std::io::Result<std::time::SystemTime>) -> Option<i64> {
-    value
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-}
-
-fn read_input_directory_recursively(
-    current_path: &std::path::Path,
-) -> core::result::Result<Vec<InputEntry>, FileConversionError> {
-    use alloc::string::ToString;
-    let mut children = Vec::new();
-    for entry in std::fs::read_dir(current_path)? {
-        let entry = entry?;
-        let path = entry.path();
-        let name = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .ok_or_else(|| FileConversionError::InvalidUtf8Path(path.clone()))?
-            .to_string();
-        let fs_metadata = std::fs::symlink_metadata(&path)?;
-        let file_type = fs_metadata.file_type();
-        let mut metadata = InputMetadata {
-            created: system_time_seconds(fs_metadata.created()),
-            modified: system_time_seconds(fs_metadata.modified()),
-            accessed: system_time_seconds(fs_metadata.accessed()),
-            ..InputMetadata::default()
-        };
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            metadata.mode = Some(fs_metadata.mode() & 0o7777);
-            metadata.uid = Some(fs_metadata.uid());
-            metadata.gid = Some(fs_metadata.gid());
-        }
-        let kind = if file_type.is_file() {
-            InputEntryKind::File(std::fs::read(&path)?)
-        } else if file_type.is_dir() {
-            InputEntryKind::Directory(read_input_directory_recursively(&path)?)
-        } else if file_type.is_symlink() {
-            let target = std::fs::read_link(&path)?;
-            InputEntryKind::Symlink(
-                target
-                    .to_str()
-                    .ok_or_else(|| FileConversionError::InvalidUtf8Path(target.clone()))?
-                    .to_string(),
-            )
-        } else {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::{FileTypeExt, MetadataExt};
-                let device = fs_metadata.rdev();
-                let major = ((device >> 8) & 0xfff) | ((device >> 32) & 0xfffff000);
-                let minor = (device & 0xff) | ((device >> 12) & 0xffffff00);
-                if file_type.is_char_device() {
-                    InputEntryKind::CharacterDevice {
-                        major: major as u32,
-                        minor: minor as u32,
-                    }
-                } else if file_type.is_block_device() {
-                    InputEntryKind::BlockDevice {
-                        major: major as u32,
-                        minor: minor as u32,
-                    }
-                } else {
-                    return Err(FileConversionError::UnsupportedFileType(path));
-                }
-            }
-            #[cfg(not(unix))]
-            return Err(FileConversionError::UnsupportedFileType(path));
-        };
-        children.push(InputEntry {
-            name: Arc::new(name),
-            kind,
-            metadata,
-        });
-    }
-    children.sort_by_key(|entry| entry.name.to_ascii_lowercase());
-    Ok(children)
-}
-
-fn validate_input_tree(tree: &InputTree, rrip: Option<&RripOptions>) -> io::Result<()> {
-    fn visit(
-        entries: &[InputEntry],
-        rrip: Option<&RripOptions>,
-        depth: usize,
-        path_len: usize,
-    ) -> io::Result<()> {
-        for entry in entries {
-            match &entry.kind {
-                InputEntryKind::Directory(children) => {
-                    let child_path_len = if path_len == 0 {
-                        entry.name.len()
-                    } else {
-                        path_len + 1 + entry.name.len()
-                    };
-                    if (depth >= 8 || child_path_len > 255)
-                        && !rrip
-                            .is_some_and(|options| options.enabled && options.relocate_deep_dirs)
-                    {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "directory depth or path length exceeds ISO 9660 limits and RRIP relocation is disabled",
-                        ));
-                    }
-                    visit(children, rrip, depth + 1, child_path_len)?;
-                }
-                InputEntryKind::Symlink(_) => {
-                    if !rrip.is_some_and(|options| options.enabled && options.preserve_symlinks) {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "symbolic links require RRIP preserve_symlinks",
-                        ));
-                    }
-                }
-                InputEntryKind::CharacterDevice { .. } | InputEntryKind::BlockDevice { .. } => {
-                    if !rrip.is_some_and(|options| options.enabled && options.preserve_devices) {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "device entries require RRIP preserve_devices",
-                        ));
-                    }
-                }
-                InputEntryKind::File(contents) => {
-                    if contents.len() as u64 > MAX_SINGLE_EXTENT_FILE_LEN {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "file exceeds 4 GiB; the ISO writer stores each file in a single \
-                             extent and cannot yet emit multi-extent records",
-                        ));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-    visit(&tree.entries, rrip, 1, 0)
-}
-
-/// Largest file size a single ISO 9660 (ECMA-119 9.1) directory record can
-/// address through its 32-bit `data_len` field. Larger files require
-/// multi-extent records, which the writer does not yet emit — attempting to
-/// write one is rejected up front rather than silently truncated to `u32`.
-pub(crate) const MAX_SINGLE_EXTENT_FILE_LEN: u64 = u32::MAX as u64;
-
-fn relocate_deep_directories(files: &mut WrittenFiles) {
-    fn visit(
-        dir: &mut WrittenDirectory,
-        physical_depth: usize,
-        physical_path_len: usize,
-        moved: &mut Vec<WrittenDirectory>,
-        internal_id: &mut usize,
-    ) {
-        let mut retained = Vec::with_capacity(dir.dirs.len());
-        for mut child in core::mem::take(&mut dir.dirs) {
-            let child_path_len = if physical_path_len == 0 {
-                child.name.len()
-            } else {
-                physical_path_len + 1 + child.name.len()
-            };
-            if physical_depth + 1 > 8 || child_path_len > 255 {
-                let target = child.id;
-                let logical_parent = dir.id;
-                let original_name = child.rrip_name.clone();
-                child.name = Arc::new(alloc::format!("RRD{:06}", *internal_id));
-                *internal_id += 1;
-                child.relocation = DirectoryRelocation::Moved {
-                    id: target,
-                    logical_parent,
-                };
-                let relocated_path_len = "RR_MOVED".len() + 1 + child.name.len();
-                visit(&mut child, 3, relocated_path_len, moved, internal_id);
-                moved.push(child);
-
-                let mut placeholder = WrittenDirectory::new(original_name);
-                placeholder.relocation = DirectoryRelocation::Placeholder { target };
-                retained.push(placeholder);
-            } else {
-                visit(
-                    &mut child,
-                    physical_depth + 1,
-                    child_path_len,
-                    moved,
-                    internal_id,
-                );
-                retained.push(child);
-            }
-        }
-        dir.dirs = retained;
-    }
-
-    let root = files.get_mut(&files.root_dir());
-    let mut moved = Vec::new();
-    let mut internal_id = 1;
-    visit(root, 1, 0, &mut moved, &mut internal_id);
-    if moved.is_empty() {
-        return;
-    }
-
-    let occupied = root
-        .dirs
-        .iter()
-        .map(|directory| directory.name.as_str())
-        .collect::<std::collections::HashSet<_>>();
-    let mut relocation_name = String::from("RR_MOVED");
-    let mut suffix = 1;
-    while occupied.contains(relocation_name.as_str()) {
-        relocation_name = alloc::format!("RR_MOVED_{suffix}");
-        suffix += 1;
-    }
-    let mut relocation_dir = WrittenDirectory::new(Arc::new(relocation_name));
-    relocation_dir.id = usize::MAX;
-    relocation_dir.dirs = moved;
-    root.dirs.insert(0, relocation_dir);
-}
-
 #[derive(Debug, thiserror::Error)]
 /// Identifies a IsoCreationError value.
 pub enum IsoCreationError {
@@ -500,7 +72,15 @@ pub type Error = IsoCreationError;
 /// Canonical result for ISO creation operations.
 pub type Result<T> = core::result::Result<T, Error>;
 
-/// Represents IsoImageWriter.
+/// Writer for creating ISO 9660 images.
+///
+/// Supports:
+/// - ISO Level 1, 2, and 3
+/// - Joliet extensions (Unicode filenames)
+/// - Rock Ridge extensions (POSIX metadata, symlinks, devices)
+/// - El Torito bootable images
+/// - MBR, GPT, and Hybrid partition tables
+/// - Multi-extent files (>4 GiB)
 pub struct IsoImageWriter<DATA: Read + Write + Seek> {
     data: IsoCursor<DATA>,
     entry_types: Vec<EntryType>,
@@ -508,237 +88,16 @@ pub struct IsoImageWriter<DATA: Read + Write + Seek> {
     written_files: WrittenFiles,
     path_tables: BTreeMap<EntryType, PathTableRef>,
     inode_counter: u32,
-    rrip_time: [u8; 7],
-}
-
-/// The kind of directory entry, used to select which RRIP entries to emit.
-enum RripEntryKind<'a> {
-    /// Root directory's "." entry — needs SP + ER + PX + NM(CURRENT)
-    RootDot { metadata: InputMetadata, nlink: u32 },
-    /// Root directory's ".." entry — needs PX + NM(PARENT)
-    RootDotDot { metadata: InputMetadata, nlink: u32 },
-    /// Non-root "." entry — needs PX + NM(CURRENT)
-    Dot { metadata: InputMetadata, nlink: u32 },
-    /// Non-root ".." entry — needs PX + NM(PARENT)
-    DotDot { metadata: InputMetadata, nlink: u32 },
-    /// A named directory entry
-    Directory {
-        original_name: &'a str,
-        metadata: InputMetadata,
-        nlink: u32,
-    },
-    /// A named file entry
-    Entry {
-        original_name: &'a str,
-        metadata: InputMetadata,
-        kind: &'a InputEntryKind,
-    },
-}
-
-/// Compute the available system use space in a DirectoryRecord given
-/// the ISO name length. The record is 256 bytes max; the fixed header
-/// is 33 bytes, followed by the name (padded to even).
-fn available_su_space(iso_name_len: usize) -> usize {
-    let used = (33 + iso_name_len + 1) & !1; // pad to even boundary
-    256usize.saturating_sub(used)
-}
-
-/// Build complete RRIP entries for a directory record.
-///
-/// Entries are ordered by priority (most important first, largest last),
-/// so that `build_split` keeps the important ones inline and overflows
-/// the rest via a CE pointer.
-fn rrip_datetime(timestamp: Option<i64>, fallback: &[u8; 7]) -> [u8; 7] {
-    use chrono::{Datelike, Timelike};
-    let Some(timestamp) = timestamp.and_then(|value| chrono::DateTime::from_timestamp(value, 0))
-    else {
-        return *fallback;
-    };
-    [
-        (timestamp.year() - 1900).clamp(0, 255) as u8,
-        timestamp.month() as u8,
-        timestamp.day() as u8,
-        timestamp.hour() as u8,
-        timestamp.minute() as u8,
-        timestamp.second() as u8,
-        0,
-    ]
-}
-
-fn build_rrip_entries(
-    kind: RripEntryKind<'_>,
-    inode: u32,
-    options: &RripOptions,
-    fallback_time: &[u8; 7],
-) -> RripBuilder {
-    let mut builder = RripBuilder::new();
-    let add_common = |builder: &mut RripBuilder,
-                      metadata: InputMetadata,
-                      type_mode: u32,
-                      default_permissions: u32,
-                      nlink: u32| {
-        let permissions = if options.preserve_permissions {
-            metadata.mode.unwrap_or(default_permissions)
-        } else {
-            default_permissions
-        };
-        let (uid, gid) = if options.preserve_ownership {
-            (metadata.uid.unwrap_or(0), metadata.gid.unwrap_or(0))
-        } else {
-            (0, 0)
-        };
-        builder.add_px(type_mode | permissions, nlink, uid, gid, inode);
-        if options.preserve_timestamps {
-            let modified = rrip_datetime(metadata.modified, fallback_time);
-            let accessed = rrip_datetime(metadata.accessed, fallback_time);
-            // Emit the creation timestamp when the input carries one; in-memory
-            // entries without a creation time keep the modify/access-only form.
-            let created = metadata
-                .created
-                .map(|created| rrip_datetime(Some(created), fallback_time));
-            builder.add_tf(created.as_ref(), &modified, &accessed);
-        }
-    };
-
-    match &kind {
-        RripEntryKind::RootDot { metadata, nlink } => {
-            builder.add_sp(0);
-            add_common(&mut builder, *metadata, 0o040000, 0o755, *nlink);
-            builder.add_nm_current();
-            builder.add_rrip_er(); // full ER, last (largest)
-        }
-        RripEntryKind::RootDotDot { metadata, nlink } => {
-            add_common(&mut builder, *metadata, 0o040000, 0o755, *nlink);
-            builder.add_nm_parent();
-        }
-        RripEntryKind::Dot { metadata, nlink } => {
-            add_common(&mut builder, *metadata, 0o040000, 0o755, *nlink);
-            builder.add_nm_current();
-        }
-        RripEntryKind::DotDot { metadata, nlink } => {
-            add_common(&mut builder, *metadata, 0o040000, 0o755, *nlink);
-            builder.add_nm_parent();
-        }
-        RripEntryKind::Directory {
-            original_name,
-            metadata,
-            nlink,
-        } => {
-            add_common(&mut builder, *metadata, 0o040000, 0o755, *nlink);
-            builder.add_nm(original_name.as_bytes());
-        }
-        RripEntryKind::Entry {
-            original_name,
-            metadata,
-            kind,
-        } => {
-            let (type_mode, default_permissions) = match kind {
-                InputEntryKind::File(_) => (0o100000, 0o644),
-                InputEntryKind::Symlink(_) => (0o120000, 0o777),
-                InputEntryKind::CharacterDevice { .. } => (0o020000, 0o600),
-                InputEntryKind::BlockDevice { .. } => (0o060000, 0o600),
-                InputEntryKind::Directory(_) => unreachable!(),
-            };
-            add_common(&mut builder, *metadata, type_mode, default_permissions, 1);
-            builder.add_nm(original_name.as_bytes());
-            match kind {
-                InputEntryKind::Symlink(target) => {
-                    builder.add_sl(target);
-                }
-                InputEntryKind::CharacterDevice { major, minor }
-                | InputEntryKind::BlockDevice { major, minor } => {
-                    builder.add_pn(*major, *minor);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    builder
-}
-
-/// Apply a deduplication suffix to a name, producing e.g. `READM_1.TXT;1`.
-///
-/// The suffix `_N` is inserted before the extension (and before any `;1` version
-/// suffix). The basename is truncated if needed to stay within format limits.
-fn apply_dedup_suffix(name: &[u8], n: usize, ty: EntryType) -> Vec<u8> {
-    let suffix = alloc::format!("_{n}");
-    let suffix_bytes = suffix.as_bytes();
-
-    match ty {
-        EntryType::Joliet { .. } => {
-            // Joliet: UTF-16 BE, find the dot (0x00 0x2E) or end
-            let mut dot_pos = None;
-            let mut i = 0;
-            while i + 1 < name.len() {
-                if name[i] == 0x00 && name[i + 1] == 0x2E {
-                    dot_pos = Some(i);
-                }
-                i += 2;
-            }
-            let (basename, ext) = match dot_pos {
-                Some(pos) => (&name[..pos], &name[pos..]),
-                None => (name, &[][..]),
-            };
-            // Convert suffix to UTF-16 BE
-            let suffix_u16: Vec<u8> = suffix
-                .encode_utf16()
-                .flat_map(|c| c.to_be_bytes())
-                .collect();
-            // Max 206 bytes (103 code units) for Joliet
-            let max_basename = 206usize.saturating_sub(ext.len() + suffix_u16.len());
-            let trunc_basename = &basename[..basename.len().min(max_basename) & !1];
-            let mut result =
-                Vec::with_capacity(trunc_basename.len() + suffix_u16.len() + ext.len());
-            result.extend_from_slice(trunc_basename);
-            result.extend_from_slice(&suffix_u16);
-            result.extend_from_slice(ext);
-            result
-        }
-        _ => {
-            // ASCII-based names (L1, L2, L3)
-            // Strip ";1" version suffix if present
-            let (base_name, version) = if name.ends_with(b";1") {
-                (&name[..name.len() - 2], &b";1"[..])
-            } else {
-                (name, &[][..])
-            };
-            // Find the dot separator
-            let dot_pos = base_name.iter().rposition(|&b| b == b'.');
-            let (basename, ext) = match dot_pos {
-                Some(pos) => (&base_name[..pos], &base_name[pos..]),
-                None => (base_name, &[][..]),
-            };
-            // Determine max basename length based on level
-            let max_total = match ty {
-                EntryType::Level1 { .. } => 8,
-                EntryType::Level2 { .. } => 30usize.saturating_sub(ext.len()),
-                _ => 207usize.saturating_sub(ext.len() + version.len()),
-            };
-            let max_basename = max_total.saturating_sub(suffix_bytes.len());
-            let trunc_basename = &basename[..basename.len().min(max_basename)];
-            let mut result = Vec::with_capacity(
-                trunc_basename.len() + suffix_bytes.len() + ext.len() + version.len(),
-            );
-            result.extend_from_slice(trunc_basename);
-            result.extend_from_slice(suffix_bytes);
-            result.extend_from_slice(ext);
-            result.extend_from_slice(version);
-            result
-        }
-    }
-}
-
-/// A pending directory record, built in phase 1 and written in phases 2-3.
-struct PendingRecord {
-    name: Vec<u8>,
-    split: SplitSu,
-    dir_ref: DirectoryRef,
-    flags: FileFlags,
+    rrip_time: RripTime,
 }
 
 io_transform! {
 impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
+    const VOLUME_DESCRIPTOR_SET_START: LogicalSector = LogicalSector(16);
+    const GPT_PARTITION_NAME_ISO: &[u8] = b"ISO9660";
+    const GPT_PARTITION_NAME_ESP: &[u8] = b"EFI System Partition";
+    const BOOT_CATALOG_FILENAME: &str = "boot.catalog";
+
     /// Creates a complete ISO image and returns its output target.
     pub async fn create<T: Into<InputTree>>(
         data: DATA,
@@ -769,32 +128,44 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             )
             .into());
         }
-        validate_input_tree(&files, ops.features.rock_ridge.as_ref())?;
+
+        files.validate(ops.features.rock_ridge.as_ref())?;
+
         let mut writer = Self::new(data, ops);
+
         writer.write_volume_descriptors(&mut files).await?;
-        if let Some(sector) = allocation_floor {
-            let current = writer
-                .data
-                .stream_position()
-                .await
-                .map_err(io::Error::erase)?;
-            let floor = u64::from(sector)
-                .checked_mul(writer.ops.sector_size as u64)
-                .ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidInput, "allocation floor overflow")
-                })?;
-            if floor > current {
-                writer
-                    .data
-                    .seek(SeekFrom::Start(floor))
-                    .await
-                    .map_err(io::Error::erase)?;
-            }
-        }
+        writer.try_apply_allocation_floor(allocation_floor)?;
+
         let root_dirs = writer.write_files(&files).await?;
         writer.write_path_tables().await?;
         writer.finalize_volume_descriptors(root_dirs).await?;
+
         Ok(writer.into_inner())
+    }
+
+    async fn try_apply_allocation_floor(&mut self, floor: Option<u32>) -> io::Result<()> {
+        let Some(sector) = floor else { return Ok(()) };
+
+        let current = self
+            .data
+            .stream_position()
+            .await
+            .map_err(io::Error::erase)?;
+
+        let target = u64::from(sector)
+            .checked_mul(self.ops.sector_size as u64)
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "allocation floor overflow")
+            })?;
+
+        if target > current {
+            self.data
+                .seek(SeekFrom::Start(target))
+                .await
+                .map_err(io::Error::erase)?;
+        }
+
+        Ok(())
     }
 
     /// Returns the output target.
@@ -804,19 +175,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
     fn new(data: DATA, ops: IsoFormatOptions) -> Self {
         let now = super::super::directory::DirDateTime::now();
-        let rrip_time = *<&[u8; 7]>::try_from(bytemuck::bytes_of(&now)).unwrap();
-        let mut entry_types = Vec::new();
-        // The base (PVD) entry type inherits supports_rrip from the filenames config
-        entry_types.push(ops.features.filenames.into());
-        if ops.features.long_filenames {
-            entry_types.push(EntryType::Level3 {
-                supports_lowercase: true,
-                supports_rrip: false,
-            });
-        }
-        if let Some(joliet) = ops.features.joliet {
-            entry_types.push(joliet.into());
-        }
+        let rrip_time = *<&RripTime>::try_from(bytemuck::bytes_of(&now)).unwrap();
+        let entry_types = ops.entry_types();
 
         Self {
             data: IsoCursor::new(data, ops.sector_size),
@@ -828,8 +188,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             rrip_time,
         }
     }
-
-    const VOLUME_DESCRIPTOR_SET_START: LogicalSector = LogicalSector(16);
 
     fn parse_iso_str<C: Charset, const N: usize>(
         &self,
@@ -847,73 +205,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     async fn write_volume_descriptors(&mut self, files: &mut InputTree) -> io::Result<()> {
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START).await?;
         let mut volume_descriptors = VolumeDescriptorList::empty();
+
         for &entry in &self.entry_types {
-            match entry {
-                EntryType::Level1 { .. } | EntryType::Level2 { .. } => {
-                    let mut pvd = PrimaryVolumeDescriptor::new(&self.ops.volume_name, 0);
-                    pvd.volume_identifier = self.parse_iso_str(&self.ops.volume_name, "volume name")?;
-                    pvd.dir_record.header.len = 34;
-                    pvd.dir_record.header.flags = FileFlags::DIRECTORY.bits();
-                    pvd.dir_record.header.file_identifier_len = 1;
-                    pvd.dir_record.header.volume_sequence_number.write(1);
-                    pvd.volume_sequence_number.write(1);
-                    if let Some(s) = &self.ops.system_id {
-                        pvd.system_identifier = self.parse_iso_str(s, "system identifier")?;
-                    }
-                    if let Some(s) = &self.ops.volume_set_id {
-                        pvd.volume_set_identifier = self.parse_iso_str(s, "volume set identifier")?;
-                    }
-                    if let Some(s) = &self.ops.publisher_id {
-                        pvd.publisher_identifier = self.parse_iso_str(s, "publisher identifier")?;
-                    }
-                    if let Some(s) = &self.ops.preparer_id {
-                        pvd.preparer_identifier = self.parse_iso_str(s, "preparer identifier")?;
-                    }
-                    if let Some(s) = &self.ops.application_id {
-                        pvd.application_identifier = self.parse_iso_str(s, "application identifier")?;
-                    }
-                    volume_descriptors.push(VolumeDescriptor::Primary(pvd));
-                }
-                EntryType::Level3 { .. } => {
-                    // Version 2 for EVD
-                    let mut evd = SupplementaryVolumeDescriptor::new_evd(&self.ops.volume_name, 0);
-                    evd.volume_identifier = self.parse_iso_str(&self.ops.volume_name, "volume name")?;
-                    evd.dir_record.header.len = 34;
-                    evd.dir_record.header.flags = FileFlags::DIRECTORY.bits();
-                    evd.dir_record.header.file_identifier_len = 1;
-                    evd.dir_record.header.volume_sequence_number.write(1);
-                    evd.volume_sequence_number.write(1);
-                    volume_descriptors.push(VolumeDescriptor::Supplementary(evd));
-                }
-                EntryType::Joliet { level, .. } => {
-                    let mut svd = SupplementaryVolumeDescriptor::new_svd(
-                        &self.ops.volume_name,
-                        0,
-                        level.escape_sequence(),
-                    );
-                    svd.dir_record.header.len = 34;
-                    svd.dir_record.header.flags = FileFlags::DIRECTORY.bits();
-                    svd.dir_record.header.file_identifier_len = 1;
-                    svd.dir_record.header.volume_sequence_number.write(1);
-                    svd.volume_sequence_number.write(1);
-                    if let Some(s) = &self.ops.system_id {
-                        svd.system_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
-                    }
-                    if let Some(s) = &self.ops.volume_set_id {
-                        svd.volume_set_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
-                    }
-                    if let Some(s) = &self.ops.publisher_id {
-                        svd.publisher_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
-                    }
-                    if let Some(s) = &self.ops.preparer_id {
-                        svd.preparer_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
-                    }
-                    if let Some(s) = &self.ops.application_id {
-                        svd.application_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
-                    }
-                    volume_descriptors.push(VolumeDescriptor::Supplementary(svd));
-                }
-            }
+            let descriptor = self.create_volume_descriptor(entry)?;
+            volume_descriptors.push(descriptor);
         }
 
         if let Some(boot) = &self.ops.features.el_torito {
@@ -922,143 +217,243 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         }
 
         volume_descriptors.write(&mut self.data).await?;
+
         Ok(())
+    }
+
+     fn create_volume_descriptor(&self, entry: EntryType) -> io::Result<VolumeDescriptor> {
+        match entry {
+            EntryType::Level1 { .. } | EntryType::Level2 { .. } => {
+                Ok(VolumeDescriptor::Primary(self.create_primary_volume_descriptor()?))
+            }
+            EntryType::Level3 { .. } => {
+                Ok(VolumeDescriptor::Supplementary(self.create_enhanced_volume_descriptor()?))
+            }
+            EntryType::Joliet { level, .. } => {
+                Ok(VolumeDescriptor::Supplementary(self.create_joliet_volume_descriptor(level)?))
+            }
+        }
+    }
+
+    fn configure_base_directory_record(&self, record: &mut RootDirectoryEntry) {
+        record.header.len = 34;
+        record.header.flags = FileFlags::DIRECTORY.bits();
+        record.header.file_identifier_len = 1;
+        record.header.volume_sequence_number.write(1);
+    }
+
+    fn create_primary_volume_descriptor(&self) -> io::Result<PrimaryVolumeDescriptor> {
+        let mut pvd = PrimaryVolumeDescriptor::new(&self.ops.volume_name, 0);
+        pvd.volume_identifier = self.parse_iso_str(&self.ops.volume_name, "volume name")?;
+        self.configure_base_directory_record(&mut pvd.dir_record);
+        pvd.volume_sequence_number.write(1);
+
+        if let Some(s) = &self.ops.system_id {
+            pvd.system_identifier = self.parse_iso_str(s, "system identifier")?;
+        }
+        if let Some(s) = &self.ops.volume_set_id {
+            pvd.volume_set_identifier = self.parse_iso_str(s, "volume set identifier")?;
+        }
+        if let Some(s) = &self.ops.publisher_id {
+            pvd.publisher_identifier = self.parse_iso_str(s, "publisher identifier")?;
+        }
+        if let Some(s) = &self.ops.preparer_id {
+            pvd.preparer_identifier = self.parse_iso_str(s, "preparer identifier")?;
+        }
+        if let Some(s) = &self.ops.application_id {
+            pvd.application_identifier = self.parse_iso_str(s, "application identifier")?;
+        }
+
+        Ok(pvd)
+    }
+
+    fn create_enhanced_volume_descriptor(&self) -> io::Result<SupplementaryVolumeDescriptor> {
+        let mut evd = SupplementaryVolumeDescriptor::new_evd(&self.ops.volume_name, 0);
+        evd.volume_identifier = self.parse_iso_str(&self.ops.volume_name, "volume name")?;
+        self.configure_base_directory_record(&mut evd.dir_record);
+        evd.volume_sequence_number.write(1);
+        Ok(evd)
+    }
+
+    fn create_joliet_volume_descriptor(&self, level: JolietLevel) -> io::Result<SupplementaryVolumeDescriptor> {
+        let mut svd = SupplementaryVolumeDescriptor::new_svd(
+            &self.ops.volume_name,
+            0,
+            level.escape_sequence(),
+        );
+        self.configure_base_directory_record(&mut svd.dir_record);
+        svd.volume_sequence_number.write(1);
+
+        if let Some(s) = &self.ops.system_id {
+            svd.system_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
+        }
+        if let Some(s) = &self.ops.volume_set_id {
+            svd.volume_set_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
+        }
+        if let Some(s) = &self.ops.publisher_id {
+            svd.publisher_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
+        }
+        if let Some(s) = &self.ops.preparer_id {
+            svd.preparer_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
+        }
+        if let Some(s) = &self.ops.application_id {
+            svd.application_identifier = SupplementaryVolumeDescriptor::utf16be_str(s);
+        }
+
+        Ok(svd)
     }
 
     async fn finalize_volume_descriptors(
         &mut self,
         root_dirs: BTreeMap<EntryType, DirectoryRef>,
     ) -> io::Result<()> {
-        // Write boot catalog
-        let catalog_ptr = if let Some(boot) = &self.ops.features.el_torito {
-            let mut catalog = BootCatalog::default();
-            let current_sector = self.data.pad_align_sector().await?;
+        let catalog_ptr = self.write_boot_catalog().await?;
+        let end_sector = self.pad_and_get_end_sector().await?;
+        let volume_space = self.volume_space_sectors(end_sector);
 
-            for (section, entry) in boot.sections() {
-                let dir_ref = self
-                    .written_files
-                    .find_file(&entry.boot_image_path, self.ops.path_separator)
-                    .ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::NotFound,
-                            "boot image file not found",
-                        )
-                    })?;
-                let load_size = entry.load_size.map(core::num::NonZeroU16::get).unwrap_or_else(
-                    || {
-                        // Emulated media load a single virtual boot sector; the
-                        // firmware then services the emulated disk. No-emulation
-                        // entries load the whole image as 512-byte sectors.
-                        if entry.emulation.is_emulated() {
-                            1
-                        } else {
-                            dir_ref.size.div_ceil(512) as u16
-                        }
-                    },
-                );
-                let boot_image_lba = dir_ref.extent.0 as u32;
-                let boot_entry =
-                    BootSectionEntry::new(entry.emulation, 0, load_size, boot_image_lba);
-                if let Some(section) = section {
-                    catalog.add_section(section.platform, vec![boot_entry]);
-                } else {
-                    catalog.set_default_entry(boot_entry);
-                }
+        self.patch_volume_descriptors(&root_dirs, catalog_ptr, volume_space).await?;
 
-                // Handle boot info table (standard El-Torito) or GRUB2 boot info
-                // Both use similar format at offset 8 in the boot image
-                if entry.boot_info_table || entry.grub2_boot_info {
-                    // Boot info table requires at least 64 bytes in the boot image
-                    // (header is at offset 8-56/64, checksum covers bytes 64+)
-                    if dir_ref.size < 64 {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "boot image too small for boot info table (minimum 64 bytes)",
-                        ));
-                    }
+        self.write_partition_tables(end_sector).await?;
+        Ok(())
+    }
 
-                    let mut checksum = 0u32;
-                    let mut buffer = [0u8; 4];
-                    let byte_offset = (boot_image_lba as u64) * self.ops.sector_size as u64;
-                    self.data
-                        .seek(SeekFrom::Start(byte_offset + 64))
-                        .await
-                        .map_err(io::Error::erase)?;
-                    // Calculate checksum for all 4-byte chunks from offset 64 to end
-                    let checksum_bytes = dir_ref.size - 64;
-                    for _ in 0..(checksum_bytes / 4) {
-                        self.data.read_exact(&mut buffer).await?;
-                        checksum = checksum.wrapping_add(u32::from_le_bytes(buffer));
-                    }
+    async fn write_boot_section(
+        &mut self,
+        catalog: &mut BootCatalog,
+        section: Option<&BootSectionOptions>,
+        entry: &BootEntryOptions,
+    ) -> io::Result<()> {
+        let dir_ref = self.find_boot_image(&entry.boot_image_path)?;
+        let load_size = self.calculate_load_size(entry, &dir_ref);
+        let boot_entry = BootSectionEntry::new(entry.emulation, 0, load_size, dir_ref.extent.0 as u32);
 
-                    const TABLE_OFFSET: u64 = 8;
-                    self.data
-                        .seek(SeekFrom::Start(byte_offset + TABLE_OFFSET))
-                        .await
-                        .map_err(io::Error::erase)?;
-
-                    if entry.grub2_boot_info {
-                        // GRUB2/ISOLINUX uses extended 56-byte format with reserved bytes
-                        let table = Grub2BootInfoTable {
-                            pvd_lba: U32::new(16),
-                            file_lba: U32::new(dir_ref.extent.0 as u32),
-                            file_len: U32::new(dir_ref.size as u32),
-                            checksum: U32::new(checksum),
-                            reserved: [0u8; 40],
-                        };
-                        self.data.write_all(bytemuck::bytes_of(&table)).await?;
-                    } else {
-                        // Standard El-Torito 16-byte format
-                        let table = BootInfoTable {
-                            iso_start: U32::new(16),
-                            file_lba: U32::new(dir_ref.extent.0 as u32),
-                            file_len: U32::new(dir_ref.size as u32),
-                            checksum: U32::new(checksum),
-                        };
-                        self.data.write_all(bytemuck::bytes_of(&table)).await?;
-                    }
-                }
-            }
-
-            if boot.write_boot_catalog {
-                let dir_ref = self
-                    .written_files
-                    .find_file("boot.catalog", self.ops.path_separator)
-                    .ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::NotFound,
-                            "boot.catalog file not found in written files",
-                        )
-                    })?;
-                self.data.seek_sector(dir_ref.extent).await?;
-                if dir_ref.size < catalog.size() {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "boot.catalog file too small",
-                    ));
-                }
-                catalog.write(&mut self.data).await?;
-                self.data.seek_sector(current_sector).await?;
-
-                Some(dir_ref.extent.0 as u32)
-            } else {
-                self.data.seek_sector(current_sector).await?;
-                catalog.write(&mut self.data).await?;
-                self.data.pad_align_sector().await?;
-                Some(current_sector.0 as u32)
-            }
+        if let Some(section) = section {
+            catalog.add_section(section.platform, vec![boot_entry]);
         } else {
-            None
-        };
+            catalog.set_default_entry(boot_entry);
+        }
 
-        let end_position = self
-            .data
-            .stream_position()
+        if entry.boot_info_table || entry.grub2_boot_info {
+            self.write_boot_info_table(entry, &dir_ref).await?;
+        }
+
+        Ok(())
+    }
+
+    fn find_boot_image(&self, path: &str) -> io::Result<DirectoryRef> {
+        self.written_files
+            .find_file(path, self.ops.path_separator)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "boot image file not found"))
+    }
+
+    fn calculate_load_size(&self, entry: &BootEntryOptions, dir_ref: &DirectoryRef) -> u16 {
+        entry.load_size.map(|s| s.get()).unwrap_or_else(|| {
+            if entry.emulation.is_emulated() {
+                1
+            } else {
+                dir_ref.size.div_ceil(512) as u16
+            }
+        })
+    }
+
+    async fn write_boot_catalog(&mut self) -> io::Result<Option<u32>> {
+        let Some(boot) = self.ops.features.el_torito.clone() else { return Ok(None) };
+
+        let mut catalog = BootCatalog::default();
+        let current_sector = self.data.pad_align_sector().await?;
+
+        for (section, entry) in boot.sections() {
+            self.write_boot_section(&mut catalog, section.as_ref(), &entry).await?;
+        }
+
+        self.write_catalog_to_disk(&boot, &mut catalog, current_sector).await
+    }
+
+    async fn write_boot_info_table(&mut self, entry: &BootEntryOptions, dir_ref: &DirectoryRef) -> io::Result<()> {
+        if dir_ref.size < 64 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "boot image too small for boot info table (minimum 64 bytes)",
+            ));
+        }
+
+        let checksum = self.calculate_boot_checksum(dir_ref).await?;
+        let byte_offset = (dir_ref.extent.0 as u64) * self.ops.sector_size as u64;
+
+        self.data
+            .seek(SeekFrom::Start(byte_offset + 8))
             .await
             .map_err(io::Error::erase)?;
+
+        if entry.grub2_boot_info {
+            let table = Grub2BootInfoTable::new(
+                dir_ref.extent.0 as u32,
+                dir_ref.size as u32,
+                checksum,
+            );
+            self.data.write_all(bytemuck::bytes_of(&table)).await?;
+        } else {
+            let table = BootInfoTable::new(
+                dir_ref.extent.0 as u32,
+                dir_ref.size as u32,
+                checksum,
+            );
+            self.data.write_all(bytemuck::bytes_of(&table)).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn calculate_boot_checksum(&mut self, dir_ref: &DirectoryRef) -> io::Result<u32> {
+        let mut checksum = 0u32;
+        let mut buffer = [0u8; 4];
+        let byte_offset = (dir_ref.extent.0 as u64) * self.ops.sector_size as u64;
+
+        self.data
+            .seek(SeekFrom::Start(byte_offset + 64))
+            .await
+            .map_err(io::Error::erase)?;
+
+        let checksum_bytes = dir_ref.size - 64;
+        for _ in 0..(checksum_bytes / 4) {
+            self.data.read_exact(&mut buffer).await?;
+            checksum = checksum.wrapping_add(u32::from_le_bytes(buffer));
+        }
+
+        Ok(checksum)
+    }
+
+    async fn write_catalog_to_disk(
+        &mut self,
+        boot: &BootOptions,
+        catalog: &mut BootCatalog,
+        current_sector: LogicalSector,
+    ) -> io::Result<Option<u32>> {
+        if boot.write_boot_catalog {
+            let dir_ref = self.written_files
+                .find_file(Self::BOOT_CATALOG_FILENAME, self.ops.path_separator)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "boot.catalog not found"))?;
+
+            self.data.seek_sector(dir_ref.extent).await?;
+            if dir_ref.size < catalog.size() {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "boot.catalog too small"));
+            }
+            catalog.write(&mut self.data).await?;
+            self.data.seek_sector(current_sector).await?;
+            Ok(Some(dir_ref.extent.0 as u32))
+        } else {
+            self.data.seek_sector(current_sector).await?;
+            catalog.write(&mut self.data).await?;
+            self.data.pad_align_sector().await?;
+            Ok(Some(current_sector.0 as u32))
+        }
+    }
+
+    async fn pad_and_get_end_sector(&mut self) -> io::Result<LogicalSector> {
+        let end_position = self.data.stream_position().await.map_err(io::Error::erase)?;
         let end_sector = self.data.pad_align_sector().await?;
-        let volume_space = self.volume_space_sectors(end_sector);
         let image_len = end_sector.0 as u64 * self.ops.sector_size as u64;
+
         if alignment_requires_materialization(end_position, image_len) {
             self.data
                 .seek(SeekFrom::Start(image_len - 1))
@@ -1066,6 +461,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 .map_err(io::Error::erase)?;
             self.data.write_all(&[0]).await?;
         }
+
+        Ok(end_sector)
+    }
+
+    async fn patch_volume_descriptors(
+        &mut self,
+        root_dirs: &BTreeMap<EntryType, DirectoryRef>,
+        catalog_ptr: Option<u32>,
+        volume_space: u32,
+    ) -> io::Result<()> {
         self.data.seek_sector(Self::VOLUME_DESCRIPTOR_SET_START).await?;
 
         let mut buffer = vec![0u8; self.ops.sector_size];
@@ -1073,9 +478,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             self.data.read_exact(&mut buffer).await?;
             let header = VolumeDescriptorHeader::from_bytes(&buffer[0..7]);
             let ty = VolumeDescriptorType::from_u8(header.descriptor_type);
-            if let VolumeDescriptorType::VolumeSetTerminator = ty {
+
+            if matches!(ty, VolumeDescriptorType::VolumeSetTerminator) {
                 break;
             }
+
             if !header.is_valid() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -1083,117 +490,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 ));
             }
 
-            match ty {
-                VolumeDescriptorType::PrimaryVolumeDescriptor => {
-                    let base_type = self
-                        .entry_types
-                        .iter()
-                        .find(|e| matches!(e, EntryType::Level1 { .. } | EntryType::Level2 { .. }))
-                        .ok_or_else(|| {
-                            io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "no base Level entry type found for PVD",
-                            )
-                        })?;
-                    let root_dir = root_dirs.get(base_type).ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "root directory not found for PVD entry type",
-                        )
-                    })?;
-                    let pt = self.path_tables.get(base_type).ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "path table not found for PVD entry type",
-                        )
-                    })?;
-                    let pvd = bytemuck::from_bytes_mut::<PrimaryVolumeDescriptor>(&mut buffer);
-                    pvd.dir_record.header.extent.write(root_dir.extent.0 as u32);
-                    pvd.dir_record.header.data_len.write(root_dir.size as u32);
-                    pvd.type_l_path_table.set(pt.lpt.0 as u32);
-                    pvd.type_m_path_table.set(pt.mpt.0 as u32);
-                    pvd.path_table_size.write(pt.size as u32);
-                    pvd.volume_space_size.write(volume_space);
-                }
-                VolumeDescriptorType::SupplementaryVolumeDescriptor => {
-                    let svd =
-                        bytemuck::from_bytes_mut::<SupplementaryVolumeDescriptor>(&mut buffer);
-                    match svd.header.version {
-                        1 => {
-                            for &level in JolietLevel::all() {
-                                if svd.escape_sequences == level.escape_sequence() {
-                                    let Some(joliet) = self
-                                        .entry_types
-                                        .iter()
-                                        .find(
-                                            |e| matches!(e, EntryType::Joliet{ level: jl, ..} if *jl == level),
-                                        )
-                                    else {
-                                        continue;
-                                    };
-                                    let Some(root_dir) = root_dirs.get(joliet) else {
-                                        continue;
-                                    };
-                                    let Some(pt) = self.path_tables.get(joliet) else {
-                                        continue;
-                                    };
+            self.patch_single_descriptor(&mut buffer, ty, root_dirs, catalog_ptr, volume_space)?;
 
-                                    svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
-                                    svd.dir_record.header.data_len.write(root_dir.size as u32);
-                                    svd.type_l_path_table.set(pt.lpt.0 as u32);
-                                    svd.type_m_path_table.set(pt.mpt.0 as u32);
-                                    svd.path_table_size.write(pt.size as u32);
-                                    svd.volume_space_size.write(volume_space);
-                                }
-                            }
-                        }
-                        2 => {
-                            if svd.escape_sequences != [b' '; 32] {
-                                // We don't recognize this EVD
-                                continue;
-                            }
-
-                            let Some(l3) = self
-                                .entry_types
-                                .iter()
-                                .find(|e| matches!(e, EntryType::Level3 { .. }))
-                            else {
-                                continue;
-                            };
-                            let Some(root_dir) = root_dirs.get(l3) else {
-                                continue;
-                            };
-                            let Some(pt) = self.path_tables.get(l3) else {
-                                continue;
-                            };
-                            svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
-                            svd.dir_record.header.data_len.write(root_dir.size as u32);
-                            svd.type_l_path_table.set(pt.lpt.0 as u32);
-                            svd.type_m_path_table.set(pt.mpt.0 as u32);
-                            svd.path_table_size.write(pt.size as u32);
-                            svd.volume_space_size.write(volume_space);
-                        }
-
-                        // Unknown version
-                        _ => {}
-                    }
-                }
-                VolumeDescriptorType::BootRecord => {
-                    let Some(catalog_ptr) = catalog_ptr else {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "boot record found but no boot catalog was written",
-                        ));
-                    };
-                    let boot_record =
-                        bytemuck::from_bytes_mut::<BootRecordVolumeDescriptor>(&mut buffer);
-                    boot_record.catalog_ptr.set(catalog_ptr);
-                }
-                // We don't do anything
-                _ => continue,
-            }
-
-            // Write the new data
             self.data
                 .seek_relative(-(buffer.len() as i64))
                 .await
@@ -1201,247 +499,460 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             self.data.write_all(&buffer).await?;
         }
 
-        // Now we finalize the partition tables based on hybrid boot options
-        self.write_partition_tables(end_sector).await?;
+        Ok(())
+    }
+
+    fn patch_single_descriptor(
+        &self,
+        buffer: &mut [u8],
+        ty: VolumeDescriptorType,
+        root_dirs: &BTreeMap<EntryType, DirectoryRef>,
+        catalog_ptr: Option<u32>,
+        volume_space: u32,
+    ) -> io::Result<()> {
+        match ty {
+            VolumeDescriptorType::PrimaryVolumeDescriptor => {
+                self.patch_primary_descriptor(buffer, root_dirs, volume_space)
+            }
+            VolumeDescriptorType::SupplementaryVolumeDescriptor => {
+                self.patch_supplementary_descriptor(buffer, root_dirs, volume_space)
+            }
+            VolumeDescriptorType::BootRecord => {
+                self.patch_boot_record(buffer, catalog_ptr)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn patch_primary_descriptor(
+        &self,
+        buffer: &mut [u8],
+        root_dirs: &BTreeMap<EntryType, DirectoryRef>,
+        volume_space: u32,
+    ) -> io::Result<()> {
+        let base_type = self
+            .entry_types
+            .iter()
+            .find(|e| matches!(e, EntryType::Level1 { .. } | EntryType::Level2 { .. }))
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "no base Level entry type found for PVD")
+            })?;
+
+        let root_dir = root_dirs.get(base_type)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "root directory not found for PVD"))?;
+        let pt = self.path_tables.get(base_type)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "path table not found for PVD"))?;
+
+        let pvd = bytemuck::from_bytes_mut::<PrimaryVolumeDescriptor>(buffer);
+        pvd.dir_record.header.extent.write(root_dir.extent.0 as u32);
+        pvd.dir_record.header.data_len.write(root_dir.size as u32);
+        pvd.type_l_path_table.set(pt.lpt.0 as u32);
+        pvd.type_m_path_table.set(pt.mpt.0 as u32);
+        pvd.path_table_size.write(pt.size as u32);
+        pvd.volume_space_size.write(volume_space);
 
         Ok(())
     }
 
-    async fn write_files(&mut self, files: &InputTree) -> io::Result<BTreeMap<EntryType, DirectoryRef>> {
-        let mut next_directory_id = 1usize;
-        {
-            let walker = FileTreeWalker::new(files);
-            let mut current_dir = self.written_files.root_dir();
-            for file in walker {
-                match file {
-                    TreeWalkerItem::EnterDirectory(dir) => {
-                        let name = dir.name();
-                        let metadata = dir.metadata;
-                        let written_dir = self.written_files.get_mut(&current_dir);
-                        let index = written_dir.push_dir(name, metadata);
-                        written_dir.dirs[index].id = next_directory_id;
-                        next_directory_id += 1;
-                        current_dir.push(index);
-                    }
-                    TreeWalkerItem::ExitDirectory(_dir) => {
-                        current_dir.pop();
-                    }
-                    TreeWalkerItem::File(file) => {
-                        // Extents are assigned in the planning pass below.
-                        // Empty files keep extent 0 (per ISO 9660 they have no
-                        // data to reference).
-                        let dir = self.written_files.get_mut(&current_dir);
-                        dir.files.push(WrittenFile {
-                            name: file.name.clone(),
-                            entry: DirectoryRef {
-                                extent: LogicalSector(0),
-                                size: 0,
-                            },
-                            kind: file.kind.clone(),
-                            metadata: file.metadata,
-                        });
-                    }
-                };
+    fn patch_supplementary_descriptor(
+        &self,
+        buffer: &mut [u8],
+        root_dirs: &BTreeMap<EntryType, DirectoryRef>,
+        volume_space: u32,
+    ) -> io::Result<()> {
+        let svd = bytemuck::from_bytes_mut::<SupplementaryVolumeDescriptor>(buffer);
+
+        match svd.header.version {
+            1 => self.patch_joliet_descriptor(svd, root_dirs, volume_space),
+            2 => self.patch_enhanced_descriptor(svd, root_dirs, volume_space),
+            _ => Ok(()),
+        }
+    }
+
+    fn patch_joliet_descriptor(
+        &self,
+        svd: &mut SupplementaryVolumeDescriptor,
+        root_dirs: &BTreeMap<EntryType, DirectoryRef>,
+        volume_space: u32,
+    ) -> io::Result<()> {
+        for &level in JolietLevel::all() {
+            if svd.escape_sequences != level.escape_sequence() {
+                continue;
             }
+
+            let joliet = self
+                .entry_types
+                .iter()
+                .find(|e| matches!(e, EntryType::Joliet{ level: jl, ..} if *jl == level))
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Joliet entry type not found"))?;
+
+            let root_dir = root_dirs.get(joliet)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "root dir not found for Joliet"))?;
+            let pt = self.path_tables.get(joliet)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "path table not found for Joliet"))?;
+
+            svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
+            svd.dir_record.header.data_len.write(root_dir.size as u32);
+            svd.type_l_path_table.set(pt.lpt.0 as u32);
+            svd.type_m_path_table.set(pt.mpt.0 as u32);
+            svd.path_table_size.write(pt.size as u32);
+            svd.volume_space_size.write(volume_space);
+            break;
         }
 
-        if self
-            .ops
-            .features
-            .rock_ridge
-            .is_some_and(|options| options.enabled && options.relocate_deep_dirs)
-        {
+        Ok(())
+    }
+
+    fn patch_enhanced_descriptor(
+        &self,
+        svd: &mut SupplementaryVolumeDescriptor,
+        root_dirs: &BTreeMap<EntryType, DirectoryRef>,
+        volume_space: u32,
+    ) -> io::Result<()> {
+        if svd.escape_sequences != [b' '; 32] {
+            return Ok(());
+        }
+
+        let l3 = self
+            .entry_types
+            .iter()
+            .find(|e| matches!(e, EntryType::Level3 { .. }))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Level3 entry type not found"))?;
+
+        let root_dir = root_dirs.get(l3)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "root dir not found for Level3"))?;
+        let pt = self.path_tables.get(l3)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "path table not found for Level3"))?;
+
+        svd.dir_record.header.extent.write(root_dir.extent.0 as u32);
+        svd.dir_record.header.data_len.write(root_dir.size as u32);
+        svd.type_l_path_table.set(pt.lpt.0 as u32);
+        svd.type_m_path_table.set(pt.mpt.0 as u32);
+        svd.path_table_size.write(pt.size as u32);
+        svd.volume_space_size.write(volume_space);
+
+        Ok(())
+    }
+
+    fn patch_boot_record(&self, buffer: &mut [u8], catalog_ptr: Option<u32>) -> io::Result<()> {
+        let Some(ptr) = catalog_ptr else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "boot record found but no boot catalog was written",
+            ));
+        };
+
+        let boot_record = bytemuck::from_bytes_mut::<BootRecordVolumeDescriptor>(buffer);
+        boot_record.catalog_ptr.set(ptr);
+        Ok(())
+    }
+
+    async fn write_files(&mut self, files: &InputTree) -> io::Result<BTreeMap<EntryType, DirectoryRef>> {
+        let walker = FileTreeWalker::new(files);
+        walker.walk(&mut self.written_files);
+
+        if self.ops.has_rock_ridge_deep_dirs() {
             relocate_deep_directories(&mut self.written_files);
         }
 
-        // Pre-order: parents before children. libarchive (bsdtar) scans
-        // directories as a stream and ignores a directory whose extent is
-        // lower than its current position, so extents must ascend from
-        // parents to children.
-        fn collect_preorder(
-            files: &WrittenFiles,
-            id: &writer::DirectoryId,
-            output: &mut Vec<writer::DirectoryId>,
-        ) {
-            output.push(id.clone());
-            let dir = files.get(id);
-            for (index, child) in dir.dirs.iter().enumerate() {
-                if matches!(child.relocation, DirectoryRelocation::Placeholder { .. }) {
-                    continue;
-                }
-                let mut child_id = id.clone();
-                child_id.push(index);
-                collect_preorder(files, &child_id, output);
-            }
-        }
-
         let root_id = self.written_files.root_dir();
-        let mut order = Vec::new();
-        collect_preorder(&self.written_files, &root_id, &mut order);
+        let (order, file_order) = collect_preorder(&self.written_files, &root_id);
 
-        let mut file_order = Vec::new();
-        for directory_id in &order {
-            let dir = self.written_files.get(directory_id);
-            for (index, file) in dir.files.iter().enumerate() {
-                if matches!(&file.kind, InputEntryKind::File(contents) if !contents.is_empty()) {
-                    file_order.push((directory_id.clone(), index));
-                }
-            }
-        }
-
-        let sector_size = self.ops.sector_size as u64;
         let rrip_options = self.ops.features.rock_ridge;
         let rrip_time = self.rrip_time;
         let entry_types = self.entry_types.clone();
-        let mut inode_counter = self.inode_counter;
 
-        // ── Planning pass ──
-        //
-        // Build every directory's records once to measure its size, then
-        // assign directory extents in pre-order and file data extents after
-        // the whole directory region. Record sizes never depend on extent
-        // *values*, so the write pass below reproduces this layout exactly.
-        // libarchive requires continuation areas to precede the data extents
-        // of regular files carrying CE entries, which file-data-last gives.
-        let mut cursor = self
-            .data
-            .stream_position()
-            .await
-            .map_err(io::Error::erase)?;
-        let mut relocation_refs: BTreeMap<(usize, EntryType), DirectoryRef> = BTreeMap::new();
-        // Default refs tolerate forward references (unassigned child extents,
-        // relocation targets) while sizing; the write pass rebuilds the
-        // records with the real values.
-        let mut default_refs: BTreeMap<(usize, EntryType), DirectoryRef> = BTreeMap::new();
-        for directory_id in &order {
+        let relocation_refs = self.plan_layout(
+            &order, &file_order, &entry_types,
+            rrip_options, &rrip_time, &root_id,
+        ).await?;
+
+        self.write_layout(
+            &order, &file_order, &entry_types,
+            rrip_options, &rrip_time, &relocation_refs, &root_id,
+        ).await?;
+
+        self.patch_moved_directories(&root_id, &relocation_refs).await?;
+
+        let roots = self.written_files.root_refs().clone();
+        let pos = self.data.stream_position().await.map_err(io::Error::erase)?;
+        for root in roots.values().cloned() {
+            self.update_directory(root, root).await?;
+        }
+        self.data.seek(SeekFrom::Start(pos)).await.map_err(io::Error::erase)?;
+
+        Ok(roots)
+    }
+
+    async fn plan_layout(
+        &mut self,
+        order: &[DirectoryId],
+        file_order: &[FileOrder],
+        entry_types: &[EntryType],
+        rrip_options: Option<RripOptions>,
+        rrip_time: &RripTime,
+        root_id: &DirectoryId,
+    ) -> io::Result<RelocationMap> {
+        let sector_size = self.ops.sector_size as u64;
+        let cursor = self.data.stream_position().await.map_err(io::Error::erase)?;
+        let inode_counter = self.inode_counter;
+
+        let default_refs = self.build_default_refs(order, entry_types);
+        let (relocation_refs, cursor, inode_counter) = self.plan_directories(
+            order,
+            entry_types,
+            &default_refs,
+            rrip_options,
+            rrip_time,
+            root_id,
+            cursor,
+            inode_counter,
+        ).await?;
+
+        let _ = self.plan_files(file_order, cursor, sector_size).await?;
+
+        self.inode_counter = inode_counter;
+        Ok(relocation_refs)
+    }
+
+    fn build_default_refs(
+        &mut self,
+        order: &[DirectoryId],
+        entry_types: &[EntryType],
+    ) -> RelocationMap {
+        let mut default_refs = BTreeMap::new();
+        for directory_id in order {
             let dir = self.written_files.get(directory_id);
-            for ty in &entry_types {
+            for ty in entry_types {
                 default_refs.insert((dir.id, *ty), DirectoryRef::default());
                 if let DirectoryRelocation::Moved { id, .. } = dir.relocation {
                     default_refs.insert((id, *ty), DirectoryRef::default());
                 }
             }
             let dir = self.written_files.get_mut(directory_id);
-            for ty in &entry_types {
+            for ty in entry_types {
                 dir.entries.entry(*ty).or_default();
             }
         }
-        for directory_id in &order {
-            let is_root = directory_id == &root_id;
-            for ty in &entry_types {
+        default_refs
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn plan_directories(
+        &mut self,
+        order: &[DirectoryId],
+        entry_types: &[EntryType],
+        default_refs: &RelocationMap,
+        rrip_options: Option<RripOptions>,
+        rrip_time: &RripTime,
+        root_id: &DirectoryId,
+        mut cursor: u64,
+        mut inode_counter: u32,
+    ) -> io::Result<(RelocationMap, u64, u32)> {
+        let sector_size = self.ops.sector_size as u64;
+        let mut relocation_refs = BTreeMap::new();
+
+        for directory_id in order {
+            let is_root = directory_id == root_id;
+            for ty in entry_types {
                 let dir = self.written_files.get(directory_id);
-                let records = Self::build_directory_records(
+                let records = PendingRecords::new(
                     *ty,
                     dir,
                     is_root,
                     &mut inode_counter,
                     rrip_options.as_ref(),
-                    &rrip_time,
-                    &default_refs,
+                    rrip_time,
+                    default_refs,
                 )?;
-                let (extent, size_sectors) =
-                    Self::layout_directory_records(cursor, sector_size, &records);
-                let ca_len = records
-                    .iter()
-                    .filter(|r| r.split.has_overflow())
-                    .map(|r| r.split.overflow.len() as u64)
-                    .sum::<u64>();
-                let reference = DirectoryRef {
-                    extent: LogicalSector(extent as usize),
-                    size: (size_sectors * sector_size) as usize,
-                };
+
+                let (extent, size_sectors) = layout_directory_records(cursor, sector_size, &records);
+                let ca_len = records.overflow_len();
+                let reference = DirectoryRef::new(extent as _, (size_sectors * sector_size) as usize);
+
                 let dir = self.written_files.get_mut(directory_id);
                 dir.entries.insert(*ty, reference);
                 relocation_refs.insert((dir.id, *ty), reference);
+
                 if let DirectoryRelocation::Moved { id, .. } = dir.relocation {
                     relocation_refs.insert((id, *ty), reference);
                 }
+
                 cursor = (extent + size_sectors) * sector_size + ca_len;
             }
         }
-        for (directory_id, index) in &file_order {
-            let aligned = (cursor + sector_size - 1) & !(sector_size - 1);
+
+        Ok((relocation_refs, cursor, inode_counter))
+    }
+
+    async fn plan_files(
+        &mut self,
+        file_order: &[FileOrder],
+        mut cursor: u64,
+        sector_size: u64,
+    ) -> io::Result<u64> {
+
+        for (directory_id, index) in file_order {
             let dir = self.written_files.get_mut(directory_id);
             let file = &mut dir.files[*index];
-            let len = match &file.kind {
-                InputEntryKind::File(contents) => contents.len() as u64,
-                _ => 0,
-            };
-            file.entry = DirectoryRef {
-                extent: LogicalSector((aligned / sector_size) as usize),
-                size: len as usize,
-            };
-            cursor = aligned + len;
+
+            let len = file.kind.file_len().unwrap_or(0);
+
+            if len == 0 {
+                file.entry = DirectoryRef::default();
+                file.additional_extents.clear();
+                continue;
+            }
+
+            let extents_iter = ExtentIter::new(len, cursor, sector_size);
+            let (mut extents_vec, new_cursor) = extents_iter.collect_with_cursor();
+
+            if !extents_vec.is_empty() {
+                let first = extents_vec.remove(0);
+                file.entry = first;
+                file.additional_extents = extents_vec;
+            }
+
+            cursor = new_cursor;
         }
 
-        // ── Write pass ──
-        //
-        // Rebuild the records now that every extent is known and write
-        // directories in pre-order, each followed by its continuation area,
-        // then all file contents.
-        for directory_id in &order {
-            let is_root = directory_id == &root_id;
-            for ty in &entry_types {
+        Ok(cursor)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn write_layout(
+        &mut self,
+        order: &[DirectoryId],
+        file_order: &[FileOrder],
+        entry_types: &[EntryType],
+        rrip_options: Option<RripOptions>,
+        rrip_time: &[u8; 7],
+        relocation_refs: &RelocationMap,
+        root_id: &DirectoryId,
+    ) -> io::Result<()> {
+        let sector_size = self.ops.sector_size as u64;
+        let mut inode_counter = self.inode_counter;
+
+        self.write_directories(
+            order,
+            entry_types,
+            rrip_options,
+            rrip_time,
+            relocation_refs,
+            root_id,
+            sector_size,
+            &mut inode_counter,
+        ).await?;
+
+        self.inode_counter = inode_counter;
+        self.write_file_data(file_order).await?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn write_directories(
+        &mut self,
+        order: &[DirectoryId],
+        entry_types: &[EntryType],
+        rrip_options: Option<RripOptions>,
+        rrip_time: &RripTime,
+        relocation_refs: &RelocationMap,
+        root_id: &DirectoryId,
+        sector_size: u64,
+        inode_counter: &mut u32,
+    ) -> io::Result<()> {
+        for directory_id in order {
+            let is_root = directory_id == root_id;
+            for ty in entry_types {
                 let dir = self.written_files.get(directory_id);
                 let expected = dir.entries.get(ty).copied().unwrap_or_default();
-                let mut records = Self::build_directory_records(
+                let mut records = PendingRecords::new(
                     *ty,
                     dir,
                     is_root,
-                    &mut inode_counter,
+                    inode_counter,
                     rrip_options.as_ref(),
-                    &rrip_time,
-                    &relocation_refs,
+                    rrip_time,
+                    relocation_refs,
                 )?;
-                Self::write_directory_records(&mut self.data, sector_size, expected, &mut records)
-                    .await?;
+                Self::write_directory_records(&mut self.data, sector_size, expected, &mut records).await?;
             }
         }
-        self.inode_counter = inode_counter;
+        Ok(())
+    }
 
-        for (directory_id, index) in &file_order {
-            let expected = {
-                let dir = self.written_files.get(directory_id);
-                dir.files[*index].entry
-            };
-            let start = self.data.pad_align_sector().await?;
-            if start != expected.extent {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "file extent prediction did not match the written layout",
-                ));
-            }
+    async fn write_file_data(
+        &mut self,
+        file_order: &[FileOrder],
+    ) -> io::Result<()> {
+
+        for (directory_id, index) in file_order {
             let dir = self.written_files.get(directory_id);
-            if let InputEntryKind::File(contents) = &dir.files[*index].kind {
-                self.data.write_all(contents).await?;
+            let file = &dir.files[*index];
+
+            let mut offset = 0_u64;
+            for extent in file.extents() {
+                let start = self.data.pad_align_sector().await?;
+
+                if start != extent.extent {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "extent prediction did not match",
+                    ));
+                }
+
+                #[cfg(test)]
+                if matches!(file.kind, InputEntryKind::TestFile { .. }) {
+                    if extent.size > 0 {
+                        self.data
+                            .seek(SeekFrom::Current(extent.size as i64 - 1))
+                            .await
+                            .map_err(io::Error::erase)?;
+                        self.data.write_all(&[0]).await?;
+                    }
+                    offset += extent.size as u64;
+                    continue;
+                }
+
+                if let InputEntryKind::File(contents) = &file.kind {
+                    let chunk_end = (offset + extent.size as u64).min(contents.len() as u64);
+                    let range = usize::try_from(offset)
+                        .ok()
+                        .zip(usize::try_from(chunk_end).ok())
+                        .map(|(start, end)| start..end)
+                        .ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "file content range does not fit in memory",
+                            )
+                        })?;
+                    self.data.write_all(&contents[range]).await?;
+                    offset += extent.size as u64;
+                }
             }
         }
 
-        fn collect_moved(
-            directory: &WrittenDirectory,
-            output: &mut Vec<(usize, usize, BTreeMap<EntryType, DirectoryRef>)>,
-        ) {
-            if let DirectoryRelocation::Moved { id, logical_parent } = directory.relocation {
-                output.push((id, logical_parent, directory.entries.clone()));
-            }
-            for child in &directory.dirs {
-                collect_moved(child, output);
-            }
-        }
-        let mut moved = Vec::new();
-        collect_moved(self.written_files.get(&root_id), &mut moved);
-        let directory_end = self
-            .data
-            .stream_position()
-            .await
-            .map_err(io::Error::erase)?;
-        for (_id, logical_parent, entries) in moved {
-            for (ty, directory) in entries {
+        Ok(())
+    }
+
+    async fn patch_moved_directories(
+        &mut self,
+        root_id: &DirectoryId,
+        relocation_refs: &RelocationMap,
+    ) -> io::Result<()> {
+        let moved = MovedDirectory::collect(self.written_files.get(root_id));
+        let directory_end = self.data.stream_position().await.map_err(io::Error::erase)?;
+
+        for moved_dir in moved.iter() {
+            for (ty, directory) in moved_dir.entries.iter() {
+
                 if !ty.supports_rrip() {
                     continue;
                 }
+
                 let parent = relocation_refs
-                    .get(&(logical_parent, ty))
+                    .get(&(moved_dir.logical_parent, *ty))
                     .copied()
                     .ok_or_else(|| {
                         io::Error::new(
@@ -1449,30 +960,15 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                             "logical parent extent was not written",
                         )
                     })?;
-                self.patch_parent_link(directory, parent).await?;
+                self.patch_parent_link(*directory, parent).await?;
             }
         }
+
         self.data
             .seek(SeekFrom::Start(directory_end))
             .await
             .map_err(io::Error::erase)?;
-        let roots = self.written_files.root_refs().clone();
-
-        let pos = self
-            .data
-            .stream_position()
-            .await
-            .map_err(io::Error::erase)?;
-        for root in roots.values() {
-            self.update_directory(*root, *root).await?;
-        }
-        // We need to seek back to this position
-        self.data
-            .seek(SeekFrom::Start(pos))
-            .await
-            .map_err(io::Error::erase)?;
-
-        Ok(roots)
+        Ok(())
     }
 
     async fn write_path_tables(&mut self) -> io::Result<()> {
@@ -1525,13 +1021,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     /// sectors preserve the backup GPT, matching xorriso's appended-GPT
     /// practice.
     async fn write_partition_tables(&mut self, end_sector: LogicalSector) -> io::Result<()> {
-        match self
-            .ops
-            .features
-            .hybrid_boot
-            .as_ref()
-            .map(|h| h.partition_scheme)
-        {
+        match self.ops.partition_scheme() {
             None | Some(PartitionScheme::None) => {
                 // No partition table requested - leave the system area empty.
                 // Writing an MBR here would cause the kernel to detect a
@@ -1560,16 +1050,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         let mut mbr = MasterBootRecord::default();
         mbr.with_partition_table(|pt| {
-            // Create a partition covering the entire ISO
-            // Type 0x17 is ISO9660/Hidden NTFS which is commonly used for hybrid ISOs
-            pt[0] = MbrPartition {
-                boot_indicator: if bootable { 0x80 } else { 0x00 },
-                start_chs: Chs::new(0),
-                part_type: MbrPartitionType::Iso9660.to_u8(),
-                end_chs: Chs::new(end_block.saturating_sub(1)),
-                start_lba: Le::<u32>::from_ne(0),
-                sector_count: Le::<u32>::from_ne(end_block),
-            };
+            pt[0] = MbrPartition::new_iso_partition(end_block, bootable);
         });
 
         // Inject bootstrap code if provided
@@ -1666,16 +1147,13 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let total_512 = self.gpt_total_512(end_sector);
 
         let mut gpt = GptDisk::new(total_512, 512);
-        let disk_guid =
-            Self::generate_guid_from_string(&alloc::format!("disk-{}", self.ops.volume_name));
+        let disk_guid = generate_guid_from_string(&alloc::format!("disk-{}", self.ops.volume_name));
         gpt.primary_header.disk_guid = disk_guid;
         gpt.backup_header.disk_guid = disk_guid;
 
-        const ISO_DATA_START_512: u64 = 64;
-
-        let first_usable = gpt.primary_header.first_usable_lba.to_ne();
-        let iso_part_start = first_usable.max(ISO_DATA_START_512);
+        let iso_part_start = self.get_iso_partition_start(&gpt)?;
         let iso_end = iso_512.saturating_sub(1);
+
         if iso_end <= iso_part_start {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -1683,87 +1161,109 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             ));
         }
 
-        let map_part_err = |_| io::Error::new(io::ErrorKind::InvalidData, "invalid GPT layout");
+        let esp = self.find_esp_partition(blocks_per_sector, iso_part_start, iso_end)?;
+        let (iso_index, esp_index) = self.add_gpt_partitions(&mut gpt, esp, iso_part_start, iso_end)?;
 
-        let esp = match self.efi_boot_partition_path() {
-            Some(path) => {
-                let dir_ref = self
-                    .written_files
-                    .find_file(&path, self.ops.path_separator)
-                    .ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::NotFound,
-                            "EFI boot partition image not found in the ISO tree",
-                        )
-                    })?;
-                let start = dir_ref.extent.0 as u64 * blocks_per_sector;
-                let sectors = (dir_ref.size as u64).div_ceil(512).max(1);
-                let end = start + sectors - 1;
-                if start < iso_part_start || end > iso_end {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "EFI boot partition lies outside the ISO data area",
-                    ));
-                }
-                Some((start, end))
-            }
-            None => None,
-        };
+        gpt.update_crcs();
+        gpt.validate().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid GPT layout"))?;
+        Ok((gpt, iso_index, esp_index))
+    }
 
+    fn get_iso_partition_start(&self, gpt: &GptDisk) -> io::Result<u64> {
+        const ISO_DATA_START_512: u64 = 64;
+        let first_usable = gpt.primary_header.first_usable_lba.to_ne();
+        Ok(first_usable.max(ISO_DATA_START_512))
+    }
+
+    fn find_esp_partition(
+        &self,
+        blocks_per_sector: u64,
+        iso_part_start: u64,
+        iso_end: u64,
+    ) -> io::Result<Option<(u64, u64)>> {
+        let Some(path) = self.efi_boot_partition_path() else { return Ok(None) };
+
+        let dir_ref = self
+            .written_files
+            .find_file(&path, self.ops.path_separator)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "EFI boot partition image not found in the ISO tree",
+                )
+            })?;
+
+        let start = dir_ref.extent.0 as u64 * blocks_per_sector;
+        let sectors = (dir_ref.size as u64).div_ceil(512).max(1);
+        let end = start + sectors - 1;
+
+        if start < iso_part_start || end > iso_end {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "EFI boot partition lies outside the ISO data area",
+            ));
+        }
+
+        Ok(Some((start, end)))
+    }
+
+    fn add_gpt_partitions(
+        &self,
+        gpt: &mut GptDisk,
+        esp: Option<(u64, u64)>,
+        iso_part_start: u64,
+        iso_end: u64,
+    ) -> io::Result<(Option<usize>, Option<usize>)> {
+        let map_err = |_| io::Error::new(io::ErrorKind::InvalidData, "invalid GPT layout");
         let mut iso_index = None;
         let mut esp_index = None;
+
         match esp {
             Some((esp_start, esp_end)) => {
                 if esp_start > iso_part_start {
                     let mut data = GptPartitionEntry::new(
                         Guid::BASIC_DATA,
-                        Self::generate_guid_from_string(&self.ops.volume_name),
+                        generate_guid_from_string(&self.ops.volume_name),
                         iso_part_start,
                         esp_start - 1,
                     );
-                    data.set_name_ascii(b"ISO9660");
-                    iso_index = Some(gpt.add_partition(data).map_err(map_part_err)?);
+                    data.set_name_ascii(Self::GPT_PARTITION_NAME_ISO);
+                    iso_index = Some(gpt.add_partition(data).map_err(map_err)?);
                 }
+
                 let mut esp_entry = GptPartitionEntry::new(
                     Guid::EFI_SYSTEM,
-                    Self::generate_guid_from_string(&alloc::format!(
-                        "esp-{}",
-                        self.ops.volume_name
-                    )),
+                    generate_guid_from_string(&alloc::format!("esp-{}", self.ops.volume_name)),
                     esp_start,
                     esp_end,
                 );
-                esp_entry.set_name_ascii(b"EFI System Partition");
-                esp_index = Some(gpt.add_partition(esp_entry).map_err(map_part_err)?);
+                esp_entry.set_name_ascii(Self::GPT_PARTITION_NAME_ESP);
+                esp_index = Some(gpt.add_partition(esp_entry).map_err(map_err)?);
+
                 if esp_end < iso_end {
                     let mut tail = GptPartitionEntry::new(
                         Guid::BASIC_DATA,
-                        Self::generate_guid_from_string(&alloc::format!(
-                            "data-{}",
-                            self.ops.volume_name
-                        )),
+                        generate_guid_from_string(&alloc::format!("data-{}", self.ops.volume_name)),
                         esp_end + 1,
                         iso_end,
                     );
-                    tail.set_name_ascii(b"ISO9660");
-                    gpt.add_partition(tail).map_err(map_part_err)?;
+                    tail.set_name_ascii(Self::GPT_PARTITION_NAME_ISO);
+                    gpt.add_partition(tail).map_err(map_err)?;
                 }
             }
             None => {
                 let mut data = GptPartitionEntry::new(
                     Guid::BASIC_DATA,
-                    Self::generate_guid_from_string(&self.ops.volume_name),
+                    generate_guid_from_string(&self.ops.volume_name),
                     iso_part_start,
                     iso_end,
                 );
                 data.set_name_ascii(b"ISO9660");
-                iso_index = Some(gpt.add_partition(data).map_err(map_part_err)?);
+                iso_index = Some(gpt.add_partition(data).map_err(map_err)?);
             }
         }
 
-        gpt.update_crcs();
-        gpt.validate().map_err(map_part_err)?;
-        Ok((gpt, iso_index, esp_index))
+        Ok((iso_index, esp_index))
     }
 
     /// Writes a GPT partition table (protective MBR, primary and backup GPT)
@@ -1816,30 +1316,6 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
-    /// Generates a deterministic GUID from a string (simple hash-based).
-    fn generate_guid_from_string(s: &str) -> Guid {
-        // Simple FNV-1a hash to generate a deterministic GUID
-        let mut hash1: u64 = 0xcbf29ce484222325;
-        let mut hash2: u64 = 0x100000001b3;
-
-        for byte in s.bytes() {
-            hash1 ^= byte as u64;
-            hash1 = hash1.wrapping_mul(0x100000001b3);
-            hash2 ^= byte as u64;
-            hash2 = hash2.wrapping_mul(0xcbf29ce484222325);
-        }
-
-        let mut bytes = [0u8; 16];
-        bytes[0..8].copy_from_slice(&hash1.to_le_bytes());
-        bytes[8..16].copy_from_slice(&hash2.to_le_bytes());
-
-        // Set version 4 (random) and variant bits
-        bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
-        bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant 1
-
-        Guid::from_bytes(bytes)
-    }
-
     async fn update_directory(
         &mut self,
         parent: DirectoryRef,
@@ -1848,34 +1324,31 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let start = self.data.seek_sector(directory.extent).await?;
         let mut offset = 0;
         loop {
+
             if offset >= directory.size as u64 {
                 break;
             }
+
             self.data
                 .seek(SeekFrom::Start(start + offset))
                 .await
                 .map_err(io::Error::erase)?;
+
             let mut record = DirectoryRecord::parse(&mut self.data).await?;
-            if record.header().len == 0 {
+
+            if record.is_empty() {
                 break;
             }
 
-            if record.name() == b"\x00" || record.name() == b"\x01" {
-                let dir_ref = [directory, parent][record.name()[0] as usize];
-                let header = record.header_mut();
-                header.extent.write(dir_ref.extent.0 as u32);
-                header.data_len.write(dir_ref.size as u32);
-                self.data
-                    .seek(SeekFrom::Start(start + offset))
-                    .await
-                    .map_err(io::Error::erase)?;
-                record.write(&mut self.data).await?;
-                offset += record.header().len as u64;
+            if matches!(record.name(), b"\x00" | b"\x01") {
+                self.patch_dot_or_dotdot(&mut record, directory, parent, start, offset).await?;
+                offset += record.len() as u64;
                 continue;
             }
-            offset += record.header().len as u64;
 
-            if FileFlags::from_bits_truncate(record.header().flags).contains(FileFlags::DIRECTORY) {
+            offset += record.len() as u64;
+
+            if record.flags().contains(FileFlags::DIRECTORY) {
                 let record = DirectoryRef {
                     extent: LogicalSector(record.header().extent.read() as usize),
                     size: record.header().data_len.read() as usize,
@@ -1887,304 +1360,98 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         Ok(())
     }
 
+    async fn patch_dot_or_dotdot(
+        &mut self,
+        record: &mut DirectoryRecord,
+        directory: DirectoryRef,
+        parent: DirectoryRef,
+        start: u64,
+        offset: u64,
+    ) -> io::Result<()> {
+        let dir_ref = [directory, parent][record.name()[0] as usize];
+        let header = record.header_mut();
+        header.extent.write(dir_ref.extent.0 as u32);
+        header.data_len.write(dir_ref.size as u32);
+
+        self.data
+            .seek(SeekFrom::Start(start + offset))
+            .await
+            .map_err(io::Error::erase)?;
+        record.write(&mut self.data).await?;
+        Ok(())
+    }
+
     async fn patch_parent_link(
         &mut self,
         directory: DirectoryRef,
         parent: DirectoryRef,
     ) -> io::Result<()> {
         let start = self.data.seek_sector(directory.extent).await?;
-        self.data
-            .seek(SeekFrom::Start(start))
-            .await
-            .map_err(io::Error::erase)?;
+        let (dot, mut dotdot) = self.read_dot_and_dotdot(start).await?;
+        let header_len = dot.header().len as u64;
+
+        self.find_and_patch_pl_entry(&mut dotdot, parent.extent.0 as u32)?;
+        self.write_dotdot_at(start, header_len, &dotdot).await?;
+
+        Ok(())
+    }
+
+    async fn read_dot_and_dotdot(
+        &mut self,
+        start: u64,
+    ) -> io::Result<(DirectoryRecord, DirectoryRecord)> {
+        self.data.seek(SeekFrom::Start(start)).await.map_err(io::Error::erase)?;
         let dot = DirectoryRecord::parse(&mut self.data).await?;
+
         self.data
             .seek(SeekFrom::Start(start + dot.header().len as u64))
             .await
             .map_err(io::Error::erase)?;
-        let mut dotdot = DirectoryRecord::parse(&mut self.data).await?;
+        let dotdot = DirectoryRecord::parse(&mut self.data).await?;
+
+        Ok((dot, dotdot))
+    }
+
+    /// Finds and patches the RRIP "PL" (Parent Location) entry in the ".." record.
+    ///
+    /// Updates the PL entry to point to the logical parent of a relocated directory.
+    fn find_and_patch_pl_entry(&self, dotdot: &mut DirectoryRecord, parent_extent: u32) -> io::Result<()> {
         let system_use = dotdot.system_use_mut();
         let mut offset = 0;
+
         while offset + 4 <= system_use.len() {
             let length = system_use[offset + 2] as usize;
             if length < 4 || offset + length > system_use.len() {
                 break;
             }
+
             if &system_use[offset..offset + 2] == b"PL" && length >= 12 {
-                let value = crate::types::U32LsbMsb::new(parent.extent.0 as u32);
-                system_use[offset + 4..offset + 12]
-                    .copy_from_slice(bytemuck::bytes_of(&value));
-                self.data
-                    .seek(SeekFrom::Start(start + dot.header().len as u64))
-                    .await
-                    .map_err(io::Error::erase)?;
-                dotdot.write(&mut self.data).await?;
+                let value = crate::types::U32LsbMsb::new(parent_extent);
+                system_use[offset + 4..offset + 12].copy_from_slice(bytemuck::bytes_of(&value));
                 return Ok(());
             }
+
             offset += length;
         }
+
         Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "relocated directory is missing its RRIP PL entry",
         ))
     }
 
-    /// Write a directory using a three-phase approach:
-    ///
-    /// 1. Build all RRIP entries and split each against available inline space
-    /// 2. If any have overflow: write a shared continuation area, patch CE entries
-    /// 3. Write directory records with the inline SU bytes
-    #[allow(clippy::too_many_arguments)]
-    /// Build the pending records for one directory: dot/dotdot, child
-    /// directories, and files, with RRIP system-use areas split against the
-    /// inline budget, names deduplicated, and records ordered by File
-    /// Identifier (ECMA-119 9.3). Sizes never depend on extent values, so
-    /// the planning pass calls this with placeholder refs and the write pass
-    /// rebuilds with the real ones.
-    fn build_directory_records(
-        ty: EntryType,
-        dir: &WrittenDirectory,
-        is_root: bool,
-        inode_counter: &mut u32,
-        rrip_options: Option<&RripOptions>,
-        fallback_time: &[u8; 7],
-        relocation_refs: &BTreeMap<(usize, EntryType), DirectoryRef>,
-    ) -> io::Result<Vec<PendingRecord>> {
-        let rrip_options = rrip_options.filter(|options| options.enabled);
-        let has_rrip = ty.supports_rrip() && rrip_options.is_some();
-        let options = rrip_options.copied().unwrap_or_else(RripOptions::disabled);
-        let directory_nlink = 2 + dir.dirs.len() as u32;
-
-        let mut records: Vec<PendingRecord> = Vec::new();
-
-        // Dot entry (".")
-        let dot_split = if has_rrip {
-            let kind = if is_root {
-                RripEntryKind::RootDot {
-                    metadata: dir.metadata,
-                    nlink: directory_nlink,
-                }
-            } else {
-                RripEntryKind::Dot {
-                    metadata: dir.metadata,
-                    nlink: directory_nlink,
-                }
-            };
-            let max = available_su_space(1); // name is b"\x00"
-            build_rrip_entries(kind, 0, &options, fallback_time).build_split(max)
-        } else {
-            SplitSu::empty()
-        };
-        records.push(PendingRecord {
-            name: vec![0x00],
-            split: dot_split,
-            dir_ref: DirectoryRef::default(),
-            flags: FileFlags::DIRECTORY,
-        });
-
-        // Dotdot entry ("..")
-        let dotdot_split = if has_rrip {
-            let kind = if is_root {
-                RripEntryKind::RootDotDot {
-                    metadata: dir.metadata,
-                    nlink: directory_nlink,
-                }
-            } else {
-                RripEntryKind::DotDot {
-                    metadata: dir.metadata,
-                    nlink: directory_nlink,
-                }
-            };
-            let max = available_su_space(1); // name is b"\x01"
-            let mut builder = build_rrip_entries(kind, 0, &options, fallback_time);
-            if let DirectoryRelocation::Moved { logical_parent, .. } = dir.relocation {
-                let parent = relocation_refs
-                    .get(&(logical_parent, ty))
-                    .copied()
-                    .unwrap_or_default();
-                builder.add_pl(parent.extent.0 as u32);
-            }
-            builder.build_split(max)
-        } else {
-            SplitSu::empty()
-        };
-        records.push(PendingRecord {
-            name: vec![0x01],
-            split: dotdot_split,
-            dir_ref: DirectoryRef::default(),
-            flags: FileFlags::DIRECTORY,
-        });
-
-        // Directory entries
-        for directory in &dir.dirs {
-            let WrittenDirectory {
-                name,
-                rrip_name,
-                entries,
-                metadata,
-                dirs,
-                relocation,
-                ..
-            } = directory;
-            let converted_name = ty.convert_directory_name(name);
-            let split = if has_rrip {
-                let inode = *inode_counter;
-                *inode_counter += 1;
-                let max = available_su_space(converted_name.as_bytes().len());
-                let mut builder = build_rrip_entries(
-                    RripEntryKind::Directory {
-                        original_name: rrip_name,
-                        metadata: *metadata,
-                        nlink: 2 + dirs.len() as u32,
-                    },
-                    inode,
-                    &options,
-                    fallback_time,
-                );
-                match relocation {
-                    DirectoryRelocation::Placeholder { target } => {
-                        let target = relocation_refs.get(&(*target, ty)).ok_or_else(|| {
-                            io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "relocated directory extent was not written",
-                            )
-                        })?;
-                        builder.add_cl(target.extent.0 as u32);
-                    }
-                    DirectoryRelocation::Moved { .. } => {
-                        builder.add_re();
-                    }
-                    DirectoryRelocation::None => {}
-                }
-                builder.build_split(max)
-            } else {
-                SplitSu::empty()
-            };
-            records.push(PendingRecord {
-                name: converted_name.as_bytes().to_vec(),
-                split,
-                dir_ref: match relocation {
-                    DirectoryRelocation::Placeholder { target } => relocation_refs
-                        .get(&(*target, ty))
-                        .copied()
-                        .unwrap_or_default(),
-                    _ => *entries.get(&ty).unwrap(),
-                },
-                flags: FileFlags::DIRECTORY,
-            });
-        }
-
-        // File entries
-        for file in &dir.files {
-            let WrittenFile {
-                name,
-                entry,
-                kind,
-                metadata,
-            } = file;
-            let converted_name = ty.convert_name(name);
-            let split = if has_rrip {
-                let inode = *inode_counter;
-                *inode_counter += 1;
-                let max = available_su_space(converted_name.as_bytes().len());
-                build_rrip_entries(
-                    RripEntryKind::Entry {
-                        original_name: name,
-                        metadata: *metadata,
-                        kind,
-                    },
-                    inode,
-                    &options,
-                    fallback_time,
-                )
-                .build_split(max)
-            } else {
-                SplitSu::empty()
-            };
-            records.push(PendingRecord {
-                name: converted_name.as_bytes().to_vec(),
-                split,
-                dir_ref: *entry,
-                flags: FileFlags::empty(),
-            });
-        }
-
-        // ── Phase 1.5: Deduplicate names ──
-        // Name mangling can map different original names to the same ISO name.
-        // e.g., "readme.txt" and "README.txt" both become "README.TXT;1".
-        // Resolve collisions with underscore-based suffixes.
-        {
-            use std::collections::HashSet;
-            let mut seen: HashSet<Vec<u8>> = HashSet::new();
-            for record in &mut records {
-                // Skip dot/dotdot entries
-                if record.name.len() == 1 && (record.name[0] == 0x00 || record.name[0] == 0x01) {
-                    continue;
-                }
-                if seen.insert(record.name.clone()) {
-                    continue;
-                }
-                let original = record.name.clone();
-                let mut suffix = 1;
-                loop {
-                    let candidate = apply_dedup_suffix(&original, suffix, ty);
-                    suffix += 1;
-                    if seen.insert(candidate.clone()) {
-                        record.name = candidate;
-                        break;
-                    }
-                }
-            }
-        }
-
-        // ── Phase 1.75: Order records by File Identifier (ECMA-119 9.3) ──
-        // Directory records must be written in ascending File Identifier order.
-        // "." and ".." must be the first two records in that order. A plain
-        // byte-wise sort is insufficient for Joliet because every UTF-16BE ASCII
-        // name begins with 0x00 and would therefore sort before the 0x01 ".."
-        // identifier. Sort ordinary entries byte-wise only after ranking the two
-        // special records explicitly.
-        records.sort_by(|a, b| {
-            let rank = |name: &[u8]| match name {
-                [0x00] => 0,
-                [0x01] => 1,
-                _ => 2,
-            };
-            rank(&a.name)
-                .cmp(&rank(&b.name))
-                .then_with(|| a.name.cmp(&b.name))
-        });
-
-        Ok(records)
-    }
-
-    /// Compute the sector span `records` will occupy when written at byte
-    /// position `pos`: returns (start sector, size in sectors). Mirrors the
-    /// write logic in [`Self::write_directory_records`] exactly.
-    fn layout_directory_records(
-        pos: u64,
-        sector_size: u64,
-        records: &[PendingRecord],
-    ) -> (u64, u64) {
-        let align = |pos: u64| (pos + sector_size - 1) & !(sector_size - 1);
-        let start = align(pos);
-        let mut pos = start;
-        for record in records {
-            let record_size = DirectoryRecord::new(
-                &record.name,
-                &record.split.inline,
-                record.dir_ref,
-                record.flags,
-            )
-            .size() as u64;
-            let remaining = sector_size - pos % sector_size;
-            if record_size > remaining {
-                pos += remaining;
-            }
-            pos += record_size;
-        }
-        let end = align(pos);
-        (start / sector_size, (end - start) / sector_size)
+    async fn write_dotdot_at(
+        &mut self,
+        start: u64,
+        header_len: u64,
+        dotdot: &DirectoryRecord,
+    ) -> io::Result<()> {
+        self.data
+            .seek(SeekFrom::Start(start + header_len))
+            .await
+            .map_err(io::Error::erase)?;
+        dotdot.write(&mut self.data).await?;
+        Ok(())
     }
 
     /// Write records at the extent the planning pass assigned, followed by
@@ -2194,9 +1461,9 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         data: &mut IsoCursor<DATA>,
         sector_size: u64,
         expected: DirectoryRef,
-        records: &mut [PendingRecord],
+        records: &mut PendingRecords,
     ) -> io::Result<()> {
-        let has_overflow = records.iter().any(|r| r.split.has_overflow());
+        let has_overflow = records.has_overflow();
         if has_overflow {
             let ca_sector = expected.extent.0 as u64 + expected.size as u64 / sector_size;
             let mut offset = 0u32;
@@ -2209,12 +1476,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         }
 
         let start = data.pad_align_sector().await?;
+
         if start != expected.extent {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "directory extent prediction did not match the written layout",
             ));
         }
+
         for record in records.iter() {
             let directory_record = DirectoryRecord::new(
                 &record.name,
@@ -2231,8 +1500,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             }
             directory_record.write(&mut *data).await?;
         }
+
         let end = data.pad_align_sector().await?;
         let size = (end.0 - start.0) * data.sector_size;
+
         if size != expected.size {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -2247,207 +1518,496 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 }
             }
         }
+
         Ok(())
     }
 }
 } // io_transform!
 
-fn alignment_requires_materialization(current_position: u64, aligned_position: u64) -> bool {
-    aligned_position > current_position
-}
-
-fn part_io_error(err: hadris_part::Error) -> io::Error {
-    match err {
-        hadris_part::Error::Io(err) => err,
-        _ => io::Error::new(
-            io::ErrorKind::InvalidData,
-            "failed to write partition table",
-        ),
-    }
-}
-
-struct FileTreeWalker<'a> {
-    stack: VecDeque<StackFrame<'a>>,
-}
-
-enum StackFrame<'a> {
-    Node(&'a InputEntry),
-    DirExit(&'a InputEntry),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum TreeWalkerItem<'a> {
-    EnterDirectory(&'a InputEntry),
-    File(&'a InputEntry),
-    ExitDirectory(&'a InputEntry),
-}
-
-impl<'a> FileTreeWalker<'a> {
-    pub fn new(input: &'a InputTree) -> Self {
-        let mut stack = VecDeque::new();
-        for file in input.entries.iter().rev() {
-            stack.push_back(StackFrame::Node(file));
-        }
-        FileTreeWalker { stack }
-    }
-}
-
-impl<'a> Iterator for FileTreeWalker<'a> {
-    type Item = TreeWalkerItem<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let frame = self.stack.pop_back()?;
-        match frame {
-            StackFrame::Node(file) => match &file.kind {
-                InputEntryKind::Directory(children) => {
-                    // Yield that we are entering this directory (pre-order event)
-                    let current_dir = file;
-
-                    // Push an Exit frame to signal leaving this directory later
-                    self.stack.push_back(StackFrame::DirExit(current_dir));
-
-                    // Push children in reverse order for DFS
-                    for child in children.iter().rev() {
-                        self.stack.push_back(StackFrame::Node(child));
-                    }
-
-                    Some(TreeWalkerItem::EnterDirectory(current_dir))
-                }
-                _ => Some(TreeWalkerItem::File(file)),
-            },
-            StackFrame::DirExit(dir) => Some(TreeWalkerItem::ExitDirectory(dir)),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*; // Import items from the outer module
-    use alloc::vec;
+    use super::*;
+    use crate::{
+        IsoImage,
+        read::PathSeparator,
+        write::options::{CreationFeatures, HybridBootOptions},
+    };
+    use alloc::{string::ToString, vec};
+    use core::assert_eq;
+    use std::io::Cursor;
 
-    /// The single-extent ceiling is exactly the 32-bit `data_len` range, and
-    /// ordinary files validate. The >4 GiB rejection path itself cannot be
-    /// exercised in a unit test without allocating a >4 GiB buffer (files are
-    /// held in memory as `Vec<u8>`); it is guarded by inspection and the
-    /// constant below.
+    const DIR_NAME_DOT: &[u8] = b"\x00";
+    const DIR_NAME_DOTDOT: &[u8] = b"\x01";
+
     #[test]
-    fn single_extent_ceiling_and_normal_files_validate() {
-        assert_eq!(MAX_SINGLE_EXTENT_FILE_LEN, u32::MAX as u64);
+    fn should_create_empty_iso_no_boot() {
+        let input = InputFiles {
+            path_separator: PathSeparator::ForwardSlash,
+            files: vec![],
+        };
+        let options = IsoFormatOptions {
+            volume_name: "EMPTY".to_string(),
+            system_id: Some("SYSTEM".to_string()),
+            volume_set_id: Some("VOL_SET_ID".to_string()),
+            publisher_id: Some("PUBLISHER_ID".to_string()),
+            preparer_id: Some("PREPARER_ID".to_string()),
+            application_id: Some("APP_ID".to_string()),
+            sector_size: 2048,
+            path_separator: PathSeparator::ForwardSlash,
+            features: CreationFeatures {
+                ..Default::default()
+            },
+            strict_charset: false,
+        };
 
-        let tree = InputTree::new(
-            PathSeparator::ForwardSlash,
-            vec![InputEntry::file("hello.txt", vec![0u8; 4096])],
+        let cursor = Cursor::new(vec![0u8; 512]);
+        let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
+
+        output
+            .seek(SeekFrom::Start(0))
+            .expect("Failed to verify ISO image");
+        let image = IsoImage::open(output).expect("Failed to parse ISO image");
+
+        let pvd = image.read_pvd().expect("Failed to parse ISO image");
+        assert_eq!(pvd.volume_identifier.to_str(), "EMPTY");
+        assert_eq!(pvd.system_identifier.to_str(), "SYSTEM");
+        assert_eq!(pvd.volume_set_identifier.to_str(), "VOL_SET_ID");
+        assert_eq!(pvd.preparer_identifier.to_str(), "PREPARER_ID");
+        assert_eq!(pvd.application_identifier.to_str(), "APP_ID");
+
+        assert!(pvd.dir_record.header.is_directory());
+        assert_eq!(pvd.dir_record.header.extent.read(), 18);
+        assert_eq!(pvd.dir_record.header.data_len.read(), 2048);
+        assert_eq!(pvd.dir_record.header.file_identifier_len, 1);
+        assert_eq!(pvd.dir_record.header.len, 34);
+        assert_eq!(pvd.dir_record.header.volume_sequence_number.read(), 1);
+        assert_eq!(pvd.dir_record.header.file_unit_size, 0);
+        assert_eq!(pvd.dir_record.header.extended_attr_record, 0);
+
+        assert_eq!(image.info.block_size(), 2048);
+
+        let path_table = image.path_table().path_table;
+        assert_eq!(path_table.lpt.0, 19);
+        assert_eq!(path_table.mpt.0, 20);
+        assert_eq!(path_table.size, 10);
+
+        let susp_info = image.info.susp_info;
+        assert_eq!(susp_info.bytes_skipped, 0);
+        assert!(!susp_info.detected);
+        assert!(!susp_info.rrip_detected);
+
+        assert_eq!(image.root_dirs().iter().count(), 1);
+
+        let root_dir = image.root_dir();
+        assert_eq!(root_dir.dir_ref().extent.0, 18);
+        assert_eq!(root_dir.dir_ref().size, 2048);
+        assert_eq!(
+            root_dir.entry_type(),
+            EntryType::Level1 {
+                supports_lowercase: false,
+                supports_rrip: false
+            }
         );
-        assert!(validate_input_tree(&tree, None).is_ok());
+
+        let iso_dir = root_dir.iter(&image);
+
+        assert_eq!(iso_dir.entries().count(), 2);
+        let mut entries = iso_dir.entries();
+        let current_dir = entries
+            .next()
+            .unwrap()
+            .expect("Failed to parse current dir");
+        assert_eq!(current_dir.name(), DIR_NAME_DOT);
+        let parent_dir = entries.next().unwrap().expect("Failed to parse parent dir");
+        assert_eq!(parent_dir.name(), DIR_NAME_DOTDOT);
+
+        let buffer = image.into_inner().into_inner();
+        assert_eq!(
+            buffer.len() % 2048,
+            0,
+            "Image size must be multiple of 2048"
+        );
+        let sectors_count = buffer.len() / 2048;
+        assert_eq!(sectors_count, 21);
     }
 
     #[test]
-    fn alignment_only_materializes_new_padding() {
-        assert!(!alignment_requires_materialization(2048, 2048));
-        assert!(alignment_requires_materialization(2047, 2048));
+    fn should_create_iso_with_file() {
+        let input = InputFiles {
+            path_separator: PathSeparator::ForwardSlash,
+            files: vec![File::File {
+                name: Arc::new("TESTFILE".into()),
+                contents: vec![0; 999],
+            }],
+        };
+        let options = IsoFormatOptions {
+            volume_name: "EMPTY".to_string(),
+            system_id: Some("SYSTEM".to_string()),
+            volume_set_id: Some("VOL_SET_ID".to_string()),
+            publisher_id: Some("PUBLISHER_ID".to_string()),
+            preparer_id: Some("PREPARER_ID".to_string()),
+            application_id: Some("APP_ID".to_string()),
+            sector_size: 2048,
+            path_separator: PathSeparator::ForwardSlash,
+            features: CreationFeatures {
+                ..Default::default()
+            },
+            strict_charset: false,
+        };
+
+        let cursor = Cursor::new(vec![0u8; 512]);
+        let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
+
+        output
+            .seek(SeekFrom::Start(0))
+            .expect("Failed to verify ISO image");
+        let image = IsoImage::open(output).expect("Failed to parse ISO image");
+
+        let root_dir = image.root_dir();
+        let iso_dir = root_dir.iter(&image);
+
+        assert_eq!(iso_dir.entries().count(), 3);
+        let mut entries = iso_dir.entries();
+        entries.next().unwrap().expect("Failed to parse iso dir");
+        entries.next().unwrap().expect("Failed to parse iso dir");
+        let file = entries.next().unwrap().expect("Failed to parse iso file");
+
+        assert!(!file.is_directory());
+        assert_eq!(file.display_name(), "TESTFILE;1");
+        assert_eq!(file.size(), 44); // 33 + 1 + 10 = 44
+        assert_eq!(file.total_size(), 999);
+        assert!(file.additional_extents.is_empty());
+        assert!(file.rrip.is_none());
     }
 
     #[test]
-    fn test_depth_first_tree_walk_iterator() {
-        // Define a test file hierarchy
-        let file_a = InputEntry::file("root/dir1/fileA.txt", Vec::new());
-        let file_b = InputEntry::file("root/dir1/fileB.txt", Vec::new());
-        let file_c = InputEntry::file("root/fileC.txt", Vec::new());
-        let file_d = InputEntry::file("root/dir2/fileD.txt", Vec::new());
-        let file_e = InputEntry::file("root/dir2/subdir/fileE.txt", Vec::new());
+    fn should_create_iso_with_multi_extent_file() {
+        const SIZE: u64 = 4_294_967_296;
 
-        let subdir_node = InputEntry::directory("root/dir2/subdir", vec![file_e.clone()]);
+        let input = InputTree {
+            path_separator: PathSeparator::ForwardSlash,
+            entries: vec![InputEntry {
+                name: Arc::new("TESTFILE".into()),
+                kind: InputEntryKind::TestFile { size: SIZE },
+                metadata: InputMetadata::default(),
+            }],
+        };
+        let options = IsoFormatOptions {
+            volume_name: "EMPTY".to_string(),
+            system_id: Some("SYSTEM".to_string()),
+            volume_set_id: Some("VOL_SET_ID".to_string()),
+            publisher_id: Some("PUBLISHER_ID".to_string()),
+            preparer_id: Some("PREPARER_ID".to_string()),
+            application_id: Some("APP_ID".to_string()),
+            sector_size: 2048,
+            path_separator: PathSeparator::ForwardSlash,
+            features: CreationFeatures {
+                ..Default::default()
+            },
+            strict_charset: false,
+        };
 
-        let dir1_node = InputEntry::directory("root/dir1", vec![file_a.clone(), file_b.clone()]);
+        let output = tempfile::tempfile().unwrap();
+        let mut output = IsoImageWriter::create(output, input, options).unwrap();
 
-        let dir2_node = InputEntry::directory(
-            "root/dir2",
-            vec![
-                file_d.clone(),
-                subdir_node.clone(), // Subdirectory
+        output
+            .seek(SeekFrom::Start(0))
+            .expect("Failed to verify ISO image");
+        let image = IsoImage::open(output).expect("Failed to parse ISO image");
+
+        let root_dir = image.root_dir();
+        let iso_dir = root_dir.iter(&image);
+
+        let mut entries = iso_dir.entries();
+        entries.next().unwrap().expect("Failed to parse iso dir");
+        entries.next().unwrap().expect("Failed to parse iso dir");
+        let mut file = entries.next().unwrap().expect("Failed to parse iso file");
+
+        assert!(!file.is_directory());
+        assert_eq!(file.display_name(), "TESTFILE;1");
+        assert_eq!(file.size(), 44); // 33 + 1 + 10 = 44
+        assert_eq!(file.total_size(), SIZE);
+        assert_eq!(file.additional_extents.len(), 1);
+
+        let expected_sector =
+            file.header().extent.read() as usize + (4_294_965_248_u64 / 2048) as usize;
+        let extent = file.additional_extents.drain(..).next().unwrap();
+
+        assert_eq!(extent.length, 2048);
+        assert_eq!(extent.sector.0, expected_sector);
+
+        assert!(file.rrip.is_none());
+    }
+
+    #[test]
+    fn should_create_iso_with_mbr_boot() {
+        let input = InputFiles {
+            path_separator: PathSeparator::ForwardSlash,
+            files: vec![File::File {
+                name: Arc::new("boot.bin".into()),
+                contents: vec![0x55; 2048], // Boot image
+            }],
+        };
+        let options = IsoFormatOptions {
+            volume_name: "MBR_TEST".to_string(),
+            system_id: Some("SYSTEM".to_string()),
+            volume_set_id: Some("VOL_SET_ID".to_string()),
+            publisher_id: Some("PUBLISHER_ID".to_string()),
+            preparer_id: Some("PREPARER_ID".to_string()),
+            application_id: Some("APP_ID".to_string()),
+            sector_size: 2048,
+            path_separator: PathSeparator::ForwardSlash,
+            features: CreationFeatures {
+                hybrid_boot: Some(HybridBootOptions {
+                    partition_scheme: PartitionScheme::Mbr,
+                    mbr_bootstrap: Some(vec![0x00; 446]), // Bootstrap code
+                    bootable: true,
+                    efi_boot_partition: None,
+                }),
+                ..Default::default()
+            },
+            strict_charset: false,
+        };
+
+        let cursor = Cursor::new(vec![0u8; 512]);
+        let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
+
+        output.seek(SeekFrom::Start(0)).expect("Failed to seek");
+
+        // Read MBR signature at offset 510-511 (0x55AA)
+        let mut sig = [0u8; 2];
+        output.seek(SeekFrom::Start(510)).expect("Failed to seek");
+        output
+            .read_exact(&mut sig)
+            .expect("Failed to read MBR signature");
+        assert_eq!(sig, [0x55, 0xAA], "MBR signature should be 0x55AA");
+
+        // Read partition table entry at offset 446
+        let mut partition = [0u8; 16];
+        output.seek(SeekFrom::Start(446)).expect("Failed to seek");
+        output
+            .read_exact(&mut partition)
+            .expect("Failed to read partition entry");
+
+        // Boot indicator should be 0x80 (bootable)
+        assert_eq!(partition[0], 0x80, "Partition should be bootable");
+
+        // Partition type should be 0x17 (ISO9660/Hidden NTFS)
+        assert_eq!(partition[4], 0x17, "Partition type should be 0x17");
+    }
+
+    #[test]
+    fn should_create_iso_with_gpt_boot() {
+        let input = InputFiles {
+            path_separator: PathSeparator::ForwardSlash,
+            files: vec![File::File {
+                name: Arc::new("efi.img".into()),
+                contents: vec![0xAA; 2048], // EFI boot image
+            }],
+        };
+        let options = IsoFormatOptions {
+            volume_name: "GPT_TEST".to_string(),
+            system_id: Some("SYSTEM".to_string()),
+            volume_set_id: Some("VOL_SET_ID".to_string()),
+            publisher_id: Some("PUBLISHER_ID".to_string()),
+            preparer_id: Some("PREPARER_ID".to_string()),
+            application_id: Some("APP_ID".to_string()),
+            sector_size: 2048,
+            path_separator: PathSeparator::ForwardSlash,
+            features: CreationFeatures {
+                hybrid_boot: Some(HybridBootOptions {
+                    partition_scheme: PartitionScheme::Gpt,
+                    mbr_bootstrap: None,
+                    bootable: false,
+                    efi_boot_partition: Some("efi.img".to_string()),
+                }),
+                ..Default::default()
+            },
+            strict_charset: false,
+        };
+
+        let cursor = Cursor::new(vec![0u8; 512]);
+        let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
+
+        output.seek(SeekFrom::Start(0)).expect("Failed to seek");
+
+        // Read protective MBR signature at offset 510-511
+        let mut sig = [0u8; 2];
+        output.seek(SeekFrom::Start(510)).expect("Failed to seek");
+        output
+            .read_exact(&mut sig)
+            .expect("Failed to read MBR signature");
+        assert_eq!(sig, [0x55, 0xAA], "MBR signature should be 0x55AA");
+
+        // Read GPT header at sector 1 (LBA 1)
+        let mut header = [0u8; 92];
+        output.seek(SeekFrom::Start(512)).expect("Failed to seek"); // 512-byte sectors
+        output
+            .read_exact(&mut header)
+            .expect("Failed to read GPT header");
+
+        // GPT signature is "EFI PART"
+        assert_eq!(
+            &header[0..8],
+            b"EFI PART",
+            "GPT header signature should be 'EFI PART'"
+        );
+
+        // Check revision (1.0)
+        assert_eq!(
+            header[8..12],
+            [0x00, 0x00, 0x01, 0x00],
+            "GPT revision should be 1.0"
+        );
+    }
+
+    #[test]
+    fn should_create_iso_with_hybrid_mbr_gpt_boot() {
+        let input = InputFiles {
+            path_separator: PathSeparator::ForwardSlash,
+            files: vec![
+                File::File {
+                    name: Arc::new("boot.bin".into()),
+                    contents: vec![0x55; 2048], // BIOS boot image
+                },
+                File::File {
+                    name: Arc::new("efi.img".into()),
+                    contents: vec![0xAA; 2048], // EFI boot image
+                },
             ],
+        };
+        let options = IsoFormatOptions {
+            volume_name: "HYBRID_TEST".to_string(),
+            system_id: Some("SYSTEM".to_string()),
+            volume_set_id: Some("VOL_SET_ID".to_string()),
+            publisher_id: Some("PUBLISHER_ID".to_string()),
+            preparer_id: Some("PREPARER_ID".to_string()),
+            application_id: Some("APP_ID".to_string()),
+            sector_size: 2048,
+            path_separator: PathSeparator::ForwardSlash,
+            features: CreationFeatures {
+                hybrid_boot: Some(HybridBootOptions {
+                    partition_scheme: PartitionScheme::Hybrid,
+                    mbr_bootstrap: Some(vec![0x00; 446]),
+                    bootable: true,
+                    efi_boot_partition: Some("efi.img".to_string()),
+                }),
+                ..Default::default()
+            },
+            strict_charset: false,
+        };
+
+        let cursor = Cursor::new(vec![0u8; 512]);
+        let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
+
+        output.seek(SeekFrom::Start(0)).expect("Failed to seek");
+
+        // 1. Check MBR signature
+        let mut sig = [0u8; 2];
+        output.seek(SeekFrom::Start(510)).expect("Failed to seek");
+        output
+            .read_exact(&mut sig)
+            .expect("Failed to read MBR signature");
+        assert_eq!(sig, [0x55, 0xAA], "MBR signature should be 0x55AA");
+
+        // 2. Check partition table entries in MBR
+        let mut found_iso = false;
+        let mut found_bootable = false;
+        let mut found_esp = false;
+
+        for slot in 0..4 {
+            let offset = 446 + (slot * 16);
+            let mut partition = [0u8; 16];
+            output
+                .seek(SeekFrom::Start(offset))
+                .expect("Failed to seek");
+            output
+                .read_exact(&mut partition)
+                .expect("Failed to read partition");
+
+            // Slot 0 is usually protective MBR (type 0xEE)
+            if partition[4] == 0xEE {
+                continue; // Skip protective MBR
+            }
+
+            // Check for ISO9660 partition (type 0x17)
+            if partition[4] == 0x17 {
+                found_iso = true;
+                if partition[0] == 0x80 {
+                    found_bootable = true;
+                }
+            }
+
+            // Check for EFI System Partition (type 0xEF)
+            if partition[4] == 0xEF {
+                found_esp = true;
+            }
+        }
+
+        assert!(found_iso, "ISO9660 partition not found in MBR");
+        assert!(found_bootable, "ISO9660 partition should be bootable");
+        assert!(found_esp, "EFI System Partition not found in MBR");
+
+        // 3. Check GPT header (dual-boot)
+        let mut header = [0u8; 92];
+        output.seek(SeekFrom::Start(512)).expect("Failed to seek"); // 512-byte sectors
+        output
+            .read_exact(&mut header)
+            .expect("Failed to read GPT header");
+        assert_eq!(
+            &header[0..8],
+            b"EFI PART",
+            "GPT header signature should be 'EFI PART'"
         );
 
-        let root_level_files = vec![dir1_node.clone(), file_c.clone(), dir2_node.clone()];
+        // Check revision (1.0)
+        assert_eq!(
+            header[8..12],
+            [0x00, 0x00, 0x01, 0x00],
+            "GPT revision should be 1.0"
+        );
 
-        let input_tree = InputTree::new(PathSeparator::ForwardSlash, root_level_files);
-
-        // Create the iterator
-        let walker = FileTreeWalker::new(&input_tree);
-
-        // Define the expected sequence of events (depth-first, pre-order for Enter, post-order for Exit)
-        let expected_sequence = vec![
-            TreeWalkerItem::EnterDirectory(&dir1_node),   // Enter dir1
-            TreeWalkerItem::File(&file_a),                // Process fileA
-            TreeWalkerItem::File(&file_b),                // Process fileB
-            TreeWalkerItem::ExitDirectory(&dir1_node),    // Exit dir1
-            TreeWalkerItem::File(&file_c),                // Process fileC
-            TreeWalkerItem::EnterDirectory(&dir2_node),   // Enter dir2
-            TreeWalkerItem::File(&file_d),                // Process fileD
-            TreeWalkerItem::EnterDirectory(&subdir_node), // Enter subdir
-            TreeWalkerItem::File(&file_e),                // Process fileE
-            TreeWalkerItem::ExitDirectory(&subdir_node),  // Exit subdir
-            TreeWalkerItem::ExitDirectory(&dir2_node),    // Exit dir2
+        // 4. Check GPT partition entries
+        // Partition type GUID for basic data (ISO9660)
+        let basic_data_guid = [
+            0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44, 0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26,
+            0x99, 0xC7,
         ];
 
-        // Collect all items from the iterator
-        let actual_sequence: Vec<TreeWalkerItem> = walker.collect();
+        // Partition type GUID for EFI System
+        let esp_guid = [
+            0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11, 0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E,
+            0xC9, 0x3B,
+        ];
 
-        // Assert that the actual sequence matches the expected sequence
-        assert_eq!(actual_sequence, expected_sequence);
-    }
+        let mut found_gpt_iso = false;
+        let mut found_gpt_esp = false;
 
-    #[test]
-    fn test_dedup_suffix_l1_with_ext() {
-        let ty = EntryType::Level1 {
-            supports_lowercase: false,
-            supports_rrip: false,
-        };
-        let result = apply_dedup_suffix(b"README.TXT;1", 1, ty);
-        assert_eq!(result, b"README_1.TXT;1");
-    }
+        // GPT entries start at LBA 2 (1024 bytes offset in 512-byte sectors)
+        for i in 0..4 {
+            let offset = 1024 + (i * 128); // Each entry is 128 bytes
+            let mut entry = [0u8; 128];
+            output
+                .seek(SeekFrom::Start(offset))
+                .expect("Failed to seek");
+            output
+                .read_exact(&mut entry)
+                .expect("Failed to read GPT partition");
 
-    #[test]
-    fn test_dedup_suffix_l1_no_ext() {
-        let ty = EntryType::Level1 {
-            supports_lowercase: false,
-            supports_rrip: false,
-        };
-        let result = apply_dedup_suffix(b"FILENAME;1", 1, ty);
-        assert_eq!(result, b"FILENA_1;1");
-    }
+            // Check if entry is non-zero (has a GUID)
+            if entry[0..16] == [0u8; 16] {
+                continue; // Empty entry
+            }
 
-    #[test]
-    fn test_dedup_suffix_l2() {
-        let ty = EntryType::Level2 {
-            supports_lowercase: false,
-            supports_rrip: false,
-        };
-        let result = apply_dedup_suffix(b"LONGFILENAME.EXT;1", 2, ty);
-        assert_eq!(result, b"LONGFILENAME_2.EXT;1");
-    }
+            if entry[0..16] == basic_data_guid {
+                found_gpt_iso = true;
+            }
+            if entry[0..16] == esp_guid {
+                found_gpt_esp = true;
+            }
+        }
 
-    #[test]
-    fn test_dedup_suffix_l3_no_version() {
-        let ty = EntryType::Level3 {
-            supports_lowercase: false,
-            supports_rrip: false,
-        };
-        let result = apply_dedup_suffix(b"README.TXT", 1, ty);
-        assert_eq!(result, b"README_1.TXT");
-    }
-
-    #[test]
-    fn test_dedup_suffix_distinct() {
-        let ty = EntryType::Level1 {
-            supports_lowercase: false,
-            supports_rrip: false,
-        };
-        let r1 = apply_dedup_suffix(b"README.TXT;1", 1, ty);
-        let r2 = apply_dedup_suffix(b"README.TXT;1", 2, ty);
-        let r3 = apply_dedup_suffix(b"README.TXT;1", 3, ty);
-        assert_ne!(r1, r2);
-        assert_ne!(r2, r3);
-        assert_ne!(r1, r3);
+        assert!(found_gpt_iso, "ISO9660 partition not found in GPT");
+        assert!(found_gpt_esp, "EFI System Partition not found in GPT");
     }
 }

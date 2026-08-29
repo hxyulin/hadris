@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::task::{Wake, Waker};
 
 use hadris_iso::r#async::read::IsoImage;
+use hadris_iso::sync::directory::FileFlags;
 use hadris_iso::sync::read::PathSeparator;
 use hadris_iso::sync::write::options::{CreationFeatures, IsoFormatOptions};
 use hadris_iso::sync::write::{InputEntry, InputTree, IsoImageWriter};
@@ -33,6 +34,46 @@ fn block_on<F: Future>(future: F) -> F::Output {
             Poll::Pending => std::thread::park(),
         }
     }
+}
+
+fn truncated_multi_extent_iso() -> Vec<u8> {
+    let files = InputTree::new(
+        PathSeparator::ForwardSlash,
+        vec![InputEntry::file("README.TXT", b"payload")],
+    );
+    let options = IsoFormatOptions {
+        volume_name: "TRUNCATED".to_owned(),
+        system_id: None,
+        volume_set_id: None,
+        publisher_id: None,
+        preparer_id: None,
+        application_id: None,
+        sector_size: 2048,
+        path_separator: PathSeparator::ForwardSlash,
+        features: CreationFeatures::default(),
+        strict_charset: false,
+    };
+    let mut image = std::io::Cursor::new(vec![0_u8; 1024 * 1024]);
+    IsoImageWriter::create(&mut image, files, options).unwrap();
+    let mut bytes = image.into_inner();
+
+    let root_record = 16 * 2048 + 156;
+    let root_sector =
+        u32::from_le_bytes(bytes[root_record + 2..root_record + 6].try_into().unwrap());
+    let mut offset = root_sector as usize * 2048;
+    loop {
+        let len = bytes[offset] as usize;
+        assert_ne!(len, 0);
+        let name_len = bytes[offset + 32] as usize;
+        let name = &bytes[offset + 33..offset + 33 + name_len];
+        if name != [0] && name != [1] {
+            bytes[offset + 25] |= FileFlags::NOT_FINAL.bits();
+            break;
+        }
+        offset += len;
+    }
+
+    bytes
 }
 
 #[test]
@@ -82,6 +123,13 @@ fn async_leaf_reads_descriptors_traverses_and_reads_file() {
         let entry = image.find_path("/DOCS//README.TXT").await.unwrap().unwrap();
         assert_eq!(image.read_file(&entry).await.unwrap(), payload);
 
+        let mut chunks = image.read_file_chunked::<7>(&entry).await.unwrap();
+        let mut chunked = Vec::new();
+        while let Some(chunk) = chunks.next_chunk().await.unwrap() {
+            chunked.extend_from_slice(&chunk);
+        }
+        assert_eq!(chunked, payload);
+
         let root = image.open_dir(image.root_dir().dir_ref());
         assert!(
             root.read_entries()
@@ -90,5 +138,20 @@ fn async_leaf_reads_descriptors_traverses_and_reads_file() {
                 .iter()
                 .any(|entry| entry.is_directory())
         );
+    });
+}
+
+#[test]
+fn async_read_entries_rejects_truncated_multi_extent_chain() {
+    let bytes = truncated_multi_extent_iso();
+
+    block_on(async {
+        let image = IsoImage::open(hadris_io::Cursor::new(bytes.as_slice()))
+            .await
+            .unwrap();
+        let root = image.open_dir(image.root_dir().dir_ref());
+        let error = root.read_entries().await.unwrap_err();
+
+        assert_eq!(error.kind(), hadris_iso::ErrorKind::InvalidData);
     });
 }

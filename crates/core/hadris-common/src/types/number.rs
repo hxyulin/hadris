@@ -90,6 +90,7 @@ impl<E: Endianness> Endian for U32<E> {
     type LsbType = U32<LittleEndian>;
     type MsbType = U32<BigEndian>;
 
+    #[inline]
     fn new(value: u32) -> Self {
         let mut bytes = [0; 4];
         E::set_u32(value, &mut bytes);
@@ -99,10 +100,12 @@ impl<E: Endianness> Endian for U32<E> {
         }
     }
 
+    #[inline]
     fn get(&self) -> u32 {
         E::get_u32(self.bytes)
     }
 
+    #[inline]
     fn set(&mut self, value: u32) {
         E::set_u32(value, &mut self.bytes);
     }
@@ -152,6 +155,7 @@ impl<E: Endianness> Endian for U64<E> {
     type LsbType = U64<LittleEndian>;
     type MsbType = U64<BigEndian>;
 
+    #[inline]
     fn new(value: u64) -> Self {
         let mut bytes = [0; 8];
         E::set_u64(value, &mut bytes);
@@ -161,10 +165,12 @@ impl<E: Endianness> Endian for U64<E> {
         }
     }
 
+    #[inline]
     fn get(&self) -> u64 {
         E::get_u64(self.bytes)
     }
 
+    #[inline]
     fn set(&mut self, value: u64) {
         E::set_u64(value, &mut self.bytes);
     }
@@ -246,6 +252,7 @@ impl<E: Endianness> Endian for U24<E> {
     type LsbType = U24<LittleEndian>;
     type MsbType = U24<BigEndian>;
 
+    #[inline]
     fn new(value: u32) -> Self {
         assert!(value <= Self::MAX);
         let mut bytes = [0u8; 3];
@@ -256,10 +263,12 @@ impl<E: Endianness> Endian for U24<E> {
         }
     }
 
+    #[inline]
     fn get(&self) -> u32 {
         E::get_u24(self.bytes)
     }
 
+    #[inline]
     fn set(&mut self, value: u32) {
         assert!(value <= Self::MAX);
         E::set_u24(value, &mut self.bytes);

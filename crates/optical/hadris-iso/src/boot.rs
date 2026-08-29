@@ -565,6 +565,19 @@ pub struct BootInfoTable {
     pub checksum: U32<LittleEndian>,
 }
 
+impl BootInfoTable {
+    /// Creates a new boot information table.
+    #[allow(dead_code)]
+    pub(crate) fn new(file_lba: u32, file_len: u32, checksum: u32) -> Self {
+        Self {
+            iso_start: U32::new(16),
+            file_lba: U32::new(file_lba),
+            file_len: U32::new(file_len),
+            checksum: U32::new(checksum),
+        }
+    }
+}
+
 /// GRUB2/ISOLINUX boot information table (56 bytes)
 ///
 /// This is the extended boot info table format used by GRUB2 and ISOLINUX.
@@ -583,6 +596,20 @@ pub struct Grub2BootInfoTable {
     pub checksum: U32<LittleEndian>,
     /// Reserved bytes (must be zero)
     pub reserved: [u8; 40],
+}
+
+impl Grub2BootInfoTable {
+    /// Creates a new GRUB2/ISOLINUX boot information table.
+    #[allow(dead_code)]
+    pub(crate) fn new(file_lba: u32, file_len: u32, checksum: u32) -> Self {
+        Self {
+            pvd_lba: U32::new(16),
+            file_lba: U32::new(file_lba),
+            file_len: U32::new(file_len),
+            checksum: U32::new(checksum),
+            reserved: [0u8; 40],
+        }
+    }
 }
 
 io_transform! {

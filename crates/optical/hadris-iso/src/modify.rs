@@ -50,6 +50,7 @@ use super::volume::{
 use super::write::writer::{PathTableWriter, WrittenDirectory, WrittenFile, WrittenFiles};
 use crate::file::EntryType;
 use crate::joliet::JolietLevel;
+use crate::write::{InputEntryKind, InputMetadata};
 
 /// Operations that can be performed on an ISO image.
 #[derive(Debug, Clone)]
@@ -592,7 +593,9 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         Ok(())
     }
 
-    /// Builds WrittenFiles from DirectoryLayout.
+    /// Recursively builds the `WrittenFiles` tree from a `DirectoryLayout`.
+    ///
+    /// Populates file and directory entries with their assigned extents.
     fn build_written_files(
         layout: &DirectoryLayout,
         file_extents: &BTreeMap<String, Extent>,
@@ -600,36 +603,26 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         path_prefix: &str,
     ) -> Result<()> {
         for file in &layout.files {
-            let full_path = if path_prefix.is_empty() {
-                file.name.clone()
-            } else {
-                alloc::format!("{}/{}", path_prefix, file.name)
-            };
+            let full_path = Self::join_path(path_prefix, &file.name);
 
             // Look up extent from our written data or existing layout
             let extent = file_extents.get(&full_path).copied().unwrap_or(file.extent);
-
-            let dir_ref = DirectoryRef {
-                extent: LogicalSector(extent.sector as usize),
-                size: extent.length as usize,
-            };
+            let dir_ref = DirectoryRef::new(extent.sector as usize, extent.length as usize);
 
             let root_id = written_files.root_dir();
             let dir = written_files.get_mut(&root_id);
-            dir.files.push(WrittenFile {
-                name: Arc::new(file.name.clone()),
-                entry: dir_ref,
-                kind: crate::write::InputEntryKind::File(Vec::new()),
-                metadata: crate::write::InputMetadata::default(),
-            });
+            let written = WrittenFile::with_extent(
+                Arc::new(file.name.clone()),
+                InputEntryKind::File(Vec::new()),
+                InputMetadata::default(),
+                dir_ref
+            );
+
+            dir.push_file(written);
         }
 
         for subdir in &layout.subdirs {
-            let full_path = if path_prefix.is_empty() {
-                subdir.name.clone()
-            } else {
-                alloc::format!("{}/{}", path_prefix, subdir.name)
-            };
+            let full_path = Self::join_path(path_prefix, &subdir.name);
 
             // Add subdirectory to written files
             let root_id = written_files.root_dir();
@@ -644,6 +637,14 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
         }
 
         Ok(())
+    }
+
+    fn join_path(path_prefix: &str, name: &str) -> String {
+        if path_prefix.is_empty() {
+            name.to_string()
+        } else {
+            alloc::format!("{path_prefix}/{name}")
+        }
     }
 
     /// Writes a directory (static version for use in new session).
@@ -675,8 +676,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             record.write(&mut *data).await?;
         }
 
-        for file in &dir.files {
-            let WrittenFile { name, entry, .. } = file;
+        for WrittenFile { name, entry, .. } in &dir.files {
             let flags = FileFlags::empty();
             let converted_name = ty.convert_name(name);
             let record = DirectoryRecord::new(converted_name.as_bytes(), &[], *entry, flags);

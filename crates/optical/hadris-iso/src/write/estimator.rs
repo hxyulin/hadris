@@ -158,9 +158,16 @@ fn walk_entries_stats(
         match &entry.kind {
             InputEntryKind::File(contents) => {
                 stats.file_count += 1;
-                if !contents.is_empty() {
-                    stats.total_file_bytes +=
-                        align_to_sector(contents.len() as u64, sector_size) * sector_size;
+                let len = contents.len() as u64;
+                if len > 0 {
+                    stats.total_file_bytes += align_to_sector(len, sector_size) * sector_size;
+                }
+            }
+            #[cfg(test)]
+            InputEntryKind::TestFile { size } => {
+                stats.file_count += 1;
+                if *size > 0 {
+                    stats.total_file_bytes += align_to_sector(*size, sector_size) * sector_size;
                 }
             }
             InputEntryKind::Directory(children) => {
