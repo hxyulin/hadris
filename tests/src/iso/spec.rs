@@ -13,6 +13,8 @@ use super::model::IsoState;
 use crate::harness::join_path;
 use crate::harness::tree::EntryData;
 
+const CONSISTENT_FILE_FLAGS: u8 = 0x6f;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PathRecord {
     name: Vec<u8>,
@@ -232,13 +234,17 @@ fn read_directory(
         ));
     }
 
-    for child in ordinary {
-        if child.flags & 0x84 != 0 {
-            return Err(format!("entry in {path} is associated or multi-extent"));
+    let mut children = ordinary.into_iter();
+    while let Some(child) = children.next() {
+        if child.flags & 0x04 != 0 {
+            return Err(format!("entry in {path} is associated"));
         }
         let name = decode_primary_identifier(&child.identifier, child.flags & 0x02 != 0)?;
         let child_path = join_path(path, &name);
         if child.flags & 0x02 != 0 {
+            if child.flags & 0x80 != 0 {
+                return Err(format!("directory {child_path} is multi-extent"));
+            }
             if child.data_len == 0 {
                 return Err(format!("directory {child_path} has zero length"));
             }
@@ -267,18 +273,42 @@ fn read_directory(
                 entries,
             )?;
         } else {
-            let data_lba = child.extent + u32::from(child.extended_attr_blocks);
-            let contents = if child.data_len == 0 {
-                Vec::new()
-            } else {
-                image_slice(
-                    image,
-                    data_lba as usize * SECTOR_SIZE,
-                    child.data_len as usize,
-                    volume_len,
-                )?
-                .to_vec()
-            };
+            let identifier = child.identifier.clone();
+            let stable_flags = child.flags & CONSISTENT_FILE_FLAGS;
+            let mut sections = vec![child];
+            while sections
+                .last()
+                .is_some_and(|section| section.flags & 0x80 != 0)
+            {
+                let continuation = children
+                    .next()
+                    .ok_or_else(|| format!("truncated multi-extent file {child_path}"))?;
+                if continuation.identifier != identifier
+                    || continuation.flags & CONSISTENT_FILE_FLAGS != stable_flags
+                {
+                    return Err(format!(
+                        "invalid multi-extent continuation for {child_path}"
+                    ));
+                }
+                sections.push(continuation);
+            }
+            let total_len = sections.iter().try_fold(0usize, |total, section| {
+                total
+                    .checked_add(section.data_len as usize)
+                    .ok_or_else(|| format!("file length overflows usize for {child_path}"))
+            })?;
+            let mut contents = Vec::with_capacity(total_len);
+            for section in sections {
+                let data_lba = section.extent + u32::from(section.extended_attr_blocks);
+                if section.data_len != 0 {
+                    contents.extend_from_slice(image_slice(
+                        image,
+                        data_lba as usize * SECTOR_SIZE,
+                        section.data_len as usize,
+                        volume_len,
+                    )?);
+                }
+            }
             if entries
                 .insert(child_path.clone(), EntryData::File(contents))
                 .is_some()

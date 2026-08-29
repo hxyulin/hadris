@@ -1,6 +1,7 @@
 mod boot;
 mod directory;
 mod hybrid;
+mod multi_extent;
 mod native;
 mod peers;
 mod rock_ridge;
