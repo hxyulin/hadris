@@ -46,8 +46,7 @@ The oracles are the ground truth. Hadris is measured as one adapter among its
 peers, and a Hadris-to-Hadris round trip is never evidence on its own.
 
 ```bash
-# Hosted suite; run it locally. CI formats and lints the package and runs the
-# ISO slice, while the recorded hadris-fat findings keep three FAT tests red.
+# Hosted suite; run it locally. CI also runs the hosted FAT and ISO slices.
 cargo test --manifest-path tests/Cargo.toml
 
 # One format or topic

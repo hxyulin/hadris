@@ -240,6 +240,11 @@ impl ShortFileName {
             Some(pos) if pos > 0 => (&name[..pos], &name[pos + 1..]),
             _ => (name, ""),
         };
+        let (base, ext) = if base.chars().all(|ch| ch == '.' || ch == ' ') && !ext.is_empty() {
+            (ext, "")
+        } else {
+            (base, ext)
+        };
 
         // Process base name: uppercase, strip invalid chars
         let mut base_chars = [b' '; 8];
@@ -486,6 +491,14 @@ impl LongFileName {
     /// Compare the filename to a `&str` without allocating.
     pub fn eq_str(&self, s: &str) -> bool {
         self.chars().eq(s.chars())
+    }
+
+    /// Compare the filename to a `&str` without allocating, using Unicode
+    /// uppercase mappings for the case-insensitive FAT name lookup.
+    pub(crate) fn eq_str_ignore_case(&self, s: &str) -> bool {
+        self.chars()
+            .flat_map(char::to_uppercase)
+            .eq(s.chars().flat_map(char::to_uppercase))
     }
 
     /// Encode `name` as UTF-16LE into the buffer. Returns `None` if the name
@@ -736,6 +749,22 @@ mod lfn_unicode_tests {
 
         assert!(lfn.eq_str("\u{1F600}"));
         assert!(!lfn.eq_str("X"));
+    }
+
+    #[test]
+    fn eq_str_ignore_case_uses_unicode_case_mapping() {
+        let mut lfn = LongFileName::new();
+        let name1 = [0xc3, 0x03, b'.', 0, b't', 0, b'x', 0, b't', 0];
+        lfn.prepend_lfn_entry(&name1, &[0xff; 12], &[0xff; 4]);
+        assert!(lfn.eq_str_ignore_case("Σ.TXT"));
+        assert!(!lfn.eq_str_ignore_case("Σ.BIN"));
+    }
+
+    #[cfg(feature = "write")]
+    #[test]
+    fn leading_dots_produce_a_nonempty_short_basename() {
+        let short = ShortFileName::from_long_name("..dots", 0).unwrap();
+        assert_eq!(short.raw_bytes(), *b"DOTS       ");
     }
 
     /// Regression test: an LFN entry with the last-entry flag set but a

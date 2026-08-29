@@ -405,6 +405,16 @@ jobs:
           cargo test -p hadris-fat --features "unstable-exfat,write" --lib integration_exfat:: -- --nocapture
           cargo test -p hadris-fat --features "unstable-exfat,write" --lib exfat_roundtrip:: -- --nocapture
 
+  test-fat-conformance:
+    name: Test FAT conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Run FAT conformance tests
+        run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --nocapture"
+
   test-optical:
     name: Test optical interoperability
     runs-on: ubuntu-latest

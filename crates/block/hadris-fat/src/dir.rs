@@ -149,31 +149,48 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
 
     /// Find an entry by name.
     ///
-    /// When the `lfn` feature is enabled, this performs a case-sensitive match
-    /// against long file names first, then falls back to case-insensitive short
-    /// name matching.
+    /// When the `lfn` feature is enabled, this prefers an exact long-name match,
+    /// then falls back to case-insensitive long and short name matching.
     ///
     /// Without the `lfn` feature, only case-insensitive short name matching is used.
     pub async fn find(&self, name: &str) -> Result<Option<FileEntry>> {
         let mut iter = self.entries();
+        #[cfg(feature = "lfn")]
+        let mut case_insensitive_match = None;
         loop {
             match iter.next_entry().await {
                 Some(result) => {
                     let DirectoryEntry::Entry(file_entry) = result?;
 
-                    // Check LFN match (case-sensitive)
                     #[cfg(feature = "lfn")]
-                    if let Some(lfn) = file_entry.long_name()
-                        && lfn.eq_str(name)
                     {
-                        return Ok(Some(file_entry));
+                        if file_entry
+                            .long_name()
+                            .is_some_and(|lfn| lfn.eq_str(name))
+                        {
+                            return Ok(Some(file_entry));
+                        }
+                        if case_insensitive_match.is_none()
+                            && (file_entry
+                                .long_name()
+                                .is_some_and(|lfn| lfn.eq_str_ignore_case(name))
+                                || file_entry.short_name().matches(name))
+                        {
+                            case_insensitive_match = Some(file_entry);
+                        }
                     }
-                    // Check short name match (case-insensitive, handles 8.3 padding)
+
+                    #[cfg(not(feature = "lfn"))]
                     if file_entry.short_name().matches(name) {
                         return Ok(Some(file_entry));
                     }
                 }
-                None => return Ok(None),
+                None => {
+                    #[cfg(feature = "lfn")]
+                    return Ok(case_insensitive_match);
+                    #[cfg(not(feature = "lfn"))]
+                    return Ok(None);
+                }
             }
         }
     }
