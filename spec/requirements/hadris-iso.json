@@ -60,8 +60,12 @@
       "direction": "read",
       "status": "partial",
       "symbols": [{"path": "crates/optical/hadris-iso/src/read/directory.rs", "name": "IsoDir::read_entries"}],
-      "tests": [{"path": "crates/optical/hadris-iso/tests/no_alloc_reader.rs", "name": "navigation_and_streaming_allocate_nothing", "kind": "integration"}],
-      "gap": "Positive chaining and key identity fields are checked, but every attribute mandated by clause 9.2 is not yet compared."
+      "tests": [
+        {"path": "crates/optical/hadris-iso/tests/no_alloc_reader.rs", "name": "navigation_and_streaming_allocate_nothing", "kind": "integration"},
+        {"path": "tests/suite/iso/multi_extent.rs", "name": "three_section_file_matches_oracle_and_hadris_reader", "kind": "integration"},
+        {"path": "tests/suite/iso/multi_extent.rs", "name": "oracle_rejects_invalid_multi_extent_chains", "kind": "integration"}
+      ],
+      "gap": "The allocating reader rejects protection-bit changes between sections even though clause 9.2 does not require that bit to match."
     },
     {
       "id": "ECMA-119-1987:6.7.1.1#primary-required",
