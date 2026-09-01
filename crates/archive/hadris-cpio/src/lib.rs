@@ -62,21 +62,21 @@
 //!
 //! ```toml
 //! [dependencies]
-//! hadris-cpio = { version = "2.2.0", default-features = false, features = ["read", "sync"] }
+//! hadris-cpio = { version = "2.3.0", default-features = false, features = ["read", "sync"] }
 //! ```
 //!
 //! ### For Kernels with Heap (no-std + alloc)
 //!
 //! ```toml
 //! [dependencies]
-//! hadris-cpio = { version = "2.2.0", default-features = false, features = ["read", "alloc", "sync"] }
+//! hadris-cpio = { version = "2.3.0", default-features = false, features = ["read", "alloc", "sync"] }
 //! ```
 //!
 //! ### For Desktop Applications (full features)
 //!
 //! ```toml
 //! [dependencies]
-//! hadris-cpio = "2.2.0"
+//! hadris-cpio = "2.3.0"
 //! ```
 //!
 //! ## Archive Format

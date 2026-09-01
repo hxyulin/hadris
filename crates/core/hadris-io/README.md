@@ -35,14 +35,14 @@ while custom configurations may select `sync`, `async`, or both.
 
 ```toml
 [dependencies]
-hadris-io = "2.2.0"
+hadris-io = "2.3.0"
 ```
 
 ### No-std
 
 ```toml
 [dependencies]
-hadris-io = { version = "2.2.0", default-features = false, features = ["sync"] }
+hadris-io = { version = "2.3.0", default-features = false, features = ["sync"] }
 ```
 
 ## Quick Start

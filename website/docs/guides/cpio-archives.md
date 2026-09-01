@@ -9,7 +9,7 @@ used by Linux initramfs images.
 
 ```toml
 [dependencies]
-hadris-cpio = "2.2.0"
+hadris-cpio = "2.3.0"
 ```
 
 ## Stream archive entries

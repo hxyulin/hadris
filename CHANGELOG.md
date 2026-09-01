@@ -8,11 +8,20 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-01
+
 ### Added
 
-- **hadris-iso:** The ISO writer now emits multi-extent files larger than 4 GiB,
-  and the allocating reader can consume those files incrementally through
-  `read_file_chunked`.
+- **hadris-iso:** The refactored ISO writer now emits multi-extent files larger
+  than 4 GiB, and the allocating reader can consume them incrementally through
+  `read_file_chunked`. Józef Podlecki contributed the original implementation
+  in [#96](https://github.com/hxyulin/hadris/pull/96).
+
+### Changed
+
+- **Tests:** FAT and ISO now use the same hosted, external-tool, and manual
+  test tiers. CI requires mtools and dosfstools for FAT interoperability and
+  xorriso for ISO interoperability, while local runs skip unavailable tools.
 
 ### Fixed
 
@@ -647,7 +656,8 @@ under Semantic Versioning.
 Baseline for this changelog. See the git history for changes at and before this
 tag.
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/hxyulin/hadris/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/hxyulin/hadris/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/hxyulin/hadris/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/hxyulin/hadris/compare/v2.0.0-rc.4...v2.0.0

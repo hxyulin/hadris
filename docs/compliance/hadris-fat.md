@@ -15,8 +15,8 @@ active-FAT selection when mirroring is disabled and do not recover through the
 backup boot record. exFAT mounts validate only the main boot region, and
 fragmented up-case tables are rejected rather than followed through the FAT.
 
-The manual FAT12/16/32 conformance suite uses a specification-oriented raw
-image oracle rather than another filesystem tool as its ground truth. mtools,
+The FAT12/16/32 conformance suite uses a specification-oriented raw image
+oracle rather than another filesystem tool as its ground truth. mtools,
 dosfstools, macOS FAT tools, native Linux/macOS kernel mounts, and the Rust
 `fatfs` crate are measured independently and may disagree or crash without
 changing the expected FAT semantics.
@@ -40,26 +40,23 @@ character set, and unique short aliases.
 
 | Consumer | FAT12 | FAT16 | FAT32 | Interpretation |
 |----------|-------|-------|-------|----------------|
-| Hadris specification oracle | 18/21 | 18/21 | 18/21 | The 16 generated traces, 16 peer scenarios, and two limit exercises match the model. The failures are the open library bugs listed below. |
+| Hadris specification oracle | 21/21 | 21/21 | 21/21 | All 18 peer scenarios and three geometry-sized limit exercises match the model. |
 | mtools 4.0.49 reader | 14/16 | 14/16 | 14/16 | The two failures are names outside the Basic Multilingual Plane, which mtools transliterates instead of reading as surrogate pairs. |
 | dosfstools `fsck.fat` 4.2 | 16/16 | 16/16 | 16/16 | Every oracle-valid Hadris image passed a read-only structural check. |
 | Rust `fatfs` master (`2aefc2a`) reader | 16/16 | 16/16 | 16/16 | The independent Rust reader reconstructed every oracle-valid tree, surrogate pairs included. |
 | macOS `fsck_msdos` | 2/2 | 2/2 | 2/2 | The curated trace and one deterministic trace passed read-only checks on macOS 26.6.2. |
 
 The per-width oracle count covers the 18 peer scenarios and three limit
-exercises; peers are only measured on the 16 scenarios where Hadris produced
-an oracle-valid reference image. These are bounded interoperability results,
+exercises. The peer rows retain their last recorded 16-scenario qualification
+and use a different denominator. These are bounded interoperability results,
 not claims that the tools accept every possible image Hadris can produce.
-Native writable-mount tests for the Linux `vfat` and macOS FAT drivers are
-also available in the harness, but are reported separately because they
-require host mount privileges.
+Native writable-mount tests for the Linux `vfat` and macOS FAT drivers are also
+available in the harness, but are reported separately because they require
+host mount privileges.
 
-### Open Hadris findings
+### Resolved in 2.3.0
 
-The extended suite records the following library defects; the hosted tests
-`fat::spec::fat_edge_cases_match_spec`,
-`fat::limits::hadris_rejects_invalid_operations`, and
-`fat::limits::hadris_data_region_exhaustion` fail until they are fixed.
+The 2.3.0 suite now gates the following cases, which failed in 2.2.0:
 
 - A rename that only changes the case of an 8.3 name (`lower.txt` to
   `LOWER.TXT`) is refused as an existing entry.
@@ -80,7 +77,7 @@ The extended suite records the following library defects; the hosted tests
 
 | Producer and operations | Completed | Oracle-valid | Additional result |
 |-------------------------|-----------|--------------|-------------------|
-| Hadris | 51/54 traces, 48/87 rejections, 6/9 limits | 48/51 completed traces, 6/9 limits | The failures are the open findings above. |
+| Hadris | 54/54 traces, 87/87 rejections, 9/9 limits | 54/54 completed traces, 9/9 limits | The hosted 2.3.0 suite gates every result. |
 | `mkfs.fat` + mtools 4.0.49 | 44/54 traces, 63/87 rejections, 8/9 limits | 42/44 completed traces, 8/9 limits | Hadris read and `fsck.fat` accepted all completed images. |
 | Rust `fatfs` master (`2aefc2a`) | 39/54 traces, 60/87 rejections, 2/9 limits | 30/39 completed traces, 2/9 limits | Hadris read every oracle-valid image. |
 
