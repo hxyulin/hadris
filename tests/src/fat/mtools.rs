@@ -73,7 +73,7 @@ impl MtoolsFatAdapter {
                 "-i".into(),
                 self.image.as_os_str().into(),
                 "-D".into(),
-                "o".into(),
+                if preserve_attrs { "o" } else { "s" }.into(),
                 source.as_os_str().into(),
                 mtools_path(path).into(),
             ],
@@ -205,6 +205,8 @@ impl FatAdapter for MtoolsFatAdapter {
                     vec![
                         "-i".into(),
                         self.image.as_os_str().into(),
+                        "-D".into(),
+                        "s".into(),
                         mtools_path(path).into(),
                     ],
                 )?;
@@ -228,6 +230,8 @@ impl FatAdapter for MtoolsFatAdapter {
                     vec![
                         "-i".into(),
                         self.image.as_os_str().into(),
+                        "-D".into(),
+                        "s".into(),
                         mtools_path(from).into(),
                         mtools_path(to).into(),
                     ],

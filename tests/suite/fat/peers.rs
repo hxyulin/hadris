@@ -415,6 +415,69 @@ fn external_tools_interoperate_with_hadris() {
 }
 
 #[test]
+fn mtools_collisions_are_noninteractive() {
+    if !mtools::require_tools() {
+        return;
+    }
+    let case = FAT_CASES[0];
+    let workspace = Workspace::new(FORMAT, "mtools-case-only-rename-").unwrap();
+    let image = workspace.path.join("mtools.img");
+    mtools::format(&image, case).unwrap();
+    let mut adapter = MtoolsFatAdapter::new(image, &workspace.path).unwrap();
+    adapter
+        .apply(&Operation::CreateFile {
+            path: "/lower.txt".into(),
+            data: b"contents".to_vec(),
+        })
+        .unwrap();
+    let before = adapter.snapshot().unwrap();
+    assert!(
+        adapter
+            .apply(&Operation::Rename {
+                from: "/lower.txt".into(),
+                to: "/LOWER.TXT".into(),
+            })
+            .is_err()
+    );
+    let after = adapter.snapshot().unwrap();
+    compare_snapshot("mtools rejected case-only rename", &before, &after).unwrap();
+
+    adapter
+        .apply(&Operation::CreateDir {
+            path: "/Long Directory Name".into(),
+        })
+        .unwrap();
+    let before = adapter.snapshot().unwrap();
+    assert!(
+        adapter
+            .apply(&Operation::CreateDir {
+                path: "/long directory name".into(),
+            })
+            .is_err()
+    );
+    let after = adapter.snapshot().unwrap();
+    compare_snapshot("mtools rejected duplicate directory", &before, &after).unwrap();
+
+    adapter
+        .apply(&Operation::CreateFile {
+            path: "/README.TXT".into(),
+            data: b"original".to_vec(),
+        })
+        .unwrap();
+    let before = adapter.snapshot().unwrap();
+    assert!(
+        adapter
+            .apply(&Operation::CreateFile {
+                path: "/readme.txt".into(),
+                data: b"replacement".to_vec(),
+            })
+            .is_err()
+    );
+    let after = adapter.snapshot().unwrap();
+    compare_snapshot("mtools rejected duplicate file", &before, &after).unwrap();
+}
+
+#[test]
 #[ignore = "manual mtools and dosfstools accuracy suite"]
 fn mtools_accuracy_report() {
     assert!(mtools::require_tools());
