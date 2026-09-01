@@ -2,15 +2,15 @@ use std::collections::{BTreeMap, VecDeque};
 use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use super::adapter::FatAdapter;
 use super::model::{EntryState, FsState, Operation};
 use super::{ARCHIVE, FatCase, HIDDEN, LABEL, MUTABLE_ATTRS, READ_ONLY, SYSTEM};
 use crate::harness::command::run_command_with_env;
 use crate::harness::normalize_path;
-use crate::harness::run_command;
 use crate::harness::tree::EntryData;
+use crate::harness::{require_or_skip, run_command};
 
 pub const NAME: &str = "mtools";
 
@@ -312,15 +312,13 @@ pub fn fsck(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn require_tools() -> Result<(), String> {
+pub fn require_tools() -> bool {
     for program in PROGRAMS {
-        Command::new(program)
-            .arg("--help")
-            .env("LC_ALL", "C.UTF-8")
-            .output()
-            .map_err(|error| format!("required external tool {program} is unavailable: {error}"))?;
+        if !require_or_skip(program, "--help") {
+            return false;
+        }
     }
-    Ok(())
+    true
 }
 
 fn mtools_path(path: &str) -> String {

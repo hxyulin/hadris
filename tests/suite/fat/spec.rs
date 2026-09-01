@@ -27,7 +27,6 @@ pub fn run_spec_matrix(operations: &[Operation]) -> Result<(), String> {
 }
 
 #[test]
-#[ignore = "manual FAT specification conformance suite"]
 fn fat_spec_conformance() {
     report_failures(specification_scenarios());
 }

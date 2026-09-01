@@ -371,6 +371,7 @@ fn test_compare_boot_catalogs() {
 }
 
 #[test]
+#[ignore = "requires QEMU system emulation"]
 fn test_qemu_boot_xorriso_iso() {
     if !xorriso::require() {
         return;
@@ -404,6 +405,7 @@ fn test_qemu_boot_xorriso_iso() {
 }
 
 #[test]
+#[ignore = "requires QEMU system emulation"]
 fn test_qemu_boot_hadris_iso() {
     if !qemu::available() {
         eprintln!("skipping: {} is not available", qemu::PROGRAM);

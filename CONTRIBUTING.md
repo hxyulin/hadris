@@ -46,12 +46,16 @@ The oracles are the ground truth. Hadris is measured as one adapter among its
 peers, and a Hadris-to-Hadris round trip is never evidence on its own.
 
 ```bash
-# Hosted suite; run it locally. CI also runs the hosted FAT and ISO slices.
+# Hosted suite. Missing command-line peer tools are skipped locally.
 cargo test --manifest-path tests/Cargo.toml
 
 # One format or topic
 cargo test --manifest-path tests/Cargo.toml fat::
 cargo test --manifest-path tests/Cargo.toml iso::boot::
+
+# Strict tool-backed suite through the repository flake
+nix develop -c env HADRIS_REQUIRE_EXTERNAL_TOOLS=1 \
+  cargo test --manifest-path tests/Cargo.toml
 
 # Match the CI lint and format gates for the suite
 cargo fmt --manifest-path tests/Cargo.toml --all -- --check
@@ -68,18 +72,18 @@ cargo clippy --manifest-path tests/Cargo.toml --all-targets -- -D warnings
 
 #### FAT conformance
 
-The full FAT12/16/32 suite is manual. Its ground truth is a deterministic
-filesystem model plus a test-only raw-image oracle derived from the FAT on-disk
-rules. The oracle independently checks geometry, mirrored FATs, reserved
-entries, FAT32 metadata, cluster chains, cross-links, directory records, LFN
-sequences and checksums, unique short aliases, names, attributes, and contents.
+The FAT12/16/32 specification suite runs by default. Its ground truth is a
+deterministic filesystem model plus a test-only raw-image oracle derived from
+the FAT on-disk rules. The oracle independently checks geometry, mirrored FATs,
+reserved entries, FAT32 metadata, cluster chains, cross-links, directory
+records, LFN sequences and checksums, unique short aliases, names, attributes,
+and contents.
 
 The same harness measures mtools, dosfstools, and the independent Rust `fatfs`
 crate against that ground truth. External-tool mismatches and crashes are
 reported rather than treated as authoritative failures. The peer reports use
 short, isolated scenarios so one failed operation does not mask the remainder
-of a generated trace. The Nix shell supplies the command-line tools and uses
-the repository's Rust toolchain.
+of a generated trace. The repository flake supplies mtools and dosfstools.
 
 Besides the operation traces, every implementation is scored on rejection
 scenarios (case-insensitive duplicates, moves into a directory's own subtree,
@@ -93,7 +97,7 @@ measurement.
 
 ```bash
 cargo test --manifest-path tests/Cargo.toml \
-  fat::spec::fat_spec_conformance -- --ignored --exact --nocapture
+  fat::spec::fat_spec_conformance -- --exact --nocapture
 
 cargo test --manifest-path tests/Cargo.toml \
   fat::peers::fatfs_accuracy_report -- --ignored --exact --nocapture
@@ -143,8 +147,9 @@ cargo test --manifest-path tests/Cargo.toml \
   iso::spec::hadris_iso_matches_ecma_119_oracle -- --exact
 ```
 
-The Nix shell supplies xorriso/libisofs and the original cdrtools `mkisofs`.
-The peer report checks images in both directions where the tool supports them:
+The repository flake supplies xorriso/libisofs and the original cdrtools
+`mkisofs`. The peer report checks images in both directions where the tool
+supports them:
 
 ```bash
 nix develop -c cargo test --manifest-path tests/Cargo.toml \

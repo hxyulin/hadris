@@ -49,7 +49,8 @@ tests/
   suite/              the single test binary
     main.rs
     fat/{spec,limits,peers,native}.rs
-    iso/{spec,peers,native,volume_descriptors,directory,rock_ridge,boot,hybrid}.rs
+    iso/{spec,peers,native,volume_descriptors,directory,multi_extent,
+         rock_ridge,boot,hybrid}.rs
 ```
 
 Tests are addressed as `<format>::<topic>::<name>`:
@@ -59,10 +60,17 @@ cargo test --manifest-path tests/Cargo.toml              # hosted suite
 cargo test --manifest-path tests/Cargo.toml fat::        # one format
 cargo test --manifest-path tests/Cargo.toml iso::boot::  # one topic
 cargo test --manifest-path tests/Cargo.toml -- --ignored # manual peer reports
+
+# Require every command-line peer tool through the repository flake
+nix develop -c env HADRIS_REQUIRE_EXTERNAL_TOOLS=1 \
+  cargo test --manifest-path tests/Cargo.toml
 ```
 
-Manual reports and privileged native-mount checks are `#[ignore]`d; the
-commands and environment variables are documented in the repository
+FAT and ISO use the same three test tiers. Hosted oracle tests always run.
+External-tool interoperability tests skip when their tools are absent, while
+CI sets `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` to make them mandatory. Accuracy
+reports, QEMU checks, and privileged native-mount checks are `#[ignore]`d.
+The commands and environment variables are documented in the repository
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#conformance-and-interoperability-suite).
 Reports are written to `tests/target/reports/<format>/`.
 
@@ -84,8 +92,9 @@ Reports are written to `tests/target/reports/<format>/`.
   (or `harness::require_or_skip`) so they skip locally and fail when
   `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
 
-CI runs the hosted FAT and ISO slices, and also formats and lints the package.
-Manual peer reports and privileged native-mount checks remain ignored.
+CI runs both format slices with their command-line peer tools installed, and
+also formats and lints the package. Manual accuracy reports, QEMU checks, and
+privileged native-mount checks remain ignored.
 
 - When a test is cited as compliance evidence, reference it as
   `<format>::<topic>::<name>` in `@hadris-tests` annotations and

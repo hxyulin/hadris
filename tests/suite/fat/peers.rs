@@ -391,9 +391,33 @@ fn fatfs_dot_entries_match_spec() {
 }
 
 #[test]
-#[ignore = "requires mtools and dosfstools; run through nix develop"]
+fn external_tools_interoperate_with_hadris() {
+    if !mtools::require_tools() {
+        return;
+    }
+    let operations = hadris_tests::fat::scenarios::curated_operations();
+    let mut scorecard = mtools_scorecard();
+    for case in FAT_CASES {
+        measure_mtools(case, "curated", &operations, &mut scorecard).unwrap_or_else(|error| {
+            panic!(
+                "{} curated: {error}\ntrace:\n{}",
+                case.name,
+                format_trace(&operations)
+            )
+        });
+    }
+    scorecard
+        .require_all(&[
+            (MTOOLS_READS, FAT_CASES.len()),
+            (FSCK_HADRIS, FAT_CASES.len()),
+        ])
+        .unwrap();
+}
+
+#[test]
+#[ignore = "manual mtools and dosfstools accuracy suite"]
 fn mtools_accuracy_report() {
-    mtools::require_tools().unwrap();
+    assert!(mtools::require_tools());
     let mut scorecard = mtools_scorecard();
     for (scenario, operations) in interoperability_scenarios() {
         for case in FAT_CASES {
