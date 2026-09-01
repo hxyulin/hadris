@@ -32,6 +32,12 @@ pub struct FileWriter<'a, DATA: Read + Write + Seek> {
     offset_in_cluster: usize,
     /// Total bytes written so far
     total_written: usize,
+    /// First cluster allocated by this writer beyond the entry's committed chain.
+    first_allocated_cluster: Option<Cluster<usize>>,
+    /// Committed chain tail that precedes `first_allocated_cluster`.
+    allocation_predecessor: Option<Cluster<usize>>,
+    allocation_start_offset: usize,
+    allocation_start_total_written: usize,
     /// Parent directory cluster (0 for fixed root directory)
     entry_parent: Cluster<usize>,
     /// Offset of the directory entry within the parent
@@ -115,6 +121,10 @@ impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
             current_cluster: first_cluster,
             offset_in_cluster: 0,
             total_written: 0,
+            first_allocated_cluster: None,
+            allocation_predecessor: None,
+            allocation_start_offset: 0,
+            allocation_start_total_written: 0,
             entry_parent: entry.parent_clus,
             entry_offset: entry.offset_within_cluster,
             entry_short_name: entry.short_name,
@@ -159,6 +169,10 @@ entry_created: entry.created,
                 current_cluster: first_cluster,
                 offset_in_cluster: 0,
                 total_written: 0,
+                first_allocated_cluster: None,
+                allocation_predecessor: None,
+                allocation_start_offset: 0,
+                allocation_start_total_written: 0,
                 entry_parent: entry.parent_clus,
                 entry_offset: entry.offset_within_cluster,
                 entry_short_name: entry.short_name,
@@ -205,6 +219,10 @@ entry_created: entry.created,
             current_cluster: Some(current),
             offset_in_cluster: offset_in_last,
             total_written: file_size,
+            first_allocated_cluster: None,
+            allocation_predecessor: None,
+            allocation_start_offset: 0,
+            allocation_start_total_written: 0,
             entry_parent: entry.parent_clus,
             entry_offset: entry.offset_within_cluster,
             entry_short_name: entry.short_name,
@@ -246,7 +264,13 @@ entry_created: entry.created,
                         // acquires both cache+data locks internally in
                         // canonical order.
                         let hint = self.current_cluster.map(|c| c.0 as u32 + 1).unwrap_or(2);
-                        let new_cluster = self.fs.allocate_cluster_routed(hint).await?;
+                        let new_cluster = match self.fs.allocate_cluster_routed(hint).await {
+                            Ok(cluster) => cluster,
+                            Err(error) => {
+                                self.rollback_allocated_clusters().await?;
+                                return Err(error);
+                            }
+                        };
 
                         // Update FSInfo tracking (FAT32 only)
                         self.fs.decrement_free_count();
@@ -254,7 +278,28 @@ entry_created: entry.created,
 
                         // Link previous cluster to the new one (also routed).
                         if let Some(prev) = self.current_cluster {
-                            self.fs.write_clus_routed(prev.0, new_cluster).await?;
+                            if let Err(error) =
+                                self.fs.write_clus_routed(prev.0, new_cluster).await
+                            {
+                                self.fs.write_clus_routed(prev.0, u32::MAX).await?;
+                                let freed = self.fs.free_chain_routed(new_cluster).await?;
+                                self.fs.increment_free_count(freed);
+                                self.fs.update_next_free_hint(new_cluster - 1);
+                                if self.first_allocated_cluster.is_some() {
+                                    self.rollback_allocated_clusters().await?;
+                                } else {
+                                    self.fs.write_fsinfo().await?;
+                                }
+                                return Err(error);
+                            }
+                        }
+
+                        if self.first_allocated_cluster.is_none() {
+                            self.first_allocated_cluster =
+                                Some(Cluster(new_cluster as usize));
+                            self.allocation_predecessor = self.current_cluster;
+                            self.allocation_start_offset = self.offset_in_cluster;
+                            self.allocation_start_total_written = self.total_written;
                         }
 
                         new_cluster
@@ -289,6 +334,26 @@ entry_created: entry.created,
         }
 
         Ok(written)
+    }
+
+    async fn rollback_allocated_clusters(&mut self) -> Result<()> {
+        let Some(first) = self.first_allocated_cluster.take() else {
+            return Ok(());
+        };
+        let predecessor = self.allocation_predecessor.take();
+        if let Some(previous) = predecessor {
+            self.fs.write_clus_routed(previous.0, u32::MAX).await?;
+        } else {
+            self.first_cluster = None;
+        }
+        let freed = self.fs.free_chain_routed(first.0 as u32).await?;
+        self.fs.increment_free_count(freed);
+        self.fs.update_next_free_hint(first.0 as u32 - 1);
+        self.fs.write_fsinfo().await?;
+        self.current_cluster = predecessor;
+        self.offset_in_cluster = self.allocation_start_offset;
+        self.total_written = self.allocation_start_total_written;
+        Ok(())
     }
 
     /// Get the total number of bytes written.
@@ -706,6 +771,21 @@ fn short_name_case_bits(name: &str) -> Option<u8> {
     Some(bits)
 }
 
+#[cfg(feature = "write")]
+fn validate_file_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.encode_utf16().count() > crate::file::LFN_MAX_UTF16_UNITS
+        || name.chars().any(|ch| {
+            ch <= '\u{1f}' || matches!(ch, '"' | '*' | '/' | ':' | '<' | '>' | '?' | '\\' | '|')
+        })
+    {
+        return Err(Error::InvalidFilename);
+    }
+    Ok(())
+}
+
 /// Maximum number of LFN entries we'll walk backward when cleaning up
 /// orphaned long-name slots on delete/rename. The FAT spec caps at 20
 /// entries per name; bounding the scan defends against corrupt directory
@@ -876,6 +956,7 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
         &self,
         parent: &FatDir<'_, DATA>,
         name: &str,
+        exclude: Option<&FileEntry>,
     ) -> Result<(ShortFileName, bool)> {
         for suffix in 0..=u8::MAX {
             let candidate =
@@ -885,6 +966,12 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
             let mut entries = parent.entries();
             while let Some(entry) = entries.next_entry().await {
                 let DirectoryEntry::Entry(entry) = entry?;
+                if exclude.is_some_and(|excluded| {
+                    entry.parent_clus == excluded.parent_clus
+                        && entry.offset_within_cluster == excluded.offset_within_cluster
+                }) {
+                    continue;
+                }
                 if entry.short_name().raw_bytes() == candidate.raw_bytes() {
                     collision = true;
                     break;
@@ -1374,13 +1461,14 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         // clusters: if the directory was deleted and its cluster reused, new
         // entries would land in an unrelated file's data.
         self.revalidate_parent_dir(parent).await?;
+        validate_file_name(name)?;
 
         // Check if entry already exists
         if parent.find(name).await?.is_some() {
             return Err(Error::AlreadyExists);
         }
 
-        let (short_name, collided) = self.unique_short_name(parent, name).await?;
+        let (short_name, collided) = self.unique_short_name(parent, name, None).await?;
         #[cfg(not(feature = "lfn"))]
         let _ = collided;
 
@@ -1485,13 +1573,14 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         // Reject a stale parent handle before scanning or writing into its
         // clusters (see create_file).
         self.revalidate_parent_dir(parent).await?;
+        validate_file_name(name)?;
 
         // Check if entry already exists
         if parent.find(name).await?.is_some() {
             return Err(Error::AlreadyExists);
         }
 
-        let (short_name, collided) = self.unique_short_name(parent, name).await?;
+        let (short_name, collided) = self.unique_short_name(parent, name, None).await?;
         #[cfg(not(feature = "lfn"))]
         let _ = collided;
 
@@ -1711,6 +1800,56 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         Ok(())
     }
 
+    async fn directory_is_within(
+        &self,
+        mut directory: Cluster<usize>,
+        ancestor: Cluster<usize>,
+    ) -> Result<bool> {
+        let mut steps = 0u32;
+        while directory.0 >= 2 {
+            if directory == ancestor {
+                return Ok(true);
+            }
+            if self.is_fat32_root_cluster(directory.0 as u32) {
+                break;
+            }
+            steps = steps.saturating_add(1);
+            if steps > self.fat.max_cluster() {
+                return Err(Error::ClusterLoop {
+                    cluster: directory.0 as u32,
+                });
+            }
+
+            let parent = {
+                let mut data = self.data.lock();
+                let position = directory.to_bytes(self.info.data_start, self.info.cluster_size)
+                    + core::mem::size_of::<RawDirectoryEntry>();
+                data.seek(SeekFrom::Start(position as u64)).await?;
+                let raw = data.read_struct::<RawDirectoryEntry>().await?;
+                let entry = unsafe { &raw.file };
+                if entry.name != *b"..         "
+                    || entry.attributes & DirEntryAttrFlags::DIRECTORY.bits() == 0
+                {
+                    return Err(Error::CorruptFilesystem {
+                        context: "directory parent entry",
+                    });
+                }
+                match &self.fat {
+                    Fat::Fat12(_) | Fat::Fat16(_) => entry.first_cluster_low.get() as usize,
+                    Fat::Fat32(_) => {
+                        ((entry.first_cluster_high.get() as usize) << 16)
+                            | entry.first_cluster_low.get() as usize
+                    }
+                }
+            };
+            if parent == 0 {
+                break;
+            }
+            directory = Cluster(parent);
+        }
+        Ok(false)
+    }
+
     /// Rename or move a file or directory.
     ///
     /// Creates a new directory entry with `new_name` in `dest_dir`, copying
@@ -1730,13 +1869,26 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         // slot: otherwise a reused handle would clone another file's chain
         // under `new_name`, or resurrect a deleted entry.
         self.revalidate_entry(entry).await?;
+        self.revalidate_parent_dir(dest_dir).await?;
+        validate_file_name(new_name)?;
+
+        if entry.is_directory()
+            && self
+                .directory_is_within(dest_dir.cluster, entry.cluster())
+                .await?
+        {
+            return Err(Error::InvalidPath);
+        }
 
         // Check if destination already has this name
-        if dest_dir.find(new_name).await?.is_some() {
+        if let Some(existing) = dest_dir.find(new_name).await?
+            && (existing.parent_clus != entry.parent_clus
+                || existing.offset_within_cluster != entry.offset_within_cluster)
+        {
             return Err(Error::AlreadyExists);
         }
 
-        let (short_name, collided) = self.unique_short_name(dest_dir, new_name).await?;
+        let (short_name, collided) = self.unique_short_name(dest_dir, new_name, Some(entry)).await?;
         #[cfg(not(feature = "lfn"))]
         let _ = collided;
 
@@ -2136,8 +2288,12 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
         use super::fs::FatFsExt;
 
         if let FatFsExt::Fat32(ext) = &self.ext {
-            // Set hint to the cluster after the one just allocated
-            ext.next_free.set(Cluster(cluster.saturating_add(1)));
+            let next = if cluster >= self.fat.max_cluster() {
+                2
+            } else {
+                cluster.saturating_add(1).max(2)
+            };
+            ext.next_free.set(Cluster(next));
         }
     }
 

@@ -138,7 +138,7 @@ pub fn exercise_data_region(
     oracle: &mut Oracle<'_>,
 ) -> Result<(), String> {
     let geometry = checks.geometry;
-    let clusters_per_chunk = (geometry.cluster_count as usize / 48).max(65);
+    let clusters_per_chunk = (geometry.cluster_count as usize / 512).max(65);
     let chunk = clusters_per_chunk * geometry.cluster_size + 1;
     let mut expected = FsState::empty();
     step(

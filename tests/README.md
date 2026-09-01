@@ -84,9 +84,9 @@ Reports are written to `tests/target/reports/<format>/`.
   (or `harness::require_or_skip`) so they skip locally and fail when
   `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
 
-CI does not run the suite at the moment: three hosted FAT tests fail on
-recorded `hadris-fat` defects (see the compliance profile). CI still formats
-and lints the package.
+CI runs the hosted FAT and ISO slices, and also formats and lints the package.
+Manual peer reports and privileged native-mount checks remain ignored.
+
 - When a test is cited as compliance evidence, reference it as
   `<format>::<topic>::<name>` in `@hadris-tests` annotations and
   `docs/spec-coverage.md`, and by file path in `spec/requirements/*.json`.

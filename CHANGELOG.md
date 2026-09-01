@@ -16,6 +16,14 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-fat:** FAT name handling is now case-insensitive for long names,
+  rejects reserved characters, permits case-only renames, prevents moving a
+  directory into its own subtree, and generates valid aliases for leading-dot
+  names. Readers still accept existing nonconforming names and prefer an exact
+  long-name match when an old image contains entries that differ only by case.
+- **hadris-fat:** Failed writes caused by a full data region now release their
+  uncommitted clusters and persist a valid FAT32 FSInfo count and next-free
+  hint instead of leaving orphaned allocations or stale metadata.
 - **hadris-fat:** File and directory creation and rename now allocate distinct
   8.3 aliases when long filenames share the same generated short name. Such
   entries previously appeared through their long names but were rejected as

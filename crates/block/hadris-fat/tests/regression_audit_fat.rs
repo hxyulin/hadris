@@ -92,6 +92,9 @@ mod fat32_image {
     pub const fn fat_start_bytes() -> usize {
         RESERVED_SECTORS as usize * SECTOR_SIZE
     }
+    pub const fn data_start_bytes() -> usize {
+        (RESERVED_SECTORS as usize + FAT_COUNT as usize * SECTORS_PER_FAT as usize) * SECTOR_SIZE
+    }
 
     /// Count non-free FAT32 entries (index >= 2) in the primary FAT.
     /// A "free" entry is 0x0000000 (after masking off the top 4 bits).
@@ -745,6 +748,153 @@ fn b3_finish_reports_io_error_instead_of_dirty_panic() {
     match result {
         Err(Error::Io(_)) => {}
         other => panic!("finish() must report the I/O error, got {other:?}"),
+    }
+}
+
+#[test]
+fn b4_failed_cluster_link_releases_the_unlinked_allocation() {
+    let fs = FatVolume::open(fail_link::device(fat32_image::create_fat32_image())).expect("open");
+    let root = fs.root_dir();
+    let entry = fs.create_file(&root, "LINKFAIL.BIN").expect("create");
+    let free_before = fs.free_cluster_count().expect("fat32 free count");
+
+    let mut writer = fs.write_file(&entry).expect("writer");
+    fail_link::arm();
+    let result = writer.write(&vec![0x5a; fat32_image::cluster_size() * 2]);
+
+    match result {
+        Err(Error::Io(_)) => {}
+        other => panic!("second cluster link must report the I/O error, got {other:?}"),
+    }
+
+    writer.finish().expect("finish rolled-back file");
+    assert_eq!(
+        fs.free_cluster_count(),
+        Some(free_before),
+        "failed link leaked an unlinked cluster"
+    );
+}
+
+#[test]
+fn legacy_case_colliding_long_names_prefer_exact_match() {
+    let fs = FatVolume::open(fat32_image::create_fat32_image()).expect("open");
+    let root = fs.root_dir();
+    fs.create_file(&root, "Legacy-One.txt").expect("first");
+    fs.create_file(&root, "Legacy-Two.txt").expect("second");
+
+    let first = root
+        .find("Legacy-One.txt")
+        .expect("find first")
+        .expect("first exists");
+    let second = root
+        .find("Legacy-Two.txt")
+        .expect("find second")
+        .expect("second exists");
+    let first_short = first.short_name().raw_bytes();
+    let second_short = second.short_name().raw_bytes();
+    let second_lfn_offset = fat32_image::data_start_bytes() + second.offset_within_cluster - 64;
+
+    let mut image = fs.into_inner().into_inner();
+    legacy_lfn::replace_two_entry_name(
+        &mut image[second_lfn_offset..second_lfn_offset + 64],
+        "LEGACY-ONE.TXT",
+    );
+
+    let fs = FatVolume::open(std::io::Cursor::new(image)).expect("reopen");
+    let root = fs.root_dir();
+    assert_eq!(
+        root.find("Legacy-One.txt")
+            .expect("find mixed case")
+            .expect("mixed case exists")
+            .short_name()
+            .raw_bytes(),
+        first_short
+    );
+    assert_eq!(
+        root.find("LEGACY-ONE.TXT")
+            .expect("find uppercase")
+            .expect("uppercase exists")
+            .short_name()
+            .raw_bytes(),
+        second_short
+    );
+}
+
+mod legacy_lfn {
+    const UNITS_PER_ENTRY: usize = 13;
+    const NAME_OFFSETS: [usize; UNITS_PER_ENTRY] = [1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30];
+
+    pub fn replace_two_entry_name(entries: &mut [u8], name: &str) {
+        let mut units = [0xffff; UNITS_PER_ENTRY * 2];
+        let mut len = 0;
+        for unit in name.encode_utf16() {
+            units[len] = unit;
+            len += 1;
+        }
+        units[len] = 0;
+        write_entry(&mut entries[..32], &units[UNITS_PER_ENTRY..]);
+        write_entry(&mut entries[32..], &units[..UNITS_PER_ENTRY]);
+    }
+
+    fn write_entry(entry: &mut [u8], units: &[u16]) {
+        for (offset, unit) in NAME_OFFSETS.iter().zip(units) {
+            entry[*offset..*offset + 2].copy_from_slice(&unit.to_le_bytes());
+        }
+    }
+}
+
+mod fail_link {
+    use std::cell::Cell;
+    use std::io::{Cursor, Read, Result, Seek, SeekFrom, Write};
+
+    const FIRST_FILE_CLUSTER: u64 = 3;
+    const SECOND_FILE_CLUSTER: u32 = 4;
+
+    thread_local! {
+        static ARMED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub fn arm() {
+        ARMED.with(|armed| armed.set(true));
+    }
+
+    pub struct FailSecondClusterLink(Cursor<Vec<u8>>);
+
+    pub fn device(inner: Cursor<Vec<u8>>) -> FailSecondClusterLink {
+        FailSecondClusterLink(inner)
+    }
+
+    impl Write for FailSecondClusterLink {
+        fn write(&mut self, buf: &[u8]) -> Result<usize> {
+            let value = buf
+                .get(..4)
+                .and_then(|bytes| bytes.try_into().ok())
+                .map(u32::from_le_bytes);
+            let link_offset = super::fat32_image::fat_start_bytes() as u64 + FIRST_FILE_CLUSTER * 4;
+            if self.0.position() == link_offset
+                && value == Some(SECOND_FILE_CLUSTER)
+                && ARMED.with(|armed| armed.replace(false))
+            {
+                return Err(std::io::Error::other("injected cluster-link failure"));
+            }
+            self.0.write(buf)
+        }
+
+        fn flush(&mut self) -> Result<()> {
+            self.0.flush()
+        }
+    }
+
+    impl Read for FailSecondClusterLink {
+        fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+            self.0.read(buf)
+        }
+    }
+
+    impl Seek for FailSecondClusterLink {
+        fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+            self.0.seek(pos)
+        }
     }
 }
 
