@@ -597,6 +597,7 @@ impl PendingRecords {
     /// Identifier (ECMA-119 9.3). Sizes never depend on extent values, so
     /// the planning pass calls this with placeholder refs and the write pass
     /// rebuilds with the real ones.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         ty: EntryType,
         dir: &WrittenDirectory,
@@ -605,6 +606,7 @@ impl PendingRecords {
         rrip_options: Option<&RripOptions>,
         fallback_time: &RripTime,
         relocation_refs: &BTreeMap<(usize, EntryType), DirectoryRef>,
+        sector_size: u64,
     ) -> io::Result<Self> {
         let rrip_options = rrip_options.filter(|options| options.enabled);
         let has_rrip = ty.supports_rrip() && rrip_options.is_some();
@@ -650,6 +652,7 @@ impl PendingRecords {
             &options,
             inode_counter,
             fallback_time,
+            sector_size,
         )?;
 
         Self::deduplicate_names(&mut records, ty);
@@ -778,6 +781,7 @@ impl PendingRecords {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_file_records(
         records: &mut Vec<PendingRecord>,
         files: &[WrittenFile],
@@ -786,6 +790,7 @@ impl PendingRecords {
         options: &RripOptions,
         inode_counter: &mut u32,
         fallback_time: &RripTime,
+        sector_size: u64,
     ) -> io::Result<()> {
         for file in files {
             let converted_name = ty.convert_name(&file.name);
@@ -805,7 +810,11 @@ impl PendingRecords {
                 SplitSu::empty()
             };
 
-            let first_flags = if file.additional_extents.is_empty() {
+            let len = file.kind.file_len().unwrap_or(file.entry.size as u64);
+            let cursor = file.entry.extent.0 as u64 * sector_size;
+            let mut additional_extents =
+                ExtentIter::new(len, cursor, sector_size).skip(1).peekable();
+            let first_flags = if additional_extents.peek().is_none() {
                 FileFlags::empty()
             } else {
                 FileFlags::NOT_FINAL
@@ -814,15 +823,11 @@ impl PendingRecords {
             let first = PendingRecord::new(&converted_name, split, file.entry, first_flags);
             records.push(first);
 
-            // Push additional extents (multi-extent files)
-            // ECMA-119 9.1.4: Each extent gets its own directory record
-            // with the same file identifier.
-            let len = file.additional_extents.len();
-            for (i, dir_ref) in file.additional_extents.iter().cloned().enumerate() {
-                let flags = if i == len - 1 {
-                    FileFlags::empty() // Last extent
+            while let Some((dir_ref, _)) = additional_extents.next() {
+                let flags = if additional_extents.peek().is_none() {
+                    FileFlags::empty()
                 } else {
-                    FileFlags::NOT_FINAL // Middle extents
+                    FileFlags::NOT_FINAL
                 };
 
                 let record = PendingRecord::new(&converted_name, SplitSu::empty(), dir_ref, flags);
@@ -991,10 +996,6 @@ pub struct ExtentIter {
 }
 
 impl ExtentIter {
-    // ECMA-119 6.5.4: Non-final extents must be multiples of the logical block size.
-    // Maximum extent size is floor(u32::MAX / 2048) * 2048 = 4,294,965,248.
-    const MAX_EXTENT_SIZE: u64 = (u32::MAX as u64 / 2048) * 2048;
-
     /// Creates a new extent iterator.
     pub fn new(len: u64, cursor: u64, sector_size: u64) -> Self {
         Self {
@@ -1004,7 +1005,13 @@ impl ExtentIter {
         }
     }
 
+    // ECMA-119 6.5.4: Non-final extents must be multiples of the logical block size.
+    fn max_extent_size(&self) -> u64 {
+        (u32::MAX as u64 / self.sector_size) * self.sector_size
+    }
+
     /// Collects all extents into a `Vec<DirectoryRef>` and returns the final cursor.
+    #[cfg(test)]
     pub fn collect_with_cursor(self) -> (Vec<DirectoryRef>, u64) {
         let mut extents = Vec::new();
         let mut cursor = self.cursor;
@@ -1026,11 +1033,7 @@ impl Iterator for ExtentIter {
             return None;
         }
 
-        let chunk = if self.remaining > Self::MAX_EXTENT_SIZE {
-            Self::MAX_EXTENT_SIZE
-        } else {
-            self.remaining
-        };
+        let chunk = self.remaining.min(self.max_extent_size());
 
         let aligned = (self.cursor + self.sector_size - 1) & !(self.sector_size - 1);
         let extent = DirectoryRef::new((aligned / self.sector_size) as usize, chunk as usize);
@@ -1064,6 +1067,20 @@ mod tests {
         let expected_sector: u64 = 4_294_965_248 / 2048;
         assert_eq!(extents[1].extent.0, expected_sector as usize);
 
+        assert_eq!(final_cursor, len);
+    }
+
+    #[test]
+    fn extent_iter_aligns_non_final_extents_to_sector_size() {
+        let sector_size = 4096;
+        let len = u32::MAX as u64 + 1;
+        let (extents, final_cursor) = ExtentIter::new(len, 0, sector_size).collect_with_cursor();
+
+        assert_eq!(extents.len(), 2);
+        assert_eq!(extents[0].size as u64, 4_294_963_200);
+        assert_eq!(extents[0].size as u64 % sector_size, 0);
+        assert_eq!(extents[1].size as u64, len - 4_294_963_200);
+        assert_eq!(extents[1].extent.0 as u64, 4_294_963_200 / sector_size);
         assert_eq!(final_cursor, len);
     }
 

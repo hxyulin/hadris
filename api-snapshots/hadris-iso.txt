@@ -4146,7 +4146,6 @@ impl hadris_iso::write::writer::WrittenDirectory
 pub fn hadris_iso::write::writer::WrittenDirectory::new(alloc::sync::Arc<alloc::string::String>) -> Self
 pub fn hadris_iso::write::writer::WrittenDirectory::push_dir(&mut self, alloc::sync::Arc<alloc::string::String>, hadris_iso::write::InputMetadata) -> usize
 pub struct hadris_iso::sync::write::writer::WrittenFile
-pub hadris_iso::sync::write::writer::WrittenFile::additional_extents: alloc::vec::Vec<hadris_iso::directory::DirectoryRef>
 pub hadris_iso::sync::write::writer::WrittenFile::entry: hadris_iso::directory::DirectoryRef
 pub hadris_iso::sync::write::writer::WrittenFile::kind: hadris_iso::write::InputEntryKind
 pub hadris_iso::sync::write::writer::WrittenFile::metadata: hadris_iso::write::InputMetadata
@@ -4640,7 +4639,6 @@ impl hadris_iso::write::writer::WrittenDirectory
 pub fn hadris_iso::write::writer::WrittenDirectory::new(alloc::sync::Arc<alloc::string::String>) -> Self
 pub fn hadris_iso::write::writer::WrittenDirectory::push_dir(&mut self, alloc::sync::Arc<alloc::string::String>, hadris_iso::write::InputMetadata) -> usize
 pub struct hadris_iso::write::writer::WrittenFile
-pub hadris_iso::write::writer::WrittenFile::additional_extents: alloc::vec::Vec<hadris_iso::directory::DirectoryRef>
 pub hadris_iso::write::writer::WrittenFile::entry: hadris_iso::directory::DirectoryRef
 pub hadris_iso::write::writer::WrittenFile::kind: hadris_iso::write::InputEntryKind
 pub hadris_iso::write::writer::WrittenFile::metadata: hadris_iso::write::InputMetadata

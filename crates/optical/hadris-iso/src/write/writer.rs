@@ -255,8 +255,7 @@ impl WrittenDirectory {
 
 /// A file that has been written to the ISO image.
 ///
-/// Contains the file's name, location on disk, and metadata.
-/// Large files (>4 GiB) may have multiple extents.
+/// Contains the file's name, first extent, contents, and metadata.
 #[derive(Debug)]
 pub struct WrittenFile {
     /// Original filename.
@@ -267,19 +266,6 @@ pub struct WrittenFile {
     /// For most files, this is the only extent.
     /// For multi-extent files (>4 GiB), this is the first chunk.
     pub entry: DirectoryRef,
-
-    /// Additional extents for files larger than 4 GiB.
-    ///
-    /// ISO 9660 limits each extent to 4 GiB (u32::MAX bytes).
-    /// Files exceeding this are split into multiple extents.
-    /// This vector contains all extents after the first.
-    ///
-    /// # Example
-    /// A 10 GiB file would have:
-    /// - `entry`: first 4 GiB
-    /// - `additional_extents[0]`: next 4 GiB
-    /// - `additional_extents[1]`: remaining 2 GiB
-    pub additional_extents: Vec<DirectoryRef>,
 
     /// File contents or directory children.
     pub kind: InputEntryKind,
@@ -296,7 +282,6 @@ impl WrittenFile {
         Self {
             name,
             entry: DirectoryRef::default(),
-            additional_extents: Vec::new(),
             kind,
             metadata,
         }
@@ -314,17 +299,9 @@ impl WrittenFile {
         Self {
             name,
             entry: extent,
-            additional_extents: Vec::new(),
             kind,
             metadata,
         }
-    }
-
-    /// Returns all extents for this file.
-    ///
-    /// The first extent is `entry`, followed by any additional extents.
-    pub(crate) fn extents(&self) -> impl Iterator<Item = &DirectoryRef> {
-        core::iter::once(&self.entry).chain(self.additional_extents.iter())
     }
 }
 

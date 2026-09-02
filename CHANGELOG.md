@@ -33,6 +33,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-iso:** Multi-extent directory planning now counts continuation
+  records before assigning file data, preventing creation failures when a
+  continuation crosses a directory-sector boundary. `WrittenFile` retains its
+  v2.2 field layout for source compatibility.
 - **hadris-fat:** FAT name handling is now case-insensitive for long names,
   rejects reserved characters, permits case-only renames, prevents moving a
   directory into its own subtree, and generates valid aliases for leading-dot
@@ -45,6 +49,9 @@ Each published package owns its version and may be released independently.
   8.3 aliases when long filenames share the same generated short name. Such
   entries previously appeared through their long names but were rejected as
   duplicate directory entries by `fsck.fat`.
+- **hadris-iso:** Non-final extents of multi-extent files are now sized as a
+  multiple of the configured logical block size instead of always 2048 bytes,
+  as required by ECMA-119 6.5.4.
 
 ## [2.2.0] - 2026-08-24
 
