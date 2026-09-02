@@ -45,6 +45,9 @@ Each published package owns its version and may be released independently.
   8.3 aliases when long filenames share the same generated short name. Such
   entries previously appeared through their long names but were rejected as
   duplicate directory entries by `fsck.fat`.
+- **hadris-iso:** Non-final extents of multi-extent files are now sized as a
+  multiple of the configured logical block size instead of always 2048 bytes,
+  as required by ECMA-119 6.5.4.
 
 ## [2.2.0] - 2026-08-24
 
