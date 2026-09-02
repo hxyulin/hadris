@@ -12,11 +12,11 @@ Hosted `std::io` readers work directly. Embedded devices implementing
 [dependencies]
 embedded-io = "0.7"
 hadris-fat = {
-  version = "2.2.0",
+  version = "2.3.0",
   default-features = false,
   features = ["read", "sync"]
 }
-hadris-io = { version = "2.2.0", default-features = false, features = ["sync"] }
+hadris-io = { version = "2.3.0", default-features = false, features = ["sync"] }
 ```
 
 ```rust,ignore

@@ -21,6 +21,8 @@
             pkgs.cdrtools
             pkgs.dosfstools
             pkgs.mtools
+            pkgs.python3
+            pkgs.qemu
             pkgs.xorriso
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.util-linux

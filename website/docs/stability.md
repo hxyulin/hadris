@@ -4,14 +4,14 @@ title: Stability and compatibility
 
 # Stability and compatibility
 
-Hadris 2.2.0 is the current stable release of the V2 API, first stabilized in
+Hadris 2.3.0 is the current stable release of the V2 API, first stabilized in
 2.0.0. The public surface frozen during the release-candidate series follows
 Semantic Versioning: within the `2.x` series, breaking changes require a new
 major version, minor releases add backward-compatible functionality, and patch
 releases carry correctness fixes, interoperability qualification, and
 documentation.
 
-Read the [2.2.0 changelog](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md#210---2026-08-18)
+Read the [2.3.0 changelog](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md#230---2026-09-02)
 or the [V2 upgrade notes](https://github.com/hxyulin/hadris/blob/main/docs/hadris-2.0.0-release-notes.md),
 and report real-world compatibility findings through
 [GitHub Issues](https://github.com/hxyulin/hadris/issues).

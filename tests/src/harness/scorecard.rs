@@ -105,6 +105,25 @@ impl Scorecard {
         self.passed(label) == self.attempted(label)
     }
 
+    pub fn require_all(&self, metrics: &[(&str, usize)]) -> Result<(), String> {
+        let incomplete = metrics
+            .iter()
+            .filter(|(label, expected)| {
+                self.attempted(label) != *expected || self.passed(label) != *expected
+            })
+            .map(|(label, expected)| format!("{label} (expected {expected})"))
+            .collect::<Vec<_>>();
+        if incomplete.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "required metrics did not pass: {}\n{}",
+                incomplete.join(", "),
+                self.report()
+            ))
+        }
+    }
+
     pub fn report(&self) -> String {
         let (passed, attempted) = self
             .metrics
@@ -134,5 +153,26 @@ impl Scorecard {
         ));
         lines.extend(self.details.iter().cloned());
         lines.join("\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Scorecard;
+
+    #[test]
+    fn required_metrics_must_be_attempted() {
+        let scorecard = Scorecard::new("peer");
+        assert!(scorecard.require_all(&[("read", 1)]).is_err());
+    }
+
+    #[test]
+    fn required_metrics_must_all_pass() {
+        let mut scorecard = Scorecard::new("peer");
+        scorecard.attempt("read");
+        assert!(scorecard.require_all(&[("read", 1)]).is_err());
+        scorecard.pass("read");
+        assert!(scorecard.require_all(&[("read", 1)]).is_ok());
+        assert!(scorecard.require_all(&[("read", 2)]).is_err());
     }
 }

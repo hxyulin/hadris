@@ -17,7 +17,7 @@ layers coherent without hiding format-specific capabilities.
 
 Hadris follows [Semantic Versioning](https://semver.org/). The
 release-candidate series completed the V2 feature and public-API freeze, and
-`2.2.0` is the current stable release of that API. Within the `2.x` series,
+`2.3.0` is the current stable release of that API. Within the `2.x` series,
 breaking changes to the public API require a new major version; minor releases
 add backward-compatible functionality, and patch releases are limited to
 correctness fixes, interoperability qualification, and documentation.
@@ -134,14 +134,12 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 Hadris-generated images are checked against an independent raw-image oracle
 and common FAT implementations. These results cover the same filesystem
 operations on every listed FAT variant. The oracle row counts the 18 peer
-scenarios and the three geometry-sized limit exercises; its three open
-failures per width are recorded library bugs (a refused case-only rename, an
-invalid 8.3 alias for a name starting with two periods, and clusters leaked
-when the volume fills).
+scenarios and the three geometry-sized limit exercises, all of which pass in
+the 2.3.0 hosted suite.
 
 | Consumer | FAT12 | FAT16 | FAT32 |
 |----------|-------|-------|-------|
-| Hadris specification oracle | 18/21 | 18/21 | 18/21 |
+| Hadris specification oracle | Pass (21/21) | Pass (21/21) | Pass (21/21) |
 | mtools 4.0.49 reader | Pass (14/16) | Pass (14/16) | Pass (14/16) |
 | dosfstools `fsck.fat` 4.2 | Pass (16/16) | Pass (16/16) | Pass (16/16) |
 | Rust `fatfs` master (`2aefc2a`) reader | Pass (16/16) | Pass (16/16) | Pass (16/16) |
@@ -177,10 +175,10 @@ Choose the narrowest entry point that fits the application:
 ```toml
 [dependencies]
 # One filesystem:
-hadris-fat = "2.2.0"
+hadris-fat = "2.3.0"
 
 # Or the unified storage ecosystem:
-hadris = { version = "2.2.0", features = ["block", "optical"] }
+hadris = { version = "2.3.0", features = ["block", "optical"] }
 ```
 
 The umbrella crate re-exports the same underlying format crates through
@@ -188,15 +186,15 @@ The umbrella crate re-exports the same underlying format crates through
 grow into partition detection or additional disk-image formats without
 replacing their filesystem implementation.
 
-Each package now owns its version; all current packages target **2.2.0**:
+Each package now owns its version; all current packages target **2.3.0**:
 
 ```toml
 [dependencies]
-hadris-iso = "2.2.0"
-hadris-fat = "2.2.0"
-hadris-part = { version = "2.2.0", features = ["read"] }
-hadris-fixed = "2.2.0"
-hadris-path = "2.2.0"
+hadris-iso = "2.3.0"
+hadris-fat = "2.3.0"
+hadris-part = { version = "2.3.0", features = ["read"] }
+hadris-fixed = "2.3.0"
+hadris-path = "2.3.0"
 ```
 
 For allocation-free `no_std` ISO reading:
@@ -204,8 +202,8 @@ For allocation-free `no_std` ISO reading:
 ```toml
 [dependencies]
 # No heap allocator: ISO 9660/Joliet lookup and streamed file reads.
-hadris-iso = { version = "2.2.0", default-features = false, features = ["read", "sync"] }
-hadris-fat = { version = "2.2.0", default-features = false, features = ["read", "sync"] }
+hadris-iso = { version = "2.3.0", default-features = false, features = ["read", "sync"] }
+hadris-fat = { version = "2.3.0", default-features = false, features = ["read", "sync"] }
 ```
 
 Add the `alloc` feature to `hadris-iso` when owned collections, convenience
@@ -225,7 +223,7 @@ cargo build -p hadris-fat --no-default-features --features "read,sync"
 ```
 
 See [CLAUDE.md](CLAUDE.md) for detailed build instructions and architecture notes, and [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow.
-See the [`2.2.0` changelog](CHANGELOG.md#220---2026-08-24) for the current
+See the [`2.3.0` changelog](CHANGELOG.md#230---2026-09-02) for the current
 release summary and the [`2.0.0` release notes](docs/hadris-2.0.0-release-notes.md)
 for the V2 upgrade guide.
 The Docusaurus source for the task-oriented documentation site lives in

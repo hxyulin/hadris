@@ -6,7 +6,40 @@ use hadris_tests::iso::xorriso::{self, Xorriso};
 use hadris_tests::iso::{FORMAT, IsoProducer, conformance_scenarios, measure};
 
 #[test]
-#[ignore = "manual xorriso and mkisofs accuracy suite; run through nix develop"]
+fn external_tools_interoperate_with_hadris() -> Result<(), String> {
+    if !xorriso::require() {
+        return Ok(());
+    }
+    let mut scorecard = measure::scorecard(xorriso::NAME);
+    let scenarios = conformance_scenarios();
+    let expected_attempts = scenarios.len();
+    for (scenario, expected) in scenarios {
+        let workspace = Workspace::new(FORMAT, &format!("{scenario}-xorriso-strict-"))?;
+        measure::producer(
+            &mut scorecard,
+            scenario,
+            &expected,
+            &Xorriso,
+            &workspace.path,
+        )?;
+        measure::consumer(
+            &mut scorecard,
+            scenario,
+            &expected,
+            &Xorriso,
+            &workspace.path,
+        )?;
+    }
+    let labels = measure::labels(xorriso::NAME);
+    scorecard.require_all(&[
+        (&labels.reads, expected_attempts),
+        (&labels.writes, expected_attempts),
+        (&labels.hadris_reads, expected_attempts),
+    ])
+}
+
+#[test]
+#[ignore = "manual xorriso and mkisofs accuracy suite"]
 fn external_iso_tool_accuracy_report() -> Result<(), String> {
     assert!(xorriso::available(), "xorriso is required");
     let mkisofs = Mkisofs::detect().expect("mkisofs or genisoimage is required");

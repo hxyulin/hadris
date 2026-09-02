@@ -391,9 +391,96 @@ fn fatfs_dot_entries_match_spec() {
 }
 
 #[test]
-#[ignore = "requires mtools and dosfstools; run through nix develop"]
+fn external_tools_interoperate_with_hadris() {
+    if !mtools::require_tools() {
+        return;
+    }
+    let operations = hadris_tests::fat::scenarios::curated_operations();
+    let mut scorecard = mtools_scorecard();
+    for case in FAT_CASES {
+        measure_mtools(case, "curated", &operations, &mut scorecard).unwrap_or_else(|error| {
+            panic!(
+                "{} curated: {error}\ntrace:\n{}",
+                case.name,
+                format_trace(&operations)
+            )
+        });
+    }
+    scorecard
+        .require_all(&[
+            (MTOOLS_READS, FAT_CASES.len()),
+            (FSCK_HADRIS, FAT_CASES.len()),
+        ])
+        .unwrap();
+}
+
+#[test]
+fn mtools_collisions_are_noninteractive() {
+    if !mtools::require_tools() {
+        return;
+    }
+    let case = FAT_CASES[0];
+    let workspace = Workspace::new(FORMAT, "mtools-case-only-rename-").unwrap();
+    let image = workspace.path.join("mtools.img");
+    mtools::format(&image, case).unwrap();
+    let mut adapter = MtoolsFatAdapter::new(image, &workspace.path).unwrap();
+    adapter
+        .apply(&Operation::CreateFile {
+            path: "/lower.txt".into(),
+            data: b"contents".to_vec(),
+        })
+        .unwrap();
+    let before = adapter.snapshot().unwrap();
+    assert!(
+        adapter
+            .apply(&Operation::Rename {
+                from: "/lower.txt".into(),
+                to: "/LOWER.TXT".into(),
+            })
+            .is_err()
+    );
+    let after = adapter.snapshot().unwrap();
+    compare_snapshot("mtools rejected case-only rename", &before, &after).unwrap();
+
+    adapter
+        .apply(&Operation::CreateDir {
+            path: "/Long Directory Name".into(),
+        })
+        .unwrap();
+    let before = adapter.snapshot().unwrap();
+    assert!(
+        adapter
+            .apply(&Operation::CreateDir {
+                path: "/long directory name".into(),
+            })
+            .is_err()
+    );
+    let after = adapter.snapshot().unwrap();
+    compare_snapshot("mtools rejected duplicate directory", &before, &after).unwrap();
+
+    adapter
+        .apply(&Operation::CreateFile {
+            path: "/README.TXT".into(),
+            data: b"original".to_vec(),
+        })
+        .unwrap();
+    let before = adapter.snapshot().unwrap();
+    assert!(
+        adapter
+            .apply(&Operation::CreateFile {
+                path: "/readme.txt".into(),
+                data: b"replacement".to_vec(),
+            })
+            .is_err()
+    );
+    let after = adapter.snapshot().unwrap();
+    compare_snapshot("mtools rejected duplicate file", &before, &after).unwrap();
+}
+
+#[test]
+#[ignore = "manual mtools and dosfstools accuracy suite"]
 fn mtools_accuracy_report() {
-    mtools::require_tools().unwrap();
+    assert!(mtools::require_tools());
     let mut scorecard = mtools_scorecard();
     for (scenario, operations) in interoperability_scenarios() {
         for case in FAT_CASES {

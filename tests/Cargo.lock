@@ -220,7 +220,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-common"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "bytemuck",
  "chrono",
@@ -235,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-fat"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "bitflags",
  "bytemuck",
@@ -251,14 +251,14 @@ dependencies = [
 
 [[package]]
 name = "hadris-fixed"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
 name = "hadris-io"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "bytemuck",
  "cfg-if",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-iso"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "bitflags",
  "bytemuck",
@@ -286,14 +286,14 @@ dependencies = [
 
 [[package]]
 name = "hadris-macros"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "proc-macro2",
 ]
 
 [[package]]
 name = "hadris-part"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "bytemuck",
  "crc",
@@ -304,7 +304,7 @@ dependencies = [
 
 [[package]]
 name = "hadris-path"
-version = "2.2.0"
+version = "2.3.0"
 
 [[package]]
 name = "hadris-tests"

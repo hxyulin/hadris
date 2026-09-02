@@ -406,13 +406,21 @@ jobs:
           cargo test -p hadris-fat --features "unstable-exfat,write" --lib exfat_roundtrip:: -- --nocapture
 
   test-fat-conformance:
-    name: Test FAT conformance
+    name: Test FAT conformance and interoperability
     runs-on: ubuntu-latest
+    env:
+      HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
-      - name: Run FAT conformance tests
+      - name: Install FAT image tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dosfstools mtools
+      - name: Run test harness unit tests
+        run: "cargo test --manifest-path tests/Cargo.toml --lib"
+      - name: Run FAT conformance and interoperability tests
         run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --nocapture"
 
   test-optical:

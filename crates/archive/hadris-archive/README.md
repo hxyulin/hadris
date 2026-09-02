@@ -13,7 +13,7 @@ The current facade exposes:
 
 ```toml
 [dependencies]
-hadris-archive = "2.2.0"
+hadris-archive = "2.3.0"
 ```
 
 ```rust
@@ -40,7 +40,7 @@ needs:
 
 ```toml
 [dependencies]
-hadris-archive = { version = "2.2.0", default-features = false, features = ["cpio", "read", "sync"] }
+hadris-archive = { version = "2.3.0", default-features = false, features = ["cpio", "read", "sync"] }
 ```
 
 For format-specific examples and limitations, see the
