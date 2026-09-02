@@ -597,6 +597,7 @@ impl PendingRecords {
     /// Identifier (ECMA-119 9.3). Sizes never depend on extent values, so
     /// the planning pass calls this with placeholder refs and the write pass
     /// rebuilds with the real ones.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         ty: EntryType,
         dir: &WrittenDirectory,
@@ -780,6 +781,7 @@ impl PendingRecords {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_file_records(
         records: &mut Vec<PendingRecord>,
         files: &[WrittenFile],
