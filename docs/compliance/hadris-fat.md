@@ -58,20 +58,24 @@ host mount privileges.
 
 The 2.3.0 suite now gates the following cases, which failed in 2.2.0:
 
-- A rename that only changes the case of an 8.3 name (`lower.txt` to
-  `LOWER.TXT`) is refused as an existing entry.
-- Long-name lookups are case-sensitive, so `MIXED CASE NAME.BIN` is created
-  next to `Mixed Case Name.bin`, a directory can be created next to another
-  differing only in case, and a rename onto such a name succeeds.
-- Moving a directory into its own subtree (`/A` to `/A/B/A` or `/A/A`) is
-  accepted and detaches the subtree into an unreachable cycle.
-- The reserved characters `: * ? " < > |` and control characters are accepted
-  in long names.
-- `..dots` receives the alias `        DOT`, which starts with a space and
-  which `fsck.fat` reports as a bad short name.
-- When the data region fills, the aborted write leaks the clusters it had
-  already allocated on FAT12 and FAT16, and leaves the FAT32 FSInfo free
-  count stale.
+- A rename that only changed the case of an 8.3 name (`lower.txt` to
+  `LOWER.TXT`) was refused as an existing entry. Case-only renames now
+  succeed.
+- Long-name lookups were case-sensitive, so `MIXED CASE NAME.BIN` was created
+  next to `Mixed Case Name.bin`, a directory could be created next to another
+  differing only in case, and a rename onto such a name succeeded. Lookups
+  are now case-insensitive.
+- Moving a directory into its own subtree (`/A` to `/A/B/A` or `/A/A`) was
+  accepted and detached the subtree into an unreachable cycle. It is now
+  rejected.
+- The reserved characters `: * ? " < > |` and control characters were
+  accepted in long names. They are now rejected.
+- `..dots` received the alias `        DOT`, which started with a space and
+  which `fsck.fat` reported as a bad short name. Leading-dot names now get a
+  valid alias.
+- When the data region filled, the aborted write leaked the clusters it had
+  already allocated on FAT12 and FAT16, and left the FAT32 FSInfo free count
+  stale. Failed writes now release their clusters and persist a valid FSInfo.
 
 ### Peer writers
 

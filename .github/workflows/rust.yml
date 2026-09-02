@@ -418,6 +418,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y dosfstools mtools
+      - name: Run test harness unit tests
+        run: "cargo test --manifest-path tests/Cargo.toml --lib"
       - name: Run FAT conformance and interoperability tests
         run: "cargo test --manifest-path tests/Cargo.toml fat:: -- --nocapture"
 
