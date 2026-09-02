@@ -764,6 +764,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     rrip_options.as_ref(),
                     rrip_time,
                     default_refs,
+                    sector_size,
                 )?;
 
                 let (extent, size_sectors) = layout_directory_records(cursor, sector_size, &records);
@@ -800,20 +801,17 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
             if len == 0 {
                 file.entry = DirectoryRef::default();
-                file.additional_extents.clear();
                 continue;
             }
 
-            let extents_iter = ExtentIter::new(len, cursor, sector_size);
-            let (mut extents_vec, new_cursor) = extents_iter.collect_with_cursor();
-
-            if !extents_vec.is_empty() {
-                let first = extents_vec.remove(0);
+            let mut extents = ExtentIter::new(len, cursor, sector_size);
+            if let Some((first, new_cursor)) = extents.next() {
                 file.entry = first;
-                file.additional_extents = extents_vec;
+                cursor = new_cursor;
             }
-
-            cursor = new_cursor;
+            for (_, new_cursor) in extents {
+                cursor = new_cursor;
+            }
         }
 
         Ok(cursor)
@@ -875,6 +873,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     rrip_options.as_ref(),
                     rrip_time,
                     relocation_refs,
+                    sector_size,
                 )?;
                 Self::write_directory_records(&mut self.data, sector_size, expected, &mut records).await?;
             }
@@ -886,13 +885,16 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         &mut self,
         file_order: &[FileOrder],
     ) -> io::Result<()> {
+        let sector_size = self.data.sector_size as u64;
 
         for (directory_id, index) in file_order {
             let dir = self.written_files.get(directory_id);
             let file = &dir.files[*index];
+            let len = file.kind.file_len().unwrap_or(0);
+            let cursor = file.entry.extent.0 as u64 * sector_size;
 
             let mut offset = 0_u64;
-            for extent in file.extents() {
+            for (extent, _) in ExtentIter::new(len, cursor, sector_size) {
                 let start = self.data.pad_align_sector().await?;
 
                 if start != extent.extent {
@@ -1532,7 +1534,7 @@ mod tests {
         read::PathSeparator,
         write::options::{CreationFeatures, HybridBootOptions},
     };
-    use alloc::{string::ToString, vec};
+    use alloc::{format, string::ToString, vec};
     use core::assert_eq;
     use std::io::Cursor;
 
@@ -1737,6 +1739,44 @@ mod tests {
         assert_eq!(extent.sector.0, expected_sector);
 
         assert!(file.rrip.is_none());
+    }
+
+    #[test]
+    fn should_plan_multi_extent_record_across_directory_sector_boundary() {
+        const SIZE: u64 = 4_294_967_296;
+
+        let mut entries = (0..44)
+            .map(|index| InputEntry {
+                name: Arc::new(format!("F{index:07}")),
+                kind: InputEntryKind::File(Vec::new()),
+                metadata: InputMetadata::default(),
+            })
+            .collect::<Vec<_>>();
+        entries.push(InputEntry {
+            name: Arc::new("MULTIEXT".into()),
+            kind: InputEntryKind::TestFile { size: SIZE },
+            metadata: InputMetadata::default(),
+        });
+
+        let input = InputTree {
+            path_separator: PathSeparator::ForwardSlash,
+            entries,
+        };
+        let options = IsoFormatOptions {
+            volume_name: "BOUNDARY".to_string(),
+            system_id: None,
+            volume_set_id: None,
+            publisher_id: None,
+            preparer_id: None,
+            application_id: None,
+            sector_size: 2048,
+            path_separator: PathSeparator::ForwardSlash,
+            features: CreationFeatures::default(),
+            strict_charset: false,
+        };
+
+        let output = tempfile::tempfile().unwrap();
+        IsoImageWriter::create(output, input, options).unwrap();
     }
 
     #[test]

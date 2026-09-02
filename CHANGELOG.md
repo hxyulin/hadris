@@ -33,6 +33,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-iso:** Multi-extent directory planning now counts continuation
+  records before assigning file data, preventing creation failures when a
+  continuation crosses a directory-sector boundary. `WrittenFile` retains its
+  v2.2 field layout for source compatibility.
 - **hadris-fat:** FAT name handling is now case-insensitive for long names,
   rejects reserved characters, permits case-only renames, prevents moving a
   directory into its own subtree, and generates valid aliases for leading-dot

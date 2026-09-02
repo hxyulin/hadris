@@ -605,6 +605,7 @@ impl PendingRecords {
         rrip_options: Option<&RripOptions>,
         fallback_time: &RripTime,
         relocation_refs: &BTreeMap<(usize, EntryType), DirectoryRef>,
+        sector_size: u64,
     ) -> io::Result<Self> {
         let rrip_options = rrip_options.filter(|options| options.enabled);
         let has_rrip = ty.supports_rrip() && rrip_options.is_some();
@@ -650,6 +651,7 @@ impl PendingRecords {
             &options,
             inode_counter,
             fallback_time,
+            sector_size,
         )?;
 
         Self::deduplicate_names(&mut records, ty);
@@ -786,6 +788,7 @@ impl PendingRecords {
         options: &RripOptions,
         inode_counter: &mut u32,
         fallback_time: &RripTime,
+        sector_size: u64,
     ) -> io::Result<()> {
         for file in files {
             let converted_name = ty.convert_name(&file.name);
@@ -805,7 +808,11 @@ impl PendingRecords {
                 SplitSu::empty()
             };
 
-            let first_flags = if file.additional_extents.is_empty() {
+            let len = file.kind.file_len().unwrap_or(file.entry.size as u64);
+            let cursor = file.entry.extent.0 as u64 * sector_size;
+            let mut additional_extents =
+                ExtentIter::new(len, cursor, sector_size).skip(1).peekable();
+            let first_flags = if additional_extents.peek().is_none() {
                 FileFlags::empty()
             } else {
                 FileFlags::NOT_FINAL
@@ -814,15 +821,11 @@ impl PendingRecords {
             let first = PendingRecord::new(&converted_name, split, file.entry, first_flags);
             records.push(first);
 
-            // Push additional extents (multi-extent files)
-            // ECMA-119 9.1.4: Each extent gets its own directory record
-            // with the same file identifier.
-            let len = file.additional_extents.len();
-            for (i, dir_ref) in file.additional_extents.iter().cloned().enumerate() {
-                let flags = if i == len - 1 {
-                    FileFlags::empty() // Last extent
+            while let Some((dir_ref, _)) = additional_extents.next() {
+                let flags = if additional_extents.peek().is_none() {
+                    FileFlags::empty()
                 } else {
-                    FileFlags::NOT_FINAL // Middle extents
+                    FileFlags::NOT_FINAL
                 };
 
                 let record = PendingRecord::new(&converted_name, SplitSu::empty(), dir_ref, flags);
@@ -1006,6 +1009,7 @@ impl ExtentIter {
     }
 
     /// Collects all extents into a `Vec<DirectoryRef>` and returns the final cursor.
+    #[cfg(test)]
     pub fn collect_with_cursor(self) -> (Vec<DirectoryRef>, u64) {
         let mut extents = Vec::new();
         let mut cursor = self.cursor;
