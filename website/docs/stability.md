@@ -11,7 +11,7 @@ major version, minor releases add backward-compatible functionality, and patch
 releases carry correctness fixes, interoperability qualification, and
 documentation.
 
-Read the [2.3.0 changelog](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md#230---2026-09-01)
+Read the [2.3.0 changelog](https://github.com/hxyulin/hadris/blob/main/CHANGELOG.md#230---2026-09-02)
 or the [V2 upgrade notes](https://github.com/hxyulin/hadris/blob/main/docs/hadris-2.0.0-release-notes.md),
 and report real-world compatibility findings through
 [GitHub Issues](https://github.com/hxyulin/hadris/issues).

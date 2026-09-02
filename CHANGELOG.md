@@ -8,20 +8,28 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
-## [2.3.0] - 2026-09-01
+## [2.3.0] - 2026-09-02
 
 ### Added
 
-- **hadris-iso:** The refactored ISO writer now emits multi-extent files larger
-  than 4 GiB, and the allocating reader can consume them incrementally through
-  `read_file_chunked`. Józef Podlecki contributed the original implementation
-  in [#96](https://github.com/hxyulin/hadris/pull/96).
+- **hadris-iso:** The ISO writer now emits multi-extent files larger than 4 GiB.
+  The allocating reader can consume them incrementally with
+  `read_file_chunked`.
+  ([@Jozefpodlecki](https://github.com/Jozefpodlecki),
+  [#96](https://github.com/hxyulin/hadris/pull/96))
+- **hadris-part:** Added `MbrPartition::new_iso_partition` for whole-image
+  ISO 9660 partitions in isohybrid-style MBRs.
+  ([@Jozefpodlecki](https://github.com/Jozefpodlecki),
+  [#96](https://github.com/hxyulin/hadris/pull/96))
 
 ### Changed
 
 - **Tests:** FAT and ISO now use the same hosted, external-tool, and manual
   test tiers. CI requires mtools and dosfstools for FAT interoperability and
   xorriso for ISO interoperability, while local runs skip unavailable tools.
+- **Development:** The pinned Rust toolchain now installs `rust-analyzer` for
+  editor support. ([@Jozefpodlecki](https://github.com/Jozefpodlecki),
+  [#100](https://github.com/hxyulin/hadris/pull/100))
 
 ### Fixed
 
@@ -37,66 +45,6 @@ Each published package owns its version and may be released independently.
   8.3 aliases when long filenames share the same generated short name. Such
   entries previously appeared through their long names but were rejected as
   duplicate directory entries by `fsck.fat`.
-- **hadris-udf:** dstring decoding no longer includes one trailing garbage byte
-  (usually a NUL). The dstring length byte counts the compression-ID byte, so
-  `PrimaryVolumeDescriptor::volume_id()`, `LogicalVolumeDescriptor::volume_id()`,
-  and `FileSetDescriptor::file_set_id()` previously returned values like
-  `"LABEL\0"` and equality comparisons against the written label failed. The
-  decoder also guards hostile length bytes without panicking.
-- **hadris-udf:** 16-bit (UTF-16) dstrings and filenames are now decoded with
-  proper surrogate-pair handling. Characters outside the Basic Multilingual
-  Plane (such as emoji) were previously dropped from names, so files written
-  with such names could not be listed or found by name; unpaired surrogates
-  decode to U+FFFD.
-- **hadris-cd:** Creating an image without a name-preserving namespace (Joliet
-  disabled and Rock Ridge off) no longer fails with `ISO writer did not produce
-  the planned file` for names the ISO 9660 charset sanitizes (such as
-  hyphenated filenames), and no longer produces images whose ISO and UDF
-  namespaces diverge for sanitized directory names. The writer now applies the
-  ISO name mapping to the shared tree up front, with per-directory
-  deduplication, so both namespaces present the same sanitized logical tree.
-- **hadris-cd:** Rock Ridge metadata requested via `rock_ridge` creation
-  options (or the CLI's `-R`) is now actually written. The base ISO namespace
-  did not advertise RRIP support, so hadris-iso silently skipped emitting the
-  system-use fields.
-- **hadris-cd:** The CLI's `verify` command now compares Rock Ridge alternate
-  names when present, so `-R` images verify cleanly.
-- **hadris-iso:** `PrimaryVolumeDescriptor::new` and
-  `SupplementaryVolumeDescriptor::new_evd` no longer panic on volume names
-  longer than 32 characters; the constructors are truly lossy (truncate and
-  substitute), and the writer's validation still rejects over-long
-  `volume_name` values with a clean `InvalidInput` error, so
-  `hadris-iso create -V <long name>` exits with an error instead of a panic.
-- **hadris-io:** Converting `ErrorKind::UnexpectedEof` and
-  `ErrorKind::WouldBlock` to `std::io::ErrorKind` now preserves the kind
-  instead of collapsing both to `Other` via the embedded-io mapping, so
-  EOF detection through the std interop works.
-- **hadris-io:** `Cursor::seek` uses checked position arithmetic: seeks that
-  overflow return `InvalidInput` instead of panicking in debug builds or
-  wrapping in release builds, and `SeekFrom::Start` offsets above `i64::MAX`
-  are accepted as in `std::io::Cursor`.
-- **hadris-storage:** Building with neither the `sync` nor `async` feature no
-  longer emits dead-code warnings.
-- **tools:** All five CLI tools reset `SIGPIPE` to the default disposition on
-  Unix, so piping output into commands like `head` terminates quietly instead
-  of panicking with a broken-pipe message.
-- **hadris-udf-cli:** `create --revision` now validates against the supported
-  UDF revisions (1.02, 1.50, 2.00, 2.01, 2.50, 2.60) instead of accepting any
-  numeric value.
-
-### Documentation
-
-- **hadris-io:** Corrected the claim that the I/O traits re-export from
-  `std::io` under the `std` feature (they are always hadris's own traits with
-  blanket impls for std types), documented the `alloc` feature as currently a
-  no-op, and removed a dead, never-compiled `traits.rs` from the package.
-- **hadris-cd:** The README quick start now opens the output file readable as
-  well as writable, which `OpticalImageWriter::finish` requires; the runtime
-  error for a write-only target now says so explicitly.
-- **hadris-fixed:** Documented that `From<&[u8]>` for `FixedBytes` panics on
-  over-long slices and that `try_from_slice` is the fallible alternative.
-- **hadris-common:** Corrected the `sync` feature's default in the crate-level
-  feature table.
 
 ## [2.2.0] - 2026-08-24
 
@@ -105,6 +53,8 @@ Each published package owns its version and may be released independently.
 - **hadris-fat:** `FileReader` now supports start-, current-, and end-relative
   seeking in both the synchronous and asynchronous APIs, including buffered
   and cached-chain readers.
+  ([@stlankes](https://github.com/stlankes),
+  [#89](https://github.com/hxyulin/hadris/pull/89))
 - **hadris-fat:** New `Error::StaleEntry` (with the `write` feature) reported by
   the mutating APIs and `FileReader` when a `FileEntry` handle no longer refers
   to the same on-disk directory entry (see below).
@@ -233,6 +183,59 @@ Each published package owns its version and may be released independently.
   than ~2 TiB previously truncated the sector count to `u32`, silently sizing
   the filesystem to a fraction of the device; oversized geometry now returns
   `VolumeTooLarge` instead of corrupting the layout.
+- **hadris-udf:** dstring decoding no longer includes one trailing garbage byte
+  (usually a NUL). The dstring length byte counts the compression-ID byte, so
+  `PrimaryVolumeDescriptor::volume_id()`, `LogicalVolumeDescriptor::volume_id()`,
+  and `FileSetDescriptor::file_set_id()` previously returned values like
+  `"LABEL\0"` and equality comparisons against the written label failed. The
+  decoder also guards hostile length bytes without panicking.
+- **hadris-udf:** 16-bit (UTF-16) dstrings and filenames are now decoded with
+  proper surrogate-pair handling. Characters outside the Basic Multilingual
+  Plane were previously dropped from names, so files written with such names
+  could not be listed or found by name. Unpaired surrogates decode to U+FFFD.
+- **hadris-cd:** Creating an image without a name-preserving namespace (Joliet
+  disabled and Rock Ridge off) no longer fails with `ISO writer did not produce
+  the planned file` for names the ISO 9660 charset sanitizes, and no longer
+  produces images whose ISO and UDF namespaces diverge for sanitized directory
+  names. The writer now maps ISO names onto the shared tree before writing and
+  deduplicates them within each directory.
+- **hadris-cd:** Rock Ridge metadata requested with `rock_ridge` creation
+  options or the CLI's `-R` flag is now written. The base ISO namespace did not
+  advertise RRIP support, so hadris-iso silently skipped the system-use fields.
+- **hadris-cd:** The CLI's `verify` command now compares Rock Ridge alternate
+  names when present, so `-R` images verify cleanly.
+- **hadris-iso:** `PrimaryVolumeDescriptor::new` and
+  `SupplementaryVolumeDescriptor::new_evd` no longer panic on volume names
+  longer than 32 characters. The constructors truncate or substitute invalid
+  input, while the writer rejects an over-long `volume_name` with
+  `InvalidInput`.
+- **hadris-io:** Converting `ErrorKind::UnexpectedEof` and
+  `ErrorKind::WouldBlock` to `std::io::ErrorKind` now preserves the kind instead
+  of mapping both to `Other` through the embedded-io conversion.
+- **hadris-io:** `Cursor::seek` uses checked position arithmetic. Overflowing
+  seeks return `InvalidInput`, and `SeekFrom::Start` accepts offsets above
+  `i64::MAX`, matching `std::io::Cursor`.
+- **hadris-storage:** Building with neither the `sync` nor `async` feature no
+  longer emits dead-code warnings.
+- **tools:** All five CLI tools reset `SIGPIPE` to the default disposition on
+  Unix, so piping output into commands such as `head` exits without a
+  broken-pipe panic.
+- **hadris-udf-cli:** `create --revision` now accepts only the supported UDF
+  revisions: 1.02, 1.50, 2.00, 2.01, 2.50, and 2.60.
+
+### Documentation
+
+- **hadris-io:** Corrected the claim that the I/O traits re-export from
+  `std::io` under the `std` feature. They are Hadris traits with blanket impls
+  for standard-library types. The docs now mark `alloc` as a no-op, and the
+  package no longer contains the unused `traits.rs`.
+- **hadris-cd:** The README quick start now opens the output file for reading
+  and writing, as required by `OpticalImageWriter::finish`. The runtime error
+  for a write-only target now states that requirement.
+- **hadris-fixed:** Documented that `From<&[u8]>` for `FixedBytes` panics on
+  over-long slices and that `try_from_slice` is the fallible alternative.
+- **hadris-common:** Corrected the `sync` feature's default in the crate-level
+  feature table.
 
 ## [2.1.0] - 2026-08-18
 
@@ -240,9 +243,18 @@ Each published package owns its version and may be released independently.
 
 - **hadris-fat:** Directory entries and parse results now implement `Clone`,
   allowing parsed metadata to be retained independently of directory iterators.
+  ([@stlankes](https://github.com/stlankes),
+  [#84](https://github.com/hxyulin/hadris/pull/84))
 - **Release automation:** Added a manually triggered GitHub Actions workflow
   that validates and publishes the workspace crates in dependency order, tags
   the release, and creates GitHub release notes from this changelog entry.
+
+### Changed
+
+- **hadris-fat:** `TimeProvider` and `OemCpConverter` now require `Sync`, which
+  allows a `FatVolume` that uses them to be moved into a mutex and shared across
+  threads. ([@stlankes](https://github.com/stlankes),
+  [#83](https://github.com/hxyulin/hadris/pull/83))
 
 ### Fixed
 
@@ -366,6 +378,7 @@ under Semantic Versioning.
 - **hadris-ntfs:** Added an experimental, read-only NTFS leaf crate with
   validated boot geometry, MFT and directory traversal, resident/non-resident
   file reading, sparse runs, Unicode names, and sync/async `no_std` support.
+  ([@aruiz](https://github.com/aruiz))
 - **Facade crates:** Added package READMEs for `hadris-archive`,
   `hadris-block`, and `hadris-optical`.
 - **Specification compliance:** Added a compliance catalog framework with
@@ -614,6 +627,8 @@ under Semantic Versioning.
   failed operation instead of a bare I/O error.
 - **hadris-part:** MBR LBA and GPT on-disk fields use `endian-num` typed
   endian fields instead of manual byte handling.
+  ([@aruiz](https://github.com/aruiz),
+  [#21](https://github.com/hxyulin/hadris/pull/21))
 - **Workspace:** endianness types moved to `zerocopy`; `alloc` error types
   supported in no-std builds.
 
@@ -626,6 +641,8 @@ under Semantic Versioning.
   (cluster-loop / out-of-bounds / bad-cluster markers now return errors).
 - **hadris-fat:** FAT32 `FSInfo` was not flushed on some write paths.
 - **hadris-udf:** Fixed errors when parsing Windows 11 ISO images.
+  ([@Jozefpodlecki](https://github.com/Jozefpodlecki),
+  [#29](https://github.com/hxyulin/hadris/pull/29))
 - **hadris-iso:** Auto-convert lowercase in PVD string fields instead of
   panicking.
 - **Docs:** Fixed broken rustdoc intra-doc links (`OemCpConverter`, `FAT[1]`);
@@ -653,8 +670,22 @@ under Semantic Versioning.
 
 ## [1.1.0] - 2026-03-12
 
-Baseline for this changelog. See the git history for changes at and before this
-tag.
+### Added
+
+- **hadris-fat:** Added configurable FAT table readahead and reduced fragmented
+  file reads to one I/O operation when `FileReader` uses a cached chain.
+  ([@aruiz](https://github.com/aruiz),
+  [#13](https://github.com/hxyulin/hadris/pull/13),
+  [#15](https://github.com/hxyulin/hadris/pull/15))
+
+### Fixed
+
+- **hadris-fat:** Corrected FAT32 entry endianness and fixed cached builds to use
+  the volume's cluster bounds. ([@aruiz](https://github.com/aruiz),
+  [#11](https://github.com/hxyulin/hadris/pull/11),
+  [#12](https://github.com/hxyulin/hadris/pull/12))
+- **Build:** Disabled `thiserror` default features so the workspace builds as
+  `no_std`. ([@aruiz](https://github.com/aruiz))
 
 [Unreleased]: https://github.com/hxyulin/hadris/compare/v2.3.0...HEAD
 [2.3.0]: https://github.com/hxyulin/hadris/compare/v2.2.0...v2.3.0

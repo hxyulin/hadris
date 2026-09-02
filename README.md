@@ -223,7 +223,7 @@ cargo build -p hadris-fat --no-default-features --features "read,sync"
 ```
 
 See [CLAUDE.md](CLAUDE.md) for detailed build instructions and architecture notes, and [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow.
-See the [`2.3.0` changelog](CHANGELOG.md#230---2026-09-01) for the current
+See the [`2.3.0` changelog](CHANGELOG.md#230---2026-09-02) for the current
 release summary and the [`2.0.0` release notes](docs/hadris-2.0.0-release-notes.md)
 for the V2 upgrade guide.
 The Docusaurus source for the task-oriented documentation site lives in

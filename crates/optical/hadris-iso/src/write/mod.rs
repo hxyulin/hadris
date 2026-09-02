@@ -1043,14 +1043,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
     /// Writes an MBR partition table for BIOS USB boot (isohybrid-style).
     async fn write_mbr_boot(&mut self, end_sector: LogicalSector) -> io::Result<()> {
-        let end_block = (end_sector.0 * (self.data.sector_size / 512)) as u32;
+        let sector_count = (end_sector.0 * (self.data.sector_size / 512)) as u32;
 
         let hybrid_opts = self.ops.features.hybrid_boot.as_ref();
         let bootable = hybrid_opts.map(|h| h.bootable).unwrap_or(true);
 
         let mut mbr = MasterBootRecord::default();
         mbr.with_partition_table(|pt| {
-            pt[0] = MbrPartition::new_iso_partition(end_block, bootable);
+            pt[0] = MbrPartition::new_iso_partition(sector_count, bootable);
         });
 
         // Inject bootstrap code if provided

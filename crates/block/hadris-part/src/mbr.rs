@@ -263,16 +263,16 @@ impl MbrPartition {
     /// Type 0x17 is ISO9660/Hidden NTFS which is commonly used for hybrid ISOs.
     ///
     /// # Arguments
-    /// * `end_block` - Last sector (in 512-byte blocks)
+    /// * `sector_count` - Image length in 512-byte sectors
     /// * `bootable` - Whether the partition is bootable (0x80) or not (0x00)
-    pub fn new_iso_partition(end_block: u32, bootable: bool) -> Self {
+    pub fn new_iso_partition(sector_count: u32, bootable: bool) -> Self {
         Self {
             boot_indicator: if bootable { 0x80 } else { 0x00 },
             start_chs: Chs::new(0),
             part_type: MbrPartitionType::Iso9660.to_u8(),
-            end_chs: Chs::new(end_block.saturating_sub(1)),
+            end_chs: Chs::new(sector_count.saturating_sub(1)),
             start_lba: Le::<u32>::from_ne(0),
-            sector_count: Le::<u32>::from_ne(end_block),
+            sector_count: Le::<u32>::from_ne(sector_count),
         }
     }
 
