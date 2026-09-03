@@ -4184,9 +4184,22 @@ pub hadris_iso::sync::write::InputEntryKind::CharacterDevice::major: u32
 pub hadris_iso::sync::write::InputEntryKind::CharacterDevice::minor: u32
 pub hadris_iso::sync::write::InputEntryKind::Directory(alloc::vec::Vec<hadris_iso::write::InputEntry>)
 pub hadris_iso::sync::write::InputEntryKind::File(alloc::vec::Vec<u8>)
+pub hadris_iso::sync::write::InputEntryKind::Source(hadris_iso::write::FileSource)
 pub hadris_iso::sync::write::InputEntryKind::Symlink(alloc::string::String)
 pub enum hadris_iso::sync::write::IsoCreationError
 pub hadris_iso::sync::write::IsoCreationError::Io(hadris_io::error::Error)
+pub struct hadris_iso::sync::write::FileSource
+impl hadris_iso::write::FileSource
+pub fn hadris_iso::write::FileSource::from_path(impl core::convert::Into<std::path::PathBuf>) -> core::io::error::Result<Self>
+pub const fn hadris_iso::write::FileSource::is_empty(&self) -> bool
+pub const fn hadris_iso::write::FileSource::len(&self) -> u64
+pub fn hadris_iso::write::FileSource::new<F>(u64, F) -> Self where F: core::ops::function::Fn() -> core::io::error::Result<alloc::boxed::Box<(dyn std::io::Read + core::marker::Send)>> + core::marker::Send + core::marker::Sync + 'static
+pub fn hadris_iso::write::FileSource::open(&self) -> core::io::error::Result<alloc::boxed::Box<(dyn std::io::Read + core::marker::Send)>>
+impl core::cmp::Eq for hadris_iso::write::FileSource
+impl core::cmp::PartialEq for hadris_iso::write::FileSource
+pub fn hadris_iso::write::FileSource::eq(&self, &Self) -> bool
+impl core::fmt::Debug for hadris_iso::write::FileSource
+pub fn hadris_iso::write::FileSource::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_iso::sync::write::InputEntry
 pub hadris_iso::sync::write::InputEntry::kind: hadris_iso::write::InputEntryKind
 pub hadris_iso::sync::write::InputEntry::metadata: hadris_iso::write::InputMetadata
@@ -4677,9 +4690,22 @@ pub hadris_iso::write::InputEntryKind::CharacterDevice::major: u32
 pub hadris_iso::write::InputEntryKind::CharacterDevice::minor: u32
 pub hadris_iso::write::InputEntryKind::Directory(alloc::vec::Vec<hadris_iso::write::InputEntry>)
 pub hadris_iso::write::InputEntryKind::File(alloc::vec::Vec<u8>)
+pub hadris_iso::write::InputEntryKind::Source(hadris_iso::write::FileSource)
 pub hadris_iso::write::InputEntryKind::Symlink(alloc::string::String)
 pub enum hadris_iso::write::IsoCreationError
 pub hadris_iso::write::IsoCreationError::Io(hadris_io::error::Error)
+pub struct hadris_iso::write::FileSource
+impl hadris_iso::write::FileSource
+pub fn hadris_iso::write::FileSource::from_path(impl core::convert::Into<std::path::PathBuf>) -> core::io::error::Result<Self>
+pub const fn hadris_iso::write::FileSource::is_empty(&self) -> bool
+pub const fn hadris_iso::write::FileSource::len(&self) -> u64
+pub fn hadris_iso::write::FileSource::new<F>(u64, F) -> Self where F: core::ops::function::Fn() -> core::io::error::Result<alloc::boxed::Box<(dyn std::io::Read + core::marker::Send)>> + core::marker::Send + core::marker::Sync + 'static
+pub fn hadris_iso::write::FileSource::open(&self) -> core::io::error::Result<alloc::boxed::Box<(dyn std::io::Read + core::marker::Send)>>
+impl core::cmp::Eq for hadris_iso::write::FileSource
+impl core::cmp::PartialEq for hadris_iso::write::FileSource
+pub fn hadris_iso::write::FileSource::eq(&self, &Self) -> bool
+impl core::fmt::Debug for hadris_iso::write::FileSource
+pub fn hadris_iso::write::FileSource::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_iso::write::InputEntry
 pub hadris_iso::write::InputEntry::kind: hadris_iso::write::InputEntryKind
 pub hadris_iso::write::InputEntry::metadata: hadris_iso::write::InputMetadata

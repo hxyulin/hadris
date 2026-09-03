@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use core::{fmt, ops::Deref};
 use std::{fs::FileType, path::PathBuf};
 
@@ -159,6 +160,7 @@ impl InputTree {
                     //     ));
                     // }
                 }
+                InputEntryKind::Source(_) => {}
                 #[cfg(test)]
                 InputEntryKind::TestFile { .. } => {}
             }
@@ -207,11 +209,90 @@ impl InputMetadata {
     }
 }
 
+/// File contents that are read from a reader while the image is written.
+///
+/// An [`InputEntryKind::File`] holds its contents in memory. A `FileSource` holds
+/// only the length and a way to open a reader, so a large file is streamed into the
+/// image in fixed-size chunks and never has to fit in memory. The writer opens the
+/// reader once per file, in image order, and reads exactly `len` bytes from it: a
+/// reader that ends early fails the write with [`ErrorKind::UnexpectedEof`], and
+/// bytes beyond `len` are never read.
+///
+/// The reader is a blocking [`std::io::Read`] in both the sync and the async writer;
+/// the async writer awaits only its output.
+///
+/// [`ErrorKind::UnexpectedEof`]: crate::io::ErrorKind::UnexpectedEof
+#[derive(Clone)]
+pub struct FileSource {
+    len: u64,
+    open:
+        alloc::sync::Arc<dyn Fn() -> std::io::Result<Box<dyn std::io::Read + Send>> + Send + Sync>,
+}
+
+impl FileSource {
+    /// A source of `len` bytes that `open` produces a reader for.
+    pub fn new<F>(len: u64, open: F) -> Self
+    where
+        F: Fn() -> std::io::Result<Box<dyn std::io::Read + Send>> + Send + Sync + 'static,
+    {
+        Self {
+            len,
+            open: alloc::sync::Arc::new(open),
+        }
+    }
+
+    /// A source that streams the file at `path`, whose length is taken now.
+    ///
+    /// The file is opened when the image is written; its length must not change
+    /// in between.
+    pub fn from_path(path: impl Into<PathBuf>) -> std::io::Result<Self> {
+        let path = path.into();
+        let len = std::fs::metadata(&path)?.len();
+        Ok(Self::new(len, move || {
+            std::fs::File::open(&path).map(|file| Box::new(file) as Box<dyn std::io::Read + Send>)
+        }))
+    }
+
+    /// The number of bytes the source provides.
+    pub const fn len(&self) -> u64 {
+        self.len
+    }
+
+    /// Whether the source provides no bytes.
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Opens a fresh reader positioned at the start of the contents.
+    pub fn open(&self) -> std::io::Result<Box<dyn std::io::Read + Send>> {
+        (self.open)()
+    }
+}
+
+impl fmt::Debug for FileSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FileSource")
+            .field("len", &self.len)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for FileSource {
+    /// Two sources are equal when they share the same opener and length.
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && alloc::sync::Arc::ptr_eq(&self.open, &other.open)
+    }
+}
+
+impl Eq for FileSource {}
+
 /// The data represented by an [`InputEntry`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputEntryKind {
     /// The `File` variant.
     File(Vec<u8>),
+    /// A file whose contents are streamed from a reader while the image is written.
+    Source(FileSource),
     /// A virtual sparse file used by large-file regression tests.
     #[cfg(test)]
     TestFile {
@@ -242,6 +323,7 @@ impl InputEntryKind {
     pub(crate) fn file_len(&self) -> Option<u64> {
         match self {
             Self::File(contents) => Some(contents.len() as u64),
+            Self::Source(source) => Some(source.len()),
             #[cfg(test)]
             Self::TestFile { size } => Some(*size),
             _ => None,
