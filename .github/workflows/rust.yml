@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       # cargo-public-api generates rustdoc JSON through nightly rustdoc even
       # though the project itself remains pinned to the stable MSRV above.
       # Pin the nightly: rustdoc's rendering of blanket impls (e.g.
@@ -85,7 +85,7 @@ jobs:
       RUSTFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - uses: Swatinem/rust-cache@v2
       - name: Check workspace (default features)
         run: cargo check --workspace
@@ -349,7 +349,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - uses: Swatinem/rust-cache@v2
       - name: Check ${{ matrix.crate }} with features "${{ matrix.features }}"
         run: cargo check -p ${{ matrix.crate }} --no-default-features --features "${{ matrix.features }}"
@@ -363,7 +363,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - uses: Swatinem/rust-cache@v2
       - name: Run all-feature tests
         if: runner.os != 'Windows'
@@ -394,7 +394,7 @@ jobs:
       HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - uses: Swatinem/rust-cache@v2
       - name: Install exfatprogs
         run: |
@@ -412,7 +412,7 @@ jobs:
       HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - uses: Swatinem/rust-cache@v2
       - name: Install FAT image tools
         run: |
@@ -428,7 +428,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - uses: Swatinem/rust-cache@v2
       - name: Install optical image tools
         run: |
@@ -454,7 +454,7 @@ jobs:
       RUSTDOCFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
       - uses: Swatinem/rust-cache@v2
       - name: cargo doc --workspace
         run: cargo doc --workspace --no-deps
@@ -468,7 +468,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: rustfmt
       - name: Check formatting
@@ -481,7 +481,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
