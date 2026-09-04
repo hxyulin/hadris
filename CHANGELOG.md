@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-iso:** `InputEntryKind::Source` streams a file's contents from a reader
+  that is opened while the image is written, so a large input no longer has to be
+  held in memory. `FileSource::from_path` streams a file on disk.
+
 ## [2.3.0] - 2026-09-02
 
 ### Added
