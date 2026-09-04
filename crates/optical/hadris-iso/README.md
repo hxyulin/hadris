@@ -8,7 +8,9 @@ embedded systems working with CD-ROM, DVD, and bootable optical-disc images.
 
 ## Features
 
-- **Read & Write Support** - Full-featured ISO creation and extraction
+- **Read & Write Support** - Full-featured ISO creation and extraction; file
+  contents can be streamed from a reader while the image is written, so large
+  inputs never have to be held in memory
 - **Zero-allocation Reader** - Navigate ISO 9660 and Joliet trees and stream
   multi-extent files entirely through caller-owned buffers
 - **No-std Compatible** - Use the sync or async reader in bootloaders, firmware,
@@ -101,6 +103,21 @@ let format_options = IsoFormatOptions {
 
 let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
 IsoImageWriter::create(&mut buffer, files, format_options)?;
+```
+
+To add a file without loading it into memory, give the input tree an
+`InputEntryKind::Source` instead of a `File`. A `FileSource` carries the length
+and a way to open a reader; the writer opens it once, when the file's extents
+are written, and streams the contents in fixed-size chunks:
+
+```rust,ignore
+use hadris_iso::write::{FileSource, InputEntry, InputEntryKind, InputMetadata};
+
+let entry = InputEntry {
+    name: "movie.mkv".into(),
+    kind: InputEntryKind::Source(FileSource::from_path("movie.mkv")?),
+    metadata: InputMetadata::default(),
+};
 ```
 
 ## Feature Flags

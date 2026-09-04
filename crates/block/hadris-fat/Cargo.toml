@@ -76,3 +76,7 @@ tempfile = "3"
 [[test]]
 name = "exfat_upcase_dos"
 required-features = ["unstable-exfat"]
+
+[[test]]
+name = "exfat_roundtrip"
+required-features = ["unstable-exfat", "write"]
