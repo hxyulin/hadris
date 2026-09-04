@@ -66,7 +66,7 @@ jobs:
       # this date deliberately alongside a snapshot refresh.
       - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
         with:
-          toolchain: nightly-2026-07-15
+          toolchain: nightly-2026-09-04
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-public-api
         run: cargo install cargo-public-api --version 0.52.0 --locked
@@ -75,7 +75,7 @@ jobs:
         # RUSTUP_TOOLCHAIN when it names a nightly, so this drives rustdoc with
         # the pinned dated nightly installed above.
         env:
-          RUSTUP_TOOLCHAIN: nightly-2026-07-15
+          RUSTUP_TOOLCHAIN: nightly-2026-09-04
         run: scripts/check-public-api.sh
 
   check:
