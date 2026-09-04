@@ -692,14 +692,15 @@ where
         // Update the stream extension entry (second entry, index 1)
         if entry_count >= 2 {
             let stream = unsafe { &mut entries[1].stream };
-            // Keep general_secondary_flags consistent with the new allocation
-            // state: AllocationPossible (bit 0) must be 0 when there are no
-            // clusters, and NoFatChain (bit 1) requires AllocationPossible=1.
+            // A stream extension's AllocationPossible (bit 0) is always 1 (exFAT
+            // 7.6.2); a file with no clusters has FirstCluster 0 and, as Windows
+            // writes it, NoFatChain (bit 1) set. fsck_exfat rejects an entry with
+            // AllocationPossible clear as "no stream allocation".
             let has_allocation = new_data_length > 0 || new_first_cluster != 0;
-            stream.general_secondary_flags = if has_allocation {
-                0x01 | if no_fat_chain { 0x02 } else { 0x00 }
+            stream.general_secondary_flags = if !has_allocation || no_fat_chain {
+                0x03
             } else {
-                0
+                0x01
             };
             stream.valid_data_length = U64::<LittleEndian>::new(new_valid_data_length);
             stream.data_length = U64::<LittleEndian>::new(new_data_length);
