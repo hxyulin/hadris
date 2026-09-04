@@ -56,6 +56,10 @@ criterion.workspace = true
 name = "no_alloc_reader"
 required-features = ["std", "sync", "read"]
 
+[[test]]
+name = "dir_iter_error"
+required-features = ["std", "sync", "write"]
+
 [[bench]]
 name = "iso_benchmarks"
 harness = false
