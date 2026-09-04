@@ -55,16 +55,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: 1.88.0
       # cargo-public-api generates rustdoc JSON through nightly rustdoc even
       # though the project itself remains pinned to the stable MSRV above.
       # Pin the nightly: rustdoc's rendering of blanket impls (e.g.
       # `std::io::Read` vs `alloc::io::read::Read`) drifts between nightlies, so
       # an unpinned toolchain makes the snapshot diff nondeterministic. Bump
       # this date deliberately alongside a snapshot refresh.
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
         with:
-          toolchain: nightly-2026-07-15
+          toolchain: nightly-2026-09-04
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-public-api
         run: cargo install cargo-public-api --version 0.52.0 --locked
@@ -73,7 +75,7 @@ jobs:
         # RUSTUP_TOOLCHAIN when it names a nightly, so this drives rustdoc with
         # the pinned dated nightly installed above.
         env:
-          RUSTUP_TOOLCHAIN: nightly-2026-07-15
+          RUSTUP_TOOLCHAIN: nightly-2026-09-04
         run: scripts/check-public-api.sh
 
   check:
@@ -85,7 +87,9 @@ jobs:
       RUSTFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: Check workspace (default features)
         run: cargo check --workspace
@@ -349,7 +353,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: Check ${{ matrix.crate }} with features "${{ matrix.features }}"
         run: cargo check -p ${{ matrix.crate }} --no-default-features --features "${{ matrix.features }}"
@@ -363,7 +369,9 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: Run all-feature tests
         if: runner.os != 'Windows'
@@ -394,7 +402,9 @@ jobs:
       HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: Install exfatprogs
         run: |
@@ -412,7 +422,9 @@ jobs:
       HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: Install FAT image tools
         run: |
@@ -428,7 +440,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: Install optical image tools
         run: |
@@ -454,7 +468,9 @@ jobs:
       RUSTDOCFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: cargo doc --workspace
         run: cargo doc --workspace --no-deps
@@ -468,8 +484,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
         with:
+          toolchain: 1.88.0
           components: rustfmt
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -481,8 +498,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
         with:
+          toolchain: 1.88.0
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
