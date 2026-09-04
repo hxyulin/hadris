@@ -211,3 +211,34 @@ fn roundtrip_multiple_files() {
         assert_eq!(&got, payload, "mismatch for {name}");
     }
 }
+
+/// The stream extension's DataLength is the file's size, not the clusters
+/// allocated for it: other implementations take DataLength as the size, and a
+/// cluster-rounded one shows a small file with a tail of zeros.
+#[test]
+fn data_length_is_the_file_size_not_the_allocation() {
+    let dir = TempDir::new().expect("tempdir");
+    let image_path = dir.path().join("length.img");
+    make_image(&image_path, "LENGTH");
+    write_root_file(&image_path, "small.txt", b"Hello, exFAT!");
+
+    let fs = ExFatVolume::open(open_image(&image_path)).expect("open exFAT");
+    let entry = fs
+        .root_dir()
+        .find("small.txt")
+        .expect("find")
+        .expect("small.txt exists");
+    assert_eq!(entry.valid_data_length, 13);
+    assert_eq!(entry.data_length, 13, "DataLength must be the file's size");
+
+    // Truncating keeps the rule.
+    fs.truncate(&entry, 5).expect("truncate");
+    let entry = fs
+        .root_dir()
+        .find("small.txt")
+        .expect("find")
+        .expect("small.txt exists");
+    assert_eq!(entry.valid_data_length, 5);
+    assert_eq!(entry.data_length, 5);
+}
+

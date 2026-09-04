@@ -744,9 +744,10 @@ where
             }
             self.update_entry_size(entry, 0, 0, 0, false)?;
         } else {
-            // Calculate clusters to keep
+            // Calculate clusters to keep; the entry's data length is the file's size,
+            // the allocation being implied by the clusters (exFAT 7.6.7).
             let clusters_to_keep = new_size.div_ceil(cluster_size);
-            let new_data_length = clusters_to_keep * cluster_size;
+            let new_data_length = new_size;
 
             if entry.no_fat_chain {
                 // For contiguous files, just free the excess clusters
