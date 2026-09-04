@@ -382,7 +382,7 @@ pub fn build_rrip_entries(
             kind,
         } => {
             let (type_mode, default_permissions) = match kind {
-                InputEntryKind::File(_) => (0o100000, 0o644),
+                InputEntryKind::File(_) | InputEntryKind::Source(_) => (0o100000, 0o644),
                 #[cfg(test)]
                 InputEntryKind::TestFile { .. } => (0o100000, 0o644),
                 InputEntryKind::Symlink(_) => (0o120000, 0o777),
