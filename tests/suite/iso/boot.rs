@@ -373,11 +373,7 @@ fn test_compare_boot_catalogs() {
 #[test]
 #[ignore = "requires QEMU system emulation"]
 fn test_qemu_boot_xorriso_iso() {
-    if !xorriso::require() {
-        return;
-    }
-    if !qemu::available() {
-        eprintln!("skipping: {} is not available", qemu::PROGRAM);
+    if !xorriso::require() || !qemu::require() {
         return;
     }
     let temp_dir = TempDir::new().unwrap();
@@ -391,24 +387,18 @@ fn test_qemu_boot_xorriso_iso() {
     .unwrap();
     xorriso::create_bootable(&content_dir, &iso_path, "boot.bin").unwrap();
 
-    match qemu::boot_serial_output(&iso_path, Duration::from_secs(5)) {
-        Some(stdout) => {
-            println!("QEMU stdout: {stdout}");
-            if stdout.contains("OK") {
-                println!("xorriso ISO boots successfully in QEMU");
-            } else {
-                println!("Note: boot code may not have executed as expected");
-            }
-        }
-        None => println!("QEMU command failed to run"),
-    }
+    let stdout = qemu::boot_serial_output(&iso_path, Duration::from_secs(5))
+        .expect("QEMU command failed to run");
+    assert!(
+        stdout.contains("OK"),
+        "xorriso ISO did not print the boot marker in QEMU; serial output: {stdout:?}"
+    );
 }
 
 #[test]
 #[ignore = "requires QEMU system emulation"]
 fn test_qemu_boot_hadris_iso() {
-    if !qemu::available() {
-        eprintln!("skipping: {} is not available", qemu::PROGRAM);
+    if !qemu::require() {
         return;
     }
     let temp_dir = TempDir::new().unwrap();
@@ -416,29 +406,23 @@ fn test_qemu_boot_hadris_iso() {
     let iso_data = hadris_bootable_image(padded_boot_image(&SERIAL_OK_BOOT_CODE));
     fs::write(&iso_path, &iso_data).expect("Failed to write ISO file");
 
-    match qemu::boot_serial_output(&iso_path, Duration::from_secs(5)) {
-        Some(stdout) => {
-            println!("QEMU stdout: {stdout}");
-            if stdout.contains("OK") {
-                println!("hadris-iso ISO boots successfully in QEMU");
-            } else {
-                println!("Note: boot code may not have executed as expected");
-                if let Some((sector, catalog_lba)) = find_boot_catalog(&iso_data) {
-                    let catalog_offset = catalog_lba * 2048;
-                    let default = &iso_data[catalog_offset + 32..catalog_offset + 64];
-                    let load_rba =
-                        u32::from_le_bytes([default[8], default[9], default[10], default[11]]);
-                    println!("boot record at sector {sector}, catalog LBA {catalog_lba}");
-                    println!("default entry boot indicator {:#04x}", default[0]);
-                    println!("default load RBA {load_rba}");
-                    let boot_offset = load_rba as usize * 2048;
-                    println!(
-                        "boot image first 16 bytes: {:02x?}",
-                        &iso_data[boot_offset..boot_offset + 16]
-                    );
-                }
-            }
+    let stdout = qemu::boot_serial_output(&iso_path, Duration::from_secs(5))
+        .expect("QEMU command failed to run");
+    if !stdout.contains("OK") {
+        println!("QEMU stdout: {stdout}");
+        if let Some((sector, catalog_lba)) = find_boot_catalog(&iso_data) {
+            let catalog_offset = catalog_lba * 2048;
+            let default = &iso_data[catalog_offset + 32..catalog_offset + 64];
+            let load_rba = u32::from_le_bytes([default[8], default[9], default[10], default[11]]);
+            println!("boot record at sector {sector}, catalog LBA {catalog_lba}");
+            println!("default entry boot indicator {:#04x}", default[0]);
+            println!("default load RBA {load_rba}");
+            let boot_offset = load_rba as usize * 2048;
+            println!(
+                "boot image first 16 bytes: {:02x?}",
+                &iso_data[boot_offset..boot_offset + 16]
+            );
         }
-        None => println!("QEMU command failed to run"),
+        panic!("hadris ISO did not print the boot marker in QEMU");
     }
 }
