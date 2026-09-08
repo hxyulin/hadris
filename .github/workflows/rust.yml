@@ -245,7 +245,7 @@ jobs:
             features: "alloc,sync,async,read"
           - crate: hadris-udf
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write"
+            features: "std,alloc,sync,async,read,write,unstable-streaming"
 
           # hadris-cpio
           - crate: hadris-cpio

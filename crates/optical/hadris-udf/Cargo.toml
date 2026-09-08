@@ -13,7 +13,7 @@ keywords = ["udf", "disk-image", "optical-disc", "filesystem", "no-std"]
 categories = ["filesystem", "embedded", "no-std"]
 
 [package.metadata.docs.rs]
-features = ["std", "read", "write", "sync", "async"]
+features = ["std", "read", "write", "sync", "async", "unstable-streaming"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -30,6 +30,9 @@ write = ["alloc", "std", "read"]
 sync = ["hadris-io/sync", "hadris-common/sync"]
 # Asynchronous API
 async = ["hadris-io/async", "hadris-common/async"]
+# Unstable streaming input for the writer (`SimpleFile::from_source`, `FileSource`).
+# Outside the V2 stability promise; enabling it adds a field to `SimpleFile`.
+unstable-streaming = ["write"]
 
 [dependencies]
 bitflags = { workspace = true, features = ["bytemuck"] }
