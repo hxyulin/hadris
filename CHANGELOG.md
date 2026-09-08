@@ -8,8 +8,21 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-iso (`unstable-streaming`):** `InputEntryKind::Source` streams a
+  file's contents from a reader that is opened while the image is written, so a
+  large input no longer has to be held in memory. `FileSource::from_path`
+  streams a file on disk. The feature is outside the V2 stability promise.
+  ([@zone117x](https://github.com/zone117x),
+  [#111](https://github.com/hxyulin/hadris/pull/111))
+
 ### Fixed
 
+- **hadris-iso:** Directory iteration now stops after a malformed record or I/O
+  error instead of returning the same error on every call.
+  ([@zone117x](https://github.com/zone117x),
+  [#113](https://github.com/hxyulin/hadris/pull/113))
 - **hadris-iso:** Images too large for an MBR or GPT partition entry now fail
   with `InvalidInput` instead of writing a truncated sector count.
   ([#105](https://github.com/hxyulin/hadris/issues/105))
