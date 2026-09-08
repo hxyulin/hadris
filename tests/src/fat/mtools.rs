@@ -19,11 +19,31 @@ pub const PROGRAMS: [&str; 11] = [
     "mlabel",
 ];
 
-/// GNU mtools driven through its command-line programs with an isolated
-/// `MTOOLSRC` so host configuration cannot leak into the run.
+/// How mtools handles a name clash on a write. It reads the answer from
+/// `/dev/tty` rather than stdin, so every write command must pass one.
+#[derive(Clone, Copy)]
+enum ClashPolicy {
+    Skip,
+    Overwrite,
+}
+
+impl ClashPolicy {
+    fn flag(self) -> &'static str {
+        match self {
+            Self::Skip => "s",
+            Self::Overwrite => "o",
+        }
+    }
+}
+
+/// GNU mtools driven through its command-line programs. mtools reads
+/// `/etc/mtools.conf`, `$HOME/.mtoolsrc`, and `$MTOOLSRC` cumulatively, so the
+/// run points `MTOOLSRC` at an empty file and `HOME` at an empty directory to
+/// keep the host's user configuration out of it.
 pub struct MtoolsFatAdapter {
     image: PathBuf,
     config: PathBuf,
+    home: PathBuf,
     scratch: PathBuf,
     next_file: usize,
 }
@@ -32,18 +52,45 @@ impl MtoolsFatAdapter {
     pub fn new(image: PathBuf, workspace: &Path) -> Result<Self, String> {
         let config = workspace.join("mtoolsrc");
         std::fs::write(&config, []).map_err(|error| error.to_string())?;
+        let home = workspace.join("mtools-home");
+        std::fs::create_dir_all(&home).map_err(|error| error.to_string())?;
         let scratch = workspace.join("mtools-inputs");
         std::fs::create_dir_all(&scratch).map_err(|error| error.to_string())?;
         Ok(Self {
             image,
             config,
+            home,
             scratch,
             next_file: 0,
         })
     }
 
     fn run(&self, program: &str, args: Vec<OsString>) -> Result<Output, String> {
-        run_command_with_env(program, args, &[("MTOOLSRC", self.config.as_os_str())])
+        run_command_with_env(
+            program,
+            args,
+            &[
+                ("MTOOLSRC", self.config.as_os_str()),
+                ("HOME", self.home.as_os_str()),
+            ],
+        )
+    }
+
+    /// Runs a command that writes to the image, with the clash policy set.
+    fn run_write(
+        &self,
+        program: &str,
+        clash: ClashPolicy,
+        args: impl IntoIterator<Item = OsString>,
+    ) -> Result<Output, String> {
+        let mut full_args: Vec<OsString> = vec![
+            "-i".into(),
+            self.image.as_os_str().into(),
+            "-D".into(),
+            clash.flag().into(),
+        ];
+        full_args.extend(args);
+        self.run(program, full_args)
     }
 
     fn write_host_file(&mut self, contents: &[u8]) -> Result<PathBuf, String> {
@@ -55,28 +102,20 @@ impl MtoolsFatAdapter {
         Ok(path)
     }
 
-    fn put_file(
-        &mut self,
-        path: &str,
-        contents: &[u8],
-        preserve_attrs: bool,
-    ) -> Result<(), String> {
-        let attrs = if preserve_attrs {
-            self.read_attrs(&[path.to_string()])?.get(path).copied()
+    /// Copies `contents` to `path`. Overwriting replaces an existing file, whose
+    /// attributes mcopy would otherwise reset, so they are read first and put back.
+    fn put_file(&mut self, path: &str, contents: &[u8], overwrite: bool) -> Result<(), String> {
+        let (clash, attrs) = if overwrite {
+            let attrs = self.read_attrs(&[path.to_string()])?.get(path).copied();
+            (ClashPolicy::Overwrite, attrs)
         } else {
-            None
+            (ClashPolicy::Skip, None)
         };
         let source = self.write_host_file(contents)?;
-        self.run(
+        self.run_write(
             "mcopy",
-            vec![
-                "-i".into(),
-                self.image.as_os_str().into(),
-                "-D".into(),
-                if preserve_attrs { "o" } else { "s" }.into(),
-                source.as_os_str().into(),
-                mtools_path(path).into(),
-            ],
+            clash,
+            [source.as_os_str().into(), mtools_path(path).into()],
         )?;
         if let Some(attrs) = attrs {
             self.set_attrs(path, attrs)?;
@@ -200,16 +239,7 @@ impl FatAdapter for MtoolsFatAdapter {
     fn apply(&mut self, operation: &Operation) -> Result<(), String> {
         match operation {
             Operation::CreateDir { path } => {
-                self.run(
-                    "mmd",
-                    vec![
-                        "-i".into(),
-                        self.image.as_os_str().into(),
-                        "-D".into(),
-                        "s".into(),
-                        mtools_path(path).into(),
-                    ],
-                )?;
+                self.run_write("mmd", ClashPolicy::Skip, [mtools_path(path).into()])?;
                 Ok(())
             }
             Operation::CreateFile { path, data } => self.put_file(path, data, false),
@@ -225,16 +255,10 @@ impl FatAdapter for MtoolsFatAdapter {
                 self.put_file(path, &contents, true)
             }
             Operation::Rename { from, to } => {
-                self.run(
+                self.run_write(
                     "mren",
-                    vec![
-                        "-i".into(),
-                        self.image.as_os_str().into(),
-                        "-D".into(),
-                        "s".into(),
-                        mtools_path(from).into(),
-                        mtools_path(to).into(),
-                    ],
+                    ClashPolicy::Skip,
+                    [mtools_path(from).into(), mtools_path(to).into()],
                 )?;
                 Ok(())
             }

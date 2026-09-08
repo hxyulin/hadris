@@ -17,6 +17,7 @@ use hadris_tests::fat::{
     apply_operations_without_attrs, apply_rejection, clear_mutable_attrs, compare_snapshot,
     format_trace, spec, summarize_operation,
 };
+use hadris_tests::harness::command::REQUIRE_TOOLS_ENV;
 use hadris_tests::harness::{Scorecard, Workspace, catch_panic, write_report};
 
 const FATFS_READS: &str = "rust-fatfs reading Hadris";
@@ -409,72 +410,52 @@ fn external_tools_interoperate_with_hadris() {
     scorecard
         .require_all(&[
             (MTOOLS_READS, FAT_CASES.len()),
+            (MTOOLS_WRITES, FAT_CASES.len()),
             (FSCK_HADRIS, FAT_CASES.len()),
         ])
         .unwrap();
+    if std::env::var_os(REQUIRE_TOOLS_ENV).is_some() {
+        assert_eq!(
+            scorecard.command_failures,
+            0,
+            "external tool commands failed:\n{}",
+            scorecard.report()
+        );
+    }
 }
 
+/// mtools must refuse a clash instead of prompting, and leave the image
+/// spec-valid, for the shared duplicate-name scenarios and a case-only rename.
 #[test]
 fn mtools_collisions_are_noninteractive() {
     if !mtools::require_tools() {
         return;
     }
     let case = FAT_CASES[0];
-    let workspace = Workspace::new(FORMAT, "mtools-case-only-rename-").unwrap();
-    let image = workspace.path.join("mtools.img");
-    mtools::format(&image, case).unwrap();
-    let mut adapter = MtoolsFatAdapter::new(image, &workspace.path).unwrap();
-    adapter
-        .apply(&Operation::CreateFile {
+    let shared = ["duplicate-short-name-case", "duplicate-long-directory-case"];
+    let mut scenarios = rejection_scenarios()
+        .into_iter()
+        .filter(|scenario| shared.contains(&scenario.name.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(scenarios.len(), shared.len());
+    scenarios.push(RejectionScenario {
+        name: "case-only-rename".into(),
+        setup: vec![Operation::CreateFile {
             path: "/lower.txt".into(),
             data: b"contents".to_vec(),
-        })
+        }],
+        rejected: Operation::Rename {
+            from: "/lower.txt".into(),
+            to: "/LOWER.TXT".into(),
+        },
+    });
+    let mut scorecard = mtools_scorecard();
+    for scenario in &scenarios {
+        measure_mtools_rejection(case, scenario, &mut scorecard).unwrap();
+    }
+    scorecard
+        .require_all(&[(MTOOLS_REJECTS, scenarios.len())])
         .unwrap();
-    let before = adapter.snapshot().unwrap();
-    assert!(
-        adapter
-            .apply(&Operation::Rename {
-                from: "/lower.txt".into(),
-                to: "/LOWER.TXT".into(),
-            })
-            .is_err()
-    );
-    let after = adapter.snapshot().unwrap();
-    compare_snapshot("mtools rejected case-only rename", &before, &after).unwrap();
-
-    adapter
-        .apply(&Operation::CreateDir {
-            path: "/Long Directory Name".into(),
-        })
-        .unwrap();
-    let before = adapter.snapshot().unwrap();
-    assert!(
-        adapter
-            .apply(&Operation::CreateDir {
-                path: "/long directory name".into(),
-            })
-            .is_err()
-    );
-    let after = adapter.snapshot().unwrap();
-    compare_snapshot("mtools rejected duplicate directory", &before, &after).unwrap();
-
-    adapter
-        .apply(&Operation::CreateFile {
-            path: "/README.TXT".into(),
-            data: b"original".to_vec(),
-        })
-        .unwrap();
-    let before = adapter.snapshot().unwrap();
-    assert!(
-        adapter
-            .apply(&Operation::CreateFile {
-                path: "/readme.txt".into(),
-                data: b"replacement".to_vec(),
-            })
-            .is_err()
-    );
-    let after = adapter.snapshot().unwrap();
-    compare_snapshot("mtools rejected duplicate file", &before, &after).unwrap();
 }
 
 #[test]
