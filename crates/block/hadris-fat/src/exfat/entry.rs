@@ -126,7 +126,7 @@ pub struct RawStreamExtensionEntry {
     pub reserved3: U32<LittleEndian>,
     /// First cluster of file data
     pub first_cluster: U32<LittleEndian>,
-    /// Data length (allocated size, may be larger than valid_data_length)
+    /// Data length (the file size; valid_data_length is the initialised prefix)
     pub data_length: U64<LittleEndian>,
 }
 
@@ -255,7 +255,7 @@ pub struct ExFatFileEntry {
     pub attributes: FileAttributes,
     /// First cluster of file data
     pub first_cluster: u32,
-    /// Total data length (allocated size)
+    /// Data length (the file size, not its cluster allocation)
     pub data_length: u64,
     /// Valid data length (actual content size)
     pub valid_data_length: u64,

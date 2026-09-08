@@ -315,10 +315,13 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
     /// This must be called after writing to update the file's metadata
     /// (size, data length, first cluster) and recalculate the entry set checksum.
     pub fn finish(self) -> Result<()> {
+        // DataLength is the file's size (exFAT 7.6.7); the allocation is implied by
+        // the clusters. Writing the allocated length there makes other
+        // implementations read a cluster's worth of zeros past the file's end.
         self.fs.update_entry_size(
             &self.entry,
             self.new_length,
-            self.allocated_length,
+            self.new_length,
             self.first_cluster,
             self.is_contiguous,
         )?;

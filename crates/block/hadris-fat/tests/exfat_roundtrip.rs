@@ -211,3 +211,83 @@ fn roundtrip_multiple_files() {
         assert_eq!(&got, payload, "mismatch for {name}");
     }
 }
+
+/// The stream extension's DataLength is the file's size, not the clusters
+/// allocated for it: other implementations take DataLength as the size, and a
+/// cluster-rounded one shows a small file with a tail of zeros.
+#[test]
+fn data_length_is_the_file_size_not_the_allocation() {
+    let dir = TempDir::new().expect("tempdir");
+    let image_path = dir.path().join("length.img");
+    make_image(&image_path, "LENGTH");
+    write_root_file(&image_path, "small.txt", b"Hello, exFAT!");
+
+    let fs = ExFatVolume::open(open_image(&image_path)).expect("open exFAT");
+    let entry = fs
+        .root_dir()
+        .find("small.txt")
+        .expect("find")
+        .expect("small.txt exists");
+    assert_eq!(entry.valid_data_length, 13);
+    assert_eq!(entry.data_length, 13, "DataLength must be the file's size");
+
+    // Truncating keeps the rule.
+    fs.truncate(&entry, 5).expect("truncate");
+    let entry = fs
+        .root_dir()
+        .find("small.txt")
+        .expect("find")
+        .expect("small.txt exists");
+    assert_eq!(entry.valid_data_length, 5);
+    assert_eq!(entry.data_length, 5);
+}
+
+/// An empty file still has a stream extension that allows allocation (exFAT
+/// 7.6.2) with no first cluster; fsck_exfat reports "no stream allocation"
+/// otherwise. NoFatChain stays clear: exfatprogs rejects an empty file that
+/// claims a contiguous allocation ("empty, but has no Fat chain").
+#[test]
+fn an_empty_file_keeps_allocation_possible() {
+    let dir = TempDir::new().expect("tempdir");
+    let image_path = dir.path().join("empty.img");
+    make_image(&image_path, "EMPTY");
+    write_root_file(&image_path, "empty.txt", b"");
+
+    let fs = ExFatVolume::open(open_image(&image_path)).expect("open exFAT");
+    let entry = fs
+        .root_dir()
+        .find("empty.txt")
+        .expect("find")
+        .expect("empty.txt exists");
+    assert_eq!(entry.data_length, 0);
+    assert_eq!(entry.first_cluster, 0);
+    assert!(
+        !entry.no_fat_chain,
+        "an empty file must not claim a contiguous allocation"
+    );
+
+    let flags = root_stream_flags(&image_path, fs.info().root_cluster, |stream| {
+        u64::from_le_bytes(stream[24..32].try_into().unwrap()) == 0
+            && u32::from_le_bytes(stream[20..24].try_into().unwrap()) == 0
+    });
+    assert_eq!(flags & 0x01, 0x01, "AllocationPossible must be set");
+    assert_eq!(flags & 0x02, 0x00, "NoFatChain must be clear");
+    assert_eq!(flags, 0x01);
+}
+
+/// GeneralSecondaryFlags of the first stream extension in the root directory
+/// cluster that `matches` the raw 32-byte entry.
+fn root_stream_flags(image_path: &Path, root_cluster: u32, matches: impl Fn(&[u8]) -> bool) -> u8 {
+    let fs = ExFatVolume::open(open_image(image_path)).expect("open exFAT");
+    let info = fs.info();
+    let offset = info.cluster_to_offset(root_cluster);
+    let mut cluster = vec![0u8; info.bytes_per_cluster];
+    let mut file = open_image(image_path);
+    file.seek(std::io::SeekFrom::Start(offset)).unwrap();
+    std::io::Read::read_exact(&mut file, &mut cluster).expect("read root cluster");
+    cluster
+        .chunks_exact(32)
+        .find(|raw| raw[0] == 0xC0 && matches(raw))
+        .map(|raw| raw[1])
+        .expect("stream extension entry")
+}
