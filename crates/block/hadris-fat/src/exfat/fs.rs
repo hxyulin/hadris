@@ -693,11 +693,11 @@ where
         if entry_count >= 2 {
             let stream = unsafe { &mut entries[1].stream };
             // A stream extension's AllocationPossible (bit 0) is always 1 (exFAT
-            // 7.6.2); a file with no clusters has FirstCluster 0 and, as Windows
-            // writes it, NoFatChain (bit 1) set. fsck_exfat rejects an entry with
-            // AllocationPossible clear as "no stream allocation".
+            // 7.6.2); fsck_exfat rejects an entry with it clear as "no stream
+            // allocation". NoFatChain (bit 1) is set only for a contiguous file
+            // that has clusters: exfatprogs rejects an empty file with it set.
             let has_allocation = new_data_length > 0 || new_first_cluster != 0;
-            stream.general_secondary_flags = if !has_allocation || no_fat_chain {
+            stream.general_secondary_flags = if has_allocation && no_fat_chain {
                 0x03
             } else {
                 0x01

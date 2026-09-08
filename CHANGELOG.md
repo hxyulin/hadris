@@ -24,6 +24,12 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-fat (`unstable-exfat`):** The exFAT writer now records a file's size
+  as the stream extension's `DataLength` instead of its cluster-rounded
+  allocation, and an empty file keeps `AllocationPossible` set with
+  `NoFatChain` clear so both `fsck_exfat` and `fsck.exfat` accept it.
+  ([@zone117x](https://github.com/zone117x),
+  [#116](https://github.com/hxyulin/hadris/pull/116))
 - **hadris-iso:** Directory iteration now stops after a malformed record or I/O
   error instead of returning the same error on every call.
   ([@zone117x](https://github.com/zone117x),

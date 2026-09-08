@@ -171,10 +171,11 @@ impl EntrySetBuilder {
     fn build_stream_entry(&self, name_length: u8, name_hash: u16) -> RawStreamExtensionEntry {
         // General secondary flags:
         // Bit 0: AllocationPossible, always 1 on a stream extension (exFAT 7.6.2)
-        // Bit 1: NoFatChain (1 if contiguous, or if there are no clusters at all,
-        //        as Windows writes empty files)
+        // Bit 1: NoFatChain, 1 only for a contiguous file that has clusters. An
+        //        empty file keeps it clear so both fsck_exfat and exfatprogs
+        //        accept the entry.
         let has_allocation = self.data_length > 0 || self.first_cluster != 0;
-        let flags = if !has_allocation || self.is_contiguous {
+        let flags = if has_allocation && self.is_contiguous {
             0x03
         } else {
             0x01
