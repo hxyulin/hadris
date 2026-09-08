@@ -523,24 +523,40 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
     }
 
     /// Read the next raw DirectoryRecord from the directory data.
+    ///
+    /// An error ends the directory: the offset is moved to its end so that the next
+    /// call returns `None`. Otherwise a record that does not parse (or a read that
+    /// fails) would be retried at the same offset and the iterator would yield the
+    /// same error forever.
     fn next_raw_record(&mut self) -> Option<io::Result<DirectoryRecord>> {
-        use super::super::io::try_io_result_option;
         let reader = &self.image.data;
         let mut reader = reader.lock();
 
         const SECTOR_SIZE: usize = 2048;
+
+        macro_rules! try_or_end {
+            ($expr:expr) => {
+                match $expr {
+                    Ok(val) => val,
+                    Err(err) => {
+                        self.offset = self.directory.size;
+                        return Some(Err(err.erase()));
+                    }
+                }
+            };
+        }
 
         loop {
             if self.offset >= self.directory.size {
                 return None;
             }
 
-            try_io_result_option!(reader.seek(SeekFrom::Start(
+            try_or_end!(reader.seek(SeekFrom::Start(
                 (self.directory.extent.0 as u64) * SECTOR_SIZE as u64 + (self.offset as u64),
             )));
 
             let mut len_byte = [0u8; 1];
-            try_io_result_option!(reader.read_exact(&mut len_byte));
+            try_or_end!(reader.read_exact(&mut len_byte));
 
             if len_byte[0] == 0 {
                 let current_sector_offset = self.offset % SECTOR_SIZE;
@@ -552,11 +568,11 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
                 continue;
             }
 
-            try_io_result_option!(reader.seek(SeekFrom::Start(
+            try_or_end!(reader.seek(SeekFrom::Start(
                 (self.directory.extent.0 as u64) * SECTOR_SIZE as u64 + (self.offset as u64),
             )));
 
-            let record = try_io_result_option!(DirectoryRecord::parse(reader.deref_mut()));
+            let record = try_or_end!(DirectoryRecord::parse(reader.deref_mut()));
             self.offset += record.size();
 
             return Some(Ok(record));
@@ -657,23 +673,36 @@ impl<T: Read + Seek> RawDirIter<'_, T> {
 
 impl<T: Read + Seek> Iterator for RawDirIter<'_, T> {
     type Item = io::Result<DirectoryRecord>;
+    /// An error ends the directory (the offset moves to its end), as in
+    /// [`IsoDirIter`]: otherwise the same failing record would be reported forever.
     fn next(&mut self) -> Option<Self::Item> {
-        use super::super::io::try_io_result_option;
         let mut reader = self.reader.lock();
 
         const SECTOR_SIZE: usize = 2048;
+
+        macro_rules! try_or_end {
+            ($expr:expr) => {
+                match $expr {
+                    Ok(val) => val,
+                    Err(err) => {
+                        self.offset = self.directory.size;
+                        return Some(Err(err.erase()));
+                    }
+                }
+            };
+        }
 
         loop {
             if self.offset >= self.directory.size {
                 return None;
             }
 
-            try_io_result_option!(reader.seek(SeekFrom::Start(
+            try_or_end!(reader.seek(SeekFrom::Start(
                 (self.directory.extent.0 as u64) * SECTOR_SIZE as u64 + (self.offset as u64),
             )));
 
             let mut len_byte = [0u8; 1];
-            try_io_result_option!(reader.read_exact(&mut len_byte));
+            try_or_end!(reader.read_exact(&mut len_byte));
 
             if len_byte[0] == 0 {
                 let current_sector_offset = self.offset % SECTOR_SIZE;
@@ -685,11 +714,11 @@ impl<T: Read + Seek> Iterator for RawDirIter<'_, T> {
                 continue;
             }
 
-            try_io_result_option!(reader.seek(SeekFrom::Start(
+            try_or_end!(reader.seek(SeekFrom::Start(
                 (self.directory.extent.0 as u64) * SECTOR_SIZE as u64 + (self.offset as u64),
             )));
 
-            let record = try_io_result_option!(DirectoryRecord::parse(reader.deref_mut()));
+            let record = try_or_end!(DirectoryRecord::parse(reader.deref_mut()));
             self.offset += record.size();
 
             return Some(Ok(record));
