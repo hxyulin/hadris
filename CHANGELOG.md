@@ -22,6 +22,13 @@ Each published package owns its version and may be released independently.
   ([@zone117x](https://github.com/zone117x),
   [#115](https://github.com/hxyulin/hadris/pull/115))
 
+### Fixed
+
+- **hadris-iso:** Directory iteration now stops after a malformed record or I/O
+  error instead of returning the same error on every call.
+  ([@zone117x](https://github.com/zone117x),
+  [#113](https://github.com/hxyulin/hadris/pull/113))
+
 ## [2.3.0] - 2026-09-02
 
 ### Added
