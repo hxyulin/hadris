@@ -16,6 +16,11 @@ Each published package owns its version and may be released independently.
   streams a file on disk. The feature is outside the V2 stability promise.
   ([@zone117x](https://github.com/zone117x),
   [#111](https://github.com/hxyulin/hadris/pull/111))
+- **hadris-udf (`unstable-streaming`):** `SimpleFile::from_source` streams a
+  file's contents from a `FileSource` that is opened while the image is
+  written. The feature is outside the V2 stability promise.
+  ([@zone117x](https://github.com/zone117x),
+  [#115](https://github.com/hxyulin/hadris/pull/115))
 
 ## [2.3.0] - 2026-09-02
 

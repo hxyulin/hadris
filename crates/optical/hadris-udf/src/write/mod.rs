@@ -30,6 +30,7 @@
 //! For fine-grained control (e.g., hybrid ISO+UDF images), use individual
 //! descriptor writing methods on [`UdfWriter`].
 
+#[cfg(feature = "unstable-streaming")]
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec;
@@ -53,18 +54,26 @@ use crate::{AVDP_LOCATION, SECTOR_SIZE, UdfRevision};
 
 /// Where a file's bytes come from when the image is written: a reader opened
 /// only then, so a large file need not be held in memory while the tree is built.
+///
+/// Requires the `unstable-streaming` feature, which is outside the V2 API
+/// stability promise: this type and [`SimpleFile::from_source`] may change in any
+/// release.
+#[cfg(feature = "unstable-streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "unstable-streaming")))]
 #[derive(Clone)]
 pub struct FileSource {
     len: u64,
     open: alloc::sync::Arc<dyn Fn() -> std::io::Result<Box<dyn std::io::Read + Send>> + Send + Sync>,
 }
 
+#[cfg(feature = "unstable-streaming")]
 impl core::fmt::Debug for FileSource {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FileSource").field("len", &self.len).finish_non_exhaustive()
     }
 }
 
+#[cfg(feature = "unstable-streaming")]
 impl FileSource {
     /// A source of `len` bytes that `open` produces a reader for. The reader must
     /// yield at least `len` bytes; anything beyond is ignored.
@@ -107,6 +116,7 @@ impl FileSource {
 }
 
 /// A source's I/O error as the crate's error.
+#[cfg(feature = "unstable-streaming")]
 fn io_error(error: std::io::Error) -> crate::error::Error {
     let kind = match error.kind() {
         std::io::ErrorKind::NotFound => hadris_io::ErrorKind::NotFound,
@@ -124,6 +134,10 @@ fn io_error(error: std::io::Error) -> crate::error::Error {
 }
 
 /// A simple file for the high-level format API
+///
+/// With the `unstable-streaming` feature enabled this struct gains the `source`
+/// field, so construct it through [`SimpleFile::new`] or
+/// `SimpleFile::from_source` rather than a struct literal when the feature is on.
 #[derive(Debug, Clone)]
 pub struct SimpleFile {
     /// File name
@@ -131,6 +145,11 @@ pub struct SimpleFile {
     /// File content, when held in memory
     pub data: Vec<u8>,
     /// File content streamed at write time; takes precedence over `data`
+    ///
+    /// Requires the `unstable-streaming` feature and is outside the V2 API
+    /// stability promise.
+    #[cfg(feature = "unstable-streaming")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "unstable-streaming")))]
     pub source: Option<FileSource>,
 }
 
@@ -140,6 +159,7 @@ impl SimpleFile {
         Self {
             name: name.into(),
             data,
+            #[cfg(feature = "unstable-streaming")]
             source: None,
         }
     }
@@ -151,6 +171,11 @@ impl SimpleFile {
 
     /// Create a file whose content is streamed from `source` when the image is
     /// written
+    ///
+    /// Requires the `unstable-streaming` feature and is outside the V2 API
+    /// stability promise.
+    #[cfg(feature = "unstable-streaming")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "unstable-streaming")))]
     pub fn from_source(name: impl Into<String>, source: FileSource) -> Self {
         Self {
             name: name.into(),
@@ -159,16 +184,12 @@ impl SimpleFile {
         }
     }
 
-    /// The file's length in bytes
-    pub fn len(&self) -> u64 {
-        self.source
-            .as_ref()
-            .map_or(self.data.len() as u64, FileSource::len)
-    }
-
-    /// Whether the file holds no bytes
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    pub(crate) fn len(&self) -> u64 {
+        #[cfg(feature = "unstable-streaming")]
+        if let Some(source) = &self.source {
+            return source.len();
+        }
+        self.data.len() as u64
     }
 }
 
@@ -710,27 +731,14 @@ impl<W: Write + Seek> UdfFormatter<W> {
             }
             self.writer
                 .seek_to_partition_block(alloc_file.data_block)?;
+            #[cfg(feature = "unstable-streaming")]
             if let Some(source) = &file.source {
-                // Streamed: exactly `len` bytes, in chunks.
-                let mut reader = source.open().map_err(io_error)?;
-                let mut remaining = len;
-                let mut buffer = vec![0u8; 256 * 1024];
-                while remaining > 0 {
-                    let want = buffer.len().min(remaining as usize);
-                    let got = std::io::Read::read(&mut reader, &mut buffer[..want])
-                        .map_err(io_error)?;
-                    if got == 0 {
-                        return Err(crate::error::Error::Io(hadris_io::Error::Context {
-                            kind: hadris_io::ErrorKind::UnexpectedEof,
-                            message: Some("file source ended before its declared length"),
-                        }));
-                    }
-                    self.writer.writer.write_all(&buffer[..got])?;
-                    remaining -= got as u64;
-                }
+                self.copy_from_source(source, len)?;
             } else {
                 self.writer.writer.write_all(&file.data)?;
             }
+            #[cfg(not(feature = "unstable-streaming"))]
+            self.writer.writer.write_all(&file.data)?;
 
             // Pad to sector boundary
             let padded = len.div_ceil(SECTOR_SIZE as u64) * SECTOR_SIZE as u64;
@@ -748,6 +756,26 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
+    /// Copies exactly `len` bytes from `source` to the image at the current position.
+    #[cfg(feature = "unstable-streaming")]
+    fn copy_from_source(&mut self, source: &FileSource, len: u64) -> Result<()> {
+        let mut reader = source.open().map_err(io_error)?;
+        let mut remaining = len;
+        let mut buffer = vec![0u8; 256 * 1024];
+        while remaining > 0 {
+            let want = buffer.len().min(remaining as usize);
+            let got = std::io::Read::read(&mut reader, &mut buffer[..want]).map_err(io_error)?;
+            if got == 0 {
+                return Err(crate::error::Error::Io(hadris_io::Error::Context {
+                    kind: hadris_io::ErrorKind::UnexpectedEof,
+                    message: Some("file source ended before its declared length"),
+                }));
+            }
+            self.writer.writer.write_all(&buffer[..got])?;
+            remaining -= got as u64;
+        }
+        Ok(())
+    }
 }
 
 // =============================================================================
@@ -1722,6 +1750,7 @@ mod tests {
         assert_eq!(reserve_location, main_location + 16);
     }
 
+    #[cfg(feature = "unstable-streaming")]
     #[test]
     fn a_streamed_file_reads_back_like_one_held_in_memory() {
         let payload: Vec<u8> = (0..70_000u32).map(|i| (i % 251) as u8).collect();
