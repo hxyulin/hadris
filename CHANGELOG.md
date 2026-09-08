@@ -28,9 +28,17 @@ Each published package owns its version and may be released independently.
   error instead of returning the same error on every call.
   ([@zone117x](https://github.com/zone117x),
   [#113](https://github.com/hxyulin/hadris/pull/113))
-- **hadris-iso:** Images too large for an MBR or GPT partition entry now fail
-  with `InvalidInput` instead of writing a truncated sector count.
+- **hadris-iso:** Images too large for an MBR partition entry or for the
+  32-bit ISO 9660 volume space size now fail with `InvalidInput` instead of
+  writing a truncated sector count.
   ([#105](https://github.com/hxyulin/hadris/issues/105))
+- **hadris-iso:** Path table iteration now stops after an I/O or parse error
+  instead of returning the same error on every call.
+- **hadris-udf:** Files of 1 GiB or more are now recorded with several short
+  allocation descriptors. The single descriptor written before overflowed its
+  30-bit extent length, so such files read back empty or truncated.
+- **hadris-udf (`unstable-streaming`):** An interrupted read from a
+  `FileSource` is retried instead of failing the image.
 
 ## [2.3.0] - 2026-09-02
 

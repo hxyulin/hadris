@@ -17,10 +17,27 @@ use tempfile::TempDir;
 
 use super::{find_boot_catalog, validation_checksum};
 
-/// x86 code that writes "OK\n" to COM1 and halts.
-const SERIAL_OK_BOOT_CODE: [u8; 15] = [
-    0xB0, 0x4F, // mov al, 'O'
+/// The line the boot code prints, chosen so firmware chatter cannot match it.
+const BOOT_MARKER: &str = "HADRIS-OK";
+
+/// x86 code that writes the boot marker and a newline to COM1 and halts.
+const SERIAL_OK_BOOT_CODE: [u8; 36] = [
     0xBA, 0xF8, 0x03, // mov dx, 0x3F8
+    0xB0, 0x48, // mov al, 'H'
+    0xEE, // out dx, al
+    0xB0, 0x41, // mov al, 'A'
+    0xEE, // out dx, al
+    0xB0, 0x44, // mov al, 'D'
+    0xEE, // out dx, al
+    0xB0, 0x52, // mov al, 'R'
+    0xEE, // out dx, al
+    0xB0, 0x49, // mov al, 'I'
+    0xEE, // out dx, al
+    0xB0, 0x53, // mov al, 'S'
+    0xEE, // out dx, al
+    0xB0, 0x2D, // mov al, '-'
+    0xEE, // out dx, al
+    0xB0, 0x4F, // mov al, 'O'
     0xEE, // out dx, al
     0xB0, 0x4B, // mov al, 'K'
     0xEE, // out dx, al
@@ -387,10 +404,10 @@ fn test_qemu_boot_xorriso_iso() {
     .unwrap();
     xorriso::create_bootable(&content_dir, &iso_path, "boot.bin").unwrap();
 
-    let stdout = qemu::boot_serial_output(&iso_path, Duration::from_secs(5))
+    let stdout = qemu::boot_serial_output(&iso_path, BOOT_MARKER, Duration::from_secs(30))
         .expect("QEMU command failed to run");
     assert!(
-        stdout.contains("OK"),
+        stdout.contains(BOOT_MARKER),
         "xorriso ISO did not print the boot marker in QEMU; serial output: {stdout:?}"
     );
 }
@@ -406,9 +423,9 @@ fn test_qemu_boot_hadris_iso() {
     let iso_data = hadris_bootable_image(padded_boot_image(&SERIAL_OK_BOOT_CODE));
     fs::write(&iso_path, &iso_data).expect("Failed to write ISO file");
 
-    let stdout = qemu::boot_serial_output(&iso_path, Duration::from_secs(5))
+    let stdout = qemu::boot_serial_output(&iso_path, BOOT_MARKER, Duration::from_secs(30))
         .expect("QEMU command failed to run");
-    if !stdout.contains("OK") {
+    if !stdout.contains(BOOT_MARKER) {
         println!("QEMU stdout: {stdout}");
         if let Some((sector, catalog_lba)) = find_boot_catalog(&iso_data) {
             let catalog_offset = catalog_lba * 2048;

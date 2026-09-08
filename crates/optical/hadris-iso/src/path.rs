@@ -185,17 +185,27 @@ pub struct PathTableEntryIter<'a, DATA: Read + Seek> {
 impl<DATA: Read + Seek> Iterator for PathTableEntryIter<'_, DATA> {
     type Item = io::Result<PathTableEntry>;
 
-    /// Undefined if continued reading after IO error
+    /// An error ends the iteration: later calls return `None`.
     fn next(&mut self) -> Option<Self::Item> {
-        use super::io::try_io_result_option as try_io;
+        macro_rules! try_or_end {
+            ($expr:expr) => {
+                match $expr {
+                    Ok(val) => val,
+                    Err(err) => {
+                        self.current = self.end;
+                        return Some(Err(err));
+                    }
+                }
+            };
+        }
         if self.current >= self.end {
             return None;
         }
         let mut data = self.data.lock();
-        try_io!(data
+        try_or_end!(data
             .seek(SeekFrom::Start(self.current))
             .map_err(Error::erase));
-        let entry = try_io!(PathTableEntry::parse(
+        let entry = try_or_end!(PathTableEntry::parse(
             data.deref_mut(),
             EndianType::NativeEndian,
         ));
