@@ -309,7 +309,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     ) -> io::Result<()> {
         let catalog_ptr = self.write_boot_catalog().await?;
         let end_sector = self.pad_and_get_end_sector().await?;
-        let volume_space = self.volume_space_sectors(end_sector);
+        let volume_space = self.volume_space_sectors(end_sector)?;
 
         self.patch_volume_descriptors(&root_dirs, catalog_ptr, volume_space).await?;
 
@@ -1045,7 +1045,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
     /// Writes an MBR partition table for BIOS USB boot (isohybrid-style).
     async fn write_mbr_boot(&mut self, end_sector: LogicalSector) -> io::Result<()> {
-        let sector_count = (end_sector.0 * (self.data.sector_size / 512)) as u32;
+        let sector_count = checked_sector_count(
+            end_sector.0 as u64 * (self.data.sector_size as u64 / 512),
+            "image exceeds the 2 TiB limit of an MBR partition entry",
+        )?;
 
         let hybrid_opts = self.ops.features.hybrid_boot.as_ref();
         let bootable = hybrid_opts.map(|h| h.bootable).unwrap_or(true);
@@ -1124,8 +1127,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     /// The `volume_space_size` to declare: for GPT/Hybrid images it covers the
     /// whole image including the appended backup-GPT region, so tools that
     /// copy `volume_space_size` logical sectors preserve the backup GPT.
-    fn volume_space_sectors(&self, end_sector: LogicalSector) -> u32 {
-        match self
+    fn volume_space_sectors(&self, end_sector: LogicalSector) -> io::Result<u32> {
+        let sectors = match self
             .ops
             .features
             .hybrid_boot
@@ -1134,10 +1137,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         {
             Some(PartitionScheme::Gpt) | Some(PartitionScheme::Hybrid) => {
                 let blocks_per_sector = (self.ops.sector_size / 512) as u64;
-                (self.gpt_total_512(end_sector) / blocks_per_sector) as u32
+                self.gpt_total_512(end_sector) / blocks_per_sector
             }
-            _ => end_sector.0 as u32,
-        }
+            _ => end_sector.0 as u64,
+        };
+        checked_sector_count(
+            sectors,
+            "image exceeds the 32-bit volume space size of ISO 9660",
+        )
     }
 
     fn build_gpt_disk(
@@ -1540,6 +1547,16 @@ mod tests {
 
     const DIR_NAME_DOT: &[u8] = b"\x00";
     const DIR_NAME_DOTDOT: &[u8] = b"\x01";
+
+    #[test]
+    fn should_reject_sector_counts_that_do_not_fit_a_partition_entry() {
+        assert_eq!(
+            checked_sector_count(u64::from(u32::MAX), "too large").unwrap(),
+            u32::MAX
+        );
+        let error = checked_sector_count(u64::from(u32::MAX) + 1, "too large").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
 
     #[test]
     fn should_create_empty_iso_no_boot() {

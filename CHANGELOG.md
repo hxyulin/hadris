@@ -8,6 +8,12 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Fixed
+
+- **hadris-iso:** Images too large for an MBR or GPT partition entry now fail
+  with `InvalidInput` instead of writing a truncated sector count.
+  ([#105](https://github.com/hxyulin/hadris/issues/105))
+
 ## [2.3.0] - 2026-09-02
 
 ### Added
