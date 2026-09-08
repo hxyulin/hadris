@@ -605,7 +605,8 @@ impl<W: Write + Seek> UdfFormatter<W> {
             let file_len = file.len();
             let data_block = if file_len > 0 {
                 let block = self.allocate_block();
-                let data_sectors = file_len.div_ceil(SECTOR_SIZE as u64) as u32;
+                let data_sectors = u32::try_from(file_len.div_ceil(SECTOR_SIZE as u64))
+                    .map_err(|_| crate::error::Error::TooManyAllocationDescriptors)?;
                 for _ in 1..data_sectors {
                     self.allocate_block();
                 }
@@ -694,14 +695,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
 
         // Write file File Entries and data
         for file in &dir.files {
-            let file_alloc = if file.data_length > 0 {
-                vec![ShortAllocationDescriptor {
-                    extent_length: file.data_length as u32,
-                    extent_position: file.data_block,
-                }]
-            } else {
-                vec![]
-            };
+            let file_alloc = short_allocation_descriptors(file.data_block, file.data_length);
 
             self.writer.write_file_entry(
                 file.icb_block,
@@ -763,19 +757,46 @@ impl<W: Write + Seek> UdfFormatter<W> {
         let mut remaining = len;
         let mut buffer = vec![0u8; 256 * 1024];
         while remaining > 0 {
-            let want = buffer.len().min(remaining as usize);
-            let got = std::io::Read::read(&mut reader, &mut buffer[..want]).map_err(io_error)?;
-            if got == 0 {
-                return Err(crate::error::Error::Io(hadris_io::Error::Context {
-                    kind: hadris_io::ErrorKind::UnexpectedEof,
-                    message: Some("file source ended before its declared length"),
-                }));
-            }
+            let want = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
+            let got = match std::io::Read::read(&mut reader, &mut buffer[..want]) {
+                Ok(0) => {
+                    return Err(crate::error::Error::Io(hadris_io::Error::Context {
+                        kind: hadris_io::ErrorKind::UnexpectedEof,
+                        message: Some("file source ended before its declared length"),
+                    }));
+                }
+                Ok(got) => got,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(io_error(error)),
+            };
             self.writer.writer.write_all(&buffer[..got])?;
             remaining -= got as u64;
         }
         Ok(())
     }
+}
+
+/// The largest extent a short allocation descriptor can describe: its length
+/// field is 30 bits and the top two bits carry the extent type, rounded down to
+/// a whole number of sectors so every extent but the last stays sector-aligned.
+const MAX_SHORT_AD_LENGTH: u64 = (1 << 30) - SECTOR_SIZE as u64;
+
+/// Describes `len` contiguous bytes starting at `data_block` with as many
+/// short allocation descriptors as the 30-bit extent length requires.
+fn short_allocation_descriptors(data_block: u32, len: u64) -> Vec<ShortAllocationDescriptor> {
+    let mut descriptors = Vec::new();
+    let mut position = data_block;
+    let mut remaining = len;
+    while remaining > 0 {
+        let extent = remaining.min(MAX_SHORT_AD_LENGTH);
+        descriptors.push(ShortAllocationDescriptor {
+            extent_length: extent as u32,
+            extent_position: position,
+        });
+        position += (MAX_SHORT_AD_LENGTH / SECTOR_SIZE as u64) as u32;
+        remaining -= extent;
+    }
+    descriptors
 }
 
 // =============================================================================
@@ -1784,6 +1805,74 @@ mod tests {
         ));
         let mut buffer = vec![0u8; 2 * 1024 * 1024];
         assert!(UdfWriter::create(Cursor::new(&mut buffer[..]), &root, UdfWriteOptions::default()).is_err());
+    }
+
+    #[test]
+    fn large_files_are_split_across_short_allocation_descriptors() {
+        assert!(short_allocation_descriptors(7, 0).is_empty());
+
+        let single = short_allocation_descriptors(7, MAX_SHORT_AD_LENGTH);
+        assert_eq!(single.len(), 1);
+        assert_eq!(single[0].length() as u64, MAX_SHORT_AD_LENGTH);
+        assert_eq!(single[0].extent_position, 7);
+
+        let split = short_allocation_descriptors(7, MAX_SHORT_AD_LENGTH + 1);
+        assert_eq!(split.len(), 2);
+        assert_eq!(split[0].length() as u64, MAX_SHORT_AD_LENGTH);
+        assert_eq!(split[1].length(), 1);
+        assert_eq!(
+            split[1].extent_position as u64,
+            7 + MAX_SHORT_AD_LENGTH / SECTOR_SIZE as u64
+        );
+
+        let three_gib = short_allocation_descriptors(0, 3 << 30);
+        assert_eq!(three_gib.len(), 4);
+        assert_eq!(
+            three_gib.iter().map(|ad| ad.length() as u64).sum::<u64>(),
+            3 << 30
+        );
+        for ad in &three_gib {
+            assert_eq!(ad.extent_length >> 30, 0, "extent type bits must stay clear");
+        }
+    }
+
+    #[cfg(feature = "unstable-streaming")]
+    #[test]
+    fn an_interrupted_read_is_retried() {
+        struct Flaky {
+            inner: Cursor<Vec<u8>>,
+            interruptions: usize,
+        }
+
+        impl std::io::Read for Flaky {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if self.interruptions > 0 {
+                    self.interruptions -= 1;
+                    return Err(std::io::Error::from(std::io::ErrorKind::Interrupted));
+                }
+                self.inner.read(buf)
+            }
+        }
+
+        let payload = vec![0xA5u8; 5000];
+        let mut root = SimpleDir::root();
+        let data = payload.clone();
+        root.add_file(SimpleFile::from_source(
+            "flaky.bin",
+            FileSource::new(payload.len() as u64, move || {
+                Ok(Box::new(Flaky {
+                    inner: Cursor::new(data.clone()),
+                    interruptions: 2,
+                }) as Box<dyn std::io::Read + Send>)
+            }),
+        ));
+
+        let mut buffer = vec![0u8; 2 * 1024 * 1024];
+        UdfWriter::create(Cursor::new(&mut buffer[..]), &root, UdfWriteOptions::default()).unwrap();
+        let udf = crate::UdfVolume::open(Cursor::new(&buffer[..])).unwrap();
+        let dir = udf.root_dir().unwrap();
+        let entry = dir.find("flaky.bin").unwrap();
+        assert_eq!(udf.read_file(entry).unwrap(), payload);
     }
 
     #[test]

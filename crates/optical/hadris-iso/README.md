@@ -114,10 +114,11 @@ it adds the `Source` variant to `InputEntryKind`, so exhaustive matches on that
 enum must account for it.
 
 ```rust,ignore
+use std::sync::Arc;
 use hadris_iso::write::{FileSource, InputEntry, InputEntryKind, InputMetadata};
 
 let entry = InputEntry {
-    name: "movie.mkv".into(),
+    name: Arc::new("movie.mkv".to_string()),
     kind: InputEntryKind::Source(FileSource::from_path("movie.mkv")?),
     metadata: InputMetadata::default(),
 };

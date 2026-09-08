@@ -36,10 +36,22 @@ impl ClashPolicy {
     }
 }
 
+/// Settings the generated `mtoolsrc` pins, so a global `/etc/mtools.conf`
+/// cannot change how names are listed or how the image is checked. The file
+/// is read after the global one and overrides it.
+const MTOOLSRC_DEFAULTS: &str = "MTOOLS_LOWER_CASE=0
+MTOOLS_SKIP_CHECK=0
+MTOOLS_NO_VFAT=0
+MTOOLS_FAT_COMPATIBILITY=0
+MTOOLS_DOTTED_DIR=0
+MTOOLS_NAME_NUMERIC_TAIL=1
+";
+
 /// GNU mtools driven through its command-line programs. mtools reads
-/// `/etc/mtools.conf`, `$HOME/.mtoolsrc`, and `$MTOOLSRC` cumulatively, so the
-/// run points `MTOOLSRC` at an empty file and `HOME` at an empty directory to
-/// keep the host's user configuration out of it.
+/// `/etc/mtools.conf`, `$HOME/.mtoolsrc`, `$MTOOLSRC`, and `MTOOLS_*`
+/// environment variables cumulatively, so the run points `MTOOLSRC` at a file
+/// with fixed settings, `HOME` at an empty directory, and drops every
+/// inherited `MTOOLS_*` variable to keep the host's configuration out of it.
 pub struct MtoolsFatAdapter {
     image: PathBuf,
     config: PathBuf,
@@ -51,7 +63,7 @@ pub struct MtoolsFatAdapter {
 impl MtoolsFatAdapter {
     pub fn new(image: PathBuf, workspace: &Path) -> Result<Self, String> {
         let config = workspace.join("mtoolsrc");
-        std::fs::write(&config, []).map_err(|error| error.to_string())?;
+        std::fs::write(&config, MTOOLSRC_DEFAULTS).map_err(|error| error.to_string())?;
         let home = workspace.join("mtools-home");
         std::fs::create_dir_all(&home).map_err(|error| error.to_string())?;
         let scratch = workspace.join("mtools-inputs");
@@ -73,6 +85,7 @@ impl MtoolsFatAdapter {
                 ("MTOOLSRC", self.config.as_os_str()),
                 ("HOME", self.home.as_os_str()),
             ],
+            &["MTOOLS_"],
         )
     }
 

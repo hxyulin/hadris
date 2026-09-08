@@ -254,6 +254,22 @@ impl FileSource {
     ///
     /// The file is opened when the image is written; its length must not change
     /// in between.
+    ///
+    /// ```
+    /// # #[cfg(feature = "unstable-streaming")] {
+    /// use hadris_iso::write::FileSource;
+    ///
+    /// let path = std::env::temp_dir().join("hadris-iso-file-source-doc.bin");
+    /// std::fs::write(&path, b"streamed")?;
+    /// let source = FileSource::from_path(&path)?;
+    /// assert_eq!(source.len(), 8);
+    /// let mut contents = Vec::new();
+    /// source.open()?.read_to_end(&mut contents)?;
+    /// assert_eq!(contents, b"streamed");
+    /// # std::fs::remove_file(&path)?;
+    /// # }
+    /// # Ok::<(), std::io::Error>(())
+    /// ```
     pub fn from_path(path: impl Into<PathBuf>) -> std::io::Result<Self> {
         let path = path.into();
         let len = std::fs::metadata(&path)?.len();

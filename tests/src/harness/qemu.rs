@@ -1,6 +1,7 @@
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -17,8 +18,9 @@ pub fn require() -> bool {
 }
 
 /// Boots `iso` headlessly with the serial console on stdout and returns what
-/// the guest printed before it halted or the timeout expired.
-pub fn boot_serial_output(iso: &Path, timeout: Duration) -> Option<String> {
+/// the guest printed. Returns as soon as the output contains `marker`, or when
+/// QEMU exits or `timeout` expires; QEMU is killed and reaped either way.
+pub fn boot_serial_output(iso: &Path, marker: &str, timeout: Duration) -> Option<String> {
     let mut child = Command::new(PROGRAM)
         .args([
             "-cdrom",
@@ -40,22 +42,37 @@ pub fn boot_serial_output(iso: &Path, timeout: Duration) -> Option<String> {
         .spawn()
         .ok()?;
 
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let reader = {
+        let output = Arc::clone(&output);
+        let mut stdout = child.stdout.take()?;
+        thread::spawn(move || {
+            let mut chunk = [0u8; 4096];
+            while let Ok(read) = stdout.read(&mut chunk) {
+                if read == 0 {
+                    break;
+                }
+                output.lock().unwrap().extend_from_slice(&chunk[..read]);
+            }
+        })
+    };
+
     let start = Instant::now();
     loop {
+        if String::from_utf8_lossy(&output.lock().unwrap()).contains(marker) {
+            break;
+        }
         match child.try_wait() {
             Ok(Some(_)) => break,
-            Ok(None) if start.elapsed() > timeout => {
-                let _ = child.kill();
-                break;
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(100)),
+            Ok(None) if start.elapsed() > timeout => break,
+            Ok(None) => thread::sleep(Duration::from_millis(50)),
             Err(_) => break,
         }
     }
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = reader.join();
 
-    let mut stdout = String::new();
-    if let Some(mut out) = child.stdout.take() {
-        let _ = out.read_to_string(&mut stdout);
-    }
-    Some(stdout)
+    let output = output.lock().unwrap();
+    Some(String::from_utf8_lossy(&output).into_owned())
 }

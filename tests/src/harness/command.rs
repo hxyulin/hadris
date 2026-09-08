@@ -6,13 +6,16 @@ use std::process::{Command, Output};
 pub const REQUIRE_TOOLS_ENV: &str = "HADRIS_REQUIRE_EXTERNAL_TOOLS";
 
 pub fn run_command(program: &str, args: Vec<OsString>) -> Result<Output, String> {
-    run_command_with_env(program, args, &[])
+    run_command_with_env(program, args, &[], &[])
 }
 
+/// Runs `program` with `env` added and every inherited variable whose name
+/// starts with one of `remove_prefixes` dropped.
 pub fn run_command_with_env(
     program: &str,
     args: Vec<OsString>,
     env: &[(&str, &OsStr)],
+    remove_prefixes: &[&str],
 ) -> Result<Output, String> {
     let printable = args
         .iter()
@@ -21,6 +24,15 @@ pub fn run_command_with_env(
         .join(" ");
     let mut command = Command::new(program);
     command.args(&args).env("LC_ALL", "C.UTF-8");
+    for (key, _) in std::env::vars_os() {
+        let name = key.to_string_lossy();
+        if remove_prefixes
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        {
+            command.env_remove(&key);
+        }
+    }
     for (key, value) in env {
         command.env(key, value);
     }

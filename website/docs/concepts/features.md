@@ -55,7 +55,9 @@ the exFAT preview, and the hybrid ISO/UDF writer.
 | `hadris-fat` `unstable-exfat` | exFAT preview | Partial | Partial | Yes | No | `alloc` | Experimental |
 | `hadris-part` | MBR and GPT | Yes | Yes | Yes | Yes | Allocation-free | Stable |
 | `hadris-iso` | ISO 9660, Joliet, Rock Ridge | Yes | Yes | Yes | Yes | Allocation-free | Stable |
+| `hadris-iso` `unstable-streaming` | Streamed file input for the ISO writer | N/A | Yes | Yes | Yes | `std` | Experimental |
 | `hadris-udf` | UDF 1.02 | Yes | Yes | Yes | Yes | `alloc` for filesystem traversal | Stable |
+| `hadris-udf` `unstable-streaming` | Streamed file input for the UDF writer | N/A | Yes | Yes | No | `std` | Experimental |
 | `hadris-cpio` | CPIO newc and CRC | Yes | Yes | Yes | Yes | Allocation-free | Stable |
 | `hadris-ntfs` | NTFS | Yes | No | Yes | Yes | `alloc` | Experimental |
 | `hadris-cd` | Hybrid ISO/UDF images | N/A | Yes | Yes | No | `std` | Stable |
@@ -111,7 +113,8 @@ hadris-cpio = {
 - Select at least one I/O mode for APIs that access storage.
 - Add `alloc` only when the chosen API returns or stores owned data.
 - Prefer leaf crates when only one format is needed.
-- Treat `unstable-exfat` and `hadris-ntfs` as separately versioned experiments.
+- Treat `unstable-exfat`, `unstable-streaming`, and `hadris-ntfs` as separately
+  versioned experiments.
 
 The workspace CI checks representative allocation-free, `alloc`, `std`, sync,
 async, and combined-mode tiers for every stable format crate.
