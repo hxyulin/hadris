@@ -178,6 +178,10 @@ impl hadris_io::Read for hadris_io::Cursor<'_>
 pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
 pub fn hadris_io::Cursor<'_>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
 pub fn hadris_io::Cursor<'_>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: alloc::io::read::Read + ?core::marker::Sized> hadris_io::Read for T
+pub type T::Error = core::io::error::Error
+pub fn T::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn T::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
 impl<T: embedded_io::Read> hadris_io::Read for hadris_io::FromEmbedded<T>
 pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
 pub fn hadris_io::FromEmbedded<T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
@@ -186,10 +190,6 @@ impl<T: hadris_io::Read + ?core::marker::Sized> hadris_io::Read for hadris_io::B
 pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Read>::Error
 pub fn hadris_io::Borrowed<'_, T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
 pub fn hadris_io::Borrowed<'_, T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
-impl<T: std::io::Read + ?core::marker::Sized> hadris_io::Read for T
-pub type T::Error = core::io::error::Error
-pub fn T::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
-pub fn T::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
 pub trait hadris_io::sync::ReadExt: hadris_io::Read
 pub fn hadris_io::sync::ReadExt::parse<T: hadris_io::Parsable>(&mut self) -> hadris_io::Result<T> where Self: core::marker::Sized
 pub fn hadris_io::sync::ReadExt::read_struct<T: bytemuck::zeroable::Zeroable + bytemuck::no_uninit::NoUninit + bytemuck::anybitpattern::AnyBitPattern>(&mut self) -> hadris_io::Result<T>
@@ -394,6 +394,10 @@ impl hadris_io::Read for hadris_io::Cursor<'_>
 pub type hadris_io::Cursor<'_>::Error = hadris_io::ErrorKind
 pub fn hadris_io::Cursor<'_>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
 pub fn hadris_io::Cursor<'_>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
+impl<T: alloc::io::read::Read + ?core::marker::Sized> hadris_io::Read for T
+pub type T::Error = core::io::error::Error
+pub fn T::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
+pub fn T::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
 impl<T: embedded_io::Read> hadris_io::Read for hadris_io::FromEmbedded<T>
 pub type hadris_io::FromEmbedded<T>::Error = <T as embedded_io::ErrorType>::Error
 pub fn hadris_io::FromEmbedded<T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
@@ -402,10 +406,6 @@ impl<T: hadris_io::Read + ?core::marker::Sized> hadris_io::Read for hadris_io::B
 pub type hadris_io::Borrowed<'_, T>::Error = <T as hadris_io::Read>::Error
 pub fn hadris_io::Borrowed<'_, T>::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
 pub fn hadris_io::Borrowed<'_, T>::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
-impl<T: std::io::Read + ?core::marker::Sized> hadris_io::Read for T
-pub type T::Error = core::io::error::Error
-pub fn T::read(&mut self, &mut [u8]) -> hadris_io::Result<usize, Self::Error>
-pub fn T::read_exact(&mut self, &mut [u8]) -> hadris_io::Result<()>
 pub trait hadris_io::ReadExt: hadris_io::Read
 pub fn hadris_io::ReadExt::parse<T: hadris_io::Parsable>(&mut self) -> hadris_io::Result<T> where Self: core::marker::Sized
 pub fn hadris_io::ReadExt::read_struct<T: bytemuck::zeroable::Zeroable + bytemuck::no_uninit::NoUninit + bytemuck::anybitpattern::AnyBitPattern>(&mut self) -> hadris_io::Result<T>
