@@ -536,6 +536,12 @@ pub const fn alignment_requires_materialization(
     aligned_position > current_position
 }
 
+/// Converts a sector count to the 32-bit field of an MBR partition entry or the
+/// ISO 9660 volume space size, failing with `InvalidInput` instead of truncating.
+pub fn checked_sector_count(sectors: u64, message: &'static str) -> io::Result<u32> {
+    u32::try_from(sectors).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, message))
+}
+
 pub fn part_io_error(err: hadris_part::Error) -> io::Error {
     match err {
         hadris_part::Error::Io(err) => err,
