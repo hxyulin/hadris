@@ -301,7 +301,7 @@ impl Eq for FileSource {}
 /// The data represented by an [`InputEntry`].
 ///
 /// With the `unstable-streaming` feature enabled this enum gains the
-/// [`Source`](Self::Source) variant, so exhaustive matches on it must account for
+/// `Source` variant, so exhaustive matches on it must account for
 /// that variant when the feature is on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputEntryKind {
