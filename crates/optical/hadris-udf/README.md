@@ -61,6 +61,13 @@ let output = UdfWriter::create(cursor, &root, options).expect("Create failed");
 let _cursor = output.into_inner();
 ```
 
+With the `unstable-streaming` feature, `SimpleFile::from_source` takes a
+`FileSource` (a length plus a way to open a reader) instead of a `Vec<u8>`, and
+the writer streams the contents when the image is written. The feature is
+outside the V2 stability promise, and enabling it adds a public `source` field
+to `SimpleFile`, so construct files through `SimpleFile::new` or
+`SimpleFile::from_source` rather than a struct literal.
+
 ## Feature Flags
 
 | Feature | Default | Description |
@@ -71,6 +78,7 @@ let _cursor = output.into_inner();
 | `write` | No      | Mastered image creation; requires `std`, `alloc`, and `read` |
 | `sync`  | Yes     | Synchronous filesystem API |
 | `async` | No      | Asynchronous filesystem API |
+| `unstable-streaming` | No | Unstable: stream file contents from a reader while writing (`SimpleFile::from_source`); requires `write` |
 
 `std` and the I/O mode are independent. Default features select `std`, `read`,
 and `sync`; custom builds may select `sync`, `async`, or both.

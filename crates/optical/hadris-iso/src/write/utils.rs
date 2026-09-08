@@ -382,7 +382,9 @@ pub fn build_rrip_entries(
             kind,
         } => {
             let (type_mode, default_permissions) = match kind {
-                InputEntryKind::File(_) | InputEntryKind::Source(_) => (0o100000, 0o644),
+                InputEntryKind::File(_) => (0o100000, 0o644),
+                #[cfg(feature = "unstable-streaming")]
+                InputEntryKind::Source(_) => (0o100000, 0o644),
                 #[cfg(test)]
                 InputEntryKind::TestFile { .. } => (0o100000, 0o644),
                 InputEntryKind::Symlink(_) => (0o120000, 0o777),
@@ -532,6 +534,12 @@ pub const fn alignment_requires_materialization(
     aligned_position: u64,
 ) -> bool {
     aligned_position > current_position
+}
+
+/// Converts a sector count to the 32-bit field of an MBR partition entry or the
+/// ISO 9660 volume space size, failing with `InvalidInput` instead of truncating.
+pub fn checked_sector_count(sectors: u64, message: &'static str) -> io::Result<u32> {
+    u32::try_from(sectors).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, message))
 }
 
 pub fn part_io_error(err: hadris_part::Error) -> io::Error {

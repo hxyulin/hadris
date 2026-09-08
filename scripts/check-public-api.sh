@@ -46,6 +46,17 @@ for crate in "${crates[@]}"; do
       --no-default-features \
       --features "std,sync,async,read,write,lfn,cache,tool,defmt,dirty-file-panic" \
       -sss --color never >"$generated"
+  elif [[ "$crate" == "hadris-iso" ]]; then
+    # The unstable streaming input is outside the V2 API stability promise.
+    cargo public-api -p "$crate" \
+      --no-default-features \
+      --features "std,alloc,sync,async,read,write,joliet" \
+      -sss --color never >"$generated"
+  elif [[ "$crate" == "hadris-udf" ]]; then
+    cargo public-api -p "$crate" \
+      --no-default-features \
+      --features "std,alloc,sync,async,read,write" \
+      -sss --color never >"$generated"
   else
     cargo public-api -p "$crate" --all-features -sss --color never >"$generated"
   fi

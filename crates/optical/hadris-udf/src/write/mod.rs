@@ -30,6 +30,8 @@
 //! For fine-grained control (e.g., hybrid ISO+UDF images), use individual
 //! descriptor writing methods on [`UdfWriter`].
 
+#[cfg(feature = "unstable-streaming")]
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -50,13 +52,105 @@ use crate::{AVDP_LOCATION, SECTOR_SIZE, UdfRevision};
 // High-Level Types for Simple UDF Creation
 // =============================================================================
 
+/// Where a file's bytes come from when the image is written: a reader opened
+/// only then, so a large file need not be held in memory while the tree is built.
+///
+/// Requires the `unstable-streaming` feature, which is outside the V2 API
+/// stability promise: this type and [`SimpleFile::from_source`] may change in any
+/// release.
+#[cfg(feature = "unstable-streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "unstable-streaming")))]
+#[derive(Clone)]
+pub struct FileSource {
+    len: u64,
+    open: alloc::sync::Arc<dyn Fn() -> std::io::Result<Box<dyn std::io::Read + Send>> + Send + Sync>,
+}
+
+#[cfg(feature = "unstable-streaming")]
+impl core::fmt::Debug for FileSource {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FileSource").field("len", &self.len).finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "unstable-streaming")]
+impl FileSource {
+    /// A source of `len` bytes that `open` produces a reader for. The reader must
+    /// yield at least `len` bytes; anything beyond is ignored.
+    pub fn new<F>(len: u64, open: F) -> Self
+    where
+        F: Fn() -> std::io::Result<Box<dyn std::io::Read + Send>> + Send + Sync + 'static,
+    {
+        Self {
+            len,
+            open: alloc::sync::Arc::new(open),
+        }
+    }
+
+    /// A source that streams the file at `path`, whose length is taken now.
+    ///
+    /// The file is opened when the image is written; its length must not change
+    /// in between.
+    pub fn from_path(path: impl Into<std::path::PathBuf>) -> std::io::Result<Self> {
+        let path = path.into();
+        let len = std::fs::metadata(&path)?.len();
+        Ok(Self::new(len, move || {
+            std::fs::File::open(&path).map(|file| Box::new(file) as Box<dyn std::io::Read + Send>)
+        }))
+    }
+
+    /// The number of bytes the source yields.
+    pub fn len(&self) -> u64 {
+        self.len
+    }
+
+    /// Whether the source yields no bytes.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Opens a reader over the bytes.
+    pub fn open(&self) -> std::io::Result<Box<dyn std::io::Read + Send>> {
+        (self.open)()
+    }
+}
+
+/// A source's I/O error as the crate's error.
+#[cfg(feature = "unstable-streaming")]
+fn io_error(error: std::io::Error) -> crate::error::Error {
+    let kind = match error.kind() {
+        std::io::ErrorKind::NotFound => hadris_io::ErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied => hadris_io::ErrorKind::PermissionDenied,
+        std::io::ErrorKind::UnexpectedEof => hadris_io::ErrorKind::UnexpectedEof,
+        std::io::ErrorKind::InvalidData => hadris_io::ErrorKind::InvalidData,
+        std::io::ErrorKind::InvalidInput => hadris_io::ErrorKind::InvalidInput,
+        std::io::ErrorKind::Interrupted => hadris_io::ErrorKind::Interrupted,
+        _ => hadris_io::ErrorKind::Other,
+    };
+    crate::error::Error::Io(hadris_io::Error::Context {
+        kind,
+        message: Some("reading a file source"),
+    })
+}
+
 /// A simple file for the high-level format API
+///
+/// With the `unstable-streaming` feature enabled this struct gains the `source`
+/// field, so construct it through [`SimpleFile::new`] or
+/// `SimpleFile::from_source` rather than a struct literal when the feature is on.
 #[derive(Debug, Clone)]
 pub struct SimpleFile {
     /// File name
     pub name: String,
-    /// File content
+    /// File content, when held in memory
     pub data: Vec<u8>,
+    /// File content streamed at write time; takes precedence over `data`
+    ///
+    /// Requires the `unstable-streaming` feature and is outside the V2 API
+    /// stability promise.
+    #[cfg(feature = "unstable-streaming")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "unstable-streaming")))]
+    pub source: Option<FileSource>,
 }
 
 impl SimpleFile {
@@ -65,12 +159,37 @@ impl SimpleFile {
         Self {
             name: name.into(),
             data,
+            #[cfg(feature = "unstable-streaming")]
+            source: None,
         }
     }
 
     /// Create an empty file
     pub fn empty(name: impl Into<String>) -> Self {
         Self::new(name, Vec::new())
+    }
+
+    /// Create a file whose content is streamed from `source` when the image is
+    /// written
+    ///
+    /// Requires the `unstable-streaming` feature and is outside the V2 API
+    /// stability promise.
+    #[cfg(feature = "unstable-streaming")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "unstable-streaming")))]
+    pub fn from_source(name: impl Into<String>, source: FileSource) -> Self {
+        Self {
+            name: name.into(),
+            data: Vec::new(),
+            source: Some(source),
+        }
+    }
+
+    pub(crate) fn len(&self) -> u64 {
+        #[cfg(feature = "unstable-streaming")]
+        if let Some(source) = &self.source {
+            return source.len();
+        }
+        self.data.len() as u64
     }
 }
 
@@ -483,9 +602,10 @@ impl<W: Write + Seek> UdfFormatter<W> {
             let file_unique_id = self.writer.next_unique_id();
 
             // Allocate data blocks for non-empty files
-            let data_block = if !file.data.is_empty() {
+            let file_len = file.len();
+            let data_block = if file_len > 0 {
                 let block = self.allocate_block();
-                let data_sectors = file.data.len().div_ceil(SECTOR_SIZE) as u32;
+                let data_sectors = file_len.div_ceil(SECTOR_SIZE as u64) as u32;
                 for _ in 1..data_sectors {
                     self.allocate_block();
                 }
@@ -497,7 +617,7 @@ impl<W: Write + Seek> UdfFormatter<W> {
             allocated_files.push(AllocatedFile {
                 name: file.name.clone(),
                 data_block,
-                data_length: file.data.len() as u64,
+                data_length: file_len,
                 icb_block: file_icb_block,
                 unique_id: file_unique_id,
             });
@@ -605,17 +725,26 @@ impl<W: Write + Seek> UdfFormatter<W> {
     fn write_file_data(&mut self, dir: &SimpleDir, alloc_dir: &AllocatedDir) -> Result<()> {
         // Write file data
         for (file, alloc_file) in dir.files.iter().zip(&alloc_dir.files) {
-            if !file.data.is_empty() {
-                self.writer
-                    .seek_to_partition_block(alloc_file.data_block)?;
+            let len = file.len();
+            if len == 0 {
+                continue;
+            }
+            self.writer
+                .seek_to_partition_block(alloc_file.data_block)?;
+            #[cfg(feature = "unstable-streaming")]
+            if let Some(source) = &file.source {
+                self.copy_from_source(source, len)?;
+            } else {
                 self.writer.writer.write_all(&file.data)?;
+            }
+            #[cfg(not(feature = "unstable-streaming"))]
+            self.writer.writer.write_all(&file.data)?;
 
-                // Pad to sector boundary
-                let padded = file.data.len().div_ceil(SECTOR_SIZE) * SECTOR_SIZE;
-                if padded > file.data.len() {
-                    let padding = vec![0u8; padded - file.data.len()];
-                    self.writer.writer.write_all(&padding)?;
-                }
+            // Pad to sector boundary
+            let padded = len.div_ceil(SECTOR_SIZE as u64) * SECTOR_SIZE as u64;
+            if padded > len {
+                let padding = vec![0u8; (padded - len) as usize];
+                self.writer.writer.write_all(&padding)?;
             }
         }
 
@@ -627,6 +756,26 @@ impl<W: Write + Seek> UdfFormatter<W> {
         Ok(())
     }
 
+    /// Copies exactly `len` bytes from `source` to the image at the current position.
+    #[cfg(feature = "unstable-streaming")]
+    fn copy_from_source(&mut self, source: &FileSource, len: u64) -> Result<()> {
+        let mut reader = source.open().map_err(io_error)?;
+        let mut remaining = len;
+        let mut buffer = vec![0u8; 256 * 1024];
+        while remaining > 0 {
+            let want = buffer.len().min(remaining as usize);
+            let got = std::io::Read::read(&mut reader, &mut buffer[..want]).map_err(io_error)?;
+            if got == 0 {
+                return Err(crate::error::Error::Io(hadris_io::Error::Context {
+                    kind: hadris_io::ErrorKind::UnexpectedEof,
+                    message: Some("file source ended before its declared length"),
+                }));
+            }
+            self.writer.writer.write_all(&buffer[..got])?;
+            remaining -= got as u64;
+        }
+        Ok(())
+    }
 }
 
 // =============================================================================
@@ -1599,6 +1748,42 @@ mod tests {
         assert_eq!(reserve_length, 16 * SECTOR_SIZE as u32);
         assert_eq!(main_location, 257);
         assert_eq!(reserve_location, main_location + 16);
+    }
+
+    #[cfg(feature = "unstable-streaming")]
+    #[test]
+    fn a_streamed_file_reads_back_like_one_held_in_memory() {
+        let payload: Vec<u8> = (0..70_000u32).map(|i| (i % 251) as u8).collect();
+        let mut root = SimpleDir::root();
+        root.add_file(SimpleFile::new("held.bin", payload.clone()));
+        let streamed = payload.clone();
+        root.add_file(SimpleFile::from_source(
+            "streamed.bin",
+            FileSource::new(payload.len() as u64, move || {
+                Ok(Box::new(Cursor::new(streamed.clone())) as Box<dyn std::io::Read + Send>)
+            }),
+        ));
+        assert_eq!(root.files[1].len(), payload.len() as u64);
+
+        let mut buffer = vec![0u8; 2 * 1024 * 1024];
+        let cursor = Cursor::new(&mut buffer[..]);
+        UdfWriter::create(cursor, &root, UdfWriteOptions::default()).unwrap();
+
+        let udf = crate::UdfVolume::open(Cursor::new(&buffer[..])).unwrap();
+        let dir = udf.root_dir().unwrap();
+        for name in ["held.bin", "streamed.bin"] {
+            let entry = dir.find(name).expect(name);
+            assert_eq!(udf.read_file(entry).unwrap(), payload, "{name}");
+        }
+
+        // A source that ends early is an error, not a short file.
+        let mut root = SimpleDir::root();
+        root.add_file(SimpleFile::from_source(
+            "short.bin",
+            FileSource::new(10, || Ok(Box::new(Cursor::new(vec![1u8; 4])) as Box<dyn std::io::Read + Send>)),
+        ));
+        let mut buffer = vec![0u8; 2 * 1024 * 1024];
+        assert!(UdfWriter::create(Cursor::new(&mut buffer[..]), &root, UdfWriteOptions::default()).is_err());
     }
 
     #[test]

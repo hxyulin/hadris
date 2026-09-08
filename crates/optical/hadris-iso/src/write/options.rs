@@ -78,6 +78,10 @@ impl HybridBootOptions {
 }
 
 /// The partition scheme to use for hybrid boot.
+///
+/// MBR partition entries and the ISO 9660 volume space size are 32-bit sector
+/// counts, so `Mbr` and `Hybrid` layouts are limited to 2 TiB of 512-byte
+/// sectors; a larger image fails to write with `InvalidInput`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PartitionScheme {
     /// No partition table (CD/DVD only, not USB bootable).

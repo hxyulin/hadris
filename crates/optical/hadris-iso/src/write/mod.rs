@@ -38,10 +38,10 @@ use writer::{DirectoryRelocation, PathTableWriter, WrittenDirectory, WrittenFile
 
 use alloc::{string::String, vec, vec::Vec};
 
+#[cfg(feature = "unstable-streaming")]
+pub use types::FileSource;
 use types::*;
-pub use types::{
-    File, FileSource, InputEntry, InputEntryKind, InputFiles, InputMetadata, InputTree,
-};
+pub use types::{File, InputEntry, InputEntryKind, InputFiles, InputMetadata, InputTree};
 
 /// APIs for options.
 pub mod options;
@@ -311,7 +311,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     ) -> io::Result<()> {
         let catalog_ptr = self.write_boot_catalog().await?;
         let end_sector = self.pad_and_get_end_sector().await?;
-        let volume_space = self.volume_space_sectors(end_sector);
+        let volume_space = self.volume_space_sectors(end_sector)?;
 
         self.patch_volume_descriptors(&root_dirs, catalog_ptr, volume_space).await?;
 
@@ -894,6 +894,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             let file = &dir.files[*index];
             let len = file.kind.file_len().unwrap_or(0);
             let cursor = file.entry.extent.0 as u64 * sector_size;
+            #[cfg(feature = "unstable-streaming")]
             let mut reader = match &file.kind {
                 InputEntryKind::Source(source) => Some(source.open().map_err(source_error)?),
                 _ => None,
@@ -923,6 +924,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                     continue;
                 }
 
+                #[cfg(feature = "unstable-streaming")]
                 if let Some(reader) = reader.as_mut() {
                     Self::copy_from_reader(&mut self.data, reader.as_mut(), extent.size as u64)
                         .await?;
@@ -952,6 +954,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     /// Copies exactly `len` bytes from `reader` to the image at the current position.
+    #[cfg(feature = "unstable-streaming")]
     async fn copy_from_reader(
         data: &mut IsoCursor<DATA>,
         reader: &mut (dyn std::io::Read + Send),
@@ -1086,7 +1089,10 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
     /// Writes an MBR partition table for BIOS USB boot (isohybrid-style).
     async fn write_mbr_boot(&mut self, end_sector: LogicalSector) -> io::Result<()> {
-        let sector_count = (end_sector.0 * (self.data.sector_size / 512)) as u32;
+        let sector_count = checked_sector_count(
+            end_sector.0 as u64 * (self.data.sector_size as u64 / 512),
+            "image exceeds the 2 TiB limit of an MBR partition entry",
+        )?;
 
         let hybrid_opts = self.ops.features.hybrid_boot.as_ref();
         let bootable = hybrid_opts.map(|h| h.bootable).unwrap_or(true);
@@ -1165,8 +1171,8 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     /// The `volume_space_size` to declare: for GPT/Hybrid images it covers the
     /// whole image including the appended backup-GPT region, so tools that
     /// copy `volume_space_size` logical sectors preserve the backup GPT.
-    fn volume_space_sectors(&self, end_sector: LogicalSector) -> u32 {
-        match self
+    fn volume_space_sectors(&self, end_sector: LogicalSector) -> io::Result<u32> {
+        let sectors = match self
             .ops
             .features
             .hybrid_boot
@@ -1175,10 +1181,14 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         {
             Some(PartitionScheme::Gpt) | Some(PartitionScheme::Hybrid) => {
                 let blocks_per_sector = (self.ops.sector_size / 512) as u64;
-                (self.gpt_total_512(end_sector) / blocks_per_sector) as u32
+                self.gpt_total_512(end_sector) / blocks_per_sector
             }
-            _ => end_sector.0 as u32,
-        }
+            _ => end_sector.0 as u64,
+        };
+        checked_sector_count(
+            sectors,
+            "image exceeds the 32-bit volume space size of ISO 9660",
+        )
     }
 
     fn build_gpt_disk(
@@ -1568,6 +1578,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 } // io_transform!
 
 /// A failure of a [`FileSource`] reader, as an image error.
+#[cfg(feature = "unstable-streaming")]
 fn source_error(error: std::io::Error) -> io::Error {
     io::Error::<std::io::Error>::from(error).erase()
 }
@@ -1586,6 +1597,16 @@ mod tests {
 
     const DIR_NAME_DOT: &[u8] = b"\x00";
     const DIR_NAME_DOTDOT: &[u8] = b"\x01";
+
+    #[test]
+    fn should_reject_sector_counts_that_do_not_fit_a_partition_entry() {
+        assert_eq!(
+            checked_sector_count(u64::from(u32::MAX), "too large").unwrap(),
+            u32::MAX
+        );
+        let error = checked_sector_count(u64::from(u32::MAX) + 1, "too large").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
 
     #[test]
     fn should_create_empty_iso_no_boot() {
@@ -1787,136 +1808,143 @@ mod tests {
         assert!(file.rrip.is_none());
     }
 
-    /// A deterministic byte pattern of a given length, produced without holding it.
-    struct PatternReader {
-        position: u64,
-        len: u64,
-    }
+    #[cfg(feature = "unstable-streaming")]
+    mod streaming {
+        use super::*;
 
-    impl PatternReader {
-        fn byte_at(position: u64) -> u8 {
-            (position % 251) as u8
+        /// A deterministic byte pattern of a given length, produced without holding it.
+        struct PatternReader {
+            position: u64,
+            len: u64,
         }
-    }
 
-    impl std::io::Read for PatternReader {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let remaining = usize::try_from(self.len - self.position).unwrap_or(usize::MAX);
-            // Short reads exercise the writer's refill loop.
-            let count = buf.len().min(remaining).min(1000);
-            for (index, byte) in buf[..count].iter_mut().enumerate() {
-                *byte = Self::byte_at(self.position + index as u64);
+        impl PatternReader {
+            fn byte_at(position: u64) -> u8 {
+                (position % 251) as u8
             }
-            self.position += count as u64;
-            Ok(count)
         }
-    }
 
-    fn single_file_tree(name: &str, kind: InputEntryKind) -> InputTree {
-        InputTree {
-            path_separator: PathSeparator::ForwardSlash,
-            entries: vec![InputEntry {
-                name: Arc::new(name.into()),
-                kind,
-                metadata: InputMetadata::default(),
-            }],
+        impl std::io::Read for PatternReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let remaining = usize::try_from(self.len - self.position).unwrap_or(usize::MAX);
+                // Short reads exercise the writer's refill loop.
+                let count = buf.len().min(remaining).min(1000);
+                for (index, byte) in buf[..count].iter_mut().enumerate() {
+                    *byte = Self::byte_at(self.position + index as u64);
+                }
+                self.position += count as u64;
+                Ok(count)
+            }
         }
-    }
 
-    fn plain_options(volume_name: &str) -> IsoFormatOptions {
-        IsoFormatOptions {
-            volume_name: volume_name.to_string(),
-            system_id: None,
-            volume_set_id: None,
-            publisher_id: None,
-            preparer_id: None,
-            application_id: None,
-            sector_size: 2048,
-            path_separator: PathSeparator::ForwardSlash,
-            features: CreationFeatures::default(),
-            strict_charset: false,
+        fn single_file_tree(name: &str, kind: InputEntryKind) -> InputTree {
+            InputTree {
+                path_separator: PathSeparator::ForwardSlash,
+                entries: vec![InputEntry {
+                    name: Arc::new(name.into()),
+                    kind,
+                    metadata: InputMetadata::default(),
+                }],
+            }
         }
-    }
 
-    #[test]
-    fn should_stream_file_source_contents_opened_once() {
-        const LEN: u64 = 3 * 1024 * 1024 + 1;
-        let opens = Arc::new(core::sync::atomic::AtomicUsize::new(0));
-        let counter = Arc::clone(&opens);
-        let source = FileSource::new(LEN, move || {
-            counter.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
-            Ok(Box::new(PatternReader {
-                position: 0,
-                len: LEN,
-            }))
-        });
-        assert_eq!(source.len(), LEN);
-        assert!(!source.is_empty());
-        let input = single_file_tree("STREAMED", InputEntryKind::Source(source));
+        fn plain_options(volume_name: &str) -> IsoFormatOptions {
+            IsoFormatOptions {
+                volume_name: volume_name.to_string(),
+                system_id: None,
+                volume_set_id: None,
+                publisher_id: None,
+                preparer_id: None,
+                application_id: None,
+                sector_size: 2048,
+                path_separator: PathSeparator::ForwardSlash,
+                features: CreationFeatures::default(),
+                strict_charset: false,
+            }
+        }
 
-        let output = tempfile::tempfile().unwrap();
-        let mut output = IsoImageWriter::create(output, input, plain_options("STREAM")).unwrap();
-        assert_eq!(opens.load(core::sync::atomic::Ordering::SeqCst), 1);
+        #[test]
+        fn should_stream_file_source_contents_opened_once() {
+            const LEN: u64 = 3 * 1024 * 1024 + 1;
+            let opens = Arc::new(core::sync::atomic::AtomicUsize::new(0));
+            let counter = Arc::clone(&opens);
+            let source = FileSource::new(LEN, move || {
+                counter.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+                Ok(Box::new(PatternReader {
+                    position: 0,
+                    len: LEN,
+                }))
+            });
+            assert_eq!(source.len(), LEN);
+            assert!(!source.is_empty());
+            let input = single_file_tree("STREAMED", InputEntryKind::Source(source));
 
-        output.seek(SeekFrom::Start(0)).unwrap();
-        let image = IsoImage::open(output).expect("Failed to parse ISO image");
-        let root_dir = image.root_dir();
-        let iso_dir = root_dir.iter(&image);
-        let file = iso_dir
-            .entries()
-            .nth(2)
-            .unwrap()
-            .expect("Failed to parse iso file");
-        assert_eq!(file.display_name(), "STREAMED;1");
-        assert_eq!(file.total_size(), LEN);
+            let output = tempfile::tempfile().unwrap();
+            let mut output =
+                IsoImageWriter::create(output, input, plain_options("STREAM")).unwrap();
+            assert_eq!(opens.load(core::sync::atomic::Ordering::SeqCst), 1);
 
-        let contents = image
-            .read_file(&file)
-            .expect("Failed to read streamed file");
-        assert_eq!(contents.len() as u64, LEN);
-        assert!(
-            contents
-                .iter()
-                .enumerate()
-                .all(|(index, byte)| *byte == PatternReader::byte_at(index as u64))
-        );
-    }
+            output.seek(SeekFrom::Start(0)).unwrap();
+            let image = IsoImage::open(output).expect("Failed to parse ISO image");
+            let root_dir = image.root_dir();
+            let iso_dir = root_dir.iter(&image);
+            let file = iso_dir
+                .entries()
+                .nth(2)
+                .unwrap()
+                .expect("Failed to parse iso file");
+            assert_eq!(file.display_name(), "STREAMED;1");
+            assert_eq!(file.total_size(), LEN);
 
-    #[test]
-    fn should_fail_when_file_source_ends_early() {
-        let source = FileSource::new(5000, || Ok(Box::new(Cursor::new(vec![7_u8; 100]))));
-        let input = single_file_tree("SHORT", InputEntryKind::Source(source));
+            let contents = image
+                .read_file(&file)
+                .expect("Failed to read streamed file");
+            assert_eq!(contents.len() as u64, LEN);
+            assert!(
+                contents
+                    .iter()
+                    .enumerate()
+                    .all(|(index, byte)| *byte == PatternReader::byte_at(index as u64))
+            );
+        }
 
-        let output = tempfile::tempfile().unwrap();
-        let error = IsoImageWriter::create(output, input, plain_options("SHORT"))
-            .expect_err("a short source must fail the write");
-        assert!(
-            matches!(error, IsoCreationError::Io(ref io) if io.kind() == io::ErrorKind::UnexpectedEof),
-            "{error:?}"
-        );
-    }
+        #[test]
+        fn should_fail_when_file_source_ends_early() {
+            let source = FileSource::new(5000, || Ok(Box::new(Cursor::new(vec![7_u8; 100]))));
+            let input = single_file_tree("SHORT", InputEntryKind::Source(source));
 
-    #[test]
-    fn should_stream_file_source_from_path() {
-        let contents: Vec<u8> = (0..70_000_u32).map(|value| (value % 199) as u8).collect();
-        let file = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(file.path(), &contents).unwrap();
-        let source = FileSource::from_path(file.path()).unwrap();
-        assert_eq!(source.len(), contents.len() as u64);
-        let input = single_file_tree("ONDISK", InputEntryKind::Source(source));
+            let output = tempfile::tempfile().unwrap();
+            let error = IsoImageWriter::create(output, input, plain_options("SHORT"))
+                .expect_err("a short source must fail the write");
+            assert!(
+                matches!(error, IsoCreationError::Io(ref io) if io.kind() == io::ErrorKind::UnexpectedEof),
+                "{error:?}"
+            );
+        }
 
-        let output = tempfile::tempfile().unwrap();
-        let mut output = IsoImageWriter::create(output, input, plain_options("ONDISK")).unwrap();
-        output.seek(SeekFrom::Start(0)).unwrap();
-        let image = IsoImage::open(output).expect("Failed to parse ISO image");
-        let root_dir = image.root_dir();
-        let iso_dir = root_dir.iter(&image);
-        let entry = iso_dir
-            .entries()
-            .nth(2)
-            .unwrap()
-            .expect("Failed to parse iso file");
-        assert_eq!(image.read_file(&entry).unwrap(), contents);
+        #[test]
+        fn should_stream_file_source_from_path() {
+            let contents: Vec<u8> = (0..70_000_u32).map(|value| (value % 199) as u8).collect();
+            let file = tempfile::NamedTempFile::new().unwrap();
+            std::fs::write(file.path(), &contents).unwrap();
+            let source = FileSource::from_path(file.path()).unwrap();
+            assert_eq!(source.len(), contents.len() as u64);
+            let input = single_file_tree("ONDISK", InputEntryKind::Source(source));
+
+            let output = tempfile::tempfile().unwrap();
+            let mut output =
+                IsoImageWriter::create(output, input, plain_options("ONDISK")).unwrap();
+            output.seek(SeekFrom::Start(0)).unwrap();
+            let image = IsoImage::open(output).expect("Failed to parse ISO image");
+            let root_dir = image.root_dir();
+            let iso_dir = root_dir.iter(&image);
+            let entry = iso_dir
+                .entries()
+                .nth(2)
+                .unwrap()
+                .expect("Failed to parse iso file");
+            assert_eq!(image.read_file(&entry).unwrap(), contents);
+        }
     }
 
     #[test]
