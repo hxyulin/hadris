@@ -10,6 +10,12 @@ pub fn available() -> bool {
     super::command::program_available(PROGRAM, "--version")
 }
 
+/// Skips the calling test when QEMU is absent, or panics when
+/// [`REQUIRE_TOOLS_ENV`](super::command::REQUIRE_TOOLS_ENV) is set.
+pub fn require() -> bool {
+    super::command::require_or_skip(PROGRAM, "--version")
+}
+
 /// Boots `iso` headlessly with the serial console on stdout and returns what
 /// the guest printed before it halted or the timeout expired.
 pub fn boot_serial_output(iso: &Path, timeout: Duration) -> Option<String> {
@@ -22,10 +28,13 @@ pub fn boot_serial_output(iso: &Path, timeout: Duration) -> Option<String> {
             "-nographic",
             "-serial",
             "stdio",
+            "-monitor",
+            "none",
             "-no-reboot",
             "-m",
             "16",
         ])
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

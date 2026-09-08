@@ -60,6 +60,7 @@ cargo test --manifest-path tests/Cargo.toml              # hosted suite
 cargo test --manifest-path tests/Cargo.toml fat::        # one format
 cargo test --manifest-path tests/Cargo.toml iso::boot::  # one topic
 cargo test --manifest-path tests/Cargo.toml -- --ignored # manual peer reports
+cargo test --manifest-path tests/Cargo.toml iso::boot::test_qemu_boot -- --ignored # QEMU boot checks
 
 # Require every command-line peer tool through the repository flake
 nix develop -c env HADRIS_REQUIRE_EXTERNAL_TOOLS=1 \
@@ -69,7 +70,10 @@ nix develop -c env HADRIS_REQUIRE_EXTERNAL_TOOLS=1 \
 FAT and ISO use the same three test tiers. Hosted oracle tests always run.
 External-tool interoperability tests skip when their tools are absent, while
 CI sets `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` to make them mandatory. Accuracy
-reports, QEMU checks, and privileged native-mount checks are `#[ignore]`d.
+reports, QEMU checks, and privileged native-mount checks are `#[ignore]`d and
+run only with `-- --ignored`; the QEMU boot checks fail when the image does not
+boot, skip when QEMU is absent, and treat a missing QEMU as a failure under
+`HADRIS_REQUIRE_EXTERNAL_TOOLS=1`.
 The commands and environment variables are documented in the repository
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#conformance-and-interoperability-suite).
 Reports are written to `tests/target/reports/<format>/`.
