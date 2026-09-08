@@ -8,6 +8,8 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-09-08
+
 ### Added
 
 - **hadris-iso (`unstable-streaming`):** `InputEntryKind::Source` streams a
@@ -732,7 +734,8 @@ under Semantic Versioning.
 - **Build:** Disabled `thiserror` default features so the workspace builds as
   `no_std`. ([@aruiz](https://github.com/aruiz))
 
-[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/hxyulin/hadris/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/hxyulin/hadris/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/hxyulin/hadris/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/hxyulin/hadris/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/hxyulin/hadris/compare/v2.0.0...v2.1.0

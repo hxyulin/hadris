@@ -6,7 +6,7 @@ title: Read and extract UDF
 
 ```toml
 [dependencies]
-hadris-udf = "2.3.0"
+hadris-udf = "2.4.0"
 ```
 
 The UDF reader exposes owned directory metadata and reads a selected file into
