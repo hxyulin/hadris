@@ -22,8 +22,8 @@ breaking changes to the public API require a new major version; minor releases
 add backward-compatible functionality, and patch releases are limited to
 correctness fixes, interoperability qualification, and documentation.
 
-The `unstable-exfat` preview and experimental `hadris-ntfs` reader are
-explicitly outside this stability promise.
+The `unstable-exfat` and `unstable-streaming` previews and the experimental
+`hadris-ntfs` reader are explicitly outside this stability promise.
 Stable FAT12/16/32, partition, ISO 9660, UDF, CPIO, facade, and storage APIs are
 covered by the V2 public-API snapshots.
 

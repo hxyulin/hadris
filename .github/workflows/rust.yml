@@ -221,7 +221,7 @@ jobs:
             features: "alloc,sync,async,read,joliet"
           - crate: hadris-iso
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,joliet"
+            features: "std,alloc,sync,async,read,write,joliet,unstable-streaming"
 
           # hadris-udf
           - crate: hadris-udf

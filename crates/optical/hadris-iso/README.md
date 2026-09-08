@@ -105,10 +105,13 @@ let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
 IsoImageWriter::create(&mut buffer, files, format_options)?;
 ```
 
-To add a file without loading it into memory, give the input tree an
-`InputEntryKind::Source` instead of a `File`. A `FileSource` carries the length
-and a way to open a reader; the writer opens it once, when the file's extents
-are written, and streams the contents in fixed-size chunks:
+With the `unstable-streaming` feature, a file can be added without loading it
+into memory: give the input tree an `InputEntryKind::Source` instead of a
+`File`. A `FileSource` carries the length and a way to open a reader; the writer
+opens it once, when the file's extents are written, and streams the contents in
+fixed-size chunks. The feature is outside the V2 stability promise, and enabling
+it adds the `Source` variant to `InputEntryKind`, so exhaustive matches on that
+enum must account for it.
 
 ```rust,ignore
 use hadris_iso::write::{FileSource, InputEntry, InputEntryKind, InputMetadata};
@@ -131,6 +134,7 @@ let entry = InputEntry {
 | `async` | Asynchronous read API under `hadris_iso::r#async` | — |
 | `write` | Synchronous ISO creation/formatting | `std`, `alloc` |
 | `joliet` | Allocating Joliet encode/write helpers; allocation-free Joliet reading is part of `read` | `alloc` |
+| `unstable-streaming` | Unstable: stream file contents from a reader while writing (`InputEntryKind::Source`) | `write` |
 
 `std` selects platform integration but does not select an I/O mode. The default
 configuration enables `sync`; custom configurations should select `sync`,

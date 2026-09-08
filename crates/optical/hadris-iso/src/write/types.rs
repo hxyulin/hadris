@@ -1,3 +1,4 @@
+#[cfg(feature = "unstable-streaming")]
 use alloc::boxed::Box;
 use core::{fmt, ops::Deref};
 use std::{fs::FileType, path::PathBuf};
@@ -160,6 +161,7 @@ impl InputTree {
                     //     ));
                     // }
                 }
+                #[cfg(feature = "unstable-streaming")]
                 InputEntryKind::Source(_) => {}
                 #[cfg(test)]
                 InputEntryKind::TestFile { .. } => {}
@@ -221,7 +223,13 @@ impl InputMetadata {
 /// The reader is a blocking [`std::io::Read`] in both the sync and the async writer;
 /// the async writer awaits only its output.
 ///
+/// Requires the `unstable-streaming` feature, which is outside the V2 API
+/// stability promise: this type and [`InputEntryKind::Source`] may change in any
+/// release.
+///
 /// [`ErrorKind::UnexpectedEof`]: crate::io::ErrorKind::UnexpectedEof
+#[cfg(feature = "unstable-streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "unstable-streaming")))]
 #[derive(Clone)]
 pub struct FileSource {
     len: u64,
@@ -229,6 +237,7 @@ pub struct FileSource {
         alloc::sync::Arc<dyn Fn() -> std::io::Result<Box<dyn std::io::Read + Send>> + Send + Sync>,
 }
 
+#[cfg(feature = "unstable-streaming")]
 impl FileSource {
     /// A source of `len` bytes that `open` produces a reader for.
     pub fn new<F>(len: u64, open: F) -> Self
@@ -269,6 +278,7 @@ impl FileSource {
     }
 }
 
+#[cfg(feature = "unstable-streaming")]
 impl fmt::Debug for FileSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FileSource")
@@ -277,6 +287,7 @@ impl fmt::Debug for FileSource {
     }
 }
 
+#[cfg(feature = "unstable-streaming")]
 impl PartialEq for FileSource {
     /// Two sources are equal when they share the same opener and length.
     fn eq(&self, other: &Self) -> bool {
@@ -284,14 +295,24 @@ impl PartialEq for FileSource {
     }
 }
 
+#[cfg(feature = "unstable-streaming")]
 impl Eq for FileSource {}
 
 /// The data represented by an [`InputEntry`].
+///
+/// With the `unstable-streaming` feature enabled this enum gains the
+/// [`Source`](Self::Source) variant, so exhaustive matches on it must account for
+/// that variant when the feature is on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputEntryKind {
     /// The `File` variant.
     File(Vec<u8>),
     /// A file whose contents are streamed from a reader while the image is written.
+    ///
+    /// Requires the `unstable-streaming` feature and is outside the V2 API
+    /// stability promise.
+    #[cfg(feature = "unstable-streaming")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "unstable-streaming")))]
     Source(FileSource),
     /// A virtual sparse file used by large-file regression tests.
     #[cfg(test)]
@@ -323,6 +344,7 @@ impl InputEntryKind {
     pub(crate) fn file_len(&self) -> Option<u64> {
         match self {
             Self::File(contents) => Some(contents.len() as u64),
+            #[cfg(feature = "unstable-streaming")]
             Self::Source(source) => Some(source.len()),
             #[cfg(test)]
             Self::TestFile { size } => Some(*size),

@@ -14,7 +14,7 @@ categories = ["filesystem", "embedded", "no-std"]
 exclude = ["/spec"]
 
 [package.metadata.docs.rs]
-features = ["std", "write", "joliet", "read", "alloc", "sync", "async"]
+features = ["std", "write", "joliet", "read", "alloc", "sync", "async", "unstable-streaming"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -31,6 +31,9 @@ async = ["hadris-io/async", "hadris-common/async", "hadris-part/async"]
 
 write = ["alloc", "std", "hadris-part/write", "hadris-part/crc"]
 joliet = ["alloc"]
+# Unstable streaming input for the writer (`InputEntryKind::Source`, `FileSource`).
+# Outside the V2 stability promise; enabling it adds a variant to `InputEntryKind`.
+unstable-streaming = ["write"]
 
 [dependencies]
 bitflags = { workspace = true, features = ["bytemuck"] }
