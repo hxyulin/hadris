@@ -26,7 +26,10 @@ pub fn run_command_with_env(
     command.args(&args).env("LC_ALL", "C.UTF-8");
     for (key, _) in std::env::vars_os() {
         let name = key.to_string_lossy();
-        if remove_prefixes.iter().any(|prefix| name.starts_with(prefix)) {
+        if remove_prefixes
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        {
             command.env_remove(&key);
         }
     }
