@@ -163,6 +163,7 @@ fn walk_entries_stats(
                     stats.total_file_bytes += align_to_sector(len, sector_size) * sector_size;
                 }
             }
+            #[cfg(feature = "unstable-streaming")]
             InputEntryKind::Source(source) => {
                 stats.file_count += 1;
                 let len = source.len();
