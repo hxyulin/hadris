@@ -268,7 +268,7 @@ jobs:
             features: "alloc,sync,async,read,write"
           - crate: hadris-cpio
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,unstable-streaming"
+            features: "std,alloc,sync,async,read,write"
 
           # hadris-cd (hybrid writer is intentionally sync-only)
           - crate: hadris-cd
