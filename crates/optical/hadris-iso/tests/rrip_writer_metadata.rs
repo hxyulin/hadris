@@ -227,6 +227,28 @@ fn relocates_a_ninth_level_directory_and_preserves_the_rrip_view() {
 }
 
 #[test]
+fn placeholder_record_is_not_flagged_as_a_directory() {
+    let image = write(vec![nested_directory(9)], RripOptions::default());
+    let mut directory = image.root_dir().dir_ref();
+
+    for level in 1..=9 {
+        let entry = image
+            .open_dir(directory)
+            .entries()
+            .filter_map(Result::ok)
+            .find(|entry| entry.matches_name(&format!("level{level}")))
+            .unwrap();
+        if entry.rrip.as_ref().unwrap().child_link.is_some() {
+            assert!(entry.is_directory());
+            assert!(!entry.header().is_directory());
+            return;
+        }
+        directory = entry.as_dir_ref(&image).unwrap();
+    }
+    panic!("no relocated (child-link) level found in the chain");
+}
+
+#[test]
 fn relocation_directory_name_does_not_collide_with_user_input() {
     let image = write(
         vec![
