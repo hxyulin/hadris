@@ -230,7 +230,7 @@ fn relocates_a_ninth_level_directory_and_preserves_the_rrip_view() {
 fn relocation_directory_name_does_not_collide_with_user_input() {
     let image = write(
         vec![
-            InputEntry::directory("RR_MOVED", Vec::new()),
+            InputEntry::directory("rr_moved", Vec::new()),
             nested_directory(9),
         ],
         RripOptions::default(),
@@ -243,8 +243,8 @@ fn relocation_directory_name_does_not_collide_with_user_input() {
         .filter(|entry| !entry.is_special())
         .map(|entry| entry.display_name().into_owned())
         .collect();
-    assert!(names.contains(&"RR_MOVED".to_string()));
-    assert!(names.contains(&"RR_MOVED_1".to_string()));
+    assert!(names.contains(&"rr_moved".to_string()));
+    assert!(names.contains(&"rr_moved_1".to_string()));
 }
 
 #[test]

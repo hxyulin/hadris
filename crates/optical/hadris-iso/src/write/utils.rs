@@ -190,10 +190,10 @@ pub fn relocate_deep_directories(files: &mut WrittenFiles) {
         .iter()
         .map(|directory| directory.name.as_str())
         .collect::<std::collections::HashSet<_>>();
-    let mut relocation_name = String::from("RR_MOVED");
+    let mut relocation_name = String::from("rr_moved");
     let mut suffix = 1;
     while occupied.contains(relocation_name.as_str()) {
-        relocation_name = alloc::format!("RR_MOVED_{suffix}");
+        relocation_name = alloc::format!("rr_moved_{suffix}");
         suffix += 1;
     }
     let mut relocation_dir = WrittenDirectory::new(Arc::new(relocation_name));
