@@ -63,6 +63,10 @@ required-features = ["std", "sync", "read"]
 name = "dir_iter_error"
 required-features = ["std", "sync", "write"]
 
+[[test]]
+name = "rrip_writer_metadata"
+required-features = ["std", "sync", "write"]
+
 [[bench]]
 name = "iso_benchmarks"
 harness = false

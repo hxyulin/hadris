@@ -1,5 +1,6 @@
 use std::io::Cursor;
 
+use hadris_iso::directory::DirectoryRecordHeader;
 use hadris_iso::read::{IsoImage, PathSeparator};
 use hadris_iso::rrip::RripOptions;
 use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
@@ -281,4 +282,54 @@ fn relocates_paths_that_exceed_the_iso_path_length_limit() {
         directory = entry.as_dir_ref(&image).unwrap();
     }
     assert!(saw_child_link);
+}
+
+#[test]
+fn patches_dot_entry_for_every_directory_when_the_parent_listing_spans_multiple_sectors() {
+    let children: Vec<_> = (0..50)
+        .map(|i| {
+            InputEntry::directory(
+                format!("dir{i:02}"),
+                vec![InputEntry::file("f.txt", b"x".to_vec())],
+            )
+        })
+        .collect();
+    let tree = InputTree::new(PathSeparator::ForwardSlash, children);
+    let cursor = IsoImageWriter::create(
+        Cursor::new(vec![0u8; 4 * 1024 * 1024]),
+        tree,
+        options(RripOptions::default()),
+    )
+    .unwrap();
+    let raw = cursor.get_ref().clone();
+    let image = IsoImage::open(cursor).unwrap();
+
+    let mut checked = 0;
+    for entry in image
+        .root_dir()
+        .iter(&image)
+        .entries()
+        .filter_map(Result::ok)
+        .filter(|entry| !entry.is_special())
+    {
+        let dir_ref = entry.as_dir_ref(&image).unwrap();
+        let sector = dir_ref.extent.0 * 2048;
+        let dot = DirectoryRecordHeader::from_bytes(
+            &raw[sector..sector + size_of::<DirectoryRecordHeader>()],
+        );
+        assert_eq!(
+            dot.extent.read() as usize,
+            dir_ref.extent.0,
+            "{:?}'s '.' entry should self-reference its own extent",
+            entry.display_name()
+        );
+        assert_eq!(
+            dot.data_len.read() as usize,
+            dir_ref.size,
+            "{:?}'s '.' entry should self-reference its own size",
+            entry.display_name()
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 50);
 }

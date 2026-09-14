@@ -1374,6 +1374,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         parent: DirectoryRef,
         directory: DirectoryRef,
     ) -> io::Result<()> {
+        let sector_size = self.data.sector_size as u64;
         let start = self.data.seek_sector(directory.extent).await?;
         let mut offset = 0;
         loop {
@@ -1390,6 +1391,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             let mut record = DirectoryRecord::parse(&mut self.data).await?;
 
             if record.is_empty() {
+                let next_sector = (offset / sector_size + 1) * sector_size;
+                if next_sector < directory.size as u64 {
+                    offset = next_sector;
+                    continue;
+                }
                 break;
             }
 
