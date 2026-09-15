@@ -20,6 +20,7 @@
           packages = [
             pkgs.cdrtools
             pkgs.dosfstools
+            pkgs.libarchive
             pkgs.mtools
             pkgs.python3
             pkgs.qemu

@@ -131,7 +131,7 @@ fn apply_iso_dedup_suffix(name: &[u8], suffix: &str, ty: EntryType) -> Vec<u8> {
     result
 }
 
-pub fn relocate_deep_directories(files: &mut WrittenFiles) {
+pub fn relocate_deep_directories(files: &mut WrittenFiles) -> io::Result<()> {
     fn visit(
         dir: &mut WrittenDirectory,
         physical_depth: usize,
@@ -156,7 +156,7 @@ pub fn relocate_deep_directories(files: &mut WrittenFiles) {
                     id: target,
                     logical_parent,
                 };
-                let relocated_path_len = "RR_MOVED".len() + 1 + child.name.len();
+                let relocated_path_len = ".rr_moved".len() + 1 + child.name.len();
                 visit(&mut child, 3, relocated_path_len, moved, internal_id);
                 moved.push(child);
 
@@ -182,24 +182,36 @@ pub fn relocate_deep_directories(files: &mut WrittenFiles) {
     let mut internal_id = 1;
     visit(root, 1, 0, &mut moved, &mut internal_id);
     if moved.is_empty() {
-        return;
+        return Ok(());
     }
 
-    let occupied = root
+    if root
         .dirs
         .iter()
-        .map(|directory| directory.name.as_str())
-        .collect::<std::collections::HashSet<_>>();
-    let mut relocation_name = String::from("rr_moved");
-    let mut suffix = 1;
-    while occupied.contains(relocation_name.as_str()) {
-        relocation_name = alloc::format!("rr_moved_{suffix}");
-        suffix += 1;
+        .any(|entry| entry.name.as_str() == "rr_moved")
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Rock Ridge relocation conflicts with the root rr_moved directory",
+        ));
     }
-    let mut relocation_dir = WrittenDirectory::new(Arc::new(relocation_name));
+    let relocation_name = ["rr_moved", ".rr_moved"]
+        .into_iter()
+        .find(|name| {
+            !root.dirs.iter().any(|entry| entry.name.as_str() == *name)
+                && !root.files.iter().any(|entry| entry.name.as_str() == *name)
+        })
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Rock Ridge relocation requires an available rr_moved or .rr_moved name",
+            )
+        })?;
+    let mut relocation_dir = WrittenDirectory::new(Arc::new(String::from(relocation_name)));
     relocation_dir.id = usize::MAX;
     relocation_dir.dirs = moved;
     root.dirs.insert(0, relocation_dir);
+    Ok(())
 }
 
 /// Generates a deterministic GUID from a string (simple hash-based).

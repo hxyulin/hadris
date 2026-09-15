@@ -8,6 +8,13 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Fixed
+
+- **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
+  libarchive/bsdtar and use only recognized relocation container names. Reject
+  relocation when a root `rr_moved` directory would be mistaken for the container
+  or both supported names are occupied, instead of producing an unreadable image.
+
 ## [2.4.0] - 2026-09-08
 
 ### Added

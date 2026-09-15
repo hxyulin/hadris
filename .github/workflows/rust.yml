@@ -447,7 +447,7 @@ jobs:
       - name: Install optical image tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso udftools p7zip-full
+          sudo apt-get install -y xorriso udftools p7zip-full libarchive-tools
       - name: Run ISO conformance and interoperability tests
         env:
           HADRIS_REQUIRE_EXTERNAL_TOOLS: "1"

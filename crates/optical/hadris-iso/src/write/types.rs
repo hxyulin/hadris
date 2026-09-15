@@ -894,7 +894,16 @@ impl PendingRecords {
             };
 
             let dir_ref = directory.get_dir_ref(ty, relocation_refs);
-            let record = PendingRecord::new(&converted_name, split, dir_ref, FileFlags::DIRECTORY);
+            let flags = if has_rrip
+                && matches!(
+                    directory.relocation,
+                    DirectoryRelocation::Placeholder { .. }
+                ) {
+                FileFlags::empty()
+            } else {
+                FileFlags::DIRECTORY
+            };
+            let record = PendingRecord::new(&converted_name, split, dir_ref, flags);
 
             records.push(record);
         }
