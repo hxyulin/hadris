@@ -4,6 +4,7 @@ mod hybrid;
 mod multi_extent;
 mod native;
 mod peers;
+mod relocation;
 mod rock_ridge;
 mod spec;
 mod volume_descriptors;

@@ -103,3 +103,9 @@ privileged native-mount checks remain ignored.
 - When a test is cited as compliance evidence, reference it as
   `<format>::<topic>::<name>` in `@hadris-tests` annotations and
   `docs/spec-coverage.md`, and by file path in `spec/requirements/*.json`.
+
+Rock Ridge relocation extraction is checked with `bsdtar` under
+`iso::relocation::`. It compares every extracted path, entry kind, and file byte
+against the input model. Install libarchive (`libarchive-tools` on Debian/Ubuntu)
+or use the repository flake. Optical CI requires this tool; local runs skip the
+test if it is unavailable unless `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.

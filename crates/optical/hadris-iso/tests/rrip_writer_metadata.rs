@@ -213,7 +213,11 @@ fn relocates_a_ninth_level_directory_and_preserves_the_rrip_view() {
             .into_iter()
             .find(|entry| entry.matches_name(&format!("level{level}")))
             .unwrap_or_else(|| panic!("missing logical level {level}; found {names:?}"));
-        saw_child_link |= entry.rrip.as_ref().unwrap().child_link.is_some();
+        if entry.rrip.as_ref().unwrap().child_link.is_some() {
+            saw_child_link = true;
+            assert!(!entry.record.is_directory());
+            assert!(entry.is_directory());
+        }
         directory = entry.as_dir_ref(&image).unwrap();
     }
     assert!(saw_child_link);
@@ -228,10 +232,31 @@ fn relocates_a_ninth_level_directory_and_preserves_the_rrip_view() {
 }
 
 #[test]
-fn relocation_directory_name_does_not_collide_with_user_input() {
+fn relocation_rejects_an_ambiguous_user_directory() {
+    let tree = InputTree::new(
+        PathSeparator::ForwardSlash,
+        vec![
+            InputEntry::directory("rr_moved", Vec::new()),
+            nested_directory(9),
+        ],
+    );
+    let error = IsoImageWriter::create(
+        Cursor::new(Vec::new()),
+        tree,
+        options(RripOptions::default()),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::ErrorKind::InvalidInput)
+    );
+    assert!(error.to_string().contains("root rr_moved directory"));
+}
+
+#[test]
+fn relocation_uses_dot_name_when_a_file_occupies_rr_moved() {
     let image = write(
         vec![
-            InputEntry::directory("RR_MOVED", Vec::new()),
+            InputEntry::file("rr_moved", b"user".to_vec()),
             nested_directory(9),
         ],
         RripOptions::default(),
@@ -240,12 +265,42 @@ fn relocation_directory_name_does_not_collide_with_user_input() {
         .root_dir()
         .iter(&image)
         .entries()
-        .filter_map(Result::ok)
-        .filter(|entry| !entry.is_special())
-        .map(|entry| entry.display_name().into_owned())
+        .map(|entry| entry.unwrap().display_name().into_owned())
         .collect();
-    assert!(names.contains(&"RR_MOVED".to_string()));
-    assert!(names.contains(&"RR_MOVED_1".to_string()));
+    assert!(names.contains(&"rr_moved".to_string()));
+    assert!(names.contains(&".rr_moved".to_string()));
+}
+
+#[test]
+fn relocation_rejects_two_occupied_names() {
+    let tree = InputTree::new(
+        PathSeparator::ForwardSlash,
+        vec![
+            InputEntry::file("rr_moved", b"user".to_vec()),
+            InputEntry::file(".rr_moved", b"user".to_vec()),
+            nested_directory(9),
+        ],
+    );
+    let error = IsoImageWriter::create(
+        Cursor::new(Vec::new()),
+        tree,
+        options(RripOptions::default()),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::ErrorKind::InvalidInput)
+    );
+}
+
+#[test]
+fn shallow_trees_allow_both_relocation_names() {
+    write(
+        vec![
+            InputEntry::directory("rr_moved", Vec::new()),
+            InputEntry::directory(".rr_moved", Vec::new()),
+        ],
+        RripOptions::default(),
+    );
 }
 
 #[test]
@@ -278,7 +333,11 @@ fn relocates_paths_that_exceed_the_iso_path_length_limit() {
             .filter_map(Result::ok)
             .find(|entry| entry.matches_name(&name))
             .unwrap();
-        saw_child_link |= entry.rrip.as_ref().unwrap().child_link.is_some();
+        if entry.rrip.as_ref().unwrap().child_link.is_some() {
+            saw_child_link = true;
+            assert!(!entry.record.is_directory());
+            assert!(entry.is_directory());
+        }
         directory = entry.as_dir_ref(&image).unwrap();
     }
     assert!(saw_child_link);

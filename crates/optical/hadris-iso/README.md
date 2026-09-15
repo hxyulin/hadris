@@ -259,3 +259,11 @@ producer matrix, methodology, and known peer deviations.
 ## License
 
 This project is licensed under the [MIT license](../../../LICENSE-MIT).
+
+### Rock Ridge relocation
+
+Deep or overlong directory paths use a `rr_moved` relocation container compatible
+with libarchive/bsdtar. If a root file occupies that name, the writer uses
+`.rr_moved`. Creation fails when relocation is needed and a root directory is
+named `rr_moved`, or both container names are occupied. Shallow trees that do not
+need relocation may use either name freely.
