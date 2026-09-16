@@ -262,8 +262,11 @@ This project is licensed under the [MIT license](../../../LICENSE-MIT).
 
 ### Rock Ridge relocation
 
-Deep or overlong directory paths use a `rr_moved` relocation container compatible
-with libarchive/bsdtar. If a root file occupies that name, the writer uses
-`.rr_moved`. Creation fails when relocation is needed and a root directory is
-named `rr_moved`, or both container names are occupied. Shallow trees that do not
-need relocation may use either name freely.
+Deep or overlong directory paths use a Rock Ridge relocation container compatible
+with libarchive/bsdtar. The writer prefers an unoccupied `rr_moved` or `.rr_moved`
+root name, but only when that name would be the first recognized directory in ISO
+File Identifier order. If a user directory already occupies the name libarchive
+will select, that directory is reused as the container: relocated entries are
+marked `RE` and the original user tree stays in place. Creation fails only when
+relocation is needed and both recognized names are occupied by non-directory
+entries. Shallow trees that do not need relocation may use either name freely.

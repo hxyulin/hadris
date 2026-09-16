@@ -104,8 +104,12 @@ privileged native-mount checks remain ignored.
   `<format>::<topic>::<name>` in `@hadris-tests` annotations and
   `docs/spec-coverage.md`, and by file path in `spec/requirements/*.json`.
 
-Rock Ridge relocation extraction is checked with `bsdtar` under
-`iso::relocation::`. It compares every extracted path, entry kind, and file byte
-against the input model. Install libarchive (`libarchive-tools` on Debian/Ubuntu)
-or use the repository flake. Optical CI requires this tool; local runs skip the
-test if it is unavailable unless `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
+Rock Ridge relocation extraction is checked with `bsdtar` and `xorriso` under
+`iso::relocation::`. Both compare every extracted path, entry kind, and file byte
+against the input model, including user-owned `rr_moved` / `.rr_moved` root
+directories and physical name collisions inside a reused container. xorriso may
+leave an empty relocation container behind after restoring the logical tree;
+libarchive/bsdtar hides that directory when it contained only `RE` entries.
+Install libarchive (`libarchive-tools` on Debian/Ubuntu) and xorriso, or use the
+repository flake. Optical CI requires these tools; local runs skip a test if its
+tool is unavailable unless `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
