@@ -8,6 +8,11 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Tests
+
+- **ISO:** Rock Ridge relocation extraction is also checked with xorriso/libisofs
+  alongside libarchive/bsdtar.
+
 ### Fixed
 
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
