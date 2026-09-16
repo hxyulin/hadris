@@ -106,6 +106,8 @@ privileged native-mount checks remain ignored.
 
 Rock Ridge relocation extraction is checked with `bsdtar` under
 `iso::relocation::`. It compares every extracted path, entry kind, and file byte
-against the input model. Install libarchive (`libarchive-tools` on Debian/Ubuntu)
-or use the repository flake. Optical CI requires this tool; local runs skip the
-test if it is unavailable unless `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.
+against the input model, including user-owned `rr_moved` / `.rr_moved` root
+directories and physical name collisions inside a reused container. Install
+libarchive (`libarchive-tools` on Debian/Ubuntu) or use the repository flake.
+Optical CI requires this tool; local runs skip the test if it is unavailable
+unless `HADRIS_REQUIRE_EXTERNAL_TOOLS=1` is set.

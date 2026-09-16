@@ -11,9 +11,11 @@ Each published package owns its version and may be released independently.
 ### Fixed
 
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
-  libarchive/bsdtar and use only recognized relocation container names. Reject
-  relocation when a root `rr_moved` directory would be mistaken for the container
-  or both supported names are occupied, instead of producing an unreadable image.
+  libarchive/bsdtar and use only recognized relocation container names. An
+  existing root `rr_moved` or `.rr_moved` directory is reused as the container
+  when it is the name libarchive will select, so user trees and relocated paths
+  are preserved together. Creation still fails when both recognized names are
+  occupied by non-directory entries.
 
 ## [2.4.0] - 2026-09-08
 
