@@ -7,6 +7,7 @@ use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOption
 use hadris_iso::write::{InputEntry, InputTree, IsoImageWriter};
 use hadris_tests::harness::command::{require_or_skip, run_command};
 use hadris_tests::harness::tree::{EntryData, snapshot_host};
+use hadris_tests::iso::xorriso;
 
 #[derive(Clone, Debug)]
 enum Collision {
@@ -113,10 +114,10 @@ fn apply_collision(
     }
 }
 
-fn extract_with_bsdtar(
+fn write_image(
     entries: Vec<InputEntry>,
     options: IsoFormatOptions,
-) -> BTreeMap<String, EntryData> {
+) -> (tempfile::TempDir, std::path::PathBuf) {
     let image = IsoImageWriter::create(
         Cursor::new(Vec::new()),
         InputTree::new(PathSeparator::ForwardSlash, entries),
@@ -125,8 +126,16 @@ fn extract_with_bsdtar(
     .unwrap();
     let temp = tempfile::tempdir().unwrap();
     let iso = temp.path().join("image.iso");
-    let extracted = temp.path().join("extracted");
     fs::write(&iso, image.into_inner()).unwrap();
+    (temp, iso)
+}
+
+fn extract_with_bsdtar(
+    entries: Vec<InputEntry>,
+    options: IsoFormatOptions,
+) -> BTreeMap<String, EntryData> {
+    let (temp, iso) = write_image(entries, options);
+    let extracted = temp.path().join("extracted");
     fs::create_dir(&extracted).unwrap();
     run_command(
         "bsdtar",
@@ -141,17 +150,18 @@ fn extract_with_bsdtar(
     snapshot_host(&extracted).unwrap()
 }
 
-#[test]
-fn bsdtar_extracts_relocated_trees() {
-    if !require_or_skip("bsdtar", "--version") {
-        return;
-    }
-    let paths = [
-        (1..=9).map(|i| format!("level{i}")).collect::<Vec<_>>(),
-        (1..=15).map(|i| format!("level{i}")).collect(),
-        (0..5).map(|i| format!("{i}_{}", "x".repeat(58))).collect(),
-    ];
-    let collisions = [
+fn extract_with_xorriso(
+    entries: Vec<InputEntry>,
+    options: IsoFormatOptions,
+) -> BTreeMap<String, EntryData> {
+    let (temp, iso) = write_image(entries, options);
+    let extracted = temp.path().join("extracted");
+    xorriso::extract(&iso, &extracted).unwrap();
+    snapshot_host(&extracted).unwrap()
+}
+
+fn relocation_collisions() -> [Collision; 7] {
+    [
         Collision::None,
         Collision::File("rr_moved"),
         Collision::File(".rr_moved"),
@@ -159,26 +169,93 @@ fn bsdtar_extracts_relocated_trees() {
         Collision::Directory(".rr_moved"),
         Collision::Directories(&["rr_moved", ".rr_moved"]),
         Collision::DirectoryWithNames("rr_moved", &["RRD000001"]),
-    ];
-    for names in &paths {
-        for collision in &collisions {
+    ]
+}
+
+fn relocation_paths() -> [Vec<String>; 3] {
+    [
+        (1..=9).map(|i| format!("level{i}")).collect(),
+        (1..=15).map(|i| format!("level{i}")).collect(),
+        (0..5).map(|i| format!("{i}_{}", "x".repeat(58))).collect(),
+    ]
+}
+
+#[derive(Clone, Copy)]
+enum TreeMatch {
+    Exact,
+    AllowEmptyRelocationContainer,
+}
+
+fn is_empty_relocation_container(
+    path: &str,
+    data: &EntryData,
+    tree: &BTreeMap<String, EntryData>,
+) -> bool {
+    if path != "/rr_moved" && path != "/.rr_moved" {
+        return false;
+    }
+    if data != &EntryData::Directory {
+        return false;
+    }
+    let prefix = format!("{path}/");
+    !tree.keys().any(|child| child.starts_with(&prefix))
+}
+
+fn assert_extracted_tree(
+    actual: &BTreeMap<String, EntryData>,
+    expected: &BTreeMap<String, EntryData>,
+    match_mode: TreeMatch,
+    context: &str,
+) {
+    match match_mode {
+        TreeMatch::Exact => {
+            assert_eq!(actual, expected, "{context}");
+        }
+        TreeMatch::AllowEmptyRelocationContainer => {
+            for (path, data) in expected {
+                assert_eq!(
+                    actual.get(path),
+                    Some(data),
+                    "{context}: missing or mismatched {path}"
+                );
+            }
+            for (path, data) in actual {
+                if expected.contains_key(path) {
+                    continue;
+                }
+                assert!(
+                    is_empty_relocation_container(path, data, actual),
+                    "{context}: unexpected extra {path}"
+                );
+            }
+        }
+    }
+}
+
+fn assert_extracts_relocated_trees(
+    extract: impl Fn(Vec<InputEntry>, IsoFormatOptions) -> BTreeMap<String, EntryData>,
+    match_mode: TreeMatch,
+) {
+    for names in &relocation_paths() {
+        for collision in &relocation_collisions() {
             let mut expected = expected_nested(names, b"deep");
             let mut entries = nested_entries(names, b"deep");
             apply_collision(collision, &mut entries, &mut expected);
-            assert_eq!(
-                extract_with_bsdtar(entries, rock_ridge_options(false)),
-                expected,
-                "path components: {names:?}, collision: {collision:?}"
+            let context = format!("path components: {names:?}, collision: {collision:?}");
+            assert_extracted_tree(
+                &extract(entries, rock_ridge_options(false)),
+                &expected,
+                match_mode,
+                &context,
             );
         }
     }
 }
 
-#[test]
-fn bsdtar_extracts_user_rr_moved_with_lowercase_iso_names() {
-    if !require_or_skip("bsdtar", "--version") {
-        return;
-    }
+fn assert_extracts_user_rr_moved_with_lowercase(
+    extract: impl Fn(Vec<InputEntry>, IsoFormatOptions) -> BTreeMap<String, EntryData>,
+    match_mode: TreeMatch,
+) {
     let names: Vec<_> = (1..=9).map(|i| format!("level{i}")).collect();
     let mut expected = expected_nested(&names, b"deep");
     let mut entries = nested_entries(&names, b"deep");
@@ -187,17 +264,18 @@ fn bsdtar_extracts_user_rr_moved_with_lowercase_iso_names() {
         &mut entries,
         &mut expected,
     );
-    assert_eq!(
-        extract_with_bsdtar(entries, rock_ridge_options(true)),
-        expected
+    assert_extracted_tree(
+        &extract(entries, rock_ridge_options(true)),
+        &expected,
+        match_mode,
+        "lowercase user rr_moved directory",
     );
 }
 
-#[test]
-fn bsdtar_extracts_deep_user_tree_inside_rr_moved() {
-    if !require_or_skip("bsdtar", "--version") {
-        return;
-    }
+fn assert_extracts_deep_user_tree_inside_rr_moved(
+    extract: impl Fn(Vec<InputEntry>, IsoFormatOptions) -> BTreeMap<String, EntryData>,
+    match_mode: TreeMatch,
+) {
     let names: Vec<_> = (1..=9).map(|i| format!("level{i}")).collect();
     let mut expected = expected_nested(&names, b"deep");
     let mut entries = nested_entries(&names, b"deep");
@@ -226,8 +304,67 @@ fn bsdtar_extracts_deep_user_tree_inside_rr_moved() {
             nested.pop().unwrap(),
         ],
     ));
-    assert_eq!(
-        extract_with_bsdtar(entries, rock_ridge_options(false)),
-        expected
+    assert_extracted_tree(
+        &extract(entries, rock_ridge_options(false)),
+        &expected,
+        match_mode,
+        "deep user tree inside rr_moved",
+    );
+}
+
+#[test]
+fn bsdtar_extracts_relocated_trees() {
+    if !require_or_skip("bsdtar", "--version") {
+        return;
+    }
+    assert_extracts_relocated_trees(extract_with_bsdtar, TreeMatch::Exact);
+}
+
+#[test]
+fn bsdtar_extracts_user_rr_moved_with_lowercase_iso_names() {
+    if !require_or_skip("bsdtar", "--version") {
+        return;
+    }
+    assert_extracts_user_rr_moved_with_lowercase(extract_with_bsdtar, TreeMatch::Exact);
+}
+
+#[test]
+fn bsdtar_extracts_deep_user_tree_inside_rr_moved() {
+    if !require_or_skip("bsdtar", "--version") {
+        return;
+    }
+    assert_extracts_deep_user_tree_inside_rr_moved(extract_with_bsdtar, TreeMatch::Exact);
+}
+
+#[test]
+fn xorriso_extracts_relocated_trees() {
+    if !xorriso::require() {
+        return;
+    }
+    assert_extracts_relocated_trees(
+        extract_with_xorriso,
+        TreeMatch::AllowEmptyRelocationContainer,
+    );
+}
+
+#[test]
+fn xorriso_extracts_user_rr_moved_with_lowercase_iso_names() {
+    if !xorriso::require() {
+        return;
+    }
+    assert_extracts_user_rr_moved_with_lowercase(
+        extract_with_xorriso,
+        TreeMatch::AllowEmptyRelocationContainer,
+    );
+}
+
+#[test]
+fn xorriso_extracts_deep_user_tree_inside_rr_moved() {
+    if !xorriso::require() {
+        return;
+    }
+    assert_extracts_deep_user_tree_inside_rr_moved(
+        extract_with_xorriso,
+        TreeMatch::AllowEmptyRelocationContainer,
     );
 }

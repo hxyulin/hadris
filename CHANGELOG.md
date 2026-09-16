@@ -17,6 +17,11 @@ Each published package owns its version and may be released independently.
   at build time by `npm run versions`, and a published release rebuilds the
   site.
 
+### Tests
+
+- **ISO:** Rock Ridge relocation extraction is also checked with xorriso/libisofs
+  alongside libarchive/bsdtar.
+
 ### Fixed
 
 - **hadris-cpio-cli:** `extract` now skips, with a warning, entries whose names
