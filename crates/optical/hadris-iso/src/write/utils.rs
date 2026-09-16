@@ -1,7 +1,12 @@
+use alloc::{collections::BTreeSet, string::ToString};
+
 use crate::{
+    file::EntryType,
     rrip::RripBuilder,
     write::{writer::DirectoryId, *},
 };
+
+const RECOGNIZED_RELOCATION_NAMES: [&str; 2] = ["rr_moved", ".rr_moved"];
 
 pub fn system_time_seconds(value: std::io::Result<std::time::SystemTime>) -> Option<i64> {
     value
@@ -131,7 +136,7 @@ fn apply_iso_dedup_suffix(name: &[u8], suffix: &str, ty: EntryType) -> Vec<u8> {
     result
 }
 
-pub fn relocate_deep_directories(files: &mut WrittenFiles) -> io::Result<()> {
+pub fn relocate_deep_directories(files: &mut WrittenFiles, primary: EntryType) -> io::Result<()> {
     fn visit(
         dir: &mut WrittenDirectory,
         physical_depth: usize,
@@ -185,33 +190,100 @@ pub fn relocate_deep_directories(files: &mut WrittenFiles) -> io::Result<()> {
         return Ok(());
     }
 
-    if root
+    place_relocated_directories(root, moved, primary)
+}
+
+fn is_recognized_relocation_name(name: &str) -> bool {
+    RECOGNIZED_RELOCATION_NAMES.contains(&name)
+}
+
+fn iso_directory_identifier(ty: EntryType, name: &str) -> Vec<u8> {
+    ty.convert_directory_name(name).as_bytes().to_vec()
+}
+
+fn name_taken(root: &WrittenDirectory, name: &str) -> bool {
+    root.dirs.iter().any(|entry| entry.name.as_str() == name)
+        || root.files.iter().any(|entry| entry.name.as_str() == name)
+}
+
+/// libarchive binds RE entries to the first root directory whose Rock Ridge
+/// name is `rr_moved` or `.rr_moved`, in ISO File Identifier order. Create a
+/// free recognized name only when it would sort first; otherwise reuse the
+/// existing directory that libarchive will select.
+fn place_relocated_directories(
+    root: &mut WrittenDirectory,
+    mut moved: Vec<WrittenDirectory>,
+    primary: EntryType,
+) -> io::Result<()> {
+    let existing_dirs: Vec<usize> = root
         .dirs
         .iter()
-        .any(|entry| entry.name.as_str() == "rr_moved")
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Rock Ridge relocation conflicts with the root rr_moved directory",
-        ));
+        .enumerate()
+        .filter(|(_, dir)| is_recognized_relocation_name(dir.name.as_str()))
+        .map(|(index, _)| index)
+        .collect();
+    let first_existing_iso = existing_dirs
+        .iter()
+        .map(|&index| iso_directory_identifier(primary, root.dirs[index].name.as_str()))
+        .min();
+    let created_name = RECOGNIZED_RELOCATION_NAMES.into_iter().find(|name| {
+        !name_taken(root, name)
+            && first_existing_iso
+                .as_ref()
+                .is_none_or(|existing| iso_directory_identifier(primary, name) < *existing)
+    });
+
+    if let Some(name) = created_name {
+        let mut relocation_dir = WrittenDirectory::new(Arc::new(String::from(name)));
+        relocation_dir.id = usize::MAX;
+        assign_unique_relocated_names(&relocation_dir, &mut moved);
+        relocation_dir.dirs = moved;
+        root.dirs.insert(0, relocation_dir);
+        return Ok(());
     }
-    let relocation_name = ["rr_moved", ".rr_moved"]
+
+    let reuse_index = existing_dirs
         .into_iter()
-        .find(|name| {
-            !root.dirs.iter().any(|entry| entry.name.as_str() == *name)
-                && !root.files.iter().any(|entry| entry.name.as_str() == *name)
-        })
+        .min_by_key(|&index| iso_directory_identifier(primary, root.dirs[index].name.as_str()))
         .ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "Rock Ridge relocation requires an available rr_moved or .rr_moved name",
+                "Rock Ridge relocation requires an available rr_moved or .rr_moved directory",
             )
         })?;
-    let mut relocation_dir = WrittenDirectory::new(Arc::new(String::from(relocation_name)));
-    relocation_dir.id = usize::MAX;
-    relocation_dir.dirs = moved;
-    root.dirs.insert(0, relocation_dir);
+    if reuse_index != 0 {
+        let directory = root.dirs.remove(reuse_index);
+        root.dirs.insert(0, directory);
+    }
+    assign_unique_relocated_names(&root.dirs[0], &mut moved);
+    let mut dirs = moved;
+    dirs.append(&mut root.dirs[0].dirs);
+    root.dirs[0].dirs = dirs;
     Ok(())
+}
+
+fn assign_unique_relocated_names(container: &WrittenDirectory, moved: &mut [WrittenDirectory]) {
+    let mut used = BTreeSet::new();
+    for child in &container.dirs {
+        used.insert(child.name.to_string());
+    }
+    for file in &container.files {
+        used.insert(file.name.to_string());
+    }
+    let mut next = 1usize;
+    for child in moved {
+        if used.insert(child.name.to_string()) {
+            continue;
+        }
+        loop {
+            let candidate = alloc::format!("RRD{next:06}");
+            next += 1;
+            if used.insert(candidate.clone()) {
+                child.name = Arc::new(candidate);
+                break;
+            }
+        }
+    }
 }
 
 /// Generates a deterministic GUID from a string (simple hash-based).
@@ -679,5 +751,239 @@ mod tests {
         assert_ne!(r1, r2);
         assert_ne!(r2, r3);
         assert_ne!(r1, r3);
+    }
+
+    fn nested_written(depth: usize, extra: Vec<InputEntry>) -> WrittenFiles {
+        let mut children = vec![InputEntry::file("leaf.txt", Vec::new())];
+        for level in (1..=depth).rev() {
+            children = vec![InputEntry::directory(format!("level{level}"), children)];
+        }
+        children.extend(extra);
+        let tree = InputTree::new(PathSeparator::ForwardSlash, children);
+        let mut files = WrittenFiles::new();
+        FileTreeWalker::new(&tree).walk(&mut files);
+        files
+    }
+
+    fn primary(lowercase: bool) -> EntryType {
+        EntryType::Level1 {
+            supports_lowercase: lowercase,
+            supports_rrip: true,
+        }
+    }
+
+    fn root_dir_names(files: &WrittenFiles) -> Vec<String> {
+        files
+            .get(&files.root_dir())
+            .dirs
+            .iter()
+            .map(|dir| dir.name.to_string())
+            .collect()
+    }
+
+    fn container<'a>(files: &'a WrittenFiles, name: &str) -> &'a WrittenDirectory {
+        files
+            .get(&files.root_dir())
+            .dirs
+            .iter()
+            .find(|dir| dir.name.as_str() == name)
+            .unwrap()
+    }
+
+    #[test]
+    fn uppercase_iso_names_sort_rr_moved_before_dot_name() {
+        let ty = primary(false);
+        assert!(
+            iso_directory_identifier(ty, "rr_moved") < iso_directory_identifier(ty, ".rr_moved")
+        );
+    }
+
+    #[test]
+    fn lowercase_iso_names_sort_dot_name_before_rr_moved() {
+        let ty = primary(true);
+        assert!(
+            iso_directory_identifier(ty, ".rr_moved") < iso_directory_identifier(ty, "rr_moved")
+        );
+    }
+
+    #[test]
+    fn reuses_user_rr_moved_directory_when_it_sorts_first() {
+        let mut files = nested_written(
+            9,
+            vec![InputEntry::directory(
+                "rr_moved",
+                vec![InputEntry::file("user.txt", b"user".to_vec())],
+            )],
+        );
+        relocate_deep_directories(&mut files, primary(false)).unwrap();
+        assert_eq!(root_dir_names(&files)[0], "rr_moved");
+        assert!(!root_dir_names(&files).contains(&".rr_moved".to_string()));
+        let rr_moved = container(&files, "rr_moved");
+        assert!(
+            rr_moved
+                .dirs
+                .iter()
+                .any(|dir| matches!(dir.relocation, DirectoryRelocation::Moved { .. }))
+        );
+        assert!(
+            rr_moved
+                .files
+                .iter()
+                .any(|file| file.name.as_str() == "user.txt")
+        );
+    }
+
+    #[test]
+    fn creates_rr_moved_when_only_dot_name_directory_exists() {
+        let mut files = nested_written(
+            9,
+            vec![InputEntry::directory(
+                ".rr_moved",
+                vec![InputEntry::file("user.txt", b"user".to_vec())],
+            )],
+        );
+        relocate_deep_directories(&mut files, primary(false)).unwrap();
+        let names = root_dir_names(&files);
+        assert_eq!(names[0], "rr_moved");
+        assert!(names.contains(&".rr_moved".to_string()));
+        assert!(
+            container(&files, "rr_moved")
+                .dirs
+                .iter()
+                .any(|dir| matches!(dir.relocation, DirectoryRelocation::Moved { .. }))
+        );
+        assert!(
+            container(&files, ".rr_moved")
+                .files
+                .iter()
+                .any(|file| file.name.as_str() == "user.txt")
+        );
+    }
+
+    #[test]
+    fn reuses_iso_first_directory_when_both_recognized_names_exist() {
+        let mut files = nested_written(
+            9,
+            vec![
+                InputEntry::directory(
+                    "rr_moved",
+                    vec![InputEntry::file("plain.txt", b"plain".to_vec())],
+                ),
+                InputEntry::directory(
+                    ".rr_moved",
+                    vec![InputEntry::file("dot.txt", b"dot".to_vec())],
+                ),
+            ],
+        );
+        relocate_deep_directories(&mut files, primary(false)).unwrap();
+        let names = root_dir_names(&files);
+        assert_eq!(names[0], "rr_moved");
+        assert_eq!(names.iter().filter(|name| *name == "rr_moved").count(), 1);
+        assert_eq!(names.iter().filter(|name| *name == ".rr_moved").count(), 1);
+        let rr_moved = container(&files, "rr_moved");
+        assert!(
+            rr_moved
+                .dirs
+                .iter()
+                .any(|dir| matches!(dir.relocation, DirectoryRelocation::Moved { .. }))
+        );
+        assert!(
+            rr_moved
+                .files
+                .iter()
+                .any(|file| file.name.as_str() == "plain.txt")
+        );
+        assert!(
+            container(&files, ".rr_moved")
+                .files
+                .iter()
+                .any(|file| file.name.as_str() == "dot.txt")
+        );
+    }
+
+    #[test]
+    fn lowercase_creates_dot_name_ahead_of_user_rr_moved() {
+        let mut files = nested_written(
+            9,
+            vec![InputEntry::directory(
+                "rr_moved",
+                vec![InputEntry::file("user.txt", b"user".to_vec())],
+            )],
+        );
+        relocate_deep_directories(&mut files, primary(true)).unwrap();
+        let names = root_dir_names(&files);
+        assert_eq!(names[0], ".rr_moved");
+        assert!(names.contains(&"rr_moved".to_string()));
+        assert!(
+            container(&files, ".rr_moved")
+                .dirs
+                .iter()
+                .any(|dir| matches!(dir.relocation, DirectoryRelocation::Moved { .. }))
+        );
+        assert!(
+            container(&files, "rr_moved")
+                .files
+                .iter()
+                .any(|file| file.name.as_str() == "user.txt")
+        );
+    }
+
+    #[test]
+    fn avoids_physical_name_collisions_inside_reused_container() {
+        let mut files = nested_written(
+            9,
+            vec![InputEntry::directory(
+                "rr_moved",
+                vec![
+                    InputEntry::file("RRD000001", b"taken".to_vec()),
+                    InputEntry::directory("RRD000002", Vec::new()),
+                ],
+            )],
+        );
+        relocate_deep_directories(&mut files, primary(false)).unwrap();
+        let rr_moved = container(&files, "rr_moved");
+        let moved_names: Vec<_> = rr_moved
+            .dirs
+            .iter()
+            .filter(|dir| matches!(dir.relocation, DirectoryRelocation::Moved { .. }))
+            .map(|dir| dir.name.to_string())
+            .collect();
+        assert!(!moved_names.is_empty());
+        assert!(
+            !moved_names
+                .iter()
+                .any(|name| name == "RRD000001" || name == "RRD000002")
+        );
+        assert!(
+            rr_moved
+                .files
+                .iter()
+                .any(|file| file.name.as_str() == "RRD000001")
+        );
+        assert!(
+            rr_moved
+                .dirs
+                .iter()
+                .any(|dir| dir.name.as_str() == "RRD000002"
+                    && matches!(dir.relocation, DirectoryRelocation::None))
+        );
+    }
+
+    #[test]
+    fn rejects_relocation_when_both_recognized_names_are_files() {
+        let mut files = nested_written(
+            9,
+            vec![
+                InputEntry::file("rr_moved", b"user".to_vec()),
+                InputEntry::file(".rr_moved", b"user".to_vec()),
+            ],
+        );
+        let error = relocate_deep_directories(&mut files, primary(false)).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(
+            error
+                .to_string()
+                .contains("available rr_moved or .rr_moved directory")
+        );
     }
 }
