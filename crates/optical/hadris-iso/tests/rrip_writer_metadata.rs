@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io::Cursor;
 
 use hadris_iso::directory::{DirectoryRecord, DirectoryRecordHeader};
@@ -568,11 +569,23 @@ fn relocation_path_table_parents_relocated_dirs_under_container() {
     assert_eq!(entries[relocated].parent_index as usize, rr_moved + 1);
     for (index, entry) in entries.iter().enumerate().skip(1) {
         assert!(
-            (1..=entries.len()).contains(&(entry.parent_index as usize)),
+            (1..=index).contains(&(entry.parent_index as usize)),
             "invalid parent index {index}: {}",
             entry.parent_index
         );
     }
+    let container_number = (rr_moved + 1) as u16;
+    let child_ids: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry.parent_index == container_number)
+        .map(|entry| entry.name.as_bytes().to_vec())
+        .collect();
+    let unique = child_ids.iter().cloned().collect::<BTreeSet<_>>();
+    assert_eq!(
+        child_ids.len(),
+        unique.len(),
+        "relocated path-table children should have unique ISO identifiers"
+    );
 }
 
 #[test]
