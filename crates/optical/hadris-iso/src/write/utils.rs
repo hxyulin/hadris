@@ -236,7 +236,7 @@ fn place_relocated_directories(
     if let Some(name) = created_name {
         let mut relocation_dir = WrittenDirectory::new(Arc::new(String::from(name)));
         relocation_dir.id = usize::MAX;
-        assign_unique_relocated_names(&relocation_dir, &mut moved);
+        assign_unique_relocated_names(&relocation_dir, &mut moved, primary);
         relocation_dir.dirs = moved;
         root.dirs.insert(0, relocation_dir);
         return Ok(());
@@ -255,30 +255,38 @@ fn place_relocated_directories(
         let directory = root.dirs.remove(reuse_index);
         root.dirs.insert(0, directory);
     }
-    assign_unique_relocated_names(&root.dirs[0], &mut moved);
+    assign_unique_relocated_names(&root.dirs[0], &mut moved, primary);
     let mut dirs = moved;
     dirs.append(&mut root.dirs[0].dirs);
     root.dirs[0].dirs = dirs;
     Ok(())
 }
 
-fn assign_unique_relocated_names(container: &WrittenDirectory, moved: &mut [WrittenDirectory]) {
-    let mut used = BTreeSet::new();
+fn assign_unique_relocated_names(
+    container: &WrittenDirectory,
+    moved: &mut [WrittenDirectory],
+    primary: EntryType,
+) {
+    let mut used_names = BTreeSet::new();
+    let mut used_iso = BTreeSet::new();
     for child in &container.dirs {
-        used.insert(child.name.to_string());
+        used_names.insert(child.name.to_string());
+        used_iso.insert(iso_directory_identifier(primary, child.name.as_str()));
     }
     for file in &container.files {
-        used.insert(file.name.to_string());
+        used_names.insert(file.name.to_string());
     }
     let mut next = 1usize;
     for child in moved {
-        if used.insert(child.name.to_string()) {
+        let iso = iso_directory_identifier(primary, child.name.as_str());
+        if used_names.insert(child.name.to_string()) && used_iso.insert(iso) {
             continue;
         }
         loop {
             let candidate = alloc::format!("RRD{next:06}");
             next += 1;
-            if used.insert(candidate.clone()) {
+            let iso = iso_directory_identifier(primary, &candidate);
+            if used_names.insert(candidate.clone()) && used_iso.insert(iso) {
                 child.name = Arc::new(candidate);
                 break;
             }
@@ -925,6 +933,46 @@ mod tests {
                 .files
                 .iter()
                 .any(|file| file.name.as_str() == "user.txt")
+        );
+    }
+
+    fn unique_iso_ids(container: &WrittenDirectory, lowercase: bool) -> bool {
+        let ty = primary(lowercase);
+        let mut seen = BTreeSet::new();
+        container
+            .dirs
+            .iter()
+            .all(|dir| seen.insert(iso_directory_identifier(ty, dir.name.as_str())))
+    }
+
+    #[test]
+    fn avoids_case_folded_iso_identifier_collisions() {
+        let mut files = nested_written(
+            9,
+            vec![InputEntry::directory(
+                "rr_moved",
+                vec![InputEntry::directory("rrd000001", Vec::new())],
+            )],
+        );
+        relocate_deep_directories(&mut files, primary(false)).unwrap();
+        let rr_moved = container(&files, "rr_moved");
+        assert!(unique_iso_ids(rr_moved, false));
+        assert!(
+            rr_moved
+                .dirs
+                .iter()
+                .any(|dir| dir.name.as_str() == "rrd000001"
+                    && matches!(dir.relocation, DirectoryRelocation::None))
+        );
+        assert!(
+            rr_moved
+                .dirs
+                .iter()
+                .filter(|dir| matches!(dir.relocation, DirectoryRelocation::Moved { .. }))
+                .all(
+                    |dir| iso_directory_identifier(primary(false), dir.name.as_str())
+                        != iso_directory_identifier(primary(false), "rrd000001")
+                )
         );
     }
 
