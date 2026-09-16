@@ -204,10 +204,12 @@ fn bsdtar_extracts_deep_user_tree_inside_rr_moved() {
     let mut nested = vec![InputEntry::file("inside.txt", b"inside".to_vec())];
     let mut nested_path = String::from("/rr_moved");
     expected.insert(nested_path.clone(), EntryData::Directory);
+    for level in (1..=8).rev() {
+        nested = vec![InputEntry::directory(format!("d{level}"), nested)];
+    }
     for level in 1..=8 {
         nested_path.push_str(&format!("/d{level}"));
         expected.insert(nested_path.clone(), EntryData::Directory);
-        nested = vec![InputEntry::directory(format!("d{level}"), nested)];
     }
     expected.insert(
         format!("{nested_path}/inside.txt"),
