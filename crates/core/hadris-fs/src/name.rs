@@ -164,8 +164,9 @@ impl<'a> TryFrom<&'a [u8]> for &'a Name {
 /// A fixed-capacity name buffer that works without an allocator.
 ///
 /// The buffer is either empty or holds a valid [`Name`] of at most `N` bytes.
-/// Filesystems write directory entry names into it; callers read them back
-/// with [`as_name`](Self::as_name).
+/// Filesystems write directory entry names into it with
+/// [`set`](Self::set) or, to avoid a second copy, [`fill`](Self::fill);
+/// callers read them back with [`as_name`](Self::as_name).
 #[derive(Clone)]
 pub struct NameBuf<const N: usize = 255> {
     buf: [u8; N],
@@ -203,6 +204,41 @@ impl<const N: usize> NameBuf<N> {
     /// Validates `bytes` and replaces the contents. On error the buffer is unchanged.
     pub fn set_bytes(&mut self, bytes: &[u8]) -> Result<(), NameError> {
         self.set(Name::new(bytes)?)
+    }
+
+    /// Lets `write` fill the buffer in place, then validates the result.
+    ///
+    /// `write` gets the whole `N`-byte buffer and returns how many bytes it
+    /// wrote, so a driver can decode or join name pieces straight into it. On
+    /// any error the buffer is left empty.
+    ///
+    /// ```rust
+    /// use hadris_fs::{NameBuf, NameError};
+    ///
+    /// let mut name = NameBuf::<16>::new();
+    /// name.fill(|buf| {
+    ///     let pieces: [&[u8]; 2] = [b"long", b"name.txt"];
+    ///     let mut len = 0;
+    ///     for piece in pieces {
+    ///         let end = len + piece.len();
+    ///         buf.get_mut(len..end).ok_or(NameError::TooLong)?.copy_from_slice(piece);
+    ///         len = end;
+    ///     }
+    ///     Ok(len)
+    /// })?;
+    /// assert_eq!(name.as_bytes(), b"longname.txt");
+    /// # Ok::<(), NameError>(())
+    /// ```
+    pub fn fill(
+        &mut self,
+        write: impl FnOnce(&mut [u8]) -> Result<usize, NameError>,
+    ) -> Result<(), NameError> {
+        self.len = 0;
+        let len = write(&mut self.buf)?;
+        let bytes = self.buf.get(..len).ok_or(NameError::TooLong)?;
+        validate(bytes)?;
+        self.len = len;
+        Ok(())
     }
 
     /// Empties the buffer.
@@ -348,6 +384,28 @@ pub use owned::OwnedName;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fill_validates_in_place() {
+        let mut buf = NameBuf::<8>::new();
+        buf.fill(|b| {
+            b[..3].copy_from_slice(b"abc");
+            Ok(3)
+        })
+        .unwrap();
+        assert_eq!(buf.as_bytes(), b"abc");
+        assert_eq!(
+            buf.fill(|b| {
+                b[..2].copy_from_slice(b"..");
+                Ok(2)
+            }),
+            Err(NameError::ParentDir)
+        );
+        assert!(buf.is_empty());
+        assert_eq!(buf.fill(|_| Ok(9)), Err(NameError::TooLong));
+        assert_eq!(buf.fill(|_| Err(NameError::Nul)), Err(NameError::Nul));
+        assert!(buf.as_name().is_none());
+    }
+
     use super::*;
     use alloc::format;
 
