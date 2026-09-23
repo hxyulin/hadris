@@ -4,11 +4,13 @@ on:
   push:
     branches:
       - main
+      - next
       - dev
       - v2-dev
   pull_request:
     branches:
       - main
+      - next
       - v2-dev
 
 # Least-privilege GITHUB_TOKEN. Without an explicit block the token inherits the
