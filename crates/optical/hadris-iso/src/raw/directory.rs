@@ -72,7 +72,7 @@ impl DirectoryRecordHeader {
 ///
 /// @hadris-spec ECMA-119:9.1
 /// @hadris-compliance partial
-/// @hadris-tests raw::directory::tests::directory_record_parse_roundtrip
+/// @hadris-tests raw::directory::tests::directory_record_parse_roundtrip, raw::directory::tests::directory_record_rejects_invalid_bounds_and_endian_copy
 /// @hadris-fuzz iso_read
 /// @hadris-note Records are validated for length, padding and redundant fields on read; identifier character sets are not.
 #[repr(transparent)]
@@ -297,6 +297,9 @@ mod tests {
         let mut mismatched = dot(0);
         mismatched[9] = 1;
         assert!(DirectoryRecord::parse(&mismatched).is_err());
+        let mut flagged = dot(0);
+        flagged[25] |= 0x40;
+        assert!(DirectoryRecord::parse(&flagged).is_err());
         assert!(DirectoryRecord::parse(&dot(0)[..20]).is_err());
         let mut unpadded = DirectoryRecord::new(b"AB", &[]).unwrap();
         unpadded.header_mut().volume_sequence_number.set(1);

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "crate": "optical/hadris-iso",
-  "profile": "ECMA-119:1987 reader and 2048-byte single-volume writer",
+  "profile": "ECMA-119:1987 reader for 512 to 2048-byte logical blocks and 2048-byte single-volume writer",
   "requirements": [
     {
       "id": "ECMA-119-1987:6.2.1#system-area",
@@ -11,7 +11,7 @@
       "summary": "The first sixteen logical sectors are reserved as the system area.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/write/mod.rs", "name": "VOLUME_DESCRIPTOR_SET_START"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/mod.rs", "name": "DESCRIPTOR_START"}],
       "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
@@ -23,9 +23,9 @@
       "summary": "Logical blocks use an allowed power-of-two size and do not exceed a logical sector.",
       "direction": "both",
       "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/read/mod.rs", "name": "IsoImage::open"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/info.rs", "name": "DescriptorScan::feed"}],
       "tests": [],
-      "gap": "The allocating API deliberately supports only 2048-byte blocks; the allocation-free reader has broader support."
+      "gap": "The reader accepts power-of-two logical blocks from 512 to 2048 bytes, but the writer and sessions only use 2048-byte blocks and no test image uses a smaller size."
     },
     {
       "id": "ECMA-119-1987:6.4.3#interleaved-files",
@@ -35,9 +35,9 @@
       "summary": "Interleaved file sections use the declared file-unit and interleave-gap layout.",
       "direction": "both",
       "status": "not_implemented",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/read/mod.rs", "name": "IsoImage::read_file"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/image.rs", "name": "View::read_at"}],
       "tests": [],
-      "gap": "Creation does not emit interleaving and readers reject it instead of returning incorrect contiguous bytes."
+      "gap": "Creation does not emit interleaving, and the reader refuses interleaved files with Unsupported instead of returning incorrect contiguous bytes."
     },
     {
       "id": "ECMA-119-1987:6.4.4.2#extended-attribute-offset",
@@ -47,9 +47,9 @@
       "summary": "File data begins after any logical blocks occupied by its extended attribute record.",
       "direction": "read",
       "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/read/directory.rs", "name": "DirEntry::extents"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/image.rs", "name": "View::extent_start"}],
       "tests": [],
-      "gap": "Both reader families skip attribute blocks, but the attribute record body is not parsed."
+      "gap": "The reader skips the declared attribute blocks, but the attribute record body is not parsed."
     },
     {
       "id": "ECMA-119-1987:6.5.1#multi-extent-chain",
@@ -58,14 +58,10 @@
       "normativity": "shall",
       "summary": "Records for successive sections of one file are adjacent and identify the same file.",
       "direction": "read",
-      "status": "partial",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/read/directory.rs", "name": "IsoDir::read_entries"}],
-      "tests": [
-        {"path": "crates/optical/hadris-iso/tests/no_alloc_reader.rs", "name": "navigation_and_streaming_allocate_nothing", "kind": "integration"},
-        {"path": "tests/suite/iso/multi_extent.rs", "name": "three_section_file_matches_oracle_and_hadris_reader", "kind": "integration"},
-        {"path": "tests/suite/iso/multi_extent.rs", "name": "oracle_rejects_invalid_multi_extent_chains", "kind": "integration"}
-      ],
-      "gap": "The allocating reader rejects protection-bit changes between sections even though clause 9.2 does not require that bit to match."
+      "status": "verified",
+      "symbols": [{"path": "crates/optical/hadris-iso/src/image.rs", "name": "IsoView::extents"}],
+      "tests": [{"path": "crates/optical/hadris-iso/tests/multi_extent.rs", "name": "large_files_take_several_extents_at_level_3", "kind": "integration"}, {"path": "tests/suite/iso/multi_extent.rs", "name": "three_section_file_matches_oracle_and_hadris_reader", "kind": "integration"}, {"path": "tests/suite/iso/multi_extent.rs", "name": "unaligned_non_final_section_matches_oracle_and_hadris_reader", "kind": "integration"}],
+      "gap": null
     },
     {
       "id": "ECMA-119-1987:6.7.1.1#primary-required",
@@ -75,8 +71,8 @@
       "summary": "Every volume descriptor sequence contains a primary volume descriptor.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/volume.rs", "name": "VolumeDescriptorList::try_primary"}],
-      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/info.rs", "name": "DescriptorScan::finish"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}, {"path": "crates/optical/hadris-iso/tests/errors.rs", "name": "malformed_images_are_refused", "kind": "integration"}],
       "gap": null
     },
     {
@@ -87,8 +83,8 @@
       "summary": "Every standard volume descriptor contains the five-byte CD001 identifier.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/volume.rs", "name": "VolumeDescriptorHeader::is_valid"}],
-      "tests": [{"path": "crates/optical/hadris-iso/src/volume.rs", "name": "descriptor_parser_rejects_invalid_terminator_header", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/descriptor.rs", "name": "VolumeDescriptorHeader::is_valid"}],
+      "tests": [{"path": "crates/optical/hadris-iso/tests/errors.rs", "name": "malformed_images_are_refused", "kind": "integration"}],
       "gap": null
     },
     {
@@ -99,8 +95,8 @@
       "summary": "A descriptor-set terminator uses type 255, version one, and a zero-filled body.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/volume.rs", "name": "VolumeDescriptorList::parse"}],
-      "tests": [{"path": "crates/optical/hadris-iso/src/volume.rs", "name": "descriptor_parser_rejects_nonzero_terminator_body", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/info.rs", "name": "DescriptorScan::feed"}],
+      "tests": [{"path": "crates/optical/hadris-iso/tests/errors.rs", "name": "malformed_images_are_refused", "kind": "integration"}],
       "gap": null
     },
     {
@@ -111,8 +107,8 @@
       "summary": "The volume-space size stores equal little- and big-endian 32-bit copies.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/types.rs", "name": "LsbMsb::is_consistent"}],
-      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "oracle_rejects_structural_corruption", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/mod.rs", "name": "U32Both::is_consistent"}],
+      "tests": [{"path": "crates/optical/hadris-iso/src/raw/mod.rs", "name": "both_endian_fields_detect_mismatches", "kind": "unit"}],
       "gap": null
     },
     {
@@ -123,8 +119,8 @@
       "summary": "Descriptor timestamps encode every date and time component as fixed-width decimal digits.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/types.rs", "name": "DecDateTime::now"}],
-      "tests": [{"path": "crates/optical/hadris-iso/src/types.rs", "name": "decimal_datetime_uses_zero_padded_digits", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/mod.rs", "name": "DecDateTime::from_datetime"}],
+      "tests": [{"path": "crates/optical/hadris-iso/src/raw/mod.rs", "name": "dates_round_trip", "kind": "unit"}],
       "gap": null
     },
     {
@@ -135,8 +131,8 @@
       "summary": "An unspecified volume expiration time is encoded using the all-zero date form.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/volume.rs", "name": "PrimaryVolumeDescriptor::new"}],
-      "tests": [],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/mod.rs", "name": "DecDateTime::UNSPECIFIED"}],
+      "tests": [{"path": "crates/optical/hadris-iso/src/raw/mod.rs", "name": "dates_round_trip", "kind": "unit"}],
       "gap": null
     },
     {
@@ -147,8 +143,8 @@
       "summary": "The first byte gives a complete directory-record length large enough for its fixed and identifier fields.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/directory.rs", "name": "DirectoryRecord::parse"}],
-      "tests": [{"path": "crates/optical/hadris-iso/src/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/directory.rs", "name": "DirectoryRecord::parse"}],
+      "tests": [{"path": "crates/optical/hadris-iso/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
       "gap": null
     },
     {
@@ -159,8 +155,8 @@
       "summary": "Directory extent location and data length contain matching little- and big-endian copies.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/directory.rs", "name": "DirectoryRecord::parse"}],
-      "tests": [{"path": "crates/optical/hadris-iso/src/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/directory.rs", "name": "DirectoryRecord::parse"}],
+      "tests": [{"path": "crates/optical/hadris-iso/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
       "gap": null
     },
     {
@@ -171,8 +167,8 @@
       "summary": "Reserved directory-record flag bits five and six are zero.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/directory.rs", "name": "DirectoryRecord::parse"}],
-      "tests": [{"path": "crates/optical/hadris-iso/src/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/directory.rs", "name": "DirectoryRecord::parse"}],
+      "tests": [{"path": "crates/optical/hadris-iso/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
       "gap": null
     },
     {
@@ -183,8 +179,8 @@
       "summary": "An even-length directory-record identifier is followed by a zero padding byte.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/directory.rs", "name": "DirectoryRecord::parse"}],
-      "tests": [{"path": "crates/optical/hadris-iso/src/directory.rs", "name": "directory_record_parse_roundtrip", "kind": "unit"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/directory.rs", "name": "DirectoryRecord::parse"}],
+      "tests": [{"path": "crates/optical/hadris-iso/src/raw/directory.rs", "name": "directory_record_parse_roundtrip", "kind": "unit"}, {"path": "crates/optical/hadris-iso/src/raw/directory.rs", "name": "directory_record_rejects_invalid_bounds_and_endian_copy", "kind": "unit"}],
       "gap": null
     },
     {
@@ -195,7 +191,7 @@
       "summary": "A directory record is contained within one logical sector and unused trailing bytes are zero.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/write/mod.rs", "name": "write_directory"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/plan/mod.rs", "name": "emit_records"}],
       "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
@@ -207,8 +203,8 @@
       "summary": "A file identifier contains a file-version separator and a version number from 1 through 32767.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/file.rs", "name": "convert_l1"}],
-      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/plan/names.rs", "name": "convert_l1"}],
+      "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}, {"path": "crates/optical/hadris-iso/src/plan/names.rs", "name": "level_1_names", "kind": "unit"}],
       "gap": null
     },
     {
@@ -219,7 +215,7 @@
       "summary": "Ordinary directory identifiers use directory-name grammar and do not carry a file version suffix.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/file.rs", "name": "EntryType::convert_directory_name"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/plan/names.rs", "name": "Rules::directory"}],
       "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
@@ -231,7 +227,7 @@
       "summary": "Path-table records are ordered by level, parent record number, and directory identifier.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/write/writer.rs", "name": "PathTableWriter::write"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/plan/mod.rs", "name": "Planner::path_table"}],
       "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
@@ -243,7 +239,7 @@
       "summary": "A path-table group contains matching Type-L and Type-M representations.",
       "direction": "write",
       "status": "verified",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/write/mod.rs", "name": "write_path_tables"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/plan/mod.rs", "name": "Planner::path_table"}],
       "tests": [{"path": "tests/suite/iso/spec.rs", "name": "hadris_iso_matches_ecma_119_oracle", "kind": "integration"}],
       "gap": null
     },
@@ -255,9 +251,9 @@
       "summary": "Volume partition descriptors identify a partition location and size when that facility is used.",
       "direction": "both",
       "status": "not_implemented",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/volume.rs", "name": "VolumeDescriptor::Unknown"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/descriptor.rs", "name": "VolumeDescriptor::Other"}],
       "tests": [],
-      "gap": "Descriptor type three is retained as unknown data and the writer does not emit volume partitions."
+      "gap": "Descriptor type three is kept as raw bytes in VolumeDescriptor::Other, and the writer does not emit volume partitions."
     },
     {
       "id": "ECMA-119-1987:9.5#extended-attribute-records",
@@ -267,9 +263,9 @@
       "summary": "Extended attribute records expose the owner, permissions, timestamps, format, and system-use fields.",
       "direction": "both",
       "status": "not_implemented",
-      "symbols": [{"path": "crates/optical/hadris-iso/src/directory.rs", "name": "DirectoryRecordHeader::extended_attr_record"}],
+      "symbols": [{"path": "crates/optical/hadris-iso/src/raw/directory.rs", "name": "DirectoryRecordHeader::extended_attr_record"}],
       "tests": [],
-      "gap": "Readers skip the declared blocks but do not decode their body, and creation does not emit them."
+      "gap": "The reader skips the declared blocks but does not decode their body, and creation does not emit them."
     }
   ]
 }

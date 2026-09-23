@@ -144,6 +144,19 @@ fn malformed_images_are_refused() {
         ErrorKind::Corrupt
     );
 
+    let terminator = (16..32)
+        .map(|sector| sector * 2048)
+        .find(|&offset| good[offset] == 255)
+        .unwrap();
+    let mut bad = good.clone();
+    bad[terminator + 100] = 1;
+    assert_eq!(
+        IsoImage::open(MemDevice::new(bad, common::SECTOR))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Corrupt
+    );
+
     let mut truncated = good;
     truncated.truncate(18 * 2048);
     assert!(IsoImage::open(MemDevice::new(truncated, common::SECTOR)).is_err());

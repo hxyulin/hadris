@@ -453,6 +453,11 @@ mod tests {
                 .map(|t| t.unix_seconds()),
             Some(1_700_000_000)
         );
+        let digits = DecDateTime::from_datetime(time);
+        assert_eq!(
+            (digits.year, digits.month, digits.day, digits.hundredths),
+            (*b"2023", *b"11", *b"14", *b"00")
+        );
         assert!(DecDateTime::UNSPECIFIED.to_datetime().is_none());
         assert!(DirDateTime::default().to_datetime().is_none());
     }

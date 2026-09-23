@@ -104,8 +104,8 @@ impl fmt::Debug for VolumeDescriptorHeader {
 ///
 /// @hadris-spec ECMA-119:8.4
 /// @hadris-compliance partial
-/// @hadris-note Core fields are modeled, but reserved fields, character sets, redundant endian values, and semantic constraints are not all validated.
-/// @hadris-tests read::descriptor_sequence_opens_primary_volume_and_root_directory, iso::spec::hadris_iso_matches_ecma_119_oracle
+/// @hadris-note Core fields and their redundant endian copies are validated on read, but reserved fields, character sets and semantic constraints are not all validated.
+/// @hadris-tests errors::malformed_images_are_refused, roundtrip::every_tree_reads_back, iso::spec::hadris_iso_matches_ecma_119_oracle
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -183,6 +183,7 @@ pub struct PrimaryVolumeDescriptor {
 /// @hadris-spec ECMA-119:8.5
 /// @hadris-compliance partial
 /// @hadris-note Joliet SVDs (UCS-2, BMP only) and version-2 enhanced descriptors are read and written; the escape sequences recognized are the three Joliet levels.
+/// @hadris-tests roundtrip::every_tree_reads_back
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -346,7 +347,7 @@ impl fmt::Debug for BootRecordVolumeDescriptor {
 /// @hadris-spec ECMA-119:8.3
 /// @hadris-compliance partial
 /// @hadris-note The descriptor is emitted and recognized, and its body must be zero; the audit has not established validation of every other rule.
-/// @hadris-tests read::malformed_primary_descriptor_and_terminator_cases_are_rejected
+/// @hadris-tests errors::malformed_images_are_refused
 /// @hadris-fuzz iso_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
