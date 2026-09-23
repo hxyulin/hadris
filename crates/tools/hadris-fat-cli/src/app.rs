@@ -10,7 +10,9 @@ use hadris_fat::raw::{RawBpb, RawBpbExt16, RawBpbExt32};
 use hadris_fat::sync::{FatFs, check, check_with, format};
 use hadris_fat::{FatKind, FormatOptions, MountOptions, VolumeLabel};
 use hadris_fs::sync::{DriverExt, FsDriver, extract_to_host, import_from_host};
-use hadris_fs::{Attributes, FileType, HeapTable, Metadata, OpenOptions, SystemClock};
+use hadris_fs::{
+    Attributes, DirCursor, FileType, HeapTable, Metadata, NameBuf, OpenOptions, SystemClock,
+};
 
 #[derive(Parser)]
 #[command(name = "hadris-fat")]
@@ -590,23 +592,58 @@ fn cmd_cat(image: PathBuf, path: &str) -> Result<()> {
 
 fn cmd_extract(image: PathBuf, output: &Path, path: Option<&str>) -> Result<()> {
     let mut fs = open_fat_fs(&image)?;
-    fs::create_dir_all(output)
-        .with_context(|| format!("Failed to create output directory: {}", output.display()))?;
-
-    let (from, destination) = match path {
-        None | Some("/") => ("/", output.to_path_buf()),
-        Some(path) => {
-            let name = path
-                .trim_end_matches('/')
-                .rsplit('/')
-                .next()
-                .filter(|name| !name.is_empty())
-                .with_context(|| format!("Invalid path: {path}"))?;
-            (path, output.join(name))
+    let from = path.unwrap_or("/");
+    let destination = match stored_name(&mut fs, from)? {
+        None => output.to_path_buf(),
+        Some(name) => {
+            fs::create_dir_all(output).with_context(|| {
+                format!("Failed to create output directory: {}", output.display())
+            })?;
+            output.join(name)
         }
     };
     extract_to_host(&mut fs, from, &destination)
         .with_context(|| format!("Failed to extract {from} to {}", destination.display()))
+}
+
+/// The name `path` is stored under in its directory, or `None` for the root.
+/// Fails on names that are not one plain host path component.
+fn stored_name(fs: &mut Fs, path: &str) -> Result<Option<String>> {
+    let node = fs
+        .resolve(path)
+        .with_context(|| format!("Failed to open: {path}"))?;
+    if node == fs.root() {
+        fs.forget(node);
+        return Ok(None);
+    }
+    let found = find_name(fs, path, node);
+    fs.forget(node);
+    let name = found?;
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+        bail!("Refusing to extract {path}: its stored name {name:?} is not a plain file name");
+    }
+    Ok(Some(name))
+}
+
+fn find_name(fs: &mut Fs, path: &str, node: hadris_fs::NodeId) -> Result<String> {
+    let parent = fs
+        .resolve(&format!("{path}/.."))
+        .with_context(|| format!("Failed to open the parent of {path}"))?;
+    let mut cursor = DirCursor::start();
+    let mut name = NameBuf::new();
+    let found = loop {
+        match fs.read_dir_entry(parent, &mut cursor, &mut name) {
+            Ok(Some(entry)) if entry.node() == node => break Ok(()),
+            Ok(Some(_)) => {}
+            Ok(None) => break Err(anyhow::anyhow!("{path} is not listed in its directory")),
+            Err(err) => break Err(err).context("Failed to read directory entry"),
+        }
+    };
+    fs.forget(parent);
+    found?;
+    let name =
+        std::str::from_utf8(name.as_bytes()).context("Directory entry name is not valid UTF-8")?;
+    Ok(name.to_string())
 }
 
 fn cmd_create(

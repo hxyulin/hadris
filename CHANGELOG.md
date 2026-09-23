@@ -185,8 +185,12 @@ Each published package owns its version and may be released independently.
   and with `--verbose` adds free, bad and lost clusters. `fragmentation` and
   `chain` read chains with `FatFs::cluster_chain`. `create` rejects volume
   labels longer than 11 ASCII characters, formats with `format`, imports with
-  `import_from_host` and stamps entries with the current UTC time; `extract`
-  uses `extract_to_host` and restores modification times.
+  `import_from_host` in name order and stamps entries with the current UTC
+  time; `extract` uses `extract_to_host` and restores modification times.
+  `extract --path` names its output after the entry's stored name rather
+  than the typed path, so `-p /sub/readme.txt` writes `README.TXT` as the
+  image spells it, and a path that resolves to the root, such as `/Sub/..`,
+  extracts the whole image into `--output` instead of writing beside it.
 - **Fuzzing and examples (V3):** `fat_read`, `fat_ops` and `fs_dump` drive
   `FatFs`; `fat_ops` also covers `write_at` and `set_len` and asserts that
   `check` finds nothing after `sync`. The `fat-list` and `shared_volume`
