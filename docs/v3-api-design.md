@@ -298,6 +298,7 @@ pub enum ExactError<E> { UnexpectedEof, WriteZero, Io(E) }
 - `Send + Sync` lets code erase any device error into `AnyError` or `std::io::Error` (4.6) with no extra where-clauses. It rules out errors that hold an `Rc` or a raw pointer; such a device wraps them.
 - `&mut T` implements each trait when `T` does, and so does `Box<T>` with `alloc`.
 - `FromEmbedded<T>` adapts an `embedded-io` or `embedded-io-async` stream. Its error is `T::Error`, unwrapped. It is the only item that names embedded-io, so the dependency sits behind an `embedded-io` feature.
+- With `std`, `into_std_error(e)` converts any device error to `std::io::Error`, returning an `io::Error` as itself. `ExactError<E>` converts with `?`.
 - With `std`, `StdIo<T>` adapts any `std::io` stream (a `Cursor`, a pipe) and reports `std::io::Error`. A host image file does not need it: `std::fs::File` is a `BlockDevice` directly (4.2), and file handles implement `std::io` directly (4.3).
 
 A blanket `impl<T: embedded_io::Read> Read for T` was the first plan. It fails
@@ -348,12 +349,14 @@ pub trait BlockDevice: ErrorType {
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error>;
     async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8])
         -> Result<(), WriteError<Self::Error>> { Err(WriteError::ReadOnly) }
-    async fn flush(&mut self) -> Result<(), Self::Error> { Ok(()) }
+    async fn flush(&mut self) -> Result<(), WriteError<Self::Error>> { Ok(()) }
 }
 
 #[non_exhaustive]
 pub enum WriteError<E> { ReadOnly, Device(E) }
 ```
+
+`flush` returns `WriteError` too, because a write-back device writes there.
 
 `async fn` here means "written once, generated for both modes" (4.8). A
 read-only device implements three methods and no write method.
@@ -375,11 +378,19 @@ Provided devices and adapters:
 |---|---|
 | `impl BlockDevice for &mut D`, `Box<D>` | Borrow or box a device instead of moving it in. |
 | `std::fs::File` | With `std`, a host image file is a device with 512-byte blocks and `std::io::Error`. A file opened read-only fails writes with the OS error, which reaches the caller unchanged. |
-| `StreamDevice<T>` | Any `Read + Seek + Write` byte stream, with a block size the caller picks. Error `ExactError<T::Error>`. `StreamDevice<ReadOnly<T>>` needs only `Read + Seek` and answers writes with `WriteError::ReadOnly`. The migration path for every V2 user. |
-| `MemDevice<B>` | `&[u8]` (answers writes with `ReadOnly`), `&mut [u8]`, `[u8; N]`, and `Vec<u8>` or `Box<[u8]>` with `alloc`, through the `MemBuffer` trait. For tests and in-memory images. |
-| `Slice<D>` | A block range of `D`. `D` can be owned or `&mut`. Replaces `PartitionView`. |
-| `Cache<D>` | Write-back LRU over whole blocks, `alloc` only. Explicit `flush`, or `finish` to flush and return the device. Capacity set at construction. Works in both modes. Kernels skip it. |
-| `ByteView<D>` | Byte-granular `read_at`/`write_at` with read-modify-write for partial blocks, and a bounded `Read + Write + Seek` stream. Used by format crates for records that straddle blocks. Without `alloc` its scratch buffer caps the block size at 4096. |
+| `StreamDevice<T>` | Any `Read + Seek + Write` byte stream, with a block size the caller picks. Error `StorageError<T::Error>`. `StreamDevice<ReadOnly<T>>` needs only `Read + Seek` and answers writes with `WriteError::ReadOnly`. The migration path for every V2 user. |
+| `MemDevice<B>` | `&[u8]` (answers writes with `ReadOnly`), `&mut [u8]`, `[u8; N]`, and `Vec<u8>` or `Box<[u8]>` with `alloc`, through the `MemBuffer` trait. Error `OutOfRange`. For tests and in-memory images. |
+| `Slice<D>` | A block range of `D`. `D` can be owned or `&mut`. Error `StorageError<D::Error>`: requests past the end of the slice never reach `D`. Replaces `PartitionView`. |
+| `Cache<D>` | Write-back LRU over whole blocks, `alloc` only. Error `D::Error`. Explicit `flush`, or `finish` to flush and return the device. Capacity set at construction. Works in both modes. Kernels skip it. The first write goes straight to the device, so a read-only device refuses at once instead of at a later flush; out-of-range requests bypass the cache and fail with the device's error. |
+| `ByteView<D>` | Byte-granular `read_at`/`write_at` with read-modify-write for partial blocks, and a bounded `Read + Write + Seek` stream. Error `StorageError<D::Error>`. Used by format crates for records that straddle blocks. Without `alloc` its scratch buffer caps the block size at 4096. |
+
+Adapters that can refuse a request themselves report
+`#[non_exhaustive] StorageError<E> { OutOfRange, UnexpectedEof, WriteZero,
+ReadOnly, BlockTooLarge, Device(E) }`. Adapters that only pass requests on
+(`&mut D`, `Box<D>`, `Cache<D>`) keep `D::Error`. Stacking two refusing
+adapters nests the type (`StorageError<StorageError<E>>`), and converting that
+to `std::io::Error` keeps only the outer level unchanged; the common stacks
+(`Slice<File>`, `Cache<Slice<File>>`) have one level.
 
 `StreamDevice` picks its write support through a small `StreamWrite` trait,
 implemented for every `Write` and for `ReadOnly<T>`, whose write returns
@@ -1043,9 +1054,9 @@ the V3 changes in 4.2 and 4.4 (the device lives inside the mutex and every
 await is I/O on it), so 2.x documents async volumes as single-task.
 
 1. **CI guardrails.** semver-checks against the branch point, the `non_exhaustive` lint, the all-features vs no-features API subset check, the sync/async parity check. Report-only at first.
-2. **`hadris-io`.** embedded-io base, `StdIo`, `&mut T`, lossless `Error`, `ByteSource`, moved onto `strip_async!`. Update every crate to compile. Done on `feat/v3-api` with the erased error; step 4 reworks it to `ErrorType`.
-3. **`hadris-storage`.** `BlockDevice` in both modes from one source, `StreamDevice`, `MemDevice`, `Slice`, `Cache`, `ByteView`. Done on `feat/v3-api` with `access()`; step 4 reworks it to `WriteError` and adds `std::fs::File`.
-4. **`hadris-fs`.** Rework steps 2 and 3 to associated errors (4.1, 4.2). Vocabulary, `ErrorKind`, `Error<E>`, `AnyError`, `DateTime`/`Clock`, `FsDriver`/`FileSystem`, `impl_fs_driver!`, `Volume`/`LockKind`, resolvers, handles and path helpers, `FuseOnError`. Port the prototype's scenarios S1 to S16 as tests. Merge `hadris-path`. Slim `hadris-common` and merge `hadris-fixed` into it. Delete `hadris-archive`.
+2. **`hadris-io`.** embedded-io base, `StdIo`, `&mut T`, `ByteSource`, moved onto `strip_async!`. Done on `feat/v3-api`, first with an erased error, then reworked to `ErrorType` (4.1). The erased V2 traits live in `hadris_io::legacy`, which every format crate uses until its own port step; the last port deletes the module. `embedded-io` stays a required dependency until then, because `legacy` and the re-exported `SeekFrom` use it; the `embedded-io` feature and a Hadris `SeekFrom` land with that deletion.
+3. **`hadris-storage`.** `BlockDevice` in both modes from one source, `WriteError`, `std::fs::File`, `StreamDevice`, `MemDevice`, `Slice`, `Cache`, `ByteView`. Done on `feat/v3-api`.
+4. **`hadris-fs`.** Steps 2 and 3 are reworked to associated errors (done). Vocabulary, `ErrorKind`, `Error<E>`, `AnyError`, `DateTime`/`Clock`, `FsDriver`/`FileSystem`, `impl_fs_driver!`, `Volume`/`LockKind`, resolvers, handles and path helpers, `FuseOnError`. Port the prototype's scenarios S1 to S16 as tests. Merge `hadris-path`. Slim `hadris-common` and merge `hadris-fixed` into it. Delete `hadris-archive`.
 5. **`hadris-fat` as the reference implementation.** `BlockDevice` input, node table, `FsDriver` through inherent methods, `parent`, `FormatOptions`, `check`, clock and code page generics. Port the conformance adapter to the generic `FileSystem` adapter in the same PR. This step tests the trait design, and the trait can still change here.
 6. **Freeze the traits.** Review `hadris-fs` against FAT, the conformance adapter and a prototype FUSE adapter before any other format ports.
 7. **Errors and the R1/R2/R4/R5 pass, crate by crate.**
