@@ -1,36 +1,28 @@
-use hadris_fat::time::TimeProvider;
-use hadris_fat::{FatDateTime, FatVolume, FatVolumeBuilder};
 use std::fs::File;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-#[derive(Debug)]
-struct SystemClock;
-
-impl TimeProvider for SystemClock {
-    fn now(&self) -> FatDateTime {
-        FatDateTime::now()
-    }
-}
-
-static CLOCK: SystemClock = SystemClock;
+use hadris_fat::MountOptions;
+use hadris_fat::sync::FatFs;
+use hadris_fs::SystemClock;
+use hadris_fs::sync::{FileSystem, PathExt, Volume};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "disk.img".to_owned());
     let file = File::options().read(true).write(true).open(path)?;
-    let volume: FatVolume<_> = FatVolumeBuilder::new(hadris_io::StdIo::new(file))
-        .time_provider(&CLOCK)
-        .open()?;
+    let fs = FatFs::open_with(file, MountOptions::new().with_clock(SystemClock))?;
+    let kind = fs.kind();
 
-    // FatVolume is Send when its backing storage is Send. A mutex provides
-    // exclusive access while Arc lets workers share ownership of the handle.
-    let volume = Arc::new(Mutex::new(volume));
-    let worker_volume = Arc::clone(&volume);
-    let fat_type = std::thread::spawn(move || worker_volume.lock().unwrap().fat_type())
+    // Volume puts the driver behind a lock, so its path helpers work on
+    // `&self` and an Arc shares it between threads.
+    let volume = Arc::new(Volume::new(fs));
+    let worker = Arc::clone(&volume);
+    std::thread::spawn(move || worker.write_file("/hello.txt", b"hello from a thread"))
         .join()
-        .expect("volume worker panicked");
+        .expect("volume worker panicked")?;
+    volume.sync()?;
 
-    println!("mounted {fat_type}");
+    println!("mounted {kind:?}, wrote /hello.txt");
     Ok(())
 }

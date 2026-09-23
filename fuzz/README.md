@@ -9,21 +9,23 @@ gate).
 | Target      | Entry point                          | Exercises |
 |-------------|--------------------------------------|-----------|
 | `cpio_read` | `CpioReader::next_entry_alloc` + data | newc header / `namesize` / `filesize` parsing |
-| `fat_read`  | `FatFs::open` + recursive read       | BPB, FAT chain, directory + LFN parsing, file reads |
+| `fat_read`  | `FatFs::open_with` + recursive read + `check_with` | BPB, FAT chain, directory + LFN parsing, lookups, file reads, the checker |
 | `exfat_read`| `ExFatVolume::open` + recursive read | boot region, entry sets, FAT/no-FAT chains, upcase |
 | `ntfs_read` | `NtfsFs::open` + recursive read      | boot sector, MFT records, attributes, index walks |
 | `part_read` | `PartitionTable::read_from`          | MBR / GPT detection and entry parsing |
 | `iso_read`  | `IsoImage::open` + recursive read    | volume descriptors, directory records, RRIP, multi-extent reads |
 | `udf_read`  | `UdfVolume::open` + recursive read   | anchor/VDS/FSD, File Entry, allocation descriptors, FIDs |
-| `fat_ops`   | format + fuzz-driven create/write/delete/rename ops | FAT write path vs a shadow model, verified after remount |
+| `fat_ops`   | `format` + fuzz-driven create/write/delete/rename/write-at/set-len ops on `FatFs` | FAT write path vs a shadow model, `check` after sync, verified after remount |
 
 **The invariant:** feeding *arbitrary bytes* into a reader must only ever return
 an `Err` or succeed — never panic, abort, or OOM. A crash found here is a bug in
 the reader, not the harness. The read harnesses also carry self-consistency
 oracles (failures tagged `ORACLE:`): re-resolved names must match, repeated
 reads must agree, and re-iterated listings must be stable. `fat_ops` asserts
-that the on-disk tree after a remount matches a shadow model of every
-successful operation.
+that `check` finds nothing on the synced volume and that the on-disk tree after
+a remount matches a shadow model of every successful operation. `fat_read`
+zero-extends an input to the volume size its boot sector declares (up to
+8 MiB), because `FatFs` refuses a volume larger than its device.
 
 ## Running
 

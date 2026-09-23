@@ -45,51 +45,71 @@ macro_rules! read_head {
     }};
 }
 
-fn dump_fat(data: &[u8]) -> Vec<String> {
-    use hadris_fat::{FatVolume, FatVolumeReadExt};
+/// Lists any `hadris-fs` driver through the node API.
+fn dump_driver<D: hadris_fs::sync::FsDriver>(fs: &mut D) -> Vec<String> {
+    use hadris_fs::{DirCursor, FileType, NameBuf};
 
     let mut lines = Vec::new();
-    let Ok(fs) = FatVolume::open(Cursor::new(data)) else {
-        return lines;
-    };
     let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(fs.root_dir(), String::from("/"), 0u32)];
+    let mut stack = vec![(fs.root(), String::from("/"), 0u32)];
     while let Some((dir, path, depth)) = stack.pop() {
         if depth > DEPTH_CAP {
             continue;
         }
-        for item in dir.entries() {
+        let mut cursor = DirCursor::start();
+        let mut name = NameBuf::new();
+        while let Ok(Some(entry)) = fs.read_dir_entry(dir, &mut cursor, &mut name) {
             if budget == 0 {
                 return lines;
             }
             budget -= 1;
-            let Ok(de) = item else { continue };
-            let Some(fe) = de.as_entry() else { continue };
-            let name = fe.name();
-            if name == "." || name == ".." {
+            let Some(text) = name.as_name().and_then(|n| n.to_str().ok()) else {
                 continue;
-            }
-            let child_path = format!("{path}{name}");
-            if fe.is_directory() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = dir.open_entry(fe) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
+            };
+            let child_path = format!("{path}{text}");
+            match entry.file_type() {
+                FileType::Dir => {
+                    lines.push(format!("dir {child_path}"));
+                    stack.push((entry.node(), format!("{child_path}/"), depth + 1));
                 }
-            } else {
-                let content = match fs.read_file(fe) {
-                    Ok(mut reader) => read_head!(reader),
-                    Err(_) => Vec::new(),
-                };
-                lines.push(file_line(fe.len(), &content, &child_path));
+                FileType::File => {
+                    let size = fs.node_metadata(entry.node()).map_or(0, |meta| meta.len());
+                    let mut buf = [0u8; CONTENT_CAP];
+                    let mut filled = 0usize;
+                    while filled < CONTENT_CAP {
+                        match fs.read_at(entry.node(), filled as u64, &mut buf[filled..]) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => filled += n,
+                        }
+                    }
+                    lines.push(file_line(size, &buf[..filled], &child_path));
+                }
+                _ => {}
             }
         }
     }
     lines
 }
 
+fn dump_fat(data: &[u8]) -> Vec<String> {
+    use hadris_fat::sync::FatFs;
+    use hadris_fat::MountOptions;
+    use hadris_fs::HeapTable;
+    use hadris_storage::{BlockSize, MemDevice};
+
+    let dev = MemDevice::new(data, BlockSize::new(512).unwrap());
+    let options = MountOptions::new()
+        .with_read_only(true)
+        .with_table(HeapTable::new());
+    match FatFs::open_with(dev, options) {
+        Ok(mut fs) => dump_driver(&mut fs),
+        Err(_) => Vec::new(),
+    }
+}
+
 fn dump_exfat(data: &[u8]) -> Vec<String> {
     use hadris_fat::exfat::{ExFatFileReader, ExFatVolume};
-    use hadris_fat::io::Read;
+    use hadris_io::legacy::sync::Read;
 
     let mut lines = Vec::new();
     let Ok(fs) = ExFatVolume::open(Cursor::new(data)) else {

@@ -615,7 +615,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "hadris-fat",
- "hadris-io",
+ "hadris-fs",
 ]
 
 [[package]]
