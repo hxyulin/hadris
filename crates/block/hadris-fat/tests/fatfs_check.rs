@@ -979,7 +979,7 @@ fn overlong_long_name_runs_fall_back_to_the_short_name() {
         let mut too_long = clean.clone();
         let full = [u16::from(b'y'); 13];
         for (index, &at) in fragments.iter().enumerate() {
-            let sequence = 20 - index as u8 | if index == 0 { 0x40 } else { 0 };
+            let sequence = (20 - index as u8) | if index == 0 { 0x40 } else { 0 };
             put_fragment(&mut too_long, at, sequence, sum, &full);
         }
 
