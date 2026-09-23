@@ -20,7 +20,6 @@ crates=(
   hadris-common
   hadris-cpio
   hadris-fat
-  hadris-fixed
   hadris-io
   hadris-iso
   hadris-macros

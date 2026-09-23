@@ -225,7 +225,6 @@ dependencies = [
  "bytemuck",
  "chrono",
  "crc",
- "hadris-fixed",
  "hadris-io",
  "hadris-path",
  "heapless",
@@ -241,19 +240,11 @@ dependencies = [
  "bytemuck",
  "chrono",
  "hadris-common",
- "hadris-fixed",
  "hadris-io",
  "hadris-macros",
  "hadris-path",
  "parse-size",
  "spin",
-]
-
-[[package]]
-name = "hadris-fixed"
-version = "2.4.0"
-dependencies = [
- "bytemuck",
 ]
 
 [[package]]
@@ -274,7 +265,6 @@ dependencies = [
  "bytemuck",
  "chrono",
  "hadris-common",
- "hadris-fixed",
  "hadris-io",
  "hadris-macros",
  "hadris-part",

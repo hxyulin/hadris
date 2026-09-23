@@ -103,14 +103,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # hadris-fixed
-          - crate: hadris-fixed
-            tier: no-std
-            features: ""
-          - crate: hadris-fixed
-            tier: alloc-bytemuck
-            features: "alloc,bytemuck"
-
           # hadris-path
           - crate: hadris-path
             tier: no-std
@@ -320,9 +312,6 @@ jobs:
           - crate: hadris
             tier: leaf-path
             features: "alloc,path"
-          - crate: hadris
-            tier: leaf-fixed
-            features: "alloc,fixed"
           - crate: hadris
             tier: leaf-part
             features: "std,sync,read,write,part"

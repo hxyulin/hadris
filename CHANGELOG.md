@@ -8,6 +8,17 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Removed
+
+- **hadris-fixed (V3):** Folded into `hadris-common` as `types::fixed`, which
+  also absorbs the former `types::no_alloc` (`ArrayVec`, `RingBuf`).
+  `FixedUtf16` now takes the `hadris_common::types::endian` byte-order markers,
+  so `Utf16ByteOrder` and the duplicate `LittleEndian`/`BigEndian` markers are
+  gone. `ArrayVec::try_push` returns `CapacityError` instead of the removed
+  `ArrayVecError`. The umbrella `hadris` crate drops its `fixed` feature and
+  `hadris::fixed` module. `hadris-common` is documented as internal and not for
+  direct use.
+
 ### Fixed
 
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with

@@ -1,4 +1,4 @@
-use hadris_fixed::FixedBytes;
+use hadris_common::types::fixed::FixedBytes;
 
 #[cfg(feature = "alloc")]
 use crate::joliet::JolietLevel;

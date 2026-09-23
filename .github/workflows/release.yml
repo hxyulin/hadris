@@ -93,7 +93,7 @@ jobs:
         run: |
           set -euo pipefail
           packages=(
-            hadris-fixed hadris-io hadris-path hadris-macros
+            hadris-io hadris-path hadris-macros
             hadris-common hadris-storage hadris-part
             hadris-fat hadris-ntfs hadris-iso hadris-udf hadris-cpio
             hadris-archive hadris-block hadris-cd hadris-optical
@@ -114,7 +114,7 @@ jobs:
           for package in "${packages[@]}"; do
             cargo package --locked --list -p "$package" > /dev/null
           done
-          for package in hadris-fixed hadris-io hadris-path hadris-macros; do
+          for package in hadris-io hadris-path hadris-macros; do
             cargo publish --locked --dry-run --no-verify -p "$package"
           done
 
@@ -132,7 +132,7 @@ jobs:
           fi
 
           packages=(
-            hadris-fixed hadris-io hadris-path hadris-macros
+            hadris-io hadris-path hadris-macros
             hadris-common hadris-storage hadris-part
             hadris-fat hadris-ntfs hadris-iso hadris-udf hadris-cpio
             hadris-archive hadris-block hadris-cd hadris-optical

@@ -13,7 +13,6 @@
 //! - [`optical`] — optical filesystems and disc image composition
 //! - [`archive`] — sequential archive formats
 //! - [`path`] — lexical virtual-path parsing and normalization
-//! - [`fixed`] — fixed-capacity byte and text types
 //!
 //! # Feature flags
 //!
@@ -57,7 +56,3 @@ pub use hadris_archive as archive;
 /// Lexical virtual-path utilities.
 #[cfg(feature = "path")]
 pub use hadris_path as path;
-
-/// Fixed-capacity byte and text types.
-#[cfg(feature = "fixed")]
-pub use hadris_fixed as fixed;

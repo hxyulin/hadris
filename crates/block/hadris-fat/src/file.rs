@@ -1,6 +1,6 @@
 use core::fmt;
 
-use hadris_fixed::FixedBytes;
+use hadris_common::types::fixed::FixedBytes;
 
 /// A type representing a short filename (8.3 format)
 #[repr(transparent)]

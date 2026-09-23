@@ -458,7 +458,6 @@ version = "2.4.0"
 dependencies = [
  "hadris-archive",
  "hadris-block",
- "hadris-fixed",
  "hadris-optical",
  "hadris-path",
 ]
@@ -513,7 +512,6 @@ dependencies = [
  "chrono",
  "crc",
  "criterion",
- "hadris-fixed",
  "hadris-io",
  "hadris-path",
  "heapless",
@@ -583,7 +581,6 @@ dependencies = [
  "chrono",
  "defmt",
  "hadris-common",
- "hadris-fixed",
  "hadris-io",
  "hadris-macros",
  "hadris-path",
@@ -606,13 +603,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hadris-fixed"
-version = "2.4.0"
-dependencies = [
- "bytemuck",
-]
-
-[[package]]
 name = "hadris-io"
 version = "2.4.0"
 dependencies = [
@@ -631,7 +621,6 @@ dependencies = [
  "chrono",
  "criterion",
  "hadris-common",
- "hadris-fixed",
  "hadris-io",
  "hadris-macros",
  "hadris-part",

@@ -2,8 +2,8 @@
 
 use hadris_common::types::endian::*;
 use hadris_common::types::extent::*;
+use hadris_common::types::fixed::FixedBytes;
 use hadris_common::types::number::*;
-use hadris_fixed::FixedBytes;
 
 // ---------------------------------------------------------------------------
 // Endian number types

@@ -1,4 +1,4 @@
-use hadris_fixed::FixedBytes;
+use hadris_common::types::fixed::FixedBytes;
 
 use super::io::{self, Error, LogicalSector, Read, Write};
 use crate::types::EndianType;

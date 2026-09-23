@@ -6,7 +6,7 @@ use crate::file::EntryType;
 use crate::joliet::JolietLevel;
 use hadris_common::types::endian::Endian;
 #[cfg(not(feature = "alloc"))]
-use hadris_common::types::no_alloc::ArrayVec;
+use hadris_common::types::fixed::ArrayVec;
 use hadris_path::{Component, Separators, VPath};
 pub use volume::VolumeDescriptorIter;
 
