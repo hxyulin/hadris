@@ -64,6 +64,7 @@ use alloc::vec::Vec;
 
 use super::fat_table::{Fat, FatType};
 use super::io::{Read, Seek, SeekFrom, Write};
+use crate::codec::entry::{ChainError, FatKind};
 use crate::error::{Error, Result};
 
 /// Default number of sectors to cache.
@@ -435,16 +436,7 @@ impl FatSectorCache {
             [first_byte, second_byte]
         };
 
-        // FAT12 entry layout:
-        // If cluster N is even: entry = (bytes[1] & 0x0F) << 8 | bytes[0]
-        // If cluster N is odd:  entry = bytes[1] << 4 | (bytes[0] >> 4)
-        let value = if cluster.is_multiple_of(2) {
-            u16::from(bytes[0]) | (u16::from(bytes[1] & 0x0F) << 8)
-        } else {
-            (u16::from(bytes[0]) >> 4) | (u16::from(bytes[1]) << 4)
-        };
-
-        Ok(value)
+        Ok(FatKind::Fat12.decode(cluster as u64, &bytes) as u16)
     }
 
     /// Write a FAT12 entry through the cache.
@@ -467,15 +459,11 @@ impl FatSectorCache {
         if offset_in_sector + 1 < sector_size {
             // Entry is within one sector
             let data = self.get_sector_mut(io, sector)?;
-
-            if cluster.is_multiple_of(2) {
-                data[offset_in_sector] = value as u8;
-                data[offset_in_sector + 1] =
-                    (data[offset_in_sector + 1] & 0xF0) | ((value >> 8) as u8 & 0x0F);
-            } else {
-                data[offset_in_sector] = (data[offset_in_sector] & 0x0F) | ((value << 4) as u8);
-                data[offset_in_sector + 1] = (value >> 4) as u8;
-            }
+            FatKind::Fat12.encode(
+                cluster as u64,
+                value as u32,
+                &mut data[offset_in_sector..offset_in_sector + 2],
+            );
         } else {
             // Entry spans two sectors
             {
@@ -516,9 +504,7 @@ impl FatSectorCache {
         let offset_in_sector = byte_offset % sector_size;
 
         let data = self.get_sector(reader, sector)?;
-        let value = u16::from_le_bytes([data[offset_in_sector], data[offset_in_sector + 1]]);
-
-        Ok(value)
+        Ok(FatKind::Fat16.decode(cluster as u64, &data[offset_in_sector..]) as u16)
     }
 
     /// Write a FAT16 entry through the cache.
@@ -537,9 +523,7 @@ impl FatSectorCache {
         let offset_in_sector = byte_offset % sector_size;
 
         let data = self.get_sector_mut(io, sector)?;
-        let bytes = value.to_le_bytes();
-        data[offset_in_sector] = bytes[0];
-        data[offset_in_sector + 1] = bytes[1];
+        FatKind::Fat16.encode(cluster as u64, value as u32, &mut data[offset_in_sector..]);
 
         Ok(())
     }
@@ -560,14 +544,7 @@ impl FatSectorCache {
         let offset_in_sector = byte_offset % sector_size;
 
         let data = self.get_sector(reader, sector)?;
-        let value = u32::from_le_bytes([
-            data[offset_in_sector],
-            data[offset_in_sector + 1],
-            data[offset_in_sector + 2],
-            data[offset_in_sector + 3],
-        ]);
-
-        Ok(value)
+        Ok(FatKind::Fat32.decode(cluster as u64, &data[offset_in_sector..]))
     }
 
     /// Write a FAT32 entry through the cache.
@@ -586,17 +563,7 @@ impl FatSectorCache {
         let offset_in_sector = byte_offset % sector_size;
 
         let data = self.get_sector_mut(io, sector)?;
-        let existing = u32::from_le_bytes([
-            data[offset_in_sector],
-            data[offset_in_sector + 1],
-            data[offset_in_sector + 2],
-            data[offset_in_sector + 3],
-        ]);
-        let bytes = ((existing & 0xF000_0000) | (value & 0x0FFF_FFFF)).to_le_bytes();
-        data[offset_in_sector] = bytes[0];
-        data[offset_in_sector + 1] = bytes[1];
-        data[offset_in_sector + 2] = bytes[2];
-        data[offset_in_sector + 3] = bytes[3];
+        FatKind::Fat32.encode(cluster as u64, value, &mut data[offset_in_sector..]);
 
         Ok(())
     }
@@ -630,59 +597,30 @@ impl<'a> CachedFat<'a> {
         reader: &mut T,
         cluster: usize,
     ) -> Result<Option<u32>> {
-        match self.fat_type {
-            FatType::Fat12 => {
-                let entry = self.cache.read_fat12_entry(reader, cluster)? & 0x0FFF;
-                if entry >= 0x0FF8 {
-                    Ok(None) // End of chain
-                } else if entry == 0x0FF7 {
-                    Err(Error::BadCluster {
-                        cluster: cluster as u32,
-                    })
-                } else if entry < 2 || entry as u32 > self.max_cluster {
-                    Err(Error::ClusterOutOfBounds {
-                        cluster: entry as u32,
-                        max: self.max_cluster,
-                    })
-                } else {
-                    Ok(Some(entry as u32))
-                }
-            }
-            FatType::Fat16 => {
-                let entry = self.cache.read_fat16_entry(reader, cluster)?;
-                if entry >= 0xFFF8 {
-                    Ok(None) // End of chain
-                } else if entry == 0xFFF7 {
-                    Err(Error::BadCluster {
-                        cluster: cluster as u32,
-                    })
-                } else if entry < 2 || entry as u32 > self.max_cluster {
-                    Err(Error::ClusterOutOfBounds {
-                        cluster: entry as u32,
-                        max: self.max_cluster,
-                    })
-                } else {
-                    Ok(Some(entry as u32))
-                }
-            }
-            FatType::Fat32 => {
-                let entry = self.cache.read_fat32_entry(reader, cluster)? & 0x0FFF_FFFF;
-                if entry >= 0x0FFF_FFF8 {
-                    Ok(None) // End of chain
-                } else if entry == 0x0FFF_FFF7 {
-                    Err(Error::BadCluster {
-                        cluster: cluster as u32,
-                    })
-                } else if entry < 2 || entry > self.max_cluster {
-                    Err(Error::ClusterOutOfBounds {
-                        cluster: entry,
-                        max: self.max_cluster,
-                    })
-                } else {
-                    Ok(Some(entry))
-                }
-            }
-        }
+        let (kind, stored) = match self.fat_type {
+            FatType::Fat12 => (
+                FatKind::Fat12,
+                self.cache.read_fat12_entry(reader, cluster)? as u32,
+            ),
+            FatType::Fat16 => (
+                FatKind::Fat16,
+                self.cache.read_fat16_entry(reader, cluster)? as u32,
+            ),
+            FatType::Fat32 => (
+                FatKind::Fat32,
+                self.cache.read_fat32_entry(reader, cluster)?,
+            ),
+        };
+        kind.next(stored, self.max_cluster)
+            .map_err(|err| match err {
+                ChainError::Bad => Error::BadCluster {
+                    cluster: cluster as u32,
+                },
+                ChainError::OutOfBounds(value) => Error::ClusterOutOfBounds {
+                    cluster: value,
+                    max: self.max_cluster,
+                },
+            })
     }
 
     /// Read the entire cluster chain starting from a cluster.

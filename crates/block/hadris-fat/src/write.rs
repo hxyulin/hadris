@@ -692,16 +692,14 @@ impl<DATA: Read + Write + Seek> FatVolumeWriteExt<DATA> for FatVolume<DATA> {
 /// converts 0x05 back to 0xE5.
 #[cfg(feature = "write")]
 fn kanji_short_name_fixup(name: &mut [u8; 11]) {
-    if name[0] == 0xE5 {
-        name[0] = 0x05;
-    }
+    crate::codec::short_name::to_disk(name);
 }
 
 /// Maximum number of LFN entries the spec allows: 20 entries × 13 UTF-16 code
 /// units per entry = 260 char "ceiling", though the spec caps the encoded
 /// name itself at 255 code units.
 #[cfg(feature = "write")]
-pub(crate) const MAX_LFN_ENTRIES: usize = 20;
+pub(crate) const MAX_LFN_ENTRIES: usize = crate::codec::lfn::MAX_ENTRIES;
 
 /// Decide whether `name` can be stored as a single short (8.3) directory entry
 /// using the Windows NT `DIR_NTRes` case flags, and if so which flags to set.
@@ -718,69 +716,12 @@ pub(crate) const MAX_LFN_ENTRIES: usize = 20;
 /// is exactly the set of names that previously required LFN entries.
 #[cfg(feature = "write")]
 fn short_name_case_bits(name: &str) -> Option<u8> {
-    const LOWER_BASE: u8 = 0x08;
-    const LOWER_EXT: u8 = 0x10;
-
-    let (base, ext) = match name.rfind('.') {
-        Some(pos) if pos > 0 => (&name[..pos], &name[pos + 1..]),
-        _ => (name, ""),
-    };
-    if base.is_empty() || base.chars().count() > 8 || ext.chars().count() > 3 {
-        return None;
-    }
-    if name.matches('.').count() > 1 {
-        return None;
-    }
-
-    // Returns `Some(true)` for an all-lowercase part, `Some(false)` for an
-    // all-uppercase (or caseless) part, and `None` when the part is not 8.3
-    // representable (invalid character or mixed case).
-    fn part_is_lower(part: &str) -> Option<bool> {
-        let mut seen_lower = false;
-        let mut seen_upper = false;
-        for c in part.chars() {
-            if !c.is_ascii() {
-                return None;
-            }
-            let upper = (c as u8).to_ascii_uppercase();
-            let representable = upper.is_ascii_uppercase()
-                || upper.is_ascii_digit()
-                || ShortFileName::ALLOWED_SYMBOLS.contains(&upper);
-            if !representable {
-                return None;
-            }
-            if c.is_ascii_lowercase() {
-                seen_lower = true;
-            } else if c.is_ascii_uppercase() {
-                seen_upper = true;
-            }
-        }
-        if seen_lower && seen_upper {
-            return None;
-        }
-        Some(seen_lower)
-    }
-
-    let mut bits = 0;
-    if part_is_lower(base)? {
-        bits |= LOWER_BASE;
-    }
-    if part_is_lower(ext)? {
-        bits |= LOWER_EXT;
-    }
-    Some(bits)
+    crate::codec::short_name::case_bits(name)
 }
 
 #[cfg(feature = "write")]
 fn validate_file_name(name: &str) -> Result<()> {
-    if name.is_empty()
-        || name == "."
-        || name == ".."
-        || name.encode_utf16().count() > crate::file::LFN_MAX_UTF16_UNITS
-        || name.chars().any(|ch| {
-            ch <= '\u{1f}' || matches!(ch, '"' | '*' | '/' | ':' | '<' | '>' | '?' | '\\' | '|')
-        })
-    {
+    if !crate::codec::short_name::is_valid_long_name(name) {
         return Err(Error::InvalidFilename);
     }
     Ok(())
@@ -860,81 +801,16 @@ fn build_lfn_entries(
 ) -> Option<usize> {
     use crate::raw::RawLfnEntry;
 
-    // Worst-case staging buffer: 20 LFN entries × 13 UTF-16 units = 260.
-    // Sized larger than the spec cap (255) so we always have room for the
-    // 0x0000 terminator + 0xFFFF filler when a 255-unit name doesn't
-    // perfectly fill the last entry. A 255-unit buffer (the previous size)
-    // would index out of bounds at exactly the spec cap.
-    const STAGING_CAP: usize = MAX_LFN_ENTRIES * crate::file::LongFileName::CHARS_PER_ENTRY;
-    let mut u16_buf = [0u16; STAGING_CAP];
-    let mut u16_len = 0usize;
-    for ch in name.chars() {
-        let mut tmp = [0u16; 2];
-        for &c in ch.encode_utf16(&mut tmp).iter() {
-            // Cap the *encoded* length at 255 (FAT spec) — anything longer
-            // surfaces as `None` so the caller can return `InvalidFilename`.
-            if u16_len >= crate::file::LFN_MAX_UTF16_UNITS {
-                return None;
-            }
-            u16_buf[u16_len] = c;
-            u16_len += 1;
-        }
-    }
-
-    let chars_per_entry = crate::file::LongFileName::CHARS_PER_ENTRY;
-    let num_lfn = u16_len.div_ceil(chars_per_entry);
-    if num_lfn == 0 || num_lfn > MAX_LFN_ENTRIES || out.len() < num_lfn {
+    let encoded = crate::codec::lfn::Encoded::new(name)?;
+    let num_lfn = encoded.entries();
+    if out.len() < num_lfn {
         return None;
     }
-
-    // Pad the unused tail of the last entry: 0x0000 terminator immediately
-    // after the last real char, then 0xFFFF for any remaining slots — that's
-    // what the spec expects from a writer. Skip when the name perfectly
-    // fills the last entry (terminator omitted in that case per spec).
-    let total_capacity = num_lfn * chars_per_entry;
-    if u16_len < total_capacity {
-        u16_buf[u16_len] = 0x0000;
-        for slot in &mut u16_buf[u16_len + 1..total_capacity] {
-            *slot = 0xFFFF;
-        }
-    }
-
-    // LFN entries on disk are stored in reverse: the first entry encountered
-    // by a reader has the highest sequence number (with `LAST_ENTRY_MASK`)
-    // and contains the *last* segment of the name. Walk from highest seq
-    // down to 1, slotting them into out[0..num_lfn].
-    for (entry_idx, out_entry) in out.iter_mut().enumerate().take(num_lfn) {
-        let seq_num = (num_lfn - entry_idx) as u8;
-        let seq_byte = if entry_idx == 0 {
-            seq_num | crate::file::LfnBuilder::LAST_ENTRY_MASK
-        } else {
-            seq_num
-        };
-
-        let chunk_start = (seq_num as usize - 1) * chars_per_entry;
-        let chunk = &u16_buf[chunk_start..chunk_start + chars_per_entry];
-
-        let mut name1 = [0u8; 10];
-        let mut name2 = [0u8; 12];
-        let mut name3 = [0u8; 4];
-        for i in 0..5 {
-            let bytes = chunk[i].to_le_bytes();
-            name1[i * 2] = bytes[0];
-            name1[i * 2 + 1] = bytes[1];
-        }
-        for i in 0..6 {
-            let bytes = chunk[5 + i].to_le_bytes();
-            name2[i * 2] = bytes[0];
-            name2[i * 2 + 1] = bytes[1];
-        }
-        for i in 0..2 {
-            let bytes = chunk[11 + i].to_le_bytes();
-            name3[i * 2] = bytes[0];
-            name3[i * 2 + 1] = bytes[1];
-        }
-
+    for (index, out_entry) in out.iter_mut().enumerate().take(num_lfn) {
+        let (sequence_number, units) = encoded.entry(index);
+        let (name1, name2, name3) = crate::codec::lfn::pack(&units);
         let lfn = RawLfnEntry {
-            sequence_number: seq_byte,
+            sequence_number,
             name1,
             attributes: DirEntryAttrFlags::LONG_NAME.bits(),
             ty: 0,
@@ -1082,9 +958,7 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
         if disk_name[0] == 0x00 || disk_name[0] == 0xE5 {
             return Err(Error::StaleEntry);
         }
-        if disk_name[0] == 0x05 {
-            disk_name[0] = 0xE5;
-        }
+        crate::codec::short_name::from_disk(&mut disk_name);
         if disk_name != short_name.raw_bytes() {
             return Err(Error::StaleEntry);
         }

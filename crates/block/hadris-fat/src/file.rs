@@ -34,7 +34,7 @@ impl std::error::Error for CreateShortFileNameError {}
 
 impl ShortFileName {
     /// Punctuation permitted in a FAT short filename.
-    pub const ALLOWED_SYMBOLS: &'static [u8] = b"$%'-_@~`!(){}^#&";
+    pub const ALLOWED_SYMBOLS: &'static [u8] = crate::codec::short_name::ALLOWED_SYMBOLS;
 
     /// Creates a short filename from its space-padded 11-byte directory form.
     pub fn new(bytes: [u8; 11]) -> Result<Self, CreateShortFileNameError> {
@@ -192,13 +192,7 @@ impl ShortFileName {
     /// Calculate the LFN checksum for this short filename.
     /// This is used to validate that LFN entries belong to this short name entry.
     pub fn lfn_checksum(&self) -> u8 {
-        let name = self.raw_bytes();
-        let mut sum: u8 = 0;
-        for &byte in &name {
-            // Rotate right and add
-            sum = sum.rotate_right(1).wrapping_add(byte);
-        }
-        sum
+        crate::codec::lfn::checksum(&self.raw_bytes())
     }
 
     /// Convert back to the raw 11-byte format for directory entries.
@@ -235,135 +229,14 @@ impl ShortFileName {
         suffix: u8,
         oem: &dyn crate::oem::OemCpConverter,
     ) -> Result<Self, CreateShortFileNameError> {
-        // Find the last dot for extension separation
-        let (base, ext) = match name.rfind('.') {
-            Some(pos) if pos > 0 => (&name[..pos], &name[pos + 1..]),
-            _ => (name, ""),
-        };
-        let (base, ext) = if base.chars().all(|ch| ch == '.' || ch == ' ') && !ext.is_empty() {
-            (ext, "")
-        } else {
-            (base, ext)
-        };
-
-        // Process base name: uppercase, strip invalid chars
-        let mut base_chars = [b' '; 8];
-        let mut base_len = 0;
-        for ch in base.chars() {
-            if base_len >= 6 && suffix > 0 {
-                // Leave room for ~N suffix
-                break;
-            }
-            if base_len >= 8 {
-                break;
-            }
-            let processed = Self::process_char(ch, oem);
-            if processed != 0 {
-                base_chars[base_len] = processed;
-                base_len += 1;
-            }
-        }
-
-        // Add ~N suffix if needed (Microsoft-style collision handling)
-        if suffix > 0 {
-            if suffix <= 4 {
-                // For N=1..4: use simple ~N suffix (e.g., FILENA~1)
-                let max_base = 6; // leave room for ~N (2 chars)
-                if base_len > max_base {
-                    base_len = max_base;
-                }
-                base_chars[base_len] = b'~';
-                base_len += 1;
-                base_chars[base_len] = b'0' + suffix;
-                base_len += 1;
-            } else {
-                // For N>4: use hash-based suffix ~HHHH where HHHH is a 4-char
-                // hex hash derived from the long name + suffix, per Microsoft's
-                // recommended approach for reducing collisions.
-                let hash = Self::lfn_hash(name, suffix);
-                let max_base = 2; // leave room for ~HHHH (5 chars) + at least 2 base chars
-                if base_len > max_base {
-                    base_len = max_base;
-                }
-                base_chars[base_len] = b'~';
-                base_len += 1;
-                // Write 4 hex digits
-                for i in (0..4).rev() {
-                    let nibble = ((hash >> (i * 4)) & 0xF) as u8;
-                    base_chars[base_len] = if nibble < 10 {
-                        b'0' + nibble
-                    } else {
-                        b'A' + nibble - 10
-                    };
-                    base_len += 1;
-                }
-            }
-        }
-
-        // Process extension: uppercase, strip invalid chars
-        let mut ext_chars = [b' '; 3];
-        let mut ext_len = 0;
-        for ch in ext.chars() {
-            if ext_len >= 3 {
-                break;
-            }
-            let processed = Self::process_char(ch, oem);
-            if processed != 0 {
-                ext_chars[ext_len] = processed;
-                ext_len += 1;
-            }
-        }
-
-        // Combine into 11-byte name
-        let mut result = [b' '; 11];
-        result[..8].copy_from_slice(&base_chars);
-        result[8..11].copy_from_slice(&ext_chars);
-
-        // Validate we have at least one character
-        if base_len == 0 && ext_len == 0 {
-            return Err(CreateShortFileNameError);
-        }
-
-        Self::new(result)
-    }
-
-    /// Compute a simple hash from a long filename and suffix for short name generation.
-    /// Returns a 16-bit value used as a 4-hex-digit suffix.
-    #[cfg(feature = "write")]
-    fn lfn_hash(name: &str, suffix: u8) -> u16 {
-        let mut hash: u16 = suffix as u16;
-        for &b in name.as_bytes() {
-            hash = hash.wrapping_mul(37).wrapping_add(b as u16);
-        }
-        hash
-    }
-
-    /// Process a character for short filename conversion.
-    /// Returns 0 if the character should be skipped.
-    ///
-    /// Non-ASCII characters are routed through `oem.encode`; if the converter
-    /// returns `None`, the byte falls back to `_`.
-    #[cfg(feature = "write")]
-    fn process_char(ch: char, oem: &dyn crate::oem::OemCpConverter) -> u8 {
-        if ch.is_ascii_alphanumeric() {
-            ch.to_ascii_uppercase() as u8
-        } else if Self::ALLOWED_SYMBOLS.contains(&(ch as u8)) {
-            ch as u8
-        } else if ch == ' ' || ch == '.' {
-            // Skip spaces and extra dots (dots are handled separately)
-            0
-        } else if ch.is_ascii() {
-            // Replace other ASCII chars with underscore
-            b'_'
-        } else {
-            // Non-ASCII: ask the OEM converter for a byte; fall back to '_'.
-            oem.encode(ch).unwrap_or(b'_')
-        }
+        crate::codec::short_name::generate(name, suffix, |ch| oem.encode(ch))
+            .ok_or(CreateShortFileNameError)
+            .and_then(Self::new)
     }
 }
 
 /// Maximum number of UTF-16 code units in a long filename (per the FAT LFN spec).
-pub const LFN_MAX_UTF16_UNITS: usize = 255;
+pub const LFN_MAX_UTF16_UNITS: usize = crate::codec::lfn::MAX_UNITS;
 
 /// A Long File Name stored as UTF-16.
 ///
@@ -409,7 +282,7 @@ impl Default for LongFileName {
 #[cfg(feature = "lfn")]
 impl LongFileName {
     /// Number of UTF-16 code units stored per LFN directory entry
-    pub const CHARS_PER_ENTRY: usize = 13;
+    pub const CHARS_PER_ENTRY: usize = crate::codec::lfn::UNITS_PER_ENTRY;
 
     /// Create a new empty LongFileName
     pub fn new() -> Self {
@@ -438,27 +311,7 @@ impl LongFileName {
     /// LFN entries are stored in reverse order, so we prepend.
     /// Characters are: 5 from name1, 6 from name2, 2 from name3.
     pub fn prepend_lfn_entry(&mut self, name1: &[u8; 10], name2: &[u8; 12], name3: &[u8; 4]) {
-        // Collect all 13 UTF-16LE code units
-        let mut utf16_chars = [0u16; Self::CHARS_PER_ENTRY];
-
-        // name1: 5 UTF-16LE characters (10 bytes)
-        for i in 0..5 {
-            utf16_chars[i] = u16::from_le_bytes([name1[i * 2], name1[i * 2 + 1]]);
-        }
-        // name2: 6 UTF-16LE characters (12 bytes)
-        for i in 0..6 {
-            utf16_chars[5 + i] = u16::from_le_bytes([name2[i * 2], name2[i * 2 + 1]]);
-        }
-        // name3: 2 UTF-16LE characters (4 bytes)
-        for i in 0..2 {
-            utf16_chars[11 + i] = u16::from_le_bytes([name3[i * 2], name3[i * 2 + 1]]);
-        }
-
-        // Find end of actual characters (0x0000 or 0xFFFF marks padding)
-        let actual_len = utf16_chars
-            .iter()
-            .position(|&c| c == 0x0000 || c == 0xFFFF)
-            .unwrap_or(Self::CHARS_PER_ENTRY);
+        let (utf16_chars, actual_len) = crate::codec::lfn::unpack(name1, name2, name3);
 
         // Prepend code units to the existing buffer.
         let new_len = self.len + actual_len;
@@ -556,9 +409,9 @@ impl Default for LfnBuilder {
 #[cfg(feature = "lfn")]
 impl LfnBuilder {
     /// Bit mask for the last LFN entry marker
-    pub const LAST_ENTRY_MASK: u8 = 0x40;
+    pub const LAST_ENTRY_MASK: u8 = crate::codec::lfn::LAST_ENTRY;
     /// Mask for the sequence number (bits 0-5)
-    pub const SEQ_NUMBER_MASK: u8 = 0x3F;
+    pub const SEQ_NUMBER_MASK: u8 = crate::codec::lfn::SEQUENCE_MASK;
 
     /// Creates an empty long-file-name sequence builder.
     pub fn new() -> Self {
@@ -765,6 +618,45 @@ mod lfn_unicode_tests {
     fn leading_dots_produce_a_nonempty_short_basename() {
         let short = ShortFileName::from_long_name("..dots", 0).unwrap();
         assert_eq!(short.raw_bytes(), *b"DOTS       ");
+    }
+
+    /// `LfnBuilder`, driven the way directory iteration drives it, and the
+    /// shared `codec::lfn::Assembler` accept and reject the same sequences.
+    #[test]
+    fn builder_matches_shared_assembler() {
+        let mut state = 0x2545_f491_u32;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state
+        };
+        let short = ShortFileName::new(*b"LONGFI~1TXT").unwrap();
+        let sum = short.lfn_checksum();
+        for _ in 0..2000 {
+            let mut builder = LfnBuilder::new();
+            let mut assembler = crate::codec::lfn::Assembler::new();
+            for _ in 0..(next() % 6) {
+                let r = next();
+                let seq = match r % 4 {
+                    0 => 0x40 | ((r >> 8) as u8 % 4),
+                    _ => (r >> 8) as u8 % 5,
+                };
+                let checksum = if r % 7 == 0 { sum ^ 1 } else { sum };
+                let unit = [b'a' + (r >> 16) as u8 % 26, 0];
+                let name1 = [unit[0], 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+                if seq & LfnBuilder::LAST_ENTRY_MASK != 0 {
+                    builder.start(seq, checksum);
+                }
+                if builder.building {
+                    builder.add_entry(seq, checksum, &name1, &[0xFF; 12], &[0xFF; 4]);
+                }
+                assembler.push(seq, checksum, &name1, &[0xFF; 12], &[0xFF; 4]);
+            }
+            let expected = builder.finish(&short);
+            let actual = assembler.finish(sum);
+            assert_eq!(expected.as_ref().map(LongFileName::as_utf16), actual);
+        }
     }
 
     /// Regression test: an LFN entry with the last-entry flag set but a

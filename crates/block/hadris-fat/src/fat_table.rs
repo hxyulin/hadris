@@ -1,10 +1,9 @@
 io_transform! {
 
-use core::mem::size_of;
-
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
+use crate::codec::entry::{ChainError, FatKind};
 use crate::error::{Error, Result};
 #[cfg(feature = "write")]
 use super::io::Write;
@@ -16,24 +15,19 @@ use super::io::{Read, Seek, SeekFrom};
 #[cfg(feature = "alloc")]
 const FAT_CACHE_WINDOW_SIZE: &str = env!("FAT_CACHE_WINDOW_SIZE_BYTES");
 
-/// Decode a FAT12 entry from a byte slice (raw FAT window). Cluster N’s entry
-/// starts at byte offset (N * 3) / 2 and spans 2 bytes; even/odd determines layout.
-#[cfg(feature = "alloc")]
-fn fat12_entry_from_buf(buf: &[u8], window_start: usize, cluster: usize) -> u16 {
-    let offset_in_fat = (cluster * 3) / 2;
-    let buffer_offset = offset_in_fat - window_start;
-    let bytes = &buf[buffer_offset..][..2];
-    if cluster.is_multiple_of(2) {
-        u16::from(bytes[0]) | (u16::from(bytes[1] & 0x0F) << 8)
-    } else {
-        (u16::from(bytes[0]) >> 4) | (u16::from(bytes[1]) << 4)
-    }
+fn map_next(result: core::result::Result<Option<u32>, ChainError>, cluster: usize, max: u32) -> Result<Option<u32>> {
+    result.map_err(|err| match err {
+        ChainError::Bad => Error::BadCluster {
+            cluster: cluster as u32,
+        },
+        ChainError::OutOfBounds(value) => Error::ClusterOutOfBounds { cluster: value, max },
+    })
 }
 
-/// Read a cluster chain in bulk using a 4 MiB sliding window (FAT12, FAT16, FAT32).
+/// Read a cluster chain in bulk using a sliding window over the FAT
+/// (FAT12, FAT16, FAT32).
 ///
 /// Used when `alloc` is enabled as the backend for [`with_cached_chain`](super::read::FileReader::with_cached_chain).
-/// `entry_size`: 0 = FAT12 (packed 12-bit), 2 = FAT16, 4 = FAT32. Panics if not 0, 2, or 4.
 #[cfg(feature = "alloc")]
 #[allow(clippy::too_many_arguments)]
 async fn read_chain_wide<R>(
@@ -42,20 +36,12 @@ async fn read_chain_wide<R>(
     fat_size: usize,
     start_cluster: u32,
     max_clusters: usize,
-    entry_size: usize,
-    entry_mask: u32,
-    is_end_of_chain: impl Fn(u32) -> bool,
-    is_bad_cluster: impl Fn(u32) -> bool,
-    validate_cluster: impl Fn(u32) -> Result<()>,
+    kind: FatKind,
+    max_cluster: u32,
 ) -> Result<Vec<u32>>
 where
     R: Read + Seek,
 {
-    assert!(
-        entry_size == 0 || entry_size == 2 || entry_size == 4,
-        "FAT entry_size must be 0 (FAT12), 2 (FAT16), or 4 (FAT32), got {entry_size}"
-    );
-
     let cache_size = FAT_CACHE_WINDOW_SIZE.parse::<usize>().unwrap();
     let mut fat_buf = alloc::vec![0u8; FAT_CACHE_WINDOW_SIZE.parse::<usize>().unwrap()];
     let mut window_start = usize::MAX;
@@ -69,11 +55,8 @@ where
         chain.push(current as u32);
         iterations += 1;
 
-        let (offset_in_fat, span) = if entry_size == 0 {
-            ((current * 3) / 2, 2)
-        } else {
-            (current * entry_size, entry_size)
-        };
+        let offset_in_fat = kind.entry_offset(current as u64) as usize;
+        let span = kind.entry_len();
 
         if offset_in_fat < window_start || offset_in_fat + span > window_start + valid_len {
             window_start = offset_in_fat;
@@ -85,30 +68,11 @@ where
         }
 
         let buffer_offset = offset_in_fat - window_start;
-        let cluster_u32 = if entry_size == 0 {
-            fat12_entry_from_buf(&fat_buf, window_start, current) as u32 & entry_mask
-        } else if entry_size == 2 {
-            let raw = u16::from_le_bytes(
-                fat_buf[buffer_offset..][..2].try_into().unwrap(),
-            );
-            (raw as u32) & entry_mask
-        } else {
-            let raw = u32::from_le_bytes(
-                fat_buf[buffer_offset..][..4].try_into().unwrap(),
-            );
-            raw & entry_mask
-        };
-
-        if is_end_of_chain(cluster_u32) {
-            break;
+        let stored = kind.decode(current as u64, &fat_buf[buffer_offset..][..span]);
+        match map_next(kind.next(stored, max_cluster), current, max_cluster)? {
+            Some(next) => current = next as usize,
+            None => break,
         }
-        if is_bad_cluster(cluster_u32) {
-            return Err(Error::BadCluster {
-                cluster: current as u32,
-            });
-        }
-        validate_cluster(cluster_u32)?;
-        current = cluster_u32 as usize;
     }
     Ok(chain)
 }
@@ -155,11 +119,8 @@ impl Fat {
                     fat12.size,
                     start_cluster,
                     max_clusters,
-                    0, // FAT12: packed 12-bit
-                    0x0FFF,
-                    |v| Fat12::is_end_of_chain(v as u16),
-                    |v| Fat12::is_bad_cluster(v as u16),
-                    |v| fat12.validate_cluster(v as u16),
+                    FatKind::Fat12,
+                    fat12.max_cluster as u32,
                 )
                 .await
             }
@@ -170,11 +131,8 @@ impl Fat {
                     fat16.size,
                     start_cluster,
                     max_clusters,
-                    2, // FAT16
-                    0xFFFF,
-                    |v| Fat16::is_end_of_chain(v as u16),
-                    |v| Fat16::is_bad_cluster(v as u16),
-                    |v| fat16.validate_cluster(v as u16),
+                    FatKind::Fat16,
+                    fat16.max_cluster as u32,
                 )
                 .await
             }
@@ -185,11 +143,8 @@ impl Fat {
                     fat32.size,
                     start_cluster,
                     max_clusters,
-                    4, // FAT32
-                    Fat32::ENTRY_MASK,
-                    Fat32::is_end_of_chain,
-                    Fat32::is_bad_cluster,
-                    |v| fat32.validate_cluster(v),
+                    FatKind::Fat32,
+                    fat32.max_cluster,
                 )
                 .await
             }
@@ -449,14 +404,14 @@ pub struct Fat12 {
 }
 
 impl Fat12 {
+    const KIND: FatKind = FatKind::Fat12;
     /// Mask for the 12-bit cluster number
-    const ENTRY_MASK: u16 = 0x0FFF;
-    /// End of chain markers: 0x0FF8 - 0x0FFF indicate end of cluster chain
-    const END_OF_CHAIN_MIN: u16 = 0x0FF8;
+    const ENTRY_MASK: u16 = Self::KIND.mask() as u16;
     /// Bad cluster marker
-    const BAD_CLUSTER: u16 = 0x0FF7;
+    #[cfg(feature = "write")]
+    const BAD_CLUSTER: u16 = Self::KIND.bad_cluster() as u16;
     /// First valid data cluster (clusters 0 and 1 are reserved)
-    const FIRST_DATA_CLUSTER: u16 = 2;
+    const FIRST_DATA_CLUSTER: u16 = crate::codec::entry::FIRST_DATA_CLUSTER as u16;
 
     /// Layout fields a [`crate::cache::FatSectorCache`] needs to mirror this
     /// FAT: `(start_byte, size_per_copy, copy_count)`.
@@ -495,29 +450,23 @@ impl Fat12 {
 
     /// Read a FAT12 entry from a specific FAT copy (0 = primary, 1 = backup).
     async fn read_clus_at<T: Read + Seek>(&self, reader: &mut T, cluster: usize, fat_index: usize) -> Result<u16> {
-        let byte_offset = self.start + fat_index * self.size + (cluster * 3) / 2;
+        let byte_offset = self.start + fat_index * self.size + Self::KIND.entry_offset(cluster as u64) as usize;
         reader.seek(SeekFrom::Start(byte_offset as u64)).await?;
 
         let mut bytes = [0u8; 2];
         reader.read_exact(&mut bytes).await?;
 
-        let value = if cluster.is_multiple_of(2) {
-            u16::from(bytes[0]) | (u16::from(bytes[1] & 0x0F) << 8)
-        } else {
-            (u16::from(bytes[0]) >> 4) | (u16::from(bytes[1]) << 4)
-        };
-
-        Ok(value)
+        Ok(Self::KIND.decode(cluster as u64, &bytes) as u16)
     }
 
     /// Check if a cluster value represents end-of-chain
     fn is_end_of_chain(value: u16) -> bool {
-        value >= Self::END_OF_CHAIN_MIN
+        Self::KIND.is_end_of_chain(value as u32)
     }
 
     /// Check if a cluster value represents a bad cluster
     fn is_bad_cluster(value: u16) -> bool {
-        value == Self::BAD_CLUSTER
+        Self::KIND.is_bad(value as u32)
     }
 
     /// Validate that a cluster number is within bounds
@@ -543,21 +492,9 @@ impl Fat12 {
         reader: &mut T,
         cluster: usize,
     ) -> Result<Option<u32>> {
-        let entry = self.read_clus(reader, cluster).await? & Self::ENTRY_MASK;
-
-        if Self::is_end_of_chain(entry) {
-            return Ok(None);
-        }
-
-        if Self::is_bad_cluster(entry) {
-            return Err(Error::BadCluster {
-                cluster: cluster as u32,
-            });
-        }
-
-        self.validate_cluster(entry)?;
-
-        Ok(Some(entry as u32))
+        let stored = self.read_clus(reader, cluster).await?;
+        let max = self.max_cluster as u32;
+        map_next(Self::KIND.next(stored as u32, max), cluster, max)
     }
 
     /// Free cluster marker
@@ -565,7 +502,7 @@ impl Fat12 {
     const FREE_CLUSTER: u16 = 0x0000;
     /// End of chain marker
     #[cfg(feature = "write")]
-    const END_OF_CHAIN: u16 = 0x0FF8;
+    const END_OF_CHAIN: u16 = Self::KIND.end_of_chain() as u16;
 
     /// Write a FAT12 entry at the specified cluster index to a specific FAT copy.
     #[cfg(feature = "write")]
@@ -576,23 +513,13 @@ impl Fat12 {
         value: u16,
         fat_index: usize,
     ) -> Result<()> {
-        let byte_offset = self.start + fat_index * self.size + (cluster * 3) / 2;
+        let byte_offset = self.start + fat_index * self.size + Self::KIND.entry_offset(cluster as u64) as usize;
         rw.seek(SeekFrom::Start(byte_offset as u64)).await?;
 
         // Read existing bytes (we need to preserve the other half)
         let mut bytes = [0u8; 2];
         rw.read_exact(&mut bytes).await?;
-
-        // Modify the appropriate bits
-        if cluster.is_multiple_of(2) {
-            // Even: modify lower 8 bits of bytes[0] and lower 4 bits of bytes[1]
-            bytes[0] = value as u8;
-            bytes[1] = (bytes[1] & 0xF0) | ((value >> 8) as u8 & 0x0F);
-        } else {
-            // Odd: modify upper 4 bits of bytes[0] and all of bytes[1]
-            bytes[0] = (bytes[0] & 0x0F) | ((value << 4) as u8);
-            bytes[1] = (value >> 4) as u8;
-        }
+        Self::KIND.encode(cluster as u64, value as u32, &mut bytes);
 
         // Write back
         rw.seek(SeekFrom::Start(byte_offset as u64)).await?;
@@ -764,12 +691,12 @@ pub struct Fat16 {
 }
 
 impl Fat16 {
-    /// End of chain markers: 0xFFF8 - 0xFFFF indicate end of cluster chain
-    const END_OF_CHAIN_MIN: u16 = 0xFFF8;
+    const KIND: FatKind = FatKind::Fat16;
     /// Bad cluster marker
-    const BAD_CLUSTER: u16 = 0xFFF7;
+    #[cfg(feature = "write")]
+    const BAD_CLUSTER: u16 = Self::KIND.bad_cluster() as u16;
     /// First valid data cluster (clusters 0 and 1 are reserved)
-    const FIRST_DATA_CLUSTER: u16 = 2;
+    const FIRST_DATA_CLUSTER: u16 = crate::codec::entry::FIRST_DATA_CLUSTER as u16;
 
     /// Layout fields a [`crate::cache::FatSectorCache`] needs to mirror this
     /// FAT: `(start_byte, size_per_copy, copy_count)`.
@@ -808,21 +735,21 @@ impl Fat16 {
 
     /// Read a FAT16 entry from a specific FAT copy (0 = primary, 1 = backup).
     async fn read_clus_at<T: Read + Seek>(&self, reader: &mut T, cluster: usize, fat_index: usize) -> Result<u16> {
-        let offset = self.start + fat_index * self.size + cluster * size_of::<u16>();
+        let offset = self.start + fat_index * self.size + Self::KIND.entry_offset(cluster as u64) as usize;
         reader.seek(SeekFrom::Start(offset as u64)).await?;
-        let mut data = 0u16;
-        reader.read_exact(bytemuck::bytes_of_mut(&mut data)).await?;
-        Ok(u16::from_le(data))
+        let mut bytes = [0u8; 2];
+        reader.read_exact(&mut bytes).await?;
+        Ok(Self::KIND.decode(cluster as u64, &bytes) as u16)
     }
 
     /// Check if a cluster value represents end-of-chain
     fn is_end_of_chain(value: u16) -> bool {
-        value >= Self::END_OF_CHAIN_MIN
+        Self::KIND.is_end_of_chain(value as u32)
     }
 
     /// Check if a cluster value represents a bad cluster
     fn is_bad_cluster(value: u16) -> bool {
-        value == Self::BAD_CLUSTER
+        Self::KIND.is_bad(value as u32)
     }
 
     /// Validate that a cluster number is within bounds
@@ -848,21 +775,9 @@ impl Fat16 {
         reader: &mut T,
         cluster: usize,
     ) -> Result<Option<u32>> {
-        let entry = self.read_clus(reader, cluster).await?;
-
-        if Self::is_end_of_chain(entry) {
-            return Ok(None);
-        }
-
-        if Self::is_bad_cluster(entry) {
-            return Err(Error::BadCluster {
-                cluster: cluster as u32,
-            });
-        }
-
-        self.validate_cluster(entry)?;
-
-        Ok(Some(entry as u32))
+        let stored = self.read_clus(reader, cluster).await?;
+        let max = self.max_cluster as u32;
+        map_next(Self::KIND.next(stored as u32, max), cluster, max)
     }
 
     /// Free cluster marker
@@ -870,7 +785,7 @@ impl Fat16 {
     const FREE_CLUSTER: u16 = 0x0000;
     /// End of chain marker
     #[cfg(feature = "write")]
-    const END_OF_CHAIN: u16 = 0xFFF8;
+    const END_OF_CHAIN: u16 = Self::KIND.end_of_chain() as u16;
 
     /// Write a cluster entry to the FAT table at the specified FAT copy
     #[cfg(feature = "write")]
@@ -881,9 +796,11 @@ impl Fat16 {
         value: u16,
         fat_index: usize,
     ) -> Result<()> {
-        let offset = self.start + fat_index * self.size + cluster * size_of::<u16>();
+        let offset = self.start + fat_index * self.size + Self::KIND.entry_offset(cluster as u64) as usize;
         writer.seek(SeekFrom::Start(offset as u64)).await?;
-        writer.write_all(&value.to_le_bytes()).await?;
+        let mut bytes = [0u8; 2];
+        Self::KIND.encode(cluster as u64, value as u32, &mut bytes);
+        writer.write_all(&bytes).await?;
         Ok(())
     }
 
@@ -1050,14 +967,14 @@ pub struct Fat32 {
 }
 
 impl Fat32 {
+    const KIND: FatKind = FatKind::Fat32;
     /// Mask for the 28-bit cluster number (upper 4 bits are reserved)
-    const ENTRY_MASK: u32 = 0x0FFF_FFFF;
-    /// End of chain markers: 0x0FFFFFF8 - 0x0FFFFFFF indicate end of cluster chain
-    const END_OF_CHAIN_MIN: u32 = 0x0FFF_FFF8;
+    const ENTRY_MASK: u32 = Self::KIND.mask();
     /// Bad cluster marker
-    const BAD_CLUSTER: u32 = 0x0FFF_FFF7;
+    #[cfg(feature = "write")]
+    const BAD_CLUSTER: u32 = Self::KIND.bad_cluster();
     /// First valid data cluster (clusters 0 and 1 are reserved)
-    const FIRST_DATA_CLUSTER: u32 = 2;
+    const FIRST_DATA_CLUSTER: u32 = crate::codec::entry::FIRST_DATA_CLUSTER;
 
     /// Layout fields a [`crate::cache::FatSectorCache`] needs to mirror this
     /// FAT: `(start_byte, size_per_copy, copy_count)`.
@@ -1096,21 +1013,21 @@ impl Fat32 {
 
     /// Read a FAT32 entry from a specific FAT copy (0 = primary, 1 = backup).
     async fn read_clus_at<T: Read + Seek>(&self, reader: &mut T, cluster: usize, fat_index: usize) -> Result<u32> {
-        let offset = self.start + fat_index * self.size + cluster * size_of::<u32>();
+        let offset = self.start + fat_index * self.size + Self::KIND.entry_offset(cluster as u64) as usize;
         reader.seek(SeekFrom::Start(offset as u64)).await?;
-        let mut data = 0u32;
-        reader.read_exact(bytemuck::bytes_of_mut(&mut data)).await?;
-        Ok(u32::from_le(data))
+        let mut bytes = [0u8; 4];
+        reader.read_exact(&mut bytes).await?;
+        Ok(Self::KIND.decode(cluster as u64, &bytes))
     }
 
     /// Check if a cluster value represents end-of-chain
     fn is_end_of_chain(value: u32) -> bool {
-        value >= Self::END_OF_CHAIN_MIN
+        Self::KIND.is_end_of_chain(value)
     }
 
     /// Check if a cluster value represents a bad cluster
     fn is_bad_cluster(value: u32) -> bool {
-        value == Self::BAD_CLUSTER
+        Self::KIND.is_bad(value)
     }
 
     /// Validate that a cluster number is within bounds
@@ -1136,26 +1053,8 @@ impl Fat32 {
         reader: &mut T,
         cluster: usize,
     ) -> Result<Option<u32>> {
-        // Read the FAT entry for this cluster
-        let raw_entry = self.read_clus(reader, cluster).await?;
-        let entry = raw_entry & Self::ENTRY_MASK;
-
-        // Check for end of chain
-        if Self::is_end_of_chain(entry) {
-            return Ok(None);
-        }
-
-        // Check for bad cluster
-        if Self::is_bad_cluster(entry) {
-            return Err(Error::BadCluster {
-                cluster: cluster as u32,
-            });
-        }
-
-        // Validate the next cluster is in bounds
-        self.validate_cluster(entry)?;
-
-        Ok(Some(entry))
+        let stored = self.read_clus(reader, cluster).await?;
+        map_next(Self::KIND.next(stored, self.max_cluster), cluster, self.max_cluster)
     }
 
     /// Write a cluster entry to the FAT table at the specified FAT copy
@@ -1167,14 +1066,13 @@ impl Fat32 {
         value: u32,
         fat_index: usize,
     ) -> Result<()> {
-        let offset = self.start + fat_index * self.size + cluster * size_of::<u32>();
+        let offset = self.start + fat_index * self.size + Self::KIND.entry_offset(cluster as u64) as usize;
         io.seek(SeekFrom::Start(offset as u64)).await?;
-        let mut existing = [0_u8; size_of::<u32>()];
-        io.read_exact(&mut existing).await?;
-        let preserved = u32::from_le_bytes(existing) & !Self::ENTRY_MASK;
-        let updated = preserved | (value & Self::ENTRY_MASK);
+        let mut bytes = [0_u8; 4];
+        io.read_exact(&mut bytes).await?;
+        Self::KIND.encode(cluster as u64, value, &mut bytes);
         io.seek(SeekFrom::Start(offset as u64)).await?;
-        io.write_all(&updated.to_le_bytes()).await?;
+        io.write_all(&bytes).await?;
         Ok(())
     }
 
@@ -1197,7 +1095,7 @@ impl Fat32 {
     const FREE_CLUSTER: u32 = 0x00000000;
     /// End of chain marker
     #[cfg(feature = "write")]
-    const END_OF_CHAIN: u32 = 0x0FFFFFF8;
+    const END_OF_CHAIN: u32 = Self::KIND.end_of_chain();
 
     /// Allocate a single cluster, returns the allocated cluster number.
     /// Searches starting from `hint` for a free cluster.

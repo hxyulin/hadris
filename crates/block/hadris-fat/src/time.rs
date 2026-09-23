@@ -36,11 +36,7 @@ impl FatDateTime {
     /// (e.g. Feb 30 is accepted as-is — FAT directory entries store these
     /// fields verbatim).
     pub fn new(year: u16, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> Self {
-        let year_offset = year.saturating_sub(1980).min(127);
-        let date = (year_offset << 9) | ((month as u16 & 0x0F) << 5) | (day as u16 & 0x1F);
-        let time = ((hour as u16 & 0x1F) << 11)
-            | ((minute as u16 & 0x3F) << 5)
-            | ((second as u16 / 2) & 0x1F);
+        let (date, time) = crate::codec::date::pack(year, month, day, hour, minute, second);
         Self {
             date,
             time,

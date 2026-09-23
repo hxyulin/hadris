@@ -15,7 +15,7 @@ use crate::raw::{
 use super::super::io::{Read, Seek, SeekFrom, Write};
 use crate::time::FatDateTime;
 use super::super::fat_table::FatType;
-use super::super::fs::{FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG};
+use crate::codec::boot::{FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG};
 
 use hadris_common::types::endian::{Endian, LittleEndian};
 use hadris_common::types::number::{U16, U32};

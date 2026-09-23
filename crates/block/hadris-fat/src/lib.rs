@@ -126,6 +126,8 @@ extern crate alloc;
 // Shared types (compiled once, not duplicated by sync/async modules)
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
+mod codec;
 pub mod error;
 /// FAT filename types, including 8.3 and long-file-name helpers.
 pub mod file;

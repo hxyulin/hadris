@@ -349,6 +349,26 @@ impl From<hadris_io::legacy::Error> for Error {
     }
 }
 
+impl Error {
+    pub(crate) fn from_boot(err: crate::codec::boot::BootError) -> Self {
+        use crate::codec::boot::BootError;
+        match err {
+            BootError::Corrupt(context) => Self::CorruptFilesystem { context },
+            BootError::Signature(found) => Self::InvalidBootSignature { found },
+            BootError::RootCluster { cluster, max } => Self::ClusterOutOfBounds { cluster, max },
+            BootError::FsInfoSignature {
+                field,
+                expected,
+                found,
+            } => Self::InvalidFsInfoSignature {
+                field,
+                expected,
+                found,
+            },
+        }
+    }
+}
+
 /// Manual `defmt::Format` impl rather than `derive`, because the wrapped
 /// `hadris_io::legacy::Error` does not (yet) implement `Format`. The Io variant logs
 /// without details; everything else mirrors the Display output.

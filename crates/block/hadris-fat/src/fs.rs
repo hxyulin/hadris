@@ -8,10 +8,12 @@ use hadris_common::types::endian::Endian;
 use hadris_fs::path::{Component, VPath};
 
 use crate::error::{Error, Result};
+use crate::codec::boot::{self, RootDir};
+use crate::codec::entry::FatKind;
 use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
 use super::dir::{FatDir, FileEntry};
 use super::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
-use super::io::{Cluster, ClusterLike, Read, ReadExt, Sector, SectorCursor, SectorLike, Seek, SeekFrom};
+use super::io::{Cluster, ClusterLike, Read, ReadExt, Sector, SectorCursor, Seek, SeekFrom};
 use super::read::FileReader;
 
 /// Volume metadata from the boot sector.
@@ -300,10 +302,9 @@ pub struct FsStatusFlags {
     pub io_errors: bool,
 }
 
-/// FSInfo signature constants
-pub(crate) const FSINFO_LEAD_SIG: u32 = 0x41615252; // "RRaA"
-pub(crate) const FSINFO_STRUC_SIG: u32 = 0x61417272; // "rrAa"
-pub(crate) const FSINFO_TRAIL_SIG: u32 = 0xAA550000;
+fn to_usize(value: u64, context: &'static str) -> Result<usize> {
+    usize::try_from(value).map_err(|_| Error::CorruptFilesystem { context })
+}
 
 /// Implementations for Read APIs
 impl<DATA> FatVolume<DATA>
@@ -349,31 +350,12 @@ where
                 sector: Some(0),
                 source,
             })?;
+        boot::check_bpb(&bpb).map_err(Error::from_boot)?;
         let sector_size = bpb.bytes_per_sector.get() as usize;
-        if !matches!(sector_size, 512 | 1024 | 2048 | 4096) {
-            return Err(Error::CorruptFilesystem {
-                context: "BPB bytes_per_sector must be 512, 1024, 2048, or 4096",
-            });
-        }
-        if !bpb.sectors_per_cluster.is_power_of_two() || bpb.sectors_per_cluster > 128 {
-            return Err(Error::CorruptFilesystem {
-                context: "BPB sectors_per_cluster must be a power of two from 1 through 128",
-            });
-        }
         let cluster_size = (bpb.sectors_per_cluster as usize) * sector_size;
-        if cluster_size > 32 * 1024 {
-            return Err(Error::CorruptFilesystem {
-                context: "BPB cluster size must not exceed 32 KiB",
-            });
-        }
         let data = SectorCursor::new(data, sector_size, cluster_size);
 
-        // Determine FAT type by checking root_entry_count and sectors_per_fat_16
-        // FAT32 has root_entry_count = 0 and sectors_per_fat_16 = 0
-        let root_entry_count = u16::from_le_bytes(bpb.root_entry_count);
-        let sectors_per_fat_16 = u16::from_le_bytes(bpb.sectors_per_fat_16);
-
-        if root_entry_count == 0 && sectors_per_fat_16 == 0 {
+        if boot::is_fat32(&bpb) {
             // FAT32
             Self::open_fat32(data, bpb, time_provider, oem_converter).await
         } else {
@@ -399,102 +381,28 @@ where
                 source,
             })?;
 
-        // Validate boot signature
-        let signature = u16::from_le_bytes(bpb_ext16.signature_word);
-        if signature != 0xAA55 {
-            return Err(Error::InvalidBootSignature { found: signature });
-        }
-
-        // FAT requires 1 or 2 file allocation tables (BPB_NumFATs). A corrupt
-        // count trips a debug_assert deep in the FAT constructors and, in
-        // release builds where the assert is stripped, silently corrupts
-        // FAT-copy math — reject it here (after the signature check so a
-        // non-FAT sector still surfaces InvalidBootSignature first).
-        if bpb.fat_count != 1 && bpb.fat_count != 2 {
+        boot::check_ext16(&bpb, &bpb_ext16).map_err(Error::from_boot)?;
+        let geo = boot::geometry16(&bpb).map_err(Error::from_boot)?;
+        let RootDir::Fixed { start: root_start, size: root_size } = geo.root else {
             return Err(Error::CorruptFilesystem {
-                context: "BPB fat_count must be 1 or 2",
+                context: "FAT12/16 root directory",
             });
-        }
+        };
 
-        let sector_size = data.sector_size;
         #[cfg(feature = "alloc")]
         let cluster_size = data.cluster_size;
-        let reserved_sectors = bpb.reserved_sector_count.get() as usize;
-        let fat_count = bpb.fat_count as usize;
-        let root_entry_count = u16::from_le_bytes(bpb.root_entry_count);
-        let sectors_per_fat = u16::from_le_bytes(bpb.sectors_per_fat_16) as usize;
+        let fat_start = to_usize(geo.fat_start, "reserved_sectors * sector_size")?;
+        let fat_size = to_usize(geo.fat_size, "sectors_per_fat * sector_size")?;
+        let root_dir_start = to_usize(root_start, "fat_start + fat_total_size")?;
+        let root_dir_size = to_usize(root_size, "root_entry_count * 32")?;
+        let data_start = to_usize(geo.data_start, "data_start arithmetic")?;
+        let fat_count = geo.fat_count as usize;
+        let max_cluster = geo.max_cluster;
 
-        // Calculate root directory location with checked arithmetic — the
-        // BPB fields are untrusted and a corrupt image with absurd values
-        // (e.g. sectors_per_fat = 0xFFFF) could otherwise wrap usize on
-        // 32-bit targets and seek to garbage.
-        let fat_start = reserved_sectors
-            .checked_mul(sector_size)
-            .ok_or(Error::CorruptFilesystem {
-                context: "reserved_sectors * sector_size",
-            })?;
-        let fat_total_size = fat_count
-            .checked_mul(sectors_per_fat)
-            .and_then(|v| v.checked_mul(sector_size))
-            .ok_or(Error::CorruptFilesystem {
-                context: "fat_count * sectors_per_fat * sector_size",
-            })?;
-        let root_dir_start = fat_start
-            .checked_add(fat_total_size)
-            .ok_or(Error::CorruptFilesystem {
-                context: "fat_start + fat_total_size",
-            })?;
-        let root_dir_size = (root_entry_count as usize) * 32;
-        let root_dir_sectors = root_dir_size.div_ceil(sector_size);
-
-        // Calculate data area start
-        let data_start = root_dir_start
-            .checked_add(root_dir_sectors * sector_size)
-            .ok_or(Error::CorruptFilesystem {
-                context: "data_start arithmetic",
-            })?;
-
-        // Calculate total data sectors and cluster count
-        let total_sectors = if bpb.total_sectors_16 != [0, 0] {
-            u16::from_le_bytes(bpb.total_sectors_16) as u32
+        let fat = if geo.kind == FatKind::Fat12 {
+            Fat::Fat12(Fat12::new(fat_start, fat_size, fat_count, max_cluster as u16))
         } else {
-            u32::from_le_bytes(bpb.total_sectors_32)
-        };
-        // Saturating subtraction: a corrupt total_sectors smaller than the
-        // metadata region size produces 0 data sectors rather than wrapping
-        // usize to a huge number.
-        let metadata_sectors = reserved_sectors
-            .checked_add(fat_count.checked_mul(sectors_per_fat).ok_or(
-                Error::CorruptFilesystem {
-                    context: "fat_count * sectors_per_fat",
-                },
-            )?)
-            .and_then(|v| v.checked_add(root_dir_sectors))
-            .ok_or(Error::CorruptFilesystem {
-                context: "metadata sector total",
-            })?;
-        let data_sectors = (total_sectors as usize).saturating_sub(metadata_sectors);
-        let count_of_clusters = data_sectors / (bpb.sectors_per_cluster as usize);
-
-        // Determine FAT12 vs FAT16 based on cluster count (per Microsoft spec)
-        let (fat, max_cluster) = if count_of_clusters < 4085 {
-            // FAT12
-            let fat12 = Fat12::new(
-                fat_start,
-                sectors_per_fat * sector_size,
-                fat_count,
-                (count_of_clusters + 1) as u16, // +1 because valid clusters are 2..=max
-            );
-            (Fat::Fat12(fat12), count_of_clusters as u32 + 1)
-        } else {
-            // FAT16
-            let fat16 = Fat16::new(
-                fat_start,
-                sectors_per_fat * sector_size,
-                fat_count,
-                (count_of_clusters + 1) as u16,
-            );
-            (Fat::Fat16(fat16), count_of_clusters as u32 + 1)
+            Fat::Fat16(Fat16::new(fat_start, fat_size, fat_count, max_cluster as u16))
         };
         #[cfg(not(feature = "alloc"))]
         let _ = max_cluster;
@@ -551,25 +459,7 @@ where
                 source,
             })?;
 
-        // Validate boot signature
-        let signature = bpb_ext32.signature_word.get();
-        if signature != 0xAA55 {
-            return Err(Error::InvalidBootSignature { found: signature });
-        }
-        if bpb_ext32.version != [0, 0] {
-            return Err(Error::CorruptFilesystem {
-                context: "unsupported FAT32 filesystem version",
-            });
-        }
-
-        // FAT requires 1 or 2 file allocation tables (BPB_NumFATs) — see the
-        // FAT12/16 path. Reject a corrupt count before it reaches Fat32::new's
-        // debug_assert (and before it skews FAT-copy math in release).
-        if bpb.fat_count != 1 && bpb.fat_count != 2 {
-            return Err(Error::CorruptFilesystem {
-                context: "BPB fat_count must be 1 or 2",
-            });
-        }
+        boot::check_ext32(&bpb, &bpb_ext32).map_err(Error::from_boot)?;
 
         // Read and validate FSInfo
         let fs_info_sec = Sector(bpb_ext32.fs_info_sector.get());
@@ -583,33 +473,7 @@ where
                 source,
             })?;
 
-        // Validate FSInfo signatures
-        let lead_sig = u32::from_le_bytes(fs_info.signature);
-        if lead_sig != FSINFO_LEAD_SIG {
-            return Err(Error::InvalidFsInfoSignature {
-                field: "FSI_LeadSig",
-                expected: FSINFO_LEAD_SIG,
-                found: lead_sig,
-            });
-        }
-
-        let struc_sig = u32::from_le_bytes(fs_info.structure_signature);
-        if struc_sig != FSINFO_STRUC_SIG {
-            return Err(Error::InvalidFsInfoSignature {
-                field: "FSI_StrucSig",
-                expected: FSINFO_STRUC_SIG,
-                found: struc_sig,
-            });
-        }
-
-        let trail_sig = fs_info.trail_signature.get();
-        if trail_sig != FSINFO_TRAIL_SIG {
-            return Err(Error::InvalidFsInfoSignature {
-                field: "FSI_TrailSig",
-                expected: FSINFO_TRAIL_SIG,
-                found: trail_sig,
-            });
-        }
+        boot::check_fs_info(&fs_info).map_err(Error::from_boot)?;
 
         let ext = FatFsExt::Fat32(Fat32FsExt {
             fs_info_sec,
@@ -618,59 +482,19 @@ where
             next_free: Cell::new(Cluster(fs_info.next_free.get())),
         });
 
+        let geo = boot::geometry32(&bpb, &bpb_ext32).map_err(Error::from_boot)?;
         #[cfg(feature = "alloc")]
         let cluster_size = data.cluster_size;
-        // sectors_per_fat_32 is a 32-bit BPB field (the FAT12/16 field is only
-        // 16-bit), so these products overflow u32 — and usize on 32-bit
-        // targets — on corrupt images. Keep the geometry math checked.
-        let fat_start = Sector(bpb.reserved_sector_count.get()).to_bytes(data.sector_size);
-        let fat_size_per_fat = (bpb_ext32.sectors_per_fat_32.get() as usize)
-            .checked_mul(data.sector_size)
-            .ok_or(Error::CorruptFilesystem {
-                context: "sectors_per_fat_32 * sector_size",
-            })?;
-        let fat_size = (bpb.fat_count as usize)
-            .checked_mul(fat_size_per_fat)
-            .ok_or(Error::CorruptFilesystem {
-                context: "fat_count * sectors_per_fat_32",
-            })?;
-
-        // Calculate total data sectors and max cluster
-        let total_sectors = if bpb.total_sectors_16 != [0, 0] {
-            u16::from_le_bytes(bpb.total_sectors_16) as u32
-        } else {
-            u32::from_le_bytes(bpb.total_sectors_32)
-        };
-        // u64: fat_count * sectors_per_fat_32 alone can exceed u32.
-        let metadata_sectors = bpb.reserved_sector_count.get() as u64
-            + bpb_ext32.sectors_per_fat_32.get() as u64 * bpb.fat_count as u64;
-        let data_sectors = (total_sectors as u64).saturating_sub(metadata_sectors);
-        let max_cluster =
-            (data_sectors / bpb.sectors_per_cluster as u64).min(u32::MAX as u64 - 1) as u32 + 1; // +1 because clusters start at 2
-
-        // The FAT32 root directory is an ordinary cluster chain, so its first
-        // cluster must be a valid data cluster; anything else would underflow
-        // the cluster-to-offset math when the root is iterated.
-        let root_cluster = bpb_ext32.root_cluster.get();
-        if !(2..=max_cluster).contains(&root_cluster) {
-            return Err(Error::ClusterOutOfBounds {
-                cluster: root_cluster,
-                max: max_cluster,
-            });
-        }
-
+        let fat_start = to_usize(geo.fat_start, "reserved_sectors * sector_size")?;
+        let fat_size_per_fat = to_usize(geo.fat_size, "sectors_per_fat_32 * sector_size")?;
+        let max_cluster = geo.max_cluster;
         let fat = Fat::Fat32(Fat32::new(
             fat_start,
             fat_size_per_fat,
-            bpb.fat_count as usize,
+            geo.fat_count as usize,
             max_cluster,
         ));
-
-        let data_start = fat_start
-            .checked_add(fat_size)
-            .ok_or(Error::CorruptFilesystem {
-                context: "fat_start + fat_size",
-            })?;
+        let data_start = to_usize(geo.data_start, "fat_start + fat_size")?;
 
         let info = FatInfo {
             #[cfg(feature = "alloc")]
