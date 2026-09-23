@@ -196,7 +196,7 @@ impl ShortFileName {
     }
 
     /// Convert back to the raw 11-byte format for directory entries.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub fn to_raw_bytes(&self) -> [u8; 11] {
         self.raw_bytes()
     }
@@ -213,7 +213,7 @@ impl ShortFileName {
     /// characters (e.g. `é` → CP437 0x82), use [`from_long_name_with`].
     ///
     /// [`from_long_name_with`]: Self::from_long_name_with
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub fn from_long_name(name: &str, suffix: u8) -> Result<Self, CreateShortFileNameError> {
         Self::from_long_name_with(name, suffix, &crate::oem::LossyAsciiOemCpConverter)
     }
@@ -223,7 +223,7 @@ impl ShortFileName {
     /// dropping them to `_`.
     ///
     /// Characters the converter cannot encode still become `_`.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub fn from_long_name_with(
         name: &str,
         suffix: u8,
@@ -359,7 +359,7 @@ impl LongFileName {
     /// Used by the write path to remember the name in-memory after creating
     /// a file; the chars stay in UTF-16 so the disk-side LFN write can pull
     /// them out without a second UTF-8 conversion.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub fn from_str_utf16(name: &str) -> Option<Self> {
         let mut out = Self::new();
         for ch in name.chars() {
@@ -613,7 +613,7 @@ mod lfn_unicode_tests {
         assert!(!lfn.eq_str_ignore_case("Σ.BIN"));
     }
 
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     #[test]
     fn leading_dots_produce_a_nonempty_short_basename() {
         let short = ShortFileName::from_long_name("..dots", 0).unwrap();

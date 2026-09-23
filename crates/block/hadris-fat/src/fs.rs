@@ -104,7 +104,7 @@ pub(crate) enum FatFsExt {
 
 impl FatFsExt {
     /// Get fixed root directory info for FAT12/16
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     fn fixed_root_dir(&self) -> Option<(usize, usize)> {
         match self {
             Self::Fat12_16(ext) => Some((ext.root_dir_start, ext.root_dir_size)),
@@ -163,7 +163,7 @@ pub struct FatVolume<DATA: Seek> {
     /// have an open `FileWriter`. A second writer for the same slot is rejected
     /// so two writers cannot independently allocate and cross-link one file's
     /// chain (last-finish-wins would orphan the other's clusters).
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub(crate) open_writers: Mutex<alloc::vec::Vec<(usize, usize)>>,
 }
 
@@ -438,7 +438,7 @@ where
             oem_converter,
             #[cfg(feature = "cache")]
             fat_cache: None,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             open_writers: Mutex::new(alloc::vec::Vec::new()),
         })
     }
@@ -522,7 +522,7 @@ where
             oem_converter,
             #[cfg(feature = "cache")]
             fat_cache: None,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             open_writers: Mutex::new(alloc::vec::Vec::new()),
         })
     }
@@ -554,14 +554,14 @@ where
                 data: self,
                 cluster: Cluster(0), // Sentinel for fixed root directory
                 fixed_root: Some((ext.root_dir_start, ext.root_dir_size)),
-                #[cfg(feature = "write")]
+                #[cfg(all(feature = "write", feature = "alloc"))]
                 dir_entry: None, // Root has no parent entry.
             },
             FatFsExt::Fat32(ext) => FatDir {
                 data: self,
                 cluster: Cluster(ext.root_clus.0 as usize),
                 fixed_root: None,
-                #[cfg(feature = "write")]
+                #[cfg(all(feature = "write", feature = "alloc"))]
                 dir_entry: None, // Root has no parent entry.
             },
         }
@@ -583,7 +583,7 @@ where
     /// Get the fixed root directory info for FAT12/16 filesystems.
     ///
     /// Returns `Some((start_offset, size))` for FAT12/16, `None` for FAT32.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub(crate) fn fixed_root_dir_info(&self) -> Option<(usize, usize)> {
         self.ext.fixed_root_dir()
     }
@@ -593,7 +593,7 @@ where
     /// Used by directory-creation code to honor the FAT32 spec rule that a
     /// subdirectory's ".." entry must store cluster 0 (not the real root
     /// cluster) when its parent is the FAT32 root.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub(crate) fn is_fat32_root_cluster(&self, cluster: u32) -> bool {
         matches!(&self.ext, FatFsExt::Fat32(ext) if ext.root_clus.0 == cluster)
     }
@@ -748,7 +748,7 @@ where
             data: self,
             cluster: entry.cluster(),
             fixed_root: None,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             dir_entry: Some(super::dir::DirSlot::from_entry(&entry)),
         })
     }
@@ -764,7 +764,7 @@ where
             data: self,
             cluster: entry.cluster(),
             fixed_root: None,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             dir_entry: Some(super::dir::DirSlot::from_entry(entry)),
         })
     }
@@ -995,7 +995,7 @@ io_transform! {
 // Async builds receive thin pass-throughs: the cache feature requires `sync`
 // (Cargo.toml), so a build that lacks `sync` cannot reach these methods.
 
-#[cfg(all(feature = "cache", feature = "write"))]
+#[cfg(all(feature = "cache", feature = "write", feature = "alloc"))]
 sync_only! {
     impl<DATA> FatVolume<DATA>
     where
@@ -1067,7 +1067,7 @@ sync_only! {
     }
 }
 
-#[cfg(all(feature = "cache", feature = "write"))]
+#[cfg(all(feature = "cache", feature = "write", feature = "alloc"))]
 async_only! {
     impl<DATA> FatVolume<DATA>
     where
@@ -1111,7 +1111,7 @@ async_only! {
 
 // When `cache` is off, callers in `io_transform!{}` still write
 // `self.write_clus_routed(...).await?`. Provide a uniform pass-through.
-#[cfg(all(not(feature = "cache"), feature = "write"))]
+#[cfg(all(not(feature = "cache"), feature = "write", feature = "alloc"))]
 io_transform! {
     impl<DATA> FatVolume<DATA>
     where
@@ -1158,7 +1158,7 @@ io_transform! {
 // synchronous `FatSectorCache` methods and so cannot compile in the async
 // slice (where `super::io` is the async trait set). This is what lets
 // `async + cache` build with the cache simply bypassed.
-#[cfg(all(feature = "cache", feature = "write"))]
+#[cfg(all(feature = "cache", feature = "write", feature = "alloc"))]
 sync_only! {
 
 fn allocate_cluster_via_cache<T>(
@@ -1219,7 +1219,7 @@ where
     Err(Error::NoFreeSpace)
 }
 
-#[cfg(all(feature = "cache", feature = "write"))]
+#[cfg(all(feature = "cache", feature = "write", feature = "alloc"))]
 fn free_chain_via_cache<T>(
     cache: &mut crate::cache::FatSectorCache,
     fat: &Fat,
@@ -1248,7 +1248,7 @@ where
     Ok(count)
 }
 
-#[cfg(all(feature = "cache", feature = "write"))]
+#[cfg(all(feature = "cache", feature = "write", feature = "alloc"))]
 fn truncate_chain_via_cache<T>(
     cache: &mut crate::cache::FatSectorCache,
     fat: &Fat,
@@ -1277,7 +1277,7 @@ where
     }
 }
 
-#[cfg(all(feature = "cache", feature = "write"))]
+#[cfg(all(feature = "cache", feature = "write", feature = "alloc"))]
 fn read_fat_entry_via_cache<T>(
     cache: &mut crate::cache::FatSectorCache,
     fat: &Fat,
@@ -1294,7 +1294,7 @@ where
     })
 }
 
-#[cfg(all(feature = "cache", feature = "write"))]
+#[cfg(all(feature = "cache", feature = "write", feature = "alloc"))]
 fn write_fat_entry_via_cache<T>(
     cache: &mut crate::cache::FatSectorCache,
     fat: &Fat,
@@ -1312,7 +1312,7 @@ where
     }
 }
 
-#[cfg(all(feature = "cache", feature = "write"))]
+#[cfg(all(feature = "cache", feature = "write", feature = "alloc"))]
 fn is_eoc(ty: FatType, value: u32) -> bool {
     match ty {
         FatType::Fat12 => value >= 0x0FF8,
@@ -1321,7 +1321,7 @@ fn is_eoc(ty: FatType, value: u32) -> bool {
     }
 }
 
-#[cfg(all(feature = "cache", feature = "write"))]
+#[cfg(all(feature = "cache", feature = "write", feature = "alloc"))]
 fn is_bad(ty: FatType, value: u32) -> bool {
     match ty {
         FatType::Fat12 => value == 0x0FF7,
@@ -1340,7 +1340,7 @@ fn is_bad(ty: FatType, value: u32) -> bool {
 // cache, and a writable backing store is required to mirror dirty sectors to
 // every FAT copy. Sync-only because `FatSectorCache::flush` uses synchronous
 // I/O traits.
-#[cfg(all(feature = "cache", feature = "write"))]
+#[cfg(all(feature = "cache", feature = "write", feature = "alloc"))]
 sync_only! {
     impl<DATA> FatVolume<DATA>
     where

@@ -17,7 +17,12 @@
 //! Together these tests exercise the recommended `FatVolume::with_cached_fat`
 //! entry point end-to-end.
 
-#![cfg(all(feature = "cache", feature = "write", feature = "std"))]
+#![cfg(all(
+    feature = "cache",
+    feature = "write",
+    feature = "alloc",
+    feature = "std"
+))]
 
 use std::io::Cursor;
 

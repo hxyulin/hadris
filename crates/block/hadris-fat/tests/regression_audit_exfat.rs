@@ -2,7 +2,12 @@
 //! path (`unstable-exfat` preview). Each test asserts the CORRECT/SAFE
 //! behavior and is named after the audit finding it guards.
 
-#![cfg(all(feature = "unstable-exfat", feature = "write", feature = "std"))]
+#![cfg(all(
+    feature = "unstable-exfat",
+    feature = "write",
+    feature = "alloc",
+    feature = "std"
+))]
 
 use std::fs::OpenOptions;
 use std::io::Seek as _;

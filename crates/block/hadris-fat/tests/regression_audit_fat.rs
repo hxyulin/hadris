@@ -3,7 +3,7 @@
 //! Each test asserts the CORRECT/SAFE behavior and is named after the audit
 //! finding it guards. Single-threaded only (`FatVolume` is `!Sync`).
 
-#![cfg(all(feature = "write", feature = "std"))]
+#![cfg(all(feature = "write", feature = "alloc", feature = "std"))]
 
 use hadris_fat::raw::DirEntryAttrFlags;
 use hadris_fat::time::FatDateTime;

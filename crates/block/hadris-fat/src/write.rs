@@ -2,26 +2,26 @@
 
 io_transform! {
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 use core::ops::DerefMut;
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 use crate::{
     raw::{DirEntryAttrFlags, RawDirectoryEntry, RawFileEntry},
     error::{Error, Result},
     file::ShortFileName,
 };
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 use super::{
     fat_table::Fat, dir::{DirSlot, DirectoryEntry, FatDir, FileEntry}, fs::FatVolume,
     io::{Cluster, ClusterLike, Read, ReadExt, Seek, SeekFrom, Write},
 };
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 use hadris_common::types::endian::{Endian, LittleEndian};
 
 /// A writer for file content in a FAT filesystem.
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 pub struct FileWriter<'a, DATA: Read + Write + Seek> {
     fs: &'a FatVolume<DATA>,
     /// First cluster of the file (None if empty file)
@@ -64,7 +64,7 @@ pub struct FileWriter<'a, DATA: Read + Write + Seek> {
     finished: bool,
 }
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl<'a, DATA: Read + Write + Seek> Drop for FileWriter<'a, DATA> {
     fn drop(&mut self) {
         // Release this slot's exclusive-writer registration first, so it runs
@@ -88,7 +88,7 @@ impl<'a, DATA: Read + Write + Seek> Drop for FileWriter<'a, DATA> {
     }
 }
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl<'a, DATA: Read + Write + Seek> FileWriter<'a, DATA> {
     /// Create a new FileWriter for a file entry.
     ///
@@ -515,7 +515,7 @@ entry_created: entry.created,
 }
 
 /// Extension trait for FatVolume to write files.
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 pub trait FatVolumeWriteExt<DATA: Read + Write + Seek> {
     /// Create a writer for a file entry.
     fn write_file<'a>(&'a self, entry: &FileEntry) -> Result<FileWriter<'a, DATA>>;
@@ -555,7 +555,7 @@ pub trait FatVolumeWriteExt<DATA: Read + Write + Seek> {
     ) -> Result<()>;
 }
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl<DATA: Read + Write + Seek> FatVolumeWriteExt<DATA> for FatVolume<DATA> {
     fn write_file<'a>(&'a self, entry: &FileEntry) -> Result<FileWriter<'a, DATA>> {
         FileWriter::new(self, entry)
@@ -690,7 +690,7 @@ impl<DATA: Read + Write + Seek> FatVolumeWriteExt<DATA> for FatVolume<DATA> {
 /// The FAT spec uses 0xE5 as a deleted-entry marker, so actual filenames starting
 /// with byte 0xE5 (valid kanji lead byte) must be stored as 0x05. The read path
 /// converts 0x05 back to 0xE5.
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 fn kanji_short_name_fixup(name: &mut [u8; 11]) {
     crate::codec::short_name::to_disk(name);
 }
@@ -698,7 +698,7 @@ fn kanji_short_name_fixup(name: &mut [u8; 11]) {
 /// Maximum number of LFN entries the spec allows: 20 entries × 13 UTF-16 code
 /// units per entry = 260 char "ceiling", though the spec caps the encoded
 /// name itself at 255 code units.
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 pub(crate) const MAX_LFN_ENTRIES: usize = crate::codec::lfn::MAX_ENTRIES;
 
 /// Decide whether `name` can be stored as a single short (8.3) directory entry
@@ -714,12 +714,12 @@ pub(crate) const MAX_LFN_ENTRIES: usize = crate::codec::lfn::MAX_ENTRIES;
 ///
 /// This replaces the older "does this need an LFN?" predicate — a `None` result
 /// is exactly the set of names that previously required LFN entries.
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 fn short_name_case_bits(name: &str) -> Option<u8> {
     crate::codec::short_name::case_bits(name)
 }
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 fn validate_file_name(name: &str) -> Result<()> {
     if !crate::codec::short_name::is_valid_long_name(name) {
         return Err(Error::InvalidFilename);
@@ -731,27 +731,27 @@ fn validate_file_name(name: &str) -> Result<()> {
 /// orphaned long-name slots on delete/rename. The FAT spec caps at 20
 /// entries per name; bounding the scan defends against corrupt directory
 /// contents that would otherwise spoof an unbounded LFN run.
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 const LFN_CLEANUP_SCAN_LIMIT: usize = 20;
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DirectoryEntryPosition {
     cluster: Cluster<usize>,
     offset: usize,
 }
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 const MAX_DIRECTORY_ENTRY_RUN: usize = MAX_LFN_ENTRIES + 1;
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 #[derive(Clone, Copy, Debug)]
 struct DirectoryEntryRun {
     positions: [DirectoryEntryPosition; MAX_DIRECTORY_ENTRY_RUN],
     len: usize,
 }
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl DirectoryEntryRun {
     fn new() -> Self {
         Self {
@@ -793,7 +793,7 @@ impl DirectoryEntryRun {
 ///   (caller writes the short entry into `out[n]`)
 ///
 /// Returns `None` if the name exceeds 255 UTF-16 code units (FAT spec cap).
-#[cfg(all(feature = "write", feature = "lfn"))]
+#[cfg(all(feature = "write", feature = "alloc", feature = "lfn"))]
 fn build_lfn_entries(
     name: &str,
     short_checksum: u8,
@@ -826,7 +826,7 @@ fn build_lfn_entries(
 }
 
 /// Directory write operations
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl<DATA: Read + Seek> FatVolume<DATA> {
     async fn unique_short_name(
         &self,
@@ -980,7 +980,7 @@ impl<DATA: Read + Seek> FatVolume<DATA> {
     }
 }
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     async fn mark_entry_span_deleted(&self, entry: &FileEntry) -> Result<()> {
         let entry_size = core::mem::size_of::<RawDirectoryEntry>();
@@ -1986,7 +1986,7 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
 }
 
 /// Volume label modification (root directory entry).
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     /// Overwrite the volume label stored in the root-directory entry.
     ///
@@ -2016,7 +2016,7 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
 }
 
 /// File attribute modification
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     /// Set the attributes of a file or directory entry.
     ///
@@ -2078,7 +2078,7 @@ impl<DATA: Read + Write + Seek> FatVolume<DATA> {
 }
 
 /// FSInfo update operations
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl<DATA: Read + Write + Seek> FatVolume<DATA> {
     /// Synchronize the FSInfo sector to disk.
     ///
@@ -2218,7 +2218,7 @@ sync_only! {
 /// at full speed.
 ///
 /// Wired into CI via `.github/workflows/rust.yml` (the `miri` job).
-#[cfg(all(test, feature = "write", feature = "lfn"))]
+#[cfg(all(test, feature = "write", feature = "alloc", feature = "lfn"))]
 mod lfn_write_safety_tests {
     use super::{build_lfn_entries, MAX_LFN_ENTRIES};
     use crate::raw::{DirEntryAttrFlags, RawDirectoryEntry};

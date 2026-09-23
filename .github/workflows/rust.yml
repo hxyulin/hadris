@@ -197,10 +197,10 @@ jobs:
           # hadris-fat
           - crate: hadris-fat
             tier: fatfs-no-alloc-sync
-            features: "sync"
+            features: "sync,write"
           - crate: hadris-fat
             tier: fatfs-no-alloc-async
-            features: "async-send"
+            features: "async-send,write"
           - crate: hadris-fat
             tier: no-std
             features: "sync,read,lfn,cache,tool,unstable-exfat"

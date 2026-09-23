@@ -2,7 +2,7 @@
 //!
 //! These tests require the "write" feature.
 
-#![cfg(feature = "write")]
+#![cfg(all(feature = "write", feature = "alloc"))]
 
 use hadris_fat::file::ShortFileName;
 

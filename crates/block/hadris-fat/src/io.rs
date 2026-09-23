@@ -103,7 +103,7 @@ impl<T: Read + Seek> Read for SectorCursor<T> {
     }
 }
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl<T: Write + Seek> Write for SectorCursor<T> {
     async fn write(&mut self, buf: &[u8]) -> hadris_io::legacy::Result<usize> {
         self.data.write(buf).await

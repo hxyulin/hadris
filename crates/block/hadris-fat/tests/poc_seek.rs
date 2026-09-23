@@ -1,4 +1,4 @@
-#![cfg(feature = "write")]
+#![cfg(all(feature = "write", feature = "alloc"))]
 //! Regression POCs for the original PR #89 implementation (`bdb46ce`).
 //! The first returned `InvalidInput`; the second read from the cluster where
 //! caching was enabled instead of the file's first cluster.

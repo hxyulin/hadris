@@ -223,7 +223,7 @@ pub mod sync {
         pub mod dir;
         /// FAT12, FAT16, and FAT32 allocation-table access.
         pub mod fat_table;
-        #[cfg(feature = "write")]
+        #[cfg(all(feature = "write", feature = "alloc"))]
         pub mod format;
         /// Mounted FAT filesystem handles and builders.
         pub mod fs;
@@ -236,7 +236,7 @@ pub mod sync {
     }
     pub use __inner::*;
 
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub use crate::time::FatDateTime;
     pub use __inner::dir::{DirectoryEntry, FatDir, FileEntry};
     pub use __inner::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
@@ -246,7 +246,7 @@ pub mod sync {
     pub use __inner::tool::analysis::FatAnalysisExt;
     #[cfg(feature = "tool")]
     pub use __inner::tool::verify::FatVerifyExt;
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub use __inner::write::FatVolumeWriteExt;
 }
 
@@ -299,7 +299,7 @@ pub mod r#async {
         pub mod dir;
         /// FAT12, FAT16, and FAT32 allocation-table access.
         pub mod fat_table;
-        #[cfg(feature = "write")]
+        #[cfg(all(feature = "write", feature = "alloc"))]
         pub mod format;
         /// Mounted FAT filesystem handles and builders.
         pub mod fs;
@@ -312,13 +312,13 @@ pub mod r#async {
         // so this combination is unreachable.
         pub mod write;
     }
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub use crate::time::FatDateTime;
     pub use __inner::dir::{DirectoryEntry, FatDir, FileEntry};
     pub use __inner::fat_table::{Fat, Fat12, Fat16, Fat32, FatType};
     pub use __inner::fs::{FatVolume, FatVolumeBuilder};
     pub use __inner::read::FatVolumeReadExt;
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub use __inner::write::FatVolumeWriteExt;
     pub use __inner::*;
 }
@@ -347,16 +347,22 @@ pub use error::{Error, Result};
 #[cfg(all(test, feature = "async", feature = "alloc", feature = "read"))]
 #[path = "../tests/async_roundtrip.rs"]
 mod async_roundtrip;
-#[cfg(all(test, feature = "cache", feature = "write", feature = "std"))]
+#[cfg(all(
+    test,
+    feature = "cache",
+    feature = "write",
+    feature = "alloc",
+    feature = "std"
+))]
 #[path = "../tests/cache_integration.rs"]
 mod cache_integration;
-#[cfg(all(test, feature = "sync", feature = "write"))]
+#[cfg(all(test, feature = "sync", feature = "write", feature = "alloc"))]
 #[path = "../tests/comprehensive_fat.rs"]
 mod comprehensive_fat;
-#[cfg(all(test, feature = "unstable-exfat", feature = "write"))]
+#[cfg(all(test, feature = "unstable-exfat", feature = "write", feature = "alloc"))]
 #[path = "../tests/exfat_roundtrip.rs"]
 mod exfat_roundtrip;
-#[cfg(all(test, feature = "sync", feature = "write"))]
+#[cfg(all(test, feature = "sync", feature = "write", feature = "alloc"))]
 #[path = "../tests/fat_roundtrip.rs"]
 mod fat_roundtrip;
 #[cfg(all(test, feature = "unstable-exfat"))]
@@ -368,13 +374,25 @@ mod poc_audit_fat;
 #[cfg(all(test, feature = "tool"))]
 #[path = "../tests/poc_audit_fat_recursion.rs"]
 mod poc_audit_fat_recursion;
-#[cfg(all(test, feature = "sync", feature = "write"))]
+#[cfg(all(test, feature = "sync", feature = "write", feature = "alloc"))]
 #[path = "../tests/poc_seek.rs"]
 mod poc_seek;
-#[cfg(all(test, feature = "unstable-exfat", feature = "write", feature = "std"))]
+#[cfg(all(
+    test,
+    feature = "unstable-exfat",
+    feature = "write",
+    feature = "alloc",
+    feature = "std"
+))]
 #[path = "../tests/regression_audit_exfat.rs"]
 mod regression_audit_exfat;
-#[cfg(all(test, feature = "sync", feature = "write", feature = "std"))]
+#[cfg(all(
+    test,
+    feature = "sync",
+    feature = "write",
+    feature = "alloc",
+    feature = "std"
+))]
 #[path = "../tests/regression_audit_fat.rs"]
 mod regression_audit_fat;
 #[cfg(all(test, feature = "unstable-exfat"))]
@@ -383,7 +401,7 @@ mod test_exfat;
 #[cfg(all(test, feature = "sync", feature = "read"))]
 #[path = "../tests/test_read.rs"]
 mod test_read;
-#[cfg(all(test, feature = "sync", feature = "write"))]
+#[cfg(all(test, feature = "sync", feature = "write", feature = "alloc"))]
 #[path = "../tests/test_write.rs"]
 mod test_write;
 #[cfg(all(test, feature = "sync", feature = "read"))]

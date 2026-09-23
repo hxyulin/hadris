@@ -82,26 +82,26 @@ pub enum Error {
     /// Path is invalid (empty, malformed)
     InvalidPath,
     /// No free clusters available
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     NoFreeSpace,
     /// Directory is full (no free entry slots)
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     DirectoryFull,
     /// Filename is invalid or too long
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     InvalidFilename,
     /// Entry with this name already exists
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     AlreadyExists,
     /// Cannot delete non-empty directory
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     DirectoryNotEmpty,
 
     /// Attempted to flip an immutable attribute bit (`DIRECTORY` or
     /// `VOLUME_ID`) on an existing entry. Those bits identify the *kind* of
     /// entry on disk; changing them in-place would leave the cluster chain
     /// or root volume label inconsistent.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     InvalidAttributeChange {
         /// Which immutable bit the caller tried to flip.
         bit: &'static str,
@@ -113,7 +113,7 @@ pub enum Error {
     /// unrelated entry, so the mutating APIs (`delete`, `rename`,
     /// `set_attributes`, `set_times`, `truncate`, and `FileWriter::finish`)
     /// revalidate the on-disk short name first and return this instead.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     StaleEntry,
 
     /// A second [`crate::write::FileWriter`] was requested for a directory entry
@@ -121,7 +121,7 @@ pub enum Error {
     /// allocate and cross-link the file's cluster chain, leaking the loser's
     /// clusters when the last `finish()` wins. Drop or `finish()` the existing
     /// writer before opening another for the same file.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     WriterConflict,
 
     /// A read-only [`crate::cache::FatSectorCache`] operation needed to evict
@@ -136,7 +136,7 @@ pub enum Error {
     },
 
     /// Volume is too small for the requested format
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     VolumeTooSmall {
         /// Requested volume size
         size: u64,
@@ -145,7 +145,7 @@ pub enum Error {
     },
 
     /// Volume is too large for the requested FAT type
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     VolumeTooLarge {
         /// Requested volume size
         size: u64,
@@ -154,7 +154,7 @@ pub enum Error {
     },
 
     /// Invalid format option
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     InvalidFormatOption {
         /// The option that was invalid
         option: &'static str,
@@ -252,38 +252,38 @@ impl fmt::Display for Error {
             Self::InvalidPath => {
                 write!(f, "path is invalid (empty or malformed)")
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::NoFreeSpace => {
                 write!(f, "no free clusters available")
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::DirectoryFull => {
                 write!(f, "directory is full (no free entry slots)")
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::InvalidFilename => {
                 write!(f, "filename is invalid or too long")
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::AlreadyExists => {
                 write!(f, "entry with this name already exists")
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::DirectoryNotEmpty => {
                 write!(f, "cannot delete non-empty directory")
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::InvalidAttributeChange { bit } => {
                 write!(f, "cannot change immutable attribute bit `{bit}` in place")
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::StaleEntry => {
                 write!(
                     f,
                     "directory entry handle is stale (its on-disk slot was deleted or reused)"
                 )
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::WriterConflict => {
                 write!(f, "a FileWriter is already open for this directory entry")
             }
@@ -294,21 +294,21 @@ impl fmt::Display for Error {
                     "FAT cache is full and every sector is dirty (sector {sector}); call flush() before continuing"
                 )
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::VolumeTooSmall { size, min_size } => {
                 write!(
                     f,
                     "volume size {size} bytes is too small (minimum: {min_size} bytes)"
                 )
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::VolumeTooLarge { size, max_size } => {
                 write!(
                     f,
                     "volume size {size} bytes is too large (maximum: {max_size} bytes)"
                 )
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::InvalidFormatOption { option, reason } => {
                 write!(f, "invalid format option '{option}': {reason}")
             }
@@ -427,25 +427,25 @@ impl defmt::Format for Error {
             Self::NotADirectory => defmt::write!(f, "entry is not a directory"),
             Self::EntryNotFound => defmt::write!(f, "entry not found"),
             Self::InvalidPath => defmt::write!(f, "path is invalid"),
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::NoFreeSpace => defmt::write!(f, "no free clusters"),
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::DirectoryFull => defmt::write!(f, "directory is full"),
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::InvalidFilename => defmt::write!(f, "filename invalid or too long"),
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::AlreadyExists => defmt::write!(f, "entry already exists"),
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::DirectoryNotEmpty => defmt::write!(f, "directory not empty"),
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::InvalidAttributeChange { bit } => {
                 defmt::write!(f, "cannot change immutable attribute bit `{=str}`", *bit)
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::StaleEntry => {
                 defmt::write!(f, "directory entry handle is stale (deleted or reused)")
             }
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::WriterConflict => {
                 defmt::write!(f, "a FileWriter is already open for this directory entry")
             }
@@ -455,21 +455,21 @@ impl defmt::Format for Error {
                 "FAT cache full and every sector dirty (sector {=u32}); flush() needed",
                 *sector
             ),
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::VolumeTooSmall { size, min_size } => defmt::write!(
                 f,
                 "volume size {=u64} too small (min: {=u64})",
                 *size,
                 *min_size
             ),
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::VolumeTooLarge { size, max_size } => defmt::write!(
                 f,
                 "volume size {=u64} too large (max: {=u64})",
                 *size,
                 *max_size
             ),
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             Self::InvalidFormatOption { option, reason } => {
                 defmt::write!(
                     f,

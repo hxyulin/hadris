@@ -51,7 +51,7 @@ fn short_name_display(short: &ShortFileName, flags: NtCaseFlags) -> alloc::strin
 /// writing entries into its clusters (a stale `FatDir` whose directory was
 /// deleted and whose cluster was reused would otherwise corrupt another file).
 /// `None` for the root directory, which can never be deleted.
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 #[derive(Clone, Copy)]
 pub(crate) struct DirSlot {
     pub(crate) parent_clus: Cluster<usize>,
@@ -62,7 +62,7 @@ pub(crate) struct DirSlot {
     pub(crate) created: FatDateTime,
 }
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 impl DirSlot {
     pub(crate) fn from_entry(entry: &FileEntry) -> Self {
         Self {
@@ -83,7 +83,7 @@ pub struct FatDir<'a, DATA: Read + Seek> {
     pub(crate) fixed_root: Option<(usize, usize)>,
     /// Slot of this directory's own entry in its parent, for stale-handle
     /// revalidation on write. `None` for the root.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub(crate) dir_entry: Option<DirSlot>,
 }
 
@@ -94,7 +94,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
         FatDirIter {
             data: self.data,
             cluster: self.cluster,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             dir_start_cluster: self.cluster,
             offset: 0,
             fixed_root_remaining: self.fixed_root.map(|(_, size)| size),
@@ -116,7 +116,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
         FatDirIter {
             data: self.data,
             cluster: self.cluster,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             dir_start_cluster: self.cluster,
             offset: 0,
             fixed_root_remaining: self.fixed_root.map(|(_, size)| size),
@@ -142,7 +142,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
             data: self.data,
             cluster: entry.cluster(),
             fixed_root: None, // Subdirectories are never fixed root
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             dir_entry: Some(DirSlot::from_entry(entry)),
         })
     }
@@ -210,7 +210,7 @@ impl<'a, DATA: Read + Seek> FatDir<'a, DATA> {
             data: self.data,
             cluster: entry.cluster(),
             fixed_root: None,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             dir_entry: Some(DirSlot::from_entry(&entry)),
         })
     }
@@ -230,7 +230,7 @@ pub struct FatDirIter<'a, DATA: Read + Seek> {
     /// Current cluster (or 0 for fixed root directory)
     cluster: Cluster,
     /// First cluster of the directory chain (or 0 for a fixed root).
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     dir_start_cluster: Cluster,
     /// Offset within current cluster (or within fixed root dir)
     offset: usize,
@@ -505,11 +505,11 @@ impl<DATA: Read + Seek> FatDirIter<'_, DATA> {
                 long_name,
                 attr,
                 size: file_entry.size.get() as usize,
-                #[cfg(feature = "write")]
+                #[cfg(all(feature = "write", feature = "alloc"))]
                 parent_dir_clus: self.dir_start_cluster,
-                #[cfg(feature = "write")]
+                #[cfg(all(feature = "write", feature = "alloc"))]
                 parent_clus: self.cluster,
-                #[cfg(feature = "write")]
+                #[cfg(all(feature = "write", feature = "alloc"))]
                 offset_within_cluster: self.offset - entry_size,
                 cluster: Cluster::from_parts(
                     file_entry.first_cluster_high.get(),
@@ -587,13 +587,13 @@ pub struct FileEntry {
     pub(crate) attr: DirEntryAttrFlags,
     pub(crate) size: usize,
     /// First cluster of the containing directory (0 for a fixed root).
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub(crate) parent_dir_clus: Cluster<usize>,
     /// Cluster containing this short directory entry.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub(crate) parent_clus: Cluster<usize>,
     /// Offset of this entry within the parent cluster (used for write operations)
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub(crate) offset_within_cluster: usize,
     pub(crate) cluster: Cluster<usize>,
     /// Creation time (date + time + 10ms-units).
@@ -947,11 +947,11 @@ impl<DATA: Read + Seek> Iterator for FatDirIter<'_, DATA> {
                 long_name,
                 attr,
                 size: file_entry.size.get() as usize,
-                #[cfg(feature = "write")]
+                #[cfg(all(feature = "write", feature = "alloc"))]
                 parent_dir_clus: self.dir_start_cluster,
-                #[cfg(feature = "write")]
+                #[cfg(all(feature = "write", feature = "alloc"))]
                 parent_clus: self.cluster,
-                #[cfg(feature = "write")]
+                #[cfg(all(feature = "write", feature = "alloc"))]
                 offset_within_cluster: self.offset - entry_size,
                 cluster: Cluster::from_parts(
                     file_entry.first_cluster_high.get(),

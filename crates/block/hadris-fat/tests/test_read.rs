@@ -251,7 +251,7 @@ mod lfn_tests {
 
 // Integration tests using in-memory FAT32 images
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 mod integration_tests {
     use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter};
     use hadris_fat::{FatVolume, FatVolumeWriteExt};
@@ -513,7 +513,7 @@ mod integration_tests {
 }
 
 #[cfg(test)]
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 mod navigation_tests {
     use super::integration_tests::create_test_fat32_image;
     use hadris_fat::{Error, FatVolume};
@@ -594,7 +594,7 @@ mod navigation_tests {
         }
 
         #[test]
-        #[cfg(feature = "write")]
+        #[cfg(all(feature = "write", feature = "alloc"))]
         fn test_open_path_empty_returns_invalid() {
             use super::super::integration_tests::create_test_fat32_image;
             use hadris_fat::FatVolume;
@@ -615,7 +615,7 @@ mod navigation_tests {
         }
 
         #[test]
-        #[cfg(feature = "write")]
+        #[cfg(all(feature = "write", feature = "alloc"))]
         fn test_open_path_slash_only_returns_invalid() {
             use super::super::integration_tests::create_test_fat32_image;
             use hadris_fat::FatVolume;
@@ -636,7 +636,7 @@ mod navigation_tests {
         }
 
         #[test]
-        #[cfg(feature = "write")]
+        #[cfg(all(feature = "write", feature = "alloc"))]
         fn test_open_path_traversal() {
             use super::super::integration_tests::create_test_fat32_image;
             use hadris_fat::FatVolume;
@@ -657,7 +657,7 @@ mod navigation_tests {
         }
 
         #[test]
-        #[cfg(feature = "write")]
+        #[cfg(all(feature = "write", feature = "alloc"))]
         fn test_open_file_path() {
             use super::super::integration_tests::create_test_fat32_image;
             use hadris_fat::FatVolume;
@@ -675,7 +675,7 @@ mod navigation_tests {
         }
 
         #[test]
-        #[cfg(feature = "write")]
+        #[cfg(all(feature = "write", feature = "alloc"))]
         fn test_open_dir_path() {
             use super::super::integration_tests::create_test_fat32_image;
             use hadris_fat::FatVolume;
@@ -708,7 +708,7 @@ mod navigation_tests {
 
 /// Regression tests for inputs found by the `fat_read` fuzz target.
 #[cfg(test)]
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 mod fuzz_regression_tests {
     use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
     use hadris_fat::{Error, FatVolume, FatVolumeWriteExt};

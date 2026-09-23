@@ -36,7 +36,7 @@ std = [
   "hadris-storage/std",
 ]
 read = []
-write = ["alloc", "read"]
+write = ["read"]
 lfn = []
 # FAT sector caching for reduced I/O operations.
 # Implies `sync` because `cache.rs` uses sync I/O traits and the transparent

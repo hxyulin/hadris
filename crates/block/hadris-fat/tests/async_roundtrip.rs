@@ -2,7 +2,8 @@
     feature = "std",
     feature = "sync",
     feature = "async",
-    feature = "write"
+    feature = "write",
+    feature = "alloc"
 ))]
 
 use core::future::Future;

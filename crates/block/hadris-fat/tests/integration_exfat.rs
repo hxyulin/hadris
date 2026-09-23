@@ -383,7 +383,7 @@ fn test_various_image_sizes() {
 // Tests for hadris-fat exFAT formatting
 // =============================================================================
 
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 mod write_tests {
     use super::*;
 

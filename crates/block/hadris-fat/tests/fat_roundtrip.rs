@@ -1,4 +1,4 @@
-#![cfg(feature = "write")]
+#![cfg(all(feature = "write", feature = "alloc"))]
 
 use hadris_fat::{FatVolumeReadExt, FatVolumeWriteExt};
 use hadris_io::SeekFrom;

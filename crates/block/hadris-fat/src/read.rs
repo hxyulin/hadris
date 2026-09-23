@@ -9,7 +9,7 @@ use core::ops::DerefMut;
 use alloc::vec::Vec;
 
 use crate::error::{Error, Result};
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 use crate::file::ShortFileName;
 use super::{
     fs::FatVolume, dir::FileEntry,
@@ -59,14 +59,14 @@ pub struct FileReader<'a, DATA: Read + Seek> {
     /// file has not been deleted (and its clusters reused) before serving reads.
     /// Only meaningful with `write`: a read-only volume can never mutate an
     /// entry, so a reader can never become stale.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     entry_parent: Cluster<usize>,
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     entry_offset: usize,
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     entry_short_name: ShortFileName,
     /// Creation timestamp captured at open, revalidated alongside the name.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     entry_created: crate::time::FatDateTime,
 }
 
@@ -93,13 +93,13 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
             cached_chain: None,
             #[cfg(feature = "alloc")]
             chain_index: 0,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             entry_parent: entry.parent_clus,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             entry_offset: entry.offset_within_cluster,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             entry_short_name: entry.short_name,
-            #[cfg(feature = "write")]
+            #[cfg(all(feature = "write", feature = "alloc"))]
             entry_created: entry.created,
         })
     }
@@ -217,7 +217,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
         // since the reader opened, revalidation returns `StaleEntry` rather than
         // disclosing an unrelated file's data. Only reachable with `write`; a
         // read-only volume can never mutate an entry out from under a reader.
-        #[cfg(feature = "write")]
+        #[cfg(all(feature = "write", feature = "alloc"))]
         self.fs
             .revalidate_slot(
                 self.entry_parent,

@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use crate::codec::entry::{ChainError, FatKind};
 use crate::error::{Error, Result};
-#[cfg(feature = "write")]
+#[cfg(all(feature = "write", feature = "alloc"))]
 use super::io::Write;
 use super::io::{Read, Seek, SeekFrom};
 
@@ -212,7 +212,7 @@ impl Fat {
     /// All clusters following it are freed.
     ///
     /// Returns the number of clusters freed.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn truncate_chain<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
@@ -226,7 +226,7 @@ impl Fat {
     }
 
     /// Free a cluster chain starting at `start`, returns count of freed clusters.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: usize) -> Result<u32> {
         match self {
             Self::Fat12(fat12) => fat12.free_chain(rw, cluster as u16).await,
@@ -240,7 +240,7 @@ impl Fat {
     /// Writes the appropriate bad-cluster marker (0xFF7 / 0xFFF7 / 0x0FFFFFF7)
     /// to the FAT entry for the given cluster. This prevents the cluster from
     /// being allocated in the future.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn mark_bad<T: Read + Write + Seek>(&self, rw: &mut T, cluster: usize) -> Result<()> {
         match self {
             Self::Fat12(fat12) => fat12.mark_bad(rw, cluster as u16).await,
@@ -408,7 +408,7 @@ impl Fat12 {
     /// Mask for the 12-bit cluster number
     const ENTRY_MASK: u16 = Self::KIND.mask() as u16;
     /// Bad cluster marker
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     const BAD_CLUSTER: u16 = Self::KIND.bad_cluster() as u16;
     /// First valid data cluster (clusters 0 and 1 are reserved)
     const FIRST_DATA_CLUSTER: u16 = crate::codec::entry::FIRST_DATA_CLUSTER as u16;
@@ -498,14 +498,14 @@ impl Fat12 {
     }
 
     /// Free cluster marker
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     const FREE_CLUSTER: u16 = 0x0000;
     /// End of chain marker
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     const END_OF_CHAIN: u16 = Self::KIND.end_of_chain() as u16;
 
     /// Write a FAT12 entry at the specified cluster index to a specific FAT copy.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     async fn write_clus_at<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
@@ -529,7 +529,7 @@ impl Fat12 {
     }
 
     /// Write a cluster entry to all FAT table copies
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn write_clus<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
@@ -543,7 +543,7 @@ impl Fat12 {
     }
 
     /// Allocate a single cluster, returns the allocated cluster number.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u16) -> Result<u16> {
         let start = if hint >= Self::FIRST_DATA_CLUSTER && hint <= self.max_cluster {
             hint
@@ -578,7 +578,7 @@ impl Fat12 {
     /// linked to its successor; the last is marked end-of-chain. Mirrors
     /// [`Fat32::allocate_chain`]. On partial failure the already-allocated
     /// clusters are not rolled back (matching the FAT32 behavior).
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn allocate_chain<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
@@ -602,7 +602,7 @@ impl Fat12 {
     /// clusters, returning the first newly allocated cluster. If `count` is 0,
     /// no clusters are allocated and `last` is returned unchanged. Mirrors
     /// [`Fat32::extend_chain`].
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn extend_chain<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
@@ -619,7 +619,7 @@ impl Fat12 {
     }
 
     /// Free a cluster chain starting at `start`, returns count of freed clusters.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, start: u16) -> Result<u32> {
         let mut count = 0u32;
         let mut current = start;
@@ -652,7 +652,7 @@ impl Fat12 {
     /// All clusters following it are freed.
     ///
     /// Returns the number of clusters freed.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn truncate_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u16) -> Result<u32> {
         if cluster < Self::FIRST_DATA_CLUSTER || cluster > self.max_cluster {
             return Ok(0);
@@ -676,7 +676,7 @@ impl Fat12 {
     }
 
     /// Mark a cluster as bad (0x0FF7) in all FAT copies.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn mark_bad<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u16) -> Result<()> {
         self.write_clus(rw, cluster as usize, Self::BAD_CLUSTER).await
     }
@@ -693,7 +693,7 @@ pub struct Fat16 {
 impl Fat16 {
     const KIND: FatKind = FatKind::Fat16;
     /// Bad cluster marker
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     const BAD_CLUSTER: u16 = Self::KIND.bad_cluster() as u16;
     /// First valid data cluster (clusters 0 and 1 are reserved)
     const FIRST_DATA_CLUSTER: u16 = crate::codec::entry::FIRST_DATA_CLUSTER as u16;
@@ -781,14 +781,14 @@ impl Fat16 {
     }
 
     /// Free cluster marker
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     const FREE_CLUSTER: u16 = 0x0000;
     /// End of chain marker
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     const END_OF_CHAIN: u16 = Self::KIND.end_of_chain() as u16;
 
     /// Write a cluster entry to the FAT table at the specified FAT copy
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     async fn write_clus_at<T: Write + Seek>(
         &self,
         writer: &mut T,
@@ -805,7 +805,7 @@ impl Fat16 {
     }
 
     /// Write a cluster entry to all FAT table copies
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn write_clus<T: Write + Seek>(
         &self,
         writer: &mut T,
@@ -819,7 +819,7 @@ impl Fat16 {
     }
 
     /// Allocate a single cluster, returns the allocated cluster number.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u16) -> Result<u16> {
         let start = if hint >= Self::FIRST_DATA_CLUSTER && hint <= self.max_cluster {
             hint
@@ -854,7 +854,7 @@ impl Fat16 {
     /// linked to its successor; the last is marked end-of-chain. Mirrors
     /// [`Fat32::allocate_chain`]. On partial failure the already-allocated
     /// clusters are not rolled back (matching the FAT32 behavior).
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn allocate_chain<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
@@ -878,7 +878,7 @@ impl Fat16 {
     /// clusters, returning the first newly allocated cluster. If `count` is 0,
     /// no clusters are allocated and `last` is returned unchanged. Mirrors
     /// [`Fat32::extend_chain`].
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn extend_chain<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
@@ -895,7 +895,7 @@ impl Fat16 {
     }
 
     /// Free a cluster chain starting at `start`, returns count of freed clusters.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, start: u16) -> Result<u32> {
         let mut count = 0u32;
         let mut current = start;
@@ -928,7 +928,7 @@ impl Fat16 {
     /// All clusters following it are freed.
     ///
     /// Returns the number of clusters freed.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn truncate_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u16) -> Result<u32> {
         if cluster < Self::FIRST_DATA_CLUSTER || cluster > self.max_cluster {
             return Ok(0);
@@ -952,7 +952,7 @@ impl Fat16 {
     }
 
     /// Mark a cluster as bad (0xFFF7) in all FAT copies.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn mark_bad<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u16) -> Result<()> {
         self.write_clus(rw, cluster as usize, Self::BAD_CLUSTER).await
     }
@@ -971,7 +971,7 @@ impl Fat32 {
     /// Mask for the 28-bit cluster number (upper 4 bits are reserved)
     const ENTRY_MASK: u32 = Self::KIND.mask();
     /// Bad cluster marker
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     const BAD_CLUSTER: u32 = Self::KIND.bad_cluster();
     /// First valid data cluster (clusters 0 and 1 are reserved)
     const FIRST_DATA_CLUSTER: u32 = crate::codec::entry::FIRST_DATA_CLUSTER;
@@ -1058,7 +1058,7 @@ impl Fat32 {
     }
 
     /// Write a cluster entry to the FAT table at the specified FAT copy
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     async fn write_clus_at<T: Read + Write + Seek>(
         &self,
         io: &mut T,
@@ -1077,7 +1077,7 @@ impl Fat32 {
     }
 
     /// Write a cluster entry to all FAT table copies
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn write_clus<T: Read + Write + Seek>(
         &self,
         io: &mut T,
@@ -1091,15 +1091,15 @@ impl Fat32 {
     }
 
     /// Free cluster marker
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     const FREE_CLUSTER: u32 = 0x00000000;
     /// End of chain marker
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     const END_OF_CHAIN: u32 = Self::KIND.end_of_chain();
 
     /// Allocate a single cluster, returns the allocated cluster number.
     /// Searches starting from `hint` for a free cluster.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn allocate_cluster<T: Read + Write + Seek>(&self, rw: &mut T, hint: u32) -> Result<u32> {
         // Start searching from hint, wrapping around if needed
         let start = if hint >= Self::FIRST_DATA_CLUSTER && hint <= self.max_cluster {
@@ -1133,7 +1133,7 @@ impl Fat32 {
 
     /// Allocate a chain of clusters, linking them together.
     /// Returns the first cluster of the allocated chain.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn allocate_chain<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
@@ -1158,7 +1158,7 @@ impl Fat32 {
     }
 
     /// Free a cluster chain starting at `start`, returns count of freed clusters.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn free_chain<T: Read + Write + Seek>(&self, rw: &mut T, start: u32) -> Result<u32> {
         let mut count = 0;
         let mut current = start;
@@ -1197,7 +1197,7 @@ impl Fat32 {
     /// All clusters following it are freed.
     ///
     /// Returns the number of clusters freed.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn truncate_chain<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u32) -> Result<u32> {
         if cluster < Self::FIRST_DATA_CLUSTER || cluster > self.max_cluster {
             return Ok(0);
@@ -1222,14 +1222,14 @@ impl Fat32 {
     }
 
     /// Mark a cluster as bad (0x0FFFFFF7) in all FAT copies.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn mark_bad<T: Read + Write + Seek>(&self, rw: &mut T, cluster: u32) -> Result<()> {
         self.write_clus(rw, cluster as usize, Self::BAD_CLUSTER).await
     }
 
     /// Extend a cluster chain by appending new clusters.
     /// Returns the first cluster of the newly allocated portion.
-    #[cfg(feature = "write")]
+    #[cfg(all(feature = "write", feature = "alloc"))]
     pub async fn extend_chain<T: Read + Write + Seek>(
         &self,
         rw: &mut T,
