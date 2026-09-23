@@ -25,11 +25,14 @@ pub(crate) fn transform(input: TokenStream2) -> TokenStream2 {
     let mut i = 0;
     while i < tokens.len() {
         let token = &tokens[i];
-        if is_ident(token, "trait") && matches!(tokens.get(i + 1), Some(TokenTree::Ident(_))) {
-            let body_at = (i..tokens.len())
-                .find(|&j| brace(&tokens[j]).is_some())
-                .expect("trait body");
-            let body = brace(&tokens[body_at]).unwrap();
+        let body = (is_ident(token, "trait")
+            && matches!(tokens.get(i + 1), Some(TokenTree::Ident(_))))
+        .then(|| {
+            (i..tokens.len()).find(|&j| is_punct(&tokens[j], ';') || brace(&tokens[j]).is_some())
+        })
+        .flatten()
+        .and_then(|j| Some((j, brace(&tokens[j])?)));
+        if let Some((body_at, body)) = body {
             let (new_body, marker) = transform_trait_body(body.stream());
             out.extend(add_supertraits(&tokens[i..body_at], marker));
             let mut group = Group::new(Delimiter::Brace, new_body);
@@ -120,10 +123,14 @@ fn transform_trait_body(input: TokenStream2) -> (TokenStream2, Marker) {
     let mut marker = Marker::None;
     let mut i = 0;
     while i < tokens.len() {
-        if is_ident(&tokens[i], "async") && tokens.get(i + 1).is_some_and(|t| is_ident(t, "fn")) {
-            let end = (i + 2..tokens.len())
+        let end = (is_ident(&tokens[i], "async")
+            && tokens.get(i + 1).is_some_and(|t| is_ident(t, "fn")))
+        .then(|| {
+            (i + 2..tokens.len())
                 .find(|&j| is_punct(&tokens[j], ';') || brace(&tokens[j]).is_some())
-                .expect("async fn end");
+        })
+        .flatten();
+        if let Some(end) = end {
             let sig = &tokens[i + 1..end];
             if takes_shared_self(sig) {
                 marker = Marker::SendSync;
@@ -166,7 +173,7 @@ fn takes_shared_self(sig: &[TokenTree]) -> bool {
     }
     let mut rest = &params[1..];
     if rest.first().is_some_and(|t| is_punct(t, '\'')) {
-        rest = &rest[2..];
+        rest = rest.get(2..).unwrap_or_default();
     }
     rest.first().is_some_and(|t| is_ident(t, "self"))
 }
@@ -259,6 +266,21 @@ mod tests {
             "{out}"
         );
         assert!(out.contains("{ async move { flush () . await } }"), "{out}");
+    }
+
+    #[test]
+    fn malformed_input_passes_through() {
+        for src in [
+            "trait Alias = Read;",
+            "trait Fs",
+            "trait Fs { async fn read(&self) }",
+        ] {
+            assert_eq!(
+                expand(src),
+                src.parse::<proc_macro2::TokenStream>().unwrap().to_string(),
+                "{src}"
+            );
+        }
     }
 
     #[test]
