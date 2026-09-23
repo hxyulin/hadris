@@ -1,432 +1,222 @@
-//! Hybrid MBR support for dual BIOS/UEFI bootable disks.
-//!
-//! A Hybrid MBR is a special MBR that contains both a protective entry (type 0xEE)
-//! and regular MBR partition entries that mirror selected GPT partitions. This allows
-//! the disk to be bootable on both BIOS and UEFI systems.
-//!
-//! # Warning
-//!
-//! Hybrid MBRs are not part of the UEFI specification and can cause issues with
-//! some operating systems. Use with caution.
+use hadris_fs::ErrorKind;
 
-#[cfg(feature = "alloc")]
-extern crate alloc;
+use crate::error::{Detail, TableError};
+use crate::{MbrType, PartitionFlags};
 
-#[cfg(feature = "alloc")]
-use alloc::vec::Vec;
-
-use crate::error::{Error, Result};
-use crate::gpt::GptPartitionEntry;
-use crate::mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionTable, MbrPartitionType};
-use endian_num::Le;
-
-/// A partition to be mirrored from GPT to MBR in a hybrid configuration.
-#[derive(Debug, Clone, Copy)]
-pub struct MirroredPartition {
-    /// Index of the GPT partition to mirror (0-based).
-    pub gpt_partition_index: u32,
-    /// MBR partition type to use.
-    pub mbr_type: MbrPartitionType,
-    /// Whether to mark this partition as bootable (active).
-    pub bootable: bool,
+/// One GPT partition to mirror in a hybrid MBR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Mirror {
+    pub(crate) gpt_index: usize,
+    pub(crate) kind: MbrType,
+    pub(crate) flags: PartitionFlags,
 }
 
-impl MirroredPartition {
-    /// Creates a new mirrored partition configuration.
-    pub const fn new(gpt_index: u32, mbr_type: MbrPartitionType) -> Self {
-        Self {
-            gpt_partition_index: gpt_index,
-            mbr_type,
-            bootable: false,
-        }
-    }
-
-    /// Sets the bootable flag.
-    pub const fn with_bootable(mut self, bootable: bool) -> Self {
-        self.bootable = bootable;
-        self
-    }
-}
-
-/// Configuration for a Hybrid MBR.
+/// How to build a hybrid MBR: which slot holds the protective entry and
+/// which GPT partitions (at most three) the other slots mirror.
 ///
-/// A Hybrid MBR contains:
-/// - A protective MBR entry (type 0xEE) covering either the entire disk or the
-///   area not covered by mirrored partitions
-/// - Up to 3 mirrored partition entries (MBR can only have 4 entries total)
-#[derive(Debug, Clone, Default)]
-pub struct HybridMbrConfig {
-    /// Index of the MBR slot for the protective partition (0-3).
-    /// Usually 0 or 3 (first or last).
-    pub protective_slot: usize,
-    /// Partitions to mirror from GPT to MBR (max 3).
-    #[cfg(feature = "alloc")]
-    pub mirrored: Vec<MirroredPartition>,
-    /// Partitions to mirror from GPT to MBR (max 3).
-    #[cfg(not(feature = "alloc"))]
-    pub mirrored: [Option<MirroredPartition>; 3],
-    /// Number of mirrored partitions (used in no-alloc mode).
-    #[cfg(not(feature = "alloc"))]
-    pub mirrored_count: usize,
+/// Hybrid MBRs are outside the UEFI specification. They let BIOS systems see
+/// selected GPT partitions, as hybrid ISO images need, but tools that trust
+/// the MBR may corrupt the GPT. The configuration holds no allocation, so it
+/// behaves the same with and without `alloc`.
+///
+/// ```rust
+/// use hadris_part::{HybridMbr, MbrType, PartitionFlags};
+///
+/// let mut config = HybridMbr::new();
+/// config.add_mirrored(0, MbrType::EFI_SYSTEM, PartitionFlags::BOOTABLE).unwrap();
+/// assert_eq!(config.mirrored_count(), 1);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct HybridMbr {
+    protective_slot: usize,
+    mirrors: [Option<Mirror>; 3],
 }
 
-impl HybridMbrConfig {
-    /// Creates a new empty Hybrid MBR configuration.
+impl HybridMbr {
+    /// A configuration with the protective entry in slot 0 and no mirrors.
     pub const fn new() -> Self {
         Self {
             protective_slot: 0,
-            #[cfg(feature = "alloc")]
-            mirrored: Vec::new(),
-            #[cfg(not(feature = "alloc"))]
-            mirrored: [None, None, None],
-            #[cfg(not(feature = "alloc"))]
-            mirrored_count: 0,
+            mirrors: [None; 3],
         }
     }
 
-    /// Sets the protective partition slot index.
+    /// Puts the protective entry in `slot` (0 to 3); mirrors fill the other
+    /// slots in order.
     pub const fn with_protective_slot(mut self, slot: usize) -> Self {
         self.protective_slot = slot;
         self
     }
 
-    /// Adds a mirrored partition.
-    #[cfg(feature = "alloc")]
-    pub fn add_mirrored(mut self, partition: MirroredPartition) -> Self {
-        self.mirrored.push(partition);
-        self
-    }
-
-    /// Adds a mirrored partition.
-    #[cfg(not(feature = "alloc"))]
-    pub fn add_mirrored(mut self, partition: MirroredPartition) -> Self {
-        if self.mirrored_count < 3 {
-            self.mirrored[self.mirrored_count] = Some(partition);
-            self.mirrored_count += 1;
-        }
-        self
-    }
-
-    /// Returns the number of mirrored partitions.
-    #[cfg(feature = "alloc")]
-    pub fn mirrored_count(&self) -> usize {
-        self.mirrored.len()
-    }
-
-    /// Returns the number of mirrored partitions.
-    #[cfg(not(feature = "alloc"))]
-    pub fn mirrored_count(&self) -> usize {
-        self.mirrored_count
-    }
-
-    /// Validates the configuration.
-    pub fn validate(&self) -> Result<()> {
-        if self.protective_slot > 3 {
-            return Err(Error::InvalidHybridMbr {
-                reason: "protective slot must be 0-3",
-            });
-        }
-
-        let count = self.mirrored_count();
-        if count > 3 {
-            return Err(Error::TooManyPartitions {
-                max: 3,
-                requested: count,
-            });
-        }
-
-        // Check that mirrored slots don't conflict with protective slot
-        #[cfg(feature = "alloc")]
-        for (i, _) in self.mirrored.iter().enumerate() {
-            let slot = self.calculate_slot(i);
-            if slot == self.protective_slot {
-                return Err(Error::InvalidHybridMbr {
-                    reason: "mirrored partition conflicts with protective slot",
-                });
-            }
-        }
-
+    /// Mirrors GPT partition `gpt_index` with MBR type `kind`. Only
+    /// [`PartitionFlags::BOOTABLE`] can be stored.
+    ///
+    /// Fails with [`ErrorKind::LimitExceeded`] after three mirrors.
+    pub fn add_mirrored(
+        &mut self,
+        gpt_index: usize,
+        kind: MbrType,
+        flags: PartitionFlags,
+    ) -> Result<(), TableError> {
+        let slot = self
+            .mirrors
+            .iter_mut()
+            .find(|m| m.is_none())
+            .ok_or(TableError::new(ErrorKind::LimitExceeded, Detail::TableFull))?;
+        *slot = Some(Mirror {
+            gpt_index,
+            kind,
+            flags,
+        });
         Ok(())
     }
 
-    /// Calculates the MBR slot for a mirrored partition index.
-    fn calculate_slot(&self, mirror_index: usize) -> usize {
-        let mut slot = 0;
-        let mut count = 0;
-        while count <= mirror_index && slot < 4 {
-            if slot != self.protective_slot {
-                if count == mirror_index {
-                    return slot;
-                }
-                count += 1;
-            }
-            slot += 1;
-        }
-        slot
+    /// The slot of the protective entry.
+    pub const fn protective_slot(&self) -> usize {
+        self.protective_slot
+    }
+
+    /// The number of mirrored partitions.
+    pub fn mirrored_count(&self) -> usize {
+        self.mirrors.iter().flatten().count()
+    }
+
+    /// The MBR slot of mirror `k`: the `k`-th slot that is not protective.
+    pub(crate) fn mirror_slots(&self) -> impl Iterator<Item = (usize, Mirror)> + '_ {
+        (0..4)
+            .filter(|&slot| slot != self.protective_slot)
+            .zip(self.mirrors.iter().flatten().copied())
     }
 }
 
-/// Builder for creating Hybrid MBRs.
-#[derive(Debug)]
-pub struct HybridMbrBuilder {
-    config: HybridMbrConfig,
-    disk_sectors: u64,
-}
+#[cfg(feature = "alloc")]
+mod table {
+    use hadris_fs::ErrorKind;
 
-impl HybridMbrBuilder {
-    /// Creates a new builder for a disk with the given size in sectors.
-    pub fn new(disk_sectors: u64) -> Self {
-        Self {
-            config: HybridMbrConfig::new(),
-            disk_sectors,
-        }
+    use super::HybridMbr;
+    use crate::disk::Partitions;
+    use crate::error::{Detail, TableError};
+    use crate::raw::{Chs, RawMbrEntry};
+    use crate::{Gpt, MbrType, Partition};
+
+    /// A GPT together with a hybrid MBR that mirrors some of its partitions.
+    ///
+    /// The GPT is authoritative: [`partitions`](Self::partitions) lists its
+    /// entries, and [`mbr_partitions`](Self::mbr_partitions) the mirrors.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Hybrid {
+        gpt: Gpt,
+        entries: [RawMbrEntry; 4],
     }
 
-    /// Sets the protective partition slot (0-3).
-    pub fn protective_slot(mut self, slot: usize) -> Self {
-        self.config.protective_slot = slot;
-        self
-    }
-
-    /// Adds a GPT partition to mirror in the MBR.
-    pub fn mirror_partition(
-        self,
-        gpt_index: u32,
-        mbr_type: MbrPartitionType,
-        bootable: bool,
-    ) -> Self {
-        let partition = MirroredPartition::new(gpt_index, mbr_type).with_bootable(bootable);
-        Self {
-            config: self.config.add_mirrored(partition),
-            ..self
-        }
-    }
-
-    /// Builds the Hybrid MBR given the GPT partition entries.
-    pub fn build(self, gpt_entries: &[GptPartitionEntry]) -> Result<MasterBootRecord> {
-        self.config.validate()?;
-
-        let mut mbr = MasterBootRecord::default();
-        let mut partition_table = MbrPartitionTable::new();
-
-        // Collect mirrored partitions and their ranges
-        #[cfg(feature = "alloc")]
-        let mirrored_iter = self.config.mirrored.iter();
-        #[cfg(not(feature = "alloc"))]
-        let mirrored_iter = self.config.mirrored[..self.config.mirrored_count]
-            .iter()
-            .filter_map(|p| p.as_ref());
-
-        let mut mirrored_ranges: [(u64, u64); 3] = [(0, 0); 3];
-        let mut mirror_count = 0;
-
-        for (i, mirrored) in mirrored_iter.enumerate() {
-            let gpt_idx = mirrored.gpt_partition_index as usize;
-            if gpt_idx >= gpt_entries.len() {
-                return Err(Error::InvalidHybridMbr {
-                    reason: "GPT partition index out of bounds",
-                });
+    impl Hybrid {
+        /// Builds the hybrid MBR for `gpt` from `config`.
+        ///
+        /// The protective entry covers the blocks from 1 up to the first
+        /// mirrored partition, or the whole disk without mirrors. Fails with
+        /// [`ErrorKind::InvalidInput`] when the protective slot is past 3, a
+        /// mirror names an unused GPT slot or an empty, protective or extended
+        /// type, or stores a flag other than `BOOTABLE`, and with
+        /// [`ErrorKind::LimitExceeded`] when a mirrored partition ends past
+        /// block `u32::MAX`.
+        pub fn new(gpt: Gpt, config: &HybridMbr) -> Result<Self, TableError> {
+            let protective = config.protective_slot();
+            if protective > 3 {
+                return Err(TableError::invalid(Detail::Mirror));
             }
-
-            let gpt_entry = &gpt_entries[gpt_idx];
-            if gpt_entry.is_unused() {
-                return Err(Error::InvalidHybridMbr {
-                    reason: "referenced GPT partition is unused",
-                });
-            }
-
-            // Check if partition fits in 32-bit MBR addressing
-            let first_native = gpt_entry.first_lba.to_ne();
-            let last_native = gpt_entry.last_lba.to_ne();
-
-            if first_native > last_native {
-                return Err(Error::InvalidHybridMbr {
-                    reason: "GPT partition has an inverted LBA range",
-                });
-            }
-
-            if last_native > u32::MAX as u64 {
-                return Err(Error::InvalidHybridMbr {
-                    reason: "GPT partition extends beyond MBR 32-bit limit",
-                });
-            }
-
-            let slot = self.config.calculate_slot(i);
-            let start_lba = first_native as u32;
-            let sector_count = (last_native - first_native + 1) as u32;
-
-            partition_table[slot] = MbrPartition {
-                boot_indicator: if mirrored.bootable { 0x80 } else { 0x00 },
-                start_chs: Chs::new(start_lba),
-                part_type: mirrored.mbr_type.to_u8(),
-                end_chs: Chs::new(start_lba + sector_count - 1),
-                start_lba: Le::<u32>::from_ne(start_lba),
-                sector_count: Le::<u32>::from_ne(sector_count),
-            };
-
-            mirrored_ranges[mirror_count] = (first_native, last_native);
-            mirror_count += 1;
-        }
-
-        // Create protective MBR entry covering LBA 1 through `protective_end`
-        // (the last LBA before the first mirrored partition, or the last LBA of
-        // the disk when no mirrored partition starts after LBA 1)
-        let last_disk_lba = self.disk_sectors.saturating_sub(1).min(u32::MAX as u64) as u32;
-        let protective_end = if mirror_count > 0 {
-            // Find the start of the first mirrored partition
-            let mut first_start = u64::MAX;
-            for range in mirrored_ranges.iter().take(mirror_count) {
-                if range.0 < first_start && range.0 > 1 {
-                    first_start = range.0;
+            let mut entries = [RawMbrEntry::default(); 4];
+            let mut first_mirror = u64::MAX;
+            for (slot, mirror) in config.mirror_slots() {
+                let kind = mirror.kind;
+                if kind.is_empty() || kind.is_protective() || kind.is_extended() {
+                    return Err(TableError::invalid(Detail::Mirror));
+                }
+                if !mirror.flags.fits_mbr() {
+                    return Err(TableError::invalid(Detail::Flags));
+                }
+                let partition = gpt
+                    .entry(mirror.gpt_index)
+                    .ok_or(TableError::invalid(Detail::Mirror))?;
+                if partition.is_empty() {
+                    return Err(TableError::invalid(Detail::Mirror));
+                }
+                let start = u32::try_from(partition.start());
+                let last = u32::try_from(partition.end() - 1);
+                let (Ok(start), Ok(_)) = (start, last) else {
+                    return Err(TableError::new(
+                        ErrorKind::LimitExceeded,
+                        Detail::FieldOverflow,
+                    ));
+                };
+                let mut entry = RawMbrEntry::new(kind.code(), start, partition.len() as u32);
+                entry.boot_indicator = mirror.flags.to_mbr();
+                entries[slot] = entry;
+                if partition.start() > 1 {
+                    first_mirror = first_mirror.min(partition.start());
                 }
             }
-            if first_start == u64::MAX {
-                // All mirrored partitions start at sector 1 or less
-                last_disk_lba
+            let last_block = gpt.block_count().saturating_sub(1).min(u64::from(u32::MAX)) as u32;
+            let end = if first_mirror == u64::MAX {
+                last_block
             } else {
-                (first_start - 1).min(u32::MAX as u64) as u32
+                (first_mirror - 1).min(u64::from(u32::MAX)) as u32
             }
-        } else {
-            last_disk_lba
-        };
-        let protective_end = protective_end.max(1);
-        let protective_size = protective_end;
+            .max(1);
+            entries[protective] = RawMbrEntry {
+                boot_indicator: 0,
+                start_chs: Chs::from_lba(1),
+                kind: MbrType::GPT_PROTECTIVE.code(),
+                end_chs: Chs::from_lba(end),
+                start_lba: 1u32.to_le_bytes(),
+                sector_count: end.to_le_bytes(),
+            };
+            Ok(Self { gpt, entries })
+        }
 
-        partition_table[self.config.protective_slot] = MbrPartition {
-            boot_indicator: 0x00,
-            start_chs: Chs::new(1),
-            part_type: MbrPartitionType::ProtectiveMbr.to_u8(),
-            end_chs: Chs::new(protective_end),
-            start_lba: Le::<u32>::from_ne(1),
-            sector_count: Le::<u32>::from_ne(protective_size),
-        };
+        pub(crate) fn from_disk(gpt: Gpt, entries: [RawMbrEntry; 4]) -> Self {
+            Self { gpt, entries }
+        }
 
-        mbr.partition_table = partition_table;
-        Ok(mbr)
+        /// The GPT.
+        pub const fn gpt(&self) -> &Gpt {
+            &self.gpt
+        }
+
+        /// The GPT, dropping the hybrid MBR.
+        pub fn into_gpt(self) -> Gpt {
+            self.gpt
+        }
+
+        /// The GPT partitions.
+        pub fn partitions(&self) -> Partitions<'_> {
+            self.gpt.partitions()
+        }
+
+        /// The MBR entries other than the protective one, indexed by slot.
+        pub fn mbr_partitions(&self) -> impl Iterator<Item = Partition> + '_ {
+            self.entries.iter().enumerate().filter_map(|(slot, entry)| {
+                let kind = MbrType::new(entry.kind);
+                (!kind.is_empty() && !kind.is_protective()).then(|| {
+                    Partition::from_mbr(
+                        slot,
+                        u64::from(entry.start_lba()),
+                        entry,
+                        self.gpt.block_size(),
+                    )
+                })
+            })
+        }
+
+        /// The raw MBR entry of slot `slot` (0 to 3), as it will be written.
+        pub fn raw_entry(&self, slot: usize) -> Option<&RawMbrEntry> {
+            self.entries.get(slot)
+        }
+
+        pub(crate) fn entries(&self) -> &[RawMbrEntry; 4] {
+            &self.entries
+        }
     }
 }
 
-/// Checks if an MBR appears to be a Hybrid MBR.
-///
-/// Returns `true` if the MBR contains a protective partition (type 0xEE)
-/// and at least one other non-empty partition.
-pub fn is_hybrid_mbr(mbr: &MasterBootRecord) -> bool {
-    let mut has_protective = false;
-    let mut has_other = false;
-
-    let pt = mbr.get_partition_table();
-    for partition in &pt.partitions {
-        if partition.is_empty() {
-            continue;
-        }
-        if partition.partition_type().is_protective() {
-            has_protective = true;
-        } else {
-            has_other = true;
-        }
-    }
-
-    has_protective && has_other
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::gpt::Guid;
-
-    #[test]
-    fn test_hybrid_mbr_config_validation() {
-        let config = HybridMbrConfig::new()
-            .with_protective_slot(0)
-            .add_mirrored(MirroredPartition::new(0, MbrPartitionType::Fat32));
-
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_hybrid_mbr_config_too_many_partitions() {
-        let mut config = HybridMbrConfig::new();
-        #[cfg(feature = "alloc")]
-        {
-            config.mirrored = alloc::vec![
-                MirroredPartition::new(0, MbrPartitionType::Fat32),
-                MirroredPartition::new(1, MbrPartitionType::LinuxNative),
-                MirroredPartition::new(2, MbrPartitionType::LinuxNative),
-                MirroredPartition::new(3, MbrPartitionType::LinuxNative),
-            ];
-        }
-
-        let result = config.validate();
-        assert!(matches!(result, Err(Error::TooManyPartitions { .. })));
-    }
-
-    #[test]
-    fn test_hybrid_mbr_builder() {
-        let gpt_entries = [
-            GptPartitionEntry::new(Guid::EFI_SYSTEM, Guid::UNUSED, 2048, 206847),
-            GptPartitionEntry::default(),
-        ];
-
-        let mbr = HybridMbrBuilder::new(1000000)
-            .protective_slot(0)
-            .mirror_partition(0, MbrPartitionType::EfiSystemPartition, false)
-            .build(&gpt_entries)
-            .unwrap();
-
-        assert!(mbr.has_valid_signature());
-        assert!(is_hybrid_mbr(&mbr));
-    }
-
-    #[test]
-    fn test_protective_entry_covers_gap_before_first_mirror() {
-        let gpt_entries = [GptPartitionEntry::new(
-            Guid::EFI_SYSTEM,
-            Guid::UNUSED,
-            34,
-            206847,
-        )];
-
-        let mbr = HybridMbrBuilder::new(1_000_000)
-            .protective_slot(0)
-            .mirror_partition(0, MbrPartitionType::EfiSystemPartition, false)
-            .build(&gpt_entries)
-            .unwrap();
-
-        let pt = mbr.get_partition_table();
-        let protective = &pt.partitions[0];
-        assert_eq!(protective.start_lba.to_ne(), 1);
-        assert_eq!(protective.sector_count.to_ne(), 33);
-        assert_eq!(protective.end_chs, Chs::new(33));
-
-        let mirrored = &pt.partitions[1];
-        assert_eq!(mirrored.start_lba.to_ne(), 34);
-    }
-
-    #[test]
-    fn test_protective_entry_covers_disk_without_mirrors() {
-        let mbr = HybridMbrBuilder::new(1_000_000)
-            .protective_slot(0)
-            .build(&[])
-            .unwrap();
-
-        let pt = mbr.get_partition_table();
-        let protective = &pt.partitions[0];
-        assert_eq!(protective.start_lba.to_ne(), 1);
-        assert_eq!(protective.sector_count.to_ne(), 999_999);
-        assert_eq!(protective.end_chs, Chs::new(999_999));
-    }
-
-    #[test]
-    fn test_is_hybrid_mbr() {
-        // Pure protective MBR
-        let protective = MasterBootRecord::protective(1000000);
-        assert!(!is_hybrid_mbr(&protective));
-
-        // Hybrid MBR
-        let mut hybrid = protective;
-        hybrid.with_partition_table(|pt| {
-            pt[1] = MbrPartition::new(MbrPartitionType::Fat32, 2048, 100000);
-        });
-        assert!(is_hybrid_mbr(&hybrid));
-    }
-}
+#[cfg(feature = "alloc")]
+pub use table::Hybrid;

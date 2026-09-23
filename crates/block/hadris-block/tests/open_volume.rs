@@ -1,7 +1,8 @@
 use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
-use hadris_block::partition::sync::{gpt_partition, mbr_partition};
+use hadris_block::part::sync::open;
+use hadris_block::part::{self, MbrEntry, MbrType};
 use hadris_block::sync::OpenVolume;
-use hadris_block::{Error, OpenError, part};
+use hadris_block::{Error, OpenError};
 use hadris_fat::{FatKind, FormatOptions};
 use hadris_storage::sync::{BlockDevice, Slice};
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
@@ -43,17 +44,16 @@ fn opens_detected_fat_and_returns_the_device() {
 
 #[test]
 fn opens_fat_inside_mbr_partition() {
-    let start_lba = 1_u32;
-    let sector_count = (VOLUME_LEN / 512) as u32;
-    let entry = part::MbrPartition::new(part::MbrPartitionType::Fat12, start_lba, sector_count);
-    let mut table = part::MbrPartitionTable::new();
-    table.partitions[0] = entry;
-    let mbr = part::MasterBootRecord::new(table);
+    let sector_count = (VOLUME_LEN / 512) as u64;
+    let mut mbr = part::Mbr::new(sector_count + 1, BLOCK).unwrap();
+    mbr.add(MbrEntry::new(MbrType::FAT12, 1, sector_count))
+        .unwrap();
+    let table = part::Disk::new(mbr);
+    let entry = table.partition(0).unwrap();
 
-    let mut bytes = vec![0_u8; VOLUME_LEN + 512];
-    bytes[..512].copy_from_slice(bytemuck::bytes_of(&mbr));
-    let mut disk = device(bytes);
-    format_fat12(mbr_partition(&mut disk, &entry).unwrap());
+    let mut disk = device(vec![0_u8; VOLUME_LEN + 512]);
+    part::sync::write(&mut disk, &table).unwrap();
+    format_fat12(open(&mut disk, &entry).unwrap());
 
     assert_eq!(
         hadris_block::detect::sync::detect(&mut disk).unwrap(),
@@ -65,7 +65,8 @@ fn opens_fat_inside_mbr_partition() {
         Error::PartitionedDisk(PartitionTableKind::Mbr)
     ));
 
-    let volume = OpenVolume::open(mbr_partition(&mut disk, &entry).unwrap()).unwrap();
+    let entry = part::sync::read(&mut disk).unwrap().partition(0).unwrap();
+    let volume = OpenVolume::open(open(&mut disk, &entry).unwrap()).unwrap();
     assert_eq!(volume.format(), FatVariant::Fat12);
 }
 
@@ -73,16 +74,26 @@ fn opens_fat_inside_mbr_partition() {
 fn opens_fat_inside_gpt_partition() {
     let start_lba = 2048_u64;
     let sector_count = (VOLUME_LEN / 512) as u64;
-    let entry = part::GptPartitionEntry::new(
-        part::Guid::EFI_SYSTEM,
-        part::Guid::UNUSED,
-        start_lba,
-        start_lba + sector_count - 1,
+    let layout = part::DiskLayout::gpt(part::Guid::from_bytes([0x61; 16])).partition(
+        part::PartitionSpec::new(
+            part::gpt::types::EFI_SYSTEM,
+            part::Size::Blocks(sector_count),
+        )
+        .with_start(start_lba),
     );
-    let mut disk = device(vec![0_u8; (start_lba as usize * 512) + VOLUME_LEN]);
-    format_fat12(gpt_partition(&mut disk, &entry).unwrap());
+    let mut disk = device(vec![
+        0_u8;
+        (start_lba as usize * 512) + VOLUME_LEN + 34 * 512
+    ]);
+    let table = part::sync::create(&mut disk, &layout).unwrap();
+    let entry = table.partition(0).unwrap();
+    format_fat12(open(&mut disk, &entry).unwrap());
 
-    let volume = OpenVolume::open(gpt_partition(&mut disk, &entry).unwrap()).unwrap();
+    assert_eq!(
+        hadris_block::detect::sync::detect(&mut disk).unwrap(),
+        Some(BlockFormat::PartitionTable(PartitionTableKind::Gpt))
+    );
+    let volume = OpenVolume::open(open(&mut disk, &entry).unwrap()).unwrap();
     assert_eq!(volume.format(), FatVariant::Fat12);
     let slice: Slice<_> = volume.into_inner();
     assert_eq!(slice.first(), BlockIndex::new(start_lba));
@@ -90,9 +101,11 @@ fn opens_fat_inside_gpt_partition() {
 
 #[test]
 fn partitions_past_the_disk_are_refused() {
-    let entry = part::MbrPartition::new(part::MbrPartitionType::Fat12, 8, 16);
+    let mut mbr = part::Mbr::new(100, BLOCK).unwrap();
+    mbr.add(MbrEntry::new(MbrType::FAT12, 8, 16)).unwrap();
+    let entry = part::Disk::new(mbr).partition(0).unwrap();
     let mut disk = device(vec![0_u8; 16 * 512]);
-    assert!(mbr_partition(&mut disk, &entry).is_err());
+    assert!(open(&mut disk, &entry).is_err());
 }
 
 #[test]

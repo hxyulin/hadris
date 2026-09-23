@@ -215,7 +215,7 @@ pub fn relocate_deep_directories(files: &mut WrittenFiles) -> io::Result<()> {
 }
 
 /// Generates a deterministic GUID from a string (simple hash-based).
-pub fn generate_guid_from_string(s: &str) -> Guid {
+pub fn generate_guid_from_string(s: &str) -> hadris_part::Guid {
     // Simple FNV-1a hash to generate a deterministic GUID
     let mut hash1: u64 = 0xcbf29ce484222325;
     let mut hash2: u64 = 0x100000001b3;
@@ -235,7 +235,7 @@ pub fn generate_guid_from_string(s: &str) -> Guid {
     bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
     bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant 1
 
-    Guid::from_bytes(bytes)
+    hadris_part::Guid::from_bytes(bytes)
 }
 
 /// Compute the available system use space in a DirectoryRecord given
@@ -554,13 +554,24 @@ pub fn checked_sector_count(sectors: u64, message: &'static str) -> io::Result<u
     u32::try_from(sectors).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, message))
 }
 
-pub fn part_io_error(err: hadris_part::Error) -> io::Error {
-    match err {
-        hadris_part::Error::Io(err) => err,
-        _ => io::Error::new(
-            io::ErrorKind::InvalidData,
-            "failed to write partition table",
-        ),
+/// Blocks of the partition tables in hybrid images: 512 bytes, whatever the
+/// ISO sector size.
+pub const PART_BLOCK: hadris_storage::BlockSize = match hadris_storage::BlockSize::new(512) {
+    Some(size) => size,
+    None => panic!("512 is not zero"),
+};
+
+/// A partition table that does not fit the image.
+pub fn part_layout_error(_: hadris_part::TableError) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, "invalid partition table layout")
+}
+
+/// The MBR flags of a partition that is bootable or not.
+pub fn boot_flags(bootable: bool) -> hadris_part::PartitionFlags {
+    if bootable {
+        hadris_part::PartitionFlags::BOOTABLE
+    } else {
+        hadris_part::PartitionFlags::empty()
     }
 }
 

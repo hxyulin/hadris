@@ -16,9 +16,6 @@ extern crate std;
 pub mod detect;
 #[cfg(all(feature = "detect", feature = "fat"))]
 mod error;
-#[cfg(all(feature = "part", feature = "storage"))]
-/// Partition slices for opening filesystems inside partitioned disks.
-pub mod partition;
 
 #[cfg(all(feature = "detect", feature = "fat"))]
 pub use error::{Error, OpenError, Result};
@@ -90,6 +87,8 @@ pub use hadris_storage as storage;
 #[cfg(feature = "fat")]
 pub use hadris_fat as fat;
 
-/// MBR, GPT, and hybrid partition-table support.
+/// MBR, GPT, and hybrid partition-table support. `part::sync::open` (and
+/// its `r#async` and `async_send` forms) turns a partition into a
+/// `hadris-storage` `Slice` of the disk, which `OpenVolume` mounts.
 #[cfg(feature = "part")]
 pub use hadris_part as part;

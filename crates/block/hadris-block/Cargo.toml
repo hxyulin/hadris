@@ -21,9 +21,9 @@ std = ["alloc", "hadris-storage?/std", "hadris-fs?/std", "hadris-fat?/std", "had
 alloc = ["hadris-storage?/alloc", "hadris-fs?/alloc", "hadris-fat?/alloc", "hadris-part?/alloc"]
 sync = ["hadris-storage?/sync", "hadris-fs?/sync", "hadris-fat?/sync", "hadris-part?/sync"]
 async = ["hadris-storage?/async", "hadris-fs?/async", "hadris-fat?/async", "hadris-part?/async"]
-async-send = ["async", "hadris-storage?/async-send", "hadris-fs?/async-send", "hadris-fat?/async-send"]
-read = ["hadris-part?/read"]
-write = ["alloc", "read", "hadris-fat?/write", "hadris-part?/write"]
+async-send = ["async", "hadris-storage?/async-send", "hadris-fs?/async-send", "hadris-fat?/async-send", "hadris-part?/async-send"]
+read = []
+write = ["alloc", "read", "hadris-fat?/write"]
 detect = ["read", "dep:hadris-storage"]
 storage = ["dep:hadris-storage"]
 fat = ["dep:hadris-fat", "dep:hadris-fs", "dep:hadris-storage"]
@@ -37,5 +37,4 @@ hadris-part = { workspace = true, optional = true, default-features = false }
 hadris-macros = { workspace = true }
 
 [dev-dependencies]
-bytemuck.workspace = true
 hadris-io = { workspace = true, features = ["std", "sync", "async"] }

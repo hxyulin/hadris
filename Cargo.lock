@@ -177,17 +177,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "chacha20"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d524456ba66e72eb8b115ff89e01e497f8e6d11d78b70b1aa13c0fbd97540a81"
-dependencies = [
- "cfg-if",
- "cpufeatures",
- "rand_core",
-]
-
-[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -276,30 +265,6 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
-
-[[package]]
-name = "cpufeatures"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "crc"
-version = "3.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5eb8a2a1cd12ab0d987a5d5e825195d372001a4094a0376319d5a0ad71c1ba0d"
-dependencies = [
- "crc-catalog",
-]
-
-[[package]]
-name = "crc-catalog"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
 
 [[package]]
 name = "criterion"
@@ -446,16 +411,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "endian-num"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b4a54dfedecb1dc004776a597db0c858cf6c31579296734511309291b8399ce"
-dependencies = [
- "bytemuck",
- "bytemuck_derive",
-]
-
-[[package]]
 name = "errno"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -512,7 +467,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi",
- "rand_core",
 ]
 
 [[package]]
@@ -530,7 +484,6 @@ dependencies = [
 name = "hadris-block"
 version = "2.4.0"
 dependencies = [
- "bytemuck",
  "hadris-fat",
  "hadris-fs",
  "hadris-io",
@@ -632,6 +585,7 @@ dependencies = [
  "anyhow",
  "hadris-io",
  "hadris-part",
+ "hadris-storage",
 ]
 
 [[package]]
@@ -701,6 +655,7 @@ dependencies = [
  "hadris-io",
  "hadris-macros",
  "hadris-part",
+ "hadris-storage",
  "spin",
  "static_assertions",
  "tempfile",
@@ -756,12 +711,12 @@ dependencies = [
 name = "hadris-part"
 version = "2.4.0"
 dependencies = [
+ "bitflags 2.13.2",
  "bytemuck",
- "crc",
- "endian-num",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
- "rand",
+ "hadris-storage",
 ]
 
 [[package]]
@@ -1043,23 +998,6 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
-
-[[package]]
-name = "rand"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
-dependencies = [
- "chacha20",
- "getrandom",
- "rand_core",
-]
-
-[[package]]
-name = "rand_core"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "rayon"

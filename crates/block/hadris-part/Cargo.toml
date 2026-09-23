@@ -12,24 +12,44 @@ keywords = ["partition", "mbr", "gpt", "disk", "no-std"]
 categories = ["no-std", "filesystem"]
 
 [features]
-default = ["std", "sync", "read"]
-std = ["alloc", "hadris-io/std"]
-sync = ["hadris-io/sync"]
-async = ["hadris-io/async"]
-alloc = ["hadris-io/alloc"]
-read = []
-write = ["alloc", "read"]
-crc = ["dep:crc"]
-rand = ["dep:rand"]
+default = ["std", "sync"]
+# `Disk`, `PartitionTable`, the `Mbr`, `Gpt` and `Hybrid` tables, `DiskLayout`,
+# and `read`, `write` and `create` in each mode.
+alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
+# Implies `alloc`; adds `Guid::random` and `std::io::Error` conversions.
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std"]
+sync = ["hadris-io/sync", "hadris-storage/sync"]
+async = ["hadris-io/async", "hadris-storage/async"]
+# The asynchronous API a third time, with `Send` futures, in `async_send`.
+async-send = ["async", "hadris-io/async-send", "hadris-storage/async-send"]
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["std", "sync", "async", "async-send"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 hadris-io = { workspace = true, default-features = false }
+hadris-fs = { workspace = true, default-features = false }
+hadris-storage = { workspace = true, default-features = false }
 hadris-macros = { workspace = true }
+bitflags = { workspace = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
-endian-num.workspace = true
-crc = { version = "3", default-features = false, optional = true }
-rand = { version = "0.10", default-features = false, optional = true, features = ["thread_rng"] }
+
+[dev-dependencies]
+hadris-storage = { workspace = true, features = ["std", "sync"] }
+
+[[test]]
+name = "modes"
+required-features = ["std", "sync", "async-send"]
+
+[[test]]
+name = "roundtrip"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "edits"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "read"
+required-features = ["std", "sync"]

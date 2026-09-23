@@ -2,7 +2,7 @@
 
 `hadris-block` is the block-storage facade for Hadris. It groups storage-device
 traits, MBR/GPT partition tables, FAT12/16/32, non-destructive format detection,
-partition slices, and unified filesystem opening without erasing the
+and unified filesystem opening without erasing the
 concrete leaf-crate APIs.
 
 Use the facade when an application needs several block-storage layers. Use
@@ -26,11 +26,13 @@ if let Some(BlockFormat::Fat(FatVariant::Fat32)) = detected {
 ```
 
 ```rust,ignore
-use hadris_block::partition::sync::gpt_partition;
+use hadris_block::part;
 use hadris_block::sync::OpenVolume;
 
 // `disk` is any hadris-storage `BlockDevice`, such as a `std::fs::File`.
-let partition = gpt_partition(&mut disk, &entry).expect("partition fits the disk");
+let table = part::sync::read(&mut disk)?;
+let esp = table.partition(0).expect("the disk has a partition");
+let partition = part::sync::open(&mut disk, &esp)?;
 let volume = match OpenVolume::open(partition) {
     Ok(volume) => volume,
     // The error gives the device back, so the caller can try another opener.
@@ -42,8 +44,8 @@ let fs = volume.into_fat().ok().unwrap(); // a hadris_fat::sync::FatFs
 Detection reads only the identifying metadata of a block device. Opening the
 detected concrete format performs full validation and yields the `FatFs`
 driver, which works with the `hadris-fs` path helpers. Partitioned disks must
-first be narrowed to a partition with `partition::sync`, `partition::r#async`
-or `partition::async_send`, which return `hadris-storage` slices. A failed
+first be narrowed to a partition with `part::sync::open` (or its `r#async` and
+`async_send` forms), which returns a `hadris-storage` slice. A failed
 open returns an `OpenError` that carries the device back to the caller.
 Like `hadris_fs::Error`, `Error` and `OpenError` report a shared
 `ErrorKind` through `kind()` and the device's own error through
@@ -59,8 +61,8 @@ Like `hadris_fs::Error`, `Error` and `OpenError` report a shared
 | `sync` | yes | Synchronous I/O APIs |
 | `async` | no | Asynchronous I/O APIs |
 | `async-send` | no | Asynchronous APIs with `Send` futures in `async_send` modules; enables `async` |
-| `read` | yes | Filesystem and partition reading |
-| `write` | yes | FAT and partition mutation |
+| `read` | yes | Filesystem reading |
+| `write` | yes | FAT formatting |
 | `detect` | yes | Lightweight block-format detection on a `BlockDevice` |
 | `storage` | yes | Re-export `hadris-storage` |
 | `fat` | yes | Re-export `hadris-fat` and open FAT volumes as `FatFs` |
