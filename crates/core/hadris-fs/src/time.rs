@@ -177,6 +177,9 @@ impl CivilTime {
 /// The instant is stored as seconds and nanoseconds since
 /// 1970-01-01T00:00:00Z. The offset records the local time zone the value was
 /// recorded in, when the format stores one; it does not change the instant.
+/// No offset means UTC or unknown: formats that store local time without a
+/// zone, such as FAT, read their fields as UTC, and the driver's
+/// [`Clock`] decides what they write.
 /// Supported years are -32768 to 32767 in UTC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DateTime {

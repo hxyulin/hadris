@@ -10,6 +10,10 @@ use crate::{FileType, Name, NameBuf, NodeId};
 pub struct DirCursor(u64);
 
 impl DirCursor {
+    /// The largest raw value a driver may return, so that a cursor fits an
+    /// `off_t` with room for the `.` and `..` entries a FUSE layer adds.
+    pub const MAX_RAW: u64 = (1 << 63) - 16;
+
     /// Returns a cursor positioned before the first entry.
     pub const fn start() -> Self {
         Self(0)

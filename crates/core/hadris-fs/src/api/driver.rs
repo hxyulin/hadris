@@ -23,6 +23,29 @@ io_transform! {
 ///   rejects them.
 /// - A failed operation leaves the filesystem unchanged, in memory and on
 ///   disk.
+/// - `NodeId` 0 is never a node, and every [`DirCursor`] a driver returns has
+///   a raw value of at most [`DirCursor::MAX_RAW`], so both fit FUSE and
+///   `off_t`. The root's id is the driver's choice.
+/// - Reads never change times. Writes may set the modification and access
+///   times; callers that want access times on reads set them with
+///   `set_metadata`.
+/// - `node_metadata` shows a pending size at once; the modification time and
+///   other fields a driver keeps in memory may lag until `publish_node`,
+///   `sync_node` or `sync`. Fields a format does not store are absent (the
+///   FAT root directory has no times).
+/// - In the async modes, a call whose future is dropped before it completes
+///   leaves no pin: a driver pins a node only in the step that returns it.
+///
+/// # Adding methods
+///
+/// Methods added after 3.0 have a default body: `Unsupported` for queries,
+/// `ReadOnly` for writes, or a composition of existing methods, with a
+/// matching [`Capabilities`] flag when callers need to ask first.
+/// [`impl_fs_driver!`](crate::impl_fs_driver) forwards them only when named
+/// in `also = [..]`, so formats that use the macro keep compiling. A type
+/// that implements this trait by wrapping another driver must forward new
+/// methods itself; until it does, they answer with their defaults through
+/// it.
 pub trait FsDriver {
     /// The device's own error, returned inside [`Error`].
     type DeviceError: core::error::Error + Send + Sync + 'static;
@@ -42,6 +65,11 @@ pub trait FsDriver {
 
     /// Writes the entry after `cursor` into `name` and advances `cursor`.
     /// `None` at the end. Entries are not pinned.
+    ///
+    /// The entry's id serves `node_metadata` until the directory changes.
+    /// Until then, and unless a node is forgotten in between, it is also the
+    /// id a `lookup` of the same name returns, so a listing and `stat` agree
+    /// on inode numbers.
     async fn read_dir_entry(
         &mut self,
         dir: NodeId,

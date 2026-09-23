@@ -179,6 +179,15 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs (V3):** The driver contract is written down in full on
+  `FsDriver`: `NodeId` 0 is never a node, cursors stay at or below the new
+  `DirCursor::MAX_RAW` (`2^63 - 16`), reads never change times, pending
+  fields may lag until `publish_node`, a dropped async call leaves no pin,
+  and a listed id is the id `lookup` returns for that name. The trait
+  documents how it grows after 3.0 (defaults, `also = [..]` in
+  `impl_fs_driver!`, wrappers forward new methods themselves), and a test
+  fails when a wrapper (`&mut F`, `Box`, `&F`, `AsDriver`, `Volume`,
+  `WithResolver`, `Arc`, `Rc`, the macro) misses a trait method.
 - **hadris-fat (V3):** `MountOptions::with_read_only()` takes no argument
   (R9: no bool parameters); mounts are writable unless it is called.
 - **hadris-fat (V3):** A node id is the slot of its directory entry plus a
