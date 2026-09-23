@@ -8,7 +8,8 @@
 //! [`Error<E>`] is the error of every filesystem operation. `E` is the
 //! device's own error, so it survives without allocation; [`AnyError`]
 //! erases it for code that mixes devices. A driver that takes its device
-//! by value fails to mount with [`MountError`], which gives the device back.
+//! by value fails to mount or format with [`MountError`], which gives the
+//! device back.
 //!
 //! # Features
 //!

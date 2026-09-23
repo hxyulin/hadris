@@ -23,7 +23,7 @@ Each published package owns its version and may be released independently.
   into `std::io::Error`, returning an `io::Error` device error as itself.
   `AnyError` (`alloc`) erases the device type for code that mixes devices.
   `FsResult<T, E>` names the result. `MountError<D, E>` is the error of a
-  mount that takes its device by value: the `Error<E>` and the device given
+  mount or format that takes its device by value: the `Error<E>` and the device given
   back (`kind`, `error`, `device`, `into_error`, `into_device`,
   `into_parts`). `?` converts it into `Error<E>`, `AnyError` or
   `std::io::Error`.
@@ -117,7 +117,9 @@ Each published package owns its version and may be released independently.
   reproducible images. `VolumeLabel::new` checks and uppercases a label.
   Errors: `NoSpace` for a device too small, `LimitExceeded` for one too
   large, `InvalidInput` for a bad option, `Unsupported` for blocks over
-  4096 bytes. Checked with `fsck.fat` and `fsck_msdos`.
+  4096 bytes. Every failure, including the final mount, is a
+  `hadris_fs::MountError` that gives the device back. Checked with
+  `fsck.fat` and `fsck_msdos`.
 - **hadris-fat (V3):** `check(&mut fs) -> CheckReport` and
   `check_with(&mut fs, bitmap, on_finding)` in `sync`, `r#async` and
   `async_send` check a mounted `FatFs` read-only, without an allocator.

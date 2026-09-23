@@ -211,8 +211,8 @@ impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for std::io::
     }
 }
 
-/// Error of mounting a filesystem that takes its device by value: the
-/// [`Error`] and the device, given back instead of dropped.
+/// Error of mounting or formatting a filesystem that takes its device by
+/// value: the [`Error`] and the device, given back instead of dropped.
 ///
 /// `?` converts it into [`Error`], dropping the device.
 ///

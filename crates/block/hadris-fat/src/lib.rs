@@ -51,7 +51,8 @@
 //! FAT16 or FAT32 volume that fills a block device and mounts it. It needs
 //! no allocator. [`FormatOptions`] sets the variant, label, volume id,
 //! sector and cluster size and the other boot sector fields; everything
-//! defaults from the device's size.
+//! defaults from the device's size. A failed format also returns a
+//! [`MountError`](hadris_fs::MountError) with the device.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]

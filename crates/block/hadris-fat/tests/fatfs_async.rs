@@ -274,6 +274,29 @@ fn async_send_writers_on_other_threads() {
 }
 
 #[test]
+fn async_failed_formats_give_the_device_back() {
+    use hadris_fat::{FatKind, FormatOptions};
+    use hadris_storage::{BlockSize, MemDevice};
+
+    let device = || MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
+    let options = || FormatOptions::new().with_kind(FatKind::Fat32);
+    block_on(async {
+        let err = hadris_fat::r#async::format(device(), options())
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NoSpace);
+        assert_eq!(err.into_device().into_inner(), vec![0u8; 4 << 20]);
+
+        let (error, dev) = hadris_fat::async_send::format(device(), options())
+            .await
+            .unwrap_err()
+            .into_parts();
+        assert_eq!(error.kind(), ErrorKind::NoSpace);
+        assert_eq!(dev.into_inner(), vec![0u8; 4 << 20]);
+    });
+}
+
+#[test]
 fn format_in_the_async_modes() {
     use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
     use hadris_fs::sync::DriverExt as _;
