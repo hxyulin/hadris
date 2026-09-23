@@ -175,29 +175,29 @@ jobs:
 
           # hadris-part
           - crate: hadris-part
-            tier: no-std
-            features: "sync,read"
+            tier: no-std-sync
+            features: "sync"
           - crate: hadris-part
-            tier: alloc
-            features: "alloc,sync,read,write"
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-part
+            tier: no-std-async-send
+            features: "async-send"
+          - crate: hadris-part
+            tier: tables-only
+            features: "alloc"
+          - crate: hadris-part
+            tier: alloc-sync
+            features: "alloc,sync"
+          - crate: hadris-part
+            tier: alloc-async-send
+            features: "alloc,async-send"
           - crate: hadris-part
             tier: std
-            features: "std,sync,read,write"
-          - crate: hadris-part
-            tier: async-read
-            features: "async,read,alloc"
-          - crate: hadris-part
-            tier: hosted-async-read-write
-            features: "std,async,read,write,crc,rand"
-          - crate: hadris-part
-            tier: sync-and-async-read-write
-            features: "alloc,sync,async,read,write,crc"
+            features: "std,sync"
           - crate: hadris-part
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,crc,rand"
-          - crate: hadris-part
-            tier: crc
-            features: "sync,read,alloc,crc"
+            features: "std,alloc,sync,async,async-send"
 
           # hadris-fat
           - crate: hadris-fat
@@ -553,3 +553,5 @@ jobs:
         run: "cargo +nightly miri test -p hadris-fat --lib codec::"
       - name: Miri — hadris-iso (IsoStr / IsoString safety)
         run: cargo +nightly miri test -p hadris-iso --lib types::iso_str_safety_tests
+      - name: Miri - hadris-part (on-disk layouts, CRC, UTF-16 partition names)
+        run: cargo +nightly miri test -p hadris-part --lib
