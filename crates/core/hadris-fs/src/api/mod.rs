@@ -19,6 +19,8 @@ mod handle;
 mod host;
 mod paths;
 mod resolve;
+#[cfg(feature = "alloc")]
+mod tree;
 mod volume;
 
 #[cfg(feature = "alloc")]
@@ -34,4 +36,6 @@ pub use paths::{DriverExt, PathExt};
 #[cfg(feature = "alloc")]
 use paths::{create_dir_all, resolve_parent};
 pub use resolve::{Lexical, Posix, Resolver, WithResolver};
+#[cfg(feature = "alloc")]
+pub use tree::{ContentReader, TreeExt};
 pub use volume::Volume;

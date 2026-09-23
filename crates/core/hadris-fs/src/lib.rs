@@ -15,8 +15,8 @@
 //!
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
-//! | `alloc` | No | [`OwnedName`], [`AnyError`], [`HeapTable`], `copy_tree` and owned path normalization |
-//! | `std` | No | Implies `alloc`; adds [`SystemClock`], `extract_to_host` and `import_from_host` in `sync`, and conversions to `std::io::Error` |
+//! | `alloc` | No | [`OwnedName`], [`AnyError`], [`HeapTable`], `copy_tree`, owned path normalization, and the writer input [`tree`] with `ContentReader` and `TreeExt` in each mode |
+//! | `std` | No | Implies `alloc`; adds [`SystemClock`], `extract_to_host` and `import_from_host` in `sync`, `Content::path` and `Tree::from_fs`, and conversions to `std::io::Error` |
 //! | `contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
 
 #![no_std]
@@ -44,6 +44,8 @@ mod ops;
 pub mod path;
 mod table;
 mod time;
+#[cfg(feature = "alloc")]
+pub mod tree;
 
 pub use caps::{Capabilities, CaseSensitivity, FsStats, NameCharset};
 #[cfg(feature = "contract")]
