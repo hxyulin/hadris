@@ -569,13 +569,10 @@ name = "hadris-common"
 version = "2.4.0"
 dependencies = [
  "bytemuck",
- "chrono",
- "crc",
  "criterion",
  "hadris-fs",
  "hadris-io",
  "heapless",
- "rand",
  "static_assertions",
  "zerocopy",
 ]

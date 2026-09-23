@@ -4,20 +4,18 @@
 //! for direct use: its API follows the needs of the other Hadris crates and
 //! can change in any release. Depend on `hadris` or a format crate instead.
 //!
-//! It provides endian-aware integers, extents, layout helpers, fixed-capacity
-//! byte, text and collection types ([`types::fixed`]), and optical media
-//! constants.
+//! It provides endian-aware integers, extents, layout helpers and
+//! fixed-capacity byte, text and collection types ([`types::fixed`]).
 //!
 //! ## Feature Flags
 //!
 //! | Feature    | Default | Description |
 //! |------------|---------|-------------|
-//! | `std`      | yes     | Standard library support (CRC, chrono, rand) |
+//! | `std`      | yes     | Standard library support (implies `alloc`) |
 //! | `alloc`    | via std | Heap allocation (`String`, `Vec` types) |
-//! | `bytemuck` | yes     | Zero-copy serialization for number types |
-//! | `optical`  | no      | Optical media types for CD/DVD/Blu-ray |
-//! | `sync`     | no      | Synchronous I/O (forwarded to `hadris-io`) |
-//! | `async`    | no      | Asynchronous I/O (forwarded to `hadris-io`) |
+//! | `bytemuck` | yes     | `Pod` and `Zeroable` for the number and endian types |
+//! | `sync`     | no      | Forwarded to `hadris-io` |
+//! | `async`    | no      | Forwarded to `hadris-io` |
 //!
 //! ## Key Types
 //!
@@ -50,15 +48,8 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-/// Algorithms (requires std for CRC and random)
-#[cfg(feature = "std")]
-pub mod alg;
 /// Types
 pub mod types;
-
-/// Optical media types (requires `optical` feature)
-#[cfg(feature = "optical")]
-pub mod optical;
 
 /// A generic 512-byte boot sector binary.
 ///

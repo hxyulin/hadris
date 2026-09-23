@@ -8,27 +8,24 @@ This is an internal support crate for the other Hadris crates and is not meant
 for direct use. Its API can change in any release; depend on `hadris` or a
 format crate instead.
 
-It provides endian-aware types, extents, fixed-capacity byte, text and
-collection types (`types::fixed`, formerly the `hadris-fixed` crate), and
-optional optical-media types. Virtual path code uses `hadris_fs::path`.
+It provides endian-aware types, extents and fixed-capacity byte, text and
+collection types (`types::fixed`, formerly the `hadris-fixed` crate).
+Virtual path code uses `hadris_fs::path`.
 
 ## Features
 
 - **Endian Types** - Little-endian and big-endian wrappers for integers
 - **Extents** - On-disk layout helpers used by ISO and related crates
 - **Fixed-capacity storage** - `FixedBytes`, `FixedStr`, `FixedUtf16`, `ArrayVec`, `RingBuf`
-- **CRC / time / rand** - Available under the `std` feature
-- **Optical media** - Session and metadata helpers behind the `optical` feature
 - **No-std Compatible** - Works without the standard library
 
 ## Feature Flags
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| `std` | Standard library support for CRC, time, and random helpers; implies `alloc` | Yes |
+| `std` | Standard library support; implies `alloc` | Yes |
 | `alloc` | Heap allocation without full std | via `std` |
-| `bytemuck` | Zero-copy serialization support | Yes |
-| `optical` | Optical media types (`SessionInfo`, metadata writers) | No |
+| `bytemuck` | `Pod` and `Zeroable` for the number and endian types; adds impls only | Yes |
 | `sync` | Synchronous I/O feature forwarded to `hadris-io` (for dependents) | No |
 | `async` | Asynchronous I/O feature forwarded to `hadris-io` | No |
 
