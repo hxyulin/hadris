@@ -435,3 +435,72 @@ fn mbr_layouts_past_two_tebibytes_cap_remaining() {
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::LimitExceeded);
 }
+
+fn three_primaries() -> DiskLayout {
+    (0..3).fold(
+        DiskLayout::mbr().with_alignment(Alignment::Block),
+        |l, _| l.partition(PartitionSpec::new(MbrType::LINUX, Size::Blocks(100))),
+    )
+}
+
+#[test]
+fn layout_logicals_placed_by_the_caller_are_checked_without_overflow() {
+    let early = three_primaries()
+        .partition(PartitionSpec::new(MbrType::LINUX, Size::Blocks(10)).with_start(50))
+        .partition(PartitionSpec::new(MbrType::LINUX, Size::Blocks(10)).with_start(70))
+        .build(100_000, B512)
+        .unwrap_err();
+    assert_eq!(
+        (early.kind(), early.detail()),
+        (ErrorKind::InvalidInput, Detail::OutOfBounds { index: 4 })
+    );
+
+    let at_the_end = three_primaries()
+        .partition(PartitionSpec::new(MbrType::LINUX, Size::Blocks(10)).with_start(u64::MAX - 10))
+        .partition(PartitionSpec::new(MbrType::LINUX, Size::Blocks(10)))
+        .build(u64::MAX, B512)
+        .unwrap_err();
+    assert_eq!(at_the_end.kind(), ErrorKind::NoSpace);
+
+    let misplaced = DiskLayout::gpt(guid(7))
+        .partition(PartitionSpec::new(types::BASIC_DATA, Size::Blocks(10)).with_start(5))
+        .build(1 << 16, B512)
+        .unwrap_err();
+    assert_eq!(misplaced.kind(), ErrorKind::InvalidInput);
+}
+
+#[test]
+fn remaining_logicals_fit_the_extended_partition_past_two_tebibytes() {
+    let mut layout = DiskLayout::mbr();
+    for _ in 0..4 {
+        layout = layout.partition(PartitionSpec::new(MbrType::LINUX, Size::MiB(1)));
+    }
+    let disk = layout
+        .partition(PartitionSpec::new(MbrType::LINUX, Size::Remaining))
+        .build((1 << 33) + 10_000, B512)
+        .unwrap();
+    let PartitionTable::Mbr(mbr) = disk.table() else {
+        panic!("expected an MBR");
+    };
+    let extended = mbr.extended().unwrap();
+    assert_eq!(extended.len(), u64::from(u32::MAX));
+    assert_eq!(disk.partition(4).unwrap().end(), extended.end());
+}
+
+#[test]
+fn a_gpt_index_is_mirrored_once() {
+    let mut table = gpt();
+    table
+        .add(GptEntry::new(types::EFI_SYSTEM, guid(1), 100, 100))
+        .unwrap();
+    let mut config = HybridMbr::new();
+    for _ in 0..2 {
+        config
+            .add_mirrored(0, MbrType::EFI_SYSTEM, PartitionFlags::empty())
+            .unwrap();
+    }
+    assert_eq!(
+        Hybrid::new(table, &config).unwrap_err().detail(),
+        Detail::Mirror
+    );
+}

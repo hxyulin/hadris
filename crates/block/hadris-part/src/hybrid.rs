@@ -134,6 +134,12 @@ mod table {
                 if !mirror.flags.fits_mbr() {
                     return Err(TableError::invalid(Detail::Flags));
                 }
+                let repeated = config
+                    .mirror_slots()
+                    .any(|(other, m)| other < slot && m.gpt_index == mirror.gpt_index);
+                if repeated {
+                    return Err(TableError::invalid(Detail::Mirror));
+                }
                 let partition = gpt
                     .entry(mirror.gpt_index)
                     .ok_or(TableError::invalid(Detail::Mirror))?;

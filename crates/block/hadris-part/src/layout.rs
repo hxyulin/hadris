@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use hadris_fs::ErrorKind;
 use hadris_storage::BlockSize;
 
-use crate::codec::check_block_size;
+use crate::codec::{FIRST_LOGICAL, check_block_size};
 use crate::error::{Detail, TableError};
 use crate::{
     Disk, Gpt, GptEntry, Guid, Hybrid, HybridMbr, Mbr, MbrEntry, MbrType, PartitionFlags,
@@ -268,7 +268,7 @@ impl DiskLayout {
             let entry = GptEntry::new(type_guid, unique, start, len)
                 .with_name(name)
                 .with_flags(spec.flags);
-            gpt.add(entry).map_err(fit)?;
+            gpt.add(entry).map_err(fit(spec))?;
             cursor = start + len;
         }
         Ok(gpt)
@@ -301,8 +301,12 @@ impl DiskLayout {
         let end = block_count;
         for spec in &self.partitions[..primaries] {
             let start = spec.start.unwrap_or(align_up(cursor, align));
-            let len = mbr_length(spec.size, block_size, start, end)?;
-            mbr.add(entry(spec, start, len)).map_err(fit)?;
+            let len = length(spec.size, block_size, start, end)?;
+            let len = match spec.size {
+                Size::Remaining => len.min(u64::from(u32::MAX)),
+                _ => len,
+            };
+            mbr.add(entry(spec, start, len)).map_err(fit(spec))?;
             cursor = start + len;
         }
         let logicals = &self.partitions[primaries..];
@@ -312,21 +316,33 @@ impl DiskLayout {
         let ext_start = align_up(cursor, align);
         let mut placed = Vec::with_capacity(logicals.len());
         let mut ebr = ext_start;
-        for spec in logicals {
-            let start = spec.start.unwrap_or(align_up(ebr + 1, align));
-            let len = mbr_length(spec.size, block_size, start, end)?;
-            placed.push(entry(spec, start, len));
+        for (k, spec) in logicals.iter().enumerate() {
+            let start = spec.start.unwrap_or(align_up(ebr.saturating_add(1), align));
+            if start <= ext_start {
+                let index = FIRST_LOGICAL + k;
+                return Err(TableError::invalid(Detail::OutOfBounds { index }));
+            }
+            let len = length(spec.size, block_size, start, end)?;
+            let len = match spec.size {
+                Size::Remaining => {
+                    let room = u64::from(u32::MAX).saturating_sub(start - ext_start);
+                    len.min(room.max(1))
+                }
+                _ => len,
+            };
+            placed.push((entry(spec, start, len), spec));
             ebr = start + len;
         }
         let ext_end = placed
             .iter()
-            .map(|e| e.start() + e.len())
+            .map(|(e, _)| e.start() + e.len())
             .max()
             .unwrap_or(ebr);
         let extended = MbrEntry::new(MbrType::EXTENDED_LBA, ext_start, ext_end - ext_start);
-        mbr.add(extended).map_err(fit)?;
-        for logical in placed {
-            mbr.add_logical(logical).map_err(fit)?;
+        mbr.add(extended)
+            .map_err(fit(&self.partitions[primaries]))?;
+        for (logical, spec) in placed {
+            mbr.add_logical(logical).map_err(fit(spec))?;
         }
         Ok(mbr)
     }
@@ -361,20 +377,14 @@ fn length(size: Size, block_size: BlockSize, start: u64, end: u64) -> Result<u64
     }
 }
 
-/// [`length`], with `Remaining` capped to the 32-bit MBR length field.
-fn mbr_length(size: Size, block_size: BlockSize, start: u64, end: u64) -> Result<u64, TableError> {
-    let len = length(size, block_size, start, end)?;
-    Ok(match size {
-        Size::Remaining => len.min(u64::from(u32::MAX)),
-        _ => len,
-    })
-}
-
-/// A partition the layout placed past the usable area means the disk is
-/// too small.
-fn fit(err: TableError) -> TableError {
-    match err.detail() {
-        Detail::OutOfBounds { .. } => TableError::new(ErrorKind::NoSpace, Detail::DiskTooSmall),
+/// A partition the layout placed itself past the usable area means the
+/// disk is too small; one the caller placed is invalid input.
+fn fit(spec: &PartitionSpec) -> impl Fn(TableError) -> TableError {
+    let placed = spec.start.is_none();
+    move |err| match err.detail() {
+        Detail::OutOfBounds { .. } if placed => {
+            TableError::new(ErrorKind::NoSpace, Detail::DiskTooSmall)
+        }
         _ => err,
     }
 }

@@ -476,3 +476,34 @@ fn rewriting_keeps_where_the_backup_array_lives() {
     assert_eq!(bytes[95 * 512..96 * 512], array[..]);
     assert_eq!(read(&mut copy).unwrap(), disk);
 }
+
+fn patch_header(image: &mut [u8], h: usize, field: usize, value: u64) {
+    image[h + field..h + field + 8].copy_from_slice(&value.to_le_bytes());
+    image[h + 16..h + 20].fill(0);
+    let crc = crc32(&image[h..h + 92]);
+    image[h + 16..h + 20].copy_from_slice(&crc.to_le_bytes());
+}
+
+#[test]
+fn a_primary_naming_itself_as_backup_has_a_damaged_backup() {
+    let mut image = crafted_gpt(100, 4, 128, &[(0, entry(0xAF, 10, 20))]);
+    patch_header(&mut image, 512, 32, 1);
+    let mut dev = device(image);
+    let disk = read(&mut dev).unwrap();
+    let PartitionTable::Gpt(table) = disk.table() else {
+        panic!("expected a GPT");
+    };
+    assert_eq!(table.damaged_copy(), Some(GptCopy::Backup));
+    assert_eq!(table.backup_lba(), 99);
+    write(&mut dev, &disk).unwrap();
+    assert_eq!(gpt(&mut dev).damaged_copy(), None);
+}
+
+#[test]
+fn a_backup_whose_primary_array_cannot_fit_is_not_used() {
+    let mut image = crafted_gpt(100, 4, 128, &[(0, entry(0xAF, 10, 20))]);
+    image[512] = b'X';
+    patch_header(&mut image, 99 * 512, 40, 2);
+    let err = read(&mut device(image)).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+}

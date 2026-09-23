@@ -116,7 +116,7 @@ pub(crate) fn check_header(
     let placed = if lba == 1 {
         start >= 2 && end <= first
     } else {
-        start > last && end <= lba
+        start > last && end <= lba && blocks.checked_add(2).is_some_and(|n| n <= first)
     };
     if bytes > MAX_ARRAY_BYTES || !placed || end > block_count {
         return Err(Detail::GptEntries);
@@ -134,6 +134,7 @@ pub(crate) fn check_header(
 /// Whether a backup header describes the same table as the primary.
 pub(crate) fn same_table(primary: &RawGptHeader, backup: &RawGptHeader) -> bool {
     backup.alternate_lba() == 1
+        && backup.my_lba() > primary.last_usable_lba()
         && primary.alternate_lba() == backup.my_lba()
         && primary.first_usable_lba == backup.first_usable_lba
         && primary.last_usable_lba == backup.last_usable_lba
