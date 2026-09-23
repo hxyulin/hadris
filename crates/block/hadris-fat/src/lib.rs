@@ -85,6 +85,30 @@
 //! # fn main() {}
 //! ```
 //!
+//! ## Checking with `FatFs`
+//!
+//! `check` and `check_with` (in each mode, no allocator) read the volume
+//! without changing it and report [`Finding`]s and a [`CheckReport`]: boot
+//! sector, FSInfo and FAT copy problems, broken, cyclic, cross-linked and
+//! lost chains, chains that do not fit their file, bad names, dot entries,
+//! misplaced labels and broken long-name runs.
+//!
+//! ```rust
+//! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use hadris_fat::sync::{check, format};
+//! use hadris_fat::FormatOptions;
+//! use hadris_storage::{BlockSize, MemDevice};
+//!
+//! let dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(512).unwrap());
+//! let mut fs = format(dev, FormatOptions::new())?;
+//! assert!(check(&mut fs)?.is_clean());
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]
+//! # fn main() {}
+//! ```
+//!
 //! ## Builder: custom providers and FAT caching
 //!
 //! [`FatVolume::builder`] configures the clock and
@@ -164,6 +188,8 @@
 //! - `sync::FatFs`, `r#async::FatFs`, `async_send::FatFs` — the V3 driver
 //! - `sync::format`, `r#async::format`, `async_send::format` — the V3
 //!   formatter (requires `write`)
+//! - `sync::check`, `sync::check_with` and their `async` versions: the V3
+//!   checker
 //! - `error` — Error types for FAT operations
 //! - `file` — Short filename (8.3) types and validation
 //! - `raw` — On-disk structures: boot sector, BPB, directory entries
@@ -201,6 +227,7 @@ mod codec;
 pub mod error;
 /// FAT filename types, including 8.3 and long-file-name helpers.
 pub mod file;
+mod findings;
 pub mod oem;
 mod options;
 /// Raw on-disk FAT structures and attribute flags.
@@ -248,7 +275,7 @@ pub mod sync {
 
     #[path = "fatfs.rs"]
     mod fatfs;
-    pub use fatfs::FatFs;
+    pub use fatfs::{FatFs, check, check_with};
     #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;
@@ -327,7 +354,7 @@ pub mod r#async {
 
     #[path = "fatfs.rs"]
     mod fatfs;
-    pub use fatfs::FatFs;
+    pub use fatfs::{FatFs, check, check_with};
     #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;
@@ -389,6 +416,7 @@ pub use sync::*;
 pub use code_page::{Ascii, CodePage, Cp437};
 pub use codec::entry::FatKind;
 pub use error::{Error, Result};
+pub use findings::{CheckReport, Finding, FindingKind};
 #[cfg(feature = "write")]
 pub use options::FormatOptions;
 pub use options::{MountOptions, VolumeLabel};

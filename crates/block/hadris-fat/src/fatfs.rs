@@ -16,7 +16,11 @@ use crate::codec::entry::FIRST_DATA_CLUSTER;
 use crate::codec::lfn::{self, Assembler, Encoded};
 use crate::codec::{date, name as names, short_name};
 use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
-use crate::{FatKind, MountOptions};
+use crate::{FatKind, MountOptions, VolumeLabel};
+
+#[path = "check.rs"]
+mod fsck;
+pub use fsck::{check, check_with};
 
 const ROOT: NodeId = NodeId::new(1);
 /// Ids from here up are handed out when a node's natural id is taken.
@@ -677,6 +681,24 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// The FAT variant of the volume.
     pub fn kind(&self) -> FatKind {
         self.geo.kind
+    }
+
+    /// The volume label: the label entry of the root directory, or `None`
+    /// when it has none. The copy in the boot sector is not read.
+    pub async fn label(&mut self) -> FsResult<Option<VolumeLabel>, D::Error> {
+        let mut walk = Walk::new(self.root_start());
+        let mut slot = 0;
+        while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
+            match self.read_slot(offset).await? {
+                Slot::End => break,
+                Slot::Short(entry) if entry.is_label() => {
+                    return Ok(Some(VolumeLabel::from_disk(entry.name)));
+                }
+                _ => {}
+            }
+            slot += 1;
+        }
+        Ok(None)
     }
 
     /// Number of nodes in the node table, plus one for the root, which is

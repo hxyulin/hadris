@@ -166,6 +166,38 @@ bytes on every run. A device too small for the variant gives
 `ErrorKind::NoSpace`, one too large gives `ErrorKind::LimitExceeded`, and a
 bad option gives `ErrorKind::InvalidInput` before anything is written.
 
+### Checking with `FatFs`
+
+`check` (every mode, no allocator) reads the whole volume without changing
+it and reports what `fsck` would: boot sector and FSInfo problems, FAT
+copies that differ, chains that are broken, cyclic, cross-linked, lost or
+the wrong length for their file, bad names and dot entries, labels out of
+place, and long-name runs that are orphaned or fail their checksum.
+`check_with` passes each `Finding` to a callback and takes the bitmap it
+marks clusters in; the tree is walked once per bitmap's worth of clusters,
+so a smaller bitmap costs time, never accuracy. Repair is not implemented.
+
+```rust,no_run
+use hadris_fat::sync::{FatFs, check_with};
+use hadris_storage::{BlockSize, MemDevice};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let image = std::fs::read("disk.img")?;
+let mut fs = FatFs::open(MemDevice::new(image, BlockSize::new(512).unwrap()))?;
+let mut bitmap = [0u8; 4096];
+let report = check_with(&mut fs, &mut bitmap, |finding| println!("{finding:?}"))?;
+println!("{} findings, {} lost clusters", report.findings(), report.lost_clusters());
+# Ok(())
+# }
+```
+
+The device is read as it is, so call `sync` first on a volume you have
+written to. A volume left by an interrupted `FatFs` operation shows only
+what the crash-safety rules allow: lost clusters, chains longer than their
+file, a renamed node under both names, orphaned long-name fragments, FAT
+copies that lag the active one and a stale FSInfo free count.
+`FatFs::label` reads the volume label from the root directory.
+
 ### Writing to a FAT Filesystem
 
 ```rust,no_run

@@ -16,7 +16,7 @@ macro_rules! impl_fat_driver {
 
 #[path = "fatfs.rs"]
 mod fatfs;
-pub use fatfs::FatFs;
+pub use fatfs::{FatFs, check, check_with};
 #[cfg(feature = "write")]
 #[path = "mkfs.rs"]
 mod mkfs;

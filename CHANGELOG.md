@@ -105,6 +105,20 @@ Each published package owns its version and may be released independently.
   Errors: `NoSpace` for a device too small, `LimitExceeded` for one too
   large, `InvalidInput` for a bad option, `Unsupported` for blocks over
   4096 bytes. Checked with `fsck.fat` and `fsck_msdos`.
+- **hadris-fat (V3):** `check(&mut fs) -> CheckReport` and
+  `check_with(&mut fs, bitmap, on_finding)` in `sync`, `r#async` and
+  `async_send` check a mounted `FatFs` read-only, without an allocator.
+  They report each `Finding` (boot sector fields, the FAT32 backup boot
+  sector and FSInfo sector, the free count, reserved FAT entries, FAT copy
+  mismatches, invalid first clusters, broken, cyclic and cross-linked
+  chains, bad clusters in chains, chains longer or shorter than their file,
+  lost clusters, bad short names, dot entries, directory sizes, misplaced
+  labels, long-name checksum mismatches and orphaned fragments), and
+  `CheckReport` counts them by `FindingKind` with file, directory and
+  cluster totals. The caller's bitmap sets the clusters tracked per pass;
+  the tree is walked through `..` entries, so memory is fixed at any depth.
+  Checked against `fsck.fat -n` verdicts and the crash-safety leftovers of
+  interrupted operations. `FatFs::label` reads the root label entry.
 
 ### Changed
 
