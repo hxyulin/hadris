@@ -90,6 +90,21 @@ Each published package owns its version and may be released independently.
   above `0x7F`; `Ascii` reads them as U+FFFD, and `Cp437` is the IBM PC code
   page. `NoClock` stamps 1980-01-01, and `SystemClock` (`std`) the current
   UTC time.
+- **hadris-fat (V3):** `format(dev, FormatOptions) -> FatFs<D,
+  FixedTable<64>, C>` in `sync`, `r#async` and `async_send` (the `write`
+  feature, no allocator) formats a FAT12, FAT16 or FAT32 volume that fills a
+  `BlockDevice`, including a `Slice` of a disk, and mounts it.
+  `FormatOptions<C = NoClock>` (`new`, `with_kind`, `with_label`,
+  `with_volume_id`, `with_sector_size`, `with_cluster_size`,
+  `with_oem_name`, `with_reserved_sectors`, `with_hidden_sectors`,
+  `with_fat_count`, `with_root_entries`, `with_media`, `with_clock`)
+  defaults everything from the device: FAT12 below 16 MiB, FAT16 below
+  512 MiB, FAT32 above, with a cluster size adjusted until the count suits
+  the variant, and a volume id derived from the clock, so `NoClock` gives
+  reproducible images. `VolumeLabel::new` checks and uppercases a label.
+  Errors: `NoSpace` for a device too small, `LimitExceeded` for one too
+  large, `InvalidInput` for a bad option, `Unsupported` for blocks over
+  4096 bytes. Checked with `fsck.fat` and `fsck_msdos`.
 
 ### Changed
 

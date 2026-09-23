@@ -371,7 +371,7 @@ it. Instead each write answers for itself:
 
 - A device that refuses writes returns `WriteError::ReadOnly`. `Error<E>` converts it to `ErrorKind::ReadOnly` with no device error attached.
 - The driver remembers the first refusal and from then on rejects writes before touching the device or its own tables (`is_read_only()`).
-- Users who know up front mount with `open_read_only`, which never calls `write_blocks`. That also covers media where even an attempted write is unwelcome.
+- Users who know up front mount read-only (`FatFs::open_with(dev, MountOptions::new().with_read_only(true))`), which never calls `write_blocks`. That also covers media where even an attempted write is unwelcome.
 - Format crates must leave their in-memory state unchanged when a write is refused. That is the rule 4.3 already sets for every failed operation, so it adds no new contract.
 
 Provided devices and adapters:
@@ -775,7 +775,9 @@ table's capacity is [Q8](#7-open-questions).
 
 For `FatFs`, `write` gates only `format`; the write methods of `FsDriver`
 are always compiled, so the feature adds items and never changes what an
-existing call does. The V2 `lfn` and `dirty-file-panic` features switch
+existing call does. `write` no longer implies `alloc`: the V2 writer and
+formatter need both, and `write` alone adds the allocation-free `format`,
+so the no-alloc CI tiers build it. The V2 `lfn` and `dirty-file-panic` features switch
 behaviour, so neither carries over: `FatFs` always reads and writes long
 names, and it has no writer that can be dropped unfinished.
 
@@ -863,7 +865,7 @@ Each row is a deliberate trade, what it buys, and what a user does about it.
 | A non-io device error becomes `io::ErrorKind::Other` in std | std has no kind for "your device's enum" | Downcast `io::Error::into_inner()` to get it back |
 | Generic code carries `F::DeviceError` | Keeps the device error without allocation | Use `FsResult<T, F::DeviceError>`, or return `AnyError` |
 | Stored `Volume` types name the lock | A default lock would depend on a feature (R3) | One user-written alias |
-| Read-only is detected on the first refused write, not up front | A static flag is unreliable and a probe write is harmful (4.2) | `open_read_only` when it is known; `is_read_only()` afterwards |
+| Read-only is detected on the first refused write, not up front | A static flag is unreliable and a probe write is harmful (4.2) | `MountOptions::with_read_only` when it is known; `is_read_only()` afterwards |
 | The default resolver is lexical, not POSIX | Works on every format, costs least, needs no `parent` | `with_resolver(Posix::new())` |
 | `Posix` costs a metadata call per component and a stack buffer | Symlink detection needs the type; no `alloc` | Pick `N`; use `Lexical` on formats without symlinks |
 | No no-follow resolution | Not needed for 3.0 users so far | Planned as an additive 3.x resolver |
@@ -905,14 +907,15 @@ Each section lists the API changes, then the V3 feature work. Items marked
 **One shape for FAT12/16/32; exFAT is a sibling driver.**
 
 ```rust
-let mut vol = FatFs::open(dev, VolumeOptions::default().with_clock(SystemClock))?;
+let mut vol = FatFs::open(dev)?;                  // NoClock, Ascii, FixedTable<64>
+let mut vol = FatFs::open_with(dev, MountOptions::new().with_clock(SystemClock).with_code_page(Cp437))?;
 vol.kind();                                      // FatKind::{Fat12, Fat16, Fat32}
 vol.label()?; vol.set_label(&VolumeLabel::new("BOOT")?)?;
 vol.fat_attributes(node)?; vol.set_fat_attributes(node, FatAttributes::HIDDEN)?;
 vol.cluster_chain(node)?;                        // native, for tools
 // Everything else goes through the node API (FsDriver) and the path layer.
 
-let vol = hadris_fat::sync::format(dev, &FormatOptions::default().with_kind(FatKind::Fat32))?;
+let vol = hadris_fat::sync::format(dev, FormatOptions::new().with_kind(FatKind::Fat32))?;
 let exfat = ExFatFs::open(dev)?;                 // step 12; the same node API
 let report = hadris_fat::sync::check(&mut vol)?;           // fsck, both modes
 ```
@@ -920,9 +923,9 @@ let report = hadris_fat::sync::check(&mut vol)?;           // fsck, both modes
 - `FatFs` implements `FsDriver` through its inherent methods (`impl_fs_driver!`). Path methods come from the `hadris-fs` path layer. `FatVolumeReadExt` and `FatVolumeWriteExt` are removed. See [Q7](#7-open-questions) for the name.
 - exFAT is a separate driver, `ExFatFs`, not a `FatKind`. Its directory entry sets, allocation bitmap and up-case table share little with FAT12/16/32, so one type would branch on the kind in every method. Both drivers share the node table, the vocabulary and the codecs that do overlap.
 - The node table (4.5) replaces `FileEntry` snapshots. `StaleEntry` and `WriterConflict` go away as errors; a second writer on the same node shares the node and its size.
-- Clock and code page are generic parameters with zero-sized defaults: `FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePage = Ascii>`. No `'static` borrows, no `Sync` supertraits (#83).
+- Clock and code page are generic parameters with zero-sized defaults: `FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePage = Ascii>`. No `'static` borrows, no `Sync` supertraits (#83). `MountOptions<T, C, P>` chooses them with `with_table`, `with_clock`, `with_code_page` and `with_read_only`; `FatFs::open(dev)` takes the defaults and `FatFs::open_with(dev, options)` the rest, so one constructor pair replaces the `open`/`open_read_only`/`open_with_table` combinations. `Clock` lives in `hadris-fs` because every writable format needs time; `CodePage` (`Ascii`, `Cp437`) lives in `hadris-fat` because only FAT short names use an OEM code page. `Ascii` reads bytes above `0x7F` as U+FFFD. No chrono clock ships: `SystemClock` covers `std`, and FAT's local-time convention is left to a user `Clock`.
 - The FAT sector cache is gone as a separate thing. Users wrap the device in `Cache<D>`. `FatSectorCache`, `CachedFat`, `with_cached_fat` and `fat_cache` are removed (#27). Chain caching becomes an internal detail of the node table.
-- `FormatOptions` (non_exhaustive, `with_*`) covers FAT12/16/32 with a `FatKind` selection; exFAT has its own options on `ExFatFs`. It replaces `FatVolumeFormatter`, `FatFormatOptions`, `ExFatFormatOptions`, `format_exfat` and `ExFatLayoutParams`. Formatting uses the device's block count, so pre-sizing and a separate size argument go away, and formatting a `Slice` inside a disk works.
+- `FormatOptions` (non_exhaustive, `with_*`) covers FAT12/16/32 with a `FatKind` selection; exFAT has its own options on `ExFatFs`. It replaces `FatVolumeFormatter`, `FatFormatOptions`, `ExFatFormatOptions`, `format_exfat` and `ExFatLayoutParams`. Formatting uses the device's block count, so pre-sizing and a separate size argument go away, and formatting a `Slice` inside a disk works. `format(dev, options)` takes the options by value, so the clock moves into the returned `FatFs<D, FixedTable<64>, C>` without a `Clone` bound; `into_inner` and `open_with` remount with other options. Fields are private, so the struct needs no `non_exhaustive`. Without `with_kind`, volumes below 16 MiB are FAT12, below 512 MiB FAT16, and larger ones FAT32 (the V2 formatter's 32 MiB and 2 GiB limits failed at 32 MiB and above 512 MiB); the cluster size starts from the V2 tables and doubles or halves until the count fits the variant. The volume id defaults to one derived from the clock, so `NoClock` formats reproducibly. Errors: `NoSpace` (too small), `LimitExceeded` (too large), `InvalidInput` (bad option, checked before any write), `Unsupported` (blocks over 4096 bytes).
 - `tool::` becomes `check` (fsck) and `analysis` in both modes, with getters on reports. A `repair` pass is 3.x.
 - `expect("Fixed root info required ...")` sites return `ErrorKind::Corrupt`.
 - exFAT internals (`allocate_cluster`, `sync_bitmap`, `name_hash`, `parse_entry_set`) become private.
@@ -1071,7 +1074,7 @@ let layout = DiskLayout::gpt(disk_guid)
     .build(dev.block_count(), dev.block_size())?;
 let disk = layout.write(&mut dev)?;
 let esp = disk.open(&mut dev, disk.partition(0))?;
-hadris_fat::sync::format(esp, &FormatOptions::default())?;
+hadris_fat::sync::format(esp, FormatOptions::new())?;
 ```
 
 **Feature work.** Extended and logical MBR partitions (EBR chains), falling
@@ -1113,7 +1116,7 @@ await is I/O on it), so 2.x documents async volumes as single-task.
 2. **`hadris-io`.** embedded-io base, `StdIo`, `&mut T`, `ByteSource`, moved onto `strip_async!`. Done on `feat/v3-api`, first with an erased error, then reworked to `ErrorType` (4.1). The erased V2 traits live in `hadris_io::legacy`, which every format crate uses until its own port step; the last port deletes the module. `embedded-io` stays a required dependency until then, because `legacy` and the re-exported `SeekFrom` use it; the `embedded-io` feature and a Hadris `SeekFrom` land with that deletion.
 3. **`hadris-storage`.** `BlockDevice` in both modes from one source, `WriteError`, `std::fs::File`, `StreamDevice`, `MemDevice`, `Slice`, `Cache`, `ByteView`. Done on `feat/v3-api`.
 4. **`hadris-fs`.** Done: vocabulary, `ErrorKind`, `Error<E>`, `AnyError`, `DateTime`/`Clock`, steps 2 and 3 reworked to associated errors, the three modes (`sync`, `async`, `async_send`), `FsDriver`/`FileSystem`, `impl_fs_driver!`, `Volume`/`LockKind`, resolvers, helpers and handles, tested against an in-memory driver (the FS-generic parts of S1 to S16; the FAT-specific ones move to step 5), `copy_tree`, the sync host helpers `extract_to_host` and `import_from_host`, and `FuseOnError`. `hadris-path`, `hadris-fixed` and `hadris-archive` are merged or removed.
-5. **`hadris-fat` as the reference implementation.** `BlockDevice` input, node table, `FsDriver` through inherent methods, `parent`, `FormatOptions`, `check`, clock and code page generics. Port the conformance adapter to the generic `FileSystem` adapter in the same PR. This step tests the trait design, and the trait can still change here. In progress on `feat/v3-api`: done are the mode-independent codecs, the `async_send` mode, the public `NodeTable`, and `FatFs` reading and writing (`create`, `remove`, `rename`, `write_at`, `set_len`, `set_metadata`, `sync_node`, `sync`) for FAT12/16/32, checked against the V2 driver and the host `fsck`. Left: clock and code page generics, `FormatOptions`, `check`, the conformance adapter and the downstream ports.
+5. **`hadris-fat` as the reference implementation.** `BlockDevice` input, node table, `FsDriver` through inherent methods, `parent`, `FormatOptions`, `check`, clock and code page generics. Port the conformance adapter to the generic `FileSystem` adapter in the same PR. This step tests the trait design, and the trait can still change here. In progress on `feat/v3-api`: done are the mode-independent codecs, the `async_send` mode, the public `NodeTable`, and `FatFs` reading and writing (`create`, `remove`, `rename`, `write_at`, `set_len`, `set_metadata`, `sync_node`, `sync`) for FAT12/16/32, checked against the V2 driver and the host `fsck`. Also done: clock and code page generics with `MountOptions` and `FatFs::open_with`, and `FormatOptions` with `format` in all three modes, without allocation, checked with `fsck.fat` and `fsck_msdos`, against the V2 formatter's boot sector and FATs, and at the FAT12, FAT16 and FAT32 size limits. Left: `check`, the conformance adapter and the downstream ports.
 6. **Freeze the traits.** Review `hadris-fs` against FAT, the conformance adapter and a prototype FUSE adapter before any other format ports.
 7. **Errors and the R1/R2/R4/R5 pass, crate by crate.**
 8. **`hadris-part`.** `Disk`, `DiskLayout`, `MbrType`, GUIDs, CRC always on, EBR.

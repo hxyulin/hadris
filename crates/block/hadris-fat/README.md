@@ -130,6 +130,42 @@ Writes are ordered so that an interrupted operation, or a dropped `async`
 future, leaves a volume that `fsck` repairs: at worst lost clusters, a
 chain longer than its file, or a renamed node under both names.
 
+### Formatting with `FatFs`
+
+`format` (the `write` feature, every mode, no allocator) lays out a volume
+that fills the block device, using its block count and size, and returns it
+mounted. Format a partition by passing a `hadris_storage` `Slice`.
+
+```rust,no_run
+use hadris_fat::sync::format;
+use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
+use hadris_fs::SystemClock;
+use hadris_storage::{BlockSize, MemDevice};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let dev = MemDevice::new(vec![0u8; 64 << 20], BlockSize::new(512).unwrap());
+let options = FormatOptions::new()
+    .with_kind(FatKind::Fat32)
+    .with_label(VolumeLabel::new("BOOT")?)
+    .with_clock(SystemClock);
+let fs = format(dev, options)?;
+# let _ = fs;
+# Ok(())
+# }
+```
+
+Without `with_kind`, volumes below 16 MiB are FAT12, below 512 MiB FAT16,
+and larger ones FAT32. The cluster size starts from Microsoft's defaults
+for the size and doubles or halves until the cluster count suits the
+variant; `with_cluster_size` fixes it. `with_sector_size`,
+`with_volume_id`, `with_oem_name`, `with_reserved_sectors`,
+`with_hidden_sectors`, `with_fat_count`, `with_root_entries` and
+`with_media` set the other boot sector fields. The clock stamps the label
+entry and derives the volume id, so the default `NoClock` produces the same
+bytes on every run. A device too small for the variant gives
+`ErrorKind::NoSpace`, one too large gives `ErrorKind::LimitExceeded`, and a
+bad option gives `ErrorKind::InvalidInput` before anything is written.
+
 ### Writing to a FAT Filesystem
 
 ```rust,no_run
@@ -216,7 +252,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | Feature | Description | Dependencies |
 |---------|-------------|--------------|
 | `read` | Read operations | None |
-| `write` | Write operations | `alloc`, `read` |
+| `write` | `FatFs` formatting; with `alloc`, the V2 writer and formatter | `read` |
 | `lfn` | Long filename (VFAT) support | None |
 | `cache` | FAT sector caching for performance | `alloc`, `sync` |
 | `tool` | Analysis and verification utilities | `alloc`, `read`, `sync` |
@@ -245,7 +281,8 @@ operation, TexFAT, or repair workflows.
 
 ## Volume Formatting
 
-The `format` module (requires `write`) provides volume formatting:
+The V2 `format` module (requires `write` and `alloc`) provides volume
+formatting for `FatVolume`:
 
 ```rust,no_run
 use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter, SectorSize};
