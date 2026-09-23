@@ -11,7 +11,7 @@
 //!
 //! - [`block`] — block filesystems and partition tables
 //! - [`optical`] — optical filesystems and disc image composition
-//! - [`archive`] — sequential archive formats
+//! - [`cpio`] — CPIO newc and CRC archives
 //! - [`path`] — lexical virtual-path parsing and normalization
 //!
 //! # Feature flags
@@ -49,9 +49,9 @@ pub use hadris_block as block;
 #[cfg(any(feature = "iso", feature = "udf", feature = "cd"))]
 pub use hadris_optical as optical;
 
-/// Sequential archive formats.
+/// CPIO newc and CRC archives.
 #[cfg(feature = "cpio")]
-pub use hadris_archive as archive;
+pub use hadris_cpio as cpio;
 
 /// Lexical virtual-path utilities.
 #[cfg(feature = "path")]

@@ -96,7 +96,7 @@ jobs:
             hadris-io hadris-path hadris-macros
             hadris-common hadris-storage hadris-part
             hadris-fat hadris-ntfs hadris-iso hadris-udf hadris-cpio
-            hadris-archive hadris-block hadris-cd hadris-optical
+            hadris-block hadris-cd hadris-optical
             hadris hadris-cd-cli hadris-cpio-cli hadris-fat-cli
             hadris-iso-cli hadris-udf-cli
           )
@@ -135,7 +135,7 @@ jobs:
             hadris-io hadris-path hadris-macros
             hadris-common hadris-storage hadris-part
             hadris-fat hadris-ntfs hadris-iso hadris-udf hadris-cpio
-            hadris-archive hadris-block hadris-cd hadris-optical
+            hadris-block hadris-cd hadris-optical
             hadris hadris-cd-cli hadris-cpio-cli hadris-fat-cli
             hadris-iso-cli hadris-udf-cli
           )

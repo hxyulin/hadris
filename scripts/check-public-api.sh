@@ -14,7 +14,6 @@ fi
 
 crates=(
   hadris
-  hadris-archive
   hadris-block
   hadris-cd
   hadris-common

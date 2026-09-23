@@ -289,15 +289,6 @@ jobs:
           - crate: hadris-optical
             tier: all-capabilities
             features: "std,alloc,sync,async,read,write,open,cd"
-          - crate: hadris-archive
-            tier: no-formats
-            features: ""
-          - crate: hadris-archive
-            tier: async-read-write
-            features: "alloc,async,read,write,cpio"
-          - crate: hadris-archive
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,cpio"
 
           # hadris umbrella/category forwarding
           - crate: hadris

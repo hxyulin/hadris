@@ -45,7 +45,6 @@ Category facades combine related layers and add detection or opening policy:
 
 - `hadris-block` combines storage traits, partitions, FAT, and block detection.
 - `hadris-optical` combines ISO, UDF, bridge detection, and hybrid authoring.
-- `hadris-archive` provides a common feature surface for sequential archives.
 
 Facades preserve the underlying leaf types. They do not force unrelated
 formats behind one generic filesystem interface.

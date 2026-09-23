@@ -102,7 +102,6 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Archives
 
-- **[hadris-archive](crates/archive/hadris-archive)** - Category facade for sequential archive formats
 - **[hadris-cpio](crates/archive/hadris-cpio)** - CPIO newc/SVR4 archives (initramfs)
 
 ### CLI Tools
@@ -117,7 +116,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Meta-crate
 
-- **[hadris](crates/core/hadris)** - Optional umbrella built on the three category facades, plus `path` utilities, with grouped APIs: `block::{storage, fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `path`, `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
+- **[hadris](crates/core/hadris)** - Optional umbrella built on the block and optical category facades and `hadris-cpio`, plus `path` utilities, with grouped APIs: `block::{storage, fat, part}`, `optical::{iso, udf, cd}`, and `cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `path`, `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
 
 ## Key Features
 
@@ -181,7 +180,7 @@ hadris = { version = "2.4.0", features = ["block", "optical"] }
 ```
 
 The umbrella crate re-exports the same underlying format crates through
-`hadris::block`, `hadris::optical`, and `hadris::archive`, so applications can
+`hadris::block`, `hadris::optical`, and `hadris::cpio`, so applications can
 grow into partition detection or additional disk-image formats without
 replacing their filesystem implementation.
 

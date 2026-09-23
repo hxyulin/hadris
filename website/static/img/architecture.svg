@@ -102,7 +102,7 @@
 
   <g>
     <rect class="surface" x="640" y="248" width="280" height="112" rx="8"/>
-    <text class="title" x="780" y="290">hadris-archive</text>
+    <text class="title" x="780" y="290">hadris-cpio</text>
     <text class="detail" x="780" y="323">CPIO</text>
   </g>
 

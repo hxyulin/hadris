@@ -456,17 +456,10 @@ dependencies = [
 name = "hadris"
 version = "2.4.0"
 dependencies = [
- "hadris-archive",
  "hadris-block",
+ "hadris-cpio",
  "hadris-optical",
  "hadris-path",
-]
-
-[[package]]
-name = "hadris-archive"
-version = "2.4.0"
-dependencies = [
- "hadris-cpio",
 ]
 
 [[package]]

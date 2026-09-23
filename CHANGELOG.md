@@ -18,6 +18,9 @@ Each published package owns its version and may be released independently.
   `ArrayVecError`. The umbrella `hadris` crate drops its `fixed` feature and
   `hadris::fixed` module. `hadris-common` is documented as internal and not for
   direct use.
+- **hadris-archive (V3):** Removed. The umbrella `hadris` crate depends on
+  `hadris-cpio` directly and re-exports it as `hadris::cpio` instead of
+  `hadris::archive::cpio`. The `archive` and `cpio` features are unchanged.
 
 ### Fixed
 

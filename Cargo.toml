@@ -56,6 +56,5 @@ hadris-optical = { version = "2.4.0", path = "crates/optical/hadris-optical", de
 hadris-iso = { version = "2.4.0", path = "crates/optical/hadris-iso", default-features = false }
 hadris-udf = { version = "2.4.0", path = "crates/optical/hadris-udf", default-features = false }
 hadris-cd = { version = "2.4.0", path = "crates/optical/hadris-cd", default-features = false }
-hadris-archive = { version = "2.4.0", path = "crates/archive/hadris-archive", default-features = false }
 hadris-cpio = { version = "2.4.0", path = "crates/archive/hadris-cpio", default-features = false }
 hadris-ntfs = { version = "2.4.0", path = "crates/block/hadris-ntfs", default-features = false }
