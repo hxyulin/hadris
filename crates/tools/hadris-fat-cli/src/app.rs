@@ -1,16 +1,16 @@
 //! Hadris FAT filesystem analysis and management utility.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read as StdRead, Write as StdWrite};
+use std::fs::{self, File, OpenOptions as HostOpenOptions};
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
-use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
-use hadris_fat::raw::DirEntryAttrFlags;
-use hadris_fat::{DirectoryEntry, FatDir};
-use hadris_fat::{FatAnalysisExt, FatVerifyExt, FatVolume, FatVolumeWriteExt, Read as FatRead};
-use hadris_io::StdIo;
+use hadris_fat::raw::{RawBpb, RawBpbExt16, RawBpbExt32};
+use hadris_fat::sync::{FatFs, check, check_with, format};
+use hadris_fat::{FatKind, FormatOptions, MountOptions, VolumeLabel};
+use hadris_fs::sync::{DriverExt, FsDriver, extract_to_host, import_from_host};
+use hadris_fs::{Attributes, FileType, HeapTable, Metadata, OpenOptions, SystemClock};
 
 #[derive(Parser)]
 #[command(name = "hadris-fat")]
@@ -106,8 +106,8 @@ enum Commands {
         #[arg(long)]
         size: Option<u64>,
         /// FAT type; selected automatically when omitted
-        #[arg(long, value_enum, default_value_t = FatKind::Auto)]
-        fat_type: FatKind,
+        #[arg(long, value_enum, default_value_t = KindArg::Auto)]
+        fat_type: KindArg,
         /// Volume label
         #[arg(short = 'V', long, default_value = "HADRIS")]
         volume_label: String,
@@ -115,7 +115,7 @@ enum Commands {
 }
 
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
-enum FatKind {
+enum KindArg {
     #[default]
     Auto,
     Fat12,
@@ -152,147 +152,204 @@ pub fn run() -> Result<()> {
     }
 }
 
-fn open_fat_fs(path: PathBuf) -> Result<FatVolume<StdIo<File>>> {
-    let file = File::open(&path)
+type Fs = FatFs<File, HeapTable, SystemClock>;
+
+fn mount_options() -> MountOptions<HeapTable, SystemClock> {
+    MountOptions::new()
+        .with_table(HeapTable::new())
+        .with_clock(SystemClock)
+}
+
+/// Mounts an image read-only.
+fn open_fat_fs(path: &Path) -> Result<Fs> {
+    let file = File::open(path)
         .with_context(|| format!("Failed to open image file: {}", path.display()))?;
-    FatVolume::open(StdIo::new(file)).context("Failed to parse FAT filesystem")
+    FatFs::open_with(file, mount_options().with_read_only(true))
+        .context("Failed to parse FAT filesystem")
+}
+
+/// The boot sector fields `FatFs` does not expose.
+struct BootInfo {
+    oem_name: String,
+    volume_id: u32,
+    label: String,
+    fs_type: String,
+}
+
+fn text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim_end().to_string()
+}
+
+fn read_boot_info(path: &Path, kind: FatKind) -> Result<BootInfo> {
+    let mut sector = [0u8; 512];
+    File::open(path)
+        .and_then(|mut file| file.read_exact(&mut sector))
+        .with_context(|| format!("Failed to read boot sector: {}", path.display()))?;
+    let (bpb, ext) = sector.split_at(size_of::<RawBpb>());
+    let bpb: RawBpb = bytemuck::pod_read_unaligned(bpb);
+    let (volume_id, label, fs_type) = if kind == FatKind::Fat32 {
+        let ext: RawBpbExt32 = bytemuck::pod_read_unaligned(&ext[..size_of::<RawBpbExt32>()]);
+        (ext.volume_id, ext.volume_label, ext.fs_type)
+    } else {
+        let ext: RawBpbExt16 = bytemuck::pod_read_unaligned(&ext[..size_of::<RawBpbExt16>()]);
+        (ext.volume_id, ext.volume_label, ext.fs_type)
+    };
+    Ok(BootInfo {
+        oem_name: text(&bpb.oem_name),
+        volume_id: u32::from_le_bytes(volume_id),
+        label: text(&label),
+        fs_type: text(&fs_type),
+    })
 }
 
 /// Prefer the root-directory volume label (what Windows/mkfs.fat update) over
 /// the BPB copy, which can drift. Fall back to the BPB label when no root
 /// entry exists.
-fn display_volume_label(fs: &FatVolume<StdIo<File>>) -> Result<String> {
-    if let Some(raw) = fs
-        .read_root_label()
-        .context("Failed to read root directory from image (image may be truncated)")?
-    {
-        let label = core::str::from_utf8(&raw)
-            .unwrap_or("")
-            .trim_end()
-            .to_string();
-        if !label.is_empty() && label != "NO NAME" {
-            return Ok(label);
+fn display_volume_label(fs: &mut Fs, boot: &BootInfo) -> Result<String> {
+    let label = fs
+        .label()
+        .context("Failed to read root directory from image (image may be truncated)")?;
+    match label {
+        Some(label) if !label.as_str().is_empty() && label.as_str() != "NO NAME" => {
+            Ok(label.as_str().to_string())
         }
+        _ => Ok(boot.label.clone()),
     }
-    Ok(fs.volume_info().volume_label().to_string())
 }
 
 fn cmd_info(image: PathBuf) -> Result<()> {
-    let fs = open_fat_fs(image)?;
-    let vol = fs.volume_info();
-    let label = display_volume_label(&fs)?;
+    let mut fs = open_fat_fs(&image)?;
+    let boot = read_boot_info(&image, fs.kind())?;
+    let label = display_volume_label(&mut fs, &boot)?;
 
     println!("FAT Filesystem Information");
     println!("==========================");
-    println!("FAT Type:        {:?}", fs.fat_type());
-    println!("OEM Name:        {}", vol.oem_name());
+    println!("FAT Type:        {:?}", fs.kind());
+    println!("OEM Name:        {}", boot.oem_name);
     println!("Volume Label:    {label}");
-    println!("Volume ID:       {:08X}", vol.volume_id());
-    println!("FS Type String:  {}", vol.fs_type_str());
+    println!("Volume ID:       {:08X}", boot.volume_id);
+    println!("FS Type String:  {}", boot.fs_type);
 
     Ok(())
+}
+
+fn percent(part: u64, total: u64) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        part as f64 * 100.0 / total as f64
+    }
 }
 
 fn cmd_stat(image: PathBuf) -> Result<()> {
-    let fs = open_fat_fs(image)?;
-    let stats = fs.statistics().context("Failed to gather statistics")?;
-    let label = display_volume_label(&fs)?;
+    let mut fs = open_fat_fs(&image)?;
+    let boot = read_boot_info(&image, fs.kind())?;
+    let label = display_volume_label(&mut fs, &boot)?;
+    let stats = fs.stats().context("Failed to gather statistics")?;
+    let report = check(&mut fs).context("Failed to scan the filesystem")?;
+    let cluster_size = u64::from(stats.block_size());
+    let total = stats.total_bytes();
+    let used = u64::from(report.used_clusters()) * cluster_size;
+    let free = u64::from(report.free_clusters()) * cluster_size;
 
     println!("FAT Filesystem Statistics");
     println!("=========================");
-    println!("FAT Type:            {:?}", stats.fat_type);
+    println!("FAT Type:            {:?}", fs.kind());
     println!("Volume Label:        {label}");
     println!();
     println!("Cluster Information:");
-    println!("  Cluster Size:      {} bytes", stats.cluster_size);
-    println!("  Total Clusters:    {}", stats.total_clusters);
-    println!("  Used Clusters:     {}", stats.used_clusters);
-    println!("  Free Clusters:     {}", stats.free_clusters);
-    println!("  Bad Clusters:      {}", stats.bad_clusters);
-    println!("  Reserved:          {}", stats.reserved_clusters);
+    println!("  Cluster Size:      {cluster_size} bytes");
+    println!("  Total Clusters:    {}", stats.total_blocks());
+    println!("  Used Clusters:     {}", report.used_clusters());
+    println!("  Free Clusters:     {}", report.free_clusters());
+    println!("  Bad Clusters:      {}", report.bad_clusters());
     println!();
     println!("Space Usage:");
     println!(
-        "  Total Capacity:    {} ({} bytes)",
-        format_size(stats.total_capacity),
-        stats.total_capacity
+        "  Total Capacity:    {} ({total} bytes)",
+        format_size(total)
     );
     println!(
         "  Used Space:        {} ({:.1}%)",
-        format_size(stats.used_space),
-        stats.used_percentage()
+        format_size(used),
+        percent(used, total)
     );
     println!(
         "  Free Space:        {} ({:.1}%)",
-        format_size(stats.free_space),
-        stats.free_percentage()
+        format_size(free),
+        percent(free, total)
     );
     println!();
     println!("File System Contents:");
-    println!("  Files:             {}", stats.file_count);
-    println!("  Directories:       {}", stats.directory_count);
+    println!("  Files:             {}", report.files());
+    println!("  Directories:       {}", report.directories());
 
     Ok(())
 }
 
-fn cmd_ls(image: PathBuf, path: &str, long: bool) -> Result<()> {
-    let fs = open_fat_fs(image)?;
-
-    let dir = if path == "/" {
-        fs.root_dir()
+fn join(dir: &str, name: &str) -> String {
+    if dir.ends_with('/') {
+        format!("{dir}{name}")
     } else {
-        fs.open_dir_path(path)
-            .with_context(|| format!("Failed to open directory: {path}"))?
-    };
+        format!("{dir}/{name}")
+    }
+}
 
-    for entry in dir.entries() {
-        let entry = entry.context("Failed to read directory entry")?;
-        let DirectoryEntry::Entry(file_entry) = entry;
+/// The entries of the directory at `path` with their metadata, in directory
+/// order.
+fn list_dir(fs: &mut Fs, path: &str) -> Result<Vec<(String, Metadata)>> {
+    let mut names = Vec::new();
+    for item in fs
+        .read_dir(path)
+        .with_context(|| format!("Failed to open directory: {path}"))?
+    {
+        let item = item.context("Failed to read directory entry")?;
+        let name = item
+            .name_str()
+            .context("Directory entry name is not valid UTF-8")?;
+        names.push(name.to_string());
+    }
+    names
+        .into_iter()
+        .map(|name| {
+            let meta = fs
+                .metadata(&join(path, &name))
+                .with_context(|| format!("Failed to read metadata of {name}"))?;
+            Ok((name, meta))
+        })
+        .collect()
+}
 
-        let name = file_entry.name();
-        if name == "." || name == ".." {
-            continue;
-        }
+fn attribute_flags(attrs: Attributes) -> String {
+    [
+        (Attributes::READ_ONLY, 'r'),
+        (Attributes::HIDDEN, 'h'),
+        (Attributes::SYSTEM, 's'),
+        (Attributes::ARCHIVE, 'a'),
+    ]
+    .iter()
+    .map(|&(flag, c)| if attrs.contains(flag) { c } else { '-' })
+    .collect()
+}
 
+fn cmd_ls(image: PathBuf, path: &str, long: bool) -> Result<()> {
+    let mut fs = open_fat_fs(&image)?;
+
+    for (name, meta) in list_dir(&mut fs, path)? {
+        let is_dir = meta.file_type().is_dir();
         if long {
-            let type_char = if file_entry.is_directory() { 'd' } else { '-' };
-            let attrs = file_entry.attributes();
-            let r = if attrs.contains(DirEntryAttrFlags::READ_ONLY) {
-                'r'
-            } else {
-                '-'
-            };
-            let h = if attrs.contains(DirEntryAttrFlags::HIDDEN) {
-                'h'
-            } else {
-                '-'
-            };
-            let s = if attrs.contains(DirEntryAttrFlags::SYSTEM) {
-                's'
-            } else {
-                '-'
-            };
-            let a = if attrs.contains(DirEntryAttrFlags::ARCHIVE) {
-                'a'
-            } else {
-                '-'
-            };
-
             println!(
-                "{}{}{}{}{} {:>10}  {}",
-                type_char,
-                r,
-                h,
-                s,
-                a,
-                if file_entry.is_directory() {
+                "{}{} {:>10}  {}",
+                if is_dir { 'd' } else { '-' },
+                attribute_flags(meta.attributes()),
+                if is_dir {
                     "<DIR>".to_string()
                 } else {
-                    file_entry.len().to_string()
+                    meta.len().to_string()
                 },
                 name
             );
-        } else if file_entry.is_directory() {
+        } else if is_dir {
             println!("{name}/");
         } else {
             println!("{name}");
@@ -303,24 +360,14 @@ fn cmd_ls(image: PathBuf, path: &str, long: bool) -> Result<()> {
 }
 
 fn cmd_tree(image: PathBuf, path: &str, max_depth: Option<usize>) -> Result<()> {
-    let fs = open_fat_fs(image)?;
-
-    let dir = if path == "/" {
-        fs.root_dir()
-    } else {
-        fs.open_dir_path(path)
-            .with_context(|| format!("Failed to open directory: {path}"))?
-    };
-
+    let mut fs = open_fat_fs(&image)?;
     println!("{path}");
-    print_tree(&fs, &dir, "", max_depth, 0)?;
-
-    Ok(())
+    print_tree(&mut fs, path, "", max_depth, 0)
 }
 
-fn print_tree<DATA: FatRead + hadris_fat::Seek>(
-    fs: &FatVolume<DATA>,
-    dir: &FatDir<'_, DATA>,
+fn print_tree(
+    fs: &mut Fs,
+    path: &str,
     prefix: &str,
     max_depth: Option<usize>,
     current_depth: usize,
@@ -331,36 +378,26 @@ fn print_tree<DATA: FatRead + hadris_fat::Seek>(
         return Ok(());
     }
 
-    let entries: Vec<_> = dir
-        .entries()
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let DirectoryEntry::Entry(fe) = e;
-            let name = fe.name().to_string();
-            if name == "." || name == ".." {
-                None
-            } else {
-                Some(fe)
-            }
-        })
-        .collect();
-
+    let entries = list_dir(fs, path)?;
     let count = entries.len();
-    for (i, entry) in entries.into_iter().enumerate() {
+    for (i, (name, meta)) in entries.into_iter().enumerate() {
         let is_last = i == count - 1;
         let connector = if is_last { "└── " } else { "├── " };
-        let name = entry.name();
 
-        if entry.is_directory() {
+        if meta.file_type().is_dir() {
             println!("{prefix}{connector}{name}/");
             let new_prefix = if is_last {
                 format!("{prefix}    ")
             } else {
                 format!("{prefix}│   ")
             };
-
-            let subdir = fs.open_dir_entry(&entry)?;
-            print_tree(fs, &subdir, &new_prefix, max_depth, current_depth + 1)?;
+            print_tree(
+                fs,
+                &join(path, &name),
+                &new_prefix,
+                max_depth,
+                current_depth + 1,
+            )?;
         } else {
             println!("{prefix}{connector}{name}");
         }
@@ -369,33 +406,90 @@ fn print_tree<DATA: FatRead + hadris_fat::Seek>(
     Ok(())
 }
 
+/// Every file below `path`, with its path and size.
+fn walk_files(fs: &mut Fs, path: &str, out: &mut Vec<(String, u64)>) -> Result<()> {
+    for (name, meta) in list_dir(fs, path)? {
+        let child = join(path, &name);
+        match meta.file_type() {
+            FileType::Dir => walk_files(fs, &child, out)?,
+            _ => out.push((child, meta.len())),
+        }
+    }
+    Ok(())
+}
+
+/// The clusters of the file or directory at `path`.
+fn cluster_chain(fs: &mut Fs, path: &str) -> Result<Vec<u32>> {
+    let node = fs
+        .resolve(path)
+        .with_context(|| format!("Failed to open: {path}"))?;
+    let mut chain = Vec::new();
+    let result = fs.cluster_chain(node, |cluster| chain.push(cluster));
+    fs.forget(node);
+    result.with_context(|| format!("Failed to read cluster chain of {path}"))?;
+    Ok(chain)
+}
+
+/// The number of contiguous runs in a chain.
+fn count_fragments(chain: &[u32]) -> u32 {
+    if chain.is_empty() {
+        return 0;
+    }
+    1 + chain
+        .windows(2)
+        .filter(|pair| pair[1] != pair[0].wrapping_add(1))
+        .count() as u32
+}
+
 fn cmd_fragmentation(image: PathBuf, top: usize) -> Result<()> {
-    let fs = open_fat_fs(image)?;
-    let report = fs
-        .fragmentation_report(top)
-        .context("Failed to analyze fragmentation")?;
+    let mut fs = open_fat_fs(&image)?;
+    let mut files = Vec::new();
+    walk_files(&mut fs, "/", &mut files).context("Failed to analyze fragmentation")?;
+
+    let mut report = Vec::with_capacity(files.len());
+    for (path, size) in files {
+        let fragments = count_fragments(&cluster_chain(&mut fs, &path)?);
+        report.push((fragments, size, path));
+    }
+    let total_files = report.len() as u32;
+    let total_fragments: u32 = report.iter().map(|(fragments, ..)| fragments).sum();
+    let fragmented_files = report
+        .iter()
+        .filter(|(fragments, ..)| *fragments > 1)
+        .count() as u32;
+    let average = if total_files == 0 {
+        0.0
+    } else {
+        f64::from(total_fragments) / f64::from(total_files)
+    };
+    report.sort_by(|a, b| b.0.cmp(&a.0));
+    let most_fragmented: Vec<_> = report
+        .into_iter()
+        .filter(|(fragments, ..)| *fragments > 1)
+        .take(top)
+        .collect();
 
     println!("Fragmentation Analysis");
     println!("======================");
-    println!("Total Files:             {}", report.total_files);
-    println!("Fragmented Files:        {}", report.fragmented_files);
+    println!("Total Files:             {total_files}");
+    println!("Fragmented Files:        {fragmented_files}");
     println!(
         "Fragmentation Rate:      {:.1}%",
-        report.fragmentation_percentage
+        percent(u64::from(fragmented_files), u64::from(total_files))
     );
-    println!("Average Fragments/File:  {:.2}", report.average_fragments);
-    println!("Total Fragments:         {}", report.total_fragments);
+    println!("Average Fragments/File:  {average:.2}");
+    println!("Total Fragments:         {total_fragments}");
 
-    if !report.most_fragmented.is_empty() {
+    if !most_fragmented.is_empty() {
         println!();
         println!("Most Fragmented Files:");
         println!("----------------------");
-        for file in &report.most_fragmented {
+        for (fragments, size, path) in &most_fragmented {
             println!(
                 "  {:>4} fragments  {:>10}  {}",
-                file.fragments,
-                format_size(file.size as u64),
-                file.path
+                fragments,
+                format_size(*size),
+                path
             );
         }
     }
@@ -404,191 +498,122 @@ fn cmd_fragmentation(image: PathBuf, top: usize) -> Result<()> {
 }
 
 fn cmd_verify(image: PathBuf, verbose: bool) -> Result<()> {
-    let fs = open_fat_fs(image)?;
-    let report = fs.verify().context("Failed to verify filesystem")?;
+    let mut fs = open_fat_fs(&image)?;
+    let clusters = fs.stats().context("Failed to read the FAT")?.total_blocks() + 2;
+    let mut bitmap = vec![0u8; clusters.div_ceil(8) as usize];
+    let mut findings = Vec::new();
+    let report = check_with(&mut fs, &mut bitmap, |finding| findings.push(finding))
+        .context("Failed to verify filesystem")?;
 
     println!("Filesystem Verification");
     println!("=======================");
-    println!("Files Checked:       {}", report.files_checked);
-    println!("Directories Checked: {}", report.directories_checked);
-    println!("Clusters Verified:   {}", report.clusters_verified);
+    println!("Files Checked:       {}", report.files());
+    println!("Directories Checked: {}", report.directories());
+    println!("Clusters In Use:     {}", report.used_clusters());
+    if verbose {
+        println!("Free Clusters:       {}", report.free_clusters());
+        println!("Bad Clusters:        {}", report.bad_clusters());
+        println!("Lost Clusters:       {}", report.lost_clusters());
+    }
     println!();
 
-    if report.is_valid() {
+    if report.is_clean() {
         println!("Result: PASS - No issues found");
     } else {
-        println!("Result: FAIL - {} issue(s) found", report.issue_count());
+        println!("Result: FAIL - {} issue(s) found", report.findings());
         println!();
         println!("Issues:");
-        for issue in &report.issues {
-            println!("  - {issue}");
-            if verbose {
-                // Additional details could be printed here
-            }
+        for finding in &findings {
+            println!("  - {finding:?}");
         }
     }
 
     Ok(())
 }
 
+fn print_chain(chain: &[u32], offset: usize) {
+    for (i, cluster) in chain.iter().enumerate() {
+        if i > 0 {
+            if *cluster != chain[i - 1].wrapping_add(1) {
+                print!(" -> [gap] -> ");
+            } else {
+                print!(" -> ");
+            }
+        } else if offset > 0 {
+            print!("... ");
+        }
+        print!("{cluster}");
+    }
+}
+
 fn cmd_chain(image: PathBuf, file_path: &str) -> Result<()> {
-    let fs = open_fat_fs(image)?;
-
-    let entry = fs
-        .open_path(file_path)
+    let mut fs = open_fat_fs(&image)?;
+    let meta = fs
+        .metadata(file_path)
         .with_context(|| format!("Failed to open: {file_path}"))?;
-
-    let first_cluster = entry.cluster().0 as u32;
-    if first_cluster < 2 {
+    let chain = cluster_chain(&mut fs, file_path)?;
+    if chain.is_empty() {
         println!("File '{file_path}' has no cluster chain (empty file)");
         return Ok(());
     }
 
-    let chain = fs
-        .get_cluster_chain(first_cluster)
-        .context("Failed to read cluster chain")?;
-
     println!("Cluster chain for: {file_path}");
-    println!("File size: {} bytes", entry.len());
+    println!("File size: {} bytes", meta.len());
     println!("Chain length: {} clusters", chain.len());
     println!();
-
-    // Count fragments
-    let mut fragments = 1;
-    for window in chain.windows(2) {
-        if window[1] != window[0] + 1 {
-            fragments += 1;
-        }
-    }
-    println!("Fragments: {fragments}");
+    println!("Fragments: {}", count_fragments(&chain));
     println!();
 
-    // Print chain (abbreviated if very long)
     println!("Clusters:");
     if chain.len() <= 20 {
-        for (i, cluster) in chain.iter().enumerate() {
-            if i > 0 {
-                let prev = chain[i - 1];
-                if *cluster != prev + 1 {
-                    print!(" -> [gap] -> ");
-                } else {
-                    print!(" -> ");
-                }
-            }
-            print!("{cluster}");
-        }
-        println!();
+        print_chain(&chain, 0);
     } else {
-        // Show first 10, ..., last 10
-        for (i, cluster) in chain[..10].iter().enumerate() {
-            if i > 0 {
-                let prev = chain[i - 1];
-                if *cluster != prev + 1 {
-                    print!(" -> [gap] -> ");
-                } else {
-                    print!(" -> ");
-                }
-            }
-            print!("{cluster}");
-        }
+        print_chain(&chain[..10], 0);
         println!(" ... ({} more) ...", chain.len() - 20);
-        for (i, cluster) in chain[chain.len() - 10..].iter().enumerate() {
-            if i > 0 {
-                let prev = chain[chain.len() - 11 + i];
-                if *cluster != prev + 1 {
-                    print!(" -> [gap] -> ");
-                } else {
-                    print!(" -> ");
-                }
-            } else {
-                print!("... ");
-            }
-            print!("{cluster}");
-        }
-        println!();
+        print_chain(&chain[chain.len() - 10..], chain.len() - 10);
     }
+    println!();
 
     Ok(())
 }
 
 fn cmd_cat(image: PathBuf, path: &str) -> Result<()> {
-    let fs = open_fat_fs(image)?;
-    let mut reader = fs
-        .open_file_path(path)
+    let mut fs = open_fat_fs(&image)?;
+    let mut file = fs
+        .open(path, OpenOptions::read())
         .with_context(|| format!("Failed to open file: {path}"))?;
     let mut stdout = std::io::stdout().lock();
-    copy_from_fat(&mut reader, &mut stdout).context("Failed to write file to stdout")?;
+    std::io::copy(&mut file, &mut stdout).context("Failed to write file to stdout")?;
+    stdout.flush()?;
     Ok(())
 }
 
 fn cmd_extract(image: PathBuf, output: &Path, path: Option<&str>) -> Result<()> {
-    let fs = open_fat_fs(image)?;
+    let mut fs = open_fat_fs(&image)?;
     fs::create_dir_all(output)
         .with_context(|| format!("Failed to create output directory: {}", output.display()))?;
 
-    match path {
-        None | Some("/") => extract_dir(&fs, &fs.root_dir(), output),
+    let (from, destination) = match path {
+        None | Some("/") => ("/", output.to_path_buf()),
         Some(path) => {
-            let entry = fs
-                .open_path(path)
-                .with_context(|| format!("Failed to open: {path}"))?;
-            let destination = output.join(entry.name().as_ref());
-            if entry.is_directory() {
-                fs::create_dir_all(&destination)?;
-                let dir = fs.open_dir_entry(&entry)?;
-                extract_dir(&fs, &dir, &destination)
-            } else {
-                extract_file(&fs, &entry, &destination)
-            }
+            let name = path
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .filter(|name| !name.is_empty())
+                .with_context(|| format!("Invalid path: {path}"))?;
+            (path, output.join(name))
         }
-    }
-}
-
-fn extract_dir<DATA: FatRead + hadris_fat::Seek>(
-    fs: &FatVolume<DATA>,
-    dir: &FatDir<'_, DATA>,
-    destination: &Path,
-) -> Result<()> {
-    for entry in dir.entries() {
-        let DirectoryEntry::Entry(entry) = entry.context("Failed to read directory entry")?;
-        let name = entry.name();
-        if name == "." || name == ".." {
-            continue;
-        }
-        if name.contains(['/', '\\']) {
-            bail!("Refusing unsafe FAT entry name: {name}");
-        }
-        let path = destination.join(name.as_ref());
-        if entry.is_directory() {
-            fs::create_dir_all(&path)
-                .with_context(|| format!("Failed to create directory: {}", path.display()))?;
-            let child = fs.open_dir_entry(&entry)?;
-            extract_dir(fs, &child, &path)?;
-        } else {
-            extract_file(fs, &entry, &path)?;
-        }
-    }
-    Ok(())
-}
-
-fn extract_file<DATA: FatRead + hadris_fat::Seek>(
-    fs: &FatVolume<DATA>,
-    entry: &hadris_fat::FileEntry,
-    destination: &Path,
-) -> Result<()> {
-    let mut reader = hadris_fat::read::FileReader::new(fs, entry)?;
-    let mut output = File::create(destination)
-        .with_context(|| format!("Failed to create: {}", destination.display()))?;
-    copy_from_fat(&mut reader, &mut output)
-        .with_context(|| format!("Failed to extract: {}", destination.display()))?;
-    Ok(())
+    };
+    extract_to_host(&mut fs, from, &destination)
+        .with_context(|| format!("Failed to extract {from} to {}", destination.display()))
 }
 
 fn cmd_create(
     source: &Path,
     output: &Path,
     requested_size: Option<u64>,
-    fat_type: FatKind,
+    fat_type: KindArg,
     volume_label: &str,
 ) -> Result<()> {
     let metadata = fs::symlink_metadata(source)
@@ -596,10 +621,12 @@ fn cmd_create(
     if !metadata.is_dir() {
         bail!("Source must be a directory: {}", source.display());
     }
+    let label = VolumeLabel::new(volume_label)
+        .map_err(|kind| anyhow::anyhow!("Invalid volume label {volume_label:?}: {kind}"))?;
 
     let inventory = inventory_source(source)?;
     let image_size = requested_size.unwrap_or_else(|| estimate_image_size(&inventory, fat_type));
-    let file = OpenOptions::new()
+    let file = HostOpenOptions::new()
         .read(true)
         .write(true)
         .create_new(true)
@@ -608,28 +635,33 @@ fn cmd_create(
     file.set_len(image_size)
         .with_context(|| format!("Failed to size image to {image_size} bytes"))?;
 
-    let selection = match fat_type {
-        FatKind::Auto => FatTypeSelection::Auto,
-        FatKind::Fat12 => FatTypeSelection::Fat12,
-        FatKind::Fat16 => FatTypeSelection::Fat16,
-        FatKind::Fat32 => FatTypeSelection::Fat32,
-    };
-    let options = FatFormatOptions::new(image_size)
-        .volume_label(volume_label)
-        .fat_type(selection);
-    let fs = FatVolumeFormatter::format(StdIo::new(file), options).with_context(|| {
+    let mut options = FormatOptions::new()
+        .with_label(label)
+        .with_clock(SystemClock);
+    if let Some(kind) = match fat_type {
+        KindArg::Auto => None,
+        KindArg::Fat12 => Some(FatKind::Fat12),
+        KindArg::Fat16 => Some(FatKind::Fat16),
+        KindArg::Fat32 => Some(FatKind::Fat32),
+    } {
+        options = options.with_kind(kind);
+    }
+    let formatted = format(file, options).with_context(|| {
         format!(
             "Failed to format {image_size}-byte image; choose a compatible FAT type or increase --size"
         )
     })?;
-    let root = fs.root_dir();
-    import_directory(&fs, &root, source).with_context(
+    let kind = formatted.kind();
+    let mut fs = FatFs::open_with(formatted.into_inner(), mount_options())
+        .context("Failed to mount the formatted image")?;
+    import_from_host(source, &mut fs, "/").with_context(
         || "Failed to import source tree; increase --size if the image is out of space",
     )?;
+    fs.sync().context("Failed to write the image")?;
     println!(
         "Created {} ({:?}, {} bytes)",
         output.display(),
-        fs.fat_type(),
+        kind,
         image_size
     );
     Ok(())
@@ -673,13 +705,13 @@ fn sorted_host_entries(directory: &Path) -> Result<Vec<fs::DirEntry>> {
     Ok(entries)
 }
 
-fn estimate_image_size(inventory: &SourceInventory, fat_type: FatKind) -> u64 {
+fn estimate_image_size(inventory: &SourceInventory, fat_type: KindArg) -> u64 {
     const MIB: u64 = 1024 * 1024;
     let minimum = match fat_type {
-        FatKind::Fat12 => 2 * MIB,
-        FatKind::Fat16 => 16 * MIB,
-        FatKind::Fat32 => 64 * MIB,
-        FatKind::Auto => 4 * MIB,
+        KindArg::Fat12 => 2 * MIB,
+        KindArg::Fat16 => 16 * MIB,
+        KindArg::Fat32 => 64 * MIB,
+        KindArg::Auto => 4 * MIB,
     };
     let estimated = inventory
         .bytes
@@ -687,82 +719,6 @@ fn estimate_image_size(inventory: &SourceInventory, fat_type: FatKind) -> u64 {
         .saturating_add(inventory.entries.saturating_mul(4096))
         .saturating_add(2 * MIB);
     estimated.max(minimum).div_ceil(MIB) * MIB
-}
-
-fn import_directory<DATA: FatRead + hadris_fat::Write + hadris_fat::Seek>(
-    fs: &FatVolume<DATA>,
-    destination: &FatDir<'_, DATA>,
-    source: &Path,
-) -> Result<()> {
-    for entry in sorted_host_entries(source)? {
-        let source_path = entry.path();
-        let metadata = fs::symlink_metadata(&source_path)?;
-        let name = entry.file_name().into_string().map_err(|_| {
-            anyhow::anyhow!(
-                "Host filename is not valid UTF-8: {}",
-                source_path.display()
-            )
-        })?;
-        if metadata.file_type().is_symlink() {
-            bail!(
-                "Symbolic links are not supported: {}",
-                source_path.display()
-            );
-        } else if metadata.is_dir() {
-            let child = fs
-                .create_dir(destination, &name)
-                .with_context(|| format!("Failed to create directory in image: {name}"))?;
-            import_directory(fs, &child, &source_path)?;
-        } else if metadata.is_file() {
-            let image_entry = fs
-                .create_file(destination, &name)
-                .with_context(|| format!("Failed to create file in image: {name}"))?;
-            let mut input = File::open(&source_path)?;
-            let mut writer = fs.write_file(&image_entry)?;
-            let mut buffer = [0u8; 64 * 1024];
-            loop {
-                let count = StdRead::read(&mut input, &mut buffer)?;
-                if count == 0 {
-                    break;
-                }
-                let mut offset = 0;
-                while offset < count {
-                    let written = writer.write(&buffer[offset..count]).with_context(|| {
-                        format!("Failed to copy file into image: {}", source_path.display())
-                    })?;
-                    if written == 0 {
-                        bail!("FAT writer made no progress for {}", source_path.display());
-                    }
-                    offset += written;
-                }
-            }
-            writer.finish()?;
-        } else {
-            bail!("Unsupported host entry type: {}", source_path.display());
-        }
-    }
-    Ok(())
-}
-
-fn copy_from_fat<DATA, W>(
-    reader: &mut hadris_fat::read::FileReader<'_, DATA>,
-    output: &mut W,
-) -> Result<u64>
-where
-    DATA: FatRead + hadris_fat::Seek,
-    W: StdWrite,
-{
-    let mut copied = 0u64;
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let count = reader.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        StdWrite::write_all(output, &buffer[..count])?;
-        copied += count as u64;
-    }
-    Ok(copied)
 }
 
 /// Format a size in bytes to a human-readable string.

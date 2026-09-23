@@ -70,6 +70,32 @@ fn create_cat_and_extract_roundtrip() {
         std::fs::read(extracted.join("nested/hello.txt")).unwrap(),
         b"hello from FAT"
     );
+
+    for (args, expected) in [
+        (&["verify"][..], "Result: PASS"),
+        (&["ls", "--long"][..], "<DIR>  nested"),
+        (&["info"][..], "Volume Label:    HADRIS"),
+        (&["stat"][..], "Files:             1"),
+        (&["fragmentation"][..], "Total Files:             1"),
+    ] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_hadris-fat"))
+            .args(args)
+            .arg(&image)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        assert!(stdout.contains(expected), "{args:?}:\n{stdout}");
+    }
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_hadris-fat"))
+        .arg("chain")
+        .arg(&image)
+        .arg("/nested/hello.txt")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Chain length: 1 clusters"));
 }
 
 #[cfg(unix)]

@@ -661,9 +661,10 @@ name = "hadris-fat-cli"
 version = "2.4.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "clap",
  "hadris-fat",
- "hadris-io",
+ "hadris-fs",
  "libc",
  "tempfile",
 ]
