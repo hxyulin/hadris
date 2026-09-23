@@ -180,6 +180,12 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs (V3):** `remove` takes a `RemoveKind` (`File`, `Dir`,
+  `Any`; non-exhaustive): `remove(dir, name, kind)`. The driver checks the
+  type it already reads, failing with `IsADirectory` or `NotADirectory`, so
+  `unlink` and `rmdir` need no lookup first. `RemoveKind::check` does the
+  comparison for drivers. `remove_file`, `remove_dir` and `remove_dir_all`
+  no longer pin the node they remove.
 - **hadris-fs (V3):** `ErrorKind` gains `NameTooLong` and `FileTooLarge`,
   so each kind maps to one errno. A name longer than the format or a
   `NameBuf` accepts (`NameError::TooLong`) and an over-long FAT name or

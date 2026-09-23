@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use hadris_fs::{
     Capabilities, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats, Metadata, Name,
-    NameBuf, NewNode, NodeId, RenameFlags, SetMetadata,
+    NameBuf, NewNode, NodeId, RemoveKind, RenameFlags, SetMetadata,
 };
 
 use crate::common::MemError;
@@ -97,6 +97,14 @@ impl MemFs {
             *self.pins.entry(id(index).get()).or_default() += 1;
         }
         id(index)
+    }
+
+    fn file_type(&self, index: usize) -> FileType {
+        match self.nodes[index].as_ref().map(|n| &n.kind) {
+            Some(Kind::Dir) => FileType::Dir,
+            Some(Kind::Link(_)) => FileType::Symlink,
+            _ => FileType::File,
+        }
     }
 
     fn writable(&self) -> FsResult<(), MemError> {
@@ -217,11 +225,13 @@ impl MemFs {
         Ok(self.pin(self.nodes.len() - 1))
     }
 
-    pub async fn remove(&mut self, dir: NodeId, name: &Name) -> FsResult<(), MemError> {
+    pub async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), MemError> {
         self.writable()?;
         self.device()?;
         let dir = self.dir(dir)?;
         let index = self.child(dir, name.as_bytes()).ok_or(ErrorKind::NotFound)?;
+        let file_type = self.file_type(index);
+        kind.check(file_type)?;
         if self.nodes.iter().flatten().any(|n| n.parent == index) {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }

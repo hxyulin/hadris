@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use common::{CASES, INNER, INNER_FILES, LONG_NAME, block_on};
 use hadris_fs::{
-    DirCursor, ErrorKind, Name, NameBuf, NewNode, OpenOptions, RenameFlags, SetMetadata,
+    DirCursor, ErrorKind, Name, NameBuf, NewNode, OpenOptions, RemoveKind, RenameFlags, SetMetadata,
 };
 
 #[test]
@@ -187,14 +187,14 @@ fn async_mode_writes() {
         .await
         .unwrap();
         assert_eq!(
-            fs.remove(root, Name::new("A Directory").unwrap())
+            fs.remove(root, Name::new("A Directory").unwrap(), RemoveKind::Any)
                 .await
                 .unwrap_err()
                 .kind(),
             ErrorKind::Busy
         );
         fs.forget(dir);
-        fs.remove(root, Name::new("a directory").unwrap())
+        fs.remove(root, Name::new("a directory").unwrap(), RemoveKind::Any)
             .await
             .unwrap();
         let mut buf = vec![0u8; 9_000];

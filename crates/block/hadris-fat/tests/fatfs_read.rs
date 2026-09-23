@@ -467,7 +467,12 @@ fn capabilities_and_write_methods_are_read_only() {
     let meta = SetMetadata::new();
     let kinds = [
         FsDriver::create(&mut fs, root, name("new"), NewNode::File, &meta).map(|_| ()),
-        FsDriver::remove(&mut fs, root, name("README.TXT")),
+        FsDriver::remove(
+            &mut fs,
+            root,
+            name("README.TXT"),
+            hadris_fs::RemoveKind::Any,
+        ),
         FsDriver::write_at(&mut fs, file, 0, b"x").map(|_| ()),
         FsDriver::set_len(&mut fs, file, 0),
         FsDriver::set_metadata(&mut fs, file, &meta),

@@ -16,7 +16,7 @@ use hadris_fs::sync::{DriverExt, FileSystem, FsDriver, PathExt, Volume, copy_tre
 use hadris_fs::{
     Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, FileTimes, FileType,
     FixedTable, HeapTable, Name, NameBuf, NewNode, NoClock, NodeId, NodeTable, OpenOptions,
-    RenameFlags, SetMetadata,
+    RemoveKind, RenameFlags, SetMetadata,
 };
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, OutOfRange, WriteError};
@@ -879,13 +879,14 @@ fn remove_files_and_directories() {
     let before = free(&mut fs);
     let file = fs.lookup(root, name("a long file name.txt")).unwrap();
     assert_eq!(
-        fs.remove(root, name("A long file name.txt"))
+        fs.remove(root, name("A long file name.txt"), RemoveKind::Any)
             .unwrap_err()
             .kind(),
         ErrorKind::Busy
     );
     fs.forget(file);
-    fs.remove(root, name("ALONGF~1.TXT")).unwrap();
+    fs.remove(root, name("ALONGF~1.TXT"), RemoveKind::Any)
+        .unwrap();
     assert!(free(&mut fs) > before);
     assert_eq!(
         fs.lookup(root, name("A long file name.txt"))
@@ -894,28 +895,46 @@ fn remove_files_and_directories() {
         ErrorKind::NotFound
     );
     assert_eq!(
-        fs.remove(root, name("Nested Dir")).unwrap_err().kind(),
+        fs.remove(root, name("Nested Dir"), RemoveKind::Any)
+            .unwrap_err()
+            .kind(),
         ErrorKind::DirectoryNotEmpty
     );
     assert_eq!(
-        fs.remove(root, name("missing")).unwrap_err().kind(),
+        fs.remove(root, name("missing"), RemoveKind::Any)
+            .unwrap_err()
+            .kind(),
         ErrorKind::NotFound
+    );
+    assert_eq!(
+        fs.remove(root, name("Nested Dir"), RemoveKind::File)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::IsADirectory
+    );
+    assert_eq!(
+        fs.remove(root, name("README.TXT"), RemoveKind::Dir)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotADirectory
     );
 
     let pending = fs.lookup(root, name("grown.bin")).unwrap();
     write_all(&mut fs, pending, 20_000, b"more");
     fs.forget(pending);
     assert_eq!(fs.open_nodes(), 2, "an unsynced size keeps the node");
-    fs.remove(root, name("grown.bin")).unwrap();
+    fs.remove(root, name("grown.bin"), RemoveKind::Any).unwrap();
     assert_eq!(fs.open_nodes(), 1);
 
     let dir = fs.resolve("/Nested Dir").unwrap();
     let inner = fs.lookup(dir, name("inner")).unwrap();
-    fs.remove(inner, name("deep.bin")).unwrap();
+    fs.remove(inner, name("deep.bin"), RemoveKind::File)
+        .unwrap();
     fs.forget(inner);
-    fs.remove(dir, name("inner")).unwrap();
+    fs.remove(dir, name("inner"), RemoveKind::Dir).unwrap();
     fs.forget(dir);
-    fs.remove(root, name("Nested Dir")).unwrap();
+    fs.remove(root, name("Nested Dir"), RemoveKind::Any)
+        .unwrap();
     for text in [
         "README.TXT",
         "lower.txt",
@@ -923,7 +942,7 @@ fn remove_files_and_directories() {
         "sparse.bin",
         "empty.dat",
     ] {
-        fs.remove(root, name(text)).unwrap();
+        fs.remove(root, name(text), RemoveKind::Any).unwrap();
     }
     assert!(list(&mut fs, root).is_empty());
     fs.sync().unwrap();
@@ -1482,7 +1501,7 @@ fn refused_writes_make_the_volume_read_only() {
     let kinds = [
         fs.create(root, name("new"), NewNode::File, &meta)
             .map(|_| ()),
-        fs.remove(root, name("lower.txt")),
+        fs.remove(root, name("lower.txt"), RemoveKind::Any),
         fs.rename(
             root,
             name("lower.txt"),
@@ -1515,7 +1534,7 @@ fn refused_writes_make_the_volume_read_only() {
             0 => fs
                 .create(root, name("a long new name"), NewNode::Dir, &meta)
                 .map(|_| ()),
-            1 => fs.remove(root, name("A long file name.txt")),
+            1 => fs.remove(root, name("A long file name.txt"), RemoveKind::Any),
             _ => fs.rename(
                 root,
                 name("lower.txt"),
@@ -1554,7 +1573,7 @@ fn interrupted_operations_leave_readable_volumes() {
                 0 => fs
                     .create(root, name("a new directory"), NewNode::Dir, &meta)
                     .map(|_| ()),
-                1 => fs.remove(root, name("A long file name.txt")),
+                1 => fs.remove(root, name("A long file name.txt"), RemoveKind::Any),
                 2 => fs.rename(
                     root,
                     name("Nested Dir"),
@@ -1788,7 +1807,7 @@ fn random_operations_match_a_model() {
                     fs.forget(node);
                 }
                 4 => {
-                    let result = fs.remove(dirs[d], name(text));
+                    let result = fs.remove(dirs[d], name(text), RemoveKind::Any);
                     match model.get(&key) {
                         None => {
                             assert_eq!(result.unwrap_err().kind(), ErrorKind::NotFound, "{context}")

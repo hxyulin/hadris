@@ -167,29 +167,14 @@ async fn write_file<D: FsDriver + ?Sized>(fs: &mut D, path: &str, data: &[u8]) -
     file.close(fs, result).await
 }
 
-/// Removes `name` from `dir` after checking its type: a directory when
-/// `want_dir`, anything else otherwise.
-async fn remove_checked<D: FsDriver + ?Sized>(
+/// Removes the node at `path`, which must be of `kind`.
+async fn remove_path<D: FsDriver + ?Sized>(
     fs: &mut D,
     path: &str,
-    want_dir: bool,
+    kind: RemoveKind,
 ) -> FsResult<(), D::DeviceError> {
     let (dir, name) = resolve_parent(fs, path).await?;
-    let result = match fs.lookup(dir, name).await {
-        Ok(node) => {
-            let meta = pinned_metadata(fs, node).await;
-            match meta {
-                Ok(meta) if meta.file_type().is_dir() != want_dir => Err(if want_dir {
-                    ErrorKind::NotADirectory.into()
-                } else {
-                    ErrorKind::IsADirectory.into()
-                }),
-                Ok(_) => fs.remove(dir, name).await,
-                Err(err) => Err(err),
-            }
-        }
-        Err(err) => Err(err),
-    };
+    let result = fs.remove(dir, name, kind).await;
     fs.forget(dir);
     result
 }
@@ -245,7 +230,7 @@ async fn empty_dir<D: FsDriver + ?Sized>(fs: &mut D, top: NodeId) -> FsResult<()
                 let Some(child) = name.as_name() else {
                     break Err(ErrorKind::Corrupt.into());
                 };
-                if let Err(err) = fs.remove(dir, child).await {
+                if let Err(err) = fs.remove(dir, child, RemoveKind::File).await {
                     break Err(err);
                 }
             }
@@ -256,7 +241,7 @@ async fn empty_dir<D: FsDriver + ?Sized>(fs: &mut D, top: NodeId) -> FsResult<()
                 let found = name_of(fs, parent, dir, &mut name).await;
                 fs.forget(dir);
                 let removed = match (found, name.as_name()) {
-                    (Ok(()), Some(child)) => fs.remove(parent, child).await,
+                    (Ok(()), Some(child)) => fs.remove(parent, child, RemoveKind::Dir).await,
                     (Ok(()), None) => Err(ErrorKind::Corrupt.into()),
                     (Err(err), _) => Err(err),
                 };
@@ -283,7 +268,7 @@ async fn remove_dir_all<D: FsDriver + ?Sized>(fs: &mut D, path: &str) -> FsResul
     };
     fs.forget(node);
     emptied?;
-    remove_checked(fs, path, true).await
+    remove_path(fs, path, RemoveKind::Dir).await
 }
 
 async fn rename<D: FsDriver + ?Sized>(fs: &mut D, from: &str, to: &str) -> FsResult<(), D::DeviceError> {
@@ -355,12 +340,12 @@ pub trait DriverExt: FsDriver {
 
     /// Removes the file (or symlink) at `path`.
     async fn remove_file(&mut self, path: &str) -> FsResult<(), Self::DeviceError> {
-        remove_checked(self, path, false).await
+        remove_path(self, path, RemoveKind::File).await
     }
 
     /// Removes the empty directory at `path`.
     async fn remove_dir(&mut self, path: &str) -> FsResult<(), Self::DeviceError> {
-        remove_checked(self, path, true).await
+        remove_path(self, path, RemoveKind::Dir).await
     }
 
     /// Removes the directory at `path` and everything in it. Without
@@ -424,12 +409,12 @@ pub trait PathExt: FileSystem {
 
     /// Removes the file (or symlink) at `path`.
     async fn remove_file(&self, path: &str) -> FsResult<(), Self::DeviceError> {
-        remove_checked(&mut &*self, path, false).await
+        remove_path(&mut &*self, path, RemoveKind::File).await
     }
 
     /// Removes the empty directory at `path`.
     async fn remove_dir(&self, path: &str) -> FsResult<(), Self::DeviceError> {
-        remove_checked(&mut &*self, path, true).await
+        remove_path(&mut &*self, path, RemoveKind::Dir).await
     }
 
     /// Removes the directory at `path` and everything in it.

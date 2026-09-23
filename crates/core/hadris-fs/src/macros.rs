@@ -84,8 +84,13 @@ macro_rules! impl_fs_driver {
         ) -> $crate::FsResult<$crate::NodeId, $err> {
             <$ty>::create(self, dir, name, kind, meta) $($aw)*
         }
-        $($as)* fn remove(&mut self, dir: $crate::NodeId, name: &$crate::Name) -> $crate::FsResult<(), $err> {
-            <$ty>::remove(self, dir, name) $($aw)*
+        $($as)* fn remove(
+            &mut self,
+            dir: $crate::NodeId,
+            name: &$crate::Name,
+            kind: $crate::RemoveKind,
+        ) -> $crate::FsResult<(), $err> {
+            <$ty>::remove(self, dir, name, kind) $($aw)*
         }
         $($as)* fn rename(
             &mut self,

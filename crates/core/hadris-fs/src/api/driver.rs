@@ -88,13 +88,12 @@ pub trait FsDriver {
         Err(ErrorKind::ReadOnly.into())
     }
 
-    /// Removes `name` from `dir`. A directory must be empty.
-    ///
-    /// Fails with [`ErrorKind::Busy`] while the node is pinned, that is,
-    /// returned by `lookup` and not yet forgotten, as the node of an open
-    /// handle is. Close or forget it first.
-    async fn remove(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
-        let _ = (dir, name);
+    /// Removes `name` from `dir`, which must be of `kind`: a file fails
+    /// with [`ErrorKind::IsADirectory`] for [`RemoveKind::File`], anything
+    /// but a directory with [`ErrorKind::NotADirectory`] for
+    /// [`RemoveKind::Dir`]. A directory must be empty.
+    async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), Self::DeviceError> {
+        let _ = (dir, name, kind);
         Err(ErrorKind::ReadOnly.into())
     }
 
@@ -227,13 +226,10 @@ pub trait FileSystem {
         Err(ErrorKind::ReadOnly.into())
     }
 
-    /// Removes `name` from `dir`. A directory must be empty.
-    ///
-    /// Fails with [`ErrorKind::Busy`] while the node is pinned, that is,
-    /// returned by `lookup` and not yet forgotten, as the node of an open
-    /// handle is. Close or forget it first.
-    async fn remove(&self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
-        let _ = (dir, name);
+    /// Removes `name` from `dir`, which must be of `kind`. A directory must
+    /// be empty.
+    async fn remove(&self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), Self::DeviceError> {
+        let _ = (dir, name, kind);
         Err(ErrorKind::ReadOnly.into())
     }
 
@@ -327,8 +323,8 @@ macro_rules! forward_driver_methods {
         ) -> FsResult<NodeId, Self::DeviceError> {
             (**self).create(dir, name, kind, meta).await
         }
-        async fn remove(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
-            (**self).remove(dir, name).await
+        async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), Self::DeviceError> {
+            (**self).remove(dir, name, kind).await
         }
         async fn rename(
             &mut self,
@@ -408,8 +404,8 @@ macro_rules! forward_fs_methods {
         ) -> FsResult<NodeId, Self::DeviceError> {
             (**self).create(dir, name, kind, meta).await
         }
-        async fn remove(&self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
-            (**self).remove(dir, name).await
+        async fn remove(&self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), Self::DeviceError> {
+            (**self).remove(dir, name, kind).await
         }
         async fn rename(
             &self,

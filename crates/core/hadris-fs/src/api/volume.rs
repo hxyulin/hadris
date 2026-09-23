@@ -175,8 +175,8 @@ impl<F: FsDriver, K: LockKind> FileSystem for Volume<F, K> {
         self.lock().await.create(dir, name, kind, meta).await
     }
 
-    async fn remove(&self, dir: NodeId, name: &Name) -> FsResult<(), F::DeviceError> {
-        self.lock().await.remove(dir, name).await
+    async fn remove(&self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), F::DeviceError> {
+        self.lock().await.remove(dir, name, kind).await
     }
 
     async fn rename(

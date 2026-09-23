@@ -53,7 +53,9 @@ pub use meta::{Attributes, Metadata, Mode, SetMetadata};
 pub use name::OwnedName;
 pub use name::{Name, NameBuf, NameError};
 pub use node::{FileType, NodeId};
-pub use ops::{DeviceKind, DeviceNumber, NewNode, OpenOptions, OpenOptionsError, RenameFlags};
+pub use ops::{
+    DeviceKind, DeviceNumber, NewNode, OpenOptions, OpenOptionsError, RemoveKind, RenameFlags,
+};
 #[cfg(feature = "alloc")]
 pub use table::HeapTable;
 pub use table::{FixedTable, NodeTable, TableFull};

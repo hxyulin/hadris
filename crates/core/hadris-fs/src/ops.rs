@@ -11,6 +11,34 @@ bitflags::bitflags! {
     }
 }
 
+/// What `remove` expects to find under the name it removes.
+///
+/// The driver checks the type it reads anyway, so `unlink` and `rmdir`
+/// need no lookup first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum RemoveKind {
+    /// Anything but a directory, as `unlink`. A directory fails with
+    /// [`ErrorKind::IsADirectory`].
+    File,
+    /// An empty directory, as `rmdir`. Anything else fails with
+    /// [`ErrorKind::NotADirectory`].
+    Dir,
+    /// A file or an empty directory.
+    Any,
+}
+
+impl RemoveKind {
+    /// Checks a node of `file_type` against the expected kind.
+    pub const fn check(self, file_type: FileType) -> Result<(), ErrorKind> {
+        match (self, file_type.is_dir()) {
+            (Self::File, true) => Err(ErrorKind::IsADirectory),
+            (Self::Dir, false) => Err(ErrorKind::NotADirectory),
+            _ => Ok(()),
+        }
+    }
+}
+
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     struct OpenFlags: u8 {
@@ -273,6 +301,20 @@ mod tests {
         let opts = OpenOptions::read_write().create();
         assert!(opts.is_read() && opts.is_write() && opts.is_create());
         assert!(!opts.is_append() && !opts.is_truncate() && !opts.is_create_new());
+    }
+
+    #[test]
+    fn remove_kind_checks_the_type() {
+        assert_eq!(
+            RemoveKind::File.check(FileType::Dir),
+            Err(ErrorKind::IsADirectory)
+        );
+        assert_eq!(RemoveKind::File.check(FileType::Symlink), Ok(()));
+        assert_eq!(
+            RemoveKind::Dir.check(FileType::File),
+            Err(ErrorKind::NotADirectory)
+        );
+        assert_eq!(RemoveKind::Any.check(FileType::Dir), Ok(()));
     }
 
     #[test]

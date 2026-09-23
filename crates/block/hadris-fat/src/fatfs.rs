@@ -4,7 +4,8 @@ use hadris_common::types::endian::Endian;
 use hadris_fs::{
     Attributes, Capabilities, CaseSensitivity, Clock, DateTime, DirCursor, DirEntry, Error,
     ErrorKind, FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name,
-    NameBuf, NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RenameFlags, SetMetadata,
+    NameBuf, NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RemoveKind, RenameFlags,
+    SetMetadata,
 };
 use hadris_storage::BlockIndex;
 
@@ -1032,15 +1033,19 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// Removes the file or empty directory `name` from `dir` and frees its
-    /// clusters.
+    /// clusters. `kind` says which of the two is expected.
     ///
-    /// Fails with [`ErrorKind::Busy`] while the node is pinned, and with
+    /// Fails with [`ErrorKind::IsADirectory`] or
+    /// [`ErrorKind::NotADirectory`] when the entry is not of `kind`, with
+    /// [`ErrorKind::Busy`] while the node is pinned, and with
     /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
-    pub async fn remove(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+    pub async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), D::Error> {
         self.writable()?;
         let start = self.dir_start(dir).await?;
         let query = entry_name(name, ErrorKind::NotFound)?;
         let found = self.find_entry(start, query).await?.ok_or(ErrorKind::NotFound)?;
+        let file_type = if found.entry.is_dir() { FileType::Dir } else { FileType::File };
+        kind.check(file_type)?;
         let pinned = self.pinned_at(found.offset);
         if pinned.is_some_and(|id| self.user_pins(id) > 0) {
             return Err(ErrorKind::Busy.into());
