@@ -74,8 +74,8 @@ pub hadris_udf::async::descriptor::AnchorVolumeDescriptorPointer::reserve_vds_ex
 pub hadris_udf::async::descriptor::AnchorVolumeDescriptorPointer::tag: hadris_udf::async::descriptor::DescriptorTag
 impl hadris_udf::async::descriptor::AnchorVolumeDescriptorPointer
 pub const hadris_udf::async::descriptor::AnchorVolumeDescriptorPointer::LOCATION_256: u32
-pub async fn hadris_udf::async::descriptor::AnchorVolumeDescriptorPointer::find<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, core::option::Option<u64>) -> hadris_udf::Result<Self>
-pub async fn hadris_udf::async::descriptor::AnchorVolumeDescriptorPointer::read<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u32) -> hadris_udf::Result<Self>
+pub async fn hadris_udf::async::descriptor::AnchorVolumeDescriptorPointer::find<R: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek>(&mut R, core::option::Option<u64>) -> hadris_udf::Result<Self>
+pub async fn hadris_udf::async::descriptor::AnchorVolumeDescriptorPointer::read<R: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek>(&mut R, u32) -> hadris_udf::Result<Self>
 impl bytemuck::pod::Pod for hadris_udf::async::descriptor::AnchorVolumeDescriptorPointer
 impl bytemuck::zeroable::Zeroable for hadris_udf::async::descriptor::AnchorVolumeDescriptorPointer
 #[repr(C)] pub struct hadris_udf::async::descriptor::CharSpec
@@ -246,7 +246,7 @@ pub hadris_udf::async::descriptor::Type1PartitionMap::partition_number: u16
 pub hadris_udf::async::descriptor::Type1PartitionMap::volume_sequence_number: u16
 impl bytemuck::pod::Pod for hadris_udf::async::descriptor::Type1PartitionMap
 impl bytemuck::zeroable::Zeroable for hadris_udf::async::descriptor::Type1PartitionMap
-pub async fn hadris_udf::async::descriptor::parse_vrs<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R) -> hadris_udf::Result<hadris_udf::async::descriptor::VrsType>
+pub async fn hadris_udf::async::descriptor::parse_vrs<R: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek>(&mut R) -> hadris_udf::Result<hadris_udf::async::descriptor::VrsType>
 pub mod hadris_udf::async::dir
 pub struct hadris_udf::async::dir::FileCharacteristics(_)
 impl hadris_udf::async::dir::FileCharacteristics
@@ -461,14 +461,14 @@ pub fn hadris_udf::async::file::IcbTag::file_type(&self) -> hadris_udf::async::f
 impl bytemuck::pod::Pod for hadris_udf::async::file::IcbTag
 impl bytemuck::zeroable::Zeroable for hadris_udf::async::file::IcbTag
 pub mod hadris_udf::async::fs
-pub struct hadris_udf::async::fs::UdfVolume<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek>
-impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_udf::async::fs::UdfVolume<DATA>
+pub struct hadris_udf::async::fs::UdfVolume<DATA: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek>
+impl<DATA: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek> hadris_udf::async::fs::UdfVolume<DATA>
 pub fn hadris_udf::async::fs::UdfVolume<DATA>::info(&self) -> &hadris_udf::async::fs::UdfVolumeInfo
 pub async fn hadris_udf::async::fs::UdfVolume<DATA>::open(DATA) -> hadris_udf::Result<Self>
 pub async fn hadris_udf::async::fs::UdfVolume<DATA>::read_directory(&self, &hadris_udf::async::descriptor::LongAllocationDescriptor) -> hadris_udf::Result<hadris_udf::async::dir::UdfDir>
 pub async fn hadris_udf::async::fs::UdfVolume<DATA>::read_file(&self, &hadris_udf::async::dir::UdfDirEntry) -> hadris_udf::Result<alloc::vec::Vec<u8>>
 pub async fn hadris_udf::async::fs::UdfVolume<DATA>::root_dir(&self) -> hadris_udf::Result<hadris_udf::async::dir::UdfDir>
-impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_udf::async::fs::UdfVolume<DATA>
+impl<DATA: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek> hadris_udf::async::fs::UdfVolume<DATA>
 pub fn hadris_udf::async::fs::UdfVolume<DATA>::into_inner(self) -> DATA
 pub struct hadris_udf::async::fs::UdfVolumeInfo
 pub hadris_udf::async::fs::UdfVolumeInfo::block_size: u32
@@ -501,14 +501,14 @@ pub fn hadris_udf::async::dir::UdfDir::entries(&self) -> impl core::iter::traits
 pub fn hadris_udf::async::dir::UdfDir::find(&self, &str) -> core::option::Option<&hadris_udf::async::dir::UdfDirEntry>
 pub fn hadris_udf::async::dir::UdfDir::is_empty(&self) -> bool
 pub fn hadris_udf::async::dir::UdfDir::len(&self) -> usize
-pub struct hadris_udf::async::UdfVolume<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek>
-impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_udf::async::fs::UdfVolume<DATA>
+pub struct hadris_udf::async::UdfVolume<DATA: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek>
+impl<DATA: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek> hadris_udf::async::fs::UdfVolume<DATA>
 pub fn hadris_udf::async::fs::UdfVolume<DATA>::info(&self) -> &hadris_udf::async::fs::UdfVolumeInfo
 pub async fn hadris_udf::async::fs::UdfVolume<DATA>::open(DATA) -> hadris_udf::Result<Self>
 pub async fn hadris_udf::async::fs::UdfVolume<DATA>::read_directory(&self, &hadris_udf::async::descriptor::LongAllocationDescriptor) -> hadris_udf::Result<hadris_udf::async::dir::UdfDir>
 pub async fn hadris_udf::async::fs::UdfVolume<DATA>::read_file(&self, &hadris_udf::async::dir::UdfDirEntry) -> hadris_udf::Result<alloc::vec::Vec<u8>>
 pub async fn hadris_udf::async::fs::UdfVolume<DATA>::root_dir(&self) -> hadris_udf::Result<hadris_udf::async::dir::UdfDir>
-impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_udf::async::fs::UdfVolume<DATA>
+impl<DATA: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek> hadris_udf::async::fs::UdfVolume<DATA>
 pub fn hadris_udf::async::fs::UdfVolume<DATA>::into_inner(self) -> DATA
 pub struct hadris_udf::async::UdfVolumeInfo
 pub hadris_udf::async::UdfVolumeInfo::block_size: u32
@@ -570,8 +570,8 @@ pub hadris_udf::descriptor::AnchorVolumeDescriptorPointer::reserve_vds_extent: h
 pub hadris_udf::descriptor::AnchorVolumeDescriptorPointer::tag: hadris_udf::descriptor::DescriptorTag
 impl hadris_udf::descriptor::AnchorVolumeDescriptorPointer
 pub const hadris_udf::descriptor::AnchorVolumeDescriptorPointer::LOCATION_256: u32
-pub fn hadris_udf::descriptor::AnchorVolumeDescriptorPointer::find<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, core::option::Option<u64>) -> hadris_udf::Result<Self>
-pub fn hadris_udf::descriptor::AnchorVolumeDescriptorPointer::read<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_udf::Result<Self>
+pub fn hadris_udf::descriptor::AnchorVolumeDescriptorPointer::find<R: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek>(&mut R, core::option::Option<u64>) -> hadris_udf::Result<Self>
+pub fn hadris_udf::descriptor::AnchorVolumeDescriptorPointer::read<R: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek>(&mut R, u32) -> hadris_udf::Result<Self>
 impl bytemuck::pod::Pod for hadris_udf::descriptor::AnchorVolumeDescriptorPointer
 impl bytemuck::zeroable::Zeroable for hadris_udf::descriptor::AnchorVolumeDescriptorPointer
 #[repr(C)] pub struct hadris_udf::descriptor::CharSpec
@@ -742,7 +742,7 @@ pub hadris_udf::descriptor::Type1PartitionMap::partition_number: u16
 pub hadris_udf::descriptor::Type1PartitionMap::volume_sequence_number: u16
 impl bytemuck::pod::Pod for hadris_udf::descriptor::Type1PartitionMap
 impl bytemuck::zeroable::Zeroable for hadris_udf::descriptor::Type1PartitionMap
-pub fn hadris_udf::descriptor::parse_vrs<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R) -> hadris_udf::Result<hadris_udf::descriptor::VrsType>
+pub fn hadris_udf::descriptor::parse_vrs<R: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek>(&mut R) -> hadris_udf::Result<hadris_udf::descriptor::VrsType>
 pub mod hadris_udf::dir
 pub struct hadris_udf::dir::FileCharacteristics(_)
 impl hadris_udf::dir::FileCharacteristics
@@ -957,14 +957,14 @@ pub fn hadris_udf::file::IcbTag::file_type(&self) -> hadris_udf::file::FileType
 impl bytemuck::pod::Pod for hadris_udf::file::IcbTag
 impl bytemuck::zeroable::Zeroable for hadris_udf::file::IcbTag
 pub mod hadris_udf::fs
-pub struct hadris_udf::fs::UdfVolume<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
-impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
+pub struct hadris_udf::fs::UdfVolume<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek>
+impl<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
 pub fn hadris_udf::fs::UdfVolume<DATA>::info(&self) -> &hadris_udf::fs::UdfVolumeInfo
 pub fn hadris_udf::fs::UdfVolume<DATA>::open(DATA) -> hadris_udf::Result<Self>
 pub fn hadris_udf::fs::UdfVolume<DATA>::read_directory(&self, &hadris_udf::descriptor::LongAllocationDescriptor) -> hadris_udf::Result<hadris_udf::dir::UdfDir>
 pub fn hadris_udf::fs::UdfVolume<DATA>::read_file(&self, &hadris_udf::dir::UdfDirEntry) -> hadris_udf::Result<alloc::vec::Vec<u8>>
 pub fn hadris_udf::fs::UdfVolume<DATA>::root_dir(&self) -> hadris_udf::Result<hadris_udf::dir::UdfDir>
-impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
+impl<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
 pub fn hadris_udf::fs::UdfVolume<DATA>::into_inner(self) -> DATA
 pub struct hadris_udf::fs::UdfVolumeInfo
 pub hadris_udf::fs::UdfVolumeInfo::block_size: u32
@@ -1037,8 +1037,8 @@ pub hadris_udf::sync::descriptor::AnchorVolumeDescriptorPointer::reserve_vds_ext
 pub hadris_udf::sync::descriptor::AnchorVolumeDescriptorPointer::tag: hadris_udf::descriptor::DescriptorTag
 impl hadris_udf::descriptor::AnchorVolumeDescriptorPointer
 pub const hadris_udf::descriptor::AnchorVolumeDescriptorPointer::LOCATION_256: u32
-pub fn hadris_udf::descriptor::AnchorVolumeDescriptorPointer::find<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, core::option::Option<u64>) -> hadris_udf::Result<Self>
-pub fn hadris_udf::descriptor::AnchorVolumeDescriptorPointer::read<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_udf::Result<Self>
+pub fn hadris_udf::descriptor::AnchorVolumeDescriptorPointer::find<R: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek>(&mut R, core::option::Option<u64>) -> hadris_udf::Result<Self>
+pub fn hadris_udf::descriptor::AnchorVolumeDescriptorPointer::read<R: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek>(&mut R, u32) -> hadris_udf::Result<Self>
 impl bytemuck::pod::Pod for hadris_udf::descriptor::AnchorVolumeDescriptorPointer
 impl bytemuck::zeroable::Zeroable for hadris_udf::descriptor::AnchorVolumeDescriptorPointer
 #[repr(C)] pub struct hadris_udf::sync::descriptor::CharSpec
@@ -1209,7 +1209,7 @@ pub hadris_udf::sync::descriptor::Type1PartitionMap::partition_number: u16
 pub hadris_udf::sync::descriptor::Type1PartitionMap::volume_sequence_number: u16
 impl bytemuck::pod::Pod for hadris_udf::descriptor::Type1PartitionMap
 impl bytemuck::zeroable::Zeroable for hadris_udf::descriptor::Type1PartitionMap
-pub fn hadris_udf::sync::descriptor::parse_vrs<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R) -> hadris_udf::Result<hadris_udf::descriptor::VrsType>
+pub fn hadris_udf::sync::descriptor::parse_vrs<R: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek>(&mut R) -> hadris_udf::Result<hadris_udf::descriptor::VrsType>
 pub mod hadris_udf::sync::dir
 pub struct hadris_udf::sync::dir::FileCharacteristics(_)
 impl hadris_udf::dir::FileCharacteristics
@@ -1424,14 +1424,14 @@ pub fn hadris_udf::file::IcbTag::file_type(&self) -> hadris_udf::file::FileType
 impl bytemuck::pod::Pod for hadris_udf::file::IcbTag
 impl bytemuck::zeroable::Zeroable for hadris_udf::file::IcbTag
 pub mod hadris_udf::sync::fs
-pub struct hadris_udf::sync::fs::UdfVolume<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
-impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
+pub struct hadris_udf::sync::fs::UdfVolume<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek>
+impl<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
 pub fn hadris_udf::fs::UdfVolume<DATA>::info(&self) -> &hadris_udf::fs::UdfVolumeInfo
 pub fn hadris_udf::fs::UdfVolume<DATA>::open(DATA) -> hadris_udf::Result<Self>
 pub fn hadris_udf::fs::UdfVolume<DATA>::read_directory(&self, &hadris_udf::descriptor::LongAllocationDescriptor) -> hadris_udf::Result<hadris_udf::dir::UdfDir>
 pub fn hadris_udf::fs::UdfVolume<DATA>::read_file(&self, &hadris_udf::dir::UdfDirEntry) -> hadris_udf::Result<alloc::vec::Vec<u8>>
 pub fn hadris_udf::fs::UdfVolume<DATA>::root_dir(&self) -> hadris_udf::Result<hadris_udf::dir::UdfDir>
-impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
+impl<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
 pub fn hadris_udf::fs::UdfVolume<DATA>::into_inner(self) -> DATA
 pub struct hadris_udf::sync::fs::UdfVolumeInfo
 pub hadris_udf::sync::fs::UdfVolumeInfo::block_size: u32
@@ -1487,12 +1487,12 @@ pub hadris_udf::sync::write::UdfWriteOptions::revision: hadris_udf::UdfRevision
 pub hadris_udf::sync::write::UdfWriteOptions::volume_id: alloc::string::String
 impl core::default::Default for hadris_udf::write::UdfWriteOptions
 pub fn hadris_udf::write::UdfWriteOptions::default() -> Self
-pub struct hadris_udf::sync::write::UdfWriter<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>
-impl<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_udf::write::UdfWriter<W>
+pub struct hadris_udf::sync::write::UdfWriter<W: hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek>
+impl<W: hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek> hadris_udf::write::UdfWriter<W>
 pub fn hadris_udf::write::UdfWriter<W>::create(W, &hadris_udf::write::SimpleDir, hadris_udf::write::UdfWriteOptions) -> hadris_udf::Result<hadris_udf::write::UdfCreateOutput<W>>
 pub fn hadris_udf::write::UdfWriter<W>::into_inner(self) -> W
 pub fn hadris_udf::write::UdfWriter<W>::new(W, hadris_udf::write::UdfWriteOptions) -> Self
-impl<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_udf::write::UdfWriter<W>
+impl<W: hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek> hadris_udf::write::UdfWriter<W>
 pub fn hadris_udf::write::UdfWriter<W>::write_avdp(&mut self, hadris_udf::descriptor::ExtentDescriptor, hadris_udf::descriptor::ExtentDescriptor) -> hadris_udf::Result<()>
 pub fn hadris_udf::write::UdfWriter<W>::write_avdp_at(&mut self, u32, hadris_udf::descriptor::ExtentDescriptor, hadris_udf::descriptor::ExtentDescriptor) -> hadris_udf::Result<()>
 pub fn hadris_udf::write::UdfWriter<W>::write_fids(&mut self, u32, hadris_udf::descriptor::LongAllocationDescriptor, &[(alloc::string::String, hadris_udf::descriptor::LongAllocationDescriptor, bool)]) -> hadris_udf::Result<usize>
@@ -1532,14 +1532,14 @@ pub fn hadris_udf::dir::UdfDir::entries(&self) -> impl core::iter::traits::itera
 pub fn hadris_udf::dir::UdfDir::find(&self, &str) -> core::option::Option<&hadris_udf::dir::UdfDirEntry>
 pub fn hadris_udf::dir::UdfDir::is_empty(&self) -> bool
 pub fn hadris_udf::dir::UdfDir::len(&self) -> usize
-pub struct hadris_udf::sync::UdfVolume<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
-impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
+pub struct hadris_udf::sync::UdfVolume<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek>
+impl<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
 pub fn hadris_udf::fs::UdfVolume<DATA>::info(&self) -> &hadris_udf::fs::UdfVolumeInfo
 pub fn hadris_udf::fs::UdfVolume<DATA>::open(DATA) -> hadris_udf::Result<Self>
 pub fn hadris_udf::fs::UdfVolume<DATA>::read_directory(&self, &hadris_udf::descriptor::LongAllocationDescriptor) -> hadris_udf::Result<hadris_udf::dir::UdfDir>
 pub fn hadris_udf::fs::UdfVolume<DATA>::read_file(&self, &hadris_udf::dir::UdfDirEntry) -> hadris_udf::Result<alloc::vec::Vec<u8>>
 pub fn hadris_udf::fs::UdfVolume<DATA>::root_dir(&self) -> hadris_udf::Result<hadris_udf::dir::UdfDir>
-impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
+impl<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
 pub fn hadris_udf::fs::UdfVolume<DATA>::into_inner(self) -> DATA
 pub struct hadris_udf::sync::UdfVolumeInfo
 pub hadris_udf::sync::UdfVolumeInfo::block_size: u32
@@ -1595,12 +1595,12 @@ pub hadris_udf::write::UdfWriteOptions::revision: hadris_udf::UdfRevision
 pub hadris_udf::write::UdfWriteOptions::volume_id: alloc::string::String
 impl core::default::Default for hadris_udf::write::UdfWriteOptions
 pub fn hadris_udf::write::UdfWriteOptions::default() -> Self
-pub struct hadris_udf::write::UdfWriter<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>
-impl<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_udf::write::UdfWriter<W>
+pub struct hadris_udf::write::UdfWriter<W: hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek>
+impl<W: hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek> hadris_udf::write::UdfWriter<W>
 pub fn hadris_udf::write::UdfWriter<W>::create(W, &hadris_udf::write::SimpleDir, hadris_udf::write::UdfWriteOptions) -> hadris_udf::Result<hadris_udf::write::UdfCreateOutput<W>>
 pub fn hadris_udf::write::UdfWriter<W>::into_inner(self) -> W
 pub fn hadris_udf::write::UdfWriter<W>::new(W, hadris_udf::write::UdfWriteOptions) -> Self
-impl<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_udf::write::UdfWriter<W>
+impl<W: hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek> hadris_udf::write::UdfWriter<W>
 pub fn hadris_udf::write::UdfWriter<W>::write_avdp(&mut self, hadris_udf::descriptor::ExtentDescriptor, hadris_udf::descriptor::ExtentDescriptor) -> hadris_udf::Result<()>
 pub fn hadris_udf::write::UdfWriter<W>::write_avdp_at(&mut self, u32, hadris_udf::descriptor::ExtentDescriptor, hadris_udf::descriptor::ExtentDescriptor) -> hadris_udf::Result<()>
 pub fn hadris_udf::write::UdfWriter<W>::write_fids(&mut self, u32, hadris_udf::descriptor::LongAllocationDescriptor, &[(alloc::string::String, hadris_udf::descriptor::LongAllocationDescriptor, bool)]) -> hadris_udf::Result<usize>
@@ -1629,7 +1629,7 @@ pub hadris_udf::Error::InvalidTag::expected: u16
 pub hadris_udf::Error::InvalidTag::found: u16
 pub hadris_udf::Error::InvalidVds(&'static str)
 pub hadris_udf::Error::InvalidVrs
-pub hadris_udf::Error::Io(hadris_io::error::Error)
+pub hadris_udf::Error::Io(hadris_io::legacy::error::Error)
 pub hadris_udf::Error::NoAnchor
 pub hadris_udf::Error::NotADirectory
 pub hadris_udf::Error::NotAFile
@@ -1637,8 +1637,8 @@ pub hadris_udf::Error::NotFound
 pub hadris_udf::Error::PathTooLong
 pub hadris_udf::Error::PodCastError(bytemuck::PodCastError)
 pub hadris_udf::Error::TooManyAllocationDescriptors
-impl core::convert::From<hadris_io::error::Error> for hadris_udf::Error
-pub fn hadris_udf::Error::from(hadris_io::error::Error) -> Self
+impl core::convert::From<hadris_io::legacy::error::Error> for hadris_udf::Error
+pub fn hadris_udf::Error::from(hadris_io::legacy::error::Error) -> Self
 impl core::error::Error for hadris_udf::Error
 pub fn hadris_udf::Error::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Display for hadris_udf::Error
@@ -1703,14 +1703,14 @@ impl bytemuck::pod::Pod for hadris_udf::UdfTimestamp
 impl bytemuck::zeroable::Zeroable for hadris_udf::UdfTimestamp
 impl core::fmt::Display for hadris_udf::UdfTimestamp
 pub fn hadris_udf::UdfTimestamp::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct hadris_udf::UdfVolume<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
-impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
+pub struct hadris_udf::UdfVolume<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek>
+impl<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
 pub fn hadris_udf::fs::UdfVolume<DATA>::info(&self) -> &hadris_udf::fs::UdfVolumeInfo
 pub fn hadris_udf::fs::UdfVolume<DATA>::open(DATA) -> hadris_udf::Result<Self>
 pub fn hadris_udf::fs::UdfVolume<DATA>::read_directory(&self, &hadris_udf::descriptor::LongAllocationDescriptor) -> hadris_udf::Result<hadris_udf::dir::UdfDir>
 pub fn hadris_udf::fs::UdfVolume<DATA>::read_file(&self, &hadris_udf::dir::UdfDirEntry) -> hadris_udf::Result<alloc::vec::Vec<u8>>
 pub fn hadris_udf::fs::UdfVolume<DATA>::root_dir(&self) -> hadris_udf::Result<hadris_udf::dir::UdfDir>
-impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
+impl<DATA: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek> hadris_udf::fs::UdfVolume<DATA>
 pub fn hadris_udf::fs::UdfVolume<DATA>::into_inner(self) -> DATA
 pub struct hadris_udf::UdfVolumeInfo
 pub hadris_udf::UdfVolumeInfo::block_size: u32
