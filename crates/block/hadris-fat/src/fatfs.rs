@@ -864,6 +864,42 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         Ok(FsStats::new(total as u64, free as u64, self.geo.cluster_size))
     }
 
+    /// Passes the clusters of the chain of `node` to `visit` in order and
+    /// returns how many there were. An empty file and the FAT12/16 root
+    /// directory have none. Fails with [`ErrorKind::Corrupt`] when the chain
+    /// leaves the data clusters, runs into a bad cluster or is longer than
+    /// the volume.
+    pub async fn cluster_chain(
+        &mut self,
+        node: NodeId,
+        mut visit: impl FnMut(u32),
+    ) -> FsResult<u32, D::Error> {
+        let first = if node == ROOT {
+            match self.geo.root {
+                RootDir::Fixed { .. } => return Ok(0),
+                RootDir::Cluster(cluster) => cluster,
+            }
+        } else {
+            self.node(node).await?.first
+        };
+        if first == 0 {
+            return Ok(0);
+        }
+        let mut cluster = self.check_cluster(first)?;
+        let mut count = 0u32;
+        loop {
+            visit(cluster);
+            count += 1;
+            if count >= self.geo.max_cluster {
+                return Err(ErrorKind::Corrupt.into());
+            }
+            match self.next_cluster(cluster).await? {
+                Some(next) => cluster = next,
+                None => return Ok(count),
+            }
+        }
+    }
+
     /// Unpins a node. Unknown ids and the root are ignored. A node whose
     /// size is not yet written stays in the table until `sync_node` or
     /// `sync`.

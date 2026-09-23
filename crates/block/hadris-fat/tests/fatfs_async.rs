@@ -186,17 +186,18 @@ fn async_mode_writes() {
         fs.sync().await.unwrap();
         fs.into_inner().into_inner()
     });
-    let v2 = common::open_v2(&image);
-    let root = v2.root_dir();
-    let read = |name: &str| {
-        use hadris_fat::FatVolumeReadExt;
-        let entry = root.find(name).unwrap().unwrap();
-        v2.read_file(&entry).unwrap().read_to_vec().unwrap()
-    };
-    assert_eq!(read("Renamed Notes.txt"), common::payload(8_000, 3));
-    assert_eq!(read("second.bin"), b"second");
-    assert_eq!(read("log.txt"), b"one two");
-    assert!(root.find("A Directory").unwrap().is_none());
+    let mut fs = common::mount(case, &image);
+    assert_eq!(
+        common::read(&mut fs, "/Renamed Notes.txt"),
+        common::payload(8_000, 3)
+    );
+    assert_eq!(common::read(&mut fs, "/second.bin"), b"second");
+    assert_eq!(common::read(&mut fs, "/log.txt"), b"one two");
+    assert!(
+        !common::names(&mut fs, "/")
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case("A Directory"))
+    );
 }
 
 #[test]
@@ -243,6 +244,7 @@ fn async_send_writers_on_other_threads() {
 #[test]
 fn format_in_the_async_modes() {
     use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
+    use hadris_fs::sync::DriverExt as _;
     use hadris_storage::{BlockSize, MemDevice};
 
     fn assert_send<T: Send>(value: T) -> T {
@@ -278,7 +280,10 @@ fn format_in_the_async_modes() {
     .into_inner()
     .into_inner();
     assert_eq!(sync, send);
-    let v2 = common::open_v2(&image);
-    assert_eq!(v2.volume_info().volume_label(), "ASYNC");
+    let mut fs =
+        hadris_fat::sync::FatFs::open(MemDevice::new(image.clone(), BlockSize::new(512).unwrap()))
+            .unwrap();
+    assert_eq!(fs.label().unwrap().unwrap().as_str(), "ASYNC");
+    assert_eq!(fs.read_to_vec("/async.txt").unwrap(), b"async");
     common::fsck(&image, "async format");
 }

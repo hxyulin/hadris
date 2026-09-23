@@ -1,26 +1,27 @@
 #![allow(dead_code)]
 
-use std::io::Cursor;
 use std::path::Path;
 use std::process::Command;
 
-use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter, SectorSize};
-use hadris_fat::raw::DirEntryAttrFlags;
-use hadris_fat::write::FileWriter;
-use hadris_fat::{FatDir, FatKind, FatVolume, FatVolumeWriteExt, FileEntry};
-use hadris_io::StdIo;
+use hadris_fat::sync::{FatFs, format};
+use hadris_fat::{CodePage, FatKind, FormatOptions, MountOptions, VolumeLabel};
+use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::{
+    Attributes, Clock, DirCursor, HeapTable, Name, NameBuf, NewNode, NodeId, NodeTable, SetMetadata,
+};
+use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockSize, MemDevice};
 
-pub type Image = StdIo<Cursor<Vec<u8>>>;
 pub type Device = MemDevice<Vec<u8>>;
+pub type Fs = FatFs<Device, HeapTable>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Case {
     pub name: &'static str,
     pub size: u64,
-    pub selection: FatTypeSelection,
     pub kind: FatKind,
-    pub sector: SectorSize,
+    /// The FAT sector size in bytes.
+    pub sector: u32,
     pub block: u32,
 }
 
@@ -28,41 +29,36 @@ pub const CASES: [Case; 5] = [
     Case {
         name: "fat12",
         size: 2 * 1024 * 1024,
-        selection: FatTypeSelection::Fat12,
         kind: FatKind::Fat12,
-        sector: SectorSize::S512,
+        sector: 512,
         block: 512,
     },
     Case {
         name: "fat16",
         size: 16 * 1024 * 1024,
-        selection: FatTypeSelection::Fat16,
         kind: FatKind::Fat16,
-        sector: SectorSize::S512,
+        sector: 512,
         block: 512,
     },
     Case {
         name: "fat32",
         size: 64 * 1024 * 1024,
-        selection: FatTypeSelection::Fat32,
         kind: FatKind::Fat32,
-        sector: SectorSize::S512,
+        sector: 512,
         block: 512,
     },
     Case {
         name: "fat12 with 4096-byte sectors on 512-byte blocks",
         size: 2 * 1024 * 1024,
-        selection: FatTypeSelection::Fat12,
         kind: FatKind::Fat12,
-        sector: SectorSize::S4096,
+        sector: 4096,
         block: 512,
     },
     Case {
         name: "fat16 with 512-byte sectors on 4096-byte blocks",
         size: 16 * 1024 * 1024,
-        selection: FatTypeSelection::Fat16,
         kind: FatKind::Fat16,
-        sector: SectorSize::S512,
+        sector: 512,
         block: 4096,
     },
 ];
@@ -86,69 +82,111 @@ pub fn payload(len: usize, seed: u8) -> Vec<u8> {
         .collect()
 }
 
-fn write(volume: &FatVolume<Image>, dir: &FatDir<'_, Image>, name: &str, data: &[u8]) -> FileEntry {
-    let file = volume.create_file(dir, name).unwrap();
-    let mut writer = volume.write_file(&file).unwrap();
-    if !data.is_empty() {
-        writer.write(data).unwrap();
-    }
-    writer.finish().unwrap();
-    dir.find(name).unwrap().unwrap()
+fn write(fs: &mut Fs, dir: NodeId, text: &str, data: &[u8]) -> NodeId {
+    let node = fs
+        .create(
+            dir,
+            Name::new(text).unwrap(),
+            NewNode::File,
+            &SetMetadata::new(),
+        )
+        .unwrap();
+    append(fs, node, 0, data);
+    node
 }
 
-/// Formats an image with the V2 formatter and fills it with the V2 writer:
-/// short, lowercase, long, Unicode and over-255-byte names, nested and
+fn append(fs: &mut Fs, node: NodeId, mut at: u64, mut data: &[u8]) {
+    while !data.is_empty() {
+        let n = fs.write_at(node, at, data).unwrap();
+        at += n as u64;
+        data = &data[n..];
+    }
+}
+
+fn mkdir(fs: &mut Fs, dir: NodeId, text: &str) -> NodeId {
+    fs.create(
+        dir,
+        Name::new(text).unwrap(),
+        NewNode::Dir,
+        &SetMetadata::new(),
+    )
+    .unwrap()
+}
+
+/// The clusters of `node`'s chain.
+pub fn chain<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage>(
+    fs: &mut FatFs<D, T, C, P>,
+    node: NodeId,
+) -> Vec<u32> {
+    let mut clusters = Vec::new();
+    fs.cluster_chain(node, |cluster| clusters.push(cluster))
+        .unwrap();
+    clusters
+}
+
+/// Formats an image with `format` and fills it through `FatFs`: short,
+/// lowercase, long, Unicode and over-255-byte names, nested and
 /// multi-cluster directories, a fragmented file, attributes and a name whose
 /// first byte is `0xE5`.
 pub fn build(case: Case) -> Vec<u8> {
-    let options = FatFormatOptions::new(case.size)
-        .fat_type(case.selection)
-        .sector_size(case.sector)
-        .volume_label("HADRIS");
-    let image = StdIo::new(Cursor::new(vec![0u8; case.size as usize]));
-    let volume = FatVolumeFormatter::format(image, options).unwrap();
-    {
-        let root = volume.root_dir();
-        write(&volume, &root, "README.TXT", b"hello fat");
-        write(&volume, &root, "lower.txt", b"lowercase short name");
-        write(&volume, &root, LONG_NAME, &payload(5000, 1));
-        write(&volume, &root, UNICODE_NAME, b"unicode");
-        write(&volume, &root, &huge_name(), b"huge name");
-        write(&volume, &root, "empty.dat", b"");
-        let hidden = write(&volume, &root, "hidden.sys", b"h");
-        volume
-            .set_attributes(
-                &hidden,
-                DirEntryAttrFlags::HIDDEN
-                    | DirEntryAttrFlags::SYSTEM
-                    | DirEntryAttrFlags::READ_ONLY,
-            )
-            .unwrap();
-
-        let frag = write(&volume, &root, "frag.bin", &payload(100, 2));
-        let spacer = write(&volume, &root, "spacer.bin", &payload(100, 3));
-        assert_eq!(
-            spacer.cluster().0,
-            frag.cluster().0 + 1,
-            "{}: frag.bin must be followed by spacer.bin",
-            case.name
-        );
-        let mut writer = FileWriter::new_append(&volume, &frag).unwrap();
-        writer.write(&payload(40_000, 4)).unwrap();
-        writer.finish().unwrap();
-
-        let nested = volume.create_dir(&root, "Nested Dir").unwrap();
-        write(&volume, &nested, "sibling.txt", b"sibling");
-        let inner = volume.create_dir(&nested, "inner").unwrap();
-        write(&volume, &inner, "deep.bin", &payload(70_000, 5));
-        for i in 0..INNER_FILES - 1 {
-            let name = format!("file number {i:02}.txt");
-            write(&volume, &inner, &name, name.as_bytes());
-        }
-        write(&volume, &root, "XABC.TXT", b"kanji");
+    let options = FormatOptions::new().with_label(VolumeLabel::new("HADRIS").unwrap());
+    let mut fs = formatted(case, options);
+    let root = fs.root();
+    for (text, data) in [
+        ("README.TXT", &b"hello fat"[..]),
+        ("lower.txt", b"lowercase short name"),
+        (LONG_NAME, &payload(5000, 1)),
+        (UNICODE_NAME, b"unicode"),
+        (&huge_name(), b"huge name"),
+        ("empty.dat", b""),
+    ] {
+        let node = write(&mut fs, root, text, data);
+        fs.forget(node);
     }
-    volume.sync().unwrap();
-    let mut image = volume.into_inner().into_inner().into_inner();
+    let hidden = write(&mut fs, root, "hidden.sys", b"h");
+    fs.set_metadata(
+        hidden,
+        &SetMetadata::new()
+            .with_attributes(Attributes::HIDDEN | Attributes::SYSTEM | Attributes::READ_ONLY),
+    )
+    .unwrap();
+    fs.forget(hidden);
+
+    let frag = write(&mut fs, root, "frag.bin", &payload(100, 2));
+    let spacer = write(&mut fs, root, "spacer.bin", &payload(100, 3));
+    assert_eq!(
+        chain(&mut fs, spacer)[0],
+        chain(&mut fs, frag)[0] + 1,
+        "{}: frag.bin must be followed by spacer.bin",
+        case.name
+    );
+    fs.forget(spacer);
+    append(&mut fs, frag, 100, &payload(40_000, 4));
+    let clusters = chain(&mut fs, frag);
+    assert!(
+        clusters.windows(2).any(|pair| pair[1] != pair[0] + 1),
+        "{}: frag.bin must be fragmented",
+        case.name
+    );
+    fs.forget(frag);
+
+    let nested = mkdir(&mut fs, root, "Nested Dir");
+    let sibling = write(&mut fs, nested, "sibling.txt", b"sibling");
+    fs.forget(sibling);
+    let inner = mkdir(&mut fs, nested, "inner");
+    let deep = write(&mut fs, inner, "deep.bin", &payload(70_000, 5));
+    fs.forget(deep);
+    for i in 0..INNER_FILES - 1 {
+        let text = format!("file number {i:02}.txt");
+        let node = write(&mut fs, inner, &text, text.as_bytes());
+        fs.forget(node);
+    }
+    fs.forget(inner);
+    fs.forget(nested);
+    let kanji = write(&mut fs, root, "XABC.TXT", b"kanji");
+    fs.forget(kanji);
+    fs.sync().unwrap();
+    let mut image = fs.into_inner().into_inner();
     let at = image
         .chunks_exact(32)
         .position(|entry| &entry[..11] == KANJI_STORED)
@@ -158,23 +196,58 @@ pub fn build(case: Case) -> Vec<u8> {
     image
 }
 
+/// Formats a device for `case` with `options`, the case's kind and sector
+/// size added.
+pub fn formatted(case: Case, options: FormatOptions) -> Fs {
+    let dev = device(case, vec![0u8; case.size as usize]);
+    let options = options.with_kind(case.kind).with_sector_size(case.sector);
+    FatFs::open_with(
+        format(dev, options).unwrap().into_inner(),
+        MountOptions::new().with_table(HeapTable::new()),
+    )
+    .unwrap()
+}
+
 /// A freshly formatted image with nothing on it.
 pub fn blank(case: Case) -> Vec<u8> {
-    let options = FatFormatOptions::new(case.size)
-        .fat_type(case.selection)
-        .sector_size(case.sector);
-    let image = StdIo::new(Cursor::new(vec![0u8; case.size as usize]));
-    let volume = FatVolumeFormatter::format(image, options).unwrap();
-    volume.sync().unwrap();
-    volume.into_inner().into_inner().into_inner()
+    formatted(case, FormatOptions::new())
+        .into_inner()
+        .into_inner()
+}
+
+/// Mounts a copy of `image` afresh, to read back what was written.
+pub fn mount(case: Case, image: &[u8]) -> Fs {
+    FatFs::open_with(
+        device(case, image.to_vec()),
+        MountOptions::new().with_table(HeapTable::new()),
+    )
+    .unwrap()
+}
+
+/// The names in the directory at `path`, in directory order.
+pub fn names(fs: &mut Fs, path: &str) -> Vec<String> {
+    let dir = fs.resolve(path).unwrap();
+    let mut cursor = DirCursor::start();
+    let mut buf = NameBuf::new();
+    let mut out = Vec::new();
+    while fs
+        .read_dir_entry(dir, &mut cursor, &mut buf)
+        .unwrap()
+        .is_some()
+    {
+        out.push(buf.as_name().unwrap().to_str().unwrap().to_owned());
+    }
+    fs.forget(dir);
+    out
+}
+
+/// The contents of the file at `path`.
+pub fn read(fs: &mut Fs, path: &str) -> Vec<u8> {
+    fs.read_to_vec(path).unwrap()
 }
 
 pub fn device(case: Case, image: Vec<u8>) -> Device {
     MemDevice::new(image, BlockSize::new(case.block).unwrap())
-}
-
-pub fn open_v2(image: &[u8]) -> FatVolume<Image> {
-    FatVolume::open(StdIo::new(Cursor::new(image.to_vec()))).unwrap()
 }
 
 pub fn block_on<F: core::future::Future>(future: F) -> F::Output {

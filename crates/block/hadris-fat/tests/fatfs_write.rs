@@ -1,5 +1,6 @@
-//! The `FatFs` write path, read back through `FatFs` and the V2
-//! `FatVolume`, and checked with the host `fsck` when it is installed.
+//! The `FatFs` write path, read back through a fresh `FatFs` mount and the
+//! raw directory entries, and checked with the host `fsck` when it is
+//! installed.
 
 #[path = "common/fatfs.rs"]
 mod common;
@@ -10,7 +11,7 @@ use std::io::{Read as _, Write as _};
 
 use common::{CASES, Case, Device, KANJI_NAME, fsck};
 use hadris_fat::sync::FatFs;
-use hadris_fat::{Ascii, CodePage, Cp437, FatDir, FatVolume, FatVolumeReadExt, MountOptions};
+use hadris_fat::{Ascii, CodePage, Cp437, MountOptions};
 use hadris_fs::sync::{DriverExt, FileSystem, FsDriver, PathExt, Volume, copy_tree};
 use hadris_fs::{
     Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, FileTimes, FileType,
@@ -99,23 +100,77 @@ fn image<T: NodeTable, C: Clock, P: CodePage>(fs: Fs<T, C, P>) -> Vec<u8> {
     fs.into_inner().into_inner()
 }
 
-/// The directory entries of `dir` in a V2 volume, without `.` and `..`.
-fn v2_names(dir: &FatDir<'_, common::Image>) -> Vec<String> {
-    let mut iter = dir.entries();
+/// The names in the directory at `path`, read through a fresh mount.
+fn fresh_names(case: Case, image: &[u8], path: &str) -> Vec<String> {
+    common::names(&mut common::mount(case, image), path)
+}
+
+/// The contents of the file at `path`, read through a fresh mount.
+fn fresh_read(case: Case, image: &[u8], path: &str) -> Vec<u8> {
+    common::read(&mut common::mount(case, image), path)
+}
+
+/// The raw short name of every live entry, keyed by the long name when it
+/// has one and by its 8.3 name with the NT case bits applied otherwise. The
+/// whole image is scanned, and long-name fragments are matched to short
+/// entries by checksum, so directories need not be contiguous.
+fn short_names(image: &[u8]) -> Vec<(String, [u8; 11])> {
+    let live = |entry: &&[u8]| entry[0] != 0 && entry[0] != 0xE5;
+    let fragments: Vec<(u8, u8, Vec<u16>)> = image
+        .chunks_exact(32)
+        .filter(live)
+        .filter(|entry| entry[11] == 0x0F && entry[12] == 0)
+        .map(|entry| {
+            let units = [1..11, 14..26, 28..32]
+                .into_iter()
+                .flat_map(|range| entry[range].chunks_exact(2))
+                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .take_while(|&unit| unit != 0)
+                .collect();
+            (entry[13], entry[0] & 0x1F, units)
+        })
+        .collect();
     let mut out = Vec::new();
-    while let Some(entry) = iter.next_entry() {
-        let entry = entry.unwrap();
-        let file = entry.as_entry().unwrap();
-        if file.name() != "." && file.name() != ".." {
-            out.push(file.name().into_owned());
+    for entry in image.chunks_exact(32).filter(live) {
+        if entry[11] == 0x0F {
+            continue;
         }
+        let short: [u8; 11] = entry[..11].try_into().unwrap();
+        let sum = short
+            .iter()
+            .fold(0u8, |sum, &byte| sum.rotate_right(1).wrapping_add(byte));
+        let mut parts: Vec<&(u8, u8, Vec<u16>)> = fragments
+            .iter()
+            .filter(|(check, ..)| *check == sum)
+            .collect();
+        parts.sort_by_key(|(_, seq, _)| *seq);
+        let text = if parts.is_empty() {
+            let case = |bytes: &[u8], lower: bool| {
+                let text = String::from_utf8_lossy(bytes).trim_end().to_owned();
+                if lower { text.to_lowercase() } else { text }
+            };
+            let base = case(&short[..8], entry[12] & 0x08 != 0);
+            let ext = case(&short[8..], entry[12] & 0x10 != 0);
+            if ext.is_empty() {
+                base
+            } else {
+                format!("{base}.{ext}")
+            }
+        } else {
+            let units: Vec<u16> = parts.iter().flat_map(|(.., units)| units.clone()).collect();
+            String::from_utf16_lossy(&units)
+        };
+        out.push((text, short));
     }
     out
 }
 
-fn v2_read(v2: &FatVolume<common::Image>, dir: &FatDir<'_, common::Image>, file: &str) -> Vec<u8> {
-    let entry = dir.find(file).unwrap().unwrap();
-    v2.read_file(&entry).unwrap().read_to_vec().unwrap()
+fn short_of(image: &[u8], text: &str) -> [u8; 11] {
+    short_names(image)
+        .into_iter()
+        .find(|(name, _)| name == text)
+        .unwrap_or_else(|| panic!("no entry named {text:?} in {:?}", short_names(image)))
+        .1
 }
 
 fn fat_time(year: i32, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> DateTime {
@@ -172,7 +227,7 @@ fn grown_contents() -> Vec<u8> {
 }
 
 #[test]
-fn written_trees_read_back_through_fatfs_and_v2() {
+fn written_trees_read_back_through_a_fresh_mount() {
     for case in CASES {
         let image = populate(case);
         let mut fs = open(case, image.clone());
@@ -203,31 +258,25 @@ fn written_trees_read_back_through_fatfs_and_v2() {
         let up = fs.parent(inner).unwrap();
         assert_eq!(up, fs.resolve("/Nested Dir").unwrap());
 
-        let v2 = common::open_v2(&image);
-        let v2_root = v2.root_dir();
-        assert_eq!(v2_names(&v2_root), names, "{}", case.name);
-        assert_eq!(v2_read(&v2, &v2_root, "README.TXT"), b"hello fat");
-        assert_eq!(v2_read(&v2, &v2_root, "lower.txt"), b"lowercase");
+        let mut fresh = common::mount(case, &image);
+        assert_eq!(common::names(&mut fresh, "/"), names, "{}", case.name);
+        assert_eq!(common::read(&mut fresh, "/README.TXT"), b"hello fat");
+        assert_eq!(common::read(&mut fresh, "/lower.txt"), b"lowercase");
         assert_eq!(
-            v2_read(&v2, &v2_root, "A long file name.txt"),
+            common::read(&mut fresh, "/A long file name.txt"),
             common::payload(70_000, 1)
         );
-        assert_eq!(v2_read(&v2, &v2_root, common::UNICODE_NAME), b"unicode");
-        assert_eq!(v2_read(&v2, &v2_root, "sparse.bin"), sparse_contents());
-        assert_eq!(v2_read(&v2, &v2_root, "grown.bin"), grown_contents());
-        assert_eq!(v2_read(&v2, &v2_root, "empty.dat"), b"");
-        let v2_inner = v2_root
-            .open_dir("Nested Dir")
-            .unwrap()
-            .open_dir("inner")
-            .unwrap();
         assert_eq!(
-            v2_read(&v2, &v2_inner, "deep.bin"),
+            common::read(&mut fresh, &format!("/{}", common::UNICODE_NAME)),
+            b"unicode"
+        );
+        assert_eq!(common::read(&mut fresh, "/empty.dat"), b"");
+        assert_eq!(
+            common::read(&mut fresh, "/Nested Dir/inner/deep.bin"),
             common::payload(33_333, 5)
         );
-        if let Some(free) = v2.free_cluster_count() {
-            assert_eq!(u64::from(free), fs.stats().unwrap().free_blocks());
-        }
+        let free = hadris_fat::sync::check(&mut fresh).unwrap().free_clusters();
+        assert_eq!(u64::from(free), fs.stats().unwrap().free_blocks());
         fsck(&image, case.name);
     }
 }
@@ -236,18 +285,16 @@ fn written_trees_read_back_through_fatfs_and_v2() {
 fn short_names_and_case_bits() {
     let case = CASES[1];
     let image = populate(case);
-    let v2 = common::open_v2(&image);
-    let root = v2.root_dir();
-    let short = |text: &str| root.find(text).unwrap().unwrap().short_name().raw_bytes();
+    let short = |text: &str| short_of(&image, text);
     assert_eq!(&short("README.TXT"), b"README  TXT");
     assert_eq!(&short("lower.txt"), b"LOWER   TXT");
-    assert!(
-        root.find("lower.txt")
-            .unwrap()
-            .unwrap()
-            .long_name()
-            .is_none()
-    );
+    let at = image
+        .chunks_exact(32)
+        .position(|entry| &entry[..11] == b"LOWER   TXT")
+        .unwrap()
+        * 32;
+    assert_eq!(image[at + 12] & 0x18, 0x18, "lowercase NT case bits");
+    assert_ne!(image[at - 32 + 11], 0x0F, "lower.txt has no long name");
     assert_eq!(&short("A long file name.txt"), b"ALONGF~1TXT");
     assert_eq!(&short("Nested Dir"), b"NESTED~1   ");
 }
@@ -280,12 +327,7 @@ fn short_name_collisions_get_numeric_then_hashed_tails() {
         fs.forget(second);
 
         let image = image(fs);
-        let v2 = common::open_v2(&image);
-        let dir = v2.root_dir();
-        let shorts: Vec<[u8; 11]> = texts
-            .iter()
-            .map(|text| dir.find(text).unwrap().unwrap().short_name().raw_bytes())
-            .collect();
+        let shorts: Vec<[u8; 11]> = texts.iter().map(|text| short_of(&image, text)).collect();
         for (i, short) in shorts.iter().take(4).enumerate() {
             assert_eq!(short, format!("LONGFI~{}TXT", i + 1).as_bytes());
         }
@@ -344,8 +386,7 @@ fn long_names_up_to_255_units() {
     fs.forget(node);
 
     let image = image(fs);
-    let v2 = common::open_v2(&image);
-    assert_eq!(v2_names(&v2.root_dir()), texts);
+    assert_eq!(fresh_names(case, &image, "/"), texts);
     fsck(&image, "long names");
 }
 
@@ -376,8 +417,7 @@ fn directories_grow_past_one_cluster() {
         fs.sync().unwrap();
 
         let image = image(fs);
-        let v2 = common::open_v2(&image);
-        assert_eq!(v2_names(&v2.root_dir().open_dir("many").unwrap()), texts);
+        assert_eq!(fresh_names(case, &image, "/many"), texts);
         fsck(&image, case.name);
     }
 }
@@ -513,14 +553,20 @@ fn rename_keeps_the_id_and_moves_directories() {
         assert_eq!(fs.open_nodes(), 1);
 
         let image = image(fs);
-        let v2 = common::open_v2(&image);
-        let v2_root = v2.root_dir();
-        let top = v2_root.open_dir("Top Level").unwrap();
-        assert_eq!(v2_read(&v2, &top, "deep.bin"), common::payload(33_333, 5));
-        let nested = v2_root.open_dir("Nested Dir").unwrap();
-        assert_eq!(v2_read(&v2, &nested, "Moved Readme.txt"), b"hello fat!");
-        assert_eq!(v2_names(&nested), ["Moved Readme.txt"]);
-        assert_eq!(v2_read(&v2, &v2_root, "LOWER.txt"), b"lowercase");
+        let mut fresh = common::mount(case, &image);
+        assert_eq!(
+            common::read(&mut fresh, "/Top Level/deep.bin"),
+            common::payload(33_333, 5)
+        );
+        assert_eq!(
+            common::read(&mut fresh, "/Nested Dir/Moved Readme.txt"),
+            b"hello fat!"
+        );
+        assert_eq!(
+            common::names(&mut fresh, "/Nested Dir"),
+            ["Moved Readme.txt"]
+        );
+        assert_eq!(common::read(&mut fresh, "/LOWER.txt"), b"lowercase");
         fsck(&image, case.name);
     }
 }
@@ -659,9 +705,7 @@ fn rename_replaces_or_refuses_existing_targets() {
             .any(|entry| &entry[..11] == b"\x05ABC    TXT"),
         "the replaced entry keeps its 0x05 lead byte"
     );
-    let v2 = common::open_v2(&image);
-    let v2_root = v2.root_dir();
-    let names = v2_names(&v2_root);
+    let names = fresh_names(case, &image, "/");
     assert!(!names.contains(&"README.TXT".to_owned()));
     fsck(&image, "replace");
 }
@@ -726,7 +770,7 @@ fn remove_files_and_directories() {
     let mut blank = open(case, common::blank(case));
     let mut fs = open(case, image.clone());
     assert_eq!(fs.stats().unwrap(), blank.stats().unwrap());
-    assert!(v2_names(&common::open_v2(&image).root_dir()).is_empty());
+    assert!(fresh_names(case, &image, "/").is_empty());
     fsck(&image, "removed");
 }
 
@@ -768,8 +812,7 @@ fn set_len_shrinks_frees_and_grows_zeroed() {
         fs.forget(node);
         fs.sync().unwrap();
         let image = image(fs);
-        let v2 = common::open_v2(&image);
-        assert_eq!(v2_read(&v2, &v2.root_dir(), "data.bin"), b"\0\0\0abc");
+        assert_eq!(fresh_read(case, &image, "/data.bin"), b"\0\0\0abc");
         fsck(&image, case.name);
     }
 }
@@ -964,14 +1007,6 @@ fn sync_persists_sizes_for_a_fresh_mount() {
             fresh.read_to_vec("/log.txt").unwrap(),
             b"first second third"
         );
-        let v2 = common::open_v2(&synced);
-        assert_eq!(
-            v2_read(&v2, &v2.root_dir(), "log.txt"),
-            b"first second third"
-        );
-        if let Some(free) = v2.free_cluster_count() {
-            assert_eq!(u64::from(free), fresh.stats().unwrap().free_blocks());
-        }
     }
 }
 
@@ -1027,8 +1062,7 @@ fn two_handles_on_a_volume_see_one_size() {
     let fs = vol.into_inner();
     assert_eq!(fs.open_nodes(), 1);
     let image = image(fs);
-    let v2 = common::open_v2(&image);
-    assert_eq!(v2_read(&v2, &v2.root_dir(), "shared.txt"), b"visible");
+    assert_eq!(fresh_read(case, &image, "/shared.txt"), b"visible");
     fsck(&image, "volume");
 }
 
@@ -1312,7 +1346,7 @@ const POOL: [&str; 8] = [
 ];
 
 /// Random operations on two directories, checked against a map after each
-/// step and against V2 and `fsck` at the end.
+/// step and against a fresh mount and `fsck` at the end.
 #[test]
 fn random_operations_match_a_model() {
     for (seed, case) in [
@@ -1446,14 +1480,12 @@ fn random_operations_match_a_model() {
         fs.sync().unwrap();
         assert_eq!(fs.open_nodes(), 1);
         let image = image(fs);
-        let v2 = common::open_v2(&image);
-        let v2_root = v2.root_dir();
-        let v2_sub = v2_root.open_dir("sub").unwrap();
+        let mut fresh = common::mount(case, &image);
         for ((d, i), value) in &model {
             if let Model::File(data) = value {
-                let dir = if *d == 0 { &v2_root } else { &v2_sub };
+                let dir = if *d == 0 { "" } else { "/sub" };
                 assert_eq!(
-                    &v2_read(&v2, dir, POOL[*i]),
+                    &common::read(&mut fresh, &format!("{dir}/{}", POOL[*i])),
                     data,
                     "{} {}",
                     case.name,
@@ -1601,8 +1633,12 @@ fn code_page_reads_and_generates_short_names() {
             .chunks_exact(32)
             .any(|entry| &entry[..11] == b"CAF\x90~1  TXT")
     );
-    let v2 = common::open_v2(&cp437_image);
-    assert_eq!(v2_read(&v2, &v2.root_dir(), "caf\u{E9}.txt"), b"cp437");
+    let mut fresh = FatFs::open_with(
+        common::device(case, cp437_image.clone()),
+        MountOptions::new().with_code_page(Cp437),
+    )
+    .unwrap();
+    assert_eq!(fresh.read_to_vec("/caf\u{E9}.txt").unwrap(), b"cp437");
 
     let mut fs = open(case, built);
     let root = fs.root();

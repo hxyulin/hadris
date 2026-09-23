@@ -1,19 +1,18 @@
-//! The read-only `FatFs` driver against the V2 `FatVolume` on the same
-//! images.
+//! The read-only `FatFs` driver on images filled through `FatFs`.
 
 #[path = "common/fatfs.rs"]
 mod common;
 
+use std::collections::BTreeMap;
 use std::io::Read as _;
 
 use common::{CASES, Case, Device, INNER, INNER_FILES, KANJI_NAME, LONG_NAME, UNICODE_NAME};
 use hadris_fat::sync::FatFs;
-use hadris_fat::{FatDir, FatKind, FatVolume, FatVolumeReadExt, FileEntry, MountOptions};
+use hadris_fat::{FatKind, MountOptions};
 use hadris_fs::sync::{DriverExt, File, FsDriver, PathExt, Volume};
 use hadris_fs::{
-    Attributes, CaseSensitivity, CivilDate, CivilTime, DateTime, DirCursor, ErrorKind, FileType,
-    FixedTable, HeapTable, Name, NameBuf, NameCharset, NewNode, NodeId, NodeTable, OpenOptions,
-    SetMetadata,
+    Attributes, CaseSensitivity, DirCursor, ErrorKind, FileType, FixedTable, HeapTable, Name,
+    NameBuf, NameCharset, NewNode, NodeId, NodeTable, OpenOptions, SetMetadata,
 };
 use hadris_storage::{BlockSize, MemDevice};
 
@@ -31,27 +30,6 @@ fn name(text: &str) -> &Name {
     Name::new(text).unwrap()
 }
 
-fn fat_time(date: u16, time: u16, tenths: u8) -> Option<DateTime> {
-    let date = CivilDate::new(
-        1980 + (date >> 9) as i32,
-        ((date >> 5) & 0x0F) as u8,
-        (date & 0x1F) as u8,
-    )
-    .ok()?;
-    let time = CivilTime::new(
-        (time >> 11) as u8,
-        ((time >> 5) & 0x3F) as u8,
-        ((time & 0x1F) * 2) as u8,
-    )
-    .ok()?;
-    let base = DateTime::from_civil(date, time, None).ok()?;
-    DateTime::new(
-        base.unix_seconds() + (tenths / 100) as i64,
-        (tenths % 100) as u32 * 10_000_000,
-    )
-    .ok()
-}
-
 fn swap_case(text: &str) -> String {
     text.chars()
         .flat_map(|ch| -> Vec<char> {
@@ -62,19 +40,6 @@ fn swap_case(text: &str) -> String {
             }
         })
         .collect()
-}
-
-fn v2_list(dir: &FatDir<'_, common::Image>) -> Vec<FileEntry> {
-    let mut iter = dir.entries();
-    let mut out = Vec::new();
-    while let Some(entry) = iter.next_entry() {
-        let entry = entry.unwrap();
-        let file = entry.as_entry().unwrap();
-        if file.name() != "." && file.name() != ".." {
-            out.push(file.clone());
-        }
-    }
-    out
 }
 
 fn list<T: NodeTable>(fs: &mut Fs<T>, dir: NodeId) -> Vec<(String, hadris_fs::DirEntry)> {
@@ -100,89 +65,89 @@ fn read_all<T: NodeTable>(fs: &mut Fs<T>, node: NodeId) -> Vec<u8> {
     }
 }
 
-/// Compares one directory, then recurses into subdirectories.
-fn compare(
+/// The files the fixture holds and their contents, by path.
+fn expected_files() -> BTreeMap<String, Vec<u8>> {
+    let mut files = BTreeMap::new();
+    let mut add = |path: &str, data: &[u8]| files.insert(path.to_owned(), data.to_vec());
+    add("/README.TXT", b"hello fat");
+    add("/lower.txt", b"lowercase short name");
+    add(&format!("/{LONG_NAME}"), &common::payload(5000, 1));
+    add(&format!("/{UNICODE_NAME}"), b"unicode");
+    add(&format!("/{}", common::huge_name()), b"huge name");
+    add("/empty.dat", b"");
+    add("/hidden.sys", b"h");
+    let mut frag = common::payload(100, 2);
+    frag.extend(common::payload(40_000, 4));
+    add("/frag.bin", &frag);
+    add("/spacer.bin", &common::payload(100, 3));
+    add("/Nested Dir/sibling.txt", b"sibling");
+    add(&format!("{INNER}/deep.bin"), &common::payload(70_000, 5));
+    for i in 0..INNER_FILES - 1 {
+        let name = format!("file number {i:02}.txt");
+        add(&format!("{INNER}/{name}"), name.as_bytes());
+    }
+    add(&format!("/{KANJI_NAME}"), b"kanji");
+    files
+}
+
+/// Walks one directory, checking every entry, then recurses into
+/// subdirectories. Returns the files and directories seen.
+fn walk(
     case: Case,
-    v2: &FatVolume<common::Image>,
-    v2_dir: &FatDir<'_, common::Image>,
     fs: &mut Fs,
     dir: NodeId,
+    path: &str,
+    files: &BTreeMap<String, Vec<u8>>,
 ) -> usize {
-    let expected = v2_list(v2_dir);
     let listed = list(fs, dir);
-    let expected_names: Vec<String> = expected
-        .iter()
-        .map(|file| file.name().into_owned())
-        .collect();
-    let listed_names: Vec<&str> = listed.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(listed_names, expected_names, "{}", case.name);
-
-    let mut compared = 0;
-    for (file, (text, entry)) in expected.iter().zip(&listed) {
-        let context = format!("{}: {text}", case.name);
+    let mut seen = 0;
+    for (text, entry) in &listed {
+        let context = format!("{}: {path}{text}", case.name);
+        let child_path = format!("{path}{text}");
         let meta = fs.node_metadata(entry.node()).unwrap();
-        let file_type = if file.is_directory() {
-            FileType::Dir
+        assert_eq!(meta.file_type(), entry.file_type(), "{context}");
+        let expected_attrs = if text == "hidden.sys" {
+            Attributes::HIDDEN | Attributes::SYSTEM | Attributes::READ_ONLY
+        } else if entry.file_type() == FileType::File {
+            Attributes::ARCHIVE
         } else {
-            FileType::File
+            Attributes::empty()
         };
-        assert_eq!(entry.file_type(), file_type, "{context}");
-        assert_eq!(meta.file_type(), file_type, "{context}");
-        assert_eq!(meta.len(), file.len(), "{context}");
-        assert_eq!(
-            meta.attributes(),
-            Attributes::from_bits_truncate(u32::from(file.attributes().bits())),
-            "{context}"
-        );
-        let created = file.created();
-        let modified = file.modified();
-        assert_eq!(
-            meta.times().created(),
-            fat_time(created.date, created.time, created.time_tenth),
-            "{context}"
-        );
-        assert_eq!(
-            meta.times().modified(),
-            fat_time(modified.date, modified.time, 0),
-            "{context}"
-        );
-        assert_eq!(
-            meta.times().accessed(),
-            fat_time(file.accessed_date(), 0, 0),
-            "{context}"
-        );
+        assert_eq!(meta.attributes(), expected_attrs, "{context}");
         assert!(meta.times().modified().is_some(), "{context}");
 
         let node = fs.lookup(dir, name(&swap_case(text))).unwrap();
         assert_eq!(node, entry.node(), "{context}");
         assert_eq!(fs.node_metadata(node).unwrap(), meta, "{context}");
 
-        if file.is_directory() {
-            let v2_child = v2_dir.open_entry(file).unwrap();
-            compared += compare(case, v2, &v2_child, fs, node);
+        if entry.file_type() == FileType::Dir {
+            assert_eq!(meta.len(), 0, "{context}");
+            seen += walk(case, fs, node, &format!("{child_path}/"), files);
             let parent = fs.parent(node).unwrap();
             assert_eq!(parent, dir, "{context}");
             fs.forget(parent);
         } else {
-            let data = v2.read_file(file).unwrap().read_to_vec().unwrap();
-            assert_eq!(read_all(fs, node), data, "{context}");
+            let data = files
+                .get(&child_path)
+                .unwrap_or_else(|| panic!("{context}"));
+            assert_eq!(meta.len(), data.len() as u64, "{context}");
+            assert_eq!(&read_all(fs, node), data, "{context}");
         }
         fs.forget(node);
-        compared += 1;
+        seen += 1;
     }
-    compared
+    seen
 }
 
 #[test]
-fn listings_metadata_and_contents_match_v2() {
+fn listings_metadata_and_contents_match_the_fixture() {
+    let files = expected_files();
     for case in CASES {
-        let image = common::build(case);
-        let v2 = common::open_v2(&image);
-        let mut fs = open(case, image);
+        let mut fs = open(case, common::build(case));
         assert_eq!(fs.kind(), case.kind, "{}", case.name);
         let root = fs.root();
-        let compared = compare(case, &v2, &v2.root_dir(), &mut fs, root);
-        assert_eq!(compared, 11 + 2 + INNER_FILES, "{}", case.name);
+        let seen = walk(case, &mut fs, root, "/", &files);
+        assert_eq!(seen, 11 + 2 + INNER_FILES, "{}", case.name);
         assert_eq!(fs.open_nodes(), 1, "{}", case.name);
     }
 }
@@ -226,14 +191,12 @@ fn names_long_unicode_huge_and_kanji() {
 fn lookup_matches_short_names_and_ignores_case() {
     for case in CASES {
         let image = common::build(case);
-        let v2 = common::open_v2(&image);
-        let short = v2
-            .root_dir()
-            .find(LONG_NAME)
-            .unwrap()
-            .unwrap()
-            .short_name()
-            .raw_bytes();
+        let short: [u8; 11] = image
+            .chunks_exact(32)
+            .find(|entry| entry.starts_with(b"ALONGF") && entry[11] == 0x20)
+            .expect("short entry of the long name")[..11]
+            .try_into()
+            .unwrap();
         let base = String::from_utf8_lossy(&short[..8]).trim_end().to_owned();
         let ext = String::from_utf8_lossy(&short[8..]).trim_end().to_owned();
         let short = format!("{base}.{ext}");
@@ -338,7 +301,9 @@ fn stats_count_clusters() {
         assert!(empty.block_size() >= 512);
 
         let image = common::build(case);
-        let v2 = common::open_v2(&image);
+        let free = hadris_fat::sync::check(&mut common::mount(case, &image))
+            .unwrap()
+            .free_clusters();
         let mut fs = open(case, image);
         let stats = fs.stats().unwrap();
         assert_eq!(stats.total_blocks(), empty.total_blocks());
@@ -346,9 +311,7 @@ fn stats_count_clusters() {
         let used = empty.free_blocks() - stats.free_blocks();
         let min_used = (40_100 + 70_000) / u64::from(stats.block_size());
         assert!(used > min_used, "{}: {used} clusters used", case.name);
-        if let Some(free) = v2.free_cluster_count() {
-            assert_eq!(stats.free_blocks(), u64::from(free), "{}", case.name);
-        }
+        assert_eq!(stats.free_blocks(), u64::from(free), "{}", case.name);
         assert_eq!(fs.stats().unwrap(), stats);
     }
 }
@@ -580,11 +543,13 @@ fn cyclic_chains_end_instead_of_hanging() {
     let case = CASES[1];
     let mut image = common::build(case);
     let (inner, deep) = {
-        let v2 = common::open_v2(&image);
-        let nested = v2.root_dir().open_dir("Nested Dir").unwrap();
-        let inner = nested.open_dir("inner").unwrap();
-        let deep = inner.find("deep.bin").unwrap().unwrap().cluster().0;
-        (nested.find("inner").unwrap().unwrap().cluster().0, deep)
+        let mut fs = common::mount(case, &image);
+        let inner = fs.resolve(INNER).unwrap();
+        let deep = fs.lookup(inner, name("deep.bin")).unwrap();
+        (
+            common::chain(&mut fs, inner)[0] as usize,
+            common::chain(&mut fs, deep)[0] as usize,
+        )
     };
     let u16_at = |at: usize| u16::from_le_bytes([image[at], image[at + 1]]) as usize;
     let fat_start = u16_at(14) * u16_at(11);
