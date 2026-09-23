@@ -325,8 +325,11 @@ jobs:
             tier: hosted-async-with-cd
             features: "std,async,read,open,cd"
           - crate: hadris-optical
+            tier: iso-only
+            features: "iso,sync"
+          - crate: hadris-optical
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,open,cd"
+            features: "std,alloc,sync,async,async-send,read,write,open,cd"
 
           # hadris umbrella/category forwarding
           - crate: hadris
