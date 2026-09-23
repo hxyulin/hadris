@@ -12,7 +12,7 @@ gate).
 | `fat_read`  | `FatFs::open_with` + recursive read + `check_with` | BPB, FAT chain, directory + LFN parsing, lookups, file reads, the checker |
 | `exfat_read`| `ExFatVolume::open` + recursive read | boot region, entry sets, FAT/no-FAT chains, upcase |
 | `ntfs_read` | `NtfsFs::open` + recursive read      | boot sector, MFT records, attributes, index walks |
-| `part_read` | `PartitionTable::read_from`          | MBR / GPT detection and entry parsing |
+| `part_read` | `sync::read` + `scan`, edits, `write` and re-read | MBR, EBR chains, GPT with the backup fallback, hybrid MBR, table edits |
 | `iso_read`  | `IsoImage::open` + recursive read    | volume descriptors, directory records, RRIP, multi-extent reads |
 | `udf_read`  | `UdfVolume::open` + recursive read   | anchor/VDS/FSD, File Entry, allocation descriptors, FIDs |
 | `fat_ops`   | `format` + fuzz-driven create/write/delete/rename/write-at/set-len ops on `FatFs` | FAT write path vs a shadow model, `check` after sync, verified after remount |
@@ -62,6 +62,12 @@ ISO9660), and copies repo fixtures (`test-images/`, crate test fixtures) for
 exFAT/ISO/UDF where no host tool exists. The script is idempotent: seeds use
 fixed names, and fuzzer-grown corpus entries are never touched.
 
+The `part_read` seeds (`corpus/part_read/part-*.img`: MBR, EBR chain, GPT
+with 512- and 4096-byte blocks, hybrid MBR, and GPTs with a damaged primary
+or backup) are committed. They are under the target's 64 KiB `max_len`, so
+the fuzzer sees whole disks, backup GPT included; `gen-seeds.sh` rewrites
+them byte for byte.
+
 ## Fuzzing fleet
 
 ```bash
@@ -79,7 +85,7 @@ and replaces the session. Attach with `tmux attach -t fuzz`; crashes land in
 `src/bin/fs_dump.rs` is a normal binary (auto-discovered, not a fuzz target)
 that prints a canonical, sorted listing of an image —
 `file <size> <fnv1a64-of-first-4KiB> <path>`, `dir <path>`, or
-`<index> <start_lba> <size_sectors>` for partition tables — and prints nothing
+`<index> <start> <len>` (in blocks) for partition tables — and prints nothing
 (exit 0) when the image does not mount:
 
 ```bash

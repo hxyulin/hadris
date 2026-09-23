@@ -287,17 +287,19 @@ fn dump_cpio(data: &[u8]) -> Vec<String> {
 }
 
 fn dump_part(data: &[u8]) -> Vec<String> {
-    use hadris_part::{PartitionTable, PartitionTableReadExt};
+    use hadris_storage::{BlockSize, MemDevice};
 
     let mut lines = Vec::new();
-    let mut cursor = Cursor::new(data);
-    let Ok(table) = PartitionTable::read_from(&mut cursor, 512) else {
+    let mut dev = MemDevice::new(data, BlockSize::new(512).unwrap());
+    let Ok(disk) = hadris_part::sync::read(&mut dev) else {
         return lines;
     };
-    for partition in table.partitions() {
+    for partition in disk.partitions() {
         lines.push(format!(
             "{} {} {}",
-            partition.index, partition.start_lba, partition.size_sectors
+            partition.index(),
+            partition.start(),
+            partition.len()
         ));
     }
     lines

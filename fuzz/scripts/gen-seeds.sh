@@ -140,77 +140,99 @@ else
 fi
 
 # --- part_read ------------------------------------------------------------
+# Every seed stays within the 64 KiB max_len of part_read, so the fuzzer sees
+# the whole disk, backup GPT included.
 if have python3; then
     python3 - "$TMP" <<'PYEOF'
 import binascii, struct, sys, uuid
 out = sys.argv[1]
 
-def mbr(path, nparts):
-    secs = 8192  # 4 MiB
-    img = bytearray(512 * secs)
-    types = [0x83, 0x07, 0x0B, 0x82]
-    start = 2048
-    for i in range(nparts):
-        size = 1024
-        e = bytes([0x80 if i == 0 else 0, 0, 2, 0, types[i % 4], 0, 2, 0])
-        e += struct.pack("<II", start, size)
-        img[446 + 16 * i:446 + 16 * i + 16] = e
-        start += size + 256
-    img[510:512] = b"\x55\xaa"
+def entry(img, at, kind, start, count, boot=0):
+    img[at:at + 16] = bytes([boot, 0, 0, 0, kind, 0, 0, 0]) + struct.pack("<II", start, count)
+
+def signed(img, block, bs=512):
+    img[block * bs + 510:block * bs + 512] = b"\x55\xaa"
+
+def mbr(path):
+    img = bytearray(512 * 64)
+    entry(img, 446, 0x0C, 2, 30, boot=0x80)
+    entry(img, 462, 0x83, 40, 24)
+    signed(img, 0)
     open(path, "wb").write(img)
 
-def gpt(path):
-    secs = 4096  # 2 MiB
-    img = bytearray(512 * secs)
-    img[446:462] = bytes([0, 0, 2, 0, 0xEE, 0xFF, 0xFF, 0xFF]) \
-        + struct.pack("<II", 1, secs - 1)
-    img[510:512] = b"\x55\xaa"
-    nent, esz = 128, 128
+def ebr(path):
+    # Extended partition 16..96; EBRs at 16, 40 and 60 chain three
+    # logical partitions.
+    img = bytearray(512 * 96)
+    entry(img, 446, 0x0C, 2, 10)
+    entry(img, 462, 0x0F, 16, 80)
+    signed(img, 0)
+    chain = [(16, 18, 10, 40), (40, 42, 10, 60), (60, 62, 20, None)]
+    for ebr_lba, start, count, nxt in chain:
+        at = ebr_lba * 512
+        entry(img, at + 446, 0x83, start - ebr_lba, count)
+        if nxt is not None:
+            nxt_end = [c for c in chain if c[0] == nxt][0]
+            entry(img, at + 462, 0x05, nxt - 16, nxt_end[1] + nxt_end[2] - nxt)
+        signed(img, ebr_lba)
+    open(path, "wb").write(img)
+
+def gpt(path, bs=512, blocks=48, hybrid=False, damage=None):
+    img = bytearray(bs * blocks)
+    nent, esz = 4, 128
+    array_blocks = (nent * esz + bs - 1) // bs
+    first, last = 2 + array_blocks, blocks - 2 - array_blocks
+    esp_last = first + (last - first) // 3
     parts = [
-        ("c12a7328-f81f-11d2-ba4b-00a0c93ec93b", "EFI System", 2048, 3071),
-        ("0fc63daf-8483-4772-8e79-3d69d8477de4", "rootfs", 3072, 4000),
+        ("c12a7328-f81f-11d2-ba4b-00a0c93ec93b", "EFI System", first, esp_last, 1),
+        ("0fc63daf-8483-4772-8e79-3d69d8477de4", "root é\U0001f600", esp_last + 1, last, 4),
     ]
+    if hybrid:
+        entry(img, 446, 0xEE, 1, first - 1)
+        entry(img, 462, 0xEF, first, esp_last - first + 1, boot=0x80)
+    else:
+        entry(img, 446, 0xEE, 1, blocks - 1)
+    signed(img, 0, bs)
     entries = bytearray(nent * esz)
-    for i, (tg, name, first, last) in enumerate(parts):
+    for i, (tg, name, lo, hi, attrs) in enumerate(parts):
         off = i * esz
         entries[off:off + 16] = uuid.UUID(tg).bytes_le
         entries[off + 16:off + 32] = uuid.uuid5(uuid.NAMESPACE_DNS, name).bytes_le
-        struct.pack_into("<QQ", entries, off + 32, first, last)
+        struct.pack_into("<QQQ", entries, off + 32, lo, hi, attrs)
         nm = name.encode("utf-16-le")[:72]
         entries[off + 56:off + 56 + len(nm)] = nm
     ecrc = binascii.crc32(entries) & 0xFFFFFFFF
-    img[2 * 512:2 * 512 + len(entries)] = entries
-    backup_off = (secs - 1 - (len(entries) + 511) // 512) * 512
-    img[backup_off:backup_off + len(entries)] = entries
+    backup_array = blocks - 1 - array_blocks
+    img[2 * bs:2 * bs + len(entries)] = entries
+    img[backup_array * bs:backup_array * bs + len(entries)] = entries
 
-    def header(cur, bak, ent_lba):
-        h = bytearray(512)
+    def header(cur, alt, ent_lba):
+        h = bytearray(92)
         h[0:8] = b"EFI PART"
-        struct.pack_into("<I", h, 8, 0x00010000)
-        struct.pack_into("<I", h, 12, 92)
-        struct.pack_into("<Q", h, 24, cur)
-        struct.pack_into("<Q", h, 32, bak)
-        struct.pack_into("<Q", h, 40, 34)
-        struct.pack_into("<Q", h, 48, secs - 34)
+        struct.pack_into("<IIIIQQQQ", h, 8, 0x00010000, 92, 0, 0, cur, alt, first, last)
         h[56:72] = uuid.UUID("deadc0de-1234-5678-9abc-def012345678").bytes_le
-        struct.pack_into("<Q", h, 72, ent_lba)
-        struct.pack_into("<I", h, 80, nent)
-        struct.pack_into("<I", h, 84, esz)
-        struct.pack_into("<I", h, 88, ecrc)
-        struct.pack_into("<I", h, 16, binascii.crc32(h[:92]) & 0xFFFFFFFF)
+        struct.pack_into("<QIII", h, 72, ent_lba, nent, esz, ecrc)
+        struct.pack_into("<I", h, 16, binascii.crc32(h) & 0xFFFFFFFF)
         return h
 
-    img[512:1024] = header(1, secs - 1, 2)
-    img[(secs - 1) * 512:secs * 512] = header(secs - 1, 1, backup_off // 512)
+    img[bs:bs + 92] = header(1, blocks - 1, 2)
+    img[(blocks - 1) * bs:(blocks - 1) * bs + 92] = header(blocks - 1, 1, backup_array)
+    if damage == "primary":
+        img[bs] ^= 0xFF
+    elif damage == "backup":
+        img[(blocks - 1) * bs + 24] ^= 0xFF
     open(path, "wb").write(img)
 
-mbr(out + "/mbr-1part.img", 1)
-mbr(out + "/mbr-2part.img", 2)
-mbr(out + "/mbr-4part.img", 4)
-gpt(out + "/gpt-2part.img")
+mbr(out + "/part-mbr.img")
+ebr(out + "/part-ebr.img")
+gpt(out + "/part-gpt.img")
+gpt(out + "/part-gpt-4k.img", bs=4096, blocks=8)
+gpt(out + "/part-hybrid.img", hybrid=True)
+gpt(out + "/part-gpt-primary-damaged.img", damage="primary")
+gpt(out + "/part-gpt-backup-damaged.img", damage="backup")
 PYEOF
-    cp "$TMP"/mbr-*.img "$TMP"/gpt-*.img "$CORPUS/part_read/"
-    note "part_read: python-crafted MBR (1/2/4 entries) and GPT disks"
+    cp "$TMP"/part-*.img "$CORPUS/part_read/"
+    note "part_read: python-crafted MBR, EBR chain, GPT (512 and 4096), hybrid and damaged GPT disks"
 fi
 
 # --- iso_read -------------------------------------------------------------
