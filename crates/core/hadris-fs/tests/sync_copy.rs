@@ -220,3 +220,83 @@ fn import_rejects_special_files_and_conflicts() {
         assert_eq!(fs.open_nodes(), 1);
     }
 }
+
+#[test]
+fn import_walks_host_directories_in_name_order() {
+    let scratch = Scratch::new("sorted");
+    let tree = scratch.0.join("tree");
+    std::fs::create_dir_all(tree.join("sub")).unwrap();
+    for name in ["zeta", "Alpha", "beta", "10", "9", "sub/b", "sub/a"] {
+        std::fs::write(tree.join(name), name).unwrap();
+    }
+    let mut fs = MemFs::new();
+    import_from_host(&tree, &mut fs, "/").unwrap();
+    let names = |fs: &mut MemFs, path: &str| -> Vec<String> {
+        fs.read_dir(path)
+            .unwrap()
+            .map(|item| item.unwrap().name_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(
+        names(&mut fs, "/"),
+        ["10", "9", "Alpha", "beta", "sub", "zeta"]
+    );
+    assert_eq!(names(&mut fs, "/sub"), ["a", "b"]);
+    assert_eq!(fs.open_nodes(), 1);
+}
+
+#[test]
+fn long_symlink_targets_are_refused() {
+    let mut src = MemFs::new();
+    src.add("/", "huge", NewNode::Symlink(&[b'a'; 4097]), b"");
+    let mut dst = MemFs::new();
+    let err = copy_tree(&mut src, "/huge", &mut dst, "/huge").unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+    assert!(!dst.exists("/huge").unwrap());
+
+    src.add("/", "max", NewNode::Symlink(&[b'a'; 4096]), b"");
+    copy_tree(&mut src, "/max", &mut dst, "/max").unwrap();
+    assert_eq!(link_target_len(&mut dst, "/max"), 4096);
+
+    #[cfg(unix)]
+    {
+        let scratch = Scratch::new("long-link");
+        let err = extract_to_host(&mut src, "/huge", scratch.0.join("huge")).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
+        assert!(std::fs::symlink_metadata(scratch.0.join("huge")).is_err());
+    }
+    assert_eq!((src.open_nodes(), dst.open_nodes()), (1, 1));
+}
+
+fn link_target_len(fs: &mut MemFs, path: &str) -> usize {
+    let node = fs.resolve(path).unwrap();
+    let mut buf = [0u8; 8192];
+    let n = fs.read_link(node, &mut buf).unwrap();
+    fs.forget(node);
+    n
+}
+
+#[cfg(unix)]
+#[test]
+fn extraction_replaces_files_instead_of_truncating_them() {
+    let scratch = Scratch::new("hard-link");
+    let outside = scratch.0.join("outside");
+    std::fs::write(&outside, b"keep").unwrap();
+    let out = scratch.0.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::hard_link(&outside, out.join("a.txt")).unwrap();
+    std::fs::write(out.join("link"), b"a file where the image has a link").unwrap();
+
+    let mut src = fixture();
+    extract_to_host(&mut src, "/", &out).unwrap();
+    assert_eq!(std::fs::read(out.join("a.txt")).unwrap(), b"root a");
+    assert_eq!(std::fs::read(&outside).unwrap(), b"keep");
+    assert_eq!(
+        std::fs::read_link(out.join("link")).unwrap(),
+        PathBuf::from("etc")
+    );
+
+    extract_to_host(&mut src, "/a.txt", &outside).unwrap();
+    assert_eq!(std::fs::read(&outside).unwrap(), b"root a");
+    assert_eq!(src.open_nodes(), 1);
+}

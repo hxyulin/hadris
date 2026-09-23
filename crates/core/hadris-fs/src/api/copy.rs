@@ -7,6 +7,19 @@ io_transform! {
 /// Bytes moved per read.
 pub(super) const CHUNK: usize = 4096;
 
+/// The longest symlink target copied, as Linux `PATH_MAX`.
+pub(super) const MAX_LINK_TARGET: usize = 4096;
+
+/// A buffer for the target of a symlink whose metadata reports `len` bytes.
+/// [`ErrorKind::LimitExceeded`] above [`MAX_LINK_TARGET`].
+pub(super) fn link_buffer(len: u64) -> Result<Vec<u8>, ErrorKind> {
+    match usize::try_from(len) {
+        Ok(0) => Ok(alloc::vec![0u8; MAX_LINK_TARGET]),
+        Ok(len) if len <= MAX_LINK_TARGET => Ok(alloc::vec![0u8; len]),
+        _ => Err(ErrorKind::LimitExceeded),
+    }
+}
+
 /// A directory being copied: both nodes pinned, and the metadata to apply to
 /// the target once its contents are written (none for the top directory).
 struct Frame {
@@ -130,8 +143,7 @@ where
             copied.map(|()| None)
         }
         FileType::Symlink => {
-            let len = usize::try_from(meta.len()).map_err(|_| ErrorKind::LimitExceeded)?;
-            let mut target = alloc::vec![0u8; if len == 0 { CHUNK } else { len }];
+            let mut target = link_buffer(meta.len())?;
             let n = src.read_link(node, &mut target).await?;
             let to = target_child(dst, dir, name, NewNode::Symlink(&target[..n])).await?;
             dst.forget(to);
@@ -221,7 +233,8 @@ where
 /// or an existing symlink, fails with [`ErrorKind::AlreadyExists`]. Times,
 /// permissions, owner and attributes are copied where `dst` can store them.
 /// Device nodes, FIFOs and sockets fail with [`ErrorKind::Unsupported`].
-/// Symlinks are copied as links, never followed. Copying a directory into
+/// Symlinks are copied as links, never followed; a target longer than 4096
+/// bytes fails with [`ErrorKind::LimitExceeded`]. Copying a directory into
 /// itself on one volume does not end until the volume is full.
 ///
 /// ```rust,ignore

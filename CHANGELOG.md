@@ -34,9 +34,17 @@ Each published package owns its version and may be released independently.
   with its name, and `ErrorKind::Symlink` reports `ELOOP`.
   `copy_tree` (`alloc`) copies a file, symlink or directory tree between
   any two filesystems, each side any `Access`, and returns `AnyError`. With
-  `std`, the sync API adds `extract_to_host` and `import_from_host`, which
-  reject entry names that are not one plain host component and never write
-  through an existing host symlink. `FuseOnError` ends an iterator of
+  `std`, the sync API adds `extract_to_host` and `import_from_host`.
+  `extract_to_host` rejects entry names that are not one plain host
+  component (and, on Windows, device names such as `CON` or `com1.txt`,
+  names with `:` or wildcards, and names ending in a dot or space), never
+  writes through or replaces an existing host symlink, and replaces an
+  existing file with a new one instead of truncating it, so its other hard
+  links keep their contents. `import_from_host` copies each directory's
+  entries in name byte order, so a host tree always gives the same image.
+  `copy_tree` and `extract_to_host` refuse symlink targets longer than 4096
+  bytes with `ErrorKind::LimitExceeded` instead of allocating whatever
+  length the source reports. `FuseOnError` ends an iterator of
   `Result`s after its first `Err`.
   `NodeTable` maps a driver's `NodeId`s to per-node state with pin counts
   for formats without stable inode numbers. `FixedTable<N>` needs no

@@ -1,6 +1,6 @@
 sync_only! {
 
-use super::copy::{CHUNK, target_child, write_all_at};
+use super::copy::{CHUNK, link_buffer, target_child, write_all_at};
 use super::*;
 use crate::{DateTime, FileTimes, Mode};
 use alloc::vec::Vec;
@@ -18,12 +18,40 @@ fn escape_error() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, "entry name would leave the target directory")
 }
 
-/// `bytes` as a host file name, if it is exactly one normal component.
+/// Whether Windows gives `name` a meaning other than a plain file in the
+/// directory: a device name such as `CON` or `com1.txt`, a character that
+/// names a stream or a wildcard, or a trailing dot or space it strips.
+#[cfg(any(windows, test))]
+fn windows_special(name: &str) -> bool {
+    const DEVICES: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
+    if name.ends_with(['.', ' '])
+        || name.chars().any(|c| c < ' ' || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*'))
+    {
+        return true;
+    }
+    let stem = name.split('.').next().unwrap_or(name).trim_end_matches(' ');
+    if DEVICES.iter().any(|device| stem.eq_ignore_ascii_case(device)) {
+        return true;
+    }
+    let mut chars = stem.chars();
+    let prefix: alloc::string::String = chars.by_ref().take(3).collect();
+    let digit = chars.next();
+    (prefix.eq_ignore_ascii_case("COM") || prefix.eq_ignore_ascii_case("LPT"))
+        && matches!(digit, Some('1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'))
+        && chars.next().is_none()
+}
+
+/// `bytes` as a host file name, if it is exactly one normal component. On
+/// Windows, device names and names Windows would alter are refused too.
 fn host_name(bytes: &[u8]) -> io::Result<&OsStr> {
     #[cfg(unix)]
     let name = std::os::unix::ffi::OsStrExt::from_bytes(bytes);
     #[cfg(not(unix))]
     let name = OsStr::new(core::str::from_utf8(bytes).map_err(|_| escape_error())?);
+    #[cfg(windows)]
+    if name.to_str().is_some_and(windows_special) {
+        return Err(escape_error());
+    }
     let mut components = Path::new(name).components();
     match (components.next(), components.next()) {
         (Some(HostComponent::Normal(part)), None) if part == name => Ok(name),
@@ -66,16 +94,28 @@ fn from_system_time(time: SystemTime) -> Option<DateTime> {
     DateTime::new(seconds, nanoseconds).ok()
 }
 
-/// Fails when `path` is a symlink, so a write never follows one out of the
-/// target directory.
-fn refuse_symlink(path: &Path) -> io::Result<()> {
+fn symlink_in_the_way() -> io::Error {
+    io::Error::new(io::ErrorKind::AlreadyExists, "refusing to replace a symlink")
+}
+
+/// Makes room for a new non-directory at `path`: an existing file is
+/// unlinked, so its other hard links keep their contents. Fails on an
+/// existing symlink or directory.
+fn clear_host_path(path: &Path) -> io::Result<()> {
     match host::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() => Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "refusing to write through a symlink",
-        )),
-        _ => Ok(()),
+        Ok(meta) if meta.file_type().is_symlink() => Err(symlink_in_the_way()),
+        Ok(meta) if meta.is_dir() => Err(io::Error::from(io::ErrorKind::AlreadyExists)),
+        Ok(_) => host::remove_file(path),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
     }
+}
+
+/// Creates a new file at `path`. `create_new` never follows a symlink, so
+/// one planted after [`clear_host_path`] makes this fail instead.
+fn create_host_file(path: &Path) -> io::Result<host::File> {
+    clear_host_path(path)?;
+    host::OpenOptions::new().write(true).create_new(true).open(path)
 }
 
 /// Creates the directory `path`, or accepts an existing directory that is
@@ -83,8 +123,11 @@ fn refuse_symlink(path: &Path) -> io::Result<()> {
 fn create_host_dir(path: &Path) -> io::Result<()> {
     match host::create_dir(path) {
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
-            if host::symlink_metadata(path)?.file_type().is_dir() {
+            let kind = host::symlink_metadata(path)?.file_type();
+            if kind.is_dir() {
                 Ok(())
+            } else if kind.is_symlink() {
+                Err(symlink_in_the_way())
             } else {
                 Err(err)
             }
@@ -95,10 +138,9 @@ fn create_host_dir(path: &Path) -> io::Result<()> {
 
 /// Writes the pinned non-directory `node` to the host path `path`.
 fn extract_node<D: FsDriver + ?Sized>(fs: &mut D, node: NodeId, meta: &Metadata, path: &Path) -> io::Result<()> {
-    refuse_symlink(path)?;
     match meta.file_type() {
         FileType::File => {
-            let mut file = host::File::create(path)?;
+            let mut file = create_host_file(path)?;
             let mut buf = [0u8; CHUNK];
             let mut offset = 0;
             loop {
@@ -120,14 +162,16 @@ fn extract_node<D: FsDriver + ?Sized>(fs: &mut D, node: NodeId, meta: &Metadata,
             Ok(())
         }
         FileType::Symlink => {
-            let len = usize::try_from(meta.len()).map_err(|_| io::Error::from(io::ErrorKind::OutOfMemory))?;
-            let mut target = alloc::vec![0u8; if len == 0 { CHUNK } else { len }];
+            let mut target = link_buffer(meta.len()).map_err(Error::<D::DeviceError>::from)?;
             let n = fs.read_link(node, &mut target)?;
             #[cfg(unix)]
-            return std::os::unix::fs::symlink(
-                <OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(&target[..n]),
-                path,
-            );
+            {
+                clear_host_path(path)?;
+                std::os::unix::fs::symlink(
+                    <OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(&target[..n]),
+                    path,
+                )
+            }
             #[cfg(not(unix))]
             {
                 let _ = n;
@@ -172,15 +216,26 @@ fn extract_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(NodeId, DirCu
 /// path `host`, as `tar -x` or `7z x` would.
 ///
 /// `src` is any [`Access`]. A directory is merged into `host`, which is
-/// created with its parents when missing; existing files are overwritten.
+/// created with its parents when missing. An existing file is replaced by a
+/// new one rather than truncated, so other hard links to it keep their
+/// contents.
+///
 /// Every entry name must be one plain host path component: names that are
-/// absolute, contain a separator or a drive prefix, or are `..` fail with
-/// [`std::io::ErrorKind::InvalidData`], and an existing symlink in the way
-/// fails with [`std::io::ErrorKind::AlreadyExists`] instead of being followed,
-/// so an image cannot write outside `host`. File modification times and, on
-/// Unix, permission bits (without set-id or sticky bits) are applied.
-/// Symlinks are created on Unix only; device nodes, FIFOs and sockets fail
-/// with [`std::io::ErrorKind::Unsupported`].
+/// empty, `.`, `..`, absolute, or contain a separator or a drive prefix fail
+/// with [`std::io::ErrorKind::InvalidData`], and so do, on Windows, device
+/// names such as `CON` or `com1.txt`, names containing `:` or a wildcard, and
+/// names ending in a dot or space. An existing symlink in the way fails with
+/// [`std::io::ErrorKind::AlreadyExists`] instead of being followed or
+/// replaced, and files are created with `create_new`, which never follows a
+/// link. The contents of an image therefore cannot direct a write outside
+/// `host`; another process that swaps a directory below `host` for a symlink
+/// while the extraction runs still can, as with `tar`.
+///
+/// File modification times and, on Unix, permission bits (without set-id or
+/// sticky bits) are applied. Symlinks are created on Unix only, and a target
+/// longer than 4096 bytes fails with [`std::io::ErrorKind::Other`] carrying
+/// [`ErrorKind::LimitExceeded`]; device nodes, FIFOs and sockets fail with
+/// [`std::io::ErrorKind::Unsupported`].
 ///
 /// Only in the sync API: the host side is blocking `std::fs`.
 pub fn extract_to_host<S: Access>(src: S, from: &str, host: impl AsRef<Path>) -> io::Result<()> {
@@ -258,7 +313,17 @@ fn import_node<D: FsDriver + ?Sized>(
     result
 }
 
-fn import_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(host::ReadDir, NodeId)>) -> io::Result<()> {
+/// The entries of the host directory `path`, sorted by name bytes.
+fn sorted_entries(path: &Path) -> io::Result<alloc::vec::IntoIter<host::DirEntry>> {
+    let mut entries = host::read_dir(path)?.collect::<io::Result<Vec<_>>>()?;
+    entries.sort_by_cached_key(host::DirEntry::file_name);
+    Ok(entries.into_iter())
+}
+
+fn import_walk<D: FsDriver + ?Sized>(
+    fs: &mut D,
+    stack: &mut Vec<(alloc::vec::IntoIter<host::DirEntry>, NodeId)>,
+) -> io::Result<()> {
     while let Some((entries, dir)) = stack.last_mut() {
         let dir = *dir;
         let Some(entry) = entries.next() else {
@@ -267,7 +332,6 @@ fn import_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(host::ReadDir,
             }
             continue;
         };
-        let entry = entry?;
         let file_name = entry.file_name();
         let name = Name::new(os_bytes(&file_name)?)
             .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
@@ -278,7 +342,7 @@ fn import_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(host::ReadDir,
             continue;
         }
         let node = target_child(fs, dir, name, NewNode::Dir)?;
-        match host::read_dir(&path) {
+        match sorted_entries(&path) {
             Ok(entries) => stack.push((entries, node)),
             Err(err) => {
                 fs.forget(node);
@@ -293,7 +357,9 @@ fn import_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(host::ReadDir,
 /// `dst`, as `mkisofs` or `mcopy -s` would.
 ///
 /// `dst` is any [`Access`]. A directory is merged into `to`, which is created
-/// with its parents when missing. Existing files are overwritten; an existing
+/// with its parents when missing. The entries of each directory are copied
+/// in order of their name bytes, whatever order the host lists them in, so
+/// the same tree always gives the same image. Existing files are overwritten; an existing
 /// node of another type, or an existing symlink, fails with
 /// [`std::io::ErrorKind::AlreadyExists`]. File modification times and, on
 /// Unix, permissions are copied where `dst` can store them. Symlinks are
@@ -315,7 +381,7 @@ pub fn import_from_host<T: Access>(host: impl AsRef<Path>, dst: T, to: &str) -> 
     }
     create_dir_all(&mut fs, to)?;
     let top = fs.resolve(to)?;
-    let entries = match host::read_dir(host) {
+    let entries = match sorted_entries(host) {
         Ok(entries) => entries,
         Err(err) => {
             fs.forget(top);
@@ -344,6 +410,20 @@ mod tests {
         #[cfg(windows)]
         for bad in [&b"a\\b"[..], b"C:", b"C:x", b"\\\\server"] {
             assert_eq!(host_name(bad).unwrap_err().kind(), io::ErrorKind::InvalidData, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn windows_special_names() {
+        for name in ["boot.cfg", "CONFIG", "console.log", "COM10", "LPT0", "comx", "a.b.c", "NULL.txt"] {
+            assert!(!windows_special(name), "{name}");
+        }
+        for name in [
+            "CON", "con", "Con.txt", "nul.tar.gz", "AUX ", "aux .c", "PRN", "COM1", "com9.log", "LPT3",
+            "lpt\u{b9}", "CONIN$", "conout$.x", "a:b", "stream::$DATA", "a?", "a*", "a<b", "a|b",
+            "a\"b", "tab\t", "dot.", "space ",
+        ] {
+            assert!(windows_special(name), "{name}");
         }
     }
 
