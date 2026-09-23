@@ -85,9 +85,9 @@ pub fn hadris_block::Error<E>::from(hadris_fs::error::Error<E>) -> Self
 pub struct hadris_block::OpenError<D, E>
 impl<D, E> hadris_block::OpenError<D, E>
 pub fn hadris_block::OpenError<D, E>::error(&self) -> &hadris_block::Error<E>
-pub fn hadris_block::OpenError<D, E>::into_device(self) -> core::option::Option<D>
+pub fn hadris_block::OpenError<D, E>::into_device(self) -> D
 pub fn hadris_block::OpenError<D, E>::into_error(self) -> hadris_block::Error<E>
-pub fn hadris_block::OpenError<D, E>::into_parts(self) -> (hadris_block::Error<E>, core::option::Option<D>)
+pub fn hadris_block::OpenError<D, E>::into_parts(self) -> (hadris_block::Error<E>, D)
 impl<D, E: core::error::Error + 'static> core::error::Error for hadris_block::OpenError<D, E>
 pub fn hadris_block::OpenError<D, E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl<D, E: core::fmt::Debug> core::fmt::Debug for hadris_block::OpenError<D, E>
