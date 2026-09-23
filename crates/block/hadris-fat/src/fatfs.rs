@@ -1064,7 +1064,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// Moves `from` in `from_dir` to `to` in `to_dir`. The moved node keeps
-    /// its `NodeId` when it is pinned.
+    /// its `NodeId` when it is pinned. A renamed file gets the archive
+    /// attribute, as the FAT specification and Windows do; a directory
+    /// keeps its attributes.
     ///
     /// An existing `to` is replaced unless `flags` has
     /// [`RenameFlags::NO_REPLACE`] ([`ErrorKind::AlreadyExists`]): a file by
@@ -1113,6 +1115,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         moved.set_first_cluster(self.geo.kind, src_node.first);
         if !src_node.dir {
             moved.size = src_node.size;
+            moved.attr |= dirent::ATTR_ARCHIVE;
         }
         let dot_dot = (src_node.dir && self.parent_cluster(from_start) != self.parent_cluster(to_start))
             .then(|| (src_node.first, self.parent_cluster(from_start), self.parent_cluster(to_start)));
@@ -1145,7 +1148,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// with [`ErrorKind::LimitExceeded`], and a volume without room for the
     /// new clusters fails with [`ErrorKind::NoSpace`] and changes nothing.
     ///
-    /// The new size of a pinned file is written by `sync_node` or `sync`.
+    /// The new size of a pinned file is written by `sync_node` or `sync`,
+    /// with the modification time and the archive attribute.
     pub async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
         self.writable()?;
         let (id, state) = self.file_node(node).await?;
@@ -1186,7 +1190,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// Truncates or extends a file. Growth reads as zeros. Shrinking writes
     /// the new size to the directory entry at once and frees the clusters
-    /// past it.
+    /// past it. A changed size sets the archive attribute; the same size
+    /// changes nothing.
     pub async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         self.writable()?;
         let (id, state) = self.file_node(node).await?;

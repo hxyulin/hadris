@@ -1175,6 +1175,85 @@ fn mode_and_owner_are_ignored() {
     fsck(&image(fs), "mode and owner");
 }
 
+/// The FAT specification sets the archive attribute when a file is
+/// created, renamed or modified; directories keep theirs.
+#[test]
+fn archive_marks_created_renamed_and_modified_files() {
+    let case = CASES[2];
+    let mut fs = open(case, populate(case));
+    let root = fs.root();
+    let hidden = SetMetadata::new().with_attributes(Attributes::HIDDEN);
+    let attributes = |fs: &mut Fs, path: &str| fs.metadata(path).unwrap().attributes();
+    let archived = Attributes::HIDDEN | Attributes::ARCHIVE;
+
+    let dir = fs.resolve("/Nested Dir").unwrap();
+    fs.set_metadata(dir, &hidden).unwrap();
+    fs.forget(dir);
+    fs.rename(
+        root,
+        name("Nested Dir"),
+        root,
+        name("Moved Dir"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    assert_eq!(attributes(&mut fs, "/Moved Dir"), Attributes::HIDDEN);
+
+    let clear = |fs: &mut Fs, path: &str| {
+        let node = fs.resolve(path).unwrap();
+        fs.set_metadata(node, &hidden).unwrap();
+        fs.forget(node);
+    };
+    clear(&mut fs, "/lower.txt");
+    fs.rename(
+        root,
+        name("lower.txt"),
+        root,
+        name("lower.txt"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    assert_eq!(
+        attributes(&mut fs, "/lower.txt"),
+        Attributes::HIDDEN,
+        "no-op rename"
+    );
+    fs.rename(
+        root,
+        name("lower.txt"),
+        root,
+        name("Renamed.txt"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    assert_eq!(attributes(&mut fs, "/Renamed.txt"), archived);
+
+    clear(&mut fs, "/Renamed.txt");
+    let node = fs.resolve("/Renamed.txt").unwrap();
+    fs.set_len(node, 9).unwrap();
+    assert_eq!(
+        fs.node_metadata(node).unwrap().attributes(),
+        Attributes::HIDDEN,
+        "same size"
+    );
+    fs.set_len(node, 4).unwrap();
+    assert_eq!(fs.node_metadata(node).unwrap().attributes(), archived);
+    fs.set_metadata(node, &hidden).unwrap();
+    write_all(&mut fs, node, 4, b"more");
+    fs.sync_node(node).unwrap();
+    assert_eq!(fs.node_metadata(node).unwrap().attributes(), archived);
+    fs.forget(node);
+
+    let created = create(&mut fs, root, "created.txt", NewNode::File);
+    assert_eq!(
+        fs.node_metadata(created).unwrap().attributes(),
+        Attributes::ARCHIVE
+    );
+    fs.forget(created);
+    fs.sync().unwrap();
+    fsck(&image(fs), "archive");
+}
+
 #[test]
 fn sync_persists_sizes_for_a_fresh_mount() {
     for case in CASES {

@@ -141,6 +141,10 @@ failure mechanism:
   deepest directory;
 - hidden and system directories and read-only files through renames, moves,
   and attribute changes;
+- files whose archive bit was cleared regaining it through a rename, an
+  append, a truncation and a replace, but not through a same-size
+  truncation, an empty replace of an empty file, or the rename of the
+  directory holding them;
 - appends and truncations landing exactly on multiples of every cluster size
   the suite formats with; and
 - reusing clusters freed from a directory full of entries and from a file
