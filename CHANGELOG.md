@@ -75,13 +75,17 @@ Each published package owns its version and may be released independently.
   `ErrorKind::Unsupported`.
 - **hadris-fat (V3):** `FatFs` writes. `create` makes files and
   directories (other kinds are `ErrorKind::Unsupported`) with long names and
-  generated `~N` short names, or a short entry alone with the NT case bits
+  generated short names (`~1` to `~4`, then two basis characters, four hex
+  digits hashed from the long name and `~1` to `~9`, as on Windows), or a
+  short entry alone with the NT case bits
   when the name fits 8.3; `remove` deletes files and empty directories
   (`Busy` while pinned, `DirectoryNotEmpty`); `rename` moves within and
   across directories, keeps the node's id, updates `..` of a moved
-  directory, replaces an existing target unless `RenameFlags::NO_REPLACE`,
-  and rejects unknown flags with `Unsupported`; `write_at` and `set_len`
-  grow, zero-fill and shrink files, freeing clusters; `set_metadata` sets
+  directory, replaces an existing target unless `RenameFlags::NO_REPLACE`
+  (the result takes the requested name and case, as on Windows, not the
+  target's), and rejects unknown flags with `Unsupported`; `write_at` and `set_len`
+  grow, zero-fill and shrink files, freeing clusters; created, renamed and
+  resized or written files get the archive attribute; `set_metadata` sets
   attributes and creation, modification and access times (mode and owner
   are ignored); `sync_node` and `sync` write pending sizes and the FAT32
   FSInfo free count, and flush the device. Directories grow past their

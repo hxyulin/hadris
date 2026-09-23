@@ -113,8 +113,10 @@ fn hash(name: &str, suffix: u8) -> u16 {
     hash
 }
 
-/// Generates the 11-byte short name for `name` with numeric tail `suffix`
-/// (0 for none, `~1` to `~4` for 1 to 4, a hashed `~HHHH` above that).
+/// Generates the 11-byte short name for `name` with numeric tail `suffix`:
+/// 0 for none, `~1` to `~4` for 1 to 4. Above that, as Windows does, the
+/// first two basis characters, four hex digits hashed from `name` and a
+/// `~1` to `~9` tail, the hash changing every nine suffixes.
 /// Non-ASCII characters are uppercased where that gives one character and
 /// go through `encode`, the OEM code page, and become
 /// `_` when it has no byte above `0x7F` for them. `None` when nothing representable
@@ -148,15 +150,15 @@ pub(crate) fn generate(
     }
 
     if suffix > 0 {
-        let mut tail = [0u8; 5];
+        let mut tail = [0u8; 6];
         let tail_len = if suffix <= 4 {
             tail[0] = b'~';
             tail[1] = b'0' + suffix;
             2
         } else {
-            let hash = hash(name, suffix);
-            tail[0] = b'~';
-            for (i, digit) in tail[1..].iter_mut().enumerate() {
+            let round = suffix - 5;
+            let hash = hash(name, round / 9);
+            for (i, digit) in tail[..4].iter_mut().enumerate() {
                 let nibble = ((hash >> ((3 - i) * 4)) & 0xF) as u8;
                 *digit = if nibble < 10 {
                     b'0' + nibble
@@ -164,9 +166,11 @@ pub(crate) fn generate(
                     b'A' + nibble - 10
                 };
             }
-            5
+            tail[4] = b'~';
+            tail[5] = b'1' + round % 9;
+            6
         };
-        base_len = base_len.min(8 - tail_len - if suffix <= 4 { 0 } else { 1 });
+        base_len = base_len.min(8 - tail_len);
         out[base_len..base_len + tail_len].copy_from_slice(&tail[..tail_len]);
         out[base_len + tail_len..8].fill(b' ');
         base_len += tail_len;
@@ -261,10 +265,22 @@ mod tests {
     fn numeric_tails() {
         assert_eq!(ascii("long file name.txt", 1), Some(*b"LONGFI~1TXT"));
         assert_eq!(ascii("ab.txt", 4), Some(*b"AB~4    TXT"));
-        let hashed = ascii("long file name.txt", 5).unwrap();
-        assert_eq!(&hashed[..3], b"LO~");
-        assert!(hashed[3..7].iter().all(u8::is_ascii_hexdigit));
-        assert_eq!(&hashed[8..], b"TXT");
+        let hashed = |suffix| ascii("long file name.txt", suffix).unwrap();
+        let first = hashed(5);
+        assert_eq!(&first[..2], b"LO");
+        assert!(first[2..6].iter().all(u8::is_ascii_hexdigit));
+        assert_eq!(&first[6..], b"~1TXT");
+        let ninth = hashed(13);
+        assert_eq!(ninth[..6], first[..6]);
+        assert_eq!(&ninth[6..], b"~9TXT");
+        let next = hashed(14);
+        assert_ne!(next[2..6], first[2..6]);
+        assert_eq!(&next[6..], b"~1TXT");
+        assert_eq!(&ascii("a.txt", 5).unwrap()[5..], b"~1 TXT");
+        let mut all: std::vec::Vec<_> = (5..=255).map(hashed).collect();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), 251);
     }
 
     #[test]

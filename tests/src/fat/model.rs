@@ -39,6 +39,9 @@ impl FsState {
         }
     }
 
+    /// Applies `operation`. A file gains `ARCHIVE` when it is created,
+    /// renamed, or its contents or size change, as `ATTR_ARCHIVE` in the
+    /// FAT specification requires; directories never do.
     pub fn apply(&mut self, operation: &Operation) -> Result<(), String> {
         match operation {
             Operation::CreateDir { path } => {
@@ -65,6 +68,12 @@ impl FsState {
             }
             Operation::ReplaceFile { path, data } => {
                 let entry = self.file_mut(path)?;
+                let EntryData::File(contents) = &mut entry.data else {
+                    unreachable!();
+                };
+                if !(contents.is_empty() && data.is_empty()) {
+                    entry.attrs |= ARCHIVE;
+                }
                 entry.data = EntryData::File(data.clone());
             }
             Operation::AppendFile { path, data } => {
@@ -73,6 +82,9 @@ impl FsState {
                     unreachable!();
                 };
                 contents.extend_from_slice(data);
+                if !data.is_empty() {
+                    entry.attrs |= ARCHIVE;
+                }
             }
             Operation::TruncateFile { path, len } => {
                 let entry = self.file_mut(path)?;
@@ -81,6 +93,9 @@ impl FsState {
                 };
                 if *len > contents.len() {
                     return Err(format!("cannot grow {path} with truncate"));
+                }
+                if *len != contents.len() {
+                    entry.attrs |= ARCHIVE;
                 }
                 contents.truncate(*len);
             }
@@ -105,8 +120,11 @@ impl FsState {
                 for (path, _) in &moved {
                     self.entries.remove(path);
                 }
-                for (path, entry) in moved {
+                for (path, mut entry) in moved {
                     let suffix = &path[from.len()..];
+                    if suffix.is_empty() && !entry.data.is_directory() {
+                        entry.attrs |= ARCHIVE;
+                    }
                     self.entries.insert(format!("{to}{suffix}"), entry);
                 }
             }

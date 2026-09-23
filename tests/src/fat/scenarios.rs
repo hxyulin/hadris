@@ -241,6 +241,7 @@ pub fn edge_case_scenarios() -> Vec<(String, Vec<Operation>)> {
         ("slot-fragmentation".into(), slot_fragmentation()),
         ("deep-nesting".into(), deep_nesting()),
         ("directory-attributes".into(), directory_attributes()),
+        ("archive-bit".into(), archive_bit()),
         (
             "cluster-boundary-appends".into(),
             cluster_boundary_appends(),
@@ -582,6 +583,45 @@ fn directory_attributes() -> Vec<Operation> {
         create_dir("/Plain"),
         set_attrs("/Plain", READ_ONLY | HIDDEN | SYSTEM | ARCHIVE),
     ]
+}
+
+/// Files whose archive bit was cleared regain it when renamed, written or
+/// resized (`ATTR_ARCHIVE`). Only the final state is compared, so each rule
+/// has its own file; a same-size truncate, an empty replace of an empty file
+/// and a directory rename, including the files it moves, leave it clear.
+fn archive_bit() -> Vec<Operation> {
+    let mut operations = Vec::new();
+    for path in [
+        "/renamed.txt",
+        "/appended.txt",
+        "/same size.txt",
+        "/shrunk.txt",
+        "/replaced.txt",
+    ] {
+        operations.push(create(path, b"archive".to_vec()));
+        operations.push(set_attrs(path, HIDDEN));
+    }
+    operations.extend([
+        rename("/renamed.txt", "/Renamed File.txt"),
+        append("/appended.txt", b" more".to_vec()),
+        truncate("/same size.txt", 7),
+        truncate("/shrunk.txt", 3),
+        Operation::ReplaceFile {
+            path: "/replaced.txt".into(),
+            data: b"replaced".to_vec(),
+        },
+        create("/empty.bin", Vec::new()),
+        set_attrs("/empty.bin", 0),
+        Operation::ReplaceFile {
+            path: "/empty.bin".into(),
+            data: Vec::new(),
+        },
+        create_dir("/Folder"),
+        create("/Folder/inside.txt", b"inside".to_vec()),
+        set_attrs("/Folder/inside.txt", 0),
+        rename("/Folder", "/Moved Folder"),
+    ]);
+    operations
 }
 
 /// Appends and truncations landing exactly on multiples of every cluster

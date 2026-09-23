@@ -202,6 +202,31 @@ struct Plan {
     nt_case: u8,
 }
 
+/// Entries a new name may take the place of while it is planned.
+#[derive(Clone, Copy, Default)]
+struct Skip {
+    /// A short entry whose name does not count as taken.
+    entry: Option<u64>,
+    /// Slots, inclusive, that count as free and whose names do not count.
+    run: Option<(u32, u32)>,
+}
+
+impl Skip {
+    fn covers(&self, slot: u32, offset: u64) -> bool {
+        self.entry == Some(offset)
+            || self
+                .run
+                .is_some_and(|(first, last)| (first..=last).contains(&slot))
+    }
+}
+
+/// The raw slots of an entry and its long name, kept to undo its removal.
+struct SavedRun {
+    first: u32,
+    len: u32,
+    raw: [[u8; ENTRY_SIZE as usize]; lfn::MAX_ENTRIES + 1],
+}
+
 /// Clusters added to a file's chain, to undo on failure.
 #[derive(Clone, Copy)]
 struct Growth {
@@ -951,10 +976,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     ///
     /// `meta` sets the attributes, which default to archive for a file, and
     /// the creation, modification and access times, which default to now.
-    /// Mode and owner are ignored. Fails with [`ErrorKind::AlreadyExists`]
+    /// Mode and owner are ignored, as for `set_metadata`. Fails with [`ErrorKind::AlreadyExists`]
     /// when a long or short name matches, [`ErrorKind::InvalidInput`] for a
     /// name FAT cannot hold (control characters, `"*/:<>?\|`, or a trailing
-    /// dot or space), and [`ErrorKind::NoSpace`] when a FAT12/16 root
+    /// dot or space, refused rather than stripped so a created name is the
+    /// name listed), and [`ErrorKind::NoSpace`] when a FAT12/16 root
     /// directory is full or a directory would pass 65536 entries.
     pub async fn create(
         &mut self,
@@ -972,7 +998,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let start = self.dir_start(dir).await?;
         let text = entry_name(name, ErrorKind::InvalidInput)?;
         let new = NewName::new(text, &self.code_page)?;
-        let plan = self.plan(start, text, true, &new, None).await?;
+        let plan = self.plan(start, text, true, &new, Skip::default()).await?;
         let reserved = NodeId::new(self.next_id);
         let placeholder = Node {
             entry: u64::MAX,
@@ -1038,15 +1064,20 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// Moves `from` in `from_dir` to `to` in `to_dir`. The moved node keeps
-    /// its `NodeId` when it is pinned.
+    /// its `NodeId` when it is pinned. A renamed file gets the archive
+    /// attribute, as the FAT specification and Windows do; a directory
+    /// keeps its attributes.
     ///
     /// An existing `to` is replaced unless `flags` has
     /// [`RenameFlags::NO_REPLACE`] ([`ErrorKind::AlreadyExists`]): a file by
-    /// a file, an empty directory by a directory. The replaced entry keeps
-    /// its stored name, so `to` in a different case than that entry does not
-    /// change the case. A pinned target fails with [`ErrorKind::Busy`].
-    /// Moving a directory into itself or below fails with
-    /// [`ErrorKind::InvalidInput`], and unknown flags with
+    /// a file, an empty directory by a directory. The result is named `to`
+    /// as given, even when `to` matches the target in another case or by its
+    /// short alias, and the new name takes the target's slots when it fits
+    /// them, so a full FAT12/16 root directory still allows the replace. A
+    /// pinned target fails with [`ErrorKind::Busy`].
+    /// Moving a directory into itself or below, or a `to` that `create`
+    /// would refuse, fails with [`ErrorKind::InvalidInput`], and unknown
+    /// flags with
     /// [`ErrorKind::Unsupported`].
     pub async fn rename(
         &mut self,
@@ -1084,24 +1115,31 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         moved.set_first_cluster(self.geo.kind, src_node.first);
         if !src_node.dir {
             moved.size = src_node.size;
+            moved.attr |= dirent::ATTR_ARCHIVE;
         }
         let dot_dot = (src_node.dir && self.parent_cluster(from_start) != self.parent_cluster(to_start))
             .then(|| (src_node.first, self.parent_cluster(from_start), self.parent_cluster(to_start)));
         match self.find_entry(to_start, to_text).await? {
-            Some(target) if target.offset == src.offset => {
-                if target.exact {
-                    return Ok(());
-                }
-                self.move_entry(from_start, &src, to_start, to_text, &new, moved, dot_dot, src_id).await
-            }
-            Some(target) => {
+            Some(target) if target.offset == src.offset && target.exact => return Ok(()),
+            Some(target) if target.offset != src.offset => {
                 if flags.contains(RenameFlags::NO_REPLACE) {
                     return Err(ErrorKind::AlreadyExists.into());
                 }
-                self.replace_entry(from_start, &src, &target, moved, dot_dot, src_id).await
+                return self
+                    .replace_entry(from_start, &src, to_start, &target, to_text, &new, moved, dot_dot, src_id)
+                    .await;
             }
-            None => self.move_entry(from_start, &src, to_start, to_text, &new, moved, dot_dot, src_id).await,
+            _ => {
+                let skip = Skip {
+                    entry: (from_start == to_start).then_some(src.offset),
+                    run: None,
+                };
+                let plan = self.plan(to_start, to_text, false, &new, skip).await?;
+                self.move_entry(&src, to_start, &new, &plan, moved, dot_dot, src_id, None)
+                    .await?;
+            }
         }
+        self.clear_slots(from_start, src.first, src.slot).await
     }
 
     /// Writes to a file at `offset`, growing it and zero-filling any gap
@@ -1110,7 +1148,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// with [`ErrorKind::LimitExceeded`], and a volume without room for the
     /// new clusters fails with [`ErrorKind::NoSpace`] and changes nothing.
     ///
-    /// The new size of a pinned file is written by `sync_node` or `sync`.
+    /// The new size of a pinned file is written by `sync_node` or `sync`,
+    /// with the modification time and the archive attribute.
     pub async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
         self.writable()?;
         let (id, state) = self.file_node(node).await?;
@@ -1151,7 +1190,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// Truncates or extends a file. Growth reads as zeros. Shrinking writes
     /// the new size to the directory entry at once and frees the clusters
-    /// past it.
+    /// past it. A changed size sets the archive attribute; the same size
+    /// changes nothing.
     pub async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         self.writable()?;
         let (id, state) = self.file_node(node).await?;
@@ -1197,6 +1237,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Changes attributes and times. `changed` times, mode and owner are
     /// ignored, since FAT cannot store them, as are changes to the root. A
     /// pending size is written too.
+    ///
+    /// Ignoring them is the `FsDriver` contract, which `copy_tree` and
+    /// `import_from_host` rely on when they copy a mode onto FAT;
+    /// [`capabilities`](Self::capabilities) reports neither permissions nor
+    /// owners, so a caller that needs them can check first.
     pub async fn set_metadata(&mut self, node: NodeId, changes: &SetMetadata) -> FsResult<(), D::Error> {
         self.writable()?;
         if node == ROOT {
@@ -1494,14 +1539,15 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// Finds room for `new` in `dir` and picks its short name. With
     /// `check_exists`, an entry matching `text` fails with
-    /// [`ErrorKind::AlreadyExists`]. The entry at `exclude` is ignored.
+    /// [`ErrorKind::AlreadyExists`]. Entries `skip` covers are ignored, and
+    /// its run counts as free.
     async fn plan(
         &mut self,
         dir: DirStart,
         text: &str,
         check_exists: bool,
         new: &NewName,
-        exclude: Option<u64>,
+        skip: Skip,
     ) -> FsResult<Plan, D::Error> {
         let needed = new.slots();
         let mut walk = Walk::new(dir);
@@ -1512,7 +1558,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let (mut run_start, mut run_len) = (0, 0);
         let mut found = None;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
+            let reused = skip.run.is_some_and(|(first, last)| (first..=last).contains(&slot));
+            if reused {
+                long.reset();
+            }
             let free = end
+                || reused
                 || match self.read_slot(offset).await? {
                     Slot::End => {
                         end = true;
@@ -1530,7 +1581,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                         let units = long
                             .finish(lfn::checksum(&entry.name))
                             .filter(|units| !units.is_empty());
-                        if exclude != Some(offset) {
+                        if !skip.covers(slot, offset) {
                             if check_exists && entry.is_visible() && matches(text, units, &entry, &self.code_page) {
                                 return Err(ErrorKind::AlreadyExists.into());
                             }
@@ -1579,7 +1630,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         } else if let Some(bit) = (1..new.candidates.len()).find(|bit| taken & (1 << bit) == 0) {
             new.candidates[bit]
         } else {
-            self.hashed_short(dir, text, exclude).await?
+            self.hashed_short(dir, text, skip).await?
         };
         Ok(Plan {
             start,
@@ -1591,27 +1642,27 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         })
     }
 
-    /// A short name with a hashed `~HHHH` tail that no entry of `dir` has.
-    async fn hashed_short(&mut self, dir: DirStart, text: &str, exclude: Option<u64>) -> FsResult<[u8; 11], D::Error> {
+    /// A short name with a hashed `HHHH~N` tail that no entry of `dir` has.
+    async fn hashed_short(&mut self, dir: DirStart, text: &str, skip: Skip) -> FsResult<[u8; 11], D::Error> {
         for suffix in 5..=u8::MAX {
             let Some(mut candidate) = short_name::generate(text, suffix, |ch| self.code_page.encode(ch)) else {
                 continue;
             };
             short_name::to_disk(&mut candidate);
-            if !self.short_taken(dir, &candidate, exclude).await? {
+            if !self.short_taken(dir, &candidate, skip).await? {
                 return Ok(candidate);
             }
         }
         Err(ErrorKind::AlreadyExists.into())
     }
 
-    async fn short_taken(&mut self, dir: DirStart, name: &[u8; 11], exclude: Option<u64>) -> FsResult<bool, D::Error> {
+    async fn short_taken(&mut self, dir: DirStart, name: &[u8; 11], skip: Skip) -> FsResult<bool, D::Error> {
         let mut walk = Walk::new(dir);
         let mut slot = 0;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
             match self.read_slot(offset).await? {
                 Slot::End => break,
-                Slot::Short(entry) if entry.name == *name && exclude != Some(offset) => {
+                Slot::Short(entry) if entry.name == *name && !skip.covers(slot, offset) => {
                     return Ok(true);
                 }
                 _ => {}
@@ -1761,31 +1812,38 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.write(at, &entry.encode()).await
     }
 
-    /// Renames by writing a new entry for `src` in `to`, then clearing the
-    /// old one.
+    /// Writes `moved` under the name `new` where `plan` found room in `to`,
+    /// then frees `src`'s short entry. On failure the new entry is cleared
+    /// and `saved` written back. `src`'s long-name slots are left to the
+    /// caller.
     #[allow(clippy::too_many_arguments)]
     async fn move_entry(
         &mut self,
-        from: DirStart,
         src: &Located,
         to: DirStart,
-        text: &str,
         new: &NewName,
+        plan: &Plan,
         moved: ShortEntry,
         dot_dot: Option<(u32, u32, u32)>,
         src_id: Option<NodeId>,
+        saved: Option<&SavedRun>,
     ) -> FsResult<(), D::Error> {
-        let exclude = (from == to).then_some(src.offset);
-        let plan = self.plan(to, text, false, new, exclude).await?;
         let mut entry = moved;
         entry.name = plan.short;
         entry.nt_case = plan.nt_case;
-        let offset = self.insert_entry(to, new, &plan, &entry).await?;
+        let offset = match self.insert_entry(to, new, plan, &entry).await {
+            Ok(offset) => offset,
+            Err(err) => {
+                self.restore_run(to, saved).await;
+                return Err(err);
+            }
+        };
         let end = plan.start + plan.slots;
         if let Some((dir, _, parent)) = dot_dot
             && let Err(err) = self.set_dot_dot(dir, parent).await
         {
             let _ = self.clear_slots(to, plan.start, end).await;
+            self.restore_run(to, saved).await;
             return Err(err);
         }
         if let Err(err) = self.write(src.offset, &[dirent::FREE]).await {
@@ -1793,21 +1851,27 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 let _ = self.set_dot_dot(dir, old).await;
             }
             let _ = self.clear_slots(to, plan.start, end).await;
+            self.restore_run(to, saved).await;
             return Err(err);
         }
         if let Some(node) = src_id.and_then(|id| self.nodes.get_mut(id)) {
             node.entry = offset;
         }
-        self.clear_slots(from, src.first, src.slot).await
+        Ok(())
     }
 
-    /// Renames onto an existing entry: `target`'s short entry takes `src`'s
-    /// contents, then `src` is cleared and `target`'s clusters are freed.
+    /// Renames onto an existing entry: `target` and its long name are
+    /// cleared and `src` is written under the name `new`, in `target`'s
+    /// slots when it fits there, then `target`'s clusters are freed.
+    #[allow(clippy::too_many_arguments)]
     async fn replace_entry(
         &mut self,
         from: DirStart,
         src: &Located,
+        to: DirStart,
         target: &Located,
+        text: &str,
+        new: &NewName,
         moved: ShortEntry,
         dot_dot: Option<(u32, u32, u32)>,
         src_id: Option<NodeId>,
@@ -1828,34 +1892,58 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         if target.entry.is_dir() && !self.dir_is_empty(self.check_cluster(target_first)?).await? {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }
-        let mut entry = moved;
-        entry.name = target.entry.name;
-        entry.nt_case = target.entry.nt_case;
-        self.write(target.offset, &entry.encode()).await?;
-        if let Some((dir, _, parent)) = dot_dot
-            && let Err(err) = self.set_dot_dot(dir, parent).await
-        {
-            let _ = self.write(target.offset, &target.entry.encode()).await;
+        let skip = Skip {
+            entry: (from == to).then_some(src.offset),
+            run: Some((target.first, target.slot)),
+        };
+        let plan = self.plan(to, text, false, new, skip).await?;
+        let saved = self.save_run(to, target.first, target.slot).await?;
+        if let Err(err) = self.clear_slots(to, target.first, target.slot + 1).await {
+            self.restore_run(to, Some(&saved)).await;
             return Err(err);
         }
-        if let Err(err) = self.write(src.offset, &[dirent::FREE]).await {
-            if let Some((dir, old, _)) = dot_dot {
-                let _ = self.set_dot_dot(dir, old).await;
-            }
-            let _ = self.write(target.offset, &target.entry.encode()).await;
-            return Err(err);
-        }
+        self.move_entry(src, to, new, &plan, moved, dot_dot, src_id, Some(&saved))
+            .await?;
         if let Some(id) = target_id {
             self.nodes.remove(id);
-        }
-        if let Some(node) = src_id.and_then(|id| self.nodes.get_mut(id)) {
-            node.entry = target.offset;
         }
         self.clear_slots(from, src.first, src.slot).await?;
         if target_first != 0 {
             self.free_chain(target_first).await?;
         }
         Ok(())
+    }
+
+    /// Reads slots `first..=last` of `dir`, at most one long name and its
+    /// short entry.
+    async fn save_run(&mut self, dir: DirStart, first: u32, last: u32) -> FsResult<SavedRun, D::Error> {
+        let mut saved = SavedRun {
+            first,
+            len: last - first + 1,
+            raw: [[0; ENTRY_SIZE as usize]; lfn::MAX_ENTRIES + 1],
+        };
+        if saved.len as usize > saved.raw.len() {
+            return Err(ErrorKind::Corrupt.into());
+        }
+        let mut walk = Walk::new(dir);
+        for (slot, raw) in (first..=last).zip(saved.raw.iter_mut()) {
+            let at = self.slot_offset(&mut walk, slot).await?.ok_or(ErrorKind::Corrupt)?;
+            read_bytes(&mut self.dev, &mut self.block, at, raw).await?;
+        }
+        Ok(saved)
+    }
+
+    /// Writes back the slots `save_run` read, as far as the device allows.
+    async fn restore_run(&mut self, dir: DirStart, saved: Option<&SavedRun>) {
+        let Some(saved) = saved else {
+            return;
+        };
+        let mut walk = Walk::new(dir);
+        for (slot, raw) in (saved.first..).zip(&saved.raw[..saved.len as usize]) {
+            if let Ok(Some(at)) = self.slot_offset(&mut walk, slot).await {
+                let _ = self.write(at, raw).await;
+            }
+        }
     }
 
     /// Stores `value` as the FAT entry of `cluster`, in the active copy

@@ -304,7 +304,7 @@ fn short_name_collisions_get_numeric_then_hashed_tails() {
     for case in [CASES[0], CASES[2]] {
         let mut fs = open(case, common::blank(case));
         let root = fs.root();
-        let texts: Vec<String> = (0..7).map(|i| format!("long file name {i}.txt")).collect();
+        let texts: Vec<String> = (0..15).map(|i| format!("long file name {i}.txt")).collect();
         for text in &texts {
             let node = create(&mut fs, root, text, NewNode::File);
             write_all(&mut fs, node, 0, text.as_bytes());
@@ -332,8 +332,12 @@ fn short_name_collisions_get_numeric_then_hashed_tails() {
             assert_eq!(short, format!("LONGFI~{}TXT", i + 1).as_bytes());
         }
         for short in &shorts[4..] {
-            assert_eq!(&short[..3], b"LO~", "{:?}", String::from_utf8_lossy(short));
-            assert!(short[3..7].iter().all(u8::is_ascii_hexdigit));
+            let shown = String::from_utf8_lossy(short);
+            assert_eq!(&short[..2], b"LO", "{shown}");
+            assert!(short[2..6].iter().all(u8::is_ascii_hexdigit), "{shown}");
+            assert_eq!(short[6], b'~', "{shown}");
+            assert!((b'1'..=b'9').contains(&short[7]), "{shown}");
+            assert_eq!(&short[8..], b"TXT", "{shown}");
         }
         let mut unique = shorts.clone();
         unique.sort();
@@ -369,7 +373,14 @@ fn long_names_up_to_255_units() {
             ErrorKind::LimitExceeded
         );
     }
-    for bad in ["a:b", "trailing.", "trailing ", "tab\tname", "q?"] {
+    for bad in [
+        "a:b",
+        "trailing.",
+        "trailing ",
+        "trailing. .",
+        "tab\tname",
+        "q?",
+    ] {
         assert_eq!(
             fs.create(root, name(bad), NewNode::File, &SetMetadata::new())
                 .unwrap_err()
@@ -377,7 +388,25 @@ fn long_names_up_to_255_units() {
             ErrorKind::InvalidInput,
             "{bad}"
         );
+        assert_eq!(
+            fs.rename(
+                root,
+                name("twelve chars"),
+                root,
+                name(bad),
+                RenameFlags::empty()
+            )
+            .unwrap_err()
+            .kind(),
+            ErrorKind::InvalidInput,
+            "{bad}"
+        );
     }
+    assert_eq!(
+        fs.lookup(root, name("twelve chars.")).unwrap_err().kind(),
+        ErrorKind::NotFound,
+        "trailing dots are not stripped on lookup either"
+    );
     fs.sync().unwrap();
     let names: Vec<String> = list(&mut fs, root).into_iter().map(|(n, _)| n).collect();
     assert_eq!(names, texts);
@@ -466,6 +495,64 @@ fn fixed_root_fills_up_with_no_space_and_no_change() {
     assert_eq!(fs.open_nodes(), 1);
     assert_eq!(image(fs), full);
     fsck(&full, "full root");
+}
+
+/// Replacing a target reuses its slots, so a full FAT12/16 root directory
+/// still takes a new name that fits them.
+#[test]
+fn replace_in_a_full_root_reuses_the_target_slots() {
+    let case = CASES[0];
+    let mut fs = open(case, common::blank(case));
+    let root = fs.root();
+    for text in ["Target with a long name.txt", "SHORT.TXT"] {
+        let node = create(&mut fs, root, text, NewNode::File);
+        fs.forget(node);
+    }
+    let mut created = 0;
+    while let Ok(node) = fs.create(
+        root,
+        name(&format!("F{created}.TXT")),
+        NewNode::File,
+        &SetMetadata::new(),
+    ) {
+        fs.forget(node);
+        created += 1;
+    }
+    let full = image(fs);
+
+    let mut fs = open(case, full.clone());
+    let root = fs.root();
+    assert_eq!(
+        fs.rename(
+            root,
+            name("F0.TXT"),
+            root,
+            name("Short.txt"),
+            RenameFlags::empty(),
+        )
+        .unwrap_err()
+        .kind(),
+        ErrorKind::NoSpace,
+        "a long name does not fit the one slot of SHORT.TXT"
+    );
+    assert_eq!(image(fs), full);
+
+    let mut fs = open(case, full);
+    let root = fs.root();
+    fs.rename(
+        root,
+        name("F0.TXT"),
+        root,
+        name("TARGET WITH A LONG NAME.txt"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    fs.sync().unwrap();
+    let image = image(fs);
+    let names = fresh_names(case, &image, "/");
+    assert_eq!(names[0], "TARGET WITH A LONG NAME.txt");
+    assert_eq!(names.len(), created + 1);
+    fsck(&image, "replace in a full root");
 }
 
 #[test]
@@ -682,6 +769,13 @@ fn rename_replaces_or_refuses_existing_targets() {
     );
     let freed = free(&mut fs) - before;
     assert_eq!(freed, 1, "the old lower.txt cluster");
+    let names: Vec<String> = list(&mut fs, root).into_iter().map(|(n, _)| n).collect();
+    assert!(names.contains(&"LOWER.TXT".to_owned()), "{names:?}");
+    assert!(!names.contains(&"lower.txt".to_owned()), "{names:?}");
+    fs.sync().unwrap();
+    let replaced = image(fs);
+    assert_eq!(&short_of(&replaced, "LOWER.TXT"), b"LOWER   TXT");
+    fsck(&replaced, "replace in another case");
 
     let mut fs = open(case, common::build(case));
     let root = fs.root();
@@ -700,14 +794,81 @@ fn rename_replaces_or_refuses_existing_targets() {
     fs.sync().unwrap();
     let image = image(fs);
     assert!(
-        image
+        !image
             .chunks_exact(32)
             .any(|entry| &entry[..11] == b"\x05ABC    TXT"),
-        "the replaced entry keeps its 0x05 lead byte"
+        "the replaced entry is gone"
     );
     let names = fresh_names(case, &image, "/");
     assert!(!names.contains(&"README.TXT".to_owned()));
+    assert_eq!(names.iter().filter(|n| *n == KANJI_NAME).count(), 1);
     fsck(&image, "replace");
+}
+
+/// A replaced target gives way to the name the caller asked for, even when
+/// that name is the target's own short alias or needs more or fewer slots.
+#[test]
+fn rename_onto_a_target_takes_the_requested_name() {
+    for case in [CASES[0], CASES[2]] {
+        let mut fs = open(case, common::blank(case));
+        let root = fs.root();
+        let dir = create(&mut fs, root, "Sub Directory", NewNode::Dir);
+        for (parent, text) in [
+            (root, "Target long name.txt"),
+            (root, "short.txt"),
+            (root, "source one.bin"),
+            (root, "a"),
+            (dir, "Moved Target Name.txt"),
+        ] {
+            let node = create(&mut fs, parent, text, NewNode::File);
+            write_all(&mut fs, node, 0, text.as_bytes());
+            fs.forget(node);
+        }
+        fs.forget(dir);
+
+        fs.rename(
+            root,
+            name("short.txt"),
+            root,
+            name("TARGET~1.TXT"),
+            RenameFlags::empty(),
+        )
+        .unwrap();
+        fs.rename(
+            root,
+            name("source one.bin"),
+            root,
+            name("A"),
+            RenameFlags::empty(),
+        )
+        .unwrap();
+        fs.rename(
+            root,
+            name("A"),
+            dir,
+            name("MOVED TARGET NAME.TXT"),
+            RenameFlags::empty(),
+        )
+        .unwrap();
+        fs.sync().unwrap();
+
+        let image = image(fs);
+        assert_eq!(
+            fresh_names(case, &image, "/"),
+            ["Sub Directory", "TARGET~1.TXT"]
+        );
+        assert_eq!(fresh_read(case, &image, "/TARGET~1.TXT"), b"short.txt");
+        assert_eq!(
+            fresh_names(case, &image, "/Sub Directory"),
+            ["MOVED TARGET NAME.TXT"]
+        );
+        assert_eq!(
+            fresh_read(case, &image, "/Sub Directory/moved target name.txt"),
+            b"source one.bin"
+        );
+        assert_eq!(&short_of(&image, "TARGET~1.TXT"), b"TARGET~1TXT");
+        fsck(&image, case.name);
+    }
 }
 
 #[test]
@@ -970,6 +1131,129 @@ fn unsupported_kinds_and_metadata() {
     fsck(&image(fs), "metadata");
 }
 
+/// `FsDriver::set_metadata` ignores fields the format cannot store, and
+/// `copy_tree` and `import_from_host` pass a mode, so mode and owner must
+/// not fail on FAT.
+#[test]
+fn mode_and_owner_are_ignored() {
+    let case = CASES[1];
+    let fs = open(case, populate(case));
+    let caps = fs.capabilities();
+    assert!(!caps.supports_permissions());
+    assert!(!caps.supports_owners());
+    let before = image(fs);
+    let changes = SetMetadata::new()
+        .with_mode(hadris_fs::Mode::new(0o4755))
+        .with_uid(1000)
+        .with_gid(100);
+
+    let mut fs = open(case, before.clone());
+    let root = fs.root();
+    let node = fs.lookup(root, name("README.TXT")).unwrap();
+    let dir = fs.lookup(root, name("Nested Dir")).unwrap();
+    fs.set_metadata(node, &changes).unwrap();
+    fs.set_metadata(dir, &changes).unwrap();
+    fs.set_metadata(root, &changes).unwrap();
+    let meta = fs.node_metadata(node).unwrap();
+    assert_eq!(meta.permissions(), None);
+    assert_eq!(meta.owner(), None);
+    fs.forget(node);
+    fs.forget(dir);
+    fs.sync().unwrap();
+    let after = image(fs);
+    assert_eq!(after, before, "mode and owner changed the image");
+
+    let mut fs = open(case, after);
+    let root = fs.root();
+    let created = fs
+        .create(root, name("owned.txt"), NewNode::File, &changes)
+        .unwrap();
+    let meta = fs.node_metadata(created).unwrap();
+    assert_eq!(meta.permissions(), None);
+    assert_eq!(meta.owner(), None);
+    fs.forget(created);
+    fsck(&image(fs), "mode and owner");
+}
+
+/// The FAT specification sets the archive attribute when a file is
+/// created, renamed or modified; directories keep theirs.
+#[test]
+fn archive_marks_created_renamed_and_modified_files() {
+    let case = CASES[2];
+    let mut fs = open(case, populate(case));
+    let root = fs.root();
+    let hidden = SetMetadata::new().with_attributes(Attributes::HIDDEN);
+    let attributes = |fs: &mut Fs, path: &str| fs.metadata(path).unwrap().attributes();
+    let archived = Attributes::HIDDEN | Attributes::ARCHIVE;
+
+    let dir = fs.resolve("/Nested Dir").unwrap();
+    fs.set_metadata(dir, &hidden).unwrap();
+    fs.forget(dir);
+    fs.rename(
+        root,
+        name("Nested Dir"),
+        root,
+        name("Moved Dir"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    assert_eq!(attributes(&mut fs, "/Moved Dir"), Attributes::HIDDEN);
+
+    let clear = |fs: &mut Fs, path: &str| {
+        let node = fs.resolve(path).unwrap();
+        fs.set_metadata(node, &hidden).unwrap();
+        fs.forget(node);
+    };
+    clear(&mut fs, "/lower.txt");
+    fs.rename(
+        root,
+        name("lower.txt"),
+        root,
+        name("lower.txt"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    assert_eq!(
+        attributes(&mut fs, "/lower.txt"),
+        Attributes::HIDDEN,
+        "no-op rename"
+    );
+    fs.rename(
+        root,
+        name("lower.txt"),
+        root,
+        name("Renamed.txt"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    assert_eq!(attributes(&mut fs, "/Renamed.txt"), archived);
+
+    clear(&mut fs, "/Renamed.txt");
+    let node = fs.resolve("/Renamed.txt").unwrap();
+    fs.set_len(node, 9).unwrap();
+    assert_eq!(
+        fs.node_metadata(node).unwrap().attributes(),
+        Attributes::HIDDEN,
+        "same size"
+    );
+    fs.set_len(node, 4).unwrap();
+    assert_eq!(fs.node_metadata(node).unwrap().attributes(), archived);
+    fs.set_metadata(node, &hidden).unwrap();
+    write_all(&mut fs, node, 4, b"more");
+    fs.sync_node(node).unwrap();
+    assert_eq!(fs.node_metadata(node).unwrap().attributes(), archived);
+    fs.forget(node);
+
+    let created = create(&mut fs, root, "created.txt", NewNode::File);
+    assert_eq!(
+        fs.node_metadata(created).unwrap().attributes(),
+        Attributes::ARCHIVE
+    );
+    fs.forget(created);
+    fs.sync().unwrap();
+    fsck(&image(fs), "archive");
+}
+
 #[test]
 fn sync_persists_sizes_for_a_fresh_mount() {
     for case in CASES {
@@ -1124,11 +1408,12 @@ fn compare_trees(a: &mut Fs, a_dir: NodeId, b: &mut Fs, b_dir: NodeId) -> usize 
 }
 
 /// A device that refuses writes, or fails them with a device error after
-/// `budget` writes.
+/// `budget` writes: every later write, or with `once` only the next one.
 struct Faulty {
     inner: Device,
     budget: Option<usize>,
     refuse: bool,
+    once: bool,
 }
 
 impl hadris_io::ErrorType for Faulty {
@@ -1157,7 +1442,12 @@ impl BlockDevice for Faulty {
             return Err(WriteError::ReadOnly);
         }
         match &mut self.budget {
-            Some(0) => Err(WriteError::Device(OutOfRange)),
+            Some(0) => {
+                if self.once {
+                    self.budget = None;
+                }
+                Err(WriteError::Device(OutOfRange))
+            }
             Some(left) => {
                 *left -= 1;
                 self.inner.write_blocks(first, buf)
@@ -1175,6 +1465,7 @@ fn refused_writes_make_the_volume_read_only() {
         inner: common::device(case, before.clone()),
         budget: None,
         refuse: true,
+        once: false,
     };
     let mut fs = FatFs::open(dev).unwrap();
     assert!(FsDriver::capabilities(&fs).is_writable());
@@ -1216,6 +1507,7 @@ fn refused_writes_make_the_volume_read_only() {
             inner: common::device(case, before.clone()),
             budget: None,
             refuse: true,
+            once: false,
         };
         let mut fs = FatFs::open(dev).unwrap();
         let root = fs.root();
@@ -1252,6 +1544,7 @@ fn interrupted_operations_leave_readable_volumes() {
                 inner: common::device(case, before.clone()),
                 budget: Some(budget),
                 refuse: false,
+                once: false,
             };
             let mut fs =
                 FatFs::open_with(dev, MountOptions::new().with_table(HeapTable::<()>::new()))
@@ -1295,6 +1588,84 @@ fn interrupted_operations_leave_readable_volumes() {
                 break;
             }
         }
+    }
+}
+
+/// A replace that fails at any one write either changes nothing visible
+/// or, when only its cleanup failed, has already renamed; the target is
+/// never lost on its own.
+#[test]
+fn a_failed_replace_keeps_the_target() {
+    let case = CASES[0];
+    let before = populate(case);
+    let state = |image: &[u8]| {
+        let names = fresh_names(case, image, "/");
+        let contents: Vec<Vec<u8>> = names
+            .iter()
+            .filter(|n| *n != "Nested Dir")
+            .map(|n| fresh_read(case, image, &format!("/{n}")))
+            .collect();
+        (names, contents)
+    };
+    let untouched = state(&before);
+    for to in ["A LONG FILE NAME.TXT", "ALONGF~1.TXT"] {
+        let rename = |fs: &mut FatFs<Faulty, HeapTable>| {
+            let root = fs.root();
+            fs.rename(
+                root,
+                name("lower.txt"),
+                root,
+                name(to),
+                RenameFlags::empty(),
+            )
+        };
+        let mut fs = FatFs::open_with(
+            Faulty {
+                inner: common::device(case, before.clone()),
+                budget: None,
+                refuse: false,
+                once: false,
+            },
+            MountOptions::new().with_table(HeapTable::new()),
+        )
+        .unwrap();
+        rename(&mut fs).unwrap();
+        let renamed = state(&fs.into_inner().inner.into_inner());
+        assert!(renamed.0.contains(&to.to_owned()));
+        let (mut failures, mut undone) = (0, 0);
+        for budget in 0..40 {
+            let mut fs = FatFs::open_with(
+                Faulty {
+                    inner: common::device(case, before.clone()),
+                    budget: Some(budget),
+                    refuse: false,
+                    once: true,
+                },
+                MountOptions::new().with_table(HeapTable::new()),
+            )
+            .unwrap();
+            let result = rename(&mut fs);
+            let image = fs.into_inner().inner.into_inner();
+            let after = state(&image);
+            match result {
+                Ok(()) => {
+                    assert_eq!(after, renamed, "{to} budget {budget}");
+                    fsck(&image, "replace");
+                    break;
+                }
+                Err(err) => {
+                    failures += 1;
+                    undone += usize::from(after == untouched);
+                    assert_eq!(err.kind(), ErrorKind::Io);
+                    assert!(
+                        after == untouched || after == renamed,
+                        "{to} budget {budget}: {:?}",
+                        after.0
+                    );
+                }
+            }
+        }
+        assert!(failures >= 3 && undone >= 2, "{to}: {failures} {undone}");
     }
 }
 
