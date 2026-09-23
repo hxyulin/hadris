@@ -217,8 +217,9 @@ fn apply(
             let child = child.to_owned();
             // Removing a non-empty directory fails inside the library;
             // failed ops leave both sides unchanged.
-            if with_node(fs, dir, |fs, dir| fs.remove(dir, name(&child), RemoveKind::Any).is_ok())
-                == Some(true)
+            if with_node(fs, dir, |fs, dir| {
+                fs.remove(dir, name(&child), RemoveKind::Any).is_ok()
+            }) == Some(true)
             {
                 model.remove(idx);
             }
