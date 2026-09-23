@@ -734,6 +734,7 @@ dependencies = [
  "clap",
  "hadris-udf",
  "libc",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]
