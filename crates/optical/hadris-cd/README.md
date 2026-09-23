@@ -21,7 +21,7 @@ tree.add_file(FileEntry::from_buffer("readme.txt", b"Hello, World!".to_vec()));
 
 let options = OpticalImageOptions::default()
     .volume_id("MY_DISC")
-    .joliet(hadris_cd::JolietLevel::Level3);
+    .joliet(hadris_cd::JolietLevel::L3);
 
 // The writer reads back the ISO structures while finishing the image, so the
 // output file must be opened readable as well as writable.

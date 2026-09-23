@@ -13,12 +13,14 @@ categories = ["filesystem", "encoding"]
 
 [features]
 default = ["std", "sync"]
-sync = ["hadris-io/sync", "hadris-iso/sync", "hadris-udf/sync"]
-std = ["hadris-io/std", "hadris-iso/std", "hadris-udf/std", "dep:thiserror"]
+sync = ["hadris-io/sync", "hadris-iso/sync", "hadris-udf/sync", "hadris-fs/sync", "hadris-storage/sync"]
+std = ["hadris-io/std", "hadris-iso/std", "hadris-udf/std", "hadris-fs/std", "hadris-storage/std", "dep:thiserror"]
 
 [dependencies]
 hadris-io = { workspace = true, default-features = false, features = ["std"] }
-hadris-iso = { workspace = true, default-features = false, features = ["std", "write"] }
+hadris-iso = { workspace = true, default-features = false, features = ["std", "sync"] }
+hadris-fs = { workspace = true, default-features = false, features = ["std", "sync"] }
+hadris-storage = { workspace = true, default-features = false, features = ["std", "sync"] }
 hadris-udf = { workspace = true, default-features = false, features = ["std", "write"] }
 hadris-macros = { workspace = true }
 thiserror = { workspace = true, optional = true }
@@ -28,3 +30,4 @@ thiserror = { workspace = true, optional = true }
 # crates.io publication cycle because hadris-optical optionally depends on
 # hadris-cd.
 hadris-optical = { path = "../hadris-optical", features = ["detect", "sync"] }
+hadris-fs = { workspace = true, features = ["std", "sync"] }

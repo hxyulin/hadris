@@ -470,10 +470,12 @@ dependencies = [
 name = "hadris-cd"
 version = "2.4.0"
 dependencies = [
+ "hadris-fs",
  "hadris-io",
  "hadris-iso",
  "hadris-macros",
  "hadris-optical",
+ "hadris-storage",
  "hadris-udf",
  "thiserror",
 ]
@@ -484,6 +486,7 @@ version = "2.4.0"
 dependencies = [
  "clap",
  "hadris-cd",
+ "hadris-fs",
  "hadris-io",
  "hadris-iso",
  "hadris-udf",
@@ -634,7 +637,7 @@ name = "hadris-iso-cli"
 version = "2.4.0"
 dependencies = [
  "clap",
- "hadris-io",
+ "hadris-fs",
  "hadris-iso",
  "libc",
  "tempfile",
@@ -668,8 +671,10 @@ name = "hadris-optical"
 version = "2.4.0"
 dependencies = [
  "hadris-cd",
+ "hadris-fs",
  "hadris-io",
  "hadris-iso",
+ "hadris-storage",
  "hadris-udf",
 ]
 

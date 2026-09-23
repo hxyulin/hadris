@@ -24,9 +24,9 @@
 //! read/write configuration with `fat`, `iso`, and `cpio`.
 //!
 //! `async-send` implies `async` and adds the `async_send` modules of
-//! `hadris-io`, `hadris-fs`, `hadris-storage`, `hadris-fat` and
-//! `hadris-block`, whose futures are `Send` for multi-threaded executors. The
-//! optical and archive crates have no such mode yet.
+//! `hadris-io`, `hadris-fs`, `hadris-storage`, `hadris-fat`, `hadris-block`
+//! and `hadris-iso`, whose futures are `Send` for multi-threaded executors.
+//! UDF, the hybrid CD writer and the archive crates have no such mode yet.
 //!
 //! Hybrid CD image creation is currently sync-only. Enabling `cd`—directly or
 //! through `optical`—therefore enables the CD writer's sync API, even when the
@@ -36,13 +36,12 @@
 //! # Quick start
 //!
 //! ```rust,no_run
-//! use hadris::io::StdIo;
 //! use hadris::optical::iso::sync::IsoImage;
 //!
-//! let file = StdIo::new(std::fs::File::open("image.iso").unwrap());
-//! let iso = IsoImage::open(file).unwrap();
-//! let pvd = iso.read_pvd().unwrap();
-//! println!("Volume: {}", pvd.volume_identifier);
+//! let file = std::fs::File::open("image.iso").unwrap();
+//! let mut iso = IsoImage::open(file).unwrap();
+//! let pvd = iso.primary_descriptor().unwrap();
+//! println!("Volume: {:?}", pvd.volume_identifier);
 //! ```
 
 #![deny(missing_docs)]

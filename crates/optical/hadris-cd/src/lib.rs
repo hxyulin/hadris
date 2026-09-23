@@ -26,7 +26,7 @@
 //! # let file = hadris_io::StdIo::new(Cursor::new(buffer));
 //! let options = OpticalImageOptions::default()
 //!     .volume_id("MY_DISC")
-//!     .joliet(hadris_cd::JolietLevel::Level3);
+//!     .joliet(hadris_cd::JolietLevel::L3);
 //!
 //! let _file = OpticalImageWriter::new(file, options)
 //!     .finish(tree)

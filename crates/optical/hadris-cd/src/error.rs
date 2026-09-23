@@ -11,7 +11,7 @@ pub enum Error {
 
     /// ISO creation error
     #[error("ISO error: {0}")]
-    Iso(#[from] hadris_iso::write::IsoCreationError),
+    Iso(#[from] hadris_iso::Error<io::Error>),
 
     /// UDF error
     #[error("UDF error: {0}")]

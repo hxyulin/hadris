@@ -21,7 +21,7 @@ pub enum Error {
     /// The requested filesystem is not present in the image.
     RequestedFormatUnavailable(OpticalFormat),
     /// ISO 9660 validation or opening failed.
-    Iso(hadris_io::legacy::Error),
+    Iso(hadris_iso::Error<hadris_io::legacy::Error>),
     /// UDF validation or opening failed.
     Udf(hadris_udf::Error),
 }
