@@ -53,7 +53,7 @@ pub(crate) async fn measure(tree: &Tree, stored: bool) -> Result<BTreeMap<usize,
     Ok(out)
 }
 
-/// The [`Report`] [`write`] would return, without writing: the image size,
+/// The [`Report`] [`write()`] would return, without writing: the image size,
 /// where each file goes, and the warnings.
 ///
 /// Size an output device with [`Report::size_bytes`]. Host files are
