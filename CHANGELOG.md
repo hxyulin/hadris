@@ -119,6 +119,10 @@ Each published package owns its version and may be released independently.
   the tree is walked through `..` entries, so memory is fixed at any depth.
   Checked against `fsck.fat -n` verdicts and the crash-safety leftovers of
   interrupted operations. `FatFs::label` reads the root label entry.
+- **hadris-tests:** The FAT conformance suite drives Hadris through
+  `fat::generic::FsAdapter<M: Mount>`, one adapter over any `hadris-fs`
+  `FileSystem`, with `HadrisFat` mounting `FatFs` on the image file. The
+  V2 `FatVolume` adapter is removed.
 
 ### Changed
 

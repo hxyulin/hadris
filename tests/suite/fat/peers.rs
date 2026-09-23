@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use hadris_tests::fat::fatfs::{self, FatfsAdapter};
-use hadris_tests::fat::hadris::{self, HadrisFatAdapter};
+use hadris_tests::fat::generic::{self, HadrisFatAdapter};
 use hadris_tests::fat::limits::{
     Checks, Oracle, exercise_data_region, exercise_root_directory, large_extent_operations,
 };
@@ -207,7 +207,7 @@ fn hadris_image(
     context: &str,
 ) -> Result<(std::path::PathBuf, FsState), String> {
     let image = workspace.path.join("hadris.img");
-    hadris::format(&image, case)?;
+    generic::format(&image, case)?;
     let expected = apply_operations(&mut HadrisFatAdapter::new(image.clone()), operations)?;
     let oracle = spec::snapshot(&image, case.bits)?;
     compare_snapshot(context, &expected, &oracle)?;

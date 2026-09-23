@@ -351,8 +351,10 @@ version = "0.0.0"
 dependencies = [
  "fatfs",
  "hadris-fat",
+ "hadris-fs",
  "hadris-io",
  "hadris-iso",
+ "hadris-storage",
  "tempfile",
 ]
 
