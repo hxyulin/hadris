@@ -117,6 +117,9 @@ jobs:
             tier: no-std-sync
             features: "sync"
           - crate: hadris-fs
+            tier: std-sync-host-helpers
+            features: "std,sync"
+          - crate: hadris-fs
             tier: no-std-async
             features: "async"
           - crate: hadris-fs
@@ -305,8 +308,11 @@ jobs:
             tier: no-std-async
             features: "alloc,async,read,detect,storage,fat,part"
           - crate: hadris-block
+            tier: no-alloc-async-send
+            features: "async-send,read,detect,storage,fat,part"
+          - crate: hadris-block
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,detect,storage,fat,part"
+            features: "std,alloc,sync,async,async-send,read,write,detect,storage,fat,part"
           - crate: hadris-optical
             tier: no-formats
             features: ""
@@ -349,6 +355,9 @@ jobs:
             tier: no-std-async-block
             features: "alloc,async,read,block"
           - crate: hadris
+            tier: no-std-async-send-block
+            features: "alloc,async-send,read,block,fs"
+          - crate: hadris
             tier: hosted-async-optical
             features: "std,async,read,optical"
           - crate: hadris
@@ -356,7 +365,7 @@ jobs:
             features: "alloc,sync,async,read,write,archive"
           - crate: hadris
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,block,optical,archive"
+            features: "std,alloc,sync,async,async-send,read,write,block,optical,archive,fs"
 
     steps:
       - uses: actions/checkout@v7
@@ -394,7 +403,7 @@ jobs:
           cargo test --workspace --all-features --tests --exclude hadris-fat
           cargo test -p hadris-fat --features "std,alloc,sync,async,async-send,write,unstable-exfat" --tests
       - name: Run block async integration tests
-        run: cargo test -p hadris-block --all-features --test async_volume
+        run: cargo test -p hadris-block --all-features --test async_volume --test async_send_volume
       - name: Run optical detection integration tests
         run: cargo test -p hadris-optical --all-features --test detect
       - name: Run optical opening integration tests
