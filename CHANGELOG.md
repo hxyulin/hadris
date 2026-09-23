@@ -10,6 +10,14 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fs (V3):** The `contract` feature adds a driver test kit:
+  `contract::check(&mut fs)` in each mode runs the format-independent rules
+  of the `FsDriver` contract (pins, opens and `Busy`, removed pinned nodes,
+  `RemoveKind`, `NO_REPLACE` and rename type rules, listed ids, cursor
+  ranges and resumption, reads, writes and `set_len`) in a scratch
+  directory and returns the first `ContractViolation`. It needs no
+  allocator. The hadris-fs test driver and `FatFs` (FAT12, FAT16 and FAT32;
+  raw, shared and async) pass it.
 - **hadris-fs (V3):** New crate with the shared, mode-independent filesystem
   vocabulary: `NodeId`, `FileType`, byte names (`Name`, `NameBuf`,
   `OwnedName`), `DateTime` with civil-time conversions, `FileTimes`, `Clock`

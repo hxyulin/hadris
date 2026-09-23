@@ -19,11 +19,13 @@ struct Node {
     kind: Kind,
 }
 
-/// An in-memory filesystem with symlinks, `parent`, pin counting and
-/// injectable device errors.
+/// An in-memory filesystem with symlinks, `parent`, pin and open counting
+/// and injectable device errors. It follows the `FsDriver` contract, which
+/// the contract kit checks.
 pub struct MemFs {
     nodes: Vec<Option<Node>>,
     pins: HashMap<u64, u32>,
+    opens: HashMap<u64, u32>,
     writable: bool,
     fail_next: Option<MemError>,
 }
@@ -37,7 +39,13 @@ io_transform! {
 impl MemFs {
     pub fn new() -> Self {
         let root = Node { name: Vec::new(), parent: 0, kind: Kind::Dir };
-        Self { nodes: vec![Some(root)], pins: HashMap::new(), writable: true, fail_next: None }
+        Self {
+            nodes: vec![Some(root)],
+            pins: HashMap::new(),
+            opens: HashMap::new(),
+            writable: true,
+            fail_next: None,
+        }
     }
 
     pub fn read_only(mut self) -> Self {
@@ -87,9 +95,32 @@ impl MemFs {
         }
     }
 
+    /// A live node; a removed one answers `NotFound` while it is pinned.
     fn node(&self, node: NodeId) -> FsResult<&Node, MemError> {
         let index = (node.get() as usize).checked_sub(1).ok_or(ErrorKind::InvalidHandle)?;
-        Ok(self.nodes.get(index).and_then(Option::as_ref).ok_or(ErrorKind::InvalidHandle)?)
+        match self.nodes.get(index) {
+            Some(Some(found)) => Ok(found),
+            Some(None) if self.pins.get(&node.get()).is_some_and(|&n| n > 0) => {
+                Err(ErrorKind::NotFound.into())
+            }
+            _ => Err(ErrorKind::InvalidHandle.into()),
+        }
+    }
+
+    fn is_open(&self, index: usize) -> bool {
+        self.opens.get(&id(index).get()).is_some_and(|&n| n > 0)
+    }
+
+    fn is_within(&self, mut index: usize, ancestor: usize) -> bool {
+        loop {
+            if index == ancestor {
+                return true;
+            }
+            if index == 0 {
+                return false;
+            }
+            index = self.nodes[index].as_ref().map_or(0, |n| n.parent);
+        }
     }
 
     fn pin(&mut self, index: usize) -> NodeId {
@@ -187,6 +218,18 @@ impl MemFs {
         }
     }
 
+    pub async fn open_node(&mut self, node: NodeId) -> FsResult<(), MemError> {
+        self.node(node)?;
+        *self.opens.entry(node.get()).or_default() += 1;
+        Ok(())
+    }
+
+    pub fn close_node(&mut self, node: NodeId) {
+        if let Some(count) = self.opens.get_mut(&node.get()) {
+            *count = count.saturating_sub(1);
+        }
+    }
+
     pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, MemError> {
         let dir = self.dir(dir)?;
         let up = self.nodes[dir].as_ref().map_or(0, |n| n.parent);
@@ -232,6 +275,9 @@ impl MemFs {
         let index = self.child(dir, name.as_bytes()).ok_or(ErrorKind::NotFound)?;
         let file_type = self.file_type(index);
         kind.check(file_type)?;
+        if self.is_open(index) {
+            return Err(ErrorKind::Busy.into());
+        }
         if self.nodes.iter().flatten().any(|n| n.parent == index) {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }
@@ -245,13 +291,38 @@ impl MemFs {
         from: &Name,
         to_dir: NodeId,
         to: &Name,
-        _flags: RenameFlags,
+        flags: RenameFlags,
     ) -> FsResult<(), MemError> {
         self.writable()?;
+        if !RenameFlags::NO_REPLACE.contains(flags) {
+            return Err(ErrorKind::Unsupported.into());
+        }
         let (from_dir, to_dir) = (self.dir(from_dir)?, self.dir(to_dir)?);
         let index = self.child(from_dir, from.as_bytes()).ok_or(ErrorKind::NotFound)?;
-        if let Some(old) = self.child(to_dir, to.as_bytes()) {
-            self.nodes[old] = None;
+        let moving_dir = self.file_type(index).is_dir();
+        if moving_dir && self.is_within(to_dir, index) {
+            return Err(ErrorKind::InvalidInput.into());
+        }
+        match self.child(to_dir, to.as_bytes()) {
+            Some(old) if old == index => return Ok(()),
+            Some(_) if flags.contains(RenameFlags::NO_REPLACE) => {
+                return Err(ErrorKind::AlreadyExists.into());
+            }
+            Some(old) => {
+                match (moving_dir, self.file_type(old).is_dir()) {
+                    (true, false) => return Err(ErrorKind::NotADirectory.into()),
+                    (false, true) => return Err(ErrorKind::IsADirectory.into()),
+                    _ => {}
+                }
+                if self.is_open(old) {
+                    return Err(ErrorKind::Busy.into());
+                }
+                if self.nodes.iter().flatten().any(|n| n.parent == old) {
+                    return Err(ErrorKind::DirectoryNotEmpty.into());
+                }
+                self.nodes[old] = None;
+            }
+            None => {}
         }
         let node = self.nodes[index].as_mut().ok_or(ErrorKind::NotFound)?;
         node.parent = to_dir;
@@ -262,6 +333,7 @@ impl MemFs {
     pub async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, MemError> {
         self.writable()?;
         self.device()?;
+        self.node(node)?;
         let index = node.get() as usize - 1;
         let Some(Node { kind: Kind::File(data), .. }) = self.nodes.get_mut(index).and_then(Option::as_mut) else {
             return Err(ErrorKind::IsADirectory.into());
@@ -276,6 +348,7 @@ impl MemFs {
 
     pub async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), MemError> {
         self.writable()?;
+        self.node(node)?;
         let index = node.get() as usize - 1;
         let Some(Node { kind: Kind::File(data), .. }) = self.nodes.get_mut(index).and_then(Option::as_mut) else {
             return Err(ErrorKind::IsADirectory.into());
@@ -284,11 +357,19 @@ impl MemFs {
         Ok(())
     }
 
-    pub async fn set_metadata(&mut self, _node: NodeId, _changes: &SetMetadata) -> FsResult<(), MemError> {
-        self.writable()
+    pub async fn set_metadata(&mut self, node: NodeId, _changes: &SetMetadata) -> FsResult<(), MemError> {
+        self.writable()?;
+        self.node(node)?;
+        Ok(())
     }
 
-    pub async fn sync_node(&mut self, _node: NodeId) -> FsResult<(), MemError> {
+    pub async fn sync_node(&mut self, node: NodeId) -> FsResult<(), MemError> {
+        self.node(node)?;
+        self.device()
+    }
+
+    pub async fn publish_node(&mut self, node: NodeId) -> FsResult<(), MemError> {
+        self.node(node)?;
         self.device()
     }
 
@@ -299,4 +380,8 @@ impl MemFs {
 
 }
 
-impl_mem_fs!(impl[] MemFs, error = MemError; also = [parent, read_link]);
+impl_mem_fs!(
+    impl[] MemFs,
+    error = MemError;
+    also = [parent, read_link, open_node, close_node, publish_node]
+);

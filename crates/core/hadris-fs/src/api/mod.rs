@@ -8,6 +8,8 @@ use crate::{
 };
 use hadris_io::SeekFrom;
 
+#[cfg(feature = "contract")]
+pub mod contract;
 #[cfg(feature = "alloc")]
 mod copy;
 #[macro_use]

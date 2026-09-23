@@ -17,6 +17,7 @@
 //! |---|---:|---|
 //! | `alloc` | No | [`OwnedName`], [`AnyError`], [`HeapTable`], `copy_tree` and owned path normalization |
 //! | `std` | No | Implies `alloc`; adds [`SystemClock`], `extract_to_host` and `import_from_host` in `sync`, and conversions to `std::io::Error` |
+//! | `contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
 
 #![no_std]
 #![deny(missing_docs)]
@@ -28,6 +29,8 @@ extern crate alloc;
 extern crate std;
 
 mod caps;
+#[cfg(feature = "contract")]
+mod contract;
 mod dir;
 mod error;
 #[cfg(any(feature = "sync", feature = "async"))]
@@ -43,6 +46,8 @@ mod table;
 mod time;
 
 pub use caps::{Capabilities, CaseSensitivity, FsStats, NameCharset};
+#[cfg(feature = "contract")]
+pub use contract::ContractViolation;
 pub use dir::{DirCursor, DirEntry, DirItem};
 #[cfg(feature = "alloc")]
 pub use error::AnyError;
