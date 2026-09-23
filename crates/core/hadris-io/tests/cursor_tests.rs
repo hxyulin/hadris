@@ -5,7 +5,8 @@
 //! These tests exercise the public API of `Cursor` through
 //! the `Read` and `Seek` trait implementations.
 
-use hadris_io::{Cursor, Read, Seek, SeekFrom};
+use hadris_io::sync::{Read, Seek};
+use hadris_io::{Cursor, SeekFrom};
 
 #[test]
 fn cursor_sequential_reads() {
