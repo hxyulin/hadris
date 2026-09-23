@@ -1,13 +1,11 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Cursor;
 
-use hadris_io::StdIo;
-use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
-use hadris_iso::write::{InputEntry, InputTree, IsoImageWriter};
+use hadris_fs::tree::{Content, Tree};
+use hadris_iso::{IsoOptions, Relocation, RockRidge, VolumeIdentifiers};
 use hadris_tests::harness::command::{require_or_skip, run_command};
 use hadris_tests::harness::tree::{EntryData, snapshot_host};
+use hadris_tests::iso::hadris::write_tree;
 
 #[test]
 fn bsdtar_extracts_relocated_trees() {
@@ -32,48 +30,37 @@ fn bsdtar_extracts_relocated_trees() {
                 format!("{path}/leaf.txt"),
                 EntryData::File(b"deep".to_vec()),
             );
-            let mut entries = vec![InputEntry::file("leaf.txt", b"deep".to_vec())];
-            for name in names.iter().rev() {
-                entries = vec![InputEntry::directory(name.clone(), entries)];
-            }
+            let mut tree = Tree::new();
+            tree.add_file(&format!("{path}/leaf.txt"), Content::bytes("deep"))
+                .unwrap();
             if let Some((name, directory)) = collision {
                 if directory {
-                    entries.push(InputEntry::directory(
-                        name,
-                        vec![InputEntry::file("user.txt", b"user".to_vec())],
-                    ));
+                    tree.add_file(&format!("{name}/user.txt"), Content::bytes("user"))
+                        .unwrap();
                     expected.insert(format!("/{name}"), EntryData::Directory);
                     expected.insert(
                         format!("/{name}/user.txt"),
                         EntryData::File(b"user".to_vec()),
                     );
                 } else {
-                    entries.push(InputEntry::file(name, b"user".to_vec()));
+                    tree.add_file(name, Content::bytes("user")).unwrap();
                     expected.insert(format!("/{name}"), EntryData::File(b"user".to_vec()));
                 }
             }
-            let options = IsoFormatOptions {
-                features: CreationFeatures::rock_ridge(),
-                volume_name: "RELOCATION".to_string(),
-                system_id: None,
-                volume_set_id: None,
-                publisher_id: None,
-                preparer_id: None,
-                application_id: None,
-                sector_size: 2048,
-                path_separator: PathSeparator::ForwardSlash,
-                strict_charset: false,
+            let relocation = match collision {
+                Some(("rr_moved", _)) => ".rr_moved",
+                _ => "rr_moved",
             };
-            let image = IsoImageWriter::create(
-                StdIo::new(Cursor::new(Vec::new())),
-                InputTree::new(PathSeparator::ForwardSlash, entries),
-                options,
-            )
-            .unwrap();
+            let options = IsoOptions::default()
+                .with_volume(VolumeIdentifiers::new("RELOCATION"))
+                .with_rock_ridge(
+                    RockRidge::default().with_relocation(Relocation::Directory(relocation.into())),
+                );
+            let image = write_tree(&tree, &options).unwrap();
             let temp = tempfile::tempdir().unwrap();
             let iso = temp.path().join("image.iso");
             let extracted = temp.path().join("extracted");
-            fs::write(&iso, image.into_inner().into_inner()).unwrap();
+            fs::write(&iso, image).unwrap();
             fs::create_dir(&extracted).unwrap();
             run_command(
                 "bsdtar",

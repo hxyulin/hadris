@@ -2,63 +2,52 @@
 //! xorriso when it is available.
 
 use std::fs;
-use std::io::Cursor;
-use std::sync::Arc;
 
-use hadris_io::StdIo;
-use hadris_iso::read::PathSeparator;
-use hadris_iso::susp::{SystemUseField, SystemUseIter};
-use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
-use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+use hadris_fs::tree::{Content, Tree};
+use hadris_iso::raw::{DirectoryRecord, SuspEntries};
+use hadris_iso::{IsoOptions, RockRidge, VolumeIdentifiers};
+use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
 
-use super::open;
+use super::{open, volume_id};
+
+fn le32(bytes: &[u8]) -> u32 {
+    u32::from_le_bytes(bytes[..4].try_into().unwrap())
+}
 
 #[test]
 fn test_hadris_rockridge_roundtrip() {
-    let files = InputFiles {
-        path_separator: PathSeparator::ForwardSlash,
-        files: vec![
-            IsoFile::File {
-                name: Arc::new("hello.txt".to_string()),
-                contents: b"Hello, Rock Ridge!\n".to_vec(),
-            },
-            IsoFile::Directory {
-                name: Arc::new("subdir".to_string()),
-                children: vec![IsoFile::File {
-                    name: Arc::new("nested.txt".to_string()),
-                    contents: b"Nested content\n".to_vec(),
-                }],
-            },
-        ],
-    };
-    let format_options = IsoFormatOptions {
-        volume_name: "RRIP_TEST".to_string(),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: None,
-        application_id: None,
-        sector_size: 2048,
-        path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures::rock_ridge(),
-        strict_charset: false,
-    };
-    let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
-    IsoImageWriter::create(StdIo::new(&mut buffer), files, format_options)
-        .expect("Failed to create Rock Ridge ISO");
-    let iso_data = buffer.into_inner();
+    let mut tree = Tree::new();
+    tree.add_file("hello.txt", Content::bytes("Hello, Rock Ridge!\n"))
+        .unwrap();
+    tree.add_file("subdir/nested.txt", Content::bytes("Nested content\n"))
+        .unwrap();
+    let options = IsoOptions::default()
+        .with_volume(VolumeIdentifiers::new("RRIP_TEST"))
+        .with_rock_ridge(RockRidge::default());
+    let iso_data = write_tree(&tree, &options).expect("Failed to create Rock Ridge ISO");
 
-    let image = open(iso_data.clone());
-    let pvd = image.read_pvd().unwrap();
-    assert_eq!(pvd.volume_identifier.to_str().trim(), "RRIP_TEST");
+    let mut image = open(iso_data.clone());
+    assert_eq!(volume_id(&mut image), "RRIP_TEST");
+    let pvd = image.primary_descriptor().unwrap();
+    let root_start = pvd.root.header.extent.get() as usize * 2048;
+    let root_len = pvd.root.header.data_len.get() as usize;
+    let root_dir = &iso_data[root_start..root_start + root_len];
 
-    let root = image.root_dir();
-    let dir = root.iter(&image);
-    let mut entries = dir.entries();
+    let mut records = Vec::new();
+    let mut pos = 0;
+    while pos < root_dir.len() {
+        match DirectoryRecord::parse(&root_dir[pos..]).expect("valid directory record") {
+            Some(record) => {
+                pos += record.len();
+                records.push(record);
+            }
+            None => pos = (pos / 2048 + 1) * 2048,
+        }
+    }
 
-    let dot_entry = entries.next().unwrap().unwrap();
+    let dot_entry = &records[0];
     assert_eq!(dot_entry.name(), b"\x00", "First entry should be dot");
     let su = dot_entry.system_use();
     assert!(!su.is_empty(), "Dot entry should have system use data");
@@ -66,22 +55,22 @@ fn test_hadris_rockridge_roundtrip() {
     let mut found_sp = false;
     let mut found_ce = false;
     let mut found_px = false;
-    let mut ce_sector = 0u64;
-    let mut ce_offset = 0u64;
-    let mut ce_length = 0usize;
-    for field in SystemUseIter::new(su, 0) {
-        match field {
-            SystemUseField::SuspIdentifier(sp) => {
-                assert!(sp.is_valid(), "SP check bytes should be 0xBEEF");
+    let mut ce = (0usize, 0usize, 0usize);
+    for entry in SuspEntries::new(su, 0) {
+        match &entry.signature {
+            b"SP" => {
+                assert_eq!(&entry.data[..2], &[0xBE, 0xEF], "SP check bytes");
                 found_sp = true;
             }
-            SystemUseField::ContinuationArea(ce) => {
-                ce_sector = ce.sector.read() as u64;
-                ce_offset = ce.offset.read() as u64;
-                ce_length = ce.length.read() as usize;
+            b"CE" => {
+                ce = (
+                    le32(&entry.data[0..]) as usize,
+                    le32(&entry.data[8..]) as usize,
+                    le32(&entry.data[16..]) as usize,
+                );
                 found_ce = true;
             }
-            SystemUseField::PosixAttributes(_) => found_px = true,
+            b"PX" => found_px = true,
             _ => {}
         }
     }
@@ -91,24 +80,25 @@ fn test_hadris_rockridge_roundtrip() {
     assert!(found_ce, "Root dot should have CE entry (for full ER)");
     assert!(found_px, "Root dot should have PX entry");
 
+    let (ce_block, ce_offset, ce_length) = ce;
     assert!(ce_length > 0, "CE length should be non-zero");
-    let byte_pos = ce_sector * 2048 + ce_offset;
-    let mut ce_buf = vec![0u8; ce_length];
-    image
-        .read_bytes_at(byte_pos, &mut ce_buf)
-        .expect("Failed to read CE area");
+    let ce_start = ce_block * 2048 + ce_offset;
+    let ce_buf = &iso_data[ce_start..ce_start + ce_length];
     let mut found_er = false;
-    for field in SystemUseIter::new(&ce_buf, 0) {
-        if let SystemUseField::ExtensionReference(er) = field {
-            let id_start = 4usize;
-            let id_end = id_start + er.identifier_len as usize;
-            if id_end <= er.buf.len() && &er.buf[id_start..id_end] == b"RRIP_1991A" {
+    for entry in SuspEntries::new(ce_buf, 0) {
+        if &entry.signature == b"ER" {
+            let (id_len, descriptor_len, source_len) = (
+                entry.data[0] as usize,
+                entry.data[1] as usize,
+                entry.data[2] as usize,
+            );
+            if entry.data.get(4..4 + id_len) == Some(b"RRIP_1991A".as_slice()) {
                 found_er = true;
                 assert!(
-                    er.descriptor_len > 0,
+                    descriptor_len > 0,
                     "Full ER should have non-empty descriptor"
                 );
-                assert!(er.source_len > 0, "Full ER should have non-empty source");
+                assert!(source_len > 0, "Full ER should have non-empty source");
             }
         }
     }
@@ -117,7 +107,7 @@ fn test_hadris_rockridge_roundtrip() {
         "Continuation area should contain ER with RRIP_1991A identifier"
     );
 
-    let dotdot_entry = entries.next().unwrap().unwrap();
+    let dotdot_entry = &records[1];
     assert_eq!(
         dotdot_entry.name(),
         b"\x01",
@@ -128,18 +118,9 @@ fn test_hadris_rockridge_roundtrip() {
         "Dotdot entry should have system use data"
     );
 
-    let mut found_file_with_nm = false;
-    for entry_result in entries {
-        let entry = entry_result.unwrap();
-        if entry.is_special() {
-            continue;
-        }
-        for field in SystemUseIter::new(entry.system_use(), 0) {
-            if let SystemUseField::AlternateName(_) = field {
-                found_file_with_nm = true;
-            }
-        }
-    }
+    let found_file_with_nm = records[2..].iter().any(|record| {
+        SuspEntries::new(record.system_use(), 0).any(|entry| &entry.signature == b"NM")
+    });
     assert!(
         found_file_with_nm,
         "File/directory entries should have NM entries"
