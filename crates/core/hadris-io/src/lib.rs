@@ -182,8 +182,8 @@ fn copy_from_slice_at(data: &[u8], offset: u64, buf: &mut [u8]) -> usize {
 
 /// A no-std cursor for reading from a byte slice.
 ///
-/// Implements [`Read`] and [`Seek`] in both modes. Reads never fail; seeking
-/// to a negative position fails with [`InvalidSeek`].
+/// Implements [`sync::Read`] and [`sync::Seek`] and their async counterparts.
+/// Reads never fail; seeking to a negative position fails with [`InvalidSeek`].
 ///
 /// ```rust
 /// use hadris_io::sync::{Read, Seek};
