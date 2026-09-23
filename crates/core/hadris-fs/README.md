@@ -5,7 +5,7 @@ Shared filesystem vocabulary and driver traits for the Hadris crates.
 The vocabulary is mode-independent and performs no I/O:
 
 - `NodeId` and `FileType`
-- `Name`, `NameBuf` and `OwnedName`: validated byte names that need no allocator
+- `Name`, `NameBuf` and `OwnedName`: validated byte names that need no allocator (`NameBuf` holds 1024 bytes by default)
 - `DateTime`, `FileTimes` and `Clock`, with civil-time conversions for on-disk encodings
 - `Metadata`, `SetMetadata`, `Mode` and `Attributes`
 - `Capabilities` and `FsStats`
@@ -15,6 +15,9 @@ The vocabulary is mode-independent and performs no I/O:
 - `OpenOptions`, `RenameFlags` and `NewNode`
 - `path`: allocation-free lexical virtual paths (formerly `hadris-path`)
 - `FuseOnError`, an iterator adapter that ends after the first `Err`
+- `NodeTable`, per-node driver state with pin counts for formats without
+  stable inode numbers: `FixedTable<N>` needs no allocator, `HeapTable`
+  (`alloc`) grows, and users can supply their own
 
 The `sync`, `async` and `async-send` features add the driver layer, each
 generated from one source:

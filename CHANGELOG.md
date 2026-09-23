@@ -38,6 +38,13 @@ Each published package owns its version and may be released independently.
   reject entry names that are not one plain host component and never write
   through an existing host symlink. `FuseOnError` ends an iterator of
   `Result`s after its first `Err`.
+  `NodeTable` maps a driver's `NodeId`s to per-node state with pin counts
+  for formats without stable inode numbers. `FixedTable<N>` needs no
+  allocator, `HeapTable` (`alloc`) grows, and users can implement their own;
+  a full table gives `TableFull`, which converts to
+  `ErrorKind::LimitExceeded`. `NameBuf` holds 1024 bytes by default, enough
+  for any 255-unit UTF-16 long name. `remove` fails with `ErrorKind::Busy`
+  while the node is pinned.
 
 ### Changed
 

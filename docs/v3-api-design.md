@@ -420,7 +420,8 @@ New crate. It takes the useful parts of `hadris-common` and `hadris-path`.
 |---|---|
 | `NodeId` | Opaque `u64`. Stable for as long as the node is pinned (4.5). Maps directly to FUSE `ino` and kernel inode numbers. |
 | `FileType` | `File`, `Dir`, `Symlink`, `CharDevice`, `BlockDevice`, `Fifo`, `Socket`. Non-exhaustive. One definition for every crate. |
-| `Name` / `NameBuf<N>` | Names are bytes. `Name::to_str()` returns `Result`. `NameBuf` is a fixed-capacity buffer so no-alloc callers can read directories. |
+| `Name` / `NameBuf<N>` | Names are bytes. `Name::to_str()` returns `Result`. `NameBuf` is a fixed-capacity buffer so no-alloc callers can read directories. The default capacity is 1024 bytes, enough for a 255-unit UTF-16 long name in UTF-8, so `dyn`-friendly signatures that name the default `NameBuf` work for every format. |
+| `NodeTable` | Per-node driver state with pin counts (4.5). `FixedTable<N>` (no alloc), `HeapTable` (`alloc`), or a user type. |
 | `Metadata` | `file_type`, `len: u64`, `times: FileTimes`, `permissions: Option<Mode>`, `owner: Option<(u32, u32)>`, `nlink`, plus `attributes: Attributes` (DOS-style flags) and an `extra()` hook for per-format types. Getters only. |
 | `DateTime` | Private fields: seconds since 1970, nanoseconds, optional UTC offset in minutes. Every format converts to and from its own encoding in `raw`. |
 | `FileTimes` | `created`, `modified`, `accessed`, `changed`, each `Option<DateTime>`, with `with_*` setters. Used for both reads and `set_metadata`. |
@@ -630,17 +631,14 @@ FAT and exFAT have no inodes. The natural identity of a file is the location
 of its directory entry, and that changes on rename. V2's `FileEntry` snapshot
 model produced `StaleEntry`, #90 and #24.
 
-V3 keeps an open-node table inside `FatVolume` (and `ExFatVolume`):
+V3 keeps an open-node table inside `FatFs` (and `ExFatFs`):
 
-- A `NodeId` is an index into the table. The entry records the directory-entry location, the first cluster, the size, the pin count and whether a writer holds it.
-- `lookup` finds or creates the table entry and increments the pin count. `forget` decrements it, and the entry is freed at zero.
+- The table is a public `hadris_fs::NodeTable`, shared by FAT, exFAT and any format that caches node state (ISO), and a type parameter of the driver: `FatFs<D, T: NodeTable = FixedTable<64>>`. `FixedTable<N>` is a fixed array and needs no allocator, `HeapTable` grows with `alloc`, and users can supply their own, such as an evicting table. The user names the kind of table; the driver stores `T::With<State>` for its private state type.
+- The entry records the directory-entry location, the first cluster, the size, the pin count and whether a writer holds it. The `NodeId` comes from the entry's location when the node is first pinned and stays with the node.
+- `lookup` finds or creates the table entry and increments the pin count. `forget` decrements it, and the entry may be freed at zero. A full table gives `ErrorKind::LimitExceeded` (`TableFull`). A driver that must keep state past the last pin (unwritten metadata) holds a pin of its own.
 - `rename` updates the location in place, so the `NodeId` stays valid. `set_len` and `write_at` update the size in the table, so every handle sees the same size and the directory entry is written on `sync_node` or `sync`.
-- `remove` on a pinned node deletes the directory entry but keeps the clusters until the last pin goes away, matching POSIX unlink. See [Q3](#7-open-questions).
+- `remove` on a pinned node fails with `ErrorKind::Busy`. See [Q3](#7-open-questions).
 - IDs of unpinned entries from `read_dir` are valid until the next mutation of that directory. The docs state this, and `lookup` is the way to keep one.
-
-The table needs `alloc`, and FAT write already needs `alloc`. A no-alloc,
-read-only `FatVolume` uses the directory-entry location as the `NodeId`,
-which is stable because nothing moves.
 
 ISO (directory record location), UDF (ICB location and partition) and NTFS
 (MFT reference with sequence number) have stable IDs that fit in a `u64`, so
@@ -775,6 +773,12 @@ FAT reads and writes without `alloc`: E1 replaced the node table with a fixed
 array and the chain extension's `Vec` with two passes over the FAT. The
 table's capacity is [Q8](#7-open-questions).
 
+For `FatFs`, `write` gates only `format`; the write methods of `FsDriver`
+are always compiled, so the feature adds items and never changes what an
+existing call does. The V2 `lfn` and `dirty-file-panic` features switch
+behaviour, so neither carries over: `FatFs` always reads and writes long
+names, and it has no writer that can be dropped unfinished.
+
 ### 4.10 Partition GUIDs and randomness
 
 No hidden RNG. `Gpt::new(disk_guid: Guid, ..)` and `GptEntry::new(unique_guid:
@@ -867,7 +871,7 @@ Each row is a deliberate trade, what it buys, and what a user does about it.
 | Holding `vol.lock()` and calling the same volume deadlocks (panics with `Local`) | The guard is a plain lock guard | Drop the guard first; documented on `lock()` |
 | `Volume`'s forget queue is 16 `(node, count)` entries; when it is full, `forget` spins until the lock or a slot frees | `forget` runs in `Drop` and must neither lose a pin nor allocate (E1) | Spinning never ends only if one thread or task drops handles to 16 distinct nodes while it holds `vol.lock()`; drop the guard first |
 | Async `Volume::new` needs `alloc` | `async-lock` and `event-listener` link `alloc` unconditionally | The `embassy-sync` feature adds an async `Local` lock with no allocator |
-| The FAT node table is a fixed array with a const generic capacity (default 64); a full table gives `LimitExceeded` | No allocation in the driver, and a feature cannot change the size (R3) | See [Q8](#7-open-questions) |
+| The default FAT node table is `FixedTable<64>`; a full table gives `LimitExceeded` | No allocation in the driver, and a feature cannot change the table (R3) | Name `HeapTable` or a larger `FixedTable<N>` in the driver type ([Q8](#7-open-questions)) |
 | Each device type monomorphizes the driver: about 2.4 KB of FAT per extra device type on Cortex-M, 180 bytes per extra device of the same type | Typed errors and static dispatch | Use one device type per binary where size matters |
 | `OpenFile` does not forget on drop | It is `Copy` plain data for file tables | Call `close`; `File` handles forget on drop |
 | `read_exact`/`write_all` return `ExactError<E>` | Short reads and zero-length writes need their own cases, as in embedded-io | `?` converts into `Error<E>` |
@@ -898,25 +902,27 @@ Each section lists the API changes, then the V3 feature work. Items marked
 
 ### 5.1 `hadris-fat`
 
-**One shape for FAT12/16/32 and exFAT.**
+**One shape for FAT12/16/32; exFAT is a sibling driver.**
 
 ```rust
-let mut vol = FatVolume::open(dev, VolumeOptions::default().with_clock(SystemClock))?;
-vol.kind();                                      // FatKind::{Fat12, Fat16, Fat32, ExFat}
+let mut vol = FatFs::open(dev, VolumeOptions::default().with_clock(SystemClock))?;
+vol.kind();                                      // FatKind::{Fat12, Fat16, Fat32}
 vol.label()?; vol.set_label(&VolumeLabel::new("BOOT")?)?;
 vol.fat_attributes(node)?; vol.set_fat_attributes(node, FatAttributes::HIDDEN)?;
 vol.cluster_chain(node)?;                        // native, for tools
 // Everything else goes through the node API (FsDriver) and the path layer.
 
 let vol = hadris_fat::sync::format(dev, &FormatOptions::default().with_kind(FatKind::Fat32))?;
+let exfat = ExFatFs::open(dev)?;                 // step 12; the same node API
 let report = hadris_fat::sync::check(&mut vol)?;           // fsck, both modes
 ```
 
-- `FatVolume` implements `FsDriver` through its inherent methods (`impl_fs_driver!`). Path methods come from the `hadris-fs` path layer. `FatVolumeReadExt` and `FatVolumeWriteExt` are removed. See [Q7](#7-open-questions) for the name.
+- `FatFs` implements `FsDriver` through its inherent methods (`impl_fs_driver!`). Path methods come from the `hadris-fs` path layer. `FatVolumeReadExt` and `FatVolumeWriteExt` are removed. See [Q7](#7-open-questions) for the name.
+- exFAT is a separate driver, `ExFatFs`, not a `FatKind`. Its directory entry sets, allocation bitmap and up-case table share little with FAT12/16/32, so one type would branch on the kind in every method. Both drivers share the node table, the vocabulary and the codecs that do overlap.
 - The node table (4.5) replaces `FileEntry` snapshots. `StaleEntry` and `WriterConflict` go away as errors; a second writer on the same node shares the node and its size.
-- Clock and code page are generic parameters with zero-sized defaults: `FatVolume<D, C: Clock = NoClock, P: CodePage = Ascii>`. No `'static` borrows, no `Sync` supertraits (#83).
+- Clock and code page are generic parameters with zero-sized defaults: `FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePage = Ascii>`. No `'static` borrows, no `Sync` supertraits (#83).
 - The FAT sector cache is gone as a separate thing. Users wrap the device in `Cache<D>`. `FatSectorCache`, `CachedFat`, `with_cached_fat` and `fat_cache` are removed (#27). Chain caching becomes an internal detail of the node table.
-- `FormatOptions` (non_exhaustive, `with_*`) covers FAT and exFAT with a `FatKind` selection. It replaces `FatVolumeFormatter`, `FatFormatOptions`, `ExFatFormatOptions`, `format_exfat` and `ExFatLayoutParams`. Formatting uses the device's block count, so pre-sizing and a separate size argument go away, and formatting a `Slice` inside a disk works.
+- `FormatOptions` (non_exhaustive, `with_*`) covers FAT12/16/32 with a `FatKind` selection; exFAT has its own options on `ExFatFs`. It replaces `FatVolumeFormatter`, `FatFormatOptions`, `ExFatFormatOptions`, `format_exfat` and `ExFatLayoutParams`. Formatting uses the device's block count, so pre-sizing and a separate size argument go away, and formatting a `Slice` inside a disk works.
 - `tool::` becomes `check` (fsck) and `analysis` in both modes, with getters on reports. A `repair` pass is 3.x.
 - `expect("Fixed root info required ...")` sites return `ErrorKind::Corrupt`.
 - exFAT internals (`allocate_cluster`, `sync_bitmap`, `name_hash`, `parse_entry_set`) become private.
@@ -926,9 +932,9 @@ let report = hadris_fat::sync::check(&mut vol)?;           // fsck, both modes
 - Random-access writes, read-write handles, grow through `set_len`.
 - Create the root label entry when absent, and write the BPB label.
 - Exact free space on FAT12/16 by scanning, cached after first use.
-- `remove` of a pinned node defers freeing (4.5).
+- `remove` of a pinned node fails with `Busy` (4.5, Q3).
 - Close audit items C2 (cancellation safety of compound async operations) and B3 to B7, or confirm they are fixed.
-- exFAT: async, rename, attributes and times, label, directory growth, fragmented bitmap and upcase table, entry sets that cross clusters, fsck. exFAT stays in `hadris_fat::unstable::exfat` until it passes the conformance suite, then moves to the stable `FatVolume` in a 3.x minor. See [Q5](#7-open-questions).
+- exFAT: async, rename, attributes and times, label, directory growth, fragmented bitmap and upcase table, entry sets that cross clusters, fsck. exFAT stays in `hadris_fat::unstable::exfat` until it passes the conformance suite, then becomes the stable `ExFatFs` in a 3.x minor. See [Q5](#7-open-questions).
 - TexFAT and fsck repair: 3.x.
 
 ### 5.2 `hadris-iso`
@@ -1155,10 +1161,12 @@ covers three modes. When return type notation is stable, `SendFileSystem`
 aliases over the `async` traits replace the mode as a deprecation, not a
 break, because the `async` traits never change. Decided: add the mode.
 
-**Q3. Removing an open file.** POSIX semantics (entry gone, clusters freed at
-the last `forget`) need orphan tracking, and a crash leaves lost clusters that
-fsck has to reclaim. The alternative is `ErrorKind::Busy`. Recommendation:
-POSIX semantics, since kernels expect them, with `check` reclaiming orphans.
+**Q3. Removing an open file.** Resolved: `ErrorKind::Busy`. POSIX semantics
+(entry gone, clusters freed at the last `forget`) need orphan tracking, and a
+crash leaves lost clusters that fsck has to reclaim. `remove` on a node with
+live pins fails with `Busy` instead, and the `FsDriver` and `FileSystem`
+docs say so. Deferred freeing can come later without a break, since it only
+turns an error into a success.
 
 **Q4. MSRV.** `core::error::Error` needs 1.81 and `async fn` in traits 1.75, so
 the current 1.88 works. Raise it only if `dyn`-compatible async traits
@@ -1186,7 +1194,11 @@ Options: keep the const generic and raise the default; make the table a type
 parameter with a fixed default and a growable `HeapTable` under `alloc`
 (`FatFs<D, T: NodeTable = FixedTable<64>>`); or evict unpinned entries so
 the capacity only bounds open nodes. Decided: the type parameter, with
-`hadris-vfs` and the FUSE adapter naming `HeapTable`.
+`hadris-vfs` and the FUSE adapter naming `HeapTable`. `NodeTable`,
+`FixedTable` and `HeapTable` are public in `hadris-fs`, so FAT, exFAT and ISO
+share them and users can supply their own, such as an evicting table. The
+trait's contract lets a table keep or drop an entry once its last pin goes,
+which is what eviction needs.
 
 **Q7. Driver type names.** Resolved: `<Format>Fs`. `Volume<F, K>` is now the sharing wrapper, which
 makes `FatVolume`, `UdfVolume` and `NtfsVolume` read as if they were already

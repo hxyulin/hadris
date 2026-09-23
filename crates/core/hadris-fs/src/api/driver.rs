@@ -89,6 +89,10 @@ pub trait FsDriver {
     }
 
     /// Removes `name` from `dir`. A directory must be empty.
+    ///
+    /// Fails with [`ErrorKind::Busy`] while the node is pinned, that is,
+    /// returned by `lookup` and not yet forgotten, as the node of an open
+    /// handle is. Close or forget it first.
     async fn remove(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
         let _ = (dir, name);
         Err(ErrorKind::ReadOnly.into())
@@ -224,6 +228,10 @@ pub trait FileSystem {
     }
 
     /// Removes `name` from `dir`. A directory must be empty.
+    ///
+    /// Fails with [`ErrorKind::Busy`] while the node is pinned, that is,
+    /// returned by `lookup` and not yet forgotten, as the node of an open
+    /// handle is. Close or forget it first.
     async fn remove(&self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
         let _ = (dir, name);
         Err(ErrorKind::ReadOnly.into())

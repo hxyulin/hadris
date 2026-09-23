@@ -2,8 +2,8 @@
 //!
 //! This crate defines the mode-independent types every Hadris filesystem
 //! speaks: node identity, file types, byte names, timestamps and clocks,
-//! metadata, capabilities, errors, directory cursors, open options and
-//! lexical virtual paths. It performs no I/O.
+//! metadata, capabilities, errors, directory cursors, open options,
+//! node tables and lexical virtual paths. It performs no I/O.
 //!
 //! [`Error<E>`] is the error of every filesystem operation. `E` is the
 //! device's own error, so it survives without allocation; [`AnyError`]
@@ -13,7 +13,7 @@
 //!
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
-//! | `alloc` | No | [`OwnedName`], [`AnyError`], `copy_tree` and owned path normalization |
+//! | `alloc` | No | [`OwnedName`], [`AnyError`], [`HeapTable`], `copy_tree` and owned path normalization |
 //! | `std` | No | Implies `alloc`; adds [`SystemClock`], `extract_to_host` and `import_from_host` in `sync`, and conversions to `std::io::Error` |
 
 #![no_std]
@@ -37,6 +37,7 @@ mod name;
 mod node;
 mod ops;
 pub mod path;
+mod table;
 mod time;
 
 pub use caps::{Capabilities, CaseSensitivity, FsStats, NameCharset};
@@ -51,6 +52,9 @@ pub use name::OwnedName;
 pub use name::{Name, NameBuf, NameError};
 pub use node::{FileType, NodeId};
 pub use ops::{DeviceKind, DeviceNumber, NewNode, OpenOptions, OpenOptionsError, RenameFlags};
+#[cfg(feature = "alloc")]
+pub use table::HeapTable;
+pub use table::{FixedTable, NodeTable, TableFull};
 #[cfg(feature = "std")]
 pub use time::SystemClock;
 pub use time::{CivilDate, CivilTime, Clock, DateTime, DateTimeError, FileTimes, NoClock};

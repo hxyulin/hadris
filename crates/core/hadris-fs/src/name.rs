@@ -167,8 +167,12 @@ impl<'a> TryFrom<&'a [u8]> for &'a Name {
 /// Filesystems write directory entry names into it with
 /// [`set`](Self::set) or, to avoid a second copy, [`fill`](Self::fill);
 /// callers read them back with [`as_name`](Self::as_name).
+///
+/// The default capacity, 1024 bytes, holds any name a Hadris format
+/// produces: 255 UTF-16 code units of a FAT or exFAT long name take at most
+/// 765 bytes of UTF-8.
 #[derive(Clone)]
-pub struct NameBuf<const N: usize = 255> {
+pub struct NameBuf<const N: usize = 1024> {
     buf: [u8; N],
     len: usize,
 }
@@ -468,8 +472,10 @@ mod tests {
         let buf = NameBuf::<255>::from_name(Name::new(&[b'x'; 255]).unwrap()).unwrap();
         assert_eq!(buf.len(), 255);
         assert_eq!(NameBuf::<255>::CAPACITY, 255);
-        let buf: NameBuf = NameBuf::default();
-        assert_eq!(buf.capacity(), 255);
+        let mut buf: NameBuf = NameBuf::default();
+        assert_eq!(buf.capacity(), 1024);
+        buf.set_bytes("\u{10000}".repeat(191).as_bytes()).unwrap();
+        assert_eq!(buf.len(), 764);
     }
 
     #[cfg(feature = "alloc")]
