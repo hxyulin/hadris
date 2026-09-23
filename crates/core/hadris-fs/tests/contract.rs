@@ -46,3 +46,14 @@ fn violations_name_the_broken_rule() {
         "root: the filesystem is writable (it did not)"
     );
 }
+
+#[cfg(feature = "sync")]
+#[test]
+fn read_only_drivers_pass_the_read_only_kit() {
+    use common::sync::{MemFs, fixture};
+    use hadris_fs::sync::contract;
+
+    contract::check_read_only(&mut fixture().read_only()).unwrap();
+    let err = contract::check_read_only(&mut MemFs::new()).unwrap_err();
+    assert_eq!(err.rule(), "the filesystem is read-only");
+}

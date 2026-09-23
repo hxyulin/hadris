@@ -1,9 +1,11 @@
 //! A test kit for drivers: [`check`] runs the format-independent rules of
-//! the [`FsDriver`] contract against a writable filesystem.
+//! the [`FsDriver`] contract against a writable filesystem, and
+//! [`check_read_only`] the rules that hold for a read-only one.
 //!
 //! ```rust,ignore
 //! let mut fs = FatFs::open_with(dev, MountOptions::new().with_table(HeapTable::new()))?;
 //! hadris_fs::sync::contract::check(&mut fs)?;
+//! hadris_fs::sync::contract::check_read_only(&mut iso_view)?;
 //! ```
 
 use super::*;
@@ -53,6 +55,9 @@ fn holds(case: &'static str, rule: &'static str, condition: bool) -> Outcome<()>
         Err(ContractViolation::new(case, rule, None))
     }
 }
+
+/// Directories [`check_read_only`] walks at most.
+const MAX_DIRS: usize = 256;
 
 io_transform! {
 
@@ -278,6 +283,114 @@ pub async fn check<Fs: FsDriver + ?Sized>(fs: &mut Fs) -> Result<(), ContractVio
     ok(case, "a pin does not block remove", fs.remove(root, SCRATCH, RemoveKind::Dir).await)?;
     fs.forget(dir);
     ok(case, "sync succeeds", fs.sync().await)
+}
+
+
+/// Checks the rules of the [`FsDriver`] contract that hold for a read-only
+/// filesystem, on whatever tree it holds.
+///
+/// It walks up to 256 directories from the root. In each it checks that
+/// listings never contain `.` or `..`, that cursors stay at or below
+/// [`DirCursor::MAX_RAW`] and resume after their entry, that a listed id is
+/// the id `lookup` returns and has the listed type, that `parent` of a
+/// subdirectory is the directory when the driver supports it, and that
+/// every file reads back exactly its metadata length. It checks that a
+/// missing name and a name inside a file fail with [`ErrorKind::NotFound`]
+/// and [`ErrorKind::NotADirectory`], that the capabilities say read-only,
+/// and that every write method fails with [`ErrorKind::ReadOnly`] and
+/// changes nothing.
+pub async fn check_read_only<Fs: FsDriver + ?Sized>(fs: &mut Fs) -> Result<(), ContractViolation> {
+    let none = SetMetadata::new();
+
+    let case = "root";
+    let root = fs.root();
+    holds(case, "NodeId 0 is never a node", root.get() != 0)?;
+    let meta = ok(case, "the root has metadata", fs.node_metadata(root).await)?;
+    holds(case, "the root is a directory", meta.file_type().is_dir())?;
+    holds(case, "the filesystem is read-only", !fs.capabilities().is_writable())?;
+
+    let case = "read-only";
+    fails(case, "create fails with ReadOnly", fs.create(root, SCRATCH, NewNode::File, &none).await, ErrorKind::ReadOnly)?;
+    fails(case, "set_metadata fails with ReadOnly", fs.set_metadata(root, &none).await, ErrorKind::ReadOnly)?;
+    fails(case, "lookup of a missing name fails with NotFound", fs.lookup(root, MISSING).await, ErrorKind::NotFound)?;
+
+    let mut pending = [NodeId::new(0); MAX_DIRS];
+    pending[0] = root;
+    let mut queued = 1;
+    let mut walked = 0;
+    let mut buf = NameBuf::new();
+    let mut data = [0u8; 4096];
+    let mut checked_file = false;
+    while walked < queued {
+        let dir = pending[walked];
+        walked += 1;
+        let case = "listing";
+        let mut cursor = DirCursor::start();
+        let mut count = 0usize;
+        let mut first = None;
+        while let Some(entry) = ok(case, "read_dir_entry succeeds", fs.read_dir_entry(dir, &mut cursor, &mut buf).await)? {
+            holds(case, "listings never contain . or ..", buf.as_bytes() != b"." && buf.as_bytes() != b"..")?;
+            holds(case, "cursors stay at or below DirCursor::MAX_RAW", cursor.into_raw() <= DirCursor::MAX_RAW)?;
+            first.get_or_insert(cursor);
+            count += 1;
+            let Some(child) = buf.as_name() else {
+                return Err(ContractViolation::new(case, "listed names are valid names", None));
+            };
+            let node = ok(case, "lookup finds a listed name", fs.lookup(dir, child).await)?;
+            fs.forget(node);
+            holds(case, "a listed id is the id lookup returns", node == entry.node())?;
+            let meta = ok(case, "node_metadata succeeds for a listed entry", fs.node_metadata(node).await)?;
+            holds(case, "metadata has the listed type", meta.file_type() == entry.file_type())?;
+            if meta.file_type().is_dir() {
+                if queued < MAX_DIRS {
+                    pending[queued] = node;
+                    queued += 1;
+                }
+                match fs.parent(node).await {
+                    Ok(parent) => {
+                        fs.forget(parent);
+                        holds("parent", "parent of a subdirectory is the directory", parent == dir)?;
+                    }
+                    Err(err) if err.kind() == ErrorKind::Unsupported => {}
+                    Err(err) => return Err(ContractViolation::new("parent", "parent succeeds", Some(err.kind()))),
+                }
+            } else if meta.file_type().is_file() {
+                let case = "data";
+                let mut offset = 0u64;
+                loop {
+                    let n = ok(case, "read_at reads", fs.read_at(node, offset, &mut data).await)?;
+                    if n == 0 {
+                        break;
+                    }
+                    offset += n as u64;
+                    holds(case, "read_at stops at the file length", offset <= meta.len())?;
+                }
+                holds(case, "a file reads back its metadata length", offset == meta.len())?;
+                if !checked_file {
+                    checked_file = true;
+                    let case = "read-only";
+                    fails(case, "write_at fails with ReadOnly", fs.write_at(node, 0, b"x").await, ErrorKind::ReadOnly)?;
+                    fails(case, "set_len fails with ReadOnly", fs.set_len(node, 0).await, ErrorKind::ReadOnly)?;
+                    fails(case, "looking up inside a file fails with NotADirectory", fs.lookup(node, MISSING).await, ErrorKind::NotADirectory)?;
+                    let Some(child) = buf.as_name() else {
+                        continue;
+                    };
+                    fails(case, "remove fails with ReadOnly", fs.remove(dir, child, RemoveKind::Any).await, ErrorKind::ReadOnly)?;
+                    fails(case, "rename fails with ReadOnly", fs.rename(dir, child, dir, MISSING, RenameFlags::empty()).await, ErrorKind::ReadOnly)?;
+                    let after = ok(case, "a refused write changes nothing", fs.node_metadata(node).await)?;
+                    holds(case, "a refused write changes nothing", after.len() == meta.len())?;
+                }
+            }
+        }
+        let mut resumed = first.unwrap_or(DirCursor::start());
+        let mut rest = 0usize;
+        while ok(case, "a stored cursor resumes", fs.read_dir_entry(dir, &mut resumed, &mut buf).await)?.is_some() {
+            rest += 1;
+            holds(case, "a stored cursor resumes after its entry", rest < count)?;
+        }
+        holds(case, "a stored cursor resumes after its entry", count == 0 || rest + 1 == count)?;
+    }
+    Ok(())
 }
 
 }

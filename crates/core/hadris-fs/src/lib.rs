@@ -33,6 +33,7 @@ mod caps;
 mod contract;
 mod dir;
 mod error;
+mod extent;
 #[cfg(any(feature = "sync", feature = "async"))]
 mod forget_queue;
 mod fuse;
@@ -54,6 +55,7 @@ pub use dir::{DirCursor, DirEntry, DirItem};
 #[cfg(feature = "alloc")]
 pub use error::AnyError;
 pub use error::{Error, ErrorKind, FsResult, MountError};
+pub use extent::Extent;
 pub use fuse::FuseOnError;
 pub use meta::{Attributes, Metadata, Mode, SetMetadata};
 #[cfg(feature = "alloc")]
