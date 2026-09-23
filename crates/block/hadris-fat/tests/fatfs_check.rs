@@ -928,3 +928,76 @@ fn the_label_is_read_from_the_root() {
     .unwrap();
     assert_eq!(blank.label().unwrap(), None);
 }
+
+/// Writes an LFN fragment with `units` into the slot at `at`.
+fn put_fragment(img: &mut [u8], at: usize, sequence: u8, checksum: u8, units: &[u16; 13]) {
+    let mut raw = [0u8; 32];
+    raw[0] = sequence;
+    raw[11] = 0x0F;
+    raw[13] = checksum;
+    let fields = [1..11, 14..26, 28..32];
+    let slots = fields.into_iter().flat_map(|range| range.step_by(2));
+    for (pos, unit) in slots.zip(units) {
+        raw[pos..pos + 2].copy_from_slice(&unit.to_le_bytes());
+    }
+    img[at..at + 32].copy_from_slice(&raw);
+}
+
+#[test]
+fn overlong_long_name_runs_fall_back_to_the_short_name() {
+    let long = "x".repeat(255);
+    for (kind, size) in KINDS {
+        let fs = format(
+            MemDevice::new(vec![0; size as usize], BlockSize::new(512).unwrap()),
+            FormatOptions::new().with_kind(kind),
+        )
+        .unwrap();
+        let vol = Volume::new(fs);
+        vol.write_file("/P", b"").unwrap();
+        vol.write_file(&format!("/{long}"), b"data").unwrap();
+        vol.sync().unwrap();
+        let clean = vol.into_inner().into_inner().into_inner();
+        let short = *b"XXXXXX~1   ";
+        let sum = short
+            .iter()
+            .fold(0u8, |sum, &b| sum.rotate_right(1).wrapping_add(b));
+        let fragments: Vec<usize> = (0..clean.len())
+            .step_by(32)
+            .filter(|&at| clean[at] != 0xE5 && clean[at + 11] == 0x0F && clean[at + 13] == sum)
+            .collect();
+        assert_eq!(fragments.len(), 20, "{kind:?}");
+        let p = entry(&clean, b"P          ");
+
+        let mut units = [0xFFFFu16; 13];
+        units[0] = u16::from(b'a');
+        units[1] = 0;
+        let mut too_many = clean.clone();
+        put_fragment(&mut too_many, p, 0x40 | 21, sum, &units);
+        for (index, &at) in fragments.iter().enumerate() {
+            put_fragment(&mut too_many, at, 20 - index as u8, sum, &units);
+        }
+        let mut too_long = clean.clone();
+        let full = [u16::from(b'y'); 13];
+        for (index, &at) in fragments.iter().enumerate() {
+            let sequence = 20 - index as u8 | if index == 0 { 0x40 } else { 0 };
+            put_fragment(&mut too_long, at, sequence, sum, &full);
+        }
+
+        let cases: [(&str, Vec<u8>, &[&str]); 2] = [
+            ("21 fragments", too_many, &["XXXXXX~1"]),
+            ("260 units", too_long, &["P", "XXXXXX~1"]),
+        ];
+        for (what, image, expected) in cases {
+            let found = findings(&image);
+            assert_eq!(kinds(&found), [FindingKind::OrphanLfn], "{kind:?} {what}");
+            let vol = Volume::new(mount(image));
+            let names: Vec<String> = vol
+                .read_dir("/")
+                .unwrap()
+                .map(|entry| entry.unwrap().name().to_str().unwrap().to_owned())
+                .collect();
+            assert_eq!(names, expected, "{kind:?} {what}");
+            assert_eq!(vol.read_to_vec("/XXXXXX~1").unwrap(), b"data");
+        }
+    }
+}

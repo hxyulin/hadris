@@ -62,6 +62,8 @@ struct Run {
     /// The sequence number the next fragment must carry; 0 once complete.
     expect: u8,
     checksum: u8,
+    /// Code units of the name so far.
+    units: usize,
     /// Fragments since the last reported orphan belong to it.
     orphan: bool,
 }
@@ -549,7 +551,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage, F: FnMut(Finding)> Che
         }
     }
 
-    fn fragment(&mut self, offset: u64, sequence: u8, checksum: u8) {
+    /// Takes one long-name fragment holding `units` code units.
+    fn fragment(&mut self, offset: u64, sequence: u8, checksum: u8, units: usize) {
         if sequence & lfn::LAST_ENTRY != 0 {
             self.abandon();
             let count = sequence & lfn::SEQUENCE_MASK;
@@ -557,10 +560,16 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage, F: FnMut(Finding)> Che
                 self.run.orphan = false;
                 self.orphan(offset);
             } else {
-                self.run = Run { pending: true, start: offset, expect: count - 1, checksum, orphan: false };
+                self.run = Run { pending: true, start: offset, expect: count - 1, checksum, units, orphan: false };
             }
-        } else if self.run.pending && self.run.expect != 0 && sequence == self.run.expect && checksum == self.run.checksum {
+        } else if self.run.pending
+            && self.run.expect != 0
+            && sequence == self.run.expect
+            && checksum == self.run.checksum
+            && self.run.units + units <= lfn::MAX_UNITS
+        {
             self.run.expect -= 1;
+            self.run.units += units;
         } else if self.run.pending {
             self.abandon();
         } else {
@@ -649,7 +658,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage, F: FnMut(Finding)> Che
                     continue;
                 }
                 Some((offset, Slot::Long(part))) => {
-                    self.fragment(offset, part.sequence, part.checksum);
+                    let units = lfn::unpack(&part.name1, &part.name2, &part.name3).1;
+                    self.fragment(offset, part.sequence, part.checksum, units);
                     slot += 1;
                     continue;
                 }

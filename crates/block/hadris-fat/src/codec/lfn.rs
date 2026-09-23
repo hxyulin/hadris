@@ -115,8 +115,9 @@ impl Encoded {
 
 /// Collects LFN entries read in disk order into a name.
 ///
-/// A sequence that skips a number, changes checksum or does not match the
-/// short entry that follows it yields no name.
+/// A sequence that skips a number, changes checksum, has more than
+/// [`MAX_ENTRIES`] entries or [`MAX_UNITS`] code units, or does not match
+/// the short entry that follows it yields no name.
 pub(crate) struct Assembler {
     units: [u16; MAX_UNITS],
     len: usize,
@@ -162,7 +163,7 @@ impl Assembler {
         if sequence & LAST_ENTRY != 0 {
             self.reset();
             let count = sequence & SEQUENCE_MASK;
-            if count == 0 {
+            if count == 0 || count as usize > MAX_ENTRIES {
                 return;
             }
             self.building = true;
@@ -178,11 +179,13 @@ impl Assembler {
             return;
         }
         let (units, len) = unpack(name1, name2, name3);
-        if self.len + len <= MAX_UNITS {
-            self.units.copy_within(0..self.len, len);
-            self.units[..len].copy_from_slice(&units[..len]);
-            self.len += len;
+        if self.len + len > MAX_UNITS {
+            self.reset();
+            return;
         }
+        self.units.copy_within(0..self.len, len);
+        self.units[..len].copy_from_slice(&units[..len]);
+        self.len += len;
         self.expected -= 1;
     }
 
@@ -270,6 +273,38 @@ mod tests {
             let expected: std::vec::Vec<u16> = name.encode_utf16().collect();
             assert_eq!(assemble(name), Some(expected), "{name}");
         }
+    }
+
+    #[test]
+    fn assembler_rejects_overlong_runs() {
+        let mut units = [0xFFFFu16; UNITS_PER_ENTRY];
+        units[0] = b'a' as u16;
+        units[1] = 0;
+        let (name1, name2, name3) = pack(&units);
+        let mut assembler = Assembler::new();
+        for number in (1..=21u8).rev() {
+            let sequence = if number == 21 {
+                number | LAST_ENTRY
+            } else {
+                number
+            };
+            assembler.push(sequence, 7, &name1, &name2, &name3);
+        }
+        assert!(assembler.finish(7).is_none());
+
+        let (name1, name2, name3) = pack(&[b'b' as u16; UNITS_PER_ENTRY]);
+        for number in (1..=MAX_ENTRIES as u8).rev() {
+            let sequence = if number == MAX_ENTRIES as u8 {
+                number | LAST_ENTRY
+            } else {
+                number
+            };
+            assembler.push(sequence, 7, &name1, &name2, &name3);
+        }
+        assert!(assembler.finish(7).is_none());
+
+        let max: std::string::String = core::iter::repeat_n('x', MAX_UNITS).collect();
+        assert_eq!(assemble(&max).map(|units| units.len()), Some(MAX_UNITS));
     }
 
     #[test]
