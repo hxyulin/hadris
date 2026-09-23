@@ -630,3 +630,46 @@ fn fat32_uses_only_the_active_fat_when_mirroring_is_disabled() {
     let node = fs.resolve("/new.bin").unwrap();
     assert_eq!(read_all(&mut fs, node), [7u8; 5000]);
 }
+
+/// A blank FAT12/16 layout of 512-byte sectors, one per cluster, with 512
+/// root entries and `clusters` data clusters.
+fn fat16_layout(clusters: u32) -> Vec<u8> {
+    let fat_sectors = (clusters + 2).div_ceil(256);
+    let total = 1 + 2 * fat_sectors + 32 + clusters;
+    let mut image = vec![0u8; total as usize * 512];
+    image[..3].copy_from_slice(&[0xEB, 0x3C, 0x90]);
+    image[11..13].copy_from_slice(&512u16.to_le_bytes());
+    image[13] = 1;
+    image[14..16].copy_from_slice(&1u16.to_le_bytes());
+    image[16] = 2;
+    image[17..19].copy_from_slice(&512u16.to_le_bytes());
+    image[21] = 0xF8;
+    image[22..24].copy_from_slice(&(fat_sectors as u16).to_le_bytes());
+    image[32..36].copy_from_slice(&total.to_le_bytes());
+    image[510..512].copy_from_slice(&[0x55, 0xAA]);
+    for copy in 0..2 {
+        let at = 512 * (1 + copy * fat_sectors as usize);
+        image[at..at + 4].copy_from_slice(&[0xF8, 0xFF, 0xFF, 0xFF]);
+    }
+    image
+}
+
+#[test]
+fn fat16_layouts_are_limited_to_what_fat16_addresses() {
+    let device = |image| MemDevice::new(image, BlockSize::new(512).unwrap());
+    let mut fs = FatFs::open(device(fat16_layout(65_524))).unwrap();
+    assert_eq!(fs.kind(), FatKind::Fat16);
+    assert_eq!(fs.stats().unwrap().total_blocks(), 65_524);
+    let mut fs = FatFs::open(device(fat16_layout(4_084))).unwrap();
+    assert_eq!(fs.kind(), FatKind::Fat12);
+    assert_eq!(fs.stats().unwrap().total_blocks(), 4_084);
+    for clusters in [65_525, 65_600] {
+        assert_eq!(
+            FatFs::open(device(fat16_layout(clusters)))
+                .unwrap_err()
+                .kind(),
+            ErrorKind::Corrupt,
+            "{clusters} clusters"
+        );
+    }
+}

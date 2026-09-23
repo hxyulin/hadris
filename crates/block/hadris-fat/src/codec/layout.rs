@@ -5,15 +5,12 @@ use hadris_common::types::endian::{Endian, LittleEndian};
 use hadris_common::types::number::{U16, U32};
 
 use super::boot::{BOOT_SIGNATURE, FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG};
-use super::entry::FatKind;
+use super::entry::{FAT12_MAX_CLUSTERS, FAT16_MAX_CLUSTERS, FAT32_MAX_CLUSTERS, FatKind};
 use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
 
 const MIB: u64 = 1024 * 1024;
 const MAX_CLUSTER_BYTES: u32 = 32 * 1024;
 const MAX_CLUSTER_SECTORS: u32 = 128;
-pub(crate) const FAT12_MAX_CLUSTERS: u32 = 4084;
-pub(crate) const FAT16_MAX_CLUSTERS: u32 = 65524;
-const FAT32_MAX_CLUSTERS: u32 = 0x0FFF_FFF5;
 /// Largest volume formatted as FAT12 when the variant is not given.
 const AUTO_FAT12_BELOW: u64 = 16 * MIB;
 /// Smallest volume formatted as FAT32 when the variant is not given.

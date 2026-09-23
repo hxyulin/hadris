@@ -24,6 +24,13 @@ pub(crate) enum ChainError {
 
 /// The first data cluster; clusters 0 and 1 are reserved.
 pub(crate) const FIRST_DATA_CLUSTER: u32 = 2;
+/// The most data clusters of a FAT12 volume; more make it FAT16.
+pub(crate) const FAT12_MAX_CLUSTERS: u32 = 4084;
+/// The most data clusters of a FAT16 volume; more make it FAT32.
+pub(crate) const FAT16_MAX_CLUSTERS: u32 = 65524;
+/// The most data clusters of a FAT32 volume, keeping cluster numbers below
+/// the bad-cluster marker.
+pub(crate) const FAT32_MAX_CLUSTERS: u32 = 0x0FFF_FFF5;
 
 impl FatKind {
     /// Bits of an entry that hold the cluster value.

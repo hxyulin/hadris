@@ -2,7 +2,9 @@
 
 use hadris_common::types::endian::Endian;
 
-use super::entry::{FIRST_DATA_CLUSTER, FatKind};
+use super::entry::{
+    FAT12_MAX_CLUSTERS, FAT16_MAX_CLUSTERS, FAT32_MAX_CLUSTERS, FIRST_DATA_CLUSTER, FatKind,
+};
 use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
 
 pub(crate) const FSINFO_LEAD_SIG: u32 = 0x4161_5252;
@@ -164,12 +166,19 @@ fn clusters(bpb: &RawBpb, metadata_sectors: u64) -> Result<u64, BootError> {
 }
 
 /// The geometry of a FAT12/16 volume. FAT12 when it has fewer than 4085
-/// clusters. Expects [`check_bpb`] and [`check_ext16`] to have passed.
+/// clusters. A layout with more clusters than FAT16 addresses, or without a
+/// root directory, is rejected, since by count it would be FAT32. Expects
+/// [`check_bpb`] and [`check_ext16`] to have passed.
 pub(crate) fn geometry16(bpb: &RawBpb) -> Result<Geometry, BootError> {
     let sector_size = bpb.bytes_per_sector.get() as u64;
     let reserved = bpb.reserved_sector_count.get() as u64;
     let fat_sectors = u16::from_le_bytes(bpb.sectors_per_fat_16) as u64;
     let root_size = u16::from_le_bytes(bpb.root_entry_count) as u64 * 32;
+    if root_size == 0 {
+        return Err(BootError::Corrupt(
+            "BPB root_entry_count must not be zero on FAT12/16",
+        ));
+    }
     let root_sectors = root_size.div_ceil(sector_size);
     let fat_start = reserved * sector_size;
     let root_start = fat_start + bpb.fat_count as u64 * fat_sectors * sector_size;
@@ -177,8 +186,13 @@ pub(crate) fn geometry16(bpb: &RawBpb) -> Result<Geometry, BootError> {
         bpb,
         reserved + bpb.fat_count as u64 * fat_sectors + root_sectors,
     )?;
+    if count > FAT16_MAX_CLUSTERS as u64 {
+        return Err(BootError::Corrupt(
+            "FAT12/16 layout has more clusters than FAT16 can address",
+        ));
+    }
     Ok(Geometry {
-        kind: if count < 4085 {
+        kind: if count <= FAT12_MAX_CLUSTERS as u64 {
             FatKind::Fat12
         } else {
             FatKind::Fat16
@@ -193,19 +207,27 @@ pub(crate) fn geometry16(bpb: &RawBpb) -> Result<Geometry, BootError> {
             size: root_size,
         },
         data_start: root_start + root_sectors * sector_size,
-        max_cluster: count.min(u32::MAX as u64 - 1) as u32 + 1,
+        max_cluster: count as u32 + 1,
     })
 }
 
-/// The geometry of a FAT32 volume. Expects [`check_bpb`] and
-/// [`check_ext32`] to have passed.
+/// The geometry of a FAT32 volume. A layout with more clusters than FAT32
+/// addresses is rejected. One with fewer than 65525 clusters, which by
+/// count would be FAT16, is read as FAT32, as Linux and macOS do: `mkfs.fat
+/// -F 32` makes such volumes. Expects [`check_bpb`] and [`check_ext32`] to
+/// have passed.
 pub(crate) fn geometry32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<Geometry, BootError> {
     let sector_size = bpb.bytes_per_sector.get() as u64;
     let reserved = bpb.reserved_sector_count.get() as u64;
     let fat_sectors = ext.sectors_per_fat_32.get() as u64;
     let fat_start = reserved * sector_size;
     let count = clusters(bpb, reserved + fat_sectors * bpb.fat_count as u64)?;
-    let max_cluster = count.min(u32::MAX as u64 - 1) as u32 + 1;
+    if count > FAT32_MAX_CLUSTERS as u64 {
+        return Err(BootError::Corrupt(
+            "FAT32 layout has more clusters than FAT32 can address",
+        ));
+    }
+    let max_cluster = count as u32 + 1;
     let root = ext.root_cluster.get();
     if !(FIRST_DATA_CLUSTER..=max_cluster).contains(&root) {
         return Err(BootError::RootCluster {
@@ -334,6 +356,41 @@ mod tests {
         ));
         ext.signature_word.set(0);
         assert_eq!(check_ext32(&bpb, &ext), Err(BootError::Signature(0)));
+    }
+
+    #[test]
+    fn cluster_counts_are_limited_by_the_fat_type() {
+        let fat16_max = bpb(512, 1, 1, 2, 512, 256, 1 + 512 + 32 + 65_524);
+        let geo = geometry16(&fat16_max).unwrap();
+        assert_eq!((geo.kind, geo.max_cluster), (FatKind::Fat16, 65_525));
+        let fat16_over = bpb(512, 1, 1, 2, 512, 257, 1 + 514 + 32 + 65_525);
+        assert!(matches!(
+            geometry16(&fat16_over),
+            Err(BootError::Corrupt(_))
+        ));
+        let fat12_max = bpb(512, 1, 1, 2, 512, 12, 1 + 24 + 32 + 4_084);
+        assert_eq!(geometry16(&fat12_max).unwrap().kind, FatKind::Fat12);
+        let no_root = bpb(512, 1, 1, 2, 0, 12, 1 + 24 + 4_000);
+        assert!(!is_fat32(&no_root));
+        assert!(matches!(geometry16(&no_root), Err(BootError::Corrupt(_))));
+
+        let mut ext: RawBpbExt32 = bytemuck::Zeroable::zeroed();
+        ext.root_cluster.set(2);
+        ext.sectors_per_fat_32.set(1);
+        let over = bpb(512, 1, 32, 1, 0, 0, u32::MAX);
+        assert!(matches!(
+            geometry32(&over, &ext),
+            Err(BootError::Corrupt(_))
+        ));
+        let max = bpb(512, 1, 32, 1, 0, 0, 32 + 1 + FAT32_MAX_CLUSTERS);
+        assert_eq!(
+            geometry32(&max, &ext).unwrap().max_cluster,
+            FAT32_MAX_CLUSTERS + 1
+        );
+        ext.sectors_per_fat_32.set(504);
+        let small = bpb(512, 1, 32, 2, 0, 0, 65_536);
+        let geo = geometry32(&small, &ext).unwrap();
+        assert_eq!((geo.kind, geo.max_cluster), (FatKind::Fat32, 64_497));
     }
 
     #[test]
