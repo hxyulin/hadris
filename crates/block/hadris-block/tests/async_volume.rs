@@ -8,9 +8,19 @@ use std::task::{Wake, Waker};
 use hadris_block::Error;
 use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant};
+use hadris_fat::{FatKind, FormatOptions};
+use hadris_fs::r#async::DriverExt;
+use hadris_fs::{ErrorKind, OpenOptions};
 use hadris_io::SeekFrom;
 use hadris_io::legacy::r#async::{Read, Seek, Write};
 use hadris_storage::PartitionView;
+use hadris_storage::{BlockSize, MemDevice};
+
+type Device = MemDevice<Vec<u8>>;
+
+fn device(bytes: Vec<u8>) -> Device {
+    MemDevice::new(bytes, BlockSize::new(512).unwrap())
+}
 
 struct ThreadWaker(std::thread::Thread);
 
@@ -33,16 +43,10 @@ fn block_on<F: Future>(future: F) -> F::Output {
 }
 
 fn formatted_fat12() -> Vec<u8> {
-    use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
-    let mut image = vec![0_u8; 2 * 1024 * 1024];
-    let options = FatFormatOptions::new(image.len() as u64).fat_type(FatTypeSelection::Fat12);
-    let volume = FatVolumeFormatter::format(
-        hadris_io::StdIo::new(std::io::Cursor::new(&mut image[..])),
-        options,
-    )
-    .unwrap();
-    drop(volume);
-    image
+    let dev = device(vec![0_u8; 2 * 1024 * 1024]);
+    let options = FormatOptions::new().with_kind(FatKind::Fat12);
+    let fs = block_on(hadris_fat::r#async::format(dev, options)).unwrap();
+    fs.into_inner().into_inner()
 }
 
 fn populated_gpt() -> hadris_block::part::PartitionTable {
@@ -158,90 +162,86 @@ fn async_detects_exfat_but_rejects_unified_opening() {
         let mut image = vec![0_u8; 512];
         image[3..11].copy_from_slice(b"EXFAT   ");
         image[510..512].copy_from_slice(&[0x55, 0xaa]);
-        let mut source = AsyncCursor::new(image);
-        source.seek(SeekFrom::Start(11)).await.unwrap();
 
         assert!(matches!(
-            OpenVolume::open(&mut source, 512).await,
+            OpenVolume::open(device(image)).await,
             Err(Error::UnsupportedFormat(BlockFormat::Fat(
                 FatVariant::ExFat
             )))
         ));
-        assert_eq!(source.position, 11);
     });
 }
 
 #[test]
-fn async_detection_and_open_restore_and_release_source() {
+fn async_detection_and_open_release_the_device() {
     let image = formatted_fat12();
     block_on(async {
-        let mut source = hadris_io::Cursor::new(&image);
-        source.seek(SeekFrom::Start(23)).await.unwrap();
-        let detected = hadris_block::detect::r#async::detect(&mut source, 512)
+        let mut dev = device(image);
+        let detected = hadris_block::detect::r#async::detect(&mut dev)
             .await
             .unwrap();
         assert_eq!(
             detected,
             Some(hadris_block::detect::BlockFormat::Fat(FatVariant::Fat12))
         );
-        assert_eq!(source.stream_position().await.unwrap(), 23);
 
-        let volume = OpenVolume::open(&mut source, 512).await.unwrap();
+        let volume = OpenVolume::open(&mut dev).await.unwrap();
         assert_eq!(volume.format(), FatVariant::Fat12);
         assert!(volume.as_fat().is_some());
-        let source = volume.into_inner();
-        assert!(source.position() > 0);
+        let dev = volume.into_inner();
+        assert_eq!(dev.get_ref().len(), 2 * 1024 * 1024);
     });
 }
 
 #[test]
-fn async_open_reports_mismatch_without_consuming_source() {
+fn async_open_reports_mismatch() {
     let image = formatted_fat12();
     block_on(async {
-        let mut source = hadris_io::Cursor::new(&image);
         assert!(matches!(
-            OpenVolume::open_detected(&mut source, FatVariant::Fat16).await,
+            OpenVolume::open_detected(device(image), FatVariant::Fat16).await,
             Err(hadris_block::Error::DetectedFormatMismatch { .. })
         ));
-        source.seek(SeekFrom::Start(11)).await.unwrap();
-        assert_eq!(source.stream_position().await.unwrap(), 11);
     });
 }
 
 #[test]
 fn async_fat_content_mutation_traversal_and_recovery() {
-    use hadris_fat::r#async::FatVolumeWriteExt;
-
     let image = formatted_fat12();
     block_on(async {
-        let mut source = AsyncCursor::new(image);
-        let volume = OpenVolume::open(&mut source, 512).await.unwrap();
-        let fs = volume.as_fat().unwrap();
-        let root = fs.root_dir();
-        let nested = fs.create_dir(&root, "NESTED").await.unwrap();
-        let entry = fs.create_file(&nested, "PAYLOAD.BIN").await.unwrap();
+        let volume = OpenVolume::open(device(image)).await.unwrap();
+        let mut fs = volume.into_fat().ok().unwrap();
 
         let payload: Vec<u8> = (0..1537).map(|index| (index % 251) as u8).collect();
-        let mut writer = fs.write_file(&entry).unwrap();
-        assert_eq!(writer.write(&payload).await.unwrap(), payload.len());
-        writer.finish().await.unwrap();
+        fs.create_dir_all("/NESTED").await.unwrap();
+        fs.write_file("/NESTED/PAYLOAD.BIN", &payload)
+            .await
+            .unwrap();
+        assert_eq!(fs.read_to_vec("NESTED/PAYLOAD.BIN").await.unwrap(), payload);
 
-        let mut reader = fs.open_file_path("NESTED/PAYLOAD.BIN").await.unwrap();
-        assert_eq!(reader.read_to_vec().await.unwrap(), payload);
+        let mut file = fs
+            .open("/NESTED/PAYLOAD.BIN", OpenOptions::write())
+            .await
+            .unwrap();
+        file.set_len(513).await.unwrap();
+        file.close().await.unwrap();
+        assert_eq!(
+            fs.read_to_vec("/NESTED/PAYLOAD.BIN").await.unwrap(),
+            payload[..513]
+        );
 
-        let entry = fs.open_path("./NESTED//PAYLOAD.BIN").await.unwrap();
-        fs.truncate(&entry, 513).await.unwrap();
-        let mut reader = fs.open_file_path("NESTED/PAYLOAD.BIN").await.unwrap();
-        assert_eq!(reader.read_to_vec().await.unwrap(), payload[..513]);
+        assert!(fs.metadata("/NESTED").await.unwrap().file_type().is_dir());
+        assert_eq!(
+            fs.read_to_vec("/MISSING.BIN").await.unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        fs.sync().await.unwrap();
 
-        assert!(fs.create_file(&nested, "PAYLOAD.BIN").await.is_err());
-        assert!(fs.open_dir_path("NESTED").await.is_ok());
-        assert!(fs.open_path("../PAYLOAD.BIN").await.is_err());
-
-        let source = volume.into_inner();
-        assert_eq!(source.bytes.len(), 2 * 1024 * 1024);
-        source.seek(SeekFrom::Start(0)).await.unwrap();
-        assert_eq!(source.stream_position().await.unwrap(), 0);
+        let dev = fs.into_inner();
+        let mut fs = hadris_fat::r#async::FatFs::open(dev).await.unwrap();
+        assert_eq!(
+            fs.read_to_vec("/NESTED/PAYLOAD.BIN").await.unwrap(),
+            payload[..513]
+        );
     });
 }
 
@@ -353,15 +353,12 @@ fn async_partition_table_opens_fat_through_a_gpt_view() {
     let mut bytes = vec![0_u8; 8192 * 512];
     let start = 40 * 512;
     let end = start + 4096 * 512;
-    let options = hadris_fat::format::FatFormatOptions::new((end - start) as u64)
-        .fat_type(hadris_fat::format::FatTypeSelection::Fat12);
-    drop(
-        hadris_fat::format::FatVolumeFormatter::format(
-            hadris_io::StdIo::new(std::io::Cursor::new(&mut bytes[start..end])),
-            options,
-        )
-        .unwrap(),
-    );
+    bytes[start..end].copy_from_slice(&{
+        let dev = device(vec![0_u8; end - start]);
+        let options = FormatOptions::new().with_kind(FatKind::Fat12);
+        let fs = block_on(hadris_fat::r#async::format(dev, options)).unwrap();
+        fs.into_inner().into_inner()
+    });
 
     block_on(async {
         let mut disk = AsyncCursor::new(bytes);
@@ -373,11 +370,12 @@ fn async_partition_table_opens_fat_through_a_gpt_view() {
             hadris_block::part::PartitionTable::Gpt { gpt, .. } => &gpt.entries[0],
             _ => unreachable!(),
         };
-        let mut partition =
-            hadris_block::partition::gpt_partition_view(&mut disk, entry, 512).unwrap();
-        let volume = OpenVolume::open(&mut partition, 512).await.unwrap();
+        let mut disk = device(disk.bytes);
+        let partition = hadris_block::partition::r#async::gpt_partition(&mut disk, entry).unwrap();
+        let volume = OpenVolume::open(partition).await.unwrap();
         assert_eq!(volume.format(), FatVariant::Fat12);
-        let _root = volume.as_fat().unwrap().root_dir();
+        let mut fs = volume.into_fat().ok().unwrap();
+        assert!(fs.read_dir("/").await.unwrap().next_entry().await.is_none());
     });
 }
 
@@ -409,19 +407,17 @@ fn async_partition_table_hybrid_write_open_roundtrip() {
 }
 
 #[test]
-fn async_unknown_block_input_is_non_destructive_and_category_typed() {
+fn async_unknown_block_input_is_category_typed() {
     block_on(async {
-        let mut source = hadris_io::Cursor::new(&[0xA5_u8; 4096]);
-        source.seek(SeekFrom::Start(37)).await.unwrap();
+        let mut dev = device(vec![0xA5_u8; 4096]);
         assert_eq!(
-            hadris_block::detect::r#async::detect(&mut source, 512)
+            hadris_block::detect::r#async::detect(&mut dev)
                 .await
                 .unwrap(),
             None
         );
-        assert_eq!(source.stream_position().await.unwrap(), 37);
         assert!(matches!(
-            OpenVolume::open(&mut source, 512).await,
+            OpenVolume::open(dev).await,
             Err(hadris_block::Error::UnknownFormat)
         ));
     });

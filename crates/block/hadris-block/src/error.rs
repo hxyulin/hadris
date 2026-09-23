@@ -2,12 +2,13 @@ use core::fmt;
 
 use crate::detect::{BlockFormat, FatVariant, PartitionTableKind};
 
-/// Error returned by category-level block operations.
+/// Error returned by category-level block operations on a device whose
+/// errors are `E`.
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum Error {
-    /// The source could not be read or repositioned.
-    Io(hadris_io::legacy::Error),
+pub enum Error<E> {
+    /// The device failed while the format was being detected.
+    Device(E),
     /// No supported format was recognized.
     UnknownFormat,
     /// The source is a partitioned disk rather than a directly openable volume.
@@ -21,17 +22,17 @@ pub enum Error {
         /// Format reported after the filesystem was fully opened.
         opened: FatVariant,
     },
-    /// FAT validation failed.
-    Fat(hadris_fat::Error),
+    /// The FAT driver failed to mount the volume.
+    Fat(hadris_fs::Error<E>),
 }
 
 /// Result type for category-level block operations.
-pub type Result<T> = core::result::Result<T, Error>;
+pub type Result<T, E> = core::result::Result<T, Error<E>>;
 
-impl fmt::Display for Error {
+impl<E: fmt::Display> fmt::Display for Error<E> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(error) => write!(formatter, "block detection I/O error: {error}"),
+            Self::Device(error) => write!(formatter, "block detection I/O error: {error}"),
             Self::UnknownFormat => formatter.write_str("unknown block volume format"),
             Self::PartitionedDisk(kind) => write!(
                 formatter,
@@ -49,17 +50,18 @@ impl fmt::Display for Error {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Error {}
-
-impl From<hadris_io::legacy::Error> for Error {
-    fn from(error: hadris_io::legacy::Error) -> Self {
-        Self::Io(error)
+impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::Device(error) => Some(error),
+            Self::Fat(error) => Some(error),
+            _ => None,
+        }
     }
 }
 
-impl From<hadris_fat::Error> for Error {
-    fn from(error: hadris_fat::Error) -> Self {
+impl<E> From<hadris_fs::Error<E>> for Error<E> {
+    fn from(error: hadris_fs::Error<E>) -> Self {
         Self::Fat(error)
     }
 }

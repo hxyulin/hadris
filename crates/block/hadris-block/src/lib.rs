@@ -16,8 +16,8 @@ extern crate std;
 pub mod detect;
 #[cfg(all(feature = "detect", feature = "fat"))]
 mod error;
-#[cfg(all(feature = "detect", feature = "part", feature = "storage"))]
-/// Checked partition views for opening filesystems inside partitioned disks.
+#[cfg(all(feature = "part", feature = "storage"))]
+/// Partition slices for opening filesystems inside partitioned disks.
 pub mod partition;
 
 #[cfg(all(feature = "detect", feature = "fat"))]
@@ -39,8 +39,9 @@ pub use hadris_storage as storage;
 
 /// FAT12/16/32 filesystem support and exFAT format detection.
 ///
-/// The unified volume opener supports FAT12/16/32. The leaf `hadris-fat`
-/// crate carries a separate unstable exFAT preview.
+/// The unified volume opener mounts FAT12/16/32 as `hadris_fat` `FatFs`
+/// drivers. The leaf `hadris-fat` crate carries a separate unstable exFAT
+/// preview.
 #[cfg(feature = "fat")]
 pub use hadris_fat as fat;
 

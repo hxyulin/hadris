@@ -1,43 +1,43 @@
+use hadris_fat::FatKind;
+use hadris_fat::r#async::FatFs;
+use hadris_storage::r#async::BlockDevice;
+
 use crate::detect::{BlockFormat, FatVariant};
 use crate::{Error, Result};
-use hadris_fat::r#async::fat_table::FatType;
-use hadris_fat::r#async::fs::FatVolume;
-use hadris_io::SeekFrom;
-use hadris_io::legacy::r#async::{Read, Seek};
 
-/// An asynchronously opened block filesystem with concrete-format access.
+/// An asynchronously opened block filesystem with lossless access to its
+/// concrete driver.
 #[non_exhaustive]
-pub enum OpenVolume<'a, S>
-where
-    S: Seek,
-{
+pub enum OpenVolume<D> {
     /// An opened FAT12, FAT16, or FAT32 filesystem.
-    Fat(FatVolume<&'a mut S>),
+    Fat(FatFs<D>),
 }
 
-impl<'a, S> OpenVolume<'a, S>
-where
-    S: Read + Seek,
-{
-    /// Asynchronously detects and opens a filesystem at the start of `source`.
+impl<D: BlockDevice> OpenVolume<D> {
+    /// Detects and opens the filesystem on `dev`.
     ///
-    /// Partitioned disks must first be narrowed to a partition view.
-    pub async fn open(source: &'a mut S, logical_block_size: u32) -> Result<Self> {
-        match crate::detect::r#async::detect(source, logical_block_size).await? {
-            Some(BlockFormat::Fat(format)) => Self::open_detected(source, format).await,
+    /// Partitioned disks must first be narrowed to a partition, for example
+    /// with [`partition::r#async`](crate::partition::r#async).
+    pub async fn open(mut dev: D) -> Result<Self, D::Error> {
+        match crate::detect::r#async::detect(&mut dev)
+            .await
+            .map_err(Error::Device)?
+        {
+            Some(BlockFormat::Fat(format)) => Self::open_detected(dev, format).await,
             Some(BlockFormat::PartitionTable(kind)) => Err(Error::PartitionedDisk(kind)),
-            None => Err(Error::UnknownFormat),
+            _ => Err(Error::UnknownFormat),
         }
     }
 
-    /// Asynchronously opens a previously detected FAT variant.
-    pub async fn open_detected(source: &'a mut S, detected: FatVariant) -> Result<Self> {
+    /// Opens `dev` as a previously detected FAT variant.
+    pub async fn open_detected(dev: D, detected: FatVariant) -> Result<Self, D::Error> {
         if detected == FatVariant::ExFat {
             return Err(Error::UnsupportedFormat(BlockFormat::Fat(detected)));
         }
-        source.seek(SeekFrom::Start(0)).await?;
-        let fat = FatVolume::open(source).await?;
-        let opened = fat_variant(fat.fat_type());
+        let fat = FatFs::open(dev).await?;
+        let Some(opened) = fat_variant(fat.kind()) else {
+            return Err(Error::UnsupportedFormat(BlockFormat::Fat(detected)));
+        };
         if opened != detected {
             return Err(Error::DetectedFormatMismatch { detected, opened });
         }
@@ -47,19 +47,19 @@ where
     /// Returns the concrete FAT variant of the opened filesystem.
     pub fn format(&self) -> FatVariant {
         match self {
-            Self::Fat(fat) => fat_variant(fat.fat_type()),
+            Self::Fat(fat) => fat_variant(fat.kind()).unwrap_or(FatVariant::ExFat),
         }
     }
 
     /// Borrows the opened FAT filesystem.
-    pub fn as_fat(&self) -> Option<&FatVolume<&'a mut S>> {
+    pub fn as_fat(&self) -> Option<&FatFs<D>> {
         match self {
             Self::Fat(fat) => Some(fat),
         }
     }
 
     /// Mutably borrows the opened FAT filesystem.
-    pub fn as_fat_mut(&mut self) -> Option<&mut FatVolume<&'a mut S>> {
+    pub fn as_fat_mut(&mut self) -> Option<&mut FatFs<D>> {
         match self {
             Self::Fat(fat) => Some(fat),
         }
@@ -67,24 +67,26 @@ where
 
     #[allow(clippy::result_large_err)]
     /// Extracts the FAT filesystem, returning `self` if its format differs.
-    pub fn into_fat(self) -> core::result::Result<FatVolume<&'a mut S>, Self> {
+    pub fn into_fat(self) -> core::result::Result<FatFs<D>, Self> {
         match self {
             Self::Fat(fat) => Ok(fat),
         }
     }
 
-    /// Closes the filesystem and returns the borrowed source.
-    pub fn into_inner(self) -> &'a mut S {
+    /// Closes the filesystem and returns the device. Sizes and the free
+    /// count `FatFs` has not written are lost; call its `sync` first.
+    pub fn into_inner(self) -> D {
         match self {
             Self::Fat(fat) => fat.into_inner(),
         }
     }
 }
 
-fn fat_variant(format: FatType) -> FatVariant {
-    match format {
-        FatType::Fat12 => FatVariant::Fat12,
-        FatType::Fat16 => FatVariant::Fat16,
-        FatType::Fat32 => FatVariant::Fat32,
+fn fat_variant(kind: FatKind) -> Option<FatVariant> {
+    match kind {
+        FatKind::Fat12 => Some(FatVariant::Fat12),
+        FatKind::Fat16 => Some(FatVariant::Fat16),
+        FatKind::Fat32 => Some(FatVariant::Fat32),
+        _ => None,
     }
 }

@@ -1,40 +1,39 @@
 use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
-use hadris_block::partition::{gpt_partition_view, mbr_partition_view};
+use hadris_block::partition::sync::{gpt_partition, mbr_partition};
 use hadris_block::sync::OpenVolume;
 use hadris_block::{Error, part};
-use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
-use hadris_io::StdIo;
+use hadris_fat::{FatKind, FormatOptions};
+use hadris_storage::sync::{BlockDevice, Slice};
+use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 
 const VOLUME_LEN: usize = 2 * 1024 * 1024;
+const BLOCK: BlockSize = match BlockSize::new(512) {
+    Some(size) => size,
+    None => panic!(),
+};
 
-fn std_cursor(data: Vec<u8>) -> StdIo<std::io::Cursor<Vec<u8>>> {
-    StdIo::new(std::io::Cursor::new(data))
+fn device(bytes: Vec<u8>) -> MemDevice<Vec<u8>> {
+    MemDevice::new(bytes, BLOCK)
 }
 
-fn format_fat12(
-    source: impl hadris_io::legacy::sync::Read
-    + hadris_io::legacy::sync::Write
-    + hadris_io::legacy::sync::Seek,
-) {
-    let options = FatFormatOptions::new(VOLUME_LEN as u64).fat_type(FatTypeSelection::Fat12);
-    let volume = FatVolumeFormatter::format(source, options).unwrap();
-    drop(volume);
+fn format_fat12<D: BlockDevice>(dev: D) -> D {
+    let options = FormatOptions::new().with_kind(FatKind::Fat12);
+    hadris_fat::sync::format(dev, options).unwrap().into_inner()
 }
 
 #[test]
-fn opens_detected_fat_and_returns_source_borrow() {
-    let mut image = std_cursor(vec![0_u8; VOLUME_LEN]);
-    format_fat12(&mut image);
+fn opens_detected_fat_and_returns_the_device() {
+    let mut dev = format_fat12(device(vec![0_u8; VOLUME_LEN]));
 
-    let volume = OpenVolume::open(&mut image, 512).unwrap();
+    let volume = OpenVolume::open(&mut dev).unwrap();
     assert_eq!(volume.format(), FatVariant::Fat12);
     assert!(volume.as_fat().is_some());
-    let source = volume.into_inner();
-    assert_eq!(source.get_ref().get_ref().len(), VOLUME_LEN);
+    let dev = volume.into_inner();
+    assert_eq!(dev.get_ref().len(), VOLUME_LEN);
 }
 
 #[test]
-fn opens_fat_inside_mbr_partition_view() {
+fn opens_fat_inside_mbr_partition() {
     let start_lba = 1_u32;
     let sector_count = (VOLUME_LEN / 512) as u32;
     let entry = part::MbrPartition::new(part::MbrPartitionType::Fat12, start_lba, sector_count);
@@ -42,29 +41,26 @@ fn opens_fat_inside_mbr_partition_view() {
     table.partitions[0] = entry;
     let mbr = part::MasterBootRecord::new(table);
 
-    let mut image = std_cursor(vec![0_u8; VOLUME_LEN + 512]);
-    std::io::Write::write_all(image.get_mut(), bytemuck::bytes_of(&mbr)).unwrap();
-    {
-        let view = mbr_partition_view(&mut image, &entry, 512).unwrap();
-        format_fat12(view);
-    }
+    let mut bytes = vec![0_u8; VOLUME_LEN + 512];
+    bytes[..512].copy_from_slice(bytemuck::bytes_of(&mbr));
+    let mut disk = device(bytes);
+    format_fat12(mbr_partition(&mut disk, &entry).unwrap());
 
     assert_eq!(
-        hadris_block::detect::sync::detect(&mut image, 512).unwrap(),
+        hadris_block::detect::sync::detect(&mut disk).unwrap(),
         Some(BlockFormat::PartitionTable(PartitionTableKind::Mbr))
     );
     assert!(matches!(
-        OpenVolume::open(&mut image, 512),
+        OpenVolume::open(&mut disk),
         Err(Error::PartitionedDisk(PartitionTableKind::Mbr))
     ));
 
-    let mut view = mbr_partition_view(&mut image, &entry, 512).unwrap();
-    let volume = OpenVolume::open(&mut view, 512).unwrap();
+    let volume = OpenVolume::open(mbr_partition(&mut disk, &entry).unwrap()).unwrap();
     assert_eq!(volume.format(), FatVariant::Fat12);
 }
 
 #[test]
-fn opens_fat_inside_gpt_partition_view() {
+fn opens_fat_inside_gpt_partition() {
     let start_lba = 2048_u64;
     let sector_count = (VOLUME_LEN / 512) as u64;
     let entry = part::GptPartitionEntry::new(
@@ -73,33 +69,37 @@ fn opens_fat_inside_gpt_partition_view() {
         start_lba,
         start_lba + sector_count - 1,
     );
-    let mut image = std_cursor(vec![0_u8; (start_lba as usize * 512) + VOLUME_LEN]);
-    {
-        let view = gpt_partition_view(&mut image, &entry, 512).unwrap();
-        format_fat12(view);
-    }
+    let mut disk = device(vec![0_u8; (start_lba as usize * 512) + VOLUME_LEN]);
+    format_fat12(gpt_partition(&mut disk, &entry).unwrap());
 
-    let mut view = gpt_partition_view(&mut image, &entry, 512).unwrap();
-    let volume = OpenVolume::open(&mut view, 512).unwrap();
+    let volume = OpenVolume::open(gpt_partition(&mut disk, &entry).unwrap()).unwrap();
     assert_eq!(volume.format(), FatVariant::Fat12);
+    let slice: Slice<_> = volume.into_inner();
+    assert_eq!(slice.first(), BlockIndex(start_lba));
 }
 
 #[test]
-fn rejects_unknown_and_mismatched_formats_without_consuming_source() {
-    let mut unknown = std_cursor(vec![0_u8; 1024]);
+fn partitions_past_the_disk_are_refused() {
+    let entry = part::MbrPartition::new(part::MbrPartitionType::Fat12, 8, 16);
+    let mut disk = device(vec![0_u8; 16 * 512]);
+    assert!(mbr_partition(&mut disk, &entry).is_err());
+}
+
+#[test]
+fn rejects_unknown_and_mismatched_formats() {
     assert!(matches!(
-        OpenVolume::open(&mut unknown, 512),
+        OpenVolume::open(device(vec![0_u8; 1024])),
         Err(Error::UnknownFormat)
     ));
-    unknown.get_mut().set_position(7);
 
-    let mut image = std_cursor(vec![0_u8; VOLUME_LEN]);
-    format_fat12(&mut image);
+    let dev = format_fat12(device(vec![0_u8; VOLUME_LEN]));
     assert!(matches!(
-        OpenVolume::open_detected(&mut image, FatVariant::Fat16),
-        Err(Error::DetectedFormatMismatch { .. })
+        OpenVolume::open_detected(dev, FatVariant::Fat16),
+        Err(Error::DetectedFormatMismatch {
+            detected: FatVariant::Fat16,
+            opened: FatVariant::Fat12,
+        })
     ));
-    image.get_mut().set_position(9);
 }
 
 #[test]
@@ -107,14 +107,17 @@ fn detects_exfat_but_rejects_unified_opening() {
     let mut image = vec![0_u8; 512];
     image[3..11].copy_from_slice(b"EXFAT   ");
     image[510..512].copy_from_slice(&[0x55, 0xaa]);
-    let mut image = std_cursor(image);
-    image.get_mut().set_position(11);
 
     assert!(matches!(
-        OpenVolume::open(&mut image, 512),
+        OpenVolume::open(device(image)),
         Err(Error::UnsupportedFormat(BlockFormat::Fat(
             FatVariant::ExFat
         )))
     ));
-    assert_eq!(image.get_ref().position(), 11);
+}
+
+#[test]
+fn devices_smaller_than_a_block_are_unknown() {
+    let dev = MemDevice::new(vec![0_u8; 512], BlockSize::new(4096).unwrap());
+    assert!(matches!(OpenVolume::open(dev), Err(Error::UnknownFormat)));
 }
