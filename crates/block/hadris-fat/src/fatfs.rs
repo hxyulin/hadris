@@ -145,7 +145,7 @@ struct NewName {
 impl NewName {
     fn new(text: &str, code_page: &impl CodePage) -> Result<Self, ErrorKind> {
         if text.encode_utf16().count() > lfn::MAX_UNITS {
-            return Err(ErrorKind::LimitExceeded);
+            return Err(ErrorKind::NameTooLong);
         }
         if !short_name::is_valid_long_name(text) || text.ends_with(['.', ' ']) {
             return Err(ErrorKind::InvalidInput);
@@ -1145,7 +1145,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Writes to a file at `offset`, growing it and zero-filling any gap
     /// past the old end. Returns the bytes written, fewer than `buf.len()`
     /// only at the 4 GiB - 1 FAT size limit; an `offset` at or past it fails
-    /// with [`ErrorKind::LimitExceeded`], and a volume without room for the
+    /// with [`ErrorKind::FileTooLarge`], and a volume without room for the
     /// new clusters fails with [`ErrorKind::NoSpace`] and changes nothing.
     ///
     /// The new size of a pinned file is written by `sync_node` or `sync`,
@@ -1157,7 +1157,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             return Ok(0);
         }
         if offset >= MAX_FILE_SIZE {
-            return Err(ErrorKind::LimitExceeded.into());
+            return Err(ErrorKind::FileTooLarge.into());
         }
         let count = (MAX_FILE_SIZE - offset).min(buf.len() as u64) as usize;
         let end = offset + count as u64;
@@ -1191,12 +1191,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Truncates or extends a file. Growth reads as zeros. Shrinking writes
     /// the new size to the directory entry at once and frees the clusters
     /// past it. A changed size sets the archive attribute; the same size
-    /// changes nothing.
+    /// changes nothing. A length past 4 GiB - 1 fails with
+    /// [`ErrorKind::FileTooLarge`].
     pub async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         self.writable()?;
         let (id, state) = self.file_node(node).await?;
         if len > MAX_FILE_SIZE {
-            return Err(ErrorKind::LimitExceeded.into());
+            return Err(ErrorKind::FileTooLarge.into());
         }
         let old = state.size as u64;
         if len > old {

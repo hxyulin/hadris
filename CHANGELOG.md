@@ -180,6 +180,15 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs (V3):** `ErrorKind` gains `NameTooLong` and `FileTooLarge`,
+  so each kind maps to one errno. A name longer than the format or a
+  `NameBuf` accepts (`NameError::TooLong`) and an over-long FAT name or
+  volume label give `NameTooLong`; a FAT write or `set_len` past 4 GiB - 1
+  gives `FileTooLarge`. `LimitExceeded` keeps full node tables, long paths
+  and values that do not fit a field or buffer. With `std` they convert to
+  `io::ErrorKind::InvalidFilename` and `FileTooLarge`. `Error<E>` equality
+  compares the kind and the device error only, now and after context is
+  added.
 - **hadris-fat (V3):** The `write` feature only adds `format` in each mode
   and no longer implies `read` or `alloc`; `FatFs` reads and writes without
   it. Default features are `std`, `sync` and `write`. The crate root no longer

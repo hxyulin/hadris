@@ -370,7 +370,7 @@ fn long_names_up_to_255_units() {
             fs.create(root, name(&bad), NewNode::File, &SetMetadata::new())
                 .unwrap_err()
                 .kind(),
-            ErrorKind::LimitExceeded
+            ErrorKind::NameTooLong
         );
     }
     for bad in [
@@ -962,13 +962,13 @@ fn set_len_shrinks_frees_and_grows_zeroed() {
             fs.set_len(node, u64::from(u32::MAX) + 1)
                 .unwrap_err()
                 .kind(),
-            ErrorKind::LimitExceeded
+            ErrorKind::FileTooLarge
         );
         assert_eq!(
             fs.write_at(node, u64::from(u32::MAX), b"x")
                 .unwrap_err()
                 .kind(),
-            ErrorKind::LimitExceeded
+            ErrorKind::FileTooLarge
         );
         fs.forget(node);
         fs.sync().unwrap();

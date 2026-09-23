@@ -3,7 +3,8 @@ use core::fmt;
 /// The category of a filesystem error, shared by every Hadris crate.
 ///
 /// Callers match on the kind. New failure modes add context to crate errors,
-/// not new kinds.
+/// not new kinds. Each kind maps to one errno, so a VFS or FUSE layer can
+/// translate it without looking at the operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ErrorKind {
@@ -29,15 +30,22 @@ pub enum ErrorKind {
     Corrupt,
     /// Valid but not implemented, or not in the filesystem's capabilities.
     Unsupported,
-    /// A value does not fit the on-disk field, or a path is too long.
+    /// A value does not fit an on-disk field or a caller's buffer, a path is
+    /// too long, or a table (such as a node table) is full.
     LimitExceeded,
     /// Too many symbolic links, or a symbolic link where a file or directory
     /// was needed (`ELOOP`).
     Symlink,
     /// Unknown or forgotten node identifier.
     InvalidHandle,
-    /// The resource is in use, for example by a second writer.
+    /// The resource is in use, for example an open node that would be
+    /// removed.
     Busy,
+    /// A name is longer than the filesystem or the buffer accepts
+    /// (`ENAMETOOLONG`).
+    NameTooLong,
+    /// A file would grow past the format's size limit (`EFBIG`).
+    FileTooLarge,
 }
 
 impl ErrorKind {
@@ -58,6 +66,8 @@ impl ErrorKind {
             Self::Symlink => "too many symbolic links, or a symbolic link where none is allowed",
             Self::InvalidHandle => "invalid node handle",
             Self::Busy => "resource busy",
+            Self::NameTooLong => "name too long",
+            Self::FileTooLarge => "file too large",
         }
     }
 }
@@ -86,6 +96,8 @@ impl From<ErrorKind> for std::io::ErrorKind {
             ErrorKind::Corrupt => Io::InvalidData,
             ErrorKind::Unsupported => Io::Unsupported,
             ErrorKind::Busy => Io::ResourceBusy,
+            ErrorKind::NameTooLong => Io::InvalidFilename,
+            ErrorKind::FileTooLarge => Io::FileTooLarge,
             ErrorKind::Io | ErrorKind::LimitExceeded | ErrorKind::Symlink => Io::Other,
         }
     }
@@ -97,6 +109,11 @@ impl From<ErrorKind> for std::io::ErrorKind {
 /// driver's error back through [`device_error`](Self::device_error), and
 /// failures of the filesystem itself have none. Callers match on
 /// [`kind`](Self::kind).
+///
+/// Two errors are equal when their kinds and device errors are. Context a
+/// crate adds to an error later (a sector, a cluster, a field name) will
+/// never take part in the comparison, so tests that compare errors keep
+/// passing when a driver reports more detail.
 ///
 /// ```rust
 /// use hadris_fs::{Error, ErrorKind};

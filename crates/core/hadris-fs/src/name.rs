@@ -25,7 +25,7 @@ impl NameError {
     /// Returns the matching error kind.
     pub const fn kind(self) -> ErrorKind {
         match self {
-            Self::TooLong => ErrorKind::LimitExceeded,
+            Self::TooLong => ErrorKind::NameTooLong,
             _ => ErrorKind::InvalidInput,
         }
     }
@@ -433,7 +433,7 @@ mod tests {
         assert_eq!(Name::new("/"), Err(NameError::Separator));
         assert_eq!(Name::new(b"a\0b"), Err(NameError::Nul));
         assert_eq!(NameError::Nul.kind(), ErrorKind::InvalidInput);
-        assert_eq!(NameError::TooLong.kind(), ErrorKind::LimitExceeded);
+        assert_eq!(NameError::TooLong.kind(), ErrorKind::NameTooLong);
     }
 
     #[test]
