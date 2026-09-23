@@ -170,8 +170,9 @@ A feature may add items (types, functions, modules, impls). It never changes
 the shape of an existing item. `ErrorKind::NoSpace` exists in every build even
 though only a `write` build produces it.
 
-Previews use a separate module, for example `hadris_fat::unstable::exfat`,
-never cfg-gated variants. Anything outside `unstable` is covered by semver.
+Previews use a separate module behind an `unstable-*` feature, for example
+`hadris_fat::exfat` behind `unstable-exfat`, never cfg-gated variants.
+Anything outside such a module is covered by semver.
 
 ### R4. On-disk layouts live in `raw`
 
@@ -761,7 +762,7 @@ Keep the `strip_async!` code generation and use it everywhere:
 | `sync` | Sync API. On by default. |
 | `async` | Async API. |
 | `write` | Writers, formatters, modifiers. Enables every correctness dependency (CRC and so on). |
-| `unstable-*` | Enables an `unstable` module. Never changes stable items. |
+| `unstable-*` | Enables a preview module, such as `hadris_fat::exfat`. Never changes stable items. |
 
 - `read` is dropped; reading is always available.
 - `crc` and `rand` stop being user-facing features. CRC is always compiled with `write`. Random GUIDs come from the caller (4.10).
@@ -936,7 +937,7 @@ let report = hadris_fat::sync::check(&mut vol)?;           // fsck, both modes
 - Exact free space on FAT12/16 by scanning, cached after first use.
 - `remove` of a pinned node fails with `Busy` (4.5, Q3).
 - Close audit items C2 (cancellation safety of compound async operations) and B3 to B7, or confirm they are fixed.
-- exFAT: async, rename, attributes and times, label, directory growth, fragmented bitmap and upcase table, entry sets that cross clusters, fsck. exFAT stays in `hadris_fat::unstable::exfat` until it passes the conformance suite, then becomes the stable `ExFatFs` in a 3.x minor. See [Q5](#7-open-questions).
+- exFAT: async, rename, attributes and times, label, directory growth, fragmented bitmap and upcase table, entry sets that cross clusters, fsck. exFAT stays in the `hadris_fat::exfat` preview, behind `unstable-exfat`, until it passes the conformance suite, then becomes the stable `ExFatFs` in a 3.x minor. See [Q5](#7-open-questions).
 - TexFAT and fsck repair: 3.x.
 
 ### 5.2 `hadris-iso`

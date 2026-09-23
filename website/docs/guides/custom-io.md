@@ -119,7 +119,8 @@ in the same way.
 `hadris_fat::sync::FatFs` mounts any `hadris_storage::sync::BlockDevice`.
 A device reports its block size and count and reads whole blocks; a read-only
 device leaves `write_blocks` to its default, which answers
-`WriteError::ReadOnly`. No allocator is needed.
+`WriteError::ReadOnly`. Its error type implements `core::error::Error`, so
+`FatFs` can carry it inside `hadris_fs::Error`. No allocator is needed.
 
 ```toml
 [dependencies]
@@ -129,12 +130,22 @@ hadris-storage = { version = "2.4.0", default-features = false, features = ["syn
 ```
 
 ```rust,no_run
+use core::fmt;
+
 use hadris_io::ErrorType;
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize};
 
 #[derive(Debug)]
 struct FirmwareError;
+
+impl fmt::Display for FirmwareError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("firmware block read failed")
+    }
+}
+
+impl core::error::Error for FirmwareError {}
 
 struct FirmwareDisk {
     blocks: u64,

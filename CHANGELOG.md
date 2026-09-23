@@ -57,10 +57,10 @@ Each published package owns its version and may be released independently.
   device, and `kind` returns the new `FatKind`. Node ids come from the
   location of the directory entry, and `lookup` and `parent` pin them in the
   node table `T`; a full table gives `ErrorKind::LimitExceeded`. Long names
-  are always read, whatever the `lfn` feature says, and a leading `0x05` in a
-  short name reads as `0xE5`. The driver needs no allocator: its only buffer
-  is one device block of at most 4096 bytes, and larger blocks are rejected
-  with `ErrorKind::Unsupported`.
+  are always read, and a leading `0x05` in a short name reads as `0xE5`.
+  The driver needs no allocator: its only buffer is one device block of at
+  most 4096 bytes, and larger blocks are rejected with
+  `ErrorKind::Unsupported`.
 - **hadris-fat (V3):** `FatFs` writes. `create` makes files and
   directories (other kinds are `ErrorKind::Unsupported`) with long names and
   generated `~N` short names, or a short entry alone with the NT case bits
@@ -126,6 +126,31 @@ Each published package owns its version and may be released independently.
 - **hadris-fat (V3):** `FatFs::cluster_chain(node, visit)` passes each
   cluster of a node's chain to a callback without allocating, for tools that
   show file layout and fragmentation.
+- **hadris-macros (V3):** `send_async!`, a third generation mode next to
+  `strip_async!`: every `async fn` in a trait declaration returns a `Send`
+  future and the trait gains `Send` (and `Sync` for `&self` methods) as a
+  supertrait.
+- **hadris-io, hadris-storage (V3):** An `async-send` feature adds an
+  `async_send` module generated from the same source as `r#async`, whose
+  traits prove their futures `Send`, so generic code can be spawned on
+  multi-threaded executors. `MaybeSend` marks the types that must be `Send`
+  in that mode. `FromEmbedded` has no impls there.
+- **hadris-fat (V3):** Depends on `hadris-storage`. The `sync`, `async`,
+  `alloc` and `std` features also enable the same features of `hadris-fs`
+  and `hadris-storage`, and a new additive `async-send` feature adds an
+  `async_send` module, which holds the V3 `FatFs` driver.
+- **hadris-storage (V3):** `BlockDevice`, one trait for sync and async
+  whole-block devices with an explicit block size and the device's own error,
+  implemented for `&mut D`, `Box<D>` and, with `std`, `std::fs::File`.
+  `write_blocks` and `flush` return `WriteError<E>`, whose `ReadOnly` variant
+  is how a device refuses writes; the default `write_blocks` returns it, so a
+  read-only device implements no write method, and there is no `writable()`
+  or access query. Devices and adapters: `StreamDevice` over any seekable
+  stream (`ReadOnly` for streams without `Write`), `MemDevice` over byte
+  buffers (error `OutOfRange`), `Slice` for a block range, `Cache` for
+  write-back LRU caching (`alloc`, first write goes straight through), and
+  `ByteView` for byte-granular access and a bounded stream. Adapters that can
+  refuse a request report `StorageError<E>`.
 
 ### Changed
 
@@ -184,34 +209,6 @@ Each published package owns its version and may be released independently.
   type are removed.
 - **hadris (V3):** Re-exports `hadris-io` as `hadris::io`.
 
-### Added
-
-- **hadris-macros (V3):** `send_async!`, a third generation mode next to
-  `strip_async!`: every `async fn` in a trait declaration returns a `Send`
-  future and the trait gains `Send` (and `Sync` for `&self` methods) as a
-  supertrait.
-- **hadris-io, hadris-storage (V3):** An `async-send` feature adds an
-  `async_send` module generated from the same source as `r#async`, whose
-  traits prove their futures `Send`, so generic code can be spawned on
-  multi-threaded executors. `MaybeSend` marks the types that must be `Send`
-  in that mode. `FromEmbedded` has no impls there.
-- **hadris-fat (V3):** Depends on `hadris-storage`. The `sync`, `async`,
-  `alloc` and `std` features also enable the same features of `hadris-fs`
-  and `hadris-storage`, and a new additive `async-send` feature adds an
-  `async_send` module, which holds the V3 `FatFs` driver.
-- **hadris-storage (V3):** `BlockDevice`, one trait for sync and async
-  whole-block devices with an explicit block size and the device's own error,
-  implemented for `&mut D`, `Box<D>` and, with `std`, `std::fs::File`.
-  `write_blocks` and `flush` return `WriteError<E>`, whose `ReadOnly` variant
-  is how a device refuses writes; the default `write_blocks` returns it, so a
-  read-only device implements no write method, and there is no `writable()`
-  or access query. Devices and adapters: `StreamDevice` over any seekable
-  stream (`ReadOnly` for streams without `Write`), `MemDevice` over byte
-  buffers (error `OutOfRange`), `Slice` for a block range, `Cache` for
-  write-back LRU caching (`alloc`, first write goes straight through), and
-  `ByteView` for byte-granular access and a bounded stream. Adapters that can
-  refuse a request report `StorageError<E>`.
-
 ### Removed
 
 - **hadris-fat (V3):** The V2 FAT12/16/32 API: `FatVolume`,
@@ -258,7 +255,7 @@ Each published package owns its version and may be released independently.
   character whose code point ends in an ASCII byte into that byte (U+0121
   became `!`, U+012E was dropped as a `.`), ignore code page bytes below
   `0x80`, and uppercase non-ASCII characters before the code page maps them,
-  so `Cp437OemCpConverter` stores `é` as CP437 `É` (`0x90`).
+  so the `Cp437` code page stores `é` as `É` (`0x90`).
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
   libarchive/bsdtar and use only recognized relocation container names. Reject
   relocation when a root `rr_moved` directory would be mistaken for the container
