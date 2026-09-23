@@ -1153,9 +1153,15 @@ pub hadris_fs::path::Component::Parent
 pub hadris_fs::path::Component::Root
 #[non_exhaustive] pub enum hadris_fs::path::PathError
 pub hadris_fs::path::PathError::EscapesRoot
+impl hadris_fs::path::PathError
+pub const fn hadris_fs::path::PathError::kind(self) -> hadris_fs::ErrorKind
+impl core::convert::From<hadris_fs::path::PathError> for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::from(hadris_fs::path::PathError) -> Self
 impl core::error::Error for hadris_fs::path::PathError
 impl core::fmt::Display for hadris_fs::path::PathError
 pub fn hadris_fs::path::PathError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_fs::path::PathError> for hadris_fs::Error<E>
+pub fn hadris_fs::Error<E>::from(hadris_fs::path::PathError) -> Self
 #[non_exhaustive] pub enum hadris_fs::path::Separators
 pub hadris_fs::path::Separators::Slash
 pub hadris_fs::path::Separators::SlashOrBackslash
@@ -1819,6 +1825,8 @@ pub fn hadris_fs::ErrorKind::from(hadris_fs::DateTimeError) -> Self
 impl core::error::Error for hadris_fs::DateTimeError
 impl core::fmt::Display for hadris_fs::DateTimeError
 pub fn hadris_fs::DateTimeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_fs::DateTimeError> for hadris_fs::Error<E>
+pub fn hadris_fs::Error<E>::from(hadris_fs::DateTimeError) -> Self
 #[non_exhaustive] pub enum hadris_fs::DeviceKind
 pub hadris_fs::DeviceKind::Block
 pub hadris_fs::DeviceKind::Char
@@ -1850,6 +1858,8 @@ impl core::convert::From<hadris_fs::NameError> for hadris_fs::ErrorKind
 pub fn hadris_fs::ErrorKind::from(hadris_fs::NameError) -> Self
 impl core::convert::From<hadris_fs::OpenOptionsError> for hadris_fs::ErrorKind
 pub fn hadris_fs::ErrorKind::from(hadris_fs::OpenOptionsError) -> Self
+impl core::convert::From<hadris_fs::path::PathError> for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::from(hadris_fs::path::PathError) -> Self
 impl core::error::Error for hadris_fs::ErrorKind
 impl core::fmt::Display for hadris_fs::ErrorKind
 pub fn hadris_fs::ErrorKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -1909,6 +1919,8 @@ pub fn hadris_fs::ErrorKind::from(hadris_fs::OpenOptionsError) -> Self
 impl core::error::Error for hadris_fs::OpenOptionsError
 impl core::fmt::Display for hadris_fs::OpenOptionsError
 pub fn hadris_fs::OpenOptionsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_fs::OpenOptionsError> for hadris_fs::Error<E>
+pub fn hadris_fs::Error<E>::from(hadris_fs::OpenOptionsError) -> Self
 #[non_exhaustive] pub enum hadris_fs::RemoveKind
 pub hadris_fs::RemoveKind::Any
 pub hadris_fs::RemoveKind::Dir
@@ -2049,7 +2061,6 @@ pub struct hadris_fs::ContractViolation
 impl hadris_fs::ContractViolation
 pub const fn hadris_fs::ContractViolation::case(&self) -> &'static str
 pub const fn hadris_fs::ContractViolation::found(&self) -> core::option::Option<hadris_fs::ErrorKind>
-pub const fn hadris_fs::ContractViolation::new(&'static str, &'static str, core::option::Option<hadris_fs::ErrorKind>) -> Self
 pub const fn hadris_fs::ContractViolation::rule(&self) -> &'static str
 impl core::error::Error for hadris_fs::ContractViolation
 impl core::fmt::Display for hadris_fs::ContractViolation
@@ -2112,10 +2123,16 @@ impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> 
 pub fn hadris_fs::AnyError::from(hadris_fs::Error<E>) -> Self
 impl<E: core::fmt::Display> core::fmt::Display for hadris_fs::Error<E>
 pub fn hadris_fs::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_fs::DateTimeError> for hadris_fs::Error<E>
+pub fn hadris_fs::Error<E>::from(hadris_fs::DateTimeError) -> Self
 impl<E> core::convert::From<hadris_fs::ErrorKind> for hadris_fs::Error<E>
 pub fn hadris_fs::Error<E>::from(hadris_fs::ErrorKind) -> Self
 impl<E> core::convert::From<hadris_fs::NameError> for hadris_fs::Error<E>
 pub fn hadris_fs::Error<E>::from(hadris_fs::NameError) -> Self
+impl<E> core::convert::From<hadris_fs::OpenOptionsError> for hadris_fs::Error<E>
+pub fn hadris_fs::Error<E>::from(hadris_fs::OpenOptionsError) -> Self
+impl<E> core::convert::From<hadris_fs::path::PathError> for hadris_fs::Error<E>
+pub fn hadris_fs::Error<E>::from(hadris_fs::path::PathError) -> Self
 impl<E> core::convert::From<hadris_io::error::ExactError<hadris_fs::Error<E>>> for hadris_fs::Error<E>
 pub fn hadris_fs::Error<E>::from(hadris_io::error::ExactError<hadris_fs::Error<E>>) -> Self
 impl<E> core::convert::From<hadris_storage::error::WriteError<E>> for hadris_fs::Error<E>

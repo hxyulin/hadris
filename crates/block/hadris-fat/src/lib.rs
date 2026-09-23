@@ -158,6 +158,10 @@ mod codec;
 mod findings;
 mod options;
 /// Raw on-disk FAT boot sector, BPB and FSInfo layouts.
+///
+/// The items mirror the FAT specification. The module may gain items; the
+/// existing ones follow the specification and stay exhaustive. The crate
+/// root never re-exports them.
 pub mod raw;
 
 /// Unstable exFAT preview, outside the stability promise.

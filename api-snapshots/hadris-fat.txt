@@ -249,53 +249,53 @@ pub hadris_fat::FatKind::Fat16
 pub hadris_fat::FatKind::Fat32
 #[non_exhaustive] pub enum hadris_fat::Finding
 pub hadris_fat::Finding::BackupBootSector
-pub hadris_fat::Finding::BadCluster
+#[non_exhaustive] pub hadris_fat::Finding::BadCluster
 pub hadris_fat::Finding::BadCluster::cluster: u32
 pub hadris_fat::Finding::BadCluster::entry: u64
-pub hadris_fat::Finding::BadName
+#[non_exhaustive] pub hadris_fat::Finding::BadName
 pub hadris_fat::Finding::BadName::entry: u64
 pub hadris_fat::Finding::BootSector(&'static str)
-pub hadris_fat::Finding::BrokenChain
+#[non_exhaustive] pub hadris_fat::Finding::BrokenChain
 pub hadris_fat::Finding::BrokenChain::cluster: u32
 pub hadris_fat::Finding::BrokenChain::entry: u64
 pub hadris_fat::Finding::BrokenChain::next: u32
-pub hadris_fat::Finding::ChainTooLong
+#[non_exhaustive] pub hadris_fat::Finding::ChainTooLong
 pub hadris_fat::Finding::ChainTooLong::clusters: u32
 pub hadris_fat::Finding::ChainTooLong::entry: u64
 pub hadris_fat::Finding::ChainTooLong::size: u32
-pub hadris_fat::Finding::ChainTooShort
+#[non_exhaustive] pub hadris_fat::Finding::ChainTooShort
 pub hadris_fat::Finding::ChainTooShort::clusters: u32
 pub hadris_fat::Finding::ChainTooShort::entry: u64
 pub hadris_fat::Finding::ChainTooShort::size: u32
-pub hadris_fat::Finding::CrossLinked
+#[non_exhaustive] pub hadris_fat::Finding::CrossLinked
 pub hadris_fat::Finding::CrossLinked::cluster: u32
 pub hadris_fat::Finding::CrossLinked::entry: u64
-pub hadris_fat::Finding::CyclicChain
+#[non_exhaustive] pub hadris_fat::Finding::CyclicChain
 pub hadris_fat::Finding::CyclicChain::cluster: u32
 pub hadris_fat::Finding::CyclicChain::entry: u64
-pub hadris_fat::Finding::DirectorySize
+#[non_exhaustive] pub hadris_fat::Finding::DirectorySize
 pub hadris_fat::Finding::DirectorySize::entry: u64
-pub hadris_fat::Finding::DotEntry
+#[non_exhaustive] pub hadris_fat::Finding::DotEntry
 pub hadris_fat::Finding::DotEntry::entry: u64
-pub hadris_fat::Finding::FatCopy
+#[non_exhaustive] pub hadris_fat::Finding::FatCopy
 pub hadris_fat::Finding::FatCopy::copy: u8
 pub hadris_fat::Finding::FatCopy::entries: u32
 pub hadris_fat::Finding::FatCopy::first: u32
-pub hadris_fat::Finding::FreeCount
+#[non_exhaustive] pub hadris_fat::Finding::FreeCount
 pub hadris_fat::Finding::FreeCount::actual: u32
 pub hadris_fat::Finding::FreeCount::recorded: u32
 pub hadris_fat::Finding::FsInfo
-pub hadris_fat::Finding::InvalidCluster
+#[non_exhaustive] pub hadris_fat::Finding::InvalidCluster
 pub hadris_fat::Finding::InvalidCluster::cluster: u32
 pub hadris_fat::Finding::InvalidCluster::entry: u64
-pub hadris_fat::Finding::Label
+#[non_exhaustive] pub hadris_fat::Finding::Label
 pub hadris_fat::Finding::Label::entry: u64
-pub hadris_fat::Finding::LfnChecksum
+#[non_exhaustive] pub hadris_fat::Finding::LfnChecksum
 pub hadris_fat::Finding::LfnChecksum::entry: u64
-pub hadris_fat::Finding::LostClusters
+#[non_exhaustive] pub hadris_fat::Finding::LostClusters
 pub hadris_fat::Finding::LostClusters::count: u32
 pub hadris_fat::Finding::LostClusters::first: u32
-pub hadris_fat::Finding::OrphanLfn
+#[non_exhaustive] pub hadris_fat::Finding::OrphanLfn
 pub hadris_fat::Finding::OrphanLfn::entry: u64
 pub hadris_fat::Finding::ReservedEntries
 impl hadris_fat::Finding

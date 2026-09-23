@@ -2,13 +2,19 @@
 //!
 //! Portable I/O traits for the Hadris filesystem crates.
 //!
-//! [`Read`], [`Write`] and [`Seek`] report the implementor's own error
-//! through the [`ErrorType`] supertrait, as `embedded-io` does. The error can
+//! [`Read`](sync::Read), [`Write`](sync::Write) and [`Seek`](sync::Seek)
+//! report the implementor's own error through the [`ErrorType`]
+//! supertrait, as `embedded-io` does. The error can
 //! be any `core::error::Error + Send + Sync`: a kernel uses its own enum,
 //! [`StdIo`] reports `std::io::Error`, and [`FromEmbedded`] passes an
 //! `embedded-io` error through unchanged. `&mut T` implements each trait
 //! when `T` does. Enabling features only adds items; no trait or type changes
 //! shape.
+//!
+//! The traits live in one module per mode: [`sync`], `r#async` and
+//! `async_send`. The crate root holds only the mode-independent items, so
+//! `hadris_io::sync::Read` and `hadris_io::r#async::Read` are always named
+//! explicitly.
 //!
 //! The V2 traits with one erased error live in [`legacy`] while the format
 //! crates move over.
@@ -26,7 +32,8 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use hadris_io::{Cursor, SeekFrom, Read, Seek};
+//! use hadris_io::sync::{Read, Seek};
+//! use hadris_io::{Cursor, SeekFrom};
 //!
 //! let data = [0x48, 0x44, 0x52, 0x53]; // "HDRS"
 //! let mut cursor = Cursor::new(&data);
@@ -43,7 +50,8 @@
 //! ## Implementing a device
 //!
 //! ```rust
-//! use hadris_io::{ErrorType, Read};
+//! use hadris_io::ErrorType;
+//! use hadris_io::sync::Read;
 //!
 //! #[derive(Debug)]
 //! enum UartError { Framing }
@@ -174,11 +182,12 @@ fn copy_from_slice_at(data: &[u8], offset: u64, buf: &mut [u8]) -> usize {
 
 /// A no-std cursor for reading from a byte slice.
 ///
-/// Implements [`Read`] and [`Seek`] in both modes. Reads never fail; seeking
-/// to a negative position fails with [`InvalidSeek`].
+/// Implements [`sync::Read`] and [`sync::Seek`] and their async counterparts.
+/// Reads never fail; seeking to a negative position fails with [`InvalidSeek`].
 ///
 /// ```rust
-/// use hadris_io::{Cursor, Read, Seek, SeekFrom};
+/// use hadris_io::sync::{Read, Seek};
+/// use hadris_io::{Cursor, SeekFrom};
 ///
 /// let data = [1u8, 2, 3, 4, 5];
 /// let mut cursor = Cursor::new(&data);
@@ -248,9 +257,6 @@ impl ErrorType for Cursor<'_> {
 #[cfg(feature = "sync")]
 pub mod sync;
 
-#[cfg(feature = "sync")]
-pub use sync::*;
-
 /// Asynchronous I/O traits.
 #[cfg(feature = "async")]
 pub mod r#async;
@@ -269,6 +275,7 @@ pub mod async_send;
 #[cfg(all(test, feature = "sync"))]
 mod tests {
     extern crate std;
+    use super::sync::*;
     use super::*;
     use core::convert::Infallible;
     use std::format;

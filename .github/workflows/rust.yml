@@ -148,16 +148,16 @@ jobs:
           # hadris-common
           - crate: hadris-common
             tier: no-std
-            features: "sync,bytemuck,optical"
+            features: "sync,bytemuck"
           - crate: hadris-common
             tier: alloc
-            features: "alloc,sync,bytemuck,optical"
+            features: "alloc,sync,bytemuck"
           - crate: hadris-common
             tier: std-without-sync
-            features: "std,bytemuck,optical"
+            features: "std,bytemuck"
           - crate: hadris-common
             tier: std
-            features: "std,sync,bytemuck,optical"
+            features: "std,sync,bytemuck"
 
           # hadris-storage
           - crate: hadris-storage

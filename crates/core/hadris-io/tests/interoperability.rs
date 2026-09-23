@@ -1,6 +1,7 @@
 #![cfg(all(feature = "std", feature = "sync"))]
 
-use hadris_io::{ExactError, Read, Seek, SeekFrom};
+use hadris_io::sync::{Read, Seek};
+use hadris_io::{ExactError, SeekFrom};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct DeviceError;

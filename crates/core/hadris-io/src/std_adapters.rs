@@ -7,7 +7,8 @@ use crate::SeekFrom;
 /// implements. Errors are the `std::io::Error` itself.
 ///
 /// ```rust
-/// use hadris_io::{Read, StdIo};
+/// use hadris_io::StdIo;
+/// use hadris_io::sync::Read;
 ///
 /// let mut io = StdIo::new(std::io::Cursor::new(b"abc".to_vec()));
 /// let mut buf = [0u8; 3];

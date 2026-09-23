@@ -21,25 +21,57 @@ impl BlockSize {
 
 /// Zero-based logical block index.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BlockIndex(pub u64);
+pub struct BlockIndex(u64);
+
+impl BlockIndex {
+    /// The block at `index`.
+    pub const fn new(index: u64) -> Self {
+        Self(index)
+    }
+
+    /// Returns the index.
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
 
 /// Number of logical blocks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BlockCount(pub u64);
+pub struct BlockCount(u64);
+
+impl BlockCount {
+    /// A count of `blocks`.
+    pub const fn new(blocks: u64) -> Self {
+        Self(blocks)
+    }
+
+    /// Returns the count.
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
 
 /// A contiguous logical-block range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockRange {
-    /// First logical block in the range.
-    pub start: BlockIndex,
-    /// Number of logical blocks in the range.
-    pub count: BlockCount,
+    start: BlockIndex,
+    count: BlockCount,
 }
 
 impl BlockRange {
     /// Creates a block range.
     pub const fn new(start: BlockIndex, count: BlockCount) -> Self {
         Self { start, count }
+    }
+
+    /// First logical block in the range.
+    pub const fn start(self) -> BlockIndex {
+        self.start
+    }
+
+    /// Number of logical blocks in the range.
+    pub const fn count(self) -> BlockCount {
+        self.count
     }
 
     /// Returns the exclusive end block, or `None` on overflow.
@@ -54,12 +86,9 @@ impl BlockRange {
 /// Geometry reported by a block device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockGeometry {
-    /// Addressable logical block size.
-    pub logical_block_size: BlockSize,
-    /// Total number of addressable logical blocks.
-    pub block_count: BlockCount,
-    /// Physical block size used for alignment hints, when known.
-    pub physical_block_size: Option<BlockSize>,
+    logical_block_size: BlockSize,
+    block_count: BlockCount,
+    physical_block_size: Option<BlockSize>,
 }
 
 impl BlockGeometry {
@@ -76,6 +105,21 @@ impl BlockGeometry {
     pub const fn with_physical_block_size(mut self, physical: BlockSize) -> Self {
         self.physical_block_size = Some(physical);
         self
+    }
+
+    /// Addressable logical block size.
+    pub const fn logical_block_size(self) -> BlockSize {
+        self.logical_block_size
+    }
+
+    /// Total number of addressable logical blocks.
+    pub const fn block_count(self) -> BlockCount {
+        self.block_count
+    }
+
+    /// Physical block size used for alignment hints, when known.
+    pub const fn physical_block_size(self) -> Option<BlockSize> {
+        self.physical_block_size
     }
 
     /// Returns the total byte length, or `None` if it cannot fit in `u64`.
@@ -105,9 +149,9 @@ mod tests {
 
     #[test]
     fn checks_range_and_byte_overflow() {
-        let geometry = BlockGeometry::new(BlockSize::new(512).unwrap(), BlockCount(8));
-        assert!(geometry.contains(BlockRange::new(BlockIndex(6), BlockCount(2))));
-        assert!(!geometry.contains(BlockRange::new(BlockIndex(7), BlockCount(2))));
+        let geometry = BlockGeometry::new(BlockSize::new(512).unwrap(), BlockCount::new(8));
+        assert!(geometry.contains(BlockRange::new(BlockIndex::new(6), BlockCount::new(2))));
+        assert!(!geometry.contains(BlockRange::new(BlockIndex::new(7), BlockCount::new(2))));
         assert_eq!(geometry.byte_len(), Some(4096));
     }
 }

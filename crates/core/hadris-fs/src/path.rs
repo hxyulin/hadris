@@ -217,6 +217,19 @@ pub enum PathError {
     EscapesRoot,
 }
 
+impl PathError {
+    /// Returns the matching error kind.
+    pub const fn kind(self) -> crate::ErrorKind {
+        crate::ErrorKind::InvalidInput
+    }
+}
+
+impl From<PathError> for crate::ErrorKind {
+    fn from(err: PathError) -> Self {
+        err.kind()
+    }
+}
+
 impl core::fmt::Display for PathError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {

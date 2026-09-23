@@ -32,12 +32,14 @@ while the format crates move over. That module is removed before 3.0.
 | Feature | Description | Default |
 |---------|-------------|---------|
 | `std` | `StdIo`, `ToStd`, `std::fs::File` errors and conversions to `std::io::Error`; implies `alloc` | Yes |
-| `sync` | Synchronous traits | Yes |
+| `sync` | Synchronous traits in `hadris_io::sync` | Yes |
 | `async` | Asynchronous traits in `hadris_io::r#async` | No |
 | `async-send` | Asynchronous traits with `Send` futures in `hadris_io::async_send`; implies `async` | No |
 | `alloc` | `Box<T>` and `Vec<u8>` implement the traits | via `std` |
 
-Enabling a feature only adds items; no trait or type changes shape.
+Enabling a feature only adds items; no trait or type changes shape. The
+traits are always named through their mode module (`hadris_io::sync::Read`);
+the crate root holds only mode-independent items.
 
 ## Usage
 
@@ -58,7 +60,8 @@ hadris-io = { version = "2.4.0", default-features = false, features = ["sync"] }
 ## Quick Start
 
 ```rust
-use hadris_io::{Cursor, SeekFrom, Read, Seek};
+use hadris_io::sync::{Read, Seek};
+use hadris_io::{Cursor, SeekFrom};
 
 let data = [0x48, 0x44, 0x52, 0x53]; // "HDRS"
 let mut cursor = Cursor::new(&data);
@@ -111,7 +114,8 @@ that takes a reader and keep using it afterwards.
 A custom device implements the traits directly, with its own error:
 
 ```rust
-use hadris_io::{ErrorType, ExactError, Read};
+use hadris_io::sync::Read;
+use hadris_io::{ErrorType, ExactError};
 
 #[derive(Debug, PartialEq)]
 struct Offline;
@@ -160,7 +164,8 @@ assert_eq!(
 | `FromEmbedded<T>` | always | `T::Error` | Use an `embedded-io` or `embedded-io-async` device |
 
 ```rust
-use hadris_io::{Cursor, Read, StdIo, ToStd};
+use hadris_io::sync::Read;
+use hadris_io::{Cursor, StdIo, ToStd};
 
 let mut file = StdIo::new(std::io::Cursor::new(b"abc".to_vec()));
 let mut buf = [0u8; 3];
@@ -181,7 +186,8 @@ a downcast that does not allocate, so `raw_os_error()` survives. Any other
 device error becomes the source of an `Other` error and can be downcast back.
 
 ```rust
-use hadris_io::{ExactError, Read, StdIo};
+use hadris_io::sync::Read;
+use hadris_io::{ExactError, StdIo};
 
 fn read_header(file: &mut StdIo<std::fs::File>) -> std::io::Result<[u8; 4]> {
     let mut header = [0u8; 4];
@@ -204,7 +210,8 @@ seek contract. `&[u8]`, `Vec<u8>` and `&mut S` implement it, and
 `SeekSource<T>` adapts any `Read + Seek`:
 
 ```rust
-use hadris_io::{ByteSource, Cursor, SeekSource};
+use hadris_io::sync::{ByteSource, SeekSource};
+use hadris_io::Cursor;
 
 let data = [1u8, 2, 3, 4, 5, 6];
 let mut source = SeekSource::new(Cursor::new(&data)).unwrap();

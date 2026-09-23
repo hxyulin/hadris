@@ -2,8 +2,8 @@
 //!
 //! Format crates use these until each one moves to the typed traits at the
 //! crate root. This module is removed before 3.0; new code uses
-//! [`ErrorType`](crate::ErrorType) and the typed [`Read`](crate::Read),
-//! [`Write`](crate::Write) and [`Seek`](crate::Seek).
+//! [`ErrorType`](crate::ErrorType) and the typed [`Read`](crate::sync::Read),
+//! [`Write`](crate::sync::Write) and [`Seek`](crate::sync::Seek).
 
 mod error;
 pub use error::{Error, ErrorKind, Result};

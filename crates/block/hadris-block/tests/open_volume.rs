@@ -85,7 +85,7 @@ fn opens_fat_inside_gpt_partition() {
     let volume = OpenVolume::open(gpt_partition(&mut disk, &entry).unwrap()).unwrap();
     assert_eq!(volume.format(), FatVariant::Fat12);
     let slice: Slice<_> = volume.into_inner();
-    assert_eq!(slice.first(), BlockIndex(start_lba));
+    assert_eq!(slice.first(), BlockIndex::new(start_lba));
 }
 
 #[test]
@@ -99,10 +99,12 @@ fn partitions_past_the_disk_are_refused() {
 fn rejects_unknown_and_mismatched_formats() {
     let (error, dev) = failure(OpenVolume::open(device(vec![0_u8; 1024])));
     assert!(matches!(error, Error::UnknownFormat));
+    assert_eq!(error.kind(), hadris_fs::ErrorKind::Unsupported);
     assert_eq!(dev.get_ref().len(), 1024);
 
     let dev = format_fat12(device(vec![0_u8; VOLUME_LEN]));
     let (error, dev) = failure(OpenVolume::open_detected(dev, FatVariant::Fat16));
+    assert_eq!(error.kind(), hadris_fs::ErrorKind::Corrupt);
     assert!(matches!(
         error,
         Error::DetectedFormatMismatch {
@@ -128,7 +130,19 @@ fn a_volume_that_fails_to_mount_gives_the_device_back() {
         Some(BlockFormat::Fat(FatVariant::Fat12))
     );
 
-    let (error, dev) = failure(OpenVolume::open(dev));
+    let err = OpenVolume::open(dev).map(|_| ()).unwrap_err();
+    assert_eq!(err.kind(), hadris_fs::ErrorKind::Corrupt);
+    assert_eq!(err.device().get_ref().len(), VOLUME_LEN / 2);
+    let io: std::io::Error = OpenVolume::open(err.into_device())
+        .map(|_| ())
+        .unwrap_err()
+        .into();
+    assert_eq!(io.kind(), std::io::ErrorKind::InvalidData);
+
+    let mut image = format_fat12(device(vec![0_u8; VOLUME_LEN])).into_inner();
+    image.truncate(VOLUME_LEN / 2);
+    let (error, dev) = failure(OpenVolume::open(device(image)));
+    assert_eq!(error.device_error(), None);
     let Error::Fat(error) = error else {
         panic!("{error:?}");
     };

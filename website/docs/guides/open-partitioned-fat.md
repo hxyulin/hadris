@@ -39,7 +39,7 @@ fn main() -> Result<()> {
         .context("the disk has no partitions")?;
 
     let mut disk = stream.into_inner();
-    let slice = Slice::new(&mut disk, BlockIndex(partition.start_lba), partition.size_sectors)
+    let slice = Slice::new(&mut disk, BlockIndex::new(partition.start_lba), partition.size_sectors)
         .map_err(|_| anyhow::anyhow!("the partition does not fit on the disk"))?;
     let opened = OpenVolume::open(slice)?;
     let mut fat = opened

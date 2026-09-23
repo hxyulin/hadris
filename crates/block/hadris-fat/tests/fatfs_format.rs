@@ -522,7 +522,7 @@ fn formats_a_partition_slice() {
     let mut disk = MemDevice::new(vec![0xAAu8; 8 * MIB as usize], BlockSize::new(512).unwrap());
     let first = 2048;
     let count = 4 * MIB / 512;
-    let slice = Slice::new(&mut disk, BlockIndex(first), count).unwrap();
+    let slice = Slice::new(&mut disk, BlockIndex::new(first), count).unwrap();
     let options = FormatOptions::new()
         .with_hidden_sectors(first as u32)
         .with_label(label("PART"));

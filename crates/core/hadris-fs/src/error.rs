@@ -182,6 +182,24 @@ impl<E> From<crate::NameError> for Error<E> {
     }
 }
 
+impl<E> From<crate::DateTimeError> for Error<E> {
+    fn from(err: crate::DateTimeError) -> Self {
+        err.kind().into()
+    }
+}
+
+impl<E> From<crate::OpenOptionsError> for Error<E> {
+    fn from(err: crate::OpenOptionsError) -> Self {
+        err.kind().into()
+    }
+}
+
+impl<E> From<crate::path::PathError> for Error<E> {
+    fn from(err: crate::path::PathError) -> Self {
+        err.kind().into()
+    }
+}
+
 impl<E> From<hadris_storage::WriteError<E>> for Error<E> {
     fn from(err: hadris_storage::WriteError<E>) -> Self {
         match err {
@@ -432,6 +450,18 @@ mod tests {
         assert_eq!(err.device_error(), Some(&Ata::Timeout));
         let err: Error<Ata> = hadris_io::ExactError::<Error<Ata>>::WriteZero.into();
         assert_eq!(err.kind(), ErrorKind::NoSpace);
+    }
+
+    #[test]
+    fn value_errors_convert_to_their_kind() {
+        let err: Error<Ata> = crate::DateTimeError::OutOfRange.into();
+        assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+        let err: Error<Ata> = crate::OpenOptionsError::RequiresWrite.into();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        let err: Error<Ata> = crate::path::PathError::EscapesRoot.into();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        let err: Error<Ata> = crate::TableFull::new(3u8).into();
+        assert_eq!(err.kind(), ErrorKind::LimitExceeded);
     }
 
     #[test]

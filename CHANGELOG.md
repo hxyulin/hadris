@@ -184,8 +184,34 @@ Each published package owns its version and may be released independently.
   write-back LRU caching (`alloc`, first write goes straight through), and
   `ByteView` for byte-granular access and a bounded stream. Adapters that can
   refuse a request report `StorageError<E>`.
+- **hadris-fs (V3):** `DateTimeError`, `OpenOptionsError` and `PathError`
+  convert into `Error<E>` with their kind, as `NameError` and `TableFull`
+  already did, so `?` works from every `hadris-fs` validation error.
+  `PathError::kind()` returns `ErrorKind::InvalidInput`.
+- **hadris-block (V3):** `Error` reports the shared `ErrorKind` through
+  `kind()` (`Io` for a device failure, the driver's kind for a failed
+  mount, `Unsupported` for an unknown or unsupported format, `InvalidInput`
+  for a partitioned disk, `Corrupt` when detection and the driver disagree)
+  and the device error through `device_error()` and `into_device_error()`.
+  `Error` and `OpenError` convert into `hadris_fs::Error`, keeping the kind
+  and the device error, and with `std` into `std::io::Error`. `OpenError`
+  gains `kind()` and `device()`.
 
 ### Changed
+
+- **hadris-io (V3):** The crate root no longer glob re-exports the `sync`
+  module (R5). Name the traits through their mode: `hadris_io::sync::Read`,
+  `hadris_io::r#async::Read` or `hadris_io::async_send::Read`. The root keeps
+  the mode-independent items (`ErrorType`, `ExactError`, `Cursor`,
+  `SeekFrom`, `FromEmbedded`, `StdIo`, `ToStd`).
+- **hadris-storage (V3):** `BlockIndex` and `BlockCount` have a private
+  field: build them with `BlockIndex::new(n)` and read them with `get()`
+  (R2). `BlockRange` (`start`, `count`) and `BlockGeometry`
+  (`logical_block_size`, `block_count`, `physical_block_size`) have
+  `const fn` accessors instead of public fields. `StreamWrite` is sealed.
+- **hadris-fat (V3):** The variants of `Finding` with fields are
+  `#[non_exhaustive]`, so findings are made only by `check` and a later
+  release can add a location to one; match them with `..`.
 
 - **hadris-fs (V3):** The driver contract is written down in full on
   `FsDriver`: `NodeId` 0 is never a node, cursors stay at or below the new
@@ -311,6 +337,15 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-storage (V3):** `PartitionView`, which bounded a
+  `hadris_io::legacy` stream. `Slice` replaces it over a `BlockDevice`.
+  `hadris-storage` no longer depends on `embedded-io`.
+- **hadris-common (V3):** `MaybePod`, whose bounds changed with the
+  `bytemuck` feature; the `Endian` associated types have no bounds now and
+  `bytemuck` only adds `Pod` impls. The unused `optical` module and
+  feature, the `alg` module (`Crc32HasherIsoHdlc`) and the `chrono`, `crc`
+  and `rand` dependencies, which `std` pulled into every dependent crate.
+
 - **hadris-fat (V3):** The V2 FAT12/16/32 API: `FatVolume`,
   `FatVolumeBuilder`, `FatDir`, `FileEntry`, `DirectoryEntry`, `FileReader`,
   `FileWriter`, `FatVolumeReadExt`, `FatVolumeWriteExt`, the `fat_table`
@@ -351,6 +386,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-macros:** `send_async!` no longer panics on a trait without a
+  body or an `async fn` with neither a body nor a semicolon, and no longer
+  takes the next item's body for a trait alias. It passes such tokens
+  through, so rustc reports the error at the user's span.
 - **hadris-fat:** Generated short names no longer turn a non-ASCII
   character whose code point ends in an ASCII byte into that byte (U+0121
   became `!`, U+012E was dropped as a `.`), ignore code page bytes below

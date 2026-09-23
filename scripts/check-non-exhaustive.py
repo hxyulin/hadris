@@ -12,6 +12,10 @@ Skipped: modules named `raw` (file `raw.rs`, directory `raw/`, or inline
 `macro_rules!` bodies, and items marked `#[repr(C..)]` or
 `#[repr(transparent)]` (on-disk layouts, R4).
 
+Preview modules, declared in `lib.rs` as `pub mod name;` behind
+`#[cfg(feature = "unstable-..")]`, are outside the stability promise (R3).
+Their findings are listed separately and do not fail the check.
+
 This is a text heuristic, not a Rust parser. Known limits:
 - Visibility is taken literally: a `pub` item in a private module is still
   reported, and items created by macros (other than the source they expand
@@ -44,6 +48,10 @@ SKIP_BLOCK = re.compile(
     r"|\bmacro_rules!\s*\w+\s*\{"
 )
 REPR_LAYOUT = re.compile(r"#\s*\[\s*repr\s*\(\s*(?:C\b|transparent\b)")
+PREVIEW_MOD = re.compile(
+    r'#\s*\[\s*cfg\s*\(\s*feature\s*=\s*"unstable-[^"]*"\s*\)\s*\]\s*'
+    r"(?:#\s*\[[^\]]*\]\s*)*pub\s+mod\s+(\w+)\s*;"
+)
 
 
 def strip_comments_and_strings(src: str) -> str:
@@ -158,18 +166,27 @@ def scan_source(src: str) -> list[tuple[int, str, str]]:
     return findings
 
 
-def source_files(root: Path) -> list[tuple[str, Path]]:
+def preview_modules(lib_src: str) -> set[str]:
+    """Names of `unstable-*` preview modules declared in a crate's lib.rs."""
+    without_comments = re.sub(r"//[^\n]*|/\*.*?\*/", "", lib_src, flags=re.S)
+    return set(PREVIEW_MOD.findall(without_comments))
+
+
+def source_files(root: Path) -> list[tuple[str, Path, bool]]:
     files = []
     for group in GROUPS:
         for crate in sorted((root / "crates" / group).glob("*/")):
             src = crate / "src"
             if not src.is_dir():
                 continue
+            lib = src / "lib.rs"
+            previews = preview_modules(lib.read_text(encoding="utf-8")) if lib.is_file() else set()
             for path in sorted(src.rglob("*.rs")):
                 rel = path.relative_to(src)
                 if "raw" in rel.parts[:-1] or path.stem in ("raw", "tests"):
                     continue
-                files.append((crate.name, path))
+                top = rel.parts[0] if len(rel.parts) > 1 else rel.stem
+                files.append((crate.name, path, top in previews))
     return files
 
 
@@ -202,6 +219,22 @@ pub enum AfterAll { A }
     if got != want:
         print(f"self-test failed: got {got}, want {want}", file=sys.stderr)
         return 1
+    lib = """
+#[cfg(feature = "unstable-exfat")]
+pub mod exfat;
+/// docs
+#[cfg(feature = "unstable-streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "unstable-streaming")))]
+pub mod stream;
+#[cfg(feature = "write")]
+pub mod write;
+// #[cfg(feature = "unstable-old")] pub mod old;
+pub mod raw;
+"""
+    previews = preview_modules(lib)
+    if previews != {"exfat", "stream"}:
+        print(f"self-test failed: preview modules {sorted(previews)}", file=sys.stderr)
+        return 1
     print("self-test passed")
     return 0
 
@@ -216,13 +249,23 @@ def main() -> int:
         return self_test()
 
     counts: Counter[str] = Counter()
-    for crate, path in source_files(args.root):
+    preview: list[str] = []
+    for crate, path, is_preview in source_files(args.root):
         text = path.read_text(encoding="utf-8")
         for line, kind, name in scan_source(text):
+            rel = path.relative_to(args.root)
+            message = f"{rel}:{line}: pub {kind} {name} lacks #[non_exhaustive]"
+            if is_preview:
+                preview.append(message)
+                continue
             counts[crate] += 1
             if not args.summary:
-                rel = path.relative_to(args.root)
-                print(f"{rel}:{line}: pub {kind} {name} lacks #[non_exhaustive]")
+                print(message)
+
+    if preview and not args.summary:
+        print("\nPreview modules (unstable-*, not counted):")
+        for message in preview:
+            print(f"  {message}")
 
     if counts:
         print("\nR1 findings per crate:")

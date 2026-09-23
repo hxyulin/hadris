@@ -85,7 +85,7 @@ fn opens_fat_through_an_mbr_partition() {
         fs.write_file("/HELLO.TXT", b"hello").await.unwrap();
         assert_eq!(fs.read_to_vec("/HELLO.TXT").await.unwrap(), b"hello");
         fs.sync().await.unwrap();
-        assert_eq!(fs.into_inner().first(), BlockIndex(1));
+        assert_eq!(fs.into_inner().first(), BlockIndex::new(1));
     });
 }
 

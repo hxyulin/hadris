@@ -22,15 +22,15 @@ async fn copy_block<S: BlockDevice, T: BlockDevice>(
     dst: &mut T,
 ) -> Result<(), WriteError<T::Error>> {
     let mut buf = [0u8; 512];
-    src.read_blocks(BlockIndex(1), &mut buf).await.unwrap();
-    dst.write_blocks(BlockIndex(0), &buf).await
+    src.read_blocks(BlockIndex::new(1), &mut buf).await.unwrap();
+    dst.write_blocks(BlockIndex::new(0), &buf).await
 }
 
 #[test]
 fn generic_device_futures_are_send() {
     let size = BlockSize::new(512).unwrap();
     let image: Vec<u8> = (0..2048u32).map(|i| (i / 512) as u8).collect();
-    let mut src = Slice::new(MemDevice::new(&image[..], size), BlockIndex(1), 2).unwrap();
+    let mut src = Slice::new(MemDevice::new(&image[..], size), BlockIndex::new(1), 2).unwrap();
     let mut dst = Cache::new(MemDevice::new(vec![0u8; 1024], size), 4);
     block_on(assert_send(copy_block(&mut src, &mut dst))).unwrap();
     let dst = block_on(dst.finish()).unwrap();
