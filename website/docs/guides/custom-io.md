@@ -11,13 +11,11 @@ Hosted `std::io` types are wrapped in `StdIo` instead.
 
 ```toml
 [dependencies]
-hadris-fat = {
-  version = "2.4.0",
-  default-features = false,
-  features = ["read", "sync"]
-}
 hadris-io = { version = "2.4.0", default-features = false, features = ["sync"] }
 ```
+
+`hadris-fat` reads a block device rather than a stream; see
+[Implement a block device for FAT](#implement-a-block-device-for-fat) below.
 
 ## Implement the Hadris traits
 
@@ -60,8 +58,7 @@ impl Seek for FirmwareDisk {
 }
 
 let disk = FirmwareDisk { position: 0, len: 64 * 1024 * 1024 };
-let volume = hadris_fat::sync::FatVolume::open(disk)?;
-# Ok::<(), hadris_fat::Error>(())
+// Pass `disk` to a format crate that reads streams.
 ```
 
 `Error::new` takes a portable `ErrorKind` and a static message, so it works
@@ -108,15 +105,68 @@ impl Seek for FirmwareDisk {
     }
 }
 
-let disk = FirmwareDisk { /* ... */ };
-let volume = hadris_fat::sync::FatVolume::open(FromEmbedded::new(disk))?;
-# Ok::<(), hadris_fat::Error>(())
+let disk = FromEmbedded::new(FirmwareDisk { /* ... */ });
+// Pass `disk` to a format crate that reads streams.
 ```
 
 The device error type can be any `embedded_io::Error` that is
 `Send + Sync + 'static`; `ErrorKind` is used here for brevity. With the `async`
 feature, `FromEmbedded` wraps `embedded-io-async` devices for the async traits
 in the same way.
+
+## Implement a block device for FAT
+
+`hadris_fat::sync::FatFs` mounts any `hadris_storage::sync::BlockDevice`.
+A device reports its block size and count and reads whole blocks; a read-only
+device leaves `write_blocks` to its default, which answers
+`WriteError::ReadOnly`. No allocator is needed.
+
+```toml
+[dependencies]
+hadris-fat = { version = "2.4.0", default-features = false, features = ["sync"] }
+hadris-io = { version = "2.4.0", default-features = false, features = ["sync"] }
+hadris-storage = { version = "2.4.0", default-features = false, features = ["sync"] }
+```
+
+```rust,no_run
+use hadris_io::ErrorType;
+use hadris_storage::sync::BlockDevice;
+use hadris_storage::{BlockIndex, BlockSize};
+
+#[derive(Debug)]
+struct FirmwareError;
+
+struct FirmwareDisk {
+    blocks: u64,
+}
+
+impl ErrorType for FirmwareDisk {
+    type Error = FirmwareError;
+}
+
+impl BlockDevice for FirmwareDisk {
+    fn block_size(&self) -> BlockSize {
+        BlockSize::new(512).unwrap()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.blocks
+    }
+
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), FirmwareError> {
+        // Read `buf.len() / 512` blocks starting at `first` from the device.
+        let _ = (first, buf);
+        Err(FirmwareError)
+    }
+}
+
+let disk = FirmwareDisk { blocks: 131_072 };
+let volume = hadris_fat::sync::FatFs::open(disk);
+```
+
+A byte stream implementing the `hadris-io` traits becomes a block device
+through `hadris_storage::sync::StreamDevice`, and `std::fs::File` and
+`hadris_storage::MemDevice` are block devices already.
 
 ## Device requirements
 

@@ -123,12 +123,41 @@ Each published package owns its version and may be released independently.
   `fat::generic::FsAdapter<M: Mount>`, one adapter over any `hadris-fs`
   `FileSystem`, with `HadrisFat` mounting `FatFs` on the image file. The
   V2 `FatVolume` adapter is removed.
+- **hadris-fat (V3):** `FatFs::cluster_chain(node, visit)` passes each
+  cluster of a node's chain to a callback without allocating, for tools that
+  show file layout and fragmentation.
 
 ### Changed
 
-- **hadris-fat:** The `write` feature no longer implies `alloc`. The V2
-  writer, formatter and their error variants need `write` and `alloc`
-  together; `write` alone adds the allocation-free `FatFs` formatter.
+- **hadris-fat (V3):** The `write` feature only adds `format` in each mode
+  and no longer implies `read` or `alloc`; `FatFs` reads and writes without
+  it. Default features are `std`, `sync` and `write`. The crate root no longer
+  re-exports the `sync` module: write `hadris_fat::sync::FatFs`. The
+  `unstable-exfat` preview keeps its API but has its own
+  `hadris_fat::exfat::Error` and `Result`, reads through
+  `hadris_io::legacy::sync` directly, and with `std` stamps new entries with
+  the UTC time of `hadris_fs::SystemClock` instead of chrono's local time.
+- **hadris-block (V3):** `detect::sync::detect` and `detect::r#async::detect`
+  take a `hadris-storage` `BlockDevice` and return the device's error; the
+  block size is the device's. `OpenVolume<D>` takes the device by value and
+  holds a `FatFs<D>`, with `into_inner` returning the device. `Error<E>`
+  carries the device error in `Device` and the mount error as
+  `Fat(hadris_fs::Error<E>)`. `partition::sync` and `partition::r#async` turn
+  MBR and GPT entries into `Slice<D>`s of the disk. The `detect` feature
+  depends on `hadris-storage` instead of `hadris-io`.
+- **hadris-fat-cli (V3):** Every command runs on `FatFs`; read commands mount
+  images read-only. `stat` counts clusters, files and directories with
+  `check` and no longer prints reserved clusters. `verify` runs `check_with`,
+  prints each finding and "Clusters In Use" instead of "Clusters Verified",
+  and with `--verbose` adds free, bad and lost clusters. `fragmentation` and
+  `chain` read chains with `FatFs::cluster_chain`. `create` rejects volume
+  labels longer than 11 ASCII characters, formats with `format`, imports with
+  `import_from_host` and stamps entries with the current UTC time; `extract`
+  uses `extract_to_host` and restores modification times.
+- **Fuzzing and examples (V3):** `fat_read`, `fat_ops` and `fs_dump` drive
+  `FatFs`; `fat_ops` also covers `write_at` and `set_len` and asserts that
+  `check` finds nothing after `sync`. The `fat-list` and `shared_volume`
+  examples use `FatFs` and the `hadris-fs` path helpers and `Volume`.
 - **hadris-io (V3):** `Read`, `Write` and `Seek` (sync and async) report the
   implementor's own error through the new `ErrorType` supertrait, as in
   `embedded-io`. The error only needs `core::error::Error + Send + Sync +
@@ -184,6 +213,27 @@ Each published package owns its version and may be released independently.
   refuse a request report `StorageError<E>`.
 
 ### Removed
+
+- **hadris-fat (V3):** The V2 FAT12/16/32 API: `FatVolume`,
+  `FatVolumeBuilder`, `FatDir`, `FileEntry`, `DirectoryEntry`, `FileReader`,
+  `FileWriter`, `FatVolumeReadExt`, `FatVolumeWriteExt`, the `fat_table`
+  types (`Fat`, `Fat12`, `Fat16`, `Fat32`, `FatType`), the FAT sector cache
+  (`FatSectorCache`, `CachedFat`), the V2 `format` module
+  (`FatVolumeFormatter`, `FatFormatOptions`, `FatTypeSelection`,
+  `SectorSize` and the layout calculator), the `tool` analysis and verify
+  extensions (`FatAnalysisExt`, `FatVerifyExt` and their reports), `time`
+  (`FatDateTime`, `TimeProvider`), `oem` (`OemCpConverter`), `file`
+  (`ShortFileName`, `LongFileName`, `LfnBuilder`), the crate-level `Error`
+  and `Result`, `hadris_fat::io`, and the raw directory entry types
+  (`RawFileEntry`, `RawLfnEntry`, `RawDirectoryEntry`, `DirEntryAttrFlags`,
+  `NtCaseFlags`). Use `FatFs`, `format`, `check` and `check_with`, and
+  `hadris_storage::sync::Cache` for caching. The `read`, `lfn`, `cache`,
+  `tool` and `dirty-file-panic` features, the `chrono` dependency and the
+  `HADRIS_FAT_CACHE_WINDOW_SIZE` build variable are removed. Library-level
+  fragmentation analysis is not ported; the CLI computes it from
+  `cluster_chain`.
+- **hadris-block (V3):** Detection and opening over `hadris_io::legacy`
+  streams, `mbr_partition_view`, `gpt_partition_view` and `Error::Io`.
 
 - **hadris-path (V3):** Merged into `hadris-fs` as `hadris_fs::path`.
   `Component`, `Separators` and `PathError` are now `#[non_exhaustive]`. The

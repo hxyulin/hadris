@@ -73,15 +73,16 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Block Storage
 
-- **[hadris-block](crates/block/hadris-block)** - Category facade for storage traits, partitions, and block filesystems, with lightweight detection, bounded partition views, and unified FAT opening
+- **[hadris-block](crates/block/hadris-block)** - Category facade for storage traits, partitions, and block filesystems, with lightweight detection on block devices, partition slices, and unified FAT opening as `FatFs`
 - **[hadris-part](crates/block/hadris-part)** - Partition table support
   - MBR (Legacy BIOS partition tables)
   - GPT (Modern UEFI partition tables)
   - Hybrid MBR (Combined MBR+GPT for dual BIOS/UEFI boot)
 - **[hadris-fat](crates/block/hadris-fat)** - FAT filesystem implementation
   - FAT12, FAT16, FAT32 support
+  - `FatFs`, a node-based `hadris-fs` driver in sync, async and `Send` async modes
   - Long filename support (VFAT/LFN)
-  - FAT sector caching for performance
+  - Formatting and a read-only checker, all without an allocator
   - Analysis and verification tools
   - exFAT preview (unstable leaf-crate feature; not opened by the block facade)
 - **[hadris-ntfs](crates/block/hadris-ntfs)** - Experimental read-only NTFS
@@ -194,13 +195,13 @@ hadris-part = { version = "2.4.0", features = ["read"] }
 hadris-fs = "2.4.0"
 ```
 
-For allocation-free `no_std` ISO reading:
+For allocation-free `no_std` ISO reading and FAT reading and writing:
 
 ```toml
 [dependencies]
 # No heap allocator: ISO 9660/Joliet lookup and streamed file reads.
 hadris-iso = { version = "2.4.0", default-features = false, features = ["read", "sync"] }
-hadris-fat = { version = "2.4.0", default-features = false, features = ["read", "sync"] }
+hadris-fat = { version = "2.4.0", default-features = false, features = ["sync"] }
 ```
 
 Add the `alloc` feature to `hadris-iso` when owned collections, convenience
@@ -216,7 +217,7 @@ cargo build --workspace
 cargo test --workspace
 
 # Build for no-std (example)
-cargo build -p hadris-fat --no-default-features --features "read,sync"
+cargo build -p hadris-fat --no-default-features --features "sync"
 ```
 
 See [CLAUDE.md](CLAUDE.md) for detailed build instructions and architecture notes, and [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow.

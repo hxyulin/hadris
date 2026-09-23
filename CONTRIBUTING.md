@@ -25,7 +25,7 @@ cargo test --workspace --all-features --doc
 RUSTFLAGS="-D warnings" cargo check --workspace
 
 # No-std / feature tiers (examples)
-RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --features "sync,write"
 RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --features "read,sync"
 ```
 
