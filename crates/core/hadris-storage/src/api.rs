@@ -5,6 +5,10 @@ use crate::{
 };
 use hadris_io::{ErrorType, ExactError, SeekFrom};
 
+mod sealed {
+    pub trait Sealed {}
+}
+
 io_transform! {
 
 /// A device addressed in whole logical blocks.
@@ -140,13 +144,17 @@ impl<T: Seek> Seek for ReadOnly<T> {
 /// Implemented for every [`Write`] and for [`ReadOnly`], which answers
 /// [`WriteError::ReadOnly`]. A second `BlockDevice` impl for read-only
 /// streams would overlap the first, so the marker type carries the choice.
-pub trait StreamWrite: ErrorType {
+/// The trait is sealed.
+pub trait StreamWrite: ErrorType + sealed::Sealed {
     /// Writes all of `buf`.
     async fn stream_write_all(&mut self, buf: &[u8]) -> Result<(), WriteError<ExactError<Self::Error>>>;
 
     /// Flushes the stream.
     async fn stream_flush(&mut self) -> Result<(), WriteError<Self::Error>>;
 }
+
+impl<T: Write + ?Sized> sealed::Sealed for T {}
+impl<T: ErrorType + MaybeSend> sealed::Sealed for ReadOnly<T> {}
 
 impl<T: Write + ?Sized> StreamWrite for T {
     async fn stream_write_all(&mut self, buf: &[u8]) -> Result<(), WriteError<ExactError<Self::Error>>> {
@@ -269,15 +277,15 @@ impl<D: BlockDevice> Slice<D> {
     ///
     /// Fails, returning `inner`, if the range does not fit.
     pub fn new(inner: D, first: BlockIndex, count: u64) -> Result<Self, D> {
-        match first.0.checked_add(count) {
-            Some(end) if end <= inner.block_count() => Ok(Self { inner, first: first.0, count }),
+        match first.get().checked_add(count) {
+            Some(end) if end <= inner.block_count() => Ok(Self { inner, first: first.get(), count }),
             _ => Err(inner),
         }
     }
 
     /// First block of the slice on the underlying device.
     pub fn first(&self) -> BlockIndex {
-        BlockIndex(self.first)
+        BlockIndex::new(self.first)
     }
 
     /// Recovers the underlying device.
@@ -312,7 +320,7 @@ impl<D: BlockDevice> BlockDevice for Slice<D> {
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error> {
         check_blocks(self.inner.block_size(), self.count, first, buf.len())?;
         self.inner
-            .read_blocks(BlockIndex(self.first + first.0), buf)
+            .read_blocks(BlockIndex::new(self.first + first.get()), buf)
             .await
             .map_err(StorageError::Device)
     }
@@ -324,7 +332,7 @@ impl<D: BlockDevice> BlockDevice for Slice<D> {
     ) -> Result<(), WriteError<Self::Error>> {
         check_blocks(self.inner.block_size(), self.count, first, buf.len()).map_err(StorageError::from)?;
         self.inner
-            .write_blocks(BlockIndex(self.first + first.0), buf)
+            .write_blocks(BlockIndex::new(self.first + first.get()), buf)
             .await
             .map_err(|err| err.map_device(StorageError::Device))
     }
@@ -386,7 +394,7 @@ impl<D: BlockDevice> Cache<D> {
         let slot = match self.state.victim() {
             Some(slot) => {
                 if let Some(evicted) = self.state.dirty_index(slot) {
-                    self.inner.write_blocks(BlockIndex(evicted), self.state.data(slot)).await?;
+                    self.inner.write_blocks(BlockIndex::new(evicted), self.state.data(slot)).await?;
                 }
                 slot
             }
@@ -394,7 +402,7 @@ impl<D: BlockDevice> Cache<D> {
         };
         self.state.forget(slot);
         if load {
-            self.inner.read_blocks(BlockIndex(index), self.state.data_mut(slot)).await?;
+            self.inner.read_blocks(BlockIndex::new(index), self.state.data_mut(slot)).await?;
         }
         self.state.assign(slot, index);
         Ok(slot)
@@ -426,11 +434,11 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         }
         let size = self.inner.block_size().get() as usize;
         for (i, chunk) in buf.chunks_exact_mut(size).enumerate() {
-            let slot = match self.slot_for(first.0 + i as u64, true).await {
+            let slot = match self.slot_for(first.get() + i as u64, true).await {
                 Ok(slot) => slot,
                 Err(WriteError::Device(err)) => return Err(err),
                 Err(_) => {
-                    self.inner.read_blocks(BlockIndex(first.0 + i as u64), chunk).await?;
+                    self.inner.read_blocks(BlockIndex::new(first.get() + i as u64), chunk).await?;
                     continue;
                 }
             };
@@ -447,12 +455,12 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         if !self.written || !self.in_range(first, buf.len()) {
             self.inner.write_blocks(first, buf).await?;
             self.written = true;
-            self.state.invalidate(first.0, buf.len() / self.inner.block_size().get() as usize);
+            self.state.invalidate(first.get(), buf.len() / self.inner.block_size().get() as usize);
             return Ok(());
         }
         let size = self.inner.block_size().get() as usize;
         for (i, chunk) in buf.chunks_exact(size).enumerate() {
-            let slot = self.slot_for(first.0 + i as u64, false).await?;
+            let slot = self.slot_for(first.get() + i as u64, false).await?;
             self.state.data_mut(slot).copy_from_slice(chunk);
             self.state.mark_dirty(slot);
         }
@@ -462,7 +470,7 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
     async fn flush(&mut self) -> Result<(), WriteError<Self::Error>> {
         while let Some(slot) = self.state.next_dirty() {
             let Some(index) = self.state.dirty_index(slot) else { break };
-            self.inner.write_blocks(BlockIndex(index), self.state.data(slot)).await?;
+            self.inner.write_blocks(BlockIndex::new(index), self.state.data(slot)).await?;
             self.state.clean(slot);
         }
         self.inner.flush().await
@@ -530,14 +538,14 @@ impl<D: BlockDevice> ByteView<D> {
             if within == 0 && left >= size {
                 let whole = left / size * size;
                 self.inner
-                    .read_blocks(BlockIndex(block), &mut buf[done..done + whole])
+                    .read_blocks(BlockIndex::new(block), &mut buf[done..done + whole])
                     .await
                     .map_err(StorageError::Device)?;
                 done += whole;
             } else {
                 let n = (size - within).min(left);
                 let scratch = self.scratch.get(size).ok_or(StorageError::BlockTooLarge)?;
-                self.inner.read_blocks(BlockIndex(block), scratch).await.map_err(StorageError::Device)?;
+                self.inner.read_blocks(BlockIndex::new(block), scratch).await.map_err(StorageError::Device)?;
                 buf[done..done + n].copy_from_slice(&scratch[within..within + n]);
                 done += n;
             }
@@ -559,14 +567,14 @@ impl<D: BlockDevice> ByteView<D> {
             let left = buf.len() - done;
             if within == 0 && left >= size {
                 let whole = left / size * size;
-                self.inner.write_blocks(BlockIndex(block), &buf[done..done + whole]).await?;
+                self.inner.write_blocks(BlockIndex::new(block), &buf[done..done + whole]).await?;
                 done += whole;
             } else {
                 let n = (size - within).min(left);
                 let scratch = self.scratch.get(size).ok_or(StorageError::BlockTooLarge)?;
-                self.inner.read_blocks(BlockIndex(block), scratch).await.map_err(StorageError::Device)?;
+                self.inner.read_blocks(BlockIndex::new(block), scratch).await.map_err(StorageError::Device)?;
                 scratch[within..within + n].copy_from_slice(&buf[done..done + n]);
-                self.inner.write_blocks(BlockIndex(block), scratch).await?;
+                self.inner.write_blocks(BlockIndex::new(block), scratch).await?;
                 done += n;
             }
         }

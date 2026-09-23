@@ -400,7 +400,7 @@ async fn load<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, index: u64) -> 
         return Ok(());
     }
     block.cached = None;
-    dev.read_blocks(BlockIndex(index), &mut block.data[..block.size])
+    dev.read_blocks(BlockIndex::new(index), &mut block.data[..block.size])
         .await
         .map_err(Error::from_device)?;
     block.cached = Some(index);
@@ -423,7 +423,7 @@ async fn read_bytes<D: BlockDevice>(
         let at = (pos % size as u64) as usize;
         let whole = (out.len() - done) / size * size;
         if at == 0 && whole > 0 {
-            dev.read_blocks(BlockIndex(index), &mut out[done..done + whole])
+            dev.read_blocks(BlockIndex::new(index), &mut out[done..done + whole])
                 .await
                 .map_err(Error::from_device)?;
             done += whole;
@@ -460,7 +460,7 @@ pub(super) async fn write_bytes<D: BlockDevice>(
             let chunk = whole.min(MAX_BLOCK_SIZE / size * size);
             block.cached = None;
             block.data[..chunk].fill(0);
-            dev.write_blocks(BlockIndex(index), &block.data[..chunk]).await?;
+            dev.write_blocks(BlockIndex::new(index), &block.data[..chunk]).await?;
             done += chunk;
             continue;
         }
@@ -472,7 +472,7 @@ pub(super) async fn write_bytes<D: BlockDevice>(
             if block.cached.is_some_and(|cached| blocks.contains(&cached)) {
                 block.cached = None;
             }
-            dev.write_blocks(BlockIndex(index), &data[done..done + whole]).await?;
+            dev.write_blocks(BlockIndex::new(index), &data[done..done + whole]).await?;
             done += whole;
             continue;
         }
@@ -485,7 +485,7 @@ pub(super) async fn write_bytes<D: BlockDevice>(
             Some(data) => block.data[at..at + n].copy_from_slice(&data[done..done + n]),
             None => block.data[at..at + n].fill(0),
         }
-        dev.write_blocks(BlockIndex(index), &block.data[..size]).await?;
+        dev.write_blocks(BlockIndex::new(index), &block.data[..size]).await?;
         block.cached = Some(index);
         done += n;
     }

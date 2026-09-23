@@ -26,7 +26,7 @@ macro_rules! partition_mode {
             entry: &hadris_part::MbrPartition,
         ) -> Result<Slice<D>, D> {
             let (first, count) = super::mbr_range(entry);
-            Slice::new(disk, BlockIndex(first), count)
+            Slice::new(disk, BlockIndex::new(first), count)
         }
 
         /// Restricts `disk` to a GPT partition. Fails, returning `disk`,
@@ -36,7 +36,7 @@ macro_rules! partition_mode {
             entry: &hadris_part::GptPartitionEntry,
         ) -> Result<Slice<D>, D> {
             let (first, count) = super::gpt_range(entry);
-            Slice::new(disk, BlockIndex(first), count)
+            Slice::new(disk, BlockIndex::new(first), count)
         }
     };
 }

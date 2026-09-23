@@ -107,7 +107,7 @@ impl<B: MemBuffer> MemDevice<B> {
         len: usize,
     ) -> Result<core::ops::Range<usize>, OutOfRange> {
         check_blocks(self.block_size, self.block_count(), first, len)?;
-        let start = (first.0 * u64::from(self.block_size.get())) as usize;
+        let start = (first.get() * u64::from(self.block_size.get())) as usize;
         Ok(start..start + len)
     }
 }
@@ -153,7 +153,7 @@ pub(crate) fn check_blocks(
         return Err(OutOfRange);
     }
     let count = len as u64 / size;
-    match first.0.checked_add(count) {
+    match first.get().checked_add(count) {
         Some(end) if end <= block_count => Ok(count),
         _ => Err(OutOfRange),
     }
@@ -162,7 +162,7 @@ pub(crate) fn check_blocks(
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
 pub(crate) fn byte_offset(block_size: BlockSize, first: BlockIndex) -> Result<u64, OutOfRange> {
     first
-        .0
+        .get()
         .checked_mul(u64::from(block_size.get()))
         .ok_or(OutOfRange)
 }

@@ -153,16 +153,33 @@ fn async_partition_slices_enforce_their_bounds() {
         let mut slice = mbr_partition(&mut disk, &entry).unwrap();
         assert_eq!(slice.block_count(), 8);
         let mut block = [0_u8; 512];
-        slice.read_blocks(BlockIndex(0), &mut block).await.unwrap();
+        slice
+            .read_blocks(BlockIndex::new(0), &mut block)
+            .await
+            .unwrap();
         assert_eq!(block, [4; 512]);
-        slice.read_blocks(BlockIndex(7), &mut block).await.unwrap();
+        slice
+            .read_blocks(BlockIndex::new(7), &mut block)
+            .await
+            .unwrap();
         assert_eq!(block, [11; 512]);
-        assert!(slice.read_blocks(BlockIndex(8), &mut block).await.is_err());
+        assert!(
+            slice
+                .read_blocks(BlockIndex::new(8), &mut block)
+                .await
+                .is_err()
+        );
 
         let entry = GptPartitionEntry::new(Guid::EFI_SYSTEM, Guid::UNUSED, 10, 15);
         let mut slice = gpt_partition(&mut disk, &entry).unwrap();
-        assert_eq!((slice.first(), slice.block_count()), (BlockIndex(10), 6));
-        slice.read_blocks(BlockIndex(5), &mut block).await.unwrap();
+        assert_eq!(
+            (slice.first(), slice.block_count()),
+            (BlockIndex::new(10), 6)
+        );
+        slice
+            .read_blocks(BlockIndex::new(5), &mut block)
+            .await
+            .unwrap();
         assert_eq!(block, [15; 512]);
 
         let past = MbrPartition::new(MbrPartitionType::Fat12, 12, 8);

@@ -85,7 +85,7 @@ fn opens_fat_inside_gpt_partition() {
     let volume = OpenVolume::open(gpt_partition(&mut disk, &entry).unwrap()).unwrap();
     assert_eq!(volume.format(), FatVariant::Fat12);
     let slice: Slice<_> = volume.into_inner();
-    assert_eq!(slice.first(), BlockIndex(start_lba));
+    assert_eq!(slice.first(), BlockIndex::new(start_lba));
 }
 
 #[test]

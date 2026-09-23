@@ -145,7 +145,7 @@ macro_rules! probe {
         if ((len / size) as u64) > $dev.block_count() {
             return Ok(None);
         }
-        $dev.read_blocks(BlockIndex(0), &mut buf[..len])$(.$aw)??;
+        $dev.read_blocks(BlockIndex::new(0), &mut buf[..len])$(.$aw)??;
         let mut sector = [0u8; 512];
         sector.copy_from_slice(&buf[..512]);
         let detected = detect_sector(&sector);
@@ -157,7 +157,7 @@ macro_rules! probe {
             if $dev.block_count() < 2 {
                 return Ok(None);
             }
-            $dev.read_blocks(BlockIndex(1), &mut buf[..size])$(.$aw)??;
+            $dev.read_blocks(BlockIndex::new(1), &mut buf[..size])$(.$aw)??;
             if &buf[..8] != b"EFI PART" {
                 return Ok(None);
             }

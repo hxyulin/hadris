@@ -771,7 +771,6 @@ dependencies = [
 name = "hadris-storage"
 version = "2.4.0"
 dependencies = [
- "embedded-io",
  "hadris-io",
  "hadris-macros",
 ]

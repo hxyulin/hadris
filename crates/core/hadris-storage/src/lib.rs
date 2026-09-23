@@ -25,7 +25,6 @@ mod device;
 mod error;
 mod geometry;
 mod scratch;
-mod view;
 
 #[cfg(feature = "async")]
 /// Asynchronous adapters.
@@ -45,13 +44,12 @@ pub mod async_send;
 /// let image = [7u8; 2048];
 /// let mut device = MemDevice::new(&image[..], BlockSize::new(512).unwrap());
 /// let mut block = [0u8; 512];
-/// device.read_blocks(BlockIndex(3), &mut block).unwrap();
+/// device.read_blocks(BlockIndex::new(3), &mut block).unwrap();
 /// assert_eq!(block, [7; 512]);
-/// assert_eq!(device.write_blocks(BlockIndex(0), &block), Err(WriteError::ReadOnly));
+/// assert_eq!(device.write_blocks(BlockIndex::new(0), &block), Err(WriteError::ReadOnly));
 /// ```
 pub mod sync;
 
 pub use device::{MemBuffer, MemDevice, ReadOnly};
 pub use error::{OutOfRange, StorageError, WriteError};
 pub use geometry::{BlockCount, BlockGeometry, BlockIndex, BlockRange, BlockSize};
-pub use view::PartitionView;

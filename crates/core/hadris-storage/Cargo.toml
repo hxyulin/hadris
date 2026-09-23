@@ -22,4 +22,3 @@ async-send = ["async", "hadris-io/async-send"]
 [dependencies]
 hadris-io = { workspace = true }
 hadris-macros.workspace = true
-embedded-io.workspace = true
