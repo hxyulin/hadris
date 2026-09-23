@@ -43,7 +43,6 @@ crates=(
   hadris-ntfs
   hadris-optical
   hadris-part
-  hadris-path
   hadris-storage
   hadris-udf
 )
