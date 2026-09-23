@@ -29,8 +29,11 @@ pub enum ErrorKind {
     Corrupt,
     /// Valid but not implemented, or not in the filesystem's capabilities.
     Unsupported,
-    /// A value does not fit the on-disk field.
+    /// A value does not fit the on-disk field, or a path is too long.
     LimitExceeded,
+    /// Too many symbolic links, or a symbolic link where a file or directory
+    /// was needed (`ELOOP`).
+    Symlink,
     /// Unknown or forgotten node identifier.
     InvalidHandle,
     /// The resource is in use, for example by a second writer.
@@ -51,7 +54,8 @@ impl ErrorKind {
             Self::InvalidInput => "invalid input",
             Self::Corrupt => "corrupt filesystem data",
             Self::Unsupported => "unsupported operation",
-            Self::LimitExceeded => "value exceeds an on-disk limit",
+            Self::LimitExceeded => "value exceeds a limit",
+            Self::Symlink => "too many symbolic links, or a symbolic link where none is allowed",
             Self::InvalidHandle => "invalid node handle",
             Self::Busy => "resource busy",
         }
@@ -82,7 +86,7 @@ impl From<ErrorKind> for std::io::ErrorKind {
             ErrorKind::Corrupt => Io::InvalidData,
             ErrorKind::Unsupported => Io::Unsupported,
             ErrorKind::Busy => Io::ResourceBusy,
-            ErrorKind::Io | ErrorKind::LimitExceeded => Io::Other,
+            ErrorKind::Io | ErrorKind::LimitExceeded | ErrorKind::Symlink => Io::Other,
         }
     }
 }

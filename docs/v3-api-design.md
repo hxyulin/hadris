@@ -464,10 +464,10 @@ pub trait FileSystem { /* the same methods on &self */ }   // shared users; Volu
 impl<F: FileSystem + ?Sized> FsDriver for &F { .. }         // so the path layer is written once
 ```
 
-- A format crate writes each method once, as an inherent method on its driver, and `impl_fs_driver!` generates the `FsDriver` impl from them. Raw users call the inherent methods with no trait import. A `read_only` form of the macro leaves the write methods at their defaults.
+- A format crate writes each method once, as an inherent method on its driver, and `impl_fs_driver!` generates the `FsDriver` impl from them. Raw users call the inherent methods with no trait import. A `read_only` form of the macro leaves the write methods at their defaults. Optional methods that are not writes (`parent`, `read_link`) are forwarded only when named, `impl_fs_driver!(impl[D: BlockDevice] IsoFs<D>, error = D::Error, read_only; also = [parent, read_link])`, so a driver never forwards a method it does not have. The exported macro uses `$crate::` paths.
 - `FileSystem` is what shared code programs against. `Volume` (4.4) implements it for every driver, and a format that wants finer locking can implement it directly. Because `&F` is a driver whenever `F` is a `FileSystem`, every helper below is written once over `FsDriver` and serves both.
 - `node_metadata` and `read_dir_entry` carry the `node_`/`_entry` in their names so they never clash with the path helpers `metadata(path)` and `read_dir(path)`; both traits can be in scope at once.
-- `lookup` pins the node it returns. `forget` unpins it. This is the FUSE `lookup`/`forget` contract. ISO, UDF and NTFS have naturally stable IDs, so `forget` does nothing for them.
+- `lookup` pins the node it returns. `forget` unpins it. This is the FUSE `lookup`/`forget` contract. ISO, UDF and NTFS have naturally stable IDs, so `forget` does nothing for them. Without a node table, a directory's id is the location of its own `.` record, not of the record in its parent: `parent` is then one read, and a relocated or symlinked directory has one id (the ISO driver in experiment E3). Hard links keep one id per name there. Rejecting a forged id with `InvalidHandle` is best effort for such formats: the driver checks what it can (ISO compares the both-endian fields), and a forged id that still decodes reads garbage but is never undefined behaviour.
 - `read_dir_entry` is a resumable cursor. `DirCursor` is a `Copy` value that the caller can store and reuse, which FUSE `readdir(offset)` and kernel `getdents` need. It returns one entry per call into a caller buffer, so it works without `alloc`. `DirEntry` carries the name length, `FileType`, and the entry's `NodeId`. Entries are not pinned; a caller that wants to keep one calls `lookup`.
 - Everything is positional. There is no cursor inside a file node.
 - `.` and `..` never appear in `read_dir_entry` output and `lookup` rejects them. Paths resolve through a `Resolver` (4.12): the default never asks the driver about `..`, and `Posix` calls `parent`.
@@ -539,7 +539,8 @@ handle reaches the filesystem, through a small `Access` trait implemented for
 only in generic code over handles.
 
 - `File` implements `hadris_io::{Read, Write, Seek}` and, with `std`, the `std::io` traits for any device error (4.6). `Dir` is an `Iterator` in sync builds and has `next_entry` in async builds.
-- `OpenOptions { read, write, append, truncate, create, create_new }` makes overwrite semantics explicit (#90, #91).
+- `OpenOptions { read, write, append, truncate, create, create_new }` makes overwrite semantics explicit (#90, #91). Opening for writing fails with `ReadOnly` at open time when `capabilities().writable()` is false, before any truncation, instead of at the first write.
+- Opening a symlink node as a file (possible with `Lexical`, which never follows links) fails with `ErrorKind::Symlink`, as POSIX `O_NOFOLLOW` fails with `ELOOP`.
 - `close()` returns `Result`. `Drop` does a best-effort `forget`, never flushes and never panics. `#[must_use]` on handles. `OpenFile` is plain data and does not forget on drop; its owner calls `close`.
 - Helpers on both `DriverExt` and `PathExt`: `exists`, `metadata`, `open`, `read_dir`, `read_to_vec`, `write_file`, `create_dir_all`, `remove_dir_all`, `rename`. Free functions: `copy_tree` (between any two filesystems), and with `std`, `extract_to_host` and `import_from_host`. The host helpers reject absolute names and `..` components so archives and images cannot escape the target directory.
 
@@ -648,7 +649,8 @@ pub enum ErrorKind {
     InvalidInput,        // bad options, names or arguments from the caller
     Corrupt,             // disk data violates the specification
     Unsupported,         // valid but not implemented, or not in Capabilities
-    LimitExceeded,       // a value does not fit; also symlink loops and overlong paths
+    LimitExceeded,       // a value does not fit, or a path is too long
+    Symlink,             // too many symlinks, or a symlink where a file or directory was needed (ELOOP)
     InvalidHandle,       // unknown or forgotten NodeId
     Busy,                // e.g. a second writer, or removing a mounted root
 }
@@ -719,7 +721,7 @@ Keep the `strip_async!` code generation and use it everywhere:
 
 | Feature | Meaning |
 |---|---|
-| `alloc` | Heap-backed conveniences: owned names, trees, boxed sources, `AnyError`, the FAT node table, FAT write. |
+| `alloc` | Heap-backed conveniences: owned names, trees, boxed sources, `AnyError`, `read_to_vec`, `Box`/`Rc`/`Arc` forwarding and `Access` impls. |
 | `std` | Implies `alloc`. `std::fs::File` as a `BlockDevice`, `std::io` impls on handles, `From<Error<E>> for std::io::Error`, `StdMutex` and `Volume::new`, `StdIo`, `Content::path`, `SystemClock`, host helpers. |
 | `embedded-io` | `FromEmbedded<T>` for embedded-io and embedded-io-async streams. Nothing else names embedded-io. |
 | `sync` | Sync API. On by default. |
@@ -733,8 +735,9 @@ Keep the `strip_async!` code generation and use it everywhere:
 - No feature changes behaviour. Path semantics (4.12) and lock choice (4.4) are types, so enabling a feature anywhere in the build only adds items.
 - The umbrella forwards the same axes plus one feature per format.
 
-A no-alloc FAT write tier (fixed-capacity node table through a const generic)
-is possible later without changing any shape, so it is not in 3.0.
+FAT reads and writes without `alloc`: E1 replaced the node table with a fixed
+array and the chain extension's `Vec` with two passes over the FAT. The
+table's capacity is [Q8](#7-open-questions).
 
 ### 4.10 Partition GUIDs and randomness
 
@@ -755,7 +758,7 @@ a volume serial take one in options, defaulting to one derived from the clock.
 | `hadris-macros` | Kept, internal. |
 | `hadris-archive` | Removed. The umbrella re-exports `hadris-cpio` directly. |
 | `hadris-block`, `hadris-optical` | Detection and dispatch. `OpenVolume` and `OpenOpticalImage` implement `FsDriver` by delegation. |
-| `hadris-vfs` | New, `std` only, can ship in 3.x. `DynFileSystem` (object-safe, boxed futures in async), a mount table for composing volumes, and a `fuser` adapter. |
+| `hadris-vfs` | New, `std` only, can ship in 3.x. `DynFileSystem` (object-safe, boxed futures in async), a mount table for composing volumes, and a `fuser` adapter. Experiment E3 built the sync form: `DynFileSystem` repeats `FileSystem`'s methods on `&self` returning `AnyError`, a blanket impl covers every `FileSystem`, and `dyn DynFileSystem` implements `FileSystem` back, so path helpers, handles and resolvers work on an erased volume and one `Vec<Box<dyn DynFileSystem + Send + Sync>>` holds FAT and ISO volumes with different device errors. Lost: the typed device error (boxed, error path only), format-specific methods and `lock()`. If the `dyn` impl beside the blanket impl proves fragile, the fallback is to implement `FileSystem` for `Box<dyn ..>` and `Arc<dyn ..>` only. |
 | Format crates | Kept. |
 | `hadris` | Re-exports `io`, `storage` and `fs` so no_std users need one dependency. Flat paths: `hadris::fat`, `hadris::iso`. |
 
@@ -784,7 +787,7 @@ pub struct WithResolver<D, R> { .. }          // a driver whose paths use R
 | `/a/missing/../b` | `/b` | `NotFound` |
 | `/file.txt/..` | `/` | `NotADirectory` |
 | Trailing `/` on a file | Ignored | `NotADirectory` |
-| Symlinks | Not followed; a link mid-path gives `NotADirectory` | Followed, 40 at most (`LimitExceeded`), absolute and relative targets |
+| Symlinks | Not followed; a link mid-path gives `NotADirectory` | Followed, 40 at most (`Symlink`, like `ELOOP`), absolute and relative targets |
 | Driver methods used | `lookup` | `lookup`, `node_metadata`, `parent`, `read_link` |
 | Cost | One pin at a time, one `lookup` per component | Plus one `node_metadata` per component, and `parent` per `..` (a directory scan on FAT) |
 | Memory | Nothing | An `N`-byte buffer in the resolve call, touched only when a symlink is followed. Path plus link text beyond `N` fails with `LimitExceeded`, like `ENAMETOOLONG` |
@@ -826,16 +829,27 @@ Each row is a deliberate trade, what it buys, and what a user does about it.
 | No no-follow resolution | Not needed for 3.0 users so far | Planned as an additive 3.x resolver |
 | Calls on one `Volume` serialize; a path resolves under one lock hold | One lock per call keeps format crates lock-free | A format can implement `FileSystem` with finer locks |
 | Holding `vol.lock()` and calling the same volume deadlocks (panics with `Local`) | The guard is a plain lock guard | Drop the guard first; documented on `lock()` |
-| `Volume`'s forget queue allocates under contention | `forget` must not block in `Drop` | A fixed-capacity queue for no-alloc builds, not yet built |
+| `Volume`'s forget queue is 16 `(node, count)` entries; when it is full, `forget` spins until the lock or a slot frees | `forget` runs in `Drop` and must neither lose a pin nor allocate (E1) | Spinning never ends only if one thread or task drops handles to 16 distinct nodes while it holds `vol.lock()`; drop the guard first |
+| Async `Volume::new` needs `alloc` | `async-lock` and `event-listener` link `alloc` unconditionally | The `embassy-sync` feature adds an async `Local` lock with no allocator |
+| The FAT node table is a fixed array with a const generic capacity (default 64); a full table gives `LimitExceeded` | No allocation in the driver, and a feature cannot change the size (R3) | See [Q8](#7-open-questions) |
+| Each device type monomorphizes the driver: about 2.4 KB of FAT per extra device type on Cortex-M, 180 bytes per extra device of the same type | Typed errors and static dispatch | Use one device type per binary where size matters |
 | `OpenFile` does not forget on drop | It is `Copy` plain data for file tables | Call `close`; `File` handles forget on drop |
 | `read_exact`/`write_all` return `ExactError<E>` | Short reads and zero-length writes need their own cases, as in embedded-io | `?` converts into `Error<E>` |
 | `Access` appears in generic code over handles | One `File` type serves all tiers | `fn f<A: Access>(file: &mut File<A>)` |
 | `Dir` is not an `Iterator` in async builds | No async iterator in core | `next_entry().await` |
 | Async futures from generic code are not provably `Send` | `async fn` in traits | See [Q2](#7-open-questions) |
 
-Not yet verified by the prototype: a real `no_std` build, embedded-io behind a
-feature, error context inside `Error<E>`, the async `FromEmbedded` adapter,
-and a tokio file device. The prototype sizes a `std::fs::File` device from
+Experiment E1 built the prototype for `thumbv7em-none-eabihf` with no
+allocator, with `alloc`, and with std. The raw tier that opens a FAT volume and
+reads a file is 6.0 KB of `.text` (`opt-level = "s"`, LTO), `Volume::local`
+adds 1.9 KB, `Posix<256>` another 0.8 KB, and async raw is 8.7 KB. 64-bit
+division (0.9 KB) and `memcpy` (1 KB) are fixed costs; FAT should shift by the
+cluster size instead of dividing. The binaries were linked and measured, not
+run on hardware. Dropping a `Volume` must apply its queued forgets, or a
+`Volume::local(&mut fs)` leaks pins into `fs`; the prototype discarded them.
+
+Not yet verified: embedded-io behind a feature, error context inside
+`Error<E>`, the async `FromEmbedded` adapter, and a tokio file device. The prototype sizes a `std::fs::File` device from
 its metadata, which reports 0 for host block devices such as `/dev/sdX`; the
 real impl seeks to the end instead.
 
@@ -1108,6 +1122,18 @@ precisely enough for a VFS to translate names, or does each format also need
 a `NameCodec`? Still open: `hadris-fs` ships `Capabilities::name_charset()`
 returning a non-exhaustive `NameCharset` (`Bytes`, `Utf8`, `Ucs2`, `Utf16`,
 `DCharacters`, `OemCodePage`) as the interim answer.
+
+**Q8. FAT node table capacity.** Without `alloc` the table is a fixed array
+(E1): `FatFs<D, const N: usize = 64>`, full table gives `LimitExceeded`, and
+`FsDriver`, `Volume` and handles never see `N`. A default const parameter is
+not used for inference, so other sizes need `FatFs::<_, 8>::open_sized(dev)`.
+Because no feature may switch the table, std users get the same 64-node limit,
+which a FUSE mount (the kernel holds inodes until it forgets them) can exceed.
+Options: keep the const generic and raise the default; make the table a type
+parameter with a fixed default and a growable `HeapTable` under `alloc`
+(`FatFs<D, T: NodeTable = FixedTable<64>>`); or evict unpinned entries so
+the capacity only bounds open nodes. Recommendation: the type parameter, with
+`hadris-vfs` and the FUSE adapter naming `HeapTable`.
 
 **Q7. Driver type names.** `Volume<F, K>` is now the sharing wrapper, which
 makes `FatVolume`, `UdfVolume` and `NtfsVolume` read as if they were already
