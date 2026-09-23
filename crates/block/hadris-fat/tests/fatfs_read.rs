@@ -448,7 +448,7 @@ fn capabilities_and_write_methods_are_read_only() {
     let image = common::build(case);
     let mut fs = FatFs::open_with(
         common::device(case, image.clone()),
-        MountOptions::new().with_read_only(true),
+        MountOptions::new().with_read_only(),
     )
     .unwrap();
     assert!(fs.is_read_only());
@@ -467,7 +467,12 @@ fn capabilities_and_write_methods_are_read_only() {
     let meta = SetMetadata::new();
     let kinds = [
         FsDriver::create(&mut fs, root, name("new"), NewNode::File, &meta).map(|_| ()),
-        FsDriver::remove(&mut fs, root, name("README.TXT")),
+        FsDriver::remove(
+            &mut fs,
+            root,
+            name("README.TXT"),
+            hadris_fs::RemoveKind::Any,
+        ),
         FsDriver::write_at(&mut fs, file, 0, b"x").map(|_| ()),
         FsDriver::set_len(&mut fs, file, 0),
         FsDriver::set_metadata(&mut fs, file, &meta),
@@ -516,7 +521,7 @@ fn failed_opens_give_the_device_back() {
         assert_eq!(error.kind(), ErrorKind::Corrupt);
         assert_eq!(dev.into_inner(), image);
 
-        let options = MountOptions::new().with_read_only(true);
+        let options = MountOptions::new().with_read_only();
         let err = FatFs::open_with(common::device(case, image.clone()), options).unwrap_err();
         assert_eq!(err.into_device().into_inner(), image);
     }

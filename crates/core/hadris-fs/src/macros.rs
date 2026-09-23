@@ -11,8 +11,12 @@
 /// - The write methods (`create`, `remove`, `rename`, `write_at`, `set_len`,
 ///   `set_metadata`, `sync_node`, `sync`) are forwarded unless `read_only` is
 ///   given, in which case they keep their `ReadOnly` defaults.
-/// - `parent`, `read_link` and `resolve` are forwarded only when named in
-///   `also = [..]`, so a driver never forwards a method it lacks.
+/// - The optional methods (`parent`, `read_link`, `resolve`, `open_node`,
+///   `close_node`, `publish_node`) are forwarded only when named in `also = [..]`, so a
+///   driver never forwards a method it lacks.
+///
+/// Methods added to `FsDriver` after 3.0 join the optional list, never the
+/// write list, so a format that uses this macro keeps compiling.
 ///
 /// ```ignore
 /// hadris_fs::impl_fs_driver!(sync, impl[D: BlockDevice] FatFs<D>, error = D::Error; also = [parent]);
@@ -84,8 +88,13 @@ macro_rules! impl_fs_driver {
         ) -> $crate::FsResult<$crate::NodeId, $err> {
             <$ty>::create(self, dir, name, kind, meta) $($aw)*
         }
-        $($as)* fn remove(&mut self, dir: $crate::NodeId, name: &$crate::Name) -> $crate::FsResult<(), $err> {
-            <$ty>::remove(self, dir, name) $($aw)*
+        $($as)* fn remove(
+            &mut self,
+            dir: $crate::NodeId,
+            name: &$crate::Name,
+            kind: $crate::RemoveKind,
+        ) -> $crate::FsResult<(), $err> {
+            <$ty>::remove(self, dir, name, kind) $($aw)*
         }
         $($as)* fn rename(
             &mut self,
@@ -121,6 +130,21 @@ macro_rules! impl_fs_driver {
     (@also [$($as:tt)*] [$($aw:tt)*] $ty:ty, $err:ty, read_link) => {
         $($as)* fn read_link(&mut self, link: $crate::NodeId, buf: &mut [u8]) -> $crate::FsResult<usize, $err> {
             <$ty>::read_link(self, link, buf) $($aw)*
+        }
+    };
+    (@also [$($as:tt)*] [$($aw:tt)*] $ty:ty, $err:ty, open_node) => {
+        $($as)* fn open_node(&mut self, node: $crate::NodeId) -> $crate::FsResult<(), $err> {
+            <$ty>::open_node(self, node) $($aw)*
+        }
+    };
+    (@also [$($as:tt)*] [$($aw:tt)*] $ty:ty, $err:ty, close_node) => {
+        fn close_node(&mut self, node: $crate::NodeId) {
+            <$ty>::close_node(self, node)
+        }
+    };
+    (@also [$($as:tt)*] [$($aw:tt)*] $ty:ty, $err:ty, publish_node) => {
+        $($as)* fn publish_node(&mut self, node: $crate::NodeId) -> $crate::FsResult<(), $err> {
+            <$ty>::publish_node(self, node) $($aw)*
         }
     };
     (@also [$($as:tt)*] [$($aw:tt)*] $ty:ty, $err:ty, resolve) => {

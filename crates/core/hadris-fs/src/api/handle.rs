@@ -5,8 +5,9 @@ io_transform! {
 /// An open file as plain data: node, position and mode.
 ///
 /// Every method takes the driver, so a kernel file table can hold many of
-/// these beside one `&mut` driver. It is `Copy` and does not forget its node
-/// on drop; its owner calls [`close`](Self::close).
+/// these beside one `&mut` driver. It is `Copy` and does not close or forget
+/// its node on drop; its owner calls [`close`](Self::close). While it is
+/// open, removing the file's last name fails with [`ErrorKind::Busy`].
 #[derive(Debug, Clone, Copy)]
 pub struct OpenFile {
     node: NodeId,
@@ -16,7 +17,7 @@ pub struct OpenFile {
 }
 
 impl OpenFile {
-    /// Opens `path` on `fs` and pins its node.
+    /// Opens `path` on `fs`, pins its node and marks it open.
     ///
     /// Fails with [`ErrorKind::ReadOnly`] before touching anything when
     /// `opts` writes and the filesystem is not writable, with
@@ -27,12 +28,22 @@ impl OpenFile {
         path: &str,
         opts: OpenOptions,
     ) -> FsResult<Self, D::DeviceError> {
-        Ok(Self::from_pinned(open_node(fs, path, opts).await?, opts))
+        let node = open_node(fs, path, opts).await?;
+        Self::from_pinned(fs, node, opts).await
     }
 
-    /// Wraps a node the caller pinned.
-    pub fn from_pinned(node: NodeId, opts: OpenOptions) -> Self {
-        Self { node, pos: 0, opts, dirty: false }
+    /// Opens a node the caller pinned, taking over the pin: on failure the
+    /// node is forgotten.
+    pub async fn from_pinned<D: FsDriver + ?Sized>(
+        fs: &mut D,
+        node: NodeId,
+        opts: OpenOptions,
+    ) -> FsResult<Self, D::DeviceError> {
+        if let Err(err) = fs.open_node(node).await {
+            fs.forget(node);
+            return Err(err);
+        }
+        Ok(Self { node, pos: 0, opts, dirty: false })
     }
 
     /// The file's node.
@@ -97,14 +108,24 @@ impl OpenFile {
         Ok(self.pos)
     }
 
-    /// Syncs the node if it was written, forgets it, and returns `prior` or
-    /// the sync error.
+    /// Makes the node durable, as `fsync` does.
+    pub async fn sync_all<D: FsDriver + ?Sized>(&mut self, fs: &mut D) -> FsResult<(), D::DeviceError> {
+        fs.sync_node(self.node).await?;
+        self.dirty = false;
+        Ok(())
+    }
+
+    /// Publishes the node's metadata if it was written, closes and forgets
+    /// it, and returns `prior` or the publish error. It does not flush the
+    /// device; call [`sync_all`](Self::sync_all) first, or `sync` on the
+    /// filesystem, for durability.
     pub async fn close<D: FsDriver + ?Sized>(
         self,
         fs: &mut D,
         prior: FsResult<(), D::DeviceError>,
     ) -> FsResult<(), D::DeviceError> {
-        let synced = if self.dirty { fs.sync_node(self.node).await } else { Ok(()) };
+        let synced = if self.dirty { fs.publish_node(self.node).await } else { Ok(()) };
+        fs.close_node(self.node);
         fs.forget(self.node);
         prior.and(synced)
     }
@@ -177,9 +198,11 @@ impl<F: FsDriver, K: LockKind> Access for Volume<F, K> {
 /// shared, `File<Arc<Volume<..>>>` owned.
 ///
 /// Implements the `hadris-io` traits and, with `std` in sync builds, the
-/// `std::io` traits. Dropping it forgets the node without flushing; call
-/// [`close`](Self::close) to see write errors.
-#[must_use = "dropping a file forgets its node without reporting errors"]
+/// `std::io` traits. The node is open while the handle lives, so removing
+/// the file's last name fails with [`ErrorKind::Busy`]. Dropping it closes
+/// and forgets the node without flushing; call [`close`](Self::close) to see
+/// write errors.
+#[must_use = "dropping a file closes its node without reporting errors"]
 pub struct File<A: Access> {
     fs: A::Driver,
     file: OpenFile,
@@ -193,9 +216,12 @@ impl<A: Access> File<A> {
         Ok(Self { fs, file })
     }
 
-    /// Wraps a node the caller pinned. The file forgets it on drop.
-    pub fn from_pinned(fs: A, node: NodeId, opts: OpenOptions) -> Self {
-        Self { fs: fs.into_driver(), file: OpenFile::from_pinned(node, opts) }
+    /// Opens a node the caller pinned, taking over the pin: on failure the
+    /// node is forgotten. The file closes and forgets it on drop.
+    pub async fn from_pinned(fs: A, node: NodeId, opts: OpenOptions) -> FsResult<Self, A::DeviceError> {
+        let mut fs = fs.into_driver();
+        let file = OpenFile::from_pinned(&mut fs, node, opts).await?;
+        Ok(Self { fs, file })
     }
 
     /// The file's node.
@@ -230,10 +256,18 @@ impl<A: Access> File<A> {
         Ok(())
     }
 
-    /// Syncs the node if the file was written, then forgets it.
+    /// Makes the file durable, as `fsync` does: its data and metadata, then
+    /// a device flush.
+    pub async fn sync_all(&mut self) -> FsResult<(), A::DeviceError> {
+        self.file.sync_all(&mut self.fs).await
+    }
+
+    /// Publishes the file's metadata if it was written, then closes and
+    /// forgets it. It does not flush the device; call
+    /// [`sync_all`](Self::sync_all) first for durability.
     pub async fn close(mut self) -> FsResult<(), A::DeviceError> {
         if self.file.dirty {
-            self.fs.sync_node(self.file.node).await?;
+            self.fs.publish_node(self.file.node).await?;
         }
         Ok(())
     }
@@ -247,6 +281,7 @@ impl<A: Access> core::fmt::Debug for File<A> {
 
 impl<A: Access> Drop for File<A> {
     fn drop(&mut self) {
+        self.fs.close_node(self.file.node);
         self.fs.forget(self.file.node);
     }
 }
@@ -266,8 +301,10 @@ impl<A: Access> io::Write for File<A> {
         self.file.write(&mut self.fs, buf).await
     }
 
+    /// Publishes the file's metadata, as [`close`](File::close) does,
+    /// without flushing the device.
     async fn flush(&mut self) -> FsResult<(), A::DeviceError> {
-        self.fs.sync_node(self.file.node).await
+        self.fs.publish_node(self.file.node).await
     }
 }
 

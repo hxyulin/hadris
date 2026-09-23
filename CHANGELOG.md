@@ -10,6 +10,14 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fs (V3):** The `contract` feature adds a driver test kit:
+  `contract::check(&mut fs)` in each mode runs the format-independent rules
+  of the `FsDriver` contract (pins, opens and `Busy`, removed pinned nodes,
+  `RemoveKind`, `NO_REPLACE` and rename type rules, listed ids, cursor
+  ranges and resumption, reads, writes and `set_len`) in a scratch
+  directory and returns the first `ContractViolation`. It needs no
+  allocator. The hadris-fs test driver and `FatFs` (FAT12, FAT16 and FAT32;
+  raw, shared and async) pass it.
 - **hadris-fs (V3):** New crate with the shared, mode-independent filesystem
   vocabulary: `NodeId`, `FileType`, byte names (`Name`, `NameBuf`,
   `OwnedName`), `DateTime` with civil-time conversions, `FileTimes`, `Clock`
@@ -55,8 +63,7 @@ Each published package owns its version and may be released independently.
   allocator, `HeapTable` (`alloc`) grows, and users can implement their own;
   a full table gives `TableFull`, which converts to
   `ErrorKind::LimitExceeded`. `NameBuf` holds 1024 bytes by default, enough
-  for any 255-unit UTF-16 long name. `remove` fails with `ErrorKind::Busy`
-  while the node is pinned.
+  for any 255-unit UTF-16 long name.
 - **hadris-fat (V3):** `FatFs<D, T = FixedTable<64>>`, the V3 driver for
   FAT12, FAT16 and FAT32 on any `hadris_storage` `BlockDevice`, in the
   `sync`, `r#async` and `async_send` modules. It implements `FsDriver`
@@ -180,6 +187,63 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs (V3):** The driver contract is written down in full on
+  `FsDriver`: `NodeId` 0 is never a node, cursors stay at or below the new
+  `DirCursor::MAX_RAW` (`2^63 - 16`), reads never change times, pending
+  fields may lag until `publish_node`, a dropped async call leaves no pin,
+  and a listed id is the id `lookup` returns for that name. The trait
+  documents how it grows after 3.0 (defaults, `also = [..]` in
+  `impl_fs_driver!`, wrappers forward new methods themselves), and a test
+  fails when a wrapper (`&mut F`, `Box`, `&F`, `AsDriver`, `Volume`,
+  `WithResolver`, `Arc`, `Rc`, the macro) misses a trait method.
+- **hadris-fat (V3):** `MountOptions::with_read_only()` takes no argument
+  (R9: no bool parameters); mounts are writable unless it is called.
+- **hadris-fat (V3):** A node id is the slot of its directory entry plus a
+  tier in the bits above bit 40, which counts up only while a pinned node
+  that has moved away holds the slot's lower tiers. `read_dir_entry` and
+  `lookup` therefore report the same id for an entry, where before a
+  listing could report a "moved" id and a lookup a "fallback" id for the
+  same file after a rename. Ids are never 0 and stay below `2^63`.
+- **hadris-storage (V3):** `BlockDevice::flush` for `std::fs::File` calls
+  `sync_data`, so `sync` and `sync_node` on a host image or block device
+  reach stable storage. It used to call `Write::flush`, which does nothing
+  for a file.
+- **hadris-fs (V3):** `publish_node` writes a node's pending metadata
+  without flushing the device (default: `sync_node`), and `sync_node` is
+  documented as durable, like `fsync`. `File::close`, `OpenFile::close` and
+  `File`'s `Write::flush` publish; the new `File::sync_all` and
+  `OpenFile::sync_all` call `sync_node`. `copy_tree` and `import_from_host`
+  publish each file and leave the device flush to `sync`. `FatFs`
+  implements `publish_node`, so closing a written file no longer flushes
+  the device.
+- **hadris-fs (V3):** Pins and opens are separate. `lookup`, `create` and
+  `parent` pin a node, which never blocks removal; the new `open_node` and
+  `close_node` (defaults do nothing) mark a pinned node as open. `remove` and
+  a replacing `rename` fail with `ErrorKind::Busy` only for the last name of
+  an open node. A pinned node that is removed keeps its id until its last
+  `forget`, and every other method answers `ErrorKind::NotFound` for it.
+  `File` and `OpenFile` open their node and close it on `close` or drop;
+  `File::from_pinned` and `OpenFile::from_pinned` are now `async`, take the
+  driver and return a `Result`. `Volume::close_node` never blocks: like
+  `forget`, it queues the call when the lock is held. `impl_fs_driver!`
+  forwards `open_node` and `close_node` when named in `also = [..]`.
+  `FatFs` implements both. A FUSE mount, which keeps a lookup on every
+  cached name, can now remove and replace files it has looked up.
+- **hadris-fs (V3):** `remove` takes a `RemoveKind` (`File`, `Dir`,
+  `Any`; non-exhaustive): `remove(dir, name, kind)`. The driver checks the
+  type it already reads, failing with `IsADirectory` or `NotADirectory`, so
+  `unlink` and `rmdir` need no lookup first. `RemoveKind::check` does the
+  comparison for drivers. `remove_file`, `remove_dir` and `remove_dir_all`
+  no longer pin the node they remove.
+- **hadris-fs (V3):** `ErrorKind` gains `NameTooLong` and `FileTooLarge`,
+  so each kind maps to one errno. A name longer than the format or a
+  `NameBuf` accepts (`NameError::TooLong`) and an over-long FAT name or
+  volume label give `NameTooLong`; a FAT write or `set_len` past 4 GiB - 1
+  gives `FileTooLarge`. `LimitExceeded` keeps full node tables, long paths
+  and values that do not fit a field or buffer. With `std` they convert to
+  `io::ErrorKind::InvalidFilename` and `FileTooLarge`. `Error<E>` equality
+  compares the kind and the device error only, now and after context is
+  added.
 - **hadris-fat (V3):** The `write` feature only adds `format` in each mode
   and no longer implies `read` or `alloc`; `FatFs` reads and writes without
   it. Default features are `std`, `sync` and `write`. The crate root no longer

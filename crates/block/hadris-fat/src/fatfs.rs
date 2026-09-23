@@ -4,7 +4,8 @@ use hadris_common::types::endian::Endian;
 use hadris_fs::{
     Attributes, Capabilities, CaseSensitivity, Clock, DateTime, DirCursor, DirEntry, Error,
     ErrorKind, FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name,
-    NameBuf, NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RenameFlags, SetMetadata,
+    NameBuf, NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RemoveKind, RenameFlags,
+    SetMetadata,
 };
 use hadris_storage::BlockIndex;
 
@@ -23,12 +24,19 @@ mod fsck;
 pub use fsck::{check, check_with};
 
 const ROOT: NodeId = NodeId::new(1);
-/// Unpinned ids from here up name the entry at `(id - MOVED_IDS) * 32`. A
-/// listing hands them out when a pinned node that has moved holds the
-/// natural id.
-const MOVED_IDS: u64 = 1 << 62;
-/// Ids from here up are handed out when a node's natural id is taken.
-const FALLBACK_IDS: u64 = 1 << 63;
+/// A node id holds the slot of its short entry, the entry's byte offset
+/// divided by 32, in its low `SLOT_BITS` bits. The bits above, the tier,
+/// count up when that id is taken by a pinned node that has since moved
+/// away from the slot, so a listing and a lookup of one entry agree on its
+/// id. A FAT volume has at most `2^32` sectors of 4096 bytes, so slots stay
+/// below `2^39`, and no id is 0.
+const SLOT_BITS: u32 = 40;
+const SLOT_MASK: u64 = (1 << SLOT_BITS) - 1;
+/// Highest value of the bits above the slot, so ids stay below `2^63`.
+const MAX_TIER: u64 = (1 << (63 - SLOT_BITS)) - 1;
+/// The id of the table slot `create` reserves before it writes anything.
+/// Never handed out.
+const RESERVED: NodeId = NodeId::new(1 << 63);
 /// The largest device block [`FatFs`] can buffer.
 pub(super) const MAX_BLOCK_SIZE: usize = 4096;
 const BOOT_SECTOR_LEN: usize = 512;
@@ -65,6 +73,12 @@ struct Node {
     /// The directory entry lacks the size and modification time. A dirty
     /// node holds one pin of the driver's own until it is written.
     dirty: bool,
+    /// Opens not yet closed; `remove` and a replacing `rename` refuse the
+    /// node while there are any.
+    opens: u32,
+    /// The node was removed while pinned. Its entry is gone and every
+    /// method but `forget` and `close_node` answers `NotFound`.
+    unlinked: bool,
 }
 
 impl Node {
@@ -76,6 +90,8 @@ impl Node {
             dir: short.is_dir(),
             hint: (0, 0),
             dirty: false,
+            opens: 0,
+            unlinked: false,
         }
     }
 }
@@ -145,7 +161,7 @@ struct NewName {
 impl NewName {
     fn new(text: &str, code_page: &impl CodePage) -> Result<Self, ErrorKind> {
         if text.encode_utf16().count() > lfn::MAX_UNITS {
-            return Err(ErrorKind::LimitExceeded);
+            return Err(ErrorKind::NameTooLong);
         }
         if !short_name::is_valid_long_name(text) || text.ends_with(['.', ' ']) {
             return Err(ErrorKind::InvalidInput);
@@ -493,7 +509,8 @@ pub(super) async fn write_bytes<D: BlockDevice>(
 ///   [`ErrorKind::LimitExceeded`] before anything is written; name
 ///   `HeapTable` or a larger `FixedTable<N>` for more open nodes. Ids from
 ///   `read_dir_entry` are not pinned and stay valid until that directory
-///   changes.
+///   changes; until then, and unless a node is forgotten in between, they
+///   are the ids a `lookup` of the same names pins.
 /// - `C`, the [`Clock`] that stamps created and modified entries. The
 ///   default [`NoClock`] writes 1980-01-01, so images are reproducible;
 ///   `SystemClock` with `std` writes the current UTC time.
@@ -519,8 +536,9 @@ pub(super) async fn write_bytes<D: BlockDevice>(
 /// Writes go to the device at once; the driver caches no data. What it
 /// defers is the size and modification time in the directory entry of a
 /// pinned file: `write_at` and growing `set_len` keep them in the node table,
-/// so every handle on the node sees one size, and `sync_node` or `sync`
-/// writes them. Until then the node stays in the table under a pin of the
+/// so every handle on the node sees one size, and `publish_node`,
+/// `sync_node` or `sync` writes them. `publish_node` (what closing a `File`
+/// calls) does not flush the device; `sync_node` and `sync` do. Until then the node stays in the table under a pin of the
 /// driver's own, even after the last `forget`, and counts towards
 /// [`open_nodes`](Self::open_nodes) and the table's capacity. Writes through
 /// an unpinned id, shrinking `set_len`, and a file's first cluster are
@@ -562,7 +580,6 @@ pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePa
     mirrored: bool,
     data_end: u64,
     nodes: T::With<Node>,
-    next_id: u64,
     block: BlockBuf,
     free_clusters: Option<u32>,
     /// Byte offset of a valid FAT32 FSInfo sector.
@@ -704,7 +721,6 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             mirrored: mount.mirrored,
             data_end: mount.data_end,
             nodes: table.empty(),
-            next_id: FALLBACK_IDS,
             block: mount.block,
             free_clusters: mount.free_clusters,
             fs_info: mount.fs_info,
@@ -763,7 +779,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// Number of nodes in the node table, plus one for the root, which is
     /// always pinned. Nodes whose size is not yet written count until
-    /// `sync_node` or `sync`.
+    /// `publish_node`, `sync_node` or `sync`.
     pub fn open_nodes(&self) -> usize {
         self.nodes.len() + 1
     }
@@ -962,11 +978,43 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// Unpins a node. Unknown ids and the root are ignored. A node whose
-    /// size is not yet written stays in the table until `sync_node` or
-    /// `sync`.
+    /// size is not yet written stays in the table until `sync_node`,
+    /// `publish_node` or `sync`; a removed node leaves the table with its
+    /// last pin.
     pub fn forget(&mut self, node: NodeId) {
-        if node != ROOT && self.user_pins(node) > 0 {
-            self.nodes.unpin(node);
+        if node == ROOT || self.user_pins(node) == 0 {
+            return;
+        }
+        if self.nodes.unpin(node) == Some(0)
+            && self.nodes.get(node).is_some_and(|n| n.unlinked)
+        {
+            self.nodes.remove(node);
+        }
+    }
+
+    /// Marks a pinned node as open: until the matching
+    /// [`close_node`](Self::close_node), `remove` and a replacing `rename`
+    /// of it fail with [`ErrorKind::Busy`]. Fails with
+    /// [`ErrorKind::InvalidHandle`] for an id that is not pinned, and with
+    /// [`ErrorKind::NotFound`] for a removed node.
+    pub async fn open_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        if node == ROOT {
+            return Ok(());
+        }
+        match self.nodes.get_mut(node) {
+            Some(state) if state.unlinked => Err(ErrorKind::NotFound.into()),
+            Some(state) => {
+                state.opens = state.opens.saturating_add(1);
+                Ok(())
+            }
+            None => Err(ErrorKind::InvalidHandle.into()),
+        }
+    }
+
+    /// Ends one [`open_node`](Self::open_node). Unknown ids are ignored.
+    pub fn close_node(&mut self, node: NodeId) {
+        if let Some(state) = self.nodes.get_mut(node) {
+            state.opens = state.opens.saturating_sub(1);
         }
     }
 
@@ -999,7 +1047,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let text = entry_name(name, ErrorKind::InvalidInput)?;
         let new = NewName::new(text, &self.code_page)?;
         let plan = self.plan(start, text, true, &new, Skip::default()).await?;
-        let reserved = NodeId::new(self.next_id);
+        let reserved = RESERVED;
         let placeholder = Node {
             entry: u64::MAX,
             first: 0,
@@ -1007,6 +1055,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             dir: is_dir,
             hint: (0, 0),
             dirty: false,
+            opens: 0,
+            unlinked: false,
         };
         self.nodes
             .insert(reserved, placeholder)
@@ -1019,30 +1069,32 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             }
         };
         self.nodes.remove(reserved);
-        if let Some(natural) = self.natural_id(node.entry)
-            && self.nodes.insert(natural, node).is_ok()
-        {
-            return Ok(natural);
-        }
+        let id = self.free_id(node.entry).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
-            .insert(reserved, node)
+            .insert(id, node)
             .map_err(|_| ErrorKind::LimitExceeded)?;
-        self.next_id += 1;
-        Ok(reserved)
+        Ok(id)
     }
 
     /// Removes the file or empty directory `name` from `dir` and frees its
-    /// clusters.
+    /// clusters. `kind` says which of the two is expected.
     ///
-    /// Fails with [`ErrorKind::Busy`] while the node is pinned, and with
+    /// Fails with [`ErrorKind::IsADirectory`] or
+    /// [`ErrorKind::NotADirectory`] when the entry is not of `kind`, with
+    /// [`ErrorKind::Busy`] while the node is open, and with
     /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
-    pub async fn remove(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+    ///
+    /// A node that is pinned but not open is removed; its id then answers
+    /// [`ErrorKind::NotFound`] until its last `forget`.
+    pub async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), D::Error> {
         self.writable()?;
         let start = self.dir_start(dir).await?;
         let query = entry_name(name, ErrorKind::NotFound)?;
         let found = self.find_entry(start, query).await?.ok_or(ErrorKind::NotFound)?;
+        let file_type = if found.entry.is_dir() { FileType::Dir } else { FileType::File };
+        kind.check(file_type)?;
         let pinned = self.pinned_at(found.offset);
-        if pinned.is_some_and(|id| self.user_pins(id) > 0) {
+        if pinned.is_some_and(|id| self.is_open(id)) {
             return Err(ErrorKind::Busy.into());
         }
         let first = match pinned.and_then(|id| self.nodes.get(id)) {
@@ -1054,7 +1106,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         }
         self.write(found.offset, &[dirent::FREE]).await?;
         if let Some(id) = pinned {
-            self.nodes.remove(id);
+            self.unlink(id);
         }
         self.clear_slots(start, found.first, found.slot).await?;
         if first != 0 {
@@ -1145,11 +1197,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Writes to a file at `offset`, growing it and zero-filling any gap
     /// past the old end. Returns the bytes written, fewer than `buf.len()`
     /// only at the 4 GiB - 1 FAT size limit; an `offset` at or past it fails
-    /// with [`ErrorKind::LimitExceeded`], and a volume without room for the
+    /// with [`ErrorKind::FileTooLarge`], and a volume without room for the
     /// new clusters fails with [`ErrorKind::NoSpace`] and changes nothing.
     ///
-    /// The new size of a pinned file is written by `sync_node` or `sync`,
-    /// with the modification time and the archive attribute.
+    /// The new size of a pinned file is written by `publish_node`,
+    /// `sync_node` or `sync`, with the modification time and the archive
+    /// attribute.
     pub async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
         self.writable()?;
         let (id, state) = self.file_node(node).await?;
@@ -1157,7 +1210,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             return Ok(0);
         }
         if offset >= MAX_FILE_SIZE {
-            return Err(ErrorKind::LimitExceeded.into());
+            return Err(ErrorKind::FileTooLarge.into());
         }
         let count = (MAX_FILE_SIZE - offset).min(buf.len() as u64) as usize;
         let end = offset + count as u64;
@@ -1191,12 +1244,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Truncates or extends a file. Growth reads as zeros. Shrinking writes
     /// the new size to the directory entry at once and frees the clusters
     /// past it. A changed size sets the archive attribute; the same size
-    /// changes nothing.
+    /// changes nothing. A length past 4 GiB - 1 fails with
+    /// [`ErrorKind::FileTooLarge`].
     pub async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
         self.writable()?;
         let (id, state) = self.file_node(node).await?;
         if len > MAX_FILE_SIZE {
-            return Err(ErrorKind::LimitExceeded.into());
+            return Err(ErrorKind::FileTooLarge.into());
         }
         let old = state.size as u64;
         if len > old {
@@ -1283,13 +1337,20 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Writes the node's pending size and modification time, then flushes
     /// the device.
     pub async fn sync_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        self.publish_node(node).await?;
+        self.flush_device().await
+    }
+
+    /// Writes the node's pending size and modification time to its
+    /// directory entry, without flushing the device.
+    pub async fn publish_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         if node != ROOT {
             let (id, _) = self.any_node(node).await?;
             if let Some(id) = id {
                 self.flush_node(id).await?;
             }
         }
-        self.flush_device().await
+        Ok(())
     }
 
     /// Writes every pending size and modification time and the FAT32
@@ -1323,6 +1384,25 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     fn user_pins(&self, id: NodeId) -> u32 {
         let dirty = self.nodes.get(id).is_some_and(|node| node.dirty);
         self.nodes.pins(id).saturating_sub(dirty as u32)
+    }
+
+    fn is_open(&self, id: NodeId) -> bool {
+        self.nodes.get(id).is_some_and(|node| node.opens > 0)
+    }
+
+    /// Drops the table state of a node whose entry was just removed. A node
+    /// callers still pin stays, marked unlinked, so its id answers
+    /// `NotFound` until the last `forget`.
+    fn unlink(&mut self, id: NodeId) {
+        self.clean(id);
+        if self.nodes.pins(id) == 0 {
+            self.nodes.remove(id);
+        } else if let Some(node) = self.nodes.get_mut(id) {
+            node.unlinked = true;
+            node.entry = u64::MAX;
+            node.first = 0;
+            node.size = 0;
+        }
     }
 
     fn mark_dirty(&mut self, id: NodeId) {
@@ -1468,6 +1548,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// The table id and state of a node that is not the root.
     async fn any_node(&mut self, id: NodeId) -> FsResult<(Option<NodeId>, Node), D::Error> {
         if let Some(node) = self.nodes.get(id) {
+            if node.unlinked {
+                return Err(ErrorKind::NotFound.into());
+            }
             return Ok((Some(id), *node));
         }
         let (offset, entry) = self.unpinned(id).await?;
@@ -1792,6 +1875,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 dir: is_dir,
                 hint: (0, 0),
                 dirty: false,
+                opens: 0,
+                unlinked: false,
             }),
             Err(err) => {
                 if first != 0 {
@@ -1877,7 +1962,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         src_id: Option<NodeId>,
     ) -> FsResult<(), D::Error> {
         let target_id = self.pinned_at(target.offset);
-        if target_id.is_some_and(|id| self.user_pins(id) > 0) {
+        if target_id.is_some_and(|id| self.is_open(id)) {
             return Err(ErrorKind::Busy.into());
         }
         match (moved.is_dir(), target.entry.is_dir()) {
@@ -1905,7 +1990,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.move_entry(src, to, new, &plan, moved, dot_dot, src_id, Some(&saved))
             .await?;
         if let Some(id) = target_id {
-            self.nodes.remove(id);
+            self.unlink(id);
         }
         self.clear_slots(from, src.first, src.slot).await?;
         if target_first != 0 {
@@ -2173,19 +2258,21 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.nodes.find(&mut |_, node| node.entry == offset)
     }
 
-    /// The id derived from the location of the entry at `offset`, unless a
-    /// node that has moved away from it holds that id.
-    fn natural_id(&self, offset: u64) -> Option<NodeId> {
-        let id = NodeId::new(offset / ENTRY_SIZE);
-        self.nodes.get(id).is_none().then_some(id)
+    /// The first id for the entry at `offset` that no node in the table
+    /// holds. `None` only when every generation of the slot is taken.
+    fn free_id(&self, offset: u64) -> Option<NodeId> {
+        let slot = offset / ENTRY_SIZE;
+        (0..=MAX_TIER)
+            .map(|tier| NodeId::new(tier << SLOT_BITS | slot))
+            .find(|&id| self.nodes.get(id).is_none())
     }
 
     /// The id of the entry at `offset` without pinning it: its pinned id,
-    /// else its natural id, else its id in the moved range.
+    /// else the id a lookup would pin.
     fn id_at(&self, offset: u64) -> NodeId {
         self.pinned_at(offset)
-            .or_else(|| self.natural_id(offset))
-            .unwrap_or(NodeId::new(MOVED_IDS + offset / ENTRY_SIZE))
+            .or_else(|| self.free_id(offset))
+            .unwrap_or(NodeId::new(offset / ENTRY_SIZE))
     }
 
     /// Pins the node whose short entry is at `offset`.
@@ -2194,15 +2281,10 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             self.nodes.pin(id);
             return Ok(id);
         }
-        let natural = self.natural_id(offset);
-        let fallback = natural.is_none();
-        let id = natural.unwrap_or(NodeId::new(self.next_id));
+        let id = self.free_id(offset).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
             .insert(id, Node::new(offset, entry, self.geo.kind))
             .map_err(|_| ErrorKind::LimitExceeded)?;
-        if fallback {
-            self.next_id += 1;
-        }
         Ok(id)
     }
 
@@ -2214,14 +2296,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// The entry of an id that is not pinned, decoded from its location.
     async fn unpinned(&mut self, id: NodeId) -> FsResult<(u64, ShortEntry), D::Error> {
-        let mut raw = id.get();
-        if raw == ROOT.get() || raw >= FALLBACK_IDS {
+        let raw = id.get();
+        if raw == ROOT.get() || raw >= RESERVED.get() {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        if raw >= MOVED_IDS {
-            raw -= MOVED_IDS;
-        }
-        let offset = raw.checked_mul(ENTRY_SIZE).ok_or(ErrorKind::InvalidHandle)?;
+        let offset = (raw & SLOT_MASK) * ENTRY_SIZE;
         let in_root = matches!(
             self.geo.root,
             RootDir::Fixed { start, size } if (start..start + size).contains(&offset)
@@ -2357,4 +2436,4 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
 }
 
-impl_fat_driver!(impl[D: BlockDevice, T: NodeTable, C: Clock, P: CodePage] FatFs<D, T, C, P>, error = D::Error; also = [parent]);
+impl_fat_driver!(impl[D: BlockDevice, T: NodeTable, C: Clock, P: CodePage] FatFs<D, T, C, P>, error = D::Error; also = [parent, open_node, close_node, publish_node]);

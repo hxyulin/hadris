@@ -112,7 +112,7 @@ where
         offset += n as u64;
     }
     dst.set_metadata(to, meta).await?;
-    dst.sync_node(to).await?;
+    dst.publish_node(to).await?;
     Ok(())
 }
 
@@ -235,7 +235,8 @@ where
 /// Device nodes, FIFOs and sockets fail with [`ErrorKind::Unsupported`].
 /// Symlinks are copied as links, never followed; a target longer than 4096
 /// bytes fails with [`ErrorKind::LimitExceeded`]. Copying a directory into
-/// itself on one volume does not end until the volume is full.
+/// itself on one volume does not end until the volume is full. Each file is
+/// published, not flushed; call `sync` on `dst` to make the copy durable.
 ///
 /// ```rust,ignore
 /// copy_tree(&mut iso, "/EFI", &card, "/EFI")?;

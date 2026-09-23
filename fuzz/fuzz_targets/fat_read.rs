@@ -69,7 +69,7 @@ fn drive(data: &[u8]) {
     }
     let dev = MemDevice::new(&image[..], BlockSize::new(512).unwrap());
     let options = MountOptions::new()
-        .with_read_only(true)
+        .with_read_only()
         .with_table(HeapTable::new());
     let Ok(mut fs) = FatFs::open_with(dev, options) else {
         return;

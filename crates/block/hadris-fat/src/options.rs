@@ -60,11 +60,11 @@ impl Default for MountOptions {
 }
 
 impl<T, C, P> MountOptions<T, C, P> {
-    /// Mounts for reading only when `read_only` is set: the driver never
-    /// calls `write_blocks`, and writing methods fail with
-    /// `ErrorKind::ReadOnly`.
-    pub fn with_read_only(mut self, read_only: bool) -> Self {
-        self.read_only = read_only;
+    /// Mounts for reading only: the driver never calls `write_blocks`, and
+    /// writing methods fail with `ErrorKind::ReadOnly`. Mounts are writable
+    /// unless this is called.
+    pub fn with_read_only(mut self) -> Self {
+        self.read_only = true;
         self
     }
 
@@ -114,13 +114,13 @@ impl VolumeLabel {
     /// Checks and uppercases `text`. Fails with `ErrorKind::InvalidInput`
     /// when it is empty, starts with a space, or holds a character that is
     /// not ASCII, a control character or one of `"*+,./:;<=>?[\]|`, and with
-    /// `ErrorKind::LimitExceeded` when it is longer than 11 bytes.
+    /// `ErrorKind::NameTooLong` when it is longer than 11 bytes.
     pub fn new(text: &str) -> Result<Self, ErrorKind> {
         if text.is_empty() || text.starts_with(' ') {
             return Err(ErrorKind::InvalidInput);
         }
         if text.len() > 11 {
-            return Err(ErrorKind::LimitExceeded);
+            return Err(ErrorKind::NameTooLong);
         }
         let mut label = [b' '; 11];
         for (slot, byte) in label.iter_mut().zip(text.bytes()) {

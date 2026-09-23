@@ -14,8 +14,8 @@ use hadris_fat::sync::{FatFs, format as format_fat};
 use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
 use hadris_fs::sync::{FileSystem, StdMutex, Volume};
 use hadris_fs::{
-    Attributes, DirCursor, FileType, FsResult, Name, NameBuf, NewNode, NodeId, RenameFlags,
-    SetMetadata,
+    Attributes, DirCursor, FileType, FsResult, Name, NameBuf, NewNode, NodeId, RemoveKind,
+    RenameFlags, SetMetadata,
 };
 
 use super::adapter::FatAdapter;
@@ -190,7 +190,7 @@ where
         }
         Operation::Delete { path } => {
             let (dir, last) = parent(fs, path, pins)?;
-            fs.remove(dir, last).map_err(err)?;
+            fs.remove(dir, last, RemoveKind::Any).map_err(err)?;
         }
     }
     Ok(())

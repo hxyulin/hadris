@@ -12,7 +12,7 @@ The vocabulary is mode-independent and performs no I/O:
 - `ErrorKind`, the error categories shared by every crate
 - `Error<E>`, the error of every filesystem operation, which keeps the device's own error `E` without allocation, and `AnyError` (`alloc`), which erases it for code that mixes devices
 - `DirCursor` and `DirEntry` for resumable directory reads
-- `OpenOptions`, `RenameFlags` and `NewNode`
+- `OpenOptions`, `RenameFlags`, `RemoveKind` and `NewNode`
 - `path`: allocation-free lexical virtual paths (formerly `hadris-path`)
 - `FuseOnError`, an iterator adapter that ends after the first `Err`
 - `NodeTable`, per-node driver state with pin counts for formats without
@@ -24,7 +24,11 @@ generated from one source:
 
 - `FsDriver`, which format crates implement on `&mut self`, usually through
   `impl_fs_driver!` over inherent methods, and `FileSystem`, the same node
-  API on `&self` for shared code
+  API on `&self` for shared code. `lookup` pins a node and `forget` unpins
+  it; `open_node` and `close_node` mark it open, and only the last name of
+  an open node refuses removal (`ErrorKind::Busy`). `sync_node` is durable,
+  `publish_node` writes pending metadata without a device flush. The trait
+  docs hold the full contract and the rules for adding methods after 3.0
 - `Volume<F, K>`, a driver behind a lock picked by type (`Volume::new`,
   `Volume::spin`, `Volume::local`), opt-in
 - `Lexical` (default) and `Posix<N>` path resolvers, chosen per call, per
@@ -82,6 +86,7 @@ assert!(OpenOptions::write().create().append().validate().is_ok());
 | `async` | No | The same API with `async fn` in `r#async`; `AsyncMutex` with `alloc` |
 | `async-send` | No | The async API with `Send` futures in `async_send`; implies `async` |
 | `embassy-sync` | No | An allocation-free async `Local` lock for one executor thread |
+| `contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FsDriver` contract |
 
 ## Documentation
 

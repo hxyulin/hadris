@@ -3,7 +3,8 @@
 /// The value is stable for as long as the node is pinned (between a lookup
 /// and the matching forget). It maps directly to FUSE `ino` values and
 /// kernel inode numbers. Filesystems choose the encoding; callers must not
-/// interpret it.
+/// interpret it. No filesystem hands out 0, which FUSE reserves; the root
+/// may have any other value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId(u64);
 

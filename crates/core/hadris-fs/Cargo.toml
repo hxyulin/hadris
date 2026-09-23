@@ -20,6 +20,8 @@ sync = ["hadris-io/sync", "dep:spin", "dep:hadris-macros"]
 async = ["hadris-io/async", "dep:spin"]
 async-send = ["async", "hadris-io/async-send", "dep:hadris-macros"]
 embassy-sync = ["async", "dep:embassy-sync"]
+# The driver contract kit: `contract::check` in each enabled mode.
+contract = []
 
 [dependencies]
 bitflags = { workspace = true }

@@ -166,7 +166,7 @@ fn mount_options() -> MountOptions<HeapTable, SystemClock> {
 fn open_fat_fs(path: &Path) -> Result<Fs> {
     let file = File::open(path)
         .with_context(|| format!("Failed to open image file: {}", path.display()))?;
-    FatFs::open_with(file, mount_options().with_read_only(true))
+    FatFs::open_with(file, mount_options().with_read_only())
         .context("Failed to parse FAT filesystem")
 }
 

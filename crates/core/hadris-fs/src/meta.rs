@@ -98,7 +98,8 @@ impl Metadata {
         self.owner
     }
 
-    /// Returns the number of hard links.
+    /// Returns the number of hard links. 1 on a directory means the format
+    /// does not count them (POSIX would report 2 plus the subdirectories).
     pub const fn nlink(&self) -> u64 {
         self.nlink
     }

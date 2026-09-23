@@ -16,7 +16,7 @@ use hadris_fs::sync::{DriverExt, FileSystem, FsDriver, PathExt, Volume, copy_tre
 use hadris_fs::{
     Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, FileTimes, FileType,
     FixedTable, HeapTable, Name, NameBuf, NewNode, NoClock, NodeId, NodeTable, OpenOptions,
-    RenameFlags, SetMetadata,
+    RemoveKind, RenameFlags, SetMetadata,
 };
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, OutOfRange, WriteError};
@@ -370,7 +370,7 @@ fn long_names_up_to_255_units() {
             fs.create(root, name(&bad), NewNode::File, &SetMetadata::new())
                 .unwrap_err()
                 .kind(),
-            ErrorKind::LimitExceeded
+            ErrorKind::NameTooLong
         );
     }
     for bad in [
@@ -658,12 +658,80 @@ fn rename_keeps_the_id_and_moves_directories() {
     }
 }
 
+/// The id `read_dir_entry` reports for `text` in `dir`.
+fn listed_id(fs: &mut Fs, dir: NodeId, text: &str) -> NodeId {
+    let mut cursor = DirCursor::start();
+    let mut buf = NameBuf::new();
+    while let Some(entry) = fs.read_dir_entry(dir, &mut cursor, &mut buf).unwrap() {
+        if buf.as_bytes() == text.as_bytes() {
+            return entry.node();
+        }
+    }
+    panic!("{text} is not listed");
+}
+
+#[test]
+fn listed_ids_are_the_ids_lookup_pins() {
+    let case = CASES[1];
+    let mut fs = open(case, common::blank(case));
+    let root = fs.root();
+    let a = create(&mut fs, root, "a", NewNode::File);
+    fs.rename(root, name("a"), root, name("b"), RenameFlags::empty())
+        .unwrap();
+    let c = create(&mut fs, root, "c", NewNode::File);
+    assert_eq!(c.get() & ((1 << 40) - 1), a.get(), "c takes a's old slot");
+    assert_eq!(c.get() >> 40, 1, "a still holds the slot's first id");
+    fs.forget(c);
+    let listed = listed_id(&mut fs, root, "c");
+    let looked_up = fs.lookup(root, name("c")).unwrap();
+    assert_eq!(listed, looked_up);
+    assert_eq!(listed_id(&mut fs, root, "b"), a);
+    assert!(listed.get() != 0 && listed.get() < 1 << 63);
+    fs.forget(looked_up);
+    fs.forget(a);
+    assert_eq!(fs.open_nodes(), 1);
+    assert_eq!(
+        listed_id(&mut fs, root, "c"),
+        a,
+        "with a forgotten, c takes the slot's first id"
+    );
+}
+
+#[test]
+fn replacing_a_pinned_target_unlinks_it() {
+    let case = CASES[1];
+    let mut fs = open(case, populate(case));
+    let root = fs.root();
+    let target = fs.lookup(root, name("lower.txt")).unwrap();
+    let source = fs.lookup(root, name("README.TXT")).unwrap();
+    fs.rename(
+        root,
+        name("README.TXT"),
+        root,
+        name("lower.txt"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    assert_eq!(
+        fs.node_metadata(target).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert_eq!(fs.lookup(root, name("lower.txt")).unwrap(), source);
+    fs.forget(source);
+    fs.forget(source);
+    fs.forget(target);
+    assert_eq!(fs.open_nodes(), 1);
+    fs.sync().unwrap();
+    fsck(&image(fs), case.name);
+}
+
 #[test]
 fn rename_replaces_or_refuses_existing_targets() {
     let case = CASES[2];
     let mut fs = open(case, populate(case));
     let root = fs.root();
     let long = fs.lookup(root, name("A long file name.txt")).unwrap();
+    fs.open_node(long).unwrap();
     assert_eq!(
         fs.rename(
             root,
@@ -715,6 +783,7 @@ fn rename_replaces_or_refuses_existing_targets() {
         ErrorKind::NotADirectory
     );
     let nested = fs.resolve("/Nested Dir").unwrap();
+    fs.open_node(nested).unwrap();
     assert_eq!(
         fs.rename(
             root,
@@ -727,6 +796,7 @@ fn rename_replaces_or_refuses_existing_targets() {
         .kind(),
         ErrorKind::Busy
     );
+    fs.close_node(nested);
     fs.forget(nested);
     assert_eq!(
         fs.rename(
@@ -753,6 +823,7 @@ fn rename_replaces_or_refuses_existing_targets() {
         ErrorKind::Unsupported
     );
 
+    fs.close_node(long);
     fs.forget(long);
     let before = free(&mut fs);
     fs.rename(
@@ -878,14 +949,27 @@ fn remove_files_and_directories() {
     let root = fs.root();
     let before = free(&mut fs);
     let file = fs.lookup(root, name("a long file name.txt")).unwrap();
+    fs.open_node(file).unwrap();
     assert_eq!(
-        fs.remove(root, name("A long file name.txt"))
+        fs.remove(root, name("A long file name.txt"), RemoveKind::Any)
             .unwrap_err()
             .kind(),
         ErrorKind::Busy
     );
+    fs.close_node(file);
+    fs.remove(root, name("ALONGF~1.TXT"), RemoveKind::File)
+        .unwrap();
+    assert_eq!(
+        fs.node_metadata(file).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert_eq!(
+        fs.read_at(file, 0, &mut [0u8; 4]).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert_eq!(fs.open_node(file).unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(fs.open_nodes(), 2, "a removed node keeps its pin");
     fs.forget(file);
-    fs.remove(root, name("ALONGF~1.TXT")).unwrap();
     assert!(free(&mut fs) > before);
     assert_eq!(
         fs.lookup(root, name("A long file name.txt"))
@@ -894,28 +978,46 @@ fn remove_files_and_directories() {
         ErrorKind::NotFound
     );
     assert_eq!(
-        fs.remove(root, name("Nested Dir")).unwrap_err().kind(),
+        fs.remove(root, name("Nested Dir"), RemoveKind::Any)
+            .unwrap_err()
+            .kind(),
         ErrorKind::DirectoryNotEmpty
     );
     assert_eq!(
-        fs.remove(root, name("missing")).unwrap_err().kind(),
+        fs.remove(root, name("missing"), RemoveKind::Any)
+            .unwrap_err()
+            .kind(),
         ErrorKind::NotFound
+    );
+    assert_eq!(
+        fs.remove(root, name("Nested Dir"), RemoveKind::File)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::IsADirectory
+    );
+    assert_eq!(
+        fs.remove(root, name("README.TXT"), RemoveKind::Dir)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::NotADirectory
     );
 
     let pending = fs.lookup(root, name("grown.bin")).unwrap();
     write_all(&mut fs, pending, 20_000, b"more");
     fs.forget(pending);
     assert_eq!(fs.open_nodes(), 2, "an unsynced size keeps the node");
-    fs.remove(root, name("grown.bin")).unwrap();
+    fs.remove(root, name("grown.bin"), RemoveKind::Any).unwrap();
     assert_eq!(fs.open_nodes(), 1);
 
     let dir = fs.resolve("/Nested Dir").unwrap();
     let inner = fs.lookup(dir, name("inner")).unwrap();
-    fs.remove(inner, name("deep.bin")).unwrap();
+    fs.remove(inner, name("deep.bin"), RemoveKind::File)
+        .unwrap();
     fs.forget(inner);
-    fs.remove(dir, name("inner")).unwrap();
+    fs.remove(dir, name("inner"), RemoveKind::Dir).unwrap();
     fs.forget(dir);
-    fs.remove(root, name("Nested Dir")).unwrap();
+    fs.remove(root, name("Nested Dir"), RemoveKind::Any)
+        .unwrap();
     for text in [
         "README.TXT",
         "lower.txt",
@@ -923,7 +1025,7 @@ fn remove_files_and_directories() {
         "sparse.bin",
         "empty.dat",
     ] {
-        fs.remove(root, name(text)).unwrap();
+        fs.remove(root, name(text), RemoveKind::Any).unwrap();
     }
     assert!(list(&mut fs, root).is_empty());
     fs.sync().unwrap();
@@ -962,13 +1064,13 @@ fn set_len_shrinks_frees_and_grows_zeroed() {
             fs.set_len(node, u64::from(u32::MAX) + 1)
                 .unwrap_err()
                 .kind(),
-            ErrorKind::LimitExceeded
+            ErrorKind::FileTooLarge
         );
         assert_eq!(
             fs.write_at(node, u64::from(u32::MAX), b"x")
                 .unwrap_err()
                 .kind(),
-            ErrorKind::LimitExceeded
+            ErrorKind::FileTooLarge
         );
         fs.forget(node);
         fs.sync().unwrap();
@@ -1457,6 +1559,76 @@ impl BlockDevice for Faulty {
     }
 }
 
+/// A device that counts flushes.
+struct Flushes {
+    inner: Device,
+    flushes: usize,
+}
+
+impl hadris_io::ErrorType for Flushes {
+    type Error = OutOfRange;
+}
+
+impl BlockDevice for Flushes {
+    fn block_size(&self) -> BlockSize {
+        self.inner.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
+        self.inner.read_blocks(first, buf)
+    }
+
+    fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), WriteError<OutOfRange>> {
+        self.inner.write_blocks(first, buf)
+    }
+
+    fn flush(&mut self) -> Result<(), WriteError<OutOfRange>> {
+        self.flushes += 1;
+        Ok(())
+    }
+}
+
+#[test]
+fn publish_node_writes_the_entry_without_a_flush() {
+    let case = CASES[1];
+    let dev = Flushes {
+        inner: common::device(case, common::blank(case)),
+        flushes: 0,
+    };
+    let mut fs = FatFs::open(dev).unwrap();
+    let root = fs.root();
+    let node = fs
+        .create(root, name("log.txt"), NewNode::File, &SetMetadata::new())
+        .unwrap();
+    fs.write_at(node, 0, b"published").unwrap();
+    fs.publish_node(node).unwrap();
+    fs.forget(node);
+    assert_eq!(fs.open_nodes(), 1, "a published node is clean");
+    let dev = fs.into_inner();
+    assert_eq!(dev.flushes, 0);
+    let image = dev.inner.into_inner();
+    let mut fresh = open(case, image.clone());
+    assert_eq!(fresh.read_to_vec("/log.txt").unwrap(), b"published");
+
+    let mut fs = FatFs::open(Flushes {
+        inner: common::device(case, image),
+        flushes: 0,
+    })
+    .unwrap();
+    let node = fs.lookup(fs.root(), name("log.txt")).unwrap();
+    fs.sync_node(node).unwrap();
+    fs.forget(node);
+    assert_eq!(fs.into_inner().flushes, 1);
+}
+
 #[test]
 fn refused_writes_make_the_volume_read_only() {
     let case = CASES[1];
@@ -1482,7 +1654,7 @@ fn refused_writes_make_the_volume_read_only() {
     let kinds = [
         fs.create(root, name("new"), NewNode::File, &meta)
             .map(|_| ()),
-        fs.remove(root, name("lower.txt")),
+        fs.remove(root, name("lower.txt"), RemoveKind::Any),
         fs.rename(
             root,
             name("lower.txt"),
@@ -1515,7 +1687,7 @@ fn refused_writes_make_the_volume_read_only() {
             0 => fs
                 .create(root, name("a long new name"), NewNode::Dir, &meta)
                 .map(|_| ()),
-            1 => fs.remove(root, name("A long file name.txt")),
+            1 => fs.remove(root, name("A long file name.txt"), RemoveKind::Any),
             _ => fs.rename(
                 root,
                 name("lower.txt"),
@@ -1554,7 +1726,7 @@ fn interrupted_operations_leave_readable_volumes() {
                 0 => fs
                     .create(root, name("a new directory"), NewNode::Dir, &meta)
                     .map(|_| ()),
-                1 => fs.remove(root, name("A long file name.txt")),
+                1 => fs.remove(root, name("A long file name.txt"), RemoveKind::Any),
                 2 => fs.rename(
                     root,
                     name("Nested Dir"),
@@ -1788,7 +1960,7 @@ fn random_operations_match_a_model() {
                     fs.forget(node);
                 }
                 4 => {
-                    let result = fs.remove(dirs[d], name(text));
+                    let result = fs.remove(dirs[d], name(text), RemoveKind::Any);
                     match model.get(&key) {
                         None => {
                             assert_eq!(result.unwrap_err().kind(), ErrorKind::NotFound, "{context}")

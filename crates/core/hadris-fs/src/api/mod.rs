@@ -4,10 +4,12 @@ use crate::forget_queue::ForgetQueue;
 use crate::path::{Component, Components, VPath};
 use crate::{
     Capabilities, DirCursor, DirEntry, DirItem, Error, ErrorKind, FileType, FsResult, FsStats,
-    Metadata, Name, NameBuf, NewNode, NodeId, OpenOptions, RenameFlags, SetMetadata,
+    Metadata, Name, NameBuf, NewNode, NodeId, OpenOptions, RemoveKind, RenameFlags, SetMetadata,
 };
 use hadris_io::SeekFrom;
 
+#[cfg(feature = "contract")]
+pub mod contract;
 #[cfg(feature = "alloc")]
 mod copy;
 #[macro_use]

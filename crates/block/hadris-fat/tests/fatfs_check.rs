@@ -13,7 +13,7 @@ use hadris_fat::{
     CheckReport, FatKind, Finding, FindingKind, FormatOptions, MountOptions, VolumeLabel,
 };
 use hadris_fs::sync::{FileSystem, FsDriver, PathExt, Volume};
-use hadris_fs::{ErrorKind, HeapTable, Name, NewNode, RenameFlags, SetMetadata};
+use hadris_fs::{ErrorKind, HeapTable, Name, NewNode, RemoveKind, RenameFlags, SetMetadata};
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, MemDevice, OutOfRange, WriteError};
 
@@ -850,7 +850,7 @@ fn interrupted_operations_leave_only_repairable_leftovers() {
                     0 => fs
                         .create(root, name("a new directory"), NewNode::Dir, &meta)
                         .map(|_| ()),
-                    1 => fs.remove(root, name("Long name file.txt")),
+                    1 => fs.remove(root, name("Long name file.txt"), RemoveKind::Any),
                     2 => fs.rename(
                         root,
                         name("Long name file.txt"),

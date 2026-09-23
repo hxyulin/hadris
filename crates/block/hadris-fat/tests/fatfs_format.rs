@@ -502,7 +502,7 @@ fn labels() {
     assert_eq!(label("ABCDEFGHIJK").as_str(), "ABCDEFGHIJK");
     assert_eq!(
         VolumeLabel::new("ABCDEFGHIJKL"),
-        Err(ErrorKind::LimitExceeded)
+        Err(ErrorKind::NameTooLong)
     );
     for bad in ["", " LEAD", "A.B", "A*B", "caf\u{E9}", "TAB\t"] {
         assert_eq!(

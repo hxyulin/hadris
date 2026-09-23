@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use common::{CASES, INNER, INNER_FILES, LONG_NAME, block_on};
 use hadris_fs::{
-    DirCursor, ErrorKind, Name, NameBuf, NewNode, OpenOptions, RenameFlags, SetMetadata,
+    DirCursor, ErrorKind, Name, NameBuf, NewNode, OpenOptions, RemoveKind, RenameFlags, SetMetadata,
 };
 
 #[test]
@@ -141,7 +141,7 @@ fn async_failed_opens_give_the_device_back() {
             assert_eq!(error.kind(), ErrorKind::Corrupt);
             assert_eq!(dev.into_inner(), image);
 
-            let options = hadris_fat::MountOptions::new().with_read_only(true);
+            let options = hadris_fat::MountOptions::new().with_read_only();
             let err = hadris_fat::async_send::FatFs::open_with(
                 common::device(case, image.clone()),
                 options,
@@ -186,17 +186,23 @@ fn async_mode_writes() {
         )
         .await
         .unwrap();
+        fs.open_node(dir).await.unwrap();
         assert_eq!(
-            fs.remove(root, Name::new("A Directory").unwrap())
+            fs.remove(root, Name::new("A Directory").unwrap(), RemoveKind::Any)
                 .await
                 .unwrap_err()
                 .kind(),
             ErrorKind::Busy
         );
-        fs.forget(dir);
-        fs.remove(root, Name::new("a directory").unwrap())
+        fs.close_node(dir);
+        fs.remove(root, Name::new("a directory").unwrap(), RemoveKind::Dir)
             .await
             .unwrap();
+        assert_eq!(
+            fs.node_metadata(dir).await.unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        fs.forget(dir);
         let mut buf = vec![0u8; 9_000];
         assert_eq!(fs.read_at(file, 0, &mut buf).await.unwrap(), 8_000);
         assert_eq!(buf[..8_000], data[..8_000]);

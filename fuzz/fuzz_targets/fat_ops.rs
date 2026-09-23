@@ -20,7 +20,8 @@ use std::collections::HashMap;
 use hadris_fat::sync::{check, format, FatFs};
 use hadris_fat::{FatKind, FormatOptions, MountOptions, VolumeLabel};
 use hadris_fs::{
-    DirCursor, FileType, HeapTable, Name, NameBuf, NewNode, NodeId, RenameFlags, SetMetadata,
+    DirCursor, FileType, HeapTable, Name, NameBuf, NewNode, NodeId, RemoveKind, RenameFlags,
+    SetMetadata,
 };
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
@@ -195,7 +196,7 @@ fn apply(
                 // The entry exists but its content is unknown. Best-effort
                 // cleanup; if even that fails the model can no longer mirror
                 // the disk, so stop.
-                let removed = fs.remove(parent, name(&child)).is_ok();
+                let removed = fs.remove(parent, name(&child), RemoveKind::Any).is_ok();
                 fs.forget(parent);
                 return removed;
             }
@@ -216,7 +217,10 @@ fn apply(
             let child = child.to_owned();
             // Removing a non-empty directory fails inside the library;
             // failed ops leave both sides unchanged.
-            if with_node(fs, dir, |fs, dir| fs.remove(dir, name(&child)).is_ok()) == Some(true) {
+            if with_node(fs, dir, |fs, dir| {
+                fs.remove(dir, name(&child), RemoveKind::Any).is_ok()
+            }) == Some(true)
+            {
                 model.remove(idx);
             }
         }

@@ -13,10 +13,39 @@ io_transform! {
 /// Contract:
 /// - `lookup`, `create` and `parent` pin the node they return; `forget`
 ///   unpins it. A pinned `NodeId` stays valid, even across `rename`.
+/// - A pin never blocks a removal. `open_node` marks a pinned node as open
+///   and `close_node` ends that; `remove` and a replacing `rename` fail with
+///   [`ErrorKind::Busy`] only when they would remove the last name of an
+///   open node. A pinned node that is removed keeps its id until its last
+///   `forget`, and every method but `forget` and `close_node` answers
+///   [`ErrorKind::NotFound`] for it.
 /// - `.` and `..` never appear in `read_dir_entry` output, and `lookup`
 ///   rejects them.
 /// - A failed operation leaves the filesystem unchanged, in memory and on
 ///   disk.
+/// - `NodeId` 0 is never a node, and every [`DirCursor`] a driver returns has
+///   a raw value of at most [`DirCursor::MAX_RAW`], so both fit FUSE and
+///   `off_t`. The root's id is the driver's choice.
+/// - Reads never change times. Writes may set the modification and access
+///   times; callers that want access times on reads set them with
+///   `set_metadata`.
+/// - `node_metadata` shows a pending size at once; the modification time and
+///   other fields a driver keeps in memory may lag until `publish_node`,
+///   `sync_node` or `sync`. Fields a format does not store are absent (the
+///   FAT root directory has no times).
+/// - In the async modes, a call whose future is dropped before it completes
+///   leaves no pin: a driver pins a node only in the step that returns it.
+///
+/// # Adding methods
+///
+/// Methods added after 3.0 have a default body: `Unsupported` for queries,
+/// `ReadOnly` for writes, or a composition of existing methods, with a
+/// matching [`Capabilities`] flag when callers need to ask first.
+/// [`impl_fs_driver!`](crate::impl_fs_driver) forwards them only when named
+/// in `also = [..]`, so formats that use the macro keep compiling. A type
+/// that implements this trait by wrapping another driver must forward new
+/// methods itself; until it does, they answer with their defaults through
+/// it.
 pub trait FsDriver {
     /// The device's own error, returned inside [`Error`].
     type DeviceError: core::error::Error + Send + Sync + 'static;
@@ -36,6 +65,11 @@ pub trait FsDriver {
 
     /// Writes the entry after `cursor` into `name` and advances `cursor`.
     /// `None` at the end. Entries are not pinned.
+    ///
+    /// The entry's id serves `node_metadata` until the directory changes.
+    /// Until then, and unless a node is forgotten in between, it is also the
+    /// id a `lookup` of the same name returns, so a listing and `stat` agree
+    /// on inode numbers.
     async fn read_dir_entry(
         &mut self,
         dir: NodeId,
@@ -56,6 +90,22 @@ pub trait FsDriver {
 
     /// Unpins a node. Never fails.
     fn forget(&mut self, node: NodeId);
+
+    /// Marks a pinned node as open, so that removing its last name fails
+    /// with [`ErrorKind::Busy`] until the matching
+    /// [`close_node`](Self::close_node). The caller keeps its pin while the
+    /// node is open. The default does nothing, which suits drivers that
+    /// cannot remove nodes.
+    async fn open_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+        let _ = node;
+        Ok(())
+    }
+
+    /// Ends one [`open_node`](Self::open_node). Never fails and never
+    /// blocks, so `Drop` can call it.
+    fn close_node(&mut self, node: NodeId) {
+        let _ = node;
+    }
 
     /// The directory containing `dir`, pinned. The root is its own parent.
     async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError> {
@@ -88,18 +138,23 @@ pub trait FsDriver {
         Err(ErrorKind::ReadOnly.into())
     }
 
-    /// Removes `name` from `dir`. A directory must be empty.
+    /// Removes `name` from `dir`, which must be of `kind`: a directory fails
+    /// with [`ErrorKind::IsADirectory`] for [`RemoveKind::File`], anything
+    /// but a directory with [`ErrorKind::NotADirectory`] for
+    /// [`RemoveKind::Dir`]. A directory must be empty.
     ///
-    /// Fails with [`ErrorKind::Busy`] while the node is pinned, that is,
-    /// returned by `lookup` and not yet forgotten, as the node of an open
-    /// handle is. Close or forget it first.
-    async fn remove(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
-        let _ = (dir, name);
+    /// Fails with [`ErrorKind::Busy`] when `name` is the last name of an
+    /// open node. A node that is only pinned is removed, and its id answers
+    /// [`ErrorKind::NotFound`] until its last `forget`.
+    async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), Self::DeviceError> {
+        let _ = (dir, name, kind);
         Err(ErrorKind::ReadOnly.into())
     }
 
     /// Moves `from` in `from_dir` to `to` in `to_dir`. The moved node keeps
-    /// its `NodeId`.
+    /// its `NodeId`. Replacing an existing `to` removes it as
+    /// [`remove`](Self::remove) would, so an open target fails with
+    /// [`ErrorKind::Busy`].
     async fn rename(
         &mut self,
         from_dir: NodeId,
@@ -140,10 +195,20 @@ pub trait FsDriver {
         Err(ErrorKind::ReadOnly.into())
     }
 
-    /// Writes one node's cached data and metadata.
+    /// Makes one node durable: writes its pending data and metadata, then
+    /// flushes the device. This is `fsync`.
     async fn sync_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
         let _ = node;
         Ok(())
+    }
+
+    /// Writes one node's pending metadata (a size or time kept in memory)
+    /// to the device without flushing it, so that another mount of the
+    /// device would see it once the device's own cache is written. This is
+    /// what closing a file needs. The default calls
+    /// [`sync_node`](Self::sync_node).
+    async fn publish_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+        self.sync_node(node).await
     }
 
     /// Writes every piece of cached metadata and flushes the device.
@@ -197,6 +262,20 @@ pub trait FileSystem {
     /// Unpins a node. Never blocks, so `Drop` can call it in every mode.
     fn forget(&self, node: NodeId);
 
+    /// Marks a pinned node as open, so that removing its last name fails
+    /// with [`ErrorKind::Busy`] until the matching
+    /// [`close_node`](Self::close_node).
+    async fn open_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+        let _ = node;
+        Ok(())
+    }
+
+    /// Ends one [`open_node`](Self::open_node). Never blocks, so `Drop` can
+    /// call it in every mode.
+    fn close_node(&self, node: NodeId) {
+        let _ = node;
+    }
+
     /// The directory containing `dir`, pinned.
     async fn parent(&self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError> {
         let _ = dir;
@@ -227,13 +306,11 @@ pub trait FileSystem {
         Err(ErrorKind::ReadOnly.into())
     }
 
-    /// Removes `name` from `dir`. A directory must be empty.
-    ///
-    /// Fails with [`ErrorKind::Busy`] while the node is pinned, that is,
-    /// returned by `lookup` and not yet forgotten, as the node of an open
-    /// handle is. Close or forget it first.
-    async fn remove(&self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
-        let _ = (dir, name);
+    /// Removes `name` from `dir`, which must be of `kind`. A directory must
+    /// be empty. Fails with [`ErrorKind::Busy`] when `name` is the last name
+    /// of an open node; see [`FsDriver::remove`].
+    async fn remove(&self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), Self::DeviceError> {
+        let _ = (dir, name, kind);
         Err(ErrorKind::ReadOnly.into())
     }
 
@@ -268,10 +345,17 @@ pub trait FileSystem {
         Err(ErrorKind::ReadOnly.into())
     }
 
-    /// Writes one node's cached data and metadata.
+    /// Makes one node durable; see [`FsDriver::sync_node`].
     async fn sync_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
         let _ = node;
         Ok(())
+    }
+
+    /// Writes one node's pending metadata without flushing the device; see
+    /// [`FsDriver::publish_node`]. The default calls
+    /// [`sync_node`](Self::sync_node).
+    async fn publish_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+        self.sync_node(node).await
     }
 
     /// Writes every piece of cached metadata and flushes the device.
@@ -312,6 +396,12 @@ macro_rules! forward_driver_methods {
         fn forget(&mut self, node: NodeId) {
             (**self).forget(node)
         }
+        async fn open_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+            (**self).open_node(node).await
+        }
+        fn close_node(&mut self, node: NodeId) {
+            (**self).close_node(node)
+        }
         async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError> {
             (**self).parent(dir).await
         }
@@ -327,8 +417,8 @@ macro_rules! forward_driver_methods {
         ) -> FsResult<NodeId, Self::DeviceError> {
             (**self).create(dir, name, kind, meta).await
         }
-        async fn remove(&mut self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
-            (**self).remove(dir, name).await
+        async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), Self::DeviceError> {
+            (**self).remove(dir, name, kind).await
         }
         async fn rename(
             &mut self,
@@ -351,6 +441,9 @@ macro_rules! forward_driver_methods {
         }
         async fn sync_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
             (**self).sync_node(node).await
+        }
+        async fn publish_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+            (**self).publish_node(node).await
         }
         async fn sync(&mut self) -> FsResult<(), Self::DeviceError> {
             (**self).sync().await
@@ -390,6 +483,12 @@ macro_rules! forward_fs_methods {
         fn forget(&self, node: NodeId) {
             (**self).forget(node)
         }
+        async fn open_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+            (**self).open_node(node).await
+        }
+        fn close_node(&self, node: NodeId) {
+            (**self).close_node(node)
+        }
         async fn parent(&self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError> {
             (**self).parent(dir).await
         }
@@ -408,8 +507,8 @@ macro_rules! forward_fs_methods {
         ) -> FsResult<NodeId, Self::DeviceError> {
             (**self).create(dir, name, kind, meta).await
         }
-        async fn remove(&self, dir: NodeId, name: &Name) -> FsResult<(), Self::DeviceError> {
-            (**self).remove(dir, name).await
+        async fn remove(&self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), Self::DeviceError> {
+            (**self).remove(dir, name, kind).await
         }
         async fn rename(
             &self,
@@ -432,6 +531,9 @@ macro_rules! forward_fs_methods {
         }
         async fn sync_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
             (**self).sync_node(node).await
+        }
+        async fn publish_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+            (**self).publish_node(node).await
         }
         async fn sync(&self) -> FsResult<(), Self::DeviceError> {
             (**self).sync().await
