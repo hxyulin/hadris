@@ -2,7 +2,6 @@
 
 use hadris_common::types::endian::*;
 use hadris_common::types::extent::*;
-use hadris_common::types::fixed::FixedBytes;
 use hadris_common::types::number::*;
 
 // ---------------------------------------------------------------------------
@@ -79,13 +78,6 @@ fn endian_set_and_get() {
 
     le.set(0);
     assert_eq!(le.get(), 0);
-}
-
-#[test]
-fn endian_type_display() {
-    assert_eq!(format!("{}", EndianType::LittleEndian), "little-endian");
-    assert_eq!(format!("{}", EndianType::BigEndian), "big-endian");
-    assert_eq!(format!("{}", EndianType::NativeEndian), "native");
 }
 
 #[test]
@@ -168,51 +160,6 @@ fn file_type_display() {
 fn file_type_default() {
     assert_eq!(FileType::default(), FileType::RegularFile);
 }
-
-// ---------------------------------------------------------------------------
-// FixedBytes
-// ---------------------------------------------------------------------------
-
-#[test]
-fn fixed_filename_push_operations() {
-    let mut name = FixedBytes::<32>::empty();
-    assert!(name.is_empty());
-
-    name.push_slice(b"hello");
-    assert_eq!(name.len(), 5);
-    assert_eq!(name.as_str(), "hello");
-
-    name.push_byte(b'.');
-    name.push_slice(b"txt");
-    assert_eq!(name.as_str(), "hello.txt");
-}
-
-#[test]
-fn fixed_filename_try_push_overflow() {
-    let mut name = FixedBytes::<5>::empty();
-    name.push_slice(b"hello");
-    assert_eq!(name.remaining_capacity(), 0);
-
-    assert!(name.try_push_byte(b'!').is_err());
-    assert!(name.try_push_slice(b"x").is_err());
-}
-
-#[test]
-fn fixed_filename_truncate() {
-    let mut name = FixedBytes::<32>::from(b"hello.txt".as_slice());
-    name.truncate(5);
-    assert_eq!(name.as_str(), "hello");
-}
-
-#[test]
-fn fixed_filename_display() {
-    let name = FixedBytes::<32>::from(b"test.iso".as_slice());
-    assert_eq!(format!("{name}"), "test.iso");
-}
-
-// ---------------------------------------------------------------------------
-// align_up
-// ---------------------------------------------------------------------------
 
 #[test]
 fn align_up_already_aligned() {

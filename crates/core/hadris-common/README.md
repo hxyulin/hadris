@@ -8,15 +8,13 @@ This is an internal support crate for the other Hadris crates and is not meant
 for direct use. Its API can change in any release; depend on `hadris` or a
 format crate instead.
 
-It provides endian-aware types, extents and fixed-capacity byte, text and
-collection types (`types::fixed`, formerly the `hadris-fixed` crate).
+It provides endian-aware types, extents and layout helpers.
 Virtual path code uses `hadris_fs::path`.
 
 ## Features
 
 - **Endian Types** - Little-endian and big-endian wrappers for integers
 - **Extents** - On-disk layout helpers used by ISO and related crates
-- **Fixed-capacity storage** - `FixedBytes`, `FixedStr`, `FixedUtf16`, `ArrayVec`, `RingBuf`
 - **No-std Compatible** - Works without the standard library
 
 ## Feature Flags
@@ -44,14 +42,6 @@ use hadris_common::types::number::U32;
 
 let value = U32::<LittleEndian>::new(0x12345678);
 assert_eq!(value.get(), 0x12345678);
-```
-
-### Boot sector binary
-
-```rust
-assert_eq!(hadris_common::BOOT_SECTOR_BIN.len(), 512);
-assert_eq!(hadris_common::BOOT_SECTOR_BIN[510], 0x55);
-assert_eq!(hadris_common::BOOT_SECTOR_BIN[511], 0xAA);
 ```
 
 ### For No-std Environments

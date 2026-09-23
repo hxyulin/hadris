@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 description = "Internal types and functions shared by the Hadris crates; not for direct use"
 readme = "README.md"
-keywords = ["filesystem", "endian", "iso-string"]
+keywords = ["filesystem", "endian"]
 categories = ["no-std", "filesystem"]
 include = ["src/**/*", "Cargo.toml"]
 
@@ -23,7 +23,6 @@ bytemuck = ["dep:bytemuck"]
 [dependencies]
 bytemuck = { workspace = true, optional = true, features = ["derive"] }
 zerocopy = { workspace = true }
-heapless = "0.9.3"
 hadris-io = { workspace = true }
 hadris-fs = { workspace = true }
 

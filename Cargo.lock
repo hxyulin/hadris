@@ -499,7 +499,6 @@ dependencies = [
  "criterion",
  "hadris-fs",
  "hadris-io",
- "heapless",
  "static_assertions",
  "zerocopy",
 ]

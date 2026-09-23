@@ -2,7 +2,6 @@
 
 pub mod endian;
 pub mod extent;
-pub mod fixed;
 /// Endian-aware integer types and alignment helpers.
 pub mod number;
 
