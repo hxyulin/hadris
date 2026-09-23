@@ -26,14 +26,17 @@
 //! (`sync::FatFs`, `r#async::FatFs`, `async_send::FatFs`). It mounts any
 //! `hadris_storage` block device, needs no allocator, and implements the
 //! `hadris_fs` `FsDriver` trait, so the `hadris-fs` path helpers, `Volume`
-//! and handles work on it. It reads only for now; its write methods return
-//! `ErrorKind::ReadOnly`.
+//! and handles work on it. It reads and writes files and directories:
+//! `create`, `remove`, `rename`, `write_at`, `set_len`, `set_metadata`,
+//! `sync_node` and `sync`. Sizes of pinned files are kept in the node table
+//! until `sync_node` or `sync`; see the `FatFs` docs for durability and
+//! crash safety.
 //!
 //! ```rust,no_run
 //! # #[cfg(all(feature = "sync", feature = "std"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! use hadris_fat::sync::FatFs;
-//! use hadris_fs::sync::{PathExt, Volume};
+//! use hadris_fs::sync::{FileSystem, PathExt, Volume};
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
 //! let image = std::fs::read("disk.img")?;
@@ -43,7 +46,8 @@
 //!     println!("{}", entry?.name_str().unwrap_or("?"));
 //! }
 //! let config = vol.read_to_vec("/boot/grub.cfg")?;
-//! # let _ = config;
+//! vol.write_file("/boot/grub.cfg.bak", &config)?;
+//! vol.sync()?;
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "std")))]

@@ -56,12 +56,13 @@ zero bytes.
 `hadris-storage` block device, needs no allocator (its only buffer is one
 device block of at most 4096 bytes), and implements the `hadris-fs`
 `FsDriver` trait, so `Volume`, the path helpers and the `File`/`Dir` handles
-of `hadris-fs` work on it. Long names are always read. This first version
-reads only; its write methods return `ErrorKind::ReadOnly`.
+of `hadris-fs` work on it. Long names are always read and written: a name
+that fits 8.3 in one case per part is stored as a short entry alone, and
+other names get long-name entries and a short name with a `~N` tail.
 
 ```rust,no_run
 use hadris_fat::sync::FatFs;
-use hadris_fs::sync::{PathExt, Volume};
+use hadris_fs::sync::{FileSystem, PathExt, Volume};
 use hadris_fs::Name;
 use hadris_storage::{BlockSize, MemDevice};
 
@@ -79,6 +80,9 @@ let vol = Volume::new(fs);
 for entry in vol.read_dir("/EFI")? {
     println!("{}", entry?.name_str().unwrap_or("?"));
 }
+vol.create_dir_all("/logs")?;
+vol.write_file("/logs/boot.txt", b"booted")?;
+vol.sync()?;
 # Ok(())
 # }
 ```
@@ -87,6 +91,16 @@ Open nodes live in a node table, `FixedTable<64>` by default. A full table
 makes `lookup` fail with `ErrorKind::LimitExceeded`; use
 `FatFs::open_with_table(dev, HeapTable::new())` or a larger `FixedTable<N>`
 for more.
+
+Writes go to the device at once, except the size and modification time of
+a pinned file, which stay in the node table so every handle sees one size
+until `sync_node` or `sync` writes them; closing a `File` handle calls
+`sync_node`. `sync` also writes the FAT32 FSInfo free count and flushes the
+device. `remove` of a pinned node fails with `ErrorKind::Busy`, and a device
+that refuses a write makes the volume read-only with nothing changed.
+Writes are ordered so that an interrupted operation, or a dropped `async`
+future, leaves a volume that `fsck` repairs: at worst lost clusters, a
+chain longer than its file, or a renamed node under both names.
 
 ### Writing to a FAT Filesystem
 

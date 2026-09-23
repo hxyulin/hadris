@@ -62,6 +62,26 @@ Each published package owns its version and may be released independently.
   short name reads as `0xE5`. The driver needs no allocator: its only buffer
   is one device block of at most 4096 bytes, and larger blocks are rejected
   with `ErrorKind::Unsupported`.
+- **hadris-fat (V3):** `FatFs` writes. `create` makes files and
+  directories (other kinds are `ErrorKind::Unsupported`) with long names and
+  generated `~N` short names, or a short entry alone with the NT case bits
+  when the name fits 8.3; `remove` deletes files and empty directories
+  (`Busy` while pinned, `DirectoryNotEmpty`); `rename` moves within and
+  across directories, keeps the node's id, updates `..` of a moved
+  directory, replaces an existing target unless `RenameFlags::NO_REPLACE`,
+  and rejects unknown flags with `Unsupported`; `write_at` and `set_len`
+  grow, zero-fill and shrink files, freeing clusters; `set_metadata` sets
+  attributes and creation, modification and access times (mode and owner
+  are ignored); `sync_node` and `sync` write pending sizes and the FAT32
+  FSInfo free count, and flush the device. Directories grow past their
+  first cluster, and a full FAT12/16 root directory gives
+  `ErrorKind::NoSpace`. The size of a pinned file lives in the node table
+  until it is synced, so handles share it; such a node stays in the table
+  after its last `forget`. A device answering `WriteError::ReadOnly` fails
+  the operation with `ErrorKind::ReadOnly`, changes nothing and makes the
+  volume read-only, as `capabilities` and `is_read_only` then report.
+  Writes are ordered so an interrupted operation or a dropped `async`
+  future leaves an `fsck`-repairable volume.
 
 ### Changed
 
