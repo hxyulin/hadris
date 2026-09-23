@@ -99,7 +99,7 @@ fn dump_fat(data: &[u8]) -> Vec<String> {
 
     let dev = MemDevice::new(data, BlockSize::new(512).unwrap());
     let options = MountOptions::new()
-        .with_read_only(true)
+        .with_read_only()
         .with_table(HeapTable::new());
     match FatFs::open_with(dev, options) {
         Ok(mut fs) => dump_driver(&mut fs),

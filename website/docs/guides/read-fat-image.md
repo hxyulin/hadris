@@ -23,7 +23,7 @@ use std::fs::File;
 
 fn main() -> Result<()> {
     let image = File::open("disk.img").context("open disk.img")?;
-    let mut volume = FatFs::open_with(image, MountOptions::new().with_read_only(true))
+    let mut volume = FatFs::open_with(image, MountOptions::new().with_read_only())
         .context("open FAT filesystem")?;
 
     let mut names = Vec::new();

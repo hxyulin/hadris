@@ -179,6 +179,8 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat (V3):** `MountOptions::with_read_only()` takes no argument
+  (R9: no bool parameters); mounts are writable unless it is called.
 - **hadris-fat (V3):** A node id is the slot of its directory entry plus a
   tier in the bits above bit 40, which counts up only while a pinned node
   that has moved away holds the slot's lower tiers. `read_dir_entry` and

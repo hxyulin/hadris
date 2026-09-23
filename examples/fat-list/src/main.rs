@@ -10,7 +10,7 @@ fn main() -> Result<()> {
     let image_path = image_path()?;
     let image = File::open(&image_path)
         .with_context(|| format!("failed to open {}", image_path.display()))?;
-    let mut volume = FatFs::open_with(image, MountOptions::new().with_read_only(true))
+    let mut volume = FatFs::open_with(image, MountOptions::new().with_read_only())
         .with_context(|| format!("failed to open FAT volume {}", image_path.display()))?;
 
     let mut names = Vec::new();

@@ -86,7 +86,7 @@ let fs = FatFs::open_with(MemDevice::new(image, BlockSize::new(512).unwrap()), o
 # }
 ```
 
-`MountOptions::with_read_only(true)` mounts without ever calling
+`MountOptions::with_read_only()` mounts without ever calling
 `write_blocks`.
 
 A failed `open`, `open_with` or `format` returns a `hadris_fs::MountError`, which

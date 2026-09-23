@@ -448,7 +448,7 @@ fn capabilities_and_write_methods_are_read_only() {
     let image = common::build(case);
     let mut fs = FatFs::open_with(
         common::device(case, image.clone()),
-        MountOptions::new().with_read_only(true),
+        MountOptions::new().with_read_only(),
     )
     .unwrap();
     assert!(fs.is_read_only());
@@ -521,7 +521,7 @@ fn failed_opens_give_the_device_back() {
         assert_eq!(error.kind(), ErrorKind::Corrupt);
         assert_eq!(dev.into_inner(), image);
 
-        let options = MountOptions::new().with_read_only(true);
+        let options = MountOptions::new().with_read_only();
         let err = FatFs::open_with(common::device(case, image.clone()), options).unwrap_err();
         assert_eq!(err.into_device().into_inner(), image);
     }
