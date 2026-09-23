@@ -257,6 +257,21 @@ inode_numbers() {
     [ "$listed" = "$stat" ] || gap "readdir and stat disagree on the inode of ino-c ($listed vs $stat)"
 }
 
+remove_looked_up_names() {
+    echo a >"$M/seen-a"
+    echo b >"$M/seen-b"
+    mkdir "$M/seen-d"
+    stat "$M/seen-a" "$M/seen-b" "$M/seen-d" >/dev/null
+    rm "$M/seen-a"
+    [ ! -e "$M/seen-a" ]
+    rmdir "$M/seen-d"
+    echo c >"$M/seen-c"
+    stat "$M/seen-c" >/dev/null
+    mv "$M/seen-b" "$M/seen-c"
+    [ "$(cat "$M/seen-c")" = b ]
+    rm "$M/seen-c"
+}
+
 unlink_open_file() {
     echo data >"$M/held"
     exec 5<"$M/held"
@@ -343,6 +358,7 @@ scenario find find_tree
 scenario statfs_df statfs_df
 scenario readdir_while_creating readdir_while_creating
 scenario inode_numbers inode_numbers
+scenario remove_looked_up_names remove_looked_up_names
 scenario unlink_open_file unlink_open_file
 scenario rename_over_open_file rename_over_open_file
 scenario symlink_and_link symlink_and_link

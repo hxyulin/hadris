@@ -4,8 +4,11 @@
 //! so it can be driven without a kernel (see `tests/ops.rs`). [`Fuse`] is the
 //! thin `fuser::Filesystem` glue around it.
 //!
-//! Workarounds for gaps in the `hadris-fs` traits are marked `GAP:` and
-//! discussed in `docs/v3-trait-review.md`.
+//! Kernel lookups map one to one onto driver pins: every FUSE `lookup`,
+//! `create` and `mkdir` is a driver pin, and FUSE `forget` drops them. Open
+//! files are `open_node` .. `close_node`, so only removing an open file is
+//! `EBUSY`. Workarounds for gaps in the `hadris-fs` traits that remain are
+//! marked `GAP:` and discussed in `docs/v3-trait-review.md`.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -22,13 +25,13 @@ use fuser::{
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{
     Attributes, DateTime, DirCursor, ErrorKind, FileTimes, FileType, Metadata, Name, NameBuf,
-    NewNode, NodeId, RenameFlags, SetMetadata,
+    NewNode, NodeId, RemoveKind, RenameFlags, SetMetadata,
 };
 
 const TTL: Duration = Duration::from_secs(1);
 const RENAME_NOREPLACE: u32 = 1;
 /// FUSE readdir offsets 1 and 2 are the synthesised `.` and `..`; driver
-/// cursors are shifted past them.
+/// cursors, at most `DirCursor::MAX_RAW`, are shifted past them.
 const DOT_ENTRIES: u64 = 2;
 
 /// Maps an `ErrorKind` to an errno.
@@ -45,13 +48,12 @@ pub fn errno(kind: ErrorKind) -> Errno {
         ErrorKind::InvalidInput => Errno::EINVAL,
         ErrorKind::Corrupt => Errno::EIO,
         ErrorKind::Unsupported => Errno::EOPNOTSUPP,
-        // GAP: one kind for a name that is too long, a file past the format's
-        // size limit and a full node table. EFBIG is the most common cause
-        // through FUSE (the kernel already rejects names over 255 bytes).
-        ErrorKind::LimitExceeded => Errno::EFBIG,
+        ErrorKind::LimitExceeded => Errno::EOVERFLOW,
         ErrorKind::Symlink => Errno::ELOOP,
         ErrorKind::InvalidHandle => Errno::ESTALE,
         ErrorKind::Busy => Errno::EBUSY,
+        ErrorKind::NameTooLong => Errno::ENAMETOOLONG,
+        ErrorKind::FileTooLarge => Errno::EFBIG,
         _ => Errno::EIO,
     }
 }
@@ -64,10 +66,7 @@ fn fail<E: Display>(err: hadris_fs::Error<E>) -> Errno {
 }
 
 fn name(bytes: &OsStr) -> Result<&Name, Errno> {
-    Name::from_bytes(bytes.as_bytes()).map_err(|err| match err.kind() {
-        ErrorKind::LimitExceeded => Errno::ENAMETOOLONG,
-        kind => errno(kind),
-    })
+    Name::from_bytes(bytes.as_bytes()).map_err(|err| errno(err.kind()))
 }
 
 fn system_time(time: Option<DateTime>) -> SystemTime {
@@ -110,41 +109,11 @@ fn fuse_type(kind: FileType) -> FuseType {
     }
 }
 
-/// What the adapter knows about an inode the kernel holds.
-#[derive(Debug, Default)]
-struct Inode {
-    /// Lookups the kernel has not forgotten.
-    lookups: u64,
-    /// Of those, lookups that hold no driver pin because the adapter
-    /// released them to remove the node.
-    dead: u64,
-    opens: u32,
-}
-
 #[derive(Debug)]
 struct Handle {
     ino: u64,
     append: bool,
     dirty: bool,
-}
-
-#[derive(Debug, Default)]
-struct State {
-    inodes: HashMap<u64, Inode>,
-    handles: HashMap<u64, Handle>,
-    next_fh: u64,
-}
-
-impl State {
-    fn drop_if_idle(&mut self, ino: u64) {
-        if self
-            .inodes
-            .get(&ino)
-            .is_some_and(|i| i.lookups == 0 && i.opens == 0)
-        {
-            self.inodes.remove(&ino);
-        }
-    }
 }
 
 /// Filesystem statistics in FUSE units.
@@ -165,10 +134,7 @@ pub struct Adapter<F: FileSystem> {
     root: NodeId,
     uid: u32,
     gid: u32,
-    /// Serialises namespace operations (lookup, forget, create, remove,
-    /// rename, open, release) so the pin bookkeeping stays consistent. Reads,
-    /// writes, getattr and readdir do not take it.
-    state: Mutex<State>,
+    handles: Mutex<(HashMap<u64, Handle>, u64)>,
 }
 
 impl<F: FileSystem> Adapter<F>
@@ -182,10 +148,7 @@ where
             root,
             uid,
             gid,
-            state: Mutex::new(State {
-                next_fh: 1,
-                ..State::default()
-            }),
+            handles: Mutex::new((HashMap::new(), 1)),
         }
     }
 
@@ -193,19 +156,18 @@ where
         &self.fs
     }
 
-    fn state(&self) -> std::sync::MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|p| p.into_inner())
+    fn handles(&self) -> std::sync::MutexGuard<'_, (HashMap<u64, Handle>, u64)> {
+        self.handles.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// GAP: the contract does not reserve 0 or say what the root's id is,
-    /// while FUSE reserves 0 and fixes the root at 1. Swap the root with
-    /// whatever node the driver numbers 1.
-    pub fn ino(&self, id: NodeId) -> Result<u64, Errno> {
+    /// The contract rules out id 0 but leaves the root's id to the driver,
+    /// while FUSE fixes the root at 1. Swap the root with whatever node the
+    /// driver numbers 1.
+    pub fn ino(&self, id: NodeId) -> u64 {
         match id.get() {
-            _ if id == self.root => Ok(INodeNo::ROOT.0),
-            0 => Err(Errno::EIO),
-            1 => Ok(self.root.get()),
-            raw => Ok(raw),
+            _ if id == self.root => INodeNo::ROOT.0,
+            1 => self.root.get(),
+            raw => raw,
         }
     }
 
@@ -236,8 +198,8 @@ where
         FileAttr {
             ino: INodeNo(ino),
             size: meta.len(),
-            // GAP: Metadata has no allocated size; this assumes no holes and
-            // ignores cluster rounding, so `du` under-reports.
+            // GAP: Metadata has no allocated size yet (a 3.x addition); this
+            // assumes no holes and ignores cluster rounding.
             blocks: meta.len().div_ceil(512),
             atime: system_time(times.accessed().or(modified)),
             mtime: system_time(modified),
@@ -259,20 +221,10 @@ where
         Ok(self.attr(ino, &meta))
     }
 
-    /// Records one kernel lookup of a node the driver has just pinned.
-    fn record_lookup(&self, state: &mut State, id: NodeId) -> Result<FileAttr, Errno> {
-        let ino = match self.ino(id) {
-            Ok(ino) => ino,
-            Err(err) => {
-                self.fs.forget(id);
-                return Err(err);
-            }
-        };
+    /// The attributes of a node the driver has just pinned for the kernel.
+    fn entry(&self, id: NodeId) -> Result<FileAttr, Errno> {
         match self.fs.node_metadata(id) {
-            Ok(meta) => {
-                state.inodes.entry(ino).or_default().lookups += 1;
-                Ok(self.attr(ino, &meta))
-            }
+            Ok(meta) => Ok(self.attr(self.ino(id), &meta)),
             Err(err) => {
                 self.fs.forget(id);
                 Err(fail(err))
@@ -281,31 +233,23 @@ where
     }
 
     pub fn lookup(&self, parent: u64, child: &OsStr) -> Result<FileAttr, Errno> {
-        let child = name(child)?;
-        let mut state = self.state();
-        let id = self.fs.lookup(self.node(parent), child).map_err(fail)?;
-        self.record_lookup(&mut state, id)
+        let id = self
+            .fs
+            .lookup(self.node(parent), name(child)?)
+            .map_err(fail)?;
+        self.entry(id)
     }
 
     /// GAP: `forget` drops one pin, so a FUSE forget of `n` lookups is `n`
-    /// driver calls (and `n` lock round trips on a `Volume`).
+    /// driver calls (`forget_n` is a 3.x addition).
     pub fn forget(&self, ino: u64, nlookup: u64) {
         if ino == INodeNo::ROOT.0 {
             return;
         }
-        let mut state = self.state();
-        let Some(inode) = state.inodes.get_mut(&ino) else {
-            return;
-        };
-        let n = nlookup.min(inode.lookups);
-        let dead = n.min(inode.dead);
-        inode.dead -= dead;
-        inode.lookups -= n;
         let id = self.node(ino);
-        for _ in dead..n {
+        for _ in 0..nlookup {
             self.fs.forget(id);
         }
-        state.drop_if_idle(ino);
     }
 
     pub fn setattr(
@@ -349,15 +293,14 @@ where
             return Ok(());
         }
         if offset < 2 {
-            // GAP: the parent's id needs a `parent` call (a directory scan on
-            // FAT) and a pin that is dropped at once, so the number reported
-            // may differ from the one a lookup of `..` would pin.
+            // GAP: the parent's number needs `parent`, a directory scan on
+            // FAT, and a pin that is dropped at once.
             let up = if dir == self.root {
                 INodeNo::ROOT.0
             } else {
                 match self.fs.parent(dir) {
                     Ok(up) => {
-                        let ino = self.ino(up).unwrap_or(INodeNo::ROOT.0);
+                        let ino = self.ino(up);
                         self.fs.forget(up);
                         ino
                     }
@@ -368,8 +311,6 @@ where
                 return Ok(());
             }
         }
-        // GAP: DirCursor's raw value may use all 64 bits, while FUSE offsets
-        // are off_t and 1 and 2 are taken by the dot entries.
         let mut cursor = DirCursor::from_raw(offset.saturating_sub(DOT_ENTRIES));
         let mut buf = NameBuf::new();
         while let Some(entry) = self
@@ -377,14 +318,8 @@ where
             .read_dir_entry(dir, &mut cursor, &mut buf)
             .map_err(fail)?
         {
-            let next = cursor
-                .into_raw()
-                .checked_add(DOT_ENTRIES)
-                .filter(|&n| n <= i64::MAX as u64)
-                .ok_or(Errno::EOVERFLOW)?;
-            // GAP: the entry's id is not pinned and, for FAT, can differ from
-            // the id a lookup of the same name pins (moved and fallback ids).
-            let child = self.ino(entry.node())?;
+            let next = cursor.into_raw() + DOT_ENTRIES;
+            let child = self.ino(entry.node());
             if add(child, next, fuse_type(entry.file_type()), buf.as_bytes()) {
                 break;
             }
@@ -392,10 +327,13 @@ where
         Ok(())
     }
 
-    fn new_handle(&self, state: &mut State, ino: u64, append: bool) -> u64 {
-        let fh = state.next_fh;
-        state.next_fh += 1;
-        state.handles.insert(
+    /// Opens a node the kernel holds a lookup on.
+    fn new_handle(&self, ino: u64, append: bool) -> Result<u64, Errno> {
+        self.fs.open_node(self.node(ino)).map_err(fail)?;
+        let mut handles = self.handles();
+        let fh = handles.1;
+        handles.1 += 1;
+        handles.0.insert(
             fh,
             Handle {
                 ino,
@@ -403,8 +341,7 @@ where
                 dirty: false,
             },
         );
-        state.inodes.entry(ino).or_default().opens += 1;
-        fh
+        Ok(fh)
     }
 
     pub fn open(&self, ino: u64, flags: i32) -> Result<u64, Errno> {
@@ -416,8 +353,11 @@ where
         if meta.file_type().is_dir() && write {
             return Err(Errno::EISDIR);
         }
-        let mut state = self.state();
-        Ok(self.new_handle(&mut state, ino, flags & libc::O_APPEND != 0))
+        self.new_handle(ino, flags & libc::O_APPEND != 0)
+    }
+
+    fn handle_ino(&self, fh: u64) -> Result<u64, Errno> {
+        self.handles().0.get(&fh).map(|h| h.ino).ok_or(Errno::EBADF)
     }
 
     pub fn read(&self, fh: u64, offset: u64, size: u32) -> Result<Vec<u8>, Errno> {
@@ -438,18 +378,10 @@ where
         Ok(out)
     }
 
-    fn handle_ino(&self, fh: u64) -> Result<u64, Errno> {
-        self.state()
-            .handles
-            .get(&fh)
-            .map(|h| h.ino)
-            .ok_or(Errno::EBADF)
-    }
-
     pub fn write(&self, fh: u64, offset: u64, data: &[u8]) -> Result<u32, Errno> {
         let (ino, append) = {
-            let mut state = self.state();
-            let handle = state.handles.get_mut(&fh).ok_or(Errno::EBADF)?;
+            let mut handles = self.handles();
+            let handle = handles.0.get_mut(&fh).ok_or(Errno::EBADF)?;
             handle.dirty = true;
             (handle.ino, handle.append)
         };
@@ -471,34 +403,29 @@ where
         u32::try_from(data.len()).map_err(|_| Errno::EINVAL)
     }
 
-    /// GAP: `sync_node` is the only way to publish a pending size, and on
-    /// `FatFs` it also flushes the device, so every `close(2)` of a written
-    /// file is a device flush.
+    /// `close(2)` publishes the pending size without a device flush.
     pub fn flush(&self, fh: u64) -> Result<(), Errno> {
         let ino = {
-            let mut state = self.state();
-            let handle = state.handles.get_mut(&fh).ok_or(Errno::EBADF)?;
+            let mut handles = self.handles();
+            let handle = handles.0.get_mut(&fh).ok_or(Errno::EBADF)?;
             if !handle.dirty {
                 return Ok(());
             }
             handle.dirty = false;
             handle.ino
         };
-        self.fs.sync_node(self.node(ino)).map_err(fail)
+        self.fs.publish_node(self.node(ino)).map_err(fail)
     }
 
     pub fn release(&self, fh: u64) -> Result<(), Errno> {
         let result = self.flush(fh);
-        let mut state = self.state();
-        if let Some(handle) = state.handles.remove(&fh) {
-            if let Some(inode) = state.inodes.get_mut(&handle.ino) {
-                inode.opens = inode.opens.saturating_sub(1);
-            }
-            state.drop_if_idle(handle.ino);
+        if let Some(handle) = self.handles().0.remove(&fh) {
+            self.fs.close_node(self.node(handle.ino));
         }
         result
     }
 
+    /// `fsync(2)` is durable.
     pub fn fsync(&self, ino: u64) -> Result<(), Errno> {
         self.fs.sync_node(self.node(ino)).map_err(fail)
     }
@@ -509,7 +436,6 @@ where
 
     pub fn create(&self, parent: u64, child: &OsStr, flags: i32) -> Result<(FileAttr, u64), Errno> {
         let child = name(child)?;
-        let mut state = self.state();
         let dir = self.node(parent);
         let id = match self
             .fs
@@ -521,143 +447,47 @@ where
             }
             Err(err) => return Err(fail(err)),
         };
-        let attr = self.record_lookup(&mut state, id)?;
+        let attr = self.entry(id)?;
         if attr.kind == FuseType::Directory {
-            drop(state);
-            self.forget(attr.ino.0, 1);
+            self.fs.forget(id);
             return Err(Errno::EISDIR);
         }
-        let fh = self.new_handle(&mut state, attr.ino.0, flags & libc::O_APPEND != 0);
-        Ok((attr, fh))
+        match self.new_handle(attr.ino.0, flags & libc::O_APPEND != 0) {
+            Ok(fh) => Ok((attr, fh)),
+            Err(err) => {
+                self.fs.forget(id);
+                Err(err)
+            }
+        }
     }
 
     pub fn mkdir(&self, parent: u64, child: &OsStr) -> Result<FileAttr, Errno> {
         self.make(parent, child, NewNode::Dir)
     }
 
-    /// GAP: FAT has no symlinks or devices, and the trait has no way to add
-    /// a hard link at all.
+    /// GAP: FAT has no symlinks or devices, and hard links have no trait
+    /// method yet (a 3.x addition).
     pub fn make(&self, parent: u64, child: &OsStr, kind: NewNode<'_>) -> Result<FileAttr, Errno> {
-        let child = name(child)?;
-        let mut state = self.state();
         let id = self
             .fs
-            .create(self.node(parent), child, kind, &SetMetadata::new())
+            .create(self.node(parent), name(child)?, kind, &SetMetadata::new())
             .map_err(|err| match err.kind() {
                 ErrorKind::Unsupported => Errno::EPERM,
                 _ => fail(err),
             })?;
-        self.record_lookup(&mut state, id)
-    }
-
-    /// Pins `child` for the adapter and returns it with its metadata.
-    fn target(&self, dir: NodeId, child: &Name) -> Result<(NodeId, Metadata), Errno> {
-        let id = self.fs.lookup(dir, child).map_err(fail)?;
-        match self.fs.node_metadata(id) {
-            Ok(meta) => Ok((id, meta)),
-            Err(err) => {
-                self.fs.forget(id);
-                Err(fail(err))
-            }
-        }
-    }
-
-    fn is_empty_dir(&self, id: NodeId) -> Result<bool, Errno> {
-        let mut cursor = DirCursor::start();
-        let mut buf = NameBuf::new();
-        Ok(self
-            .fs
-            .read_dir_entry(id, &mut cursor, &mut buf)
-            .map_err(fail)?
-            .is_none())
-    }
-
-    /// GAP: `remove` and a replacing `rename` fail with `Busy` while the
-    /// node is pinned, but the kernel holds a lookup on every name it has
-    /// resolved, so every `rm` would fail. The adapter releases the kernel's
-    /// pins on `id` and its own from [`target`](Self::target), runs `op`,
-    /// and on failure pins the node again through `dir` and `child`. An open
-    /// file still gives `EBUSY`.
-    fn unpinned<T>(
-        &self,
-        state: &mut State,
-        (dir, child, id): (NodeId, &Name, NodeId),
-        op: impl FnOnce() -> Result<T, Errno>,
-    ) -> Result<T, Errno> {
-        let ino = self.ino(id)?;
-        let inode = state.inodes.entry(ino).or_default();
-        if inode.opens > 0 {
-            self.fs.forget(id);
-            return Err(Errno::EBUSY);
-        }
-        let live = inode.lookups - inode.dead;
-        for _ in 0..=live {
-            self.fs.forget(id);
-        }
-        inode.dead = inode.lookups;
-        let result = op();
-        if result.is_err() {
-            if let Some(inode) = state.inodes.get_mut(&ino) {
-                inode.dead -= live;
-            }
-            self.repin(dir, child, id, live);
-        }
-        result
-    }
-
-    /// Takes `count` pins on `child` again after a failed removal.
-    /// GAP: if the driver hands out a different id, the kernel's inode is
-    /// stale and nothing in the trait can bring the old id back.
-    fn repin(&self, dir: NodeId, child: &Name, id: NodeId, count: u64) {
-        for _ in 0..count {
-            match self.fs.lookup(dir, child) {
-                Ok(again) if again == id => {}
-                Ok(again) => {
-                    self.fs.forget(again);
-                    eprintln!(
-                        "hadris-fuse: {id:?} came back as {again:?}; the kernel inode is stale"
-                    );
-                    return;
-                }
-                Err(_) => return,
-            }
-        }
-    }
-
-    fn remove(&self, parent: u64, child: &OsStr, want_dir: bool) -> Result<(), Errno> {
-        let child = name(child)?;
-        let dir = self.node(parent);
-        let mut state = self.state();
-        // GAP: `remove` takes no expected type, so unlink and rmdir need a
-        // lookup and a metadata call first.
-        let (id, meta) = self.target(dir, child)?;
-        let is_dir = meta.file_type().is_dir();
-        let check = if is_dir != want_dir {
-            Err(if want_dir {
-                Errno::ENOTDIR
-            } else {
-                Errno::EISDIR
-            })
-        } else if is_dir && !self.is_empty_dir(id)? {
-            Err(Errno::ENOTEMPTY)
-        } else {
-            Ok(())
-        };
-        if let Err(err) = check {
-            self.fs.forget(id);
-            return Err(err);
-        }
-        self.unpinned(&mut state, (dir, child, id), || {
-            self.fs.remove(dir, child).map_err(fail)
-        })
+        self.entry(id)
     }
 
     pub fn unlink(&self, parent: u64, child: &OsStr) -> Result<(), Errno> {
-        self.remove(parent, child, false)
+        self.fs
+            .remove(self.node(parent), name(child)?, RemoveKind::File)
+            .map_err(fail)
     }
 
     pub fn rmdir(&self, parent: u64, child: &OsStr) -> Result<(), Errno> {
-        self.remove(parent, child, true)
+        self.fs
+            .remove(self.node(parent), name(child)?, RemoveKind::Dir)
+            .map_err(fail)
     }
 
     pub fn rename(
@@ -676,43 +506,15 @@ where
         if flags & RENAME_NOREPLACE != 0 {
             rflags |= RenameFlags::NO_REPLACE;
         }
-        let (from, to) = (name(from)?, name(to)?);
-        let (from_dir, to_dir) = (self.node(parent), self.node(new_parent));
-        let mut state = self.state();
-        let (src, src_meta) = self.target(from_dir, from)?;
-        self.fs.forget(src);
-        let target = match self.target(to_dir, to) {
-            Ok(target) => Some(target),
-            Err(err) if err == Errno::ENOENT => None,
-            Err(err) => return Err(err),
-        };
-        let rename = || {
-            self.fs
-                .rename(from_dir, from, to_dir, to, rflags)
-                .map_err(fail)
-        };
-        let Some((dst, dst_meta)) = target else {
-            return rename();
-        };
-        if dst == src || rflags.contains(RenameFlags::NO_REPLACE) {
-            self.fs.forget(dst);
-            return if dst == src {
-                rename()
-            } else {
-                Err(Errno::EEXIST)
-            };
-        }
-        let check = match (src_meta.file_type().is_dir(), dst_meta.file_type().is_dir()) {
-            (true, false) => Err(Errno::ENOTDIR),
-            (false, true) => Err(Errno::EISDIR),
-            (true, true) if !self.is_empty_dir(dst)? => Err(Errno::ENOTEMPTY),
-            _ => Ok(()),
-        };
-        if let Err(err) = check {
-            self.fs.forget(dst);
-            return Err(err);
-        }
-        self.unpinned(&mut state, (to_dir, to, dst), rename)
+        self.fs
+            .rename(
+                self.node(parent),
+                name(from)?,
+                self.node(new_parent),
+                name(to)?,
+                rflags,
+            )
+            .map_err(fail)
     }
 
     pub fn statfs(&self) -> Result<Statfs, Errno> {
@@ -721,10 +523,9 @@ where
         Ok(Statfs {
             blocks: stats.total_blocks(),
             bfree: stats.free_blocks(),
-            // GAP: FsStats has no space reserved for privileged users.
+            // GAP: FsStats has no reserved space or free file slots yet (a
+            // 3.x addition).
             bavail: stats.free_blocks(),
-            // GAP: no inode counts; FAT has no inode limit but a FAT12/16
-            // root directory does have an entry limit.
             files: stats.file_count().unwrap_or(0),
             ffree: 0,
             bsize: stats.block_size(),
@@ -747,11 +548,6 @@ where
 
     pub fn sync(&self) -> Result<(), Errno> {
         self.fs.sync().map_err(fail)
-    }
-
-    /// Number of inodes the adapter tracks, for tests.
-    pub fn tracked_inodes(&self) -> usize {
-        self.state().inodes.len()
     }
 }
 

@@ -8,12 +8,15 @@ they are frozen (V3 migration step 6). The findings are in
 The package is detached from the workspace, like `fuzz/` and `tests/`.
 
 - `src/lib.rs`: `Adapter`, one method per FUSE request returning
-  `Result<_, Errno>`, and `Fuse`, the `fuser::Filesystem` glue. Workarounds
-  for gaps in the traits are marked `GAP:`.
+  `Result<_, Errno>`, and `Fuse`, the `fuser::Filesystem` glue. Kernel
+  lookups are driver pins one to one, open files are `open_node` ..
+  `close_node`, `close(2)` publishes and `fsync(2)` syncs. Gaps that remain
+  in the traits (all compatible 3.x additions) are marked `GAP:`.
 - `src/main.rs`: `format <image> <bytes> [fat12|fat16|fat32]` and
   `mount <image> <mountpoint> [--threads N] [--ro]`.
 - `tests/ops.rs`: the request sequences the kernel sends, replayed against
-  `Adapter` without a mount. Runs on macOS.
+  `Adapter` without a mount, plus the `hadris-fs` contract kit on the
+  mounted volume. Runs on macOS.
 - `scripts/docker.sh`: builds in a privileged Linux container and runs
   `scripts/scenarios.sh`, which mounts a fresh FAT32 image and drives it with
   shell tools, then checks it with `fsck.fat -n`.

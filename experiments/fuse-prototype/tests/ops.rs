@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use fuser::{Errno, INodeNo};
 use hadris_fat::sync::{FatFs, format};
 use hadris_fat::{FatKind, FormatOptions, MountOptions};
-use hadris_fs::sync::{FileSystem, StdMutex, Volume};
-use hadris_fs::{ErrorKind, HeapTable, Name, NoClock};
+use hadris_fs::sync::{StdMutex, Volume};
+use hadris_fs::{HeapTable, NoClock};
 use hadris_fuse_prototype::Adapter;
 
 type Fs = Volume<FatFs<File, HeapTable, NoClock>, StdMutex>;
@@ -102,22 +102,19 @@ fn lookup_pins_match_kernel_counts() {
     assert_eq!(open_nodes(&a), base + 1);
     a.forget(ino, 5);
     assert_eq!(open_nodes(&a), base);
-    assert_eq!(a.tracked_inodes(), 0);
 }
 
 #[test]
-fn driver_refuses_remove_of_a_looked_up_name() {
+fn a_looked_up_name_can_be_removed() {
     let a = mount();
+    let base = open_nodes(&a);
     let ino = touch(&a, ROOT, "a.txt", b"x");
-    let err = a
-        .fs()
-        .remove(a.fs().root(), Name::new("a.txt").unwrap())
-        .unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::Busy);
     a.unlink(ROOT, os("a.txt")).unwrap();
     assert_eq!(a.lookup(ROOT, os("a.txt")).unwrap_err(), Errno::ENOENT);
+    assert_eq!(a.getattr(ino).unwrap_err(), Errno::ENOENT);
+    assert_eq!(open_nodes(&a), base + 1, "the kernel's pin survives");
     a.forget(ino, 1);
-    assert_eq!(a.tracked_inodes(), 0);
+    assert_eq!(open_nodes(&a), base);
 }
 
 #[test]
@@ -241,7 +238,7 @@ fn readdir_survives_changes_between_pages() {
 }
 
 #[test]
-fn readdir_and_lookup_can_disagree_on_the_inode_number() {
+fn readdir_and_lookup_agree_on_the_inode_number() {
     let a = mount();
     let a_ino = touch(&a, ROOT, "a", b"a");
     a.rename(ROOT, os("a"), ROOT, os("b"), 0).unwrap();
@@ -253,8 +250,8 @@ fn readdir_and_lookup_can_disagree_on_the_inode_number() {
         .unwrap()
         .0;
     let looked_up = a.lookup(ROOT, os("c")).unwrap().ino.0;
-    eprintln!("a/b pinned as {a_ino:#x}; c listed as {listed:#x}, looked up as {looked_up:#x}");
-    assert_ne!(listed, looked_up);
+    assert_ne!(listed, a_ino);
+    assert_eq!(listed, looked_up);
 }
 
 #[test]
@@ -305,6 +302,12 @@ fn unsupported_node_kinds_are_eperm() {
         .make(ROOT, os("link"), hadris_fs::NewNode::Symlink(b"target"))
         .unwrap_err();
     assert_eq!(err, Errno::EPERM);
+}
+
+#[test]
+fn the_volume_passes_the_contract_kit() {
+    let a = mount();
+    hadris_fs::sync::contract::check(&mut a.fs()).unwrap();
 }
 
 #[test]

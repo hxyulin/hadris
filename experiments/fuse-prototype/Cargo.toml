@@ -13,6 +13,9 @@ hadris-fat = { path = "../../crates/block/hadris-fat", features = ["std", "sync"
 hadris-fs = { path = "../../crates/core/hadris-fs", features = ["std", "sync"] }
 libc = "0.2"
 
+[dev-dependencies]
+hadris-fs = { path = "../../crates/core/hadris-fs", features = ["contract"] }
+
 # macFUSE is not needed to build and test the adapter on macOS; mounting
 # happens in a Linux container (see README.md).
 [target.'cfg(target_os = "macos")'.dependencies]

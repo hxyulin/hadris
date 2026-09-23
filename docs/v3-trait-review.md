@@ -1,7 +1,8 @@
 # V3 trait review (migration step 6)
 
-Status: findings for discussion. Nothing in `hadris-fs` or `hadris-fat` was
-changed; every proposal below needs a decision first.
+Status: done. Sections 1 to 4 are the review as written; section 5 records
+what was decided and changed, and the mount results after the changes.
+The `hadris-fs` traits are frozen from here on.
 
 Step 6 of [the V3 design](v3-api-design.md#6-migration-plan) freezes the
 `hadris-fs` traits before ISO, UDF, NTFS and exFAT implement them. This review
@@ -439,3 +440,47 @@ These were checked and need nothing:
   as section 4.6 wants.
 - F5: one method with `RemoveKind`, or `remove_file` plus `remove_dir`?
 - F11: should `File::close` publish only, or stay durable as it is now?
+
+## 5. Outcome
+
+The maintainer accepted items 1 to 12 as proposed, and they are on the
+`feat/v3-step6-trait-review` branch. Item 13 is listed as compatible 3.x
+additions in section 4.14 of the design.
+
+| Item | Change |
+|---|---|
+| 1 (F1) | `open_node` and `close_node` (named so they do not clash with the `open` path helpers). Only the last name of an open node is `Busy`; a pinned node that is removed answers `NotFound` until its last `forget`. `File` and `OpenFile` open their node, `Volume` queues `close_node` like `forget`. `FatFs` keeps `opens` and an unlinked flag in its node table. Orphans (POSIX unlink of an open file) are a 3.x addition. |
+| 2 (F5) | `remove(dir, name, kind: RemoveKind)` with `File`, `Dir`, `Any`. |
+| 3 (F3) | `ErrorKind::NameTooLong` and `FileTooLarge`; `Error<E>` equality compares kind and device error only, now and after context is added. |
+| 4 (F2) | `Metadata` stays `Copy`; `extra()` is dropped from the design. |
+| 5 (F4) | `NodeId` 0 is never a node; `DirCursor::MAX_RAW` is `2^63 - 16`. `FatFs` complies (ids are at least 1 and below `2^63`, cursors are slot numbers). |
+| 6 (F6) | R10 and the `FsDriver` docs state how the traits grow; `tests/sync_forwarding.rs` reads the method lists from the trait source and fails when a wrapper or `impl_fs_driver!` misses one. |
+| 7 (F7) | A `FatFs` id is the entry's slot plus a tier above bit 40, so a listing and a lookup agree. |
+| 8 (F11) | `publish_node` (default `sync_node`); `File::close`, `OpenFile::close` and `Write::flush` publish, `sync_all` syncs. The `std::fs::File` device's flush calls `sync_data`. |
+| 9 (F12) | Contract sentences on times, pending fields, cancellation, `nlink` on directories and zone-less times. Root times in `FatFs` were not added: the root has no entry, and the label entry would cost a root scan per `getattr` of the mount point. |
+| 10 (F13) | The design's `hadris-vfs` row erases through `dyn FileSystem<DeviceError = AnyError>` in sync. |
+| 11 (F16) | The `contract` feature adds `contract::check` in each mode. The test driver was fixed to follow the contract (it ignored `NO_REPLACE`, never returned `Busy` and let `rename` replace a non-empty directory). It and `FatFs` (FAT12, FAT16, FAT32; raw, `Volume`, `async`, `async_send`) pass. |
+| 12 (F16) | `MountOptions::with_read_only()` takes no argument. |
+
+The FUSE prototype now maps kernel lookups to driver pins one to one,
+calls `open_node`/`close_node` from `open`/`release`, `publish_node` from
+`flush` and `sync_node` from `fsync`, and passes `RemoveKind` and the rename
+flags straight through. The `unpinned` workaround and the adapter's own
+lookup table are gone.
+
+### 5.1 Mount results before and after
+
+Same container, image and script; `remove_looked_up_names` is new (it
+`stat`s names, then removes, `rmdir`s and replaces them).
+
+| Scenario | Before | After |
+|---|---|---|
+| `mkdir_tree`, `copy_in_cat_cmp`, `copy_preserve`, `mv_rename`, `renameat2_flags`, `truncate`, `touch_times`, `concurrent_readers`, `find`, `statfs_df`, `readdir_while_creating`, `unmount_with_open_file` | PASS | PASS |
+| `mv_overwrite`, `rm_recursive` | PASS, only through the adapter's pin workaround | PASS, no workaround |
+| `remove_looked_up_names` | not run | PASS |
+| `inode_numbers` (readdir against `stat`) | GAP: `0x400000000000820D` against `0x8000000000000005` | PASS: both `0x1000000820D` (tier 1) |
+| `large_dir_ls_la` | PASS, `ls -f` 10 ms, `ls -la` 1.8 s | PASS, `ls -f` 10 ms, `ls -la` 1.8 s (F8, a 3.x addition) |
+| `unlink_open_file`, `rename_over_open_file` | GAP: `EBUSY` | GAP: `EBUSY`, as decided (Q3) |
+| `case_insensitive` | GAP: the VFS never passes a case-only rename | GAP, unchanged (a VFS property) |
+| `symlink_and_link` | GAP: `EPERM` | GAP: `EPERM` (FAT) |
+| `fsck_after_unmount`, `remount_and_verify`, `fsck_final` | PASS | PASS |

@@ -79,8 +79,12 @@ fn cmd_mount(args: &[String]) -> Result<(), String> {
     // default FixedTable<64> is far too small.
     let options = MountOptions::new()
         .with_table(HeapTable::new())
-        .with_clock(SystemClock)
-        .with_read_only(read_only);
+        .with_clock(SystemClock);
+    let options = if read_only {
+        options.with_read_only()
+    } else {
+        options
+    };
     let fs = FatFs::open_with(file, options).map_err(|e| e.to_string())?;
     let volume: Volume<_, StdMutex> = Volume::new(fs);
     // SAFETY: getuid and getgid have no preconditions.
