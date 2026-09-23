@@ -5,11 +5,10 @@ use hadris_common::types::{
     number::{U16, U32},
 };
 
-/// The RawBpb struct represents the boot sector of any FAT partition
+/// The common BIOS parameter block of every FAT boot sector.
 ///
-/// This only contains the common fields of the boot sector, and is not meant to be used directly
-/// for reading or writing to the boot sector, for that, see `RawBootSector`, which contains
-/// the boot sector and the extended boot sector
+/// It holds only the fields shared by FAT12, FAT16 and FAT32. The extended
+/// fields that follow it are [`RawBpbExt16`] and [`RawBpbExt32`].
 ///
 /// @hadris-spec FAT:BPB
 /// @hadris-compliance full

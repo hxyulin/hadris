@@ -7,6 +7,10 @@
 /// directory entry: the short entry of a file or directory, or the first
 /// slot of a long-name run. The root directory, which has no entry, is
 /// named by entry 0, where only the boot sector can be.
+///
+/// Findings are made only by `check`. Variants with fields are
+/// `#[non_exhaustive]`, so a later release can locate a problem more
+/// precisely; match them with `..`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -25,6 +29,7 @@ pub enum Finding {
     FsInfo,
     /// The FSInfo free cluster count is neither unknown nor the number of
     /// free clusters in the FAT.
+    #[non_exhaustive]
     FreeCount {
         /// The count in the FSInfo sector.
         recorded: u32,
@@ -32,6 +37,7 @@ pub enum Finding {
         actual: u32,
     },
     /// A mirrored FAT copy differs from the active copy.
+    #[non_exhaustive]
     FatCopy {
         /// The index of the copy.
         copy: u8,
@@ -43,6 +49,7 @@ pub enum Finding {
     },
     /// The entry's first cluster is not a data cluster, is the FAT32 root,
     /// or is missing from a directory.
+    #[non_exhaustive]
     InvalidCluster {
         /// The entry.
         entry: u64,
@@ -50,6 +57,7 @@ pub enum Finding {
         cluster: u32,
     },
     /// The chain links `cluster` to a free, reserved or out-of-range value.
+    #[non_exhaustive]
     BrokenChain {
         /// The entry that owns the chain.
         entry: u64,
@@ -59,6 +67,7 @@ pub enum Finding {
         next: u32,
     },
     /// The chain runs into a cluster marked bad.
+    #[non_exhaustive]
     BadCluster {
         /// The entry that owns the chain.
         entry: u64,
@@ -66,6 +75,7 @@ pub enum Finding {
         cluster: u32,
     },
     /// The chain links back to one of its own clusters.
+    #[non_exhaustive]
     CyclicChain {
         /// The entry that owns the chain.
         entry: u64,
@@ -73,6 +83,7 @@ pub enum Finding {
         cluster: u32,
     },
     /// A file's chain has more clusters than its size needs.
+    #[non_exhaustive]
     ChainTooLong {
         /// The file's entry.
         entry: u64,
@@ -82,6 +93,7 @@ pub enum Finding {
         clusters: u32,
     },
     /// A file's chain has fewer clusters than its size needs.
+    #[non_exhaustive]
     ChainTooShort {
         /// The file's entry.
         entry: u64,
@@ -92,6 +104,7 @@ pub enum Finding {
     },
     /// A cluster is in the chains of more than one entry. Reported once for
     /// each claim after the first.
+    #[non_exhaustive]
     CrossLinked {
         /// The entry whose chain claimed the cluster again.
         entry: u64,
@@ -99,6 +112,7 @@ pub enum Finding {
         cluster: u32,
     },
     /// Allocated clusters that no chain reaches, `first..first + count`.
+    #[non_exhaustive]
     LostClusters {
         /// The first lost cluster of the run.
         first: u32,
@@ -106,6 +120,7 @@ pub enum Finding {
         count: u32,
     },
     /// A short name holds a byte FAT does not allow.
+    #[non_exhaustive]
     BadName {
         /// The entry.
         entry: u64,
@@ -114,28 +129,33 @@ pub enum Finding {
     /// directory's own entry, or the stray dot entry. A directory whose
     /// `..` does not name its parent is not entered, so what it holds is
     /// reported as lost.
+    #[non_exhaustive]
     DotEntry {
         /// The entry.
         entry: u64,
     },
     /// A directory entry records a non-zero size.
+    #[non_exhaustive]
     DirectorySize {
         /// The entry.
         entry: u64,
     },
     /// A volume label entry outside the root directory, or a second one in
     /// it.
+    #[non_exhaustive]
     Label {
         /// The entry.
         entry: u64,
     },
     /// A complete long-name run whose checksum does not match the short
     /// entry after it.
+    #[non_exhaustive]
     LfnChecksum {
         /// The first slot of the run.
         entry: u64,
     },
     /// Long-name fragments that do not form a run ending in a short entry.
+    #[non_exhaustive]
     OrphanLfn {
         /// The first fragment.
         entry: u64,

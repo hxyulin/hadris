@@ -152,7 +152,9 @@ the wrong length for their file, bad names and dot entries, labels out of
 place, and long-name runs that are orphaned or fail their checksum.
 `check_with` passes each `Finding` to a callback and takes the bitmap it
 marks clusters in; the tree is walked once per bitmap's worth of clusters,
-so a smaller bitmap costs time, never accuracy. Repair is not implemented.
+so a smaller bitmap costs time, never accuracy. `Finding` and its variants
+with fields are `#[non_exhaustive]`, so match them with `..`. Repair is not
+implemented.
 
 ```rust,no_run
 use hadris_fat::sync::{FatFs, check_with};
