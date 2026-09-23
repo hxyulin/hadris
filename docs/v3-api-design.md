@@ -341,25 +341,31 @@ is just another device.
 pub trait BlockDevice {
     fn block_size(&self) -> BlockSize;
     fn block_count(&self) -> u64;
-    fn access(&self) -> Access;                                   // ReadOnly | ReadWrite
+    fn access(&self) -> Access { Access::ReadOnly }               // ReadOnly | ReadWrite
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<()>;
     async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<()> { unsupported }
     async fn flush(&mut self) -> Result<()> { Ok(()) }
 }
 ```
 
-`async fn` here means "written once, generated for both modes" (4.8).
+`async fn` here means "written once, generated for both modes" (4.8). A
+read-only device implements three methods.
 
 Provided devices and adapters:
 
 | Type | Purpose |
 |---|---|
-| `impl BlockDevice for &mut D` | Borrow a device instead of moving it in. |
-| `StreamDevice<T>` | Any `Read + Seek` (optionally `Write`) byte stream, with a block size the caller picks. The migration path for every V2 user. |
-| `MemDevice<B>` | `&mut [u8]`, `Vec<u8>` with `alloc`. For tests and in-memory images. |
+| `impl BlockDevice for &mut D`, `Box<D>` | Borrow or box a device instead of moving it in. |
+| `StreamDevice<T>` | Any `Read + Seek + Write` byte stream, with a block size the caller picks. `StreamDevice<ReadOnly<T>>` needs only `Read + Seek` and reports `ReadOnly`. The migration path for every V2 user. |
+| `MemDevice<B>` | `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, and `Vec<u8>` or `Box<[u8]>` with `alloc`, through the `MemBuffer` trait. For tests and in-memory images. |
 | `Slice<D>` | A block range of `D`. `D` can be owned or `&mut`. Replaces `PartitionView`. |
-| `Cache<D>` | Write-back LRU over whole blocks. Explicit `flush`. Capacity set at construction. Works in both modes. Kernels skip it. |
-| `ByteView` (crate-internal helper used by format crates) | Byte-granular read and read-modify-write on top of a `BlockDevice`, for records that straddle blocks. |
+| `Cache<D>` | Write-back LRU over whole blocks, `alloc` only. Explicit `flush`, or `finish` to flush and return the device. Capacity set at construction. Works in both modes. Kernels skip it. |
+| `ByteView<D>` | Byte-granular `read_at`/`write_at` with read-modify-write for partial blocks, and a bounded `Read + Write + Seek` stream. Used by format crates for records that straddle blocks. Without `alloc` its scratch buffer caps the block size at 4096. |
+
+`StreamDevice` picks its write support through a small `StreamWrite` trait,
+implemented for every `Write` and for `ReadOnly<T>`. A second
+`impl BlockDevice` for read-only streams would overlap the first, so the
+marker type carries the choice.
 
 A filesystem sector can be larger than the device block (FAT 4096-byte sectors
 on a 512-byte image) but not smaller unless the device is a `StreamDevice`,

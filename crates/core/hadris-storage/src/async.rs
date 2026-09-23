@@ -3,6 +3,15 @@ use hadris_io::r#async::{Read, Seek, Write};
 
 use crate::PartitionView;
 
+macro_rules! io_transform {
+    ($($item:tt)*) => { $($item)* };
+}
+
+#[allow(clippy::duplicate_mod)]
+#[path = "api.rs"]
+mod api;
+pub use api::*;
+
 impl<S: Read + Seek> Read for PartitionView<'_, S> {
     async fn read(&mut self, buffer: &mut [u8]) -> hadris_io::Result<usize> {
         let length = buffer.len().min(self.remaining());

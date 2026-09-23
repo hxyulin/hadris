@@ -8,10 +8,16 @@
 #![allow(async_fn_in_trait)]
 #![deny(missing_docs)]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+#[cfg(feature = "alloc")]
+mod cache;
+mod device;
 mod geometry;
+mod scratch;
 mod view;
 
 #[cfg(feature = "async")]
@@ -21,6 +27,7 @@ pub mod r#async;
 /// Synchronous adapters.
 pub mod sync;
 
+pub use device::{Access, MemBuffer, MemDevice, ReadOnly};
 pub use geometry::{BlockCount, BlockGeometry, BlockIndex, BlockRange, BlockSize};
 pub use hadris_io::{Error, Result};
 pub use view::PartitionView;

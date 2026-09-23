@@ -40,6 +40,15 @@ Each published package owns its version and may be released independently.
   type are removed.
 - **hadris (V3):** Re-exports `hadris-io` as `hadris::io`.
 
+### Added
+
+- **hadris-storage (V3):** `BlockDevice`, one trait for sync and async
+  whole-block devices with an explicit block size and access mode, implemented
+  for `&mut D` and `Box<D>`. Devices and adapters: `StreamDevice` over any
+  seekable stream (`ReadOnly` for streams without `Write`), `MemDevice` over
+  byte buffers, `Slice` for a block range, `Cache` for write-back LRU caching
+  (`alloc`), and `ByteView` for byte-granular access and a bounded stream.
+
 ### Removed
 
 - **hadris-path (V3):** Merged into `hadris-fs` as `hadris_fs::path`.

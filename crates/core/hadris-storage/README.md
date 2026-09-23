@@ -1,22 +1,39 @@
 # hadris-storage
 
-Format-neutral block geometry, device capabilities, and bounded storage views
-for Hadris. The crate does not assume 512-byte sectors and does not define
-filesystem concepts such as FAT clusters or ISO logical sectors.
-
-Use it to adapt logical-block hardware, validate block ranges, or restrict a
-larger disk stream to one partition before opening a filesystem.
+Block devices for Hadris. Filesystems read and write whole logical blocks
+through `BlockDevice`, whose block size is explicit and non-zero. The crate
+does not assume 512-byte sectors and does not define filesystem concepts such
+as FAT clusters or ISO logical sectors.
 
 ## Core types
 
 | Type | Purpose |
 |---|---|
-| `BlockGeometry` | Logical block size, block count, and physical alignment hint |
-| `BlockRange` | Checked contiguous range of logical blocks |
-| `BlockDevice` | Whole-block read capability |
-| `BlockDeviceMut` | Whole-block write and flush capability |
-| `SeekBlockDevice` | Adapts a seekable byte stream to block operations |
-| `PartitionView` | Bounds byte-stream reads, writes, and seeks to one region |
+| `BlockDevice` | Whole-block reads, optional writes and flush. `&mut D` and `Box<D>` implement it too |
+| `StreamDevice` | A block device over any `Read + Seek` stream, with any block size. Wrap read-only streams in `ReadOnly` |
+| `MemDevice` | A block device over `&[u8]`, `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>` |
+| `Slice` | A contiguous block range of another device, such as a partition |
+| `Cache` | Write-back LRU cache of whole blocks (`alloc`) |
+| `ByteView` | Byte-granular reads and writes over a device, also usable as a stream |
+| `BlockGeometry`, `BlockRange` | Checked block geometry and ranges |
+| `PartitionView` | Bounds a byte stream to one region. Replaced by `Slice` as formats move to `BlockDevice` |
+
+## Opening an image
+
+```rust
+use hadris_io::StdIo;
+use hadris_storage::BlockSize;
+use hadris_storage::sync::{BlockDevice, Slice, StreamDevice};
+use hadris_storage::BlockIndex;
+
+let image = StdIo::new(std::io::Cursor::new(vec![0_u8; 1024 * 1024]));
+let disk = StreamDevice::new(image, BlockSize::new(512).unwrap())?;
+let mut partition = Slice::new(disk, BlockIndex(128), 512)?;
+
+let mut sector = [0_u8; 512];
+partition.read_blocks(BlockIndex(0), &mut sector)?;
+# Ok::<(), hadris_io::Error>(())
+```
 
 ## Checked geometry
 
@@ -32,27 +49,12 @@ assert!(geometry.contains(range));
 assert_eq!(geometry.byte_len(), Some(4 * 1024 * 1024));
 ```
 
-## Bounded partition views
-
-```rust
-use hadris_storage::PartitionView;
-
-let mut disk = std::io::Cursor::new(vec![0_u8; 1024 * 1024]);
-let partition = PartitionView::new(&mut disk, 64 * 1024, 256 * 1024)?;
-assert_eq!(partition.len(), 256 * 1024);
-# Ok::<(), hadris_storage::Error<hadris_io::ErrorKind>>(())
-```
-
-`PartitionView` translates partition-relative positions to the backing stream
-and rejects out-of-range seeks. Use `hadris-block` when partition-table parsing
-and filesystem detection are also required.
-
 ## Features
 
 | Feature | Default | Purpose |
 |---|---:|---|
 | `std` | Yes | Hosted byte-stream support and `alloc` |
-| `alloc` | Via `std` | Allocation support forwarded to `hadris-io` |
+| `alloc` | Via `std` | `Cache`, `Box` impls, and block sizes above 4096 bytes in `ByteView` |
 | `sync` | Yes | Synchronous device traits and adapters |
 | `async` | No | Asynchronous device traits and adapters |
 
