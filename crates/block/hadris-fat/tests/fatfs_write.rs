@@ -468,6 +468,64 @@ fn fixed_root_fills_up_with_no_space_and_no_change() {
     fsck(&full, "full root");
 }
 
+/// Replacing a target reuses its slots, so a full FAT12/16 root directory
+/// still takes a new name that fits them.
+#[test]
+fn replace_in_a_full_root_reuses_the_target_slots() {
+    let case = CASES[0];
+    let mut fs = open(case, common::blank(case));
+    let root = fs.root();
+    for text in ["Target with a long name.txt", "SHORT.TXT"] {
+        let node = create(&mut fs, root, text, NewNode::File);
+        fs.forget(node);
+    }
+    let mut created = 0;
+    while let Ok(node) = fs.create(
+        root,
+        name(&format!("F{created}.TXT")),
+        NewNode::File,
+        &SetMetadata::new(),
+    ) {
+        fs.forget(node);
+        created += 1;
+    }
+    let full = image(fs);
+
+    let mut fs = open(case, full.clone());
+    let root = fs.root();
+    assert_eq!(
+        fs.rename(
+            root,
+            name("F0.TXT"),
+            root,
+            name("Short.txt"),
+            RenameFlags::empty(),
+        )
+        .unwrap_err()
+        .kind(),
+        ErrorKind::NoSpace,
+        "a long name does not fit the one slot of SHORT.TXT"
+    );
+    assert_eq!(image(fs), full);
+
+    let mut fs = open(case, full);
+    let root = fs.root();
+    fs.rename(
+        root,
+        name("F0.TXT"),
+        root,
+        name("TARGET WITH A LONG NAME.txt"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    fs.sync().unwrap();
+    let image = image(fs);
+    let names = fresh_names(case, &image, "/");
+    assert_eq!(names[0], "TARGET WITH A LONG NAME.txt");
+    assert_eq!(names.len(), created + 1);
+    fsck(&image, "replace in a full root");
+}
+
 #[test]
 fn rename_keeps_the_id_and_moves_directories() {
     for case in CASES {
@@ -682,6 +740,13 @@ fn rename_replaces_or_refuses_existing_targets() {
     );
     let freed = free(&mut fs) - before;
     assert_eq!(freed, 1, "the old lower.txt cluster");
+    let names: Vec<String> = list(&mut fs, root).into_iter().map(|(n, _)| n).collect();
+    assert!(names.contains(&"LOWER.TXT".to_owned()), "{names:?}");
+    assert!(!names.contains(&"lower.txt".to_owned()), "{names:?}");
+    fs.sync().unwrap();
+    let replaced = image(fs);
+    assert_eq!(&short_of(&replaced, "LOWER.TXT"), b"LOWER   TXT");
+    fsck(&replaced, "replace in another case");
 
     let mut fs = open(case, common::build(case));
     let root = fs.root();
@@ -700,14 +765,81 @@ fn rename_replaces_or_refuses_existing_targets() {
     fs.sync().unwrap();
     let image = image(fs);
     assert!(
-        image
+        !image
             .chunks_exact(32)
             .any(|entry| &entry[..11] == b"\x05ABC    TXT"),
-        "the replaced entry keeps its 0x05 lead byte"
+        "the replaced entry is gone"
     );
     let names = fresh_names(case, &image, "/");
     assert!(!names.contains(&"README.TXT".to_owned()));
+    assert_eq!(names.iter().filter(|n| *n == KANJI_NAME).count(), 1);
     fsck(&image, "replace");
+}
+
+/// A replaced target gives way to the name the caller asked for, even when
+/// that name is the target's own short alias or needs more or fewer slots.
+#[test]
+fn rename_onto_a_target_takes_the_requested_name() {
+    for case in [CASES[0], CASES[2]] {
+        let mut fs = open(case, common::blank(case));
+        let root = fs.root();
+        let dir = create(&mut fs, root, "Sub Directory", NewNode::Dir);
+        for (parent, text) in [
+            (root, "Target long name.txt"),
+            (root, "short.txt"),
+            (root, "source one.bin"),
+            (root, "a"),
+            (dir, "Moved Target Name.txt"),
+        ] {
+            let node = create(&mut fs, parent, text, NewNode::File);
+            write_all(&mut fs, node, 0, text.as_bytes());
+            fs.forget(node);
+        }
+        fs.forget(dir);
+
+        fs.rename(
+            root,
+            name("short.txt"),
+            root,
+            name("TARGET~1.TXT"),
+            RenameFlags::empty(),
+        )
+        .unwrap();
+        fs.rename(
+            root,
+            name("source one.bin"),
+            root,
+            name("A"),
+            RenameFlags::empty(),
+        )
+        .unwrap();
+        fs.rename(
+            root,
+            name("A"),
+            dir,
+            name("MOVED TARGET NAME.TXT"),
+            RenameFlags::empty(),
+        )
+        .unwrap();
+        fs.sync().unwrap();
+
+        let image = image(fs);
+        assert_eq!(
+            fresh_names(case, &image, "/"),
+            ["Sub Directory", "TARGET~1.TXT"]
+        );
+        assert_eq!(fresh_read(case, &image, "/TARGET~1.TXT"), b"short.txt");
+        assert_eq!(
+            fresh_names(case, &image, "/Sub Directory"),
+            ["MOVED TARGET NAME.TXT"]
+        );
+        assert_eq!(
+            fresh_read(case, &image, "/Sub Directory/moved target name.txt"),
+            b"source one.bin"
+        );
+        assert_eq!(&short_of(&image, "TARGET~1.TXT"), b"TARGET~1TXT");
+        fsck(&image, case.name);
+    }
 }
 
 #[test]
@@ -1168,11 +1300,12 @@ fn compare_trees(a: &mut Fs, a_dir: NodeId, b: &mut Fs, b_dir: NodeId) -> usize 
 }
 
 /// A device that refuses writes, or fails them with a device error after
-/// `budget` writes.
+/// `budget` writes: every later write, or with `once` only the next one.
 struct Faulty {
     inner: Device,
     budget: Option<usize>,
     refuse: bool,
+    once: bool,
 }
 
 impl hadris_io::ErrorType for Faulty {
@@ -1201,7 +1334,12 @@ impl BlockDevice for Faulty {
             return Err(WriteError::ReadOnly);
         }
         match &mut self.budget {
-            Some(0) => Err(WriteError::Device(OutOfRange)),
+            Some(0) => {
+                if self.once {
+                    self.budget = None;
+                }
+                Err(WriteError::Device(OutOfRange))
+            }
             Some(left) => {
                 *left -= 1;
                 self.inner.write_blocks(first, buf)
@@ -1219,6 +1357,7 @@ fn refused_writes_make_the_volume_read_only() {
         inner: common::device(case, before.clone()),
         budget: None,
         refuse: true,
+        once: false,
     };
     let mut fs = FatFs::open(dev).unwrap();
     assert!(FsDriver::capabilities(&fs).is_writable());
@@ -1260,6 +1399,7 @@ fn refused_writes_make_the_volume_read_only() {
             inner: common::device(case, before.clone()),
             budget: None,
             refuse: true,
+            once: false,
         };
         let mut fs = FatFs::open(dev).unwrap();
         let root = fs.root();
@@ -1296,6 +1436,7 @@ fn interrupted_operations_leave_readable_volumes() {
                 inner: common::device(case, before.clone()),
                 budget: Some(budget),
                 refuse: false,
+                once: false,
             };
             let mut fs =
                 FatFs::open_with(dev, MountOptions::new().with_table(HeapTable::<()>::new()))
@@ -1339,6 +1480,84 @@ fn interrupted_operations_leave_readable_volumes() {
                 break;
             }
         }
+    }
+}
+
+/// A replace that fails at any one write either changes nothing visible
+/// or, when only its cleanup failed, has already renamed; the target is
+/// never lost on its own.
+#[test]
+fn a_failed_replace_keeps_the_target() {
+    let case = CASES[0];
+    let before = populate(case);
+    let state = |image: &[u8]| {
+        let names = fresh_names(case, image, "/");
+        let contents: Vec<Vec<u8>> = names
+            .iter()
+            .filter(|n| *n != "Nested Dir")
+            .map(|n| fresh_read(case, image, &format!("/{n}")))
+            .collect();
+        (names, contents)
+    };
+    let untouched = state(&before);
+    for to in ["A LONG FILE NAME.TXT", "ALONGF~1.TXT"] {
+        let rename = |fs: &mut FatFs<Faulty, HeapTable>| {
+            let root = fs.root();
+            fs.rename(
+                root,
+                name("lower.txt"),
+                root,
+                name(to),
+                RenameFlags::empty(),
+            )
+        };
+        let mut fs = FatFs::open_with(
+            Faulty {
+                inner: common::device(case, before.clone()),
+                budget: None,
+                refuse: false,
+                once: false,
+            },
+            MountOptions::new().with_table(HeapTable::new()),
+        )
+        .unwrap();
+        rename(&mut fs).unwrap();
+        let renamed = state(&fs.into_inner().inner.into_inner());
+        assert!(renamed.0.contains(&to.to_owned()));
+        let (mut failures, mut undone) = (0, 0);
+        for budget in 0..40 {
+            let mut fs = FatFs::open_with(
+                Faulty {
+                    inner: common::device(case, before.clone()),
+                    budget: Some(budget),
+                    refuse: false,
+                    once: true,
+                },
+                MountOptions::new().with_table(HeapTable::new()),
+            )
+            .unwrap();
+            let result = rename(&mut fs);
+            let image = fs.into_inner().inner.into_inner();
+            let after = state(&image);
+            match result {
+                Ok(()) => {
+                    assert_eq!(after, renamed, "{to} budget {budget}");
+                    fsck(&image, "replace");
+                    break;
+                }
+                Err(err) => {
+                    failures += 1;
+                    undone += usize::from(after == untouched);
+                    assert_eq!(err.kind(), ErrorKind::Io);
+                    assert!(
+                        after == untouched || after == renamed,
+                        "{to} budget {budget}: {:?}",
+                        after.0
+                    );
+                }
+            }
+        }
+        assert!(failures >= 3 && undone >= 2, "{to}: {failures} {undone}");
     }
 }
 

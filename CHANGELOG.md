@@ -79,8 +79,9 @@ Each published package owns its version and may be released independently.
   when the name fits 8.3; `remove` deletes files and empty directories
   (`Busy` while pinned, `DirectoryNotEmpty`); `rename` moves within and
   across directories, keeps the node's id, updates `..` of a moved
-  directory, replaces an existing target unless `RenameFlags::NO_REPLACE`,
-  and rejects unknown flags with `Unsupported`; `write_at` and `set_len`
+  directory, replaces an existing target unless `RenameFlags::NO_REPLACE`
+  (the result takes the requested name and case, as on Windows, not the
+  target's), and rejects unknown flags with `Unsupported`; `write_at` and `set_len`
   grow, zero-fill and shrink files, freeing clusters; `set_metadata` sets
   attributes and creation, modification and access times (mode and owner
   are ignored); `sync_node` and `sync` write pending sizes and the FAT32
