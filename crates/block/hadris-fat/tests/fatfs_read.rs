@@ -557,12 +557,10 @@ fn volume_paths_and_handles() {
         .collect();
     assert_eq!(names.len(), INNER_FILES);
     assert!(names.contains(&"file number 07.txt".to_owned()));
-    assert_eq!(
-        vol.open("/README.TXT", OpenOptions::write())
-            .unwrap_err()
-            .kind(),
-        ErrorKind::ReadOnly
-    );
+    vol.open("/README.TXT", OpenOptions::write())
+        .unwrap()
+        .close()
+        .unwrap();
     assert_eq!(vol.into_inner().open_nodes(), 1);
 }
 

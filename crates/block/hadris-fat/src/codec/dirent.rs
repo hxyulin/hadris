@@ -1,6 +1,7 @@
 //! 32-byte directory entries: classification and short-entry fields.
 
 use super::entry::FatKind;
+use super::lfn::{self, UNITS_PER_ENTRY};
 
 /// Size of one directory entry.
 pub(crate) const ENTRY_SIZE: u64 = 32;
@@ -16,7 +17,8 @@ pub(crate) const ATTR_ARCHIVE: u8 = 0x20;
 pub(crate) const ATTR_LONG_NAME: u8 = 0x0F;
 
 const END: u8 = 0x00;
-const FREE: u8 = 0xE5;
+/// First name byte of a deleted entry.
+pub(crate) const FREE: u8 = 0xE5;
 
 /// What a directory slot holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,7 +104,69 @@ impl Slot {
     }
 }
 
+/// Encodes one long-name fragment as a directory slot.
+pub(crate) fn encode_long(sequence: u8, checksum: u8, units: &[u16; UNITS_PER_ENTRY]) -> [u8; 32] {
+    let (name1, name2, name3) = lfn::pack(units);
+    let mut raw = [0u8; 32];
+    raw[0] = sequence;
+    raw[1..11].copy_from_slice(&name1);
+    raw[11] = ATTR_LONG_NAME;
+    raw[13] = checksum;
+    raw[14..26].copy_from_slice(&name2);
+    raw[28..32].copy_from_slice(&name3);
+    raw
+}
+
 impl ShortEntry {
+    /// An entry with the given stored name and attributes, no times, no
+    /// clusters and size 0.
+    pub(crate) const fn new(name: [u8; 11], attr: u8) -> Self {
+        Self {
+            name,
+            attr,
+            nt_case: 0,
+            created_tenths: 0,
+            created_time: 0,
+            created_date: 0,
+            accessed_date: 0,
+            cluster_high: 0,
+            modified_time: 0,
+            modified_date: 0,
+            cluster_low: 0,
+            size: 0,
+        }
+    }
+
+    /// Encodes the entry as a directory slot.
+    pub(crate) fn encode(&self) -> [u8; 32] {
+        let mut raw = [0u8; 32];
+        raw[..11].copy_from_slice(&self.name);
+        raw[11] = self.attr;
+        raw[12] = self.nt_case;
+        raw[13] = self.created_tenths;
+        for (at, value) in [
+            (14, self.created_time),
+            (16, self.created_date),
+            (18, self.accessed_date),
+            (20, self.cluster_high),
+            (22, self.modified_time),
+            (24, self.modified_date),
+            (26, self.cluster_low),
+        ] {
+            raw[at..at + 2].copy_from_slice(&value.to_le_bytes());
+        }
+        raw[28..32].copy_from_slice(&self.size.to_le_bytes());
+        raw
+    }
+
+    /// Sets the first cluster. FAT12/16 keep whatever the high word held.
+    pub(crate) const fn set_first_cluster(&mut self, kind: FatKind, cluster: u32) {
+        self.cluster_low = cluster as u16;
+        if let FatKind::Fat32 = kind {
+            self.cluster_high = (cluster >> 16) as u16;
+        }
+    }
+
     pub(crate) const fn is_dir(&self) -> bool {
         self.attr & ATTR_DIRECTORY != 0
     }
@@ -182,6 +246,41 @@ mod tests {
         assert_eq!(entry.first_cluster(FatKind::Fat32), 0x0001_0002);
         assert_eq!(entry.first_cluster(FatKind::Fat16), 2);
         assert!(entry.is_visible() && !entry.is_dir());
+    }
+
+    #[test]
+    fn short_entries_round_trip() {
+        let mut entry = ShortEntry::new(*b"\x05BC     TXT", ATTR_ARCHIVE);
+        entry.nt_case = 0x08;
+        entry.created_tenths = 7;
+        entry.created_time = 0x1234;
+        entry.created_date = 0x5678;
+        entry.accessed_date = 0x9ABC;
+        entry.modified_time = 0xDEF0;
+        entry.modified_date = 0x1357;
+        entry.size = 0x0102_0304;
+        entry.set_first_cluster(FatKind::Fat32, 0x0ABC_DEF1);
+        assert_eq!(Slot::parse(&entry.encode()), Slot::Short(entry));
+        assert_eq!(entry.first_cluster(FatKind::Fat32), 0x0ABC_DEF1);
+        entry.set_first_cluster(FatKind::Fat16, 9);
+        assert_eq!(entry.first_cluster(FatKind::Fat16), 9);
+        assert_eq!(entry.encode()[20..22], 0x0ABCu16.to_le_bytes());
+    }
+
+    #[test]
+    fn long_entries_round_trip() {
+        let units: [u16; UNITS_PER_ENTRY] = core::array::from_fn(|i| 0x100 + i as u16);
+        let raw = encode_long(0x42, 0x99, &units);
+        let Slot::Long(entry) = Slot::parse(&raw) else {
+            panic!("long entry")
+        };
+        assert_eq!((entry.sequence, entry.checksum), (0x42, 0x99));
+        assert_eq!(
+            lfn::unpack(&entry.name1, &entry.name2, &entry.name3),
+            (units, UNITS_PER_ENTRY)
+        );
+        assert_eq!(raw[12], 0);
+        assert_eq!(raw[26..28], [0, 0]);
     }
 
     #[test]

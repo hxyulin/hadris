@@ -10,7 +10,6 @@ pub(crate) const UNITS_PER_ENTRY: usize = 13;
 /// The longest name in UTF-16 code units.
 pub(crate) const MAX_UNITS: usize = 255;
 /// The most LFN entries one name can use.
-#[allow(dead_code)]
 pub(crate) const MAX_ENTRIES: usize = 20;
 
 /// The checksum of an 11-byte short name that ties LFN entries to it.
@@ -47,7 +46,6 @@ pub(crate) fn unpack(
 }
 
 /// Splits 13 code units into the three name fields of an LFN entry.
-#[allow(dead_code)]
 pub(crate) fn pack(units: &[u16; UNITS_PER_ENTRY]) -> ([u8; 10], [u8; 12], [u8; 4]) {
     let mut name1 = [0u8; 10];
     let mut name2 = [0u8; 12];
@@ -63,13 +61,11 @@ pub(crate) fn pack(units: &[u16; UNITS_PER_ENTRY]) -> ([u8; 10], [u8; 12], [u8; 
 }
 
 /// A name encoded as the LFN entries that store it.
-#[allow(dead_code)]
 pub(crate) struct Encoded {
     units: [u16; MAX_ENTRIES * UNITS_PER_ENTRY],
     entries: usize,
 }
 
-#[allow(dead_code)]
 impl Encoded {
     /// Encodes `name` as UTF-16, followed by a `0x0000` terminator and
     /// `0xFFFF` filler when it does not fill its last entry. `None` when the

@@ -9,10 +9,8 @@ use hadris_fs::{CivilDate, CivilTime, DateTime};
 const NANOS_PER_TENTH: u32 = 10_000_000;
 
 /// The earliest encodable instant, 1980-01-01 00:00:00.
-#[allow(dead_code)]
 pub(crate) const MIN: (u16, u16, u8) = ((1 << 5) | 1, 0, 0);
 /// The latest encodable instant, 2107-12-31 23:59:59.99.
-#[allow(dead_code)]
 pub(crate) const MAX: (u16, u16, u8) = (
     (127 << 9) | (12 << 5) | 31,
     (23 << 11) | (59 << 5) | 29,
@@ -69,7 +67,6 @@ pub(crate) fn decode(date: u16, time: u16, tenths: u8) -> Option<DateTime> {
 
 /// Encodes `time` as `(date, time, tenths)` in its recorded local time,
 /// clamped to [`MIN`] and [`MAX`].
-#[allow(dead_code)]
 pub(crate) fn encode(time: DateTime) -> (u16, u16, u8) {
     let (date, clock) = time.to_civil();
     if date.year() < 1980 {

@@ -97,7 +97,6 @@ impl FatKind {
 
     /// Stores `value` as the entry of `cluster` into the bytes at its offset,
     /// keeping the neighbouring FAT12 nibble and FAT32's reserved high nibble.
-    #[allow(dead_code)]
     pub(crate) fn encode(self, cluster: u64, value: u32, bytes: &mut [u8]) {
         match self {
             Self::Fat12 if cluster % 2 == 0 => {

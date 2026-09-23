@@ -15,7 +15,6 @@ const KANJI_LEAD: u8 = 0x05;
 const DELETED: u8 = 0xE5;
 
 /// Replaces a leading `0xE5` with `0x05` before the name is written.
-#[allow(dead_code)]
 pub(crate) fn to_disk(name: &mut [u8; 11]) {
     if name[0] == DELETED {
         name[0] = KANJI_LEAD;
@@ -75,7 +74,6 @@ pub(crate) fn display(
 
 /// Whether `name` is a valid long name: not empty, `.` or `..`, at most 255
 /// UTF-16 code units, and free of control characters and `"*/:<>?\|`.
-#[allow(dead_code)]
 pub(crate) fn is_valid_long_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
@@ -86,7 +84,6 @@ pub(crate) fn is_valid_long_name(name: &str) -> bool {
         })
 }
 
-#[allow(dead_code)]
 fn process_char(ch: char, encode: &impl Fn(char) -> Option<u8>) -> u8 {
     if ch.is_ascii_alphanumeric() {
         ch.to_ascii_uppercase() as u8
@@ -101,7 +98,6 @@ fn process_char(ch: char, encode: &impl Fn(char) -> Option<u8>) -> u8 {
     }
 }
 
-#[allow(dead_code)]
 fn hash(name: &str, suffix: u8) -> u16 {
     let mut hash = suffix as u16;
     for &byte in name.as_bytes() {
@@ -115,7 +111,6 @@ fn hash(name: &str, suffix: u8) -> u16 {
 /// Non-ASCII characters go through `encode`, the OEM code page, and become
 /// `_` when it has no byte for them. `None` when nothing representable
 /// remains.
-#[allow(dead_code)]
 pub(crate) fn generate(
     name: &str,
     suffix: u8,
@@ -191,7 +186,6 @@ pub(crate) fn generate(
 /// alone, or `None` when it needs LFN entries: too long, several dots,
 /// mixed case within the base or extension, or characters outside the
 /// short-name set. An uppercase 8.3 name gives `Some(0)`.
-#[allow(dead_code)]
 pub(crate) fn case_bits(name: &str) -> Option<u8> {
     let (base, ext) = match name.rfind('.') {
         Some(pos) if pos > 0 => (&name[..pos], &name[pos + 1..]),
