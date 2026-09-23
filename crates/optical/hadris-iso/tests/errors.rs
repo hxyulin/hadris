@@ -162,3 +162,33 @@ fn missing_namespaces_are_reported() {
     let err = iso.into_view(Namespace::RockRidge).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NotFound);
 }
+
+#[test]
+fn directories_past_the_end_of_a_truncated_image_are_corrupt() {
+    let tree = sample(false, false);
+    let good = image(&tree, &IsoOptions::default()).into_inner();
+    let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
+    let docs = iso
+        .view(Namespace::Primary)
+        .unwrap()
+        .resolve("/DOCS")
+        .unwrap();
+
+    let mut truncated = good;
+    truncated.truncate(docs.get() as usize);
+    let mut iso = IsoImage::open(MemDevice::new(truncated, common::SECTOR)).unwrap();
+    let mut view = iso.view(Namespace::Primary).unwrap();
+    let root = view.root();
+    let listed = view
+        .lookup(root, hadris_fs::Name::new(b"DOCS").unwrap())
+        .unwrap();
+    assert_eq!(listed, docs);
+    assert_eq!(
+        view.node_metadata(listed).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+    assert_eq!(
+        view.node_metadata(NodeId::new(1 << 40)).unwrap_err().kind(),
+        ErrorKind::InvalidHandle
+    );
+}

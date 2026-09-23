@@ -309,10 +309,14 @@ struct Listed {
     len: usize,
 }
 
-/// A node id that does not name a valid record is an invalid handle.
-fn handle<E>(err: Error<E>) -> hadris_fs::Error<E> {
-    match err.kind() {
-        ErrorKind::Io => err.into(),
+/// A node id that does not name a valid record is an invalid handle, unless
+/// it lies inside the volume but past the end of the device: the image is
+/// truncated.
+fn handle<E>(err: Error<E>, node: NodeId, info: &Info) -> hadris_fs::Error<E> {
+    let volume_end = u64::from(info.volume_blocks) * u64::from(info.block_size);
+    match (err.kind(), err.detail()) {
+        (ErrorKind::Io, _) => err.into(),
+        (_, Some(Detail::OutsideImage)) if node.get() < volume_end => err.into(),
         _ => ErrorKind::InvalidHandle.into(),
     }
 }
@@ -365,7 +369,7 @@ impl View {
 
     /// The directory a node names: its `.` record, or a directory record.
     async fn dir_of<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Dir, D::Error> {
-        let record = self.record_at(dev, node.get()).await.map_err(handle)?;
+        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, &self.info))?;
         if !record.header().is_directory() {
             return Err(ErrorKind::NotADirectory.into());
         }
@@ -603,7 +607,7 @@ impl View {
     }
 
     async fn node_metadata<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Metadata, D::Error> {
-        let record = self.record_at(dev, node.get()).await.map_err(handle)?;
+        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, &self.info))?;
         let header = *record.header();
         let mut times = FileTimes::new().with_modified(header.date_time.to_datetime());
         let rr = match self.rock_ridge() {
@@ -674,7 +678,7 @@ impl View {
     }
 
     async fn read_at<D: BlockDevice>(&self, dev: &mut D, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        let record = self.record_at(dev, node.get()).await.map_err(handle)?;
+        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, &self.info))?;
         if record.header().is_directory() {
             return Err(ErrorKind::IsADirectory.into());
         }
@@ -763,7 +767,7 @@ impl View {
         let Some(skip) = self.rock_ridge() else {
             return Err(ErrorKind::InvalidInput.into());
         };
-        let record = self.record_at(dev, link.get()).await.map_err(handle)?;
+        let record = self.record_at(dev, link.get()).await.map_err(|err| handle(err, link, &self.info))?;
         let mut scan = Scan::new().with_link(buf);
         self.scan(dev, &record, skip, &mut scan).await?;
         if !scan.info.is_symlink() {
