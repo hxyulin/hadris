@@ -16,7 +16,8 @@
 //! - `std` (default): Enables standard library support and includes `alloc`.
 //! - `read` (default): Enables reading partition tables via `*ReadExt` traits.
 //! - `alloc`: Enables heap allocation for `Vec`-based APIs (e.g., `GptDisk`, `PartitionTable`).
-//! - `write`: Enables writing partition tables (requires `alloc` + `read`).
+//! - `write`: Enables writing partition tables (requires `alloc` + `read`, and enables `crc`
+//!   so written GPT headers always carry valid checksums).
 //! - `sync` / `async`: Synchronous or asynchronous I/O traits (via `hadris-io`).
 //! - `crc`: Enables CRC32 verification/calculation for GPT headers (via the `crc` crate).
 //! - `rand`: Enables random GUID generation (via the `rand` crate).
