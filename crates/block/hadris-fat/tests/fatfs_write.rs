@@ -970,6 +970,50 @@ fn unsupported_kinds_and_metadata() {
     fsck(&image(fs), "metadata");
 }
 
+/// `FsDriver::set_metadata` ignores fields the format cannot store, and
+/// `copy_tree` and `import_from_host` pass a mode, so mode and owner must
+/// not fail on FAT.
+#[test]
+fn mode_and_owner_are_ignored() {
+    let case = CASES[1];
+    let fs = open(case, populate(case));
+    let caps = fs.capabilities();
+    assert!(!caps.supports_permissions());
+    assert!(!caps.supports_owners());
+    let before = image(fs);
+    let changes = SetMetadata::new()
+        .with_mode(hadris_fs::Mode::new(0o4755))
+        .with_uid(1000)
+        .with_gid(100);
+
+    let mut fs = open(case, before.clone());
+    let root = fs.root();
+    let node = fs.lookup(root, name("README.TXT")).unwrap();
+    let dir = fs.lookup(root, name("Nested Dir")).unwrap();
+    fs.set_metadata(node, &changes).unwrap();
+    fs.set_metadata(dir, &changes).unwrap();
+    fs.set_metadata(root, &changes).unwrap();
+    let meta = fs.node_metadata(node).unwrap();
+    assert_eq!(meta.permissions(), None);
+    assert_eq!(meta.owner(), None);
+    fs.forget(node);
+    fs.forget(dir);
+    fs.sync().unwrap();
+    let after = image(fs);
+    assert_eq!(after, before, "mode and owner changed the image");
+
+    let mut fs = open(case, after);
+    let root = fs.root();
+    let created = fs
+        .create(root, name("owned.txt"), NewNode::File, &changes)
+        .unwrap();
+    let meta = fs.node_metadata(created).unwrap();
+    assert_eq!(meta.permissions(), None);
+    assert_eq!(meta.owner(), None);
+    fs.forget(created);
+    fsck(&image(fs), "mode and owner");
+}
+
 #[test]
 fn sync_persists_sizes_for_a_fresh_mount() {
     for case in CASES {

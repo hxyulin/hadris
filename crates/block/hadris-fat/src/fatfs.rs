@@ -951,7 +951,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     ///
     /// `meta` sets the attributes, which default to archive for a file, and
     /// the creation, modification and access times, which default to now.
-    /// Mode and owner are ignored. Fails with [`ErrorKind::AlreadyExists`]
+    /// Mode and owner are ignored, as for `set_metadata`. Fails with [`ErrorKind::AlreadyExists`]
     /// when a long or short name matches, [`ErrorKind::InvalidInput`] for a
     /// name FAT cannot hold (control characters, `"*/:<>?\|`, or a trailing
     /// dot or space), and [`ErrorKind::NoSpace`] when a FAT12/16 root
@@ -1197,6 +1197,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Changes attributes and times. `changed` times, mode and owner are
     /// ignored, since FAT cannot store them, as are changes to the root. A
     /// pending size is written too.
+    ///
+    /// Ignoring them is the `FsDriver` contract, which `copy_tree` and
+    /// `import_from_host` rely on when they copy a mode onto FAT;
+    /// [`capabilities`](Self::capabilities) reports neither permissions nor
+    /// owners, so a caller that needs them can check first.
     pub async fn set_metadata(&mut self, node: NodeId, changes: &SetMetadata) -> FsResult<(), D::Error> {
         self.writable()?;
         if node == ROOT {
