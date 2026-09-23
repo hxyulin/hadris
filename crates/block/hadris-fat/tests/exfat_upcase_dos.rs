@@ -76,6 +76,6 @@ fn checked_upcase_load_rejects_checksum_mismatch() {
     let result = table.load_checked(&mut data, &info, 2, 4, true, 0);
     assert!(matches!(
         result,
-        Err(hadris_fat::Error::ExFatInvalidChecksum { .. })
+        Err(hadris_fat::exfat::Error::ExFatInvalidChecksum { .. })
     ));
 }

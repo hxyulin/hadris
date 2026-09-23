@@ -12,8 +12,10 @@
 //!
 //! # Stability and supported subset
 //!
-//! This module is enabled by `unstable-exfat` and is outside the Hadris V2 API
-//! stability promise. Its APIs may change in V2 minor releases. It supports
+//! This module is enabled by `unstable-exfat` and is outside the Hadris API
+//! stability promise. Its APIs may change in minor releases. It keeps its own
+//! [`Error`](crate::exfat::Error) and reads and writes through the `hadris_io::legacy` sync
+//! traits until it becomes the `ExFatFs` driver. It supports
 //! basic formatting, reading, traversal, and simple mutation on conventional
 //! layouts, but should not be used with irreplaceable data.
 //!
@@ -31,11 +33,13 @@ mod dir;
 mod entry;
 #[cfg(feature = "write")]
 mod entry_writer;
+mod error;
 mod fat;
 mod file;
 #[cfg(feature = "write")]
 mod format;
 mod fs;
+mod io;
 mod time;
 mod upcase;
 
@@ -46,6 +50,7 @@ pub use entry::{
     ExFatFileEntry, FileAttributes, RawFileDirectoryEntry, RawFileNameEntry,
     RawStreamExtensionEntry,
 };
+pub use error::{Error, Result};
 pub use fat::ExFatTable;
 pub use file::ExFatFileReader;
 pub use fs::ExFatVolume;

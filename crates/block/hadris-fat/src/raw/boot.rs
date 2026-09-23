@@ -13,7 +13,7 @@ use hadris_common::types::{
 ///
 /// @hadris-spec FAT:BPB
 /// @hadris-compliance full
-/// @hadris-tests comprehensive_fat::bpb_size_validation_uses_production_reader_and_formatter
+/// @hadris-tests boot::tests::check_bpb_rejects_bad_sizes, fatfs_format::rejects_bad_options_and_devices
 /// @hadris-fuzz fat_read
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -219,7 +219,7 @@ pub struct BpbExt32Flags(u16);
 ///
 /// @hadris-spec FAT:FSInfo
 /// @hadris-compliance full
-/// @hadris-tests test_write::test_fsinfo_unknown_sentinels_mount_successfully
+/// @hadris-tests boot::tests::fs_info_signatures, fatfs_read::fsinfo_unknown_values_mount_and_count_by_scanning
 /// @hadris-fuzz fat_read
 #[repr(C, packed)]
 #[derive(Clone, Copy)]

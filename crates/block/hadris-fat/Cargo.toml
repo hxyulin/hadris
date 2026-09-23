@@ -12,53 +12,34 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
-# docs.rs builds with default features only, which would hide the async,
-# cache, and tool APIs. Build both stable I/O modes and the full stable sync
-# capability set; the unstable exFAT preview remains deliberately opt-in.
+# docs.rs builds with default features only, which would hide the async
+# modes. Build every stable mode; the unstable exFAT preview remains
+# deliberately opt-in.
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-send", "read", "write", "lfn", "cache", "tool"]
+features = ["std", "sync", "async", "async-send", "write"]
 
 [features]
-default = ["read", "write", "lfn", "std", "sync"]
+default = ["std", "sync", "write"]
 sync = ["hadris-io/sync", "hadris-common/sync", "hadris-fs/sync", "hadris-storage/sync"]
 async = ["hadris-io/async", "hadris-common/async", "hadris-fs/async", "hadris-storage/async"]
 # The asynchronous API a third time, with `Send` futures, in `async_send`.
 async-send = ["async", "hadris-io/async-send", "hadris-fs/async-send", "hadris-storage/async-send"]
-alloc = ["chrono?/alloc", "hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
+alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
 std = [
   "alloc",
-  "dep:chrono",
-  "chrono/std",
-  "chrono/clock",
   "hadris-io/std",
   "hadris-common/std",
   "hadris-fs/std",
   "hadris-storage/std",
 ]
-read = []
-write = ["read"]
-lfn = []
-# FAT sector caching for reduced I/O operations.
-# Implies `sync` because `cache.rs` uses sync I/O traits and the transparent
-# wiring on `FatVolume` (`lock_for_fat`, etc.) is only generated in sync mode;
-# async operations access the FAT directly.
-cache = ["alloc", "sync"]
-# Analysis and diagnostic APIs.
-# Implies `sync`: the analysis/verify code walks directories with the
-# synchronous iterator API (`for entry in dir.entries()`) and is not
-# async-aware, so it is emitted only in the sync slice (mirrors `cache`).
-tool = ["alloc", "read", "sync"]
-# Unstable exFAT preview. This root-level API is outside the V2 stability
-# promise, uses synchronous I/O traits, and therefore selects the sync API.
+# `format` in each mode. `FatFs` reads and writes without it.
+write = []
+# Unstable exFAT preview. It is outside the stability promise, uses the
+# synchronous legacy I/O traits, and therefore selects the sync API.
 unstable-exfat = ["alloc", "sync"]
-# Embedded-friendly logging: derives `defmt::Format` on public diagnostic
-# types (`FatError`, `FatType`, `FatDateTime`, `FsStatusFlags`) so they can
-# be logged through `defmt::info!` etc. without going through `Debug`.
+# Derives `defmt::Format` on `FatKind` and `Finding` so they can be logged
+# through `defmt::info!` etc. without going through `Debug`.
 defmt = ["dep:defmt"]
-# When set, dropping a `FileWriter` without calling `finish()` panics
-# instead of silently losing the size/timestamp metadata update. Catches
-# the most common corruption-causing mistake. Mirrors embedded-fatfs.
-dirty-file-panic = []
 
 [dependencies]
 hadris-common = { workspace = true }
@@ -73,11 +54,7 @@ bytemuck = { workspace = true, features = [
   "derive",
   "min_const_generics",
 ] }
-chrono = { workspace = true, optional = true }
 defmt = { version = "1.0", optional = true }
-
-[build-dependencies]
-parse-size = "1.1"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

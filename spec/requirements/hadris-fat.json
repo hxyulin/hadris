@@ -12,10 +12,32 @@
       "direction": "both",
       "status": "verified",
       "symbols": [
-        {"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_with_providers"},
-        {"path": "crates/block/hadris-fat/src/format/calc.rs", "name": "calculate_params"}
+        {
+          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "name": "check_bpb"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/codec/layout.rs",
+          "name": "plan"
+        }
       ],
-      "tests": [{"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "bpb_size_validation_uses_production_reader_and_formatter", "kind": "integration"}],
+      "tests": [
+        {
+          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "name": "check_bpb_rejects_bad_sizes",
+          "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/codec/layout.rs",
+          "name": "rejects_bad_options",
+          "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat/tests/fatfs_format.rs",
+          "name": "rejects_bad_options_and_devices",
+          "kind": "integration"
+        }
+      ],
       "gap": null
     },
     {
@@ -26,8 +48,29 @@
       "summary": "FAT12, FAT16, and FAT32 are selected from the count of data clusters rather than the informational filesystem-type string.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_fat12_16"}],
-      "tests": [{"path": "crates/block/hadris-fat/tests/fat_roundtrip.rs", "name": "fat12_fat16_and_fat32_support_core_file_and_directory_operations", "kind": "integration"}],
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "name": "geometry16"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "name": "floppy_is_fat12",
+          "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "name": "many_clusters_is_fat16",
+          "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat/tests/fatfs_format.rs",
+          "name": "smallest_volumes_and_kind_boundaries",
+          "kind": "integration"
+        }
+      ],
       "gap": null
     },
     {
@@ -38,8 +81,23 @@
       "summary": "A FAT32 driver rejects a volume whose filesystem version is not the defined 0.0 version.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_fat32"}],
-      "tests": [{"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "fat32_rejects_unknown_version_and_invalid_fsinfo_signatures", "kind": "integration"}],
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "name": "check_ext32"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/fatfs.rs",
+          "name": "FatFs::open_with"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "name": "fat32_geometry_and_root_cluster",
+          "kind": "unit"
+        }
+      ],
       "gap": null
     },
     {
@@ -49,10 +107,25 @@
       "normativity": "shall",
       "summary": "When FAT mirroring is disabled, reads and writes use only the active FAT selected by BPB_ExtFlags.",
       "direction": "both",
-      "status": "not_implemented",
-      "symbols": [{"path": "crates/block/hadris-fat/src/raw.rs", "name": "BpbExt32Flags"}],
-      "tests": [],
-      "gap": "The flags are represented but the mounted volume always reads FAT copy zero and mirrors writes to every copy."
+      "status": "verified",
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/raw/boot.rs",
+          "name": "BpbExt32Flags"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/fatfs.rs",
+          "name": "FatFs::open_with"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/block/hadris-fat/tests/fatfs_read.rs",
+          "name": "fat32_uses_only_the_active_fat_when_mirroring_is_disabled",
+          "kind": "integration"
+        }
+      ],
+      "gap": null
     },
     {
       "id": "MICROSOFT-FAT-1.03:fat-data#fat32-reserved-high-bits",
@@ -63,12 +136,21 @@
       "direction": "write",
       "status": "verified",
       "symbols": [
-        {"path": "crates/block/hadris-fat/src/fat_table.rs", "name": "Fat32::write_clus"},
-        {"path": "crates/block/hadris-fat/src/cache.rs", "name": "FatSectorCache::write_fat32_entry"}
+        {
+          "path": "crates/block/hadris-fat/src/codec/entry.rs",
+          "name": "FatKind::encode"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/fatfs.rs",
+          "name": "FatFs::set_fat"
+        }
       ],
       "tests": [
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "fat32_writes_preserve_each_copy_reserved_high_bits", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/cache_integration.rs", "name": "cache_fat32_writes_preserve_reserved_high_bits", "kind": "integration"}
+        {
+          "path": "crates/block/hadris-fat/src/codec/entry.rs",
+          "name": "fat32_keeps_reserved_nibble",
+          "kind": "unit"
+        }
       ],
       "gap": null
     },
@@ -80,10 +162,23 @@
       "summary": "Each FAT width recognizes its defined free, bad-cluster, and end-of-chain value ranges while traversing allocation chains.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-fat/src/fat_table.rs", "name": "Fat"}],
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/codec/entry.rs",
+          "name": "FatKind::next"
+        }
+      ],
       "tests": [
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "fat_table_traversal_recognizes_bad_and_end_markers_for_every_width", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "test_read_returns_cluster_loop_on_2cycle", "kind": "integration"}
+        {
+          "path": "crates/block/hadris-fat/src/codec/entry.rs",
+          "name": "next_classifies_markers_and_bounds",
+          "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat/tests/fatfs_read.rs",
+          "name": "cyclic_chains_end_instead_of_hanging",
+          "kind": "integration"
+        }
       ],
       "gap": null
     },
@@ -96,12 +191,35 @@
       "direction": "both",
       "status": "verified",
       "symbols": [
-        {"path": "crates/block/hadris-fat/src/fs.rs", "name": "FatVolume::open_fat32"},
-        {"path": "crates/block/hadris-fat/src/format/init.rs", "name": "write_fsinfo"}
+        {
+          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "name": "check_fs_info"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/fatfs.rs",
+          "name": "FatFs::open_with"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/mkfs.rs",
+          "name": "format"
+        }
       ],
       "tests": [
-        {"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "fat32_rejects_unknown_version_and_invalid_fsinfo_signatures", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "test_fsinfo_unknown_sentinels_mount_successfully", "kind": "integration"}
+        {
+          "path": "crates/block/hadris-fat/src/codec/boot.rs",
+          "name": "fs_info_signatures",
+          "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat/tests/fatfs_read.rs",
+          "name": "fsinfo_unknown_values_mount_and_count_by_scanning",
+          "kind": "integration"
+        },
+        {
+          "path": "crates/block/hadris-fat/tests/fatfs_check.rs",
+          "name": "corruptions_report_their_findings",
+          "kind": "integration"
+        }
       ],
       "gap": null
     },
@@ -113,8 +231,24 @@
       "summary": "A FAT32 formatter creates the backup boot and FSInfo copies and a reader can use the backup when the primary boot record is unusable.",
       "direction": "both",
       "status": "partial",
-      "symbols": [{"path": "crates/block/hadris-fat/src/format/init.rs", "name": "write_backup_boot_sector"}],
-      "tests": [{"path": "tests/suite/fat/spec.rs", "name": "fat_spec_conformance", "kind": "integration"}],
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/mkfs.rs",
+          "name": "format"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/block/hadris-fat/tests/fatfs_format.rs",
+          "name": "boot_sector_fats_and_fsinfo_are_consistent",
+          "kind": "integration"
+        },
+        {
+          "path": "tests/suite/fat/spec.rs",
+          "name": "fat_spec_conformance",
+          "kind": "integration"
+        }
+      ],
       "gap": "Formatting writes sectors 6 and 7, but mounting does not attempt recovery from the backup boot record."
     },
     {
@@ -125,8 +259,28 @@
       "summary": "Directory iteration treats 0xE5 as a deleted slot and 0x00 as the end of all used directory entries.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-fat/src/dir.rs", "name": "FatDirIter"}],
-      "tests": [{"path": "crates/block/hadris-fat/tests/comprehensive_fat.rs", "name": "directory_iteration_skips_deleted_slots_and_stops_at_end_marker", "kind": "integration"}],
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/codec/dirent.rs",
+          "name": "Slot::parse"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/fatfs.rs",
+          "name": "FatFs::read_dir_entry"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/block/hadris-fat/src/codec/dirent.rs",
+          "name": "classifies_slots",
+          "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat/tests/fatfs_write.rs",
+          "name": "remove_files_and_directories",
+          "kind": "integration"
+        }
+      ],
       "gap": null
     },
     {
@@ -138,12 +292,40 @@
       "direction": "both",
       "status": "verified",
       "symbols": [
-        {"path": "crates/block/hadris-fat/src/file.rs", "name": "LfnBuilder"},
-        {"path": "crates/block/hadris-fat/src/write.rs", "name": "build_lfn_entries"}
+        {
+          "path": "crates/block/hadris-fat/src/codec/lfn.rs",
+          "name": "Encoded"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/codec/lfn.rs",
+          "name": "Assembler"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/codec/dirent.rs",
+          "name": "encode_long"
+        }
       ],
       "tests": [
-        {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "lfn_checksum_matches_short_name", "kind": "integration"},
-        {"path": "crates/block/hadris-fat/tests/test_write.rs", "name": "lfn_padding_uses_terminator_then_filler", "kind": "integration"}
+        {
+          "path": "crates/block/hadris-fat/src/codec/lfn.rs",
+          "name": "checksum_matches_reference",
+          "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/codec/lfn.rs",
+          "name": "encoded_orders_entries_last_first",
+          "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/codec/lfn.rs",
+          "name": "assembler_rejects_broken_sequences",
+          "kind": "unit"
+        },
+        {
+          "path": "crates/block/hadris-fat/tests/fatfs_write.rs",
+          "name": "long_names_up_to_255_units",
+          "kind": "integration"
+        }
       ],
       "gap": null
     },
@@ -156,10 +338,22 @@
       "direction": "both",
       "status": "verified",
       "symbols": [
-        {"path": "crates/block/hadris-fat/src/exfat/boot.rs", "name": "ExFatBootSector::validate_checksum"},
-        {"path": "crates/block/hadris-fat/src/exfat/format.rs", "name": "write_boot_checksum"}
+        {
+          "path": "crates/block/hadris-fat/src/exfat/boot.rs",
+          "name": "ExFatBootSector::validate_checksum"
+        },
+        {
+          "path": "crates/block/hadris-fat/src/exfat/format.rs",
+          "name": "write_boot_checksum"
+        }
       ],
-      "tests": [{"path": "crates/block/hadris-fat/tests/test_exfat.rs", "name": "mount_rejects_invalid_boot_region_checksum", "kind": "integration"}],
+      "tests": [
+        {
+          "path": "crates/block/hadris-fat/tests/test_exfat.rs",
+          "name": "mount_rejects_invalid_boot_region_checksum",
+          "kind": "integration"
+        }
+      ],
       "gap": null
     },
     {
@@ -170,7 +364,12 @@
       "summary": "Mounting validates both boot regions and selects a usable region according to the specification when one copy is invalid.",
       "direction": "read",
       "status": "not_implemented",
-      "symbols": [{"path": "crates/block/hadris-fat/src/exfat/fs.rs", "name": "ExFatVolume::open"}],
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/exfat/fs.rs",
+          "name": "ExFatVolume::open"
+        }
+      ],
       "tests": [],
       "gap": "Mounting validates only the main boot region and does not fall back to the backup region."
     },
@@ -182,8 +381,19 @@
       "summary": "The allocation bitmap records whether each cluster in the cluster heap is available or allocated.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-fat/src/exfat/bitmap.rs", "name": "AllocationBitmap"}],
-      "tests": [{"path": "crates/block/hadris-fat/src/exfat/bitmap.rs", "name": "test_bitmap_bit_operations", "kind": "unit"}],
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/exfat/bitmap.rs",
+          "name": "AllocationBitmap"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/block/hadris-fat/src/exfat/bitmap.rs",
+          "name": "test_bitmap_bit_operations",
+          "kind": "unit"
+        }
+      ],
       "gap": null
     },
     {
@@ -194,8 +404,19 @@
       "summary": "The exFAT up-case table data matches the checksum stored in its root-directory metadata before it is used for name matching.",
       "direction": "read",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-fat/src/exfat/upcase.rs", "name": "UpcaseTable::load_checked"}],
-      "tests": [{"path": "crates/block/hadris-fat/tests/exfat_upcase_dos.rs", "name": "checked_upcase_load_rejects_checksum_mismatch", "kind": "integration"}],
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/exfat/upcase.rs",
+          "name": "UpcaseTable::load_checked"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/block/hadris-fat/tests/exfat_upcase_dos.rs",
+          "name": "checked_upcase_load_rejects_checksum_mismatch",
+          "kind": "integration"
+        }
+      ],
       "gap": null
     },
     {
@@ -206,7 +427,12 @@
       "summary": "An up-case table whose allocation is described by a FAT chain can be loaded when it is not physically contiguous.",
       "direction": "read",
       "status": "not_implemented",
-      "symbols": [{"path": "crates/block/hadris-fat/src/exfat/upcase.rs", "name": "UpcaseTable::load"}],
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/exfat/upcase.rs",
+          "name": "UpcaseTable::load"
+        }
+      ],
       "tests": [],
       "gap": "The loader explicitly rejects fragmented up-case tables instead of following their FAT chain."
     },
@@ -218,8 +444,19 @@
       "summary": "A file directory entry set is accepted only when its stored checksum matches the complete primary and secondary entry set.",
       "direction": "both",
       "status": "verified",
-      "symbols": [{"path": "crates/block/hadris-fat/src/exfat/entry.rs", "name": "parse_entry_set"}],
-      "tests": [{"path": "crates/block/hadris-fat/src/exfat/entry_writer.rs", "name": "parser_rejects_an_invalid_entry_set_checksum", "kind": "unit"}],
+      "symbols": [
+        {
+          "path": "crates/block/hadris-fat/src/exfat/entry.rs",
+          "name": "parse_entry_set"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/block/hadris-fat/src/exfat/entry_writer.rs",
+          "name": "parser_rejects_an_invalid_entry_set_checksum",
+          "kind": "unit"
+        }
+      ],
       "gap": null
     }
   ]

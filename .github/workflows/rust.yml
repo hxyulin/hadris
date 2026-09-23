@@ -196,32 +196,32 @@ jobs:
 
           # hadris-fat
           - crate: hadris-fat
+            tier: no-std
+            features: "sync"
+          - crate: hadris-fat
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-fat
             tier: fatfs-no-alloc-sync
             features: "sync,write"
           - crate: hadris-fat
             tier: fatfs-no-alloc-async
             features: "async-send,write"
           - crate: hadris-fat
-            tier: no-std
-            features: "sync,read,lfn,cache,tool,unstable-exfat"
-          - crate: hadris-fat
             tier: alloc
-            features: "alloc,sync,read,lfn,cache,tool,unstable-exfat"
+            features: "alloc,sync,unstable-exfat"
           - crate: hadris-fat
             tier: std
-            features: "std,sync,read,write,lfn,cache,tool,unstable-exfat"
+            features: "std,sync,write,unstable-exfat"
           - crate: hadris-fat
-            tier: async-read
-            features: "alloc,async,read,lfn"
+            tier: hosted-async-write
+            features: "std,async,write"
           - crate: hadris-fat
-            tier: hosted-async-read-write
-            features: "std,async,read,write,lfn"
-          - crate: hadris-fat
-            tier: sync-and-async-read-write
-            features: "alloc,sync,async,read,write,lfn,unstable-exfat"
+            tier: sync-and-async-write
+            features: "alloc,sync,async,write,unstable-exfat"
           - crate: hadris-fat
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,defmt,dirty-file-panic"
+            features: "std,alloc,sync,async,async-send,write,unstable-exfat,defmt"
 
           # hadris-iso
           - crate: hadris-iso
@@ -392,7 +392,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           cargo test --workspace --all-features --tests --exclude hadris-fat
-          cargo test -p hadris-fat --features "std,alloc,sync,async,async-send,read,write,lfn,cache,tool,unstable-exfat,dirty-file-panic" --tests
+          cargo test -p hadris-fat --features "std,alloc,sync,async,async-send,write,unstable-exfat" --tests
       - name: Run block async integration tests
         run: cargo test -p hadris-block --all-features --test async_volume
       - name: Run optical detection integration tests
@@ -538,9 +538,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Miri — hadris-common (FixedFilename safety)
         run: cargo +nightly miri test -p hadris-common --lib
-      - name: Miri — hadris-fat (LFN UTF-16 / surrogate-pair safety)
-        run: cargo +nightly miri test -p hadris-fat --lib file::lfn_unicode_tests
-      - name: Miri — hadris-fat (LFN write encoding / union safety)
-        run: cargo +nightly miri test -p hadris-fat --lib lfn_write_safety_tests
+      - name: Miri - hadris-fat (LFN UTF-16, surrogate pairs and name decoding)
+        run: "cargo +nightly miri test -p hadris-fat --lib codec::"
       - name: Miri — hadris-iso (IsoStr / IsoString safety)
         run: cargo +nightly miri test -p hadris-iso --lib types::iso_str_safety_tests

@@ -6,10 +6,10 @@
 
 use core::mem::size_of;
 
-use crate::error::{Error, Result};
+use super::error::{Error, Result};
 #[cfg(feature = "write")]
-use crate::io::Write;
-use crate::io::{Read, Seek, SeekFrom};
+use super::io::Write;
+use super::io::{Read, Seek, SeekFrom};
 
 use super::ExFatInfo;
 

@@ -5,10 +5,10 @@
 
 use core::cmp::min;
 
-use crate::error::{Error, Result};
+use super::error::{Error, Result};
 #[cfg(feature = "write")]
-use crate::io::Write;
-use crate::io::{ErrorKind, Read, Seek, SeekFrom, error_from_kind};
+use super::io::Write;
+use super::io::{ErrorKind, Read, Seek, SeekFrom, error_from_kind};
 
 use super::entry::ExFatFileEntry;
 use super::fs::ExFatVolume;
@@ -76,7 +76,7 @@ impl<'a, DATA: Read + Seek> ExFatFileReader<'a, DATA> {
 impl<DATA: Read + Seek> ExFatFileReader<'_, DATA> {
     /// Follow the FAT chain one hop. A chain longer than the volume's cluster
     /// count must contain a loop; report an error instead of hanging.
-    fn follow_chain(&mut self) -> crate::io::IoResult<bool> {
+    fn follow_chain(&mut self) -> super::io::IoResult<bool> {
         self.cluster_steps = self.cluster_steps.saturating_add(1);
         if self.cluster_steps > self.fs.info().cluster_count {
             return Err(error_from_kind(ErrorKind::Other));
@@ -93,7 +93,7 @@ impl<DATA: Read + Seek> ExFatFileReader<'_, DATA> {
 }
 
 impl<DATA: Read + Seek> hadris_io::legacy::sync::Read for ExFatFileReader<'_, DATA> {
-    fn read(&mut self, buf: &mut [u8]) -> crate::io::IoResult<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> super::io::IoResult<usize> {
         if self.position >= self.valid_length {
             return Ok(0);
         }
@@ -147,7 +147,7 @@ impl<DATA: Read + Seek> hadris_io::legacy::sync::Read for ExFatFileReader<'_, DA
 }
 
 impl<DATA: Read + Seek> hadris_io::legacy::sync::Seek for ExFatFileReader<'_, DATA> {
-    fn seek(&mut self, pos: SeekFrom) -> crate::io::IoResult<u64> {
+    fn seek(&mut self, pos: SeekFrom) -> super::io::IoResult<u64> {
         let new_pos = match pos {
             SeekFrom::Start(offset) => offset as i64,
             SeekFrom::End(offset) => self.valid_length as i64 + offset,
@@ -314,7 +314,7 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
 
 #[cfg(feature = "write")]
 impl<DATA: Read + Write + Seek> hadris_io::legacy::sync::Write for ExFatFileWriter<'_, DATA> {
-    fn write(&mut self, buf: &[u8]) -> crate::io::IoResult<usize> {
+    fn write(&mut self, buf: &[u8]) -> super::io::IoResult<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -431,7 +431,7 @@ impl<DATA: Read + Write + Seek> hadris_io::legacy::sync::Write for ExFatFileWrit
         Ok(total_written)
     }
 
-    fn flush(&mut self) -> crate::io::IoResult<()> {
+    fn flush(&mut self) -> super::io::IoResult<()> {
         self.fs.flush()
     }
 }

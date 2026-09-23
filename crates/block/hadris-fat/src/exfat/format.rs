@@ -20,8 +20,8 @@ use hadris_common::types::{
     number::{U16, U32, U64},
 };
 
-use crate::error::{Error, Result};
-use crate::io::{Read, Seek, SeekFrom, Write};
+use super::error::{Error, Result};
+use super::io::{Read, Seek, SeekFrom, Write};
 
 use super::boot::{BOOT_REGION_SECTORS, BOOT_SIGNATURE, EXFAT_SIGNATURE, RawExFatBootSector};
 use super::entry::{

@@ -34,6 +34,12 @@ pub(crate) enum Slot {
 }
 
 /// One long-name fragment.
+///
+/// @hadris-spec FAT:LFN
+/// @hadris-compliance partial
+/// @hadris-note Sequence, attributes, checksum, terminator and filler are read and written; names are UTF-16 only, with no legacy ANSI fallback.
+/// @hadris-tests lfn::tests::checksum_matches_reference, lfn::tests::encoded_orders_entries_last_first, lfn::tests::assembler_rejects_broken_sequences, fatfs_write::long_names_up_to_255_units
+/// @hadris-fuzz fat_read
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LongEntry {
     pub(crate) sequence: u8,
@@ -44,6 +50,12 @@ pub(crate) struct LongEntry {
 }
 
 /// The fields of a short entry.
+///
+/// @hadris-spec FAT:DirEntry
+/// @hadris-compliance partial
+/// @hadris-note Name/attributes/timestamps/cluster/size and NT case flags (`DIR_NTRes`) are read and written; extended access-time granularity is not modeled.
+/// @hadris-tests dirent::tests::decodes_short_fields, fatfs_write::short_names_and_case_bits
+/// @hadris-fuzz fat_read
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ShortEntry {
     /// The 11 name bytes as stored, so a leading `0xE5` reads `0x05`.

@@ -17,7 +17,7 @@ impl<D: BlockDevice> OpenVolume<D> {
     /// Detects and opens the filesystem on `dev`.
     ///
     /// Partitioned disks must first be narrowed to a partition, for example
-    /// with [`partition::r#async`](crate::partition::r#async).
+    /// with `partition::r#async`.
     pub async fn open(mut dev: D) -> Result<Self, D::Error> {
         match crate::detect::r#async::detect(&mut dev)
             .await

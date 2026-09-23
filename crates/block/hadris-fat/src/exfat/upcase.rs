@@ -6,8 +6,8 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::error::{Error, Result};
-use crate::io::{Read, Seek, SeekFrom};
+use super::error::{Error, Result};
+use super::io::{Read, Seek, SeekFrom};
 
 use super::ExFatInfo;
 

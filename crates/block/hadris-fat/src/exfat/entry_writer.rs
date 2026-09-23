@@ -18,9 +18,9 @@ use super::entry::{
     FileAttributes, RawDirectoryEntry, RawFileDirectoryEntry, RawFileNameEntry,
     RawStreamExtensionEntry, compute_entry_set_checksum, entry_type,
 };
+use super::error::{Error, Result};
 use super::time::ExFatTimestamp;
 use super::upcase::UpcaseTable;
-use crate::error::{Error, Result};
 
 /// Maximum filename length in UTF-16 code units.
 pub const MAX_NAME_LENGTH: usize = 255;

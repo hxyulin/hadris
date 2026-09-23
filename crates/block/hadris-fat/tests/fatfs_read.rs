@@ -568,3 +568,65 @@ fn cyclic_chains_end_instead_of_hanging() {
     let file = fs.lookup(inner, name("deep.bin")).unwrap();
     assert_eq!(read_all(&mut fs, file).len(), 70_000);
 }
+
+fn fat32_layout(image: &[u8]) -> (usize, usize, usize, u8) {
+    let u16_at = |at: usize| u16::from_le_bytes([image[at], image[at + 1]]) as usize;
+    let u32_at = |at: usize| u32::from_le_bytes(image[at..at + 4].try_into().unwrap()) as usize;
+    let sector = u16_at(11);
+    (
+        u16_at(14) * sector,
+        u32_at(36) * sector,
+        u16_at(48) * sector,
+        image[16],
+    )
+}
+
+#[test]
+fn fsinfo_unknown_values_mount_and_count_by_scanning() {
+    let case = CASES[2];
+    assert_eq!(case.kind, FatKind::Fat32);
+    let mut image = common::build(case);
+    let free = hadris_fat::sync::check(&mut common::mount(case, &image))
+        .unwrap()
+        .free_clusters();
+    let (_, _, fs_info, _) = fat32_layout(&image);
+    image[fs_info + 488..fs_info + 496].fill(0xFF);
+    let mut fs = open(case, image);
+    assert_eq!(fs.stats().unwrap().free_blocks(), u64::from(free));
+    let file = fs.resolve("/README.TXT").unwrap();
+    assert_eq!(read_all(&mut fs, file), b"hello fat");
+}
+
+#[test]
+fn fat32_uses_only_the_active_fat_when_mirroring_is_disabled() {
+    let case = CASES[2];
+    let mut image = common::build(case);
+    let (fat_start, fat_len, _, copies) = fat32_layout(&image);
+    assert!(copies >= 2);
+    image[40..42].copy_from_slice(&(0x80u16 | 1).to_le_bytes());
+    let first = image[fat_start..fat_start + 8].to_vec();
+    image[fat_start + 8..fat_start + fat_len].fill(0);
+
+    let mut fs = open(case, image);
+    let file = fs.resolve(&format!("/{LONG_NAME}")).unwrap();
+    assert_eq!(read_all(&mut fs, file), common::payload(5000, 1));
+    fs.forget(file);
+    let root = fs.root();
+    let node = fs
+        .create(root, name("new.bin"), NewNode::File, &SetMetadata::new())
+        .unwrap();
+    assert_eq!(fs.write_at(node, 0, &[7u8; 5000]).unwrap(), 5000);
+    fs.forget(node);
+    fs.sync().unwrap();
+
+    let image = fs.into_inner().into_inner();
+    assert_eq!(&image[fat_start..fat_start + 8], &first[..]);
+    assert!(
+        image[fat_start + 8..fat_start + fat_len]
+            .iter()
+            .all(|&b| b == 0)
+    );
+    let mut fs = open(case, image);
+    let node = fs.resolve("/new.bin").unwrap();
+    assert_eq!(read_all(&mut fs, node), [7u8; 5000]);
+}

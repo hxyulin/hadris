@@ -11,10 +11,10 @@ use hadris_common::types::endian::Endian;
 use hadris_fs::path::{Component, VPath};
 use spin::Mutex;
 
-use crate::error::{Error, Result};
+use super::error::{Error, Result};
 #[cfg(feature = "write")]
-use crate::io::Write;
-use crate::io::{Read, ReadExt, SectorCursor, Seek, SeekFrom};
+use super::io::Write;
+use super::io::{Read, ReadExt, SectorCursor, Seek, SeekFrom};
 
 use super::bitmap::AllocationBitmap;
 use super::boot::{ExFatBootSector, ExFatInfo};
@@ -294,7 +294,7 @@ where
     }
 
     /// Flush any pending writes.
-    pub(crate) fn flush(&self) -> crate::io::IoResult<()> {
+    pub(crate) fn flush(&self) -> super::io::IoResult<()> {
         let mut guard = self.data.lock();
         guard.flush()
     }

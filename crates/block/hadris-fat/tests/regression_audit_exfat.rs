@@ -15,7 +15,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 use hadris_fat::exfat::{ExFatFormatOptions, ExFatVolume, format_exfat};
-use hadris_fat::io::{Read as HadrisRead, Write as HadrisWrite};
+use hadris_io::legacy::sync::{Read as HadrisRead, Write as HadrisWrite};
 
 /// Build a fresh, formatted exFAT image at `path` of `size` bytes.
 fn make_image(path: &Path, size: u64, label: &str) {

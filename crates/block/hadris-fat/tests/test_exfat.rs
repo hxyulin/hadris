@@ -23,7 +23,7 @@
 
 #![cfg(feature = "unstable-exfat")]
 
-use hadris_fat::Error;
+use hadris_fat::exfat::Error;
 use hadris_fat::exfat::{ExFatBootSector, ExFatVolume};
 use std::fs::File;
 use std::io::{Cursor, Read as StdRead};
@@ -412,7 +412,7 @@ mod navigation_tests {
 
 mod file_reading_tests {
     use super::*;
-    use hadris_fat::io::Read;
+    use hadris_io::legacy::sync::Read;
 
     #[test]
     fn test_open_file() {

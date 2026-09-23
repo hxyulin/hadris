@@ -5,8 +5,8 @@
 use alloc::vec::Vec;
 use core::mem::size_of;
 
-use crate::error::{Error, Result};
-use crate::io::{Read, Seek};
+use super::error::{Error, Result};
+use super::io::{Read, Seek};
 
 use super::entry::{ExFatFileEntry, RawDirectoryEntry, entry_type, parse_entry_set};
 use super::fs::ExFatVolume;

@@ -141,23 +141,22 @@ impl ExFatTimestamp {
         }
     }
 
-    /// Create a timestamp representing the current time.
+    /// Create a timestamp representing the current time, in UTC.
     #[cfg(feature = "std")]
     pub fn now() -> Self {
-        use chrono::{Datelike, Local, Timelike};
+        use hadris_fs::Clock;
 
-        let now = Local::now();
-        let offset_minutes = now.offset().local_minus_utc() / 60;
-
+        let now = hadris_fs::SystemClock.now();
+        let (date, time) = now.to_civil_utc();
         Self::from_components(
-            now.year() as u16,
-            now.month() as u8,
-            now.day() as u8,
-            now.hour() as u8,
-            now.minute() as u8,
-            now.second() as u8,
-            ((now.nanosecond() / 10_000_000) % 200) as u8,
-            Some(offset_minutes as i16),
+            date.year().clamp(1980, 2107) as u16,
+            date.month(),
+            date.day(),
+            time.hour(),
+            time.minute(),
+            time.second(),
+            ((now.nanoseconds() / 10_000_000) % 200) as u8,
+            Some(0),
         )
     }
 
