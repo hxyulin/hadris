@@ -11,7 +11,7 @@ pub hadris_cd::error::Error::FileNotFound(alloc::string::String)
 pub hadris_cd::error::Error::InvalidConfig(alloc::string::String)
 pub hadris_cd::error::Error::InvalidPath(alloc::string::String)
 pub hadris_cd::error::Error::Io(hadris_io::legacy::error::Error)
-pub hadris_cd::error::Error::Iso(hadris_iso::sync::__inner::write::IsoCreationError)
+pub hadris_cd::error::Error::Iso(hadris_iso::error::Error<hadris_io::legacy::error::Error>)
 pub hadris_cd::error::Error::Udf(hadris_udf::error::Error)
 pub hadris_cd::error::Error::VolumeNameTooLong
 pub hadris_cd::error::Error::VolumeNameTooLong::max: usize
@@ -39,25 +39,26 @@ pub mod hadris_cd::options
 pub use hadris_cd::options::JolietLevel
 pub struct hadris_cd::options::IsoOptions
 pub hadris_cd::options::IsoOptions::enabled: bool
-pub hadris_cd::options::IsoOptions::joliet: core::option::Option<hadris_iso::joliet::JolietLevel>
-pub hadris_cd::options::IsoOptions::level: hadris_iso::sync::__inner::write::options::BaseIsoLevel
+pub hadris_cd::options::IsoOptions::joliet: core::option::Option<hadris_iso::namespace::JolietLevel>
+pub hadris_cd::options::IsoOptions::level: hadris_iso::options::IsoLevel
 pub hadris_cd::options::IsoOptions::long_filenames: bool
-pub hadris_cd::options::IsoOptions::rock_ridge: core::option::Option<hadris_iso::sync::__inner::rrip::RripOptions>
+pub hadris_cd::options::IsoOptions::name_case: hadris_iso::options::NameCase
+pub hadris_cd::options::IsoOptions::rock_ridge: core::option::Option<hadris_iso::options::RockRidge>
 impl core::default::Default for hadris_cd::options::IsoOptions
 pub fn hadris_cd::options::IsoOptions::default() -> Self
 pub struct hadris_cd::options::OpticalImageOptions
-pub hadris_cd::options::OpticalImageOptions::boot: core::option::Option<hadris_iso::sync::__inner::boot::options::BootOptions>
-pub hadris_cd::options::OpticalImageOptions::hybrid_boot: core::option::Option<hadris_iso::sync::__inner::write::options::HybridBootOptions>
+pub hadris_cd::options::OpticalImageOptions::boot: core::option::Option<hadris_iso::options::ElTorito>
+pub hadris_cd::options::OpticalImageOptions::hybrid_boot: core::option::Option<hadris_iso::options::HybridBoot>
 pub hadris_cd::options::OpticalImageOptions::iso: hadris_cd::options::IsoOptions
 pub hadris_cd::options::OpticalImageOptions::sector_size: usize
 pub hadris_cd::options::OpticalImageOptions::udf: hadris_cd::options::UdfOptions
 pub hadris_cd::options::OpticalImageOptions::volume_id: alloc::string::String
 impl hadris_cd::options::OpticalImageOptions
-pub fn hadris_cd::options::OpticalImageOptions::boot(self, hadris_iso::sync::__inner::boot::options::BootOptions) -> Self
-pub fn hadris_cd::options::OpticalImageOptions::hybrid_boot(self, hadris_iso::sync::__inner::write::options::HybridBootOptions) -> Self
+pub fn hadris_cd::options::OpticalImageOptions::boot(self, hadris_iso::options::ElTorito) -> Self
+pub fn hadris_cd::options::OpticalImageOptions::hybrid_boot(self, hadris_iso::options::HybridBoot) -> Self
 pub fn hadris_cd::options::OpticalImageOptions::iso_only(self) -> Self
-pub fn hadris_cd::options::OpticalImageOptions::joliet(self, hadris_iso::joliet::JolietLevel) -> Self
-pub fn hadris_cd::options::OpticalImageOptions::rock_ridge(self, hadris_iso::sync::__inner::rrip::RripOptions) -> Self
+pub fn hadris_cd::options::OpticalImageOptions::joliet(self, hadris_iso::namespace::JolietLevel) -> Self
+pub fn hadris_cd::options::OpticalImageOptions::rock_ridge(self, hadris_iso::options::RockRidge) -> Self
 pub fn hadris_cd::options::OpticalImageOptions::udf_only(self) -> Self
 pub fn hadris_cd::options::OpticalImageOptions::volume_id(self, impl core::convert::Into<alloc::string::String>) -> Self
 impl core::default::Default for hadris_cd::options::OpticalImageOptions
@@ -166,7 +167,7 @@ pub hadris_cd::Error::FileNotFound(alloc::string::String)
 pub hadris_cd::Error::InvalidConfig(alloc::string::String)
 pub hadris_cd::Error::InvalidPath(alloc::string::String)
 pub hadris_cd::Error::Io(hadris_io::legacy::error::Error)
-pub hadris_cd::Error::Iso(hadris_iso::sync::__inner::write::IsoCreationError)
+pub hadris_cd::Error::Iso(hadris_iso::error::Error<hadris_io::legacy::error::Error>)
 pub hadris_cd::Error::Udf(hadris_udf::error::Error)
 pub hadris_cd::Error::VolumeNameTooLong
 pub hadris_cd::Error::VolumeNameTooLong::max: usize
@@ -240,10 +241,11 @@ impl core::fmt::Display for hadris_cd::tree::FileTree
 pub fn hadris_cd::tree::FileTree::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_cd::IsoOptions
 pub hadris_cd::IsoOptions::enabled: bool
-pub hadris_cd::IsoOptions::joliet: core::option::Option<hadris_iso::joliet::JolietLevel>
-pub hadris_cd::IsoOptions::level: hadris_iso::sync::__inner::write::options::BaseIsoLevel
+pub hadris_cd::IsoOptions::joliet: core::option::Option<hadris_iso::namespace::JolietLevel>
+pub hadris_cd::IsoOptions::level: hadris_iso::options::IsoLevel
 pub hadris_cd::IsoOptions::long_filenames: bool
-pub hadris_cd::IsoOptions::rock_ridge: core::option::Option<hadris_iso::sync::__inner::rrip::RripOptions>
+pub hadris_cd::IsoOptions::name_case: hadris_iso::options::NameCase
+pub hadris_cd::IsoOptions::rock_ridge: core::option::Option<hadris_iso::options::RockRidge>
 impl core::default::Default for hadris_cd::options::IsoOptions
 pub fn hadris_cd::options::IsoOptions::default() -> Self
 pub struct hadris_cd::LayoutInfo
@@ -264,18 +266,18 @@ pub fn hadris_cd::layout::LayoutManager::layout_files(&mut self, &mut hadris_cd:
 pub fn hadris_cd::layout::LayoutManager::new(usize) -> Self
 pub fn hadris_cd::layout::LayoutManager::next_unique_id(&mut self) -> u64
 pub struct hadris_cd::OpticalImageOptions
-pub hadris_cd::OpticalImageOptions::boot: core::option::Option<hadris_iso::sync::__inner::boot::options::BootOptions>
-pub hadris_cd::OpticalImageOptions::hybrid_boot: core::option::Option<hadris_iso::sync::__inner::write::options::HybridBootOptions>
+pub hadris_cd::OpticalImageOptions::boot: core::option::Option<hadris_iso::options::ElTorito>
+pub hadris_cd::OpticalImageOptions::hybrid_boot: core::option::Option<hadris_iso::options::HybridBoot>
 pub hadris_cd::OpticalImageOptions::iso: hadris_cd::options::IsoOptions
 pub hadris_cd::OpticalImageOptions::sector_size: usize
 pub hadris_cd::OpticalImageOptions::udf: hadris_cd::options::UdfOptions
 pub hadris_cd::OpticalImageOptions::volume_id: alloc::string::String
 impl hadris_cd::options::OpticalImageOptions
-pub fn hadris_cd::options::OpticalImageOptions::boot(self, hadris_iso::sync::__inner::boot::options::BootOptions) -> Self
-pub fn hadris_cd::options::OpticalImageOptions::hybrid_boot(self, hadris_iso::sync::__inner::write::options::HybridBootOptions) -> Self
+pub fn hadris_cd::options::OpticalImageOptions::boot(self, hadris_iso::options::ElTorito) -> Self
+pub fn hadris_cd::options::OpticalImageOptions::hybrid_boot(self, hadris_iso::options::HybridBoot) -> Self
 pub fn hadris_cd::options::OpticalImageOptions::iso_only(self) -> Self
-pub fn hadris_cd::options::OpticalImageOptions::joliet(self, hadris_iso::joliet::JolietLevel) -> Self
-pub fn hadris_cd::options::OpticalImageOptions::rock_ridge(self, hadris_iso::sync::__inner::rrip::RripOptions) -> Self
+pub fn hadris_cd::options::OpticalImageOptions::joliet(self, hadris_iso::namespace::JolietLevel) -> Self
+pub fn hadris_cd::options::OpticalImageOptions::rock_ridge(self, hadris_iso::options::RockRidge) -> Self
 pub fn hadris_cd::options::OpticalImageOptions::udf_only(self) -> Self
 pub fn hadris_cd::options::OpticalImageOptions::volume_id(self, impl core::convert::Into<alloc::string::String>) -> Self
 impl core::default::Default for hadris_cd::options::OpticalImageOptions

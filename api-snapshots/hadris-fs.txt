@@ -2,6 +2,7 @@ pub mod hadris_fs
 pub mod hadris_fs::async
 pub mod hadris_fs::async::contract
 pub async fn hadris_fs::async::contract::check<Fs: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
+pub async fn hadris_fs::async::contract::check_read_only<Fs: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
 pub mod hadris_fs::async::lock
 pub trait hadris_fs::async::lock::Lock<T>
 pub type hadris_fs::async::lock::Lock::Guard<'a> where Self: 'a: core::ops::deref::DerefMut<Target = T>
@@ -66,6 +67,15 @@ impl hadris_fs::async::lock::LockKind for hadris_fs::async::AsyncMutex
 pub type hadris_fs::async::AsyncMutex::Lock<T> = async_lock::mutex::Mutex<T>
 impl hadris_fs::async_send::lock::LockKind for hadris_fs::async::AsyncMutex
 pub type hadris_fs::async::AsyncMutex::Lock<T: core::marker::Send> = async_lock::mutex::Mutex<T>
+pub struct hadris_fs::async::ContentReader<'a>
+impl<'a> hadris_fs::async::ContentReader<'a>
+pub fn hadris_fs::async::ContentReader<'a>::is_empty(&self) -> bool
+pub fn hadris_fs::async::ContentReader<'a>::len(&self) -> u64
+pub async fn hadris_fs::async::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::AnyError>
+pub async fn hadris_fs::async::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::AnyError>
+pub async fn hadris_fs::async::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::AnyError>
+impl core::fmt::Debug for hadris_fs::async::ContentReader<'_>
+pub fn hadris_fs::async::ContentReader<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::async::Dir<A: hadris_fs::async::Access>
 impl<A: hadris_fs::async::Access> hadris_fs::async::Dir<A>
 pub fn hadris_fs::async::Dir<A>::cursor(&self) -> hadris_fs::DirCursor
@@ -593,10 +603,15 @@ impl hadris_fs::async::Resolver for hadris_fs::async::Lexical
 pub async fn hadris_fs::async::Lexical::resolve<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&self, &mut D, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <D as hadris_fs::async::FsDriver>::DeviceError>
 impl<const N: usize> hadris_fs::async::Resolver for hadris_fs::async::Posix<N>
 pub async fn hadris_fs::async::Posix<N>::resolve<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&self, &mut D, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <D as hadris_fs::async::FsDriver>::DeviceError>
+pub trait hadris_fs::async::TreeExt: core::marker::Sized
+pub async fn hadris_fs::async::TreeExt::from_filesystem<A: hadris_fs::async::Access + hadris_io::async::MaybeSend>(A) -> hadris_fs::FsResult<Self, <A as hadris_fs::async::Access>::DeviceError>
+impl hadris_fs::async::TreeExt for hadris_fs::tree::Tree
+pub async fn hadris_fs::tree::Tree::from_filesystem<A: hadris_fs::async::Access + hadris_io::async::MaybeSend>(A) -> hadris_fs::FsResult<Self, <A as hadris_fs::async::Access>::DeviceError>
 pub async fn hadris_fs::async::copy_tree<S: hadris_fs::async::Access, T: hadris_fs::async::Access>(S, &str, T, &str) -> core::result::Result<(), hadris_fs::AnyError>
 pub mod hadris_fs::async_send
 pub mod hadris_fs::async_send::contract
 pub async fn hadris_fs::async_send::contract::check<Fs: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
+pub async fn hadris_fs::async_send::contract::check_read_only<Fs: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
 pub mod hadris_fs::async_send::lock
 pub trait hadris_fs::async_send::lock::Lock<T>: core::marker::Send + core::marker::Sync
 pub fn hadris_fs::async_send::lock::Lock::get_mut(&mut self) -> &mut T
@@ -650,6 +665,15 @@ impl hadris_fs::async::lock::LockKind for hadris_fs::async::AsyncMutex
 pub type hadris_fs::async::AsyncMutex::Lock<T> = async_lock::mutex::Mutex<T>
 impl hadris_fs::async_send::lock::LockKind for hadris_fs::async::AsyncMutex
 pub type hadris_fs::async::AsyncMutex::Lock<T: core::marker::Send> = async_lock::mutex::Mutex<T>
+pub struct hadris_fs::async_send::ContentReader<'a>
+impl<'a> hadris_fs::async_send::ContentReader<'a>
+pub fn hadris_fs::async_send::ContentReader<'a>::is_empty(&self) -> bool
+pub fn hadris_fs::async_send::ContentReader<'a>::len(&self) -> u64
+pub async fn hadris_fs::async_send::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::AnyError>
+pub async fn hadris_fs::async_send::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::AnyError>
+pub async fn hadris_fs::async_send::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::AnyError>
+impl core::fmt::Debug for hadris_fs::async_send::ContentReader<'_>
+pub fn hadris_fs::async_send::ContentReader<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::async_send::Dir<A: hadris_fs::async_send::Access>
 impl<A: hadris_fs::async_send::Access> hadris_fs::async_send::Dir<A>
 pub fn hadris_fs::async_send::Dir<A>::cursor(&self) -> hadris_fs::DirCursor
@@ -1144,6 +1168,10 @@ impl hadris_fs::async_send::Resolver for hadris_fs::async_send::Lexical
 pub async fn hadris_fs::async_send::Lexical::resolve<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&self, &mut D, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <D as hadris_fs::async_send::FsDriver>::DeviceError>
 impl<const N: usize> hadris_fs::async_send::Resolver for hadris_fs::async_send::Posix<N>
 pub async fn hadris_fs::async_send::Posix<N>::resolve<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&self, &mut D, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <D as hadris_fs::async_send::FsDriver>::DeviceError>
+pub trait hadris_fs::async_send::TreeExt: core::marker::Sized + core::marker::Send
+pub fn hadris_fs::async_send::TreeExt::from_filesystem<A: hadris_fs::async_send::Access + hadris_io::async_send::MaybeSend>(A) -> impl core::future::future::Future<Output = hadris_fs::FsResult<Self, <A as hadris_fs::async_send::Access>::DeviceError>> + core::marker::Send
+impl hadris_fs::async_send::TreeExt for hadris_fs::tree::Tree
+pub async fn hadris_fs::tree::Tree::from_filesystem<A: hadris_fs::async_send::Access + hadris_io::async_send::MaybeSend>(A) -> hadris_fs::FsResult<Self, <A as hadris_fs::async_send::Access>::DeviceError>
 pub async fn hadris_fs::async_send::copy_tree<S: hadris_fs::async_send::Access, T: hadris_fs::async_send::Access>(S, &str, T, &str) -> core::result::Result<(), hadris_fs::AnyError>
 pub mod hadris_fs::path
 #[non_exhaustive] pub enum hadris_fs::path::Component<'a>
@@ -1192,6 +1220,7 @@ pub fn hadris_fs::path::split_path(&str) -> core::option::Option<(alloc::string:
 pub mod hadris_fs::sync
 pub mod hadris_fs::sync::contract
 pub fn hadris_fs::sync::contract::check<Fs: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
+pub fn hadris_fs::sync::contract::check_read_only<Fs: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
 pub mod hadris_fs::sync::lock
 pub trait hadris_fs::sync::lock::Lock<T>
 pub type hadris_fs::sync::lock::Lock::Guard<'a> where Self: 'a: core::ops::deref::DerefMut<Target = T>
@@ -1260,6 +1289,15 @@ pub fn hadris_fs::sync::AsDriver<F>::write_at(&mut self, hadris_fs::NodeId, u64,
 impl<F> core::ops::deref::Deref for hadris_fs::sync::AsDriver<F>
 pub type hadris_fs::sync::AsDriver<F>::Target = F
 pub fn hadris_fs::sync::AsDriver<F>::deref(&self) -> &F
+pub struct hadris_fs::sync::ContentReader<'a>
+impl<'a> hadris_fs::sync::ContentReader<'a>
+pub fn hadris_fs::sync::ContentReader<'a>::is_empty(&self) -> bool
+pub fn hadris_fs::sync::ContentReader<'a>::len(&self) -> u64
+pub fn hadris_fs::sync::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::AnyError>
+pub fn hadris_fs::sync::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::AnyError>
+pub fn hadris_fs::sync::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::AnyError>
+impl core::fmt::Debug for hadris_fs::sync::ContentReader<'_>
+pub fn hadris_fs::sync::ContentReader<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::sync::Dir<A: hadris_fs::sync::Access>
 impl<A: hadris_fs::sync::Access> hadris_fs::sync::Dir<A>
 pub fn hadris_fs::sync::Dir<A>::cursor(&self) -> hadris_fs::DirCursor
@@ -1805,9 +1843,117 @@ impl hadris_fs::sync::Resolver for hadris_fs::sync::Lexical
 pub fn hadris_fs::sync::Lexical::resolve<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&self, &mut D, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <D as hadris_fs::sync::FsDriver>::DeviceError>
 impl<const N: usize> hadris_fs::sync::Resolver for hadris_fs::sync::Posix<N>
 pub fn hadris_fs::sync::Posix<N>::resolve<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&self, &mut D, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <D as hadris_fs::sync::FsDriver>::DeviceError>
+pub trait hadris_fs::sync::TreeExt: core::marker::Sized
+pub fn hadris_fs::sync::TreeExt::from_filesystem<A: hadris_fs::sync::Access + hadris_io::sync::MaybeSend>(A) -> hadris_fs::FsResult<Self, <A as hadris_fs::sync::Access>::DeviceError>
+impl hadris_fs::sync::TreeExt for hadris_fs::tree::Tree
+pub fn hadris_fs::tree::Tree::from_filesystem<A: hadris_fs::sync::Access + hadris_io::sync::MaybeSend>(A) -> hadris_fs::FsResult<Self, <A as hadris_fs::sync::Access>::DeviceError>
 pub fn hadris_fs::sync::copy_tree<S: hadris_fs::sync::Access, T: hadris_fs::sync::Access>(S, &str, T, &str) -> core::result::Result<(), hadris_fs::AnyError>
 pub fn hadris_fs::sync::extract_to_host<S: hadris_fs::sync::Access>(S, &str, impl core::convert::AsRef<std::path::Path>) -> core::io::error::Result<()>
 pub fn hadris_fs::sync::import_from_host<T: hadris_fs::sync::Access>(impl core::convert::AsRef<std::path::Path>, T, &str) -> core::io::error::Result<()>
+pub mod hadris_fs::tree
+#[non_exhaustive] pub enum hadris_fs::tree::NodeKind<'a>
+pub hadris_fs::tree::NodeKind::Device(hadris_fs::DeviceKind, hadris_fs::DeviceNumber)
+pub hadris_fs::tree::NodeKind::Dir
+pub hadris_fs::tree::NodeKind::File(&'a hadris_fs::tree::Content)
+pub hadris_fs::tree::NodeKind::Symlink(&'a [u8])
+#[non_exhaustive] pub enum hadris_fs::tree::OnError
+pub hadris_fs::tree::OnError::Fail
+pub hadris_fs::tree::OnError::Warn
+#[non_exhaustive] pub enum hadris_fs::tree::WarningKind
+pub hadris_fs::tree::WarningKind::IgnoredMetadata
+pub hadris_fs::tree::WarningKind::Renamed
+pub hadris_fs::tree::WarningKind::Skipped
+pub hadris_fs::tree::WarningKind::Unreadable
+pub struct hadris_fs::tree::Content(_)
+impl hadris_fs::tree::Content
+pub fn hadris_fs::tree::Content::as_bytes(&self) -> core::option::Option<&[u8]>
+pub fn hadris_fs::tree::Content::async_source<S: hadris_io::async_send::api::ByteSource + 'static>(S) -> Self
+pub fn hadris_fs::tree::Content::bytes(impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
+pub fn hadris_fs::tree::Content::empty() -> Self
+pub fn hadris_fs::tree::Content::len(&self) -> core::option::Option<u64>
+pub fn hadris_fs::tree::Content::path(impl core::convert::Into<std::path::PathBuf>) -> Self
+pub fn hadris_fs::tree::Content::source<S: hadris_io::sync::api::ByteSource + core::marker::Send + 'static>(S) -> Self
+pub fn hadris_fs::tree::Content::stored(impl core::convert::Into<alloc::vec::Vec<hadris_fs::Extent>>) -> Self
+pub fn hadris_fs::tree::Content::stored_extents(&self) -> core::option::Option<&[hadris_fs::Extent]>
+impl core::convert::From<&[u8]> for hadris_fs::tree::Content
+pub fn hadris_fs::tree::Content::from(&[u8]) -> Self
+impl core::convert::From<alloc::vec::Vec<u8>> for hadris_fs::tree::Content
+pub fn hadris_fs::tree::Content::from(alloc::vec::Vec<u8>) -> Self
+impl core::default::Default for hadris_fs::tree::Content
+pub fn hadris_fs::tree::Content::default() -> Self
+impl core::fmt::Debug for hadris_fs::tree::Content
+pub fn hadris_fs::tree::Content::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fs::tree::Extent
+impl hadris_fs::Extent
+pub const fn hadris_fs::Extent::end(&self) -> u64
+pub const fn hadris_fs::Extent::is_empty(&self) -> bool
+pub const fn hadris_fs::Extent::len(&self) -> u64
+pub const fn hadris_fs::Extent::new(u64, u64) -> Self
+pub const fn hadris_fs::Extent::offset(&self) -> u64
+pub struct hadris_fs::tree::FromFsOptions
+impl hadris_fs::tree::FromFsOptions
+pub const fn hadris_fs::tree::FromFsOptions::new() -> Self
+pub const fn hadris_fs::tree::FromFsOptions::on_error(&self) -> hadris_fs::tree::OnError
+pub const fn hadris_fs::tree::FromFsOptions::with_on_error(self, hadris_fs::tree::OnError) -> Self
+pub struct hadris_fs::tree::Tree
+impl hadris_fs::tree::Tree
+pub fn hadris_fs::tree::Tree::add_device(&mut self, &str, hadris_fs::DeviceKind, hadris_fs::DeviceNumber) -> core::result::Result<(), hadris_fs::tree::TreeError>
+pub fn hadris_fs::tree::Tree::add_dir(&mut self, &str) -> core::result::Result<(), hadris_fs::tree::TreeError>
+pub fn hadris_fs::tree::Tree::add_file(&mut self, &str, hadris_fs::tree::Content) -> core::result::Result<(), hadris_fs::tree::TreeError>
+pub fn hadris_fs::tree::Tree::add_hard_link(&mut self, &str, &str) -> core::result::Result<(), hadris_fs::tree::TreeError>
+pub fn hadris_fs::tree::Tree::add_symlink(&mut self, &str, impl core::convert::AsRef<[u8]>) -> core::result::Result<(), hadris_fs::tree::TreeError>
+pub fn hadris_fs::tree::Tree::content_mut(&mut self, &str) -> core::option::Option<&mut hadris_fs::tree::Content>
+pub fn hadris_fs::tree::Tree::get(&self, &str) -> core::option::Option<hadris_fs::tree::TreeNode<'_>>
+pub fn hadris_fs::tree::Tree::new() -> Self
+pub fn hadris_fs::tree::Tree::remove(&mut self, &str) -> core::result::Result<(), hadris_fs::tree::TreeError>
+pub fn hadris_fs::tree::Tree::root(&self) -> hadris_fs::tree::TreeNode<'_>
+pub fn hadris_fs::tree::Tree::set_metadata(&mut self, &str, hadris_fs::SetMetadata) -> core::result::Result<(), hadris_fs::tree::TreeError>
+pub fn hadris_fs::tree::Tree::warnings(&self) -> &[hadris_fs::tree::Warning]
+impl hadris_fs::tree::Tree
+pub fn hadris_fs::tree::Tree::from_fs(impl core::convert::AsRef<std::path::Path>, hadris_fs::tree::FromFsOptions) -> core::io::error::Result<Self>
+impl core::default::Default for hadris_fs::tree::Tree
+pub fn hadris_fs::tree::Tree::default() -> Self
+impl core::fmt::Debug for hadris_fs::tree::Tree
+pub fn hadris_fs::tree::Tree::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl hadris_fs::async::TreeExt for hadris_fs::tree::Tree
+pub async fn hadris_fs::tree::Tree::from_filesystem<A: hadris_fs::async::Access + hadris_io::async::MaybeSend>(A) -> hadris_fs::FsResult<Self, <A as hadris_fs::async::Access>::DeviceError>
+impl hadris_fs::async_send::TreeExt for hadris_fs::tree::Tree
+pub async fn hadris_fs::tree::Tree::from_filesystem<A: hadris_fs::async_send::Access + hadris_io::async_send::MaybeSend>(A) -> hadris_fs::FsResult<Self, <A as hadris_fs::async_send::Access>::DeviceError>
+impl hadris_fs::sync::TreeExt for hadris_fs::tree::Tree
+pub fn hadris_fs::tree::Tree::from_filesystem<A: hadris_fs::sync::Access + hadris_io::sync::MaybeSend>(A) -> hadris_fs::FsResult<Self, <A as hadris_fs::sync::Access>::DeviceError>
+pub struct hadris_fs::tree::TreeError
+impl hadris_fs::tree::TreeError
+pub const fn hadris_fs::tree::TreeError::kind(&self) -> hadris_fs::ErrorKind
+impl core::convert::From<hadris_fs::tree::TreeError> for core::io::error::Error
+pub fn core::io::error::Error::from(hadris_fs::tree::TreeError) -> Self
+impl core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::AnyError
+pub fn hadris_fs::AnyError::from(hadris_fs::tree::TreeError) -> Self
+impl core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::from(hadris_fs::tree::TreeError) -> Self
+impl core::error::Error for hadris_fs::tree::TreeError
+impl core::fmt::Display for hadris_fs::tree::TreeError
+pub fn hadris_fs::tree::TreeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::Error<E>
+pub fn hadris_fs::Error<E>::from(hadris_fs::tree::TreeError) -> Self
+pub struct hadris_fs::tree::TreeNode<'a>
+impl<'a> hadris_fs::tree::TreeNode<'a>
+pub fn hadris_fs::tree::TreeNode<'a>::child(&self, &str) -> core::option::Option<hadris_fs::tree::TreeNode<'a>>
+pub fn hadris_fs::tree::TreeNode<'a>::children(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&'a str, hadris_fs::tree::TreeNode<'a>)> + 'a
+pub fn hadris_fs::tree::TreeNode<'a>::file_type(&self) -> hadris_fs::FileType
+pub fn hadris_fs::tree::TreeNode<'a>::id(&self) -> usize
+pub fn hadris_fs::tree::TreeNode<'a>::kind(&self) -> hadris_fs::tree::NodeKind<'a>
+pub fn hadris_fs::tree::TreeNode<'a>::links(&self) -> usize
+pub fn hadris_fs::tree::TreeNode<'a>::metadata(&self) -> &'a hadris_fs::SetMetadata
+impl core::fmt::Debug for hadris_fs::tree::TreeNode<'_>
+pub fn hadris_fs::tree::TreeNode<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fs::tree::Warning
+impl hadris_fs::tree::Warning
+pub fn hadris_fs::tree::Warning::kind(&self) -> hadris_fs::tree::WarningKind
+pub fn hadris_fs::tree::Warning::message(&self) -> &str
+pub fn hadris_fs::tree::Warning::new(impl core::convert::Into<alloc::string::String>, hadris_fs::tree::WarningKind, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn hadris_fs::tree::Warning::path(&self) -> &str
+impl core::fmt::Display for hadris_fs::tree::Warning
+pub fn hadris_fs::tree::Warning::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub macro hadris_fs::impl_fs_driver!
 #[non_exhaustive] pub enum hadris_fs::CaseSensitivity
 pub hadris_fs::CaseSensitivity::Insensitive
@@ -1860,6 +2006,8 @@ impl core::convert::From<hadris_fs::OpenOptionsError> for hadris_fs::ErrorKind
 pub fn hadris_fs::ErrorKind::from(hadris_fs::OpenOptionsError) -> Self
 impl core::convert::From<hadris_fs::path::PathError> for hadris_fs::ErrorKind
 pub fn hadris_fs::ErrorKind::from(hadris_fs::path::PathError) -> Self
+impl core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::from(hadris_fs::tree::TreeError) -> Self
 impl core::error::Error for hadris_fs::ErrorKind
 impl core::fmt::Display for hadris_fs::ErrorKind
 pub fn hadris_fs::ErrorKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -1935,6 +2083,8 @@ impl core::convert::From<hadris_fs::AnyError> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_fs::AnyError) -> Self
 impl core::convert::From<hadris_fs::ErrorKind> for hadris_fs::AnyError
 pub fn hadris_fs::AnyError::from(hadris_fs::ErrorKind) -> Self
+impl core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::AnyError
+pub fn hadris_fs::AnyError::from(hadris_fs::tree::TreeError) -> Self
 impl core::error::Error for hadris_fs::AnyError
 pub fn hadris_fs::AnyError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Display for hadris_fs::AnyError
@@ -2133,12 +2283,21 @@ impl<E> core::convert::From<hadris_fs::OpenOptionsError> for hadris_fs::Error<E>
 pub fn hadris_fs::Error<E>::from(hadris_fs::OpenOptionsError) -> Self
 impl<E> core::convert::From<hadris_fs::path::PathError> for hadris_fs::Error<E>
 pub fn hadris_fs::Error<E>::from(hadris_fs::path::PathError) -> Self
+impl<E> core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::Error<E>
+pub fn hadris_fs::Error<E>::from(hadris_fs::tree::TreeError) -> Self
 impl<E> core::convert::From<hadris_io::error::ExactError<hadris_fs::Error<E>>> for hadris_fs::Error<E>
 pub fn hadris_fs::Error<E>::from(hadris_io::error::ExactError<hadris_fs::Error<E>>) -> Self
 impl<E> core::convert::From<hadris_storage::error::WriteError<E>> for hadris_fs::Error<E>
 pub fn hadris_fs::Error<E>::from(hadris_storage::error::WriteError<E>) -> Self
 impl<V, E> core::convert::From<hadris_fs::TableFull<V>> for hadris_fs::Error<E>
 pub fn hadris_fs::Error<E>::from(hadris_fs::TableFull<V>) -> Self
+pub struct hadris_fs::Extent
+impl hadris_fs::Extent
+pub const fn hadris_fs::Extent::end(&self) -> u64
+pub const fn hadris_fs::Extent::is_empty(&self) -> bool
+pub const fn hadris_fs::Extent::len(&self) -> u64
+pub const fn hadris_fs::Extent::new(u64, u64) -> Self
+pub const fn hadris_fs::Extent::offset(&self) -> u64
 pub struct hadris_fs::FileTimes
 impl hadris_fs::FileTimes
 pub const fn hadris_fs::FileTimes::accessed(&self) -> core::option::Option<hadris_fs::DateTime>
