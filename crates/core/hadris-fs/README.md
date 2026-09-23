@@ -9,6 +9,7 @@ mode-independent types every Hadris filesystem uses, and performs no I/O:
 - `Metadata`, `SetMetadata`, `Mode` and `Attributes`
 - `Capabilities` and `FsStats`
 - `ErrorKind`, the error categories shared by every crate
+- `Error<E>`, the error of every filesystem operation, which keeps the device's own error `E` without allocation, and `AnyError` (`alloc`), which erases it for code that mixes devices
 - `DirCursor` and `DirEntry` for resumable directory reads
 - `OpenOptions`, `RenameFlags` and `NewNode`
 - `path`: allocation-free lexical virtual paths (formerly `hadris-path`)
@@ -32,8 +33,8 @@ assert!(OpenOptions::write().create().append().validate().is_ok());
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `alloc` | No | `OwnedName` and owned path normalization |
-| `std` | No | Implies `alloc`; adds `SystemClock` |
+| `alloc` | No | `OwnedName`, `AnyError` and owned path normalization |
+| `std` | No | Implies `alloc`; adds `SystemClock` and conversions to `std::io::Error` |
 
 ## Documentation
 

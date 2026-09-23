@@ -16,6 +16,13 @@ Each published package owns its version and may be released independently.
   (`NoClock`, `SystemClock`), `Mode`, `Attributes`, `Metadata`,
   `SetMetadata`, `Capabilities`, `FsStats`, `ErrorKind`, `DirCursor`,
   `DirEntry`, `OpenOptions`, `RenameFlags` and `NewNode`.
+  `Error<E>` is the error of every filesystem operation: an `ErrorKind` plus
+  the device's own error `E`, kept without allocation (`device_error`,
+  `into_device_error`, `map_device`). It converts from `WriteError<E>`
+  (`ReadOnly` becomes `ErrorKind::ReadOnly`) and `NameError`, and with `std`
+  into `std::io::Error`, returning an `io::Error` device error as itself.
+  `AnyError` (`alloc`) erases the device type for code that mixes devices.
+  `FsResult<T, E>` names the result.
 
 ### Changed
 

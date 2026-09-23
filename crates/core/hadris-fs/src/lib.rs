@@ -2,15 +2,19 @@
 //!
 //! This crate defines the mode-independent types every Hadris filesystem
 //! speaks: node identity, file types, byte names, timestamps and clocks,
-//! metadata, capabilities, error kinds, directory cursors, open options and
+//! metadata, capabilities, errors, directory cursors, open options and
 //! lexical virtual paths. It performs no I/O.
+//!
+//! [`Error<E>`] is the error of every filesystem operation. `E` is the
+//! device's own error, so it survives without allocation; [`AnyError`]
+//! erases it for code that mixes devices.
 //!
 //! # Features
 //!
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
-//! | `alloc` | No | [`OwnedName`] and owned path normalization |
-//! | `std` | No | Implies `alloc`; adds [`SystemClock`] |
+//! | `alloc` | No | [`OwnedName`], [`AnyError`] and owned path normalization |
+//! | `std` | No | Implies `alloc`; adds [`SystemClock`] and conversions to `std::io::Error` |
 
 #![no_std]
 #![deny(missing_docs)]
@@ -32,7 +36,9 @@ mod time;
 
 pub use caps::{Capabilities, CaseSensitivity, FsStats, NameCharset};
 pub use dir::{DirCursor, DirEntry};
-pub use error::ErrorKind;
+#[cfg(feature = "alloc")]
+pub use error::AnyError;
+pub use error::{Error, ErrorKind, FsResult};
 pub use meta::{Attributes, Metadata, Mode, SetMetadata};
 #[cfg(feature = "alloc")]
 pub use name::OwnedName;
