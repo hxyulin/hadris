@@ -1,0 +1,19 @@
+[package]
+name = "hadris-fuse-prototype"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+# Detached from the main workspace, like `fuzz/` and `tests/`.
+[workspace]
+
+[dependencies]
+fuser = { version = "=0.18.0", default-features = false }
+hadris-fat = { path = "../../crates/block/hadris-fat", features = ["std", "sync", "write"] }
+hadris-fs = { path = "../../crates/core/hadris-fs", features = ["std", "sync"] }
+libc = "0.2"
+
+# macFUSE is not needed to build and test the adapter on macOS; mounting
+# happens in a Linux container (see README.md).
+[target.'cfg(target_os = "macos")'.dependencies]
+fuser = { version = "=0.18.0", default-features = false, features = ["macos-no-mount"] }
