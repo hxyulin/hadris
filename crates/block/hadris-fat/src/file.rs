@@ -111,7 +111,7 @@ impl ShortFileName {
 
     /// The stored `BASE    .EXT` bytes without UTF-8 validation — short names
     /// are OEM-encoded, so high bytes are not necessarily valid UTF-8.
-    #[cfg(feature = "alloc")]
+    #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
     pub(crate) fn as_padded_bytes(&self) -> &[u8] {
         self.0.as_bytes()
     }
@@ -348,6 +348,7 @@ impl LongFileName {
 
     /// Compare the filename to a `&str` without allocating, using Unicode
     /// uppercase mappings for the case-insensitive FAT name lookup.
+    #[cfg(any(feature = "sync", feature = "async", test))]
     pub(crate) fn eq_str_ignore_case(&self, s: &str) -> bool {
         self.chars()
             .flat_map(char::to_uppercase)

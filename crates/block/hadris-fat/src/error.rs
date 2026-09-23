@@ -349,6 +349,7 @@ impl From<hadris_io::legacy::Error> for Error {
     }
 }
 
+#[cfg(any(feature = "sync", feature = "async"))]
 impl Error {
     pub(crate) fn from_boot(err: crate::codec::boot::BootError) -> Self {
         use crate::codec::boot::BootError;
