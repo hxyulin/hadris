@@ -670,6 +670,9 @@ pub struct AnyError { .. }     // alloc: kind plus the boxed device error
 impl<E: ..> From<Error<E>> for AnyError { .. }
 impl<E: ..> From<Error<E>> for std::io::Error { .. }       // std
 
+pub struct MountError<D, E> { .. }  // a failed mount: the Error<E> and the device given back
+impl<D, E> From<MountError<D, E>> for Error<E> { .. }      // also into AnyError and std::io::Error
+
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -694,6 +697,7 @@ pub enum ErrorKind {
 - **Kernels** keep their own error without `alloc`. The errno mapping is one `match (err.kind(), err.device_error())` (S12). Filesystem failures have no device error.
 - **std users** use `?` into `std::io::Error` or `Box<dyn Error>`. A device error that is already an `io::Error` comes back as itself, found by a downcast through `Any` that does not allocate, so `raw_os_error()` survives (S11). Any other device error becomes the source of an `io::Error` with kind `Other` and can be downcast back out. Filesystem failures map their kind (`NotFound` to `NotFound`, `ReadOnly` to `ReadOnlyFilesystem`, and so on).
 - **Code that mixes devices** returns `AnyError`, or `io::Error` with `std`. Both accept `?` from any `Error<E>`, so `copy_tree` from a `MemDevice` into an embedded card is one function with no extra bounds (S4).
+- **Drivers that take the device by value** fail to mount with `MountError<D, E>`, which gives the device back (`into_device`, `into_parts`). `?` still converts it to `Error<E>`, `AnyError` or `io::Error`, dropping the device.
 - **Generic code** names the device error through the trait: `fn install<F: FileSystem>(vol: &F) -> FsResult<(), F::DeviceError>`, or returns `AnyError`.
 - Writers return `Error<W::Error>` for their output stream.
 - Callers match on `err.kind()`. New failure modes add context, not kinds. Crate-specific detail comes through typed accessors (`err.sector()`, `err.cluster()`) and a `#[non_exhaustive] enum Detail` where matching is useful.
@@ -1097,6 +1101,7 @@ remove and resize, overlap checks in every edit.
 ### 5.8 `hadris-block` and `hadris-optical`
 
 - `detect` takes a `BlockDevice`.
+- `OpenVolume::open` and `open_detected` mount once and give the device back in `OpenError` on every failure, using the driver's `MountError`.
 - `OpenVolume` is `#[non_exhaustive]` and covers FAT, exFAT and NTFS. `OpenOpticalImage` covers ISO views and UDF. Both implement `FsDriver`, so "open whatever this is and list it" is one generic function.
 - `hadris-optical` holds `hadris_iso::Error` instead of `hadris_io::Error` for ISO, and drops the remaining `expect` in `image_sync.rs`.
 - `Error` exists in every feature combination.
