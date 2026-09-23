@@ -1,5 +1,7 @@
 pub mod hadris_fs
 pub mod hadris_fs::async
+pub mod hadris_fs::async::contract
+pub async fn hadris_fs::async::contract::check<Fs: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
 pub mod hadris_fs::async::lock
 pub trait hadris_fs::async::lock::Lock<T>
 pub type hadris_fs::async::lock::Lock::Guard<'a> where Self: 'a: core::ops::deref::DerefMut<Target = T>
@@ -35,15 +37,18 @@ pub fn hadris_fs::async::AsDriver<F>::new(F) -> Self
 impl<F: hadris_fs::async::FileSystem> hadris_fs::async::FsDriver for hadris_fs::async::AsDriver<F>
 pub type hadris_fs::async::AsDriver<F>::DeviceError = <F as hadris_fs::async::FileSystem>::DeviceError
 pub fn hadris_fs::async::AsDriver<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async::AsDriver<F>::close_node(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::AsDriver<F>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::AsDriver<F>::forget(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::AsDriver<F>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn hadris_fs::async::AsDriver<F>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn hadris_fs::async::AsDriver<F>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn hadris_fs::async::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn hadris_fs::async::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::AsDriver<F>::root(&self) -> hadris_fs::NodeId
@@ -75,13 +80,14 @@ pub struct hadris_fs::async::File<A: hadris_fs::async::Access>
 impl<A: hadris_fs::async::Access> hadris_fs::async::File<A>
 pub async fn hadris_fs::async::File<A>::close(self) -> hadris_fs::FsResult<(), <A as hadris_fs::async::Access>::DeviceError>
 pub fn hadris_fs::async::File<A>::driver(&mut self) -> &mut <A as hadris_fs::async::Access>::Driver
-pub fn hadris_fs::async::File<A>::from_pinned(A, hadris_fs::NodeId, hadris_fs::OpenOptions) -> Self
+pub async fn hadris_fs::async::File<A>::from_pinned(A, hadris_fs::NodeId, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <A as hadris_fs::async::Access>::DeviceError>
 pub async fn hadris_fs::async::File<A>::is_empty(&mut self) -> hadris_fs::FsResult<bool, <A as hadris_fs::async::Access>::DeviceError>
 pub async fn hadris_fs::async::File<A>::len(&mut self) -> hadris_fs::FsResult<u64, <A as hadris_fs::async::Access>::DeviceError>
 pub fn hadris_fs::async::File<A>::node(&self) -> hadris_fs::NodeId
 pub async fn hadris_fs::async::File<A>::open(A, &str, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <A as hadris_fs::async::Access>::DeviceError>
 pub fn hadris_fs::async::File<A>::position(&self) -> u64
 pub async fn hadris_fs::async::File<A>::set_len(&mut self, u64) -> hadris_fs::FsResult<(), <A as hadris_fs::async::Access>::DeviceError>
+pub async fn hadris_fs::async::File<A>::sync_all(&mut self) -> hadris_fs::FsResult<(), <A as hadris_fs::async::Access>::DeviceError>
 impl<A: hadris_fs::async::Access> core::fmt::Debug for hadris_fs::async::File<A>
 pub fn hadris_fs::async::File<A>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<A: hadris_fs::async::Access> core::ops::drop::Drop for hadris_fs::async::File<A>
@@ -104,13 +110,14 @@ pub type hadris_fs::async::Local::Lock<T> = embassy_sync::mutex::Mutex<embassy_s
 pub struct hadris_fs::async::OpenFile
 impl hadris_fs::async::OpenFile
 pub async fn hadris_fs::async::OpenFile::close<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(self, &mut D, hadris_fs::FsResult<(), <D as hadris_fs::async::FsDriver>::DeviceError>) -> hadris_fs::FsResult<(), <D as hadris_fs::async::FsDriver>::DeviceError>
-pub fn hadris_fs::async::OpenFile::from_pinned(hadris_fs::NodeId, hadris_fs::OpenOptions) -> Self
+pub async fn hadris_fs::async::OpenFile::from_pinned<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut D, hadris_fs::NodeId, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <D as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::OpenFile::len<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&self, &mut D) -> hadris_fs::FsResult<u64, <D as hadris_fs::async::FsDriver>::DeviceError>
 pub fn hadris_fs::async::OpenFile::node(&self) -> hadris_fs::NodeId
 pub async fn hadris_fs::async::OpenFile::open<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut D, &str, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <D as hadris_fs::async::FsDriver>::DeviceError>
 pub fn hadris_fs::async::OpenFile::position(&self) -> u64
 pub async fn hadris_fs::async::OpenFile::read<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &mut [u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::OpenFile::seek<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut self, &mut D, embedded_io::SeekFrom) -> hadris_fs::FsResult<u64, <D as hadris_fs::async::FsDriver>::DeviceError>
+pub async fn hadris_fs::async::OpenFile::sync_all<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut self, &mut D) -> hadris_fs::FsResult<(), <D as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::OpenFile::write<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &[u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::async::FsDriver>::DeviceError>
 pub struct hadris_fs::async::Posix<const N: usize>
 impl hadris_fs::async::Posix
@@ -140,15 +147,18 @@ pub fn hadris_fs::async::Volume<F, K>::into_driver(self) -> hadris_fs::async::As
 impl<F: hadris_fs::async::FsDriver, K: hadris_fs::async::lock::LockKind> hadris_fs::async::FileSystem for hadris_fs::async::Volume<F, K>
 pub type hadris_fs::async::Volume<F, K>::DeviceError = <F as hadris_fs::async::FsDriver>::DeviceError
 pub fn hadris_fs::async::Volume<F, K>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async::Volume<F, K>::close_node(&self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::Volume<F, K>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async::FsDriver>::DeviceError>
 pub fn hadris_fs::async::Volume<F, K>::forget(&self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::Volume<F, K>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, <F as hadris_fs::async::FsDriver>::DeviceError>
+pub async fn hadris_fs::async::Volume<F, K>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async::FsDriver>::DeviceError>
+pub async fn hadris_fs::async::Volume<F, K>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::async::FsDriver>::DeviceError>
-pub async fn hadris_fs::async::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), <F as hadris_fs::async::FsDriver>::DeviceError>
+pub async fn hadris_fs::async::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async::FsDriver>::DeviceError>
 pub fn hadris_fs::async::Volume<F, K>::root(&self) -> hadris_fs::NodeId
@@ -170,15 +180,18 @@ pub fn hadris_fs::async::WithResolver<D, R>::deref_mut(&mut self) -> &mut D
 impl<D: hadris_fs::async::FsDriver, R: hadris_fs::async::Resolver> hadris_fs::async::FsDriver for hadris_fs::async::WithResolver<D, R>
 pub type hadris_fs::async::WithResolver<D, R>::DeviceError = <D as hadris_fs::async::FsDriver>::DeviceError
 pub fn hadris_fs::async::WithResolver<D, R>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async::WithResolver<D, R>::close_node(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::WithResolver<D, R>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::WithResolver<D, R>::forget(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::WithResolver<D, R>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn hadris_fs::async::WithResolver<D, R>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn hadris_fs::async::WithResolver<D, R>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn hadris_fs::async::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn hadris_fs::async::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::WithResolver<D, R>::root(&self) -> hadris_fs::NodeId
@@ -241,15 +254,18 @@ pub async fn D::write_file(&mut self, &str, &[u8]) -> hadris_fs::FsResult<(), Se
 pub trait hadris_fs::async::FileSystem
 pub type hadris_fs::async::FileSystem::DeviceError: core::error::Error + core::marker::Send + core::marker::Sync + 'static
 pub fn hadris_fs::async::FileSystem::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async::FileSystem::close_node(&self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::FileSystem::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::FileSystem::forget(&self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::FileSystem::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn hadris_fs::async::FileSystem::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn hadris_fs::async::FileSystem::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::FileSystem::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn hadris_fs::async::FileSystem::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::FileSystem::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn hadris_fs::async::FileSystem::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn hadris_fs::async::FileSystem::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn hadris_fs::async::FileSystem::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn hadris_fs::async::FileSystem::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::FileSystem::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::FileSystem::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::FileSystem::root(&self) -> hadris_fs::NodeId
@@ -262,15 +278,18 @@ pub async fn hadris_fs::async::FileSystem::write_at(&self, hadris_fs::NodeId, u6
 impl<F: hadris_fs::async::FileSystem + ?core::marker::Sized> hadris_fs::async::FileSystem for &F
 pub type &F::DeviceError = <F as hadris_fs::async::FileSystem>::DeviceError
 pub fn &F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &F::close_node(&self, hadris_fs::NodeId)
 pub async fn &F::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::forget(&self, hadris_fs::NodeId)
 pub async fn &F::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn &F::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn &F::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn &F::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn &F::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn &F::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn &F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn &F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::root(&self) -> hadris_fs::NodeId
@@ -283,15 +302,18 @@ pub async fn &F::write_at(&self, hadris_fs::NodeId, u64, &[u8]) -> hadris_fs::Fs
 impl<F: hadris_fs::async::FileSystem + ?core::marker::Sized> hadris_fs::async::FileSystem for &mut F
 pub type &mut F::DeviceError = <F as hadris_fs::async::FileSystem>::DeviceError
 pub fn &mut F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &mut F::close_node(&self, hadris_fs::NodeId)
 pub async fn &mut F::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::forget(&self, hadris_fs::NodeId)
 pub async fn &mut F::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn &mut F::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn &mut F::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn &mut F::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn &mut F::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn &mut F::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn &mut F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn &mut F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::root(&self) -> hadris_fs::NodeId
@@ -304,15 +326,18 @@ pub async fn &mut F::write_at(&self, hadris_fs::NodeId, u64, &[u8]) -> hadris_fs
 impl<F: hadris_fs::async::FileSystem + ?core::marker::Sized> hadris_fs::async::FileSystem for alloc::boxed::Box<F>
 pub type alloc::boxed::Box<F>::DeviceError = <F as hadris_fs::async::FileSystem>::DeviceError
 pub fn alloc::boxed::Box<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::boxed::Box<F>::close_node(&self, hadris_fs::NodeId)
 pub async fn alloc::boxed::Box<F>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::forget(&self, hadris_fs::NodeId)
 pub async fn alloc::boxed::Box<F>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn alloc::boxed::Box<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::root(&self) -> hadris_fs::NodeId
@@ -325,15 +350,18 @@ pub async fn alloc::boxed::Box<F>::write_at(&self, hadris_fs::NodeId, u64, &[u8]
 impl<F: hadris_fs::async::FileSystem + ?core::marker::Sized> hadris_fs::async::FileSystem for alloc::rc::Rc<F>
 pub type alloc::rc::Rc<F>::DeviceError = <F as hadris_fs::async::FileSystem>::DeviceError
 pub fn alloc::rc::Rc<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::rc::Rc<F>::close_node(&self, hadris_fs::NodeId)
 pub async fn alloc::rc::Rc<F>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::rc::Rc<F>::forget(&self, hadris_fs::NodeId)
 pub async fn alloc::rc::Rc<F>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn alloc::rc::Rc<F>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn alloc::rc::Rc<F>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::rc::Rc<F>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn alloc::rc::Rc<F>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::rc::Rc<F>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn alloc::rc::Rc<F>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn alloc::rc::Rc<F>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn alloc::rc::Rc<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn alloc::rc::Rc<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::rc::Rc<F>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::rc::Rc<F>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::rc::Rc<F>::root(&self) -> hadris_fs::NodeId
@@ -346,15 +374,18 @@ pub async fn alloc::rc::Rc<F>::write_at(&self, hadris_fs::NodeId, u64, &[u8]) ->
 impl<F: hadris_fs::async::FileSystem + ?core::marker::Sized> hadris_fs::async::FileSystem for alloc::sync::Arc<F>
 pub type alloc::sync::Arc<F>::DeviceError = <F as hadris_fs::async::FileSystem>::DeviceError
 pub fn alloc::sync::Arc<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::sync::Arc<F>::close_node(&self, hadris_fs::NodeId)
 pub async fn alloc::sync::Arc<F>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::sync::Arc<F>::forget(&self, hadris_fs::NodeId)
 pub async fn alloc::sync::Arc<F>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn alloc::sync::Arc<F>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn alloc::sync::Arc<F>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn alloc::sync::Arc<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn alloc::sync::Arc<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::sync::Arc<F>::root(&self) -> hadris_fs::NodeId
@@ -367,15 +398,18 @@ pub async fn alloc::sync::Arc<F>::write_at(&self, hadris_fs::NodeId, u64, &[u8])
 impl<F: hadris_fs::async::FsDriver, K: hadris_fs::async::lock::LockKind> hadris_fs::async::FileSystem for hadris_fs::async::Volume<F, K>
 pub type hadris_fs::async::Volume<F, K>::DeviceError = <F as hadris_fs::async::FsDriver>::DeviceError
 pub fn hadris_fs::async::Volume<F, K>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async::Volume<F, K>::close_node(&self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::Volume<F, K>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async::FsDriver>::DeviceError>
 pub fn hadris_fs::async::Volume<F, K>::forget(&self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::Volume<F, K>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, <F as hadris_fs::async::FsDriver>::DeviceError>
+pub async fn hadris_fs::async::Volume<F, K>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async::FsDriver>::DeviceError>
+pub async fn hadris_fs::async::Volume<F, K>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::async::FsDriver>::DeviceError>
-pub async fn hadris_fs::async::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), <F as hadris_fs::async::FsDriver>::DeviceError>
+pub async fn hadris_fs::async::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), <F as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::Volume<F, K>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async::FsDriver>::DeviceError>
 pub fn hadris_fs::async::Volume<F, K>::root(&self) -> hadris_fs::NodeId
@@ -388,15 +422,18 @@ pub async fn hadris_fs::async::Volume<F, K>::write_at(&self, hadris_fs::NodeId, 
 pub trait hadris_fs::async::FsDriver
 pub type hadris_fs::async::FsDriver::DeviceError: core::error::Error + core::marker::Send + core::marker::Sync + 'static
 pub fn hadris_fs::async::FsDriver::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async::FsDriver::close_node(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::FsDriver::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::FsDriver::forget(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::FsDriver::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn hadris_fs::async::FsDriver::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn hadris_fs::async::FsDriver::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::FsDriver::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn hadris_fs::async::FsDriver::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::FsDriver::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn hadris_fs::async::FsDriver::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn hadris_fs::async::FsDriver::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn hadris_fs::async::FsDriver::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn hadris_fs::async::FsDriver::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::FsDriver::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::FsDriver::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::FsDriver::root(&self) -> hadris_fs::NodeId
@@ -409,15 +446,18 @@ pub async fn hadris_fs::async::FsDriver::write_at(&mut self, hadris_fs::NodeId, 
 impl<D: hadris_fs::async::FsDriver, R: hadris_fs::async::Resolver> hadris_fs::async::FsDriver for hadris_fs::async::WithResolver<D, R>
 pub type hadris_fs::async::WithResolver<D, R>::DeviceError = <D as hadris_fs::async::FsDriver>::DeviceError
 pub fn hadris_fs::async::WithResolver<D, R>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async::WithResolver<D, R>::close_node(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::WithResolver<D, R>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::WithResolver<D, R>::forget(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::WithResolver<D, R>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn hadris_fs::async::WithResolver<D, R>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn hadris_fs::async::WithResolver<D, R>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn hadris_fs::async::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn hadris_fs::async::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::WithResolver<D, R>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::WithResolver<D, R>::root(&self) -> hadris_fs::NodeId
@@ -430,15 +470,18 @@ pub async fn hadris_fs::async::WithResolver<D, R>::write_at(&mut self, hadris_fs
 impl<F: hadris_fs::async::FileSystem + ?core::marker::Sized> hadris_fs::async::FsDriver for &F
 pub type &F::DeviceError = <F as hadris_fs::async::FileSystem>::DeviceError
 pub fn &F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &F::close_node(&mut self, hadris_fs::NodeId)
 pub async fn &F::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::forget(&mut self, hadris_fs::NodeId)
 pub async fn &F::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn &F::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn &F::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn &F::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn &F::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn &F::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn &F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn &F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::root(&self) -> hadris_fs::NodeId
@@ -451,15 +494,18 @@ pub async fn &F::write_at(&mut self, hadris_fs::NodeId, u64, &[u8]) -> hadris_fs
 impl<F: hadris_fs::async::FileSystem> hadris_fs::async::FsDriver for hadris_fs::async::AsDriver<F>
 pub type hadris_fs::async::AsDriver<F>::DeviceError = <F as hadris_fs::async::FileSystem>::DeviceError
 pub fn hadris_fs::async::AsDriver<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async::AsDriver<F>::close_node(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::AsDriver<F>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::AsDriver<F>::forget(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async::AsDriver<F>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn hadris_fs::async::AsDriver<F>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn hadris_fs::async::AsDriver<F>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn hadris_fs::async::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn hadris_fs::async::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async::AsDriver<F>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async::AsDriver<F>::root(&self) -> hadris_fs::NodeId
@@ -472,15 +518,18 @@ pub async fn hadris_fs::async::AsDriver<F>::write_at(&mut self, hadris_fs::NodeI
 impl<F: hadris_fs::async::FsDriver + ?core::marker::Sized> hadris_fs::async::FsDriver for &mut F
 pub type &mut F::DeviceError = <F as hadris_fs::async::FsDriver>::DeviceError
 pub fn &mut F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &mut F::close_node(&mut self, hadris_fs::NodeId)
 pub async fn &mut F::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::forget(&mut self, hadris_fs::NodeId)
 pub async fn &mut F::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn &mut F::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn &mut F::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn &mut F::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn &mut F::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn &mut F::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn &mut F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn &mut F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::root(&self) -> hadris_fs::NodeId
@@ -493,15 +542,18 @@ pub async fn &mut F::write_at(&mut self, hadris_fs::NodeId, u64, &[u8]) -> hadri
 impl<F: hadris_fs::async::FsDriver + ?core::marker::Sized> hadris_fs::async::FsDriver for alloc::boxed::Box<F>
 pub type alloc::boxed::Box<F>::DeviceError = <F as hadris_fs::async::FsDriver>::DeviceError
 pub fn alloc::boxed::Box<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::boxed::Box<F>::close_node(&mut self, hadris_fs::NodeId)
 pub async fn alloc::boxed::Box<F>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::forget(&mut self, hadris_fs::NodeId)
 pub async fn alloc::boxed::Box<F>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn alloc::boxed::Box<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::root(&self) -> hadris_fs::NodeId
@@ -543,6 +595,8 @@ impl<const N: usize> hadris_fs::async::Resolver for hadris_fs::async::Posix<N>
 pub async fn hadris_fs::async::Posix<N>::resolve<D: hadris_fs::async::FsDriver + ?core::marker::Sized>(&self, &mut D, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <D as hadris_fs::async::FsDriver>::DeviceError>
 pub async fn hadris_fs::async::copy_tree<S: hadris_fs::async::Access, T: hadris_fs::async::Access>(S, &str, T, &str) -> core::result::Result<(), hadris_fs::AnyError>
 pub mod hadris_fs::async_send
+pub mod hadris_fs::async_send::contract
+pub async fn hadris_fs::async_send::contract::check<Fs: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
 pub mod hadris_fs::async_send::lock
 pub trait hadris_fs::async_send::lock::Lock<T>: core::marker::Send + core::marker::Sync
 pub fn hadris_fs::async_send::lock::Lock::get_mut(&mut self) -> &mut T
@@ -567,15 +621,18 @@ pub fn hadris_fs::async_send::AsDriver<F>::new(F) -> Self
 impl<F: hadris_fs::async_send::FileSystem> hadris_fs::async_send::FsDriver for hadris_fs::async_send::AsDriver<F>
 pub type hadris_fs::async_send::AsDriver<F>::DeviceError = <F as hadris_fs::async_send::FileSystem>::DeviceError
 pub fn hadris_fs::async_send::AsDriver<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async_send::AsDriver<F>::close_node(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::AsDriver<F>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async_send::AsDriver<F>::forget(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::AsDriver<F>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn hadris_fs::async_send::AsDriver<F>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn hadris_fs::async_send::AsDriver<F>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn hadris_fs::async_send::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn hadris_fs::async_send::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async_send::AsDriver<F>::root(&self) -> hadris_fs::NodeId
@@ -607,13 +664,14 @@ pub struct hadris_fs::async_send::File<A: hadris_fs::async_send::Access>
 impl<A: hadris_fs::async_send::Access> hadris_fs::async_send::File<A>
 pub async fn hadris_fs::async_send::File<A>::close(self) -> hadris_fs::FsResult<(), <A as hadris_fs::async_send::Access>::DeviceError>
 pub fn hadris_fs::async_send::File<A>::driver(&mut self) -> &mut <A as hadris_fs::async_send::Access>::Driver
-pub fn hadris_fs::async_send::File<A>::from_pinned(A, hadris_fs::NodeId, hadris_fs::OpenOptions) -> Self
+pub async fn hadris_fs::async_send::File<A>::from_pinned(A, hadris_fs::NodeId, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <A as hadris_fs::async_send::Access>::DeviceError>
 pub async fn hadris_fs::async_send::File<A>::is_empty(&mut self) -> hadris_fs::FsResult<bool, <A as hadris_fs::async_send::Access>::DeviceError>
 pub async fn hadris_fs::async_send::File<A>::len(&mut self) -> hadris_fs::FsResult<u64, <A as hadris_fs::async_send::Access>::DeviceError>
 pub fn hadris_fs::async_send::File<A>::node(&self) -> hadris_fs::NodeId
 pub async fn hadris_fs::async_send::File<A>::open(A, &str, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <A as hadris_fs::async_send::Access>::DeviceError>
 pub fn hadris_fs::async_send::File<A>::position(&self) -> u64
 pub async fn hadris_fs::async_send::File<A>::set_len(&mut self, u64) -> hadris_fs::FsResult<(), <A as hadris_fs::async_send::Access>::DeviceError>
+pub async fn hadris_fs::async_send::File<A>::sync_all(&mut self) -> hadris_fs::FsResult<(), <A as hadris_fs::async_send::Access>::DeviceError>
 impl<A: hadris_fs::async_send::Access> core::fmt::Debug for hadris_fs::async_send::File<A>
 pub fn hadris_fs::async_send::File<A>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<A: hadris_fs::async_send::Access> core::ops::drop::Drop for hadris_fs::async_send::File<A>
@@ -633,13 +691,14 @@ pub async fn hadris_fs::async_send::Lexical::resolve<D: hadris_fs::async_send::F
 pub struct hadris_fs::async_send::OpenFile
 impl hadris_fs::async_send::OpenFile
 pub async fn hadris_fs::async_send::OpenFile::close<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(self, &mut D, hadris_fs::FsResult<(), <D as hadris_fs::async_send::FsDriver>::DeviceError>) -> hadris_fs::FsResult<(), <D as hadris_fs::async_send::FsDriver>::DeviceError>
-pub fn hadris_fs::async_send::OpenFile::from_pinned(hadris_fs::NodeId, hadris_fs::OpenOptions) -> Self
+pub async fn hadris_fs::async_send::OpenFile::from_pinned<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut D, hadris_fs::NodeId, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <D as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::OpenFile::len<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&self, &mut D) -> hadris_fs::FsResult<u64, <D as hadris_fs::async_send::FsDriver>::DeviceError>
 pub fn hadris_fs::async_send::OpenFile::node(&self) -> hadris_fs::NodeId
 pub async fn hadris_fs::async_send::OpenFile::open<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut D, &str, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <D as hadris_fs::async_send::FsDriver>::DeviceError>
 pub fn hadris_fs::async_send::OpenFile::position(&self) -> u64
 pub async fn hadris_fs::async_send::OpenFile::read<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &mut [u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::OpenFile::seek<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut self, &mut D, embedded_io::SeekFrom) -> hadris_fs::FsResult<u64, <D as hadris_fs::async_send::FsDriver>::DeviceError>
+pub async fn hadris_fs::async_send::OpenFile::sync_all<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut self, &mut D) -> hadris_fs::FsResult<(), <D as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::OpenFile::write<D: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &[u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::async_send::FsDriver>::DeviceError>
 pub struct hadris_fs::async_send::Posix<const N: usize>
 impl hadris_fs::async_send::Posix
@@ -667,15 +726,18 @@ pub fn hadris_fs::async_send::Volume<F, K>::into_driver(self) -> hadris_fs::asyn
 impl<F: hadris_fs::async_send::FsDriver, K: hadris_fs::async_send::lock::LockKind> hadris_fs::async_send::FileSystem for hadris_fs::async_send::Volume<F, K>
 pub type hadris_fs::async_send::Volume<F, K>::DeviceError = <F as hadris_fs::async_send::FsDriver>::DeviceError
 pub fn hadris_fs::async_send::Volume<F, K>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async_send::Volume<F, K>::close_node(&self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::Volume<F, K>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub fn hadris_fs::async_send::Volume<F, K>::forget(&self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::Volume<F, K>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, <F as hadris_fs::async_send::FsDriver>::DeviceError>
+pub async fn hadris_fs::async_send::Volume<F, K>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async_send::FsDriver>::DeviceError>
+pub async fn hadris_fs::async_send::Volume<F, K>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::async_send::FsDriver>::DeviceError>
-pub async fn hadris_fs::async_send::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), <F as hadris_fs::async_send::FsDriver>::DeviceError>
+pub async fn hadris_fs::async_send::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub fn hadris_fs::async_send::Volume<F, K>::root(&self) -> hadris_fs::NodeId
@@ -697,15 +759,18 @@ pub fn hadris_fs::async_send::WithResolver<D, R>::deref_mut(&mut self) -> &mut D
 impl<D: hadris_fs::async_send::FsDriver, R: hadris_fs::async_send::Resolver> hadris_fs::async_send::FsDriver for hadris_fs::async_send::WithResolver<D, R>
 pub type hadris_fs::async_send::WithResolver<D, R>::DeviceError = <D as hadris_fs::async_send::FsDriver>::DeviceError
 pub fn hadris_fs::async_send::WithResolver<D, R>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async_send::WithResolver<D, R>::close_node(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::WithResolver<D, R>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async_send::WithResolver<D, R>::forget(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::WithResolver<D, R>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn hadris_fs::async_send::WithResolver<D, R>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn hadris_fs::async_send::WithResolver<D, R>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn hadris_fs::async_send::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn hadris_fs::async_send::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async_send::WithResolver<D, R>::root(&self) -> hadris_fs::NodeId
@@ -764,15 +829,18 @@ pub fn D::write_file(&mut self, &str, &[u8]) -> impl core::future::future::Futur
 pub trait hadris_fs::async_send::FileSystem: core::marker::Send + core::marker::Sync
 pub type hadris_fs::async_send::FileSystem::DeviceError: core::error::Error + core::marker::Send + core::marker::Sync + 'static
 pub fn hadris_fs::async_send::FileSystem::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async_send::FileSystem::close_node(&self, hadris_fs::NodeId)
 pub fn hadris_fs::async_send::FileSystem::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> impl core::future::future::Future<Output = hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FileSystem::forget(&self, hadris_fs::NodeId)
 pub fn hadris_fs::async_send::FileSystem::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> impl core::future::future::Future<Output = hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FileSystem::node_metadata(&self, hadris_fs::NodeId) -> impl core::future::future::Future<Output = hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>> + core::marker::Send
+pub fn hadris_fs::async_send::FileSystem::open_node(&self, hadris_fs::NodeId) -> impl core::future::future::Future<Output = hadris_fs::FsResult<(), Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FileSystem::parent(&self, hadris_fs::NodeId) -> impl core::future::future::Future<Output = hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>> + core::marker::Send
+pub fn hadris_fs::async_send::FileSystem::publish_node(&self, hadris_fs::NodeId) -> impl core::future::future::Future<Output = hadris_fs::FsResult<(), Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FileSystem::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> impl core::future::future::Future<Output = hadris_fs::FsResult<usize, Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FileSystem::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> impl core::future::future::Future<Output = hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FileSystem::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> impl core::future::future::Future<Output = hadris_fs::FsResult<usize, Self::DeviceError>> + core::marker::Send
-pub fn hadris_fs::async_send::FileSystem::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> impl core::future::future::Future<Output = hadris_fs::FsResult<(), Self::DeviceError>> + core::marker::Send
+pub fn hadris_fs::async_send::FileSystem::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> impl core::future::future::Future<Output = hadris_fs::FsResult<(), Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FileSystem::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> impl core::future::future::Future<Output = hadris_fs::FsResult<(), Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FileSystem::resolve(&self, &str) -> impl core::future::future::Future<Output = hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FileSystem::root(&self) -> hadris_fs::NodeId
@@ -785,15 +853,18 @@ pub fn hadris_fs::async_send::FileSystem::write_at(&self, hadris_fs::NodeId, u64
 impl<F: hadris_fs::async_send::FileSystem + ?core::marker::Sized> hadris_fs::async_send::FileSystem for &F
 pub type &F::DeviceError = <F as hadris_fs::async_send::FileSystem>::DeviceError
 pub fn &F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &F::close_node(&self, hadris_fs::NodeId)
 pub async fn &F::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::forget(&self, hadris_fs::NodeId)
 pub async fn &F::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn &F::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn &F::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn &F::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn &F::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn &F::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn &F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn &F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::root(&self) -> hadris_fs::NodeId
@@ -806,15 +877,18 @@ pub async fn &F::write_at(&self, hadris_fs::NodeId, u64, &[u8]) -> hadris_fs::Fs
 impl<F: hadris_fs::async_send::FileSystem + ?core::marker::Sized> hadris_fs::async_send::FileSystem for &mut F
 pub type &mut F::DeviceError = <F as hadris_fs::async_send::FileSystem>::DeviceError
 pub fn &mut F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &mut F::close_node(&self, hadris_fs::NodeId)
 pub async fn &mut F::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::forget(&self, hadris_fs::NodeId)
 pub async fn &mut F::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn &mut F::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn &mut F::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn &mut F::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn &mut F::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn &mut F::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn &mut F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn &mut F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::root(&self) -> hadris_fs::NodeId
@@ -827,15 +901,18 @@ pub async fn &mut F::write_at(&self, hadris_fs::NodeId, u64, &[u8]) -> hadris_fs
 impl<F: hadris_fs::async_send::FileSystem + ?core::marker::Sized> hadris_fs::async_send::FileSystem for alloc::boxed::Box<F>
 pub type alloc::boxed::Box<F>::DeviceError = <F as hadris_fs::async_send::FileSystem>::DeviceError
 pub fn alloc::boxed::Box<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::boxed::Box<F>::close_node(&self, hadris_fs::NodeId)
 pub async fn alloc::boxed::Box<F>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::forget(&self, hadris_fs::NodeId)
 pub async fn alloc::boxed::Box<F>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn alloc::boxed::Box<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::root(&self) -> hadris_fs::NodeId
@@ -848,15 +925,18 @@ pub async fn alloc::boxed::Box<F>::write_at(&self, hadris_fs::NodeId, u64, &[u8]
 impl<F: hadris_fs::async_send::FileSystem + ?core::marker::Sized> hadris_fs::async_send::FileSystem for alloc::sync::Arc<F>
 pub type alloc::sync::Arc<F>::DeviceError = <F as hadris_fs::async_send::FileSystem>::DeviceError
 pub fn alloc::sync::Arc<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::sync::Arc<F>::close_node(&self, hadris_fs::NodeId)
 pub async fn alloc::sync::Arc<F>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::sync::Arc<F>::forget(&self, hadris_fs::NodeId)
 pub async fn alloc::sync::Arc<F>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn alloc::sync::Arc<F>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn alloc::sync::Arc<F>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn alloc::sync::Arc<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn alloc::sync::Arc<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::sync::Arc<F>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::sync::Arc<F>::root(&self) -> hadris_fs::NodeId
@@ -869,15 +949,18 @@ pub async fn alloc::sync::Arc<F>::write_at(&self, hadris_fs::NodeId, u64, &[u8])
 impl<F: hadris_fs::async_send::FsDriver, K: hadris_fs::async_send::lock::LockKind> hadris_fs::async_send::FileSystem for hadris_fs::async_send::Volume<F, K>
 pub type hadris_fs::async_send::Volume<F, K>::DeviceError = <F as hadris_fs::async_send::FsDriver>::DeviceError
 pub fn hadris_fs::async_send::Volume<F, K>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async_send::Volume<F, K>::close_node(&self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::Volume<F, K>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub fn hadris_fs::async_send::Volume<F, K>::forget(&self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::Volume<F, K>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, <F as hadris_fs::async_send::FsDriver>::DeviceError>
+pub async fn hadris_fs::async_send::Volume<F, K>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async_send::FsDriver>::DeviceError>
+pub async fn hadris_fs::async_send::Volume<F, K>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::async_send::FsDriver>::DeviceError>
-pub async fn hadris_fs::async_send::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), <F as hadris_fs::async_send::FsDriver>::DeviceError>
+pub async fn hadris_fs::async_send::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub async fn hadris_fs::async_send::Volume<F, K>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::async_send::FsDriver>::DeviceError>
 pub fn hadris_fs::async_send::Volume<F, K>::root(&self) -> hadris_fs::NodeId
@@ -890,15 +973,18 @@ pub async fn hadris_fs::async_send::Volume<F, K>::write_at(&self, hadris_fs::Nod
 pub trait hadris_fs::async_send::FsDriver: core::marker::Send
 pub type hadris_fs::async_send::FsDriver::DeviceError: core::error::Error + core::marker::Send + core::marker::Sync + 'static
 pub fn hadris_fs::async_send::FsDriver::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async_send::FsDriver::close_node(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::async_send::FsDriver::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> impl core::future::future::Future<Output = hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FsDriver::forget(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::async_send::FsDriver::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> impl core::future::future::Future<Output = hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FsDriver::node_metadata(&mut self, hadris_fs::NodeId) -> impl core::future::future::Future<Output = hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>> + core::marker::Send
+pub fn hadris_fs::async_send::FsDriver::open_node(&mut self, hadris_fs::NodeId) -> impl core::future::future::Future<Output = hadris_fs::FsResult<(), Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FsDriver::parent(&mut self, hadris_fs::NodeId) -> impl core::future::future::Future<Output = hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>> + core::marker::Send
+pub fn hadris_fs::async_send::FsDriver::publish_node(&mut self, hadris_fs::NodeId) -> impl core::future::future::Future<Output = hadris_fs::FsResult<(), Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FsDriver::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> impl core::future::future::Future<Output = hadris_fs::FsResult<usize, Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FsDriver::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> impl core::future::future::Future<Output = hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FsDriver::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> impl core::future::future::Future<Output = hadris_fs::FsResult<usize, Self::DeviceError>> + core::marker::Send
-pub fn hadris_fs::async_send::FsDriver::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> impl core::future::future::Future<Output = hadris_fs::FsResult<(), Self::DeviceError>> + core::marker::Send
+pub fn hadris_fs::async_send::FsDriver::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> impl core::future::future::Future<Output = hadris_fs::FsResult<(), Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FsDriver::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> impl core::future::future::Future<Output = hadris_fs::FsResult<(), Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FsDriver::resolve(&mut self, &str) -> impl core::future::future::Future<Output = hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>> + core::marker::Send
 pub fn hadris_fs::async_send::FsDriver::root(&self) -> hadris_fs::NodeId
@@ -911,15 +997,18 @@ pub fn hadris_fs::async_send::FsDriver::write_at(&mut self, hadris_fs::NodeId, u
 impl<D: hadris_fs::async_send::FsDriver, R: hadris_fs::async_send::Resolver> hadris_fs::async_send::FsDriver for hadris_fs::async_send::WithResolver<D, R>
 pub type hadris_fs::async_send::WithResolver<D, R>::DeviceError = <D as hadris_fs::async_send::FsDriver>::DeviceError
 pub fn hadris_fs::async_send::WithResolver<D, R>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async_send::WithResolver<D, R>::close_node(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::WithResolver<D, R>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async_send::WithResolver<D, R>::forget(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::WithResolver<D, R>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn hadris_fs::async_send::WithResolver<D, R>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn hadris_fs::async_send::WithResolver<D, R>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn hadris_fs::async_send::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn hadris_fs::async_send::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::WithResolver<D, R>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async_send::WithResolver<D, R>::root(&self) -> hadris_fs::NodeId
@@ -932,15 +1021,18 @@ pub async fn hadris_fs::async_send::WithResolver<D, R>::write_at(&mut self, hadr
 impl<F: hadris_fs::async_send::FileSystem + ?core::marker::Sized> hadris_fs::async_send::FsDriver for &F
 pub type &F::DeviceError = <F as hadris_fs::async_send::FileSystem>::DeviceError
 pub fn &F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &F::close_node(&mut self, hadris_fs::NodeId)
 pub async fn &F::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::forget(&mut self, hadris_fs::NodeId)
 pub async fn &F::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn &F::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn &F::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn &F::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn &F::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn &F::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn &F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn &F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &F::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::root(&self) -> hadris_fs::NodeId
@@ -953,15 +1045,18 @@ pub async fn &F::write_at(&mut self, hadris_fs::NodeId, u64, &[u8]) -> hadris_fs
 impl<F: hadris_fs::async_send::FileSystem> hadris_fs::async_send::FsDriver for hadris_fs::async_send::AsDriver<F>
 pub type hadris_fs::async_send::AsDriver<F>::DeviceError = <F as hadris_fs::async_send::FileSystem>::DeviceError
 pub fn hadris_fs::async_send::AsDriver<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::async_send::AsDriver<F>::close_node(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::AsDriver<F>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async_send::AsDriver<F>::forget(&mut self, hadris_fs::NodeId)
 pub async fn hadris_fs::async_send::AsDriver<F>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn hadris_fs::async_send::AsDriver<F>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn hadris_fs::async_send::AsDriver<F>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn hadris_fs::async_send::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn hadris_fs::async_send::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn hadris_fs::async_send::AsDriver<F>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::async_send::AsDriver<F>::root(&self) -> hadris_fs::NodeId
@@ -974,15 +1069,18 @@ pub async fn hadris_fs::async_send::AsDriver<F>::write_at(&mut self, hadris_fs::
 impl<F: hadris_fs::async_send::FsDriver + ?core::marker::Sized> hadris_fs::async_send::FsDriver for &mut F
 pub type &mut F::DeviceError = <F as hadris_fs::async_send::FsDriver>::DeviceError
 pub fn &mut F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &mut F::close_node(&mut self, hadris_fs::NodeId)
 pub async fn &mut F::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::forget(&mut self, hadris_fs::NodeId)
 pub async fn &mut F::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn &mut F::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn &mut F::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn &mut F::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn &mut F::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn &mut F::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn &mut F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn &mut F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn &mut F::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::root(&self) -> hadris_fs::NodeId
@@ -995,15 +1093,18 @@ pub async fn &mut F::write_at(&mut self, hadris_fs::NodeId, u64, &[u8]) -> hadri
 impl<F: hadris_fs::async_send::FsDriver + ?core::marker::Sized> hadris_fs::async_send::FsDriver for alloc::boxed::Box<F>
 pub type alloc::boxed::Box<F>::DeviceError = <F as hadris_fs::async_send::FsDriver>::DeviceError
 pub fn alloc::boxed::Box<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::boxed::Box<F>::close_node(&mut self, hadris_fs::NodeId)
 pub async fn alloc::boxed::Box<F>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::forget(&mut self, hadris_fs::NodeId)
 pub async fn alloc::boxed::Box<F>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub async fn alloc::boxed::Box<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub async fn alloc::boxed::Box<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub async fn alloc::boxed::Box<F>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::root(&self) -> hadris_fs::NodeId
@@ -1083,6 +1184,8 @@ impl<'a> core::convert::From<&'a str> for hadris_fs::path::VPath<'a>
 pub fn hadris_fs::path::VPath<'a>::from(&'a str) -> Self
 pub fn hadris_fs::path::split_path(&str) -> core::option::Option<(alloc::string::String, alloc::string::String)>
 pub mod hadris_fs::sync
+pub mod hadris_fs::sync::contract
+pub fn hadris_fs::sync::contract::check<Fs: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
 pub mod hadris_fs::sync::lock
 pub trait hadris_fs::sync::lock::Lock<T>
 pub type hadris_fs::sync::lock::Lock::Guard<'a> where Self: 'a: core::ops::deref::DerefMut<Target = T>
@@ -1127,15 +1230,18 @@ pub fn hadris_fs::sync::AsDriver<F>::new(F) -> Self
 impl<F: hadris_fs::sync::FileSystem> hadris_fs::sync::FsDriver for hadris_fs::sync::AsDriver<F>
 pub type hadris_fs::sync::AsDriver<F>::DeviceError = <F as hadris_fs::sync::FileSystem>::DeviceError
 pub fn hadris_fs::sync::AsDriver<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::sync::AsDriver<F>::close_node(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::AsDriver<F>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::forget(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::AsDriver<F>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn hadris_fs::sync::AsDriver<F>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn hadris_fs::sync::AsDriver<F>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn hadris_fs::sync::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn hadris_fs::sync::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::root(&self) -> hadris_fs::NodeId
@@ -1165,13 +1271,14 @@ pub struct hadris_fs::sync::File<A: hadris_fs::sync::Access>
 impl<A: hadris_fs::sync::Access> hadris_fs::sync::File<A>
 pub fn hadris_fs::sync::File<A>::close(self) -> hadris_fs::FsResult<(), <A as hadris_fs::sync::Access>::DeviceError>
 pub fn hadris_fs::sync::File<A>::driver(&mut self) -> &mut <A as hadris_fs::sync::Access>::Driver
-pub fn hadris_fs::sync::File<A>::from_pinned(A, hadris_fs::NodeId, hadris_fs::OpenOptions) -> Self
+pub fn hadris_fs::sync::File<A>::from_pinned(A, hadris_fs::NodeId, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <A as hadris_fs::sync::Access>::DeviceError>
 pub fn hadris_fs::sync::File<A>::is_empty(&mut self) -> hadris_fs::FsResult<bool, <A as hadris_fs::sync::Access>::DeviceError>
 pub fn hadris_fs::sync::File<A>::len(&mut self) -> hadris_fs::FsResult<u64, <A as hadris_fs::sync::Access>::DeviceError>
 pub fn hadris_fs::sync::File<A>::node(&self) -> hadris_fs::NodeId
 pub fn hadris_fs::sync::File<A>::open(A, &str, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <A as hadris_fs::sync::Access>::DeviceError>
 pub fn hadris_fs::sync::File<A>::position(&self) -> u64
 pub fn hadris_fs::sync::File<A>::set_len(&mut self, u64) -> hadris_fs::FsResult<(), <A as hadris_fs::sync::Access>::DeviceError>
+pub fn hadris_fs::sync::File<A>::sync_all(&mut self) -> hadris_fs::FsResult<(), <A as hadris_fs::sync::Access>::DeviceError>
 impl<A: hadris_fs::sync::Access> alloc::io::read::Read for hadris_fs::sync::File<A>
 pub fn hadris_fs::sync::File<A>::read(&mut self, &mut [u8]) -> core::io::error::Result<usize>
 impl<A: hadris_fs::sync::Access> core::fmt::Debug for hadris_fs::sync::File<A>
@@ -1201,13 +1308,14 @@ pub type hadris_fs::sync::Local::Lock<T> = core::cell::RefCell<T>
 pub struct hadris_fs::sync::OpenFile
 impl hadris_fs::sync::OpenFile
 pub fn hadris_fs::sync::OpenFile::close<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(self, &mut D, hadris_fs::FsResult<(), <D as hadris_fs::sync::FsDriver>::DeviceError>) -> hadris_fs::FsResult<(), <D as hadris_fs::sync::FsDriver>::DeviceError>
-pub fn hadris_fs::sync::OpenFile::from_pinned(hadris_fs::NodeId, hadris_fs::OpenOptions) -> Self
+pub fn hadris_fs::sync::OpenFile::from_pinned<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut D, hadris_fs::NodeId, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <D as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::OpenFile::len<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&self, &mut D) -> hadris_fs::FsResult<u64, <D as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::OpenFile::node(&self) -> hadris_fs::NodeId
 pub fn hadris_fs::sync::OpenFile::open<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut D, &str, hadris_fs::OpenOptions) -> hadris_fs::FsResult<Self, <D as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::OpenFile::position(&self) -> u64
 pub fn hadris_fs::sync::OpenFile::read<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &mut [u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::OpenFile::seek<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut self, &mut D, embedded_io::SeekFrom) -> hadris_fs::FsResult<u64, <D as hadris_fs::sync::FsDriver>::DeviceError>
+pub fn hadris_fs::sync::OpenFile::sync_all<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut self, &mut D) -> hadris_fs::FsResult<(), <D as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::OpenFile::write<D: hadris_fs::sync::FsDriver + ?core::marker::Sized>(&mut self, &mut D, &[u8]) -> hadris_fs::FsResult<usize, <D as hadris_fs::sync::FsDriver>::DeviceError>
 pub struct hadris_fs::sync::Posix<const N: usize>
 impl hadris_fs::sync::Posix
@@ -1245,15 +1353,18 @@ pub fn hadris_fs::sync::Volume<F, K>::into_driver(self) -> hadris_fs::sync::AsDr
 impl<F: hadris_fs::sync::FsDriver, K: hadris_fs::sync::lock::LockKind> hadris_fs::sync::FileSystem for hadris_fs::sync::Volume<F, K>
 pub type hadris_fs::sync::Volume<F, K>::DeviceError = <F as hadris_fs::sync::FsDriver>::DeviceError
 pub fn hadris_fs::sync::Volume<F, K>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::sync::Volume<F, K>::close_node(&self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::Volume<F, K>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::forget(&self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::Volume<F, K>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, <F as hadris_fs::sync::FsDriver>::DeviceError>
+pub fn hadris_fs::sync::Volume<F, K>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::sync::FsDriver>::DeviceError>
+pub fn hadris_fs::sync::Volume<F, K>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::sync::FsDriver>::DeviceError>
-pub fn hadris_fs::sync::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), <F as hadris_fs::sync::FsDriver>::DeviceError>
+pub fn hadris_fs::sync::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::root(&self) -> hadris_fs::NodeId
@@ -1275,15 +1386,18 @@ pub fn hadris_fs::sync::WithResolver<D, R>::deref_mut(&mut self) -> &mut D
 impl<D: hadris_fs::sync::FsDriver, R: hadris_fs::sync::Resolver> hadris_fs::sync::FsDriver for hadris_fs::sync::WithResolver<D, R>
 pub type hadris_fs::sync::WithResolver<D, R>::DeviceError = <D as hadris_fs::sync::FsDriver>::DeviceError
 pub fn hadris_fs::sync::WithResolver<D, R>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::sync::WithResolver<D, R>::close_node(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::WithResolver<D, R>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::forget(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::WithResolver<D, R>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn hadris_fs::sync::WithResolver<D, R>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn hadris_fs::sync::WithResolver<D, R>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn hadris_fs::sync::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn hadris_fs::sync::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::root(&self) -> hadris_fs::NodeId
@@ -1346,15 +1460,18 @@ pub fn D::write_file(&mut self, &str, &[u8]) -> hadris_fs::FsResult<(), Self::De
 pub trait hadris_fs::sync::FileSystem
 pub type hadris_fs::sync::FileSystem::DeviceError: core::error::Error + core::marker::Send + core::marker::Sync + 'static
 pub fn hadris_fs::sync::FileSystem::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::sync::FileSystem::close_node(&self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::FileSystem::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::FileSystem::forget(&self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::FileSystem::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::FileSystem::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn hadris_fs::sync::FileSystem::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::FileSystem::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn hadris_fs::sync::FileSystem::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::FileSystem::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn hadris_fs::sync::FileSystem::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn hadris_fs::sync::FileSystem::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn hadris_fs::sync::FileSystem::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn hadris_fs::sync::FileSystem::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::FileSystem::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::FileSystem::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::FileSystem::root(&self) -> hadris_fs::NodeId
@@ -1367,15 +1484,18 @@ pub fn hadris_fs::sync::FileSystem::write_at(&self, hadris_fs::NodeId, u64, &[u8
 impl<F: hadris_fs::sync::FileSystem + ?core::marker::Sized> hadris_fs::sync::FileSystem for &F
 pub type &F::DeviceError = <F as hadris_fs::sync::FileSystem>::DeviceError
 pub fn &F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &F::close_node(&self, hadris_fs::NodeId)
 pub fn &F::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::forget(&self, hadris_fs::NodeId)
 pub fn &F::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn &F::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &F::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn &F::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &F::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn &F::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn &F::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn &F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn &F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &F::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &F::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::root(&self) -> hadris_fs::NodeId
@@ -1388,15 +1508,18 @@ pub fn &F::write_at(&self, hadris_fs::NodeId, u64, &[u8]) -> hadris_fs::FsResult
 impl<F: hadris_fs::sync::FileSystem + ?core::marker::Sized> hadris_fs::sync::FileSystem for &mut F
 pub type &mut F::DeviceError = <F as hadris_fs::sync::FileSystem>::DeviceError
 pub fn &mut F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &mut F::close_node(&self, hadris_fs::NodeId)
 pub fn &mut F::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::forget(&self, hadris_fs::NodeId)
 pub fn &mut F::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn &mut F::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &mut F::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn &mut F::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &mut F::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn &mut F::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn &mut F::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn &mut F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn &mut F::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &mut F::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &mut F::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::root(&self) -> hadris_fs::NodeId
@@ -1409,15 +1532,18 @@ pub fn &mut F::write_at(&self, hadris_fs::NodeId, u64, &[u8]) -> hadris_fs::FsRe
 impl<F: hadris_fs::sync::FileSystem + ?core::marker::Sized> hadris_fs::sync::FileSystem for alloc::boxed::Box<F>
 pub type alloc::boxed::Box<F>::DeviceError = <F as hadris_fs::sync::FileSystem>::DeviceError
 pub fn alloc::boxed::Box<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::boxed::Box<F>::close_node(&self, hadris_fs::NodeId)
 pub fn alloc::boxed::Box<F>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::forget(&self, hadris_fs::NodeId)
 pub fn alloc::boxed::Box<F>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn alloc::boxed::Box<F>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::boxed::Box<F>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn alloc::boxed::Box<F>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::boxed::Box<F>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn alloc::boxed::Box<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn alloc::boxed::Box<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::boxed::Box<F>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::boxed::Box<F>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::root(&self) -> hadris_fs::NodeId
@@ -1430,15 +1556,18 @@ pub fn alloc::boxed::Box<F>::write_at(&self, hadris_fs::NodeId, u64, &[u8]) -> h
 impl<F: hadris_fs::sync::FileSystem + ?core::marker::Sized> hadris_fs::sync::FileSystem for alloc::rc::Rc<F>
 pub type alloc::rc::Rc<F>::DeviceError = <F as hadris_fs::sync::FileSystem>::DeviceError
 pub fn alloc::rc::Rc<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::rc::Rc<F>::close_node(&self, hadris_fs::NodeId)
 pub fn alloc::rc::Rc<F>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::rc::Rc<F>::forget(&self, hadris_fs::NodeId)
 pub fn alloc::rc::Rc<F>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::rc::Rc<F>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn alloc::rc::Rc<F>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::rc::Rc<F>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn alloc::rc::Rc<F>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::rc::Rc<F>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn alloc::rc::Rc<F>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn alloc::rc::Rc<F>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn alloc::rc::Rc<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn alloc::rc::Rc<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::rc::Rc<F>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::rc::Rc<F>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::rc::Rc<F>::root(&self) -> hadris_fs::NodeId
@@ -1451,15 +1580,18 @@ pub fn alloc::rc::Rc<F>::write_at(&self, hadris_fs::NodeId, u64, &[u8]) -> hadri
 impl<F: hadris_fs::sync::FileSystem + ?core::marker::Sized> hadris_fs::sync::FileSystem for alloc::sync::Arc<F>
 pub type alloc::sync::Arc<F>::DeviceError = <F as hadris_fs::sync::FileSystem>::DeviceError
 pub fn alloc::sync::Arc<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::sync::Arc<F>::close_node(&self, hadris_fs::NodeId)
 pub fn alloc::sync::Arc<F>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::sync::Arc<F>::forget(&self, hadris_fs::NodeId)
 pub fn alloc::sync::Arc<F>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::sync::Arc<F>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn alloc::sync::Arc<F>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::sync::Arc<F>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn alloc::sync::Arc<F>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::sync::Arc<F>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn alloc::sync::Arc<F>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn alloc::sync::Arc<F>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn alloc::sync::Arc<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn alloc::sync::Arc<F>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::sync::Arc<F>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::sync::Arc<F>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::sync::Arc<F>::root(&self) -> hadris_fs::NodeId
@@ -1472,15 +1604,18 @@ pub fn alloc::sync::Arc<F>::write_at(&self, hadris_fs::NodeId, u64, &[u8]) -> ha
 impl<F: hadris_fs::sync::FsDriver, K: hadris_fs::sync::lock::LockKind> hadris_fs::sync::FileSystem for hadris_fs::sync::Volume<F, K>
 pub type hadris_fs::sync::Volume<F, K>::DeviceError = <F as hadris_fs::sync::FsDriver>::DeviceError
 pub fn hadris_fs::sync::Volume<F, K>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::sync::Volume<F, K>::close_node(&self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::Volume<F, K>::create(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::forget(&self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::Volume<F, K>::lookup(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::node_metadata(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, <F as hadris_fs::sync::FsDriver>::DeviceError>
+pub fn hadris_fs::sync::Volume<F, K>::open_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::parent(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::sync::FsDriver>::DeviceError>
+pub fn hadris_fs::sync::Volume<F, K>::publish_node(&self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::read_at(&self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::read_dir_entry(&self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::read_link(&self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, <F as hadris_fs::sync::FsDriver>::DeviceError>
-pub fn hadris_fs::sync::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), <F as hadris_fs::sync::FsDriver>::DeviceError>
+pub fn hadris_fs::sync::Volume<F, K>::remove(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::rename(&self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::resolve(&self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, <F as hadris_fs::sync::FsDriver>::DeviceError>
 pub fn hadris_fs::sync::Volume<F, K>::root(&self) -> hadris_fs::NodeId
@@ -1493,15 +1628,18 @@ pub fn hadris_fs::sync::Volume<F, K>::write_at(&self, hadris_fs::NodeId, u64, &[
 pub trait hadris_fs::sync::FsDriver
 pub type hadris_fs::sync::FsDriver::DeviceError: core::error::Error + core::marker::Send + core::marker::Sync + 'static
 pub fn hadris_fs::sync::FsDriver::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::sync::FsDriver::close_node(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::FsDriver::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::FsDriver::forget(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::FsDriver::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::FsDriver::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn hadris_fs::sync::FsDriver::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::FsDriver::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn hadris_fs::sync::FsDriver::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::FsDriver::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn hadris_fs::sync::FsDriver::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn hadris_fs::sync::FsDriver::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn hadris_fs::sync::FsDriver::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn hadris_fs::sync::FsDriver::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::FsDriver::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::FsDriver::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::FsDriver::root(&self) -> hadris_fs::NodeId
@@ -1514,15 +1652,18 @@ pub fn hadris_fs::sync::FsDriver::write_at(&mut self, hadris_fs::NodeId, u64, &[
 impl<D: hadris_fs::sync::FsDriver, R: hadris_fs::sync::Resolver> hadris_fs::sync::FsDriver for hadris_fs::sync::WithResolver<D, R>
 pub type hadris_fs::sync::WithResolver<D, R>::DeviceError = <D as hadris_fs::sync::FsDriver>::DeviceError
 pub fn hadris_fs::sync::WithResolver<D, R>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::sync::WithResolver<D, R>::close_node(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::WithResolver<D, R>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::forget(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::WithResolver<D, R>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn hadris_fs::sync::WithResolver<D, R>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn hadris_fs::sync::WithResolver<D, R>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn hadris_fs::sync::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn hadris_fs::sync::WithResolver<D, R>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::WithResolver<D, R>::root(&self) -> hadris_fs::NodeId
@@ -1535,15 +1676,18 @@ pub fn hadris_fs::sync::WithResolver<D, R>::write_at(&mut self, hadris_fs::NodeI
 impl<F: hadris_fs::sync::FileSystem + ?core::marker::Sized> hadris_fs::sync::FsDriver for &F
 pub type &F::DeviceError = <F as hadris_fs::sync::FileSystem>::DeviceError
 pub fn &F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &F::close_node(&mut self, hadris_fs::NodeId)
 pub fn &F::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::forget(&mut self, hadris_fs::NodeId)
 pub fn &F::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn &F::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &F::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn &F::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &F::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn &F::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn &F::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn &F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn &F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &F::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &F::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &F::root(&self) -> hadris_fs::NodeId
@@ -1556,15 +1700,18 @@ pub fn &F::write_at(&mut self, hadris_fs::NodeId, u64, &[u8]) -> hadris_fs::FsRe
 impl<F: hadris_fs::sync::FileSystem> hadris_fs::sync::FsDriver for hadris_fs::sync::AsDriver<F>
 pub type hadris_fs::sync::AsDriver<F>::DeviceError = <F as hadris_fs::sync::FileSystem>::DeviceError
 pub fn hadris_fs::sync::AsDriver<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn hadris_fs::sync::AsDriver<F>::close_node(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::AsDriver<F>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::forget(&mut self, hadris_fs::NodeId)
 pub fn hadris_fs::sync::AsDriver<F>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn hadris_fs::sync::AsDriver<F>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn hadris_fs::sync::AsDriver<F>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn hadris_fs::sync::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn hadris_fs::sync::AsDriver<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn hadris_fs::sync::AsDriver<F>::root(&self) -> hadris_fs::NodeId
@@ -1577,15 +1724,18 @@ pub fn hadris_fs::sync::AsDriver<F>::write_at(&mut self, hadris_fs::NodeId, u64,
 impl<F: hadris_fs::sync::FsDriver + ?core::marker::Sized> hadris_fs::sync::FsDriver for &mut F
 pub type &mut F::DeviceError = <F as hadris_fs::sync::FsDriver>::DeviceError
 pub fn &mut F::capabilities(&self) -> hadris_fs::Capabilities
+pub fn &mut F::close_node(&mut self, hadris_fs::NodeId)
 pub fn &mut F::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::forget(&mut self, hadris_fs::NodeId)
 pub fn &mut F::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn &mut F::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &mut F::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn &mut F::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &mut F::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn &mut F::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn &mut F::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn &mut F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn &mut F::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &mut F::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn &mut F::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn &mut F::root(&self) -> hadris_fs::NodeId
@@ -1598,15 +1748,18 @@ pub fn &mut F::write_at(&mut self, hadris_fs::NodeId, u64, &[u8]) -> hadris_fs::
 impl<F: hadris_fs::sync::FsDriver + ?core::marker::Sized> hadris_fs::sync::FsDriver for alloc::boxed::Box<F>
 pub type alloc::boxed::Box<F>::DeviceError = <F as hadris_fs::sync::FsDriver>::DeviceError
 pub fn alloc::boxed::Box<F>::capabilities(&self) -> hadris_fs::Capabilities
+pub fn alloc::boxed::Box<F>::close_node(&mut self, hadris_fs::NodeId)
 pub fn alloc::boxed::Box<F>::create(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NewNode<'_>, &hadris_fs::SetMetadata) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::forget(&mut self, hadris_fs::NodeId)
 pub fn alloc::boxed::Box<F>::lookup(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::node_metadata(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::Metadata, Self::DeviceError>
+pub fn alloc::boxed::Box<F>::open_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::boxed::Box<F>::parent(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
+pub fn alloc::boxed::Box<F>::publish_node(&mut self, hadris_fs::NodeId) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::boxed::Box<F>::read_at(&mut self, hadris_fs::NodeId, u64, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::read_dir_entry(&mut self, hadris_fs::NodeId, &mut hadris_fs::DirCursor, &mut hadris_fs::NameBuf) -> hadris_fs::FsResult<core::option::Option<hadris_fs::DirEntry>, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::read_link(&mut self, hadris_fs::NodeId, &mut [u8]) -> hadris_fs::FsResult<usize, Self::DeviceError>
-pub fn alloc::boxed::Box<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name) -> hadris_fs::FsResult<(), Self::DeviceError>
+pub fn alloc::boxed::Box<F>::remove(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RemoveKind) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::boxed::Box<F>::rename(&mut self, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::NodeId, &hadris_fs::Name, hadris_fs::RenameFlags) -> hadris_fs::FsResult<(), Self::DeviceError>
 pub fn alloc::boxed::Box<F>::resolve(&mut self, &str) -> hadris_fs::FsResult<hadris_fs::NodeId, Self::DeviceError>
 pub fn alloc::boxed::Box<F>::root(&self) -> hadris_fs::NodeId
@@ -1674,11 +1827,13 @@ pub hadris_fs::ErrorKind::AlreadyExists
 pub hadris_fs::ErrorKind::Busy
 pub hadris_fs::ErrorKind::Corrupt
 pub hadris_fs::ErrorKind::DirectoryNotEmpty
+pub hadris_fs::ErrorKind::FileTooLarge
 pub hadris_fs::ErrorKind::InvalidHandle
 pub hadris_fs::ErrorKind::InvalidInput
 pub hadris_fs::ErrorKind::Io
 pub hadris_fs::ErrorKind::IsADirectory
 pub hadris_fs::ErrorKind::LimitExceeded
+pub hadris_fs::ErrorKind::NameTooLong
 pub hadris_fs::ErrorKind::NoSpace
 pub hadris_fs::ErrorKind::NotADirectory
 pub hadris_fs::ErrorKind::NotFound
@@ -1754,6 +1909,12 @@ pub fn hadris_fs::ErrorKind::from(hadris_fs::OpenOptionsError) -> Self
 impl core::error::Error for hadris_fs::OpenOptionsError
 impl core::fmt::Display for hadris_fs::OpenOptionsError
 pub fn hadris_fs::OpenOptionsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum hadris_fs::RemoveKind
+pub hadris_fs::RemoveKind::Any
+pub hadris_fs::RemoveKind::Dir
+pub hadris_fs::RemoveKind::File
+impl hadris_fs::RemoveKind
+pub const fn hadris_fs::RemoveKind::check(self, hadris_fs::FileType) -> core::result::Result<(), hadris_fs::ErrorKind>
 pub struct hadris_fs::AnyError
 impl hadris_fs::AnyError
 pub fn hadris_fs::AnyError::downcast_device<E: core::error::Error + 'static>(&self) -> core::option::Option<&E>
@@ -1884,6 +2045,15 @@ pub const fn hadris_fs::CivilTime::hour(&self) -> u8
 pub const fn hadris_fs::CivilTime::minute(&self) -> u8
 pub const fn hadris_fs::CivilTime::new(u8, u8, u8) -> core::result::Result<Self, hadris_fs::DateTimeError>
 pub const fn hadris_fs::CivilTime::second(&self) -> u8
+pub struct hadris_fs::ContractViolation
+impl hadris_fs::ContractViolation
+pub const fn hadris_fs::ContractViolation::case(&self) -> &'static str
+pub const fn hadris_fs::ContractViolation::found(&self) -> core::option::Option<hadris_fs::ErrorKind>
+pub const fn hadris_fs::ContractViolation::new(&'static str, &'static str, core::option::Option<hadris_fs::ErrorKind>) -> Self
+pub const fn hadris_fs::ContractViolation::rule(&self) -> &'static str
+impl core::error::Error for hadris_fs::ContractViolation
+impl core::fmt::Display for hadris_fs::ContractViolation
+pub fn hadris_fs::ContractViolation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::DateTime
 impl hadris_fs::DateTime
 pub const hadris_fs::DateTime::MAX: Self
@@ -1906,6 +2076,7 @@ pub const fn hadris_fs::DeviceNumber::minor(&self) -> u32
 pub const fn hadris_fs::DeviceNumber::new(u32, u32) -> Self
 pub struct hadris_fs::DirCursor(_)
 impl hadris_fs::DirCursor
+pub const hadris_fs::DirCursor::MAX_RAW: u64
 pub const fn hadris_fs::DirCursor::from_raw(u64) -> Self
 pub const fn hadris_fs::DirCursor::into_raw(self) -> u64
 pub const fn hadris_fs::DirCursor::is_start(self) -> bool
