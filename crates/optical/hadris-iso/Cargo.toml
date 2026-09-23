@@ -26,10 +26,10 @@ alloc = ["read", "hadris-io/alloc", "hadris-fs/alloc", "hadris-common/alloc"]
 # Standard library support (includes alloc)
 std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "dep:tracing", "dep:chrono", "chrono/std", "chrono/clock"]
 
-sync = ["hadris-io/sync", "hadris-common/sync", "hadris-part/sync"]
-async = ["hadris-io/async", "hadris-common/async", "hadris-part/async"]
+sync = ["hadris-io/sync", "hadris-common/sync"]
+async = ["hadris-io/async", "hadris-common/async"]
 
-write = ["alloc", "std", "hadris-part/write", "hadris-part/crc"]
+write = ["alloc", "std", "dep:hadris-part", "hadris-part/alloc", "dep:hadris-storage"]
 joliet = ["alloc"]
 # Unstable streaming input for the writer (`InputEntryKind::Source`, `FileSource`).
 # Outside the V2 stability promise; enabling it adds a variant to `InputEntryKind`.
@@ -37,7 +37,7 @@ unstable-streaming = ["write"]
 
 [dependencies]
 bitflags = { workspace = true, features = ["bytemuck"] }
-bytemuck = { workspace = true, features = ["derive"] }
+bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
 thiserror = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
@@ -45,11 +45,13 @@ hadris-io = { workspace = true }
 hadris-fs = { workspace = true }
 hadris-macros = { workspace = true }
 hadris-common = { workspace = true, features = ["bytemuck"] }
-hadris-part = { workspace = true, default-features = false }
+hadris-part = { workspace = true, default-features = false, optional = true }
+hadris-storage = { workspace = true, default-features = false, optional = true }
 spin.workspace = true
 
 [dev-dependencies]
-hadris-part = { workspace = true, features = ["std", "sync", "read", "write", "crc"] }
+hadris-part = { workspace = true, features = ["std", "sync"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }
 static_assertions.workspace = true
 tempfile.workspace = true
 criterion.workspace = true

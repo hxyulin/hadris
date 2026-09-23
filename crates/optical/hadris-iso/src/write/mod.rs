@@ -27,11 +27,9 @@ use crate::types::{Charset, IsoStr};
 use crate::write::utils::*;
 use crate::write::writer::DirectoryId;
 use hadris_common::types::endian::{Endian, EndianType};
+use hadris_part::gpt::types as part_types;
 use hadris_part::{
-    GptDisk, GptDiskWriteExt,
-    gpt::{GptPartitionEntry, Guid},
-    hybrid::HybridMbrBuilder,
-    mbr::{MasterBootRecord, MbrPartition, MbrPartitionType},
+    Disk, Gpt, GptEntry, Hybrid, HybridMbr, Mbr, MbrEntry, MbrType, PartitionFlags, PartitionName,
 };
 use options::PartitionScheme;
 use writer::{DirectoryRelocation, PathTableWriter, WrittenDirectory, WrittenFiles};
@@ -96,8 +94,8 @@ pub struct IsoImageWriter<DATA: Read + Write + Seek> {
 io_transform! {
 impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     const VOLUME_DESCRIPTOR_SET_START: LogicalSector = LogicalSector(16);
-    const GPT_PARTITION_NAME_ISO: &[u8] = b"ISO9660";
-    const GPT_PARTITION_NAME_ESP: &[u8] = b"EFI System Partition";
+    const GPT_PARTITION_NAME_ISO: &str = "ISO9660";
+    const GPT_PARTITION_NAME_ESP: &str = "EFI System Partition";
     const BOOT_CATALOG_FILENAME: &str = "boot.catalog";
 
     /// Creates a complete ISO image and returns its output target.
@@ -1097,25 +1095,35 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let hybrid_opts = self.ops.features.hybrid_boot.as_ref();
         let bootable = hybrid_opts.map(|h| h.bootable).unwrap_or(true);
 
-        let mut mbr = MasterBootRecord::default();
-        mbr.with_partition_table(|pt| {
-            pt[0] = MbrPartition::new_iso_partition(sector_count, bootable);
-        });
+        let mut mbr = Mbr::new(u64::from(sector_count), PART_BLOCK).map_err(part_layout_error)?;
+        mbr.add(
+            MbrEntry::new(MbrType::ISO9660, 0, u64::from(sector_count))
+                .with_flags(boot_flags(bootable)),
+        )
+        .map_err(part_layout_error)?;
+        let disk = self.with_bootstrap(Disk::new(mbr))?;
+        self.write_partition_disk(&disk).await
+    }
 
-        // Inject bootstrap code if provided
+    /// Adds the configured MBR boot code to `disk`.
+    fn with_bootstrap(&self, mut disk: Disk) -> io::Result<Disk> {
         if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot
             && let Some(ref bootstrap) = hybrid_opts.mbr_bootstrap
         {
             let len = bootstrap.len().min(446);
-            mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
+            disk.set_bootstrap(&bootstrap[..len])
+                .map_err(part_layout_error)?;
         }
+        Ok(disk)
+    }
 
-        self.data
-            .seek(SeekFrom::Start(0))
-            .await
-            ?;
-        self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
-
+    /// Writes the blocks of a partition table, 512 bytes each, at their
+    /// byte offsets in the image.
+    async fn write_partition_disk(&mut self, disk: &Disk) -> io::Result<()> {
+        for run in disk.runs() {
+            self.data.seek(SeekFrom::Start(run.lba() * 512)).await?;
+            self.data.write_all(run.bytes()).await?;
+        }
         Ok(())
     }
 
@@ -1194,17 +1202,15 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     fn build_gpt_disk(
         &self,
         end_sector: LogicalSector,
-    ) -> io::Result<(GptDisk, Option<usize>, Option<usize>)> {
+    ) -> io::Result<(Gpt, Option<usize>, Option<usize>)> {
         let blocks_per_sector = (self.data.sector_size / 512) as u64;
         let iso_512 = end_sector.0 as u64 * blocks_per_sector;
         let total_512 = self.gpt_total_512(end_sector);
 
-        let mut gpt = GptDisk::new(total_512, 512);
         let disk_guid = generate_guid_from_string(&alloc::format!("disk-{}", self.ops.volume_name));
-        gpt.primary_header.disk_guid = disk_guid;
-        gpt.backup_header.disk_guid = disk_guid;
+        let mut gpt = Gpt::new(disk_guid, total_512, PART_BLOCK).map_err(part_layout_error)?;
 
-        let iso_part_start = self.get_iso_partition_start(&gpt)?;
+        let iso_part_start = self.get_iso_partition_start(&gpt);
         let iso_end = iso_512.saturating_sub(1);
 
         if iso_end <= iso_part_start {
@@ -1216,16 +1222,12 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
         let esp = self.find_esp_partition(blocks_per_sector, iso_part_start, iso_end)?;
         let (iso_index, esp_index) = self.add_gpt_partitions(&mut gpt, esp, iso_part_start, iso_end)?;
-
-        gpt.update_crcs();
-        gpt.validate().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid GPT layout"))?;
         Ok((gpt, iso_index, esp_index))
     }
 
-    fn get_iso_partition_start(&self, gpt: &GptDisk) -> io::Result<u64> {
+    fn get_iso_partition_start(&self, gpt: &Gpt) -> u64 {
         const ISO_DATA_START_512: u64 = 64;
-        let first_usable = gpt.primary_header.first_usable_lba.to_ne();
-        Ok(first_usable.max(ISO_DATA_START_512))
+        gpt.first_usable().max(ISO_DATA_START_512)
     }
 
     fn find_esp_partition(
@@ -1262,57 +1264,64 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 
     fn add_gpt_partitions(
         &self,
-        gpt: &mut GptDisk,
+        gpt: &mut Gpt,
         esp: Option<(u64, u64)>,
         iso_part_start: u64,
         iso_end: u64,
     ) -> io::Result<(Option<usize>, Option<usize>)> {
-        let map_err = |_| io::Error::new(io::ErrorKind::InvalidData, "invalid GPT layout");
+        let entry = |type_guid, key: &str, first: u64, last: u64, name: &str| {
+            let name = PartitionName::new(name).map_err(part_layout_error)?;
+            Ok::<_, io::Error>(
+                GptEntry::new(type_guid, generate_guid_from_string(key), first, last - first + 1)
+                    .with_name(name),
+            )
+        };
+        let volume = &self.ops.volume_name;
         let mut iso_index = None;
         let mut esp_index = None;
 
         match esp {
             Some((esp_start, esp_end)) => {
                 if esp_start > iso_part_start {
-                    let mut data = GptPartitionEntry::new(
-                        Guid::BASIC_DATA,
-                        generate_guid_from_string(&self.ops.volume_name),
+                    let data = entry(
+                        part_types::BASIC_DATA,
+                        volume,
                         iso_part_start,
                         esp_start - 1,
-                    );
-                    data.set_name_ascii(Self::GPT_PARTITION_NAME_ISO);
-                    iso_index = Some(gpt.add_partition(data).map_err(map_err)?);
+                        Self::GPT_PARTITION_NAME_ISO,
+                    )?;
+                    iso_index = Some(gpt.add(data).map_err(part_layout_error)?);
                 }
 
-                let mut esp_entry = GptPartitionEntry::new(
-                    Guid::EFI_SYSTEM,
-                    generate_guid_from_string(&alloc::format!("esp-{}", self.ops.volume_name)),
+                let esp_entry = entry(
+                    part_types::EFI_SYSTEM,
+                    &alloc::format!("esp-{volume}"),
                     esp_start,
                     esp_end,
-                );
-                esp_entry.set_name_ascii(Self::GPT_PARTITION_NAME_ESP);
-                esp_index = Some(gpt.add_partition(esp_entry).map_err(map_err)?);
+                    Self::GPT_PARTITION_NAME_ESP,
+                )?;
+                esp_index = Some(gpt.add(esp_entry).map_err(part_layout_error)?);
 
                 if esp_end < iso_end {
-                    let mut tail = GptPartitionEntry::new(
-                        Guid::BASIC_DATA,
-                        generate_guid_from_string(&alloc::format!("data-{}", self.ops.volume_name)),
+                    let tail = entry(
+                        part_types::BASIC_DATA,
+                        &alloc::format!("data-{volume}"),
                         esp_end + 1,
                         iso_end,
-                    );
-                    tail.set_name_ascii(Self::GPT_PARTITION_NAME_ISO);
-                    gpt.add_partition(tail).map_err(map_err)?;
+                        Self::GPT_PARTITION_NAME_ISO,
+                    )?;
+                    gpt.add(tail).map_err(part_layout_error)?;
                 }
             }
             None => {
-                let mut data = GptPartitionEntry::new(
-                    Guid::BASIC_DATA,
-                    generate_guid_from_string(&self.ops.volume_name),
+                let data = entry(
+                    part_types::BASIC_DATA,
+                    volume,
                     iso_part_start,
                     iso_end,
-                );
-                data.set_name_ascii(b"ISO9660");
-                iso_index = Some(gpt.add_partition(data).map_err(map_err)?);
+                    Self::GPT_PARTITION_NAME_ISO,
+                )?;
+                iso_index = Some(gpt.add(data).map_err(part_layout_error)?);
             }
         }
 
@@ -1324,8 +1333,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     /// backup region and [`Self::build_gpt_disk`] for the partition layout.
     async fn write_gpt_boot(&mut self, end_sector: LogicalSector) -> io::Result<()> {
         let (gpt, _, _) = self.build_gpt_disk(end_sector)?;
-        gpt.write_to(&mut self.data).await.map_err(part_io_error)?;
-        Ok(())
+        self.write_partition_disk(&Disk::new(gpt)).await
     }
 
     /// Writes a Hybrid MBR + GPT for dual BIOS/UEFI boot.
@@ -1338,35 +1346,21 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         let bootable = hybrid_opts.map(|h| h.bootable).unwrap_or(true);
 
         let (gpt, iso_index, esp_index) = self.build_gpt_disk(end_sector)?;
-        let total_512 = gpt.backup_header.my_lba.to_ne() + 1;
-
-        let mut builder = HybridMbrBuilder::new(total_512).protective_slot(0);
+        let mut config = HybridMbr::new();
         if let Some(iso_index) = iso_index {
-            builder = builder.mirror_partition(iso_index as u32, MbrPartitionType::Iso9660, bootable);
+            config
+                .add_mirrored(iso_index, MbrType::ISO9660, boot_flags(bootable))
+                .map_err(part_layout_error)?;
         }
         if let Some(esp_index) = esp_index {
-            builder = builder.mirror_partition(
-                esp_index as u32,
-                MbrPartitionType::EfiSystemPartition,
-                false,
-            );
+            config
+                .add_mirrored(esp_index, MbrType::EFI_SYSTEM, PartitionFlags::empty())
+                .map_err(part_layout_error)?;
         }
-        let mut mbr = builder
-            .build(&gpt.entries)
+        let hybrid = Hybrid::new(gpt, &config)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid hybrid MBR"))?;
-
-        if let Some(ref hybrid_opts) = self.ops.features.hybrid_boot
-            && let Some(ref bootstrap) = hybrid_opts.mbr_bootstrap
-        {
-            let len = bootstrap.len().min(446);
-            mbr.bootstrap[..len].copy_from_slice(&bootstrap[..len]);
-        }
-
-        gpt.write_to_with_mbr(&mut self.data, &mbr)
-            .await
-            .map_err(part_io_error)?;
-
-        Ok(())
+        let disk = self.with_bootstrap(Disk::new(hybrid))?;
+        self.write_partition_disk(&disk).await
     }
 
     async fn update_directory(

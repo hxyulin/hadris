@@ -9,4 +9,5 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 hadris-io = { workspace = true, features = ["std", "sync"] }
-hadris-part = { workspace = true, features = ["std", "sync", "read"] }
+hadris-part = { workspace = true, features = ["std", "sync"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }

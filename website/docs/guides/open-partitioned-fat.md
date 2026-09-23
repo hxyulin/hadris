@@ -13,34 +13,20 @@ block range.
 anyhow = "1"
 hadris-block = "2.4.0"
 hadris-fs = "2.4.0"
-hadris-io = "2.4.0"
 ```
 
 ```rust,no_run
 use anyhow::{Context, Result};
-use hadris_block::{
-    part::{PartitionTable, PartitionTableReadExt},
-    storage::{BlockIndex, sync::Slice},
-    sync::OpenVolume,
-};
+use hadris_block::{part, sync::OpenVolume};
 use hadris_fs::sync::DriverExt;
-use hadris_io::StdIo;
 use std::fs::File;
 
 fn main() -> Result<()> {
-    const BLOCK_SIZE: u32 = 512;
+    let mut disk = File::open("disk.img")?;
+    let table = part::sync::read(&mut disk)?;
+    let partition = table.partition(0).context("the disk has no partitions")?;
 
-    let mut stream = StdIo::new(File::open("disk.img")?);
-    let table = PartitionTable::read_from(&mut stream, BLOCK_SIZE)?;
-    let partition = table
-        .partitions()
-        .into_iter()
-        .next()
-        .context("the disk has no partitions")?;
-
-    let mut disk = stream.into_inner();
-    let slice = Slice::new(&mut disk, BlockIndex::new(partition.start_lba), partition.size_sectors)
-        .map_err(|_| anyhow::anyhow!("the partition does not fit on the disk"))?;
+    let slice = part::sync::open(&mut disk, &partition)?;
     let opened = OpenVolume::open(slice)?;
     let mut fat = opened
         .into_fat()
@@ -55,17 +41,16 @@ fn main() -> Result<()> {
 }
 ```
 
-`std::fs::File` is a block device with 512-byte blocks, so the partition's
-start and length in logical blocks become a `Slice` directly. With a
-`hadris_part::MbrPartition` or `GptPartitionEntry` in hand,
-`hadris_block::partition::sync::mbr_partition(&mut disk, &entry)` and
-`gpt_partition` build the same slice, and `partition::r#async` does so for
-async devices. The table itself is still read by `hadris-part` from a stream.
+`part::sync::open` returns a `hadris_storage` `Slice` of the disk: block 0 of
+the slice is the partition's first block, and requests past its end fail
+before they reach the disk. `part::r#async::open` and
+`part::async_send::open` do the same for async devices, and the table is
+read with `part::r#async::read` there.
 
 Do not seek to the partition offset and then pass the unrestricted disk handle
 to a filesystem parser. Filesystem offsets are relative to its start, and an
 unbounded handle can allow corrupt metadata to address neighboring partitions.
 
-Use a disk device whose block size is the logical block size the table was
-written with. The common value is 512 bytes, but GPT and storage devices are
-not universally limited to it.
+The table is read with the disk device's block size, which must be the
+logical block size the table was written with. The common value is 512
+bytes; wrap a 4Kn image in a `StreamDevice` with 4096-byte blocks.

@@ -1,60 +1,76 @@
-//! Partition table support for MBR, GPT, and Hybrid MBR.
+//! MBR, GPT and hybrid partition tables on `hadris-storage` block devices.
 //!
-//! This crate provides types and utilities for working with disk partition tables:
+//! [`Disk`] holds a partition table and the boot code of block 0. It does no
+//! I/O: the mode modules ([`sync`], `r#async`, `async_send`) read it from a
+//! [`BlockDevice`](hadris_storage::sync::BlockDevice), write it back, and
+//! open a partition as a [`Slice`](hadris_storage::sync::Slice) of the
+//! device. The block size is always the device's.
 //!
-//! - **MBR (Master Boot Record)**: Legacy BIOS partition table format supporting up to 4 primary
-//!   partitions. See the [`mbr`] module.
+//! ```rust
+//! # #[cfg(all(feature = "sync", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use hadris_part::gpt::types;
+//! use hadris_part::sync::{create, open, read};
+//! use hadris_part::{DiskLayout, Guid, PartitionKind, PartitionSpec, PartitionTable, Size};
+//! use hadris_storage::{BlockSize, MemDevice};
 //!
-//! - **GPT (GUID Partition Table)**: Modern UEFI partition table format supporting up to 128
-//!   partitions with GUIDs for type identification. See the [`gpt`] module.
+//! let mut dev = MemDevice::new(vec![0u8; 64 << 20], BlockSize::new(512).unwrap());
+//! let layout = DiskLayout::gpt(Guid::from_bytes([7; 16]))
+//!     .partition(PartitionSpec::new(types::EFI_SYSTEM, Size::MiB(16)).with_name("EFI"))
+//!     .partition(PartitionSpec::new(types::LINUX_FILESYSTEM, Size::Remaining));
+//! create(&mut dev, &layout)?;
 //!
-//! - **Hybrid MBR**: A non-standard configuration that combines GPT with MBR entries for
-//!   dual BIOS/UEFI compatibility. See the [`hybrid`] module.
+//! let disk = read(&mut dev)?;
+//! assert!(matches!(disk.table(), PartitionTable::Gpt(_)));
+//! for p in disk.partitions() {
+//!     let name = p.name().map(|n| n.to_string()).unwrap_or_default();
+//!     println!("{} {} {} {:?} {name}", p.index(), p.start(), p.size_bytes(), p.kind());
+//! }
+//! let esp = disk.partition(0).unwrap();
+//! assert_eq!(esp.kind(), PartitionKind::Gpt(types::EFI_SYSTEM));
+//! let esp_dev = open(&mut dev, &esp)?;
+//! # let _ = esp_dev;
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "std")))]
+//! # fn main() {}
+//! ```
+//!
+//! # Tables
+//!
+//! - [`Mbr`]: four primary slots and logical partitions in a chain of
+//!   extended boot records.
+//! - [`Gpt`]: GUID partition table. Its fields are private; edits keep it
+//!   consistent and CRCs are computed whenever it is written. A read falls
+//!   back to the backup copy when the primary is damaged.
+//! - [`Hybrid`]: a GPT whose MBR mirrors up to three of its partitions,
+//!   built from a [`HybridMbr`].
+//!
+//! Every edit (`add`, `add_logical`, `remove`, `resize`, `set_*`) checks
+//! bounds and overlap and leaves the table unchanged when it fails.
+//! [`DiskLayout`] places a list of [`PartitionSpec`]s on a disk in one step.
+//!
+//! # Without an allocator
+//!
+//! `scan` in each mode lists the partitions of a device through a callback,
+//! with the same validation as `read`, and `open` needs no allocator either.
+//! The on-disk layouts in [`raw`] and the GPT CRC ([`raw::crc32`]) are
+//! always available. [`Disk`], the tables and the layout builder need
+//! `alloc`.
 //!
 //! # Features
 //!
-//! - `std` (default): Enables standard library support and includes `alloc`.
-//! - `read` (default): Enables reading partition tables via `*ReadExt` traits.
-//! - `alloc`: Enables heap allocation for `Vec`-based APIs (e.g., `GptDisk`, `PartitionTable`).
-//! - `write`: Enables writing partition tables (requires `alloc` + `read`).
-//! - `sync` / `async`: Synchronous or asynchronous I/O traits (via `hadris-io`).
-//! - `crc`: Enables CRC32 verification/calculation for GPT headers (via the `crc` crate).
-//! - `rand`: Enables random GUID generation (via the `rand` crate).
+//! | Feature | Default | Description |
+//! |---|---|---|
+//! | `std` | Yes | Implies `alloc`; `Guid::random` and `std::io::Error` conversions |
+//! | `alloc` | via `std` | `Disk`, the tables, `DiskLayout`, and `read`, `write` and `create` |
+//! | `sync` | Yes | The blocking API in `sync` |
+//! | `async` | No | The asynchronous API in `r#async` |
+//! | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
 //!
-//! `std` does not select an I/O mode. The default feature set enables `sync`
-//! explicitly; custom configurations should enable `sync`, `async`, or both.
-//!
-//! # Examples
-//!
-//! ## Creating a protective MBR for a GPT disk
-//!
-//! ```rust
-//! use hadris_part::mbr::MasterBootRecord;
-//!
-//! // Create a protective MBR for a 1TB disk (in 512-byte sectors)
-//! let disk_sectors = 1_953_525_168u64; // ~1TB
-//! let mbr = MasterBootRecord::protective(disk_sectors);
-//!
-//! assert!(mbr.has_valid_signature());
-//! assert!(mbr.get_partition_table().is_protective());
-//! ```
-//!
-//! ## Working with GPT partition entries
-//!
-//! ```rust
-//! use hadris_part::gpt::{Guid, GptPartitionEntry};
-//!
-//! // Create an EFI System Partition entry
-//! let esp = GptPartitionEntry::new(
-//!     Guid::EFI_SYSTEM,
-//!     Guid::UNUSED, // Would normally be a unique GUID
-//!     2048,         // Start at 1MB (2048 * 512 bytes)
-//!     206847,       // ~100MB partition
-//! );
-//!
-//! assert!(!esp.is_unused());
-//! assert_eq!(esp.size_sectors(), 204800);
-//! ```
+//! No feature changes what an item does. CRCs are always computed and
+//! checked, and no GUID is ever made at random unless you call
+//! [`Guid::random`].
 
 #![no_std]
 #![deny(missing_docs)]
@@ -62,6 +78,12 @@
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+// Helpers shared by the tables and the I/O modes go unused in builds that
+// have only one of them.
+#![cfg_attr(
+    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    allow(dead_code)
+)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -69,303 +91,105 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-// ---------------------------------------------------------------------------
-// Shared types (compiled once, not duplicated by sync/async modules)
-// ---------------------------------------------------------------------------
+mod codec;
+#[cfg(feature = "alloc")]
+mod disk;
+mod error;
+#[cfg(feature = "alloc")]
+mod gpt_table;
+mod guid;
+mod hybrid;
+#[cfg(feature = "alloc")]
+mod layout;
+#[cfg(feature = "alloc")]
+mod mbr;
+mod mbr_type;
+mod name;
+mod partition;
 
-pub mod error;
-pub mod geometry;
 pub mod gpt;
-pub mod hybrid;
-pub mod mbr;
-pub mod scheme;
-
-// ---------------------------------------------------------------------------
-// Sync module
-// ---------------------------------------------------------------------------
+pub mod raw;
 
 #[cfg(feature = "sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
 #[path = ""]
 pub mod sync {
-    //! Synchronous partition table API.
-    //!
-    //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
-
-    pub use hadris_io::legacy::Result as IoResult;
-    pub use hadris_io::legacy::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::legacy::{Error, ErrorKind, SeekFrom};
+    //! The blocking API: `read`, `write`, `create`, `scan` and `open`.
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => { $($item)* };
-    }
+    use hadris_storage::sync as storage;
 
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => {};
-    }
-
-    #[path = "."]
-    mod __inner {
-        /// GPT parsing and serialization extensions.
-        pub mod gpt_io;
-        /// MBR parsing and serialization extensions.
-        pub mod mbr_io;
-        #[cfg(all(feature = "alloc", feature = "read"))]
-        #[path = "partition_table_io.rs"]
-        /// Generic partition-table detection and I/O.
-        pub mod partition_table;
-        /// Partition-scheme parsing and serialization extensions.
-        pub mod scheme_io;
-    }
-    pub use __inner::*;
+    #[path = "io.rs"]
+    mod io;
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+    pub use io::{create, read, write};
+    pub use io::{open, scan};
 }
 
-// ---------------------------------------------------------------------------
-// Async module
-// ---------------------------------------------------------------------------
-
 #[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = ""]
 pub mod r#async {
-    //! Asynchronous partition table API.
-    //!
-    //! All I/O operations use async `Read`/`Write`/`Seek` traits.
-
-    pub use hadris_io::legacy::Result as IoResult;
-    pub use hadris_io::legacy::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::legacy::{Error, ErrorKind, SeekFrom};
+    //! The asynchronous API, generated from the same source as `sync`.
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => {};
-    }
+    use hadris_storage::r#async as storage;
 
-    #[allow(unused_macros)]
-    macro_rules! async_only {
+    #[path = "io.rs"]
+    mod io;
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+    pub use io::{create, read, write};
+    pub use io::{open, scan};
+}
+
+#[cfg(feature = "async-send")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
+#[path = ""]
+pub mod async_send {
+    //! The asynchronous API over the `Send` devices of
+    //! `hadris_storage::async_send`, whose futures are `Send` when the device
+    //! and callbacks are. Generated from the same source as `r#async`.
+
+    macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
-    #[path = "."]
-    mod __inner {
-        /// GPT parsing and serialization extensions.
-        pub mod gpt_io;
-        /// MBR parsing and serialization extensions.
-        pub mod mbr_io;
-        #[cfg(all(feature = "alloc", feature = "read"))]
-        #[path = "partition_table_io.rs"]
-        /// Generic partition-table detection and I/O.
-        pub mod partition_table;
-        /// Partition-scheme parsing and serialization extensions.
-        pub mod scheme_io;
-    }
-    pub use __inner::*;
+    use hadris_storage::async_send as storage;
+
+    #[path = "io.rs"]
+    mod io;
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+    pub use io::{create, read, write};
+    pub use io::{open, scan};
 }
-
-// ---------------------------------------------------------------------------
-// Default re-exports for backwards compatibility (sync)
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "sync")]
-pub use sync::*;
-
-// Re-export commonly used types at the crate root
-pub use endian_num::Le;
-pub use error::{Error, Result};
-pub use geometry::{DiskGeometry, validate_partition_alignment};
-pub use gpt::{GptHeader, GptPartitionEntry, Guid};
-pub use mbr::{Chs, MasterBootRecord, MbrPartition, MbrPartitionTable, MbrPartitionType};
-pub use scheme::{PartitionInfo, PartitionSchemeType, PartitionType};
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-pub use scheme::{GptDisk, PartitionTable};
-
-// Flatten I/O extension traits to the crate root for discoverability
-#[cfg(all(feature = "sync", feature = "read"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "read")))]
-pub use sync::gpt_io::GptHeaderReadExt;
-#[cfg(all(feature = "sync", feature = "write"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
-pub use sync::gpt_io::GptHeaderWriteExt;
-#[cfg(all(feature = "sync", feature = "read"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "read")))]
-pub use sync::mbr_io::MasterBootRecordReadExt;
-#[cfg(all(feature = "sync", feature = "write"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
-pub use sync::mbr_io::MasterBootRecordWriteExt;
-#[cfg(all(feature = "sync", feature = "alloc", feature = "read"))]
-#[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "read"))))]
-pub use sync::scheme_io::{GptDiskReadExt, PartitionTableReadExt};
-#[cfg(all(feature = "sync", feature = "alloc", feature = "write"))]
-#[cfg_attr(docsrs, doc(cfg(all(feature = "alloc", feature = "write"))))]
-pub use sync::scheme_io::{GptDiskWriteExt, PartitionTableWriteExt};
-
-/// Trait for types that represent partition information.
-///
-/// This trait provides a common interface for accessing basic partition properties
-/// regardless of the underlying partition table format (MBR or GPT).
-pub trait PartitionInfoTrait {
-    /// Returns the starting LBA of the partition.
-    fn start_lba(&self) -> u64;
-
-    /// Returns the size of the partition in sectors.
-    fn size_sectors(&self) -> u64;
-
-    /// Returns the ending LBA of the partition (inclusive).
-    ///
-    /// Saturates to `u64::MAX` on corrupt inputs where
-    /// `start_lba + size_sectors` would overflow.
-    fn end_lba(&self) -> u64 {
-        let size = self.size_sectors();
-        if size == 0 {
-            self.start_lba()
-        } else {
-            self.start_lba().saturating_add(size - 1)
-        }
-    }
-
-    /// Returns the inclusive ending LBA, or `None` if it overflows.
-    fn checked_end_lba(&self) -> Option<u64> {
-        let size = self.size_sectors();
-        if size == 0 {
-            Some(self.start_lba())
-        } else {
-            self.start_lba().checked_add(size - 1)
-        }
-    }
-
-    /// Returns the partition length in bytes for an explicit logical block size.
-    fn byte_len(&self, logical_block_size: u32) -> Option<u64> {
-        self.size_sectors().checked_mul(logical_block_size as u64)
-    }
-}
-
-impl PartitionInfoTrait for MbrPartition {
-    fn start_lba(&self) -> u64 {
-        self.start_lba.to_ne() as u64
-    }
-
-    fn size_sectors(&self) -> u64 {
-        self.sector_count.to_ne() as u64
-    }
-}
-
-impl PartitionInfoTrait for GptPartitionEntry {
-    fn start_lba(&self) -> u64 {
-        self.first_lba.to_ne()
-    }
-
-    fn size_sectors(&self) -> u64 {
-        let first = self.first_lba.to_ne();
-        let last = self.last_lba.to_ne();
-        if self.is_unused() || last < first {
-            0
-        } else {
-            // Saturating: first=0/last=u64::MAX is representable on disk but
-            // its size exceeds u64.
-            (last - first).saturating_add(1)
-        }
-    }
-
-    fn end_lba(&self) -> u64 {
-        self.last_lba.to_ne()
-    }
-}
-
-impl PartitionInfoTrait for PartitionInfo {
-    fn start_lba(&self) -> u64 {
-        self.start_lba
-    }
-
-    fn size_sectors(&self) -> u64 {
-        self.size_sectors
-    }
-
-    fn end_lba(&self) -> u64 {
-        self.end_lba
-    }
-}
-
-/// Trait for partition table types that support reading.
-pub trait PartitionTableRead {
-    /// The partition entry type for this table.
-    type Partition: PartitionInfoTrait;
-
-    /// Returns the number of partitions in the table.
-    fn partition_count(&self) -> usize;
-
-    /// Returns a reference to a partition by index.
-    fn partition(&self, index: usize) -> Option<&Self::Partition>;
-}
-
-impl PartitionTableRead for MbrPartitionTable {
-    type Partition = MbrPartition;
-
-    fn partition_count(&self) -> usize {
-        self.count()
-    }
-
-    fn partition(&self, index: usize) -> Option<&Self::Partition> {
-        if index < 4 && !self.partitions[index].is_empty() {
-            Some(&self.partitions[index])
-        } else {
-            None
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_mbr_partition_trait() {
-        let partition = MbrPartition::new(MbrPartitionType::Fat32, 2048, 204800);
-        assert_eq!(partition.start_lba(), 2048);
-        assert_eq!(partition.size_sectors(), 204800);
-        assert_eq!(partition.end_lba(), 2048 + 204800 - 1);
-        assert_eq!(partition.byte_len(512), Some(204800 * 512));
-    }
-
-    #[test]
-    fn test_gpt_partition_trait() {
-        let partition = GptPartitionEntry::new(Guid::EFI_SYSTEM, Guid::UNUSED, 2048, 206847);
-        assert_eq!(partition.start_lba(), 2048);
-        assert_eq!(partition.size_sectors(), 204800);
-        assert_eq!(partition.end_lba(), 206847);
-    }
-
-    #[test]
-    fn test_mbr_table_read_trait() {
-        let mut table = MbrPartitionTable::new();
-        table[0] = MbrPartition::new(MbrPartitionType::Fat32, 2048, 204800);
-        table[1] = MbrPartition::new(MbrPartitionType::LinuxNative, 206848, 1000000);
-
-        assert_eq!(table.partition_count(), 2);
-        assert!(table.partition(0).is_some());
-        assert!(table.partition(1).is_some());
-        assert!(table.partition(2).is_none());
-        assert!(table.partition(3).is_none());
-    }
-
-    #[test]
-    fn test_struct_sizes() {
-        // Verify that our structures have the expected sizes
-        assert_eq!(core::mem::size_of::<MbrPartition>(), 16);
-        assert_eq!(core::mem::size_of::<MbrPartitionTable>(), 64);
-        assert_eq!(core::mem::size_of::<MasterBootRecord>(), 512);
-        // GptHeader uses native alignment so it may be larger than 92 bytes.
-        // The on-disk format is 92 bytes; serialization should handle this.
-        assert!(core::mem::size_of::<GptHeader>() >= 92);
-        assert_eq!(core::mem::size_of::<GptPartitionEntry>(), 128);
-    }
-}
+pub use disk::{Disk, PartitionTable, Partitions, Run, Runs};
+pub use error::{Detail, Error, TableError};
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use gpt_table::{Gpt, GptEntry};
+pub use guid::{Guid, GuidParseError};
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use hybrid::Hybrid;
+pub use hybrid::HybridMbr;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use layout::{Alignment, DiskLayout, PartitionSpec, Size};
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use mbr::{Mbr, MbrEntry};
+pub use mbr_type::MbrType;
+pub use name::PartitionName;
+pub use partition::{GptCopy, Partition, PartitionFlags, PartitionKind, TableKind};

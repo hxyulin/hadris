@@ -54,7 +54,7 @@ the exFAT preview, and the hybrid ISO/UDF writer.
 |---|---|---:|---:|---:|---:|---|---|
 | `hadris-fat` | FAT12/16/32 | Yes | Yes | Yes | Yes | Allocation-free (writing, formatting and checking too) | Stable |
 | `hadris-fat` `unstable-exfat` | exFAT preview | Partial | Partial | Yes | No | `alloc` | Experimental |
-| `hadris-part` | MBR and GPT | Yes | Yes | Yes | Yes | Allocation-free | Stable |
+| `hadris-part` | MBR (with logical partitions), GPT, hybrid MBR | Yes | Yes | Yes | Yes | Allocation-free (`scan`, `open`) | Stable |
 | `hadris-iso` | ISO 9660, Joliet, Rock Ridge | Yes | Yes | Yes | Yes | Allocation-free | Stable |
 | `hadris-iso` `unstable-streaming` | Streamed file input for the ISO writer | N/A | Yes | Yes | Yes | `std` | Experimental |
 | `hadris-udf` | UDF 1.02 | Yes | Yes | Yes | Yes | `alloc` for filesystem traversal | Stable |

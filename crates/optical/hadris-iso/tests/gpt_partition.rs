@@ -8,8 +8,9 @@ use hadris_iso::write::options::{
     BaseIsoLevel, CreationFeatures, HybridBootOptions, IsoFormatOptions,
 };
 use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter, estimator};
-use hadris_part::gpt::Guid;
-use hadris_part::{GptDisk, GptDiskReadExt};
+use hadris_part::gpt::types;
+use hadris_part::{Gpt, PartitionKind, PartitionTable};
+use hadris_storage::{BlockSize, MemDevice};
 
 const BACKUP_GPT_SECTORS: u64 = 33;
 
@@ -102,9 +103,14 @@ fn iso_space_sectors_512(iso: &[u8]) -> u64 {
     volume_space * 4
 }
 
-fn read_gpt(iso: &[u8]) -> GptDisk {
-    let mut cursor = StdIo::new(Cursor::new(iso.to_vec()));
-    GptDisk::read_from(&mut cursor, 512).expect("failed to read back GPT disk")
+fn read_gpt(iso: &[u8]) -> Gpt {
+    let mut dev = MemDevice::new(iso.to_vec(), BlockSize::new(512).unwrap());
+    let disk = hadris_part::sync::read(&mut dev).expect("failed to read back GPT disk");
+    match disk.into_table() {
+        PartitionTable::Gpt(gpt) => gpt,
+        PartitionTable::Hybrid(hybrid) => hybrid.into_gpt(),
+        other => panic!("expected a GPT, got {other:?}"),
+    }
 }
 
 fn check_gpt_with_esp(iso: &[u8]) -> (u64, u64) {
@@ -128,22 +134,17 @@ fn check_gpt_with_esp(iso: &[u8]) -> (u64, u64) {
     );
 
     let gpt = read_gpt(iso);
-    gpt.validate().expect("GPT validation failed");
-
-    assert_eq!(gpt.primary_header.num_partition_entries.to_ne(), 128);
-    assert_eq!(gpt.primary_header.alternate_lba.to_ne(), total_512 - 1);
-    assert_eq!(gpt.backup_header.my_lba.to_ne(), total_512 - 1);
-    assert!(gpt.primary_header.verify_crc32());
-    assert!(gpt.backup_header.verify_crc32());
+    assert_eq!(gpt.damaged_copy(), None, "a GPT copy failed validation");
+    assert_eq!(gpt.entry_count(), 128);
+    assert_eq!(gpt.backup_lba(), total_512 - 1);
 
     let efi_content = efi_image_content();
     let esp = gpt
         .partitions()
-        .find(|(_, e)| e.type_guid == Guid::EFI_SYSTEM)
-        .map(|(_, e)| *e)
+        .find(|p| p.kind() == PartitionKind::Gpt(types::EFI_SYSTEM))
         .expect("no EFI System Partition in GPT");
-    let esp_start = esp.first_lba.to_ne();
-    let esp_sectors = esp.size_sectors();
+    let esp_start = esp.start();
+    let esp_sectors = esp.len();
     assert_eq!(
         esp_start % 4,
         0,
@@ -159,18 +160,18 @@ fn check_gpt_with_esp(iso: &[u8]) -> (u64, u64) {
 
     let data = gpt
         .partitions()
-        .find(|(_, e)| e.type_guid == Guid::BASIC_DATA)
-        .map(|(_, e)| *e)
+        .find(|p| p.kind() == PartitionKind::Gpt(types::BASIC_DATA))
         .expect("no basic data partition in GPT");
-    assert_eq!(data.first_lba.to_ne(), 64);
-    assert_eq!(data.last_lba.to_ne(), esp_start - 1);
+    assert_eq!(data.start(), 64);
+    assert_eq!(data.end(), esp_start);
+    assert_eq!(data.name().unwrap().to_string(), "ISO9660");
 
-    if let Some((_, tail)) = gpt
+    if let Some(tail) = gpt
         .partitions()
-        .find(|(_, e)| e.type_guid == Guid::BASIC_DATA && e.first_lba.to_ne() > esp_start)
+        .find(|p| p.kind() == PartitionKind::Gpt(types::BASIC_DATA) && p.start() > esp_start)
     {
-        assert_eq!(tail.first_lba.to_ne(), esp_start + esp_sectors);
-        assert_eq!(tail.last_lba.to_ne(), iso_512 - 1);
+        assert_eq!(tail.start(), esp_start + esp_sectors);
+        assert_eq!(tail.end(), iso_512);
     }
 
     (esp_start, esp_sectors)

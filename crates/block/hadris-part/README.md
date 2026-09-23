@@ -1,157 +1,129 @@
 # Hadris Partition
 
-Partition table support for MBR, GPT, and Hybrid MBR.
+MBR, GPT and hybrid MBR partition tables on `hadris-storage` block devices.
 
 ## Overview
 
-This crate provides read and write support for common partition table formats used in disk images and storage devices.
+`hadris-part` reads, edits and writes partition tables and opens partitions
+as block devices for a filesystem driver. It works on any
+`hadris_storage` `BlockDevice` and takes the block size from the device, so
+512-byte and 4 KiB disks need no special handling.
 
-## Features
-
-- **MBR** - Legacy BIOS partition tables (4 primary partitions)
-- **GPT** - Modern UEFI partition tables (128+ partitions with GUIDs)
-- **Hybrid MBR** - Combined MBR+GPT for dual BIOS/UEFI boot compatibility
-- **No-std Compatible** - Use in bootloaders and embedded systems
+- **MBR** with extended and logical partitions (EBR chains)
+- **GPT** with CRCs always checked and written, and a fallback to the backup
+  copy when the primary is damaged
+- **Hybrid MBR** that mirrors up to three GPT partitions for BIOS boot
+- **UTF-16 partition names**, edits with bounds and overlap checks, and a
+  `DiskLayout` builder for whole-disk images
+- **`no_std`**, with `alloc` optional, and sync, async and `Send` async APIs
+  from one source
 
 ## Feature Flags
 
-| Feature | Description | Dependencies | Default |
-|---------|-------------|--------------|---------|
-| `std` | Standard library support | `alloc` | Yes |
-| `read` | Reading partition tables via `*ReadExt` traits | - | Yes |
-| `sync` | Synchronous I/O traits | - | Yes |
-| `async` | Asynchronous I/O traits | - | - |
-| `alloc` | Heap allocation for `Vec`-based APIs (`GptDisk`, `PartitionTable`) | - | via `std` |
-| `write` | Writing partition tables | `alloc`, `read` | - |
-| `crc` | CRC32 verification/calculation for GPT headers | `crc` crate | - |
-| `rand` | Random GUID generation | `rand` crate | - |
+| Feature | Description | Default |
+|---------|-------------|---------|
+| `std` | Implies `alloc`; `Guid::random` and `std::io::Error` conversions | Yes |
+| `alloc` | `Disk`, `Mbr`, `Gpt`, `Hybrid`, `DiskLayout`, and `read`, `write` and `create` | via `std` |
+| `sync` | Blocking API in `hadris_part::sync` | Yes |
+| `async` | Asynchronous API in `hadris_part::r#async` | - |
+| `async-send` | Asynchronous API with `Send` futures in `hadris_part::async_send` | - |
 
-> **Note:** GPT header/entry CRC checks run only when the `crc` feature is enabled.
-> Without it, CRC fields are ignored on read.
-
-`std` selects platform integration but does not select an I/O mode. The default
-feature set enables `sync` explicitly; custom configurations should enable
-`sync`, `async`, or both.
+No feature changes what an item does. CRCs are always computed and checked,
+and GUIDs are never generated behind your back: constructors take them, and
+`Guid::random` (with `std`) is there when you want one.
 
 ## Usage
 
-### Detecting and reading a partition scheme
-
-Requires features `read` and `alloc` (included when using `std` + `read`):
+### Reading a disk and opening a partition
 
 ```rust,no_run
-use std::fs::File;
-use hadris_io::StdIo;
-use hadris_part::{
-    PartitionInfoTrait, PartitionTable, PartitionTableReadExt,
-};
+use hadris_part::sync::{open, read};
+use hadris_part::PartitionKind;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut disk = StdIo::new(File::open("disk.img")?);
-let scheme = PartitionTable::read_from(&mut disk, 512)?;
-
-for part in scheme.partitions() {
-    println!(
-        "Partition {}: {} sectors at LBA {}",
-        part.index,
-        part.size_sectors,
-        part.start_lba
-    );
+let mut disk = std::fs::File::open("disk.img")?;
+let table = read(&mut disk)?;
+for p in table.partitions() {
+    let name = p.name().map(|n| n.to_string()).unwrap_or_default();
+    println!("#{} {} blocks at {} {:?} {name}", p.index(), p.len(), p.start(), p.kind());
 }
+let esp = table
+    .partitions()
+    .find(|p| p.kind() == PartitionKind::Gpt(hadris_part::gpt::types::EFI_SYSTEM))
+    .expect("an EFI system partition");
+let esp_device = open(&mut disk, &esp)?; // a hadris_storage Slice
+# let _ = esp_device;
 # Ok(())
 # }
 ```
 
-### Reading an MBR directly
+### Creating a disk image
 
 ```rust,no_run
-use std::fs::File;
-use hadris_io::StdIo;
-use hadris_part::{MasterBootRecord, MasterBootRecordReadExt, PartitionInfoTrait};
+use hadris_part::gpt::types;
+use hadris_part::{Alignment, DiskLayout, Guid, PartitionSpec, Size};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut disk = StdIo::new(File::open("disk.img")?);
-let mbr = MasterBootRecord::read_from(&mut disk)?;
-
-for partition in mbr.get_partition_table().iter() {
-    if partition.sector_count.to_ne() == 0 {
-        continue;
-    }
-    println!(
-        "Partition: {} sectors at LBA {}",
-        partition.size_sectors(),
-        partition.start_lba()
-    );
-}
+let mut disk = std::fs::File::options().read(true).write(true).open("disk.img")?;
+let layout = DiskLayout::gpt(Guid::random())
+    .with_alignment(Alignment::MiB1)
+    .partition(PartitionSpec::new(types::EFI_SYSTEM, Size::MiB(100)).with_name("EFI"))
+    .partition(PartitionSpec::new(types::LINUX_FILESYSTEM, Size::Remaining));
+let table = hadris_part::sync::create(&mut disk, &layout)?;
+let esp = hadris_part::sync::open(&mut disk, &table.partition(0).unwrap())?;
+// hadris_fat::sync::format(esp, hadris_fat::FormatOptions::new())?;
+# let _ = esp;
 # Ok(())
 # }
 ```
 
-### Reading a GPT disk
+### Editing a table
+
+`Mbr` and `Gpt` edits (`add`, `add_logical`, `remove`, `resize`, `set_*`)
+check that the partition stays in the usable area and overlaps no other one,
+and change nothing when they fail. `write` puts the table back, recomputing
+both GPT copies.
 
 ```rust,no_run
-use std::fs::File;
-use hadris_io::StdIo;
-use hadris_part::{GptDisk, GptDiskReadExt};
+use hadris_part::sync::{read, write};
+use hadris_part::{GptEntry, Guid, PartitionTable};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut disk = StdIo::new(File::open("disk.img")?);
-let gpt = GptDisk::read_from(&mut disk, 512)?;
-
-for (idx, entry) in gpt.partitions() {
-    if entry.is_unused() {
-        continue;
-    }
-    println!(
-        "Partition {}: type {:?} first_lba={}",
-        idx,
-        entry.type_guid,
-        entry.first_lba.to_ne()
-    );
+let mut dev = std::fs::File::options().read(true).write(true).open("disk.img")?;
+let mut disk = read(&mut dev)?;
+if let PartitionTable::Gpt(gpt) = disk.table_mut() {
+    gpt.resize(1, 409_600)?;
+    gpt.add(GptEntry::new(
+        hadris_part::gpt::types::LINUX_SWAP,
+        Guid::random(),
+        2_000_000,
+        1_048_576,
+    ))?;
 }
+write(&mut dev, &disk)?;
 # Ok(())
 # }
 ```
 
-### For Bootloaders (minimal footprint)
+### Without an allocator
+
+`scan` in each mode lists partitions through a callback with the same
+validation as `read`, backup GPT fallback included, and `open` needs no
+allocator either. The on-disk layouts live in `hadris_part::raw`.
 
 ```toml
 [dependencies]
-hadris-part = { version = "2.4.0", default-features = false, features = ["read", "sync"] }
-```
-
-### For Desktop Applications
-
-```toml
-[dependencies]
-hadris-part = { version = "2.4.0", features = ["write"] }  # read is already default
-# Optional GPT CRC verification:
-# hadris-part = { version = "2.4.0", features = ["write", "crc"] }
+hadris-part = { version = "2.4.0", default-features = false, features = ["sync"] }
 ```
 
 ## Partition Types
 
-### MBR Partition Types
-
-Common partition type IDs:
-
-- `0x00` - Empty
-- `0x0B` - FAT32 (CHS)
-- `0x0C` - FAT32 (LBA)
-- `0x0E` - FAT16 (LBA)
-- `0x07` - NTFS/exFAT
-- `0x83` - Linux
-- `0xEE` - GPT Protective MBR
-
-### GPT Partition GUIDs
-
-Common partition type GUIDs:
-
-- EFI System Partition: `C12A7328-F81F-11D2-BA4B-00A0C93EC93B`
-- Microsoft Basic Data: `EBD0A0A2-B9E5-4433-87C0-68B6B72699C7`
-- Linux Filesystem: `0FC63DAF-8483-4772-8E79-3D69D8477DE4`
-
-Constants are available on [`Guid`](https://docs.rs/hadris-part/latest/hadris_part/struct.Guid.html) (e.g. `Guid::EFI_SYSTEM`).
+MBR type codes are `MbrType` values with named constants
+(`MbrType::FAT32_LBA`, `MbrType::LINUX`, `MbrType::EXTENDED_LBA`,
+`MbrType::GPT_PROTECTIVE`, ...); any byte is a valid `MbrType`. GPT type
+GUIDs are constants in `hadris_part::gpt::types` (`EFI_SYSTEM`,
+`BASIC_DATA`, `LINUX_FILESYSTEM`, ...), and `Guid` parses the usual text
+form with `FromStr`, or in `const` context with `Guid::parse_const`.
 
 ## Documentation
 

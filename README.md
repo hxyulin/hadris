@@ -74,10 +74,11 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 ### Block Storage
 
 - **[hadris-block](crates/block/hadris-block)** - Category facade for storage traits, partitions, and block filesystems, with lightweight detection on block devices, partition slices, and unified FAT opening as `FatFs`
-- **[hadris-part](crates/block/hadris-part)** - Partition table support
-  - MBR (Legacy BIOS partition tables)
-  - GPT (Modern UEFI partition tables)
+- **[hadris-part](crates/block/hadris-part)** - Partition table support on block devices
+  - MBR with extended and logical partitions
+  - GPT with backup-copy recovery and UTF-16 names
   - Hybrid MBR (Combined MBR+GPT for dual BIOS/UEFI boot)
+  - `DiskLayout` builder for whole-disk images
 - **[hadris-fat](crates/block/hadris-fat)** - FAT filesystem implementation
   - FAT12, FAT16, FAT32 support
   - `FatFs`, a node-based `hadris-fs` driver in sync, async and `Send` async modes
@@ -191,7 +192,7 @@ Each package now owns its version; all current packages target **2.4.0**:
 [dependencies]
 hadris-iso = "2.4.0"
 hadris-fat = "2.4.0"
-hadris-part = { version = "2.4.0", features = ["read"] }
+hadris-part = "2.4.0"
 hadris-fs = "2.4.0"
 ```
 

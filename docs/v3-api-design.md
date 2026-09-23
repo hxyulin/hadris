@@ -154,7 +154,7 @@ extend, and those live in `raw` (R4).
 
 ### R2. User-facing structs have private fields
 
-- **Options** are `#[non_exhaustive]`, implement `Default`, and take consuming `with_*` setters. Presets are associated functions that return a configured value. They compose because they are starting points:
+- **Options** either are `#[non_exhaustive]` or have private fields (which already rule out struct literals, so they need no attribute), implement `Default`, and take consuming `with_*` setters. Presets are associated functions that return a configured value. They compose because they are starting points:
 
   ```rust
   let opts = IsoOptions::default()
@@ -1098,7 +1098,7 @@ passes a conformance slice. See [Q5](#7-open-questions).
 ### 5.6 `hadris-part`
 
 ```rust
-let disk = Disk::read(&mut dev)?;                  // block size from the device
+let disk = hadris_part::sync::read(&mut dev)?;     // block size from the device
 match disk.table() {                               // #[non_exhaustive]
     PartitionTable::Mbr(mbr) => ..,
     PartitionTable::Gpt(gpt) => ..,
@@ -1109,7 +1109,7 @@ for p in disk.partitions() {
     p.start(); p.len(); p.size_bytes();            // uses the disk's block size
     p.kind();                                      // PartitionKind::{Mbr(MbrType), Gpt(Guid)}
     p.name(); p.unique_guid();                     // GPT fields no longer dropped
-    let fs_dev = disk.open(&mut dev, p)?;          // Slice<&mut D>
+    let fs_dev = hadris_part::sync::open(&mut dev, &p)?;   // Slice<&mut D>
 }
 ```
 
@@ -1117,7 +1117,7 @@ for p in disk.partitions() {
 - GPT type GUIDs move to `gpt::types`. `Guid` implements `FromStr`; the inherent `from_str` becomes `Guid::parse_const`.
 - `Gpt` fields are private. Edits go through methods that keep CRCs correct. Writing always computes CRCs.
 - `HybridMbr` has private fields and `add_mirrored(..)`, identical with and without `alloc`.
-- The six `*ReadExt`/`*WriteExt` traits and `PartitionInfoTrait` collapse into `Disk::read`, `Disk::write` and `raw` functions.
+- The six `*ReadExt`/`*WriteExt` traits and `PartitionInfoTrait` collapse into `read`, `write`, `create`, `scan` and `open` in each mode, and the layouts and CRC in `raw`.
 - Bool parameters (`bootable`) become `PartitionFlags`.
 
 **Layout builder.** One flow for "disk image with partitions":
@@ -1126,10 +1126,9 @@ for p in disk.partitions() {
 let layout = DiskLayout::gpt(disk_guid)
     .with_alignment(Alignment::MiB1)
     .partition(PartitionSpec::new(gpt::types::EFI_SYSTEM, Size::MiB(100)).with_name("EFI"))
-    .partition(PartitionSpec::new(gpt::types::LINUX_FS, Size::Remaining))
-    .build(dev.block_count(), dev.block_size())?;
-let disk = layout.write(&mut dev)?;
-let esp = disk.open(&mut dev, disk.partition(0))?;
+    .partition(PartitionSpec::new(gpt::types::LINUX_FILESYSTEM, Size::Remaining));
+let disk = hadris_part::sync::create(&mut dev, &layout)?;   // build(block_count, block_size) + write
+let esp = hadris_part::sync::open(&mut dev, &disk.partition(0).unwrap())?;
 hadris_fat::sync::format(esp, FormatOptions::new())?;
 ```
 
@@ -1177,7 +1176,7 @@ await is I/O on it), so 2.x documents async volumes as single-task.
    Spec compliance pass, done: mode, uid and gid stay ignored, as the `FsDriver::set_metadata` contract says and `copy_tree` and `import_from_host` rely on, with `Capabilities` reporting neither. A rename onto an existing target gives the result the requested name and case, as Windows and mtools do (Linux `vfat` keeps the target's), and reuses the target's slots so a full FAT12/16 root still accepts it. Short-name tails stay `~1` to `~4`, then take the Windows layout, two basis characters, four hashed hex digits and `~1` to `~9` (`LO1A2F~1.TXT`), instead of `LO~1A2F`. Renamed files get the archive bit, and the conformance model sets it on rename and on any change of contents or size. Names with a trailing dot or space stay refused with `InvalidInput`, so a created name is always the listed name; the specification says they are ignored, and Windows, Linux `vfat` (dots only) and mtools strip them.
 6. **Freeze the traits.** Review `hadris-fs` against FAT, the conformance adapter and a prototype FUSE adapter before any other format ports. Done: [`v3-trait-review.md`](v3-trait-review.md) records the review, and the traits are frozen; later additions follow R10 and section 4.14. A FUSE prototype (`experiments/fuse-prototype`, `fuser` 0.18) mounted `FatFs` in a Linux container and ran shell workloads, then `fsck.fat`. The changes: pins and opens are separate (`open_node`, `close_node`), and only the last name of an open node is `Busy` (Q3); `remove` takes a `RemoveKind`; `ErrorKind` gains `NameTooLong` and `FileTooLarge`; `publish_node` writes pending metadata without a device flush while `sync_node` is durable, and the host `File` device's flush calls `sync_data`; `NodeId` 0 and cursors above `DirCursor::MAX_RAW` are ruled out; a listed id is the id `lookup` returns (a FAT id is now slot plus tier); the contract gained sentences on times, pending fields, cancellation and zone-less times; R10 gained rules for growing the traits and a forwarding test; `Metadata` stays `Copy` and `extra()` is dropped; sync `hadris-vfs` erases through `dyn FileSystem`; the `contract` feature adds a driver test kit that the test driver and `FatFs` pass; and `MountOptions::with_read_only()` lost its bool (R9).
 7. **Errors and the R1/R2/R4/R5 pass, crate by crate.** Done for the crates already on the V3 API; every other crate gets its pass in its own port step. `hadris-io`: the root no longer glob re-exports `sync` (R5), so the traits are always `hadris_io::sync::Read` and its twins. `hadris-storage`: `BlockIndex` and `BlockCount` stay exhaustive plain value types with a private field and `const fn` `new`/`get` (R2), `BlockRange` and `BlockGeometry` get accessors, `StreamWrite` is sealed (R10), and `PartitionView`, the last legacy stream type, is removed in favour of `Slice`. `hadris-fs`: `DateTimeError`, `OpenOptionsError` and `PathError` convert into `Error<E>` like `NameError`, and `ContractViolation` is built only by the kit. `hadris-macros`: `send_async!` passes malformed input through instead of panicking (R6). `hadris-fat`: the struct variants of `Finding` are `#[non_exhaustive]`, and `raw` states the R4 promise; `MountOptions` and `FormatOptions` keep private fields without `#[non_exhaustive]`, as 5.1 says. `hadris-block`: `Error` reports `kind()` and `device_error()` and converts into `hadris_fs::Error` and `std::io::Error`, and `OpenError` gains `kind()` and `device()`. `hadris-common`: `MaybePod`, whose bounds changed with `bytemuck` (R3), goes, with the unused `optical` and `alg` modules and the `chrono`, `crc` and `rand` dependencies. The guardrail scripts learned the rest: `check-v3-api.py parity` compares `async` with `async_send`, no longer reads a method named `sync` as a mode, and lists intended differences with their reason; `check-non-exhaustive.py` reports `unstable-*` preview modules separately. Both are clean for these crates. Deferred: the private `Context` of `Error<E>` (sector, cluster, node, field) and typed accessors, which are additive, until a driver has detail to report; `Error` of `hadris-block` in every feature combination and the `read`, `detect` and `storage` features to step 11; the Hadris `SeekFrom` and the `embedded-io` feature to the deletion of `hadris_io::legacy`; FAT directory entry layouts in `raw` to step 13; the exFAT preview (`ExFatInfo`, `ExFatFileEntry`, `ExFatFormatOptions` and the rest) to step 12; `hadris-part` to step 8; and the `hadris-common` types only the optical crates use (`EndianType`, `extent::{Extent, FileType}`, `layout::{FileLayout, DirectoryLayout}`, the `fixed` types, `BOOT_SECTOR_BIN`, and the `sync` and `async` features that now only forward to `hadris-io`) to steps 9 and 10.
-8. **`hadris-part`.** `Disk`, `DiskLayout`, `MbrType`, GUIDs, CRC always on, EBR.
+8. **`hadris-part`.** `Disk`, `DiskLayout`, `MbrType`, GUIDs, CRC always on, EBR. Done: `Disk` is a mode-independent value (4.8: it holds a table and does no I/O), so the I/O is free functions in each of the three modes: `read`, `write`, `create(&mut dev, &layout)`, `open(dev, &partition)` returning a `Slice`, and `scan`, which lists partitions through a callback without an allocator; `Disk`, the tables and `DiskLayout` need `alloc`. `PartitionTable` is `Mbr`, `Gpt` or `Hybrid`, `Partition` has `start`, `len`, `size_bytes`, `kind`, `flags`, `name` and `unique_guid`, and `Disk::runs` gives the table as runs of whole blocks, which the still-V2 ISO writer copies into its image unchanged byte for byte. `Mbr` follows EBR chains and writes them; `Gpt` keeps private fields, computes CRCs on every write, falls back to the backup copy (reported by `damaged_copy`, repaired by `write`) and names are UTF-16 `PartitionName`s; every edit (`add`, `add_logical`, `remove`, `resize`, `set_*`) checks bounds and overlap and changes nothing on failure. `MbrType(u8)` with constants, `gpt::types`, `Guid: FromStr` with `Guid::parse_const`, `Guid::random` only with `std`, `HybridMbr` with a fixed three-slot array, and `PartitionFlags`. Errors are `Error<E>` (a `hadris-fs` `ErrorKind`, a non-exhaustive `Detail` and the device error) and `TableError` for edits. Features are `std`, `alloc`, `sync`, `async` and `async-send`; `read`, `write`, `crc` and `rand` are gone. `hadris-block` drops its `partition` module for `part::sync::open`, and the `part_read` fuzz target edits, writes and re-reads what it parses. Not done: moving the backup GPT to the end of a grown disk, and entry sizes above 128 bytes keep only their first 128 bytes on rewrite.
 9. **`hadris-iso`.** Unified reader, `IsoView`, `IsoOptions`, `Tree` input, report, sessions, async writer.
 10. **`hadris-udf`, `hadris-cd`, `hadris-cpio`.** Shared `Tree`, streaming readers and writers, UDF `FileSystem`.
 11. **`hadris-ntfs`, `hadris-block`, `hadris-optical`, umbrella.**

@@ -103,21 +103,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
-name = "crc"
-version = "3.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5eb8a2a1cd12ab0d987a5d5e825195d372001a4094a0376319d5a0ad71c1ba0d"
-dependencies = [
- "crc-catalog",
-]
-
-[[package]]
-name = "crc-catalog"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
-
-[[package]]
 name = "embedded-io"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -130,16 +115,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2564b9f813c544241430e147d8bc454815ef9ac998878d30cc3055449f7fd4c0"
 dependencies = [
  "embedded-io",
-]
-
-[[package]]
-name = "endian-num"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b4a54dfedecb1dc004776a597db0c858cf6c31579296734511309291b8399ce"
-dependencies = [
- "bytemuck",
- "bytemuck_derive",
 ]
 
 [[package]]
@@ -287,6 +262,7 @@ dependencies = [
  "hadris-io",
  "hadris-macros",
  "hadris-part",
+ "hadris-storage",
  "spin",
  "thiserror",
  "tracing",
@@ -303,11 +279,12 @@ dependencies = [
 name = "hadris-part"
 version = "2.4.0"
 dependencies = [
+ "bitflags",
  "bytemuck",
- "crc",
- "endian-num",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
+ "hadris-storage",
 ]
 
 [[package]]

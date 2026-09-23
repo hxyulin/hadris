@@ -44,16 +44,6 @@ pub hadris_block::detect::PartitionTableKind::Gpt
 pub hadris_block::detect::PartitionTableKind::Hybrid
 pub hadris_block::detect::PartitionTableKind::Mbr
 pub fn hadris_block::detect::detect_sector(&[u8; 512]) -> core::option::Option<hadris_block::detect::BlockFormat>
-pub mod hadris_block::partition
-pub mod hadris_block::partition::async
-pub fn hadris_block::partition::async::gpt_partition<D: hadris_storage::async::api::BlockDevice>(D, &hadris_part::gpt::GptPartitionEntry) -> core::result::Result<hadris_storage::async::api::Slice<D>, D>
-pub fn hadris_block::partition::async::mbr_partition<D: hadris_storage::async::api::BlockDevice>(D, &hadris_part::mbr::MbrPartition) -> core::result::Result<hadris_storage::async::api::Slice<D>, D>
-pub mod hadris_block::partition::async_send
-pub fn hadris_block::partition::async_send::gpt_partition<D: hadris_storage::async_send::api::BlockDevice>(D, &hadris_part::gpt::GptPartitionEntry) -> core::result::Result<hadris_storage::async_send::api::Slice<D>, D>
-pub fn hadris_block::partition::async_send::mbr_partition<D: hadris_storage::async_send::api::BlockDevice>(D, &hadris_part::mbr::MbrPartition) -> core::result::Result<hadris_storage::async_send::api::Slice<D>, D>
-pub mod hadris_block::partition::sync
-pub fn hadris_block::partition::sync::gpt_partition<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_part::gpt::GptPartitionEntry) -> core::result::Result<hadris_storage::sync::api::Slice<D>, D>
-pub fn hadris_block::partition::sync::mbr_partition<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_part::mbr::MbrPartition) -> core::result::Result<hadris_storage::sync::api::Slice<D>, D>
 pub mod hadris_block::sync
 #[non_exhaustive] pub enum hadris_block::sync::OpenVolume<D>
 pub hadris_block::sync::OpenVolume::Fat(hadris_fat::sync::fatfs::FatFs<D>)

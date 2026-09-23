@@ -10,6 +10,44 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-part (V3):** The partition tables move onto `hadris-storage`
+  block devices and take the block size from the device. `Disk` holds a
+  `PartitionTable` (`#[non_exhaustive]`: `Mbr`, `Gpt`, `Hybrid`) and the
+  446 bytes of boot code in block 0; it does no I/O. Each mode (`sync`,
+  `r#async` and, with the new `async-send` feature, `async_send`) has
+  `read(&mut dev)`, `write(&mut dev, &disk)`, `create(&mut dev, &layout)`,
+  `open(dev, &partition)`, which returns a `Slice` of the disk, and
+  `scan(&mut dev, f)`, which lists partitions through a callback without an
+  allocator. `Disk::partitions` yields `Partition` values with `index`,
+  `start`, `len`, `end`, `size_bytes` (in the disk's block size), `kind`
+  (`PartitionKind::{Mbr(MbrType), Gpt(Guid)}`), `flags`, `attributes`,
+  `unique_guid` and `name`. `Disk::runs` gives the table's bytes as runs of
+  whole blocks, block 0 last, for writers that are not block devices.
+  Feature work: extended and logical MBR partitions read from and written
+  as EBR chains (indices from 4, as Linux numbers them); a GPT whose
+  primary copy fails validation is read from the backup and the other way
+  round, `Gpt::damaged_copy` names the damaged copy, and `write` repairs
+  it; GPT names are UTF-16 (`PartitionName`, 36 code units, lossless for
+  unpaired surrogates, `Display` replaces them with U+FFFD and `to_str`
+  reports them); `Mbr` and `Gpt` edits (`add`, `add_logical`, `remove`,
+  `resize`, `set_kind`/`set_type`, `set_flags`, `set_name`,
+  `set_unique_guid`, `set_attributes`) check bounds, the 32-bit MBR fields
+  and overlap with every other partition and leave the table unchanged when
+  they fail. `DiskLayout` (`mbr`, `gpt(disk_guid)`, `hybrid(disk_guid)`)
+  places `PartitionSpec`s (`Size::{Blocks, Bytes, KiB, MiB, GiB,
+  Remaining}`, `Alignment::{Block, MiB1, Blocks}`, names, flags, explicit
+  starts, hybrid mirrors) with `build(block_count, block_size)`; an MBR
+  layout with more than four partitions gets an extended partition, and
+  unique GUIDs default to ones derived from the disk GUID, so a layout
+  always builds the same disk. `HybridMbr` configures a hybrid MBR
+  (`with_protective_slot`, `add_mirrored`) and holds no allocation.
+  `Error<E>` carries an `ErrorKind` from `hadris-fs`, a `Detail`
+  (`#[non_exhaustive]`) naming the structure or partition, and the
+  device's own error, and converts into `hadris_fs::Error<E>` and
+  `std::io::Error`; edits that touch no device return `TableError`. The
+  on-disk layouts (`RawMbr`, `RawMbrEntry`, `Chs`, `RawGptHeader`,
+  `RawGptEntry`), the specification constants and the CRC32 live in `raw`.
+
 - **hadris-fs (V3):** The `contract` feature adds a driver test kit:
   `contract::check(&mut fs)` in each mode runs the format-independent rules
   of the `FsDriver` contract (pins, opens and `Busy`, removed pinned nodes,
@@ -153,10 +191,10 @@ Each published package owns its version and may be released independently.
   cluster of a node's chain to a callback without allocating, for tools that
   show file layout and fragmentation.
 - **hadris-block, hadris (V3):** An additive `async-send` feature adds
-  `hadris_block::async_send` (`OpenVolume` over `hadris_fat::async_send::FatFs`),
-  `detect::async_send` and `partition::async_send`, generated from the same
-  source as `r#async`, and enables `async-send` in `hadris-storage`,
-  `hadris-fs` and `hadris-fat`. The umbrella `hadris` crate forwards
+  `hadris_block::async_send` (`OpenVolume` over `hadris_fat::async_send::FatFs`)
+  and `detect::async_send`, generated from the same source as `r#async`, and
+  enables `async-send` in `hadris-storage`, `hadris-fs`, `hadris-fat` and
+  `hadris-part`. The umbrella `hadris` crate forwards
   `async-send` to `hadris-io`, `hadris-fs` and `hadris-block`, and its
   `sync` and `async` features now also reach `hadris-fs`.
 - **hadris-macros (V3):** `send_async!`, a third generation mode next to
@@ -212,7 +250,35 @@ Each published package owns its version and may be released independently.
 - **hadris-fat (V3):** The variants of `Finding` with fields are
   `#[non_exhaustive]`, so findings are made only by `check` and a later
   release can add a location to one; match them with `..`.
-
+- **hadris-part (V3):** CRCs are always computed and checked; the `crc`
+  feature is gone. No GUID is made at random: `Gpt::new(disk_guid, ..)` and
+  `GptEntry::new(type_guid, unique_guid, ..)` take GUIDs, and
+  `Guid::random` (with `std`, no `rand` dependency) makes one on request.
+  `Guid` implements `FromStr` (with or without braces); the inherent
+  `from_str` is now `Guid::parse_const`, and `Guid::UNUSED` is `Guid::NIL`.
+  The type GUID constants move from `Guid` to `gpt::types`
+  (`gpt::types::EFI_SYSTEM`). `MbrType(u8)` with associated constants
+  (`MbrType::FAT32_LBA`, `MbrType::LINUX`, `MbrType::EXTENDED_LBA`, ...)
+  replaces `MbrPartitionType` and `MbrPartitionTypeFull`. `0x04` is
+  `FAT16_SMALL`, `0x06` is `FAT16` and `0x0E` is `FAT16_LBA`; the old enum
+  called `0x04` `Fat16` and `0x06` `Fat16Lba`.
+  `Gpt` has private fields. `PartitionFlags` replaces the `bootable` bool
+  parameters. Features are `std`, `alloc`, `sync`, `async` and
+  `async-send`; `read`, `write`, `crc` and `rand` are removed, reading and
+  writing are always available, and the `endian-num` and `rand`
+  dependencies are dropped. Block sizes must be powers of two of at least
+  512 bytes. `write` refuses a GPT whose copies would not fit beside the
+  usable area, as on a truncated image, instead of overwriting partition
+  data. The `part_read` fuzz target also scans, edits, writes and re-reads
+  what it parses, and `fuzz/scripts/gen-seeds.sh` makes small MBR, EBR,
+  GPT (512 and 4096-byte blocks), hybrid and damaged-GPT seeds that fit
+  the target's 64 KiB inputs.
+- **hadris-iso:** Builds its MBR, GPT and hybrid partition tables with the
+  V3 `hadris-part` tables and writes them from `Disk::runs`; the images are
+  byte for byte the same. `hadris-part` and `hadris-storage` are optional
+  dependencies that `write` enables.
+- **hadris-block (V3):** The `read` and `write` features no longer enable
+  anything in `hadris-part`.
 - **hadris-fs (V3):** The driver contract is written down in full on
   `FsDriver`: `NodeId` 0 is never a node, cursors stay at or below the new
   `DirCursor::MAX_RAW` (`2^63 - 16`), reads never change times, pending
@@ -288,8 +354,8 @@ Each published package owns its version and may be released independently.
   device back (`error`, `into_error`, `into_device`, `into_parts`) instead
   of dropping it. The volume is mounted once, and a failed mount returns
   the device through `FatFs`'s `MountError`. `?` converts an `OpenError`
-  into `Error`. `partition::sync` and `partition::r#async` turn
-  MBR and GPT entries into `Slice<D>`s of the disk. The `detect` feature
+  into `Error`. A partition becomes a `Slice<D>` of the disk through
+  `part::sync::open` (and its async forms) from `hadris-part`. The `detect` feature
   depends on `hadris-storage` instead of `hadris-io`. The `sync` and
   `r#async` openers are generated from one source.
 - **hadris-fat-cli (V3):** Every command runs on `FatFs`; read commands mount
@@ -345,7 +411,18 @@ Each published package owns its version and may be released independently.
   `bytemuck` only adds `Pod` impls. The unused `optical` module and
   feature, the `alg` module (`Crc32HasherIsoHdlc`) and the `chrono`, `crc`
   and `rand` dependencies, which `std` pulled into every dependent crate.
-
+- **hadris-part (V3):** The V2 API: `MasterBootRecord`, `MbrPartition`,
+  `MbrPartitionTable`, `MbrPartitionType`, `MbrPartitionTypeFull`,
+  `GptHeader`, `GptPartitionEntry`, `GptPartitionName`, `GptAttributes`,
+  `GptDisk`, the V2 `PartitionTable`, `PartitionInfo`, `PartitionType`,
+  `PartitionSchemeType`, `detect_scheme_from_mbr`, `is_hybrid_mbr`,
+  `HybridMbrBuilder`, `HybridMbrConfig`, `MirroredPartition`,
+  `DiskGeometry` and the alignment helpers, the six `*ReadExt` and
+  `*WriteExt` traits, `PartitionInfoTrait`, `PartitionTableRead`,
+  `sync::partition_table::{detect, open}`, the crate-level `Result` and the
+  root re-exports of the `sync` module. Use `Disk` with `read`, `write`,
+  `create`, `scan` and `open` in a mode module, `Mbr`, `Gpt`, `Hybrid`,
+  `HybridMbr`, `DiskLayout`, `Partition` and the layouts in `raw`.
 - **hadris-fat (V3):** The V2 FAT12/16/32 API: `FatVolume`,
   `FatVolumeBuilder`, `FatDir`, `FileEntry`, `DirectoryEntry`, `FileReader`,
   `FileWriter`, `FatVolumeReadExt`, `FatVolumeWriteExt`, the `fat_table`

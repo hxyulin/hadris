@@ -99,6 +99,7 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
-| MBR:layout | `MasterBootRecord` | unknown | `roundtrip::mbr_write_read_roundtrip` | | Behavior is tested, but authoritative source text was unavailable for this audit. |
-| UEFI:GPT-Header | `GptHeader` | unknown | `io_roundtrip::gpt_scheme_sync_write_open_and_detect_roundtrip` | | Behavior is tested, but authoritative source text was unavailable for this audit. |
-| UEFI:GPT-Entry | `GptPartitionEntry` | unknown | `roundtrip::gpt_partition_entry_roundtrip` | | Behavior is tested, but authoritative source text was unavailable for this audit. |
+| MBR:layout | `RawMbr` | unknown | `roundtrip::mbr_layout_roundtrip` | `part_read` | Behavior is tested, but authoritative source text was unavailable for this audit. |
+| MBR:partition-entry | `RawMbrEntry` | unknown | `roundtrip::mbr_layout_roundtrip` | `part_read` | Behavior is tested, including EBR chains, but authoritative source text was unavailable for this audit. |
+| UEFI:GPT-Header | `RawGptHeader` | unknown | `read::backup_gpt_replaces_a_corrupt_primary`, `roundtrip::gpt_layout_roundtrip` | `part_read` | Behavior is tested, but authoritative source text was unavailable for this audit. |
+| UEFI:GPT-Entry | `RawGptEntry` | unknown | `roundtrip::gpt_layout_roundtrip`, `roundtrip::utf16_names_roundtrip` | `part_read` | Behavior is tested, but authoritative source text was unavailable for this audit. |

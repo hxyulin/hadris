@@ -38,7 +38,7 @@ Rewrites trait declarations so generic callers can prove futures `Send`:
 
 ## Consumer boilerplate
 
-Each dual-API crate defines thin modules like this (see `hadris-part` / `hadris-fat`):
+Each dual-API crate defines thin modules like this (see `hadris-fat` or `hadris-part`):
 
 ```rust,ignore
 #[cfg(feature = "sync")]
@@ -57,7 +57,7 @@ pub mod sync {
 
     #[path = "."]
     mod __inner {
-        pub mod mbr_io; // shared source file
+        pub mod io; // shared source file
     }
     pub use __inner::*;
 }

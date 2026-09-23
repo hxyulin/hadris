@@ -106,10 +106,10 @@ mode your application uses; `std` does not implicitly select `sync`.
 
 ## Format a partition rather than a whole disk
 
-Create or open the partition table with `hadris-part`, restrict the disk to the
-partition with `hadris_block::partition::sync::mbr_partition` or
-`gpt_partition` (or `hadris_storage::sync::Slice::new` directly), and pass that
-slice to `format`. The formatter sees block zero relative to the partition and
+Create or read the partition table with `hadris-part` (`DiskLayout` and
+`hadris_part::sync::create`, or `hadris_part::sync::read`), restrict the disk
+to the partition with `hadris_part::sync::open`, and pass that slice to
+`format`. The formatter sees block zero relative to the partition and
 cannot write outside it.
 
 ## Validate the result

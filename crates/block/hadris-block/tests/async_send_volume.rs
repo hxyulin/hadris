@@ -7,8 +7,8 @@ use std::task::{Wake, Waker};
 
 use hadris_block::async_send::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
-use hadris_block::part::{MbrPartition, MbrPartitionType};
-use hadris_block::partition::async_send::mbr_partition;
+use hadris_block::part::async_send::open;
+use hadris_block::part::{Disk, Mbr, MbrEntry, MbrType, Partition};
 use hadris_block::{Error, OpenError};
 use hadris_fat::{FatKind, FormatOptions};
 use hadris_fs::async_send::DriverExt;
@@ -51,14 +51,23 @@ fn formatted_fat12<D: BlockDevice>(dev: D) -> D {
         .into_inner()
 }
 
+/// A partition of `len` blocks from `start` in an MBR for a disk of
+/// `blocks` blocks.
+fn mbr_partition(blocks: u64, start: u64, len: u64) -> (Disk, Partition) {
+    let mut mbr = Mbr::new(blocks, BlockSize::new(512).unwrap()).unwrap();
+    mbr.add(MbrEntry::new(MbrType::FAT12, start, len)).unwrap();
+    let disk = Disk::new(mbr);
+    let entry = disk.partition(0).unwrap();
+    (disk, entry)
+}
+
 /// A disk with an MBR whose first partition holds a FAT12 volume.
-fn partitioned_disk() -> (Device, MbrPartition) {
-    let entry = MbrPartition::new(MbrPartitionType::Fat12, 1, (VOLUME_LEN / 512) as u32);
-    let mut bytes = vec![0_u8; VOLUME_LEN + 512];
-    bytes[446..462].copy_from_slice(bytemuck::bytes_of(&entry));
-    bytes[510..512].copy_from_slice(&[0x55, 0xaa]);
-    let mut disk = device(bytes);
-    formatted_fat12(mbr_partition(&mut disk, &entry).unwrap());
+fn partitioned_disk() -> (Device, Partition) {
+    let blocks = (VOLUME_LEN / 512) as u64;
+    let (table, entry) = mbr_partition(blocks + 1, 1, blocks);
+    let mut disk = device(vec![0_u8; VOLUME_LEN + 512]);
+    block_on(hadris_block::part::async_send::write(&mut disk, &table)).unwrap();
+    formatted_fat12(open(&mut disk, &entry).unwrap());
     (disk, entry)
 }
 
@@ -78,7 +87,7 @@ fn opens_fat_through_an_mbr_partition() {
             Error::PartitionedDisk(PartitionTableKind::Mbr)
         ));
 
-        let partition = mbr_partition(&mut disk, &entry).unwrap();
+        let partition = open(&mut disk, &entry).unwrap();
         let volume = OpenVolume::open(partition).await.unwrap();
         assert_eq!(volume.format(), FatVariant::Fat12);
         let mut fs = volume.into_fat().ok().unwrap();
@@ -114,8 +123,9 @@ fn failures_give_the_device_back() {
             .unwrap();
         assert!(matches!(error, Error::UnknownFormat));
 
-        let past = MbrPartition::new(MbrPartitionType::Fat12, 4096, 16);
-        let dev = mbr_partition(dev, &past).err().unwrap();
+        let (_, past) = mbr_partition(8192, 4096, 16);
+        let mut dev = dev;
+        assert!(open(&mut dev, &past).is_err());
         assert_eq!(dev.get_ref().len(), VOLUME_LEN);
 
         let mut image = dev.into_inner();
