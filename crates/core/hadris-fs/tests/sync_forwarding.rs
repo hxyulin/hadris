@@ -17,7 +17,7 @@ use hadris_fs::{
 type Calls = BTreeSet<&'static str>;
 
 /// The methods declared in `pub trait <name>` of the driver source.
-fn declared(name: &str) -> Calls {
+fn declared(name: &str) -> BTreeSet<String> {
     let source = include_str!("../src/api/driver.rs");
     let start = source
         .find(&format!("pub trait {name} {{"))
@@ -28,7 +28,7 @@ fn declared(name: &str) -> Calls {
         .skip(1)
         .filter_map(|rest| rest.split('(').next())
         .filter(|name| name.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
-        .map(|name| &*String::from(name).leak())
+        .map(String::from)
         .collect()
 }
 
@@ -218,7 +218,10 @@ fn every_fs_method<F: FileSystem + ?Sized>(f: &F) -> Calls {
 fn assert_all(what: &str, trait_name: &str, reached: Calls, direct: Calls) {
     let mut seen = reached;
     seen.extend(direct);
-    let missing: Vec<_> = declared(trait_name).difference(&seen).copied().collect();
+    let missing: Vec<_> = declared(trait_name)
+        .into_iter()
+        .filter(|name| !seen.contains(name.as_str()))
+        .collect();
     assert!(missing.is_empty(), "{what} does not forward {missing:?}");
 }
 
