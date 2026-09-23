@@ -8,15 +8,15 @@ use hadris_fs::sync::DriverExt;
 
 use super::super::args::ExtractArgs;
 
-use super::{Result, View, join, list_dir, open, preferred_view};
+use super::{Result, View, join, list_dir, open, view_for};
 
 /// Extract files from an ISO image
 pub fn extract(args: ExtractArgs) -> Result<()> {
     let mut iso = open(&args.input)?;
-    let mut view = preferred_view(&mut iso)?;
+    let start = args.path.as_deref().unwrap_or("/");
+    let mut view = view_for(&mut iso, start)?;
 
     fs::create_dir_all(&args.output)?;
-    let start = args.path.as_deref().unwrap_or("/");
     let mut extracted_count = 0;
     extract_dir(
         &mut view,

@@ -2,7 +2,7 @@ use hadris_fs::FileType;
 
 use super::super::args::LsArgs;
 
-use super::{Result, first_block, list_dir, open, preferred_view};
+use super::{Result, first_block, list_dir, open, view_for};
 
 fn type_char(file_type: FileType) -> char {
     match file_type {
@@ -19,7 +19,7 @@ fn type_char(file_type: FileType) -> char {
 /// List directory contents
 pub fn ls(args: LsArgs) -> Result<()> {
     let mut iso = open(&args.input)?;
-    let mut view = preferred_view(&mut iso)?;
+    let mut view = view_for(&mut iso, &args.path)?;
     let entries = list_dir(&mut view, &args.path)?;
 
     if args.all {

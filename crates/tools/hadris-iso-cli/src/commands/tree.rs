@@ -1,11 +1,11 @@
 use super::super::args::TreeArgs;
 
-use super::{Result, View, join, list_dir, open, preferred_view};
+use super::{Result, View, join, list_dir, open, view_for};
 
 /// Display directory tree
 pub fn tree(args: TreeArgs) -> Result<()> {
     let mut iso = open(&args.input)?;
-    let mut view = preferred_view(&mut iso)?;
+    let mut view = view_for(&mut iso, &args.path)?;
 
     println!("{}", args.path);
     let max_depth = args.depth.unwrap_or(usize::MAX);

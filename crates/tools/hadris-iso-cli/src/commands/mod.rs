@@ -35,10 +35,21 @@ fn open(path: &Path) -> Result<IsoImage<File>> {
     Ok(IsoImage::open(File::open(path)?)?)
 }
 
-/// The most capable tree of the image: Rock Ridge, then Joliet, then the
-/// enhanced tree, then the primary tree.
-fn preferred_view(iso: &mut IsoImage<File>) -> Result<View<'_>> {
-    Ok(iso.view(Namespace::Preferred)?)
+/// The most capable tree of the image (Rock Ridge, then Joliet, then the
+/// enhanced tree, then the primary tree) when `path` is in it, and otherwise
+/// the primary tree, whose lookups ignore ASCII case, so ISO 9660 paths such
+/// as `/README.TXT` work too.
+fn view_for<'a>(iso: &'a mut IsoImage<File>, path: &str) -> Result<View<'a>> {
+    let preferred = iso
+        .view(Namespace::Preferred)?
+        .exists(path)
+        .unwrap_or(false);
+    let namespace = if preferred {
+        Namespace::Preferred
+    } else {
+        Namespace::Primary
+    };
+    Ok(iso.view(namespace)?)
 }
 
 fn join(dir: &str, name: &str) -> String {
