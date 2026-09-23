@@ -528,8 +528,9 @@ pub(super) async fn write_bytes<D: BlockDevice>(
 /// Writes go to the device at once; the driver caches no data. What it
 /// defers is the size and modification time in the directory entry of a
 /// pinned file: `write_at` and growing `set_len` keep them in the node table,
-/// so every handle on the node sees one size, and `sync_node` or `sync`
-/// writes them. Until then the node stays in the table under a pin of the
+/// so every handle on the node sees one size, and `publish_node`,
+/// `sync_node` or `sync` writes them. `publish_node` (what closing a `File`
+/// calls) does not flush the device; `sync_node` and `sync` do. Until then the node stays in the table under a pin of the
 /// driver's own, even after the last `forget`, and counts towards
 /// [`open_nodes`](Self::open_nodes) and the table's capacity. Writes through
 /// an unpinned id, shrinking `set_len`, and a file's first cluster are
@@ -772,7 +773,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// Number of nodes in the node table, plus one for the root, which is
     /// always pinned. Nodes whose size is not yet written count until
-    /// `sync_node` or `sync`.
+    /// `publish_node`, `sync_node` or `sync`.
     pub fn open_nodes(&self) -> usize {
         self.nodes.len() + 1
     }
@@ -1198,8 +1199,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// with [`ErrorKind::FileTooLarge`], and a volume without room for the
     /// new clusters fails with [`ErrorKind::NoSpace`] and changes nothing.
     ///
-    /// The new size of a pinned file is written by `sync_node` or `sync`,
-    /// with the modification time and the archive attribute.
+    /// The new size of a pinned file is written by `publish_node`,
+    /// `sync_node` or `sync`, with the modification time and the archive
+    /// attribute.
     pub async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
         self.writable()?;
         let (id, state) = self.file_node(node).await?;
@@ -1334,13 +1336,20 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Writes the node's pending size and modification time, then flushes
     /// the device.
     pub async fn sync_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        self.publish_node(node).await?;
+        self.flush_device().await
+    }
+
+    /// Writes the node's pending size and modification time to its
+    /// directory entry, without flushing the device.
+    pub async fn publish_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
         if node != ROOT {
             let (id, _) = self.any_node(node).await?;
             if let Some(id) = id {
                 self.flush_node(id).await?;
             }
         }
-        self.flush_device().await
+        Ok(())
     }
 
     /// Writes every pending size and modification time and the FAT32
@@ -2432,4 +2441,4 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
 }
 
-impl_fat_driver!(impl[D: BlockDevice, T: NodeTable, C: Clock, P: CodePage] FatFs<D, T, C, P>, error = D::Error; also = [parent, open_node, close_node]);
+impl_fat_driver!(impl[D: BlockDevice, T: NodeTable, C: Clock, P: CodePage] FatFs<D, T, C, P>, error = D::Error; also = [parent, open_node, close_node, publish_node]);

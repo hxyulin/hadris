@@ -13,8 +13,8 @@
 //! `hadris_fs` `FsDriver` trait, so the `hadris-fs` path helpers, `Volume`
 //! and handles work on it. It reads and writes files and directories:
 //! `create`, `remove`, `rename`, `write_at`, `set_len`, `set_metadata`,
-//! `sync_node` and `sync`. Sizes of pinned files are kept in the node table
-//! until `sync_node` or `sync`; see the `FatFs` docs for durability and
+//! `publish_node`, `sync_node` and `sync`. Sizes of pinned files are kept
+//! in the node table until one of the last three; see the `FatFs` docs for durability and
 //! crash safety.
 //!
 //! ```rust,no_run

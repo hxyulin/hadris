@@ -1520,6 +1520,76 @@ impl BlockDevice for Faulty {
     }
 }
 
+/// A device that counts flushes.
+struct Flushes {
+    inner: Device,
+    flushes: usize,
+}
+
+impl hadris_io::ErrorType for Flushes {
+    type Error = OutOfRange;
+}
+
+impl BlockDevice for Flushes {
+    fn block_size(&self) -> BlockSize {
+        self.inner.block_size()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.inner.block_count()
+    }
+
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
+        self.inner.read_blocks(first, buf)
+    }
+
+    fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), WriteError<OutOfRange>> {
+        self.inner.write_blocks(first, buf)
+    }
+
+    fn flush(&mut self) -> Result<(), WriteError<OutOfRange>> {
+        self.flushes += 1;
+        Ok(())
+    }
+}
+
+#[test]
+fn publish_node_writes_the_entry_without_a_flush() {
+    let case = CASES[1];
+    let dev = Flushes {
+        inner: common::device(case, common::blank(case)),
+        flushes: 0,
+    };
+    let mut fs = FatFs::open(dev).unwrap();
+    let root = fs.root();
+    let node = fs
+        .create(root, name("log.txt"), NewNode::File, &SetMetadata::new())
+        .unwrap();
+    fs.write_at(node, 0, b"published").unwrap();
+    fs.publish_node(node).unwrap();
+    fs.forget(node);
+    assert_eq!(fs.open_nodes(), 1, "a published node is clean");
+    let dev = fs.into_inner();
+    assert_eq!(dev.flushes, 0);
+    let image = dev.inner.into_inner();
+    let mut fresh = open(case, image.clone());
+    assert_eq!(fresh.read_to_vec("/log.txt").unwrap(), b"published");
+
+    let mut fs = FatFs::open(Flushes {
+        inner: common::device(case, image),
+        flushes: 0,
+    })
+    .unwrap();
+    let node = fs.lookup(fs.root(), name("log.txt")).unwrap();
+    fs.sync_node(node).unwrap();
+    fs.forget(node);
+    assert_eq!(fs.into_inner().flushes, 1);
+}
+
 #[test]
 fn refused_writes_make_the_volume_read_only() {
     let case = CASES[1];

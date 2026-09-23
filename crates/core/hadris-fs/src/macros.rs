@@ -12,7 +12,7 @@
 ///   `set_metadata`, `sync_node`, `sync`) are forwarded unless `read_only` is
 ///   given, in which case they keep their `ReadOnly` defaults.
 /// - The optional methods (`parent`, `read_link`, `resolve`, `open_node`,
-///   `close_node`) are forwarded only when named in `also = [..]`, so a
+///   `close_node`, `publish_node`) are forwarded only when named in `also = [..]`, so a
 ///   driver never forwards a method it lacks.
 ///
 /// Methods added to `FsDriver` after 3.0 join the optional list, never the
@@ -140,6 +140,11 @@ macro_rules! impl_fs_driver {
     (@also [$($as:tt)*] [$($aw:tt)*] $ty:ty, $err:ty, close_node) => {
         fn close_node(&mut self, node: $crate::NodeId) {
             <$ty>::close_node(self, node)
+        }
+    };
+    (@also [$($as:tt)*] [$($aw:tt)*] $ty:ty, $err:ty, publish_node) => {
+        $($as)* fn publish_node(&mut self, node: $crate::NodeId) -> $crate::FsResult<(), $err> {
+            <$ty>::publish_node(self, node) $($aw)*
         }
     };
     (@also [$($as:tt)*] [$($aw:tt)*] $ty:ty, $err:ty, resolve) => {

@@ -49,8 +49,9 @@ leftovers without changing the volume.
 
 ## Mutation checklist
 
-- Close `File` handles (or call `sync_node`) so sizes reach the directory
-  entry; `sync` writes all of them.
+- Close `File` handles (or call `publish_node`) so sizes reach the
+  directory entry; `sync` writes all of them. Closing does not flush the
+  device: call `File::sync_all` (`sync_node`) or `sync` for durability.
 - `remove` of a file that is still open fails with `ErrorKind::Busy`; close it
   first. A node you only looked up does not block removal; its id answers
   `ErrorKind::NotFound` afterwards until you `forget` it.

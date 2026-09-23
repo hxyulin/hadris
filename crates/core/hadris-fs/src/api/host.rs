@@ -286,7 +286,7 @@ fn import_file<D: FsDriver + ?Sized>(fs: &mut D, node: NodeId, path: &Path, meta
     #[cfg(not(unix))]
     let mode: Option<Mode> = None;
     fs.set_metadata(node, &SetMetadata::new().with_times(times).with_mode(mode))?;
-    fs.sync_node(node)?;
+    fs.publish_node(node)?;
     Ok(())
 }
 
@@ -367,6 +367,9 @@ fn import_walk<D: FsDriver + ?Sized>(
 /// with [`std::io::ErrorKind::Unsupported`]. Host names that are not valid
 /// [`Name`]s, or not UTF-8 outside Unix, fail with
 /// [`std::io::ErrorKind::InvalidData`].
+///
+/// Each file is published, not flushed; call `sync` on `dst` to make the
+/// import durable.
 ///
 /// Only in the sync API: the host side is blocking `std::fs`.
 pub fn import_from_host<T: Access>(host: impl AsRef<Path>, dst: T, to: &str) -> io::Result<()> {

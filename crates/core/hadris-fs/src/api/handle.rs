@@ -108,14 +108,23 @@ impl OpenFile {
         Ok(self.pos)
     }
 
-    /// Syncs the node if it was written, closes and forgets it, and returns
-    /// `prior` or the sync error.
+    /// Makes the node durable, as `fsync` does.
+    pub async fn sync_all<D: FsDriver + ?Sized>(&mut self, fs: &mut D) -> FsResult<(), D::DeviceError> {
+        fs.sync_node(self.node).await?;
+        self.dirty = false;
+        Ok(())
+    }
+
+    /// Publishes the node's metadata if it was written, closes and forgets
+    /// it, and returns `prior` or the publish error. It does not flush the
+    /// device; call [`sync_all`](Self::sync_all) first, or `sync` on the
+    /// filesystem, for durability.
     pub async fn close<D: FsDriver + ?Sized>(
         self,
         fs: &mut D,
         prior: FsResult<(), D::DeviceError>,
     ) -> FsResult<(), D::DeviceError> {
-        let synced = if self.dirty { fs.sync_node(self.node).await } else { Ok(()) };
+        let synced = if self.dirty { fs.publish_node(self.node).await } else { Ok(()) };
         fs.close_node(self.node);
         fs.forget(self.node);
         prior.and(synced)
@@ -247,10 +256,18 @@ impl<A: Access> File<A> {
         Ok(())
     }
 
-    /// Syncs the node if the file was written, then closes and forgets it.
+    /// Makes the file durable, as `fsync` does: its data and metadata, then
+    /// a device flush.
+    pub async fn sync_all(&mut self) -> FsResult<(), A::DeviceError> {
+        self.file.sync_all(&mut self.fs).await
+    }
+
+    /// Publishes the file's metadata if it was written, then closes and
+    /// forgets it. It does not flush the device; call
+    /// [`sync_all`](Self::sync_all) first for durability.
     pub async fn close(mut self) -> FsResult<(), A::DeviceError> {
         if self.file.dirty {
-            self.fs.sync_node(self.file.node).await?;
+            self.fs.publish_node(self.file.node).await?;
         }
         Ok(())
     }
@@ -284,8 +301,10 @@ impl<A: Access> io::Write for File<A> {
         self.file.write(&mut self.fs, buf).await
     }
 
+    /// Publishes the file's metadata, as [`close`](File::close) does,
+    /// without flushing the device.
     async fn flush(&mut self) -> FsResult<(), A::DeviceError> {
-        self.fs.sync_node(self.file.node).await
+        self.fs.publish_node(self.file.node).await
     }
 }
 

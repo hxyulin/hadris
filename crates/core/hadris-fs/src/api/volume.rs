@@ -231,6 +231,10 @@ impl<F: FsDriver, K: LockKind> FileSystem for Volume<F, K> {
         self.lock().await.sync_node(node).await
     }
 
+    async fn publish_node(&self, node: NodeId) -> FsResult<(), F::DeviceError> {
+        self.lock().await.publish_node(node).await
+    }
+
     async fn sync(&self) -> FsResult<(), F::DeviceError> {
         self.lock().await.sync().await
     }

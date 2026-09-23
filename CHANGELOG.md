@@ -179,6 +179,14 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs (V3):** `publish_node` writes a node's pending metadata
+  without flushing the device (default: `sync_node`), and `sync_node` is
+  documented as durable, like `fsync`. `File::close`, `OpenFile::close` and
+  `File`'s `Write::flush` publish; the new `File::sync_all` and
+  `OpenFile::sync_all` call `sync_node`. `copy_tree` and `import_from_host`
+  publish each file and leave the device flush to `sync`. `FatFs`
+  implements `publish_node`, so closing a written file no longer flushes
+  the device.
 - **hadris-fs (V3):** Pins and opens are separate. `lookup`, `create` and
   `parent` pin a node, which never blocks removal; the new `open_node` and
   `close_node` (defaults do nothing) mark a pinned node as open. `remove` and

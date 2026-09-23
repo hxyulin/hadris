@@ -167,10 +167,20 @@ pub trait FsDriver {
         Err(ErrorKind::ReadOnly.into())
     }
 
-    /// Writes one node's cached data and metadata.
+    /// Makes one node durable: writes its pending data and metadata, then
+    /// flushes the device. This is `fsync`.
     async fn sync_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
         let _ = node;
         Ok(())
+    }
+
+    /// Writes one node's pending metadata (a size or time kept in memory)
+    /// to the device without flushing it, so that another mount of the
+    /// device would see it once the device's own cache is written. This is
+    /// what closing a file needs. The default calls
+    /// [`sync_node`](Self::sync_node).
+    async fn publish_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+        self.sync_node(node).await
     }
 
     /// Writes every piece of cached metadata and flushes the device.
@@ -307,10 +317,17 @@ pub trait FileSystem {
         Err(ErrorKind::ReadOnly.into())
     }
 
-    /// Writes one node's cached data and metadata.
+    /// Makes one node durable; see [`FsDriver::sync_node`].
     async fn sync_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
         let _ = node;
         Ok(())
+    }
+
+    /// Writes one node's pending metadata without flushing the device; see
+    /// [`FsDriver::publish_node`]. The default calls
+    /// [`sync_node`](Self::sync_node).
+    async fn publish_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+        self.sync_node(node).await
     }
 
     /// Writes every piece of cached metadata and flushes the device.
@@ -396,6 +413,9 @@ macro_rules! forward_driver_methods {
         }
         async fn sync_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
             (**self).sync_node(node).await
+        }
+        async fn publish_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+            (**self).publish_node(node).await
         }
         async fn sync(&mut self) -> FsResult<(), Self::DeviceError> {
             (**self).sync().await
@@ -483,6 +503,9 @@ macro_rules! forward_fs_methods {
         }
         async fn sync_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
             (**self).sync_node(node).await
+        }
+        async fn publish_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+            (**self).publish_node(node).await
         }
         async fn sync(&self) -> FsResult<(), Self::DeviceError> {
             (**self).sync().await
