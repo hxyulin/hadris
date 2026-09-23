@@ -51,9 +51,10 @@ device, as `hadris-fat` needs) restricted to that
 partition. This prevents filesystem offsets from escaping into neighboring
 partitions and keeps offsets relative to the filesystem start.
 
-`hadris-part` exposes the concrete MBR and GPT structures. `hadris-block` adds
-detection on block devices and partition slices when an application needs both the
-partition and filesystem layers.
+`hadris-part` reads, edits and writes MBR, GPT and hybrid tables on a block
+device, and its `open` turns a partition into such a slice. `hadris-block` adds
+detection on block devices when an application needs both the partition and
+filesystem layers.
 
 ## Format handles
 

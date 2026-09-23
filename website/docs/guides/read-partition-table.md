@@ -6,27 +6,36 @@ title: Read a partition table
 
 ```toml
 [dependencies]
-hadris-io = "2.4.0"
 hadris-part = "2.4.0"
 ```
 
 ```rust
-use hadris_io::StdIo;
-use hadris_part::{
-    PartitionInfoTrait, PartitionTable, PartitionTableReadExt,
-};
+use hadris_part::sync::read;
+use hadris_part::{PartitionKind, PartitionTable};
 use std::fs::File;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut disk = StdIo::new(File::open("disk.img")?);
-    let table = PartitionTable::read_from(&mut disk, 512)?;
+    let mut disk = File::open("disk.img")?;
+    let table = read(&mut disk)?;
 
+    if let PartitionTable::Gpt(gpt) = table.table() {
+        if let Some(copy) = gpt.damaged_copy() {
+            println!("the {copy:?} GPT is damaged; writing the table repairs it");
+        }
+    }
     for partition in table.partitions() {
+        let kind = match partition.kind() {
+            PartitionKind::Mbr(kind) => kind.to_string(),
+            PartitionKind::Gpt(guid) => guid.to_string(),
+            _ => String::from("unknown"),
+        };
+        let name = partition.name().map(|n| n.to_string()).unwrap_or_default();
         println!(
-            "#{}: LBA {} ({} sectors)",
-            partition.index,
-            partition.start_lba,
-            partition.size_sectors,
+            "#{}: block {} ({} blocks, {} bytes) {kind} {name}",
+            partition.index(),
+            partition.start(),
+            partition.len(),
+            partition.size_bytes(),
         );
     }
 
@@ -34,10 +43,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Use a real logical block size instead of assuming 512 bytes when the backing
-device reports different geometry. Enable the `crc` feature when GPT CRC
-validation is required.
+The block size comes from the device: `std::fs::File` has 512-byte blocks,
+and a `hadris_storage::sync::StreamDevice` over any stream takes the block
+size you give it, such as 4096 for a 4Kn disk image. GPT CRCs are always
+checked; when the primary copy is damaged the table is read from the backup,
+and `damaged_copy` says so. MBR logical partitions in an extended partition
+are listed from index 4, as Linux numbers them.
 
-The returned start and size values are expressed in logical blocks. To open a
-filesystem safely, convert them with checked arithmetic and create a bounded
-partition view. See [Open FAT inside a partition](./open-partitioned-fat.md).
+Without an allocator, `hadris_part::sync::scan` lists the same partitions
+through a callback. To open a filesystem inside one of them, see
+[Open FAT inside a partition](./open-partitioned-fat.md).
