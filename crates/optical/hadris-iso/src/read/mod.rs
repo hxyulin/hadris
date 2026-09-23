@@ -7,7 +7,7 @@ use crate::joliet::JolietLevel;
 use hadris_common::types::endian::Endian;
 #[cfg(not(feature = "alloc"))]
 use hadris_common::types::fixed::ArrayVec;
-use hadris_path::{Component, Separators, VPath};
+use hadris_fs::path::{Component, Separators, VPath};
 pub use volume::VolumeDescriptorIter;
 
 mod boot;
@@ -376,10 +376,10 @@ impl<DATA: Read + Seek> IsoImage<DATA> {
             .components()
             .filter_map(|component| match component {
                 Component::Root | Component::Current => None,
-                Component::Parent => Some(Err(io::Error::other(
+                Component::Normal(component) => Some(Ok(component)),
+                _ => Some(Err(io::Error::other(
                     "parent path components are not supported",
                 ))),
-                Component::Normal(component) => Some(Ok(component)),
             })
             .peekable();
         let mut directory = self.open_dir(self.root_dir().dir_ref());

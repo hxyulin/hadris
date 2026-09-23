@@ -12,7 +12,7 @@
 //! - [`block`] — block filesystems and partition tables
 //! - [`optical`] — optical filesystems and disc image composition
 //! - [`cpio`] — CPIO newc and CRC archives
-//! - [`path`] — lexical virtual-path parsing and normalization
+//! - [`fs`] — shared filesystem vocabulary and lexical virtual paths
 //!
 //! # Feature flags
 //!
@@ -53,6 +53,6 @@ pub use hadris_optical as optical;
 #[cfg(feature = "cpio")]
 pub use hadris_cpio as cpio;
 
-/// Lexical virtual-path utilities.
-#[cfg(feature = "path")]
-pub use hadris_path as path;
+/// Shared filesystem vocabulary and lexical virtual paths.
+#[cfg(feature = "fs")]
+pub use hadris_fs as fs;

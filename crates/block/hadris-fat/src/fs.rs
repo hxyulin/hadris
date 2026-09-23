@@ -5,7 +5,7 @@ use core::{cell::Cell, fmt};
 use spin::Mutex;
 
 use hadris_common::types::endian::Endian;
-use hadris_path::{Component, VPath};
+use hadris_fs::path::{Component, VPath};
 
 use crate::error::{Error, Result};
 use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
@@ -886,8 +886,8 @@ where
         for component in VPath::new(path).components() {
             let component = match component {
                 Component::Root | Component::Current => continue,
-                Component::Parent => return Err(Error::InvalidPath),
                 Component::Normal(component) => component,
+                _ => return Err(Error::InvalidPath),
             };
             if let Some(prev) = last_component.take() {
                 // Navigate into the previous component as a directory

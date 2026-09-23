@@ -21,7 +21,7 @@ default = ["std", "read", "sync"]
 # Read support
 read = ["hadris-common/bytemuck"]
 # Heap allocation without full std
-alloc = ["hadris-io/alloc", "hadris-path/alloc"]
+alloc = ["hadris-io/alloc", "hadris-fs/alloc"]
 # Standard library support (includes alloc)
 std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror"]
 # Write/format support (requires std)
@@ -39,7 +39,7 @@ bitflags = { workspace = true, features = ["bytemuck"] }
 bytemuck = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true, optional = true }
 hadris-io = { workspace = true }
-hadris-path = { workspace = true }
+hadris-fs = { workspace = true }
 hadris-macros = { workspace = true }
 hadris-common = { workspace = true, features = ["alloc"] }
 spin.workspace = true

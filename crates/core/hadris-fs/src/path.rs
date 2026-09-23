@@ -1,17 +1,13 @@
 //! Lexical path handling for virtual filesystems and archives.
 //!
-//! Unlike `std::path`, this crate does not model host operating-system paths
+//! Unlike `std::path`, this module does not model host operating-system paths
 //! and never performs filesystem I/O. Its borrowed path views and component
 //! iterators are allocation-free and available in `no_std` environments.
-
-#![no_std]
-#![deny(missing_docs)]
-
-#[cfg(any(feature = "alloc", test))]
-extern crate alloc;
+//! Path parsing is a convenience; filesystem operations take [`Name`](crate::Name)s.
 
 /// Separator policy used while parsing a virtual path.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Separators {
     /// Only `/` separates components.
     #[default]
@@ -28,6 +24,7 @@ impl Separators {
 
 /// A lexical component of a virtual path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Component<'a> {
     /// One or more separators at the beginning of the path.
     Root,
@@ -40,6 +37,22 @@ pub enum Component<'a> {
 }
 
 /// A borrowed virtual path with an explicit separator policy.
+///
+/// ```
+/// use hadris_fs::path::{Component, Separators, VPath};
+///
+/// let path = VPath::with_separators(r"boot\grub/../kernel.efi", Separators::SlashOrBackslash);
+/// let components: Vec<_> = path.components().collect();
+/// assert_eq!(
+///     components,
+///     [
+///         Component::Normal("boot"),
+///         Component::Normal("grub"),
+///         Component::Parent,
+///         Component::Normal("kernel.efi"),
+///     ]
+/// );
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VPath<'a> {
     raw: &'a str,
@@ -198,6 +211,7 @@ impl<'a> Iterator for Components<'a> {
 
 /// An invalid lexical path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PathError {
     /// A parent component would escape the virtual root.
     EscapesRoot,

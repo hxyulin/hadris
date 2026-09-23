@@ -12,9 +12,9 @@ keywords = ["filesystem", "disk-image", "fat32", "iso9660", "no-std"]
 categories = ["filesystem", "embedded", "no-std"]
 
 [features]
-default = ["std", "sync", "read", "write", "path", "iso", "fat", "cpio"]
-std = ["alloc", "hadris-block?/std", "hadris-optical?/std", "hadris-cpio?/std"]
-alloc = ["hadris-path?/alloc", "hadris-block?/alloc", "hadris-optical?/alloc", "hadris-cpio?/alloc"]
+default = ["std", "sync", "read", "write", "fs", "iso", "fat", "cpio"]
+std = ["alloc", "hadris-fs?/std", "hadris-block?/std", "hadris-optical?/std", "hadris-cpio?/std"]
+alloc = ["hadris-fs?/alloc", "hadris-block?/alloc", "hadris-optical?/alloc", "hadris-cpio?/alloc"]
 read = ["hadris-block?/read", "hadris-optical?/read", "hadris-cpio?/read"]
 write = ["alloc", "read", "hadris-block?/write", "hadris-optical?/write", "hadris-cpio?/write"]
 sync = ["hadris-block?/sync", "hadris-optical?/sync", "hadris-cpio?/sync"]
@@ -22,7 +22,7 @@ async = ["hadris-block?/async", "hadris-optical?/async", "hadris-cpio?/async"]
 block = ["storage", "fat", "part", "hadris-block/detect"]
 optical = ["iso", "udf", "cd", "hadris-optical/open"]
 archive = ["cpio"]
-path = ["dep:hadris-path"]
+fs = ["dep:hadris-fs"]
 storage = ["dep:hadris-block", "hadris-block/storage"]
 fat = ["dep:hadris-block", "hadris-block/fat"]
 part = ["dep:hadris-block", "hadris-block/part"]
@@ -32,7 +32,7 @@ cd = ["dep:hadris-optical", "hadris-optical/cd"]
 cpio = ["dep:hadris-cpio"]
 
 [dependencies]
-hadris-path = { workspace = true, optional = true, default-features = false }
+hadris-fs = { workspace = true, optional = true, default-features = false }
 hadris-block = { workspace = true, optional = true, default-features = false }
 hadris-optical = { workspace = true, optional = true, default-features = false }
 hadris-cpio = { workspace = true, optional = true, default-features = false }

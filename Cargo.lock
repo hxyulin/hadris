@@ -458,8 +458,8 @@ version = "2.4.0"
 dependencies = [
  "hadris-block",
  "hadris-cpio",
+ "hadris-fs",
  "hadris-optical",
- "hadris-path",
 ]
 
 [[package]]
@@ -505,8 +505,8 @@ dependencies = [
  "chrono",
  "crc",
  "criterion",
+ "hadris-fs",
  "hadris-io",
- "hadris-path",
  "heapless",
  "rand",
  "static_assertions",
@@ -574,9 +574,9 @@ dependencies = [
  "chrono",
  "defmt",
  "hadris-common",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
- "hadris-path",
  "parse-size",
  "pretty_assertions",
  "spin",
@@ -593,6 +593,13 @@ dependencies = [
  "hadris-fat",
  "libc",
  "tempfile",
+]
+
+[[package]]
+name = "hadris-fs"
+version = "2.4.0"
+dependencies = [
+ "bitflags 2.13.2",
 ]
 
 [[package]]
@@ -614,10 +621,10 @@ dependencies = [
  "chrono",
  "criterion",
  "hadris-common",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
  "hadris-part",
- "hadris-path",
  "spin",
  "static_assertions",
  "tempfile",
@@ -681,10 +688,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hadris-path"
-version = "2.4.0"
-
-[[package]]
 name = "hadris-storage"
 version = "2.4.0"
 dependencies = [
@@ -699,9 +702,9 @@ dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
  "hadris-common",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
- "hadris-path",
  "spin",
  "static_assertions",
  "tempfile",

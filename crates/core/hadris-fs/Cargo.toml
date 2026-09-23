@@ -1,16 +1,21 @@
 [package]
-name = "hadris-path"
+name = "hadris-fs"
 version = "2.4.0"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Allocation-free lexical paths for virtual filesystems and archives"
-keywords = ["path", "no-std", "filesystem", "archive"]
+description = "Shared filesystem vocabulary for the Hadris crates: names, times, metadata, errors and virtual paths"
+readme = "README.md"
+keywords = ["filesystem", "no-std", "path", "metadata"]
 categories = ["no-std", "filesystem"]
 include = ["src/**/*", "Cargo.toml", "README.md"]
 
 [features]
 default = []
 alloc = []
+std = ["alloc"]
+
+[dependencies]
+bitflags = { workspace = true }

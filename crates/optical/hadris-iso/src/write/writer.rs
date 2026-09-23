@@ -2,7 +2,7 @@ use super::super::io::{self, Write};
 use alloc::vec;
 use alloc::{collections::BTreeMap, collections::VecDeque, string::String, sync::Arc, vec::Vec};
 use hadris_common::types::endian::EndianType;
-use hadris_path::{Component, Separators, VPath};
+use hadris_fs::path::{Component, Separators, VPath};
 
 use super::super::io::LogicalSector;
 use super::super::path::PathTableEntryHeader;
@@ -83,8 +83,8 @@ impl WrittenFiles {
             .components()
             .filter_map(|component| match component {
                 Component::Root | Component::Current => None,
-                Component::Parent => Some(None),
                 Component::Normal(component) => Some(Some(component)),
+                _ => Some(None),
             })
             .peekable();
         'parts: while let Some(part) = parts.next() {

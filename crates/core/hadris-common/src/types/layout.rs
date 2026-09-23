@@ -7,7 +7,7 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use hadris_path::{Component, VPath};
+use hadris_fs::path::{Component, VPath};
 
 use super::extent::{Extent, FileType, Timestamps};
 
@@ -16,8 +16,8 @@ fn path_parts(path: &str) -> Option<Vec<&str>> {
     for component in VPath::new(path).components() {
         match component {
             Component::Root | Component::Current => {}
-            Component::Parent => return None,
             Component::Normal(component) => parts.push(component),
+            _ => return None,
         }
     }
     Some(parts)

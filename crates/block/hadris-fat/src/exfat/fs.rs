@@ -8,7 +8,7 @@ use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use hadris_common::types::endian::Endian;
-use hadris_path::{Component, VPath};
+use hadris_fs::path::{Component, VPath};
 use spin::Mutex;
 
 use crate::error::{Error, Result};
@@ -201,8 +201,8 @@ where
             .components()
             .filter_map(|component| match component {
                 Component::Root | Component::Current => None,
-                Component::Parent => Some(Err(Error::InvalidPath)),
                 Component::Normal(component) => Some(Ok(component)),
+                _ => Some(Err(Error::InvalidPath)),
             })
             .peekable();
         if components.peek().is_none() {

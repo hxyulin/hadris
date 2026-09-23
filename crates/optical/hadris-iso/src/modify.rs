@@ -38,7 +38,7 @@ use super::io::{self, Read, Seek, SeekFrom, Write};
 use hadris_common::types::endian::Endian;
 use hadris_common::types::extent::{Extent, FileType};
 use hadris_common::types::layout::{DirectoryLayout, FileLayout};
-use hadris_path::split_path;
+use hadris_fs::path::split_path;
 
 use super::directory::{DirectoryRecord, DirectoryRef, FileFlags};
 use super::io::{IsoCursor, LogicalSector};

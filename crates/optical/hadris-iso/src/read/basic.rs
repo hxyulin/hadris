@@ -461,15 +461,15 @@ impl<R: Read + Seek> IsoReader<R> {
     /// Finds an entry in an explicitly selected directory tree.
     pub async fn find_path_in(&mut self, root: IsoRoot, path: &str) -> io::Result<Option<IsoDirEntry>> {
         let mut location = DirectoryLocation::from(root);
-        let mut components = hadris_path::VPath::with_separators(
-            path, hadris_path::Separators::SlashOrBackslash
+        let mut components = hadris_fs::path::VPath::with_separators(
+            path, hadris_fs::path::Separators::SlashOrBackslash
         ).components().filter_map(|component| match component {
-            hadris_path::Component::Root | hadris_path::Component::Current => None,
+            hadris_fs::path::Component::Root | hadris_fs::path::Component::Current => None,
             other => Some(other),
         }).peekable();
 
         while let Some(component) = components.next() {
-            let hadris_path::Component::Normal(name) = component else {
+            let hadris_fs::path::Component::Normal(name) = component else {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, "parent path components are not supported"));
             };
             let mut offset = 0;

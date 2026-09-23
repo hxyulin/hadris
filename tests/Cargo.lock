@@ -225,8 +225,8 @@ dependencies = [
  "bytemuck",
  "chrono",
  "crc",
+ "hadris-fs",
  "hadris-io",
- "hadris-path",
  "heapless",
  "rand",
  "zerocopy",
@@ -240,11 +240,18 @@ dependencies = [
  "bytemuck",
  "chrono",
  "hadris-common",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
- "hadris-path",
  "parse-size",
  "spin",
+]
+
+[[package]]
+name = "hadris-fs"
+version = "2.4.0"
+dependencies = [
+ "bitflags",
 ]
 
 [[package]]
@@ -265,10 +272,10 @@ dependencies = [
  "bytemuck",
  "chrono",
  "hadris-common",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
  "hadris-part",
- "hadris-path",
  "spin",
  "thiserror",
  "tracing",
@@ -291,10 +298,6 @@ dependencies = [
  "hadris-io",
  "hadris-macros",
 ]
-
-[[package]]
-name = "hadris-path"
-version = "2.4.0"
 
 [[package]]
 name = "hadris-tests"
