@@ -202,6 +202,7 @@ crates.io publication.
 3. Add a `[Unreleased]` note in [CHANGELOG.md](CHANGELOG.md) for user-visible work.
 4. Do not commit secrets or large binary fixtures unless they are intentional
    corpus seeds under `fuzz/corpus/`.
+5. PRs to `v3` also run the report-only V3 guardrails in `.github/workflows/v3-guardrails.yml` (`scripts/check-semver.sh`, `scripts/check-non-exhaustive.py`, `scripts/check-v3-api.py subset|parity`); run them locally to see the findings.
 
 ## Safety and fuzzing
 

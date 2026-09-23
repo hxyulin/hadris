@@ -1,0 +1,75 @@
+name: V3 guardrails
+
+# Stability rule checks from docs/v3-api-design.md (R11). Report-only until
+# 3.0.0-rc.1: every job uses continue-on-error so findings never block a merge.
+
+on:
+  push:
+    branches:
+      - v3
+  pull_request:
+    branches:
+      - v3
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  semver:
+    name: semver-checks against branch point
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # cargo-semver-checks needs a newer toolchain than the pinned 1.88.
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-semver-checks
+        run: cargo +stable install cargo-semver-checks --locked
+      - name: Check semver against merge-base with main
+        run: scripts/check-semver.sh origin/main
+
+  non-exhaustive:
+    name: non_exhaustive lint (R1)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - name: Self-test lint
+        run: python3 scripts/check-non-exhaustive.py --self-test
+      - name: Check public enums and structs
+        run: python3 scripts/check-non-exhaustive.py
+
+  api-shape:
+    name: "API ${{ matrix.check }}"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - subset
+          - parity
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.88.0
+      # Same pinned nightly as the public-api job in rust.yml.
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: nightly-2026-09-04
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-public-api
+        run: cargo install cargo-public-api --version 0.52.0 --locked
+      - name: Run ${{ matrix.check }} check
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-09-04
+        run: python3 scripts/check-v3-api.py ${{ matrix.check }}
