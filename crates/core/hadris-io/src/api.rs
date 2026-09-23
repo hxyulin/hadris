@@ -1,12 +1,11 @@
-use super::base;
-use crate::{ErrorType, ExactError, FromEmbedded, SeekFrom};
+use crate::{ErrorType, ExactError, SeekFrom};
 
 io_transform! {
 
 /// A byte source.
 ///
 /// Implemented for `&mut T` and, with `alloc`, `Box<T>`. Wrap an
-/// `embedded-io` device in [`FromEmbedded`] and a `std::io` type in
+/// `embedded-io` device in [`FromEmbedded`](crate::FromEmbedded) and a `std::io` type in
 /// [`StdIo`](crate::StdIo).
 pub trait Read: ErrorType {
     /// Reads up to `buf.len()` bytes. Returns 0 only at the end of input or
@@ -46,13 +45,15 @@ impl<T: Read + ?Sized> Read for alloc::boxed::Box<T> {
     }
 }
 
-impl<T: base::Read> Read for FromEmbedded<T>
+local_only! {
+impl<T: super::base::Read> Read for crate::FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        base::Read::read(&mut self.0, buf).await
+        super::base::Read::read(&mut self.0, buf).await
     }
+}
 }
 
 /// A byte sink.
@@ -106,17 +107,19 @@ impl<T: Write + ?Sized> Write for alloc::boxed::Box<T> {
     }
 }
 
-impl<T: base::Write> Write for FromEmbedded<T>
+local_only! {
+impl<T: super::base::Write> Write for crate::FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        base::Write::write(&mut self.0, buf).await
+        super::base::Write::write(&mut self.0, buf).await
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        base::Write::flush(&mut self.0).await
+        super::base::Write::flush(&mut self.0).await
     }
+}
 }
 
 /// A seekable stream.
@@ -159,13 +162,15 @@ impl<T: Seek + ?Sized> Seek for alloc::boxed::Box<T> {
     }
 }
 
-impl<T: base::Seek> Seek for FromEmbedded<T>
+local_only! {
+impl<T: super::base::Seek> Seek for crate::FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
 {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        base::Seek::seek(&mut self.0, pos).await
+        super::base::Seek::seek(&mut self.0, pos).await
     }
+}
 }
 
 impl Read for crate::Cursor<'_> {

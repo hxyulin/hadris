@@ -54,6 +54,15 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-macros (V3):** `send_async!`, a third generation mode next to
+  `strip_async!`: every `async fn` in a trait declaration returns a `Send`
+  future and the trait gains `Send` (and `Sync` for `&self` methods) as a
+  supertrait.
+- **hadris-io, hadris-storage (V3):** An `async-send` feature adds an
+  `async_send` module generated from the same source as `r#async`, whose
+  traits prove their futures `Send`, so generic code can be spawned on
+  multi-threaded executors. `MaybeSend` marks the types that must be `Send`
+  in that mode. `FromEmbedded` has no impls there.
 - **hadris-storage (V3):** `BlockDevice`, one trait for sync and async
   whole-block devices with an explicit block size and the device's own error,
   implemented for `&mut D`, `Box<D>` and, with `std`, `std::fs::File`.

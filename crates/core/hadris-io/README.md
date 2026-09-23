@@ -34,6 +34,7 @@ while the format crates move over. That module is removed before 3.0.
 | `std` | `StdIo`, `ToStd`, `std::fs::File` errors and conversions to `std::io::Error`; implies `alloc` | Yes |
 | `sync` | Synchronous traits | Yes |
 | `async` | Asynchronous traits in `hadris_io::r#async` | No |
+| `async-send` | Asynchronous traits with `Send` futures in `hadris_io::async_send`; implies `async` | No |
 | `alloc` | `Box<T>` and `Vec<u8>` implement the traits | via `std` |
 
 Enabling a feature only adds items; no trait or type changes shape.

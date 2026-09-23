@@ -7,6 +7,8 @@ then compile it twice:
 
 - under a `sync` module via [`strip_async!`](https://docs.rs/hadris-macros) (async keywords removed)
 - under an `async` module unchanged
+- optionally under an `async_send` module via `send_async!`, whose trait
+  methods return `Send` futures
 
 ## `strip_async!`
 
@@ -24,6 +26,15 @@ hadris_macros::strip_async! {
 }
 // Becomes a synchronous `fn read_exact` with no `.await`.
 ```
+
+## `send_async!`
+
+Rewrites trait declarations so generic callers can prove futures `Send`:
+
+- `async fn f(..) -> R` in a trait becomes `fn f(..) -> impl Future<Output = R> + Send`
+- default bodies become `async move { .. }`
+- the trait gains a `Send` supertrait, plus `Sync` when an async method takes `&self`
+- impls and everything outside trait declarations pass through unchanged
 
 ## Consumer boilerplate
 

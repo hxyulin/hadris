@@ -17,6 +17,7 @@ alloc = ["hadris-io/alloc"]
 std = ["alloc", "hadris-io/std"]
 sync = ["hadris-io/sync"]
 async = ["hadris-io/async"]
+async-send = ["async", "hadris-io/async-send"]
 
 [dependencies]
 hadris-io = { workspace = true }

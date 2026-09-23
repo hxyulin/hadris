@@ -1,4 +1,4 @@
-use super::{Read, Seek, Write};
+use super::{MaybeSend, Read, Seek, Write};
 use crate::device::{byte_offset, check_blocks};
 use crate::{
     BlockIndex, BlockSize, MemBuffer, MemDevice, OutOfRange, ReadOnly, StorageError, WriteError,
@@ -96,7 +96,7 @@ impl<D: BlockDevice + ?Sized> BlockDevice for alloc::boxed::Box<D> {
     }
 }
 
-impl<B: MemBuffer> BlockDevice for MemDevice<B> {
+impl<B: MemBuffer + MaybeSend> BlockDevice for MemDevice<B> {
     fn block_size(&self) -> BlockSize {
         self.block_size
     }
@@ -158,7 +158,7 @@ impl<T: Write + ?Sized> StreamWrite for T {
     }
 }
 
-impl<T: ErrorType> StreamWrite for ReadOnly<T> {
+impl<T: ErrorType + MaybeSend> StreamWrite for ReadOnly<T> {
     async fn stream_write_all(&mut self, _buf: &[u8]) -> Result<(), WriteError<ExactError<Self::Error>>> {
         Err(WriteError::ReadOnly)
     }

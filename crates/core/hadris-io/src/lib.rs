@@ -20,6 +20,7 @@
 //! | `std`   | yes     | [`StdIo`], [`ToStd`] and conversions to `std::io::Error` (implies `alloc`) |
 //! | `sync`  | yes     | Synchronous traits in [`sync`] |
 //! | `async` | no      | Asynchronous traits in `r#async` |
+//! | `async-send` | no | Asynchronous traits with `Send` futures in `async_send` (implies `async`) |
 //! | `alloc` | via `std` | `Box<T>` and `Vec<u8>` implement the traits |
 //!
 //! ## Quick Start
@@ -253,6 +254,17 @@ pub use sync::*;
 /// Asynchronous I/O traits.
 #[cfg(feature = "async")]
 pub mod r#async;
+
+/// Asynchronous I/O traits whose futures are `Send`, for generic code on
+/// multi-threaded executors.
+///
+/// Generated from the same source as [`r#async`]. Every trait has `Send` as a
+/// supertrait, so `R: Read` alone proves that `R`'s futures are `Send`.
+/// Implementations are written with `async fn` exactly as in `r#async`.
+/// `FromEmbedded` has no impls here: `embedded-io-async` futures are not
+/// `Send`.
+#[cfg(feature = "async-send")]
+pub mod async_send;
 
 #[cfg(all(test, feature = "sync"))]
 mod tests {

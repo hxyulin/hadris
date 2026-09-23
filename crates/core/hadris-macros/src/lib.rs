@@ -2,14 +2,33 @@
 
 #![deny(missing_docs)]
 //!
-//! Provides `strip_async!` which removes `async`/`.await` from token streams,
-//! enabling the same source to compile as both sync and async code.
+//! Provides `strip_async!`, which removes `async`/`.await` from token streams
+//! so the same source compiles as sync code, and `send_async!`, which makes
+//! the futures of async trait methods `Send` for a third, `Send` mode.
 
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::TokenTree;
+
+mod send;
+
+/// Makes the futures of every `async fn` in a trait declaration `Send`.
+///
+/// In each trait, `async fn f(..) -> R` becomes
+/// `fn f(..) -> impl Future<Output = R> + Send` and a default body becomes
+/// `async move { body }`. The trait gains a `Send` supertrait, plus `Sync`
+/// when one of its async methods takes `&self`, so generic impls can prove
+/// their futures `Send`. Impls keep `async fn`, and everything outside trait
+/// declarations passes through unchanged.
+///
+/// Used inside `async_send` modules via `io_transform!`, next to the `sync`
+/// (`strip_async!`) and `async` (unchanged) modules.
+#[proc_macro]
+pub fn send_async(input: TokenStream) -> TokenStream {
+    TokenStream::from(send::transform(TokenStream2::from(input)))
+}
 
 /// Strips all `async` keywords and `.await` expressions from the input.
 ///

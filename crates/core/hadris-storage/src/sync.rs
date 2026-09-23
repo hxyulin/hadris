@@ -8,6 +8,8 @@ macro_rules! io_transform {
     ($($item:tt)*) => { hadris_macros::strip_async! { $($item)* } };
 }
 
+use hadris_io::sync::MaybeSend;
+
 #[allow(clippy::duplicate_mod)]
 #[path = "api.rs"]
 mod api;

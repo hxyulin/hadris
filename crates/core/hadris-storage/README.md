@@ -79,6 +79,7 @@ assert_eq!(geometry.byte_len(), Some(4 * 1024 * 1024));
 | `alloc` | Via `std` | `Cache`, `Box` impls, and block sizes above 4096 bytes in `ByteView` |
 | `sync` | Yes | Synchronous device traits and adapters |
 | `async` | No | Asynchronous device traits and adapters |
+| `async-send` | No | Asynchronous devices with `Send` futures in `async_send`; implies `async` |
 
 `std` and the I/O mode are independent. Disable default features and select
 `sync`, `async`, or both explicitly for custom configurations.
