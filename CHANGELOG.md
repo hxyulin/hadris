@@ -78,6 +78,10 @@ Each published package owns its version and may be released independently.
   traits prove their futures `Send`, so generic code can be spawned on
   multi-threaded executors. `MaybeSend` marks the types that must be `Send`
   in that mode. `FromEmbedded` has no impls there.
+- **hadris-fat (V3):** Depends on `hadris-storage`. The `sync`, `async`,
+  `alloc` and `std` features also enable the same features of `hadris-fs`
+  and `hadris-storage`, and a new additive `async-send` feature adds an
+  `async_send` module, empty until the V3 `FatFs` driver lands.
 - **hadris-storage (V3):** `BlockDevice`, one trait for sync and async
   whole-block devices with an explicit block size and the device's own error,
   implemented for `&mut D`, `Box<D>` and, with `std`, `std::fs::File`.

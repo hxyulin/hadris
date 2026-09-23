@@ -647,6 +647,7 @@ dependencies = [
  "hadris-fs",
  "hadris-io",
  "hadris-macros",
+ "hadris-storage",
  "parse-size",
  "pretty_assertions",
  "spin",

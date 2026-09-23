@@ -143,6 +143,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | `alloc` | Heap allocation without full std | `alloc` crate |
 | `sync` | Synchronous API | `hadris-io/sync` |
 | `async` | Asynchronous API | `hadris-io/async` |
+| `async-send` | Asynchronous API with `Send` futures, in `async_send` | `async` |
 | `std` | Full standard library support | `std`, `alloc` |
 
 Default features: `read`, `write`, `lfn`, `std`, `sync`

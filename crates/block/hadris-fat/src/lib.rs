@@ -62,6 +62,7 @@
 //! | `alloc`  | No      | Heap allocation without full std |
 //! | `sync`   | No      | Synchronous API via `hadris-io` sync traits |
 //! | `async`  | No      | Asynchronous API via `hadris-io` async traits |
+//! | `async-send` | No  | Asynchronous API with `Send` futures (`async_send` module) |
 //! | `read`   | Yes     | Read operations |
 //! | `write`  | Yes     | Write operations (requires `alloc` + `read`) |
 //! | `lfn`    | Yes     | Long filename (VFAT) support |
@@ -266,6 +267,15 @@ pub mod r#async {
     pub use __inner::write::FatVolumeWriteExt;
     pub use __inner::*;
 }
+
+/// The asynchronous API with `Send` futures, for generic code on
+/// multi-threaded executors.
+///
+/// Generated a third time from the same source as `r#async`, following
+/// `hadris_fs::async_send`. It holds no items yet; the V3 `FatFs` driver
+/// lands here beside the other modes.
+#[cfg(feature = "async-send")]
+pub mod async_send;
 
 // ---------------------------------------------------------------------------
 // Default re-exports for backwards compatibility (sync)
