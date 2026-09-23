@@ -26,7 +26,7 @@ hadris-fat = { path = "../crates/block/hadris-fat", features = ["unstable-exfat"
 hadris-fs = { path = "../crates/core/hadris-fs" }
 hadris-io = { path = "../crates/core/hadris-io" }
 hadris-storage = { path = "../crates/core/hadris-storage" }
-hadris-iso = { path = "../crates/optical/hadris-iso", features = ["read", "joliet"] }
+hadris-iso = { path = "../crates/optical/hadris-iso" }
 hadris-ntfs = { path = "../crates/block/hadris-ntfs" }
 hadris-part = { path = "../crates/block/hadris-part" }
 hadris-udf = { path = "../crates/optical/hadris-udf" }

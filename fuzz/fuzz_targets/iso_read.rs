@@ -1,135 +1,146 @@
 #![no_main]
-//! Fuzz the ISO 9660 reader: open an arbitrary image, then walk every
-//! directory and read every file. Arbitrary bytes must never panic/abort/OOM.
+//! Fuzz the ISO 9660 reader: open an arbitrary image, read its descriptors
+//! and boot catalog, then walk every tree it carries, reading every file,
+//! link, Rock Ridge entry set and directory record. Arbitrary bytes must
+//! never panic, abort or OOM.
 //!
 //! Self-consistency oracles (failures are tagged `ORACLE:`): every file is
-//! read twice and the bytes must match, and walked entries are re-resolved by
-//! name through `IsoDir::find` (guarded against ambiguous case-insensitive
-//! display-name matches on corrupt images).
+//! read twice and the bytes must match, listed entries must re-resolve by
+//! name through `lookup`, and a listed file must be a valid handle.
 
-use hadris_io::Cursor;
-use libfuzzer_sys::fuzz_target;
 use std::collections::HashSet;
 
-use hadris_iso::read::{DirEntry, IsoImage};
+use hadris_fs::{DirCursor, ErrorKind, FileType, NameBuf, NodeId};
+use hadris_iso::sync::{IsoImage, IsoView};
+use hadris_storage::{BlockSize, MemDevice};
+use libfuzzer_sys::fuzz_target;
 
-/// `find` re-reads the whole directory, so cap name re-resolution lookups
-/// per directory to keep the walk from going quadratic under the flat work
-/// budget.
+type View<'a> = IsoView<&'a mut MemDevice<Vec<u8>>>;
+
+/// `lookup` re-scans a directory from the start, so cap name re-resolution
+/// lookups per directory to keep the walk from going quadratic under the
+/// flat work budget.
 const MAX_LOOKUPS_PER_DIR: usize = 32;
+const READ_CAP: usize = 4 * 1024 * 1024;
 
-/// A query string that `IsoDir::find` (via `matches_name`) is guaranteed to
-/// match against this entry, or `None` if no such query can be derived.
-fn lookup_query(entry: &DirEntry) -> Option<String> {
-    let display = entry.display_name();
-    if entry.matches_name(&display) {
-        return Some(display.into_owned());
-    }
-    // Mirror `matches_name`'s display branch: drop NULs and a `;<digits>`
-    // version suffix.
-    let filtered: String = display.chars().filter(|c| *c != '\0').collect();
-    let stripped = match filtered.rsplit_once(';') {
-        Some((base, version))
-            if !version.is_empty() && version.bytes().all(|b| b.is_ascii_digit()) =>
-        {
-            base.to_string()
+/// Reads a file in chunks with a byte cap: the size is fuzz-controlled.
+/// Returns the bytes and whether the read ended in an error.
+fn read_pass(view: &mut View<'_>, node: NodeId) -> (Vec<u8>, bool) {
+    let mut buf = [0u8; 64 * 1024];
+    let mut out = Vec::new();
+    loop {
+        match view.read_at(node, out.len() as u64, &mut buf) {
+            Ok(0) => return (out, false),
+            Err(_) => return (out, true),
+            Ok(n) => {
+                out.extend_from_slice(&buf[..n]);
+                if out.len() >= READ_CAP {
+                    return (out, false);
+                }
+            }
         }
-        _ => filtered,
-    };
-    if entry.matches_name(&stripped) {
-        return Some(stripped);
     }
-    None
 }
 
-fn drive(data: &[u8]) {
-    let Ok(image) = IsoImage::open(Cursor::new(data)) else {
-        return;
-    };
-
-    // Depth-guarded `DirectoryRef` worklist. The depth cap alone is NOT enough:
-    // a corrupt directory graph (extents pointing at sibling/ancestor dirs) has
-    // a path count that grows like branching^depth, so a naive walk fans out and
-    // hangs — a harness DoS, not a library bug. A flat work budget bounds total
-    // entries processed on ANY input.
-    // ponytail: budget over visited-set — no per-format extent accessor needed.
-    let mut budget: u32 = 200_000;
-    let mut stack = vec![(image.root_dir().dir_ref(), 0u32)];
-    while let Some((dref, depth)) = stack.pop() {
+/// Walks one tree. A corrupt directory graph (records pointing at sibling
+/// or ancestor directories) has a path count that grows like
+/// branching^depth, so a flat work budget bounds the entries processed.
+fn walk(view: &mut View<'_>, budget: &mut u32) {
+    let _ = view.stats();
+    let mut stack = vec![(view.root(), 0u32)];
+    'walk: while let Some((dir, depth)) = stack.pop() {
         if depth > 64 {
             continue;
         }
-        let dir = image.open_dir(dref);
-        let mut saw_error = false;
+        let _ = view.parent(dir);
+        let _ = view.rock_ridge(dir);
+        let _ = view.raw_record(dir);
         let mut lookups = 0usize;
         let mut seen_names: HashSet<Vec<u8>> = HashSet::new();
-        for item in dir.entries() {
-            if budget == 0 {
-                return;
+        let mut cursor = DirCursor::start();
+        let mut name = NameBuf::new();
+        loop {
+            if *budget == 0 {
+                break 'walk;
             }
-            budget -= 1;
-            let Ok(entry) = item else {
-                saw_error = true;
+            *budget -= 1;
+            let entry = match view.read_dir_entry(dir, &mut cursor, &mut name) {
+                Ok(Some(entry)) => entry,
+                Ok(None) | Err(_) => break,
+            };
+            let node = entry.node();
+            let Some(child_name) = name.as_name() else {
                 continue;
             };
-            if entry.is_special() {
-                continue; // "." and ".."
-            }
-            let is_new_name = seen_names.insert(entry.name().to_vec());
+            let bytes = child_name.as_bytes().to_vec();
+            let is_new_name = seen_names.insert(bytes.clone());
 
-            // Name re-resolution oracle. `find` collects entries through a
-            // different path than the streaming iterator, so an `Err` is not
-            // asserted on — but an `Ok(None)` for a self-matching query is a
-            // genuine wrong result.
-            if !saw_error && lookups < MAX_LOOKUPS_PER_DIR {
+            if lookups < MAX_LOOKUPS_PER_DIR {
                 lookups += 1;
-                if let Some(query) = lookup_query(&entry) {
-                    match dir.find(&query) {
-                        Ok(Some(found)) => {
-                            if is_new_name && found.name() == entry.name() {
-                                assert_eq!(
-                                    found.is_directory(),
-                                    entry.is_directory(),
-                                    "ORACLE: find({query:?}) returned entry with different kind"
-                                );
-                                assert_eq!(
-                                    found.size(),
-                                    entry.size(),
-                                    "ORACLE: find({query:?}) returned entry with different size"
-                                );
-                            }
-                        }
-                        Ok(None) => {
-                            panic!("ORACLE: find({query:?}) failed to re-resolve walked entry")
-                        }
-                        Err(_) => {}
+                let Ok(found) = view.lookup(dir, child_name) else {
+                    panic!("ORACLE: lookup({bytes:?}) failed to re-resolve a listed entry");
+                };
+                // A directory's metadata is read from its own extent, which
+                // a corrupt image can place anywhere; any other node's comes
+                // from the record just listed.
+                if is_new_name && found == node && entry.file_type() != FileType::Dir {
+                    if let Err(err) = view.node_metadata(found) {
+                        assert_ne!(
+                            err.kind(),
+                            ErrorKind::InvalidHandle,
+                            "ORACLE: lookup({bytes:?}) returned a node that is not a record"
+                        );
                     }
                 }
+                view.forget(found);
             }
 
-            if entry.is_directory() {
-                if let Ok(child) = entry.as_dir_ref(&image) {
-                    stack.push((child, depth + 1));
+            let _ = view.rock_ridge(node);
+            let _ = view.raw_record(node);
+            let _ = view.extents(node, |_| {});
+            match entry.file_type() {
+                FileType::Dir => stack.push((node, depth + 1)),
+                FileType::Symlink => {
+                    let mut target = [0u8; 4096];
+                    let _ = view.read_link(node, &mut target);
                 }
-            } else {
-                // Read-twice oracle: two reads must yield identical bytes.
-                let first = image.read_file(&entry);
-                let second = image.read_file(&entry);
-                assert_eq!(
-                    first.is_ok(),
-                    second.is_ok(),
-                    "ORACLE: repeated reads of {:?} disagree on success",
-                    entry.display_name()
-                );
-                if let (Ok(a), Ok(b)) = (first, second) {
+                _ => {
+                    let first = read_pass(view, node);
+                    let second = read_pass(view, node);
                     assert_eq!(
-                        a,
-                        b,
-                        "ORACLE: repeated reads of {:?} returned different bytes",
-                        entry.display_name()
+                        first.1, second.1,
+                        "ORACLE: repeated reads of {bytes:?} disagree on success"
+                    );
+                    assert!(
+                        first.0 == second.0,
+                        "ORACLE: repeated reads of {bytes:?} returned different bytes"
                     );
                 }
             }
+        }
+    }
+}
+
+fn drive(data: &[u8]) {
+    let mut bytes = data.to_vec();
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
+    let Ok(mut image) = IsoImage::open(dev) else {
+        return;
+    };
+    for index in 0..70 {
+        if !matches!(image.descriptor(index), Ok(Some(_))) {
+            break;
+        }
+    }
+    let _ = image.primary_descriptor();
+    let _ = image.boot_catalog();
+
+    let mut budget: u32 = 200_000;
+    let namespaces: Vec<_> = image.namespaces().iter().collect();
+    for namespace in namespaces {
+        if let Ok(mut view) = image.view(namespace) {
+            walk(&mut view, &mut budget);
         }
     }
 }
