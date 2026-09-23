@@ -10,7 +10,7 @@ use common::block_on;
 mod plain {
     use super::*;
     use common::asynch::{MemFs, fixture};
-    use hadris_fs::r#async::{DriverExt, PathExt, Posix, Volume};
+    use hadris_fs::r#async::{DriverExt, PathExt, Posix, Volume, copy_tree};
     use hadris_fs::{ErrorKind, OpenOptions};
     use hadris_io::r#async::{Read as _, Write as _};
 
@@ -49,6 +49,32 @@ mod plain {
             assert_eq!(vol.into_inner().into_inner().open_nodes(), 1);
         });
     }
+
+    #[test]
+    fn copy_tree_between_tiers() {
+        block_on(async {
+            let mut src = fixture();
+            let vol = Volume::new(MemFs::new());
+            copy_tree(&mut src, "/etc", &vol, "/copy/etc")
+                .await
+                .unwrap();
+            assert_eq!(
+                vol.read_to_vec("/copy/etc/conf").await.unwrap(),
+                b"key=value"
+            );
+            assert!(
+                vol.metadata("/copy/etc/up")
+                    .await
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+            let err = copy_tree(&mut src, "/nope", &vol, "/x").await.unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::NotFound);
+            assert_eq!(src.open_nodes(), 1);
+            assert_eq!(vol.into_inner().open_nodes(), 1);
+        });
+    }
 }
 
 mod send {
@@ -58,7 +84,7 @@ mod send {
     use common::send::fixture;
     use hadris_fs::FsResult;
     use hadris_fs::OpenOptions;
-    use hadris_fs::async_send::{File, FileSystem, PathExt, Volume};
+    use hadris_fs::async_send::{File, FileSystem, PathExt, Volume, copy_tree};
     use hadris_io::async_send::Read as _;
 
     /// Generic over the filesystem, with no `Send` bounds: the mode's
@@ -86,6 +112,30 @@ mod send {
                 fs.exists("/spawned/x").await.unwrap()
             })
         })
+    }
+
+    fn spawn_copy<S: FileSystem + 'static, T: FileSystem + 'static>(
+        src: Arc<S>,
+        dst: Arc<T>,
+    ) -> std::thread::JoinHandle<Result<(), hadris_fs::AnyError>> {
+        std::thread::spawn(move || block_on(copy_tree(src, "/", dst, "/mirror")))
+    }
+
+    #[test]
+    fn copy_tree_futures_are_send() {
+        let src = Arc::new(Volume::new(fixture()));
+        let dst = Arc::new(Volume::new(common::send::MemFs::new()));
+        spawn_copy(Arc::clone(&src), Arc::clone(&dst))
+            .join()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            block_on(dst.read_to_vec("/mirror/etc/conf")).unwrap(),
+            b"key=value"
+        );
+        let src = Arc::into_inner(src).unwrap().into_inner();
+        let dst = Arc::into_inner(dst).unwrap().into_inner();
+        assert_eq!((src.open_nodes(), dst.open_nodes()), (1, 1));
     }
 
     #[test]

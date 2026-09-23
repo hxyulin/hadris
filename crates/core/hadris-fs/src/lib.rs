@@ -13,8 +13,8 @@
 //!
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
-//! | `alloc` | No | [`OwnedName`], [`AnyError`] and owned path normalization |
-//! | `std` | No | Implies `alloc`; adds [`SystemClock`] and conversions to `std::io::Error` |
+//! | `alloc` | No | [`OwnedName`], [`AnyError`], `copy_tree` and owned path normalization |
+//! | `std` | No | Implies `alloc`; adds [`SystemClock`], `extract_to_host` and `import_from_host` in `sync`, and conversions to `std::io::Error` |
 
 #![no_std]
 #![deny(missing_docs)]
@@ -30,6 +30,7 @@ mod dir;
 mod error;
 #[cfg(any(feature = "sync", feature = "async"))]
 mod forget_queue;
+mod fuse;
 mod macros;
 mod meta;
 mod name;
@@ -43,6 +44,7 @@ pub use dir::{DirCursor, DirEntry, DirItem};
 #[cfg(feature = "alloc")]
 pub use error::AnyError;
 pub use error::{Error, ErrorKind, FsResult};
+pub use fuse::FuseOnError;
 pub use meta::{Attributes, Metadata, Mode, SetMetadata};
 #[cfg(feature = "alloc")]
 pub use name::OwnedName;

@@ -14,6 +14,7 @@ The vocabulary is mode-independent and performs no I/O:
 - `DirCursor` and `DirEntry` for resumable directory reads
 - `OpenOptions`, `RenameFlags` and `NewNode`
 - `path`: allocation-free lexical virtual paths (formerly `hadris-path`)
+- `FuseOnError`, an iterator adapter that ends after the first `Err`
 
 The `sync`, `async` and `async-send` features add the driver layer, each
 generated from one source:
@@ -28,6 +29,11 @@ generated from one source:
 - `DriverExt` and `PathExt` path helpers, `OpenFile` for kernel file tables,
   and `File<A>`/`Dir<A>` handles for every tier, with `std::io` on `File` in
   sync builds
+- `copy_tree` (`alloc`), which copies a file or directory tree between any
+  two filesystems on any tier and returns `AnyError`, and in the sync API
+  with `std`, `extract_to_host` and `import_from_host`, which copy between a
+  filesystem and a host directory and refuse entry names or host symlinks
+  that would leave the target directory
 
 Every tier does every job:
 
@@ -67,8 +73,8 @@ assert!(OpenOptions::write().create().append().validate().is_ok());
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `alloc` | No | `OwnedName`, `AnyError`, `read_to_vec`, `Box`/`Rc`/`Arc` impls and owned path normalization |
-| `std` | No | Implies `alloc`; adds `SystemClock`, `StdMutex`, `std::io` on handles and conversions to `std::io::Error` |
+| `alloc` | No | `OwnedName`, `AnyError`, `read_to_vec`, `copy_tree`, `Box`/`Rc`/`Arc` impls and owned path normalization |
+| `std` | No | Implies `alloc`; adds `SystemClock`, `StdMutex`, `std::io` on handles, the sync host helpers and conversions to `std::io::Error` |
 | `sync` | No | Blocking driver traits, `Volume`, resolvers, helpers and handles in `sync` |
 | `async` | No | The same API with `async fn` in `r#async`; `AsyncMutex` with `alloc` |
 | `async-send` | No | The async API with `Send` futures in `async_send`; implies `async` |

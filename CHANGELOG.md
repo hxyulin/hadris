@@ -32,6 +32,12 @@ Each published package owns its version and may be released independently.
   `PathExt` path helpers, `OpenFile`, and `File<A>`/`Dir<A>` handles over
   `Access` (`&mut D`, `&F`, `Arc`, `Rc`, `Volume`). `DirItem` pairs an entry
   with its name, and `ErrorKind::Symlink` reports `ELOOP`.
+  `copy_tree` (`alloc`) copies a file, symlink or directory tree between
+  any two filesystems, each side any `Access`, and returns `AnyError`. With
+  `std`, the sync API adds `extract_to_host` and `import_from_host`, which
+  reject entry names that are not one plain host component and never write
+  through an existing host symlink. `FuseOnError` ends an iterator of
+  `Result`s after its first `Err`.
 
 ### Changed
 

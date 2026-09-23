@@ -198,7 +198,9 @@ no `try_*` twins.
 
 Any iterator yielding `Result` yields at most one `Err` and then `None`. A
 shared `FuseOnError` adapter in `hadris-fs` implements this, and each iterator
-has a test for it.
+has a test for it. The adapter also ends after the inner iterator's first
+`None` and implements `FusedIterator`. `Dir` fuses itself, since it also has an
+async `next_entry` that no `Iterator` adapter covers.
 
 ### R8. Sizes and offsets are `u64`
 
@@ -560,7 +562,23 @@ instead makes `vol.root()` ambiguous, since both traits have it, hence
 - `OpenOptions { read, write, append, truncate, create, create_new }` makes overwrite semantics explicit (#90, #91). Opening for writing fails with `ReadOnly` at open time when `capabilities().writable()` is false, before any truncation, instead of at the first write.
 - Opening a symlink node as a file (possible with `Lexical`, which never follows links) fails with `ErrorKind::Symlink`, as POSIX `O_NOFOLLOW` fails with `ELOOP`.
 - `close()` returns `Result`. `Drop` does a best-effort `forget`, never flushes and never panics. `#[must_use]` on handles. `OpenFile` is plain data and does not forget on drop; its owner calls `close`.
-- Helpers on both `DriverExt` and `PathExt`: `exists`, `metadata`, `open`, `read_dir`, `read_to_vec`, `write_file`, `create_dir_all`, `remove_file`, `remove_dir`, `remove_dir_all`, `rename_path`. `rename_path` is not `rename` because the node method of that name is on the driver traits and both can be in scope. `remove_dir_all` needs no allocation and fails with `LimitExceeded` below 64 levels. Free functions: `copy_tree` (between any two filesystems), and with `std`, `extract_to_host` and `import_from_host`. The host helpers reject absolute names and `..` components so archives and images cannot escape the target directory.
+- Helpers on both `DriverExt` and `PathExt`: `exists`, `metadata`, `open`, `read_dir`, `read_to_vec`, `write_file`, `create_dir_all`, `remove_file`, `remove_dir`, `remove_dir_all`, `rename_path`. `rename_path` is not `rename` because the node method of that name is on the driver traits and both can be in scope. `remove_dir_all` needs no allocation and fails with `LimitExceeded` below 64 levels. Free functions: `copy_tree` (between any two filesystems, with `alloc`), and with `std` in the sync API, `extract_to_host` and `import_from_host`. Each side is any `Access`, so `&mut fs`, `&vol` and an `Arc` all work. The host helpers reject absolute names, separators, drive prefixes and `..` components, and never write through an existing host symlink, so archives and images cannot escape the target directory.
+
+```rust
+pub async fn copy_tree<S: Access, T: Access>(src: S, from: &str, dst: T, to: &str) -> Result<(), AnyError>;
+pub fn extract_to_host<S: Access>(src: S, from: &str, host: impl AsRef<Path>) -> std::io::Result<()>;
+pub fn import_from_host<T: Access>(host: impl AsRef<Path>, dst: T, to: &str) -> std::io::Result<()>;
+```
+
+`copy_tree` needs `alloc`, unlike `remove_dir_all`: two devices mean two
+error types, and `AnyError` is the only common one. With `alloc` required
+anyway, it walks with a `Vec` instead of a fixed stack, so it has no depth
+limit. It merges into existing directories, overwrites files, and fails with
+`AlreadyExists` on a type clash or an existing symlink. The host helpers exist
+only in the sync API, because the host side is blocking `std::fs`, and an
+async version would block the executor, the problem the survey found in the
+V2 `FileSource`. The sync/async parity check (R11) reports them as sync-only,
+as it reports the mode-specific locks.
 
 The conformance suite's FAT adapter becomes one generic impl over
 `FileSystem`. The rust-fatfs and mtools peers can keep their own adapters,
@@ -1088,7 +1106,7 @@ await is I/O on it), so 2.x documents async volumes as single-task.
 1. **CI guardrails.** semver-checks against the branch point, the `non_exhaustive` lint, the all-features vs no-features API subset check, the sync/async parity check. Report-only at first.
 2. **`hadris-io`.** embedded-io base, `StdIo`, `&mut T`, `ByteSource`, moved onto `strip_async!`. Done on `feat/v3-api`, first with an erased error, then reworked to `ErrorType` (4.1). The erased V2 traits live in `hadris_io::legacy`, which every format crate uses until its own port step; the last port deletes the module. `embedded-io` stays a required dependency until then, because `legacy` and the re-exported `SeekFrom` use it; the `embedded-io` feature and a Hadris `SeekFrom` land with that deletion.
 3. **`hadris-storage`.** `BlockDevice` in both modes from one source, `WriteError`, `std::fs::File`, `StreamDevice`, `MemDevice`, `Slice`, `Cache`, `ByteView`. Done on `feat/v3-api`.
-4. **`hadris-fs`.** Done: vocabulary, `ErrorKind`, `Error<E>`, `AnyError`, `DateTime`/`Clock`, steps 2 and 3 reworked to associated errors, the three modes (`sync`, `async`, `async_send`), `FsDriver`/`FileSystem`, `impl_fs_driver!`, `Volume`/`LockKind`, resolvers, helpers and handles, tested against an in-memory driver (the FS-generic parts of S1 to S16; the FAT-specific ones move to step 5). `hadris-path`, `hadris-fixed` and `hadris-archive` are merged or removed. Left: `copy_tree`, the std host helpers and `FuseOnError`.
+4. **`hadris-fs`.** Done: vocabulary, `ErrorKind`, `Error<E>`, `AnyError`, `DateTime`/`Clock`, steps 2 and 3 reworked to associated errors, the three modes (`sync`, `async`, `async_send`), `FsDriver`/`FileSystem`, `impl_fs_driver!`, `Volume`/`LockKind`, resolvers, helpers and handles, tested against an in-memory driver (the FS-generic parts of S1 to S16; the FAT-specific ones move to step 5), `copy_tree`, the sync host helpers `extract_to_host` and `import_from_host`, and `FuseOnError`. `hadris-path`, `hadris-fixed` and `hadris-archive` are merged or removed.
 5. **`hadris-fat` as the reference implementation.** `BlockDevice` input, node table, `FsDriver` through inherent methods, `parent`, `FormatOptions`, `check`, clock and code page generics. Port the conformance adapter to the generic `FileSystem` adapter in the same PR. This step tests the trait design, and the trait can still change here.
 6. **Freeze the traits.** Review `hadris-fs` against FAT, the conformance adapter and a prototype FUSE adapter before any other format ports.
 7. **Errors and the R1/R2/R4/R5 pass, crate by crate.**

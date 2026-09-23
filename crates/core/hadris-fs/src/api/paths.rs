@@ -2,7 +2,7 @@ use super::*;
 
 io_transform! {
 
-async fn resolve_parent<'p, D: FsDriver + ?Sized>(
+pub(super) async fn resolve_parent<'p, D: FsDriver + ?Sized>(
     fs: &mut D,
     path: &'p str,
 ) -> FsResult<(NodeId, &'p Name), D::DeviceError> {
@@ -74,7 +74,7 @@ async fn exists<D: FsDriver + ?Sized>(fs: &mut D, path: &str) -> FsResult<bool, 
     }
 }
 
-async fn create_dir_all<D: FsDriver + ?Sized>(fs: &mut D, path: &str) -> FsResult<(), D::DeviceError> {
+pub(super) async fn create_dir_all<D: FsDriver + ?Sized>(fs: &mut D, path: &str) -> FsResult<(), D::DeviceError> {
     let mut current: Option<NodeId> = None;
     let mut result = Ok(());
     for component in VPath::new(path).components() {
