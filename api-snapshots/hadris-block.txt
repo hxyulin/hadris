@@ -11,11 +11,24 @@ pub fn hadris_block::async::OpenVolume<D>::as_fat_mut(&mut self) -> core::option
 pub fn hadris_block::async::OpenVolume<D>::format(&self) -> hadris_block::detect::FatVariant
 pub fn hadris_block::async::OpenVolume<D>::into_fat(self) -> core::result::Result<hadris_fat::async::fatfs::FatFs<D>, Self>
 pub fn hadris_block::async::OpenVolume<D>::into_inner(self) -> D
-pub async fn hadris_block::async::OpenVolume<D>::open(D) -> hadris_block::Result<Self, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async::OpenVolume<D>::open_detected(D, hadris_block::detect::FatVariant) -> hadris_block::Result<Self, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_block::async::OpenVolume<D>::open(D) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_block::async::OpenVolume<D>::open_detected(D, hadris_block::detect::FatVariant) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub mod hadris_block::async_send
+#[non_exhaustive] pub enum hadris_block::async_send::OpenVolume<D>
+pub hadris_block::async_send::OpenVolume::Fat(hadris_fat::async_send::fatfs::FatFs<D>)
+impl<D: hadris_storage::async_send::api::BlockDevice> hadris_block::async_send::OpenVolume<D>
+pub fn hadris_block::async_send::OpenVolume<D>::as_fat(&self) -> core::option::Option<&hadris_fat::async_send::fatfs::FatFs<D>>
+pub fn hadris_block::async_send::OpenVolume<D>::as_fat_mut(&mut self) -> core::option::Option<&mut hadris_fat::async_send::fatfs::FatFs<D>>
+pub fn hadris_block::async_send::OpenVolume<D>::format(&self) -> hadris_block::detect::FatVariant
+pub fn hadris_block::async_send::OpenVolume<D>::into_fat(self) -> core::result::Result<hadris_fat::async_send::fatfs::FatFs<D>, Self>
+pub fn hadris_block::async_send::OpenVolume<D>::into_inner(self) -> D
+pub async fn hadris_block::async_send::OpenVolume<D>::open(D) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_block::async_send::OpenVolume<D>::open_detected(D, hadris_block::detect::FatVariant) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub mod hadris_block::detect
 pub mod hadris_block::detect::async
 pub async fn hadris_block::detect::async::detect<D: hadris_storage::async::api::BlockDevice + ?core::marker::Sized>(&mut D) -> core::result::Result<core::option::Option<hadris_block::detect::BlockFormat>, <D as hadris_io::error::ErrorType>::Error>
+pub mod hadris_block::detect::async_send
+pub async fn hadris_block::detect::async_send::detect<D: hadris_storage::async_send::api::BlockDevice + ?core::marker::Sized>(&mut D) -> core::result::Result<core::option::Option<hadris_block::detect::BlockFormat>, <D as hadris_io::error::ErrorType>::Error>
 pub mod hadris_block::detect::sync
 pub fn hadris_block::detect::sync::detect<D: hadris_storage::sync::api::BlockDevice + ?core::marker::Sized>(&mut D) -> core::result::Result<core::option::Option<hadris_block::detect::BlockFormat>, <D as hadris_io::error::ErrorType>::Error>
 #[non_exhaustive] pub enum hadris_block::detect::BlockFormat
@@ -35,6 +48,9 @@ pub mod hadris_block::partition
 pub mod hadris_block::partition::async
 pub fn hadris_block::partition::async::gpt_partition<D: hadris_storage::async::api::BlockDevice>(D, &hadris_part::gpt::GptPartitionEntry) -> core::result::Result<hadris_storage::async::api::Slice<D>, D>
 pub fn hadris_block::partition::async::mbr_partition<D: hadris_storage::async::api::BlockDevice>(D, &hadris_part::mbr::MbrPartition) -> core::result::Result<hadris_storage::async::api::Slice<D>, D>
+pub mod hadris_block::partition::async_send
+pub fn hadris_block::partition::async_send::gpt_partition<D: hadris_storage::async_send::api::BlockDevice>(D, &hadris_part::gpt::GptPartitionEntry) -> core::result::Result<hadris_storage::async_send::api::Slice<D>, D>
+pub fn hadris_block::partition::async_send::mbr_partition<D: hadris_storage::async_send::api::BlockDevice>(D, &hadris_part::mbr::MbrPartition) -> core::result::Result<hadris_storage::async_send::api::Slice<D>, D>
 pub mod hadris_block::partition::sync
 pub fn hadris_block::partition::sync::gpt_partition<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_part::gpt::GptPartitionEntry) -> core::result::Result<hadris_storage::sync::api::Slice<D>, D>
 pub fn hadris_block::partition::sync::mbr_partition<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_part::mbr::MbrPartition) -> core::result::Result<hadris_storage::sync::api::Slice<D>, D>
@@ -47,8 +63,8 @@ pub fn hadris_block::sync::OpenVolume<D>::as_fat_mut(&mut self) -> core::option:
 pub fn hadris_block::sync::OpenVolume<D>::format(&self) -> hadris_block::detect::FatVariant
 pub fn hadris_block::sync::OpenVolume<D>::into_fat(self) -> core::result::Result<hadris_fat::sync::fatfs::FatFs<D>, Self>
 pub fn hadris_block::sync::OpenVolume<D>::into_inner(self) -> D
-pub fn hadris_block::sync::OpenVolume<D>::open(D) -> hadris_block::Result<Self, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_block::sync::OpenVolume<D>::open_detected(D, hadris_block::detect::FatVariant) -> hadris_block::Result<Self, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_block::sync::OpenVolume<D>::open(D) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_block::sync::OpenVolume<D>::open_detected(D, hadris_block::detect::FatVariant) -> core::result::Result<Self, hadris_block::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
 #[non_exhaustive] pub enum hadris_block::Error<E>
 pub hadris_block::Error::DetectedFormatMismatch
 pub hadris_block::Error::DetectedFormatMismatch::detected: hadris_block::detect::FatVariant
@@ -58,10 +74,26 @@ pub hadris_block::Error::Fat(hadris_fs::error::Error<E>)
 pub hadris_block::Error::PartitionedDisk(hadris_block::detect::PartitionTableKind)
 pub hadris_block::Error::UnknownFormat
 pub hadris_block::Error::UnsupportedFormat(hadris_block::detect::BlockFormat)
+impl<D, E> core::convert::From<hadris_block::OpenError<D, E>> for hadris_block::Error<E>
+pub fn hadris_block::Error<E>::from(hadris_block::OpenError<D, E>) -> Self
 impl<E: core::error::Error + 'static> core::error::Error for hadris_block::Error<E>
 pub fn hadris_block::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl<E: core::fmt::Display> core::fmt::Display for hadris_block::Error<E>
 pub fn hadris_block::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<hadris_fs::error::Error<E>> for hadris_block::Error<E>
 pub fn hadris_block::Error<E>::from(hadris_fs::error::Error<E>) -> Self
+pub struct hadris_block::OpenError<D, E>
+impl<D, E> hadris_block::OpenError<D, E>
+pub fn hadris_block::OpenError<D, E>::error(&self) -> &hadris_block::Error<E>
+pub fn hadris_block::OpenError<D, E>::into_device(self) -> core::option::Option<D>
+pub fn hadris_block::OpenError<D, E>::into_error(self) -> hadris_block::Error<E>
+pub fn hadris_block::OpenError<D, E>::into_parts(self) -> (hadris_block::Error<E>, core::option::Option<D>)
+impl<D, E: core::error::Error + 'static> core::error::Error for hadris_block::OpenError<D, E>
+pub fn hadris_block::OpenError<D, E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<D, E: core::fmt::Debug> core::fmt::Debug for hadris_block::OpenError<D, E>
+pub fn hadris_block::OpenError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D, E: core::fmt::Display> core::fmt::Display for hadris_block::OpenError<D, E>
+pub fn hadris_block::OpenError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D, E> core::convert::From<hadris_block::OpenError<D, E>> for hadris_block::Error<E>
+pub fn hadris_block::Error<E>::from(hadris_block::OpenError<D, E>) -> Self
 pub type hadris_block::Result<T, E> = core::result::Result<T, hadris_block::Error<E>>

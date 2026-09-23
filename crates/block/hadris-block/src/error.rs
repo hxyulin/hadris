@@ -65,3 +65,80 @@ impl<E> From<hadris_fs::Error<E>> for Error<E> {
         Self::Fat(error)
     }
 }
+
+/// Error of `OpenVolume::open` and `OpenVolume::open_detected`: an [`Error`]
+/// and, in every case the opener can arrange, the device it was given.
+///
+/// The device is missing only when it fails while the validated volume is
+/// mounted for keeps, after a first mount on a borrow of it succeeded. `?`
+/// converts it into [`Error`], dropping the device.
+pub struct OpenError<D, E> {
+    error: Error<E>,
+    device: Option<D>,
+}
+
+impl<D, E> OpenError<D, E> {
+    #[cfg(any(feature = "sync", feature = "async"))]
+    pub(crate) fn new(error: Error<E>, device: D) -> Self {
+        Self {
+            error,
+            device: Some(device),
+        }
+    }
+
+    #[cfg(any(feature = "sync", feature = "async"))]
+    pub(crate) fn without_device(error: Error<E>) -> Self {
+        Self {
+            error,
+            device: None,
+        }
+    }
+
+    /// Borrows the reason the open failed.
+    pub fn error(&self) -> &Error<E> {
+        &self.error
+    }
+
+    /// Returns the reason the open failed, dropping the device.
+    pub fn into_error(self) -> Error<E> {
+        self.error
+    }
+
+    /// Returns the device, if it could be given back.
+    pub fn into_device(self) -> Option<D> {
+        self.device
+    }
+
+    /// Returns the reason and the device.
+    pub fn into_parts(self) -> (Error<E>, Option<D>) {
+        (self.error, self.device)
+    }
+}
+
+impl<D, E: fmt::Debug> fmt::Debug for OpenError<D, E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenError")
+            .field("error", &self.error)
+            .field("device", &self.device.as_ref().map(|_| ..))
+            .finish()
+    }
+}
+
+impl<D, E: fmt::Display> fmt::Display for OpenError<D, E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(formatter)
+    }
+}
+
+impl<D, E: core::error::Error + 'static> core::error::Error for OpenError<D, E> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        self.error.source()
+    }
+}
+
+impl<D, E> From<OpenError<D, E>> for Error<E> {
+    fn from(error: OpenError<D, E>) -> Self {
+        error.error
+    }
+}

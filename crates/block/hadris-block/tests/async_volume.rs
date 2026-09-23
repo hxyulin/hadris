@@ -5,16 +5,15 @@ use core::task::{Context, Poll};
 use std::sync::Arc;
 use std::task::{Wake, Waker};
 
-use hadris_block::Error;
 use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant};
+use hadris_block::{Error, OpenError};
 use hadris_fat::{FatKind, FormatOptions};
 use hadris_fs::r#async::DriverExt;
 use hadris_fs::{ErrorKind, OpenOptions};
 use hadris_io::SeekFrom;
 use hadris_io::legacy::r#async::{Read, Seek, Write};
-use hadris_storage::PartitionView;
-use hadris_storage::{BlockSize, MemDevice};
+use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 
 type Device = MemDevice<Vec<u8>>;
 
@@ -142,17 +141,35 @@ impl Seek for AsyncCursor {
 }
 
 #[test]
-fn async_partition_view_enforces_relative_bounds() {
+fn async_partition_slices_enforce_their_bounds() {
+    use hadris_block::part::{GptPartitionEntry, Guid, MbrPartition, MbrPartitionType};
+    use hadris_block::partition::r#async::{gpt_partition, mbr_partition};
+    use hadris_storage::r#async::BlockDevice;
+
+    let bytes: Vec<u8> = (0..16 * 512).map(|index| (index / 512) as u8).collect();
     block_on(async {
-        let bytes = [0_u8, 1, 2, 3, 4, 5, 6, 7];
-        let mut source = hadris_io::Cursor::new(&bytes);
-        let mut view = PartitionView::new(&mut source, 2, 4).unwrap();
-        let mut buffer = [0_u8; 8];
-        assert_eq!(view.read(&mut buffer).await.unwrap(), 4);
-        assert_eq!(&buffer[..4], &[2, 3, 4, 5]);
-        assert_eq!(view.read(&mut buffer).await.unwrap(), 0);
-        assert!(view.seek(SeekFrom::Start(5)).await.is_err());
-        assert_eq!(view.seek(SeekFrom::End(-1)).await.unwrap(), 3);
+        let mut disk = device(bytes);
+        let entry = MbrPartition::new(MbrPartitionType::Fat12, 4, 8);
+        let mut slice = mbr_partition(&mut disk, &entry).unwrap();
+        assert_eq!(slice.block_count(), 8);
+        let mut block = [0_u8; 512];
+        slice.read_blocks(BlockIndex(0), &mut block).await.unwrap();
+        assert_eq!(block, [4; 512]);
+        slice.read_blocks(BlockIndex(7), &mut block).await.unwrap();
+        assert_eq!(block, [11; 512]);
+        assert!(slice.read_blocks(BlockIndex(8), &mut block).await.is_err());
+
+        let entry = GptPartitionEntry::new(Guid::EFI_SYSTEM, Guid::UNUSED, 10, 15);
+        let mut slice = gpt_partition(&mut disk, &entry).unwrap();
+        assert_eq!((slice.first(), slice.block_count()), (BlockIndex(10), 6));
+        slice.read_blocks(BlockIndex(5), &mut block).await.unwrap();
+        assert_eq!(block, [15; 512]);
+
+        let past = MbrPartition::new(MbrPartitionType::Fat12, 12, 8);
+        let disk = mbr_partition(disk, &past).expect_err("the partition does not fit");
+        let past = GptPartitionEntry::new(Guid::EFI_SYSTEM, Guid::UNUSED, 10, 16);
+        let disk = gpt_partition(disk, &past).expect_err("the partition does not fit");
+        assert_eq!(disk.get_ref().len(), 16 * 512);
     });
 }
 
@@ -164,7 +181,9 @@ fn async_detects_exfat_but_rejects_unified_opening() {
         image[510..512].copy_from_slice(&[0x55, 0xaa]);
 
         assert!(matches!(
-            OpenVolume::open(device(image)).await,
+            OpenVolume::open(device(image))
+                .await
+                .map_err(OpenError::into_error),
             Err(Error::UnsupportedFormat(BlockFormat::Fat(
                 FatVariant::ExFat
             )))
@@ -197,10 +216,16 @@ fn async_detection_and_open_release_the_device() {
 fn async_open_reports_mismatch() {
     let image = formatted_fat12();
     block_on(async {
+        let err = OpenVolume::open_detected(device(image), FatVariant::Fat16)
+            .await
+            .err()
+            .unwrap();
         assert!(matches!(
-            OpenVolume::open_detected(device(image), FatVariant::Fat16).await,
-            Err(hadris_block::Error::DetectedFormatMismatch { .. })
+            err.error(),
+            hadris_block::Error::DetectedFormatMismatch { .. }
         ));
+        let dev = err.into_device().unwrap();
+        assert_eq!(dev.get_ref().len(), 2 * 1024 * 1024);
     });
 }
 
@@ -416,9 +441,8 @@ fn async_unknown_block_input_is_category_typed() {
                 .unwrap(),
             None
         );
-        assert!(matches!(
-            OpenVolume::open(dev).await,
-            Err(hadris_block::Error::UnknownFormat)
-        ));
+        let (error, dev) = OpenVolume::open(dev).await.err().unwrap().into_parts();
+        assert!(matches!(error, hadris_block::Error::UnknownFormat));
+        assert_eq!(dev.unwrap().get_ref().len(), 4096);
     });
 }

@@ -134,6 +134,13 @@ Each published package owns its version and may be released independently.
 - **hadris-fat (V3):** `FatFs::cluster_chain(node, visit)` passes each
   cluster of a node's chain to a callback without allocating, for tools that
   show file layout and fragmentation.
+- **hadris-block, hadris (V3):** An additive `async-send` feature adds
+  `hadris_block::async_send` (`OpenVolume` over `hadris_fat::async_send::FatFs`),
+  `detect::async_send` and `partition::async_send`, generated from the same
+  source as `r#async`, and enables `async-send` in `hadris-storage`,
+  `hadris-fs` and `hadris-fat`. The umbrella `hadris` crate forwards
+  `async-send` to `hadris-io`, `hadris-fs` and `hadris-block`, and its
+  `sync` and `async` features now also reach `hadris-fs`.
 - **hadris-macros (V3):** `send_async!`, a third generation mode next to
   `strip_async!`: every `async fn` in a trait declaration returns a `Send`
   future and the trait gains `Send` (and `Sync` for `&self` methods) as a
@@ -175,9 +182,15 @@ Each published package owns its version and may be released independently.
   block size is the device's. `OpenVolume<D>` takes the device by value and
   holds a `FatFs<D>`, with `into_inner` returning the device. `Error<E>`
   carries the device error in `Device` and the mount error as
-  `Fat(hadris_fs::Error<E>)`. `partition::sync` and `partition::r#async` turn
+  `Fat(hadris_fs::Error<E>)`. `OpenVolume::open` and `open_detected` fail
+  with `OpenError<D, E>`, which carries the `Error` and gives the device
+  back (`error`, `into_error`, `into_device`, `into_parts`) instead of
+  dropping it; the volume is validated on a borrow of the device first, so
+  only a device failing during the final mount keeps it. `?` converts an
+  `OpenError` into `Error`. `partition::sync` and `partition::r#async` turn
   MBR and GPT entries into `Slice<D>`s of the disk. The `detect` feature
-  depends on `hadris-storage` instead of `hadris-io`.
+  depends on `hadris-storage` instead of `hadris-io`. The `sync` and
+  `r#async` openers are generated from one source.
 - **hadris-fat-cli (V3):** Every command runs on `FatFs`; read commands mount
   images read-only. `stat` counts clusters, files and directories with
   `check` and no longer prints reserved clusters. `verify` runs `check_with`,

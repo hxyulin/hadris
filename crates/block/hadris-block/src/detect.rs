@@ -130,8 +130,10 @@ fn fat_variant(sector: &[u8; 512]) -> Option<FatVariant> {
 }
 
 /// The largest device block the detectors read.
+#[cfg(any(feature = "sync", feature = "async"))]
 const MAX_BLOCK: usize = 4096;
 
+#[cfg(any(feature = "sync", feature = "async"))]
 macro_rules! probe {
     ($dev:ident $(, $aw:tt)?) => {{
         let size = $dev.block_size().get() as usize;
@@ -187,6 +189,26 @@ pub mod r#async {
     use super::{BlockFormat, MAX_BLOCK, PartitionTableKind, detect_sector};
     use hadris_storage::BlockIndex;
     use hadris_storage::r#async::BlockDevice;
+
+    /// Detects the layout of `dev` from its first 512 bytes and, for a GPT,
+    /// the header signature in block 1.
+    ///
+    /// Devices too small to hold a boot sector, and devices whose blocks are
+    /// larger than 4096 bytes, give `None`.
+    pub async fn detect<D: BlockDevice + ?Sized>(
+        dev: &mut D,
+    ) -> Result<Option<BlockFormat>, D::Error> {
+        probe!(dev, await)
+    }
+}
+
+#[cfg(feature = "async-send")]
+/// Asynchronous block-format detection over the `Send` devices of
+/// `hadris_storage::async_send`.
+pub mod async_send {
+    use super::{BlockFormat, MAX_BLOCK, PartitionTableKind, detect_sector};
+    use hadris_storage::BlockIndex;
+    use hadris_storage::async_send::BlockDevice;
 
     /// Detects the layout of `dev` from its first 512 bytes and, for a GPT,
     /// the header signature in block 1.

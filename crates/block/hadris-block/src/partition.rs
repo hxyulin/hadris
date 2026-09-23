@@ -52,3 +52,10 @@ pub mod sync {
 pub mod r#async {
     partition_mode!(r#async);
 }
+
+/// Asynchronous partition slices over the `Send` devices of
+/// `hadris_storage::async_send`.
+#[cfg(feature = "async-send")]
+pub mod async_send {
+    partition_mode!(async_send);
+}

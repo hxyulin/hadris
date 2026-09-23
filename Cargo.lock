@@ -534,6 +534,7 @@ dependencies = [
  "hadris-fat",
  "hadris-fs",
  "hadris-io",
+ "hadris-macros",
  "hadris-part",
  "hadris-storage",
 ]

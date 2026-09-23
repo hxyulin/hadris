@@ -23,6 +23,11 @@
 //! independently to enabled leaves. The default set is the hosted synchronous
 //! read/write configuration with `fat`, `iso`, and `cpio`.
 //!
+//! `async-send` implies `async` and adds the `async_send` modules of
+//! `hadris-io`, `hadris-fs`, `hadris-storage`, `hadris-fat` and
+//! `hadris-block`, whose futures are `Send` for multi-threaded executors. The
+//! optical and archive crates have no such mode yet.
+//!
 //! Hybrid CD image creation is currently sync-only. Enabling `cd`—directly or
 //! through `optical`—therefore enables the CD writer's sync API, even when the
 //! umbrella `async` feature is also selected. ISO and UDF still expose their

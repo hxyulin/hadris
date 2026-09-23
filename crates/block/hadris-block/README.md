@@ -31,15 +31,20 @@ use hadris_block::sync::OpenVolume;
 
 // `disk` is any hadris-storage `BlockDevice`, such as a `std::fs::File`.
 let partition = gpt_partition(&mut disk, &entry).expect("partition fits the disk");
-let volume = OpenVolume::open(partition)?;
+let volume = match OpenVolume::open(partition) {
+    Ok(volume) => volume,
+    // The error gives the device back, so the caller can try another opener.
+    Err(err) => return Err(err.into_error()),
+};
 let fs = volume.into_fat().ok().unwrap(); // a hadris_fat::sync::FatFs
 ```
 
 Detection reads only the identifying metadata of a block device. Opening the
 detected concrete format performs full validation and yields the `FatFs`
 driver, which works with the `hadris-fs` path helpers. Partitioned disks must
-first be narrowed to a partition with `partition::sync` or `partition::async`,
-which return `hadris-storage` slices.
+first be narrowed to a partition with `partition::sync`, `partition::r#async`
+or `partition::async_send`, which return `hadris-storage` slices. A failed
+open returns an `OpenError` that carries the device back to the caller.
 
 ## Features
 
@@ -49,6 +54,7 @@ which return `hadris-storage` slices.
 | `alloc` | yes | Heap-backed APIs without requiring `std` |
 | `sync` | yes | Synchronous I/O APIs |
 | `async` | no | Asynchronous I/O APIs |
+| `async-send` | no | Asynchronous APIs with `Send` futures in `async_send` modules; enables `async` |
 | `read` | yes | Filesystem and partition reading |
 | `write` | yes | FAT and partition mutation |
 | `detect` | yes | Lightweight block-format detection on a `BlockDevice` |
