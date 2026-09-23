@@ -179,6 +179,10 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-storage (V3):** `BlockDevice::flush` for `std::fs::File` calls
+  `sync_data`, so `sync` and `sync_node` on a host image or block device
+  reach stable storage. It used to call `Write::flush`, which does nothing
+  for a file.
 - **hadris-fs (V3):** `publish_node` writes a node's pending metadata
   without flushing the device (default: `sync_node`), and `sync_node` is
   documented as durable, like `fsync`. `File::close`, `OpenFile::close` and

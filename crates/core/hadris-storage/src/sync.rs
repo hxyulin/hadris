@@ -54,6 +54,12 @@ impl<S: legacy::Read + legacy::Write + legacy::Seek> legacy::Write for Partition
     }
 }
 
+/// Windows refuses `FlushFileBuffers` on a handle without write access.
+#[cfg(feature = "std")]
+fn is_read_only_handle(err: &std::io::Error) -> bool {
+    cfg!(windows) && err.kind() == std::io::ErrorKind::PermissionDenied
+}
+
 /// A host file is a block device with 512-byte blocks.
 ///
 /// Errors are the `std::io::Error` itself, so `raw_os_error()` survives. A
@@ -92,8 +98,15 @@ impl BlockDevice for std::fs::File {
         Ok(std::io::Write::write_all(self, buf)?)
     }
 
+    /// Calls `sync_data`, so a flush reaches stable storage. On Windows a
+    /// file opened read-only has nothing to write and succeeds without
+    /// syncing.
     fn flush(&mut self) -> Result<(), crate::WriteError<std::io::Error>> {
-        Ok(std::io::Write::flush(self)?)
+        match self.sync_data() {
+            Ok(()) => Ok(()),
+            Err(err) if is_read_only_handle(&err) => Ok(()),
+            Err(err) => Err(err.into()),
+        }
     }
 }
 
@@ -386,8 +399,10 @@ mod device_tests {
         let mut block = [0u8; 512];
         file.read_blocks(BlockIndex(1), &mut block).unwrap();
         assert_eq!(block, [9; 512]);
+        file.flush().unwrap();
 
         let mut read_only = std::fs::File::open(&path).unwrap();
+        read_only.flush().unwrap();
         match read_only.write_blocks(BlockIndex(0), &block) {
             Err(WriteError::Device(err)) => assert!(err.raw_os_error().is_some()),
             other => panic!("expected an OS error, got {other:?}"),
