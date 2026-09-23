@@ -6,62 +6,66 @@ title: Open FAT inside a partition
 
 A partition table and the filesystem inside it are separate layers. Read the
 table, choose a partition, then restrict all filesystem I/O to that partition's
-byte range.
+block range.
 
 ```toml
 [dependencies]
 anyhow = "1"
 hadris-block = "2.4.0"
+hadris-fs = "2.4.0"
+hadris-io = "2.4.0"
 ```
 
 ```rust,no_run
 use anyhow::{Context, Result};
 use hadris_block::{
     part::{PartitionTable, PartitionTableReadExt},
-    storage::PartitionView,
+    storage::{BlockIndex, sync::Slice},
     sync::OpenVolume,
 };
+use hadris_fs::sync::DriverExt;
+use hadris_io::StdIo;
 use std::fs::File;
 
 fn main() -> Result<()> {
     const BLOCK_SIZE: u32 = 512;
 
-    let mut disk = File::open("disk.img")?;
-    let table = PartitionTable::read_from(&mut disk, BLOCK_SIZE)?;
+    let mut stream = StdIo::new(File::open("disk.img")?);
+    let table = PartitionTable::read_from(&mut stream, BLOCK_SIZE)?;
     let partition = table
         .partitions()
         .into_iter()
         .next()
         .context("the disk has no partitions")?;
 
-    let byte_offset = partition
-        .start_lba
-        .checked_mul(u64::from(BLOCK_SIZE))
-        .context("partition offset overflow")?;
-    let byte_len = partition
-        .size_sectors
-        .checked_mul(u64::from(BLOCK_SIZE))
-        .context("partition length overflow")?;
+    let mut disk = stream.into_inner();
+    let slice = Slice::new(&mut disk, BlockIndex(partition.start_lba), partition.size_sectors)
+        .map_err(|_| anyhow::anyhow!("the partition does not fit on the disk"))?;
+    let opened = OpenVolume::open(slice)?;
+    let mut fat = opened
+        .into_fat()
+        .ok()
+        .context("the selected partition is not FAT")?;
 
-    let mut view = PartitionView::new(&mut disk, byte_offset, byte_len)?;
-    let opened = OpenVolume::open(&mut view, BLOCK_SIZE)?;
-    let fat = opened.as_fat().context("the selected partition is not FAT")?;
-
-    let root = fat.root_dir();
-    let mut entries = root.entries();
-    while let Some(entry) = entries.next_entry() {
-        let entry = entry?;
-        let file = entry.as_entry().context("unsupported directory record")?;
-        println!("{}", file.name());
+    for entry in fat.read_dir("/")? {
+        println!("{}", entry?.name_str().unwrap_or("?"));
     }
 
     Ok(())
 }
 ```
 
+`std::fs::File` is a block device with 512-byte blocks, so the partition's
+start and length in logical blocks become a `Slice` directly. With a
+`hadris_part::MbrPartition` or `GptPartitionEntry` in hand,
+`hadris_block::partition::sync::mbr_partition(&mut disk, &entry)` and
+`gpt_partition` build the same slice, and `partition::r#async` does so for
+async devices. The table itself is still read by `hadris-part` from a stream.
+
 Do not seek to the partition offset and then pass the unrestricted disk handle
 to a filesystem parser. Filesystem offsets are relative to its start, and an
 unbounded handle can allow corrupt metadata to address neighboring partitions.
 
-Use the logical block size reported by the device. The common value is 512
-bytes, but GPT and storage devices are not universally limited to it.
+Use a disk device whose block size is the logical block size the table was
+written with. The common value is 512 bytes, but GPT and storage devices are
+not universally limited to it.

@@ -8,13 +8,13 @@ use alloc::string::ToString;
 use alloc::vec::Vec;
 
 use hadris_common::types::endian::Endian;
-use hadris_path::{Component, VPath};
+use hadris_fs::path::{Component, VPath};
 use spin::Mutex;
 
-use crate::error::{Error, Result};
+use super::error::{Error, Result};
 #[cfg(feature = "write")]
-use crate::io::Write;
-use crate::io::{Read, ReadExt, SectorCursor, Seek, SeekFrom};
+use super::io::Write;
+use super::io::{Read, ReadExt, SectorCursor, Seek, SeekFrom};
 
 use super::bitmap::AllocationBitmap;
 use super::boot::{ExFatBootSector, ExFatInfo};
@@ -201,8 +201,8 @@ where
             .components()
             .filter_map(|component| match component {
                 Component::Root | Component::Current => None,
-                Component::Parent => Some(Err(Error::InvalidPath)),
                 Component::Normal(component) => Some(Ok(component)),
+                _ => Some(Err(Error::InvalidPath)),
             })
             .peekable();
         if components.peek().is_none() {
@@ -294,9 +294,9 @@ where
     }
 
     /// Flush any pending writes.
-    pub(crate) fn flush(&self) -> crate::io::IoResult<()> {
+    pub(crate) fn flush(&self) -> super::io::IoResult<()> {
         let mut guard = self.data.lock();
-        guard.flush().map_err(hadris_io::Error::erase)
+        guard.flush()
     }
 
     /// Allocate a single cluster.

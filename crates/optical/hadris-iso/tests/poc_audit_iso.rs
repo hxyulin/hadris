@@ -4,6 +4,7 @@
 
 use std::io::Cursor;
 
+use hadris_io::StdIo;
 use hadris_iso::modify::IsoModifier;
 use hadris_iso::read::IsoImage;
 
@@ -95,7 +96,7 @@ fn read_entries_rejects_oversized_directory_without_allocating() {
     let mut img = image_with_pvd(21, 20, CLAIMED);
     dir_record(&mut img, 20 * SECTOR, 20, CLAIMED, 0x02, &[0x00]);
 
-    let image = IsoImage::open(Cursor::new(img)).expect("open");
+    let image = IsoImage::open(StdIo::new(Cursor::new(img))).expect("open");
     let dir = image.open_dir(image.root_dir().dir_ref());
     let error = dir.read_entries().unwrap_err();
 
@@ -120,7 +121,7 @@ fn modifier_open_without_pvd_returns_error() {
     term[1..6].copy_from_slice(b"CD001");
     term[6] = 0x01;
 
-    let error = match IsoModifier::open(Cursor::new(img)) {
+    let error = match IsoModifier::open(StdIo::new(Cursor::new(img))) {
         Err(error) => error,
         Ok(_) => panic!("expected an error for an image without a primary descriptor"),
     };
@@ -140,7 +141,7 @@ fn modifier_open_rejects_cyclic_directory() {
     dir_record(&mut img, root + 34, 20, 2048, 0x02, &[0x01]); // ..
     dir_record(&mut img, root + 68, 20, 2048, 0x02, b"A"); // A -> own extent
 
-    let error = match IsoModifier::open(Cursor::new(img)) {
+    let error = match IsoModifier::open(StdIo::new(Cursor::new(img))) {
         Err(error) => error,
         Ok(_) => panic!("expected an error for a cyclic directory graph"),
     };
@@ -161,7 +162,7 @@ fn modifier_skips_empty_directory_name() {
     dir_record(&mut img, root + 68, 21, 2048, 0x02, b";1"); // name decodes to ""
     // sector 21 stays zeroed: empty directory
 
-    let mut modifier = IsoModifier::open(Cursor::new(img)).expect("open");
+    let mut modifier = IsoModifier::open(StdIo::new(Cursor::new(img))).expect("open");
     assert!(modifier.layout().subdirs.is_empty());
     modifier.append_file("x.txt", b"hi".to_vec());
     modifier.finish().expect("finish");

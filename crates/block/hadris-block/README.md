@@ -2,7 +2,7 @@
 
 `hadris-block` is the block-storage facade for Hadris. It groups storage-device
 traits, MBR/GPT partition tables, FAT12/16/32, non-destructive format detection,
-checked partition views, and unified filesystem opening without erasing the
+partition slices, and unified filesystem opening without erasing the
 concrete leaf-crate APIs.
 
 Use the facade when an application needs several block-storage layers. Use
@@ -25,9 +25,26 @@ if let Some(BlockFormat::Fat(FatVariant::Fat32)) = detected {
 }
 ```
 
-Detection restores stream positions and examines only identifying metadata.
-Opening the detected concrete format performs full validation. Partitioned disks
-must first be narrowed with the checked partition-view APIs.
+```rust,ignore
+use hadris_block::partition::sync::gpt_partition;
+use hadris_block::sync::OpenVolume;
+
+// `disk` is any hadris-storage `BlockDevice`, such as a `std::fs::File`.
+let partition = gpt_partition(&mut disk, &entry).expect("partition fits the disk");
+let volume = match OpenVolume::open(partition) {
+    Ok(volume) => volume,
+    // The error gives the device back, so the caller can try another opener.
+    Err(err) => return Err(err.into_error()),
+};
+let fs = volume.into_fat().ok().unwrap(); // a hadris_fat::sync::FatFs
+```
+
+Detection reads only the identifying metadata of a block device. Opening the
+detected concrete format performs full validation and yields the `FatFs`
+driver, which works with the `hadris-fs` path helpers. Partitioned disks must
+first be narrowed to a partition with `partition::sync`, `partition::r#async`
+or `partition::async_send`, which return `hadris-storage` slices. A failed
+open returns an `OpenError` that carries the device back to the caller.
 
 ## Features
 
@@ -37,11 +54,12 @@ must first be narrowed with the checked partition-view APIs.
 | `alloc` | yes | Heap-backed APIs without requiring `std` |
 | `sync` | yes | Synchronous I/O APIs |
 | `async` | no | Asynchronous I/O APIs |
+| `async-send` | no | Asynchronous APIs with `Send` futures in `async_send` modules; enables `async` |
 | `read` | yes | Filesystem and partition reading |
 | `write` | yes | FAT and partition mutation |
-| `detect` | yes | Lightweight block-format detection |
+| `detect` | yes | Lightweight block-format detection on a `BlockDevice` |
 | `storage` | yes | Re-export `hadris-storage` |
-| `fat` | yes | Re-export `hadris-fat` with LFN support |
+| `fat` | yes | Re-export `hadris-fat` and open FAT volumes as `FatFs` |
 | `part` | yes | Re-export `hadris-part` |
 
 The stable unified opener handles FAT12/16/32. exFAT remains an unstable

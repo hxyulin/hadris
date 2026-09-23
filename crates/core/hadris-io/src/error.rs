@@ -1,289 +1,153 @@
-//! Portable, allocation-free I/O errors.
+//! Error contract shared by every stream and device.
 
-use core::fmt::{self, Display};
+use core::convert::Infallible;
+use core::fmt;
 
-/// Portable error classification. This is a superset of `embedded_io::ErrorKind`
-/// and retains the `std::io` conditions Hadris needs for helper operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum ErrorKind {
-    /// An entity was not found.
-    NotFound,
-    /// An operation lacked sufficient permissions.
-    PermissionDenied,
-    /// A connection attempt was refused.
-    ConnectionRefused,
-    /// A connection was reset by its peer.
-    ConnectionReset,
-    /// A connection was aborted locally.
-    ConnectionAborted,
-    /// The endpoint is not connected.
-    NotConnected,
-    /// The requested address is already in use.
-    AddrInUse,
-    /// The requested address is unavailable.
-    AddrNotAvailable,
-    /// A write targeted a closed pipe or connection.
-    BrokenPipe,
-    /// An entity already exists.
-    AlreadyExists,
-    /// The operation would block.
-    WouldBlock,
-    /// An input parameter was invalid.
-    InvalidInput,
-    /// Input data was malformed.
-    InvalidData,
-    /// The operation timed out.
-    TimedOut,
-    /// A write produced no progress.
-    WriteZero,
-    /// The operation was interrupted and may be retried.
-    Interrupted,
-    /// Input ended before the requested data was read.
-    UnexpectedEof,
-    /// The requested operation is unsupported.
-    Unsupported,
-    /// The operation could not allocate required memory.
-    OutOfMemory,
-    /// An error without a more specific portable classification.
-    Other,
+/// The error type of a stream or device.
+///
+/// Any `core::error::Error` that is `Send + Sync` works: a kernel uses its own
+/// enum, std types use `std::io::Error`, and `embedded-io` errors pass through
+/// unchanged. `Send + Sync` lets callers erase any device error into
+/// `std::io::Error` or a boxed error without further bounds.
+pub trait ErrorType {
+    /// The error returned by every method.
+    type Error: core::error::Error + Send + Sync + 'static;
 }
 
-impl ErrorKind {
-    /// Return this already-normalized error kind.
-    pub const fn kind(&self) -> Self {
-        *self
-    }
+impl<T: ErrorType + ?Sized> ErrorType for &mut T {
+    type Error = T::Error;
 }
 
-impl From<embedded_io::ErrorKind> for ErrorKind {
-    fn from(kind: embedded_io::ErrorKind) -> Self {
-        use embedded_io::ErrorKind as E;
-        match kind {
-            E::NotFound => Self::NotFound,
-            E::PermissionDenied => Self::PermissionDenied,
-            E::ConnectionRefused => Self::ConnectionRefused,
-            E::ConnectionReset => Self::ConnectionReset,
-            E::ConnectionAborted => Self::ConnectionAborted,
-            E::NotConnected => Self::NotConnected,
-            E::AddrInUse => Self::AddrInUse,
-            E::AddrNotAvailable => Self::AddrNotAvailable,
-            E::BrokenPipe => Self::BrokenPipe,
-            E::AlreadyExists => Self::AlreadyExists,
-            E::InvalidInput => Self::InvalidInput,
-            E::InvalidData => Self::InvalidData,
-            E::TimedOut => Self::TimedOut,
-            E::WriteZero => Self::WriteZero,
-            E::Interrupted => Self::Interrupted,
-            E::Unsupported => Self::Unsupported,
-            E::OutOfMemory => Self::OutOfMemory,
-            _ => Self::Other,
-        }
-    }
+#[cfg(feature = "alloc")]
+impl<T: ErrorType + ?Sized> ErrorType for alloc::boxed::Box<T> {
+    type Error = T::Error;
 }
 
-impl From<ErrorKind> for embedded_io::ErrorKind {
-    fn from(kind: ErrorKind) -> Self {
-        use embedded_io::ErrorKind as E;
-        match kind {
-            ErrorKind::NotFound => E::NotFound,
-            ErrorKind::PermissionDenied => E::PermissionDenied,
-            ErrorKind::ConnectionRefused => E::ConnectionRefused,
-            ErrorKind::ConnectionReset => E::ConnectionReset,
-            ErrorKind::ConnectionAborted => E::ConnectionAborted,
-            ErrorKind::NotConnected => E::NotConnected,
-            ErrorKind::AddrInUse => E::AddrInUse,
-            ErrorKind::AddrNotAvailable => E::AddrNotAvailable,
-            ErrorKind::BrokenPipe => E::BrokenPipe,
-            ErrorKind::AlreadyExists => E::AlreadyExists,
-            ErrorKind::InvalidInput => E::InvalidInput,
-            ErrorKind::InvalidData => E::InvalidData,
-            ErrorKind::TimedOut => E::TimedOut,
-            ErrorKind::WriteZero => E::WriteZero,
-            ErrorKind::Interrupted => E::Interrupted,
-            ErrorKind::Unsupported => E::Unsupported,
-            ErrorKind::OutOfMemory => E::OutOfMemory,
-            ErrorKind::WouldBlock | ErrorKind::UnexpectedEof | ErrorKind::Other => E::Other,
-        }
-    }
+impl ErrorType for &[u8] {
+    type Error = Infallible;
 }
 
-impl Display for ErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:?}")
-    }
+#[cfg(feature = "alloc")]
+impl ErrorType for alloc::vec::Vec<u8> {
+    type Error = Infallible;
 }
 
-impl core::error::Error for ErrorKind {}
-
-impl embedded_io::Error for ErrorKind {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        (*self).into()
-    }
+#[cfg(feature = "std")]
+impl ErrorType for std::fs::File {
+    type Error = std::io::Error;
 }
 
-/// An error produced either by an underlying I/O object or by a Hadris helper.
+/// Failure of `read_exact`, `write_all` or `read_exact_at`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum Error<E = ErrorKind> {
-    /// Error returned by the underlying reader, writer, or seeker.
-    Source(E),
-    /// Error synthesized by Hadris, with optional allocation-free context.
-    Context {
-        /// Portable classification of the error.
-        kind: ErrorKind,
-        /// Static diagnostic context.
-        message: Option<&'static str>,
-    },
+pub enum ExactError<E> {
+    /// The input ended before the buffer was filled.
+    UnexpectedEof,
+    /// The output accepted no bytes.
+    WriteZero,
+    /// The stream failed.
+    Io(E),
 }
 
-impl<E> Error<E> {
-    /// Wrap an error returned by the underlying I/O object.
-    pub const fn from_source(source: E) -> Self {
-        Self::Source(source)
-    }
-
-    /// Construct a Hadris-generated error without additional context.
-    pub const fn from_kind(kind: ErrorKind) -> Self {
-        Self::Context {
-            kind,
-            message: None,
-        }
-    }
-
-    /// Construct a Hadris-generated error with static context.
-    pub const fn new(kind: ErrorKind, message: &'static str) -> Self {
-        Self::Context {
-            kind,
-            message: Some(message),
-        }
-    }
-
-    /// Construct an `Other` error with static context.
-    pub const fn other(message: &'static str) -> Self {
-        Self::new(ErrorKind::Other, message)
-    }
-
-    /// Borrow the underlying source, if present.
-    pub const fn source_ref(&self) -> Option<&E> {
-        match self {
-            Self::Source(source) => Some(source),
-            Self::Context { .. } => None,
-        }
-    }
-
-    /// Consume the error and return its underlying source, if present.
-    pub fn into_source(self) -> Option<E> {
-        match self {
-            Self::Source(source) => Some(source),
-            Self::Context { .. } => None,
-        }
-    }
-}
-
-impl<E: embedded_io::Error> Error<E> {
-    /// Return the portable error kind.
-    pub fn kind(&self) -> ErrorKind {
-        match self {
-            Self::Source(source) => source.kind().into(),
-            Self::Context { kind, .. } => *kind,
-        }
-    }
-
-    /// Erase the concrete source while retaining its normalized kind.
-    pub fn erase(self) -> Error<ErrorKind> {
-        match self {
-            Self::Source(source) => Error::Source(source.kind().into()),
-            Self::Context { kind, message } => Error::Context { kind, message },
-        }
-    }
-}
-
-impl<E: embedded_io::Error> embedded_io::Error for Error<E> {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        Error::<E>::kind(self).into()
-    }
-}
-
-impl<E: Display> Display for Error<E> {
+impl<E: fmt::Display> fmt::Display for ExactError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Source(source) => Display::fmt(source, f),
-            Self::Context {
-                kind,
-                message: Some(message),
-            } => {
-                write!(f, "{kind:?}: {message}")
-            }
-            Self::Context {
-                kind,
-                message: None,
-            } => write!(f, "{kind:?}"),
+            Self::UnexpectedEof => f.write_str("unexpected end of input"),
+            Self::WriteZero => f.write_str("output accepted no bytes"),
+            Self::Io(err) => err.fmt(f),
         }
     }
 }
 
-impl<E: core::error::Error> core::error::Error for Error<E> {}
-
-#[cfg(feature = "std")]
-impl From<std::io::Error> for Error<std::io::Error> {
-    fn from(error: std::io::Error) -> Self {
-        Self::Source(error)
-    }
-}
-
-#[cfg(feature = "std")]
-impl From<Error<std::io::Error>> for std::io::Error {
-    fn from(error: Error<std::io::Error>) -> Self {
-        match error {
-            Error::Source(source) => source,
-            Error::Context { kind, message } => match message {
-                Some(message) => std::io::Error::new(std::io::ErrorKind::from(kind), message),
-                None => std::io::Error::from(std::io::ErrorKind::from(kind)),
-            },
+impl<E: core::error::Error + 'static> core::error::Error for ExactError<E> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::Io(err) => Some(err),
+            _ => None,
         }
     }
 }
 
-/// Result returned by Hadris helpers and filesystem operations.
-pub type Result<T, E = ErrorKind> = core::result::Result<T, Error<E>>;
+/// A seek to a negative position, or one that does not fit in memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidSeek;
+
+impl fmt::Display for InvalidSeek {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("seek to a negative or out-of-range position")
+    }
+}
+
+impl core::error::Error for InvalidSeek {}
+
+/// Converts any device error to `std::io::Error`.
+///
+/// An `std::io::Error` is returned as itself, found by a downcast that does
+/// not allocate, so `raw_os_error()` survives. Any other error becomes the
+/// source of an error with kind `Other`.
+///
+/// ```rust
+/// let os = std::io::Error::from_raw_os_error(5);
+/// assert_eq!(hadris_io::into_std_error(os).raw_os_error(), Some(5));
+/// ```
+#[cfg(feature = "std")]
+pub fn into_std_error<E: core::error::Error + Send + Sync + 'static>(err: E) -> std::io::Error {
+    let mut slot = Some(err);
+    let any: &mut dyn core::any::Any = &mut slot;
+    if let Some(io) = any
+        .downcast_mut::<Option<std::io::Error>>()
+        .and_then(Option::take)
+    {
+        return io;
+    }
+    slot.map_or_else(|| std::io::ErrorKind::Other.into(), std::io::Error::other)
+}
 
 #[cfg(feature = "std")]
-impl From<ErrorKind> for std::io::ErrorKind {
-    fn from(kind: ErrorKind) -> Self {
-        match kind {
-            ErrorKind::WouldBlock => std::io::ErrorKind::WouldBlock,
-            ErrorKind::UnexpectedEof => std::io::ErrorKind::UnexpectedEof,
-            _ => embedded_io::ErrorKind::from(kind).into(),
+impl<E: core::error::Error + Send + Sync + 'static> From<ExactError<E>> for std::io::Error {
+    fn from(err: ExactError<E>) -> Self {
+        match err {
+            ExactError::UnexpectedEof => std::io::ErrorKind::UnexpectedEof.into(),
+            ExactError::WriteZero => std::io::ErrorKind::WriteZero.into(),
+            ExactError::Io(err) => into_std_error(err),
         }
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<InvalidSeek> for std::io::Error {
+    fn from(err: InvalidSeek) -> Self {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, err)
     }
 }
 
 #[cfg(all(test, feature = "std"))]
-mod std_tests {
-    extern crate std;
+mod tests {
     use super::*;
 
+    #[derive(Debug)]
+    struct Fault;
+
+    impl fmt::Display for Fault {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("fault")
+        }
+    }
+
+    impl core::error::Error for Fault {}
+
     #[test]
-    fn error_kind_to_std_preserves_unexpected_eof() {
-        assert_eq!(
-            std::io::ErrorKind::from(ErrorKind::UnexpectedEof),
-            std::io::ErrorKind::UnexpectedEof
-        );
+    fn std_errors_come_back_unchanged() {
+        let err: std::io::Error = ExactError::Io(std::io::Error::from_raw_os_error(13)).into();
+        assert_eq!(err.raw_os_error(), Some(13));
     }
 
     #[test]
-    fn error_kind_to_std_preserves_would_block() {
-        assert_eq!(
-            std::io::ErrorKind::from(ErrorKind::WouldBlock),
-            std::io::ErrorKind::WouldBlock
-        );
-    }
-
-    #[test]
-    fn error_to_std_io_error_preserves_kind() {
-        let error: Error<std::io::Error> = Error::from_kind(ErrorKind::UnexpectedEof);
-        let std_error = std::io::Error::from(error);
-        assert_eq!(std_error.kind(), std::io::ErrorKind::UnexpectedEof);
+    fn other_errors_become_the_source() {
+        let err: std::io::Error = ExactError::Io(Fault).into();
+        assert_eq!(err.kind(), std::io::ErrorKind::Other);
+        assert!(err.into_inner().unwrap().downcast::<Fault>().is_ok());
+        let eof: std::io::Error = ExactError::<Fault>::UnexpectedEof.into();
+        assert_eq!(eof.kind(), std::io::ErrorKind::UnexpectedEof);
     }
 }

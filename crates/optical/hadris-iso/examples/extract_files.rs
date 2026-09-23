@@ -33,7 +33,7 @@ fn main() {
 
     // Open the ISO file for parsing structure
     let file = File::open(iso_path).expect("Failed to open ISO file");
-    let reader = BufReader::new(file);
+    let reader = hadris_io::StdIo::new(BufReader::new(file));
     let image = IsoImage::open(reader).expect("Failed to parse ISO image");
 
     // Open another handle for reading file content
@@ -49,7 +49,7 @@ fn main() {
     println!("Extracted {count} files");
 }
 
-fn extract_directory<R: hadris_io::Read + hadris_io::Seek, C: Read + Seek>(
+fn extract_directory<R: hadris_io::legacy::Read + hadris_io::legacy::Seek, C: Read + Seek>(
     image: &IsoImage<R>,
     content_reader: &mut C,
     dir: &hadris_iso::read::RootDir,

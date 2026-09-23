@@ -12,6 +12,7 @@ mod volume_descriptors;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
+use hadris_io::StdIo;
 use hadris_iso::read::IsoImage;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
@@ -33,11 +34,11 @@ fn xorriso_sample_image(
     Some((temp_dir, iso_path))
 }
 
-fn open(bytes: Vec<u8>) -> IsoImage<Cursor<Vec<u8>>> {
-    IsoImage::open(Cursor::new(bytes)).expect("failed to open ISO image")
+fn open(bytes: Vec<u8>) -> IsoImage<StdIo<Cursor<Vec<u8>>>> {
+    IsoImage::open(StdIo::new(Cursor::new(bytes))).expect("failed to open ISO image")
 }
 
-fn open_file(path: &Path) -> IsoImage<Cursor<Vec<u8>>> {
+fn open_file(path: &Path) -> IsoImage<StdIo<Cursor<Vec<u8>>>> {
     open(std::fs::read(path).unwrap())
 }
 

@@ -17,9 +17,10 @@
 //! use std::fs::File;
 //! use std::io::BufReader;
 //! use hadris_cpio::CpioArchiveReader;
+//! use hadris_io::StdIo;
 //!
 //! let file = File::open("archive.cpio").unwrap();
-//! let mut reader = CpioArchiveReader::new(BufReader::new(file));
+//! let mut reader = CpioArchiveReader::new(StdIo::new(BufReader::new(file)));
 //!
 //! while let Some(entry) = reader.next_entry_alloc().unwrap() {
 //!     let name = entry.name_str().unwrap();
@@ -34,9 +35,10 @@
 //! use std::fs::File;
 //! use std::io::BufWriter;
 //! use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+//! use hadris_io::StdIo;
 //!
 //! let tree = FileTree::from_fs(std::path::Path::new("./my-directory")).unwrap();
-//! let out = BufWriter::new(File::create("archive.cpio").unwrap());
+//! let out = StdIo::new(BufWriter::new(File::create("archive.cpio").unwrap()));
 //! let _out = CpioArchiveWriter::new(out, CpioWriteOptions::default())
 //!     .finish(&tree)
 //!     .unwrap();
@@ -141,9 +143,9 @@ pub mod sync {
     //!
     //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
 
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::legacy::Result as IoResult;
+    pub use hadris_io::legacy::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
+    pub use hadris_io::legacy::{Error, ErrorKind, SeekFrom};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
@@ -200,9 +202,9 @@ pub mod r#async {
     //!
     //! All I/O operations use async `Read`/`Write`/`Seek` traits.
 
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::legacy::Result as IoResult;
+    pub use hadris_io::legacy::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
+    pub use hadris_io::legacy::{Error, ErrorKind, SeekFrom};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };

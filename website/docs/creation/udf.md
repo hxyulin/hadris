@@ -12,6 +12,7 @@ should be used when authoring a shared ISO/UDF bridge image.
 
 ```toml
 [dependencies]
+hadris-io = "2.4.0"
 hadris-udf = { version = "2.4.0", features = ["write", "sync"] }
 ```
 
@@ -23,6 +24,7 @@ directory ordering matters.
 ```rust
 use std::fs::OpenOptions;
 
+use hadris_io::StdIo;
 use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .truncate(true)
         .open("volume.udf")?;
 
-    let output = UdfWriter::create(target, &root, UdfWriteOptions::default())?;
+    let output = UdfWriter::create(StdIo::new(target), &root, UdfWriteOptions::default())?;
     println!("wrote {} sectors", output.sectors_written);
     let _target = output.into_inner();
     Ok(())
@@ -89,13 +91,14 @@ Preallocate enough space when the target is a bounded cursor:
 
 ```rust
 use std::io::Cursor;
+use hadris_io::StdIo;
 use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
 
 let mut root = SimpleDir::root();
 root.add_file(SimpleFile::new("hello.txt", b"hello\n".to_vec()));
 
 let mut storage = vec![0_u8; 8 * 1024 * 1024];
-let cursor = Cursor::new(storage.as_mut_slice());
+let cursor = StdIo::new(Cursor::new(storage.as_mut_slice()));
 let output = UdfWriter::create(cursor, &root, UdfWriteOptions::default())?;
 assert!(output.sectors_written > 0);
 # Ok::<(), hadris_udf::Error>(())

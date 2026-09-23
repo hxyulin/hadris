@@ -94,8 +94,8 @@ impl FileIdentifierDescriptor {
     /// Parse from a byte buffer
     pub fn from_bytes(data: &[u8]) -> Result<(Self, &[u8])> {
         if data.len() < Self::BASE_SIZE {
-            return Err(Error::Io(hadris_io::Error::new(
-                hadris_io::ErrorKind::UnexpectedEof,
+            return Err(Error::Io(hadris_io::legacy::Error::new(
+                hadris_io::legacy::ErrorKind::UnexpectedEof,
                 "buffer too small for FID",
             )));
         }
@@ -130,8 +130,8 @@ impl FileIdentifierDescriptor {
 
         let total_size = fid.total_size();
         if data.len() < total_size {
-            return Err(Error::Io(hadris_io::Error::new(
-                hadris_io::ErrorKind::UnexpectedEof,
+            return Err(Error::Io(hadris_io::legacy::Error::new(
+                hadris_io::legacy::ErrorKind::UnexpectedEof,
                 "buffer too small for FID data",
             )));
         }

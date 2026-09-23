@@ -6,17 +6,19 @@ title: Read a partition table
 
 ```toml
 [dependencies]
+hadris-io = "2.4.0"
 hadris-part = "2.4.0"
 ```
 
 ```rust
+use hadris_io::StdIo;
 use hadris_part::{
     PartitionInfoTrait, PartitionTable, PartitionTableReadExt,
 };
 use std::fs::File;
 
-fn main() -> hadris_part::Result<()> {
-    let mut disk = File::open("disk.img")?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut disk = StdIo::new(File::open("disk.img")?);
     let table = PartitionTable::read_from(&mut disk, 512)?;
 
     for partition in table.partitions() {

@@ -6,7 +6,7 @@ use core::fmt::{self, Debug, Display};
 #[derive(Debug)]
 pub enum Error {
     /// An I/O error occurred.
-    Io(hadris_io::Error),
+    Io(hadris_io::legacy::Error),
 
     /// The MBR signature (0x55AA) is invalid.
     InvalidMbrSignature {
@@ -41,7 +41,7 @@ pub enum Error {
         /// LBA declared by the primary header for the backup header.
         lba: u64,
         /// Underlying I/O failure.
-        source: hadris_io::Error,
+        source: hadris_io::legacy::Error,
     },
 
     /// The backup GPT header signature is invalid.
@@ -248,9 +248,9 @@ impl Display for Error {
     }
 }
 
-impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for Error {
-    fn from(err: hadris_io::Error<E>) -> Self {
-        Self::Io(err.erase())
+impl From<hadris_io::legacy::Error> for Error {
+    fn from(err: hadris_io::legacy::Error) -> Self {
+        Self::Io(err)
     }
 }
 
@@ -258,8 +258,8 @@ impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for Error {
 impl Error {
     /// An on-disk LBA field whose byte offset is not representable.
     pub(crate) fn lba_offset_overflow() -> Self {
-        Self::Io(hadris_io::Error::new(
-            hadris_io::ErrorKind::InvalidInput,
+        Self::Io(hadris_io::legacy::Error::new(
+            hadris_io::legacy::ErrorKind::InvalidInput,
             "LBA value overflows byte offset",
         ))
     }

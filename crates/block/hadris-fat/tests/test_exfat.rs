@@ -23,7 +23,7 @@
 
 #![cfg(feature = "unstable-exfat")]
 
-use hadris_fat::Error;
+use hadris_fat::exfat::Error;
 use hadris_fat::exfat::{ExFatBootSector, ExFatVolume};
 use std::fs::File;
 use std::io::{Cursor, Read as StdRead};
@@ -55,9 +55,9 @@ fn load_partition_image() -> Vec<u8> {
 }
 
 /// Open the exFAT filesystem from the partition image
-fn open_exfat_fs() -> ExFatVolume<Cursor<Vec<u8>>> {
+fn open_exfat_fs() -> ExFatVolume<hadris_io::StdIo<Cursor<Vec<u8>>>> {
     let data = load_partition_image();
-    let cursor = Cursor::new(data);
+    let cursor = hadris_io::StdIo::new(Cursor::new(data));
     ExFatVolume::open(cursor).expect("Failed to open exFAT filesystem")
 }
 
@@ -71,7 +71,7 @@ mod boot_sector_tests {
     #[test]
     fn test_parse_boot_sector() {
         let data = load_boot_sectors();
-        let mut cursor = Cursor::new(data);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(data));
 
         let boot = ExFatBootSector::read(&mut cursor).expect("Failed to parse exFAT boot sector");
 
@@ -90,7 +90,7 @@ mod boot_sector_tests {
     #[test]
     fn test_boot_sector_validation() {
         let data = load_boot_sectors();
-        let mut cursor = Cursor::new(data);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(data));
 
         let boot = ExFatBootSector::read(&mut cursor).expect("Failed to parse boot sector");
 
@@ -108,7 +108,7 @@ mod boot_sector_tests {
         data[510] = 0x55;
         data[511] = 0xAA;
 
-        let mut cursor = Cursor::new(data);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(data));
         let result = ExFatBootSector::read(&mut cursor);
 
         assert!(matches!(result, Err(Error::ExFatInvalidSignature { .. })));
@@ -121,7 +121,7 @@ mod boot_sector_tests {
         data[510] = 0x00;
         data[511] = 0x00;
 
-        let mut cursor = Cursor::new(data);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(data));
         let result = ExFatBootSector::read(&mut cursor);
 
         assert!(matches!(result, Err(Error::InvalidBootSignature { .. })));
@@ -132,14 +132,14 @@ mod boot_sector_tests {
         let mut data = load_partition_image();
         data[512] ^= 1;
 
-        let result = ExFatVolume::open(Cursor::new(data));
+        let result = ExFatVolume::open(hadris_io::StdIo::new(Cursor::new(data)));
         assert!(matches!(result, Err(Error::ExFatInvalidChecksum { .. })));
     }
 
     #[test]
     fn test_cluster_to_offset() {
         let data = load_boot_sectors();
-        let mut cursor = Cursor::new(data);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(data));
 
         let boot = ExFatBootSector::read(&mut cursor).expect("Failed to parse boot sector");
 
@@ -412,7 +412,7 @@ mod navigation_tests {
 
 mod file_reading_tests {
     use super::*;
-    use hadris_fat::io::Read;
+    use hadris_io::legacy::sync::Read;
 
     #[test]
     fn test_open_file() {
@@ -557,7 +557,7 @@ mod error_tests {
     fn test_truncated_image_error() {
         // Create a too-small buffer
         let data = vec![0u8; 256]; // Way too small for exFAT
-        let cursor = Cursor::new(data);
+        let cursor = hadris_io::StdIo::new(Cursor::new(data));
 
         let result = ExFatVolume::open(cursor);
 
@@ -569,7 +569,7 @@ mod error_tests {
     fn test_zeros_image_error() {
         // Create an all-zeros buffer of valid size
         let data = vec![0u8; 1024 * 1024]; // 1MB of zeros
-        let cursor = Cursor::new(data);
+        let cursor = hadris_io::StdIo::new(Cursor::new(data));
 
         let result = ExFatVolume::open(cursor);
 
@@ -601,7 +601,7 @@ mod fuzz_regression_tests {
         data[109] = 0xFF; // sectors_per_cluster_shift
         data[110] = 1; // number_of_fats
 
-        let result = ExFatVolume::open(Cursor::new(data));
+        let result = ExFatVolume::open(hadris_io::StdIo::new(Cursor::new(data)));
         assert!(matches!(result, Err(Error::ExFatInvalidBootSector { .. })));
     }
 

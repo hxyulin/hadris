@@ -2,11 +2,13 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
+use hadris_io::StdIo;
 use hadris_optical::detect::sync::detect;
 
 fn main() -> Result<()> {
     let image_path = image_path()?;
     let mut image = File::open(&image_path)
+        .map(StdIo::new)
         .with_context(|| format!("failed to open {}", image_path.display()))?;
 
     let Some(formats) = detect(&mut image)

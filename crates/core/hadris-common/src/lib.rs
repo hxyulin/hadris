@@ -1,11 +1,12 @@
 //! # Hadris Common
 //!
-//! Shared types and utilities used across the Hadris filesystem crates.
+//! Internal support crate for the Hadris filesystem crates. It is not meant
+//! for direct use: its API follows the needs of the other Hadris crates and
+//! can change in any release. Depend on `hadris` or a format crate instead.
 //!
-//! This crate provides foundational types for working with on-disk filesystem
-//! structures, including endian-aware integers, extents, layout helpers, and
-//! optical media constants. Reusable fixed-capacity storage and virtual paths
-//! live in `hadris-fixed` and `hadris-path` respectively.
+//! It provides endian-aware integers, extents, layout helpers, fixed-capacity
+//! byte, text and collection types ([`types::fixed`]), and optical media
+//! constants.
 //!
 //! ## Feature Flags
 //!
@@ -24,6 +25,9 @@
 //!   [`types::number::U64`] — unsigned integers parameterized by endianness.
 //! - **Extent**: [`types::extent::Extent`] — a contiguous region on disk
 //!   (sector + length).
+//! - **Fixed-capacity storage**: [`types::fixed::FixedBytes`],
+//!   [`types::fixed::FixedStr`], [`types::fixed::FixedUtf16`],
+//!   [`types::fixed::ArrayVec`].
 //! - **EndianType / Endianness**: [`types::endian::EndianType`],
 //!   [`types::endian::Endianness`] — runtime and compile-time endianness.
 //!

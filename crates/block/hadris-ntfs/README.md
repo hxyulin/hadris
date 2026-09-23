@@ -54,10 +54,11 @@ from damaged, dirty, adversarial, compressed, or encrypted volumes.
 ```rust,no_run
 use std::fs::File;
 
+use hadris_io::StdIo;
 use hadris_ntfs::sync::{NtfsFs, NtfsFsReadExt};
 
 let image = File::open("disk.img")?;
-let filesystem = NtfsFs::open(image)?;
+let filesystem = NtfsFs::open(StdIo::new(image))?;
 
 for entry in filesystem.root_dir().entries()? {
     println!(

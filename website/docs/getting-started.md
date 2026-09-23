@@ -19,14 +19,14 @@ hadris = { version = "2.4.0", features = ["block", "optical"] }
 ```
 
 Hadris separates platform support, I/O mode, and capabilities. For a
-freestanding read-only FAT consumer:
+freestanding FAT consumer, which reads and writes without an allocator:
 
 ```toml
 [dependencies]
 hadris-fat = {
   version = "2.4.0",
   default-features = false,
-  features = ["read", "sync"]
+  features = ["sync"]
 }
 ```
 

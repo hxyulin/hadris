@@ -15,13 +15,13 @@ pub enum OpticalFormat {
 #[non_exhaustive]
 pub enum Error {
     /// The source could not be read or repositioned during detection.
-    Io(hadris_io::Error),
+    Io(hadris_io::legacy::Error),
     /// No supported optical filesystem was recognized.
     UnknownFormat,
     /// The requested filesystem is not present in the image.
     RequestedFormatUnavailable(OpticalFormat),
     /// ISO 9660 validation or opening failed.
-    Iso(hadris_io::Error),
+    Iso(hadris_io::legacy::Error),
     /// UDF validation or opening failed.
     Udf(hadris_udf::Error),
 }
@@ -49,8 +49,8 @@ impl fmt::Display for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-impl From<hadris_io::Error> for Error {
-    fn from(error: hadris_io::Error) -> Self {
+impl From<hadris_io::legacy::Error> for Error {
+    fn from(error: hadris_io::legacy::Error) -> Self {
         Self::Io(error)
     }
 }

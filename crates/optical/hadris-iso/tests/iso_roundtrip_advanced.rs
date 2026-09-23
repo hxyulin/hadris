@@ -9,6 +9,7 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
+use hadris_io::StdIo;
 use hadris_iso::directory::FileFlags;
 use hadris_iso::read::{IsoImage, PathSeparator};
 use hadris_iso::susp::{SystemUseField, SystemUseIter};
@@ -68,13 +69,17 @@ fn write_bytes(files: Vec<IsoFile>, options: IsoFormatOptions) -> Vec<u8> {
         path_separator: PathSeparator::ForwardSlash,
         files,
     };
-    let mut buffer = Cursor::new(vec![0u8; 8 * 1024 * 1024]);
+    let mut buffer = StdIo::new(Cursor::new(vec![0u8; 8 * 1024 * 1024]));
     IsoImageWriter::create(&mut buffer, input, options).expect("Failed to write ISO");
-    buffer.into_inner()
+    buffer.into_inner().into_inner()
 }
 
-fn write_and_open(files: Vec<IsoFile>, options: IsoFormatOptions) -> IsoImage<Cursor<Vec<u8>>> {
-    IsoImage::open(Cursor::new(write_bytes(files, options))).expect("Failed to open ISO")
+fn write_and_open(
+    files: Vec<IsoFile>,
+    options: IsoFormatOptions,
+) -> IsoImage<StdIo<Cursor<Vec<u8>>>> {
+    IsoImage::open(StdIo::new(Cursor::new(write_bytes(files, options))))
+        .expect("Failed to open ISO")
 }
 
 /// Build a chain of N nested directories with a leaf file.
@@ -94,7 +99,7 @@ fn nested_dir(depth: usize) -> IsoFile {
 
 /// Collect non-special entry names from a directory.
 fn entry_names(
-    image: &IsoImage<Cursor<Vec<u8>>>,
+    image: &IsoImage<StdIo<Cursor<Vec<u8>>>>,
     dir_ref: hadris_iso::directory::DirectoryRef,
 ) -> Vec<String> {
     let dir = image.open_dir(dir_ref);
@@ -371,7 +376,7 @@ fn test_depth_8_succeeds() {
         path_separator: PathSeparator::ForwardSlash,
         files,
     };
-    let mut buffer = Cursor::new(vec![0u8; 8 * 1024 * 1024]);
+    let mut buffer = StdIo::new(Cursor::new(vec![0u8; 8 * 1024 * 1024]));
     let result = IsoImageWriter::create(&mut buffer, input, default_options());
     assert!(result.is_ok(), "Depth 8 should succeed: {:?}", result.err());
 }
@@ -384,7 +389,7 @@ fn test_depth_9_fails() {
         path_separator: PathSeparator::ForwardSlash,
         files,
     };
-    let mut buffer = Cursor::new(vec![0u8; 8 * 1024 * 1024]);
+    let mut buffer = StdIo::new(Cursor::new(vec![0u8; 8 * 1024 * 1024]));
     let result = IsoImageWriter::create(&mut buffer, input, default_options());
     assert!(result.is_err(), "Depth 9 should fail");
 }
@@ -440,14 +445,15 @@ fn test_size_estimate_is_conservative() {
             path_separator: PathSeparator::ForwardSlash,
             files,
         };
-        let mut buffer = Cursor::new(vec![
+        let mut buffer = StdIo::new(Cursor::new(vec![
             0u8;
-            estimate.minimum_bytes() as usize + 4 * 1024 * 1024
-        ]);
+            estimate.minimum_bytes() as usize
+                + 4 * 1024 * 1024
+        ]));
         IsoImageWriter::create(&mut buffer, input2, options).expect("Failed to write ISO");
 
         use std::io::Seek;
-        let actual_pos = buffer.stream_position().unwrap();
+        let actual_pos = buffer.get_mut().stream_position().unwrap();
         assert!(
             estimate.minimum_bytes() >= actual_pos,
             "[{}] Estimate {} should be >= actual position {}",
@@ -784,7 +790,7 @@ fn test_overlong_volume_name_returns_error_instead_of_panicking() {
             contents: b"hello".to_vec(),
         }],
     };
-    let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
+    let mut buffer = StdIo::new(Cursor::new(vec![0u8; 1024 * 1024]));
     let hadris_iso::write::IsoCreationError::Io(error) =
         IsoImageWriter::create(&mut buffer, input, options).unwrap_err();
     assert_eq!(error.kind(), hadris_iso::ErrorKind::InvalidInput);

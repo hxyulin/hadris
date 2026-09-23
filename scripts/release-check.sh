@@ -42,7 +42,7 @@ else
   # packaging, even with --no-verify. The dependency-free first wave can be
   # inspected before publication; rerun with RELEASE_DEPENDENCIES_PUBLISHED=1
   # after publishing in topological order to inspect and verify all archives.
-  for crate in hadris-fixed hadris-io hadris-path hadris-macros; do
+  for crate in hadris-io hadris-fs hadris-macros; do
     cargo package -p "$crate" --allow-dirty
   done
 fi

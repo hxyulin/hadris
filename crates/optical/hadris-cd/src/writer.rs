@@ -7,7 +7,7 @@
 //! 4. Writing UDF metadata
 //! 5. Finalizing the image
 
-use super::super::{Borrowed, Read, Seek, SeekFrom, Write};
+use super::super::{Read, Seek, SeekFrom, Write};
 
 use hadris_iso::read::PathSeparator;
 use hadris_udf::descriptor::{
@@ -206,7 +206,7 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
         Self::collect_file_paths(&tree.root, "", &mut paths);
         let mut extents = std::collections::BTreeMap::new();
         {
-            let image = IsoImage::open(Borrowed::new(&mut self.writer)).map_err(|error| {
+            let image = IsoImage::open(&mut self.writer).map_err(|error| {
                 crate::error::Error::InvalidConfig(format!(
                     "cannot read back the written ISO structures (the output target must be \
                      opened readable as well as writable): {error}"
@@ -305,7 +305,7 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
             self.writer
                 .seek(SeekFrom::Start(offset))
                 .await
-                .map_err(hadris_io::Error::erase)?;
+                ?;
 
             // Write the file data
             match &file.data {
@@ -314,7 +314,7 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
                 }
                 FileData::Path(path) => {
                     let data = std::fs::read(path)
-                        .map_err(|error| hadris_io::Error::from_source(error).erase())?;
+                        .map_err(hadris_io::legacy::Error::from)?;
                     self.writer.write_all(&data).await?;
                 }
             }
@@ -406,9 +406,9 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
         self.writer
             .seek(SeekFrom::Start(0))
             .await
-            .map_err(hadris_io::Error::erase)?;
+            ?;
         IsoImageWriter::create_with_allocation_floor(
-            Borrowed::new(&mut self.writer),
+            &mut self.writer,
             input_files,
             format_options,
             self.options
@@ -428,7 +428,7 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
             let data = match &file.data {
                 FileData::Buffer(b) => b.clone(),
                 FileData::Path(p) => std::fs::read(p)
-                    .map_err(|error| hadris_io::Error::from_source(error).erase())?,
+                    .map_err(hadris_io::legacy::Error::from)?,
             };
             files.push(hadris_iso::write::InputEntry::file(
                 file.name.as_ref().clone(),
@@ -452,7 +452,7 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
             .writer
             .seek(SeekFrom::End(0))
             .await
-            .map_err(hadris_io::Error::erase)?;
+            ?;
         let image_sectors = image_bytes.div_ceil(self.options.sector_size as u64);
         let required_sectors = u64::from(layout_info.total_sectors)
             .checked_add(257)
@@ -476,7 +476,7 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
             partition_length,
         };
 
-        let mut udf_writer = UdfWriter::new(Borrowed::new(&mut self.writer), udf_options);
+        let mut udf_writer = UdfWriter::new(&mut self.writer, udf_options);
 
         // Keep the UDF VRS after ISO's descriptor terminator so both descriptor
         // streams remain independently parseable.
@@ -566,7 +566,7 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
                     u64::from(last_sector) * self.options.sector_size as u64,
                 ))
                 .await
-                .map_err(hadris_io::Error::erase)?;
+                ?;
             self.writer
                 .write_all(&vec![0_u8; self.options.sector_size])
                 .await?;
@@ -671,7 +671,7 @@ mod tests {
         ));
 
         let buffer = vec![0u8; 1024 * 1024]; // 1MB buffer
-        let cursor = Cursor::new(buffer);
+        let cursor = hadris_io::StdIo::new(Cursor::new(buffer));
 
         let options = OpticalImageOptions::default().volume_id("TEST");
         let writer = OpticalImageWriter::new(cursor, options);
@@ -679,7 +679,7 @@ mod tests {
         // This will test the basic flow
         // Note: Full verification would require mounting the resulting image
         let output = writer.finish(tree).unwrap();
-        assert!(!output.get_ref().is_empty());
+        assert!(!output.get_ref().get_ref().is_empty());
     }
 
     #[test]
@@ -693,7 +693,7 @@ mod tests {
         let mapped: Vec<String> = file_names
             .iter()
             .map(|name| {
-                OpticalImageWriter::<Cursor<Vec<u8>>>::unique_mapped_name(
+                OpticalImageWriter::<hadris_io::StdIo<Cursor<Vec<u8>>>>::unique_mapped_name(
                     &mut seen, ty, name, false,
                 )
             })
@@ -710,7 +710,7 @@ mod tests {
         let mapped_dirs: Vec<String> = dir_names
             .iter()
             .map(|name| {
-                OpticalImageWriter::<Cursor<Vec<u8>>>::unique_mapped_name(
+                OpticalImageWriter::<hadris_io::StdIo<Cursor<Vec<u8>>>>::unique_mapped_name(
                     &mut dir_seen,
                     ty,
                     name,

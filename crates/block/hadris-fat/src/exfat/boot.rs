@@ -16,8 +16,8 @@ use hadris_common::types::{
     number::{U16, U32, U64},
 };
 
-use crate::error::{Error, Result};
-use crate::io::{Read, ReadExt, Seek, SeekFrom};
+use super::error::{Error, Result};
+use super::io::{Read, ReadExt, Seek, SeekFrom};
 
 /// Size of the boot region in sectors
 #[cfg(feature = "write")]

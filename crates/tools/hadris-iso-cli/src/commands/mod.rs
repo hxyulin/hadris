@@ -18,13 +18,12 @@ pub use mkisofs::mkisofs;
 pub use tree::tree;
 pub use verify::verify;
 
-use std::io::{Read, Seek};
-
 use hadris_iso::directory::DirectoryRef;
 use hadris_iso::file::EntryType;
 use hadris_iso::read::{DirEntry, IsoImage};
 use hadris_iso::write::options::IsoFormatOptions;
 use hadris_iso::write::{InputEntry, InputEntryKind, InputTree, estimator};
+use hadris_iso::{Read, Seek};
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 

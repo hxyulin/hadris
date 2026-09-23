@@ -24,6 +24,7 @@ returns the target so the caller retains ownership of the completed image.
 ```rust
 use std::fs::OpenOptions;
 
+use hadris_io::StdIo;
 use hadris_iso::read::PathSeparator;
 use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
 use hadris_iso::write::{InputEntry, InputTree, IsoImageWriter};
@@ -59,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .create(true)
         .truncate(true)
         .open("demo.iso")?;
-    let _image = IsoImageWriter::create(image, tree, options)?;
+    let _image = IsoImageWriter::create(StdIo::new(image), tree, options)?;
     Ok(())
 }
 ```

@@ -1,44 +1,61 @@
-use hadris_storage::{Error, PartitionView};
+//! Partition entries as block-device slices, in logical blocks of the disk.
+//!
+//! The disk device's block size must be the logical block size the
+//! partition table was written with.
 
-fn view<'a, S>(
-    source: &'a mut S,
-    start: u64,
-    count: u64,
-    block_size: u32,
-) -> hadris_storage::Result<PartitionView<'a, S>, hadris_io::ErrorKind> {
-    let offset = start
-        .checked_mul(block_size as u64)
-        .ok_or(Error::AddressOverflow)?;
-    let length = count
-        .checked_mul(block_size as u64)
-        .ok_or(Error::AddressOverflow)?;
-    PartitionView::new(source, offset, length)
-}
-
-/// Creates a bounded stream for an MBR partition entry.
-pub fn mbr_partition_view<'a, S>(
-    source: &'a mut S,
-    entry: &hadris_part::MbrPartition,
-    block_size: u32,
-) -> hadris_storage::Result<PartitionView<'a, S>, hadris_io::ErrorKind> {
-    view(
-        source,
+fn mbr_range(entry: &hadris_part::MbrPartition) -> (u64, u64) {
+    (
         entry.start_lba.to_ne() as u64,
         entry.sector_count.to_ne() as u64,
-        block_size,
     )
 }
 
-/// Creates a bounded stream for a GPT partition entry.
-pub fn gpt_partition_view<'a, S>(
-    source: &'a mut S,
-    entry: &hadris_part::GptPartitionEntry,
-    block_size: u32,
-) -> hadris_storage::Result<PartitionView<'a, S>, hadris_io::ErrorKind> {
-    view(
-        source,
-        entry.first_lba.to_ne(),
-        entry.size_sectors(),
-        block_size,
-    )
+fn gpt_range(entry: &hadris_part::GptPartitionEntry) -> (u64, u64) {
+    (entry.first_lba.to_ne(), entry.size_sectors())
+}
+
+macro_rules! partition_mode {
+    ($mode:ident) => {
+        use hadris_storage::BlockIndex;
+        use hadris_storage::$mode::{BlockDevice, Slice};
+
+        /// Restricts `disk` to an MBR partition. Fails, returning `disk`,
+        /// when the partition does not fit on it.
+        pub fn mbr_partition<D: BlockDevice>(
+            disk: D,
+            entry: &hadris_part::MbrPartition,
+        ) -> Result<Slice<D>, D> {
+            let (first, count) = super::mbr_range(entry);
+            Slice::new(disk, BlockIndex(first), count)
+        }
+
+        /// Restricts `disk` to a GPT partition. Fails, returning `disk`,
+        /// when the partition does not fit on it.
+        pub fn gpt_partition<D: BlockDevice>(
+            disk: D,
+            entry: &hadris_part::GptPartitionEntry,
+        ) -> Result<Slice<D>, D> {
+            let (first, count) = super::gpt_range(entry);
+            Slice::new(disk, BlockIndex(first), count)
+        }
+    };
+}
+
+/// Synchronous partition slices.
+#[cfg(feature = "sync")]
+pub mod sync {
+    partition_mode!(sync);
+}
+
+/// Asynchronous partition slices.
+#[cfg(feature = "async")]
+pub mod r#async {
+    partition_mode!(r#async);
+}
+
+/// Asynchronous partition slices over the `Send` devices of
+/// `hadris_storage::async_send`.
+#[cfg(feature = "async-send")]
+pub mod async_send {
+    partition_mode!(async_send);
 }

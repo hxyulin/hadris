@@ -38,7 +38,7 @@ use super::io::{self, Read, Seek, SeekFrom, Write};
 use hadris_common::types::endian::Endian;
 use hadris_common::types::extent::{Extent, FileType};
 use hadris_common::types::layout::{DirectoryLayout, FileLayout};
-use hadris_path::split_path;
+use hadris_fs::path::split_path;
 
 use super::directory::{DirectoryRecord, DirectoryRef, FileFlags};
 use super::io::{IsoCursor, LogicalSector};
@@ -117,8 +117,7 @@ impl FileData {
             FileData::Buffer(data) => Ok(data.len() as u64),
             #[cfg(feature = "std")]
             FileData::Path(path) => {
-                let metadata = std::fs::metadata(path)
-                    .map_err(|error| io::Error::from_source(error).erase())?;
+                let metadata = std::fs::metadata(path).map_err(io::Error::from)?;
                 Ok(metadata.len())
             }
         }
@@ -129,9 +128,7 @@ impl FileData {
         match self {
             FileData::Buffer(data) => Ok(data.clone()),
             #[cfg(feature = "std")]
-            FileData::Path(path) => {
-                std::fs::read(path).map_err(|error| io::Error::from_source(error).erase())
-            }
+            FileData::Path(path) => std::fs::read(path).map_err(io::Error::from),
         }
     }
 }
@@ -350,7 +347,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                 let current_pos = cursor
                     .stream_position()
                     .await
-                    .map_err(io::Error::erase)?;
+                    ?;
 
                 Self::read_directory_recursive(
                     cursor,
@@ -365,7 +362,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
                 cursor
                     .seek(SeekFrom::Start(current_pos))
                     .await
-                    .map_err(io::Error::erase)?;
+                    ?;
 
                 layout.add_subdir(subdir);
             } else {
@@ -713,7 +710,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             .inner
             .stream_position()
             .await
-            .map_err(io::Error::erase)? as usize
+            ? as usize
             - (start.0 * self.sector_size);
         let _end = self.inner.pad_align_sector().await?;
         Ok(DirectoryRef {
@@ -795,7 +792,7 @@ impl<RW: Read + Write + Seek> IsoModifier<RW> {
             self.inner
                 .seek_relative(-(buffer.len() as i64))
                 .await
-                .map_err(io::Error::erase)?;
+                ?;
             self.inner.write_all(&buffer).await?;
         }
 
@@ -817,17 +814,22 @@ mod tests {
 
     #[test]
     fn test_split_path() {
-        let (dir, file) = IsoModifier::<std::io::Cursor<Vec<u8>>>::split_path("test.txt").unwrap();
+        let (dir, file) =
+            IsoModifier::<hadris_io::StdIo<std::io::Cursor<Vec<u8>>>>::split_path("test.txt")
+                .unwrap();
         assert_eq!(dir, "");
         assert_eq!(file, "test.txt");
 
-        let (dir, file) =
-            IsoModifier::<std::io::Cursor<Vec<u8>>>::split_path("docs/readme.txt").unwrap();
+        let (dir, file) = IsoModifier::<hadris_io::StdIo<std::io::Cursor<Vec<u8>>>>::split_path(
+            "docs/readme.txt",
+        )
+        .unwrap();
         assert_eq!(dir, "docs");
         assert_eq!(file, "readme.txt");
 
         let (dir, file) =
-            IsoModifier::<std::io::Cursor<Vec<u8>>>::split_path("a/b/c/d.txt").unwrap();
+            IsoModifier::<hadris_io::StdIo<std::io::Cursor<Vec<u8>>>>::split_path("a/b/c/d.txt")
+                .unwrap();
         assert_eq!(dir, "a/b/c");
         assert_eq!(file, "d.txt");
     }

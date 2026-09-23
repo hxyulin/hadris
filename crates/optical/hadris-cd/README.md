@@ -14,6 +14,7 @@ This crate creates images that contain both ISO 9660 and UDF filesystems sharing
 
 ```rust,no_run
 use hadris_cd::{OpticalImageWriter, OpticalImageOptions, FileTree, FileEntry};
+use hadris_io::StdIo;
 
 let mut tree = FileTree::new();
 tree.add_file(FileEntry::from_buffer("readme.txt", b"Hello, World!".to_vec()));
@@ -31,7 +32,7 @@ let file = std::fs::OpenOptions::new()
     .truncate(true)
     .open("output.iso")
     .unwrap();
-OpticalImageWriter::new(file, options)
+OpticalImageWriter::new(StdIo::new(file), options)
     .finish(tree)
     .unwrap();
 ```

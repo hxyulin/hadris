@@ -8,7 +8,7 @@ Hadris separates three decisions that many crates combine:
 
 1. **Platform support:** allocation-free, `alloc`, or `std`
 2. **I/O mode:** `sync`, `async`, or both
-3. **Capability:** `read`, `write`, detection, caching, or tooling
+3. **Capability:** `read`, `write`, detection, or formatting
 
 Choose each dimension explicitly when disabling default features. Enabling
 `std` provides heap allocation, but it does not implicitly select `sync` or
@@ -36,22 +36,23 @@ The `sync` and `async` features select parallel API namespaces backed by
 hadris-fat = {
   version = "2.4.0",
   default-features = false,
-  features = ["alloc", "read", "sync", "async", "lfn"]
+  features = ["sync", "async", "write"]
 }
 ```
 
-Use `hadris_fat::sync` and `hadris_fat::async` explicitly when both modes are
-enabled. The crate-root re-exports remain available when `sync` is enabled for
-backward compatibility.
+Use `hadris_fat::sync` and `hadris_fat::r#async` explicitly when both modes are
+enabled; `hadris-fat` has no crate-root re-exports of either mode. Its
+`async-send` feature adds a third namespace, `async_send`, whose futures are
+`Send` for multi-threaded executors.
 
-Some components are intentionally sync-only: FAT caching and analysis tools,
+Some components are intentionally sync-only: the `hadris-fs` host helpers,
 the exFAT preview, and the hybrid ISO/UDF writer.
 
 ## Format capability matrix
 
 | Crate | Formats or role | Read | Write/create | Sync | Async | Minimum for reading | Stability |
 |---|---|---:|---:|---:|---:|---|---|
-| `hadris-fat` | FAT12/16/32 | Yes | Yes | Yes | Yes | Allocation-free | Stable |
+| `hadris-fat` | FAT12/16/32 | Yes | Yes | Yes | Yes | Allocation-free (writing, formatting and checking too) | Stable |
 | `hadris-fat` `unstable-exfat` | exFAT preview | Partial | Partial | Yes | No | `alloc` | Experimental |
 | `hadris-part` | MBR and GPT | Yes | Yes | Yes | Yes | Allocation-free | Stable |
 | `hadris-iso` | ISO 9660, Joliet, Rock Ridge | Yes | Yes | Yes | Yes | Allocation-free | Stable |
@@ -74,9 +75,12 @@ directory trees, or image construction may still require `alloc`.
 hadris-fat = {
   version = "2.4.0",
   default-features = false,
-  features = ["read", "sync"]
+  features = ["sync"]
 }
 ```
+
+`hadris-fat` has no `read` feature: reading and writing are always available,
+and `write` adds only the formatter.
 
 ### Kernel with an allocator and async I/O
 
@@ -91,11 +95,13 @@ hadris-iso = {
 ### Hosted FAT editor
 
 ```toml
-hadris-fat = {
-  version = "2.4.0",
-  features = ["cache", "tool"]
-}
+hadris-fat = "2.4.0"      # std, sync and write
+hadris-fs = "2.4.0"       # path and host helpers
+hadris-storage = "2.4.0"  # Cache<D> for block caching
 ```
+
+The checker (`check`, `check_with`) is always compiled; block caching comes
+from wrapping the device in `hadris_storage::sync::Cache`.
 
 ### Allocation-only CPIO writer
 

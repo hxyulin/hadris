@@ -3,8 +3,8 @@
 //! bytes at common logical block sizes. Arbitrary bytes must never
 //! panic/abort/OOM.
 
+use hadris_io::Cursor;
 use libfuzzer_sys::fuzz_target;
-use std::io::Cursor;
 
 use hadris_part::{PartitionTable, PartitionTableReadExt};
 

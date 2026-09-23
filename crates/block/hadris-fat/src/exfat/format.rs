@@ -20,8 +20,8 @@ use hadris_common::types::{
     number::{U16, U32, U64},
 };
 
-use crate::error::{Error, Result};
-use crate::io::{Read, Seek, SeekFrom, Write};
+use super::error::{Error, Result};
+use super::io::{Read, Seek, SeekFrom, Write};
 
 use super::boot::{BOOT_REGION_SECTORS, BOOT_SIGNATURE, EXFAT_SIGNATURE, RawExFatBootSector};
 use super::entry::{
@@ -817,7 +817,7 @@ mod tests {
         let mut buffer = vec![0u8; size as usize];
 
         {
-            let cursor = Cursor::new(&mut buffer[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut buffer[..]));
             let options = ExFatFormatOptions::new();
             let params = calculate_layout(size, &options).unwrap();
 
@@ -906,7 +906,7 @@ mod tests {
         // Full integration test: format and open filesystem
         let size = 2 * 1024 * 1024u64; // 2 MB
         let mut buffer = vec![0u8; size as usize];
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut buffer[..]));
 
         let options = ExFatFormatOptions::new().volume_label("TEST");
         let fs = format_exfat(cursor, size, &options).unwrap();

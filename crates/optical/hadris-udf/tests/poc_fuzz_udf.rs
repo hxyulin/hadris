@@ -1,6 +1,7 @@
 //! Regression tests for fuzzer-found read-path bugs.
 #![cfg(all(feature = "std", feature = "sync", feature = "write"))]
 
+use hadris_io::StdIo;
 use std::io::Cursor;
 
 use hadris_udf::UdfVolume;
@@ -23,11 +24,15 @@ fn crc16_itu(data: &[u8]) -> u16 {
 fn read_file_tolerates_unaligned_allocation_descriptors() {
     let mut root = SimpleDir::root();
     root.add_file(SimpleFile::new("hello.txt", b"hello world".to_vec()));
-    let output = UdfWriter::create(Cursor::new(Vec::new()), &root, UdfWriteOptions::default())
-        .expect("format");
-    let mut image = output.target.into_inner();
+    let output = UdfWriter::create(
+        StdIo::new(Cursor::new(Vec::new())),
+        &root,
+        UdfWriteOptions::default(),
+    )
+    .expect("format");
+    let mut image = output.target.into_inner().into_inner();
 
-    let volume = UdfVolume::open(Cursor::new(image.clone())).expect("mount");
+    let volume = UdfVolume::open(StdIo::new(Cursor::new(image.clone()))).expect("mount");
     let partition_start = volume.info().partition_start as usize;
     let root_dir = volume.root_dir().expect("root dir");
     let entry = root_dir
@@ -56,7 +61,7 @@ fn read_file_tolerates_unaligned_allocation_descriptors() {
         .fold(0u8, |sum, i| sum.wrapping_add(image[base + i]));
     image[base + 4] = tag_sum;
 
-    let volume = UdfVolume::open(Cursor::new(image)).expect("remount");
+    let volume = UdfVolume::open(StdIo::new(Cursor::new(image))).expect("remount");
     let root_dir = volume.root_dir().expect("root dir");
     let entry = root_dir
         .entries()

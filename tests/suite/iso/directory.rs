@@ -4,6 +4,7 @@ use std::fs;
 use std::io::Cursor;
 use std::sync::Arc;
 
+use hadris_io::StdIo;
 use hadris_iso::read::{IsoImage, PathSeparator};
 use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
 use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
@@ -138,10 +139,11 @@ fn test_multi_sector_directory() {
         strict_charset: false,
     };
     let mut iso_buffer = Cursor::new(vec![0u8; 1024 * 2048]);
-    IsoImageWriter::create(&mut iso_buffer, input_files, format_options)
+    IsoImageWriter::create(StdIo::new(&mut iso_buffer), input_files, format_options)
         .expect("Failed to create ISO");
 
-    let image = IsoImage::open(Cursor::new(iso_buffer.into_inner())).expect("Failed to open ISO");
+    let image = IsoImage::open(StdIo::new(Cursor::new(iso_buffer.into_inner())))
+        .expect("Failed to open ISO");
     let root = image.root_dir();
     let mut file_names = Vec::new();
     for entry in root.iter(&image).entries() {

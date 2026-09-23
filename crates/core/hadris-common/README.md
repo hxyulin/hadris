@@ -4,16 +4,19 @@ Shared types and utilities used by Hadris filesystem crates.
 
 ## Overview
 
-This crate provides common functionality needed across the Hadris workspace,
-including endian-aware types, extents, and optional optical-media types. New
-fixed-capacity buffers and text use `hadris-fixed`, and virtual path code uses
-`hadris-path`. The temporary forwarding modules were removed at the RC4 API
-freeze.
+This is an internal support crate for the other Hadris crates and is not meant
+for direct use. Its API can change in any release; depend on `hadris` or a
+format crate instead.
+
+It provides endian-aware types, extents, fixed-capacity byte, text and
+collection types (`types::fixed`, formerly the `hadris-fixed` crate), and
+optional optical-media types. Virtual path code uses `hadris_fs::path`.
 
 ## Features
 
 - **Endian Types** - Little-endian and big-endian wrappers for integers
 - **Extents** - On-disk layout helpers used by ISO and related crates
+- **Fixed-capacity storage** - `FixedBytes`, `FixedStr`, `FixedUtf16`, `ArrayVec`, `RingBuf`
 - **CRC / time / rand** - Available under the `std` feature
 - **Optical media** - Session and metadata helpers behind the `optical` feature
 - **No-std Compatible** - Works without the standard library

@@ -1,6 +1,6 @@
 //! UDF-specific error types
 
-use hadris_io as io;
+use hadris_io::legacy as io;
 
 /// Errors that can occur when reading or writing UDF filesystems
 #[derive(Debug)]
@@ -51,9 +51,9 @@ pub enum Error {
     PodCastError(bytemuck::PodCastError),
 }
 
-impl<E: io::IoError> From<io::Error<E>> for Error {
-    fn from(err: io::Error<E>) -> Self {
-        Self::Io(err.erase())
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
     }
 }
 

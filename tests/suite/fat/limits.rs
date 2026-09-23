@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use hadris_tests::fat::hadris::{self, HadrisFatAdapter};
+use hadris_tests::fat::generic::{self, HadrisFatAdapter};
 use hadris_tests::fat::limits::{
     Checks, exercise_data_region, exercise_root_directory, large_extent_operations,
 };
@@ -16,7 +16,7 @@ use hadris_tests::harness::Workspace;
 fn hadris_image(case: FatCase, topic: &str) -> Result<(Workspace, PathBuf), String> {
     let workspace = Workspace::new(FORMAT, &format!("{}-{topic}-", case.name))?;
     let image = workspace.path.join("hadris.img");
-    hadris::format(&image, case)?;
+    generic::format(&image, case)?;
     Ok((workspace, image))
 }
 

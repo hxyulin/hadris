@@ -53,9 +53,9 @@ fn truncated_multi_extent_iso() -> Vec<u8> {
         features: CreationFeatures::default(),
         strict_charset: false,
     };
-    let mut image = std::io::Cursor::new(vec![0_u8; 1024 * 1024]);
+    let mut image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 1024 * 1024]));
     IsoImageWriter::create(&mut image, files, options).unwrap();
-    let mut bytes = image.into_inner();
+    let mut bytes = image.into_inner().into_inner();
 
     let root_record = 16 * 2048 + 156;
     let root_sector =
@@ -98,9 +98,9 @@ fn async_leaf_reads_descriptors_traverses_and_reads_file() {
         features: CreationFeatures::default(),
         strict_charset: false,
     };
-    let mut image = std::io::Cursor::new(vec![0_u8; 2 * 1024 * 1024]);
+    let mut image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 2 * 1024 * 1024]));
     IsoImageWriter::create(&mut image, files, options).unwrap();
-    let bytes = image.into_inner();
+    let bytes = image.into_inner().into_inner();
 
     block_on(async {
         let image = IsoImage::open(hadris_io::Cursor::new(bytes.as_slice()))

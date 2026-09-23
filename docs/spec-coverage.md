@@ -90,10 +90,10 @@ Fuzz columns name targets under `fuzz/` (local only — not PR CI).
 
 | Spec | Item | Compliance | Tests | Fuzz | Notes |
 |------|------|------------|-------|------|-------|
-| FAT:BPB | `RawBpb` | full | `comprehensive_fat::bpb_size_validation_uses_production_reader_and_formatter` | `fat_read` | |
-| FAT:FSInfo | `RawFsInfo` | full | `test_write::test_fsinfo_unknown_sentinels_mount_successfully` | `fat_read` | FAT32 free-cluster/next-free tracking |
-| FAT:LFN | `RawLfnEntry` | partial | `test_write::lfn_checksum_matches_short_name`, `test_write::lfn_padding_uses_terminator_then_filler`, `test_write::maximum_length_name_spans_clusters`, `test_write::long_name_exceeding_one_cluster_roundtrips_and_deletes` | `fat_read` | This raw on-disk structure is complete, while semantic validation and legacy ANSI fallback behavior are implemented by higher-level LFN readers and writers. |
-| FAT:DirEntry | `RawFileEntry` | partial | `test_write::test_lowercase_short_name_uses_nt_case_flags` | `fat_read` | Name/attributes/timestamps/cluster/size and NT case flags (`DIR_NTRes`) are read and written; extended access-time granularity is not modeled. |
+| FAT:BPB | `RawBpb` | full | `boot::tests::check_bpb_rejects_bad_sizes`, `fatfs_format::rejects_bad_options_and_devices` | `fat_read` | |
+| FAT:FSInfo | `RawFsInfo` | full | `boot::tests::fs_info_signatures`, `fatfs_read::fsinfo_unknown_values_mount_and_count_by_scanning` | `fat_read` | FAT32 free-cluster/next-free tracking |
+| FAT:LFN | `LongEntry` | partial | `lfn::tests::checksum_matches_reference`, `lfn::tests::encoded_orders_entries_last_first`, `lfn::tests::assembler_rejects_broken_sequences`, `fatfs_write::long_names_up_to_255_units` | `fat_read` | Sequence, attributes, checksum, terminator and filler are read and written; names are UTF-16 only, with no legacy ANSI fallback. |
+| FAT:DirEntry | `ShortEntry` | partial | `dirent::tests::decodes_short_fields`, `fatfs_write::short_names_and_case_bits` | `fat_read` | Name/attributes/timestamps/cluster/size and NT case flags (`DIR_NTRes`) are read and written; extended access-time granularity is not modeled. |
 
 ## hadris-part
 

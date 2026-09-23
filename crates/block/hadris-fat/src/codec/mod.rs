@@ -1,0 +1,14 @@
+//! Mode-independent encoding and decoding of FAT on-disk values.
+//!
+//! Everything here works on bytes and plain values and performs no I/O, so
+//! the driver, the formatter and the checker share it.
+
+pub(crate) mod boot;
+pub(crate) mod date;
+pub(crate) mod dirent;
+pub(crate) mod entry;
+#[cfg(feature = "write")]
+pub(crate) mod layout;
+pub(crate) mod lfn;
+pub(crate) mod name;
+pub(crate) mod short_name;

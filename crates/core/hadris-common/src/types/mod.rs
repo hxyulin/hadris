@@ -2,8 +2,7 @@
 
 pub mod endian;
 pub mod extent;
-/// Fixed-capacity representations for allocation-free parsing.
-pub mod no_alloc;
+pub mod fixed;
 /// Endian-aware integer types and alignment helpers.
 pub mod number;
 

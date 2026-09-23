@@ -160,7 +160,7 @@ pub trait Endianness: Copy + Sized {
 ///
 /// This zero-sized-type can be used where a generic type parameter is expected for endianness.
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
 pub struct NativeEndian;
 
@@ -168,7 +168,7 @@ pub struct NativeEndian;
 ///
 /// This zero-sized-type can be used where a generic type parameter is expected for endianness.
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
 pub struct LittleEndian;
 
@@ -176,7 +176,7 @@ pub struct LittleEndian;
 ///
 /// This zero-sized-type can be used where a generic type parameter is expected for endianness.
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "bytemuck", derive(bytemuck::Zeroable, bytemuck::Pod))]
 pub struct BigEndian;
 

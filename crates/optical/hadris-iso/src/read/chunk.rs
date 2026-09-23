@@ -142,9 +142,9 @@ mod tests {
             strict_charset: false,
         };
 
-        let cursor = Cursor::new(vec![0u8; 1024 * 1024]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(vec![0u8; 1024 * 1024]));
         let output = IsoImageWriter::create(cursor, input, options).unwrap();
-        let mut bytes = output.into_inner();
+        let mut bytes = output.into_inner().into_inner();
         let root_record = 16 * 2048 + 156;
         let root_sector = u32::from_le_bytes(
             bytes[root_record + 2..root_record + 6]
@@ -171,7 +171,7 @@ mod tests {
         bytes[continuation_start..continuation_start + record_len]
             .copy_from_slice(&continuation);
 
-        let image = IsoImage::open(Cursor::new(bytes)).expect("Failed to parse ISO image");
+        let image = IsoImage::open(hadris_io::StdIo::new(Cursor::new(bytes))).expect("Failed to parse ISO image");
         let root_dir = image.root_dir();
         let iso_dir = root_dir.iter(&image);
 

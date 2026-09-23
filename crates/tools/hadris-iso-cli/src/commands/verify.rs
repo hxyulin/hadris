@@ -1,11 +1,13 @@
 use std::fs::File;
-use std::io::{self, BufReader, Read, Seek};
+use std::io::{self, BufReader};
 
+use hadris_io::StdIo;
 use hadris_iso::directory::FileFlags;
 use hadris_iso::read::IsoImage;
 use hadris_iso::susp::SystemUseIter;
 use hadris_iso::types::Endian;
 use hadris_iso::volume::VolumeDescriptor;
+use hadris_iso::{Read, Seek};
 
 use super::super::args::VerifyArgs;
 
@@ -336,7 +338,7 @@ fn check_boot_catalog<R: Read + Seek>(
         return issues;
     }
 
-    let mut cursor = io::Cursor::new(&buf[..]);
+    let mut cursor = StdIo::new(io::Cursor::new(&buf[..]));
     let validation = match hadris_iso::boot::BootValidationEntry::parse(&mut cursor) {
         Ok(v) => v,
         Err(e) => {
@@ -520,7 +522,7 @@ fn check_rrip_fields<R: Read + Seek>(iso: &IsoImage<R>, verbose: bool) -> Vec<Ve
 pub fn verify(args: VerifyArgs) -> Result<()> {
     let file = File::open(&args.input)?;
     let file_size = file.metadata()?.len();
-    let reader = BufReader::new(file);
+    let reader = StdIo::new(BufReader::new(file));
     let iso = IsoImage::open(reader)?;
 
     if args.verbose {

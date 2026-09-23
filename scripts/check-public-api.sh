@@ -14,19 +14,17 @@ fi
 
 crates=(
   hadris
-  hadris-archive
   hadris-block
   hadris-cd
   hadris-common
   hadris-cpio
   hadris-fat
-  hadris-fixed
+  hadris-fs
   hadris-io
   hadris-iso
   hadris-macros
   hadris-optical
   hadris-part
-  hadris-path
   hadris-storage
   hadris-udf
 )
@@ -39,12 +37,12 @@ trap 'rm -rf "$tmp_dir"' EXIT
 for crate in "${crates[@]}"; do
   generated="$tmp_dir/$crate.txt"
   if [[ "$crate" == "hadris-fat" ]]; then
-    # The unstable exFAT preview is intentionally outside the V2 API
-    # stability promise. Snapshot every stable hadris-fat capability without
-    # treating preview symbols as frozen public API.
+    # The unstable exFAT preview is intentionally outside the API stability
+    # promise. Snapshot every stable hadris-fat capability without treating
+    # preview symbols as frozen public API.
     cargo public-api -p "$crate" \
       --no-default-features \
-      --features "std,sync,async,read,write,lfn,cache,tool,defmt,dirty-file-panic" \
+      --features "std,sync,async,async-send,write,defmt" \
       -sss --color never >"$generated"
   elif [[ "$crate" == "hadris-iso" ]]; then
     # The unstable streaming input is outside the V2 API stability promise.

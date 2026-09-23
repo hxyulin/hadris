@@ -1,6 +1,6 @@
 //! The host platform's FAT formatter, checker, and kernel driver.
 
-use hadris_tests::fat::hadris::{self, HadrisFatAdapter};
+use hadris_tests::fat::generic::{self, HadrisFatAdapter};
 use hadris_tests::fat::scenarios::curated_operations;
 use hadris_tests::fat::{
     FAT_CASES, FORMAT, FatAdapter, Operation, apply_operations, clear_mutable_attrs,
@@ -14,7 +14,7 @@ fn run_native_tools_matrix(operations: &[Operation]) -> Result<(), String> {
         let workspace = Workspace::new(FORMAT, &format!("{}-native-", case.name))?;
 
         let hadris_image = workspace.path.join("hadris.img");
-        hadris::format(&hadris_image, case)?;
+        generic::format(&hadris_image, case)?;
         let expected =
             apply_operations(&mut HadrisFatAdapter::new(hadris_image.clone()), operations)?;
         native::fsck(&hadris_image)?;
@@ -52,7 +52,7 @@ fn run_native_mount_matrix() -> Result<(), String> {
     for case in FAT_CASES {
         let workspace = Workspace::new(FORMAT, &format!("{}-mount-", case.name))?;
         let image = workspace.path.join("native-mount.img");
-        hadris::format(&image, case)?;
+        generic::format(&image, case)?;
         let base = vec![
             Operation::CreateDir {
                 path: "/Hadris Source".into(),

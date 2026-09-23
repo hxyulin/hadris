@@ -2,24 +2,40 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use hadris_fat::FatVolume;
+use hadris_fat::MountOptions;
+use hadris_fat::sync::FatFs;
+use hadris_fs::sync::DriverExt;
 
 fn main() -> Result<()> {
     let image_path = image_path()?;
     let image = File::open(&image_path)
         .with_context(|| format!("failed to open {}", image_path.display()))?;
-    let volume = FatVolume::open(image)
+    let mut volume = FatFs::open_with(image, MountOptions::new().with_read_only(true))
         .with_context(|| format!("failed to open FAT volume {}", image_path.display()))?;
 
-    let root = volume.root_dir();
-    let mut entries = root.entries();
-    while let Some(entry) = entries.next_entry() {
+    let mut names = Vec::new();
+    for entry in volume
+        .read_dir("/")
+        .context("failed to open the root directory")?
+    {
         let entry = entry.context("failed to read a FAT directory entry")?;
-        let file = entry
-            .as_entry()
-            .context("unsupported FAT directory entry type")?;
-        let kind = if file.is_directory() { "dir " } else { "file" };
-        println!("{kind} {:>10} {}", file.len(), file.name());
+        names.push(
+            entry
+                .name_str()
+                .context("entry name is not UTF-8")?
+                .to_owned(),
+        );
+    }
+    for name in names {
+        let meta = volume
+            .metadata(&format!("/{name}"))
+            .with_context(|| format!("failed to read metadata of {name}"))?;
+        let kind = if meta.file_type().is_dir() {
+            "dir "
+        } else {
+            "file"
+        };
+        println!("{kind} {:>10} {name}", meta.len());
     }
 
     Ok(())

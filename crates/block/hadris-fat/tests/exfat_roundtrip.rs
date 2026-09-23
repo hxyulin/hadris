@@ -5,7 +5,7 @@
 //! verify byte-for-byte equality. When `fsck.exfat` is available on the host,
 //! the image is also validated externally.
 
-#![cfg(all(feature = "unstable-exfat", feature = "write"))]
+#![cfg(all(feature = "unstable-exfat", feature = "write", feature = "alloc"))]
 
 use std::fs::OpenOptions;
 use std::io::Seek as _;
@@ -13,7 +13,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 use hadris_fat::exfat::{ExFatFormatOptions, ExFatVolume, format_exfat};
-use hadris_fat::io::{Read as HadrisRead, Write as HadrisWrite};
+use hadris_io::legacy::sync::{Read as HadrisRead, Write as HadrisWrite};
 
 #[path = "common/exfat.rs"]
 mod exfat_helpers;
@@ -33,19 +33,19 @@ fn make_image(path: &Path, label: &str) {
     file.set_len(IMAGE_SIZE).expect("set image length");
 
     let opts = ExFatFormatOptions::default().volume_label(label);
-    format_exfat(&mut file, IMAGE_SIZE, &opts).expect("format_exfat");
+    format_exfat(hadris_io::StdIo::new(&mut file), IMAGE_SIZE, &opts).expect("format_exfat");
     file.sync_all().expect("sync");
 }
 
 /// Open an image file at the start, ready for ExFatVolume::open.
-fn open_image(path: &Path) -> std::fs::File {
+fn open_image(path: &Path) -> hadris_io::StdIo<std::fs::File> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
         .open(path)
         .expect("open image");
     file.seek(std::io::SeekFrom::Start(0)).unwrap();
-    file
+    hadris_io::StdIo::new(file)
 }
 
 /// Write `name` with `contents` into the root directory.
@@ -283,8 +283,10 @@ fn root_stream_flags(image_path: &Path, root_cluster: u32, matches: impl Fn(&[u8
     let offset = info.cluster_to_offset(root_cluster);
     let mut cluster = vec![0u8; info.bytes_per_cluster];
     let mut file = open_image(image_path);
-    file.seek(std::io::SeekFrom::Start(offset)).unwrap();
-    std::io::Read::read_exact(&mut file, &mut cluster).expect("read root cluster");
+    file.get_mut()
+        .seek(std::io::SeekFrom::Start(offset))
+        .unwrap();
+    std::io::Read::read_exact(file.get_mut(), &mut cluster).expect("read root cluster");
     cluster
         .chunks_exact(32)
         .find(|raw| raw[0] == 0xC0 && matches(raw))

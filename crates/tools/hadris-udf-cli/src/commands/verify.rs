@@ -1,5 +1,6 @@
 use std::fs::File;
 
+use hadris_io::StdIo;
 use hadris_udf::UdfVolume;
 
 use super::super::args::VerifyArgs;
@@ -13,7 +14,7 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
     let file = File::open(&args.input)?;
 
     // Step 1: Open the image (validates VRS, AVDP, VDS, FSD)
-    let udf = match UdfVolume::open(file) {
+    let udf = match UdfVolume::open(StdIo::new(file)) {
         Ok(fs) => {
             println!("  [OK] Volume Recognition Sequence");
             println!("  [OK] Anchor Volume Descriptor Pointer");
@@ -62,7 +63,7 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
 }
 
 fn walk_tree(
-    udf: &UdfVolume<File>,
+    udf: &UdfVolume<StdIo<File>>,
     dir: &hadris_udf::UdfDir,
     files: &mut usize,
     dirs: &mut usize,

@@ -8,8 +8,8 @@
 //! iterated twice from fresh cursors and the (name, size) entry sequence must
 //! be identical across both passes.
 
+use hadris_io::Cursor;
 use libfuzzer_sys::fuzz_target;
-use std::io::Cursor;
 
 use hadris_cpio::sync::CpioArchiveReader;
 

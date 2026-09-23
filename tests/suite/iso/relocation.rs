@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::Cursor;
 
+use hadris_io::StdIo;
 use hadris_iso::read::PathSeparator;
 use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
 use hadris_iso::write::{InputEntry, InputTree, IsoImageWriter};
@@ -64,7 +65,7 @@ fn bsdtar_extracts_relocated_trees() {
                 strict_charset: false,
             };
             let image = IsoImageWriter::create(
-                Cursor::new(Vec::new()),
+                StdIo::new(Cursor::new(Vec::new())),
                 InputTree::new(PathSeparator::ForwardSlash, entries),
                 options,
             )
@@ -72,7 +73,7 @@ fn bsdtar_extracts_relocated_trees() {
             let temp = tempfile::tempdir().unwrap();
             let iso = temp.path().join("image.iso");
             let extracted = temp.path().join("extracted");
-            fs::write(&iso, image.into_inner()).unwrap();
+            fs::write(&iso, image.into_inner().into_inner()).unwrap();
             fs::create_dir(&extracted).unwrap();
             run_command(
                 "bsdtar",

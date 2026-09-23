@@ -8,8 +8,279 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-fs (V3):** New crate with the shared, mode-independent filesystem
+  vocabulary: `NodeId`, `FileType`, byte names (`Name`, `NameBuf`,
+  `OwnedName`), `DateTime` with civil-time conversions, `FileTimes`, `Clock`
+  (`NoClock`, `SystemClock`), `Mode`, `Attributes`, `Metadata`,
+  `SetMetadata`, `Capabilities`, `FsStats`, `ErrorKind`, `DirCursor`,
+  `DirEntry`, `OpenOptions`, `RenameFlags` and `NewNode`.
+  `Error<E>` is the error of every filesystem operation: an `ErrorKind` plus
+  the device's own error `E`, kept without allocation (`device_error`,
+  `into_device_error`, `map_device`). It converts from `WriteError<E>`
+  (`ReadOnly` becomes `ErrorKind::ReadOnly`) and `NameError`, and with `std`
+  into `std::io::Error`, returning an `io::Error` device error as itself.
+  `AnyError` (`alloc`) erases the device type for code that mixes devices.
+  `FsResult<T, E>` names the result.
+  With the `sync`, `async` and `async-send` features, the driver layer, one
+  source generated per mode: `FsDriver` (`&mut self`, for format crates) and
+  `FileSystem` (`&self`), `impl_fs_driver!` to implement `FsDriver` from
+  inherent methods, `Volume<F, K>` with `StdMutex`, `Spin`, `Local`,
+  `AsyncMutex` and (with `embassy-sync`) an async `Local` lock, the
+  `Lexical` and `Posix<N>` resolvers and `WithResolver`, the `DriverExt` and
+  `PathExt` path helpers, `OpenFile`, and `File<A>`/`Dir<A>` handles over
+  `Access` (`&mut D`, `&F`, `Arc`, `Rc`, `Volume`). `DirItem` pairs an entry
+  with its name, and `ErrorKind::Symlink` reports `ELOOP`.
+  `copy_tree` (`alloc`) copies a file, symlink or directory tree between
+  any two filesystems, each side any `Access`, and returns `AnyError`. With
+  `std`, the sync API adds `extract_to_host` and `import_from_host`.
+  `extract_to_host` rejects entry names that are not one plain host
+  component (and, on Windows, device names such as `CON` or `com1.txt`,
+  names with `:` or wildcards, and names ending in a dot or space), never
+  writes through or replaces an existing host symlink, and replaces an
+  existing file with a new one instead of truncating it, so its other hard
+  links keep their contents. `import_from_host` copies each directory's
+  entries in name byte order, so a host tree always gives the same image.
+  `copy_tree` and `extract_to_host` refuse symlink targets longer than 4096
+  bytes with `ErrorKind::LimitExceeded` instead of allocating whatever
+  length the source reports. `FuseOnError` ends an iterator of
+  `Result`s after its first `Err`.
+  `NodeTable` maps a driver's `NodeId`s to per-node state with pin counts
+  for formats without stable inode numbers. `FixedTable<N>` needs no
+  allocator, `HeapTable` (`alloc`) grows, and users can implement their own;
+  a full table gives `TableFull`, which converts to
+  `ErrorKind::LimitExceeded`. `NameBuf` holds 1024 bytes by default, enough
+  for any 255-unit UTF-16 long name. `remove` fails with `ErrorKind::Busy`
+  while the node is pinned.
+- **hadris-fat (V3):** `FatFs<D, T = FixedTable<64>>`, the V3 driver for
+  FAT12, FAT16 and FAT32 on any `hadris_storage` `BlockDevice`, in the
+  `sync`, `r#async` and `async_send` modules. It implements `FsDriver`
+  through `impl_fs_driver!`, so `Volume`, the path helpers and the `File` and
+  `Dir` handles of `hadris-fs` work on it. This first version reads:
+  `lookup` (case-insensitive, by long or short name), `read_dir_entry` with
+  resumable cursors, `read_at`, `node_metadata` (times and attributes),
+  `parent`, `stats` and `forget`; the write methods return
+  `ErrorKind::ReadOnly`. `open` mounts a volume, `into_inner` returns the
+  device, and `kind` returns the new `FatKind`. Node ids come from the
+  location of the directory entry, and `lookup` and `parent` pin them in the
+  node table `T`; a full table gives `ErrorKind::LimitExceeded`. Long names
+  are always read, and a leading `0x05` in a short name reads as `0xE5`.
+  The driver needs no allocator: its only buffer is one device block of at
+  most 4096 bytes, and larger blocks are rejected with
+  `ErrorKind::Unsupported`.
+- **hadris-fat (V3):** `FatFs` writes. `create` makes files and
+  directories (other kinds are `ErrorKind::Unsupported`) with long names and
+  generated `~N` short names, or a short entry alone with the NT case bits
+  when the name fits 8.3; `remove` deletes files and empty directories
+  (`Busy` while pinned, `DirectoryNotEmpty`); `rename` moves within and
+  across directories, keeps the node's id, updates `..` of a moved
+  directory, replaces an existing target unless `RenameFlags::NO_REPLACE`,
+  and rejects unknown flags with `Unsupported`; `write_at` and `set_len`
+  grow, zero-fill and shrink files, freeing clusters; `set_metadata` sets
+  attributes and creation, modification and access times (mode and owner
+  are ignored); `sync_node` and `sync` write pending sizes and the FAT32
+  FSInfo free count, and flush the device. Directories grow past their
+  first cluster, and a full FAT12/16 root directory gives
+  `ErrorKind::NoSpace`. The size of a pinned file lives in the node table
+  until it is synced, so handles share it; such a node stays in the table
+  after its last `forget`. A device answering `WriteError::ReadOnly` fails
+  the operation with `ErrorKind::ReadOnly`, changes nothing and makes the
+  volume read-only, as `capabilities` and `is_read_only` then report.
+  Writes are ordered so an interrupted operation or a dropped `async`
+  future leaves an `fsck`-repairable volume.
+- **hadris-fat (V3):** Clock and code page generics:
+  `FatFs<D, T = FixedTable<64>, C: Clock = NoClock, P: CodePage = Ascii>`.
+  `MountOptions<T, C, P>` (`new`, `with_read_only`, `with_table`,
+  `with_clock`, `with_code_page`) and `FatFs::open_with(dev, options)`
+  choose them; `FatFs::open(dev)` keeps the defaults. `clock()` and
+  `code_page()` return them. The `CodePage` trait maps short-name bytes
+  above `0x7F`; `Ascii` reads them as U+FFFD, and `Cp437` is the IBM PC code
+  page. `NoClock` stamps 1980-01-01, and `SystemClock` (`std`) the current
+  UTC time.
+- **hadris-fat (V3):** `format(dev, FormatOptions) -> FatFs<D,
+  FixedTable<64>, C>` in `sync`, `r#async` and `async_send` (the `write`
+  feature, no allocator) formats a FAT12, FAT16 or FAT32 volume that fills a
+  `BlockDevice`, including a `Slice` of a disk, and mounts it.
+  `FormatOptions<C = NoClock>` (`new`, `with_kind`, `with_label`,
+  `with_volume_id`, `with_sector_size`, `with_cluster_size`,
+  `with_oem_name`, `with_reserved_sectors`, `with_hidden_sectors`,
+  `with_fat_count`, `with_root_entries`, `with_media`, `with_clock`)
+  defaults everything from the device: FAT12 below 16 MiB, FAT16 below
+  512 MiB, FAT32 above, with a cluster size adjusted until the count suits
+  the variant, and a volume id derived from the clock, so `NoClock` gives
+  reproducible images. `VolumeLabel::new` checks and uppercases a label.
+  Errors: `NoSpace` for a device too small, `LimitExceeded` for one too
+  large, `InvalidInput` for a bad option, `Unsupported` for blocks over
+  4096 bytes. Checked with `fsck.fat` and `fsck_msdos`.
+- **hadris-fat (V3):** `check(&mut fs) -> CheckReport` and
+  `check_with(&mut fs, bitmap, on_finding)` in `sync`, `r#async` and
+  `async_send` check a mounted `FatFs` read-only, without an allocator.
+  They report each `Finding` (boot sector fields, the FAT32 backup boot
+  sector and FSInfo sector, the free count, reserved FAT entries, FAT copy
+  mismatches, invalid first clusters, broken, cyclic and cross-linked
+  chains, bad clusters in chains, chains longer or shorter than their file,
+  lost clusters, bad short names, dot entries, directory sizes, misplaced
+  labels, long-name checksum mismatches and orphaned fragments), and
+  `CheckReport` counts them by `FindingKind` with file, directory and
+  cluster totals. The caller's bitmap sets the clusters tracked per pass;
+  the tree is walked through `..` entries, so memory is fixed at any depth.
+  Checked against `fsck.fat -n` verdicts and the crash-safety leftovers of
+  interrupted operations. `FatFs::label` reads the root label entry.
+- **hadris-tests:** The FAT conformance suite drives Hadris through
+  `fat::generic::FsAdapter<M: Mount>`, one adapter over any `hadris-fs`
+  `FileSystem`, with `HadrisFat` mounting `FatFs` on the image file. The
+  V2 `FatVolume` adapter is removed.
+- **hadris-fat (V3):** `FatFs::cluster_chain(node, visit)` passes each
+  cluster of a node's chain to a callback without allocating, for tools that
+  show file layout and fragmentation.
+- **hadris-block, hadris (V3):** An additive `async-send` feature adds
+  `hadris_block::async_send` (`OpenVolume` over `hadris_fat::async_send::FatFs`),
+  `detect::async_send` and `partition::async_send`, generated from the same
+  source as `r#async`, and enables `async-send` in `hadris-storage`,
+  `hadris-fs` and `hadris-fat`. The umbrella `hadris` crate forwards
+  `async-send` to `hadris-io`, `hadris-fs` and `hadris-block`, and its
+  `sync` and `async` features now also reach `hadris-fs`.
+- **hadris-macros (V3):** `send_async!`, a third generation mode next to
+  `strip_async!`: every `async fn` in a trait declaration returns a `Send`
+  future and the trait gains `Send` (and `Sync` for `&self` methods) as a
+  supertrait.
+- **hadris-io, hadris-storage (V3):** An `async-send` feature adds an
+  `async_send` module generated from the same source as `r#async`, whose
+  traits prove their futures `Send`, so generic code can be spawned on
+  multi-threaded executors. `MaybeSend` marks the types that must be `Send`
+  in that mode. `FromEmbedded` has no impls there.
+- **hadris-fat (V3):** Depends on `hadris-storage`. The `sync`, `async`,
+  `alloc` and `std` features also enable the same features of `hadris-fs`
+  and `hadris-storage`, and a new additive `async-send` feature adds an
+  `async_send` module, which holds the V3 `FatFs` driver.
+- **hadris-storage (V3):** `BlockDevice`, one trait for sync and async
+  whole-block devices with an explicit block size and the device's own error,
+  implemented for `&mut D`, `Box<D>` and, with `std`, `std::fs::File`.
+  `write_blocks` and `flush` return `WriteError<E>`, whose `ReadOnly` variant
+  is how a device refuses writes; the default `write_blocks` returns it, so a
+  read-only device implements no write method, and there is no `writable()`
+  or access query. Devices and adapters: `StreamDevice` over any seekable
+  stream (`ReadOnly` for streams without `Write`), `MemDevice` over byte
+  buffers (error `OutOfRange`), `Slice` for a block range, `Cache` for
+  write-back LRU caching (`alloc`, first write goes straight through), and
+  `ByteView` for byte-granular access and a bounded stream. Adapters that can
+  refuse a request report `StorageError<E>`.
+
+### Changed
+
+- **hadris-fat (V3):** The `write` feature only adds `format` in each mode
+  and no longer implies `read` or `alloc`; `FatFs` reads and writes without
+  it. Default features are `std`, `sync` and `write`. The crate root no longer
+  re-exports the `sync` module: write `hadris_fat::sync::FatFs`. The
+  `unstable-exfat` preview keeps its API but has its own
+  `hadris_fat::exfat::Error` and `Result`, reads through
+  `hadris_io::legacy::sync` directly, and with `std` stamps new entries with
+  the UTC time of `hadris_fs::SystemClock` instead of chrono's local time.
+- **hadris-block (V3):** `detect::sync::detect` and `detect::r#async::detect`
+  take a `hadris-storage` `BlockDevice` and return the device's error; the
+  block size is the device's. `OpenVolume<D>` takes the device by value and
+  holds a `FatFs<D>`, with `into_inner` returning the device. `Error<E>`
+  carries the device error in `Device` and the mount error as
+  `Fat(hadris_fs::Error<E>)`. `OpenVolume::open` and `open_detected` fail
+  with `OpenError<D, E>`, which carries the `Error` and gives the device
+  back (`error`, `into_error`, `into_device`, `into_parts`) instead of
+  dropping it; the volume is validated on a borrow of the device first, so
+  only a device failing during the final mount keeps it. `?` converts an
+  `OpenError` into `Error`. `partition::sync` and `partition::r#async` turn
+  MBR and GPT entries into `Slice<D>`s of the disk. The `detect` feature
+  depends on `hadris-storage` instead of `hadris-io`. The `sync` and
+  `r#async` openers are generated from one source.
+- **hadris-fat-cli (V3):** Every command runs on `FatFs`; read commands mount
+  images read-only. `stat` counts clusters, files and directories with
+  `check` and no longer prints reserved clusters. `verify` runs `check_with`,
+  prints each finding and "Clusters In Use" instead of "Clusters Verified",
+  and with `--verbose` adds free, bad and lost clusters. `fragmentation` and
+  `chain` read chains with `FatFs::cluster_chain`. `create` rejects volume
+  labels longer than 11 ASCII characters, formats with `format`, imports with
+  `import_from_host` in name order and stamps entries with the current UTC
+  time; `extract` uses `extract_to_host` and restores modification times.
+  `extract --path` names its output after the entry's stored name rather
+  than the typed path, so `-p /sub/readme.txt` writes `README.TXT` as the
+  image spells it, and a path that resolves to the root, such as `/Sub/..`,
+  extracts the whole image into `--output` instead of writing beside it.
+- **Fuzzing and examples (V3):** `fat_read`, `fat_ops` and `fs_dump` drive
+  `FatFs`; `fat_ops` also covers `write_at` and `set_len` and asserts that
+  `check` finds nothing after `sync`. The `fat-list` and `shared_volume`
+  examples use `FatFs` and the `hadris-fs` path helpers and `Volume`.
+- **hadris-io (V3):** `Read`, `Write` and `Seek` (sync and async) report the
+  implementor's own error through the new `ErrorType` supertrait, as in
+  `embedded-io`. The error only needs `core::error::Error + Send + Sync +
+  'static`, so a kernel uses its own enum and a device error reaches the
+  caller unchanged without allocation. `read_exact` and `write_all` return
+  `ExactError<E>`. `&mut T` and `Box<T>` implement the traits, so the
+  `Borrowed` wrapper is gone. The blanket impls over `embedded-io` and
+  `std::io` types are replaced by explicit adapters: `FromEmbedded<T>` (error
+  `T::Error`), `StdIo<T>` (error `std::io::Error`) and `ToStd<T>`. With `std`,
+  `std::fs::File` has `std::io::Error` as its error, `into_std_error` converts
+  any device error to `std::io::Error` (returning an `io::Error` as itself),
+  and `ExactError<E>` converts with `?`. `Cursor` reports `InvalidSeek`.
+  `ByteSource` and `SeekSource` add a positional byte source for writers.
+  The V2 traits with the erased `Error`, `ErrorKind`, `Result`, `ReadExt`,
+  `Parsable` and `Writable` move to `hadris_io::legacy`, which format crates
+  use until they are ported and which is removed before 3.0. `Error::erase`,
+  `Error::from_source`, `IoError` and `ToEmbedded` are removed.
+- **All format crates (V3):** Use `hadris_io::legacy` for now. Error types
+  wrap the non-generic `hadris_io::legacy::Error`, and generic bounds no
+  longer spell out `Seek<Error = ...>`.
+- **hadris-storage (V3):** `PartitionView` implements the `hadris_io::legacy`
+  traits and `PartitionView::new` returns `hadris_io::legacy::Result`. The old
+  `BlockDevice`, `BlockDeviceMut`, `SeekBlockDevice` and the crate's own error
+  type are removed.
+- **hadris (V3):** Re-exports `hadris-io` as `hadris::io`.
+
+### Removed
+
+- **hadris-fat (V3):** The V2 FAT12/16/32 API: `FatVolume`,
+  `FatVolumeBuilder`, `FatDir`, `FileEntry`, `DirectoryEntry`, `FileReader`,
+  `FileWriter`, `FatVolumeReadExt`, `FatVolumeWriteExt`, the `fat_table`
+  types (`Fat`, `Fat12`, `Fat16`, `Fat32`, `FatType`), the FAT sector cache
+  (`FatSectorCache`, `CachedFat`), the V2 `format` module
+  (`FatVolumeFormatter`, `FatFormatOptions`, `FatTypeSelection`,
+  `SectorSize` and the layout calculator), the `tool` analysis and verify
+  extensions (`FatAnalysisExt`, `FatVerifyExt` and their reports), `time`
+  (`FatDateTime`, `TimeProvider`), `oem` (`OemCpConverter`), `file`
+  (`ShortFileName`, `LongFileName`, `LfnBuilder`), the crate-level `Error`
+  and `Result`, `hadris_fat::io`, and the raw directory entry types
+  (`RawFileEntry`, `RawLfnEntry`, `RawDirectoryEntry`, `DirEntryAttrFlags`,
+  `NtCaseFlags`). Use `FatFs`, `format`, `check` and `check_with`, and
+  `hadris_storage::sync::Cache` for caching. The `read`, `lfn`, `cache`,
+  `tool` and `dirty-file-panic` features, the `chrono` dependency and the
+  `HADRIS_FAT_CACHE_WINDOW_SIZE` build variable are removed. Library-level
+  fragmentation analysis is not ported; the CLI computes it from
+  `cluster_chain`.
+- **hadris-block (V3):** Detection and opening over `hadris_io::legacy`
+  streams, `mbr_partition_view`, `gpt_partition_view` and `Error::Io`.
+
+- **hadris-path (V3):** Merged into `hadris-fs` as `hadris_fs::path`.
+  `Component`, `Separators` and `PathError` are now `#[non_exhaustive]`. The
+  umbrella `hadris` crate replaces its `path` feature and `hadris::path` module
+  with `fs` and `hadris::fs`.
+
+- **hadris-fixed (V3):** Folded into `hadris-common` as `types::fixed`, which
+  also absorbs the former `types::no_alloc` (`ArrayVec`, `RingBuf`).
+  `FixedUtf16` now takes the `hadris_common::types::endian` byte-order markers,
+  so `Utf16ByteOrder` and the duplicate `LittleEndian`/`BigEndian` markers are
+  gone. `ArrayVec::try_push` returns `CapacityError` instead of the removed
+  `ArrayVecError`. The umbrella `hadris` crate drops its `fixed` feature and
+  `hadris::fixed` module. `hadris-common` is documented as internal and not for
+  direct use.
+- **hadris-archive (V3):** Removed. The umbrella `hadris` crate depends on
+  `hadris-cpio` directly and re-exports it as `hadris::cpio` instead of
+  `hadris::archive::cpio`. The `archive` and `cpio` features are unchanged.
+
 ### Fixed
 
+- **hadris-fat:** Generated short names no longer turn a non-ASCII
+  character whose code point ends in an ASCII byte into that byte (U+0121
+  became `!`, U+012E was dropped as a `.`), ignore code page bytes below
+  `0x80`, and uppercase non-ASCII characters before the code page maps them,
+  so the `Cp437` code page stores `é` as `É` (`0x90`).
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
   libarchive/bsdtar and use only recognized relocation container names. Reject
   relocation when a root `rr_moved` directory would be mistaken for the container

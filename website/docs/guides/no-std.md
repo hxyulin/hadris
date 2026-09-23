@@ -12,17 +12,21 @@ that the target needs:
 hadris-fat = {
   version = "2.4.0",
   default-features = false,
-  features = ["read", "sync"]
+  features = ["sync"]
 }
 ```
+
+`hadris-fat` needs no `read` feature and no allocator: `FatFs` reads, writes,
+and with `write` formats and checks, using one device block of buffer. Other
+format crates still select `read` explicitly.
 
 Add `alloc` for APIs backed by `Vec`, `String`, or owned trees. Add `write`
 only when mutation or image creation is required. `std` implies allocation but
 does not implicitly select `sync` or `async`.
 
-All storage I/O flows through `hadris-io`, allowing callers to adapt firmware,
-kernel, memory, or device-specific readers rather than depending on
-`std::io`.
+All storage I/O flows through `hadris-io` streams or `hadris-storage` block
+devices (which `hadris-fat` uses), allowing callers to adapt firmware, kernel,
+memory, or device-specific readers rather than depending on `std::io`.
 
 ## Choose the narrowest tier
 

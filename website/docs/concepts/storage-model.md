@@ -26,7 +26,8 @@ Applications can use only the pieces they need.
 
 Format crates use Hadris `Read`, `Write`, and `Seek` abstractions instead of
 depending directly on `std::io`. The crate supplies sync and async traits and
-hosted adapters, while firmware and kernels can implement the same traits for
+explicit adapters: `StdIo` for `std::io` types and `FromEmbedded` for
+`embedded-io` devices. Firmware and kernels can implement the same traits for
 their own device handles.
 
 This is why the same parser code can run over a host file, a memory cursor, or
@@ -45,12 +46,13 @@ format crates continue to validate their own sector and filesystem geometry.
 ## Partition boundaries
 
 Partition tables describe bounded regions of a larger disk. Before opening a
-filesystem inside a partition, create a checked view restricted to that
+filesystem inside a partition, create a checked view (a `Slice` of a block
+device, as `hadris-fat` needs) restricted to that
 partition. This prevents filesystem offsets from escaping into neighboring
 partitions and keeps offsets relative to the filesystem start.
 
 `hadris-part` exposes the concrete MBR and GPT structures. `hadris-block` adds
-detection and convenient partition views when an application needs both the
+detection on block devices and partition slices when an application needs both the
 partition and filesystem layers.
 
 ## Format handles

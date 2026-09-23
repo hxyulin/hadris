@@ -2,7 +2,7 @@
 
 pub mod adapter;
 pub mod fatfs;
-pub mod hadris;
+pub mod generic;
 pub mod limits;
 pub mod model;
 pub mod mtools;

@@ -32,8 +32,8 @@ use alloc::vec::Vec;
 use super::super::{Read, Seek, SeekFrom, Write};
 use hadris_common::types::extent::{Extent, FileType};
 use hadris_common::types::layout::{AllocationMap, DirectoryLayout, FileLayout};
-use hadris_path::split_path;
-use hadris_io as io;
+use hadris_fs::path::split_path;
+use hadris_io::legacy as io;
 
 use super::descriptor::AnchorVolumeDescriptorPointer;
 use crate::{AVDP_LOCATION, Error as VolumeError, SECTOR_SIZE, UdfRevision};
@@ -104,7 +104,7 @@ impl FileData {
             #[cfg(feature = "std")]
             FileData::Path(path) => {
                 let metadata = std::fs::metadata(path)
-                    .map_err(|error| io::Error::from_source(error).erase())?;
+                    .map_err(|error| io::Error::from_source(error))?;
                 Ok(metadata.len())
             }
         }
@@ -116,7 +116,7 @@ impl FileData {
             FileData::Buffer(data) => Ok(data.clone()),
             #[cfg(feature = "std")]
             FileData::Path(path) => {
-                std::fs::read(path).map_err(|error| io::Error::from_source(error).erase())
+                std::fs::read(path).map_err(|error| io::Error::from_source(error))
             }
         }
     }
@@ -195,7 +195,7 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
         // Read AVDP to get VDS location
         inner
             .seek(SeekFrom::Start(AVDP_LOCATION as u64 * SECTOR_SIZE as u64))
-            .map_err(io::Error::erase)?;
+            ?;
         let mut avdp_buf = [0u8; SECTOR_SIZE];
         inner.read_exact(&mut avdp_buf)?;
         let avdp = bytemuck::pod_read_unaligned::<AnchorVolumeDescriptorPointer>(&avdp_buf[..512])
@@ -359,7 +359,7 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
                     // Write data
                     self.inner
                         .seek(SeekFrom::Start(current_sector as u64 * SECTOR_SIZE as u64))
-                        .map_err(io::Error::erase)?;
+                        ?;
                     let content = data.read_all()?;
                     self.inner.write_all(&content)?;
 
@@ -371,7 +371,7 @@ impl<RW: Read + Write + Seek> UdfModifier<RW> {
         }
 
         // Pad to sector boundary
-        let pos = self.inner.stream_position().map_err(io::Error::erase)?;
+        let pos = self.inner.stream_position()?;
         let remainder = pos % SECTOR_SIZE as u64;
         if remainder != 0 {
             let padding = SECTOR_SIZE as u64 - remainder;

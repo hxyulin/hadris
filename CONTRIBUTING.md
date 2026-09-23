@@ -25,7 +25,7 @@ cargo test --workspace --all-features --doc
 RUSTFLAGS="-D warnings" cargo check --workspace
 
 # No-std / feature tiers (examples)
-RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --features "read,sync"
+RUSTFLAGS="-D warnings" cargo check -p hadris-fat --no-default-features --features "sync,write"
 RUSTFLAGS="-D warnings" cargo check -p hadris-iso --no-default-features --features "read,sync"
 ```
 
@@ -182,7 +182,7 @@ not impose a shared version. Update only the packages being released and keep
 their requirements in `[workspace.dependencies]` aligned.
 
 When several unpublished versions depend on one another, publish in dependency
-order: `hadris-macros`/`hadris-io`/`hadris-path`; then
+order: `hadris-macros`/`hadris-io`/`hadris-fs`; then
 `hadris-common`/`hadris-storage`/`hadris-part`; then format crates; then category
 facades and `hadris-cd`; then the `hadris` umbrella and CLI packages. Cargo
 validates dependent packages against crates.io, so each prerequisite version
@@ -202,6 +202,7 @@ crates.io publication.
 3. Add a `[Unreleased]` note in [CHANGELOG.md](CHANGELOG.md) for user-visible work.
 4. Do not commit secrets or large binary fixtures unless they are intentional
    corpus seeds under `fuzz/corpus/`.
+5. PRs to `main` also run the report-only V3 guardrails in `.github/workflows/v3-guardrails.yml` (`scripts/check-semver.sh`, `scripts/check-non-exhaustive.py`, `scripts/check-v3-api.py subset|parity`); run them locally to see the findings.
 
 ## Safety and fuzzing
 

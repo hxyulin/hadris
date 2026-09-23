@@ -1,5 +1,4 @@
 pub mod hadris_cd
-pub use hadris_cd::Borrowed
 pub use hadris_cd::JolietLevel
 pub use hadris_cd::Read
 pub use hadris_cd::Seek
@@ -11,7 +10,7 @@ pub hadris_cd::error::Error::DirectoryNotFound(alloc::string::String)
 pub hadris_cd::error::Error::FileNotFound(alloc::string::String)
 pub hadris_cd::error::Error::InvalidConfig(alloc::string::String)
 pub hadris_cd::error::Error::InvalidPath(alloc::string::String)
-pub hadris_cd::error::Error::Io(hadris_io::error::Error)
+pub hadris_cd::error::Error::Io(hadris_io::legacy::error::Error)
 pub hadris_cd::error::Error::Iso(hadris_iso::sync::__inner::write::IsoCreationError)
 pub hadris_cd::error::Error::Udf(hadris_udf::error::Error)
 pub hadris_cd::error::Error::VolumeNameTooLong
@@ -69,20 +68,19 @@ pub hadris_cd::options::UdfOptions::revision: hadris_udf::UdfRevision
 impl core::default::Default for hadris_cd::options::UdfOptions
 pub fn hadris_cd::options::UdfOptions::default() -> Self
 pub mod hadris_cd::sync
-pub use hadris_cd::sync::Borrowed
 pub use hadris_cd::sync::Read
 pub use hadris_cd::sync::Seek
 pub use hadris_cd::sync::SeekFrom
 pub use hadris_cd::sync::Write
 pub mod hadris_cd::sync::writer
-pub struct hadris_cd::sync::writer::OpticalImageWriter<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
-impl<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_cd::writer::OpticalImageWriter<W>
+pub struct hadris_cd::sync::writer::OpticalImageWriter<W: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek>
+impl<W: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek> hadris_cd::writer::OpticalImageWriter<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::create(W, hadris_cd::tree::FileTree, hadris_cd::options::OpticalImageOptions) -> hadris_cd::error::Result<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::finish(self, hadris_cd::tree::FileTree) -> hadris_cd::error::Result<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::into_inner(self) -> W
 pub fn hadris_cd::writer::OpticalImageWriter<W>::new(W, hadris_cd::options::OpticalImageOptions) -> Self
-pub struct hadris_cd::sync::OpticalImageWriter<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
-impl<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_cd::writer::OpticalImageWriter<W>
+pub struct hadris_cd::sync::OpticalImageWriter<W: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek>
+impl<W: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek> hadris_cd::writer::OpticalImageWriter<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::create(W, hadris_cd::tree::FileTree, hadris_cd::options::OpticalImageOptions) -> hadris_cd::error::Result<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::finish(self, hadris_cd::tree::FileTree) -> hadris_cd::error::Result<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::into_inner(self) -> W
@@ -156,8 +154,8 @@ pub fn hadris_cd::tree::FileTree::default() -> Self
 impl core::fmt::Display for hadris_cd::tree::FileTree
 pub fn hadris_cd::tree::FileTree::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub mod hadris_cd::writer
-pub struct hadris_cd::writer::OpticalImageWriter<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
-impl<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_cd::writer::OpticalImageWriter<W>
+pub struct hadris_cd::writer::OpticalImageWriter<W: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek>
+impl<W: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek> hadris_cd::writer::OpticalImageWriter<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::create(W, hadris_cd::tree::FileTree, hadris_cd::options::OpticalImageOptions) -> hadris_cd::error::Result<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::finish(self, hadris_cd::tree::FileTree) -> hadris_cd::error::Result<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::into_inner(self) -> W
@@ -167,7 +165,7 @@ pub hadris_cd::Error::DirectoryNotFound(alloc::string::String)
 pub hadris_cd::Error::FileNotFound(alloc::string::String)
 pub hadris_cd::Error::InvalidConfig(alloc::string::String)
 pub hadris_cd::Error::InvalidPath(alloc::string::String)
-pub hadris_cd::Error::Io(hadris_io::error::Error)
+pub hadris_cd::Error::Io(hadris_io::legacy::error::Error)
 pub hadris_cd::Error::Iso(hadris_iso::sync::__inner::write::IsoCreationError)
 pub hadris_cd::Error::Udf(hadris_udf::error::Error)
 pub hadris_cd::Error::VolumeNameTooLong
@@ -282,8 +280,8 @@ pub fn hadris_cd::options::OpticalImageOptions::udf_only(self) -> Self
 pub fn hadris_cd::options::OpticalImageOptions::volume_id(self, impl core::convert::Into<alloc::string::String>) -> Self
 impl core::default::Default for hadris_cd::options::OpticalImageOptions
 pub fn hadris_cd::options::OpticalImageOptions::default() -> Self
-pub struct hadris_cd::OpticalImageWriter<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
-impl<W: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_cd::writer::OpticalImageWriter<W>
+pub struct hadris_cd::OpticalImageWriter<W: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek>
+impl<W: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek> hadris_cd::writer::OpticalImageWriter<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::create(W, hadris_cd::tree::FileTree, hadris_cd::options::OpticalImageOptions) -> hadris_cd::error::Result<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::finish(self, hadris_cd::tree::FileTree) -> hadris_cd::error::Result<W>
 pub fn hadris_cd::writer::OpticalImageWriter<W>::into_inner(self) -> W

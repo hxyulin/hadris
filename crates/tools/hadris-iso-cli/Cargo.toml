@@ -25,6 +25,7 @@ doc = false
 [dependencies]
 clap.workspace = true
 
+hadris-io = { workspace = true, features = ["std", "sync"] }
 hadris-iso = { workspace = true, features = ["std", "sync", "write", "joliet"] }
 tracing.workspace = true
 tracing-subscriber = "0.3.20"

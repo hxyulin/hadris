@@ -25,7 +25,6 @@
 /crates/block/hadris-part/ @hxyulin
 /crates/optical/hadris-cd/ @hxyulin
 /crates/optical/hadris-optical/ @hxyulin
-/crates/archive/hadris-archive/ @hxyulin
 
 # Meta-crate / general CLI
 /crates/core/hadris/ @hxyulin

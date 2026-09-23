@@ -42,7 +42,7 @@ fn read_entry_data_rejects_image_controlled_size_mismatch() {
     // Archive claims filesize = 100; caller uses a fixed 16-byte scratch buffer
     // (the natural pattern for the no-alloc API this method belongs to).
     let archive = single_file_archive(100, 100);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(archive.as_slice()));
     let mut name_buf = [0u8; 16];
     let entry = reader
         .next_entry_with_buf(&mut name_buf)
@@ -70,7 +70,7 @@ fn read_entry_data_rejects_image_controlled_size_mismatch() {
 #[test]
 fn skip_entry_data_huge_claim_terminates_with_error() {
     let archive = single_file_archive(0xFFFF_FFFF, 16);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(archive.as_slice()));
     let mut name_buf = [0u8; 16];
     let entry = reader
         .next_entry_with_buf(&mut name_buf)
@@ -87,7 +87,7 @@ fn with_buf_rejects_oversized_namesize() {
     let mut archive = single_file_archive(0, 0);
     archive[94..102].copy_from_slice(b"00001000"); // namesize = 4096
     archive.extend_from_slice(&vec![b'a'; 4096]);
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(archive.as_slice()));
     let mut name_buf = [0u8; 16];
     assert!(reader.next_entry_with_buf(&mut name_buf).is_err());
 }
@@ -114,7 +114,7 @@ fn interior_nul_with_garbage_rejected() {
     field(0, &mut archive);
     archive.extend_from_slice(b"a\0bb\0"); // name "a", garbage "bb", NUL
     archive.extend_from_slice(&[0u8; 3]); // pad to 4 (110+5=115 -> pad 1)
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(archive.as_slice()));
     assert!(reader.next_entry_alloc().is_err());
 }
 
@@ -124,7 +124,7 @@ fn crc_mismatch_detected_on_skip() {
     let mut archive = single_file_archive(4, 4);
     archive[0..6].copy_from_slice(b"070702");
     archive[102..110].copy_from_slice(b"DEADBEEF"); // wrong check
-    let mut reader = CpioArchiveReader::new(archive.as_slice());
+    let mut reader = CpioArchiveReader::new(hadris_io::Cursor::new(archive.as_slice()));
     let mut name_buf = [0u8; 16];
     let entry = reader
         .next_entry_with_buf(&mut name_buf)

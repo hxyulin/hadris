@@ -33,7 +33,7 @@ tests/
       spec.rs         raw-image oracle
       scenarios.rs    curated, edge-case, rejection, and seeded traces
       limits.rs       root-directory, data-region, and long-extent exercises
-      hadris.rs       Hadris adapter
+      generic.rs      adapter over any hadris-fs FileSystem; Hadris FatFs
       fatfs.rs        rust-fatfs adapter
       mtools.rs       GNU mtools + dosfstools adapter
       native.rs       host formatter, checker, and kernel driver

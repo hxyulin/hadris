@@ -32,7 +32,10 @@ path = "suite/main.rs"
 harness = true
 
 [dependencies]
-hadris-fat = { path = "../crates/block/hadris-fat", default-features = false, features = ["std", "sync", "read", "write", "lfn"] }
+hadris-fat = { path = "../crates/block/hadris-fat", default-features = false, features = ["std", "sync", "write"] }
+hadris-fs = { path = "../crates/core/hadris-fs", default-features = false, features = ["std", "sync"] }
+hadris-io = { path = "../crates/core/hadris-io", default-features = false, features = ["std", "sync"] }
+hadris-storage = { path = "../crates/core/hadris-storage", default-features = false, features = ["std", "sync"] }
 hadris-iso = { path = "../crates/optical/hadris-iso", default-features = false, features = ["std", "sync", "read", "write", "joliet"] }
 fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "2aefc2a027ce94ed0671752814dac203f0450e11", default-features = false, features = ["alloc", "lfn", "std", "unicode"] }
 tempfile = "3"

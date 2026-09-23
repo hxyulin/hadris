@@ -4,6 +4,7 @@
 //! TF timestamp parsing, CE continuation area reading, and the RRIP-aware
 //! directory iterator.
 
+use hadris_io::StdIo;
 use hadris_iso::read::IsoImage;
 use hadris_iso::read::PathSeparator;
 use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
@@ -29,9 +30,9 @@ fn create_iso(files: Vec<IsoFile>, features: CreationFeatures) -> Vec<u8> {
         features,
         strict_charset: false,
     };
-    let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
+    let mut buffer = StdIo::new(Cursor::new(vec![0u8; 4 * 1024 * 1024]));
     IsoImageWriter::create(&mut buffer, input, options).unwrap();
-    buffer.into_inner()
+    buffer.into_inner().into_inner()
 }
 
 // =============================================================================
@@ -45,7 +46,7 @@ fn test_rrip_detection_with_rock_ridge() {
         contents: b"Hello, World!".to_vec(),
     }];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
-    let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
+    let image = IsoImage::open(StdIo::new(Cursor::new(iso_data))).unwrap();
     assert!(
         image.supports_rrip(),
         "RRIP should be detected for Rock Ridge ISO"
@@ -65,7 +66,7 @@ fn no_alloc_reader_resolves_rrip_names() {
     }];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
 
-    let mut reader = IsoReader::open(Cursor::new(iso_data)).unwrap();
+    let mut reader = IsoReader::open(StdIo::new(Cursor::new(iso_data))).unwrap();
     let root = reader.primary_root();
     let mut dir = reader.open_dir(root);
 
@@ -93,7 +94,7 @@ fn test_rrip_detection_without_rock_ridge() {
         contents: b"Hello, World!".to_vec(),
     }];
     let iso_data = create_iso(files, CreationFeatures::default());
-    let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
+    let image = IsoImage::open(StdIo::new(Cursor::new(iso_data))).unwrap();
     assert!(
         !image.supports_rrip(),
         "RRIP should NOT be detected for plain ISO"
@@ -117,7 +118,7 @@ fn test_rrip_nm_names() {
         },
     ];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
-    let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
+    let image = IsoImage::open(StdIo::new(Cursor::new(iso_data))).unwrap();
 
     let root = image.root_dir();
     let dir = root.iter(&image);
@@ -154,7 +155,7 @@ fn test_rrip_tf_timestamps() {
         contents: b"test".to_vec(),
     }];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
-    let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
+    let image = IsoImage::open(StdIo::new(Cursor::new(iso_data))).unwrap();
 
     let root = image.root_dir();
     let dir = root.iter(&image);
@@ -198,7 +199,7 @@ fn test_rrip_px_attributes() {
         },
     ];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
-    let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
+    let image = IsoImage::open(StdIo::new(Cursor::new(iso_data))).unwrap();
 
     let root = image.root_dir();
     let dir = root.iter(&image);
@@ -249,7 +250,7 @@ fn test_rrip_directory_iteration() {
         },
     ];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
-    let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
+    let image = IsoImage::open(StdIo::new(Cursor::new(iso_data))).unwrap();
 
     let root = image.root_dir();
     let dir = root.iter(&image);
@@ -285,7 +286,7 @@ fn test_rrip_subdirectory_navigation() {
         }],
     }];
     let iso_data = create_iso(files, CreationFeatures::rock_ridge());
-    let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
+    let image = IsoImage::open(StdIo::new(Cursor::new(iso_data))).unwrap();
 
     let root = image.root_dir();
     let root_dir = root.iter(&image);
@@ -497,7 +498,7 @@ fn test_rrip_detection_with_joliet_and_rock_ridge() {
         contents: b"Hello, World!".to_vec(),
     }];
     let iso_data = create_iso(files, CreationFeatures::extensions());
-    let image = IsoImage::open(Cursor::new(iso_data)).unwrap();
+    let image = IsoImage::open(StdIo::new(Cursor::new(iso_data))).unwrap();
     assert!(
         image.supports_rrip(),
         "RRIP should be detected with Joliet+RR"
@@ -593,9 +594,9 @@ fn test_joliet_svd_volume_name_utf16be() {
         features: CreationFeatures::joliet(hadris_iso::joliet::JolietLevel::Level3),
         strict_charset: false,
     };
-    let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
+    let mut buffer = StdIo::new(Cursor::new(vec![0u8; 4 * 1024 * 1024]));
     IsoImageWriter::create(&mut buffer, input, options).unwrap();
-    let iso_data = buffer.into_inner();
+    let iso_data = buffer.into_inner().into_inner();
 
     // Find the Joliet SVD (type 0x02 = Supplementary VD, after PVD at sector 16)
     // SVD should be at sector 17
@@ -662,9 +663,9 @@ fn test_joliet_svd_strings_are_utf16be() {
         features: CreationFeatures::joliet(hadris_iso::joliet::JolietLevel::Level3),
         strict_charset: false,
     };
-    let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
+    let mut buffer = StdIo::new(Cursor::new(vec![0u8; 4 * 1024 * 1024]));
     IsoImageWriter::create(&mut buffer, input, options).unwrap();
-    let iso_data = buffer.into_inner();
+    let iso_data = buffer.into_inner().into_inner();
 
     let svd_offset = 17 * 2048;
     assert_eq!(iso_data[svd_offset], 0x02, "Sector 17 should be SVD");
@@ -735,12 +736,12 @@ fn test_pvd_strings_with_spaces() {
         features: CreationFeatures::default(),
         strict_charset: false,
     };
-    let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
+    let mut buffer = StdIo::new(Cursor::new(vec![0u8; 4 * 1024 * 1024]));
     IsoImageWriter::create(&mut buffer, input, options).unwrap();
-    let iso_data = buffer.into_inner();
+    let iso_data = buffer.into_inner().into_inner();
 
     // Open the ISO and read the PVD
-    let image = hadris_iso::read::IsoImage::open(Cursor::new(iso_data)).unwrap();
+    let image = hadris_iso::read::IsoImage::open(StdIo::new(Cursor::new(iso_data))).unwrap();
     let pvd = image.read_pvd().unwrap();
 
     // Verify strings with spaces are not truncated (Issue #8)

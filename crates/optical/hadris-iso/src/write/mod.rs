@@ -152,7 +152,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             .data
             .stream_position()
             .await
-            .map_err(io::Error::erase)?;
+            ?;
 
         let target = u64::from(sector)
             .checked_mul(self.ops.sector_size as u64)
@@ -164,7 +164,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             self.data
                 .seek(SeekFrom::Start(target))
                 .await
-                .map_err(io::Error::erase)?;
+                ?;
         }
 
         Ok(())
@@ -385,7 +385,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         self.data
             .seek(SeekFrom::Start(byte_offset + 8))
             .await
-            .map_err(io::Error::erase)?;
+            ?;
 
         if entry.grub2_boot_info {
             let table = Grub2BootInfoTable::new(
@@ -414,7 +414,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         self.data
             .seek(SeekFrom::Start(byte_offset + 64))
             .await
-            .map_err(io::Error::erase)?;
+            ?;
 
         let checksum_bytes = dir_ref.size - 64;
         for _ in 0..(checksum_bytes / 4) {
@@ -452,7 +452,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
     }
 
     async fn pad_and_get_end_sector(&mut self) -> io::Result<LogicalSector> {
-        let end_position = self.data.stream_position().await.map_err(io::Error::erase)?;
+        let end_position = self.data.stream_position().await?;
         let end_sector = self.data.pad_align_sector().await?;
         let image_len = end_sector.0 as u64 * self.ops.sector_size as u64;
 
@@ -460,7 +460,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             self.data
                 .seek(SeekFrom::Start(image_len - 1))
                 .await
-                .map_err(io::Error::erase)?;
+                ?;
             self.data.write_all(&[0]).await?;
         }
 
@@ -497,7 +497,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             self.data
                 .seek_relative(-(buffer.len() as i64))
                 .await
-                .map_err(io::Error::erase)?;
+                ?;
             self.data.write_all(&buffer).await?;
         }
 
@@ -677,11 +677,11 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         self.patch_moved_directories(&root_id, &relocation_refs).await?;
 
         let roots = self.written_files.root_refs().clone();
-        let pos = self.data.stream_position().await.map_err(io::Error::erase)?;
+        let pos = self.data.stream_position().await?;
         for root in roots.values().cloned() {
             self.update_directory(root, root).await?;
         }
-        self.data.seek(SeekFrom::Start(pos)).await.map_err(io::Error::erase)?;
+        self.data.seek(SeekFrom::Start(pos)).await?;
 
         Ok(roots)
     }
@@ -696,7 +696,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         root_id: &DirectoryId,
     ) -> io::Result<RelocationMap> {
         let sector_size = self.ops.sector_size as u64;
-        let cursor = self.data.stream_position().await.map_err(io::Error::erase)?;
+        let cursor = self.data.stream_position().await?;
         let inode_counter = self.inode_counter;
 
         let default_refs = self.build_default_refs(order, entry_types);
@@ -917,7 +917,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                         self.data
                             .seek(SeekFrom::Current(extent.size as i64 - 1))
                             .await
-                            .map_err(io::Error::erase)?;
+                            ?;
                         self.data.write_all(&[0]).await?;
                     }
                     offset += extent.size as u64;
@@ -988,7 +988,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         relocation_refs: &RelocationMap,
     ) -> io::Result<()> {
         let moved = MovedDirectory::collect(self.written_files.get(root_id));
-        let directory_end = self.data.stream_position().await.map_err(io::Error::erase)?;
+        let directory_end = self.data.stream_position().await?;
 
         for moved_dir in moved.iter() {
             for (ty, directory) in moved_dir.entries.iter() {
@@ -1013,7 +1013,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         self.data
             .seek(SeekFrom::Start(directory_end))
             .await
-            .map_err(io::Error::erase)?;
+            ?;
         Ok(())
     }
 
@@ -1047,7 +1047,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             .data
             .stream_position()
             .await
-            .map_err(io::Error::erase)? as usize
+            ? as usize
             - (start.0 * self.data.sector_size);
         let _end = self.data.pad_align_sector().await?;
         Ok(DirectoryRef {
@@ -1113,7 +1113,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         self.data
             .seek(SeekFrom::Start(0))
             .await
-            .map_err(io::Error::erase)?;
+            ?;
         self.data.write_all(bytemuck::bytes_of(&mbr)).await?;
 
         Ok(())
@@ -1386,7 +1386,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
             self.data
                 .seek(SeekFrom::Start(start + offset))
                 .await
-                .map_err(io::Error::erase)?;
+                ?;
 
             let mut record = DirectoryRecord::parse(&mut self.data).await?;
 
@@ -1435,7 +1435,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         self.data
             .seek(SeekFrom::Start(start + offset))
             .await
-            .map_err(io::Error::erase)?;
+            ?;
         record.write(&mut self.data).await?;
         Ok(())
     }
@@ -1459,13 +1459,13 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         &mut self,
         start: u64,
     ) -> io::Result<(DirectoryRecord, DirectoryRecord)> {
-        self.data.seek(SeekFrom::Start(start)).await.map_err(io::Error::erase)?;
+        self.data.seek(SeekFrom::Start(start)).await?;
         let dot = DirectoryRecord::parse(&mut self.data).await?;
 
         self.data
             .seek(SeekFrom::Start(start + dot.header().len as u64))
             .await
-            .map_err(io::Error::erase)?;
+            ?;
         let dotdot = DirectoryRecord::parse(&mut self.data).await?;
 
         Ok((dot, dotdot))
@@ -1508,7 +1508,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
         self.data
             .seek(SeekFrom::Start(start + header_len))
             .await
-            .map_err(io::Error::erase)?;
+            ?;
         dotdot.write(&mut self.data).await?;
         Ok(())
     }
@@ -1550,7 +1550,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
                 record.dir_ref,
                 record.flags,
             );
-            let position = data.stream_position().await.map_err(io::Error::erase)? as usize;
+            let position = data.stream_position().await? as usize;
             let sector_offset = position % data.sector_size;
             let remaining = data.sector_size - sector_offset;
             if directory_record.size() > remaining {
@@ -1586,7 +1586,7 @@ impl<DATA: Read + Write + Seek> IsoImageWriter<DATA> {
 /// A failure of a [`FileSource`] reader, as an image error.
 #[cfg(feature = "unstable-streaming")]
 fn source_error(error: std::io::Error) -> io::Error {
-    io::Error::<std::io::Error>::from(error).erase()
+    io::Error::from(error)
 }
 
 #[cfg(test)]
@@ -1635,7 +1635,7 @@ mod tests {
             strict_charset: false,
         };
 
-        let cursor = Cursor::new(vec![0u8; 512]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(vec![0u8; 512]));
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
 
         output
@@ -1696,7 +1696,7 @@ mod tests {
         let parent_dir = entries.next().unwrap().expect("Failed to parse parent dir");
         assert_eq!(parent_dir.name(), DIR_NAME_DOTDOT);
 
-        let buffer = image.into_inner().into_inner();
+        let buffer = image.into_inner().into_inner().into_inner();
         assert_eq!(
             buffer.len() % 2048,
             0,
@@ -1730,7 +1730,7 @@ mod tests {
             strict_charset: false,
         };
 
-        let cursor = Cursor::new(vec![0u8; 512]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(vec![0u8; 512]));
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
 
         output
@@ -1782,7 +1782,7 @@ mod tests {
             strict_charset: false,
         };
 
-        let output = tempfile::tempfile().unwrap();
+        let output = hadris_io::StdIo::new(tempfile::tempfile().unwrap());
         let mut output = IsoImageWriter::create(output, input, options).unwrap();
 
         output
@@ -1885,7 +1885,7 @@ mod tests {
             assert!(!source.is_empty());
             let input = single_file_tree("STREAMED", InputEntryKind::Source(source));
 
-            let output = tempfile::tempfile().unwrap();
+            let output = hadris_io::StdIo::new(tempfile::tempfile().unwrap());
             let mut output =
                 IsoImageWriter::create(output, input, plain_options("STREAM")).unwrap();
             assert_eq!(opens.load(core::sync::atomic::Ordering::SeqCst), 1);
@@ -1919,7 +1919,7 @@ mod tests {
             let source = FileSource::new(5000, || Ok(Box::new(Cursor::new(vec![7_u8; 100]))));
             let input = single_file_tree("SHORT", InputEntryKind::Source(source));
 
-            let output = tempfile::tempfile().unwrap();
+            let output = hadris_io::StdIo::new(tempfile::tempfile().unwrap());
             let error = IsoImageWriter::create(output, input, plain_options("SHORT"))
                 .expect_err("a short source must fail the write");
             assert!(
@@ -1937,7 +1937,7 @@ mod tests {
             assert_eq!(source.len(), contents.len() as u64);
             let input = single_file_tree("ONDISK", InputEntryKind::Source(source));
 
-            let output = tempfile::tempfile().unwrap();
+            let output = hadris_io::StdIo::new(tempfile::tempfile().unwrap());
             let mut output =
                 IsoImageWriter::create(output, input, plain_options("ONDISK")).unwrap();
             output.seek(SeekFrom::Start(0)).unwrap();
@@ -1987,7 +1987,7 @@ mod tests {
             strict_charset: false,
         };
 
-        let output = tempfile::tempfile().unwrap();
+        let output = hadris_io::StdIo::new(tempfile::tempfile().unwrap());
         IsoImageWriter::create(output, input, options).unwrap();
     }
 
@@ -2021,7 +2021,7 @@ mod tests {
             strict_charset: false,
         };
 
-        let cursor = Cursor::new(vec![0u8; 512]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(vec![0u8; 512]));
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
 
         output.seek(SeekFrom::Start(0)).expect("Failed to seek");
@@ -2078,7 +2078,7 @@ mod tests {
             strict_charset: false,
         };
 
-        let cursor = Cursor::new(vec![0u8; 512]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(vec![0u8; 512]));
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
 
         output.seek(SeekFrom::Start(0)).expect("Failed to seek");
@@ -2149,7 +2149,7 @@ mod tests {
             strict_charset: false,
         };
 
-        let cursor = Cursor::new(vec![0u8; 512]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(vec![0u8; 512]));
         let mut output = IsoImageWriter::create(cursor, input, options).unwrap();
 
         output.seek(SeekFrom::Start(0)).expect("Failed to seek");

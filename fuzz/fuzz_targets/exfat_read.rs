@@ -8,12 +8,12 @@
 //! names — the on-disk up-case table is fuzz-controlled and can alias
 //! distinct names on corrupt images).
 
+use hadris_io::Cursor;
 use libfuzzer_sys::fuzz_target;
 use std::collections::HashSet;
-use std::io::Cursor;
 
 use hadris_fat::exfat::{ExFatFileEntry, ExFatFileReader, ExFatVolume};
-use hadris_fat::io::Read;
+use hadris_io::legacy::sync::Read;
 
 /// `find` re-scans a directory from the start, so cap name re-resolution
 /// lookups per directory to keep the walk from going quadratic under the

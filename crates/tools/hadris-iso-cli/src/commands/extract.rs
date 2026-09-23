@@ -1,9 +1,11 @@
 use std::fs::{self, File};
-use std::io::{self, BufReader, Read, Seek, Write};
+use std::io::{self, BufReader, Write};
 use std::path::{Component, Path, PathBuf};
 
+use hadris_io::StdIo;
 use hadris_iso::directory::{DirectoryRef, FileFlags};
 use hadris_iso::read::IsoImage;
+use hadris_iso::{Read, Seek};
 
 use super::super::args::ExtractArgs;
 
@@ -12,7 +14,7 @@ use super::{Result, display_name, navigate_to_path};
 /// Extract files from an ISO image
 pub fn extract(args: ExtractArgs) -> Result<()> {
     let file = File::open(&args.input)?;
-    let reader = BufReader::new(file);
+    let reader = StdIo::new(BufReader::new(file));
     let iso = IsoImage::open(reader)?;
     let entry_type = iso.root_dir().entry_type();
 

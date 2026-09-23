@@ -11,9 +11,8 @@
 //!
 //! - [`block`] — block filesystems and partition tables
 //! - [`optical`] — optical filesystems and disc image composition
-//! - [`archive`] — sequential archive formats
-//! - [`path`] — lexical virtual-path parsing and normalization
-//! - [`fixed`] — fixed-capacity byte and text types
+//! - [`cpio`] — CPIO newc and CRC archives
+//! - [`fs`] — shared filesystem vocabulary and lexical virtual paths
 //!
 //! # Feature flags
 //!
@@ -24,6 +23,11 @@
 //! independently to enabled leaves. The default set is the hosted synchronous
 //! read/write configuration with `fat`, `iso`, and `cpio`.
 //!
+//! `async-send` implies `async` and adds the `async_send` modules of
+//! `hadris-io`, `hadris-fs`, `hadris-storage`, `hadris-fat` and
+//! `hadris-block`, whose futures are `Send` for multi-threaded executors. The
+//! optical and archive crates have no such mode yet.
+//!
 //! Hybrid CD image creation is currently sync-only. Enabling `cd`—directly or
 //! through `optical`—therefore enables the CD writer's sync API, even when the
 //! umbrella `async` feature is also selected. ISO and UDF still expose their
@@ -32,15 +36,19 @@
 //! # Quick start
 //!
 //! ```rust,no_run
+//! use hadris::io::StdIo;
 //! use hadris::optical::iso::sync::IsoImage;
 //!
-//! let file = std::fs::File::open("image.iso").unwrap();
+//! let file = StdIo::new(std::fs::File::open("image.iso").unwrap());
 //! let iso = IsoImage::open(file).unwrap();
 //! let pvd = iso.read_pvd().unwrap();
 //! println!("Volume: {}", pvd.volume_identifier);
 //! ```
 
 #![deny(missing_docs)]
+
+/// I/O traits, errors and adapters shared by every format.
+pub use hadris_io as io;
 
 /// Block-oriented storage, filesystems, and disk-layout formats.
 #[cfg(any(feature = "storage", feature = "fat", feature = "part"))]
@@ -50,14 +58,10 @@ pub use hadris_block as block;
 #[cfg(any(feature = "iso", feature = "udf", feature = "cd"))]
 pub use hadris_optical as optical;
 
-/// Sequential archive formats.
+/// CPIO newc and CRC archives.
 #[cfg(feature = "cpio")]
-pub use hadris_archive as archive;
+pub use hadris_cpio as cpio;
 
-/// Lexical virtual-path utilities.
-#[cfg(feature = "path")]
-pub use hadris_path as path;
-
-/// Fixed-capacity byte and text types.
-#[cfg(feature = "fixed")]
-pub use hadris_fixed as fixed;
+/// Shared filesystem vocabulary and lexical virtual paths.
+#[cfg(feature = "fs")]
+pub use hadris_fs as fs;

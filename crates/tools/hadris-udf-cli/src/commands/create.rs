@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use hadris_io::StdIo;
 use hadris_udf::UdfRevision;
 use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
 
@@ -43,7 +44,7 @@ pub fn create(args: CreateArgs) -> Result<()> {
     };
 
     let output_file = fs::File::create(&args.output)?;
-    let sectors = UdfWriter::create(output_file, &root, options)?.sectors_written;
+    let sectors = UdfWriter::create(StdIo::new(output_file), &root, options)?.sectors_written;
 
     if args.verbose {
         println!(

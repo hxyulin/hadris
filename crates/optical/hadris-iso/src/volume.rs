@@ -913,7 +913,7 @@ mod tests {
             bytes[0] = VolumeDescriptorType::VolumeSetTerminator.to_u8();
             bytes[1..6].copy_from_slice(b"WRONG");
             bytes[6] = 1;
-            let error = VolumeDescriptorList::parse(&mut Cursor::new(bytes)).unwrap_err();
+            let error = VolumeDescriptorList::parse(&mut hadris_io::StdIo::new(Cursor::new(bytes))).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         }
 
@@ -922,7 +922,7 @@ mod tests {
             let mut bytes = [0_u8; 2048];
             bytes.copy_from_slice(VolumeDescriptorSetTerminator::new().to_bytes());
             bytes[7] = 1;
-            let error = VolumeDescriptorList::parse(&mut Cursor::new(bytes)).unwrap_err();
+            let error = VolumeDescriptorList::parse(&mut hadris_io::StdIo::new(Cursor::new(bytes))).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         }
     }

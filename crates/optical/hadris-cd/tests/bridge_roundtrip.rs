@@ -3,6 +3,7 @@
 use std::io::{Cursor, Seek, SeekFrom};
 
 use hadris_cd::{Directory, FileEntry, FileTree, OpticalImageOptions, OpticalImageWriter};
+use hadris_io::StdIo;
 use hadris_iso::sync::read::IsoImage;
 use hadris_optical::detect::sync::detect;
 use hadris_udf::dir::UdfDirEntry;
@@ -34,9 +35,14 @@ fn fixture() -> (FileTree, Vec<u8>) {
 
 fn create(options: OpticalImageOptions) -> Vec<u8> {
     let (tree, _) = fixture();
-    OpticalImageWriter::create(Cursor::new(vec![0_u8; 4 * 1024 * 1024]), tree, options)
-        .unwrap()
-        .into_inner()
+    OpticalImageWriter::create(
+        StdIo::new(Cursor::new(vec![0_u8; 4 * 1024 * 1024])),
+        tree,
+        options,
+    )
+    .unwrap()
+    .into_inner()
+    .into_inner()
 }
 
 fn udf_entry<'a>(
@@ -49,7 +55,7 @@ fn udf_entry<'a>(
 }
 
 fn verify_iso(bytes: &[u8], large: &[u8]) {
-    let image = IsoImage::open(Cursor::new(bytes)).expect("open ISO namespace");
+    let image = IsoImage::open(StdIo::new(Cursor::new(bytes))).expect("open ISO namespace");
     let pvd = image.read_pvd().expect("read ISO PVD");
     assert_eq!(pvd.volume_identifier.to_str().trim(), VOLUME_ID);
 
@@ -72,11 +78,11 @@ fn verify_iso(bytes: &[u8], large: &[u8]) {
         image.read_file(&note).unwrap(),
         b"qualified through both namespaces"
     );
-    assert_eq!(image.into_inner().get_ref().len(), bytes.len());
+    assert_eq!(image.into_inner().into_inner().get_ref().len(), bytes.len());
 }
 
 fn verify_udf(bytes: &[u8], large: &[u8]) {
-    let volume = UdfVolume::open(Cursor::new(bytes)).expect("open UDF namespace");
+    let volume = UdfVolume::open(StdIo::new(Cursor::new(bytes))).expect("open UDF namespace");
     assert_eq!(volume.info().volume_id.trim_end_matches('\0'), VOLUME_ID);
     let root = volume.root_dir().expect("read UDF root");
 
@@ -95,38 +101,42 @@ fn verify_udf(bytes: &[u8], large: &[u8]) {
         volume.read_file(note).unwrap(),
         b"qualified through both namespaces"
     );
-    assert_eq!(volume.into_inner().get_ref().len(), bytes.len());
+    assert_eq!(
+        volume.into_inner().into_inner().get_ref().len(),
+        bytes.len()
+    );
 }
 
 #[test]
 fn bridge_reopens_through_iso_and_udf_and_recovers_source() {
     let (tree, large) = fixture();
-    let cursor = Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
+    let cursor = StdIo::new(Cursor::new(vec![0_u8; 4 * 1024 * 1024]));
     let output =
         OpticalImageWriter::new(cursor, OpticalImageOptions::default().volume_id(VOLUME_ID))
             .finish(tree)
             .expect("create bridge");
-    let bytes = output.into_inner();
+    let bytes = output.into_inner().into_inner();
 
     verify_iso(&bytes, &large);
     verify_udf(&bytes, &large);
 
-    let mut source = Cursor::new(bytes.as_slice());
-    source.seek(SeekFrom::Start(1234)).unwrap();
+    let mut source = StdIo::new(Cursor::new(bytes.as_slice()));
+    source.get_mut().seek(SeekFrom::Start(1234)).unwrap();
     let formats = detect(&mut source).unwrap().expect("detect bridge");
     assert!(formats.is_bridge());
-    assert_eq!(source.stream_position().unwrap(), 1234);
+    assert_eq!(source.get_mut().stream_position().unwrap(), 1234);
 }
 
 #[test]
 fn bridge_extends_a_compact_image_to_reserve_the_trailing_anchor() {
     let (tree, large) = fixture();
     let initial_sector_count = 512;
-    let cursor = Cursor::new(vec![0_u8; initial_sector_count * SECTOR_SIZE]);
+    let cursor = StdIo::new(Cursor::new(vec![0_u8; initial_sector_count * SECTOR_SIZE]));
     let bytes =
         OpticalImageWriter::new(cursor, OpticalImageOptions::default().volume_id(VOLUME_ID))
             .finish(tree)
             .expect("create compact bridge")
+            .into_inner()
             .into_inner();
     let sector_count = bytes.len() / SECTOR_SIZE;
     let trailing_anchor = sector_count - 1 - 256;
@@ -281,7 +291,7 @@ fn bridge_rejects_non_2048_byte_logical_sectors() {
     options.sector_size = 4096;
 
     let result = OpticalImageWriter::create(
-        Cursor::new(vec![0_u8; 4 * 1024 * 1024]),
+        StdIo::new(Cursor::new(vec![0_u8; 4 * 1024 * 1024])),
         FileTree::new(),
         options,
     );
@@ -294,7 +304,7 @@ fn bridge_rejects_non_2048_byte_logical_sectors() {
 #[test]
 fn udf_parent_fids_reference_the_actual_parent() {
     let bytes = create(OpticalImageOptions::default().volume_id(VOLUME_ID));
-    let volume = UdfVolume::open(Cursor::new(bytes)).expect("open UDF namespace");
+    let volume = UdfVolume::open(StdIo::new(Cursor::new(bytes))).expect("open UDF namespace");
     let root = volume.root_dir().expect("read root");
     let docs_entry = udf_entry(root.entries(), "DOCS");
     let docs = volume.read_directory(&docs_entry.icb).expect("read DOCS");
@@ -336,7 +346,7 @@ fn detects_and_reopens_iso_only_image() {
             .volume_id(VOLUME_ID)
             .iso_only(),
     );
-    let formats = detect(&mut Cursor::new(bytes.as_slice()))
+    let formats = detect(&mut StdIo::new(Cursor::new(bytes.as_slice())))
         .unwrap()
         .expect("detect ISO");
     assert!(formats.has_iso9660());
@@ -352,7 +362,7 @@ fn detects_and_reopens_udf_only_image() {
             .volume_id(VOLUME_ID)
             .udf_only(),
     );
-    let formats = detect(&mut Cursor::new(bytes.as_slice()))
+    let formats = detect(&mut StdIo::new(Cursor::new(bytes.as_slice())))
         .unwrap()
         .expect("detect UDF");
     assert!(!formats.has_iso9660());
@@ -387,7 +397,7 @@ fn join(prefix: &str, name: &str) -> String {
 }
 
 fn collect_iso_nodes(
-    image: &IsoImage<Cursor<&[u8]>>,
+    image: &IsoImage<StdIo<Cursor<&[u8]>>>,
     directory: hadris_iso::directory::DirectoryRef,
     prefix: &str,
     nodes: &mut std::collections::BTreeMap<String, Node>,
@@ -412,7 +422,7 @@ fn collect_iso_nodes(
 }
 
 fn collect_udf_nodes(
-    volume: &UdfVolume<Cursor<&[u8]>>,
+    volume: &UdfVolume<StdIo<Cursor<&[u8]>>>,
     directory: &hadris_udf::UdfDir,
     prefix: &str,
     nodes: &mut std::collections::BTreeMap<String, Node>,
@@ -447,15 +457,22 @@ fn no_joliet_bridge_presents_sanitized_names_in_both_namespaces() {
 
     let mut options = OpticalImageOptions::default().volume_id(VOLUME_ID);
     options.iso.joliet = None;
-    let bytes = OpticalImageWriter::create(Cursor::new(vec![0_u8; 4 * 1024 * 1024]), tree, options)
-        .expect("create no-joliet bridge with hyphenated names")
-        .into_inner();
+    let bytes = OpticalImageWriter::create(
+        StdIo::new(Cursor::new(vec![0_u8; 4 * 1024 * 1024])),
+        tree,
+        options,
+    )
+    .expect("create no-joliet bridge with hyphenated names")
+    .into_inner()
+    .into_inner();
 
-    let image = IsoImage::open(Cursor::new(bytes.as_slice())).expect("open ISO namespace");
+    let image =
+        IsoImage::open(StdIo::new(Cursor::new(bytes.as_slice()))).expect("open ISO namespace");
     let mut iso_nodes = std::collections::BTreeMap::new();
     collect_iso_nodes(&image, image.root_dir().dir_ref(), "", &mut iso_nodes);
 
-    let volume = UdfVolume::open(Cursor::new(bytes.as_slice())).expect("open UDF namespace");
+    let volume =
+        UdfVolume::open(StdIo::new(Cursor::new(bytes.as_slice()))).expect("open UDF namespace");
     let root = volume.root_dir().expect("read UDF root");
     let mut udf_nodes = std::collections::BTreeMap::new();
     collect_udf_nodes(&volume, &root, "", &mut udf_nodes);
@@ -485,11 +502,17 @@ fn rock_ridge_flag_survives_to_the_written_image() {
     let options = OpticalImageOptions::default()
         .volume_id(VOLUME_ID)
         .rock_ridge(hadris_iso::rrip::RripOptions::default());
-    let bytes = OpticalImageWriter::create(Cursor::new(vec![0_u8; 4 * 1024 * 1024]), tree, options)
-        .expect("create bridge with Rock Ridge")
-        .into_inner();
+    let bytes = OpticalImageWriter::create(
+        StdIo::new(Cursor::new(vec![0_u8; 4 * 1024 * 1024])),
+        tree,
+        options,
+    )
+    .expect("create bridge with Rock Ridge")
+    .into_inner()
+    .into_inner();
 
-    let image = IsoImage::open(Cursor::new(bytes.as_slice())).expect("open ISO namespace");
+    let image =
+        IsoImage::open(StdIo::new(Cursor::new(bytes.as_slice()))).expect("open ISO namespace");
     assert!(
         image.supports_rrip(),
         "the written image must carry Rock Ridge extensions"

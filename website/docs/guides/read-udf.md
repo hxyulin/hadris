@@ -6,6 +6,7 @@ title: Read and extract UDF
 
 ```toml
 [dependencies]
+hadris-io = "2.4.0"
 hadris-udf = "2.4.0"
 ```
 
@@ -13,11 +14,12 @@ The UDF reader exposes owned directory metadata and reads a selected file into
 a byte vector.
 
 ```rust,no_run
+use hadris_io::StdIo;
 use hadris_udf::UdfVolume;
 use std::{fs, fs::File};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let volume = UdfVolume::open(File::open("disc.udf")?)?;
+    let volume = UdfVolume::open(StdIo::new(File::open("disc.udf")?))?;
     println!("volume: {}", volume.info().volume_id);
 
     let root = volume.root_dir()?;

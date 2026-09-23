@@ -18,14 +18,12 @@ use hadris_cpio::r#async::{
 struct AsyncVec(Vec<u8>);
 
 impl Write for AsyncVec {
-    type Error = hadris_io::ErrorKind;
-
-    async fn write(&mut self, bytes: &[u8]) -> hadris_io::Result<usize, Self::Error> {
+    async fn write(&mut self, bytes: &[u8]) -> hadris_io::legacy::Result<usize> {
         self.0.extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    async fn flush(&mut self) -> hadris_io::Result<(), Self::Error> {
+    async fn flush(&mut self) -> hadris_io::legacy::Result<()> {
         Ok(())
     }
 }
@@ -86,7 +84,7 @@ fn async_reader_rejects_invalid_and_truncated_headers_with_typed_errors() {
         assert!(matches!(
             reader.next_entry_alloc().await,
             Err(hadris_cpio::Error::Io(error))
-                if error.kind() == hadris_io::ErrorKind::UnexpectedEof
+                if error.kind() == hadris_io::legacy::ErrorKind::UnexpectedEof
         ));
     });
 }

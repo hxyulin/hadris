@@ -1,5 +1,7 @@
 use std::io::Cursor;
 
+use hadris_io::StdIo;
+
 use hadris_iso::read::IsoImage;
 
 const SECTOR_SIZE: usize = 2048;
@@ -72,7 +74,7 @@ fn minimal_iso() -> Vec<u8> {
 
 #[test]
 fn descriptor_sequence_opens_primary_volume_and_root_directory() {
-    let image = IsoImage::open(Cursor::new(minimal_iso())).unwrap();
+    let image = IsoImage::open(StdIo::new(Cursor::new(minimal_iso()))).unwrap();
     let pvd = image.read_pvd().unwrap();
     assert_eq!(pvd.header.standard_identifier.to_str(), "CD001");
     assert_eq!(pvd.volume_identifier.to_str().trim_end(), "HADRIS");
@@ -105,7 +107,10 @@ fn malformed_primary_descriptor_and_terminator_cases_are_rejected() {
     for (name, corrupt) in cases {
         let mut image = minimal_iso();
         corrupt(&mut image);
-        assert!(IsoImage::open(Cursor::new(image)).is_err(), "{name}");
+        assert!(
+            IsoImage::open(StdIo::new(Cursor::new(image))).is_err(),
+            "{name}"
+        );
     }
 }
 
@@ -115,5 +120,5 @@ fn non_2048_logical_block_size_is_rejected() {
     let offset = 16 * SECTOR_SIZE;
     image[offset + 128..offset + 130].copy_from_slice(&1024_u16.to_le_bytes());
     image[offset + 130..offset + 132].copy_from_slice(&1024_u16.to_be_bytes());
-    assert!(IsoImage::open(Cursor::new(image)).is_err());
+    assert!(IsoImage::open(StdIo::new(Cursor::new(image))).is_err());
 }

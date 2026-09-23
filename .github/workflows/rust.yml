@@ -4,11 +4,13 @@ on:
   push:
     branches:
       - main
+      - next
       - dev
       - v2-dev
   pull_request:
     branches:
       - main
+      - next
       - v2-dev
 
 # Least-privilege GITHUB_TOKEN. Without an explicit block the token inherits the
@@ -103,21 +105,31 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # hadris-fixed
-          - crate: hadris-fixed
+          # hadris-fs
+          - crate: hadris-fs
             tier: no-std
             features: ""
-          - crate: hadris-fixed
-            tier: alloc-bytemuck
-            features: "alloc,bytemuck"
-
-          # hadris-path
-          - crate: hadris-path
-            tier: no-std
-            features: ""
-          - crate: hadris-path
+          - crate: hadris-fs
             tier: alloc
             features: "alloc"
+          - crate: hadris-fs
+            tier: std
+            features: "std"
+          - crate: hadris-fs
+            tier: no-std-sync
+            features: "sync"
+          - crate: hadris-fs
+            tier: std-sync-host-helpers
+            features: "std,sync"
+          - crate: hadris-fs
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-fs
+            tier: embassy
+            features: "embassy-sync"
+          - crate: hadris-fs
+            tier: all-modes
+            features: "alloc,sync,async,async-send"
 
           # hadris-io
           - crate: hadris-io
@@ -129,6 +141,9 @@ jobs:
           - crate: hadris-io
             tier: async
             features: "async,alloc"
+          - crate: hadris-io
+            tier: async-send
+            features: "async-send"
 
           # hadris-common
           - crate: hadris-common
@@ -154,6 +169,9 @@ jobs:
           - crate: hadris-storage
             tier: sync-and-async
             features: "alloc,sync,async"
+          - crate: hadris-storage
+            tier: async-send
+            features: "alloc,async-send"
 
           # hadris-part
           - crate: hadris-part
@@ -184,25 +202,31 @@ jobs:
           # hadris-fat
           - crate: hadris-fat
             tier: no-std
-            features: "sync,read,lfn,cache,tool,unstable-exfat"
+            features: "sync"
+          - crate: hadris-fat
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-fat
+            tier: fatfs-no-alloc-sync
+            features: "sync,write"
+          - crate: hadris-fat
+            tier: fatfs-no-alloc-async
+            features: "async-send,write"
           - crate: hadris-fat
             tier: alloc
-            features: "alloc,sync,read,lfn,cache,tool,unstable-exfat"
+            features: "alloc,sync,unstable-exfat"
           - crate: hadris-fat
             tier: std
-            features: "std,sync,read,write,lfn,cache,tool,unstable-exfat"
+            features: "std,sync,write,unstable-exfat"
           - crate: hadris-fat
-            tier: async-read
-            features: "alloc,async,read,lfn"
+            tier: hosted-async-write
+            features: "std,async,write"
           - crate: hadris-fat
-            tier: hosted-async-read-write
-            features: "std,async,read,write,lfn"
-          - crate: hadris-fat
-            tier: sync-and-async-read-write
-            features: "alloc,sync,async,read,write,lfn,unstable-exfat"
+            tier: sync-and-async-write
+            features: "alloc,sync,async,write,unstable-exfat"
           - crate: hadris-fat
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,defmt,dirty-file-panic"
+            features: "std,alloc,sync,async,async-send,write,unstable-exfat,defmt"
 
           # hadris-iso
           - crate: hadris-iso
@@ -286,8 +310,11 @@ jobs:
             tier: no-std-async
             features: "alloc,async,read,detect,storage,fat,part"
           - crate: hadris-block
+            tier: no-alloc-async-send
+            features: "async-send,read,detect,storage,fat,part"
+          - crate: hadris-block
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,detect,storage,fat,part"
+            features: "std,alloc,sync,async,async-send,read,write,detect,storage,fat,part"
           - crate: hadris-optical
             tier: no-formats
             features: ""
@@ -297,15 +324,6 @@ jobs:
           - crate: hadris-optical
             tier: all-capabilities
             features: "std,alloc,sync,async,read,write,open,cd"
-          - crate: hadris-archive
-            tier: no-formats
-            features: ""
-          - crate: hadris-archive
-            tier: async-read-write
-            features: "alloc,async,read,write,cpio"
-          - crate: hadris-archive
-            tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,cpio"
 
           # hadris umbrella/category forwarding
           - crate: hadris
@@ -318,11 +336,8 @@ jobs:
             tier: leaf-storage
             features: "std,sync,storage"
           - crate: hadris
-            tier: leaf-path
-            features: "alloc,path"
-          - crate: hadris
-            tier: leaf-fixed
-            features: "alloc,fixed"
+            tier: leaf-fs
+            features: "alloc,fs"
           - crate: hadris
             tier: leaf-part
             features: "std,sync,read,write,part"
@@ -342,6 +357,9 @@ jobs:
             tier: no-std-async-block
             features: "alloc,async,read,block"
           - crate: hadris
+            tier: no-std-async-send-block
+            features: "alloc,async-send,read,block,fs"
+          - crate: hadris
             tier: hosted-async-optical
             features: "std,async,read,optical"
           - crate: hadris
@@ -349,7 +367,7 @@ jobs:
             features: "alloc,sync,async,read,write,archive"
           - crate: hadris
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,block,optical,archive"
+            features: "std,alloc,sync,async,async-send,read,write,block,optical,archive,fs"
 
     steps:
       - uses: actions/checkout@v7
@@ -385,9 +403,9 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           cargo test --workspace --all-features --tests --exclude hadris-fat
-          cargo test -p hadris-fat --features "std,alloc,sync,async,read,write,lfn,cache,tool,unstable-exfat,dirty-file-panic" --tests
+          cargo test -p hadris-fat --features "std,alloc,sync,async,async-send,write,unstable-exfat" --tests
       - name: Run block async integration tests
-        run: cargo test -p hadris-block --all-features --test async_volume
+        run: cargo test -p hadris-block --all-features --test async_volume --test async_send_volume
       - name: Run optical detection integration tests
         run: cargo test -p hadris-optical --all-features --test detect
       - name: Run optical opening integration tests
@@ -531,9 +549,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Miri — hadris-common (FixedFilename safety)
         run: cargo +nightly miri test -p hadris-common --lib
-      - name: Miri — hadris-fat (LFN UTF-16 / surrogate-pair safety)
-        run: cargo +nightly miri test -p hadris-fat --lib file::lfn_unicode_tests
-      - name: Miri — hadris-fat (LFN write encoding / union safety)
-        run: cargo +nightly miri test -p hadris-fat --lib lfn_write_safety_tests
+      - name: Miri - hadris-fat (LFN UTF-16, surrogate pairs and name decoding)
+        run: "cargo +nightly miri test -p hadris-fat --lib codec::"
       - name: Miri — hadris-iso (IsoStr / IsoString safety)
         run: cargo +nightly miri test -p hadris-iso --lib types::iso_str_safety_tests

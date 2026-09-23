@@ -154,7 +154,7 @@ fn gpt_write_rejects_unrepresentable_entry_lba() {
 
     let mut gpt = GptDisk::new(204800, BLOCK as u32);
     gpt.primary_header.partition_entry_lba = Le::<u64>::from_ne(u64::MAX / 512 + 1);
-    let mut out = std::io::Cursor::new(Vec::new());
+    let mut out = hadris_io::StdIo::new(std::io::Cursor::new(Vec::new()));
     let err = gpt.write_to(&mut out).unwrap_err();
     assert!(matches!(err, Error::Io(_)));
 }

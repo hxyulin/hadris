@@ -66,23 +66,23 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 ### Core Libraries
 
 - **[hadris-io](crates/core/hadris-io)** - No-std I/O abstraction layer (`Read`, `Write`, `Seek`)
-- **[hadris-fixed](crates/core/hadris-fixed)** - Fixed-capacity byte, UTF-8, and endian-aware UTF-16 types
-- **[hadris-path](crates/core/hadris-path)** - Allocation-free lexical paths for virtual filesystems and archives
-- **[hadris-common](crates/core/hadris-common)** - Shared filesystem utilities (endian types, CRC, optical helpers)
+- **[hadris-fs](crates/core/hadris-fs)** - Shared filesystem vocabulary (names, times, metadata, error kinds) and allocation-free lexical paths
+- **[hadris-common](crates/core/hadris-common)** - Internal shared utilities (endian types, fixed-capacity byte and text types, CRC, optical helpers); not for direct use
 - **[hadris-storage](crates/core/hadris-storage)** - Format-neutral block geometry, device traits, and seekable-stream adapters
 - **[hadris-macros](crates/core/hadris-macros)** - Proc macros for dual sync/async code generation
 
 ### Block Storage
 
-- **[hadris-block](crates/block/hadris-block)** - Category facade for storage traits, partitions, and block filesystems, with lightweight detection, bounded partition views, and unified FAT opening
+- **[hadris-block](crates/block/hadris-block)** - Category facade for storage traits, partitions, and block filesystems, with lightweight detection on block devices, partition slices, and unified FAT opening as `FatFs`
 - **[hadris-part](crates/block/hadris-part)** - Partition table support
   - MBR (Legacy BIOS partition tables)
   - GPT (Modern UEFI partition tables)
   - Hybrid MBR (Combined MBR+GPT for dual BIOS/UEFI boot)
 - **[hadris-fat](crates/block/hadris-fat)** - FAT filesystem implementation
   - FAT12, FAT16, FAT32 support
+  - `FatFs`, a node-based `hadris-fs` driver in sync, async and `Send` async modes
   - Long filename support (VFAT/LFN)
-  - FAT sector caching for performance
+  - Formatting and a read-only checker, all without an allocator
   - Analysis and verification tools
   - exFAT preview (unstable leaf-crate feature; not opened by the block facade)
 - **[hadris-ntfs](crates/block/hadris-ntfs)** - Experimental read-only NTFS
@@ -103,7 +103,6 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Archives
 
-- **[hadris-archive](crates/archive/hadris-archive)** - Category facade for sequential archive formats
 - **[hadris-cpio](crates/archive/hadris-cpio)** - CPIO newc/SVR4 archives (initramfs)
 
 ### CLI Tools
@@ -118,7 +117,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 
 ### Meta-crate
 
-- **[hadris](crates/core/hadris)** - Optional umbrella built on the three category facades, plus `fixed` and `path` utilities, with grouped APIs: `block::{storage, fat, part}`, `optical::{iso, udf, cd}`, and `archive::cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `fixed`, `path`, `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
+- **[hadris](crates/core/hadris)** - Optional umbrella built on the block and optical category facades and `hadris-cpio`, plus `path` utilities, with grouped APIs: `block::{storage, fat, part}`, `optical::{iso, udf, cd}`, and `cpio`. Platform, I/O-mode, capability, leaf, and category features are forwarded independently; the hosted synchronous read/write configuration with `path`, `iso`, `fat`, and `cpio` is enabled by default. The hybrid `cd` writer is currently sync-only.
 
 ## Key Features
 
@@ -182,7 +181,7 @@ hadris = { version = "2.4.0", features = ["block", "optical"] }
 ```
 
 The umbrella crate re-exports the same underlying format crates through
-`hadris::block`, `hadris::optical`, and `hadris::archive`, so applications can
+`hadris::block`, `hadris::optical`, and `hadris::cpio`, so applications can
 grow into partition detection or additional disk-image formats without
 replacing their filesystem implementation.
 
@@ -193,17 +192,16 @@ Each package now owns its version; all current packages target **2.4.0**:
 hadris-iso = "2.4.0"
 hadris-fat = "2.4.0"
 hadris-part = { version = "2.4.0", features = ["read"] }
-hadris-fixed = "2.4.0"
-hadris-path = "2.4.0"
+hadris-fs = "2.4.0"
 ```
 
-For allocation-free `no_std` ISO reading:
+For allocation-free `no_std` ISO reading and FAT reading and writing:
 
 ```toml
 [dependencies]
 # No heap allocator: ISO 9660/Joliet lookup and streamed file reads.
 hadris-iso = { version = "2.4.0", default-features = false, features = ["read", "sync"] }
-hadris-fat = { version = "2.4.0", default-features = false, features = ["read", "sync"] }
+hadris-fat = { version = "2.4.0", default-features = false, features = ["sync"] }
 ```
 
 Add the `alloc` feature to `hadris-iso` when owned collections, convenience
@@ -219,7 +217,7 @@ cargo build --workspace
 cargo test --workspace
 
 # Build for no-std (example)
-cargo build -p hadris-fat --no-default-features --features "read,sync"
+cargo build -p hadris-fat --no-default-features --features "sync"
 ```
 
 See [CLAUDE.md](CLAUDE.md) for detailed build instructions and architecture notes, and [CONTRIBUTING.md](CONTRIBUTING.md) for PR workflow.

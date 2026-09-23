@@ -23,7 +23,9 @@ path = "src/bin/fatutil.rs"
 doc = false
 
 [dependencies]
-hadris-fat = { workspace = true, features = ["std", "read", "write", "lfn", "tool"] }
+hadris-fat = { workspace = true, features = ["std", "sync", "write"] }
+hadris-fs = { workspace = true, features = ["std", "sync"] }
+bytemuck.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 

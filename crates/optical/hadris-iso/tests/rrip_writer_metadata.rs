@@ -1,5 +1,7 @@
 use std::io::Cursor;
 
+use hadris_io::StdIo;
+
 use hadris_iso::directory::DirectoryRecordHeader;
 use hadris_iso::read::{IsoImage, PathSeparator};
 use hadris_iso::rrip::RripOptions;
@@ -24,10 +26,14 @@ fn options(rrip: RripOptions) -> IsoFormatOptions {
     }
 }
 
-fn write(entries: Vec<InputEntry>, rrip: RripOptions) -> IsoImage<Cursor<Vec<u8>>> {
+fn write(entries: Vec<InputEntry>, rrip: RripOptions) -> IsoImage<StdIo<Cursor<Vec<u8>>>> {
     let tree = InputTree::new(PathSeparator::ForwardSlash, entries);
-    let data =
-        IsoImageWriter::create(Cursor::new(vec![0; 4 * 1024 * 1024]), tree, options(rrip)).unwrap();
+    let data = IsoImageWriter::create(
+        StdIo::new(Cursor::new(vec![0; 4 * 1024 * 1024])),
+        tree,
+        options(rrip),
+    )
+    .unwrap();
     IsoImage::open(data).unwrap()
 }
 
@@ -181,7 +187,8 @@ fn rejects_special_entries_when_the_matching_option_is_disabled() {
         PathSeparator::ForwardSlash,
         vec![InputEntry::symlink("link", "target")],
     );
-    let error = IsoImageWriter::create(Cursor::new(Vec::new()), tree, options(rrip)).unwrap_err();
+    let error = IsoImageWriter::create(StdIo::new(Cursor::new(Vec::new())), tree, options(rrip))
+        .unwrap_err();
     assert!(error.to_string().contains("preserve_symlinks"));
 }
 
@@ -241,13 +248,13 @@ fn relocation_rejects_an_ambiguous_user_directory() {
         ],
     );
     let error = IsoImageWriter::create(
-        Cursor::new(Vec::new()),
+        StdIo::new(Cursor::new(Vec::new())),
         tree,
         options(RripOptions::default()),
     )
     .unwrap_err();
     assert!(
-        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::ErrorKind::InvalidInput)
+        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::legacy::ErrorKind::InvalidInput)
     );
     assert!(error.to_string().contains("root rr_moved directory"));
 }
@@ -282,13 +289,13 @@ fn relocation_rejects_two_occupied_names() {
         ],
     );
     let error = IsoImageWriter::create(
-        Cursor::new(Vec::new()),
+        StdIo::new(Cursor::new(Vec::new())),
         tree,
         options(RripOptions::default()),
     )
     .unwrap_err();
     assert!(
-        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::ErrorKind::InvalidInput)
+        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::legacy::ErrorKind::InvalidInput)
     );
 }
 
@@ -310,7 +317,8 @@ fn rejects_deep_directories_when_relocation_is_disabled() {
         ..RripOptions::default()
     };
     let tree = InputTree::new(PathSeparator::ForwardSlash, vec![nested_directory(9)]);
-    let error = IsoImageWriter::create(Cursor::new(Vec::new()), tree, options(rrip)).unwrap_err();
+    let error = IsoImageWriter::create(StdIo::new(Cursor::new(Vec::new())), tree, options(rrip))
+        .unwrap_err();
     assert!(error.to_string().contains("relocation is disabled"));
 }
 
@@ -355,12 +363,12 @@ fn patches_dot_entry_for_every_directory_when_the_parent_listing_spans_multiple_
         .collect();
     let tree = InputTree::new(PathSeparator::ForwardSlash, children);
     let cursor = IsoImageWriter::create(
-        Cursor::new(vec![0u8; 4 * 1024 * 1024]),
+        StdIo::new(Cursor::new(vec![0u8; 4 * 1024 * 1024])),
         tree,
         options(RripOptions::default()),
     )
     .unwrap();
-    let raw = cursor.get_ref().clone();
+    let raw = cursor.get_ref().get_ref().clone();
     let image = IsoImage::open(cursor).unwrap();
 
     let mut checked = 0;

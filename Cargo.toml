@@ -46,8 +46,7 @@ libc = "0.2"
 # Internal crates
 hadris-macros = { version = "2.4.0", path = "crates/core/hadris-macros" }
 hadris-io = { version = "2.4.0", path = "crates/core/hadris-io", default-features = false }
-hadris-fixed = { version = "2.4.0", path = "crates/core/hadris-fixed", default-features = false }
-hadris-path = { version = "2.4.0", path = "crates/core/hadris-path", default-features = false }
+hadris-fs = { version = "2.4.0", path = "crates/core/hadris-fs", default-features = false }
 hadris-common = { version = "2.4.0", path = "crates/core/hadris-common", default-features = false }
 hadris-storage = { version = "2.4.0", path = "crates/core/hadris-storage", default-features = false }
 hadris-block = { version = "2.4.0", path = "crates/block/hadris-block", default-features = false }
@@ -57,6 +56,5 @@ hadris-optical = { version = "2.4.0", path = "crates/optical/hadris-optical", de
 hadris-iso = { version = "2.4.0", path = "crates/optical/hadris-iso", default-features = false }
 hadris-udf = { version = "2.4.0", path = "crates/optical/hadris-udf", default-features = false }
 hadris-cd = { version = "2.4.0", path = "crates/optical/hadris-cd", default-features = false }
-hadris-archive = { version = "2.4.0", path = "crates/archive/hadris-archive", default-features = false }
 hadris-cpio = { version = "2.4.0", path = "crates/archive/hadris-cpio", default-features = false }
 hadris-ntfs = { version = "2.4.0", path = "crates/block/hadris-ntfs", default-features = false }

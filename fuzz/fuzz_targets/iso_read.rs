@@ -7,9 +7,9 @@
 //! name through `IsoDir::find` (guarded against ambiguous case-insensitive
 //! display-name matches on corrupt images).
 
+use hadris_io::Cursor;
 use libfuzzer_sys::fuzz_target;
 use std::collections::HashSet;
-use std::io::Cursor;
 
 use hadris_iso::read::{DirEntry, IsoImage};
 

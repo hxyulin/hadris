@@ -336,14 +336,15 @@ impl SlEntry {
     pub fn from_path(target: &str) -> Self {
         let mut components = alloc::vec::Vec::new();
 
-        for component in hadris_path::VPath::new(target).components() {
+        for component in hadris_fs::path::VPath::new(target).components() {
             match component {
-                hadris_path::Component::Root => components.push(SlComponent::root()),
-                hadris_path::Component::Current => components.push(SlComponent::current()),
-                hadris_path::Component::Parent => components.push(SlComponent::parent()),
-                hadris_path::Component::Normal(segment) => {
+                hadris_fs::path::Component::Root => components.push(SlComponent::root()),
+                hadris_fs::path::Component::Current => components.push(SlComponent::current()),
+                hadris_fs::path::Component::Parent => components.push(SlComponent::parent()),
+                hadris_fs::path::Component::Normal(segment) => {
                     components.push(SlComponent::new(segment.as_bytes()));
                 }
+                _ => {}
             }
         }
 

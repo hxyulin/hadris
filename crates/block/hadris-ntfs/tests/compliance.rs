@@ -36,7 +36,7 @@ fn open_rejects_invalid_sector_size() {
     boot[11..13].copy_from_slice(&1000_u16.to_le_bytes());
 
     assert!(matches!(
-        NtfsFs::open(std::io::Cursor::new(boot)),
+        NtfsFs::open(hadris_io::StdIo::new(std::io::Cursor::new(boot))),
         Err(NtfsError::InvalidSectorSize { found: 1000 })
     ));
 }
@@ -47,7 +47,7 @@ fn open_rejects_invalid_cluster_factor() {
     boot[13] = 3;
 
     assert!(matches!(
-        NtfsFs::open(std::io::Cursor::new(boot)),
+        NtfsFs::open(hadris_io::StdIo::new(std::io::Cursor::new(boot))),
         Err(NtfsError::InvalidSectorsPerCluster { found: 3 })
     ));
 }
@@ -58,7 +58,7 @@ fn open_rejects_mft_outside_volume() {
     boot[48..56].copy_from_slice(&256_u64.to_le_bytes());
 
     assert!(matches!(
-        NtfsFs::open(std::io::Cursor::new(boot)),
+        NtfsFs::open(hadris_io::StdIo::new(std::io::Cursor::new(boot))),
         Err(NtfsError::InvalidVolumeGeometry)
     ));
 }
@@ -72,7 +72,7 @@ fn open_rejects_record_sizes_beyond_the_image() {
     boot[64] = (-38_i8) as u8;
 
     assert!(matches!(
-        NtfsFs::open(std::io::Cursor::new(boot)),
+        NtfsFs::open(hadris_io::StdIo::new(std::io::Cursor::new(boot))),
         Err(NtfsError::InvalidVolumeGeometry)
     ));
 
@@ -84,7 +84,7 @@ fn open_rejects_record_sizes_beyond_the_image() {
     image.resize(4 * 4096 + 1024, 0);
 
     assert!(matches!(
-        NtfsFs::open(std::io::Cursor::new(image)),
+        NtfsFs::open(hadris_io::StdIo::new(std::io::Cursor::new(image))),
         Err(NtfsError::InvalidRecordSize)
     ));
 }
@@ -135,7 +135,7 @@ fn open_rejects_an_upcase_stream_larger_than_the_volume() {
     let image = image_with_upcase_stream(1 << 40, 0, [0x02, 0x00, 0x01, 0x00, 0, 0, 0, 0]);
 
     assert!(matches!(
-        NtfsFs::open(std::io::Cursor::new(image)),
+        NtfsFs::open(hadris_io::StdIo::new(std::io::Cursor::new(image))),
         Err(NtfsError::InvalidUpcaseTable)
     ));
 }
@@ -150,7 +150,7 @@ fn open_rejects_an_oversized_upcase_stream_on_a_huge_claimed_volume() {
     image[40..48].copy_from_slice(&(1_u64 << 22).to_le_bytes()); // 2 GiB claimed volume
 
     assert!(matches!(
-        NtfsFs::open(std::io::Cursor::new(image)),
+        NtfsFs::open(hadris_io::StdIo::new(std::io::Cursor::new(image))),
         Err(NtfsError::InvalidUpcaseTable)
     ));
 }
@@ -160,7 +160,7 @@ fn open_reads_a_sparse_upcase_stream() {
     // 256 sparse clusters = 128 KiB of zeros: exactly the $UpCase table size.
     let image = image_with_upcase_stream(131072, 0, [0x02, 0x00, 0x01, 0x00, 0, 0, 0, 0]);
 
-    assert!(NtfsFs::open(std::io::Cursor::new(image)).is_ok());
+    assert!(NtfsFs::open(hadris_io::StdIo::new(std::io::Cursor::new(image))).is_ok());
 }
 
 #[test]

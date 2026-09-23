@@ -10,9 +10,9 @@ clusters larger than 32 KiB and unknown FAT32 filesystem versions, and made
 normal exFAT mounting enforce boot-region, up-case-table, and file entry-set
 checksums.
 
-Known gaps remain explicit in the catalog. FAT32 mounts do not honor the
-active-FAT selection when mirroring is disabled and do not recover through the
-backup boot record. exFAT mounts validate only the main boot region, and
+Known gaps remain explicit in the catalog. FAT32 mounts honor the active-FAT
+selection when mirroring is disabled, but do not recover through the backup
+boot record. exFAT mounts validate only the main boot region, and
 fragmented up-case tables are rejected rather than followed through the FAT.
 
 The FAT12/16/32 conformance suite uses a specification-oriented raw image

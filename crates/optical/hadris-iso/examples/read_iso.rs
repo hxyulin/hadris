@@ -27,7 +27,7 @@ fn main() {
 
     // Open the ISO file
     let file = File::open(iso_path).expect("Failed to open ISO file");
-    let reader = BufReader::new(file);
+    let reader = hadris_io::StdIo::new(BufReader::new(file));
     let image = IsoImage::open(reader).expect("Failed to parse ISO image");
 
     // Display volume information
@@ -85,7 +85,7 @@ fn main() {
     list_directory(&image, &root, 0);
 }
 
-fn list_directory<R: hadris_io::Read + hadris_io::Seek>(
+fn list_directory<R: hadris_io::legacy::Read + hadris_io::legacy::Seek>(
     image: &IsoImage<R>,
     dir: &hadris_iso::read::RootDir,
     indent: usize,

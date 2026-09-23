@@ -919,7 +919,7 @@ mod tests {
     fn test_base_boot_catalog_size() {
         let catalog = BaseBootCatalog::default();
         let mut buf = Vec::new();
-        catalog.write(&mut buf).unwrap();
+        catalog.write(&mut hadris_io::StdIo::new(&mut buf)).unwrap();
         assert_eq!(
             buf.len(),
             64,
@@ -956,9 +956,9 @@ mod tests {
         );
 
         let mut buf = Vec::new();
-        catalog.write(&mut buf).unwrap();
+        catalog.write(&mut hadris_io::StdIo::new(&mut buf)).unwrap();
 
-        let mut cursor = Cursor::new(buf);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(buf));
         let parsed = BootCatalog::parse(&mut cursor).unwrap();
 
         assert_eq!(parsed.sections.len(), 1);

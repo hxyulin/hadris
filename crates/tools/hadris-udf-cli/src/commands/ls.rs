@@ -1,5 +1,6 @@
 use std::fs::File;
 
+use hadris_io::StdIo;
 use hadris_udf::UdfVolume;
 
 use super::super::args::LsArgs;
@@ -9,7 +10,7 @@ use super::{Result, navigate_to_path};
 /// List directory contents
 pub fn ls(args: LsArgs) -> Result<()> {
     let file = File::open(&args.input)?;
-    let udf = UdfVolume::open(file)?;
+    let udf = UdfVolume::open(StdIo::new(file))?;
 
     let dir = navigate_to_path(&udf, &args.path)?;
 

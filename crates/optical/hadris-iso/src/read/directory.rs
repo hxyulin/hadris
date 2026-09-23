@@ -290,7 +290,7 @@ impl<T: Read + Seek> IsoDir<'_, T> {
             let mut data = self.image.data.lock();
             data.seek(io::SeekFrom::End(0))
                 .await
-                .map_err(io::Error::erase)?
+                ?
         };
         if self.directory.size as u64 > image_len {
             return Err(io::Error::new(
@@ -540,7 +540,7 @@ impl<T: Read + Seek> IsoDirIter<'_, T> {
                     Ok(val) => val,
                     Err(err) => {
                         self.offset = self.directory.size;
-                        return Some(Err(err.erase()));
+                        return Some(Err(err));
                     }
                 }
             };
@@ -686,7 +686,7 @@ impl<T: Read + Seek> Iterator for RawDirIter<'_, T> {
                     Ok(val) => val,
                     Err(err) => {
                         self.offset = self.directory.size;
-                        return Some(Err(err.erase()));
+                        return Some(Err(err));
                     }
                 }
             };

@@ -1,5 +1,6 @@
 //! Regression tests for inputs found by the `part_read` fuzz target.
 
+use hadris_io::StdIo;
 #[cfg(not(feature = "crc"))]
 use hadris_part::Error;
 use hadris_part::gpt::{GptAttributes, GptPartitionEntry, GptPartitionName, Guid};
@@ -19,7 +20,8 @@ fn mbr_end_lba_saturates_on_corrupt_entry() {
     sector[510] = 0x55;
     sector[511] = 0xAA;
 
-    let table = PartitionTable::read_from(&mut Cursor::new(sector), 512).expect("read MBR");
+    let table =
+        PartitionTable::read_from(&mut StdIo::new(Cursor::new(sector)), 512).expect("read MBR");
     let parts = table.partitions();
     assert_eq!(parts.len(), 1);
     assert_eq!(parts[0].end_lba, u32::MAX as u64);
@@ -75,7 +77,7 @@ fn protective_gpt_image(partition_entry_lba: u64, num_entries: u32, alternate_lb
 #[test]
 fn gpt_oversized_entry_array_is_rejected() {
     let image = protective_gpt_image(2, u32::MAX, 34);
-    let err = PartitionTable::read_from(&mut Cursor::new(&image), 512).unwrap_err();
+    let err = PartitionTable::read_from(&mut StdIo::new(Cursor::new(&image)), 512).unwrap_err();
     assert!(matches!(err, Error::DiskTooSmall { .. }));
 }
 
@@ -87,7 +89,7 @@ fn gpt_oversized_entry_array_is_rejected() {
 #[test]
 fn gpt_entry_lba_times_block_size_overflow_is_rejected() {
     let image = protective_gpt_image(u64::MAX, 1, 34);
-    let err = PartitionTable::read_from(&mut Cursor::new(&image), 512).unwrap_err();
+    let err = PartitionTable::read_from(&mut StdIo::new(Cursor::new(&image)), 512).unwrap_err();
     assert!(matches!(err, Error::DiskTooSmall { .. }));
 }
 
@@ -99,6 +101,6 @@ fn gpt_entry_lba_times_block_size_overflow_is_rejected() {
 #[test]
 fn gpt_backup_header_lba_overflow_is_rejected() {
     let image = protective_gpt_image(2, 4, u64::MAX);
-    let err = PartitionTable::read_from(&mut Cursor::new(&image), 512).unwrap_err();
+    let err = PartitionTable::read_from(&mut StdIo::new(Cursor::new(&image)), 512).unwrap_err();
     assert!(matches!(err, Error::BackupHeaderIo { .. }));
 }

@@ -1,6 +1,6 @@
 pub mod hadris
-pub use hadris::archive
 pub use hadris::block
-pub use hadris::fixed
+pub use hadris::cpio
+pub use hadris::fs
+pub use hadris::io
 pub use hadris::optical
-pub use hadris::path

@@ -5,8 +5,8 @@ title: Detect and open images
 # Detect and open unknown images
 
 Use category facades when the input format is not known in advance. Detection
-is non-destructive: it restores the stream position after examining identifying
-metadata. Opening performs the format's full validation.
+is non-destructive: it only reads identifying metadata. Opening performs the
+format's full validation.
 
 ## Block images
 
@@ -21,18 +21,20 @@ use std::fs::File;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut image = File::open("disk.img")?;
-    let format = detect::sync::detect(&mut image, 512)?;
+    let format = detect::sync::detect(&mut image)?;
     println!("detected: {format:?}");
 
     match format {
         Some(detect::BlockFormat::Fat(_)) => {
-            let opened = OpenVolume::open(&mut image, 512)?;
-            let fat = opened.as_fat().expect("the detector reported FAT");
-            println!("FAT variant: {}", fat.fat_type());
+            let opened = OpenVolume::open(&mut image)?;
+            println!("FAT variant: {:?}", opened.format());
+            let fat = opened.into_fat().ok().expect("the detector reported FAT");
+            println!("FAT kind: {:?}", fat.kind());
         }
         Some(detect::BlockFormat::PartitionTable(kind)) => {
             println!("partitioned disk: {kind:?}");
         }
+        Some(other) => println!("other block format: {other:?}"),
         None => println!("no supported block format detected"),
     }
 
@@ -40,22 +42,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+Detection and `OpenVolume` take any `hadris-storage` block device; a
+`std::fs::File` is one with 512-byte blocks, and the device's block size is
+the logical block size used to find a GPT header. The opened FAT volume is a
+`hadris_fat::sync::FatFs`, which works with the `hadris-fs` path helpers.
+Errors are `hadris_block::Error<E>`, carrying the device's error type.
+
 `OpenVolume` intentionally refuses a whole partitioned disk. Select a partition
-and create a bounded view before opening its filesystem.
+and restrict the device to it before opening its filesystem.
 
 ## Optical images
 
 ```toml
 [dependencies]
+hadris-io = "2.4.0"
 hadris-optical = "2.4.0"
 ```
 
 ```rust,no_run
+use hadris_io::StdIo;
 use hadris_optical::{OpenPolicy, sync::OpenOpticalImage};
 use std::fs::File;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut image = File::open("disc.img")?;
+    let mut image = StdIo::new(File::open("disc.img")?);
     let opened = OpenOpticalImage::open(&mut image, OpenPolicy::PreferUdf)?;
 
     if let Some(udf) = opened.as_udf() {

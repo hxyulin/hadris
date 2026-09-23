@@ -18,9 +18,10 @@ A Rust implementation of the CPIO archive format (newc/SVR4) with support for no
 use std::fs::File;
 use std::io::BufReader;
 use hadris_cpio::CpioArchiveReader;
+use hadris_io::StdIo;
 
 let file = File::open("archive.cpio")?;
-let mut reader = CpioArchiveReader::new(BufReader::new(file));
+let mut reader = CpioArchiveReader::new(StdIo::new(BufReader::new(file)));
 
 while let Some(entry) = reader.next_entry_alloc()? {
     let name = entry.name_str().unwrap_or("<invalid>");
@@ -35,9 +36,10 @@ while let Some(entry) = reader.next_entry_alloc()? {
 use std::fs::File;
 use std::io::BufWriter;
 use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+use hadris_io::StdIo;
 
 let tree = FileTree::from_fs(std::path::Path::new("./my-directory"))?;
-let out = BufWriter::new(File::create("archive.cpio")?);
+let out = StdIo::new(BufWriter::new(File::create("archive.cpio")?));
 let _out = CpioArchiveWriter::new(out, CpioWriteOptions::default()).finish(&tree)?;
 ```
 
@@ -45,6 +47,7 @@ let _out = CpioArchiveWriter::new(out, CpioWriteOptions::default()).finish(&tree
 
 ```rust
 use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileNode, FileTree};
+use hadris_io::StdIo;
 
 let mut tree = FileTree::new();
 tree.add(FileNode::file("hello.txt", b"Hello, world!\n".to_vec(), 0o644));
@@ -53,7 +56,9 @@ tree.add(FileNode::dir("subdir", vec![
 ], 0o755));
 tree.add(FileNode::symlink("link.txt", "hello.txt"));
 
-let buf = CpioArchiveWriter::new(Vec::new(), CpioWriteOptions::default()).finish(&tree)?;
+let buf = CpioArchiveWriter::new(StdIo::new(Vec::new()), CpioWriteOptions::default())
+    .finish(&tree)?
+    .into_inner();
 ```
 
 ## Feature Flags

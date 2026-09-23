@@ -5,6 +5,7 @@ use std::fs;
 use std::io::Cursor;
 use std::sync::Arc;
 
+use hadris_io::StdIo;
 use hadris_iso::read::PathSeparator;
 use hadris_iso::susp::{SystemUseField, SystemUseIter};
 use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
@@ -45,7 +46,7 @@ fn test_hadris_rockridge_roundtrip() {
         strict_charset: false,
     };
     let mut buffer = Cursor::new(vec![0u8; 4 * 1024 * 1024]);
-    IsoImageWriter::create(&mut buffer, files, format_options)
+    IsoImageWriter::create(StdIo::new(&mut buffer), files, format_options)
         .expect("Failed to create Rock Ridge ISO");
     let iso_data = buffer.into_inner();
 

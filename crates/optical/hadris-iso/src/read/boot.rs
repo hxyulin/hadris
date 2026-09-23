@@ -89,7 +89,7 @@ impl<DATA: Read + Seek> BootSectionIter<'_, DATA> {
         data
             .seek(SeekFrom::Start(self.current_seek))
             .await
-            .map_err(io::Error::erase)?;
+            ?;
         let mut header = BootSectionHeaderEntry::zeroed();
 
         // Limit iterations to prevent infinite loop on malformed data

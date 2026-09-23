@@ -12,6 +12,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-lock"
+version = "3.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "290f7f2596bd5b78a9fec8088ccd89180d7f9f55b94b0576823bbbdc72ee8311"
+dependencies = [
+ "event-listener",
+ "event-listener-strategy",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -162,6 +173,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "event-listener"
+version = "5.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2"
+dependencies = [
+ "parking",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "event-listener-strategy"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
+dependencies = [
+ "event-listener",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -225,9 +256,8 @@ dependencies = [
  "bytemuck",
  "chrono",
  "crc",
- "hadris-fixed",
+ "hadris-fs",
  "hadris-io",
- "hadris-path",
  "heapless",
  "rand",
  "zerocopy",
@@ -239,21 +269,24 @@ version = "2.4.0"
 dependencies = [
  "bitflags",
  "bytemuck",
- "chrono",
  "hadris-common",
- "hadris-fixed",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
- "hadris-path",
- "parse-size",
+ "hadris-storage",
  "spin",
 ]
 
 [[package]]
-name = "hadris-fixed"
+name = "hadris-fs"
 version = "2.4.0"
 dependencies = [
- "bytemuck",
+ "async-lock",
+ "bitflags",
+ "hadris-io",
+ "hadris-macros",
+ "hadris-storage",
+ "spin",
 ]
 
 [[package]]
@@ -261,9 +294,9 @@ name = "hadris-io"
 version = "2.4.0"
 dependencies = [
  "bytemuck",
- "cfg-if",
  "embedded-io",
  "embedded-io-async",
+ "hadris-macros",
 ]
 
 [[package]]
@@ -274,11 +307,10 @@ dependencies = [
  "bytemuck",
  "chrono",
  "hadris-common",
- "hadris-fixed",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
  "hadris-part",
- "hadris-path",
  "spin",
  "thiserror",
  "tracing",
@@ -303,8 +335,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "hadris-path"
+name = "hadris-storage"
 version = "2.4.0"
+dependencies = [
+ "embedded-io",
+ "hadris-io",
+ "hadris-macros",
+]
 
 [[package]]
 name = "hadris-tests"
@@ -312,7 +349,10 @@ version = "0.0.0"
 dependencies = [
  "fatfs",
  "hadris-fat",
+ "hadris-fs",
+ "hadris-io",
  "hadris-iso",
+ "hadris-storage",
  "tempfile",
 ]
 
@@ -413,10 +453,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
-name = "parse-size"
-version = "1.1.0"
+name = "parking"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "487f2ccd1e17ce8c1bfab3a65c89525af41cfad4c8659021a1e9a2aacd73b89b"
+checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
 [[package]]
 name = "pin-project-lite"

@@ -49,9 +49,9 @@
 //! #     features: CreationFeatures::default(),
 //! #     strict_charset: false,
 //! # };
-//! # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
+//! # let mut buffer = hadris_io::StdIo::new(Cursor::new(vec![0u8; 1024 * 1024]));
 //! # IsoImageWriter::create(&mut buffer, files, options).unwrap();
-//! # let reader = Cursor::new(buffer.into_inner());
+//! # let reader = hadris_io::StdIo::new(Cursor::new(buffer.into_inner().into_inner()));
 //! let image = IsoImage::open(reader).unwrap();
 //!
 //! // Get the root directory
@@ -121,10 +121,10 @@
 //!     strict_charset: false,
 //! };
 //!
-//! let mut buffer = Cursor::new(vec![0u8; 2 * 1024 * 1024]); // 2MB buffer
+//! let mut buffer = hadris_io::StdIo::new(Cursor::new(vec![0u8; 2 * 1024 * 1024])); // 2MB buffer
 //! IsoImageWriter::create(&mut buffer, files, format_options).unwrap();
 //! # // In real code you would write to a file:
-//! # // std::fs::write("bootable.iso", buffer.into_inner()).unwrap();
+//! # // std::fs::write("bootable.iso", buffer.into_inner().into_inner()).unwrap();
 //! ```
 //!
 //! ## Feature Flags
@@ -339,9 +339,9 @@ pub mod sync {
     //!
     //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
 
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::legacy::Result as IoResult;
+    pub use hadris_io::legacy::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
+    pub use hadris_io::legacy::{Error, ErrorKind, SeekFrom};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
@@ -482,9 +482,9 @@ pub mod sync {
         /// #     features: CreationFeatures::default(),
         /// #     strict_charset: false,
         /// # };
-        /// # let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
+        /// # let mut buffer = hadris_io::StdIo::new(Cursor::new(vec![0u8; 1024 * 1024]));
         /// # IsoImageWriter::create(&mut buffer, files, options).unwrap();
-        /// # let file = Cursor::new(buffer.into_inner());
+        /// # let file = hadris_io::StdIo::new(Cursor::new(buffer.into_inner().into_inner()));
         /// let image = IsoImage::open(file).unwrap();
         ///
         /// // Read the primary volume descriptor
@@ -549,7 +549,7 @@ pub mod sync {
         ///     strict_charset: false,
         /// };
         ///
-        /// let mut output = Cursor::new(vec![0u8; 1024 * 1024]);
+        /// let mut output = hadris_io::StdIo::new(Cursor::new(vec![0u8; 1024 * 1024]));
         /// IsoImageWriter::create(&mut output, files, options).unwrap();
         /// # // In real code, write to a file instead of a Cursor
         /// ```
@@ -596,9 +596,9 @@ pub mod r#async {
     //!
     //! All I/O operations use async `Read`/`Write`/`Seek` traits.
 
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::legacy::Result as IoResult;
+    pub use hadris_io::legacy::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
+    pub use hadris_io::legacy::{Error, ErrorKind, SeekFrom};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };

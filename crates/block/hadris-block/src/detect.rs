@@ -1,9 +1,8 @@
 //! Lightweight block-format detection.
 //!
-//! Detection examines boot metadata and restores the stream's original
-//! position. It does not validate an entire filesystem or partition table;
-//! callers should open the corresponding concrete crate to perform full
-//! validation.
+//! Detection reads the boot metadata of a block device. It does not validate
+//! an entire filesystem or partition table; callers should open the
+//! corresponding concrete crate to perform full validation.
 
 /// A recognized block-storage layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,7 +43,7 @@ pub enum PartitionTableKind {
 /// Probe a 512-byte logical sector without performing I/O.
 ///
 /// A protective MBR is reported as GPT based on its partition entries. The
-/// stream-based detectors additionally check for the GPT header signature.
+/// device detectors additionally check for the GPT header signature.
 pub fn detect_sector(sector: &[u8; 512]) -> Option<BlockFormat> {
     if let Some(kind) = partition_kind(sector) {
         return Some(BlockFormat::PartitionTable(kind));
@@ -130,108 +129,96 @@ fn fat_variant(sector: &[u8; 512]) -> Option<FatVariant> {
     })
 }
 
-#[cfg(feature = "sync")]
-/// Synchronous block-format detection.
-pub mod sync {
-    use super::{BlockFormat, PartitionTableKind, detect_sector};
-    use hadris_io::sync::{Read, Seek};
-    use hadris_io::{Result, SeekFrom};
+/// The largest device block the detectors read.
+#[cfg(any(feature = "sync", feature = "async"))]
+const MAX_BLOCK: usize = 4096;
 
-    /// Detect a layout and restore the reader's original position.
-    pub fn detect<R>(reader: &mut R, logical_block_size: u32) -> Result<Option<BlockFormat>>
-    where
-        R: Read + Seek<Error = <R as Read>::Error>,
-    {
-        let original = reader.stream_position().map_err(|error| error.erase())?;
-        let result = detect_at_start(reader, logical_block_size);
-        reader
-            .seek(SeekFrom::Start(original))
-            .map_err(|error| error.erase())?;
-        result
-    }
-
-    fn detect_at_start<R>(reader: &mut R, logical_block_size: u32) -> Result<Option<BlockFormat>>
-    where
-        R: Read + Seek<Error = <R as Read>::Error>,
-    {
-        reader
-            .seek(SeekFrom::Start(0))
-            .map_err(|error| error.erase())?;
+#[cfg(any(feature = "sync", feature = "async"))]
+macro_rules! probe {
+    ($dev:ident $(, $aw:tt)?) => {{
+        let size = $dev.block_size().get() as usize;
+        if size > MAX_BLOCK {
+            return Ok(None);
+        }
+        let mut buf = [0u8; MAX_BLOCK];
+        let len = 512usize.div_ceil(size) * size;
+        if ((len / size) as u64) > $dev.block_count() {
+            return Ok(None);
+        }
+        $dev.read_blocks(BlockIndex(0), &mut buf[..len])$(.$aw)??;
         let mut sector = [0u8; 512];
-        reader.read_exact(&mut sector)?;
+        sector.copy_from_slice(&buf[..512]);
         let detected = detect_sector(&sector);
         if matches!(
             detected,
             Some(BlockFormat::PartitionTable(PartitionTableKind::Gpt))
-        ) && logical_block_size >= 512
+        ) && size >= 512
         {
-            reader
-                .seek(SeekFrom::Start(logical_block_size as u64))
-                .map_err(|error| error.erase())?;
-            let mut signature = [0u8; 8];
-            reader.read_exact(&mut signature)?;
-            if &signature != b"EFI PART" {
+            if $dev.block_count() < 2 {
+                return Ok(None);
+            }
+            $dev.read_blocks(BlockIndex(1), &mut buf[..size])$(.$aw)??;
+            if &buf[..8] != b"EFI PART" {
                 return Ok(None);
             }
         }
         Ok(detected)
+    }};
+}
+
+#[cfg(feature = "sync")]
+/// Synchronous block-format detection.
+pub mod sync {
+    use super::{BlockFormat, MAX_BLOCK, PartitionTableKind, detect_sector};
+    use hadris_storage::BlockIndex;
+    use hadris_storage::sync::BlockDevice;
+
+    /// Detects the layout of `dev` from its first 512 bytes and, for a GPT,
+    /// the header signature in block 1.
+    ///
+    /// Devices too small to hold a boot sector, and devices whose blocks are
+    /// larger than 4096 bytes, give `None`.
+    pub fn detect<D: BlockDevice + ?Sized>(dev: &mut D) -> Result<Option<BlockFormat>, D::Error> {
+        probe!(dev)
     }
 }
 
 #[cfg(feature = "async")]
 /// Asynchronous block-format detection.
 pub mod r#async {
-    use super::{BlockFormat, PartitionTableKind, detect_sector};
-    use hadris_io::r#async::{Read, Seek};
-    use hadris_io::{Result, SeekFrom};
+    use super::{BlockFormat, MAX_BLOCK, PartitionTableKind, detect_sector};
+    use hadris_storage::BlockIndex;
+    use hadris_storage::r#async::BlockDevice;
 
-    /// Detect a layout asynchronously and restore the reader's original position.
-    pub async fn detect<R>(reader: &mut R, logical_block_size: u32) -> Result<Option<BlockFormat>>
-    where
-        R: Read + Seek<Error = <R as Read>::Error>,
-    {
-        let original = reader
-            .stream_position()
-            .await
-            .map_err(|error| error.erase())?;
-        let result = detect_at_start(reader, logical_block_size).await;
-        reader
-            .seek(SeekFrom::Start(original))
-            .await
-            .map_err(|error| error.erase())?;
-        result
+    /// Detects the layout of `dev` from its first 512 bytes and, for a GPT,
+    /// the header signature in block 1.
+    ///
+    /// Devices too small to hold a boot sector, and devices whose blocks are
+    /// larger than 4096 bytes, give `None`.
+    pub async fn detect<D: BlockDevice + ?Sized>(
+        dev: &mut D,
+    ) -> Result<Option<BlockFormat>, D::Error> {
+        probe!(dev, await)
     }
+}
 
-    async fn detect_at_start<R>(
-        reader: &mut R,
-        logical_block_size: u32,
-    ) -> Result<Option<BlockFormat>>
-    where
-        R: Read + Seek<Error = <R as Read>::Error>,
-    {
-        reader
-            .seek(SeekFrom::Start(0))
-            .await
-            .map_err(|error| error.erase())?;
-        let mut sector = [0u8; 512];
-        reader.read_exact(&mut sector).await?;
-        let detected = detect_sector(&sector);
-        if matches!(
-            detected,
-            Some(BlockFormat::PartitionTable(PartitionTableKind::Gpt))
-        ) && logical_block_size >= 512
-        {
-            reader
-                .seek(SeekFrom::Start(logical_block_size as u64))
-                .await
-                .map_err(|error| error.erase())?;
-            let mut signature = [0u8; 8];
-            reader.read_exact(&mut signature).await?;
-            if &signature != b"EFI PART" {
-                return Ok(None);
-            }
-        }
-        Ok(detected)
+#[cfg(feature = "async-send")]
+/// Asynchronous block-format detection over the `Send` devices of
+/// `hadris_storage::async_send`.
+pub mod async_send {
+    use super::{BlockFormat, MAX_BLOCK, PartitionTableKind, detect_sector};
+    use hadris_storage::BlockIndex;
+    use hadris_storage::async_send::BlockDevice;
+
+    /// Detects the layout of `dev` from its first 512 bytes and, for a GPT,
+    /// the header signature in block 1.
+    ///
+    /// Devices too small to hold a boot sector, and devices whose blocks are
+    /// larger than 4096 bytes, give `None`.
+    pub async fn detect<D: BlockDevice + ?Sized>(
+        dev: &mut D,
+    ) -> Result<Option<BlockFormat>, D::Error> {
+        probe!(dev, await)
     }
 }
 
@@ -283,9 +270,8 @@ mod tests {
 
     #[cfg(feature = "sync")]
     #[test]
-    fn stream_probe_validates_gpt_signature_and_restores_position() {
-        use hadris_io::SeekFrom;
-        use hadris_io::sync::Seek;
+    fn device_probe_validates_gpt_signature() {
+        use hadris_storage::{BlockSize, MemDevice};
 
         let mut image = [0u8; 1024];
         image[446 + 4] = 0xee;
@@ -293,31 +279,51 @@ mod tests {
         image[510..512].copy_from_slice(&[0x55, 0xaa]);
         image[512..520].copy_from_slice(b"EFI PART");
 
-        let mut cursor = hadris_io::Cursor::new(&image);
-        cursor.seek(SeekFrom::Start(17)).unwrap();
+        let block = BlockSize::new(512).unwrap();
         assert_eq!(
-            sync::detect(&mut cursor, 512).unwrap(),
+            sync::detect(&mut MemDevice::new(&image[..], block)).unwrap(),
             Some(BlockFormat::PartitionTable(PartitionTableKind::Gpt))
         );
-        assert_eq!(cursor.stream_position().unwrap(), 17);
 
         image[512..520].fill(0);
-        let mut cursor = hadris_io::Cursor::new(&image);
-        assert_eq!(sync::detect(&mut cursor, 512).unwrap(), None);
+        assert_eq!(
+            sync::detect(&mut MemDevice::new(&image[..], block)).unwrap(),
+            None
+        );
+        assert_eq!(
+            sync::detect(&mut MemDevice::new(&image[..256], block)).unwrap(),
+            None
+        );
+    }
+
+    #[cfg(feature = "sync")]
+    #[test]
+    fn device_probe_reads_a_sector_across_small_blocks() {
+        use hadris_storage::{BlockSize, MemDevice};
+
+        let sector = fat_sector(4_000, 12, 1);
+        let mut dev = MemDevice::new(&sector[..], BlockSize::new(64).unwrap());
+        assert_eq!(
+            sync::detect(&mut dev).unwrap(),
+            Some(BlockFormat::Fat(FatVariant::Fat12))
+        );
     }
 
     #[cfg(all(feature = "std", feature = "sync", feature = "write", feature = "fat"))]
     #[test]
     fn recognizes_volume_created_by_fat_formatter() {
-        use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
+        use hadris_fat::{FatKind, FormatOptions};
+        use hadris_storage::{BlockSize, MemDevice};
 
-        let mut image = std::vec![0u8; 2 * 1024 * 1024];
-        let options = FatFormatOptions::new(image.len() as u64).fat_type(FatTypeSelection::Fat12);
-        FatVolumeFormatter::format(std::io::Cursor::new(&mut image[..]), options).unwrap();
-
-        let mut cursor = std::io::Cursor::new(image);
+        let dev = MemDevice::new(
+            std::vec![0u8; 2 * 1024 * 1024],
+            BlockSize::new(512).unwrap(),
+        );
+        let fs =
+            hadris_fat::sync::format(dev, FormatOptions::new().with_kind(FatKind::Fat12)).unwrap();
+        let mut dev = fs.into_inner();
         assert_eq!(
-            sync::detect(&mut cursor, 512).unwrap(),
+            sync::detect(&mut dev).unwrap(),
             Some(BlockFormat::Fat(FatVariant::Fat12))
         );
     }

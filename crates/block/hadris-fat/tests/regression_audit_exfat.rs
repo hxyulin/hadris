@@ -2,7 +2,12 @@
 //! path (`unstable-exfat` preview). Each test asserts the CORRECT/SAFE
 //! behavior and is named after the audit finding it guards.
 
-#![cfg(all(feature = "unstable-exfat", feature = "write", feature = "std"))]
+#![cfg(all(
+    feature = "unstable-exfat",
+    feature = "write",
+    feature = "alloc",
+    feature = "std"
+))]
 
 use std::fs::OpenOptions;
 use std::io::Seek as _;
@@ -10,7 +15,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 use hadris_fat::exfat::{ExFatFormatOptions, ExFatVolume, format_exfat};
-use hadris_fat::io::{Read as HadrisRead, Write as HadrisWrite};
+use hadris_io::legacy::sync::{Read as HadrisRead, Write as HadrisWrite};
 
 /// Build a fresh, formatted exFAT image at `path` of `size` bytes.
 fn make_image(path: &Path, size: u64, label: &str) {
@@ -24,18 +29,18 @@ fn make_image(path: &Path, size: u64, label: &str) {
     file.set_len(size).expect("set image length");
 
     let opts = ExFatFormatOptions::default().volume_label(label);
-    format_exfat(&mut file, size, &opts).expect("format_exfat");
+    format_exfat(hadris_io::StdIo::new(&mut file), size, &opts).expect("format_exfat");
     file.sync_all().expect("sync");
 }
 
-fn open_image(path: &Path) -> std::fs::File {
+fn open_image(path: &Path) -> hadris_io::StdIo<std::fs::File> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
         .open(path)
         .expect("open image");
     file.seek(std::io::SeekFrom::Start(0)).unwrap();
-    file
+    hadris_io::StdIo::new(file)
 }
 
 fn read_root_file(image_path: &Path, name: &str) -> Vec<u8> {

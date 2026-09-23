@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::task::{Wake, Waker};
 
 use hadris_io::SeekFrom;
-use hadris_io::r#async::Seek;
+use hadris_io::legacy::r#async::Seek;
 use hadris_part::r#async::partition_table;
 use hadris_part::sync::scheme_io::PartitionTableWriteExt;
 use hadris_part::{GptPartitionEntry, Guid, PartitionSchemeType, PartitionTable};
@@ -50,9 +50,9 @@ fn async_leaf_detects_and_opens_validated_gpt_non_destructively() {
     ))
     .unwrap();
 
-    let mut image = std::io::Cursor::new(vec![0_u8; 8192 * 512]);
+    let mut image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 8192 * 512]));
     scheme.write_to(&mut image).unwrap();
-    let bytes = image.into_inner();
+    let bytes = image.into_inner().into_inner();
 
     block_on(async {
         let mut source = hadris_io::Cursor::new(bytes.as_slice());

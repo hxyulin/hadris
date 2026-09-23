@@ -65,11 +65,13 @@ hadris-fat verify disk.img
 | `create` | Recursively create a FAT12/16/32 image from a directory |
 | `fragmentation` | Analyze filesystem fragmentation |
 | `chain` | Show cluster chain for a file |
-| `verify` | Check filesystem integrity |
+| `verify` | Check filesystem integrity without changing the image (`hadris_fat::sync::check_with`) |
 
 ## Known Limitations
 
 - Host symbolic links and other special file types are rejected during creation.
+- Volume labels passed to `create` must be at most 11 ASCII characters; they
+  are stored in uppercase.
 - ExFAT images are not exposed through this CLI.
 
 ## Examples
@@ -94,6 +96,9 @@ hadris-fat ls disk.img /
 - Directory traversal and tree view
 - Fragmentation and cluster-chain analysis
 - Filesystem verification
+
+The commands are built on the `hadris_fat::sync::FatFs` driver and the
+`hadris-fs` path and host helpers. Read commands mount images read-only.
 
 ## Documentation
 
