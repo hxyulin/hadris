@@ -11,18 +11,20 @@ backing device is removed.
 ```toml
 [dependencies]
 hadris-fat = { version = "2.4.0", features = ["cache", "dirty-file-panic"] }
+hadris-io = "2.4.0"
 ```
 
 ```rust,no_run
 use hadris_fat::{FatVolume, FatVolumeWriteExt};
-use std::{fs::OpenOptions, io::Write};
+use hadris_io::StdIo;
+use std::fs::OpenOptions;
 
-fn main() -> hadris_fat::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let image = OpenOptions::new()
         .read(true)
         .write(true)
         .open("disk.img")?;
-    let volume = FatVolume::builder(image).fat_cache(16).open()?;
+    let volume = FatVolume::builder(StdIo::new(image)).fat_cache(16).open()?;
 
     let root = volume.root_dir();
     let entry = match root.find("hello.txt")? {
@@ -31,7 +33,7 @@ fn main() -> hadris_fat::Result<()> {
     };
 
     let mut writer = volume.write_file(&entry)?;
-    writer.write_all(b"Hello from Hadris\n")?;
+    writer.write(b"Hello from Hadris\n")?;
     writer.finish()?;
 
     volume.flush()?;

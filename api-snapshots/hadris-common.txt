@@ -44,7 +44,7 @@ pub const hadris_common::optical::OPTICAL_SECTOR_SIZE: usize
 pub trait hadris_common::optical::OpticalMetadataWriter
 pub type hadris_common::optical::OpticalMetadataWriter::Error
 pub type hadris_common::optical::OpticalMetadataWriter::Options
-pub fn hadris_common::optical::OpticalMetadataWriter::write_metadata<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&mut W, &hadris_common::types::layout::DirectoryLayout, &Self::Options) -> core::result::Result<(), Self::Error>
+pub fn hadris_common::optical::OpticalMetadataWriter::write_metadata<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&mut W, &hadris_common::types::layout::DirectoryLayout, &Self::Options) -> core::result::Result<(), Self::Error>
 pub mod hadris_common::types
 pub mod hadris_common::types::endian
 pub enum hadris_common::types::endian::EndianType

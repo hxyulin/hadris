@@ -1,3 +1,5 @@
+#![cfg(all(feature = "std", feature = "sync"))]
+
 use hadris_io::{Error, ErrorKind, Read, Seek, SeekFrom};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,23 +38,23 @@ impl embedded_io::Seek for Device {
 }
 
 #[test]
-fn embedded_adapter_preserves_typed_source() {
-    let mut reader = hadris_io::sync::FromEmbedded::new(Device);
+fn from_embedded_keeps_device_error_as_source() {
+    let mut reader = hadris_io::FromEmbedded::new(Device);
     let error = Read::read(&mut reader, &mut [0]).unwrap_err();
-    assert_eq!(error.source_ref(), Some(&DeviceError));
+    assert_eq!(error.downcast_source::<DeviceError>(), Some(&DeviceError));
     assert_eq!(error.kind(), ErrorKind::Other);
 }
 
 #[test]
-fn embedded_seek_adapter_preserves_typed_source() {
-    let mut seeker = hadris_io::sync::FromEmbedded::new(Device);
+fn from_embedded_keeps_seek_error_as_source() {
+    let mut seeker = hadris_io::FromEmbedded::new(Device);
     let error = Seek::seek(&mut seeker, SeekFrom::Start(0)).unwrap_err();
-    assert_eq!(error.source_ref(), Some(&DeviceError));
+    assert_eq!(error.downcast_source::<DeviceError>(), Some(&DeviceError));
 }
 
 #[test]
-fn std_reader_is_accepted_without_adapter() {
-    let mut reader = std::io::Cursor::new(b"ok".to_vec());
+fn std_reader_is_accepted_through_std_io() {
+    let mut reader = hadris_io::StdIo::new(std::io::Cursor::new(b"ok".to_vec()));
     let mut bytes = [0; 2];
     Read::read_exact(&mut reader, &mut bytes).unwrap();
     assert_eq!(&bytes, b"ok");
@@ -61,7 +63,7 @@ fn std_reader_is_accepted_without_adapter() {
 #[test]
 fn std_source_round_trip_is_lossless() {
     let source = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
-    let wrapped: Error<std::io::Error> = source.into();
+    let wrapped: Error = source.into();
     assert_eq!(wrapped.kind(), ErrorKind::PermissionDenied);
     let source: std::io::Error = wrapped.into();
     assert_eq!(source.kind(), std::io::ErrorKind::PermissionDenied);

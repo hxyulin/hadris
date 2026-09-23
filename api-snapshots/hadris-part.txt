@@ -23,48 +23,48 @@ pub use hadris_part::async::Writable
 pub use hadris_part::async::Write
 pub mod hadris_part::async::gpt_io
 pub trait hadris_part::async::gpt_io::GptHeaderReadExt: core::marker::Sized
-pub async fn hadris_part::async::gpt_io::GptHeaderReadExt::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub async fn hadris_part::async::gpt_io::GptHeaderReadExt::read_from_lba<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::async::gpt_io::GptHeaderReadExt::read_from<R: hadris_io::async::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::async::gpt_io::GptHeaderReadExt::read_from_lba<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::async::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
-pub async fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub async fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::async::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::async::gpt_io::GptHeaderWriteExt
-pub async fn hadris_part::async::gpt_io::GptHeaderWriteExt::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub async fn hadris_part::async::gpt_io::GptHeaderWriteExt::write_to_lba<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub async fn hadris_part::async::gpt_io::GptHeaderWriteExt::write_to<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::async::gpt_io::GptHeaderWriteExt::write_to_lba<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 impl hadris_part::async::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
-pub async fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub async fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub async fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 pub mod hadris_part::async::mbr_io
 pub trait hadris_part::async::mbr_io::MasterBootRecordReadExt: core::marker::Sized
-pub async fn hadris_part::async::mbr_io::MasterBootRecordReadExt::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::async::mbr_io::MasterBootRecordReadExt::read_from<R: hadris_io::async::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 impl hadris_part::async::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
-pub async fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::async::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 pub trait hadris_part::async::mbr_io::MasterBootRecordWriteExt
-pub async fn hadris_part::async::mbr_io::MasterBootRecordWriteExt::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::async::mbr_io::MasterBootRecordWriteExt::write_to<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::async::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
-pub async fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 pub mod hadris_part::async::partition_table
-pub async fn hadris_part::async::partition_table::detect<R>(&mut R) -> hadris_part::error::Result<hadris_part::scheme::PartitionSchemeType> where R: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <R as hadris_io::async_api::Read>::Error>
-pub async fn hadris_part::async::partition_table::open<R>(&mut R, u32) -> hadris_part::error::Result<hadris_part::scheme::PartitionTable> where R: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <R as hadris_io::async_api::Read>::Error>
+pub async fn hadris_part::async::partition_table::detect<R>(&mut R) -> hadris_part::error::Result<hadris_part::scheme::PartitionSchemeType> where R: hadris_io::async::api::Read + hadris_io::async::api::Seek
+pub async fn hadris_part::async::partition_table::open<R>(&mut R, u32) -> hadris_part::error::Result<hadris_part::scheme::PartitionTable> where R: hadris_io::async::api::Read + hadris_io::async::api::Seek
 pub mod hadris_part::async::scheme_io
 pub trait hadris_part::async::scheme_io::GptDiskReadExt: core::marker::Sized
-pub async fn hadris_part::async::scheme_io::GptDiskReadExt::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::async::scheme_io::GptDiskReadExt::read_from<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::async::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
-pub async fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::async::scheme_io::GptDiskWriteExt
-pub async fn hadris_part::async::scheme_io::GptDiskWriteExt::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub async fn hadris_part::async::scheme_io::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub async fn hadris_part::async::scheme_io::GptDiskWriteExt::write_to<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::async::scheme_io::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 impl hadris_part::async::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
-pub async fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub async fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 pub trait hadris_part::async::scheme_io::PartitionTableReadExt: core::marker::Sized
-pub async fn hadris_part::async::scheme_io::PartitionTableReadExt::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::async::scheme_io::PartitionTableReadExt::read_from<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::async::scheme_io::PartitionTableReadExt for hadris_part::scheme::PartitionTable
-pub async fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::async::scheme_io::PartitionTableWriteExt
-pub async fn hadris_part::async::scheme_io::PartitionTableWriteExt::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::async::scheme_io::PartitionTableWriteExt::write_to<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::async::scheme_io::PartitionTableWriteExt for hadris_part::scheme::PartitionTable
-pub async fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 pub mod hadris_part::error
 pub enum hadris_part::error::Error
 pub hadris_part::error::Error::BackupGptHeaderCrcMismatch
@@ -114,12 +114,12 @@ pub hadris_part::error::Error::PartitionOverlap::overlap_start: u64
 pub hadris_part::error::Error::TooManyPartitions
 pub hadris_part::error::Error::TooManyPartitions::max: usize
 pub hadris_part::error::Error::TooManyPartitions::requested: usize
+impl core::convert::From<hadris_io::error::Error> for hadris_part::error::Error
+pub fn hadris_part::error::Error::from(hadris_io::error::Error) -> Self
 impl core::error::Error for hadris_part::error::Error
 pub fn hadris_part::error::Error::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Display for hadris_part::error::Error
 pub fn hadris_part::error::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E: hadris_io::IoError> core::convert::From<hadris_io::error::Error<E>> for hadris_part::error::Error
-pub fn hadris_part::error::Error::from(hadris_io::error::Error<E>) -> Self
 pub type hadris_part::error::Result<T> = core::result::Result<T, hadris_part::error::Error>
 pub mod hadris_part::geometry
 pub struct hadris_part::geometry::DiskGeometry
@@ -190,17 +190,17 @@ pub fn hadris_part::gpt::GptHeader::verify_crc32(&self) -> bool
 impl core::default::Default for hadris_part::gpt::GptHeader
 pub fn hadris_part::gpt::GptHeader::default() -> Self
 impl hadris_part::async::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
-pub async fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub async fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::async::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::async::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
-pub async fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub async fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub async fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 impl hadris_part::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
-pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
-pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 #[repr(C)] pub struct hadris_part::gpt::GptPartitionEntry
 pub hadris_part::gpt::GptPartitionEntry::attributes: hadris_part::gpt::GptAttributes
 pub hadris_part::gpt::GptPartitionEntry::first_lba: endian_num::Le<u64>
@@ -308,17 +308,17 @@ pub fn hadris_part::gpt::Guid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core
 pub fn hadris_part::gpt::calculate_partition_array_crc32(&[hadris_part::gpt::GptPartitionEntry]) -> u32
 pub mod hadris_part::gpt_io
 pub trait hadris_part::gpt_io::GptHeaderReadExt: core::marker::Sized
-pub fn hadris_part::gpt_io::GptHeaderReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub fn hadris_part::gpt_io::GptHeaderReadExt::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt_io::GptHeaderReadExt::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt_io::GptHeaderReadExt::read_from_lba<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
-pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::gpt_io::GptHeaderWriteExt
-pub fn hadris_part::gpt_io::GptHeaderWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::gpt_io::GptHeaderWriteExt::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt_io::GptHeaderWriteExt::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt_io::GptHeaderWriteExt::write_to_lba<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 impl hadris_part::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
-pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 pub mod hadris_part::hybrid
 pub struct hadris_part::hybrid::HybridMbrBuilder
 impl hadris_part::hybrid::HybridMbrBuilder
@@ -663,13 +663,13 @@ pub fn hadris_part::mbr::MasterBootRecord::default() -> Self
 impl core::fmt::Debug for hadris_part::mbr::MasterBootRecord
 pub fn hadris_part::mbr::MasterBootRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl hadris_part::async::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
-pub async fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::async::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 impl hadris_part::async::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
-pub async fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
-pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 impl hadris_part::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
-pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 #[repr(C)] pub struct hadris_part::mbr::MbrPartition
 pub hadris_part::mbr::MbrPartition::boot_indicator: u8
 pub hadris_part::mbr::MbrPartition::end_chs: hadris_part::mbr::Chs
@@ -723,16 +723,16 @@ pub fn hadris_part::mbr::MbrPartitionTable::partition(&self, usize) -> core::opt
 pub fn hadris_part::mbr::MbrPartitionTable::partition_count(&self) -> usize
 pub mod hadris_part::mbr_io
 pub trait hadris_part::mbr_io::MasterBootRecordReadExt: core::marker::Sized
-pub fn hadris_part::mbr_io::MasterBootRecordReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::mbr_io::MasterBootRecordReadExt::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 impl hadris_part::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
-pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 pub trait hadris_part::mbr_io::MasterBootRecordWriteExt
-pub fn hadris_part::mbr_io::MasterBootRecordWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::mbr_io::MasterBootRecordWriteExt::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
-pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 pub mod hadris_part::partition_table
-pub fn hadris_part::partition_table::detect<R>(&mut R) -> hadris_part::error::Result<hadris_part::scheme::PartitionSchemeType> where R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <R as hadris_io::sync_api::Read>::Error>
-pub fn hadris_part::partition_table::open<R>(&mut R, u32) -> hadris_part::error::Result<hadris_part::scheme::PartitionTable> where R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <R as hadris_io::sync_api::Read>::Error>
+pub fn hadris_part::partition_table::detect<R>(&mut R) -> hadris_part::error::Result<hadris_part::scheme::PartitionSchemeType> where R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek
+pub fn hadris_part::partition_table::open<R>(&mut R, u32) -> hadris_part::error::Result<hadris_part::scheme::PartitionTable> where R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek
 pub mod hadris_part::scheme
 pub enum hadris_part::scheme::PartitionSchemeType
 pub hadris_part::scheme::PartitionSchemeType::Gpt
@@ -755,13 +755,13 @@ pub fn hadris_part::scheme::PartitionTable::partitions(&self) -> alloc::vec::Vec
 pub fn hadris_part::scheme::PartitionTable::scheme_type(&self) -> hadris_part::scheme::PartitionSchemeType
 pub fn hadris_part::scheme::PartitionTable::validate(&self) -> hadris_part::error::Result<()>
 impl hadris_part::async::scheme_io::PartitionTableReadExt for hadris_part::scheme::PartitionTable
-pub async fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::async::scheme_io::PartitionTableWriteExt for hadris_part::scheme::PartitionTable
-pub async fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::scheme_io::PartitionTableReadExt for hadris_part::scheme::PartitionTable
-pub fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::scheme_io::PartitionTableWriteExt for hadris_part::scheme::PartitionTable
-pub fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 pub enum hadris_part::scheme::PartitionType
 pub hadris_part::scheme::PartitionType::Gpt(hadris_part::gpt::Guid)
 pub hadris_part::scheme::PartitionType::Mbr(u8)
@@ -780,15 +780,15 @@ pub fn hadris_part::scheme::GptDisk::partitions(&self) -> impl core::iter::trait
 pub fn hadris_part::scheme::GptDisk::update_crcs(&mut self)
 pub fn hadris_part::scheme::GptDisk::validate(&self) -> hadris_part::error::Result<()>
 impl hadris_part::async::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
-pub async fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::async::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
-pub async fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub async fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 impl hadris_part::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
-pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
-pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 pub struct hadris_part::scheme::PartitionInfo
 pub hadris_part::scheme::PartitionInfo::bootable: bool
 pub hadris_part::scheme::PartitionInfo::end_lba: u64
@@ -808,23 +808,23 @@ pub fn hadris_part::scheme::PartitionInfo::start_lba(&self) -> u64
 pub fn hadris_part::scheme::detect_scheme_from_mbr(&hadris_part::mbr::MasterBootRecord) -> hadris_part::scheme::PartitionSchemeType
 pub mod hadris_part::scheme_io
 pub trait hadris_part::scheme_io::GptDiskReadExt: core::marker::Sized
-pub fn hadris_part::scheme_io::GptDiskReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme_io::GptDiskReadExt::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
-pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::scheme_io::GptDiskWriteExt
-pub fn hadris_part::scheme_io::GptDiskWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::scheme_io::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme_io::GptDiskWriteExt::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme_io::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 impl hadris_part::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
-pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 pub trait hadris_part::scheme_io::PartitionTableReadExt: core::marker::Sized
-pub fn hadris_part::scheme_io::PartitionTableReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme_io::PartitionTableReadExt::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::scheme_io::PartitionTableReadExt for hadris_part::scheme::PartitionTable
-pub fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::scheme_io::PartitionTableWriteExt
-pub fn hadris_part::scheme_io::PartitionTableWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme_io::PartitionTableWriteExt::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::scheme_io::PartitionTableWriteExt for hadris_part::scheme::PartitionTable
-pub fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 pub mod hadris_part::sync
 pub use hadris_part::sync::Error
 pub use hadris_part::sync::ErrorKind
@@ -838,48 +838,48 @@ pub use hadris_part::sync::Writable
 pub use hadris_part::sync::Write
 pub mod hadris_part::sync::gpt_io
 pub trait hadris_part::sync::gpt_io::GptHeaderReadExt: core::marker::Sized
-pub fn hadris_part::sync::gpt_io::GptHeaderReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub fn hadris_part::sync::gpt_io::GptHeaderReadExt::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::sync::gpt_io::GptHeaderReadExt::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::sync::gpt_io::GptHeaderReadExt::read_from_lba<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
-pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::sync::gpt_io::GptHeaderWriteExt
-pub fn hadris_part::sync::gpt_io::GptHeaderWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::sync::gpt_io::GptHeaderWriteExt::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub fn hadris_part::sync::gpt_io::GptHeaderWriteExt::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::sync::gpt_io::GptHeaderWriteExt::write_to_lba<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 impl hadris_part::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
-pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 pub mod hadris_part::sync::mbr_io
 pub trait hadris_part::sync::mbr_io::MasterBootRecordReadExt: core::marker::Sized
-pub fn hadris_part::sync::mbr_io::MasterBootRecordReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::sync::mbr_io::MasterBootRecordReadExt::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 impl hadris_part::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
-pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 pub trait hadris_part::sync::mbr_io::MasterBootRecordWriteExt
-pub fn hadris_part::sync::mbr_io::MasterBootRecordWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::sync::mbr_io::MasterBootRecordWriteExt::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
-pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 pub mod hadris_part::sync::partition_table
-pub fn hadris_part::sync::partition_table::detect<R>(&mut R) -> hadris_part::error::Result<hadris_part::scheme::PartitionSchemeType> where R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <R as hadris_io::sync_api::Read>::Error>
-pub fn hadris_part::sync::partition_table::open<R>(&mut R, u32) -> hadris_part::error::Result<hadris_part::scheme::PartitionTable> where R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <R as hadris_io::sync_api::Read>::Error>
+pub fn hadris_part::sync::partition_table::detect<R>(&mut R) -> hadris_part::error::Result<hadris_part::scheme::PartitionSchemeType> where R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek
+pub fn hadris_part::sync::partition_table::open<R>(&mut R, u32) -> hadris_part::error::Result<hadris_part::scheme::PartitionTable> where R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek
 pub mod hadris_part::sync::scheme_io
 pub trait hadris_part::sync::scheme_io::GptDiskReadExt: core::marker::Sized
-pub fn hadris_part::sync::scheme_io::GptDiskReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::sync::scheme_io::GptDiskReadExt::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
-pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::sync::scheme_io::GptDiskWriteExt
-pub fn hadris_part::sync::scheme_io::GptDiskWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::sync::scheme_io::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub fn hadris_part::sync::scheme_io::GptDiskWriteExt::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::sync::scheme_io::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 impl hadris_part::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
-pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 pub trait hadris_part::sync::scheme_io::PartitionTableReadExt: core::marker::Sized
-pub fn hadris_part::sync::scheme_io::PartitionTableReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::sync::scheme_io::PartitionTableReadExt::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::scheme_io::PartitionTableReadExt for hadris_part::scheme::PartitionTable
-pub fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::sync::scheme_io::PartitionTableWriteExt
-pub fn hadris_part::sync::scheme_io::PartitionTableWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::sync::scheme_io::PartitionTableWriteExt::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::scheme_io::PartitionTableWriteExt for hadris_part::scheme::PartitionTable
-pub fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 pub enum hadris_part::Error
 pub hadris_part::Error::BackupGptHeaderCrcMismatch
 pub hadris_part::Error::BackupGptHeaderCrcMismatch::actual: u32
@@ -928,12 +928,12 @@ pub hadris_part::Error::PartitionOverlap::overlap_start: u64
 pub hadris_part::Error::TooManyPartitions
 pub hadris_part::Error::TooManyPartitions::max: usize
 pub hadris_part::Error::TooManyPartitions::requested: usize
+impl core::convert::From<hadris_io::error::Error> for hadris_part::error::Error
+pub fn hadris_part::error::Error::from(hadris_io::error::Error) -> Self
 impl core::error::Error for hadris_part::error::Error
 pub fn hadris_part::error::Error::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Display for hadris_part::error::Error
 pub fn hadris_part::error::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E: hadris_io::IoError> core::convert::From<hadris_io::error::Error<E>> for hadris_part::error::Error
-pub fn hadris_part::error::Error::from(hadris_io::error::Error<E>) -> Self
 pub enum hadris_part::MbrPartitionType
 pub hadris_part::MbrPartitionType::EfiSystemPartition
 pub hadris_part::MbrPartitionType::Empty
@@ -980,13 +980,13 @@ pub fn hadris_part::scheme::PartitionTable::partitions(&self) -> alloc::vec::Vec
 pub fn hadris_part::scheme::PartitionTable::scheme_type(&self) -> hadris_part::scheme::PartitionSchemeType
 pub fn hadris_part::scheme::PartitionTable::validate(&self) -> hadris_part::error::Result<()>
 impl hadris_part::async::scheme_io::PartitionTableReadExt for hadris_part::scheme::PartitionTable
-pub async fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::async::scheme_io::PartitionTableWriteExt for hadris_part::scheme::PartitionTable
-pub async fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::scheme_io::PartitionTableReadExt for hadris_part::scheme::PartitionTable
-pub fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::scheme_io::PartitionTableWriteExt for hadris_part::scheme::PartitionTable
-pub fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 pub enum hadris_part::PartitionType
 pub hadris_part::PartitionType::Gpt(hadris_part::gpt::Guid)
 pub hadris_part::PartitionType::Mbr(u8)
@@ -1042,15 +1042,15 @@ pub fn hadris_part::scheme::GptDisk::partitions(&self) -> impl core::iter::trait
 pub fn hadris_part::scheme::GptDisk::update_crcs(&mut self)
 pub fn hadris_part::scheme::GptDisk::validate(&self) -> hadris_part::error::Result<()>
 impl hadris_part::async::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
-pub async fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::async::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
-pub async fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub async fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 impl hadris_part::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
-pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
-pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 #[repr(C)] pub struct hadris_part::GptHeader
 pub hadris_part::GptHeader::alternate_lba: endian_num::Le<u64>
 pub hadris_part::GptHeader::disk_guid: hadris_part::gpt::Guid
@@ -1078,17 +1078,17 @@ pub fn hadris_part::gpt::GptHeader::verify_crc32(&self) -> bool
 impl core::default::Default for hadris_part::gpt::GptHeader
 pub fn hadris_part::gpt::GptHeader::default() -> Self
 impl hadris_part::async::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
-pub async fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub async fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::async::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::async::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
-pub async fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub async fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::async_api::Write + hadris_io::async_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub async fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::async::api::Write + hadris_io::async::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 impl hadris_part::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
-pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
-pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 #[repr(C)] pub struct hadris_part::GptPartitionEntry
 pub hadris_part::GptPartitionEntry::attributes: hadris_part::gpt::GptAttributes
 pub hadris_part::GptPartitionEntry::first_lba: endian_num::Le<u64>
@@ -1203,13 +1203,13 @@ pub fn hadris_part::mbr::MasterBootRecord::default() -> Self
 impl core::fmt::Debug for hadris_part::mbr::MasterBootRecord
 pub fn hadris_part::mbr::MasterBootRecord::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl hadris_part::async::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
-pub async fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::async_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub async fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::async::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 impl hadris_part::async::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
-pub async fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub async fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
-pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 impl hadris_part::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
-pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 #[repr(C)] pub struct hadris_part::MbrPartition
 pub hadris_part::MbrPartition::boot_indicator: u8
 pub hadris_part::MbrPartition::end_chs: hadris_part::mbr::Chs
@@ -1278,35 +1278,35 @@ pub fn hadris_part::scheme::PartitionInfo::end_lba(&self) -> u64
 pub fn hadris_part::scheme::PartitionInfo::size_sectors(&self) -> u64
 pub fn hadris_part::scheme::PartitionInfo::start_lba(&self) -> u64
 pub trait hadris_part::GptDiskReadExt: core::marker::Sized
-pub fn hadris_part::GptDiskReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::GptDiskReadExt::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::scheme_io::GptDiskReadExt for hadris_part::scheme::GptDisk
-pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme::GptDisk::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::GptDiskWriteExt
-pub fn hadris_part::GptDiskWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub fn hadris_part::GptDiskWriteExt::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::GptDiskWriteExt::write_to_with_mbr<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 impl hadris_part::scheme_io::GptDiskWriteExt for hadris_part::scheme::GptDisk
-pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::GptDisk::write_to_with_mbr<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, &hadris_part::mbr::MasterBootRecord) -> hadris_part::error::Result<()>
 pub trait hadris_part::GptHeaderReadExt: core::marker::Sized
-pub fn hadris_part::GptHeaderReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub fn hadris_part::GptHeaderReadExt::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::GptHeaderReadExt::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::GptHeaderReadExt::read_from_lba<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::gpt_io::GptHeaderReadExt for hadris_part::gpt::GptHeader
-pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
-pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::gpt::GptHeader::read_from_lba<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u64, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::GptHeaderWriteExt
-pub fn hadris_part::GptHeaderWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::GptHeaderWriteExt::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub fn hadris_part::GptHeaderWriteExt::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::GptHeaderWriteExt::write_to_lba<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 impl hadris_part::gpt_io::GptHeaderWriteExt for hadris_part::gpt::GptHeader
-pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
-pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::gpt::GptHeader::write_to_lba<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W, u64, u32) -> hadris_part::error::Result<()>
 pub trait hadris_part::MasterBootRecordReadExt: core::marker::Sized
-pub fn hadris_part::MasterBootRecordReadExt::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::MasterBootRecordReadExt::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 impl hadris_part::mbr_io::MasterBootRecordReadExt for hadris_part::mbr::MasterBootRecord
-pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync_api::Read>(&mut R) -> hadris_part::error::Result<Self>
+pub fn hadris_part::mbr::MasterBootRecord::read_from<R: hadris_io::sync::api::Read>(&mut R) -> hadris_part::error::Result<Self>
 pub trait hadris_part::MasterBootRecordWriteExt
-pub fn hadris_part::MasterBootRecordWriteExt::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::MasterBootRecordWriteExt::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::mbr_io::MasterBootRecordWriteExt for hadris_part::mbr::MasterBootRecord
-pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::mbr::MasterBootRecord::write_to<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_part::error::Result<()>
 pub trait hadris_part::PartitionInfoTrait
 pub fn hadris_part::PartitionInfoTrait::byte_len(&self, u32) -> core::option::Option<u64>
 pub fn hadris_part::PartitionInfoTrait::checked_end_lba(&self) -> core::option::Option<u64>
@@ -1340,12 +1340,12 @@ pub type hadris_part::mbr::MbrPartitionTable::Partition = hadris_part::mbr::MbrP
 pub fn hadris_part::mbr::MbrPartitionTable::partition(&self, usize) -> core::option::Option<&Self::Partition>
 pub fn hadris_part::mbr::MbrPartitionTable::partition_count(&self) -> usize
 pub trait hadris_part::PartitionTableReadExt: core::marker::Sized
-pub fn hadris_part::PartitionTableReadExt::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::PartitionTableReadExt::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 impl hadris_part::scheme_io::PartitionTableReadExt for hadris_part::scheme::PartitionTable
-pub fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
+pub fn hadris_part::scheme::PartitionTable::read_from<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R, u32) -> hadris_part::error::Result<Self>
 pub trait hadris_part::PartitionTableWriteExt
-pub fn hadris_part::PartitionTableWriteExt::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::PartitionTableWriteExt::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 impl hadris_part::scheme_io::PartitionTableWriteExt for hadris_part::scheme::PartitionTable
-pub fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::sync_api::Write + hadris_io::sync_api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
+pub fn hadris_part::scheme::PartitionTable::write_to<W: hadris_io::sync::api::Write + hadris_io::sync::api::Seek>(&self, &mut W) -> hadris_part::error::Result<()>
 pub fn hadris_part::validate_partition_alignment<P: hadris_part::PartitionInfoTrait>(&P, &hadris_part::geometry::DiskGeometry, u64) -> hadris_part::error::Result<()>
 pub type hadris_part::Result<T> = core::result::Result<T, hadris_part::error::Error>

@@ -140,23 +140,19 @@ pub mod sync {
     /// Detect a layout and restore the reader's original position.
     pub fn detect<R>(reader: &mut R, logical_block_size: u32) -> Result<Option<BlockFormat>>
     where
-        R: Read + Seek<Error = <R as Read>::Error>,
+        R: Read + Seek,
     {
-        let original = reader.stream_position().map_err(|error| error.erase())?;
+        let original = reader.stream_position()?;
         let result = detect_at_start(reader, logical_block_size);
-        reader
-            .seek(SeekFrom::Start(original))
-            .map_err(|error| error.erase())?;
+        reader.seek(SeekFrom::Start(original))?;
         result
     }
 
     fn detect_at_start<R>(reader: &mut R, logical_block_size: u32) -> Result<Option<BlockFormat>>
     where
-        R: Read + Seek<Error = <R as Read>::Error>,
+        R: Read + Seek,
     {
-        reader
-            .seek(SeekFrom::Start(0))
-            .map_err(|error| error.erase())?;
+        reader.seek(SeekFrom::Start(0))?;
         let mut sector = [0u8; 512];
         reader.read_exact(&mut sector)?;
         let detected = detect_sector(&sector);
@@ -165,9 +161,7 @@ pub mod sync {
             Some(BlockFormat::PartitionTable(PartitionTableKind::Gpt))
         ) && logical_block_size >= 512
         {
-            reader
-                .seek(SeekFrom::Start(logical_block_size as u64))
-                .map_err(|error| error.erase())?;
+            reader.seek(SeekFrom::Start(logical_block_size as u64))?;
             let mut signature = [0u8; 8];
             reader.read_exact(&mut signature)?;
             if &signature != b"EFI PART" {
@@ -188,17 +182,11 @@ pub mod r#async {
     /// Detect a layout asynchronously and restore the reader's original position.
     pub async fn detect<R>(reader: &mut R, logical_block_size: u32) -> Result<Option<BlockFormat>>
     where
-        R: Read + Seek<Error = <R as Read>::Error>,
+        R: Read + Seek,
     {
-        let original = reader
-            .stream_position()
-            .await
-            .map_err(|error| error.erase())?;
+        let original = reader.stream_position().await?;
         let result = detect_at_start(reader, logical_block_size).await;
-        reader
-            .seek(SeekFrom::Start(original))
-            .await
-            .map_err(|error| error.erase())?;
+        reader.seek(SeekFrom::Start(original)).await?;
         result
     }
 
@@ -207,12 +195,9 @@ pub mod r#async {
         logical_block_size: u32,
     ) -> Result<Option<BlockFormat>>
     where
-        R: Read + Seek<Error = <R as Read>::Error>,
+        R: Read + Seek,
     {
-        reader
-            .seek(SeekFrom::Start(0))
-            .await
-            .map_err(|error| error.erase())?;
+        reader.seek(SeekFrom::Start(0)).await?;
         let mut sector = [0u8; 512];
         reader.read_exact(&mut sector).await?;
         let detected = detect_sector(&sector);
@@ -223,8 +208,7 @@ pub mod r#async {
         {
             reader
                 .seek(SeekFrom::Start(logical_block_size as u64))
-                .await
-                .map_err(|error| error.erase())?;
+                .await?;
             let mut signature = [0u8; 8];
             reader.read_exact(&mut signature).await?;
             if &signature != b"EFI PART" {
@@ -313,9 +297,13 @@ mod tests {
 
         let mut image = std::vec![0u8; 2 * 1024 * 1024];
         let options = FatFormatOptions::new(image.len() as u64).fat_type(FatTypeSelection::Fat12);
-        FatVolumeFormatter::format(std::io::Cursor::new(&mut image[..]), options).unwrap();
+        FatVolumeFormatter::format(
+            hadris_io::StdIo::new(std::io::Cursor::new(&mut image[..])),
+            options,
+        )
+        .unwrap();
 
-        let mut cursor = std::io::Cursor::new(image);
+        let mut cursor = hadris_io::StdIo::new(std::io::Cursor::new(image));
         assert_eq!(
             sync::detect(&mut cursor, 512).unwrap(),
             Some(BlockFormat::Fat(FatVariant::Fat12))

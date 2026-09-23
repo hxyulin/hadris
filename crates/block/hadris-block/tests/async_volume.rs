@@ -36,7 +36,11 @@ fn formatted_fat12() -> Vec<u8> {
     use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
     let mut image = vec![0_u8; 2 * 1024 * 1024];
     let options = FatFormatOptions::new(image.len() as u64).fat_type(FatTypeSelection::Fat12);
-    let volume = FatVolumeFormatter::format(std::io::Cursor::new(&mut image[..]), options).unwrap();
+    let volume = FatVolumeFormatter::format(
+        hadris_io::StdIo::new(std::io::Cursor::new(&mut image[..])),
+        options,
+    )
+    .unwrap();
     drop(volume);
     image
 }
@@ -81,9 +85,7 @@ impl AsyncCursor {
 }
 
 impl Read for AsyncCursor {
-    type Error = hadris_io::ErrorKind;
-
-    async fn read(&mut self, buffer: &mut [u8]) -> hadris_io::Result<usize, Self::Error> {
+    async fn read(&mut self, buffer: &mut [u8]) -> hadris_io::Result<usize> {
         let start = usize::try_from(self.position)
             .map_err(|_| hadris_io::Error::from_kind(hadris_io::ErrorKind::InvalidInput))?;
         let available = self.bytes.len().saturating_sub(start);
@@ -95,9 +97,7 @@ impl Read for AsyncCursor {
 }
 
 impl Write for AsyncCursor {
-    type Error = hadris_io::ErrorKind;
-
-    async fn write(&mut self, buffer: &[u8]) -> hadris_io::Result<usize, Self::Error> {
+    async fn write(&mut self, buffer: &[u8]) -> hadris_io::Result<usize> {
         let start = usize::try_from(self.position)
             .map_err(|_| hadris_io::Error::from_kind(hadris_io::ErrorKind::InvalidInput))?;
         let end = start
@@ -111,15 +111,13 @@ impl Write for AsyncCursor {
         Ok(buffer.len())
     }
 
-    async fn flush(&mut self) -> hadris_io::Result<(), Self::Error> {
+    async fn flush(&mut self) -> hadris_io::Result<()> {
         Ok(())
     }
 }
 
 impl Seek for AsyncCursor {
-    type Error = hadris_io::ErrorKind;
-
-    async fn seek(&mut self, position: SeekFrom) -> hadris_io::Result<u64, Self::Error> {
+    async fn seek(&mut self, position: SeekFrom) -> hadris_io::Result<u64> {
         let next = match position {
             SeekFrom::Start(position) => i128::from(position),
             SeekFrom::Current(offset) => i128::from(self.position) + i128::from(offset),
@@ -355,7 +353,7 @@ fn async_partition_table_opens_fat_through_a_gpt_view() {
         .fat_type(hadris_fat::format::FatTypeSelection::Fat12);
     drop(
         hadris_fat::format::FatVolumeFormatter::format(
-            std::io::Cursor::new(&mut bytes[start..end]),
+            hadris_io::StdIo::new(std::io::Cursor::new(&mut bytes[start..end])),
             options,
         )
         .unwrap(),

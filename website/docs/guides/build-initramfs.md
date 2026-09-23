@@ -7,15 +7,17 @@ title: Build a CPIO initramfs
 ```toml
 [dependencies]
 hadris-cpio = "2.4.0"
+hadris-io = "2.4.0"
 ```
 
 ```rust
 use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+use hadris_io::StdIo;
 use std::{fs::File, io::BufWriter, path::Path};
 
-fn main() -> hadris_cpio::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree = FileTree::from_fs(Path::new("./initramfs-root"))?;
-    let output = BufWriter::new(File::create("initramfs.cpio")?);
+    let output = StdIo::new(BufWriter::new(File::create("initramfs.cpio")?));
     CpioArchiveWriter::new(output, CpioWriteOptions::default()).finish(&tree)?;
     Ok(())
 }

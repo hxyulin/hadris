@@ -347,7 +347,7 @@ where
             .map_err(|source| Error::IoContext {
                 op: "boot sector",
                 sector: Some(0),
-                source: source.erase(),
+                source,
             })?;
         let sector_size = bpb.bytes_per_sector.get() as usize;
         if !matches!(sector_size, 512 | 1024 | 2048 | 4096) {
@@ -396,7 +396,7 @@ where
             .map_err(|source| Error::IoContext {
                 op: "boot sector (FAT12/16 extended fields)",
                 sector: Some(0),
-                source: source.erase(),
+                source,
             })?;
 
         // Validate boot signature
@@ -548,7 +548,7 @@ where
             .map_err(|source| Error::IoContext {
                 op: "boot sector (FAT32 extended fields)",
                 sector: Some(0),
-                source: source.erase(),
+                source,
             })?;
 
         // Validate boot signature
@@ -580,7 +580,7 @@ where
             .map_err(|source| Error::IoContext {
                 op: "FSInfo",
                 sector: Some(fs_info_sec.0 as u64),
-                source: source.erase(),
+                source,
             })?;
 
         // Validate FSInfo signatures
@@ -999,7 +999,7 @@ sync_only! {
         /// use hadris_fat::FatVolume;
         ///
         /// let disk = OpenOptions::new().read(true).write(true).open("disk.img").unwrap();
-        /// let fs = FatVolume::builder(disk).fat_cache(16).open().unwrap();
+        /// let fs = FatVolume::builder(hadris_io::StdIo::new(disk)).fat_cache(16).open().unwrap();
         ///
         /// // Walk the cluster chain of the file at first_cluster=42, using the cache.
         /// let chain = fs

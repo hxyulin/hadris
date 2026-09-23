@@ -41,12 +41,13 @@ Requires features `read` and `alloc` (included when using `std` + `read`):
 
 ```rust,no_run
 use std::fs::File;
+use hadris_io::StdIo;
 use hadris_part::{
     PartitionInfoTrait, PartitionTable, PartitionTableReadExt,
 };
 
-# fn main() -> hadris_part::Result<()> {
-let mut disk = File::open("disk.img")?;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let mut disk = StdIo::new(File::open("disk.img")?);
 let scheme = PartitionTable::read_from(&mut disk, 512)?;
 
 for part in scheme.partitions() {
@@ -65,10 +66,11 @@ for part in scheme.partitions() {
 
 ```rust,no_run
 use std::fs::File;
+use hadris_io::StdIo;
 use hadris_part::{MasterBootRecord, MasterBootRecordReadExt, PartitionInfoTrait};
 
-# fn main() -> hadris_part::Result<()> {
-let mut disk = File::open("disk.img")?;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let mut disk = StdIo::new(File::open("disk.img")?);
 let mbr = MasterBootRecord::read_from(&mut disk)?;
 
 for partition in mbr.get_partition_table().iter() {
@@ -89,10 +91,11 @@ for partition in mbr.get_partition_table().iter() {
 
 ```rust,no_run
 use std::fs::File;
+use hadris_io::StdIo;
 use hadris_part::{GptDisk, GptDiskReadExt};
 
-# fn main() -> hadris_part::Result<()> {
-let mut disk = File::open("disk.img")?;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let mut disk = StdIo::new(File::open("disk.img")?);
 let gpt = GptDisk::read_from(&mut disk, 512)?;
 
 for (idx, entry) in gpt.partitions() {

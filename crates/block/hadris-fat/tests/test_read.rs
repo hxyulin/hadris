@@ -15,7 +15,7 @@ use std::io::Cursor;
 fn test_parse_boot_sector() {
     // The mkfs_sectors.bin contains the first 2 sectors of a valid FAT32 image
     // (boot sector and FSInfo sector)
-    let data = Cursor::new(BOOT_SECTORS.to_vec());
+    let data = hadris_io::StdIo::new(Cursor::new(BOOT_SECTORS.to_vec()));
 
     // Try to open the filesystem - this tests our parsing code
     // The open may succeed or fail depending on how much data we need to read
@@ -48,7 +48,7 @@ fn test_invalid_boot_signature() {
     data[510] = 0x00; // Wrong signature (should be 0x55)
     data[511] = 0x00; // Wrong signature (should be 0xAA)
 
-    let cursor = Cursor::new(data);
+    let cursor = hadris_io::StdIo::new(Cursor::new(data));
     let result = FatVolume::open(cursor);
 
     match result {
@@ -67,7 +67,7 @@ fn test_invalid_fat_count_rejected() {
     for bad in [0u8, 3, 0xFF] {
         let mut data = BOOT_SECTORS.to_vec();
         data[16] = bad; // BPB_NumFATs
-        match FatVolume::open(Cursor::new(data)) {
+        match FatVolume::open(hadris_io::StdIo::new(Cursor::new(data))) {
             Err(Error::CorruptFilesystem { .. }) => {}
             other => panic!("fat_count={bad} should be rejected, got {other:?}"),
         }
@@ -126,7 +126,7 @@ fn test_fat12_16_detection() {
     data[510] = 0x55;
     data[511] = 0xAA;
 
-    let cursor = Cursor::new(data);
+    let cursor = hadris_io::StdIo::new(Cursor::new(data));
     let result = FatVolume::open(cursor);
 
     // Now FAT12/16 should be detected, though the filesystem may not be fully valid
@@ -265,11 +265,11 @@ mod integration_tests {
     /// │   ├── NESTED.TXT (content: "Nested file content")
     /// │   └── DEEP/
     /// │       └── FILE.TXT (content: "Deep file")
-    pub fn create_test_fat32_image() -> Cursor<Vec<u8>> {
+    pub fn create_test_fat32_image() -> hadris_io::StdIo<Cursor<Vec<u8>>> {
         // Use a 4MB volume (small but sufficient for FAT32)
         let volume_size: u64 = 4 * 1024 * 1024;
         let buffer = vec![0u8; volume_size as usize];
-        let mut cursor = Cursor::new(buffer);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(buffer));
 
         let opts = FatFormatOptions::new(volume_size);
         let fs =
@@ -321,7 +321,7 @@ mod integration_tests {
 
         let volume_size: u64 = 256 * 1024 * 1024;
         let buffer = vec![0u8; volume_size as usize];
-        let mut cursor = Cursor::new(buffer);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(buffer));
 
         let opts = FatFormatOptions::new(volume_size)
             .volume_label("PMOS_BOOT")
@@ -346,7 +346,7 @@ mod integration_tests {
 
         let volume_size: u64 = 256 * 1024 * 1024;
         let mut buffer = vec![0u8; volume_size as usize];
-        let mut cursor = Cursor::new(&mut buffer);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(&mut buffer));
 
         let opts = FatFormatOptions::new(volume_size)
             .volume_label("PLACEHOLDER")
@@ -381,7 +381,7 @@ mod integration_tests {
 
         let volume_size: u64 = 4 * 1024 * 1024;
         let buffer = vec![0u8; volume_size as usize];
-        let mut cursor = Cursor::new(buffer);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(buffer));
         {
             let opts = FatFormatOptions::new(volume_size);
             let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
@@ -394,7 +394,7 @@ mod integration_tests {
         }
 
         // Corrupt the entry: VOLUME_ID | DIRECTORY | ARCHIVE.
-        let image = cursor.get_mut();
+        let image = cursor.get_mut().get_mut();
         let needle = b"BADVOL  TXT";
         let pos = image
             .windows(needle.len())
@@ -402,7 +402,7 @@ mod integration_tests {
             .expect("directory entry present in image");
         image[pos + 11] = 0x38;
 
-        cursor.set_position(0);
+        cursor.get_mut().set_position(0);
         let fs = FatVolume::open(cursor).expect("re-open FAT32");
         let names: Vec<_> = fs
             .root_dir()
@@ -717,9 +717,9 @@ mod fuzz_regression_tests {
 
     /// Minimal FAT32 image (auto-select would pick FAT16 at this size) with
     /// HELLO.TXT and SUBDIR in the root directory.
-    fn create_fat32_image() -> Cursor<Vec<u8>> {
+    fn create_fat32_image() -> hadris_io::StdIo<Cursor<Vec<u8>>> {
         let volume_size: u64 = 256 * 1024 * 1024;
-        let mut cursor = Cursor::new(vec![0u8; volume_size as usize]);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(vec![0u8; volume_size as usize]));
         let opts = FatFormatOptions::new(volume_size).fat_type(FatTypeSelection::Fat32);
         let fs = FatVolumeFormatter::format(&mut cursor, opts).expect("format FAT32");
 
@@ -765,7 +765,7 @@ mod fuzz_regression_tests {
         // Fuzz crash: fat_count * sectors_per_fat_32 overflowed u32 while
         // computing the FAT32 geometry at mount.
         let mut cursor = create_fat32_image();
-        cursor.get_mut()[36..40].copy_from_slice(&0xFFFF0640u32.to_le_bytes());
+        cursor.get_mut().get_mut()[36..40].copy_from_slice(&0xFFFF0640u32.to_le_bytes());
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
         assert!(FatVolume::open(cursor).is_err());
     }
@@ -774,7 +774,7 @@ mod fuzz_regression_tests {
     fn test_fat32_invalid_root_cluster_rejected() {
         for cluster in [0u32, 1] {
             let mut cursor = create_fat32_image();
-            cursor.get_mut()[44..48].copy_from_slice(&cluster.to_le_bytes());
+            cursor.get_mut().get_mut()[44..48].copy_from_slice(&cluster.to_le_bytes());
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
             match FatVolume::open(cursor) {
                 Err(Error::ClusterOutOfBounds { cluster: c, .. }) => assert_eq!(c, cluster),
@@ -788,8 +788,8 @@ mod fuzz_regression_tests {
     fn test_zero_cluster_subdirectory_reads_empty() {
         for cluster in [0u32, 1] {
             let mut cursor = create_fat32_image();
-            let off = find_root_entry(cursor.get_ref(), b"SUBDIR     ");
-            set_entry_cluster(cursor.get_mut(), off, cluster);
+            let off = find_root_entry(cursor.get_ref().get_ref(), b"SUBDIR     ");
+            set_entry_cluster(cursor.get_mut().get_mut(), off, cluster);
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
             let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
@@ -803,8 +803,8 @@ mod fuzz_regression_tests {
     fn test_zero_cluster_file_reads_empty() {
         for cluster in [0u32, 1] {
             let mut cursor = create_fat32_image();
-            let off = find_root_entry(cursor.get_ref(), b"HELLO   TXT");
-            set_entry_cluster(cursor.get_mut(), off, cluster);
+            let off = find_root_entry(cursor.get_ref().get_ref(), b"HELLO   TXT");
+            set_entry_cluster(cursor.get_mut().get_mut(), off, cluster);
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
             let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
@@ -819,8 +819,8 @@ mod fuzz_regression_tests {
     #[test]
     fn test_non_utf8_short_name_does_not_panic() {
         let mut cursor = create_fat32_image();
-        let off = find_root_entry(cursor.get_ref(), b"HELLO   TXT");
-        cursor.get_mut()[off] = 0x82; // CP437 'é', invalid as standalone UTF-8
+        let off = find_root_entry(cursor.get_ref().get_ref(), b"HELLO   TXT");
+        cursor.get_mut().get_mut()[off] = 0x82; // CP437 'é', invalid as standalone UTF-8
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
         let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");
@@ -848,9 +848,10 @@ mod fuzz_regression_tests {
     #[test]
     fn test_oversized_file_read_is_bounded() {
         let mut cursor = create_fat32_image();
-        let off = find_root_entry(cursor.get_ref(), b"HELLO   TXT");
+        let off = find_root_entry(cursor.get_ref().get_ref(), b"HELLO   TXT");
         // Below the 256 MiB volume capacity, far beyond the real chain.
-        cursor.get_mut()[off + 28..off + 32].copy_from_slice(&200_000_000u32.to_le_bytes());
+        cursor.get_mut().get_mut()[off + 28..off + 32]
+            .copy_from_slice(&200_000_000u32.to_le_bytes());
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
 
         let fs = FatVolume::open(cursor).expect("Failed to open FAT32 image");

@@ -10,16 +10,18 @@ used by Linux initramfs images.
 ```toml
 [dependencies]
 hadris-cpio = "2.4.0"
+hadris-io = "2.4.0"
 ```
 
 ## Stream archive entries
 
 ```rust,no_run
 use hadris_cpio::CpioArchiveReader;
+use hadris_io::StdIo;
 use std::{fs::File, io::BufReader};
 
-fn main() -> hadris_cpio::Result<()> {
-    let input = BufReader::new(File::open("archive.cpio")?);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let input = StdIo::new(BufReader::new(File::open("archive.cpio")?));
     let mut archive = CpioArchiveReader::new(input);
 
     while let Some(entry) = archive.next_entry_alloc()? {
@@ -40,9 +42,10 @@ consumers can use `next_entry` with a caller-provided filename buffer.
 
 ```rust,no_run
 # use hadris_cpio::CpioArchiveReader;
+# use hadris_io::StdIo;
 # use std::{fs::File, io::BufReader};
-# fn run() -> hadris_cpio::Result<()> {
-let mut archive = CpioArchiveReader::new(BufReader::new(File::open("archive.cpio")?));
+# fn run() -> Result<(), Box<dyn std::error::Error>> {
+let mut archive = CpioArchiveReader::new(StdIo::new(BufReader::new(File::open("archive.cpio")?)));
 while let Some(entry) = archive.next_entry_alloc()? {
     if entry.name() == b"etc/hostname" {
         let bytes = archive.read_entry_data_alloc(&entry)?;
@@ -59,11 +62,12 @@ while let Some(entry) = archive.next_entry_alloc()? {
 
 ```rust,no_run
 use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+use hadris_io::StdIo;
 use std::{fs::File, io::BufWriter, path::Path};
 
-fn main() -> hadris_cpio::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree = FileTree::from_fs(Path::new("./root"))?;
-    let output = BufWriter::new(File::create("archive.cpio")?);
+    let output = StdIo::new(BufWriter::new(File::create("archive.cpio")?));
     CpioArchiveWriter::new(output, CpioWriteOptions::default()).finish(&tree)?;
     Ok(())
 }

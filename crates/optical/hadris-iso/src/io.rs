@@ -39,30 +39,14 @@ pub struct IsoCursor<DATA: Seek> {
 io_transform! {
 
 impl<DATA: Read + Seek> Read for IsoCursor<DATA> {
-    type Error = <DATA as Read>::Error;
-
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         self.data.read(buf).await
-    }
-
-    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
-        self.data.read_exact(buf).await
     }
 }
 
 impl<DATA: Seek> Seek for IsoCursor<DATA> {
-    type Error = DATA::Error;
-
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
         self.data.seek(pos).await
-    }
-
-    async fn stream_position(&mut self) -> Result<u64, Self::Error> {
-        self.data.stream_position().await
-    }
-
-    async fn seek_relative(&mut self, offset: i64) -> Result<(), Self::Error> {
-        self.data.seek_relative(offset).await
     }
 }
 
@@ -81,7 +65,7 @@ impl<DATA: Seek> IsoCursor<DATA> {
     pub async fn seek_sector(&mut self, sector: LogicalSector) -> Result<u64> {
         self.seek(SeekFrom::Start(sector.0 as u64 * self.sector_size as u64))
             .await
-            .map_err(Error::erase)
+
     }
 }
 
@@ -95,13 +79,13 @@ impl<DATA: Write + Seek> IsoCursor<DATA> {
     /// a directory's sector span). Gaps are always smaller than one sector.
     pub async fn pad_align_sector(&mut self) -> Result<LogicalSector> {
         const ZEROES: [u8; 512] = [0u8; 512];
-        let stream_pos = self.stream_position().await.map_err(Error::erase)?;
+        let stream_pos = self.stream_position().await?;
         let sector_size_minus_one = self.sector_size as u64 - 1;
         let aligned_pos = (stream_pos + sector_size_minus_one) & !sector_size_minus_one;
         let mut remaining = (aligned_pos - stream_pos) as usize;
         while remaining > 0 {
             let n = remaining.min(ZEROES.len());
-            self.write_all(&ZEROES[..n]).await.map_err(Error::erase)?;
+            self.write_all(&ZEROES[..n]).await?;
             remaining -= n;
         }
         Ok(LogicalSector(
@@ -111,18 +95,12 @@ impl<DATA: Write + Seek> IsoCursor<DATA> {
 }
 
 impl<DATA: Write + Seek> Write for IsoCursor<DATA> {
-    type Error = <DATA as Write>::Error;
-
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
         self.data.write(buf).await
     }
 
-    async fn flush(&mut self) -> Result<(), Self::Error> {
+    async fn flush(&mut self) -> Result<()> {
         self.data.flush().await
-    }
-
-    async fn write_all(&mut self, buf: &[u8]) -> Result<()> {
-        self.data.write_all(buf).await
     }
 }
 

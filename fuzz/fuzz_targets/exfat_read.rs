@@ -8,9 +8,9 @@
 //! names — the on-disk up-case table is fuzz-controlled and can alias
 //! distinct names on corrupt images).
 
+use hadris_io::Cursor;
 use libfuzzer_sys::fuzz_target;
 use std::collections::HashSet;
-use std::io::Cursor;
 
 use hadris_fat::exfat::{ExFatFileEntry, ExFatFileReader, ExFatVolume};
 use hadris_fat::io::Read;

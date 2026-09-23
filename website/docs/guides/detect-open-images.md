@@ -13,14 +13,16 @@ metadata. Opening performs the format's full validation.
 ```toml
 [dependencies]
 hadris-block = "2.4.0"
+hadris-io = "2.4.0"
 ```
 
 ```rust,no_run
 use hadris_block::{detect, sync::OpenVolume};
+use hadris_io::StdIo;
 use std::fs::File;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut image = File::open("disk.img")?;
+    let mut image = StdIo::new(File::open("disk.img")?);
     let format = detect::sync::detect(&mut image, 512)?;
     println!("detected: {format:?}");
 
@@ -33,6 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(detect::BlockFormat::PartitionTable(kind)) => {
             println!("partitioned disk: {kind:?}");
         }
+        Some(other) => println!("other block format: {other:?}"),
         None => println!("no supported block format detected"),
     }
 
@@ -47,15 +50,17 @@ and create a bounded view before opening its filesystem.
 
 ```toml
 [dependencies]
+hadris-io = "2.4.0"
 hadris-optical = "2.4.0"
 ```
 
 ```rust,no_run
+use hadris_io::StdIo;
 use hadris_optical::{OpenPolicy, sync::OpenOpticalImage};
 use std::fs::File;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut image = File::open("disc.img")?;
+    let mut image = StdIo::new(File::open("disc.img")?);
     let opened = OpenOpticalImage::open(&mut image, OpenPolicy::PreferUdf)?;
 
     if let Some(udf) = opened.as_udf() {

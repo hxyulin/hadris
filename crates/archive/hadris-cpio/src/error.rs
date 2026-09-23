@@ -96,9 +96,9 @@ impl fmt::Display for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for Error {
-    fn from(e: hadris_io::Error<E>) -> Self {
-        Self::Io(e.erase())
+impl From<hadris_io::Error> for Error {
+    fn from(e: hadris_io::Error) -> Self {
+        Self::Io(e)
     }
 }
 

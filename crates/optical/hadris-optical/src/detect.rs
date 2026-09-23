@@ -86,25 +86,21 @@ pub mod sync {
     /// Detects every recognized optical filesystem and restores source position.
     pub fn detect<R>(source: &mut R) -> Result<Option<OpticalFormats>>
     where
-        R: Read + Seek<Error = <R as Read>::Error>,
+        R: Read + Seek,
     {
-        let original = source.stream_position().map_err(hadris_io::Error::erase)?;
+        let original = source.stream_position()?;
         let result = detect_at_descriptors(source);
-        source
-            .seek(SeekFrom::Start(original))
-            .map_err(hadris_io::Error::erase)?;
+        source.seek(SeekFrom::Start(original))?;
         result
     }
 
     fn detect_at_descriptors<R>(source: &mut R) -> Result<Option<OpticalFormats>>
     where
-        R: Read + Seek<Error = <R as Read>::Error>,
+        R: Read + Seek,
     {
-        source
-            .seek(SeekFrom::Start(
-                FIRST_DESCRIPTOR_SECTOR * SECTOR_SIZE as u64,
-            ))
-            .map_err(hadris_io::Error::erase)?;
+        source.seek(SeekFrom::Start(
+            FIRST_DESCRIPTOR_SECTOR * SECTOR_SIZE as u64,
+        ))?;
         let mut state = ScanState::default();
         let mut sector = [0_u8; SECTOR_SIZE];
         for _ in 0..DESCRIPTORS_TO_SCAN {
@@ -130,30 +126,23 @@ pub mod r#async {
     /// Asynchronously detects all optical filesystems and restores source position.
     pub async fn detect<R>(source: &mut R) -> Result<Option<OpticalFormats>>
     where
-        R: Read + Seek<Error = <R as Read>::Error>,
+        R: Read + Seek,
     {
-        let original = source
-            .stream_position()
-            .await
-            .map_err(hadris_io::Error::erase)?;
+        let original = source.stream_position().await?;
         let result = detect_at_descriptors(source).await;
-        source
-            .seek(SeekFrom::Start(original))
-            .await
-            .map_err(hadris_io::Error::erase)?;
+        source.seek(SeekFrom::Start(original)).await?;
         result
     }
 
     async fn detect_at_descriptors<R>(source: &mut R) -> Result<Option<OpticalFormats>>
     where
-        R: Read + Seek<Error = <R as Read>::Error>,
+        R: Read + Seek,
     {
         source
             .seek(SeekFrom::Start(
                 FIRST_DESCRIPTOR_SECTOR * SECTOR_SIZE as u64,
             ))
-            .await
-            .map_err(hadris_io::Error::erase)?;
+            .await?;
         let mut state = ScanState::default();
         let mut sector = [0_u8; SECTOR_SIZE];
         for _ in 0..DESCRIPTORS_TO_SCAN {

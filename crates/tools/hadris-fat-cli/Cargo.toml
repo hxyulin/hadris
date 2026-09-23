@@ -24,6 +24,7 @@ doc = false
 
 [dependencies]
 hadris-fat = { workspace = true, features = ["std", "read", "write", "lfn", "tool"] }
+hadris-io = { workspace = true, features = ["std", "sync"] }
 clap.workspace = true
 anyhow.workspace = true
 

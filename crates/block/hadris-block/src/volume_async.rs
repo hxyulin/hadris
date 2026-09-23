@@ -3,7 +3,7 @@ use crate::{Error, Result};
 use hadris_fat::r#async::fat_table::FatType;
 use hadris_fat::r#async::fs::FatVolume;
 use hadris_io::SeekFrom;
-use hadris_io::r#async::{Borrowed, Read, Seek};
+use hadris_io::r#async::{Read, Seek};
 
 /// An asynchronously opened block filesystem with concrete-format access.
 #[non_exhaustive]
@@ -12,12 +12,12 @@ where
     S: Seek,
 {
     /// An opened FAT12, FAT16, or FAT32 filesystem.
-    Fat(FatVolume<Borrowed<'a, S>>),
+    Fat(FatVolume<&'a mut S>),
 }
 
 impl<'a, S> OpenVolume<'a, S>
 where
-    S: Read + Seek<Error = <S as Read>::Error>,
+    S: Read + Seek,
 {
     /// Asynchronously detects and opens a filesystem at the start of `source`.
     ///
@@ -35,11 +35,8 @@ where
         if detected == FatVariant::ExFat {
             return Err(Error::UnsupportedFormat(BlockFormat::Fat(detected)));
         }
-        source
-            .seek(SeekFrom::Start(0))
-            .await
-            .map_err(hadris_io::Error::erase)?;
-        let fat = FatVolume::open(Borrowed::new(source)).await?;
+        source.seek(SeekFrom::Start(0)).await?;
+        let fat = FatVolume::open(source).await?;
         let opened = fat_variant(fat.fat_type());
         if opened != detected {
             return Err(Error::DetectedFormatMismatch { detected, opened });
@@ -55,14 +52,14 @@ where
     }
 
     /// Borrows the opened FAT filesystem.
-    pub fn as_fat(&self) -> Option<&FatVolume<Borrowed<'a, S>>> {
+    pub fn as_fat(&self) -> Option<&FatVolume<&'a mut S>> {
         match self {
             Self::Fat(fat) => Some(fat),
         }
     }
 
     /// Mutably borrows the opened FAT filesystem.
-    pub fn as_fat_mut(&mut self) -> Option<&mut FatVolume<Borrowed<'a, S>>> {
+    pub fn as_fat_mut(&mut self) -> Option<&mut FatVolume<&'a mut S>> {
         match self {
             Self::Fat(fat) => Some(fat),
         }
@@ -70,7 +67,7 @@ where
 
     #[allow(clippy::result_large_err)]
     /// Extracts the FAT filesystem, returning `self` if its format differs.
-    pub fn into_fat(self) -> core::result::Result<FatVolume<Borrowed<'a, S>>, Self> {
+    pub fn into_fat(self) -> core::result::Result<FatVolume<&'a mut S>, Self> {
         match self {
             Self::Fat(fat) => Ok(fat),
         }
@@ -79,7 +76,7 @@ where
     /// Closes the filesystem and returns the borrowed source.
     pub fn into_inner(self) -> &'a mut S {
         match self {
-            Self::Fat(fat) => fat.into_inner().0,
+            Self::Fat(fat) => fat.into_inner(),
         }
     }
 }

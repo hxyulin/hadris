@@ -15,11 +15,11 @@ categories = ["no-std", "filesystem"]
 default = ["sync", "std"]
 sync = []
 async = ["dep:embedded-io-async"]
-alloc = []
+alloc = ["embedded-io/alloc", "embedded-io-async?/alloc"]
 std = ["alloc", "embedded-io/std", "embedded-io-async?/std"]
 
 [dependencies]
-cfg-if.workspace = true
+hadris-macros.workspace = true
 bytemuck.workspace = true
 embedded-io.workspace = true
 embedded-io-async = { workspace = true, optional = true }

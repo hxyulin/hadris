@@ -3,8 +3,13 @@ use hadris_block::partition::{gpt_partition_view, mbr_partition_view};
 use hadris_block::sync::OpenVolume;
 use hadris_block::{Error, part};
 use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
+use hadris_io::StdIo;
 
 const VOLUME_LEN: usize = 2 * 1024 * 1024;
+
+fn std_cursor(data: Vec<u8>) -> StdIo<std::io::Cursor<Vec<u8>>> {
+    StdIo::new(std::io::Cursor::new(data))
+}
 
 fn format_fat12(
     source: impl hadris_io::sync::Read + hadris_io::sync::Write + hadris_io::sync::Seek,
@@ -16,14 +21,14 @@ fn format_fat12(
 
 #[test]
 fn opens_detected_fat_and_returns_source_borrow() {
-    let mut image = std::io::Cursor::new(vec![0_u8; VOLUME_LEN]);
-    format_fat12(hadris_io::sync::Borrowed::new(&mut image));
+    let mut image = std_cursor(vec![0_u8; VOLUME_LEN]);
+    format_fat12(&mut image);
 
     let volume = OpenVolume::open(&mut image, 512).unwrap();
     assert_eq!(volume.format(), FatVariant::Fat12);
     assert!(volume.as_fat().is_some());
     let source = volume.into_inner();
-    assert_eq!(source.get_ref().len(), VOLUME_LEN);
+    assert_eq!(source.get_ref().get_ref().len(), VOLUME_LEN);
 }
 
 #[test]
@@ -35,8 +40,8 @@ fn opens_fat_inside_mbr_partition_view() {
     table.partitions[0] = entry;
     let mbr = part::MasterBootRecord::new(table);
 
-    let mut image = std::io::Cursor::new(vec![0_u8; VOLUME_LEN + 512]);
-    std::io::Write::write_all(&mut image, bytemuck::bytes_of(&mbr)).unwrap();
+    let mut image = std_cursor(vec![0_u8; VOLUME_LEN + 512]);
+    std::io::Write::write_all(image.get_mut(), bytemuck::bytes_of(&mbr)).unwrap();
     {
         let view = mbr_partition_view(&mut image, &entry, 512).unwrap();
         format_fat12(view);
@@ -66,7 +71,7 @@ fn opens_fat_inside_gpt_partition_view() {
         start_lba,
         start_lba + sector_count - 1,
     );
-    let mut image = std::io::Cursor::new(vec![0_u8; (start_lba as usize * 512) + VOLUME_LEN]);
+    let mut image = std_cursor(vec![0_u8; (start_lba as usize * 512) + VOLUME_LEN]);
     {
         let view = gpt_partition_view(&mut image, &entry, 512).unwrap();
         format_fat12(view);
@@ -79,20 +84,20 @@ fn opens_fat_inside_gpt_partition_view() {
 
 #[test]
 fn rejects_unknown_and_mismatched_formats_without_consuming_source() {
-    let mut unknown = std::io::Cursor::new(vec![0_u8; 1024]);
+    let mut unknown = std_cursor(vec![0_u8; 1024]);
     assert!(matches!(
         OpenVolume::open(&mut unknown, 512),
         Err(Error::UnknownFormat)
     ));
-    unknown.set_position(7);
+    unknown.get_mut().set_position(7);
 
-    let mut image = std::io::Cursor::new(vec![0_u8; VOLUME_LEN]);
-    format_fat12(hadris_io::sync::Borrowed::new(&mut image));
+    let mut image = std_cursor(vec![0_u8; VOLUME_LEN]);
+    format_fat12(&mut image);
     assert!(matches!(
         OpenVolume::open_detected(&mut image, FatVariant::Fat16),
         Err(Error::DetectedFormatMismatch { .. })
     ));
-    image.set_position(9);
+    image.get_mut().set_position(9);
 }
 
 #[test]
@@ -100,8 +105,8 @@ fn detects_exfat_but_rejects_unified_opening() {
     let mut image = vec![0_u8; 512];
     image[3..11].copy_from_slice(b"EXFAT   ");
     image[510..512].copy_from_slice(&[0x55, 0xaa]);
-    let mut image = std::io::Cursor::new(image);
-    image.set_position(11);
+    let mut image = std_cursor(image);
+    image.get_mut().set_position(11);
 
     assert!(matches!(
         OpenVolume::open(&mut image, 512),
@@ -109,5 +114,5 @@ fn detects_exfat_but_rejects_unified_opening() {
             FatVariant::ExFat
         )))
     ));
-    assert_eq!(image.position(), 11);
+    assert_eq!(image.get_ref().position(), 11);
 }

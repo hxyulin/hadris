@@ -10,6 +10,7 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
+use hadris_io::StdIo;
 use hadris_iso::boot::{BootCatalog, BootSectionEntry, EmulationType, PlatformId};
 use hadris_iso::joliet::{decode_joliet_name, encode_joliet_name};
 use hadris_iso::rrip::RripBuilder;
@@ -230,7 +231,7 @@ fn bench_boot_catalog(c: &mut Criterion) {
 
         b.iter(|| {
             let mut buf = Vec::with_capacity(256);
-            catalog.write(&mut buf).unwrap();
+            catalog.write(&mut StdIo::new(&mut buf)).unwrap();
             buf
         });
     });
@@ -247,10 +248,10 @@ fn bench_boot_catalog(c: &mut Criterion) {
             )],
         );
         let mut buf = Vec::new();
-        catalog.write(&mut buf).unwrap();
+        catalog.write(&mut StdIo::new(&mut buf)).unwrap();
 
         b.iter(|| {
-            let mut cursor = Cursor::new(black_box(&buf));
+            let mut cursor = StdIo::new(Cursor::new(black_box(&buf)));
             BootCatalog::parse(&mut cursor).unwrap()
         });
     });
@@ -299,7 +300,7 @@ fn bench_iso_open(c: &mut Criterion) {
         &small_data,
         |b, data| {
             b.iter(|| {
-                let cursor = Cursor::new(black_box(data.clone()));
+                let cursor = StdIo::new(Cursor::new(black_box(data.clone())));
                 hadris_iso::read::IsoImage::open(cursor).unwrap()
             });
         },
@@ -311,7 +312,7 @@ fn bench_iso_open(c: &mut Criterion) {
         &medium_data,
         |b, data| {
             b.iter(|| {
-                let cursor = Cursor::new(black_box(data.clone()));
+                let cursor = StdIo::new(Cursor::new(black_box(data.clone())));
                 hadris_iso::read::IsoImage::open(cursor).unwrap()
             });
         },
@@ -323,7 +324,7 @@ fn bench_iso_open(c: &mut Criterion) {
         &large_data,
         |b, data| {
             b.iter(|| {
-                let cursor = Cursor::new(black_box(data.clone()));
+                let cursor = StdIo::new(Cursor::new(black_box(data.clone())));
                 hadris_iso::read::IsoImage::open(cursor).unwrap()
             });
         },
@@ -349,7 +350,7 @@ fn bench_directory_traversal(c: &mut Criterion) {
     assert!(create_iso_with_xorriso(&content_dir, &iso_path));
 
     let iso_data = fs::read(&iso_path).unwrap();
-    let cursor = Cursor::new(iso_data);
+    let cursor = StdIo::new(Cursor::new(iso_data));
     let image = hadris_iso::read::IsoImage::open(cursor).unwrap();
 
     let mut group = c.benchmark_group("directory_traversal");

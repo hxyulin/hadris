@@ -836,7 +836,7 @@ mod tests {
     fn open_rejects_structurally_invalid_mock_descriptors() {
         let data = create_mock_udf_data();
         let cursor = std::io::Cursor::new(data);
-        let result = UdfVolume::open(cursor);
+        let result = UdfVolume::open(hadris_io::StdIo::new(cursor));
 
         assert!(result.is_err())
     }

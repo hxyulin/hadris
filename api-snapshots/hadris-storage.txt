@@ -1,76 +1,8 @@
 pub mod hadris_storage
+pub use hadris_storage::Error
+pub use hadris_storage::Result
 pub mod hadris_storage::async
-pub struct hadris_storage::async::SeekBlockDevice<T>
-impl<T> hadris_storage::async::SeekBlockDevice<T>
-pub fn hadris_storage::async::SeekBlockDevice<T>::get_mut(&mut self) -> &mut T
-pub const fn hadris_storage::async::SeekBlockDevice<T>::get_ref(&self) -> &T
-pub fn hadris_storage::async::SeekBlockDevice<T>::into_inner(self) -> T
-pub const fn hadris_storage::async::SeekBlockDevice<T>::new(T, hadris_storage::BlockGeometry) -> Self
-impl<T> hadris_storage::async::BlockDevice for hadris_storage::async::SeekBlockDevice<T> where T: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <T as hadris_io::async_api::Read>::Error>
-pub type hadris_storage::async::SeekBlockDevice<T>::Error = <T as hadris_io::async_api::Read>::Error
-pub fn hadris_storage::async::SeekBlockDevice<T>::geometry(&self) -> hadris_storage::BlockGeometry
-pub async fn hadris_storage::async::SeekBlockDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> hadris_storage::Result<(), Self::Error>
-impl<T> hadris_storage::async::BlockDeviceMut for hadris_storage::async::SeekBlockDevice<T> where T: hadris_io::async_api::Read + hadris_io::async_api::Write<Error = <T as hadris_io::async_api::Read>::Error> + hadris_io::async_api::Seek<Error = <T as hadris_io::async_api::Read>::Error>
-pub async fn hadris_storage::async::SeekBlockDevice<T>::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
-pub async fn hadris_storage::async::SeekBlockDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
-pub trait hadris_storage::async::BlockDevice
-pub type hadris_storage::async::BlockDevice::Error: embedded_io::Error
-pub fn hadris_storage::async::BlockDevice::geometry(&self) -> hadris_storage::BlockGeometry
-pub async fn hadris_storage::async::BlockDevice::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> hadris_storage::Result<(), Self::Error>
-impl<T> hadris_storage::async::BlockDevice for hadris_storage::async::SeekBlockDevice<T> where T: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <T as hadris_io::async_api::Read>::Error>
-pub type hadris_storage::async::SeekBlockDevice<T>::Error = <T as hadris_io::async_api::Read>::Error
-pub fn hadris_storage::async::SeekBlockDevice<T>::geometry(&self) -> hadris_storage::BlockGeometry
-pub async fn hadris_storage::async::SeekBlockDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> hadris_storage::Result<(), Self::Error>
-pub trait hadris_storage::async::BlockDeviceMut: hadris_storage::async::BlockDevice
-pub async fn hadris_storage::async::BlockDeviceMut::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
-pub async fn hadris_storage::async::BlockDeviceMut::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
-impl<T> hadris_storage::async::BlockDeviceMut for hadris_storage::async::SeekBlockDevice<T> where T: hadris_io::async_api::Read + hadris_io::async_api::Write<Error = <T as hadris_io::async_api::Read>::Error> + hadris_io::async_api::Seek<Error = <T as hadris_io::async_api::Read>::Error>
-pub async fn hadris_storage::async::SeekBlockDevice<T>::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
-pub async fn hadris_storage::async::SeekBlockDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
 pub mod hadris_storage::sync
-pub struct hadris_storage::sync::SeekBlockDevice<T>
-impl<T> hadris_storage::sync::SeekBlockDevice<T>
-pub fn hadris_storage::sync::SeekBlockDevice<T>::get_mut(&mut self) -> &mut T
-pub const fn hadris_storage::sync::SeekBlockDevice<T>::get_ref(&self) -> &T
-pub fn hadris_storage::sync::SeekBlockDevice<T>::into_inner(self) -> T
-pub const fn hadris_storage::sync::SeekBlockDevice<T>::new(T, hadris_storage::BlockGeometry) -> Self
-impl<T> hadris_storage::sync::BlockDevice for hadris_storage::sync::SeekBlockDevice<T> where T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <T as hadris_io::sync_api::Read>::Error>
-pub type hadris_storage::sync::SeekBlockDevice<T>::Error = <T as hadris_io::sync_api::Read>::Error
-pub fn hadris_storage::sync::SeekBlockDevice<T>::geometry(&self) -> hadris_storage::BlockGeometry
-pub fn hadris_storage::sync::SeekBlockDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> hadris_storage::Result<(), Self::Error>
-impl<T> hadris_storage::sync::BlockDeviceMut for hadris_storage::sync::SeekBlockDevice<T> where T: hadris_io::sync_api::Read + hadris_io::sync_api::Write<Error = <T as hadris_io::sync_api::Read>::Error> + hadris_io::sync_api::Seek<Error = <T as hadris_io::sync_api::Read>::Error>
-pub fn hadris_storage::sync::SeekBlockDevice<T>::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
-pub fn hadris_storage::sync::SeekBlockDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
-pub trait hadris_storage::sync::BlockDevice
-pub type hadris_storage::sync::BlockDevice::Error: embedded_io::Error
-pub fn hadris_storage::sync::BlockDevice::geometry(&self) -> hadris_storage::BlockGeometry
-pub fn hadris_storage::sync::BlockDevice::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> hadris_storage::Result<(), Self::Error>
-impl<T> hadris_storage::sync::BlockDevice for hadris_storage::sync::SeekBlockDevice<T> where T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <T as hadris_io::sync_api::Read>::Error>
-pub type hadris_storage::sync::SeekBlockDevice<T>::Error = <T as hadris_io::sync_api::Read>::Error
-pub fn hadris_storage::sync::SeekBlockDevice<T>::geometry(&self) -> hadris_storage::BlockGeometry
-pub fn hadris_storage::sync::SeekBlockDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> hadris_storage::Result<(), Self::Error>
-pub trait hadris_storage::sync::BlockDeviceMut: hadris_storage::sync::BlockDevice
-pub fn hadris_storage::sync::BlockDeviceMut::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
-pub fn hadris_storage::sync::BlockDeviceMut::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
-impl<T> hadris_storage::sync::BlockDeviceMut for hadris_storage::sync::SeekBlockDevice<T> where T: hadris_io::sync_api::Read + hadris_io::sync_api::Write<Error = <T as hadris_io::sync_api::Read>::Error> + hadris_io::sync_api::Seek<Error = <T as hadris_io::sync_api::Read>::Error>
-pub fn hadris_storage::sync::SeekBlockDevice<T>::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
-pub fn hadris_storage::sync::SeekBlockDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
-pub enum hadris_storage::Error<E>
-pub hadris_storage::Error::AddressOverflow
-pub hadris_storage::Error::InvalidBufferLength
-pub hadris_storage::Error::InvalidBufferLength::block_size: u32
-pub hadris_storage::Error::InvalidBufferLength::length: usize
-pub hadris_storage::Error::InvalidView
-pub hadris_storage::Error::InvalidView::length: u64
-pub hadris_storage::Error::InvalidView::offset: u64
-pub hadris_storage::Error::Io(hadris_io::error::Error<E>)
-pub hadris_storage::Error::OutOfBounds
-pub hadris_storage::Error::OutOfBounds::count: u64
-pub hadris_storage::Error::OutOfBounds::device_blocks: u64
-pub hadris_storage::Error::OutOfBounds::start: u64
-impl<E: embedded_io::Error> core::fmt::Display for hadris_storage::Error<E>
-pub fn hadris_storage::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::error::Error for hadris_storage::Error<E> where E: embedded_io::Error + core::fmt::Debug + 'static
 pub struct hadris_storage::BlockCount(pub u64)
 pub struct hadris_storage::BlockGeometry
 pub hadris_storage::BlockGeometry::block_count: hadris_storage::BlockCount
@@ -97,53 +29,21 @@ impl<'a, S> hadris_storage::PartitionView<'a, S>
 pub fn hadris_storage::PartitionView<'a, S>::into_inner(self) -> &'a mut S
 pub const fn hadris_storage::PartitionView<'a, S>::is_empty(&self) -> bool
 pub const fn hadris_storage::PartitionView<'a, S>::len(&self) -> u64
-pub fn hadris_storage::PartitionView<'a, S>::new(&'a mut S, u64, u64) -> hadris_storage::Result<Self, hadris_io::error::ErrorKind>
+pub fn hadris_storage::PartitionView<'a, S>::new(&'a mut S, u64, u64) -> hadris_io::error::Result<Self>
 pub const fn hadris_storage::PartitionView<'a, S>::position(&self) -> u64
-impl<S> hadris_io::async_api::Read for hadris_storage::PartitionView<'_, S> where S: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <S as hadris_io::async_api::Read>::Error>
-pub type hadris_storage::PartitionView<'_, S>::Error = hadris_io::error::ErrorKind
+impl<S: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_io::async::api::Read for hadris_storage::PartitionView<'_, S>
 pub async fn hadris_storage::PartitionView<'_, S>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
-impl<S> hadris_io::async_api::Seek for hadris_storage::PartitionView<'_, S> where S: hadris_io::async_api::Read + hadris_io::async_api::Seek<Error = <S as hadris_io::async_api::Read>::Error>
-pub type hadris_storage::PartitionView<'_, S>::Error = hadris_io::error::ErrorKind
+impl<S: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_io::async::api::Seek for hadris_storage::PartitionView<'_, S>
 pub async fn hadris_storage::PartitionView<'_, S>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64>
-impl<S> hadris_io::async_api::Write for hadris_storage::PartitionView<'_, S> where S: hadris_io::async_api::Read + hadris_io::async_api::Write<Error = <S as hadris_io::async_api::Read>::Error> + hadris_io::async_api::Seek<Error = <S as hadris_io::async_api::Read>::Error>
-pub type hadris_storage::PartitionView<'_, S>::Error = hadris_io::error::ErrorKind
+impl<S: hadris_io::async::api::Read + hadris_io::async::api::Write + hadris_io::async::api::Seek> hadris_io::async::api::Write for hadris_storage::PartitionView<'_, S>
 pub async fn hadris_storage::PartitionView<'_, S>::flush(&mut self) -> hadris_io::error::Result<()>
 pub async fn hadris_storage::PartitionView<'_, S>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize>
-impl<S> hadris_io::sync_api::Read for hadris_storage::PartitionView<'_, S> where S: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <S as hadris_io::sync_api::Read>::Error>
-pub type hadris_storage::PartitionView<'_, S>::Error = hadris_io::error::ErrorKind
+impl<S: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_io::sync::api::Read for hadris_storage::PartitionView<'_, S>
 pub fn hadris_storage::PartitionView<'_, S>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
-impl<S> hadris_io::sync_api::Seek for hadris_storage::PartitionView<'_, S> where S: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <S as hadris_io::sync_api::Read>::Error>
-pub type hadris_storage::PartitionView<'_, S>::Error = hadris_io::error::ErrorKind
+impl<S: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_io::sync::api::Seek for hadris_storage::PartitionView<'_, S>
 pub fn hadris_storage::PartitionView<'_, S>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64>
-impl<S> hadris_io::sync_api::Write for hadris_storage::PartitionView<'_, S> where S: hadris_io::sync_api::Read + hadris_io::sync_api::Write<Error = <S as hadris_io::sync_api::Read>::Error> + hadris_io::sync_api::Seek<Error = <S as hadris_io::sync_api::Read>::Error>
-pub type hadris_storage::PartitionView<'_, S>::Error = hadris_io::error::ErrorKind
+impl<S: hadris_io::sync::api::Read + hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_io::sync::api::Write for hadris_storage::PartitionView<'_, S>
 pub fn hadris_storage::PartitionView<'_, S>::flush(&mut self) -> hadris_io::error::Result<()>
 pub fn hadris_storage::PartitionView<'_, S>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize>
-pub struct hadris_storage::SeekBlockDevice<T>
-impl<T> hadris_storage::sync::SeekBlockDevice<T>
-pub fn hadris_storage::sync::SeekBlockDevice<T>::get_mut(&mut self) -> &mut T
-pub const fn hadris_storage::sync::SeekBlockDevice<T>::get_ref(&self) -> &T
-pub fn hadris_storage::sync::SeekBlockDevice<T>::into_inner(self) -> T
-pub const fn hadris_storage::sync::SeekBlockDevice<T>::new(T, hadris_storage::BlockGeometry) -> Self
-impl<T> hadris_storage::sync::BlockDevice for hadris_storage::sync::SeekBlockDevice<T> where T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <T as hadris_io::sync_api::Read>::Error>
-pub type hadris_storage::sync::SeekBlockDevice<T>::Error = <T as hadris_io::sync_api::Read>::Error
-pub fn hadris_storage::sync::SeekBlockDevice<T>::geometry(&self) -> hadris_storage::BlockGeometry
-pub fn hadris_storage::sync::SeekBlockDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> hadris_storage::Result<(), Self::Error>
-impl<T> hadris_storage::sync::BlockDeviceMut for hadris_storage::sync::SeekBlockDevice<T> where T: hadris_io::sync_api::Read + hadris_io::sync_api::Write<Error = <T as hadris_io::sync_api::Read>::Error> + hadris_io::sync_api::Seek<Error = <T as hadris_io::sync_api::Read>::Error>
-pub fn hadris_storage::sync::SeekBlockDevice<T>::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
-pub fn hadris_storage::sync::SeekBlockDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
-pub trait hadris_storage::BlockDevice
-pub type hadris_storage::BlockDevice::Error: embedded_io::Error
-pub fn hadris_storage::BlockDevice::geometry(&self) -> hadris_storage::BlockGeometry
-pub fn hadris_storage::BlockDevice::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> hadris_storage::Result<(), Self::Error>
-impl<T> hadris_storage::sync::BlockDevice for hadris_storage::sync::SeekBlockDevice<T> where T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek<Error = <T as hadris_io::sync_api::Read>::Error>
-pub type hadris_storage::sync::SeekBlockDevice<T>::Error = <T as hadris_io::sync_api::Read>::Error
-pub fn hadris_storage::sync::SeekBlockDevice<T>::geometry(&self) -> hadris_storage::BlockGeometry
-pub fn hadris_storage::sync::SeekBlockDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> hadris_storage::Result<(), Self::Error>
-pub trait hadris_storage::BlockDeviceMut: hadris_storage::sync::BlockDevice
-pub fn hadris_storage::BlockDeviceMut::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
-pub fn hadris_storage::BlockDeviceMut::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
-impl<T> hadris_storage::sync::BlockDeviceMut for hadris_storage::sync::SeekBlockDevice<T> where T: hadris_io::sync_api::Read + hadris_io::sync_api::Write<Error = <T as hadris_io::sync_api::Read>::Error> + hadris_io::sync_api::Seek<Error = <T as hadris_io::sync_api::Read>::Error>
-pub fn hadris_storage::sync::SeekBlockDevice<T>::flush(&mut self) -> hadris_storage::Result<(), Self::Error>
-pub fn hadris_storage::sync::SeekBlockDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> hadris_storage::Result<(), Self::Error>
-pub type hadris_storage::Result<T, E> = core::result::Result<T, hadris_storage::Error<E>>
+impl<S> embedded_io::ErrorType for hadris_storage::PartitionView<'_, S>
+pub type hadris_storage::PartitionView<'_, S>::Error = hadris_io::error::Error

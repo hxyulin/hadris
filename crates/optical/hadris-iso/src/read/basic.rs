@@ -422,7 +422,7 @@ impl<R: Read + Seek> IsoReader<R> {
         let mut sector = FIRST_DESCRIPTOR;
         loop {
             source.seek(SeekFrom::Start(sector.checked_mul(DESCRIPTOR_SIZE).ok_or_else(overflow)?))
-                .await.map_err(io::Error::erase)?;
+                .await?;
             let mut bytes = [0_u8; DESCRIPTOR_SIZE as usize];
             source.read_exact(&mut bytes).await?;
             let header = VolumeDescriptorHeader::from_bytes(&bytes[..7]);
@@ -525,7 +525,7 @@ impl<R: Read + Seek> IsoReader<R> {
         while *offset < directory.size {
             let base = byte_offset(directory.extent, directory.block_size)?;
             let absolute = base.checked_add(*offset as u64).ok_or_else(overflow)?;
-            self.source.seek(SeekFrom::Start(absolute)).await.map_err(io::Error::erase)?;
+            self.source.seek(SeekFrom::Start(absolute)).await?;
             let mut len = [0_u8; 1];
             self.source.read_exact(&mut len).await?;
             if len[0] == 0 {
@@ -544,7 +544,7 @@ impl<R: Read + Seek> IsoReader<R> {
             let header: DirectoryRecordHeader = bytemuck::pod_read_unaligned(&header_bytes);
             let name_end = MIN_RECORD_SIZE - 1 + header.file_identifier_len as usize;
             if name_end > len { return Err(invalid("directory identifier exceeds record")); }
-            self.source.seek(SeekFrom::Start(absolute)).await.map_err(io::Error::erase)?;
+            self.source.seek(SeekFrom::Start(absolute)).await?;
             let record = DirectoryRecord::parse(&mut self.source).await?;
             *offset = offset.checked_add(len as u32).ok_or_else(overflow)?;
             return Ok(Some(record));
@@ -632,7 +632,7 @@ impl<R: Read + Seek> IsoFileReader<'_, R> {
                     .and_then(|value| value.checked_add(within))
                     .ok_or_else(overflow)?;
                 self.image.source.seek(SeekFrom::Start(absolute)).await
-                    .map_err(io::Error::erase)?;
+                    ?;
                 self.image.source.read_exact(&mut output[written..written + take]).await?;
                 written += take;
                 self.position += take as u64;

@@ -12,7 +12,7 @@
 //! use hadris_fat::sync::FatVolume;
 //!
 //! let file = File::open("disk.img").unwrap();
-//! let fs = FatVolume::open(file).unwrap();
+//! let fs = FatVolume::open(hadris_io::StdIo::new(file)).unwrap();
 //! let root = fs.root_dir();
 //! let mut iter = root.entries();
 //! while let Some(Ok(entry)) = iter.next_entry() {
@@ -37,7 +37,7 @@
 //!     .write(true)
 //!     .open("disk.img")
 //!     .unwrap();
-//! let fs = FatVolume::builder(disk)
+//! let fs = FatVolume::builder(hadris_io::StdIo::new(disk))
 //!     .fat_cache(16)
 //!     .open()
 //!     .unwrap();

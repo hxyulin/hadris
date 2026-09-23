@@ -3,6 +3,7 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
+use hadris_io::StdIo;
 use hadris_iso::boot::EmulationType;
 use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
 use hadris_iso::read::PathSeparator;
@@ -56,7 +57,7 @@ fn hybrid_image(volume_name: &str, hybrid_boot: HybridBootOptions) -> Vec<u8> {
         strict_charset: false,
     };
     let mut iso_buffer = Cursor::new(vec![0u8; 512 * 2048]);
-    IsoImageWriter::create(&mut iso_buffer, files, format_options)
+    IsoImageWriter::create(StdIo::new(&mut iso_buffer), files, format_options)
         .expect("Failed to create hybrid ISO");
     iso_buffer.into_inner()
 }

@@ -6,6 +6,7 @@ use std::num::NonZeroU16;
 use std::sync::Arc;
 use std::time::Duration;
 
+use hadris_io::StdIo;
 use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
 use hadris_iso::boot::{BaseBootCatalog, EmulationType, PlatformId};
 use hadris_iso::read::PathSeparator;
@@ -96,7 +97,7 @@ fn hadris_bootable_image(boot_data: Vec<u8>) -> Vec<u8> {
         strict_charset: false,
     };
     let mut iso_buffer = Cursor::new(vec![0u8; 256 * 2048]);
-    IsoImageWriter::create(&mut iso_buffer, files, format_options)
+    IsoImageWriter::create(StdIo::new(&mut iso_buffer), files, format_options)
         .expect("Failed to create bootable ISO with hadris-iso");
     iso_buffer.into_inner()
 }
@@ -165,9 +166,14 @@ fn test_hadris_multisection_boot_catalog() {
         path_separator: PathSeparator::ForwardSlash,
         strict_charset: false,
     };
-    let output = IsoImageWriter::create(Cursor::new(vec![0; 2 * 1024 * 1024]), tree, options)
-        .unwrap()
-        .into_inner();
+    let output = IsoImageWriter::create(
+        StdIo::new(Cursor::new(vec![0; 2 * 1024 * 1024])),
+        tree,
+        options,
+    )
+    .unwrap()
+    .into_inner()
+    .into_inner();
 
     let (_, catalog_lba) = find_boot_catalog(&output).expect("boot record volume descriptor");
     let catalog = &output[catalog_lba * 2048..];
@@ -220,9 +226,14 @@ fn test_floppy_emulation_media_type_and_default_load_size() {
         path_separator: PathSeparator::ForwardSlash,
         strict_charset: false,
     };
-    let output = IsoImageWriter::create(Cursor::new(vec![0; 2 * 1024 * 1024]), tree, options)
-        .unwrap()
-        .into_inner();
+    let output = IsoImageWriter::create(
+        StdIo::new(Cursor::new(vec![0; 2 * 1024 * 1024])),
+        tree,
+        options,
+    )
+    .unwrap()
+    .into_inner()
+    .into_inner();
 
     let (_, catalog_lba) = find_boot_catalog(&output).expect("boot record volume descriptor");
     let catalog = &output[catalog_lba * 2048..];
@@ -269,7 +280,7 @@ fn test_eltorito_boot_catalog_comparison() {
     );
     assert_eq!(default_entry[0], 0x88, "Default entry should be bootable");
 
-    let mut catalog_cursor = Cursor::new(&iso_data[catalog_offset..catalog_offset + 64]);
+    let mut catalog_cursor = hadris_io::Cursor::new(&iso_data[catalog_offset..catalog_offset + 64]);
     let catalog = BaseBootCatalog::parse(&mut catalog_cursor)
         .expect("hadris-iso should parse the xorriso boot catalog");
     assert!(catalog.validation.is_valid());

@@ -63,7 +63,7 @@ impl FatLayout {
 fn format_into_buffer(buffer: &mut [u8], opts: &FatFormatOptions) -> FatLayout {
     let layout = FatLayout::new(opts);
     {
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut buffer[..]));
         let _fs = FatVolumeFormatter::format(cursor, opts.clone()).expect("format");
         // _fs drops here, releasing the &mut [u8] borrow.
     }
@@ -106,7 +106,7 @@ fn cache_round_trips_fat32_chain() {
     patch_fat32_entry_all_copies(&mut bytes, &layout, 6, 7);
     patch_fat32_entry_all_copies(&mut bytes, &layout, 7, 0x0FFF_FFFF); // END
 
-    let cursor = Cursor::new(&mut bytes[..]);
+    let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
     let fs = FatVolume::builder(cursor)
         .fat_cache(8)
         .open()
@@ -131,7 +131,7 @@ fn cache_writes_persist_across_remount_after_flush() {
 
     // Open with cache, write a recognizable value via the cache, flush, drop.
     {
-        let cursor = Cursor::new(&mut bytes[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
         let fs = FatVolume::builder(cursor)
             .fat_cache(8)
             .open()
@@ -155,7 +155,8 @@ fn cache_writes_persist_across_remount_after_flush() {
 
     // (The byte-level assert above already proves persistence; an
     // additional FatVolume round-trip would be redundant.)
-    let _ = FatVolume::open(Cursor::new(&bytes[..])).expect("re-open after flush");
+    let _ = FatVolume::open(hadris_io::StdIo::new(Cursor::new(&bytes[..])))
+        .expect("re-open after flush");
 }
 
 #[test]
@@ -166,7 +167,7 @@ fn cache_fat32_writes_preserve_reserved_high_bits() {
     patch_fat32_entry_all_copies(&mut bytes, &layout, 100, 0xA000_0000);
 
     {
-        let cursor = Cursor::new(&mut bytes[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
         let fs = FatVolume::builder(cursor)
             .fat_cache(8)
             .open()
@@ -224,7 +225,7 @@ fn cache_dirty_eviction_does_not_lose_data() {
     assert_ne!(s0, s2);
 
     {
-        let cursor = Cursor::new(&mut bytes[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
         let fs = FatVolume::builder(cursor)
             .fat_cache(2) // < number of sectors written
             .open()
@@ -275,7 +276,7 @@ fn cache_dirty_eviction_writes_to_all_fat_copies() {
     let value = 0x0DEA_DBEE_u32 & 0x0FFF_FFFF;
 
     {
-        let cursor = Cursor::new(&mut bytes[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
         let fs = FatVolume::builder(cursor)
             .fat_cache(1) // cap 1 forces eviction on every new sector
             .open()
@@ -318,7 +319,7 @@ fn cache_read_returns_cache_dirty_eviction_when_all_dirty() {
     let opts = fat32_options();
     let _layout = format_into_buffer(&mut bytes, &opts);
 
-    let cursor = Cursor::new(&mut bytes[..]);
+    let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
     let fs = FatVolume::builder(cursor)
         .fat_cache(2)
         .open()
@@ -360,7 +361,7 @@ fn cached_fat_read_chain_returns_cluster_loop_on_cycle() {
     patch_fat32_entry_all_copies(&mut bytes, &layout, 3, 4);
     patch_fat32_entry_all_copies(&mut bytes, &layout, 4, 3);
 
-    let cursor = Cursor::new(&mut bytes[..]);
+    let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
     let fs = FatVolume::builder(cursor)
         .fat_cache(4)
         .open()
@@ -385,7 +386,7 @@ fn cached_fat_next_cluster_on_bad_cluster_marker() {
     // 0x0FFF_FFF7 is the FAT32 BadCluster marker.
     patch_fat32_entry_all_copies(&mut bytes, &layout, 5, 0x0FFF_FFF7);
 
-    let cursor = Cursor::new(&mut bytes[..]);
+    let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
     let fs = FatVolume::builder(cursor)
         .fat_cache(4)
         .open()
@@ -409,7 +410,7 @@ fn cached_fat_next_cluster_out_of_bounds() {
     // Plant an entry that points way past the end of the data area.
     patch_fat32_entry_all_copies(&mut bytes, &layout, 5, 0x0FFF_0000);
 
-    let cursor = Cursor::new(&mut bytes[..]);
+    let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
     let fs = FatVolume::builder(cursor)
         .fat_cache(4)
         .open()
@@ -442,7 +443,7 @@ fn read_status_flags_consults_cache() {
     let opts = fat32_options();
     let _layout = format_into_buffer(&mut bytes, &opts);
 
-    let cursor = Cursor::new(&mut bytes[..]);
+    let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
     let fs = FatVolume::builder(cursor)
         .fat_cache(16)
         .open()
@@ -492,7 +493,7 @@ fn read_file_chain_walk_consults_cache() {
     // (typically 512 B; 64 KiB safely guarantees ≥ 4 clusters even at 16 KiB).
     let payload_len: usize = 64 * 1024;
     {
-        let cursor = Cursor::new(&mut bytes[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
         let fs = FatVolume::open(cursor).expect("open");
         let payload = vec![0xABu8; payload_len];
 
@@ -504,7 +505,7 @@ fn read_file_chain_walk_consults_cache() {
     }
 
     // Pass 2: re-open with a cache, reset its stats, and read.
-    let cursor = Cursor::new(&mut bytes[..]);
+    let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
     let fs = FatVolume::builder(cursor)
         .fat_cache(16)
         .open()
@@ -547,7 +548,7 @@ fn writes_then_reads_through_cache_are_consistent() {
     let opts = fat32_options();
     let _layout = format_into_buffer(&mut bytes, &opts);
 
-    let cursor = Cursor::new(&mut bytes[..]);
+    let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
     let fs = FatVolume::builder(cursor)
         .fat_cache(16)
         .open()
@@ -588,7 +589,7 @@ fn with_fat_cache_zero_treats_as_no_cache() {
     let opts = fat32_options();
     let _layout = format_into_buffer(&mut bytes, &opts);
 
-    let cursor = Cursor::new(&mut bytes[..]);
+    let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
     let fs = FatVolume::builder(cursor)
         .fat_cache(0)
         .open()
@@ -615,7 +616,7 @@ fn cache_stats_increment_on_hit_miss_eviction() {
     patch_fat32_entry_all_copies(&mut bytes, &layout, 7, 8);
     patch_fat32_entry_all_copies(&mut bytes, &layout, 8, 0x0FFF_FFFF);
 
-    let cursor = Cursor::new(&mut bytes[..]);
+    let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
     let fs = FatVolume::builder(cursor)
         .fat_cache(2)
         .open()

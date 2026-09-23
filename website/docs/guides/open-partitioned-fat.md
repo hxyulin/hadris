@@ -12,6 +12,7 @@ byte range.
 [dependencies]
 anyhow = "1"
 hadris-block = "2.4.0"
+hadris-io = "2.4.0"
 ```
 
 ```rust,no_run
@@ -21,12 +22,13 @@ use hadris_block::{
     storage::PartitionView,
     sync::OpenVolume,
 };
+use hadris_io::StdIo;
 use std::fs::File;
 
 fn main() -> Result<()> {
     const BLOCK_SIZE: u32 = 512;
 
-    let mut disk = File::open("disk.img")?;
+    let mut disk = StdIo::new(File::open("disk.img")?);
     let table = PartitionTable::read_from(&mut disk, BLOCK_SIZE)?;
     let partition = table
         .partitions()

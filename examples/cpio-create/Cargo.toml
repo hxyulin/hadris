@@ -9,3 +9,4 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 hadris-cpio = { workspace = true, features = ["std", "sync", "read", "write"] }
+hadris-io = { workspace = true, features = ["std", "sync"] }

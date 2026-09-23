@@ -59,7 +59,7 @@ fn tiny_info() -> ExFatInfo {
 #[test]
 fn oversized_upcase_data_length_does_not_preallocate() {
     let info = tiny_info();
-    let mut data = Cursor::new(Vec::<u8>::new());
+    let mut data = hadris_io::StdIo::new(Cursor::new(Vec::<u8>::new()));
     let mut table = UpcaseTable::new();
     // data_length claims 4 GiB on a 4 KiB volume. Must return an error, not
     // attempt a 4 GiB allocation (which the capped allocator turns into an abort).
@@ -70,7 +70,7 @@ fn oversized_upcase_data_length_does_not_preallocate() {
 #[test]
 fn checked_upcase_load_rejects_checksum_mismatch() {
     let info = tiny_info();
-    let mut data = Cursor::new(vec![0xFF, 0xFF, 1, 0]);
+    let mut data = hadris_io::StdIo::new(Cursor::new(vec![0xFF, 0xFF, 1, 0]));
     let mut table = UpcaseTable::new();
 
     let result = table.load_checked(&mut data, &info, 2, 4, true, 0);

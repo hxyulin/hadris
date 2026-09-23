@@ -26,7 +26,8 @@ Applications can use only the pieces they need.
 
 Format crates use Hadris `Read`, `Write`, and `Seek` abstractions instead of
 depending directly on `std::io`. The crate supplies sync and async traits and
-hosted adapters, while firmware and kernels can implement the same traits for
+explicit adapters: `StdIo` for `std::io` types and `FromEmbedded` for
+`embedded-io` devices. Firmware and kernels can implement the same traits for
 their own device handles.
 
 This is why the same parser code can run over a host file, a memory cursor, or

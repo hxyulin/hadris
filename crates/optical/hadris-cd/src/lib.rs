@@ -23,7 +23,7 @@
 //! // Create the hybrid image
 //! # // Use a Cursor for the doctest instead of a real file
 //! # let buffer = vec![0u8; 2 * 1024 * 1024]; // 2MB buffer
-//! # let file = Cursor::new(buffer);
+//! # let file = hadris_io::StdIo::new(Cursor::new(buffer));
 //! let options = OpticalImageOptions::default()
 //!     .volume_id("MY_DISC")
 //!     .joliet(hadris_cd::JolietLevel::Level3);
@@ -85,7 +85,7 @@ pub mod tree;
 /// Synchronous hybrid optical-image writer API.
 pub mod sync {
     pub use hadris_io::SeekFrom;
-    pub use hadris_io::sync::{Borrowed, Read, Seek, Write};
+    pub use hadris_io::sync::{Read, Seek, Write};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };

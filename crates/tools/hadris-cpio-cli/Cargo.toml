@@ -24,6 +24,7 @@ doc = false
 
 [dependencies]
 hadris-cpio = { workspace = true, features = ["std", "sync", "read", "write"] }
+hadris-io = { workspace = true, features = ["std", "sync"] }
 clap.workspace = true
 anyhow.workspace = true
 

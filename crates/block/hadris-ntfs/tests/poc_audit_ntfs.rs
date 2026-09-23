@@ -2,6 +2,7 @@
 //! allocation parsing, data-run arithmetic, and the public attr helpers.
 //! Every probe asserts graceful errors / bounded behavior; none should panic.
 
+use hadris_io::StdIo;
 use std::io::Cursor;
 
 use hadris_ntfs::NtfsError;
@@ -274,7 +275,7 @@ fn index_alloc_image(
 #[test]
 fn poc_crafted_image_mounts_and_walks() {
     let image = base_image();
-    let fs = NtfsFs::open(Cursor::new(&image)).expect("crafted image must mount");
+    let fs = NtfsFs::open(StdIo::new(Cursor::new(&image))).expect("crafted image must mount");
 
     let root = fs.root_dir();
     let entries = root.entries().unwrap();
@@ -299,7 +300,7 @@ fn poc_crafted_image_mounts_and_walks() {
 #[test]
 fn poc_index_allocation_blocks_walk() {
     let image = index_alloc_image(1024, &[0x01], 1024, None);
-    let fs = NtfsFs::open(Cursor::new(&image)).expect("crafted image must mount");
+    let fs = NtfsFs::open(StdIo::new(Cursor::new(&image))).expect("crafted image must mount");
     let entries = fs.root_dir().entries().unwrap();
     let names: Vec<&str> = entries.iter().map(|e| e.name()).collect();
     assert_eq!(names, ["INDXFILE.TXT"]);
@@ -312,7 +313,7 @@ fn poc_index_allocation_blocks_walk() {
 #[test]
 fn poc_huge_mft_index_is_rejected_without_overflow() {
     let image = base_image();
-    let fs = NtfsFs::open(Cursor::new(&image)).unwrap();
+    let fs = NtfsFs::open(StdIo::new(Cursor::new(&image))).unwrap();
     assert!(matches!(
         fs.read_mft_record(u64::MAX),
         Err(NtfsError::MftRecordOutOfBounds { .. })
@@ -335,7 +336,7 @@ fn poc_huge_data_run_length_is_rejected_without_overflow() {
     let bin = nonresident_attr(attr::ATTR_DATA, None, u64::MAX, 4096, 4096, &runs);
     put_record(&mut image, 8, &file_record(1, &[bin]));
 
-    let fs = NtfsFs::open(Cursor::new(&image)).unwrap();
+    let fs = NtfsFs::open(StdIo::new(Cursor::new(&image))).unwrap();
     let entry = fs.open_path("BIN.DAT").unwrap();
     let mut reader = fs.read_file(&entry).unwrap();
     let mut buf = [0u8; 512];
@@ -349,13 +350,13 @@ fn poc_huge_data_run_length_is_rejected_without_overflow() {
 fn poc_corrupt_index_allocation_variants_error_out() {
     // irs overridden to 4 bytes: block too small for fixups.
     let image = index_alloc_image(4, &[0x01], 4, None);
-    let fs = NtfsFs::open(Cursor::new(&image)).unwrap();
+    let fs = NtfsFs::open(StdIo::new(Cursor::new(&image))).unwrap();
     assert!(fs.root_dir().entries().is_err());
 
     // irs overridden to u32::MAX: must be rejected against the image length,
     // not used as an allocation size.
     let image = index_alloc_image(u32::MAX, &[0x01], 1024, None);
-    let fs = NtfsFs::open(Cursor::new(&image)).unwrap();
+    let fs = NtfsFs::open(StdIo::new(Cursor::new(&image))).unwrap();
     assert!(matches!(
         fs.root_dir().entries(),
         Err(NtfsError::InvalidAttribute) | Err(NtfsError::InvalidIndexEntry)
@@ -364,7 +365,7 @@ fn poc_corrupt_index_allocation_variants_error_out() {
     // Bitmap claims block 1 but the allocation stream covers only block 0's
     // data... runs cover 1024 bytes; reading block 1 must fail cleanly.
     let image = index_alloc_image(1024, &[0x03], 2048, None);
-    let fs = NtfsFs::open(Cursor::new(&image)).unwrap();
+    let fs = NtfsFs::open(StdIo::new(Cursor::new(&image))).unwrap();
     assert!(fs.root_dir().entries().is_err());
 
     // INDX block with a corrupted sector trailer: fixup mismatch.
@@ -383,7 +384,7 @@ fn poc_corrupt_index_allocation_variants_error_out() {
         b
     };
     let image = index_alloc_image(1024, &[0x01], 1024, Some(bad));
-    let fs = NtfsFs::open(Cursor::new(&image)).unwrap();
+    let fs = NtfsFs::open(StdIo::new(Cursor::new(&image))).unwrap();
     assert!(matches!(
         fs.root_dir().entries(),
         Err(NtfsError::FixupMismatch { .. })
@@ -405,7 +406,7 @@ fn poc_uninitialized_stream_beyond_volume_is_rejected() {
     );
     put_record(&mut image, 8, &file_record(1, &[bin]));
 
-    let fs = NtfsFs::open(Cursor::new(&image)).unwrap();
+    let fs = NtfsFs::open(StdIo::new(Cursor::new(&image))).unwrap();
     let entry = fs.open_path("BIN.DAT").unwrap();
     let mut reader = fs.read_file(&entry).unwrap();
     assert!(matches!(

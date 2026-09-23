@@ -9,10 +9,11 @@
 //!
 //! ```rust,no_run
 //! use hadris_udf::write::{UdfWriter, UdfWriteOptions, SimpleFile, SimpleDir};
+//! use hadris_io::StdIo;
 //! use std::io::Cursor;
 //!
 //! let mut buffer = vec![0u8; 10 * 1024 * 1024]; // 10MB
-//! let mut cursor = Cursor::new(&mut buffer[..]);
+//! let mut cursor = StdIo::new(Cursor::new(&mut buffer[..]));
 //!
 //! let mut root = SimpleDir::new("");
 //! root.add_file(SimpleFile::new("readme.txt", b"Hello, World!".to_vec()));
@@ -127,10 +128,7 @@ fn io_error(error: std::io::Error) -> crate::error::Error {
         std::io::ErrorKind::Interrupted => hadris_io::ErrorKind::Interrupted,
         _ => hadris_io::ErrorKind::Other,
     };
-    crate::error::Error::Io(hadris_io::Error::Context {
-        kind,
-        message: Some("reading a file source"),
-    })
+    crate::error::Error::Io(hadris_io::Error::new(kind, "reading a file source"))
 }
 
 /// A simple file for the high-level format API
@@ -760,10 +758,10 @@ impl<W: Write + Seek> UdfFormatter<W> {
             let want = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
             let got = match std::io::Read::read(&mut reader, &mut buffer[..want]) {
                 Ok(0) => {
-                    return Err(crate::error::Error::Io(hadris_io::Error::Context {
-                        kind: hadris_io::ErrorKind::UnexpectedEof,
-                        message: Some("file source ended before its declared length"),
-                    }));
+                    return Err(crate::error::Error::Io(hadris_io::Error::new(
+                        hadris_io::ErrorKind::UnexpectedEof,
+                        "file source ended before its declared length",
+                    )));
                 }
                 Ok(got) => got,
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -1692,6 +1690,7 @@ fn write_osta_charspec(buffer: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hadris_io::StdIo;
     use std::io::Cursor;
 
     #[test]
@@ -1724,7 +1723,7 @@ mod tests {
     #[test]
     fn test_format_empty_filesystem() {
         let mut buffer = vec![0u8; 2 * 1024 * 1024]; // 2MB
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
 
         let root = SimpleDir::root();
         let options = UdfWriteOptions::default();
@@ -1787,10 +1786,10 @@ mod tests {
         assert_eq!(root.files[1].len(), payload.len() as u64);
 
         let mut buffer = vec![0u8; 2 * 1024 * 1024];
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
         UdfWriter::create(cursor, &root, UdfWriteOptions::default()).unwrap();
 
-        let udf = crate::UdfVolume::open(Cursor::new(&buffer[..])).unwrap();
+        let udf = crate::UdfVolume::open(StdIo::new(Cursor::new(&buffer[..]))).unwrap();
         let dir = udf.root_dir().unwrap();
         for name in ["held.bin", "streamed.bin"] {
             let entry = dir.find(name).expect(name);
@@ -1804,7 +1803,7 @@ mod tests {
             FileSource::new(10, || Ok(Box::new(Cursor::new(vec![1u8; 4])) as Box<dyn std::io::Read + Send>)),
         ));
         let mut buffer = vec![0u8; 2 * 1024 * 1024];
-        assert!(UdfWriter::create(Cursor::new(&mut buffer[..]), &root, UdfWriteOptions::default()).is_err());
+        assert!(UdfWriter::create(StdIo::new(Cursor::new(&mut buffer[..])), &root, UdfWriteOptions::default()).is_err());
     }
 
     #[test]
@@ -1868,8 +1867,8 @@ mod tests {
         ));
 
         let mut buffer = vec![0u8; 2 * 1024 * 1024];
-        UdfWriter::create(Cursor::new(&mut buffer[..]), &root, UdfWriteOptions::default()).unwrap();
-        let udf = crate::UdfVolume::open(Cursor::new(&buffer[..])).unwrap();
+        UdfWriter::create(StdIo::new(Cursor::new(&mut buffer[..])), &root, UdfWriteOptions::default()).unwrap();
+        let udf = crate::UdfVolume::open(StdIo::new(Cursor::new(&buffer[..]))).unwrap();
         let dir = udf.root_dir().unwrap();
         let entry = dir.find("flaky.bin").unwrap();
         assert_eq!(udf.read_file(entry).unwrap(), payload);
@@ -1878,7 +1877,7 @@ mod tests {
     #[test]
     fn test_format_with_single_file() {
         let mut buffer = vec![0u8; 2 * 1024 * 1024]; // 2MB
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
 
         let mut root = SimpleDir::root();
         root.add_file(SimpleFile::new("readme.txt", b"Hello, World!".to_vec()));
@@ -1903,7 +1902,7 @@ mod tests {
     #[test]
     fn test_format_with_subdirectory() {
         let mut buffer = vec![0u8; 4 * 1024 * 1024]; // 4MB
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
 
         let mut root = SimpleDir::root();
         root.add_file(SimpleFile::new("root.txt", b"Root file".to_vec()));
@@ -1928,7 +1927,7 @@ mod tests {
     #[test]
     fn test_format_with_empty_file() {
         let mut buffer = vec![0u8; 2 * 1024 * 1024]; // 2MB
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
 
         let mut root = SimpleDir::root();
         root.add_file(SimpleFile::empty("empty.txt"));
@@ -1944,7 +1943,7 @@ mod tests {
     fn test_format_vrs_nsr_version() {
         // Test UDF 1.02 uses NSR02
         let mut buffer = vec![0u8; 2 * 1024 * 1024];
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
         let root = SimpleDir::root();
         let options = UdfWriteOptions {
             revision: crate::UdfRevision::V1_02,
@@ -1956,7 +1955,7 @@ mod tests {
 
         // Test UDF 2.01 uses NSR03
         let mut buffer2 = vec![0u8; 2 * 1024 * 1024];
-        let cursor2 = Cursor::new(&mut buffer2[..]);
+        let cursor2 = StdIo::new(Cursor::new(&mut buffer2[..]));
         let root2 = SimpleDir::root();
         let options2 = UdfWriteOptions {
             revision: crate::UdfRevision::V2_01,
@@ -1979,7 +1978,7 @@ mod tests {
         ] {
             let mut buffer = vec![0u8; 2 * 1024 * 1024];
             UdfWriter::create(
-                Cursor::new(&mut buffer[..]),
+                StdIo::new(Cursor::new(&mut buffer[..])),
                 &SimpleDir::root(),
                 UdfWriteOptions {
                     revision,
@@ -1987,7 +1986,7 @@ mod tests {
                 },
             )
             .unwrap();
-            let volume = crate::UdfVolume::open(Cursor::new(&buffer[..])).unwrap();
+            let volume = crate::UdfVolume::open(StdIo::new(Cursor::new(&buffer[..]))).unwrap();
             assert_eq!(volume.info().udf_revision, revision);
         }
     }
@@ -2000,7 +1999,7 @@ mod tests {
         let payload = b"Hello, UDF!";
 
         {
-            let cursor = Cursor::new(&mut buffer[..]);
+            let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
             let mut root = SimpleDir::root();
             root.add_file(SimpleFile::new("hello.txt", payload.to_vec()));
 
@@ -2021,7 +2020,7 @@ mod tests {
         assert_eq!(avdp_tag, 2, "AVDP tag ID should be 2");
 
         // Full reader roundtrip
-        let udf = crate::UdfVolume::open(Cursor::new(&buffer[..])).expect("open hadris-written image");
+        let udf = crate::UdfVolume::open(StdIo::new(Cursor::new(&buffer[..]))).expect("open hadris-written image");
         let root = udf.root_dir().expect("root_dir");
         let entry = root
             .entries()
@@ -2038,7 +2037,7 @@ mod tests {
         let file_name = "emoji-\u{1F600}.bin";
 
         {
-            let cursor = Cursor::new(&mut buffer[..]);
+            let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
             let mut root = SimpleDir::root();
             root.add_file(SimpleFile::new(file_name, b"payload".to_vec()));
 
@@ -2050,7 +2049,7 @@ mod tests {
             UdfWriter::create(cursor, &root, options).expect("Format should succeed");
         }
 
-        let udf = crate::UdfVolume::open(Cursor::new(&buffer[..])).expect("open");
+        let udf = crate::UdfVolume::open(StdIo::new(Cursor::new(&buffer[..]))).expect("open");
         assert_eq!(udf.info().volume_id, "SMOKETEST");
 
         let root = udf.root_dir().expect("root_dir");
@@ -2065,13 +2064,13 @@ mod tests {
         let large_data = vec![0x55; 10000];
 
         {
-            let cursor = Cursor::new(&mut buffer[..]);
+            let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
             let mut root = SimpleDir::root();
             root.add_file(SimpleFile::new("large.bin", large_data.clone()));
             UdfWriter::create(cursor, &root, UdfWriteOptions::default()).unwrap();
         }
 
-        let udf = crate::UdfVolume::open(Cursor::new(&buffer[..])).unwrap();
+        let udf = crate::UdfVolume::open(StdIo::new(Cursor::new(&buffer[..]))).unwrap();
         let root = udf.root_dir().unwrap();
         let entry = root
             .entries()
@@ -2084,7 +2083,7 @@ mod tests {
     #[test]
     fn test_format_large_file() {
         let mut buffer = vec![0u8; 8 * 1024 * 1024]; // 8MB
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
 
         let mut root = SimpleDir::root();
         // Create a file larger than one sector

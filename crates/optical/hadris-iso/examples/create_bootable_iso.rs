@@ -87,11 +87,11 @@ fn main() {
     };
 
     // Create the ISO in memory
-    let mut buffer = Cursor::new(vec![0u8; 512 * 1024]); // 512KB buffer
+    let mut buffer = hadris_io::StdIo::new(Cursor::new(vec![0u8; 512 * 1024])); // 512KB buffer
     IsoImageWriter::create(&mut buffer, files, format_options).expect("Failed to create ISO");
 
     // Write to file
-    let iso_data = buffer.into_inner();
+    let iso_data = buffer.into_inner().into_inner();
     std::fs::write("bootable.iso", &iso_data).expect("Failed to write ISO file");
 
     println!("Created bootable.iso ({} bytes)", iso_data.len());

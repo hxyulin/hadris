@@ -7,9 +7,9 @@
 //! are re-resolved by name through `FatDir::find` (guarded against ambiguous
 //! duplicate names and lossy OEM short-name decoding on corrupt images).
 
+use hadris_io::Cursor;
 use libfuzzer_sys::fuzz_target;
 use std::collections::HashSet;
-use std::io::Cursor;
 
 use hadris_fat::{FatVolume, FatVolumeReadExt, FileEntry};
 

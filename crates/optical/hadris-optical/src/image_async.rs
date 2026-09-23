@@ -1,23 +1,23 @@
 use crate::detect::OpticalFormats;
 use crate::{Error, OpenPolicy, OpticalFormat, Result};
 use hadris_io::SeekFrom;
-use hadris_io::r#async::{Borrowed, Read, Seek};
+use hadris_io::r#async::{Read, Seek};
 
 /// One asynchronously opened filesystem selected from an optical image.
 #[non_exhaustive]
 pub enum OpenOpticalImage<'a, S>
 where
-    S: Read + Seek<Error = <S as Read>::Error>,
+    S: Read + Seek,
 {
     /// An opened ISO 9660 filesystem.
-    Iso9660(hadris_iso::r#async::read::IsoImage<Borrowed<'a, S>>),
+    Iso9660(hadris_iso::r#async::read::IsoImage<&'a mut S>),
     /// An opened UDF filesystem.
-    Udf(hadris_udf::r#async::fs::UdfVolume<Borrowed<'a, S>>),
+    Udf(hadris_udf::r#async::fs::UdfVolume<&'a mut S>),
 }
 
 impl<'a, S> OpenOpticalImage<'a, S>
 where
-    S: Read + Seek<Error = <S as Read>::Error>,
+    S: Read + Seek,
 {
     /// Detects the image and opens the filesystem selected by `policy`.
     pub async fn open(source: &'a mut S, policy: OpenPolicy) -> Result<Self> {
@@ -40,18 +40,13 @@ where
                     .expect("preference policies always select a detected format"),
             )
         })?;
-        source
-            .seek(SeekFrom::Start(0))
-            .await
-            .map_err(|error| Error::Io(hadris_io::Error::erase(error)))?;
+        source.seek(SeekFrom::Start(0)).await.map_err(Error::Io)?;
         match selected {
-            OpticalFormat::Iso9660 => {
-                hadris_iso::r#async::read::IsoImage::open(Borrowed::new(source))
-                    .await
-                    .map(Self::Iso9660)
-                    .map_err(Error::Iso)
-            }
-            OpticalFormat::Udf => hadris_udf::r#async::fs::UdfVolume::open(Borrowed::new(source))
+            OpticalFormat::Iso9660 => hadris_iso::r#async::read::IsoImage::open(source)
+                .await
+                .map(Self::Iso9660)
+                .map_err(Error::Iso),
+            OpticalFormat::Udf => hadris_udf::r#async::fs::UdfVolume::open(source)
                 .await
                 .map(Self::Udf)
                 .map_err(Error::Udf),
@@ -67,7 +62,7 @@ where
     }
 
     /// Borrows the ISO 9660 handle when that format was selected.
-    pub fn as_iso9660(&self) -> Option<&hadris_iso::r#async::read::IsoImage<Borrowed<'a, S>>> {
+    pub fn as_iso9660(&self) -> Option<&hadris_iso::r#async::read::IsoImage<&'a mut S>> {
         match self {
             Self::Iso9660(image) => Some(image),
             Self::Udf(_) => None,
@@ -75,7 +70,7 @@ where
     }
 
     /// Borrows the UDF handle when that format was selected.
-    pub fn as_udf(&self) -> Option<&hadris_udf::r#async::fs::UdfVolume<Borrowed<'a, S>>> {
+    pub fn as_udf(&self) -> Option<&hadris_udf::r#async::fs::UdfVolume<&'a mut S>> {
         match self {
             Self::Udf(image) => Some(image),
             Self::Iso9660(_) => None,
@@ -85,7 +80,7 @@ where
     /// Mutably borrows the ISO 9660 handle when that format was selected.
     pub fn as_iso9660_mut(
         &mut self,
-    ) -> Option<&mut hadris_iso::r#async::read::IsoImage<Borrowed<'a, S>>> {
+    ) -> Option<&mut hadris_iso::r#async::read::IsoImage<&'a mut S>> {
         match self {
             Self::Iso9660(image) => Some(image),
             Self::Udf(_) => None,
@@ -93,9 +88,7 @@ where
     }
 
     /// Mutably borrows the UDF handle when that format was selected.
-    pub fn as_udf_mut(
-        &mut self,
-    ) -> Option<&mut hadris_udf::r#async::fs::UdfVolume<Borrowed<'a, S>>> {
+    pub fn as_udf_mut(&mut self) -> Option<&mut hadris_udf::r#async::fs::UdfVolume<&'a mut S>> {
         match self {
             Self::Udf(image) => Some(image),
             Self::Iso9660(_) => None,
@@ -105,8 +98,8 @@ where
     /// Closes the selected filesystem and returns the borrowed source.
     pub fn into_inner(self) -> &'a mut S {
         match self {
-            Self::Iso9660(image) => image.into_inner().0,
-            Self::Udf(image) => image.into_inner().0,
+            Self::Iso9660(image) => image.into_inner(),
+            Self::Udf(image) => image.into_inner(),
         }
     }
 }

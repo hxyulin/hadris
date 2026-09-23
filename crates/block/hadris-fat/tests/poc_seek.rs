@@ -26,7 +26,7 @@ fn fixture() -> (TempDir, PathBuf, Vec<u8>, usize) {
         .unwrap();
     file.set_len(IMAGE_SIZE).unwrap();
     FatVolumeFormatter::format(
-        file,
+        hadris_io::StdIo::new(file),
         FatFormatOptions::new(IMAGE_SIZE).fat_type(FatTypeSelection::Fat12),
     )
     .unwrap();
@@ -38,13 +38,13 @@ fn fixture() -> (TempDir, PathBuf, Vec<u8>, usize) {
         .map(|offset| (offset / cluster_size) as u8)
         .collect();
 
-    let fs = FatVolume::open(
+    let fs = FatVolume::open(hadris_io::StdIo::new(
         OpenOptions::new()
             .read(true)
             .write(true)
             .open(&path)
             .unwrap(),
-    )
+    ))
     .unwrap();
     let entry = fs.create_file(&fs.root_dir(), "SEEK.BIN").unwrap();
     let mut writer = fs.write_file(&entry).unwrap();
@@ -58,7 +58,10 @@ fn fixture() -> (TempDir, PathBuf, Vec<u8>, usize) {
 #[test]
 fn relative_seek_after_large_absolute_seek() {
     let (_tmp, path, _payload, _cluster_size) = fixture();
-    let fs = FatVolume::open(OpenOptions::new().read(true).open(path).unwrap()).unwrap();
+    let fs = FatVolume::open(hadris_io::StdIo::new(
+        OpenOptions::new().read(true).open(path).unwrap(),
+    ))
+    .unwrap();
     let entry = fs.root_dir().find("SEEK.BIN").unwrap().unwrap();
     let mut reader = fs.read_file(&entry).unwrap();
 
@@ -69,7 +72,10 @@ fn relative_seek_after_large_absolute_seek() {
 #[test]
 fn cache_enabled_after_seek_keeps_absolute_chain_origin() {
     let (_tmp, path, payload, cluster_size) = fixture();
-    let fs = FatVolume::open(OpenOptions::new().read(true).open(path).unwrap()).unwrap();
+    let fs = FatVolume::open(hadris_io::StdIo::new(
+        OpenOptions::new().read(true).open(path).unwrap(),
+    ))
+    .unwrap();
     let entry = fs.root_dir().find("SEEK.BIN").unwrap().unwrap();
     let mut reader = fs.read_file(&entry).unwrap();
 

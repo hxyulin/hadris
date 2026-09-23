@@ -28,10 +28,11 @@ embedded systems working with CD-ROM, DVD, and bootable optical-disc images.
 ```rust
 use std::fs::File;
 use std::io::BufReader;
+use hadris_io::StdIo;
 use hadris_iso::read::IsoImage;
 
 let file = File::open("image.iso")?;
-let reader = BufReader::new(file);
+let reader = StdIo::new(BufReader::new(file));
 let image = IsoImage::open(reader)?;
 
 // Iterate through root directory
@@ -47,6 +48,7 @@ for entry in root.iter(&image).entries() {
 ```rust
 use std::io::Cursor;
 use std::sync::Arc;
+use hadris_io::StdIo;
 use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
 use hadris_iso::boot::EmulationType;
 use hadris_iso::read::PathSeparator;
@@ -101,7 +103,7 @@ let format_options = IsoFormatOptions {
     strict_charset: false,
 };
 
-let mut buffer = Cursor::new(vec![0u8; 1024 * 1024]);
+let mut buffer = StdIo::new(Cursor::new(vec![0u8; 1024 * 1024]));
 IsoImageWriter::create(&mut buffer, files, format_options)?;
 ```
 

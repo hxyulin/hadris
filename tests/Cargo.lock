@@ -259,9 +259,9 @@ name = "hadris-io"
 version = "2.4.0"
 dependencies = [
  "bytemuck",
- "cfg-if",
  "embedded-io",
  "embedded-io-async",
+ "hadris-macros",
 ]
 
 [[package]]
@@ -305,6 +305,7 @@ version = "0.0.0"
 dependencies = [
  "fatfs",
  "hadris-fat",
+ "hadris-io",
  "hadris-iso",
  "tempfile",
 ]

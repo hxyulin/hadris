@@ -10,16 +10,12 @@ pub struct PartitionView<'a, S> {
 
 impl<'a, S> PartitionView<'a, S> {
     /// Creates a non-empty bounded view.
-    pub fn new(
-        source: &'a mut S,
-        byte_offset: u64,
-        byte_len: u64,
-    ) -> crate::Result<Self, hadris_io::ErrorKind> {
+    pub fn new(source: &'a mut S, byte_offset: u64, byte_len: u64) -> hadris_io::Result<Self> {
         if byte_len == 0 || byte_offset.checked_add(byte_len).is_none() {
-            return Err(crate::Error::InvalidView {
-                offset: byte_offset,
-                length: byte_len,
-            });
+            return Err(hadris_io::Error::new(
+                hadris_io::ErrorKind::InvalidInput,
+                "partition view is empty or overflows",
+            ));
         }
         Ok(Self {
             source,
@@ -48,6 +44,10 @@ impl<'a, S> PartitionView<'a, S> {
     pub fn into_inner(self) -> &'a mut S {
         self.source
     }
+}
+
+impl<S> embedded_io::ErrorType for PartitionView<'_, S> {
+    type Error = hadris_io::Error;
 }
 
 #[cfg(any(feature = "sync", feature = "async"))]

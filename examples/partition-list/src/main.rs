@@ -2,11 +2,13 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
+use hadris_io::StdIo;
 use hadris_part::{PartitionTable, PartitionTableReadExt};
 
 fn main() -> Result<()> {
     let (image_path, logical_block_size) = arguments()?;
     let mut image = File::open(&image_path)
+        .map(StdIo::new)
         .with_context(|| format!("failed to open {}", image_path.display()))?;
     let table = PartitionTable::read_from(&mut image, logical_block_size)
         .with_context(|| format!("failed to read partitions from {}", image_path.display()))?;

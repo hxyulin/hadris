@@ -268,13 +268,22 @@ lock. [Section 4.4](#44-sharing-and-locking) explains why.
 
 ### 4.1 `hadris-io`
 
-**Traits.** Keep `hadris_io::{Read, Write, Seek}` and their async
-counterparts, rebased on `embedded-io`:
+**Traits.** `hadris_io::{Read, Write, Seek}` and their async counterparts are
+Hadris's own traits. They have no associated error type and return
+`hadris_io::Result<T>`. Implementors write only `read`, `write`/`flush` and
+`seek`. Everything else has a default.
 
-- `impl<T: embedded_io::Read + ?Sized> Read for T` is the only blanket impl, and it exists in every build. This addresses #16 and #18.
-- `std` adds `hadris_io::StdIo<T>`, a newtype that implements the Hadris traits for `T: std::io::Read/Write/Seek`. Hadris handles implement `std::io` traits under `std`. Enabling `std` only adds items.
-- `impl<T: Read + ?Sized> Read for &mut T` in sync mode too. The `Borrowed` wrapper goes away.
-- `ReadWrite` and `ReadWriteSeek` exist in both modes.
+- `&mut T` implements each trait when `T` does. With `alloc`, so does `Box<T>`. The `Borrowed` wrapper goes away, and generic code can pass `&mut R` to anything that takes a reader.
+- `FromEmbedded<T>` adapts an `embedded-io` or `embedded-io-async` device. Its error becomes the `hadris_io::Error` source.
+- `std` adds `StdIo<T>`, which implements the Hadris traits for `T: std::io::Read/Write/Seek`, and `ToStd<T>`, which exposes a Hadris reader or writer as `std::io`. Enabling `std` only adds items.
+- `ReadSeek`, `ReadWrite` and `ReadWriteSeek` exist in both modes.
+- The sync and async traits come from one source file, so they cannot drift.
+
+A blanket `impl<T: embedded_io::Read> Read for T` was the first plan. It fails
+on coherence. A `&mut T` impl overlaps it, and without that impl, generic code
+holding `R: Read` cannot pass `&mut R` on, because `&mut R` is not an
+`embedded_io::Read`. Explicit adapters cost one wrapper at the edge and remove
+the whole class of problem. This addresses #16 and #18.
 
 ```rust
 let file = std::fs::File::open("disk.img")?;
@@ -288,6 +297,7 @@ let vol = hadris_fat::sync::FatVolume::open(dev, VolumeOptions::default())?;
 #[non_exhaustive]
 pub struct Error {
     kind: ErrorKind,
+    message: Option<&'static str>,
     #[cfg(feature = "alloc")]
     source: Option<Box<dyn core::error::Error + Send + Sync>>,
 }
@@ -295,7 +305,9 @@ pub struct Error {
 
 The field is private, so the `alloc` gate does not change the public shape. With
 `alloc`, `source()` returns the device error. Without `alloc`, only the kind
-survives, which matches V2. `erase` is removed. `core::error::Error` is used
+survives, which matches V2. `Error::new(kind, message)` covers errors raised by
+Hadris itself, and `downcast_source` recovers a typed device error. `erase`
+and `from_source` are removed. `core::error::Error` is used
 everywhere, so error traits need no `std` gate.
 
 A generic `Error<E>` was the other option. It is lossless without `alloc`, but
@@ -315,7 +327,8 @@ pub trait ByteSource {
 
 `ByteSource` is positional so writers can read a file twice (checksum pass,
 data pass) without a seek contract. The async module has the same trait with
-`async fn read_at`. `hadris-fs::Content` wraps it (4.7).
+`async fn read_at`. `&[u8]`, `Vec<u8>` and `&mut S` implement it, and
+`SeekSource<T>` adapts any `Read + Seek`. `hadris-fs::Content` wraps it (4.7).
 
 ### 4.2 `hadris-storage`
 

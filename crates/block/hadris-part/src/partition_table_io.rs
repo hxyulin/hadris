@@ -9,7 +9,7 @@ use crate::{PartitionTable, MasterBootRecord, Error, PartitionSchemeType, Result
 #[cfg(all(feature = "alloc", feature = "read"))]
 pub async fn detect<R>(source: &mut R) -> Result<PartitionSchemeType>
 where
-    R: Read + Seek<Error = <R as Read>::Error>,
+    R: Read + Seek,
 {
     let original = source.stream_position().await.map_err(Error::from)?;
     source.seek(SeekFrom::Start(0)).await.map_err(Error::from)?;
@@ -24,7 +24,7 @@ where
 #[cfg(all(feature = "alloc", feature = "read"))]
 pub async fn open<R>(source: &mut R, logical_block_size: u32) -> Result<PartitionTable>
 where
-    R: Read + Seek<Error = <R as Read>::Error>,
+    R: Read + Seek,
 {
     PartitionTable::read_from(source, logical_block_size).await
 }

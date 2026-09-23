@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::BufReader;
 
+use hadris_io::StdIo;
 use hadris_iso::joliet::JolietLevel;
 use hadris_iso::read::IsoImage;
 use hadris_iso::types::Endian;
@@ -13,7 +14,7 @@ use super::Result;
 /// Display information about an ISO image
 pub fn info(args: InfoArgs) -> Result<()> {
     let file = File::open(&args.input)?;
-    let reader = BufReader::new(file);
+    let reader = StdIo::new(BufReader::new(file));
     let iso = IsoImage::open(reader)?;
 
     println!("ISO 9660 Image: {}", args.input.display());

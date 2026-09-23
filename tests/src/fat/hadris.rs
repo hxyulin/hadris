@@ -6,6 +6,7 @@ use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter}
 use hadris_fat::raw::DirEntryAttrFlags;
 use hadris_fat::write::FileWriter;
 use hadris_fat::{FatDir, FatType, FatVolume, FatVolumeReadExt, FatVolumeWriteExt};
+use hadris_io::StdIo;
 
 use super::adapter::FatAdapter;
 use super::model::{EntryState, FsState, Operation};
@@ -14,6 +15,8 @@ use crate::harness::tree::EntryData;
 use crate::harness::{join_path, split_parent};
 
 pub const NAME: &str = "Hadris";
+
+type Image = StdIo<File>;
 
 /// The Hadris FAT implementation as a peer of the external tools.
 pub struct HadrisFatAdapter {
@@ -25,13 +28,13 @@ impl HadrisFatAdapter {
         Self { image }
     }
 
-    fn open(&self) -> Result<FatVolume<File>, String> {
+    fn open(&self) -> Result<FatVolume<Image>, String> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(&self.image)
             .map_err(|error| error.to_string())?;
-        FatVolume::open(file).map_err(|error| error.to_string())
+        FatVolume::open(StdIo::new(file)).map_err(|error| error.to_string())
     }
 
     fn put_file(&self, path: &str, contents: &[u8], replace: bool) -> Result<(), String> {
@@ -180,7 +183,8 @@ pub fn format(path: &Path, case: FatCase) -> Result<(), String> {
         .fat_type(selection)
         .volume_label(LABEL)
         .volume_id(0x4841_4452);
-    let volume = FatVolumeFormatter::format(file, options).map_err(|error| error.to_string())?;
+    let volume =
+        FatVolumeFormatter::format(StdIo::new(file), options).map_err(|error| error.to_string())?;
     if volume.fat_type() != expected {
         return Err(format!(
             "{} formatted as {:?}, expected {:?}",
@@ -193,7 +197,10 @@ pub fn format(path: &Path, case: FatCase) -> Result<(), String> {
     Ok(())
 }
 
-fn open_dir_path<'a>(volume: &'a FatVolume<File>, path: &str) -> Result<FatDir<'a, File>, String> {
+fn open_dir_path<'a>(
+    volume: &'a FatVolume<Image>,
+    path: &str,
+) -> Result<FatDir<'a, Image>, String> {
     let mut dir = volume.root_dir();
     for component in path.split('/').filter(|part| !part.is_empty()) {
         dir = dir.open_dir(component).map_err(|error| error.to_string())?;
@@ -201,7 +208,7 @@ fn open_dir_path<'a>(volume: &'a FatVolume<File>, path: &str) -> Result<FatDir<'
     Ok(dir)
 }
 
-fn write_all(writer: &mut FileWriter<'_, File>, mut contents: &[u8]) -> Result<(), String> {
+fn write_all(writer: &mut FileWriter<'_, Image>, mut contents: &[u8]) -> Result<(), String> {
     while !contents.is_empty() {
         let written = writer.write(contents).map_err(|error| error.to_string())?;
         if written == 0 {
@@ -213,8 +220,8 @@ fn write_all(writer: &mut FileWriter<'_, File>, mut contents: &[u8]) -> Result<(
 }
 
 fn snapshot_dir(
-    volume: &FatVolume<File>,
-    dir: FatDir<'_, File>,
+    volume: &FatVolume<Image>,
+    dir: FatDir<'_, Image>,
     path: &str,
     entries: &mut BTreeMap<String, EntryState>,
 ) -> Result<(), String> {

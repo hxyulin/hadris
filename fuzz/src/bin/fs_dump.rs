@@ -11,7 +11,7 @@
 //! On mount/parse failure (or panic) print nothing and exit 0 — differential
 //! testing only compares images both sides can mount.
 
-use std::io::Cursor;
+use hadris_io::Cursor;
 
 const DEPTH_CAP: u32 = 64;
 const ENTRY_BUDGET: u32 = 200_000;
@@ -192,10 +192,7 @@ fn dump_iso(data: &[u8]) -> Vec<String> {
                     stack.push((child, format!("{child_path}/"), depth + 1));
                 }
             } else {
-                let content = match image.read_file(&entry) {
-                    Ok(bytes) => bytes,
-                    Err(_) => Vec::new(),
-                };
+                let content = image.read_file(&entry).unwrap_or_default();
                 let head = &content[..content.len().min(CONTENT_CAP)];
                 lines.push(file_line(entry.total_size(), head, &child_path));
             }
@@ -235,10 +232,7 @@ fn dump_udf(data: &[u8]) -> Vec<String> {
                     stack.push((child, format!("{child_path}/"), depth + 1));
                 }
             } else {
-                let content = match fs.read_file(entry) {
-                    Ok(bytes) => bytes,
-                    Err(_) => Vec::new(),
-                };
+                let content = fs.read_file(entry).unwrap_or_default();
                 let head = &content[..content.len().min(CONTENT_CAP)];
                 lines.push(file_line(entry.size, head, &child_path));
             }

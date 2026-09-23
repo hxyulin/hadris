@@ -459,6 +459,7 @@ dependencies = [
  "hadris-block",
  "hadris-cpio",
  "hadris-fs",
+ "hadris-io",
  "hadris-optical",
 ]
 
@@ -491,6 +492,7 @@ version = "2.4.0"
 dependencies = [
  "clap",
  "hadris-cd",
+ "hadris-io",
  "hadris-iso",
  "hadris-udf",
  "libc",
@@ -530,6 +532,7 @@ dependencies = [
  "anyhow",
  "clap",
  "hadris-cpio",
+ "hadris-io",
  "libc",
 ]
 
@@ -539,6 +542,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "hadris-cpio",
+ "hadris-io",
 ]
 
 [[package]]
@@ -547,6 +551,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "hadris-fat",
+ "hadris-io",
 ]
 
 [[package]]
@@ -554,6 +559,7 @@ name = "hadris-example-optical-detect"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "hadris-io",
  "hadris-optical",
 ]
 
@@ -562,6 +568,7 @@ name = "hadris-example-partition-list"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "hadris-io",
  "hadris-part",
 ]
 
@@ -591,6 +598,7 @@ dependencies = [
  "anyhow",
  "clap",
  "hadris-fat",
+ "hadris-io",
  "libc",
  "tempfile",
 ]
@@ -607,9 +615,9 @@ name = "hadris-io"
 version = "2.4.0"
 dependencies = [
  "bytemuck",
- "cfg-if",
  "embedded-io",
  "embedded-io-async",
+ "hadris-macros",
 ]
 
 [[package]]
@@ -637,6 +645,7 @@ name = "hadris-iso-cli"
 version = "2.4.0"
 dependencies = [
  "clap",
+ "hadris-io",
  "hadris-iso",
  "libc",
  "tempfile",
@@ -716,6 +725,7 @@ name = "hadris-udf-cli"
 version = "2.4.0"
 dependencies = [
  "clap",
+ "hadris-io",
  "hadris-udf",
  "libc",
  "tracing",

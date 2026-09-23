@@ -1,8 +1,10 @@
 use std::fs::File;
-use std::io::{BufReader, Read, Seek};
+use std::io::BufReader;
 
+use hadris_io::StdIo;
 use hadris_iso::directory::{DirectoryRef, FileFlags};
 use hadris_iso::read::IsoImage;
+use hadris_iso::{Read, Seek};
 
 use super::super::args::TreeArgs;
 
@@ -11,7 +13,7 @@ use super::{Result, display_name, navigate_to_path};
 /// Display directory tree
 pub fn tree(args: TreeArgs) -> Result<()> {
     let file = File::open(&args.input)?;
-    let reader = BufReader::new(file);
+    let reader = StdIo::new(BufReader::new(file));
     let iso = IsoImage::open(reader)?;
     let entry_type = iso.root_dir().entry_type();
 

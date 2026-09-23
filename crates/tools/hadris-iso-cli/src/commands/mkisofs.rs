@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{self, Seek, Write};
 use std::num::NonZeroU16;
 
+use hadris_io::StdIo;
 use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
 use hadris_iso::boot::{EmulationType, PlatformId};
 use hadris_iso::joliet::JolietLevel;
@@ -101,7 +102,7 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
     let mut buffer = io::Cursor::new(vec![0u8; estimated_size as usize]);
 
     // Write ISO to buffer
-    IsoImageWriter::create(&mut buffer, input, format_options)?;
+    IsoImageWriter::create(StdIo::new(&mut buffer), input, format_options)?;
 
     // Seek to end to get actual size
     buffer.seek(io::SeekFrom::End(0))?;

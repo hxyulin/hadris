@@ -24,7 +24,7 @@ mod fat32_image {
     const FSINFO_TRAIL_SIG: u32 = 0xAA550000;
     pub const TOTAL_DATA_CLUSTERS: u32 = 256;
 
-    pub fn create_fat32_image() -> Cursor<Vec<u8>> {
+    pub fn create_fat32_image() -> hadris_io::StdIo<Cursor<Vec<u8>>> {
         let data_start_sector = RESERVED_SECTORS as u32 + FAT_COUNT as u32 * SECTORS_PER_FAT;
         let total_sectors = data_start_sector + TOTAL_DATA_CLUSTERS;
         let total_size = total_sectors as usize * SECTOR_SIZE;
@@ -35,7 +35,7 @@ mod fat32_image {
         write_fat_table(&mut image, fat_start);
         let fat2_start = fat_start + SECTORS_PER_FAT as usize * SECTOR_SIZE;
         write_fat_table(&mut image, fat2_start);
-        Cursor::new(image)
+        hadris_io::StdIo::new(Cursor::new(image))
     }
 
     fn write_boot_sector(image: &mut [u8]) {
@@ -135,7 +135,7 @@ mod fat16_image {
     const SECTORS_PER_FAT: u16 = 32;
     pub const ROOT_ENTRY_COUNT: u16 = 512;
 
-    pub fn create_fat16_image() -> Cursor<Vec<u8>> {
+    pub fn create_fat16_image() -> hadris_io::StdIo<Cursor<Vec<u8>>> {
         let root_dir_sectors = (ROOT_ENTRY_COUNT as usize * 32).div_ceil(SECTOR_SIZE);
         let data_start_sector = RESERVED_SECTORS as usize
             + FAT_COUNT as usize * SECTORS_PER_FAT as usize
@@ -149,7 +149,7 @@ mod fat16_image {
         write_fat_table(&mut image, fat_start);
         let fat2_start = fat_start + SECTORS_PER_FAT as usize * SECTOR_SIZE;
         write_fat_table(&mut image, fat2_start);
-        Cursor::new(image)
+        hadris_io::StdIo::new(Cursor::new(image))
     }
 
     fn write_boot_sector(image: &mut [u8], total_sectors: u32) {
@@ -254,7 +254,7 @@ fn b1_create_dir_leaks_cluster_on_directory_full() {
     // CORRECT behavior: the failed create_dir must not have leaked a cluster.
     // Empty files consume no data clusters, so a correct implementation leaves
     // the FAT with zero allocated data clusters.
-    let bytes = fs.into_inner().into_inner();
+    let bytes = fs.into_inner().into_inner().into_inner();
     let allocated_after = fat16_image::allocated_fat_entries(&bytes);
     assert_eq!(
         allocated_after, 0,
@@ -794,13 +794,13 @@ fn legacy_case_colliding_long_names_prefer_exact_match() {
     let second_short = second.short_name().raw_bytes();
     let second_lfn_offset = fat32_image::data_start_bytes() + second.offset_within_cluster - 64;
 
-    let mut image = fs.into_inner().into_inner();
+    let mut image = fs.into_inner().into_inner().into_inner();
     legacy_lfn::replace_two_entry_name(
         &mut image[second_lfn_offset..second_lfn_offset + 64],
         "LEGACY-ONE.TXT",
     );
 
-    let fs = FatVolume::open(std::io::Cursor::new(image)).expect("reopen");
+    let fs = FatVolume::open(hadris_io::StdIo::new(std::io::Cursor::new(image))).expect("reopen");
     let root = fs.root_dir();
     assert_eq!(
         root.find("Legacy-One.txt")
@@ -860,8 +860,10 @@ mod fail_link {
 
     pub struct FailSecondClusterLink(Cursor<Vec<u8>>);
 
-    pub fn device(inner: Cursor<Vec<u8>>) -> FailSecondClusterLink {
-        FailSecondClusterLink(inner)
+    pub fn device(
+        inner: hadris_io::StdIo<Cursor<Vec<u8>>>,
+    ) -> hadris_io::StdIo<FailSecondClusterLink> {
+        hadris_io::StdIo::new(FailSecondClusterLink(inner.into_inner()))
     }
 
     impl Write for FailSecondClusterLink {
@@ -919,8 +921,8 @@ mod fail_after {
     /// mount or lookup.
     pub struct FailingWrites(Cursor<Vec<u8>>);
 
-    pub fn device(inner: Cursor<Vec<u8>>) -> FailingWrites {
-        FailingWrites(inner)
+    pub fn device(inner: hadris_io::StdIo<Cursor<Vec<u8>>>) -> hadris_io::StdIo<FailingWrites> {
+        hadris_io::StdIo::new(FailingWrites(inner.into_inner()))
     }
 
     impl Write for FailingWrites {

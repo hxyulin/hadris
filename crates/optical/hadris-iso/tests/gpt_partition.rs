@@ -1,6 +1,7 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
+use hadris_io::StdIo;
 use hadris_iso::boot::EmulationType;
 use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
 use hadris_iso::write::options::{
@@ -88,11 +89,11 @@ fn build_iso(
     hybrid_boot: HybridBootOptions,
 ) -> Result<Vec<u8>, hadris_iso::write::IsoCreationError> {
     let buffer = IsoImageWriter::create(
-        Cursor::new(Vec::new()),
+        StdIo::new(Cursor::new(Vec::new())),
         input_files(),
         format_options(hybrid_boot),
     )?;
-    Ok(buffer.into_inner())
+    Ok(buffer.into_inner().into_inner())
 }
 
 fn iso_space_sectors_512(iso: &[u8]) -> u64 {
@@ -102,7 +103,7 @@ fn iso_space_sectors_512(iso: &[u8]) -> u64 {
 }
 
 fn read_gpt(iso: &[u8]) -> GptDisk {
-    let mut cursor = Cursor::new(iso.to_vec());
+    let mut cursor = StdIo::new(Cursor::new(iso.to_vec()));
     GptDisk::read_from(&mut cursor, 512).expect("failed to read back GPT disk")
 }
 

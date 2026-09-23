@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+use hadris_io::StdIo;
 
 fn main() -> Result<()> {
     let (source_path, archive_path) = arguments()?;
@@ -11,7 +12,7 @@ fn main() -> Result<()> {
         .with_context(|| format!("failed to scan {}", source_path.display()))?;
     let output = File::create(&archive_path)
         .with_context(|| format!("failed to create {}", archive_path.display()))?;
-    let output = BufWriter::new(output);
+    let output = StdIo::new(BufWriter::new(output));
 
     CpioArchiveWriter::new(output, CpioWriteOptions::default())
         .finish(&tree)

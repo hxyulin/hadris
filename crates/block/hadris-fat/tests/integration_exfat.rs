@@ -225,7 +225,7 @@ fn test_read_external_exfat_basic() {
         .read_to_end(&mut exfat_data)
         .unwrap();
 
-    let cursor = Cursor::new(exfat_data);
+    let cursor = hadris_io::StdIo::new(Cursor::new(exfat_data));
     let fs =
         ExFatVolume::open(cursor).expect("hadris-fat should be able to open external exFAT image");
 
@@ -264,7 +264,7 @@ fn test_read_exfat_volume_info() {
     }
 
     let exfat_data = fs::read(&image_path).unwrap();
-    let cursor = Cursor::new(exfat_data);
+    let cursor = hadris_io::StdIo::new(Cursor::new(exfat_data));
 
     let fs = ExFatVolume::open(cursor).expect("Should be able to open exFAT image");
 
@@ -361,7 +361,7 @@ fn test_various_image_sizes() {
         }
 
         let exfat_data = fs::read(&image_path).unwrap();
-        let cursor = Cursor::new(exfat_data);
+        let cursor = hadris_io::StdIo::new(Cursor::new(exfat_data));
 
         let fs = ExFatVolume::open(cursor)
             .unwrap_or_else(|e| panic!("Failed to open {size}MB image: {e:?}"));
@@ -404,7 +404,7 @@ mod write_tests {
 
         let options = ExFatFormatOptions::default().volume_label("HADRIS");
 
-        format_exfat(&mut file, size_bytes, &options)
+        format_exfat(hadris_io::StdIo::new(&mut file), size_bytes, &options)
             .expect("hadris-fat should be able to format exFAT");
 
         // Flush and reopen
@@ -442,7 +442,7 @@ mod write_tests {
 
         let options = ExFatFormatOptions::default().volume_label("HADRIS");
 
-        format_exfat(&mut file, size_bytes, &options)
+        format_exfat(hadris_io::StdIo::new(&mut file), size_bytes, &options)
             .expect("hadris-fat should be able to format exFAT");
 
         file.sync_all().unwrap();
@@ -450,7 +450,7 @@ mod write_tests {
 
         // Re-open and read with hadris-fat
         let exfat_data = fs::read(&image_path).unwrap();
-        let cursor = Cursor::new(exfat_data);
+        let cursor = hadris_io::StdIo::new(Cursor::new(exfat_data));
 
         let fs = ExFatVolume::open(cursor)
             .expect("hadris-fat should be able to read its own formatted image");
@@ -486,7 +486,7 @@ mod write_tests {
 
         let options = ExFatFormatOptions::default().volume_label("FSCKTEST");
 
-        format_exfat(&mut file, size_bytes, &options)
+        format_exfat(hadris_io::StdIo::new(&mut file), size_bytes, &options)
             .expect("hadris-fat should be able to format exFAT");
 
         file.sync_all().unwrap();
@@ -520,7 +520,7 @@ mod write_tests {
 
         let options = ExFatFormatOptions::default().volume_label("SEVENZIP");
 
-        format_exfat(&mut file, size_bytes, &options)
+        format_exfat(hadris_io::StdIo::new(&mut file), size_bytes, &options)
             .expect("hadris-fat should be able to format exFAT");
 
         file.sync_all().unwrap();

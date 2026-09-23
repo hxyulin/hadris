@@ -38,13 +38,13 @@ fn sync_probe_distinguishes_iso_udf_and_bridge_and_restores_position() {
     ];
 
     for (image, iso, udf) in cases {
-        let mut source = std::io::Cursor::new(image);
-        source.seek(SeekFrom::Start(37)).unwrap();
+        let mut source = hadris_io::StdIo::new(std::io::Cursor::new(image));
+        source.get_mut().seek(SeekFrom::Start(37)).unwrap();
         let formats = detect(&mut source).unwrap().unwrap();
         assert_eq!(formats.has_iso9660(), iso);
         assert_eq!(formats.udf(), udf);
         assert_eq!(formats.is_bridge(), iso && udf.is_some());
-        assert_eq!(source.stream_position().unwrap(), 37);
+        assert_eq!(source.get_mut().stream_position().unwrap(), 37);
     }
 }
 
@@ -69,13 +69,10 @@ fn detects_images_created_by_optical_writer() {
         ),
     ];
     for (options, iso, udf) in cases {
-        let mut image = std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
-        hadris_optical::cd::OpticalImageWriter::new(
-            hadris_io::sync::Borrowed::new(&mut image),
-            options,
-        )
-        .finish(hadris_optical::cd::FileTree::new())
-        .unwrap();
+        let mut image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]));
+        hadris_optical::cd::OpticalImageWriter::new(&mut image, options)
+            .finish(hadris_optical::cd::FileTree::new())
+            .unwrap();
 
         let formats = hadris_optical::detect::sync::detect(&mut image)
             .unwrap()

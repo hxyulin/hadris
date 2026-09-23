@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+use hadris_io::StdIo;
 
 pub fn create(directory: PathBuf, output: PathBuf, crc: bool) -> Result<()> {
     let tree = FileTree::from_fs(&directory)
@@ -12,7 +13,7 @@ pub fn create(directory: PathBuf, output: PathBuf, crc: bool) -> Result<()> {
     let options = CpioWriteOptions { use_crc: crc };
     let file = File::create(&output)
         .with_context(|| format!("Failed to create output file: {}", output.display()))?;
-    let buf = BufWriter::new(file);
+    let buf = StdIo::new(BufWriter::new(file));
 
     CpioArchiveWriter::new(buf, options)
         .finish(&tree)

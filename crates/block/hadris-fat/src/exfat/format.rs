@@ -817,7 +817,7 @@ mod tests {
         let mut buffer = vec![0u8; size as usize];
 
         {
-            let cursor = Cursor::new(&mut buffer[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut buffer[..]));
             let options = ExFatFormatOptions::new();
             let params = calculate_layout(size, &options).unwrap();
 
@@ -906,7 +906,7 @@ mod tests {
         // Full integration test: format and open filesystem
         let size = 2 * 1024 * 1024u64; // 2 MB
         let mut buffer = vec![0u8; size as usize];
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut buffer[..]));
 
         let options = ExFatFormatOptions::new().volume_label("TEST");
         let fs = format_exfat(cursor, size, &options).unwrap();

@@ -3,6 +3,8 @@
 //! an error, so `entries()` yielded the same `Err` forever.
 
 use std::io::Cursor;
+
+use hadris_io::StdIo;
 use std::sync::Arc;
 
 use hadris_iso::read::{IsoImage, PathSeparator};
@@ -26,9 +28,9 @@ fn write_bytes(files: Vec<IsoFile>) -> Vec<u8> {
         path_separator: PathSeparator::ForwardSlash,
         files,
     };
-    let mut buffer = Cursor::new(vec![0u8; 2 * 1024 * 1024]);
+    let mut buffer = StdIo::new(Cursor::new(vec![0u8; 2 * 1024 * 1024]));
     IsoImageWriter::create(&mut buffer, input, options).expect("write ISO");
-    buffer.into_inner()
+    buffer.into_inner().into_inner()
 }
 
 fn file(name: &str) -> IsoFile {
@@ -59,7 +61,7 @@ fn a_record_that_does_not_parse_ends_the_directory_instead_of_repeating() {
     let broken = root_record_offset(&bytes, 2);
     bytes[broken + 6] ^= 0xFF;
 
-    let image = IsoImage::open(Cursor::new(bytes)).expect("open ISO");
+    let image = IsoImage::open(StdIo::new(Cursor::new(bytes))).expect("open ISO");
     let root = image.root_dir();
     let results: Vec<_> = image.open_dir(root.dir_ref()).entries().take(64).collect();
 

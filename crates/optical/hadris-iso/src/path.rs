@@ -204,7 +204,7 @@ impl<DATA: Read + Seek> Iterator for PathTableEntryIter<'_, DATA> {
         let mut data = self.data.lock();
         try_or_end!(data
             .seek(SeekFrom::Start(self.current))
-            .map_err(Error::erase));
+            );
         let entry = try_or_end!(PathTableEntry::parse(
             data.deref_mut(),
             EndianType::NativeEndian,

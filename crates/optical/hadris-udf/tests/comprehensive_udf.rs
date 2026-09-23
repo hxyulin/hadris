@@ -1,3 +1,4 @@
+use hadris_io::StdIo;
 use std::io::Cursor;
 
 use hadris_udf::descriptor::TagIdentifier;
@@ -8,10 +9,15 @@ use hadris_udf::{SECTOR_SIZE, UdfVolume};
 fn image_with_file(name: &str, contents: &[u8]) -> Vec<u8> {
     let mut root = SimpleDir::root();
     root.add_file(SimpleFile::new(name, contents.to_vec()));
-    UdfWriter::create(Cursor::new(Vec::new()), &root, UdfWriteOptions::default())
-        .unwrap()
-        .target
-        .into_inner()
+    UdfWriter::create(
+        StdIo::new(Cursor::new(Vec::new())),
+        &root,
+        UdfWriteOptions::default(),
+    )
+    .unwrap()
+    .target
+    .into_inner()
+    .into_inner()
 }
 
 #[test]
@@ -21,12 +27,12 @@ fn invalid_and_truncated_images_are_rejected() {
         vec![0_u8; 16 * SECTOR_SIZE],
         vec![0_u8; 257 * SECTOR_SIZE],
     ] {
-        assert!(UdfVolume::open(Cursor::new(image)).is_err());
+        assert!(UdfVolume::open(StdIo::new(Cursor::new(image))).is_err());
     }
 
     let mut image = image_with_file("file.txt", b"contents");
     image[16 * SECTOR_SIZE + 1..16 * SECTOR_SIZE + 6].copy_from_slice(b"WRONG");
-    assert!(UdfVolume::open(Cursor::new(image)).is_err());
+    assert!(UdfVolume::open(StdIo::new(Cursor::new(image))).is_err());
 }
 
 #[test]
@@ -48,7 +54,7 @@ fn tag_identifier_conversions_cover_volume_and_file_descriptors() {
 #[test]
 fn writer_fids_are_aligned_parseable_and_roundtrip_the_filename() {
     let image = image_with_file("aligned-name.txt", b"payload");
-    let volume = UdfVolume::open(Cursor::new(&image)).unwrap();
+    let volume = UdfVolume::open(StdIo::new(Cursor::new(&image))).unwrap();
     let partition_start = volume.info().partition_start as usize;
     let root = volume.root_dir().unwrap();
     let entry = root.find("aligned-name.txt").unwrap();
@@ -74,7 +80,7 @@ fn writer_fids_are_aligned_parseable_and_roundtrip_the_filename() {
 #[test]
 fn writer_closes_lvid_with_partition_size_metadata() {
     let image = image_with_file("file.txt", b"contents");
-    let volume = UdfVolume::open(Cursor::new(&image)).unwrap();
+    let volume = UdfVolume::open(StdIo::new(Cursor::new(&image))).unwrap();
     let partition_length = volume.info().partition_length;
     let lvid = &image[289 * SECTOR_SIZE..290 * SECTOR_SIZE];
 

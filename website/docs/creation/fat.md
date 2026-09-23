@@ -13,6 +13,7 @@ and other targets implementing the selected Hadris I/O mode.
 ```toml
 [dependencies]
 hadris-fat = { version = "2.4.0", features = ["write", "sync", "lfn"] }
+hadris-io = "2.4.0"
 ```
 
 ## Format an image file
@@ -25,8 +26,9 @@ part of an external contract.
 use std::fs::OpenOptions;
 
 use hadris_fat::format::{FatTypeSelection, FatVolumeFormatter, FatFormatOptions};
+use hadris_io::StdIo;
 
-fn main() -> hadris_fat::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     const SIZE: u64 = 64 * 1024 * 1024;
 
     let image = OpenOptions::new()
@@ -41,7 +43,7 @@ fn main() -> hadris_fat::Result<()> {
         .volume_label("HADRIS")
         .fat_type(FatTypeSelection::Fat16);
 
-    let fs = FatVolumeFormatter::format(image, options)?;
+    let fs = FatVolumeFormatter::format(StdIo::new(image), options)?;
     assert_eq!(fs.volume_info().volume_label(), "HADRIS");
     Ok(())
 }
@@ -96,10 +98,12 @@ For tests, format a fixed-size byte buffer:
 ```rust
 use std::io::Cursor;
 use hadris_fat::format::{FatVolumeFormatter, FatFormatOptions};
+use hadris_io::StdIo;
 
 let mut bytes = vec![0_u8; 4 * 1024 * 1024];
-let cursor = Cursor::new(bytes.as_mut_slice());
-let fs = FatVolumeFormatter::format(cursor, FatFormatOptions::new(bytes.len() as u64))?;
+let options = FatFormatOptions::new(bytes.len() as u64);
+let cursor = StdIo::new(Cursor::new(bytes.as_mut_slice()));
+let fs = FatVolumeFormatter::format(cursor, options)?;
 # Ok::<(), hadris_fat::Error>(())
 ```
 

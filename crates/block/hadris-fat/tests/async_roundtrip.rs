@@ -40,7 +40,11 @@ fn async_leaf_open_traverse_and_read_multicluster_file() {
 
     let mut image = vec![0_u8; 2 * 1024 * 1024];
     let options = FatFormatOptions::new(image.len() as u64).fat_type(FatTypeSelection::Fat12);
-    let fs = FatVolumeFormatter::format(std::io::Cursor::new(&mut image[..]), options).unwrap();
+    let fs = FatVolumeFormatter::format(
+        hadris_io::StdIo::new(std::io::Cursor::new(&mut image[..])),
+        options,
+    )
+    .unwrap();
     let root = fs.root_dir();
     let nested = fs.create_dir(&root, "NESTED").unwrap();
     let entry = fs.create_file(&nested, "PAYLOAD.BIN").unwrap();

@@ -17,7 +17,7 @@
 //! use hadris_fat::FatVolume;
 //!
 //! let disk = OpenOptions::new().read(true).write(true).open("disk.img").unwrap();
-//! let fs = FatVolume::builder(disk).fat_cache(16).open().unwrap();
+//! let fs = FatVolume::builder(hadris_io::StdIo::new(disk)).fat_cache(16).open().unwrap();
 //!
 //! // Walk the FAT cluster chain starting at cluster 42, using the cache.
 //! // The closure runs with both the cache and disk mutexes held.

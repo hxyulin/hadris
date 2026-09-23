@@ -24,18 +24,18 @@ fn make_image(path: &Path, size: u64, label: &str) {
     file.set_len(size).expect("set image length");
 
     let opts = ExFatFormatOptions::default().volume_label(label);
-    format_exfat(&mut file, size, &opts).expect("format_exfat");
+    format_exfat(hadris_io::StdIo::new(&mut file), size, &opts).expect("format_exfat");
     file.sync_all().expect("sync");
 }
 
-fn open_image(path: &Path) -> std::fs::File {
+fn open_image(path: &Path) -> hadris_io::StdIo<std::fs::File> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
         .open(path)
         .expect("open image");
     file.seek(std::io::SeekFrom::Start(0)).unwrap();
-    file
+    hadris_io::StdIo::new(file)
 }
 
 fn read_root_file(image_path: &Path, name: &str) -> Vec<u8> {

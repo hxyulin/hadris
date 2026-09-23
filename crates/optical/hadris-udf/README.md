@@ -23,10 +23,11 @@ hadris-udf = "2.4.0"
 ```rust,no_run
 use std::fs::File;
 use std::io::BufReader;
+use hadris_io::StdIo;
 use hadris_udf::UdfVolume;
 
 let file = File::open("movie.udf").unwrap();
-let reader = BufReader::new(file);
+let reader = StdIo::new(BufReader::new(file));
 let udf = UdfVolume::open(reader).unwrap();
 
 let info = udf.info();
@@ -47,11 +48,12 @@ hadris-udf = { version = "2.4.0", features = ["write"] }
 ```
 
 ```rust,no_run
+use hadris_io::StdIo;
 use hadris_udf::write::{UdfWriter, UdfWriteOptions, SimpleFile, SimpleDir};
 use std::io::Cursor;
 
 let mut buffer = vec![0u8; 10 * 1024 * 1024];
-let mut cursor = Cursor::new(&mut buffer[..]);
+let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
 
 let mut root = SimpleDir::new("");
 root.add_file(SimpleFile::new("readme.txt", b"Hello, World!".to_vec()));

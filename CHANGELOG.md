@@ -17,6 +17,29 @@ Each published package owns its version and may be released independently.
   `SetMetadata`, `Capabilities`, `FsStats`, `ErrorKind`, `DirCursor`,
   `DirEntry`, `OpenOptions`, `RenameFlags` and `NewNode`.
 
+### Changed
+
+- **hadris-io (V3):** `Read`, `Write` and `Seek` (sync and async) are now
+  Hadris's own traits with no associated error type. Every method returns
+  `hadris_io::Result<T>`, and implementors write only `read`, `write`/`flush`
+  and `seek`. `hadris_io::Error` is a single non-generic type with a kind, an
+  optional static message and, with `alloc`, the original device error as its
+  source (`downcast_source` recovers it). `&mut T` and `Box<T>` implement the
+  traits, so the `Borrowed` wrapper is gone. The blanket impls over
+  `embedded-io` and `std::io` types are replaced by explicit adapters:
+  `FromEmbedded<T>` for `embedded-io` devices, `StdIo<T>` for `std::io` types,
+  and `ToStd<T>` to use a Hadris reader or writer as `std::io`. Wrap a
+  `std::fs::File` in `StdIo::new(file)` before passing it to a format crate.
+  `Error::erase`, `Error::from_source`, `IoError` and `ToEmbedded` are removed.
+  `ByteSource` and `SeekSource` add a positional byte source for writers.
+- **All format crates (V3):** Error types now wrap the non-generic
+  `hadris_io::Error`, and generic bounds no longer spell out
+  `Seek<Error = ...>`.
+- **hadris-storage (V3):** `PartitionView::new` returns `hadris_io::Result`.
+  `BlockDevice`, `BlockDeviceMut`, `SeekBlockDevice` and the crate's own error
+  type are removed.
+- **hadris (V3):** Re-exports `hadris-io` as `hadris::io`.
+
 ### Removed
 
 - **hadris-path (V3):** Merged into `hadris-fs` as `hadris_fs::path`.

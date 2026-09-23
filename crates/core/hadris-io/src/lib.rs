@@ -1,24 +1,23 @@
 //! # Hadris IO
 //!
-//! Portable I/O trait abstractions for the Hadris filesystem crates.
+//! Portable I/O traits for the Hadris filesystem crates, built on
+//! [`embedded-io`](embedded_io).
 //!
-//! This crate provides [`Read`], [`Write`], and [`Seek`] traits that work in
-//! both `std` and `no_std` environments. The traits are always this crate's
-//! own definitions; enabling the `std` feature adds blanket implementations
-//! for types implementing the corresponding `std::io` traits, so standard
-//! readers, writers, and seekers can be used directly.
+//! The [`Read`], [`Write`] and [`Seek`] traits return the portable [`Error`]
+//! and are implemented for `&mut T`. Wrap an `embedded-io` device in
+//! [`FromEmbedded`] to use it with Hadris. With `std`, wrap a `std::io` type
+//! in [`StdIo`], and wrap a Hadris reader in [`ToStd`] to use it with
+//! `std::io`. Enabling features only adds items; no trait or type changes
+//! shape.
 //!
 //! ## Feature Flags
 //!
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
-//! | `std`   | yes     | Standard library support (implies `alloc`) |
-//! | `sync`  | yes     | Synchronous I/O traits |
-//! | `async` | no      | Asynchronous I/O traits (uses async fn in trait) |
-//! | `alloc` | via `std` | Currently a no-op; reserved for future use |
-//!
-//! `std` and the I/O mode are independent. The default feature set enables
-//! both `std` and `sync`; custom builds can select `sync`, `async`, or both.
+//! | `std`   | yes     | [`StdIo`], [`ToStd`] and `std::io::Error` conversions (implies `alloc`) |
+//! | `sync`  | yes     | Synchronous traits in [`sync`] |
+//! | `async` | no      | Asynchronous traits in `r#async` |
+//! | `alloc` | via `std` | Keep the device error as [`Error`]'s source |
 //!
 //! ## Quick Start
 //!
@@ -35,21 +34,6 @@
 //! cursor.seek(SeekFrom::Start(0)).unwrap();
 //! cursor.read_exact(&mut buf).unwrap();
 //! assert_eq!(&buf, b"HD");
-//! ```
-//!
-//! ## Cursor
-//!
-//! The [`Cursor`] type wraps a byte slice and provides both [`Read`] and
-//! [`Seek`] implementations, useful for in-memory parsing:
-//!
-//! ```rust
-//! use hadris_io::Cursor;
-//!
-//! let data = b"Hello, Hadris!";
-//! let mut cursor = Cursor::new(data);
-//! assert_eq!(cursor.position(), 0);
-//! cursor.set_position(7);
-//! assert_eq!(cursor.position(), 7);
 //! ```
 //!
 //! ## Extension Traits
@@ -69,34 +53,57 @@
 #![deny(missing_docs)]
 #![allow(async_fn_in_trait)]
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
-
-// ---------------------------------------------------------------------------
-// Shared types (always available)
-// ---------------------------------------------------------------------------
 
 mod error;
 pub use error::{Error, ErrorKind, Result};
 
-/// Re-export std path types when std is available.
 #[cfg(feature = "std")]
-pub use std::path::{Path, PathBuf};
+mod std_adapters;
+#[cfg(feature = "std")]
+pub use std_adapters::StdIo;
+#[cfg(all(feature = "std", feature = "sync"))]
+pub use std_adapters::ToStd;
 
 /// Portable seek position, convertible to and from `std::io::SeekFrom`.
 pub use embedded_io::SeekFrom;
 
-/// Error implemented by portable underlying I/O sources.
-pub trait IoError: embedded_io::Error {}
-impl<T: embedded_io::Error + ?Sized> IoError for T {}
+/// Use an `embedded-io` (or, in async mode, `embedded-io-async`) device with
+/// the Hadris traits.
+///
+/// The device error is kept as the [`Error`]'s source when `alloc` is enabled.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FromEmbedded<T>(T);
 
-/// Helper macro: short-circuit an `Err` by returning `Some(Err(..))`.
+impl<T> FromEmbedded<T> {
+    /// Wrap an `embedded-io` device.
+    pub const fn new(inner: T) -> Self {
+        Self(inner)
+    }
+
+    /// Recover the device.
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+
+    /// Borrow the device.
+    pub const fn get_ref(&self) -> &T {
+        &self.0
+    }
+
+    /// Mutably borrow the device.
+    pub fn get_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+/// Short-circuit an `Err` by returning `Some(Err(..))`.
 ///
 /// Useful in iterator implementations where the return type is
-/// `Option<Result<T>>`. Extracts the `Ok` value, or returns
-/// `Some(Err(..))` immediately on error.
-///
-/// # Example
+/// `Option<Result<T>>`.
 ///
 /// ```rust
 /// use hadris_io::{try_io_result_option, Result, Error, ErrorKind};
@@ -119,21 +126,27 @@ macro_rules! try_io_result_option {
     ($expr:expr) => {
         match $expr {
             Ok(val) => val,
-            Err(err) => return Some(Err(err.erase())),
+            Err(err) => return Some(Err(err.into())),
         }
     };
 }
 
-// ---------------------------------------------------------------------------
-// Cursor (shared, works with both sync and async)
-// ---------------------------------------------------------------------------
+#[cfg(any(feature = "sync", feature = "async"))]
+fn copy_from_slice_at(data: &[u8], offset: u64, buf: &mut [u8]) -> usize {
+    let Ok(start) = usize::try_from(offset) else {
+        return 0;
+    };
+    let Some(available) = data.get(start..) else {
+        return 0;
+    };
+    let count = available.len().min(buf.len());
+    buf[..count].copy_from_slice(&available[..count]);
+    count
+}
 
-/// A no-std compatible Cursor for reading from byte slices.
+/// A no-std cursor for reading from a byte slice.
 ///
-/// Wraps a `&[u8]` and tracks a read position, implementing both
-/// [`sync::Read`] and [`sync::Seek`] (when the `sync` feature is enabled).
-///
-/// # Example
+/// Implements [`Read`] and [`Seek`] in both modes.
 ///
 /// ```rust
 /// use hadris_io::{Cursor, Read, Seek, SeekFrom};
@@ -157,71 +170,38 @@ pub struct Cursor<'a> {
 
 impl<'a> Cursor<'a> {
     /// Creates a new cursor wrapping the given byte slice, starting at position 0.
-    ///
-    /// ```rust
-    /// use hadris_io::Cursor;
-    ///
-    /// let data = [1, 2, 3];
-    /// let cursor = Cursor::new(&data);
-    /// assert_eq!(cursor.position(), 0);
-    /// assert_eq!(cursor.get_ref().len(), 3);
-    /// ```
     pub fn new(data: &'a [u8]) -> Self {
         Self { data, cursor: 0 }
     }
 
     /// Returns the current byte offset within the underlying data.
-    ///
-    /// ```rust
-    /// use hadris_io::Cursor;
-    ///
-    /// let mut cursor = Cursor::new(&[0u8; 10]);
-    /// assert_eq!(cursor.position(), 0);
-    /// cursor.set_position(5);
-    /// assert_eq!(cursor.position(), 5);
-    /// ```
     pub fn position(&self) -> usize {
         self.cursor
     }
 
     /// Sets the cursor position to the given byte offset.
-    ///
-    /// ```rust
-    /// use hadris_io::Cursor;
-    ///
-    /// let mut cursor = Cursor::new(&[0u8; 10]);
-    /// cursor.set_position(7);
-    /// assert_eq!(cursor.position(), 7);
-    /// ```
     pub fn set_position(&mut self, pos: usize) {
         self.cursor = pos;
     }
 
     /// Returns a reference to the underlying byte slice.
-    ///
-    /// ```rust
-    /// use hadris_io::Cursor;
-    ///
-    /// let data = [1, 2, 3];
-    /// let cursor = Cursor::new(&data);
-    /// assert_eq!(cursor.get_ref(), &[1, 2, 3]);
-    /// ```
     pub fn get_ref(&self) -> &'a [u8] {
         self.data
     }
 
-    #[cfg(any(feature = "sync", feature = "async", test))]
+    #[cfg(any(feature = "sync", feature = "async"))]
     fn read_impl(&mut self, buf: &mut [u8]) -> core::result::Result<usize, ErrorKind> {
-        let remaining = self.data.len().saturating_sub(self.cursor);
-        let to_read = buf.len().min(remaining);
-        if to_read > 0 {
-            buf[..to_read].copy_from_slice(&self.data[self.cursor..self.cursor + to_read]);
-            self.cursor += to_read;
-        }
-        Ok(to_read)
+        let count = copy_slice(self.remaining_slice(), buf);
+        self.cursor += count;
+        Ok(count)
     }
 
-    #[cfg(any(feature = "sync", feature = "async", test))]
+    #[cfg(any(feature = "sync", feature = "async"))]
+    fn remaining_slice(&self) -> &'a [u8] {
+        self.data.get(self.cursor..).unwrap_or(&[])
+    }
+
+    #[cfg(any(feature = "sync", feature = "async"))]
     fn seek_impl(&mut self, pos: SeekFrom) -> core::result::Result<u64, ErrorKind> {
         let new_pos = match pos {
             SeekFrom::Start(offset) => Some(offset),
@@ -235,86 +215,59 @@ impl<'a> Cursor<'a> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Sync module
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "sync")]
-mod sync_api;
-
-/// Synchronous I/O traits.
-///
-/// Contains [`Read`], [`Write`], [`Seek`],
-/// plus extension traits [`ReadExt`], [`Parsable`],
-/// [`Writable`].
-#[cfg(feature = "sync")]
-pub mod sync {
-    pub use super::sync_api::*;
+#[cfg(any(feature = "sync", feature = "async"))]
+fn copy_slice(from: &[u8], to: &mut [u8]) -> usize {
+    let count = from.len().min(to.len());
+    to[..count].copy_from_slice(&from[..count]);
+    count
 }
 
-// Cursor: sync trait impls
 #[cfg(feature = "sync")]
 impl sync::Read for Cursor<'_> {
-    type Error = ErrorKind;
-
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.read_impl(buf).map_err(Error::from_source)
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        Ok(self.read_impl(buf)?)
     }
 }
 
 #[cfg(feature = "sync")]
 impl sync::Seek for Cursor<'_> {
-    type Error = ErrorKind;
-
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        self.seek_impl(pos).map_err(Error::from_source)
+        Ok(self.seek_impl(pos)?)
     }
 }
 
-// Default re-export for backwards compatibility
-#[cfg(feature = "sync")]
-pub use sync::*;
-
-// ---------------------------------------------------------------------------
-// Async module
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "async")]
-mod async_api;
-
-/// Asynchronous I/O traits (using async fn in trait).
-///
-/// Contains async versions of `Read`, `Write`, and `Seek`,
-/// plus async extension traits.
-#[cfg(feature = "async")]
-pub mod r#async {
-    pub use super::async_api::*;
-}
-
-// Cursor: async trait impls
 #[cfg(feature = "async")]
 impl r#async::Read for Cursor<'_> {
-    type Error = ErrorKind;
-
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.read_impl(buf).map_err(Error::from_source)
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        Ok(self.read_impl(buf)?)
     }
 }
 
 #[cfg(feature = "async")]
 impl r#async::Seek for Cursor<'_> {
-    type Error = ErrorKind;
-
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        self.seek_impl(pos).map_err(Error::from_source)
+        Ok(self.seek_impl(pos)?)
     }
 }
+
+/// Synchronous I/O traits.
+#[cfg(feature = "sync")]
+pub mod sync;
+
+#[cfg(feature = "sync")]
+pub use sync::*;
+
+/// Asynchronous I/O traits.
+#[cfg(feature = "async")]
+pub mod r#async;
 
 #[cfg(all(test, feature = "sync"))]
 mod tests {
     extern crate std;
     use super::*;
     use std::format;
+    #[cfg(feature = "alloc")]
+    use std::vec::Vec;
 
     // -----------------------------------------------------------------------
     // Cursor tests
@@ -584,5 +537,58 @@ mod tests {
         }
         let result = test_fn();
         assert!(matches!(result, Some(Err(_))));
+    }
+
+    // -----------------------------------------------------------------------
+    // Blanket impls, &mut and ByteSource
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn mutable_reference_is_a_reader() {
+        fn read_two<R: Read>(mut reader: R) -> [u8; 2] {
+            let mut buf = [0u8; 2];
+            reader.read_exact(&mut buf).unwrap();
+            buf
+        }
+        let data = [7, 8, 9, 10];
+        let mut cursor = Cursor::new(&data);
+        assert_eq!(read_two(&mut cursor), [7, 8]);
+        assert_eq!(read_two(&mut cursor), [9, 10]);
+    }
+
+    #[test]
+    fn byte_source_over_slice() {
+        let mut slice: &[u8] = &[1, 2, 3, 4];
+        let mut buf = [0u8; 3];
+        assert_eq!(slice.read_at(2, &mut buf).unwrap(), 2);
+        assert_eq!(&buf[..2], &[3, 4]);
+        assert_eq!(slice.read_at(9, &mut buf).unwrap(), 0);
+        assert_eq!(slice.read_at(u64::MAX, &mut buf).unwrap(), 0);
+    }
+
+    #[cfg(feature = "alloc")]
+    #[test]
+    fn byte_source_over_vec() {
+        let mut buf = [0u8; 3];
+        let mut vec: Vec<u8> = (0..10).collect();
+        vec.read_exact_at(5, &mut buf).unwrap();
+        assert_eq!(buf, [5, 6, 7]);
+        assert_eq!(
+            vec.read_exact_at(8, &mut buf).unwrap_err().kind(),
+            ErrorKind::UnexpectedEof
+        );
+    }
+
+    #[test]
+    fn seek_source_limits_reads_to_len() {
+        let data = [0u8, 1, 2, 3, 4, 5];
+        let mut source = SeekSource::new(Cursor::new(&data)).unwrap();
+        assert_eq!(source.len(), 6);
+        let mut buf = [0u8; 4];
+        assert_eq!(source.read_at(4, &mut buf).unwrap(), 2);
+        assert_eq!(&buf[..2], &[4, 5]);
+
+        let mut short = SeekSource::with_len(Cursor::new(&data), 3);
+        assert_eq!(short.read_at(1, &mut buf).unwrap(), 2);
     }
 }

@@ -10,6 +10,7 @@ use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter}
 use hadris_fat::raw::DirEntryAttrFlags;
 use hadris_fat::{DirectoryEntry, FatDir};
 use hadris_fat::{FatAnalysisExt, FatVerifyExt, FatVolume, FatVolumeWriteExt, Read as FatRead};
+use hadris_io::StdIo;
 
 #[derive(Parser)]
 #[command(name = "hadris-fat")]
@@ -151,16 +152,16 @@ pub fn run() -> Result<()> {
     }
 }
 
-fn open_fat_fs(path: PathBuf) -> Result<FatVolume<File>> {
+fn open_fat_fs(path: PathBuf) -> Result<FatVolume<StdIo<File>>> {
     let file = File::open(&path)
         .with_context(|| format!("Failed to open image file: {}", path.display()))?;
-    FatVolume::open(file).context("Failed to parse FAT filesystem")
+    FatVolume::open(StdIo::new(file)).context("Failed to parse FAT filesystem")
 }
 
 /// Prefer the root-directory volume label (what Windows/mkfs.fat update) over
 /// the BPB copy, which can drift. Fall back to the BPB label when no root
 /// entry exists.
-fn display_volume_label(fs: &FatVolume<File>) -> Result<String> {
+fn display_volume_label(fs: &FatVolume<StdIo<File>>) -> Result<String> {
     if let Some(raw) = fs
         .read_root_label()
         .context("Failed to read root directory from image (image may be truncated)")?
@@ -317,7 +318,7 @@ fn cmd_tree(image: PathBuf, path: &str, max_depth: Option<usize>) -> Result<()> 
     Ok(())
 }
 
-fn print_tree<DATA: std::io::Read + std::io::Seek>(
+fn print_tree<DATA: FatRead + hadris_fat::Seek>(
     fs: &FatVolume<DATA>,
     dir: &FatDir<'_, DATA>,
     prefix: &str,
@@ -616,7 +617,7 @@ fn cmd_create(
     let options = FatFormatOptions::new(image_size)
         .volume_label(volume_label)
         .fat_type(selection);
-    let fs = FatVolumeFormatter::format(file, options).with_context(|| {
+    let fs = FatVolumeFormatter::format(StdIo::new(file), options).with_context(|| {
         format!(
             "Failed to format {image_size}-byte image; choose a compatible FAT type or increase --size"
         )

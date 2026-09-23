@@ -5,8 +5,8 @@
 //! Self-consistency oracle (failures are tagged `ORACLE:`): every file is
 //! read twice through fresh readers and the bytes must match.
 
+use hadris_io::Cursor;
 use libfuzzer_sys::fuzz_target;
-use std::io::Cursor;
 
 use hadris_ntfs::sync::{NtfsEntry, NtfsFs, NtfsFsReadExt};
 

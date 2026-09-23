@@ -4,13 +4,14 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use hadris_cpio::{CpioArchiveReader, CpioMagic};
+use hadris_io::StdIo;
 
 use super::{format_filetype, format_mode, format_size};
 
 pub fn info(archive: PathBuf) -> Result<()> {
     let file = File::open(&archive)
         .with_context(|| format!("Failed to open archive: {}", archive.display()))?;
-    let mut reader = CpioArchiveReader::new(BufReader::new(file));
+    let mut reader = CpioArchiveReader::new(StdIo::new(BufReader::new(file)));
 
     let mut entry_count: u64 = 0;
     let mut total_data_size: u64 = 0;

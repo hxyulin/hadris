@@ -31,15 +31,19 @@
 //! # Quick start
 //!
 //! ```rust,no_run
+//! use hadris::io::StdIo;
 //! use hadris::optical::iso::sync::IsoImage;
 //!
-//! let file = std::fs::File::open("image.iso").unwrap();
+//! let file = StdIo::new(std::fs::File::open("image.iso").unwrap());
 //! let iso = IsoImage::open(file).unwrap();
 //! let pvd = iso.read_pvd().unwrap();
 //! println!("Volume: {}", pvd.volume_identifier);
 //! ```
 
 #![deny(missing_docs)]
+
+/// I/O traits, errors and adapters shared by every format.
+pub use hadris_io as io;
 
 /// Block-oriented storage, filesystems, and disk-layout formats.
 #[cfg(any(feature = "storage", feature = "fat", feature = "part"))]

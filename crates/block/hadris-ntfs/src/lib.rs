@@ -6,10 +6,11 @@
 //!
 //! ```rust,no_run
 //! use std::fs::File;
+//! use hadris_io::StdIo;
 //! use hadris_ntfs::sync::{NtfsFs, NtfsFsReadExt};
 //!
 //! let file = File::open("disk.img").unwrap();
-//! let fs = NtfsFs::open(file).unwrap();
+//! let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 //! let root = fs.root_dir();
 //! let entries = root.entries().unwrap();
 //! for entry in &entries {

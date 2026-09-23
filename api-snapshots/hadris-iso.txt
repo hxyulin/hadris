@@ -83,8 +83,8 @@ pub hadris_iso::async::boot::BaseBootCatalog::validation: hadris_iso::async::boo
 impl hadris_iso::async::boot::BaseBootCatalog
 pub fn hadris_iso::async::boot::BaseBootCatalog::new(hadris_iso::async::boot::EmulationType, u16, u16, u32) -> Self
 impl hadris_iso::async::boot::BaseBootCatalog
-pub async fn hadris_iso::async::boot::BaseBootCatalog::parse<R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut R) -> core::result::Result<Self, hadris_iso::async::boot::BootError>
-pub async fn hadris_iso::async::boot::BaseBootCatalog::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub async fn hadris_iso::async::boot::BaseBootCatalog::parse<R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut R) -> core::result::Result<Self, hadris_iso::async::boot::BootError>
+pub async fn hadris_iso::async::boot::BaseBootCatalog::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 impl core::default::Default for hadris_iso::async::boot::BaseBootCatalog
 pub fn hadris_iso::async::boot::BaseBootCatalog::default() -> Self
 pub struct hadris_iso::async::boot::BootCatalog
@@ -94,8 +94,8 @@ pub fn hadris_iso::async::boot::BootCatalog::new(hadris_iso::async::boot::Emulat
 pub fn hadris_iso::async::boot::BootCatalog::set_default_entry(&mut self, hadris_iso::async::boot::BootSectionEntry)
 pub fn hadris_iso::async::boot::BootCatalog::size(&self) -> usize
 impl hadris_iso::async::boot::BootCatalog
-pub async fn hadris_iso::async::boot::BootCatalog::parse<T: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&mut T) -> core::result::Result<Self, hadris_iso::async::boot::BootError>
-pub async fn hadris_iso::async::boot::BootCatalog::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub async fn hadris_iso::async::boot::BootCatalog::parse<T: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&mut T) -> core::result::Result<Self, hadris_iso::async::boot::BootError>
+pub async fn hadris_iso::async::boot::BootCatalog::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 impl core::default::Default for hadris_iso::async::boot::BootCatalog
 pub fn hadris_iso::async::boot::BootCatalog::default() -> Self
 #[repr(C)] pub struct hadris_iso::async::boot::BootInfoTable
@@ -121,7 +121,7 @@ pub fn hadris_iso::async::boot::BootSectionEntry::is_valid(&self) -> bool
 impl hadris_iso::async::boot::BootSectionEntry
 pub fn hadris_iso::async::boot::BootSectionEntry::new(hadris_iso::async::boot::EmulationType, u16, u16, u32) -> Self
 impl hadris_iso::async::boot::BootSectionEntry
-pub async fn hadris_iso::async::boot::BootSectionEntry::parse<T: hadris_io::async_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
+pub async fn hadris_iso::async::boot::BootSectionEntry::parse<T: hadris_io::async::api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
 impl bytemuck::pod::Pod for hadris_iso::async::boot::BootSectionEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::boot::BootSectionEntry
 impl core::fmt::Debug for hadris_iso::async::boot::BootSectionEntry
@@ -155,7 +155,7 @@ pub fn hadris_iso::async::boot::BootValidationEntry::validate(&self) -> core::re
 impl hadris_iso::async::boot::BootValidationEntry
 pub fn hadris_iso::async::boot::BootValidationEntry::new() -> Self
 impl hadris_iso::async::boot::BootValidationEntry
-pub async fn hadris_iso::async::boot::BootValidationEntry::parse<T: hadris_io::async_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
+pub async fn hadris_iso::async::boot::BootValidationEntry::parse<T: hadris_io::async::api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
 impl bytemuck::pod::Pod for hadris_iso::async::boot::BootValidationEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::boot::BootValidationEntry
 impl core::default::Default for hadris_iso::async::boot::BootValidationEntry
@@ -193,8 +193,8 @@ pub fn hadris_iso::async::directory::DirectoryRecord::system_use(&self) -> &[u8]
 pub fn hadris_iso::async::directory::DirectoryRecord::to_bytes(&self) -> &[u8]
 pub fn hadris_iso::async::directory::DirectoryRecord::with_len(usize, usize) -> Self
 impl hadris_iso::async::directory::DirectoryRecord
-pub async fn hadris_iso::async::directory::DirectoryRecord::parse<R: hadris_io::async_api::Read>(&mut R) -> hadris_io::error::Result<Self>
-pub async fn hadris_iso::async::directory::DirectoryRecord::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
+pub async fn hadris_iso::async::directory::DirectoryRecord::parse<R: hadris_io::async::api::Read>(&mut R) -> hadris_io::error::Result<Self>
+pub async fn hadris_iso::async::directory::DirectoryRecord::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
 impl bytemuck::pod::Pod for hadris_iso::async::directory::DirectoryRecord
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::directory::DirectoryRecord
 impl core::default::Default for hadris_iso::async::directory::DirectoryRecord
@@ -322,31 +322,24 @@ pub use hadris_iso::async::io::SeekFrom
 pub use hadris_iso::async::io::Writable
 pub use hadris_iso::async::io::Write
 pub use hadris_iso::async::io::try_io_result_option
-pub struct hadris_iso::async::io::IsoCursor<DATA: hadris_io::async_api::Seek>
+pub struct hadris_iso::async::io::IsoCursor<DATA: hadris_io::async::api::Seek>
 pub hadris_iso::async::io::IsoCursor::data: DATA
 pub hadris_iso::async::io::IsoCursor::sector_size: usize
-impl<DATA: hadris_io::async_api::Seek> hadris_iso::async::io::IsoCursor<DATA>
+impl<DATA: hadris_io::async::api::Seek> hadris_iso::async::io::IsoCursor<DATA>
 pub fn hadris_iso::async::io::IsoCursor<DATA>::into_inner(self) -> DATA
 pub fn hadris_iso::async::io::IsoCursor<DATA>::new(DATA, usize) -> Self
 pub async fn hadris_iso::async::io::IsoCursor<DATA>::seek_sector(&mut self, hadris_iso::async::io::LogicalSector) -> hadris_io::error::Result<u64>
-impl<DATA: hadris_io::async_api::Write + hadris_io::async_api::Seek> hadris_iso::async::io::IsoCursor<DATA>
+impl<DATA: hadris_io::async::api::Write + hadris_io::async::api::Seek> hadris_iso::async::io::IsoCursor<DATA>
 pub async fn hadris_iso::async::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::async::io::LogicalSector>
-impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_io::async_api::Read for hadris_iso::async::io::IsoCursor<DATA>
-pub type hadris_iso::async::io::IsoCursor<DATA>::Error = <DATA as hadris_io::async_api::Read>::Error
-pub async fn hadris_iso::async::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize, Self::Error>
-pub async fn hadris_iso::async::io::IsoCursor<DATA>::read_exact(&mut self, &mut [u8]) -> hadris_io::error::Result<()>
-impl<DATA: hadris_io::async_api::Seek> core::fmt::Debug for hadris_iso::async::io::IsoCursor<DATA>
+impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_io::async::api::Read for hadris_iso::async::io::IsoCursor<DATA>
+pub async fn hadris_iso::async::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
+impl<DATA: hadris_io::async::api::Seek> core::fmt::Debug for hadris_iso::async::io::IsoCursor<DATA>
 pub fn hadris_iso::async::io::IsoCursor<DATA>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<DATA: hadris_io::async_api::Seek> hadris_io::async_api::Seek for hadris_iso::async::io::IsoCursor<DATA>
-pub type hadris_iso::async::io::IsoCursor<DATA>::Error = <DATA as hadris_io::async_api::Seek>::Error
-pub async fn hadris_iso::async::io::IsoCursor<DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64, Self::Error>
-pub async fn hadris_iso::async::io::IsoCursor<DATA>::seek_relative(&mut self, i64) -> hadris_io::error::Result<(), Self::Error>
-pub async fn hadris_iso::async::io::IsoCursor<DATA>::stream_position(&mut self) -> hadris_io::error::Result<u64, Self::Error>
-impl<DATA: hadris_io::async_api::Write + hadris_io::async_api::Seek> hadris_io::async_api::Write for hadris_iso::async::io::IsoCursor<DATA>
-pub type hadris_iso::async::io::IsoCursor<DATA>::Error = <DATA as hadris_io::async_api::Write>::Error
-pub async fn hadris_iso::async::io::IsoCursor<DATA>::flush(&mut self) -> hadris_io::error::Result<(), Self::Error>
-pub async fn hadris_iso::async::io::IsoCursor<DATA>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize, Self::Error>
-pub async fn hadris_iso::async::io::IsoCursor<DATA>::write_all(&mut self, &[u8]) -> hadris_io::error::Result<()>
+impl<DATA: hadris_io::async::api::Seek> hadris_io::async::api::Seek for hadris_iso::async::io::IsoCursor<DATA>
+pub async fn hadris_iso::async::io::IsoCursor<DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64>
+impl<DATA: hadris_io::async::api::Write + hadris_io::async::api::Seek> hadris_io::async::api::Write for hadris_iso::async::io::IsoCursor<DATA>
+pub async fn hadris_iso::async::io::IsoCursor<DATA>::flush(&mut self) -> hadris_io::error::Result<()>
+pub async fn hadris_iso::async::io::IsoCursor<DATA>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize>
 pub struct hadris_iso::async::io::LogicalSector(pub usize)
 impl core::ops::arith::Add<usize> for hadris_iso::async::io::LogicalSector
 pub type hadris_iso::async::io::LogicalSector::Output = hadris_iso::async::io::LogicalSector
@@ -361,8 +354,8 @@ pub hadris_iso::async::path::PathTableEntry::name: hadris_common::types::fixed::
 pub hadris_iso::async::path::PathTableEntry::parent_index: u16
 pub hadris_iso::async::path::PathTableEntry::parent_lba: u32
 impl hadris_iso::async::path::PathTableEntry
-pub async fn hadris_iso::async::path::PathTableEntry::parse<T: hadris_io::async_api::Read>(&mut T, hadris_common::types::endian::EndianType) -> core::result::Result<Self, hadris_io::error::Error>
-pub async fn hadris_iso::async::path::PathTableEntry::write<W: hadris_io::async_api::Write>(&self, &mut W, hadris_common::types::endian::EndianType) -> hadris_io::error::Result<()>
+pub async fn hadris_iso::async::path::PathTableEntry::parse<T: hadris_io::async::api::Read>(&mut T, hadris_common::types::endian::EndianType) -> core::result::Result<Self, hadris_io::error::Error>
+pub async fn hadris_iso::async::path::PathTableEntry::write<W: hadris_io::async::api::Write>(&self, &mut W, hadris_common::types::endian::EndianType) -> hadris_io::error::Result<()>
 impl hadris_iso::async::path::PathTableEntry
 pub fn hadris_iso::async::path::PathTableEntry::size(&self) -> usize
 #[repr(C)] pub struct hadris_iso::async::path::PathTableEntryHeader
@@ -411,9 +404,9 @@ pub hadris_iso::async::read::BootEntryInfo::sector_count: u16
 pub struct hadris_iso::async::read::BootInfo
 impl hadris_iso::async::read::BootInfo
 pub fn hadris_iso::async::read::BootInfo::default_entry(&self) -> core::option::Option<hadris_iso::async::read::BootEntryInfo>
-pub fn hadris_iso::async::read::BootInfo::sections<'a, R: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&'a self, &'a hadris_iso::async::read::IsoImage<R>) -> hadris_iso::async::read::BootSectionIter<'a, R>
-pub struct hadris_iso::async::read::BootSectionIter<'data, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>
-impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::BootSectionIter<'_, DATA>
+pub fn hadris_iso::async::read::BootInfo::sections<'a, R: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&'a self, &'a hadris_iso::async::read::IsoImage<R>) -> hadris_iso::async::read::BootSectionIter<'a, R>
+pub struct hadris_iso::async::read::BootSectionIter<'data, DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek>
+impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::BootSectionIter<'_, DATA>
 pub async fn hadris_iso::async::read::BootSectionIter<'_, DATA>::next_section(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::boot::BootSectionHeaderEntry>>
 pub struct hadris_iso::async::read::DirEntry
 pub hadris_iso::async::read::DirEntry::additional_extents: alloc::vec::Vec<hadris_iso::async::read::Extent>
@@ -421,7 +414,7 @@ pub hadris_iso::async::read::DirEntry::associated_file: core::option::Option<had
 pub hadris_iso::async::read::DirEntry::record: hadris_iso::async::directory::DirectoryRecord
 pub hadris_iso::async::read::DirEntry::rrip: core::option::Option<hadris_iso::async::read::RripMetadata>
 impl hadris_iso::async::read::DirEntry
-pub async fn hadris_iso::async::read::DirEntry::as_dir_ref<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&self, &hadris_iso::async::read::IsoImage<DATA>) -> hadris_io::error::Result<hadris_iso::async::directory::DirectoryRef>
+pub async fn hadris_iso::async::read::DirEntry::as_dir_ref<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&self, &hadris_iso::async::read::IsoImage<DATA>) -> hadris_io::error::Result<hadris_iso::async::directory::DirectoryRef>
 impl hadris_iso::async::read::DirEntry
 pub fn hadris_iso::async::read::DirEntry::display_name(&self) -> alloc::borrow::Cow<'_, str>
 pub fn hadris_iso::async::read::DirEntry::extended_attr_len(&self) -> core::option::Option<u8>
@@ -440,13 +433,13 @@ pub fn hadris_iso::async::read::DirEntry::total_size(&self) -> u64
 pub struct hadris_iso::async::read::Extent
 pub hadris_iso::async::read::Extent::length: u32
 pub hadris_iso::async::read::Extent::sector: hadris_iso::async::io::LogicalSector
-pub struct hadris_iso::async::read::FileChunkIterator<'a, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek, const N: usize>
-impl<'a, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek, const N: usize> hadris_iso::async::read::FileChunkIterator<'a, DATA, N>
+pub struct hadris_iso::async::read::FileChunkIterator<'a, DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek, const N: usize>
+impl<'a, DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek, const N: usize> hadris_iso::async::read::FileChunkIterator<'a, DATA, N>
 pub async fn hadris_iso::async::read::FileChunkIterator<'a, DATA, N>::next_chunk(&mut self) -> hadris_io::error::Result<core::option::Option<alloc::vec::Vec<u8>>>
 pub fn hadris_iso::async::read::FileChunkIterator<'a, DATA, N>::position(&self) -> u64
 pub fn hadris_iso::async::read::FileChunkIterator<'a, DATA, N>::total_size(&self) -> u64
-pub struct hadris_iso::async::read::IsoDir<'a, T: hadris_io::async_api::Read + hadris_io::async_api::Seek>
-impl<T: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoDir<'_, T>
+pub struct hadris_iso::async::read::IsoDir<'a, T: hadris_io::async::api::Read + hadris_io::async::api::Seek>
+impl<T: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::IsoDir<'_, T>
 pub async fn hadris_iso::async::read::IsoDir<'_, T>::find(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::DirEntry>>
 pub async fn hadris_iso::async::read::IsoDir<'_, T>::read_entries(&self) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::async::read::DirEntry>>
 pub struct hadris_iso::async::read::IsoDirEntry
@@ -461,23 +454,23 @@ pub fn hadris_iso::async::read::IsoDirEntry::rrip_name_matches(&self, &str) -> b
 pub fn hadris_iso::async::read::IsoDirEntry::system_use(&self) -> &[u8]
 pub const fn hadris_iso::async::read::IsoDirEntry::total_size(&self) -> u64
 pub struct hadris_iso::async::read::IsoDirReader<'a, R>
-impl<R: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoDirReader<'_, R>
+impl<R: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::IsoDirReader<'_, R>
 pub async fn hadris_iso::async::read::IsoDirReader<'_, R>::next_entry(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::IsoDirEntry>>
 pub struct hadris_iso::async::read::IsoFileReader<'a, R>
-impl<R: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoFileReader<'_, R>
+impl<R: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::IsoFileReader<'_, R>
 pub async fn hadris_iso::async::read::IsoFileReader<'_, R>::read_chunk(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
 impl<R> hadris_iso::async::read::IsoFileReader<'_, R>
 pub const fn hadris_iso::async::read::IsoFileReader<'_, R>::is_empty(&self) -> bool
 pub const fn hadris_iso::async::read::IsoFileReader<'_, R>::len(&self) -> u64
 pub const fn hadris_iso::async::read::IsoFileReader<'_, R>::position(&self) -> u64
-pub struct hadris_iso::async::read::IsoImage<DATA: hadris_io::async_api::Seek>
-impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
+pub struct hadris_iso::async::read::IsoImage<DATA: hadris_io::async::api::Seek>
+impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::find_path(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::DirEntry>>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::open(DATA) -> hadris_io::error::Result<Self>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::read_bytes_at(&self, u64, &mut [u8]) -> hadris_io::error::Result<()>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::read_file(&self, &hadris_iso::async::read::DirEntry) -> hadris_io::error::Result<alloc::vec::Vec<u8>>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::read_file_chunked<const N: usize>(&self, &hadris_iso::async::read::DirEntry) -> hadris_io::error::Result<hadris_iso::async::read::FileChunkIterator<'_, DATA, N>>
-impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
+impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::async::read::IsoImage<DATA>::open_dir(&self, hadris_iso::async::directory::DirectoryRef) -> hadris_iso::async::read::IsoDir<'_, DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::async::path::PathTableInfo
@@ -486,9 +479,9 @@ pub fn hadris_iso::async::read::IsoImage<DATA>::read_volume_descriptors(&self) -
 pub fn hadris_iso::async::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::async::read::RootDir
 pub fn hadris_iso::async::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::async::read::RootDirs
 pub fn hadris_iso::async::read::IsoImage<DATA>::supports_rrip(&self) -> bool
-impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
+impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::async::volume::PrimaryVolumeDescriptor>
-impl<DATA: hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
+impl<DATA: hadris_io::async::api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::async::read::IsoImageInfo
 impl hadris_iso::async::read::IsoImageInfo
@@ -501,7 +494,7 @@ pub fn hadris_iso::async::read::IsoName<'a>::matches(self, &str) -> bool
 pub const fn hadris_iso::async::read::IsoName<'a>::namespace(self) -> hadris_iso::async::read::IsoNamespace
 pub const fn hadris_iso::async::read::IsoName<'a>::raw(self) -> &'a [u8]
 pub struct hadris_iso::async::read::IsoReader<R>
-impl<R: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoReader<R>
+impl<R: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::IsoReader<R>
 pub async fn hadris_iso::async::read::IsoReader<R>::find_path(&mut self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::IsoDirEntry>>
 pub async fn hadris_iso::async::read::IsoReader<R>::find_path_in(&mut self, hadris_iso::async::read::IsoRoot, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::IsoDirEntry>>
 pub async fn hadris_iso::async::read::IsoReader<R>::open(R) -> hadris_io::error::Result<Self>
@@ -524,7 +517,7 @@ pub struct hadris_iso::async::read::RootDir
 impl hadris_iso::async::read::RootDir
 pub fn hadris_iso::async::read::RootDir::dir_ref(&self) -> hadris_iso::async::directory::DirectoryRef
 pub fn hadris_iso::async::read::RootDir::entry_type(&self) -> hadris_iso::file::EntryType
-pub fn hadris_iso::async::read::RootDir::iter<'a, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&self, &'a hadris_iso::async::read::IsoImage<DATA>) -> hadris_iso::async::read::IsoDir<'a, DATA>
+pub fn hadris_iso::async::read::RootDir::iter<'a, DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&self, &'a hadris_iso::async::read::IsoImage<DATA>) -> hadris_iso::async::read::IsoDir<'a, DATA>
 pub struct hadris_iso::async::read::RootDirs
 impl hadris_iso::async::read::RootDirs
 pub fn hadris_iso::async::read::RootDirs::best_choice(&self) -> hadris_iso::async::read::RootDir
@@ -564,10 +557,10 @@ pub hadris_iso::async::read::RripTimestamps::creation: core::option::Option<hadr
 pub hadris_iso::async::read::RripTimestamps::effective: core::option::Option<hadris_iso::async::read::RripDateTime>
 pub hadris_iso::async::read::RripTimestamps::expiration: core::option::Option<hadris_iso::async::read::RripDateTime>
 pub hadris_iso::async::read::RripTimestamps::modify: core::option::Option<hadris_iso::async::read::RripDateTime>
-pub struct hadris_iso::async::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>
-impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::VolumeDescriptorIter<'_, DATA>
+pub struct hadris_iso::async::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek>
+impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::VolumeDescriptorIter<'_, DATA>
 pub async fn hadris_iso::async::read::VolumeDescriptorIter<'_, DATA>::next_descriptor(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::volume::VolumeDescriptor>>
-pub async fn hadris_iso::async::read::collect_su_entries<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek>(&hadris_iso::async::directory::DirectoryRecord, &hadris_iso::async::read::IsoImage<DATA>, u8) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::async::susp::SystemUseField>>
+pub async fn hadris_iso::async::read::collect_su_entries<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek>(&hadris_iso::async::directory::DirectoryRecord, &hadris_iso::async::read::IsoImage<DATA>, u8) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::async::susp::SystemUseField>>
 pub mod hadris_iso::async::rrip
 pub enum hadris_iso::async::rrip::RockRidgeEntry
 pub hadris_iso::async::rrip::RockRidgeEntry::AlternateName(hadris_iso::async::rrip::NmEntry)
@@ -586,11 +579,11 @@ pub fn hadris_iso::async::rrip::ClEntry::header(&self) -> hadris_iso::async::sus
 impl hadris_iso::async::rrip::ClEntry
 pub fn hadris_iso::async::rrip::ClEntry::new(u32) -> Self
 impl hadris_iso::async::rrip::ClEntry
-pub async fn hadris_iso::async::rrip::ClEntry::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub async fn hadris_iso::async::rrip::ClEntry::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::async::rrip::ClEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::rrip::ClEntry
-impl hadris_io::async_api::Writable for hadris_iso::async::rrip::ClEntry
-pub async fn hadris_iso::async::rrip::ClEntry::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::async::api::Writable for hadris_iso::async::rrip::ClEntry
+pub async fn hadris_iso::async::rrip::ClEntry::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::rrip::NmEntry
 pub hadris_iso::async::rrip::NmEntry::flags: hadris_iso::async::rrip::NmFlags
 pub hadris_iso::async::rrip::NmEntry::name: alloc::vec::Vec<u8>
@@ -602,9 +595,9 @@ pub fn hadris_iso::async::rrip::NmEntry::size(&self) -> usize
 impl hadris_iso::async::rrip::NmEntry
 pub fn hadris_iso::async::rrip::NmEntry::header(&self) -> hadris_iso::async::susp::SystemUseHeader
 impl hadris_iso::async::rrip::NmEntry
-pub async fn hadris_iso::async::rrip::NmEntry::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::async_api::Writable for hadris_iso::async::rrip::NmEntry
-pub async fn hadris_iso::async::rrip::NmEntry::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub async fn hadris_iso::async::rrip::NmEntry::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::async::api::Writable for hadris_iso::async::rrip::NmEntry
+pub async fn hadris_iso::async::rrip::NmEntry::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::rrip::NmFlags(_)
 impl hadris_iso::async::rrip::NmFlags
 pub const hadris_iso::async::rrip::NmFlags::CONTINUE: Self
@@ -692,11 +685,11 @@ pub fn hadris_iso::async::rrip::PlEntry::header(&self) -> hadris_iso::async::sus
 impl hadris_iso::async::rrip::PlEntry
 pub fn hadris_iso::async::rrip::PlEntry::new(u32) -> Self
 impl hadris_iso::async::rrip::PlEntry
-pub async fn hadris_iso::async::rrip::PlEntry::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub async fn hadris_iso::async::rrip::PlEntry::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::async::rrip::PlEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::rrip::PlEntry
-impl hadris_io::async_api::Writable for hadris_iso::async::rrip::PlEntry
-pub async fn hadris_iso::async::rrip::PlEntry::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::async::api::Writable for hadris_iso::async::rrip::PlEntry
+pub async fn hadris_iso::async::rrip::PlEntry::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 #[repr(C)] pub struct hadris_iso::async::rrip::PnEntry
 pub hadris_iso::async::rrip::PnEntry::dev_high: hadris_iso::types::U32LsbMsb
 pub hadris_iso::async::rrip::PnEntry::dev_low: hadris_iso::types::U32LsbMsb
@@ -706,11 +699,11 @@ pub fn hadris_iso::async::rrip::PnEntry::new(u32, u32) -> Self
 impl hadris_iso::async::rrip::PnEntry
 pub fn hadris_iso::async::rrip::PnEntry::header(&self) -> hadris_iso::async::susp::SystemUseHeader
 impl hadris_iso::async::rrip::PnEntry
-pub async fn hadris_iso::async::rrip::PnEntry::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub async fn hadris_iso::async::rrip::PnEntry::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::async::rrip::PnEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::rrip::PnEntry
-impl hadris_io::async_api::Writable for hadris_iso::async::rrip::PnEntry
-pub async fn hadris_iso::async::rrip::PnEntry::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::async::api::Writable for hadris_iso::async::rrip::PnEntry
+pub async fn hadris_iso::async::rrip::PnEntry::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::rrip::PosixFileMode(_)
 impl hadris_iso::async::rrip::PosixFileMode
 pub const hadris_iso::async::rrip::PosixFileMode::S_IFBLK: Self
@@ -821,16 +814,16 @@ pub fn hadris_iso::async::rrip::PxEntry::header(&self) -> hadris_iso::async::sus
 impl hadris_iso::async::rrip::PxEntry
 pub fn hadris_iso::async::rrip::PxEntry::new(u32, u32, u32, u32, u32) -> Self
 impl hadris_iso::async::rrip::PxEntry
-pub async fn hadris_iso::async::rrip::PxEntry::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub async fn hadris_iso::async::rrip::PxEntry::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::async::rrip::PxEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::rrip::PxEntry
-impl hadris_io::async_api::Writable for hadris_iso::async::rrip::PxEntry
-pub async fn hadris_iso::async::rrip::PxEntry::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::async::api::Writable for hadris_iso::async::rrip::PxEntry
+pub async fn hadris_iso::async::rrip::PxEntry::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::rrip::ReEntry
 impl hadris_iso::async::rrip::ReEntry
 pub fn hadris_iso::async::rrip::ReEntry::header(&self) -> hadris_iso::async::susp::SystemUseHeader
-impl hadris_io::async_api::Writable for hadris_iso::async::rrip::ReEntry
-pub async fn hadris_iso::async::rrip::ReEntry::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::async::api::Writable for hadris_iso::async::rrip::ReEntry
+pub async fn hadris_iso::async::rrip::ReEntry::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::rrip::RripBuilder
 impl hadris_iso::async::rrip::RripBuilder
 pub fn hadris_iso::async::rrip::RripBuilder::add_ce(&mut self, hadris_iso::async::susp::ContinuationArea) -> &mut Self
@@ -965,9 +958,9 @@ pub fn hadris_iso::async::rrip::SlEntry::size(&self) -> usize
 impl hadris_iso::async::rrip::SlEntry
 pub fn hadris_iso::async::rrip::SlEntry::header(&self) -> hadris_iso::async::susp::SystemUseHeader
 impl hadris_iso::async::rrip::SlEntry
-pub async fn hadris_iso::async::rrip::SlEntry::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::async_api::Writable for hadris_iso::async::rrip::SlEntry
-pub async fn hadris_iso::async::rrip::SlEntry::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub async fn hadris_iso::async::rrip::SlEntry::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::async::api::Writable for hadris_iso::async::rrip::SlEntry
+pub async fn hadris_iso::async::rrip::SlEntry::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::rrip::TfEntry
 pub hadris_iso::async::rrip::TfEntry::flags: hadris_iso::async::rrip::TfFlags
 pub hadris_iso::async::rrip::TfEntry::timestamps: alloc::vec::Vec<u8>
@@ -977,9 +970,9 @@ impl hadris_iso::async::rrip::TfEntry
 pub fn hadris_iso::async::rrip::TfEntry::new_short(&[u8; 7], &[u8; 7]) -> Self
 pub fn hadris_iso::async::rrip::TfEntry::size(&self) -> usize
 impl hadris_iso::async::rrip::TfEntry
-pub async fn hadris_iso::async::rrip::TfEntry::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::async_api::Writable for hadris_iso::async::rrip::TfEntry
-pub async fn hadris_iso::async::rrip::TfEntry::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub async fn hadris_iso::async::rrip::TfEntry::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::async::api::Writable for hadris_iso::async::rrip::TfEntry
+pub async fn hadris_iso::async::rrip::TfEntry::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::rrip::TfFlags(_)
 impl hadris_iso::async::rrip::TfFlags
 pub const hadris_iso::async::rrip::TfFlags::ACCESS: Self
@@ -1093,11 +1086,11 @@ pub hadris_iso::async::susp::ContinuationArea::sector: hadris_iso::types::U32Lsb
 impl hadris_iso::async::susp::ContinuationArea
 pub fn hadris_iso::async::susp::ContinuationArea::header(&self) -> hadris_iso::async::susp::SystemUseHeader
 impl hadris_iso::async::susp::ContinuationArea
-pub async fn hadris_iso::async::susp::ContinuationArea::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub async fn hadris_iso::async::susp::ContinuationArea::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::async::susp::ContinuationArea
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::susp::ContinuationArea
-impl hadris_io::async_api::Writable for hadris_iso::async::susp::ContinuationArea
-pub async fn hadris_iso::async::susp::ContinuationArea::write<R: hadris_io::async_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+impl hadris_io::async::api::Writable for hadris_iso::async::susp::ContinuationArea
+pub async fn hadris_iso::async::susp::ContinuationArea::write<R: hadris_io::async::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 #[repr(C)] pub struct hadris_iso::async::susp::ExtensionReference
 pub hadris_iso::async::susp::ExtensionReference::buf: [u8; 252]
 pub hadris_iso::async::susp::ExtensionReference::descriptor_len: u8
@@ -1107,17 +1100,17 @@ pub hadris_iso::async::susp::ExtensionReference::version: u8
 impl hadris_iso::async::susp::ExtensionReference
 pub fn hadris_iso::async::susp::ExtensionReference::header(&self) -> hadris_iso::async::susp::SystemUseHeader
 impl hadris_iso::async::susp::ExtensionReference
-pub async fn hadris_iso::async::susp::ExtensionReference::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::async_api::Writable for hadris_iso::async::susp::ExtensionReference
-pub async fn hadris_iso::async::susp::ExtensionReference::write<R: hadris_io::async_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+pub async fn hadris_iso::async::susp::ExtensionReference::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::async::api::Writable for hadris_iso::async::susp::ExtensionReference
+pub async fn hadris_iso::async::susp::ExtensionReference::write<R: hadris_io::async::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::susp::PaddingField
 pub hadris_iso::async::susp::PaddingField::length: u8
 impl hadris_iso::async::susp::PaddingField
 pub fn hadris_iso::async::susp::PaddingField::header(&self) -> hadris_iso::async::susp::SystemUseHeader
 impl hadris_iso::async::susp::PaddingField
-pub async fn hadris_iso::async::susp::PaddingField::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::async_api::Writable for hadris_iso::async::susp::PaddingField
-pub async fn hadris_iso::async::susp::PaddingField::write<R: hadris_io::async_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+pub async fn hadris_iso::async::susp::PaddingField::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::async::api::Writable for hadris_iso::async::susp::PaddingField
+pub async fn hadris_iso::async::susp::PaddingField::write<R: hadris_io::async::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::susp::SplitSu
 pub hadris_iso::async::susp::SplitSu::inline: alloc::vec::Vec<u8>
 pub hadris_iso::async::susp::SplitSu::overflow: alloc::vec::Vec<u8>
@@ -1134,18 +1127,18 @@ impl hadris_iso::async::susp::SuspIdentifier
 pub fn hadris_iso::async::susp::SuspIdentifier::is_valid(&self) -> bool
 pub fn hadris_iso::async::susp::SuspIdentifier::new(u8) -> Self
 impl hadris_iso::async::susp::SuspIdentifier
-pub async fn hadris_iso::async::susp::SuspIdentifier::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub async fn hadris_iso::async::susp::SuspIdentifier::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::async::susp::SuspIdentifier
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::susp::SuspIdentifier
-impl hadris_io::async_api::Writable for hadris_iso::async::susp::SuspIdentifier
-pub async fn hadris_iso::async::susp::SuspIdentifier::write<R: hadris_io::async_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+impl hadris_io::async::api::Writable for hadris_iso::async::susp::SuspIdentifier
+pub async fn hadris_iso::async::susp::SuspIdentifier::write<R: hadris_io::async::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::susp::SuspTerminator
 impl hadris_iso::async::susp::SuspTerminator
 pub fn hadris_iso::async::susp::SuspTerminator::header(&self) -> hadris_iso::async::susp::SystemUseHeader
 impl hadris_iso::async::susp::SuspTerminator
-pub async fn hadris_iso::async::susp::SuspTerminator::parse_data<R: hadris_io::async_api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::async_api::Writable for hadris_iso::async::susp::SuspTerminator
-pub async fn hadris_iso::async::susp::SuspTerminator::write<R: hadris_io::async_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+pub async fn hadris_iso::async::susp::SuspTerminator::parse_data<R: hadris_io::async::api::Read>(hadris_iso::async::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::async::api::Writable for hadris_iso::async::susp::SuspTerminator
+pub async fn hadris_iso::async::susp::SuspTerminator::write<R: hadris_io::async::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::susp::SystemUseBuilder
 impl hadris_iso::async::susp::SystemUseBuilder
 pub fn hadris_iso::async::susp::SystemUseBuilder::add_ce(&mut self, hadris_iso::async::susp::ContinuationArea) -> &mut Self
@@ -1167,8 +1160,8 @@ pub hadris_iso::async::susp::SystemUseHeader::sig: [u8; 2]
 pub hadris_iso::async::susp::SystemUseHeader::version: u8
 impl bytemuck::pod::Pod for hadris_iso::async::susp::SystemUseHeader
 impl bytemuck::zeroable::Zeroable for hadris_iso::async::susp::SystemUseHeader
-impl hadris_io::async_api::Writable for hadris_iso::async::susp::SystemUseHeader
-pub async fn hadris_iso::async::susp::SystemUseHeader::write<R: hadris_io::async_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+impl hadris_io::async::api::Writable for hadris_iso::async::susp::SystemUseHeader
+pub async fn hadris_iso::async::susp::SystemUseHeader::write<R: hadris_io::async::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::async::susp::SystemUseIter<'a>
 impl<'a> hadris_iso::async::susp::SystemUseIter<'a>
 pub fn hadris_iso::async::susp::SystemUseIter<'a>::new(&'a [u8], usize) -> Self
@@ -1186,8 +1179,8 @@ impl hadris_iso::async::volume::VolumeDescriptor
 pub fn hadris_iso::async::volume::VolumeDescriptor::as_bytes(&self) -> &[u8]
 pub fn hadris_iso::async::volume::VolumeDescriptor::header(&self) -> hadris_iso::async::volume::VolumeDescriptorHeader
 pub fn hadris_iso::async::volume::VolumeDescriptor::new([u8; 2048]) -> Self
-impl hadris_io::async_api::Parsable for hadris_iso::async::volume::VolumeDescriptor
-pub async fn hadris_iso::async::volume::VolumeDescriptor::parse<R: hadris_io::async_api::Read>(&mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::async::api::Parsable for hadris_iso::async::volume::VolumeDescriptor
+pub async fn hadris_iso::async::volume::VolumeDescriptor::parse<R: hadris_io::async::api::Read>(&mut R) -> hadris_io::error::Result<Self>
 pub enum hadris_iso::async::volume::VolumeDescriptorType
 pub hadris_iso::async::volume::VolumeDescriptorType::BootRecord
 pub hadris_iso::async::volume::VolumeDescriptorType::PrimaryVolumeDescriptor
@@ -1330,8 +1323,8 @@ pub fn hadris_iso::async::volume::VolumeDescriptorList::supplementary(&self) -> 
 pub fn hadris_iso::async::volume::VolumeDescriptorList::supplementary_mut(&mut self) -> impl core::iter::traits::iterator::Iterator<Item = &mut hadris_iso::async::volume::SupplementaryVolumeDescriptor>
 pub fn hadris_iso::async::volume::VolumeDescriptorList::try_primary(&self) -> core::option::Option<&hadris_iso::async::volume::PrimaryVolumeDescriptor>
 impl hadris_iso::async::volume::VolumeDescriptorList
-pub async fn hadris_iso::async::volume::VolumeDescriptorList::parse<T: hadris_io::async_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
-pub async fn hadris_iso::async::volume::VolumeDescriptorList::write<W: hadris_io::async_api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
+pub async fn hadris_iso::async::volume::VolumeDescriptorList::parse<T: hadris_io::async::api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
+pub async fn hadris_iso::async::volume::VolumeDescriptorList::write<W: hadris_io::async::api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
 #[repr(C)] pub struct hadris_iso::async::volume::VolumeDescriptorSetTerminator
 impl hadris_iso::async::volume::VolumeDescriptorSetTerminator
 pub fn hadris_iso::async::volume::VolumeDescriptorSetTerminator::new() -> Self
@@ -1342,14 +1335,14 @@ impl core::default::Default for hadris_iso::async::volume::VolumeDescriptorSetTe
 pub fn hadris_iso::async::volume::VolumeDescriptorSetTerminator::default() -> Self
 impl core::fmt::Debug for hadris_iso::async::volume::VolumeDescriptorSetTerminator
 pub fn hadris_iso::async::volume::VolumeDescriptorSetTerminator::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct hadris_iso::async::IsoImage<DATA: hadris_io::async_api::Seek>
-impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
+pub struct hadris_iso::async::IsoImage<DATA: hadris_io::async::api::Seek>
+impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::find_path(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::async::read::DirEntry>>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::open(DATA) -> hadris_io::error::Result<Self>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::read_bytes_at(&self, u64, &mut [u8]) -> hadris_io::error::Result<()>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::read_file(&self, &hadris_iso::async::read::DirEntry) -> hadris_io::error::Result<alloc::vec::Vec<u8>>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::read_file_chunked<const N: usize>(&self, &hadris_iso::async::read::DirEntry) -> hadris_io::error::Result<hadris_iso::async::read::FileChunkIterator<'_, DATA, N>>
-impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
+impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::async::read::IsoImage<DATA>::open_dir(&self, hadris_iso::async::directory::DirectoryRef) -> hadris_iso::async::read::IsoDir<'_, DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::async::path::PathTableInfo
@@ -1358,9 +1351,9 @@ pub fn hadris_iso::async::read::IsoImage<DATA>::read_volume_descriptors(&self) -
 pub fn hadris_iso::async::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::async::read::RootDir
 pub fn hadris_iso::async::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::async::read::RootDirs
 pub fn hadris_iso::async::read::IsoImage<DATA>::supports_rrip(&self) -> bool
-impl<DATA: hadris_io::async_api::Read + hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
+impl<DATA: hadris_io::async::api::Read + hadris_io::async::api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub async fn hadris_iso::async::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::async::volume::PrimaryVolumeDescriptor>
-impl<DATA: hadris_io::async_api::Seek> hadris_iso::async::read::IsoImage<DATA>
+impl<DATA: hadris_io::async::api::Seek> hadris_iso::async::read::IsoImage<DATA>
 pub fn hadris_iso::async::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub mod hadris_iso::boot
 pub mod hadris_iso::boot::options
@@ -1425,8 +1418,8 @@ pub hadris_iso::boot::BaseBootCatalog::validation: hadris_iso::boot::BootValidat
 impl hadris_iso::boot::BaseBootCatalog
 pub fn hadris_iso::boot::BaseBootCatalog::new(hadris_iso::boot::EmulationType, u16, u16, u32) -> Self
 impl hadris_iso::boot::BaseBootCatalog
-pub fn hadris_iso::boot::BaseBootCatalog::parse<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R) -> core::result::Result<Self, hadris_iso::boot::BootError>
-pub fn hadris_iso::boot::BaseBootCatalog::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub fn hadris_iso::boot::BaseBootCatalog::parse<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R) -> core::result::Result<Self, hadris_iso::boot::BootError>
+pub fn hadris_iso::boot::BaseBootCatalog::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 impl core::default::Default for hadris_iso::boot::BaseBootCatalog
 pub fn hadris_iso::boot::BaseBootCatalog::default() -> Self
 pub struct hadris_iso::boot::BootCatalog
@@ -1436,8 +1429,8 @@ pub fn hadris_iso::boot::BootCatalog::new(hadris_iso::boot::EmulationType, u16, 
 pub fn hadris_iso::boot::BootCatalog::set_default_entry(&mut self, hadris_iso::boot::BootSectionEntry)
 pub fn hadris_iso::boot::BootCatalog::size(&self) -> usize
 impl hadris_iso::boot::BootCatalog
-pub fn hadris_iso::boot::BootCatalog::parse<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut T) -> core::result::Result<Self, hadris_iso::boot::BootError>
-pub fn hadris_iso::boot::BootCatalog::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub fn hadris_iso::boot::BootCatalog::parse<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut T) -> core::result::Result<Self, hadris_iso::boot::BootError>
+pub fn hadris_iso::boot::BootCatalog::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 impl core::default::Default for hadris_iso::boot::BootCatalog
 pub fn hadris_iso::boot::BootCatalog::default() -> Self
 #[repr(C)] pub struct hadris_iso::boot::BootInfoTable
@@ -1463,7 +1456,7 @@ pub fn hadris_iso::boot::BootSectionEntry::is_valid(&self) -> bool
 impl hadris_iso::boot::BootSectionEntry
 pub fn hadris_iso::boot::BootSectionEntry::new(hadris_iso::boot::EmulationType, u16, u16, u32) -> Self
 impl hadris_iso::boot::BootSectionEntry
-pub fn hadris_iso::boot::BootSectionEntry::parse<T: hadris_io::sync_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
+pub fn hadris_iso::boot::BootSectionEntry::parse<T: hadris_io::sync::api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
 impl bytemuck::pod::Pod for hadris_iso::boot::BootSectionEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::boot::BootSectionEntry
 impl core::fmt::Debug for hadris_iso::boot::BootSectionEntry
@@ -1497,7 +1490,7 @@ pub fn hadris_iso::boot::BootValidationEntry::validate(&self) -> core::result::R
 impl hadris_iso::boot::BootValidationEntry
 pub fn hadris_iso::boot::BootValidationEntry::new() -> Self
 impl hadris_iso::boot::BootValidationEntry
-pub fn hadris_iso::boot::BootValidationEntry::parse<T: hadris_io::sync_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
+pub fn hadris_iso::boot::BootValidationEntry::parse<T: hadris_io::sync::api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
 impl bytemuck::pod::Pod for hadris_iso::boot::BootValidationEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::boot::BootValidationEntry
 impl core::default::Default for hadris_iso::boot::BootValidationEntry
@@ -1538,8 +1531,8 @@ pub fn hadris_iso::directory::DirectoryRecord::system_use(&self) -> &[u8]
 pub fn hadris_iso::directory::DirectoryRecord::to_bytes(&self) -> &[u8]
 pub fn hadris_iso::directory::DirectoryRecord::with_len(usize, usize) -> Self
 impl hadris_iso::directory::DirectoryRecord
-pub fn hadris_iso::directory::DirectoryRecord::parse<R: hadris_io::sync_api::Read>(&mut R) -> hadris_io::error::Result<Self>
-pub fn hadris_iso::directory::DirectoryRecord::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
+pub fn hadris_iso::directory::DirectoryRecord::parse<R: hadris_io::sync::api::Read>(&mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::directory::DirectoryRecord::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
 impl bytemuck::pod::Pod for hadris_iso::directory::DirectoryRecord
 impl bytemuck::zeroable::Zeroable for hadris_iso::directory::DirectoryRecord
 impl core::default::Default for hadris_iso::directory::DirectoryRecord
@@ -1711,31 +1704,24 @@ pub use hadris_iso::io::SeekFrom
 pub use hadris_iso::io::Writable
 pub use hadris_iso::io::Write
 pub use hadris_iso::io::try_io_result_option
-pub struct hadris_iso::io::IsoCursor<DATA: hadris_io::sync_api::Seek>
+pub struct hadris_iso::io::IsoCursor<DATA: hadris_io::sync::api::Seek>
 pub hadris_iso::io::IsoCursor::data: DATA
 pub hadris_iso::io::IsoCursor::sector_size: usize
-impl<DATA: hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::into_inner(self) -> DATA
 pub fn hadris_iso::io::IsoCursor<DATA>::new(DATA, usize) -> Self
 pub fn hadris_iso::io::IsoCursor<DATA>::seek_sector(&mut self, hadris_iso::io::LogicalSector) -> hadris_io::error::Result<u64>
-impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_io::sync_api::Read for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Read>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::read_exact(&mut self, &mut [u8]) -> hadris_io::error::Result<()>
-impl<DATA: hadris_io::sync_api::Seek> core::fmt::Debug for hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_io::sync::api::Read for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
+impl<DATA: hadris_io::sync::api::Seek> core::fmt::Debug for hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<DATA: hadris_io::sync_api::Seek> hadris_io::sync_api::Seek for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Seek>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::seek_relative(&mut self, i64) -> hadris_io::error::Result<(), Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::stream_position(&mut self) -> hadris_io::error::Result<u64, Self::Error>
-impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_io::sync_api::Write for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Write>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::flush(&mut self) -> hadris_io::error::Result<(), Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::write_all(&mut self, &[u8]) -> hadris_io::error::Result<()>
+impl<DATA: hadris_io::sync::api::Seek> hadris_io::sync::api::Seek for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64>
+impl<DATA: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_io::sync::api::Write for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::flush(&mut self) -> hadris_io::error::Result<()>
+pub fn hadris_iso::io::IsoCursor<DATA>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize>
 pub struct hadris_iso::io::LogicalSector(pub usize)
 impl core::ops::arith::Add<usize> for hadris_iso::io::LogicalSector
 pub type hadris_iso::io::LogicalSector::Output = hadris_iso::io::LogicalSector
@@ -1787,8 +1773,8 @@ pub hadris_iso::modify::ModifyOp::Delete::path: alloc::string::String
 pub hadris_iso::modify::ModifyOp::Replace
 pub hadris_iso::modify::ModifyOp::Replace::data: hadris_iso::modify::FileData
 pub hadris_iso::modify::ModifyOp::Replace::path: alloc::string::String
-pub struct hadris_iso::modify::IsoModifier<RW: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
-impl<RW: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::modify::IsoModifier<RW>
+pub struct hadris_iso::modify::IsoModifier<RW: hadris_io::sync::api::Read + hadris_io::sync::api::Write + hadris_io::sync::api::Seek>
+impl<RW: hadris_io::sync::api::Read + hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_iso::modify::IsoModifier<RW>
 pub fn hadris_iso::modify::IsoModifier<RW>::append_file(&mut self, &str, impl core::convert::Into<hadris_iso::modify::FileData>)
 pub fn hadris_iso::modify::IsoModifier<RW>::create_dir(&mut self, &str)
 pub fn hadris_iso::modify::IsoModifier<RW>::delete(&mut self, &str)
@@ -1807,8 +1793,8 @@ pub hadris_iso::path::PathTableEntry::name: hadris_common::types::fixed::FixedBy
 pub hadris_iso::path::PathTableEntry::parent_index: u16
 pub hadris_iso::path::PathTableEntry::parent_lba: u32
 impl hadris_iso::path::PathTableEntry
-pub fn hadris_iso::path::PathTableEntry::parse<T: hadris_io::sync_api::Read>(&mut T, hadris_common::types::endian::EndianType) -> core::result::Result<Self, hadris_io::error::Error>
-pub fn hadris_iso::path::PathTableEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W, hadris_common::types::endian::EndianType) -> hadris_io::error::Result<()>
+pub fn hadris_iso::path::PathTableEntry::parse<T: hadris_io::sync::api::Read>(&mut T, hadris_common::types::endian::EndianType) -> core::result::Result<Self, hadris_io::error::Error>
+pub fn hadris_iso::path::PathTableEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W, hadris_common::types::endian::EndianType) -> hadris_io::error::Result<()>
 impl hadris_iso::path::PathTableEntry
 pub fn hadris_iso::path::PathTableEntry::size(&self) -> usize
 #[repr(C)] pub struct hadris_iso::path::PathTableEntryHeader
@@ -1820,13 +1806,13 @@ impl hadris_iso::path::PathTableEntryHeader
 pub fn hadris_iso::path::PathTableEntryHeader::from_bytes(&[u8]) -> Self
 impl bytemuck::pod::Pod for hadris_iso::path::PathTableEntryHeader
 impl bytemuck::zeroable::Zeroable for hadris_iso::path::PathTableEntryHeader
-pub struct hadris_iso::path::PathTableEntryIter<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::path::PathTableEntryIter<'_, DATA>
+pub struct hadris_iso::path::PathTableEntryIter<'a, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::path::PathTableEntryIter<'_, DATA>
 pub type hadris_iso::path::PathTableEntryIter<'_, DATA>::Item = core::result::Result<hadris_iso::path::PathTableEntry, hadris_io::error::Error>
 pub fn hadris_iso::path::PathTableEntryIter<'_, DATA>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_iso::path::PathTableInfo
 impl hadris_iso::path::PathTableInfo
-pub fn hadris_iso::path::PathTableInfo::entries<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::path::PathTableEntryIter<'a, DATA>
+pub fn hadris_iso::path::PathTableInfo::entries<'a, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::path::PathTableEntryIter<'a, DATA>
 impl hadris_iso::path::PathTableInfo
 pub fn hadris_iso::path::PathTableInfo::reference(&self) -> &hadris_iso::path::PathTableRef
 pub struct hadris_iso::path::PathTableRef
@@ -1863,11 +1849,11 @@ pub hadris_iso::read::BootEntryInfo::sector_count: u16
 pub struct hadris_iso::read::BootInfo
 impl hadris_iso::read::BootInfo
 pub fn hadris_iso::read::BootInfo::default_entry(&self) -> core::option::Option<hadris_iso::read::BootEntryInfo>
-pub fn hadris_iso::read::BootInfo::sections<'a, R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&'a self, &'a hadris_iso::read::IsoImage<R>) -> hadris_iso::read::BootSectionIter<'a, R>
-pub struct hadris_iso::read::BootSectionIter<'data, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::BootSectionIter<'_, DATA>
+pub fn hadris_iso::read::BootInfo::sections<'a, R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&'a self, &'a hadris_iso::read::IsoImage<R>) -> hadris_iso::read::BootSectionIter<'a, R>
+pub struct hadris_iso::read::BootSectionIter<'data, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::BootSectionIter<'_, DATA>
 pub fn hadris_iso::read::BootSectionIter<'_, DATA>::next_section(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::boot::BootSectionHeaderEntry>>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::BootSectionIter<'_, DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::BootSectionIter<'_, DATA>
 pub type hadris_iso::read::BootSectionIter<'_, DATA>::Item = core::result::Result<hadris_iso::boot::BootSectionHeaderEntry, hadris_io::error::Error>
 pub fn hadris_iso::read::BootSectionIter<'_, DATA>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_iso::read::DirEntry
@@ -1876,7 +1862,7 @@ pub hadris_iso::read::DirEntry::associated_file: core::option::Option<hadris_iso
 pub hadris_iso::read::DirEntry::record: hadris_iso::directory::DirectoryRecord
 pub hadris_iso::read::DirEntry::rrip: core::option::Option<hadris_iso::read::RripMetadata>
 impl hadris_iso::read::DirEntry
-pub fn hadris_iso::read::DirEntry::as_dir_ref<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &hadris_iso::read::IsoImage<DATA>) -> hadris_io::error::Result<hadris_iso::directory::DirectoryRef>
+pub fn hadris_iso::read::DirEntry::as_dir_ref<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&self, &hadris_iso::read::IsoImage<DATA>) -> hadris_io::error::Result<hadris_iso::directory::DirectoryRef>
 impl hadris_iso::read::DirEntry
 pub fn hadris_iso::read::DirEntry::display_name(&self) -> alloc::borrow::Cow<'_, str>
 pub fn hadris_iso::read::DirEntry::extended_attr_len(&self) -> core::option::Option<u8>
@@ -1895,16 +1881,16 @@ pub fn hadris_iso::read::DirEntry::total_size(&self) -> u64
 pub struct hadris_iso::read::Extent
 pub hadris_iso::read::Extent::length: u32
 pub hadris_iso::read::Extent::sector: hadris_iso::io::LogicalSector
-pub struct hadris_iso::read::FileChunkIterator<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek, const N: usize>
-impl<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek, const N: usize> hadris_iso::read::FileChunkIterator<'a, DATA, N>
+pub struct hadris_iso::read::FileChunkIterator<'a, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek, const N: usize>
+impl<'a, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek, const N: usize> hadris_iso::read::FileChunkIterator<'a, DATA, N>
 pub fn hadris_iso::read::FileChunkIterator<'a, DATA, N>::next_chunk(&mut self) -> hadris_io::error::Result<core::option::Option<alloc::vec::Vec<u8>>>
 pub fn hadris_iso::read::FileChunkIterator<'a, DATA, N>::position(&self) -> u64
 pub fn hadris_iso::read::FileChunkIterator<'a, DATA, N>::total_size(&self) -> u64
-pub struct hadris_iso::read::IsoDir<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDir<'a, T>
+pub struct hadris_iso::read::IsoDir<'a, T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<'a, T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoDir<'a, T>
 pub fn hadris_iso::read::IsoDir<'a, T>::entries(&self) -> hadris_iso::read::IsoDirIter<'_, T>
 pub fn hadris_iso::read::IsoDir<'a, T>::raw_entries(&self) -> hadris_iso::read::RawDirIter<'_, T>
-impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDir<'_, T>
+impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoDir<'_, T>
 pub fn hadris_iso::read::IsoDir<'_, T>::find(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::DirEntry>>
 pub fn hadris_iso::read::IsoDir<'_, T>::read_entries(&self) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::read::DirEntry>>
 pub struct hadris_iso::read::IsoDirEntry
@@ -1918,33 +1904,33 @@ pub fn hadris_iso::read::IsoDirEntry::rrip_name_into<'b>(&self, &'b mut [u8]) ->
 pub fn hadris_iso::read::IsoDirEntry::rrip_name_matches(&self, &str) -> bool
 pub fn hadris_iso::read::IsoDirEntry::system_use(&self) -> &[u8]
 pub const fn hadris_iso::read::IsoDirEntry::total_size(&self) -> u64
-pub struct hadris_iso::read::IsoDirIter<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDirIter<'_, T>
+pub struct hadris_iso::read::IsoDirIter<'a, T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoDirIter<'_, T>
 pub fn hadris_iso::read::IsoDirIter<'_, T>::offset(&self) -> usize
-impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirIter<'_, T>
+impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirIter<'_, T>
 pub type hadris_iso::read::IsoDirIter<'_, T>::Item = core::result::Result<hadris_iso::read::DirEntry, hadris_io::error::Error>
 pub fn hadris_iso::read::IsoDirIter<'_, T>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_iso::read::IsoDirReader<'a, R>
-impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDirReader<'_, R>
+impl<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoDirReader<'_, R>
 pub fn hadris_iso::read::IsoDirReader<'_, R>::next_entry(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
-impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirReader<'_, R>
+impl<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirReader<'_, R>
 pub type hadris_iso::read::IsoDirReader<'_, R>::Item = core::result::Result<hadris_iso::read::IsoDirEntry, hadris_io::error::Error>
 pub fn hadris_iso::read::IsoDirReader<'_, R>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_iso::read::IsoFileReader<'a, R>
-impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoFileReader<'_, R>
+impl<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoFileReader<'_, R>
 pub fn hadris_iso::read::IsoFileReader<'_, R>::read_chunk(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
 impl<R> hadris_iso::read::IsoFileReader<'_, R>
 pub const fn hadris_iso::read::IsoFileReader<'_, R>::is_empty(&self) -> bool
 pub const fn hadris_iso::read::IsoFileReader<'_, R>::len(&self) -> u64
 pub const fn hadris_iso::read::IsoFileReader<'_, R>::position(&self) -> u64
-pub struct hadris_iso::read::IsoImage<DATA: hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+pub struct hadris_iso::read::IsoImage<DATA: hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::find_path(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::DirEntry>>
 pub fn hadris_iso::read::IsoImage<DATA>::open(DATA) -> hadris_io::error::Result<Self>
 pub fn hadris_iso::read::IsoImage<DATA>::read_bytes_at(&self, u64, &mut [u8]) -> hadris_io::error::Result<()>
 pub fn hadris_iso::read::IsoImage<DATA>::read_file(&self, &hadris_iso::read::DirEntry) -> hadris_io::error::Result<alloc::vec::Vec<u8>>
 pub fn hadris_iso::read::IsoImage<DATA>::read_file_chunked<const N: usize>(&self, &hadris_iso::read::DirEntry) -> hadris_io::error::Result<hadris_iso::read::FileChunkIterator<'_, DATA, N>>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::read::IsoImage<DATA>::open_dir(&self, hadris_iso::directory::DirectoryRef) -> hadris_iso::read::IsoDir<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::path::PathTableInfo
@@ -1953,9 +1939,9 @@ pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadri
 pub fn hadris_iso::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::read::RootDir
 pub fn hadris_iso::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::read::RootDirs
 pub fn hadris_iso::read::IsoImage<DATA>::supports_rrip(&self) -> bool
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::volume::PrimaryVolumeDescriptor>
-impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::read::IsoImageInfo
 impl hadris_iso::read::IsoImageInfo
@@ -1968,7 +1954,7 @@ pub fn hadris_iso::read::IsoName<'a>::matches(self, &str) -> bool
 pub const fn hadris_iso::read::IsoName<'a>::namespace(self) -> hadris_iso::read::IsoNamespace
 pub const fn hadris_iso::read::IsoName<'a>::raw(self) -> &'a [u8]
 pub struct hadris_iso::read::IsoReader<R>
-impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoReader<R>
+impl<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoReader<R>
 pub fn hadris_iso::read::IsoReader<R>::find_path(&mut self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
 pub fn hadris_iso::read::IsoReader<R>::find_path_in(&mut self, hadris_iso::read::IsoRoot, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
 pub fn hadris_iso::read::IsoReader<R>::open(R) -> hadris_io::error::Result<Self>
@@ -1987,17 +1973,17 @@ impl hadris_iso::read::IsoRoot
 pub const fn hadris_iso::read::IsoRoot::block_size(self) -> u16
 pub const fn hadris_iso::read::IsoRoot::namespace(self) -> hadris_iso::read::IsoNamespace
 pub const fn hadris_iso::read::IsoRoot::size(self) -> u32
-pub struct hadris_iso::read::RawDirIter<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::RawDirIter<'_, T>
+pub struct hadris_iso::read::RawDirIter<'a, T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::RawDirIter<'_, T>
 pub fn hadris_iso::read::RawDirIter<'_, T>::offset(&self) -> usize
-impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::RawDirIter<'_, T>
+impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::RawDirIter<'_, T>
 pub type hadris_iso::read::RawDirIter<'_, T>::Item = core::result::Result<hadris_iso::directory::DirectoryRecord, hadris_io::error::Error>
 pub fn hadris_iso::read::RawDirIter<'_, T>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_iso::read::RootDir
 impl hadris_iso::read::RootDir
 pub fn hadris_iso::read::RootDir::dir_ref(&self) -> hadris_iso::directory::DirectoryRef
 pub fn hadris_iso::read::RootDir::entry_type(&self) -> hadris_iso::file::EntryType
-pub fn hadris_iso::read::RootDir::iter<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::read::IsoDir<'a, DATA>
+pub fn hadris_iso::read::RootDir::iter<'a, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::read::IsoDir<'a, DATA>
 pub struct hadris_iso::read::RootDirs
 impl hadris_iso::read::RootDirs
 pub fn hadris_iso::read::RootDirs::best_choice(&self) -> hadris_iso::read::RootDir
@@ -2037,13 +2023,13 @@ pub hadris_iso::read::RripTimestamps::creation: core::option::Option<hadris_iso:
 pub hadris_iso::read::RripTimestamps::effective: core::option::Option<hadris_iso::read::RripDateTime>
 pub hadris_iso::read::RripTimestamps::expiration: core::option::Option<hadris_iso::read::RripDateTime>
 pub hadris_iso::read::RripTimestamps::modify: core::option::Option<hadris_iso::read::RripDateTime>
-pub struct hadris_iso::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
+pub struct hadris_iso::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
 pub fn hadris_iso::read::VolumeDescriptorIter<'_, DATA>::next_descriptor(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::volume::VolumeDescriptor>>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::VolumeDescriptorIter<'_, DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::VolumeDescriptorIter<'_, DATA>
 pub type hadris_iso::read::VolumeDescriptorIter<'_, DATA>::Item = core::result::Result<hadris_iso::volume::VolumeDescriptor, hadris_io::error::Error>
 pub fn hadris_iso::read::VolumeDescriptorIter<'_, DATA>::next(&mut self) -> core::option::Option<Self::Item>
-pub fn hadris_iso::read::collect_su_entries<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&hadris_iso::directory::DirectoryRecord, &hadris_iso::read::IsoImage<DATA>, u8) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::susp::SystemUseField>>
+pub fn hadris_iso::read::collect_su_entries<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&hadris_iso::directory::DirectoryRecord, &hadris_iso::read::IsoImage<DATA>, u8) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::susp::SystemUseField>>
 pub mod hadris_iso::rrip
 pub enum hadris_iso::rrip::RockRidgeEntry
 pub hadris_iso::rrip::RockRidgeEntry::AlternateName(hadris_iso::rrip::NmEntry)
@@ -2062,11 +2048,11 @@ pub fn hadris_iso::rrip::ClEntry::header(&self) -> hadris_iso::susp::SystemUseHe
 impl hadris_iso::rrip::ClEntry
 pub fn hadris_iso::rrip::ClEntry::new(u32) -> Self
 impl hadris_iso::rrip::ClEntry
-pub fn hadris_iso::rrip::ClEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::rrip::ClEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::rrip::ClEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::rrip::ClEntry
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::ClEntry
-pub fn hadris_iso::rrip::ClEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::ClEntry
+pub fn hadris_iso::rrip::ClEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::rrip::NmEntry
 pub hadris_iso::rrip::NmEntry::flags: hadris_iso::rrip::NmFlags
 pub hadris_iso::rrip::NmEntry::name: alloc::vec::Vec<u8>
@@ -2078,9 +2064,9 @@ pub fn hadris_iso::rrip::NmEntry::size(&self) -> usize
 impl hadris_iso::rrip::NmEntry
 pub fn hadris_iso::rrip::NmEntry::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::rrip::NmEntry
-pub fn hadris_iso::rrip::NmEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::NmEntry
-pub fn hadris_iso::rrip::NmEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub fn hadris_iso::rrip::NmEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::NmEntry
+pub fn hadris_iso::rrip::NmEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::rrip::NmFlags(_)
 impl hadris_iso::rrip::NmFlags
 pub const hadris_iso::rrip::NmFlags::CONTINUE: Self
@@ -2168,11 +2154,11 @@ pub fn hadris_iso::rrip::PlEntry::header(&self) -> hadris_iso::susp::SystemUseHe
 impl hadris_iso::rrip::PlEntry
 pub fn hadris_iso::rrip::PlEntry::new(u32) -> Self
 impl hadris_iso::rrip::PlEntry
-pub fn hadris_iso::rrip::PlEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::rrip::PlEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::rrip::PlEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::rrip::PlEntry
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::PlEntry
-pub fn hadris_iso::rrip::PlEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::PlEntry
+pub fn hadris_iso::rrip::PlEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 #[repr(C)] pub struct hadris_iso::rrip::PnEntry
 pub hadris_iso::rrip::PnEntry::dev_high: hadris_iso::types::U32LsbMsb
 pub hadris_iso::rrip::PnEntry::dev_low: hadris_iso::types::U32LsbMsb
@@ -2182,11 +2168,11 @@ pub fn hadris_iso::rrip::PnEntry::new(u32, u32) -> Self
 impl hadris_iso::rrip::PnEntry
 pub fn hadris_iso::rrip::PnEntry::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::rrip::PnEntry
-pub fn hadris_iso::rrip::PnEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::rrip::PnEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::rrip::PnEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::rrip::PnEntry
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::PnEntry
-pub fn hadris_iso::rrip::PnEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::PnEntry
+pub fn hadris_iso::rrip::PnEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::rrip::PosixFileMode(_)
 impl hadris_iso::rrip::PosixFileMode
 pub const hadris_iso::rrip::PosixFileMode::S_IFBLK: Self
@@ -2297,16 +2283,16 @@ pub fn hadris_iso::rrip::PxEntry::header(&self) -> hadris_iso::susp::SystemUseHe
 impl hadris_iso::rrip::PxEntry
 pub fn hadris_iso::rrip::PxEntry::new(u32, u32, u32, u32, u32) -> Self
 impl hadris_iso::rrip::PxEntry
-pub fn hadris_iso::rrip::PxEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::rrip::PxEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::rrip::PxEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::rrip::PxEntry
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::PxEntry
-pub fn hadris_iso::rrip::PxEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::PxEntry
+pub fn hadris_iso::rrip::PxEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::rrip::ReEntry
 impl hadris_iso::rrip::ReEntry
 pub fn hadris_iso::rrip::ReEntry::header(&self) -> hadris_iso::susp::SystemUseHeader
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::ReEntry
-pub fn hadris_iso::rrip::ReEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::ReEntry
+pub fn hadris_iso::rrip::ReEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::rrip::RripBuilder
 impl hadris_iso::rrip::RripBuilder
 pub fn hadris_iso::rrip::RripBuilder::add_ce(&mut self, hadris_iso::susp::ContinuationArea) -> &mut Self
@@ -2441,9 +2427,9 @@ pub fn hadris_iso::rrip::SlEntry::size(&self) -> usize
 impl hadris_iso::rrip::SlEntry
 pub fn hadris_iso::rrip::SlEntry::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::rrip::SlEntry
-pub fn hadris_iso::rrip::SlEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::SlEntry
-pub fn hadris_iso::rrip::SlEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub fn hadris_iso::rrip::SlEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::SlEntry
+pub fn hadris_iso::rrip::SlEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::rrip::TfEntry
 pub hadris_iso::rrip::TfEntry::flags: hadris_iso::rrip::TfFlags
 pub hadris_iso::rrip::TfEntry::timestamps: alloc::vec::Vec<u8>
@@ -2453,9 +2439,9 @@ impl hadris_iso::rrip::TfEntry
 pub fn hadris_iso::rrip::TfEntry::new_short(&[u8; 7], &[u8; 7]) -> Self
 pub fn hadris_iso::rrip::TfEntry::size(&self) -> usize
 impl hadris_iso::rrip::TfEntry
-pub fn hadris_iso::rrip::TfEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::TfEntry
-pub fn hadris_iso::rrip::TfEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub fn hadris_iso::rrip::TfEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::TfEntry
+pub fn hadris_iso::rrip::TfEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::rrip::TfFlags(_)
 impl hadris_iso::rrip::TfFlags
 pub const hadris_iso::rrip::TfFlags::ACCESS: Self
@@ -2569,11 +2555,11 @@ pub hadris_iso::susp::ContinuationArea::sector: hadris_iso::types::U32LsbMsb
 impl hadris_iso::susp::ContinuationArea
 pub fn hadris_iso::susp::ContinuationArea::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::susp::ContinuationArea
-pub fn hadris_iso::susp::ContinuationArea::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::susp::ContinuationArea::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::susp::ContinuationArea
 impl bytemuck::zeroable::Zeroable for hadris_iso::susp::ContinuationArea
-impl hadris_io::sync_api::Writable for hadris_iso::susp::ContinuationArea
-pub fn hadris_iso::susp::ContinuationArea::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::ContinuationArea
+pub fn hadris_iso::susp::ContinuationArea::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 #[repr(C)] pub struct hadris_iso::susp::ExtensionReference
 pub hadris_iso::susp::ExtensionReference::buf: [u8; 252]
 pub hadris_iso::susp::ExtensionReference::descriptor_len: u8
@@ -2583,17 +2569,17 @@ pub hadris_iso::susp::ExtensionReference::version: u8
 impl hadris_iso::susp::ExtensionReference
 pub fn hadris_iso::susp::ExtensionReference::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::susp::ExtensionReference
-pub fn hadris_iso::susp::ExtensionReference::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::susp::ExtensionReference
-pub fn hadris_iso::susp::ExtensionReference::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+pub fn hadris_iso::susp::ExtensionReference::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::ExtensionReference
+pub fn hadris_iso::susp::ExtensionReference::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::susp::PaddingField
 pub hadris_iso::susp::PaddingField::length: u8
 impl hadris_iso::susp::PaddingField
 pub fn hadris_iso::susp::PaddingField::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::susp::PaddingField
-pub fn hadris_iso::susp::PaddingField::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::susp::PaddingField
-pub fn hadris_iso::susp::PaddingField::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+pub fn hadris_iso::susp::PaddingField::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::PaddingField
+pub fn hadris_iso::susp::PaddingField::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::susp::SplitSu
 pub hadris_iso::susp::SplitSu::inline: alloc::vec::Vec<u8>
 pub hadris_iso::susp::SplitSu::overflow: alloc::vec::Vec<u8>
@@ -2610,18 +2596,18 @@ impl hadris_iso::susp::SuspIdentifier
 pub fn hadris_iso::susp::SuspIdentifier::is_valid(&self) -> bool
 pub fn hadris_iso::susp::SuspIdentifier::new(u8) -> Self
 impl hadris_iso::susp::SuspIdentifier
-pub fn hadris_iso::susp::SuspIdentifier::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::susp::SuspIdentifier::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::susp::SuspIdentifier
 impl bytemuck::zeroable::Zeroable for hadris_iso::susp::SuspIdentifier
-impl hadris_io::sync_api::Writable for hadris_iso::susp::SuspIdentifier
-pub fn hadris_iso::susp::SuspIdentifier::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::SuspIdentifier
+pub fn hadris_iso::susp::SuspIdentifier::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::susp::SuspTerminator
 impl hadris_iso::susp::SuspTerminator
 pub fn hadris_iso::susp::SuspTerminator::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::susp::SuspTerminator
-pub fn hadris_iso::susp::SuspTerminator::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::susp::SuspTerminator
-pub fn hadris_iso::susp::SuspTerminator::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+pub fn hadris_iso::susp::SuspTerminator::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::SuspTerminator
+pub fn hadris_iso::susp::SuspTerminator::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::susp::SystemUseBuilder
 impl hadris_iso::susp::SystemUseBuilder
 pub fn hadris_iso::susp::SystemUseBuilder::add_ce(&mut self, hadris_iso::susp::ContinuationArea) -> &mut Self
@@ -2643,8 +2629,8 @@ pub hadris_iso::susp::SystemUseHeader::sig: [u8; 2]
 pub hadris_iso::susp::SystemUseHeader::version: u8
 impl bytemuck::pod::Pod for hadris_iso::susp::SystemUseHeader
 impl bytemuck::zeroable::Zeroable for hadris_iso::susp::SystemUseHeader
-impl hadris_io::sync_api::Writable for hadris_iso::susp::SystemUseHeader
-pub fn hadris_iso::susp::SystemUseHeader::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::SystemUseHeader
+pub fn hadris_iso::susp::SystemUseHeader::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::susp::SystemUseIter<'a>
 impl<'a> hadris_iso::susp::SystemUseIter<'a>
 pub fn hadris_iso::susp::SystemUseIter<'a>::new(&'a [u8], usize) -> Self
@@ -2725,8 +2711,8 @@ pub hadris_iso::sync::boot::BaseBootCatalog::validation: hadris_iso::boot::BootV
 impl hadris_iso::boot::BaseBootCatalog
 pub fn hadris_iso::boot::BaseBootCatalog::new(hadris_iso::boot::EmulationType, u16, u16, u32) -> Self
 impl hadris_iso::boot::BaseBootCatalog
-pub fn hadris_iso::boot::BaseBootCatalog::parse<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut R) -> core::result::Result<Self, hadris_iso::boot::BootError>
-pub fn hadris_iso::boot::BaseBootCatalog::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub fn hadris_iso::boot::BaseBootCatalog::parse<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut R) -> core::result::Result<Self, hadris_iso::boot::BootError>
+pub fn hadris_iso::boot::BaseBootCatalog::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 impl core::default::Default for hadris_iso::boot::BaseBootCatalog
 pub fn hadris_iso::boot::BaseBootCatalog::default() -> Self
 pub struct hadris_iso::sync::boot::BootCatalog
@@ -2736,8 +2722,8 @@ pub fn hadris_iso::boot::BootCatalog::new(hadris_iso::boot::EmulationType, u16, 
 pub fn hadris_iso::boot::BootCatalog::set_default_entry(&mut self, hadris_iso::boot::BootSectionEntry)
 pub fn hadris_iso::boot::BootCatalog::size(&self) -> usize
 impl hadris_iso::boot::BootCatalog
-pub fn hadris_iso::boot::BootCatalog::parse<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&mut T) -> core::result::Result<Self, hadris_iso::boot::BootError>
-pub fn hadris_iso::boot::BootCatalog::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub fn hadris_iso::boot::BootCatalog::parse<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&mut T) -> core::result::Result<Self, hadris_iso::boot::BootError>
+pub fn hadris_iso::boot::BootCatalog::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 impl core::default::Default for hadris_iso::boot::BootCatalog
 pub fn hadris_iso::boot::BootCatalog::default() -> Self
 #[repr(C)] pub struct hadris_iso::sync::boot::BootInfoTable
@@ -2763,7 +2749,7 @@ pub fn hadris_iso::boot::BootSectionEntry::is_valid(&self) -> bool
 impl hadris_iso::boot::BootSectionEntry
 pub fn hadris_iso::boot::BootSectionEntry::new(hadris_iso::boot::EmulationType, u16, u16, u32) -> Self
 impl hadris_iso::boot::BootSectionEntry
-pub fn hadris_iso::boot::BootSectionEntry::parse<T: hadris_io::sync_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
+pub fn hadris_iso::boot::BootSectionEntry::parse<T: hadris_io::sync::api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
 impl bytemuck::pod::Pod for hadris_iso::boot::BootSectionEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::boot::BootSectionEntry
 impl core::fmt::Debug for hadris_iso::boot::BootSectionEntry
@@ -2797,7 +2783,7 @@ pub fn hadris_iso::boot::BootValidationEntry::validate(&self) -> core::result::R
 impl hadris_iso::boot::BootValidationEntry
 pub fn hadris_iso::boot::BootValidationEntry::new() -> Self
 impl hadris_iso::boot::BootValidationEntry
-pub fn hadris_iso::boot::BootValidationEntry::parse<T: hadris_io::sync_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
+pub fn hadris_iso::boot::BootValidationEntry::parse<T: hadris_io::sync::api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
 impl bytemuck::pod::Pod for hadris_iso::boot::BootValidationEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::boot::BootValidationEntry
 impl core::default::Default for hadris_iso::boot::BootValidationEntry
@@ -2838,8 +2824,8 @@ pub fn hadris_iso::directory::DirectoryRecord::system_use(&self) -> &[u8]
 pub fn hadris_iso::directory::DirectoryRecord::to_bytes(&self) -> &[u8]
 pub fn hadris_iso::directory::DirectoryRecord::with_len(usize, usize) -> Self
 impl hadris_iso::directory::DirectoryRecord
-pub fn hadris_iso::directory::DirectoryRecord::parse<R: hadris_io::sync_api::Read>(&mut R) -> hadris_io::error::Result<Self>
-pub fn hadris_iso::directory::DirectoryRecord::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
+pub fn hadris_iso::directory::DirectoryRecord::parse<R: hadris_io::sync::api::Read>(&mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::directory::DirectoryRecord::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
 impl bytemuck::pod::Pod for hadris_iso::directory::DirectoryRecord
 impl bytemuck::zeroable::Zeroable for hadris_iso::directory::DirectoryRecord
 impl core::default::Default for hadris_iso::directory::DirectoryRecord
@@ -2967,31 +2953,24 @@ pub use hadris_iso::sync::io::SeekFrom
 pub use hadris_iso::sync::io::Writable
 pub use hadris_iso::sync::io::Write
 pub use hadris_iso::sync::io::try_io_result_option
-pub struct hadris_iso::sync::io::IsoCursor<DATA: hadris_io::sync_api::Seek>
+pub struct hadris_iso::sync::io::IsoCursor<DATA: hadris_io::sync::api::Seek>
 pub hadris_iso::sync::io::IsoCursor::data: DATA
 pub hadris_iso::sync::io::IsoCursor::sector_size: usize
-impl<DATA: hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::into_inner(self) -> DATA
 pub fn hadris_iso::io::IsoCursor<DATA>::new(DATA, usize) -> Self
 pub fn hadris_iso::io::IsoCursor<DATA>::seek_sector(&mut self, hadris_iso::io::LogicalSector) -> hadris_io::error::Result<u64>
-impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_io::sync_api::Read for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Read>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::read_exact(&mut self, &mut [u8]) -> hadris_io::error::Result<()>
-impl<DATA: hadris_io::sync_api::Seek> core::fmt::Debug for hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_io::sync::api::Read for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
+impl<DATA: hadris_io::sync::api::Seek> core::fmt::Debug for hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<DATA: hadris_io::sync_api::Seek> hadris_io::sync_api::Seek for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Seek>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::seek_relative(&mut self, i64) -> hadris_io::error::Result<(), Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::stream_position(&mut self) -> hadris_io::error::Result<u64, Self::Error>
-impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_io::sync_api::Write for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Write>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::flush(&mut self) -> hadris_io::error::Result<(), Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::write_all(&mut self, &[u8]) -> hadris_io::error::Result<()>
+impl<DATA: hadris_io::sync::api::Seek> hadris_io::sync::api::Seek for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64>
+impl<DATA: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_io::sync::api::Write for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::flush(&mut self) -> hadris_io::error::Result<()>
+pub fn hadris_iso::io::IsoCursor<DATA>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize>
 pub struct hadris_iso::sync::io::LogicalSector(pub usize)
 impl core::ops::arith::Add<usize> for hadris_iso::io::LogicalSector
 pub type hadris_iso::io::LogicalSector::Output = hadris_iso::io::LogicalSector
@@ -3028,8 +3007,8 @@ pub hadris_iso::sync::modify::ModifyOp::Delete::path: alloc::string::String
 pub hadris_iso::sync::modify::ModifyOp::Replace
 pub hadris_iso::sync::modify::ModifyOp::Replace::data: hadris_iso::modify::FileData
 pub hadris_iso::sync::modify::ModifyOp::Replace::path: alloc::string::String
-pub struct hadris_iso::sync::modify::IsoModifier<RW: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
-impl<RW: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::modify::IsoModifier<RW>
+pub struct hadris_iso::sync::modify::IsoModifier<RW: hadris_io::sync::api::Read + hadris_io::sync::api::Write + hadris_io::sync::api::Seek>
+impl<RW: hadris_io::sync::api::Read + hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_iso::modify::IsoModifier<RW>
 pub fn hadris_iso::modify::IsoModifier<RW>::append_file(&mut self, &str, impl core::convert::Into<hadris_iso::modify::FileData>)
 pub fn hadris_iso::modify::IsoModifier<RW>::create_dir(&mut self, &str)
 pub fn hadris_iso::modify::IsoModifier<RW>::delete(&mut self, &str)
@@ -3048,8 +3027,8 @@ pub hadris_iso::sync::path::PathTableEntry::name: hadris_common::types::fixed::F
 pub hadris_iso::sync::path::PathTableEntry::parent_index: u16
 pub hadris_iso::sync::path::PathTableEntry::parent_lba: u32
 impl hadris_iso::path::PathTableEntry
-pub fn hadris_iso::path::PathTableEntry::parse<T: hadris_io::sync_api::Read>(&mut T, hadris_common::types::endian::EndianType) -> core::result::Result<Self, hadris_io::error::Error>
-pub fn hadris_iso::path::PathTableEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W, hadris_common::types::endian::EndianType) -> hadris_io::error::Result<()>
+pub fn hadris_iso::path::PathTableEntry::parse<T: hadris_io::sync::api::Read>(&mut T, hadris_common::types::endian::EndianType) -> core::result::Result<Self, hadris_io::error::Error>
+pub fn hadris_iso::path::PathTableEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W, hadris_common::types::endian::EndianType) -> hadris_io::error::Result<()>
 impl hadris_iso::path::PathTableEntry
 pub fn hadris_iso::path::PathTableEntry::size(&self) -> usize
 #[repr(C)] pub struct hadris_iso::sync::path::PathTableEntryHeader
@@ -3061,13 +3040,13 @@ impl hadris_iso::path::PathTableEntryHeader
 pub fn hadris_iso::path::PathTableEntryHeader::from_bytes(&[u8]) -> Self
 impl bytemuck::pod::Pod for hadris_iso::path::PathTableEntryHeader
 impl bytemuck::zeroable::Zeroable for hadris_iso::path::PathTableEntryHeader
-pub struct hadris_iso::sync::path::PathTableEntryIter<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::path::PathTableEntryIter<'_, DATA>
+pub struct hadris_iso::sync::path::PathTableEntryIter<'a, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::path::PathTableEntryIter<'_, DATA>
 pub type hadris_iso::path::PathTableEntryIter<'_, DATA>::Item = core::result::Result<hadris_iso::path::PathTableEntry, hadris_io::error::Error>
 pub fn hadris_iso::path::PathTableEntryIter<'_, DATA>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_iso::sync::path::PathTableInfo
 impl hadris_iso::path::PathTableInfo
-pub fn hadris_iso::path::PathTableInfo::entries<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::path::PathTableEntryIter<'a, DATA>
+pub fn hadris_iso::path::PathTableInfo::entries<'a, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::path::PathTableEntryIter<'a, DATA>
 impl hadris_iso::path::PathTableInfo
 pub fn hadris_iso::path::PathTableInfo::reference(&self) -> &hadris_iso::path::PathTableRef
 pub struct hadris_iso::sync::path::PathTableRef
@@ -3104,11 +3083,11 @@ pub hadris_iso::sync::read::BootEntryInfo::sector_count: u16
 pub struct hadris_iso::sync::read::BootInfo
 impl hadris_iso::read::BootInfo
 pub fn hadris_iso::read::BootInfo::default_entry(&self) -> core::option::Option<hadris_iso::read::BootEntryInfo>
-pub fn hadris_iso::read::BootInfo::sections<'a, R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&'a self, &'a hadris_iso::read::IsoImage<R>) -> hadris_iso::read::BootSectionIter<'a, R>
-pub struct hadris_iso::sync::read::BootSectionIter<'data, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::BootSectionIter<'_, DATA>
+pub fn hadris_iso::read::BootInfo::sections<'a, R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&'a self, &'a hadris_iso::read::IsoImage<R>) -> hadris_iso::read::BootSectionIter<'a, R>
+pub struct hadris_iso::sync::read::BootSectionIter<'data, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::BootSectionIter<'_, DATA>
 pub fn hadris_iso::read::BootSectionIter<'_, DATA>::next_section(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::boot::BootSectionHeaderEntry>>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::BootSectionIter<'_, DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::BootSectionIter<'_, DATA>
 pub type hadris_iso::read::BootSectionIter<'_, DATA>::Item = core::result::Result<hadris_iso::boot::BootSectionHeaderEntry, hadris_io::error::Error>
 pub fn hadris_iso::read::BootSectionIter<'_, DATA>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_iso::sync::read::DirEntry
@@ -3117,7 +3096,7 @@ pub hadris_iso::sync::read::DirEntry::associated_file: core::option::Option<hadr
 pub hadris_iso::sync::read::DirEntry::record: hadris_iso::directory::DirectoryRecord
 pub hadris_iso::sync::read::DirEntry::rrip: core::option::Option<hadris_iso::read::RripMetadata>
 impl hadris_iso::read::DirEntry
-pub fn hadris_iso::read::DirEntry::as_dir_ref<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &hadris_iso::read::IsoImage<DATA>) -> hadris_io::error::Result<hadris_iso::directory::DirectoryRef>
+pub fn hadris_iso::read::DirEntry::as_dir_ref<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&self, &hadris_iso::read::IsoImage<DATA>) -> hadris_io::error::Result<hadris_iso::directory::DirectoryRef>
 impl hadris_iso::read::DirEntry
 pub fn hadris_iso::read::DirEntry::display_name(&self) -> alloc::borrow::Cow<'_, str>
 pub fn hadris_iso::read::DirEntry::extended_attr_len(&self) -> core::option::Option<u8>
@@ -3136,16 +3115,16 @@ pub fn hadris_iso::read::DirEntry::total_size(&self) -> u64
 pub struct hadris_iso::sync::read::Extent
 pub hadris_iso::sync::read::Extent::length: u32
 pub hadris_iso::sync::read::Extent::sector: hadris_iso::io::LogicalSector
-pub struct hadris_iso::sync::read::FileChunkIterator<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek, const N: usize>
-impl<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek, const N: usize> hadris_iso::read::FileChunkIterator<'a, DATA, N>
+pub struct hadris_iso::sync::read::FileChunkIterator<'a, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek, const N: usize>
+impl<'a, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek, const N: usize> hadris_iso::read::FileChunkIterator<'a, DATA, N>
 pub fn hadris_iso::read::FileChunkIterator<'a, DATA, N>::next_chunk(&mut self) -> hadris_io::error::Result<core::option::Option<alloc::vec::Vec<u8>>>
 pub fn hadris_iso::read::FileChunkIterator<'a, DATA, N>::position(&self) -> u64
 pub fn hadris_iso::read::FileChunkIterator<'a, DATA, N>::total_size(&self) -> u64
-pub struct hadris_iso::sync::read::IsoDir<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDir<'a, T>
+pub struct hadris_iso::sync::read::IsoDir<'a, T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<'a, T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoDir<'a, T>
 pub fn hadris_iso::read::IsoDir<'a, T>::entries(&self) -> hadris_iso::read::IsoDirIter<'_, T>
 pub fn hadris_iso::read::IsoDir<'a, T>::raw_entries(&self) -> hadris_iso::read::RawDirIter<'_, T>
-impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDir<'_, T>
+impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoDir<'_, T>
 pub fn hadris_iso::read::IsoDir<'_, T>::find(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::DirEntry>>
 pub fn hadris_iso::read::IsoDir<'_, T>::read_entries(&self) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::read::DirEntry>>
 pub struct hadris_iso::sync::read::IsoDirEntry
@@ -3159,33 +3138,33 @@ pub fn hadris_iso::read::IsoDirEntry::rrip_name_into<'b>(&self, &'b mut [u8]) ->
 pub fn hadris_iso::read::IsoDirEntry::rrip_name_matches(&self, &str) -> bool
 pub fn hadris_iso::read::IsoDirEntry::system_use(&self) -> &[u8]
 pub const fn hadris_iso::read::IsoDirEntry::total_size(&self) -> u64
-pub struct hadris_iso::sync::read::IsoDirIter<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDirIter<'_, T>
+pub struct hadris_iso::sync::read::IsoDirIter<'a, T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoDirIter<'_, T>
 pub fn hadris_iso::read::IsoDirIter<'_, T>::offset(&self) -> usize
-impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirIter<'_, T>
+impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirIter<'_, T>
 pub type hadris_iso::read::IsoDirIter<'_, T>::Item = core::result::Result<hadris_iso::read::DirEntry, hadris_io::error::Error>
 pub fn hadris_iso::read::IsoDirIter<'_, T>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_iso::sync::read::IsoDirReader<'a, R>
-impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoDirReader<'_, R>
+impl<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoDirReader<'_, R>
 pub fn hadris_iso::read::IsoDirReader<'_, R>::next_entry(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
-impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirReader<'_, R>
+impl<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::IsoDirReader<'_, R>
 pub type hadris_iso::read::IsoDirReader<'_, R>::Item = core::result::Result<hadris_iso::read::IsoDirEntry, hadris_io::error::Error>
 pub fn hadris_iso::read::IsoDirReader<'_, R>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_iso::sync::read::IsoFileReader<'a, R>
-impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoFileReader<'_, R>
+impl<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoFileReader<'_, R>
 pub fn hadris_iso::read::IsoFileReader<'_, R>::read_chunk(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
 impl<R> hadris_iso::read::IsoFileReader<'_, R>
 pub const fn hadris_iso::read::IsoFileReader<'_, R>::is_empty(&self) -> bool
 pub const fn hadris_iso::read::IsoFileReader<'_, R>::len(&self) -> u64
 pub const fn hadris_iso::read::IsoFileReader<'_, R>::position(&self) -> u64
-pub struct hadris_iso::sync::read::IsoImage<DATA: hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+pub struct hadris_iso::sync::read::IsoImage<DATA: hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::find_path(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::DirEntry>>
 pub fn hadris_iso::read::IsoImage<DATA>::open(DATA) -> hadris_io::error::Result<Self>
 pub fn hadris_iso::read::IsoImage<DATA>::read_bytes_at(&self, u64, &mut [u8]) -> hadris_io::error::Result<()>
 pub fn hadris_iso::read::IsoImage<DATA>::read_file(&self, &hadris_iso::read::DirEntry) -> hadris_io::error::Result<alloc::vec::Vec<u8>>
 pub fn hadris_iso::read::IsoImage<DATA>::read_file_chunked<const N: usize>(&self, &hadris_iso::read::DirEntry) -> hadris_io::error::Result<hadris_iso::read::FileChunkIterator<'_, DATA, N>>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::read::IsoImage<DATA>::open_dir(&self, hadris_iso::directory::DirectoryRef) -> hadris_iso::read::IsoDir<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::path::PathTableInfo
@@ -3194,9 +3173,9 @@ pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadri
 pub fn hadris_iso::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::read::RootDir
 pub fn hadris_iso::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::read::RootDirs
 pub fn hadris_iso::read::IsoImage<DATA>::supports_rrip(&self) -> bool
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::volume::PrimaryVolumeDescriptor>
-impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub struct hadris_iso::sync::read::IsoImageInfo
 impl hadris_iso::read::IsoImageInfo
@@ -3209,7 +3188,7 @@ pub fn hadris_iso::read::IsoName<'a>::matches(self, &str) -> bool
 pub const fn hadris_iso::read::IsoName<'a>::namespace(self) -> hadris_iso::read::IsoNamespace
 pub const fn hadris_iso::read::IsoName<'a>::raw(self) -> &'a [u8]
 pub struct hadris_iso::sync::read::IsoReader<R>
-impl<R: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoReader<R>
+impl<R: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoReader<R>
 pub fn hadris_iso::read::IsoReader<R>::find_path(&mut self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
 pub fn hadris_iso::read::IsoReader<R>::find_path_in(&mut self, hadris_iso::read::IsoRoot, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::IsoDirEntry>>
 pub fn hadris_iso::read::IsoReader<R>::open(R) -> hadris_io::error::Result<Self>
@@ -3228,17 +3207,17 @@ impl hadris_iso::read::IsoRoot
 pub const fn hadris_iso::read::IsoRoot::block_size(self) -> u16
 pub const fn hadris_iso::read::IsoRoot::namespace(self) -> hadris_iso::read::IsoNamespace
 pub const fn hadris_iso::read::IsoRoot::size(self) -> u32
-pub struct hadris_iso::sync::read::RawDirIter<'a, T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::RawDirIter<'_, T>
+pub struct hadris_iso::sync::read::RawDirIter<'a, T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::RawDirIter<'_, T>
 pub fn hadris_iso::read::RawDirIter<'_, T>::offset(&self) -> usize
-impl<T: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::RawDirIter<'_, T>
+impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::RawDirIter<'_, T>
 pub type hadris_iso::read::RawDirIter<'_, T>::Item = core::result::Result<hadris_iso::directory::DirectoryRecord, hadris_io::error::Error>
 pub fn hadris_iso::read::RawDirIter<'_, T>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_iso::sync::read::RootDir
 impl hadris_iso::read::RootDir
 pub fn hadris_iso::read::RootDir::dir_ref(&self) -> hadris_iso::directory::DirectoryRef
 pub fn hadris_iso::read::RootDir::entry_type(&self) -> hadris_iso::file::EntryType
-pub fn hadris_iso::read::RootDir::iter<'a, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::read::IsoDir<'a, DATA>
+pub fn hadris_iso::read::RootDir::iter<'a, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&self, &'a hadris_iso::read::IsoImage<DATA>) -> hadris_iso::read::IsoDir<'a, DATA>
 pub struct hadris_iso::sync::read::RootDirs
 impl hadris_iso::read::RootDirs
 pub fn hadris_iso::read::RootDirs::best_choice(&self) -> hadris_iso::read::RootDir
@@ -3278,13 +3257,13 @@ pub hadris_iso::sync::read::RripTimestamps::creation: core::option::Option<hadri
 pub hadris_iso::sync::read::RripTimestamps::effective: core::option::Option<hadris_iso::read::RripDateTime>
 pub hadris_iso::sync::read::RripTimestamps::expiration: core::option::Option<hadris_iso::read::RripDateTime>
 pub hadris_iso::sync::read::RripTimestamps::modify: core::option::Option<hadris_iso::read::RripDateTime>
-pub struct hadris_iso::sync::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
+pub struct hadris_iso::sync::read::VolumeDescriptorIter<'ctx, DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::VolumeDescriptorIter<'_, DATA>
 pub fn hadris_iso::read::VolumeDescriptorIter<'_, DATA>::next_descriptor(&mut self) -> hadris_io::error::Result<core::option::Option<hadris_iso::volume::VolumeDescriptor>>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::VolumeDescriptorIter<'_, DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> core::iter::traits::iterator::Iterator for hadris_iso::read::VolumeDescriptorIter<'_, DATA>
 pub type hadris_iso::read::VolumeDescriptorIter<'_, DATA>::Item = core::result::Result<hadris_iso::volume::VolumeDescriptor, hadris_io::error::Error>
 pub fn hadris_iso::read::VolumeDescriptorIter<'_, DATA>::next(&mut self) -> core::option::Option<Self::Item>
-pub fn hadris_iso::sync::read::collect_su_entries<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek>(&hadris_iso::directory::DirectoryRecord, &hadris_iso::read::IsoImage<DATA>, u8) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::susp::SystemUseField>>
+pub fn hadris_iso::sync::read::collect_su_entries<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek>(&hadris_iso::directory::DirectoryRecord, &hadris_iso::read::IsoImage<DATA>, u8) -> hadris_io::error::Result<alloc::vec::Vec<hadris_iso::susp::SystemUseField>>
 pub mod hadris_iso::sync::rrip
 pub enum hadris_iso::sync::rrip::RockRidgeEntry
 pub hadris_iso::sync::rrip::RockRidgeEntry::AlternateName(hadris_iso::rrip::NmEntry)
@@ -3303,11 +3282,11 @@ pub fn hadris_iso::rrip::ClEntry::header(&self) -> hadris_iso::susp::SystemUseHe
 impl hadris_iso::rrip::ClEntry
 pub fn hadris_iso::rrip::ClEntry::new(u32) -> Self
 impl hadris_iso::rrip::ClEntry
-pub fn hadris_iso::rrip::ClEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::rrip::ClEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::rrip::ClEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::rrip::ClEntry
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::ClEntry
-pub fn hadris_iso::rrip::ClEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::ClEntry
+pub fn hadris_iso::rrip::ClEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::rrip::NmEntry
 pub hadris_iso::sync::rrip::NmEntry::flags: hadris_iso::rrip::NmFlags
 pub hadris_iso::sync::rrip::NmEntry::name: alloc::vec::Vec<u8>
@@ -3319,9 +3298,9 @@ pub fn hadris_iso::rrip::NmEntry::size(&self) -> usize
 impl hadris_iso::rrip::NmEntry
 pub fn hadris_iso::rrip::NmEntry::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::rrip::NmEntry
-pub fn hadris_iso::rrip::NmEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::NmEntry
-pub fn hadris_iso::rrip::NmEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub fn hadris_iso::rrip::NmEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::NmEntry
+pub fn hadris_iso::rrip::NmEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::rrip::NmFlags(_)
 impl hadris_iso::rrip::NmFlags
 pub const hadris_iso::rrip::NmFlags::CONTINUE: Self
@@ -3409,11 +3388,11 @@ pub fn hadris_iso::rrip::PlEntry::header(&self) -> hadris_iso::susp::SystemUseHe
 impl hadris_iso::rrip::PlEntry
 pub fn hadris_iso::rrip::PlEntry::new(u32) -> Self
 impl hadris_iso::rrip::PlEntry
-pub fn hadris_iso::rrip::PlEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::rrip::PlEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::rrip::PlEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::rrip::PlEntry
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::PlEntry
-pub fn hadris_iso::rrip::PlEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::PlEntry
+pub fn hadris_iso::rrip::PlEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 #[repr(C)] pub struct hadris_iso::sync::rrip::PnEntry
 pub hadris_iso::sync::rrip::PnEntry::dev_high: hadris_iso::types::U32LsbMsb
 pub hadris_iso::sync::rrip::PnEntry::dev_low: hadris_iso::types::U32LsbMsb
@@ -3423,11 +3402,11 @@ pub fn hadris_iso::rrip::PnEntry::new(u32, u32) -> Self
 impl hadris_iso::rrip::PnEntry
 pub fn hadris_iso::rrip::PnEntry::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::rrip::PnEntry
-pub fn hadris_iso::rrip::PnEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::rrip::PnEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::rrip::PnEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::rrip::PnEntry
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::PnEntry
-pub fn hadris_iso::rrip::PnEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::PnEntry
+pub fn hadris_iso::rrip::PnEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::rrip::PosixFileMode(_)
 impl hadris_iso::rrip::PosixFileMode
 pub const hadris_iso::rrip::PosixFileMode::S_IFBLK: Self
@@ -3538,16 +3517,16 @@ pub fn hadris_iso::rrip::PxEntry::header(&self) -> hadris_iso::susp::SystemUseHe
 impl hadris_iso::rrip::PxEntry
 pub fn hadris_iso::rrip::PxEntry::new(u32, u32, u32, u32, u32) -> Self
 impl hadris_iso::rrip::PxEntry
-pub fn hadris_iso::rrip::PxEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::rrip::PxEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::rrip::PxEntry
 impl bytemuck::zeroable::Zeroable for hadris_iso::rrip::PxEntry
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::PxEntry
-pub fn hadris_iso::rrip::PxEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::PxEntry
+pub fn hadris_iso::rrip::PxEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::rrip::ReEntry
 impl hadris_iso::rrip::ReEntry
 pub fn hadris_iso::rrip::ReEntry::header(&self) -> hadris_iso::susp::SystemUseHeader
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::ReEntry
-pub fn hadris_iso::rrip::ReEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::ReEntry
+pub fn hadris_iso::rrip::ReEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::rrip::RripBuilder
 impl hadris_iso::rrip::RripBuilder
 pub fn hadris_iso::rrip::RripBuilder::add_ce(&mut self, hadris_iso::susp::ContinuationArea) -> &mut Self
@@ -3682,9 +3661,9 @@ pub fn hadris_iso::rrip::SlEntry::size(&self) -> usize
 impl hadris_iso::rrip::SlEntry
 pub fn hadris_iso::rrip::SlEntry::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::rrip::SlEntry
-pub fn hadris_iso::rrip::SlEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::SlEntry
-pub fn hadris_iso::rrip::SlEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub fn hadris_iso::rrip::SlEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::SlEntry
+pub fn hadris_iso::rrip::SlEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::rrip::TfEntry
 pub hadris_iso::sync::rrip::TfEntry::flags: hadris_iso::rrip::TfFlags
 pub hadris_iso::sync::rrip::TfEntry::timestamps: alloc::vec::Vec<u8>
@@ -3694,9 +3673,9 @@ impl hadris_iso::rrip::TfEntry
 pub fn hadris_iso::rrip::TfEntry::new_short(&[u8; 7], &[u8; 7]) -> Self
 pub fn hadris_iso::rrip::TfEntry::size(&self) -> usize
 impl hadris_iso::rrip::TfEntry
-pub fn hadris_iso::rrip::TfEntry::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::rrip::TfEntry
-pub fn hadris_iso::rrip::TfEntry::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
+pub fn hadris_iso::rrip::TfEntry::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::rrip::TfEntry
+pub fn hadris_iso::rrip::TfEntry::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::rrip::TfFlags(_)
 impl hadris_iso::rrip::TfFlags
 pub const hadris_iso::rrip::TfFlags::ACCESS: Self
@@ -3810,11 +3789,11 @@ pub hadris_iso::sync::susp::ContinuationArea::sector: hadris_iso::types::U32LsbM
 impl hadris_iso::susp::ContinuationArea
 pub fn hadris_iso::susp::ContinuationArea::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::susp::ContinuationArea
-pub fn hadris_iso::susp::ContinuationArea::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::susp::ContinuationArea::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::susp::ContinuationArea
 impl bytemuck::zeroable::Zeroable for hadris_iso::susp::ContinuationArea
-impl hadris_io::sync_api::Writable for hadris_iso::susp::ContinuationArea
-pub fn hadris_iso::susp::ContinuationArea::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::ContinuationArea
+pub fn hadris_iso::susp::ContinuationArea::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 #[repr(C)] pub struct hadris_iso::sync::susp::ExtensionReference
 pub hadris_iso::sync::susp::ExtensionReference::buf: [u8; 252]
 pub hadris_iso::sync::susp::ExtensionReference::descriptor_len: u8
@@ -3824,17 +3803,17 @@ pub hadris_iso::sync::susp::ExtensionReference::version: u8
 impl hadris_iso::susp::ExtensionReference
 pub fn hadris_iso::susp::ExtensionReference::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::susp::ExtensionReference
-pub fn hadris_iso::susp::ExtensionReference::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::susp::ExtensionReference
-pub fn hadris_iso::susp::ExtensionReference::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+pub fn hadris_iso::susp::ExtensionReference::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::ExtensionReference
+pub fn hadris_iso::susp::ExtensionReference::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::susp::PaddingField
 pub hadris_iso::sync::susp::PaddingField::length: u8
 impl hadris_iso::susp::PaddingField
 pub fn hadris_iso::susp::PaddingField::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::susp::PaddingField
-pub fn hadris_iso::susp::PaddingField::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::susp::PaddingField
-pub fn hadris_iso::susp::PaddingField::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+pub fn hadris_iso::susp::PaddingField::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::PaddingField
+pub fn hadris_iso::susp::PaddingField::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::susp::SplitSu
 pub hadris_iso::sync::susp::SplitSu::inline: alloc::vec::Vec<u8>
 pub hadris_iso::sync::susp::SplitSu::overflow: alloc::vec::Vec<u8>
@@ -3851,18 +3830,18 @@ impl hadris_iso::susp::SuspIdentifier
 pub fn hadris_iso::susp::SuspIdentifier::is_valid(&self) -> bool
 pub fn hadris_iso::susp::SuspIdentifier::new(u8) -> Self
 impl hadris_iso::susp::SuspIdentifier
-pub fn hadris_iso::susp::SuspIdentifier::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+pub fn hadris_iso::susp::SuspIdentifier::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
 impl bytemuck::pod::Pod for hadris_iso::susp::SuspIdentifier
 impl bytemuck::zeroable::Zeroable for hadris_iso::susp::SuspIdentifier
-impl hadris_io::sync_api::Writable for hadris_iso::susp::SuspIdentifier
-pub fn hadris_iso::susp::SuspIdentifier::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::SuspIdentifier
+pub fn hadris_iso::susp::SuspIdentifier::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::susp::SuspTerminator
 impl hadris_iso::susp::SuspTerminator
 pub fn hadris_iso::susp::SuspTerminator::header(&self) -> hadris_iso::susp::SystemUseHeader
 impl hadris_iso::susp::SuspTerminator
-pub fn hadris_iso::susp::SuspTerminator::parse_data<R: hadris_io::sync_api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
-impl hadris_io::sync_api::Writable for hadris_iso::susp::SuspTerminator
-pub fn hadris_iso::susp::SuspTerminator::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+pub fn hadris_iso::susp::SuspTerminator::parse_data<R: hadris_io::sync::api::Read>(hadris_iso::susp::SystemUseHeader, &mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::SuspTerminator
+pub fn hadris_iso::susp::SuspTerminator::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::susp::SystemUseBuilder
 impl hadris_iso::susp::SystemUseBuilder
 pub fn hadris_iso::susp::SystemUseBuilder::add_ce(&mut self, hadris_iso::susp::ContinuationArea) -> &mut Self
@@ -3884,8 +3863,8 @@ pub hadris_iso::sync::susp::SystemUseHeader::sig: [u8; 2]
 pub hadris_iso::sync::susp::SystemUseHeader::version: u8
 impl bytemuck::pod::Pod for hadris_iso::susp::SystemUseHeader
 impl bytemuck::zeroable::Zeroable for hadris_iso::susp::SystemUseHeader
-impl hadris_io::sync_api::Writable for hadris_iso::susp::SystemUseHeader
-pub fn hadris_iso::susp::SystemUseHeader::write<R: hadris_io::sync_api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
+impl hadris_io::sync::api::Writable for hadris_iso::susp::SystemUseHeader
+pub fn hadris_iso::susp::SystemUseHeader::write<R: hadris_io::sync::api::Write>(&self, &mut R) -> hadris_io::error::Result<()>
 pub struct hadris_iso::sync::susp::SystemUseIter<'a>
 impl<'a> hadris_iso::susp::SystemUseIter<'a>
 pub fn hadris_iso::susp::SystemUseIter<'a>::new(&'a [u8], usize) -> Self
@@ -3903,8 +3882,8 @@ impl hadris_iso::volume::VolumeDescriptor
 pub fn hadris_iso::volume::VolumeDescriptor::as_bytes(&self) -> &[u8]
 pub fn hadris_iso::volume::VolumeDescriptor::header(&self) -> hadris_iso::volume::VolumeDescriptorHeader
 pub fn hadris_iso::volume::VolumeDescriptor::new([u8; 2048]) -> Self
-impl hadris_io::sync_api::Parsable for hadris_iso::volume::VolumeDescriptor
-pub fn hadris_iso::volume::VolumeDescriptor::parse<R: hadris_io::sync_api::Read>(&mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Parsable for hadris_iso::volume::VolumeDescriptor
+pub fn hadris_iso::volume::VolumeDescriptor::parse<R: hadris_io::sync::api::Read>(&mut R) -> hadris_io::error::Result<Self>
 pub enum hadris_iso::sync::volume::VolumeDescriptorType
 pub hadris_iso::sync::volume::VolumeDescriptorType::BootRecord
 pub hadris_iso::sync::volume::VolumeDescriptorType::PrimaryVolumeDescriptor
@@ -4047,8 +4026,8 @@ pub fn hadris_iso::volume::VolumeDescriptorList::supplementary(&self) -> impl co
 pub fn hadris_iso::volume::VolumeDescriptorList::supplementary_mut(&mut self) -> impl core::iter::traits::iterator::Iterator<Item = &mut hadris_iso::volume::SupplementaryVolumeDescriptor>
 pub fn hadris_iso::volume::VolumeDescriptorList::try_primary(&self) -> core::option::Option<&hadris_iso::volume::PrimaryVolumeDescriptor>
 impl hadris_iso::volume::VolumeDescriptorList
-pub fn hadris_iso::volume::VolumeDescriptorList::parse<T: hadris_io::sync_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
-pub fn hadris_iso::volume::VolumeDescriptorList::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
+pub fn hadris_iso::volume::VolumeDescriptorList::parse<T: hadris_io::sync::api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
+pub fn hadris_iso::volume::VolumeDescriptorList::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
 #[repr(C)] pub struct hadris_iso::sync::volume::VolumeDescriptorSetTerminator
 impl hadris_iso::volume::VolumeDescriptorSetTerminator
 pub fn hadris_iso::volume::VolumeDescriptorSetTerminator::new() -> Self
@@ -4219,46 +4198,39 @@ pub fn hadris_iso::write::InputTree::from_fs(&std::path::Path, hadris_iso::read:
 pub fn hadris_iso::write::InputTree::new(hadris_iso::read::PathSeparator, alloc::vec::Vec<hadris_iso::write::InputEntry>) -> Self
 impl core::convert::From<hadris_iso::write::InputFiles> for hadris_iso::write::InputTree
 pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
-pub struct hadris_iso::sync::write::IsoImageWriter<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::write::IsoImageWriter<DATA>
+pub struct hadris_iso::sync::write::IsoImageWriter<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Write + hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_iso::write::IsoImageWriter<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::create<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::IsoFormatOptions) -> hadris_iso::write::Result<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::create_with_allocation_floor<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::IsoFormatOptions, core::option::Option<u32>) -> hadris_iso::write::Result<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::into_inner(self) -> DATA
 pub type hadris_iso::sync::write::Error = hadris_iso::write::IsoCreationError
 pub type hadris_iso::sync::write::Result<T> = core::result::Result<T, hadris_iso::write::Error>
-pub struct hadris_iso::sync::IsoCursor<DATA: hadris_io::sync_api::Seek>
+pub struct hadris_iso::sync::IsoCursor<DATA: hadris_io::sync::api::Seek>
 pub hadris_iso::sync::IsoCursor::data: DATA
 pub hadris_iso::sync::IsoCursor::sector_size: usize
-impl<DATA: hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::into_inner(self) -> DATA
 pub fn hadris_iso::io::IsoCursor<DATA>::new(DATA, usize) -> Self
 pub fn hadris_iso::io::IsoCursor<DATA>::seek_sector(&mut self, hadris_iso::io::LogicalSector) -> hadris_io::error::Result<u64>
-impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_io::sync_api::Read for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Read>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::read_exact(&mut self, &mut [u8]) -> hadris_io::error::Result<()>
-impl<DATA: hadris_io::sync_api::Seek> core::fmt::Debug for hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_io::sync::api::Read for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
+impl<DATA: hadris_io::sync::api::Seek> core::fmt::Debug for hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<DATA: hadris_io::sync_api::Seek> hadris_io::sync_api::Seek for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Seek>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::seek_relative(&mut self, i64) -> hadris_io::error::Result<(), Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::stream_position(&mut self) -> hadris_io::error::Result<u64, Self::Error>
-impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_io::sync_api::Write for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Write>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::flush(&mut self) -> hadris_io::error::Result<(), Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::write_all(&mut self, &[u8]) -> hadris_io::error::Result<()>
-pub struct hadris_iso::sync::IsoImage<DATA: hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Seek> hadris_io::sync::api::Seek for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64>
+impl<DATA: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_io::sync::api::Write for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::flush(&mut self) -> hadris_io::error::Result<()>
+pub fn hadris_iso::io::IsoCursor<DATA>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize>
+pub struct hadris_iso::sync::IsoImage<DATA: hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::find_path(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::DirEntry>>
 pub fn hadris_iso::read::IsoImage<DATA>::open(DATA) -> hadris_io::error::Result<Self>
 pub fn hadris_iso::read::IsoImage<DATA>::read_bytes_at(&self, u64, &mut [u8]) -> hadris_io::error::Result<()>
 pub fn hadris_iso::read::IsoImage<DATA>::read_file(&self, &hadris_iso::read::DirEntry) -> hadris_io::error::Result<alloc::vec::Vec<u8>>
 pub fn hadris_iso::read::IsoImage<DATA>::read_file_chunked<const N: usize>(&self, &hadris_iso::read::DirEntry) -> hadris_io::error::Result<hadris_iso::read::FileChunkIterator<'_, DATA, N>>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::read::IsoImage<DATA>::open_dir(&self, hadris_iso::directory::DirectoryRef) -> hadris_iso::read::IsoDir<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::path::PathTableInfo
@@ -4267,9 +4239,9 @@ pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadri
 pub fn hadris_iso::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::read::RootDir
 pub fn hadris_iso::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::read::RootDirs
 pub fn hadris_iso::read::IsoImage<DATA>::supports_rrip(&self) -> bool
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::volume::PrimaryVolumeDescriptor>
-impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA
 pub mod hadris_iso::types
 pub use hadris_iso::types::<<hadris_common::types::endian::*>>
@@ -4396,8 +4368,8 @@ impl hadris_iso::volume::VolumeDescriptor
 pub fn hadris_iso::volume::VolumeDescriptor::as_bytes(&self) -> &[u8]
 pub fn hadris_iso::volume::VolumeDescriptor::header(&self) -> hadris_iso::volume::VolumeDescriptorHeader
 pub fn hadris_iso::volume::VolumeDescriptor::new([u8; 2048]) -> Self
-impl hadris_io::sync_api::Parsable for hadris_iso::volume::VolumeDescriptor
-pub fn hadris_iso::volume::VolumeDescriptor::parse<R: hadris_io::sync_api::Read>(&mut R) -> hadris_io::error::Result<Self>
+impl hadris_io::sync::api::Parsable for hadris_iso::volume::VolumeDescriptor
+pub fn hadris_iso::volume::VolumeDescriptor::parse<R: hadris_io::sync::api::Read>(&mut R) -> hadris_io::error::Result<Self>
 pub enum hadris_iso::volume::VolumeDescriptorType
 pub hadris_iso::volume::VolumeDescriptorType::BootRecord
 pub hadris_iso::volume::VolumeDescriptorType::PrimaryVolumeDescriptor
@@ -4540,8 +4512,8 @@ pub fn hadris_iso::volume::VolumeDescriptorList::supplementary(&self) -> impl co
 pub fn hadris_iso::volume::VolumeDescriptorList::supplementary_mut(&mut self) -> impl core::iter::traits::iterator::Iterator<Item = &mut hadris_iso::volume::SupplementaryVolumeDescriptor>
 pub fn hadris_iso::volume::VolumeDescriptorList::try_primary(&self) -> core::option::Option<&hadris_iso::volume::PrimaryVolumeDescriptor>
 impl hadris_iso::volume::VolumeDescriptorList
-pub fn hadris_iso::volume::VolumeDescriptorList::parse<T: hadris_io::sync_api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
-pub fn hadris_iso::volume::VolumeDescriptorList::write<W: hadris_io::sync_api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
+pub fn hadris_iso::volume::VolumeDescriptorList::parse<T: hadris_io::sync::api::Read>(&mut T) -> core::result::Result<Self, hadris_io::error::Error>
+pub fn hadris_iso::volume::VolumeDescriptorList::write<W: hadris_io::sync::api::Write>(&self, &mut W) -> hadris_io::error::Result<usize>
 #[repr(C)] pub struct hadris_iso::volume::VolumeDescriptorSetTerminator
 impl hadris_iso::volume::VolumeDescriptorSetTerminator
 pub fn hadris_iso::volume::VolumeDescriptorSetTerminator::new() -> Self
@@ -4712,46 +4684,39 @@ pub fn hadris_iso::write::InputTree::from_fs(&std::path::Path, hadris_iso::read:
 pub fn hadris_iso::write::InputTree::new(hadris_iso::read::PathSeparator, alloc::vec::Vec<hadris_iso::write::InputEntry>) -> Self
 impl core::convert::From<hadris_iso::write::InputFiles> for hadris_iso::write::InputTree
 pub fn hadris_iso::write::InputTree::from(hadris_iso::write::InputFiles) -> Self
-pub struct hadris_iso::write::IsoImageWriter<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::write::IsoImageWriter<DATA>
+pub struct hadris_iso::write::IsoImageWriter<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Write + hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_iso::write::IsoImageWriter<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::create<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::IsoFormatOptions) -> hadris_iso::write::Result<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::create_with_allocation_floor<T: core::convert::Into<hadris_iso::write::InputTree>>(DATA, T, hadris_iso::write::options::IsoFormatOptions, core::option::Option<u32>) -> hadris_iso::write::Result<DATA>
 pub fn hadris_iso::write::IsoImageWriter<DATA>::into_inner(self) -> DATA
 pub type hadris_iso::write::Error = hadris_iso::write::IsoCreationError
 pub type hadris_iso::write::Result<T> = core::result::Result<T, hadris_iso::write::Error>
-pub struct hadris_iso::IsoCursor<DATA: hadris_io::sync_api::Seek>
+pub struct hadris_iso::IsoCursor<DATA: hadris_io::sync::api::Seek>
 pub hadris_iso::IsoCursor::data: DATA
 pub hadris_iso::IsoCursor::sector_size: usize
-impl<DATA: hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::into_inner(self) -> DATA
 pub fn hadris_iso::io::IsoCursor<DATA>::new(DATA, usize) -> Self
 pub fn hadris_iso::io::IsoCursor<DATA>::seek_sector(&mut self, hadris_iso::io::LogicalSector) -> hadris_io::error::Result<u64>
-impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::pad_align_sector(&mut self) -> hadris_io::error::Result<hadris_iso::io::LogicalSector>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_io::sync_api::Read for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Read>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::read_exact(&mut self, &mut [u8]) -> hadris_io::error::Result<()>
-impl<DATA: hadris_io::sync_api::Seek> core::fmt::Debug for hadris_iso::io::IsoCursor<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_io::sync::api::Read for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::read(&mut self, &mut [u8]) -> hadris_io::error::Result<usize>
+impl<DATA: hadris_io::sync::api::Seek> core::fmt::Debug for hadris_iso::io::IsoCursor<DATA>
 pub fn hadris_iso::io::IsoCursor<DATA>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<DATA: hadris_io::sync_api::Seek> hadris_io::sync_api::Seek for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Seek>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::seek_relative(&mut self, i64) -> hadris_io::error::Result<(), Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::stream_position(&mut self) -> hadris_io::error::Result<u64, Self::Error>
-impl<DATA: hadris_io::sync_api::Write + hadris_io::sync_api::Seek> hadris_io::sync_api::Write for hadris_iso::io::IsoCursor<DATA>
-pub type hadris_iso::io::IsoCursor<DATA>::Error = <DATA as hadris_io::sync_api::Write>::Error
-pub fn hadris_iso::io::IsoCursor<DATA>::flush(&mut self) -> hadris_io::error::Result<(), Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize, Self::Error>
-pub fn hadris_iso::io::IsoCursor<DATA>::write_all(&mut self, &[u8]) -> hadris_io::error::Result<()>
-pub struct hadris_iso::IsoImage<DATA: hadris_io::sync_api::Seek>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Seek> hadris_io::sync::api::Seek for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::seek(&mut self, embedded_io::SeekFrom) -> hadris_io::error::Result<u64>
+impl<DATA: hadris_io::sync::api::Write + hadris_io::sync::api::Seek> hadris_io::sync::api::Write for hadris_iso::io::IsoCursor<DATA>
+pub fn hadris_iso::io::IsoCursor<DATA>::flush(&mut self) -> hadris_io::error::Result<()>
+pub fn hadris_iso::io::IsoCursor<DATA>::write(&mut self, &[u8]) -> hadris_io::error::Result<usize>
+pub struct hadris_iso::IsoImage<DATA: hadris_io::sync::api::Seek>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::find_path(&self, &str) -> hadris_io::error::Result<core::option::Option<hadris_iso::read::DirEntry>>
 pub fn hadris_iso::read::IsoImage<DATA>::open(DATA) -> hadris_io::error::Result<Self>
 pub fn hadris_iso::read::IsoImage<DATA>::read_bytes_at(&self, u64, &mut [u8]) -> hadris_io::error::Result<()>
 pub fn hadris_iso::read::IsoImage<DATA>::read_file(&self, &hadris_iso::read::DirEntry) -> hadris_io::error::Result<alloc::vec::Vec<u8>>
 pub fn hadris_iso::read::IsoImage<DATA>::read_file_chunked<const N: usize>(&self, &hadris_iso::read::DirEntry) -> hadris_io::error::Result<hadris_iso::read::FileChunkIterator<'_, DATA, N>>
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::has_evd(&self) -> bool
 pub fn hadris_iso::read::IsoImage<DATA>::open_dir(&self, hadris_iso::directory::DirectoryRef) -> hadris_iso::read::IsoDir<'_, DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::path_table(&self) -> hadris_iso::path::PathTableInfo
@@ -4760,7 +4725,7 @@ pub fn hadris_iso::read::IsoImage<DATA>::read_volume_descriptors(&self) -> hadri
 pub fn hadris_iso::read::IsoImage<DATA>::root_dir(&self) -> hadris_iso::read::RootDir
 pub fn hadris_iso::read::IsoImage<DATA>::root_dirs(&self) -> &hadris_iso::read::RootDirs
 pub fn hadris_iso::read::IsoImage<DATA>::supports_rrip(&self) -> bool
-impl<DATA: hadris_io::sync_api::Read + hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Read + hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::read_pvd(&self) -> hadris_io::error::Result<hadris_iso::volume::PrimaryVolumeDescriptor>
-impl<DATA: hadris_io::sync_api::Seek> hadris_iso::read::IsoImage<DATA>
+impl<DATA: hadris_io::sync::api::Seek> hadris_iso::read::IsoImage<DATA>
 pub fn hadris_iso::read::IsoImage<DATA>::into_inner(self) -> DATA

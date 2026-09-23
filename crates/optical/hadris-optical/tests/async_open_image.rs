@@ -38,14 +38,11 @@ fn populated_tree() -> hadris_optical::cd::FileTree {
 }
 
 fn create_cd_image(options: hadris_optical::cd::OpticalImageOptions) -> Vec<u8> {
-    let mut image = std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
-    hadris_optical::cd::OpticalImageWriter::new(
-        hadris_io::sync::Borrowed::new(&mut image),
-        options,
-    )
-    .finish(populated_tree())
-    .unwrap();
-    image.into_inner()
+    let mut image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]));
+    hadris_optical::cd::OpticalImageWriter::new(&mut image, options)
+        .finish(populated_tree())
+        .unwrap();
+    image.into_inner().into_inner()
 }
 
 fn iso_name(entry: &hadris_optical::iso::r#async::read::DirEntry) -> String {
@@ -107,18 +104,13 @@ fn asynchronously_opens_and_recovers_an_iso_source() {
 fn asynchronously_opens_and_recovers_a_udf_source() {
     use hadris_optical::udf::sync::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
 
-    let mut image = std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
+    let mut image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]));
     let mut root = SimpleDir::root();
     let mut docs = SimpleDir::new("DOCS");
     docs.add_file(SimpleFile::new("README.TXT", PAYLOAD.to_vec()));
     root.add_dir(docs);
-    UdfWriter::create(
-        hadris_io::sync::Borrowed::new(&mut image),
-        &root,
-        UdfWriteOptions::default(),
-    )
-    .unwrap();
-    let bytes = image.into_inner();
+    UdfWriter::create(&mut image, &root, UdfWriteOptions::default()).unwrap();
+    let bytes = image.into_inner().into_inner();
 
     block_on(async {
         let mut source = hadris_io::Cursor::new(bytes.as_slice());

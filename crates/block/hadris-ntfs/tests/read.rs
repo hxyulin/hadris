@@ -4,6 +4,7 @@
 //! create test NTFS images, then verifies that hadris-ntfs reads them back
 //! correctly.
 
+use hadris_io::StdIo;
 use std::fs::File;
 
 use hadris_ntfs::sync::{NtfsFs, NtfsFsReadExt};
@@ -28,14 +29,14 @@ macro_rules! require_image {
 fn open_blank_volume() {
     let img = require_image!("BlankVol");
     let file = File::open(img.path()).unwrap();
-    let _fs = NtfsFs::open(file).unwrap();
+    let _fs = NtfsFs::open(StdIo::new(file)).unwrap();
 }
 
 #[test]
 fn volume_metadata() {
     let img = require_image!("MetaVol");
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     assert!(fs.cluster_size() >= 512, "cluster size too small");
     assert!(
@@ -51,7 +52,7 @@ fn volume_metadata() {
 fn root_dir_lists_system_metafiles() {
     let img = require_image!("RootDir");
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     let root = fs.root_dir();
     let entries = root.entries().unwrap();
@@ -71,7 +72,7 @@ fn root_dir_lists_system_metafiles() {
 fn root_system_files_are_not_regular_files() {
     let img = require_image!("SysFiles");
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     let entries = fs.root_dir().entries().unwrap();
 
@@ -96,7 +97,7 @@ fn read_small_resident_file() {
     assert!(img.add_file("hello.txt", content), "ntfscp failed");
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     let root = fs.root_dir();
     let entries = root.entries().unwrap();
@@ -121,7 +122,7 @@ fn read_large_nonresident_file() {
     assert!(img.add_file("large.bin", &content), "ntfscp failed");
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     let entry = fs
         .root_dir()
@@ -147,7 +148,7 @@ fn read_empty_file() {
     assert!(img.add_file("empty.txt", b""), "ntfscp failed");
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     let entry = fs
         .root_dir()
@@ -172,7 +173,7 @@ fn read_file_incrementally() {
     assert!(img.add_file("stream.bin", &content), "ntfscp failed");
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     let entry = fs
         .root_dir()
@@ -202,7 +203,7 @@ fn find_posix_file_is_case_sensitive() {
     assert!(img.add_file("CamelCase.Txt", b"data"), "ntfscp failed");
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
     let root = fs.root_dir();
 
     // Exact case
@@ -215,7 +216,7 @@ fn find_posix_file_is_case_sensitive() {
 fn system_names_use_ntfs_upcase_table() {
     let img = require_image!("SystemCase");
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
     let root = fs.root_dir();
 
     assert!(root.find("$mft").unwrap().is_some());
@@ -228,7 +229,7 @@ fn find_posix_unicode_file_is_case_sensitive() {
     assert!(img.add_file("Résumé.Txt", b"data"), "ntfscp failed");
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
     let root = fs.root_dir();
 
     assert!(root.find("Résumé.Txt").unwrap().is_some());
@@ -240,7 +241,7 @@ fn find_posix_unicode_file_is_case_sensitive() {
 fn find_nonexistent_returns_none() {
     let img = require_image!("NoFile");
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     let result = fs.root_dir().find("does_not_exist.txt").unwrap();
     assert!(result.is_none());
@@ -253,7 +254,7 @@ fn long_filename() {
     assert!(img.add_file(name, b"long name content"), "ntfscp failed");
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     let entry = fs
         .root_dir()
@@ -276,7 +277,7 @@ fn supplementary_unicode_filename() {
     assert!(img.add_file(name, b"unicode content"), "ntfscp failed");
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
     let entry = fs
         .root_dir()
         .entries()
@@ -306,7 +307,7 @@ fn multiple_files_in_root() {
     }
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
     let entries = fs.root_dir().entries().unwrap();
 
     for (name, expected_content) in files {
@@ -325,7 +326,7 @@ fn multiple_files_in_root() {
 fn open_directory_as_file_fails() {
     let img = require_image!("DirAsFile");
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     let entries = fs.root_dir().entries().unwrap();
     if let Some(dir_entry) = entries.iter().find(|e| e.is_directory()) {
@@ -354,7 +355,7 @@ fn subdirectory_listing() {
     }
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     // Root should contain "mydir"
     let root_entries = fs.root_dir().entries().unwrap();
@@ -403,7 +404,7 @@ fn large_directory_uses_index_allocation() {
     }
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
     let entries = fs.root_dir().open_dir("many").unwrap().entries().unwrap();
 
     for index in 0..200 {
@@ -431,7 +432,7 @@ fn nested_directories_and_open_path() {
     }
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     // Traverse step by step
     let dir_a = fs.root_dir().open_dir("a").unwrap();
@@ -483,7 +484,7 @@ fn open_nonexistent_path_fails() {
     }
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     assert!(fs.open_path("real/file.txt").is_ok());
     assert!(fs.open_path("real/nope.txt").is_err());
@@ -496,7 +497,7 @@ fn open_file_as_directory_fails() {
     assert!(img.add_file("plain.txt", b"x"), "ntfscp failed");
 
     let file = File::open(img.path()).unwrap();
-    let fs = NtfsFs::open(file).unwrap();
+    let fs = NtfsFs::open(StdIo::new(file)).unwrap();
 
     let result = fs.root_dir().open_dir("plain.txt");
     assert!(result.is_err(), "open_dir on a file should fail");

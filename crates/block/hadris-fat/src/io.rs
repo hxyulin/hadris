@@ -6,15 +6,6 @@ pub use super::super::{Read, Write, Seek, ReadExt, Error, ErrorKind, SeekFrom, P
 pub use super::super::IoResult;
 
 /// Create an I/O error from an ErrorKind.
-///
-/// This helper works in both std and no-std modes.
-#[cfg(feature = "std")]
-pub fn error_from_kind(kind: ErrorKind) -> Error {
-    Error::new(kind, "")
-}
-
-/// Creates a portable I/O error from its classification in `no_std` builds.
-#[cfg(not(feature = "std"))]
 pub fn error_from_kind(kind: ErrorKind) -> Error {
     Error::from_kind(kind)
 }
@@ -96,61 +87,30 @@ impl<DATA: Seek> SectorCursor<DATA> {
     pub async fn seek_sector(&mut self, sector: impl SectorLike) -> hadris_io::Result<u64> {
         self.seek(SeekFrom::Start(sector.to_bytes(self.sector_size) as u64))
             .await
-            .map_err(hadris_io::Error::erase)
+
     }
 }
 
-impl<T> Seek for SectorCursor<T>
-where
-    T: Seek,
-{
-    type Error = <T as Seek>::Error;
-
-    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::Result<u64, Self::Error> {
+impl<T: Seek> Seek for SectorCursor<T> {
+    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::Result<u64> {
         self.data.seek(pos).await
     }
-
-    async fn stream_position(&mut self) -> hadris_io::Result<u64, Self::Error> {
-        self.data.stream_position().await
-    }
-
-    async fn seek_relative(&mut self, offset: i64) -> hadris_io::Result<(), Self::Error> {
-        self.data.seek_relative(offset).await
-    }
 }
 
-impl<T> Read for SectorCursor<T>
-where
-    T: Read + Seek,
-{
-    type Error = <T as Read>::Error;
-
-    async fn read(&mut self, buf: &mut [u8]) -> hadris_io::Result<usize, Self::Error> {
+impl<T: Read + Seek> Read for SectorCursor<T> {
+    async fn read(&mut self, buf: &mut [u8]) -> hadris_io::Result<usize> {
         self.data.read(buf).await
-    }
-
-    async fn read_exact(&mut self, buf: &mut [u8]) -> hadris_io::Result<()> {
-        self.data.read_exact(buf).await
     }
 }
 
 #[cfg(feature = "write")]
-impl<T> Write for SectorCursor<T>
-where
-    T: Write + Seek,
-{
-    type Error = <T as Write>::Error;
-
-    async fn write(&mut self, buf: &[u8]) -> hadris_io::Result<usize, Self::Error> {
+impl<T: Write + Seek> Write for SectorCursor<T> {
+    async fn write(&mut self, buf: &[u8]) -> hadris_io::Result<usize> {
         self.data.write(buf).await
     }
 
-    async fn flush(&mut self) -> hadris_io::Result<(), Self::Error> {
+    async fn flush(&mut self) -> hadris_io::Result<()> {
         self.data.flush().await
-    }
-
-    async fn write_all(&mut self, buf: &[u8]) -> hadris_io::Result<()> {
-        self.data.write_all(buf).await
     }
 }
 

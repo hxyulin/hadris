@@ -19,7 +19,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .unwrap_or_else(|| "disk.img".to_owned());
     let file = File::options().read(true).write(true).open(path)?;
-    let volume: FatVolume<_> = FatVolumeBuilder::new(file).time_provider(&CLOCK).open()?;
+    let volume: FatVolume<_> = FatVolumeBuilder::new(hadris_io::StdIo::new(file))
+        .time_provider(&CLOCK)
+        .open()?;
 
     // FatVolume is Send when its backing storage is Send. A mutex provides
     // exclusive access while Arc lets workers share ownership of the handle.

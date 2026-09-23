@@ -113,7 +113,7 @@ fn poc_fixed_root_iteration_drops_entries_past_4kib() {
     }
     put_short_entry(&mut img, 200, b"TARGET  TXT", 0x20, 0);
 
-    let fs = hadris_fat::FatVolume::open(Cursor::new(img)).unwrap();
+    let fs = hadris_fat::FatVolume::open(hadris_io::StdIo::new(Cursor::new(img))).unwrap();
     let root = fs.root_dir();
     let mut count = 0usize;
     let mut found = false;
@@ -365,7 +365,7 @@ fn poc_exfat_bitmap_data_length_drives_unbounded_allocation() {
     let img = b.build();
 
     alloc_watch::MAX_ALLOC.store(0, Ordering::SeqCst);
-    let result = ExFatVolume::open(Cursor::new(img));
+    let result = ExFatVolume::open(hadris_io::StdIo::new(Cursor::new(img)));
     assert!(
         matches!(result, Err(hadris_fat::Error::ExFatInvalidEntry { .. })),
         "oversized bitmap must be rejected with ExFatInvalidEntry, got {:?}",
@@ -400,7 +400,7 @@ fn poc_exfat_fragmented_dir_fat_cycle_hangs_iteration() {
     b.cluster_fill = vec![(3, 0x83), (4, 0x83)]; // volume-label entries: skipped, never END
     let img = b.build();
 
-    let fs = ExFatVolume::open(Cursor::new(img)).unwrap();
+    let fs = ExFatVolume::open(hadris_io::StdIo::new(Cursor::new(img))).unwrap();
 
     // Directory iterator: must error with ClusterLoop, not hang.
     let dir = fs.open_dir("/D").unwrap();
@@ -441,7 +441,7 @@ fn poc_exfat_free_cluster_count_subtract_overflow() {
     b.root_entries = vec![exfat_img::bitmap_entry(3, 1)]; // 1-byte bitmap, 1024 clusters
     let img = b.build();
 
-    let fs = ExFatVolume::open(Cursor::new(img)).unwrap();
+    let fs = ExFatVolume::open(hadris_io::StdIo::new(Cursor::new(img))).unwrap();
     let n = fs.free_cluster_count(); // used to panic: attempt to subtract with overflow
     assert!(n <= 1024);
 }
@@ -456,7 +456,7 @@ fn poc_exfat_bitmap_validate_cluster_add_overflow() {
     b.heap_clusters_present = 4;
     let img = b.build();
 
-    let fs = ExFatVolume::open(Cursor::new(img)).unwrap();
+    let fs = ExFatVolume::open(hadris_io::StdIo::new(Cursor::new(img))).unwrap();
     // No bitmap was loaded, so the (valid) cluster lookup must error, not panic.
     assert!(fs.is_cluster_allocated(2).is_err());
 }
@@ -503,7 +503,7 @@ fn poc_scan_fat_preallocates_from_claimed_geometry() {
 
     let _guard = alloc_watch::LOCK.lock().unwrap();
     let img = fat32_image_claiming_sectors(50_000_064);
-    let fs = FatVolume::open(Cursor::new(img)).unwrap();
+    let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(img))).unwrap();
 
     alloc_watch::MAX_ALLOC.store(0, Ordering::SeqCst);
     // Errors with Io once reads pass the end of the image; must not panic or OOM.

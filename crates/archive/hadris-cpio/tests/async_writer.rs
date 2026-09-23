@@ -18,14 +18,12 @@ use hadris_cpio::r#async::{
 struct AsyncVec(Vec<u8>);
 
 impl Write for AsyncVec {
-    type Error = hadris_io::ErrorKind;
-
-    async fn write(&mut self, bytes: &[u8]) -> hadris_io::Result<usize, Self::Error> {
+    async fn write(&mut self, bytes: &[u8]) -> hadris_io::Result<usize> {
         self.0.extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
-    async fn flush(&mut self) -> hadris_io::Result<(), Self::Error> {
+    async fn flush(&mut self) -> hadris_io::Result<()> {
         Ok(())
     }
 }

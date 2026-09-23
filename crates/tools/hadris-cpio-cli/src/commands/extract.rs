@@ -4,11 +4,12 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use hadris_cpio::{CpioArchiveReader, FileType};
+use hadris_io::StdIo;
 
 pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
     let file = File::open(&archive)
         .with_context(|| format!("Failed to open archive: {}", archive.display()))?;
-    let mut reader = CpioArchiveReader::new(BufReader::new(file));
+    let mut reader = CpioArchiveReader::new(StdIo::new(BufReader::new(file)));
 
     fs::create_dir_all(&output)
         .with_context(|| format!("Failed to create output directory: {}", output.display()))?;

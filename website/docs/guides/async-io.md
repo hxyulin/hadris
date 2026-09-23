@@ -8,6 +8,11 @@ Hadris async APIs are runtime-neutral. They depend on async I/O traits, not on
 Tokio, async-std, or an executor. The application supplies a compatible reader
 and drives the future with its chosen runtime.
 
+A reader implements `hadris_io::r#async::{Read, Seek}` directly, or wraps an
+`embedded-io-async` device in `hadris_io::FromEmbedded`. `hadris_io::Cursor`
+implements the async traits for in-memory images. `StdIo` covers only the sync
+traits.
+
 ```toml
 [dependencies]
 hadris-fat = {

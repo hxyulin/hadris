@@ -17,9 +17,10 @@
 //! use std::fs::File;
 //! use std::io::BufReader;
 //! use hadris_cpio::CpioArchiveReader;
+//! use hadris_io::StdIo;
 //!
 //! let file = File::open("archive.cpio").unwrap();
-//! let mut reader = CpioArchiveReader::new(BufReader::new(file));
+//! let mut reader = CpioArchiveReader::new(StdIo::new(BufReader::new(file)));
 //!
 //! while let Some(entry) = reader.next_entry_alloc().unwrap() {
 //!     let name = entry.name_str().unwrap();
@@ -34,9 +35,10 @@
 //! use std::fs::File;
 //! use std::io::BufWriter;
 //! use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+//! use hadris_io::StdIo;
 //!
 //! let tree = FileTree::from_fs(std::path::Path::new("./my-directory")).unwrap();
-//! let out = BufWriter::new(File::create("archive.cpio").unwrap());
+//! let out = StdIo::new(BufWriter::new(File::create("archive.cpio").unwrap()));
 //! let _out = CpioArchiveWriter::new(out, CpioWriteOptions::default())
 //!     .finish(&tree)
 //!     .unwrap();

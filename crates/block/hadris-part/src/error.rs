@@ -248,9 +248,9 @@ impl Display for Error {
     }
 }
 
-impl<E: hadris_io::IoError> From<hadris_io::Error<E>> for Error {
-    fn from(err: hadris_io::Error<E>) -> Self {
-        Self::Io(err.erase())
+impl From<hadris_io::Error> for Error {
+    fn from(err: hadris_io::Error) -> Self {
+        Self::Io(err)
     }
 }
 

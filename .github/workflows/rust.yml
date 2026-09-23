@@ -304,8 +304,8 @@ jobs:
             tier: leaf-storage
             features: "std,sync,storage"
           - crate: hadris
-            tier: leaf-path
-            features: "alloc,path"
+            tier: leaf-fs
+            features: "alloc,fs"
           - crate: hadris
             tier: leaf-part
             features: "std,sync,read,write,part"

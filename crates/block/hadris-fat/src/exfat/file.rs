@@ -92,9 +92,7 @@ impl<DATA: Read + Seek> ExFatFileReader<'_, DATA> {
     }
 }
 
-impl<DATA: Read + Seek> Read for ExFatFileReader<'_, DATA> {
-    type Error = ErrorKind;
-
+impl<DATA: Read + Seek> hadris_io::sync::Read for ExFatFileReader<'_, DATA> {
     fn read(&mut self, buf: &mut [u8]) -> crate::io::IoResult<usize> {
         if self.position >= self.valid_length {
             return Ok(0);
@@ -146,22 +144,9 @@ impl<DATA: Read + Seek> Read for ExFatFileReader<'_, DATA> {
 
         Ok(total_read)
     }
-
-    fn read_exact(&mut self, buf: &mut [u8]) -> crate::io::IoResult<()> {
-        let mut total_read = 0;
-        while total_read < buf.len() {
-            match self.read(&mut buf[total_read..])? {
-                0 => return Err(error_from_kind(ErrorKind::UnexpectedEof)),
-                n => total_read += n,
-            }
-        }
-        Ok(())
-    }
 }
 
-impl<DATA: Read + Seek> Seek for ExFatFileReader<'_, DATA> {
-    type Error = ErrorKind;
-
+impl<DATA: Read + Seek> hadris_io::sync::Seek for ExFatFileReader<'_, DATA> {
     fn seek(&mut self, pos: SeekFrom) -> crate::io::IoResult<u64> {
         let new_pos = match pos {
             SeekFrom::Start(offset) => offset as i64,
@@ -204,10 +189,6 @@ impl<DATA: Read + Seek> Seek for ExFatFileReader<'_, DATA> {
         self.position = new_pos;
 
         Ok(new_pos)
-    }
-
-    fn stream_position(&mut self) -> crate::io::IoResult<u64> {
-        Ok(self.position)
     }
 }
 
@@ -332,9 +313,7 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
 }
 
 #[cfg(feature = "write")]
-impl<DATA: Read + Write + Seek> Write for ExFatFileWriter<'_, DATA> {
-    type Error = ErrorKind;
-
+impl<DATA: Read + Write + Seek> hadris_io::sync::Write for ExFatFileWriter<'_, DATA> {
     fn write(&mut self, buf: &[u8]) -> crate::io::IoResult<usize> {
         if buf.is_empty() {
             return Ok(0);
@@ -454,16 +433,5 @@ impl<DATA: Read + Write + Seek> Write for ExFatFileWriter<'_, DATA> {
 
     fn flush(&mut self) -> crate::io::IoResult<()> {
         self.fs.flush()
-    }
-
-    fn write_all(&mut self, buf: &[u8]) -> crate::io::IoResult<()> {
-        let mut written = 0;
-        while written < buf.len() {
-            match self.write(&buf[written..])? {
-                0 => return Err(error_from_kind(ErrorKind::WriteZero)),
-                n => written += n,
-            }
-        }
-        Ok(())
     }
 }

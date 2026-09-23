@@ -22,10 +22,11 @@ systems, SD cards, and USB drives.
 ```rust,no_run
 use std::fs::File;
 use hadris_fat::{FatVolume, FatVolumeReadExt};
+use hadris_io::StdIo;
 
-# fn main() -> hadris_fat::Result<()> {
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let file = File::open("disk.img")?;
-let fs = FatVolume::open(file)?;
+let fs = FatVolume::open(StdIo::new(file))?;
 
 let root = fs.root_dir();
 let mut iter = root.entries();
@@ -53,10 +54,11 @@ zero bytes.
 ```rust,no_run
 use std::fs::OpenOptions;
 use hadris_fat::{FatVolume, FatVolumeWriteExt};
+use hadris_io::StdIo;
 
-# fn main() -> hadris_fat::Result<()> {
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let file = OpenOptions::new().read(true).write(true).open("disk.img")?;
-let fs = FatVolume::open(file)?;
+let fs = FatVolume::open(StdIo::new(file))?;
 
 let root = fs.root_dir();
 let entry = fs.create_file(&root, "newfile.txt")?;
@@ -71,12 +73,13 @@ writer.finish()?;
 
 ```rust,no_run
 use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter, FatTypeSelection};
+use hadris_io::StdIo;
 use std::io::Cursor;
 
 # fn main() -> hadris_fat::Result<()> {
 // Create a 64 MB in-memory volume
 let mut buffer = vec![0u8; 64 * 1024 * 1024];
-let cursor = Cursor::new(&mut buffer[..]);
+let cursor = StdIo::new(Cursor::new(&mut buffer[..]));
 
 let options = FatFormatOptions::new(64 * 1024 * 1024)
     .volume_label("MYDISK");
@@ -101,13 +104,14 @@ code-page converters must implement `Sync`.
 
 ```rust,no_run
 use hadris_fat::FatVolume;
+use hadris_io::StdIo;
 use std::{fs::File, sync::{Arc, Mutex}, thread};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let volume = FatVolume::open(File::options()
+let volume = FatVolume::open(StdIo::new(File::options()
     .read(true)
     .write(true)
-    .open("disk.img")?)?;
+    .open("disk.img")?))?;
 let volume = Arc::new(Mutex::new(volume));
 
 let worker_volume = Arc::clone(&volume);
@@ -165,8 +169,8 @@ The `format` module (requires `write`) provides volume formatting:
 use hadris_fat::format::{FatFormatOptions, FatVolumeFormatter, SectorSize};
 
 # fn main() -> hadris_fat::Result<()> {
-# let volume_size = 64 * 1024 * 1024usize;
-# let data = std::io::Cursor::new(vec![0u8; volume_size]);
+# let volume_size: u64 = 64 * 1024 * 1024;
+# let data = hadris_io::StdIo::new(std::io::Cursor::new(vec![0u8; volume_size as usize]));
 let options = FatFormatOptions::new(volume_size)
     .volume_label("VOLUME")
     .sector_size(SectorSize::S512)
@@ -249,14 +253,15 @@ Install it while opening the volume:
 
 ```rust,no_run
 use hadris_fat::FatVolume;
+use hadris_io::StdIo;
 use std::fs::OpenOptions;
 
-# fn main() -> hadris_fat::Result<()> {
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let disk = OpenOptions::new()
     .read(true)
     .write(true)
     .open("disk.img")?;
-let fs = FatVolume::builder(disk)
+let fs = FatVolume::builder(StdIo::new(disk))
     .fat_cache(16) // Capacity is measured in FAT sectors.
     .open()?;
 
@@ -285,8 +290,8 @@ The `tool` feature adds extension traits on `FatVolume`:
 ```rust,no_run
 use hadris_fat::{FatVolume, FatAnalysisExt, FatVerifyExt};
 
-# fn main() -> hadris_fat::Result<()> {
-# let fs = FatVolume::open(std::fs::File::open("disk.img")?)?;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# let fs = FatVolume::open(hadris_io::StdIo::new(std::fs::File::open("disk.img")?))?;
 let stats = fs.statistics()?;
 println!("Total clusters: {}", stats.total_clusters);
 println!("Free clusters: {}", stats.free_clusters);

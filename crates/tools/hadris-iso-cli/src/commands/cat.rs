@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{self, BufReader, Write};
 
+use hadris_io::StdIo;
 use hadris_iso::read::IsoImage;
 
 use super::super::args::CatArgs;
@@ -10,7 +11,7 @@ use super::{Result, navigate_to_path};
 /// Print file contents to stdout
 pub fn cat(args: CatArgs) -> Result<()> {
     let file = File::open(&args.input)?;
-    let reader = BufReader::new(file);
+    let reader = StdIo::new(BufReader::new(file));
     let iso = IsoImage::open(reader)?;
 
     // Split path into parent directory and filename

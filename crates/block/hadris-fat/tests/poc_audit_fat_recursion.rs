@@ -63,7 +63,7 @@ fn cyclic_dir_image() -> Vec<u8> {
 /// the depth cap must surface `CorruptFilesystem`.
 #[test]
 fn poc_statistics_recurses_forever_on_cyclic_directory() {
-    let fs = FatVolume::open(Cursor::new(cyclic_dir_image())).unwrap();
+    let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(cyclic_dir_image()))).unwrap();
     assert!(matches!(
         fs.statistics(),
         Err(Error::CorruptFilesystem { .. })
@@ -72,7 +72,7 @@ fn poc_statistics_recurses_forever_on_cyclic_directory() {
 
 #[test]
 fn poc_fragmentation_report_depth_capped_on_cyclic_directory() {
-    let fs = FatVolume::open(Cursor::new(cyclic_dir_image())).unwrap();
+    let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(cyclic_dir_image()))).unwrap();
     assert!(matches!(
         fs.fragmentation_report(10),
         Err(Error::CorruptFilesystem { .. })
@@ -81,6 +81,6 @@ fn poc_fragmentation_report_depth_capped_on_cyclic_directory() {
 
 #[test]
 fn poc_verify_depth_capped_on_cyclic_directory() {
-    let fs = FatVolume::open(Cursor::new(cyclic_dir_image())).unwrap();
+    let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(cyclic_dir_image()))).unwrap();
     assert!(matches!(fs.verify(), Err(Error::CorruptFilesystem { .. })));
 }

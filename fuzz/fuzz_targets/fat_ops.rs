@@ -18,6 +18,7 @@ use std::io::Cursor;
 
 use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
 use hadris_fat::{FatVolume, FatVolumeReadExt, FatVolumeWriteExt, FileEntry};
+use hadris_io::StdIo;
 use libfuzzer_sys::fuzz_target;
 
 /// FAT16 needs >= 4 MiB (hadris-fat format::calc::MIN_FAT16_SIZE).
@@ -108,7 +109,7 @@ fn drive(data: &[u8]) {
     let mut total_written = 0usize;
 
     {
-        let cursor = Cursor::new(&mut image[..]);
+        let cursor = StdIo::new(Cursor::new(&mut image[..]));
         let options = FatFormatOptions::new(IMAGE_SIZE as u64)
             .volume_label("FUZZ")
             .fat_type(FatTypeSelection::Fat16);
@@ -264,7 +265,7 @@ fn drive(data: &[u8]) {
 
     // Remount fresh and walk the whole tree with the same bounded-worklist
     // pattern as fat_read.rs.
-    let Ok(fs) = FatVolume::open(Cursor::new(&image[..])) else {
+    let Ok(fs) = FatVolume::open(hadris_io::Cursor::new(&image[..])) else {
         assert!(
             model.is_empty(),
             "ORACLE: remount failed with a non-empty model"

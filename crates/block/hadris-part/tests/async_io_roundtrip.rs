@@ -50,9 +50,9 @@ fn async_leaf_detects_and_opens_validated_gpt_non_destructively() {
     ))
     .unwrap();
 
-    let mut image = std::io::Cursor::new(vec![0_u8; 8192 * 512]);
+    let mut image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 8192 * 512]));
     scheme.write_to(&mut image).unwrap();
-    let bytes = image.into_inner();
+    let bytes = image.into_inner().into_inner();
 
     block_on(async {
         let mut source = hadris_io::Cursor::new(bytes.as_slice());

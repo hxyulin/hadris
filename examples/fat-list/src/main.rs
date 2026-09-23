@@ -8,7 +8,7 @@ fn main() -> Result<()> {
     let image_path = image_path()?;
     let image = File::open(&image_path)
         .with_context(|| format!("failed to open {}", image_path.display()))?;
-    let volume = FatVolume::open(image)
+    let volume = FatVolume::open(hadris_io::StdIo::new(image))
         .with_context(|| format!("failed to open FAT volume {}", image_path.display()))?;
 
     let root = volume.root_dir();

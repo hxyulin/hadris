@@ -54,19 +54,19 @@ impl FatImage {
         let options = FatFormatOptions::new(case.size)
             .fat_type(case.selection)
             .volume_label("HADRIS");
-        let volume = FatVolumeFormatter::format(file, options).unwrap();
+        let volume = FatVolumeFormatter::format(hadris_io::StdIo::new(file), options).unwrap();
         assert_eq!(volume.fat_type(), case.expected);
         drop(volume);
         Self { _temp: temp, path }
     }
 
-    pub fn open(&self) -> FatVolume<std::fs::File> {
+    pub fn open(&self) -> FatVolume<hadris_io::StdIo<std::fs::File>> {
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(&self.path)
             .unwrap();
-        FatVolume::open(file).unwrap()
+        FatVolume::open(hadris_io::StdIo::new(file)).unwrap()
     }
 
     #[allow(dead_code)]

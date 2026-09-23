@@ -4,6 +4,7 @@ use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 
+use hadris_io::StdIo;
 use hadris_iso::directory::DirectoryRef;
 use hadris_iso::read::{IsoImage, PathSeparator};
 use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
@@ -54,13 +55,18 @@ pub fn write(state: &IsoState) -> Result<Vec<u8>, String> {
         features: CreationFeatures::default(),
         strict_charset: true,
     };
-    IsoImageWriter::create(Cursor::new(Vec::new()), input_files(state), options)
-        .map(|cursor| cursor.into_inner())
-        .map_err(|error| error.to_string())
+    IsoImageWriter::create(
+        StdIo::new(Cursor::new(Vec::new())),
+        input_files(state),
+        options,
+    )
+    .map(|cursor| cursor.into_inner().into_inner())
+    .map_err(|error| error.to_string())
 }
 
 pub fn snapshot(bytes: Vec<u8>) -> Result<IsoState, String> {
-    let image = IsoImage::open(Cursor::new(bytes)).map_err(|error| error.to_string())?;
+    let image =
+        IsoImage::open(StdIo::new(Cursor::new(bytes))).map_err(|error| error.to_string())?;
     let volume_id = image
         .read_pvd()
         .map_err(|error| error.to_string())?
@@ -113,7 +119,7 @@ fn input_files(state: &IsoState) -> InputFiles {
 }
 
 fn snapshot_dir(
-    image: &IsoImage<Cursor<Vec<u8>>>,
+    image: &IsoImage<StdIo<Cursor<Vec<u8>>>>,
     directory: DirectoryRef,
     path: &str,
     entries: &mut BTreeMap<String, EntryData>,

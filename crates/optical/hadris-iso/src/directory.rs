@@ -428,7 +428,7 @@ mod tests {
             offset += 34;
         }
 
-        let mut cursor = Cursor::new(&dir[..]);
+        let mut cursor = hadris_io::StdIo::new(Cursor::new(&dir[..]));
         let dot = DirectoryRecord::parse(&mut cursor).expect("parse .");
         assert_eq!(dot.size(), 34);
         assert_eq!(core::mem::size_of::<DirectoryRecordHeader>(), 33);
@@ -457,8 +457,8 @@ mod tests {
         assert_eq!(made.header().extent.read(), 42);
 
         let mut out = Vec::new();
-        made.write(&mut out).expect("write");
-        let mut round = Cursor::new(&out[..]);
+        made.write(&mut hadris_io::StdIo::new(&mut out)).expect("write");
+        let mut round = hadris_io::StdIo::new(Cursor::new(&out[..]));
         let parsed = DirectoryRecord::parse(&mut round).expect("re-parse");
         assert_eq!(parsed.name(), made.name());
         assert_eq!(parsed.size(), made.size());
@@ -471,7 +471,7 @@ mod tests {
         short[0] = 32;
         short[32] = 1;
         assert_eq!(
-            DirectoryRecord::parse(&mut Cursor::new(short))
+            DirectoryRecord::parse(&mut hadris_io::StdIo::new(Cursor::new(short)))
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::InvalidData
@@ -485,7 +485,7 @@ mod tests {
         mismatched[30..32].copy_from_slice(&1_u16.to_be_bytes());
         mismatched[32] = 1;
         assert_eq!(
-            DirectoryRecord::parse(&mut Cursor::new(mismatched))
+            DirectoryRecord::parse(&mut hadris_io::StdIo::new(Cursor::new(mismatched)))
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::InvalidData

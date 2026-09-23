@@ -14,10 +14,11 @@ hadris-optical = "2.4.0"
 ```
 
 ```rust,no_run
+use hadris_io::StdIo;
 use hadris_optical::{OpenPolicy, sync::OpenOpticalImage};
 use std::fs::File;
 
-let mut image = File::open("disc.iso")?;
+let mut image = StdIo::new(File::open("disc.iso")?);
 let opened = OpenOpticalImage::open(&mut image, OpenPolicy::PreferUdf)?;
 
 if let Some(udf) = opened.as_udf() {

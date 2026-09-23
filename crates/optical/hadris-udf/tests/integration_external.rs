@@ -148,7 +148,7 @@ fn test_read_mkudffs_udf102() {
         .read_to_end(&mut udf_data)
         .unwrap();
 
-    let cursor = Cursor::new(udf_data);
+    let cursor = hadris_io::StdIo::new(Cursor::new(udf_data));
     let udf = hadris_udf::UdfVolume::open(cursor)
         .expect("hadris-udf should be able to open mkudffs UDF 1.02 image");
 
@@ -184,7 +184,7 @@ fn test_read_mkudffs_udf150() {
         .read_to_end(&mut udf_data)
         .unwrap();
 
-    let cursor = Cursor::new(udf_data);
+    let cursor = hadris_io::StdIo::new(Cursor::new(udf_data));
     let udf = hadris_udf::UdfVolume::open(cursor)
         .expect("hadris-udf should be able to open mkudffs UDF 1.50 image");
 
@@ -214,7 +214,7 @@ fn test_read_mkudffs_udf201() {
         .read_to_end(&mut udf_data)
         .unwrap();
 
-    let cursor = Cursor::new(udf_data);
+    let cursor = hadris_io::StdIo::new(Cursor::new(udf_data));
     let udf = hadris_udf::UdfVolume::open(cursor)
         .expect("hadris-udf should be able to open mkudffs UDF 2.01 image");
 
@@ -295,7 +295,7 @@ mod write_tests {
             partition_length: total_sectors - 350,
         };
 
-        let mut writer = UdfWriter::new(&mut file, options);
+        let mut writer = UdfWriter::new(hadris_io::StdIo::new(&mut file), options);
 
         // Write VRS
         writer.write_vrs()?;

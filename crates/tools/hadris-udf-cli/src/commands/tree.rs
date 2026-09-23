@@ -1,5 +1,6 @@
 use std::fs::File;
 
+use hadris_io::StdIo;
 use hadris_udf::{UdfDir, UdfVolume};
 
 use super::super::args::TreeArgs;
@@ -9,7 +10,7 @@ use super::{Result, navigate_to_path};
 /// Display directory tree
 pub fn tree(args: TreeArgs) -> Result<()> {
     let file = File::open(&args.input)?;
-    let udf = UdfVolume::open(file)?;
+    let udf = UdfVolume::open(StdIo::new(file))?;
 
     println!("{}", args.path);
 
@@ -22,7 +23,7 @@ pub fn tree(args: TreeArgs) -> Result<()> {
 }
 
 fn print_tree(
-    udf: &UdfVolume<File>,
+    udf: &UdfVolume<StdIo<File>>,
     dir: &UdfDir,
     prefix: &str,
     depth: usize,

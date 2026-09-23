@@ -41,9 +41,9 @@ fn async_leaf_opens_traverses_and_reads_nested_file() {
     docs.add_file(SimpleFile::new("README.TXT", payload.to_vec()));
     root.add_dir(docs);
 
-    let image = std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]);
+    let image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]));
     let output = UdfWriter::create(image, &root, UdfWriteOptions::default()).unwrap();
-    let bytes = output.target.into_inner();
+    let bytes = output.target.into_inner().into_inner();
 
     block_on(async {
         let volume = UdfVolume::open(hadris_io::Cursor::new(bytes.as_slice()))

@@ -2,4 +2,5 @@ pub mod hadris
 pub use hadris::block
 pub use hadris::cpio
 pub use hadris::fs
+pub use hadris::io
 pub use hadris::optical

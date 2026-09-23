@@ -1,3 +1,5 @@
+#![cfg(feature = "sync")]
+
 //! Integration tests for `hadris_io::Cursor`.
 //!
 //! These tests exercise the public API of `Cursor` through

@@ -23,7 +23,7 @@
 //! let options = FatFormatOptions::new(64 * 1024 * 1024)
 //!     .volume_label("MY VOLUME");
 //!
-//! let fs = FatVolumeFormatter::format(file, options)?;
+//! let fs = FatVolumeFormatter::format(hadris_io::StdIo::new(file), options)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -78,7 +78,7 @@ impl FatVolumeFormatter {
     /// # fn main() -> hadris_fat::Result<()> {
     /// // Create a 2 MB in-memory volume
     /// let mut buffer = vec![0u8; 2 * 1024 * 1024];
-    /// let cursor = std::io::Cursor::new(&mut buffer[..]);
+    /// let cursor = hadris_io::StdIo::new(std::io::Cursor::new(&mut buffer[..]));
     ///
     /// let options = FatFormatOptions::new(2 * 1024 * 1024)
     ///     .volume_label("TEST")
@@ -142,7 +142,7 @@ mod tests {
     fn test_format_fat12() {
         // 2 MB volume should create FAT12
         let mut buffer = vec![0u8; 2 * 1024 * 1024];
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut buffer[..]));
 
         let options = FatFormatOptions::new(2 * 1024 * 1024).volume_label("FAT12TEST");
 
@@ -155,7 +155,7 @@ mod tests {
     fn test_format_fat16() {
         // 64 MB volume should create FAT16
         let mut buffer = vec![0u8; 64 * 1024 * 1024];
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut buffer[..]));
 
         let options = FatFormatOptions::new(64 * 1024 * 1024).volume_label("FAT16TEST");
 
@@ -169,7 +169,7 @@ mod tests {
         // Use forced FAT32 for a moderate size volume
         // (Auto would select FAT16 for 256 MB)
         let mut buffer = vec![0u8; 256 * 1024 * 1024];
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut buffer[..]));
 
         let options = FatFormatOptions::new(256 * 1024 * 1024)
             .volume_label("FAT32TEST")
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn test_format_and_create_file() {
         let mut buffer = vec![0u8; 4 * 1024 * 1024];
-        let cursor = Cursor::new(&mut buffer[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut buffer[..]));
 
         let options = FatFormatOptions::new(4 * 1024 * 1024);
         let fs = FatVolumeFormatter::format(cursor, options).unwrap();

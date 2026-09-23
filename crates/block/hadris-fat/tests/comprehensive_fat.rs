@@ -51,7 +51,7 @@ fn bpb_size_validation_uses_production_reader_and_formatter() {
     let mut header = fat32_header();
     header[11..13].copy_from_slice(&768_u16.to_le_bytes());
     assert!(matches!(
-        FatVolume::open(Cursor::new(header)),
+        FatVolume::open(hadris_io::StdIo::new(Cursor::new(header))),
         Err(Error::CorruptFilesystem { .. })
     ));
 
@@ -72,7 +72,7 @@ fn fat32_rejects_unknown_version_and_invalid_fsinfo_signatures() {
     let mut version = fat32_header();
     version[42..44].copy_from_slice(&1_u16.to_le_bytes());
     assert!(matches!(
-        FatVolume::open(Cursor::new(version)),
+        FatVolume::open(hadris_io::StdIo::new(Cursor::new(version))),
         Err(Error::CorruptFilesystem { .. })
     ));
 
@@ -80,7 +80,7 @@ fn fat32_rejects_unknown_version_and_invalid_fsinfo_signatures() {
         let mut image = fat32_header();
         image[range].fill(0);
         assert!(matches!(
-            FatVolume::open(Cursor::new(image)),
+            FatVolume::open(hadris_io::StdIo::new(Cursor::new(image))),
             Err(Error::InvalidFsInfoSignature { .. })
         ));
     }
@@ -103,12 +103,14 @@ fn fat_table_traversal_recognizes_bad_and_end_markers_for_every_width() {
     let mut bytes = vec![0_u8; 32];
     set_fat12(&mut bytes, 2, 0x0ff7);
     assert!(matches!(
-        fat12.next_cluster(&mut Cursor::new(&bytes), 2),
+        fat12.next_cluster(&mut hadris_io::StdIo::new(Cursor::new(&bytes)), 2),
         Err(Error::BadCluster { cluster: 2 })
     ));
     set_fat12(&mut bytes, 2, 0x0ff8);
     assert_eq!(
-        fat12.next_cluster(&mut Cursor::new(&bytes), 2).unwrap(),
+        fat12
+            .next_cluster(&mut hadris_io::StdIo::new(Cursor::new(&bytes)), 2)
+            .unwrap(),
         None
     );
 
@@ -116,12 +118,14 @@ fn fat_table_traversal_recognizes_bad_and_end_markers_for_every_width() {
     let mut bytes = vec![0_u8; 32];
     bytes[4..6].copy_from_slice(&0xfff7_u16.to_le_bytes());
     assert!(matches!(
-        fat16.next_cluster(&mut Cursor::new(&bytes), 2),
+        fat16.next_cluster(&mut hadris_io::StdIo::new(Cursor::new(&bytes)), 2),
         Err(Error::BadCluster { cluster: 2 })
     ));
     bytes[4..6].copy_from_slice(&0xfff8_u16.to_le_bytes());
     assert_eq!(
-        fat16.next_cluster(&mut Cursor::new(&bytes), 2).unwrap(),
+        fat16
+            .next_cluster(&mut hadris_io::StdIo::new(Cursor::new(&bytes)), 2)
+            .unwrap(),
         None
     );
 
@@ -129,12 +133,14 @@ fn fat_table_traversal_recognizes_bad_and_end_markers_for_every_width() {
     let mut bytes = vec![0_u8; 32];
     bytes[8..12].copy_from_slice(&0x0fff_fff7_u32.to_le_bytes());
     assert!(matches!(
-        fat32.next_cluster(&mut Cursor::new(&bytes), 2),
+        fat32.next_cluster(&mut hadris_io::StdIo::new(Cursor::new(&bytes)), 2),
         Err(Error::BadCluster { cluster: 2 })
     ));
     bytes[8..12].copy_from_slice(&0x0fff_fff8_u32.to_le_bytes());
     assert_eq!(
-        fat32.next_cluster(&mut Cursor::new(&bytes), 2).unwrap(),
+        fat32
+            .next_cluster(&mut hadris_io::StdIo::new(Cursor::new(&bytes)), 2)
+            .unwrap(),
         None
     );
 }
@@ -191,9 +197,9 @@ fn fat32_writes_preserve_each_copy_reserved_high_bits() {
     bytes[8..12].copy_from_slice(&0xa000_0000_u32.to_le_bytes());
     bytes[24..28].copy_from_slice(&0xb000_0000_u32.to_le_bytes());
     let fat = Fat32::new(0, 16, 2, 3);
-    let mut cursor = Cursor::new(bytes);
+    let mut cursor = hadris_io::StdIo::new(Cursor::new(bytes));
     fat.write_clus(&mut cursor, 2, 0x0fff_fff7).unwrap();
-    let bytes = cursor.into_inner();
+    let bytes = cursor.into_inner().into_inner();
     assert_eq!(
         u32::from_le_bytes(bytes[8..12].try_into().unwrap()),
         0xafff_fff7

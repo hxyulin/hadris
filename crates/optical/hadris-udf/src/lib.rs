@@ -22,11 +22,12 @@
 //! ```rust,no_run
 //! use std::fs::File;
 //! use std::io::BufReader;
+//! use hadris_io::StdIo;
 //! use hadris_udf::UdfVolume;
 //!
 //! // Open a UDF image file
 //! let file = File::open("movie.udf").unwrap();
-//! let reader = BufReader::new(file);
+//! let reader = StdIo::new(BufReader::new(file));
 //! let udf = UdfVolume::open(reader).unwrap();
 //!
 //! // Read volume info

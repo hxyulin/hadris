@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::BufReader;
 
+use hadris_io::StdIo;
 use hadris_iso::directory::FileFlags;
 use hadris_iso::read::IsoImage;
 
@@ -11,7 +12,7 @@ use super::{Result, display_name, navigate_to_path};
 /// List directory contents
 pub fn ls(args: LsArgs) -> Result<()> {
     let file = File::open(&args.input)?;
-    let reader = BufReader::new(file);
+    let reader = StdIo::new(BufReader::new(file));
     let iso = IsoImage::open(reader)?;
     let entry_type = iso.root_dir().entry_type();
 

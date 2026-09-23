@@ -11,16 +11,18 @@ filesystem.
 [dependencies]
 anyhow = "1"
 hadris-fat = "2.4.0"
+hadris-io = "2.4.0"
 ```
 
 ```rust,no_run
 use anyhow::{Context, Result};
 use hadris_fat::{FatVolume, FatVolumeReadExt};
+use hadris_io::StdIo;
 use std::fs::File;
 
 fn main() -> Result<()> {
     let image = File::open("disk.img").context("open disk.img")?;
-    let volume = FatVolume::open(image).context("open FAT filesystem")?;
+    let volume = FatVolume::open(StdIo::new(image)).context("open FAT filesystem")?;
 
     let root = volume.root_dir();
     let mut entries = root.entries();
@@ -33,8 +35,7 @@ fn main() -> Result<()> {
 
     if let Some(readme) = root.find("README.TXT")? {
         let mut reader = volume.read_file(&readme)?;
-        let mut contents = Vec::new();
-        std::io::Read::read_to_end(&mut reader, &mut contents)?;
+        let contents = reader.read_to_vec()?;
         println!("{}", String::from_utf8_lossy(&contents));
     }
 

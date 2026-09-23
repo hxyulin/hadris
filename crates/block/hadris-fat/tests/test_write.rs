@@ -116,7 +116,7 @@ mod fat32_image {
     /// - 2 FATs, each 128 sectors
     /// - Root directory at cluster 2
     /// - Total size: ~150KB
-    pub fn create_fat32_image() -> Cursor<Vec<u8>> {
+    pub fn create_fat32_image() -> hadris_io::StdIo<Cursor<Vec<u8>>> {
         // Calculate total size
         let data_start_sector = RESERVED_SECTORS as u32 + FAT_COUNT as u32 * SECTORS_PER_FAT;
         let total_data_clusters: u32 = 256; // Enough for testing
@@ -140,7 +140,7 @@ mod fat32_image {
 
         // Initialize root directory cluster (cluster 2) - already zeroed
 
-        Cursor::new(image)
+        hadris_io::StdIo::new(Cursor::new(image))
     }
 
     fn write_boot_sector(image: &mut [u8]) {
@@ -320,7 +320,7 @@ mod fat16_image {
     /// - 2 FATs, each 32 sectors
     /// - 512 root directory entries (32 sectors)
     /// - Total size: ~2MB (enough clusters to be detected as FAT16)
-    pub fn create_fat16_image() -> Cursor<Vec<u8>> {
+    pub fn create_fat16_image() -> hadris_io::StdIo<Cursor<Vec<u8>>> {
         // Calculate layout
         let root_dir_sectors = (ROOT_ENTRY_COUNT as usize * 32).div_ceil(SECTOR_SIZE);
         let data_start_sector = RESERVED_SECTORS as usize
@@ -346,7 +346,7 @@ mod fat16_image {
 
         // Root directory is initially empty (zeroed)
 
-        Cursor::new(image)
+        hadris_io::StdIo::new(Cursor::new(image))
     }
 
     fn write_boot_sector(image: &mut [u8], total_sectors: u32) {
@@ -472,7 +472,7 @@ mod fat12_image {
     /// - 224 root directory entries (14 sectors)
     /// - ~2880 total sectors (1.44MB)
     /// - Cluster count < 4085 (FAT12 range)
-    pub fn create_fat12_image() -> Cursor<Vec<u8>> {
+    pub fn create_fat12_image() -> hadris_io::StdIo<Cursor<Vec<u8>>> {
         // Calculate layout
         let root_dir_sectors = (ROOT_ENTRY_COUNT as usize * 32).div_ceil(SECTOR_SIZE);
         let _data_start_sector = RESERVED_SECTORS as usize
@@ -497,7 +497,7 @@ mod fat12_image {
 
         // Root directory is initially empty (zeroed)
 
-        Cursor::new(image)
+        hadris_io::StdIo::new(Cursor::new(image))
     }
 
     fn write_boot_sector(image: &mut [u8], total_sectors: u16) {
@@ -1186,7 +1186,7 @@ mod integration_tests {
         // FSInfo must agree with the FAT itself, so a fudged free count
         // cannot mask a real leak.
         let free_count = fs.free_cluster_count().expect("FAT32 free count");
-        let image = fs.into_inner().into_inner();
+        let image = fs.into_inner().into_inner().into_inner();
         let fat_start = super::fat32_image::fat_start_bytes();
         let fat_free = (2..2 + 256usize)
             .filter(|&c| {
@@ -1252,7 +1252,7 @@ mod integration_tests {
 
         // The chain must be exactly one cluster, terminated with EOC.
         let first = entry.cluster().0;
-        let image = fs.into_inner().into_inner();
+        let image = fs.into_inner().into_inner().into_inner();
         let fat_start = super::fat32_image::fat_start_bytes();
         let off = fat_start + first * 4;
         let fat_entry = u32::from_le_bytes(image[off..off + 4].try_into().unwrap()) & 0x0FFF_FFFF;
@@ -1304,7 +1304,7 @@ mod integration_tests {
             "deleted file still resolvable",
         );
 
-        let image = fs.into_inner().into_inner();
+        let image = fs.into_inner().into_inner().into_inner();
         let fat_start = super::fat32_image::fat_start_bytes();
         let off = fat_start + first * 4;
         let fat_entry = u32::from_le_bytes(image[off..off + 4].try_into().unwrap()) & 0x0FFF_FFFF;
@@ -1884,7 +1884,7 @@ mod corrupt_image_tests {
     #[test]
     fn test_read_returns_cluster_loop_on_2cycle() {
         let image = create_fat32_image();
-        let mut bytes = image.into_inner();
+        let mut bytes = image.into_inner().into_inner();
 
         // Install the FAT cycle.
         patch_fat_entry(&mut bytes, 3, 4);
@@ -1909,7 +1909,7 @@ mod corrupt_image_tests {
         bytes[entry_offset..entry_offset + 32].copy_from_slice(&entry);
 
         // Mount and read.
-        let fs = FatVolume::open(Cursor::new(bytes)).expect("mount");
+        let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(bytes))).expect("mount");
         let root = fs.root_dir();
         let file = root.find("LOOP.DAT").expect("find").expect("entry present");
         let mut reader = fs.read_file(&file).expect("reader");
@@ -2062,7 +2062,7 @@ mod corrupt_image_tests {
         use std::io::Cursor;
 
         // A 512-byte FAT16 region (256 entries), all clusters free.
-        let mut rw = Cursor::new(vec![0u8; 512]);
+        let mut rw = hadris_io::StdIo::new(Cursor::new(vec![0u8; 512]));
         let fat = Fat16::new(0, 512, 1, 32);
 
         let first = fat.allocate_chain(&mut rw, 3, 2).expect("allocate_chain");
@@ -2168,7 +2168,7 @@ mod corrupt_image_tests {
     #[test]
     fn test_fsinfo_unknown_sentinels_mount_successfully() {
         let image = create_fat32_image();
-        let mut bytes = image.into_inner();
+        let mut bytes = image.into_inner().into_inner();
 
         // FSInfo lives at sector 1 (512..1024). The relevant fields:
         //   offset 488..492 — FSI_Free_Count
@@ -2178,8 +2178,8 @@ mod corrupt_image_tests {
         bytes[fsi + 488..fsi + 492].copy_from_slice(&0xFFFFFFFFu32.to_le_bytes());
         bytes[fsi + 492..fsi + 496].copy_from_slice(&0xFFFFFFFFu32.to_le_bytes());
 
-        let fs =
-            FatVolume::open(Cursor::new(bytes)).expect("mount must succeed with unknown sentinels");
+        let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(bytes)))
+            .expect("mount must succeed with unknown sentinels");
         assert_eq!(
             fs.free_cluster_count(),
             None,
@@ -2200,7 +2200,7 @@ mod corrupt_image_tests {
     fn test_truncated_image_returns_boot_sector_context() {
         // 16 bytes is far less than a boot sector (512 bytes). Any sane FS
         // open must fail here — the question is *how*.
-        let tiny = Cursor::new(vec![0u8; 16]);
+        let tiny = hadris_io::StdIo::new(Cursor::new(vec![0u8; 16]));
         let err = FatVolume::open(tiny).expect_err("mount must fail on tiny image");
         match &err {
             Error::IoContext { op, .. } => {
@@ -2225,7 +2225,7 @@ mod corrupt_image_tests {
     #[test]
     fn test_dir_iter_returns_cluster_loop_on_root_cycle() {
         let image = create_fat32_image();
-        let mut bytes = image.into_inner();
+        let mut bytes = image.into_inner().into_inner();
 
         // Make root extend to cluster 3, and cluster 3 back to cluster 2.
         patch_fat_entry(&mut bytes, 2, 3);
@@ -2246,7 +2246,7 @@ mod corrupt_image_tests {
             bytes[cluster3_start + i * 32] = 0xE5;
         }
 
-        let fs = FatVolume::open(Cursor::new(bytes)).expect("mount");
+        let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(bytes))).expect("mount");
         let root = fs.root_dir();
 
         // Iterate. The cycle should surface as ClusterLoop within
@@ -2285,7 +2285,7 @@ mod lfn_write_edge_tests {
     /// Open a FAT32 image and return the inner Vec so the caller can inspect
     /// the bytes between `FatVolume` operations.
     fn fresh_fat32_bytes() -> Vec<u8> {
-        create_fat32_image().into_inner()
+        create_fat32_image().into_inner().into_inner()
     }
 
     /// Read the directory entry at slot `i` of the root directory (cluster 2).
@@ -2327,11 +2327,11 @@ mod lfn_write_edge_tests {
         let mut bytes = fresh_fat32_bytes();
         let long_name = "Star \u{1F31F} Notes.txt";
         {
-            let cursor = Cursor::new(&mut bytes[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
             let fs = FatVolume::open(cursor).expect("open");
             fs.create_file(&fs.root_dir(), long_name).expect("create");
         }
-        let cursor = Cursor::new(&bytes[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&bytes[..]));
         let fs = FatVolume::open(cursor).expect("re-open");
         let entry = fs.root_dir().find(long_name).expect("find").expect("entry");
         let lfn = entry.long_name().expect("LFN required");
@@ -2346,7 +2346,7 @@ mod lfn_write_edge_tests {
         // worse than refusing to create the file.
         let mut bytes = fresh_fat32_bytes();
         let long: String = std::iter::repeat_n('a', 256).collect();
-        let cursor = Cursor::new(&mut bytes[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
         let fs = FatVolume::open(cursor).expect("open");
         match fs.create_file(&fs.root_dir(), &long) {
             Err(Error::InvalidFilename) => {}
@@ -2370,7 +2370,7 @@ mod lfn_write_edge_tests {
         let mut bytes = fresh_fat32_bytes();
         let long: String = std::iter::repeat_n('a', 195).collect();
         {
-            let cursor = Cursor::new(&mut bytes[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
             let fs = FatVolume::open(cursor).expect("open");
             fs.create_file(&fs.root_dir(), &long)
                 .expect("create 195-char name");
@@ -2389,7 +2389,7 @@ mod lfn_write_edge_tests {
             );
         }
 
-        let cursor = Cursor::new(&bytes[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&bytes[..]));
         let fs = FatVolume::open(cursor).expect("re-open");
         let entry = fs.root_dir().find(&long).expect("find").expect("entry");
         assert!(entry.long_name().expect("lfn").eq_str(&long));
@@ -2402,13 +2402,13 @@ mod lfn_write_edge_tests {
         // the 16-slot root cluster into a newly allocated cluster.
         let too_long: String = std::iter::repeat_n('a', 208).collect();
         {
-            let cursor = Cursor::new(&mut bytes[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
             let fs = FatVolume::open(cursor).expect("open");
             fs.create_file(&fs.root_dir(), &too_long)
                 .expect("cross-cluster LFN create");
         }
 
-        let cursor = Cursor::new(&bytes[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&bytes[..]));
         let fs = FatVolume::open(cursor).expect("re-open");
         let entry = fs.root_dir().find(&too_long).expect("find").expect("entry");
         assert!(entry.long_name().expect("lfn").eq_str(&too_long));
@@ -2424,7 +2424,7 @@ mod lfn_write_edge_tests {
         let mut bytes = fresh_fat32_bytes();
         let name = "longishname.tx"; // 14 ASCII chars
         {
-            let cursor = Cursor::new(&mut bytes[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
             let fs = FatVolume::open(cursor).expect("open");
             fs.create_file(&fs.root_dir(), name).expect("create");
         }
@@ -2457,7 +2457,7 @@ mod lfn_write_edge_tests {
         let mut bytes = fresh_fat32_bytes();
         let name = "Mixed-Case Name.dat";
         {
-            let cursor = Cursor::new(&mut bytes[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
             let fs = FatVolume::open(cursor).expect("open");
             fs.create_file(&fs.root_dir(), name).expect("create");
         }
@@ -2498,7 +2498,7 @@ mod lfn_write_edge_tests {
         let mut bytes = fresh_fat32_bytes();
         let name = "Long Mixed Notes.txt"; // forces LFN
         {
-            let cursor = Cursor::new(&mut bytes[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
             let fs = FatVolume::open(cursor).expect("open");
             let _entry = fs.create_file(&fs.root_dir(), name).expect("create");
             // Re-find then delete (FileEntry from create may pre-date the
@@ -2532,13 +2532,13 @@ mod lfn_write_edge_tests {
         let mut bytes = fresh_fat32_bytes();
         let name = "Long Mixed Notes.txt";
         {
-            let cursor = Cursor::new(&mut bytes[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
             let fs = FatVolume::open(cursor).expect("open");
             let _ = fs.create_file(&fs.root_dir(), name).expect("create");
             let entry = fs.root_dir().find(name).expect("find").expect("entry");
             fs.delete(&entry).expect("delete");
         }
-        let cursor = Cursor::new(&bytes[..]);
+        let cursor = hadris_io::StdIo::new(Cursor::new(&bytes[..]));
         let fs = FatVolume::open(cursor).expect("re-open");
         assert!(
             fs.root_dir().find(name).expect("find").is_none(),
@@ -2579,8 +2579,8 @@ mod fs_metadata_tests {
 
     #[test]
     fn read_root_label_returns_none_when_no_label_entry() {
-        let bytes = create_fat32_image().into_inner();
-        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
+        let bytes = create_fat32_image().into_inner().into_inner();
+        let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(bytes))).expect("open");
         assert!(
             fs.read_root_label().expect("read_root_label ok").is_none(),
             "default fixture has no root label entry"
@@ -2591,7 +2591,7 @@ mod fs_metadata_tests {
     fn set_root_label_then_read_root_label_round_trips() {
         // Plant a volume-label entry at the start of the root directory:
         // 11-byte name + attributes = VOLUME_ID (0x08) + 20 zero bytes.
-        let mut bytes = create_fat32_image().into_inner();
+        let mut bytes = create_fat32_image().into_inner().into_inner();
         let dir = data_start_bytes();
         bytes[dir..dir + 11].copy_from_slice(b"OLD_LABEL  ");
         bytes[dir + 11] = 0x08; // VOLUME_ID
@@ -2600,14 +2600,14 @@ mod fs_metadata_tests {
         // round-tripped through both `read_root_label` and the byte-level
         // representation (so we know the write hit the disk).
         {
-            let cursor = Cursor::new(&mut bytes[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
             let fs = FatVolume::open(cursor).expect("open");
             fs.set_root_label(b"NEW_LABEL  ").expect("set_root_label");
         }
         // The label-name bytes were written verbatim.
         assert_eq!(&bytes[dir..dir + 11], b"NEW_LABEL  ");
         // And the label entry is found again after re-mount.
-        let fs = FatVolume::open(Cursor::new(&bytes[..])).expect("re-open");
+        let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(&bytes[..]))).expect("re-open");
         assert_eq!(
             fs.read_root_label().expect("read_root_label").unwrap(),
             *b"NEW_LABEL  "
@@ -2618,10 +2618,10 @@ mod fs_metadata_tests {
     fn read_status_flags_dirty_bit_surfaces_when_cleared() {
         // Default FAT[1] is 0x0FFFFFFF (both status bits set = clean).
         // Clearing bit 27 plants "dirty".
-        let mut bytes = create_fat32_image().into_inner();
+        let mut bytes = create_fat32_image().into_inner().into_inner();
         patch_fat1_both_copies(&mut bytes, 0x0FFFFFFFu32 & !0x0800_0000);
 
-        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
+        let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(bytes))).expect("open");
         let flags = fs.read_status_flags().expect("read_status_flags");
         assert!(
             flags.dirty,
@@ -2632,10 +2632,10 @@ mod fs_metadata_tests {
 
     #[test]
     fn read_status_flags_io_errors_bit_surfaces_when_cleared() {
-        let mut bytes = create_fat32_image().into_inner();
+        let mut bytes = create_fat32_image().into_inner().into_inner();
         patch_fat1_both_copies(&mut bytes, 0x0FFFFFFFu32 & !0x0400_0000);
 
-        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
+        let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(bytes))).expect("open");
         let flags = fs.read_status_flags().expect("read_status_flags");
         assert!(!flags.dirty);
         assert!(
@@ -2646,10 +2646,10 @@ mod fs_metadata_tests {
 
     #[test]
     fn read_status_flags_both_bits_cleared_reports_both() {
-        let mut bytes = create_fat32_image().into_inner();
+        let mut bytes = create_fat32_image().into_inner().into_inner();
         patch_fat1_both_copies(&mut bytes, 0x0FFFFFFFu32 & !0x0C00_0000);
 
-        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
+        let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(bytes))).expect("open");
         let flags = fs.read_status_flags().expect("read_status_flags");
         assert!(flags.dirty && flags.io_errors);
     }
@@ -2663,9 +2663,9 @@ mod fs_metadata_tests {
         // `_` (0x5F) in the 8.3 short name. With CP437 it encodes to 0x82,
         // round-tripping cleanly through DOS/Windows tools that interpret
         // short names in CP437.
-        let mut bytes = create_fat32_image().into_inner();
+        let mut bytes = create_fat32_image().into_inner().into_inner();
         {
-            let cursor = Cursor::new(&mut bytes[..]);
+            let cursor = hadris_io::StdIo::new(Cursor::new(&mut bytes[..]));
             let fs = FatVolume::builder(cursor)
                 .oem_converter(&CP437)
                 .open()
@@ -2723,12 +2723,12 @@ mod iocontext_tests {
         // Build a normal image, then truncate so the boot sector reads
         // cleanly (it's the first 512 bytes) but reading the FSInfo at
         // sector 1 (bytes 512..1024) hits EOF.
-        let bytes = create_fat32_image().into_inner();
+        let bytes = create_fat32_image().into_inner().into_inner();
         // Boot sector + a few more bytes — enough that reading struct fields
         // through the boot-sector path succeeds, but not enough for the
         // FSInfo sector.
         let truncated = &bytes[..512];
-        let cursor = Cursor::new(truncated.to_vec());
+        let cursor = hadris_io::StdIo::new(Cursor::new(truncated.to_vec()));
         let err = FatVolume::open(cursor).expect_err("must fail on missing FSInfo");
         match &err {
             Error::IoContext { op, sector, .. } => {
@@ -2759,8 +2759,8 @@ mod dirty_file_panic_tests {
     #[test]
     #[should_panic]
     fn dropping_writer_without_finish_panics() {
-        let bytes = create_fat32_image().into_inner();
-        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
+        let bytes = create_fat32_image().into_inner().into_inner();
+        let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(bytes))).expect("open");
         let entry = fs.create_file(&fs.root_dir(), "TEST.TXT").expect("create");
         let mut writer = fs.write_file(&entry).expect("writer");
         writer.write(b"oops").expect("write");
@@ -2770,8 +2770,8 @@ mod dirty_file_panic_tests {
     #[test]
     fn calling_finish_does_not_panic() {
         // Sanity: the panic path must NOT fire on the happy path.
-        let bytes = create_fat32_image().into_inner();
-        let fs = FatVolume::open(Cursor::new(bytes)).expect("open");
+        let bytes = create_fat32_image().into_inner().into_inner();
+        let fs = FatVolume::open(hadris_io::StdIo::new(Cursor::new(bytes))).expect("open");
         let entry = fs.create_file(&fs.root_dir(), "OK.TXT").expect("create");
         let mut writer = fs.write_file(&entry).expect("writer");
         writer.write(b"clean exit").expect("write");
@@ -2788,13 +2788,14 @@ mod lfn_cluster_boundary_tests {
     /// FAT32 at 1 sector/cluster (512 B) → 16 directory entries per cluster.
     /// FAT32 needs ≥ 65525 clusters, i.e. ≥ ~33.5 MB of data region, so size
     /// the image at 48 MB. Returns the mounted, ready-to-use filesystem.
-    fn fat32_spc1_fs() -> hadris_fat::FatVolume<Cursor<Vec<u8>>> {
+    fn fat32_spc1_fs() -> hadris_fat::FatVolume<hadris_io::StdIo<Cursor<Vec<u8>>>> {
         let size = 48 * 1024 * 1024;
         let opts = FatFormatOptions::new(size as u64)
             .fat_type(FatTypeSelection::Fat32)
             .sectors_per_cluster(1)
             .volume_label("SPC1");
-        FatVolumeFormatter::format(Cursor::new(vec![0u8; size]), opts).expect("format FAT32 spc=1")
+        FatVolumeFormatter::format(hadris_io::StdIo::new(Cursor::new(vec![0u8; size])), opts)
+            .expect("format FAT32 spc=1")
     }
 
     #[test]
