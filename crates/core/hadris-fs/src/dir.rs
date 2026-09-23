@@ -1,4 +1,4 @@
-use crate::{FileType, NodeId};
+use crate::{FileType, Name, NameBuf, NodeId};
 
 /// A resumable position in a directory listing.
 ///
@@ -62,5 +62,50 @@ impl DirEntry {
     /// Returns the length in bytes of the entry's name.
     pub const fn name_len(&self) -> usize {
         self.name_len
+    }
+}
+
+/// A directory entry together with its name, as yielded by a directory
+/// handle.
+#[derive(Debug, Clone)]
+pub struct DirItem {
+    name: NameBuf,
+    entry: DirEntry,
+}
+
+impl DirItem {
+    /// Pairs an entry with the name its filesystem wrote. `None` if the
+    /// buffer holds no name.
+    pub fn new(name: NameBuf, entry: DirEntry) -> Option<Self> {
+        (!name.is_empty()).then_some(Self { name, entry })
+    }
+
+    /// The entry's name.
+    pub fn name(&self) -> &Name {
+        const UNREACHABLE: &Name = match Name::from_bytes(b"?") {
+            Ok(name) => name,
+            Err(_) => panic!(),
+        };
+        self.name.as_name().unwrap_or(UNREACHABLE)
+    }
+
+    /// The name's bytes.
+    pub fn name_bytes(&self) -> &[u8] {
+        self.name.as_bytes()
+    }
+
+    /// The name as UTF-8, if it is.
+    pub fn name_str(&self) -> Option<&str> {
+        core::str::from_utf8(self.name.as_bytes()).ok()
+    }
+
+    /// Node, type and name length. The node is not pinned.
+    pub fn entry(&self) -> DirEntry {
+        self.entry
+    }
+
+    /// The entry's file type.
+    pub fn file_type(&self) -> FileType {
+        self.entry.file_type()
     }
 }

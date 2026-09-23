@@ -113,6 +113,18 @@ jobs:
           - crate: hadris-fs
             tier: std
             features: "std"
+          - crate: hadris-fs
+            tier: no-std-sync
+            features: "sync"
+          - crate: hadris-fs
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-fs
+            tier: embassy
+            features: "embassy-sync"
+          - crate: hadris-fs
+            tier: all-modes
+            features: "alloc,sync,async,async-send"
 
           # hadris-io
           - crate: hadris-io
@@ -124,6 +136,9 @@ jobs:
           - crate: hadris-io
             tier: async
             features: "async,alloc"
+          - crate: hadris-io
+            tier: async-send
+            features: "async-send"
 
           # hadris-common
           - crate: hadris-common
@@ -149,6 +164,9 @@ jobs:
           - crate: hadris-storage
             tier: sync-and-async
             features: "alloc,sync,async"
+          - crate: hadris-storage
+            tier: async-send
+            features: "alloc,async-send"
 
           # hadris-part
           - crate: hadris-part

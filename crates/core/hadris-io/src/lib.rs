@@ -258,7 +258,7 @@ pub mod r#async;
 /// Asynchronous I/O traits whose futures are `Send`, for generic code on
 /// multi-threaded executors.
 ///
-/// Generated from the same source as [`r#async`]. Every trait has `Send` as a
+/// Generated from the same source as `r#async`. Every trait has `Send` as a
 /// supertrait, so `R: Read` alone proves that `R`'s futures are `Send`.
 /// Implementations are written with `async fn` exactly as in `r#async`.
 /// `FromEmbedded` has no impls here: `embedded-io-async` futures are not

@@ -32,7 +32,7 @@ mod view;
 pub mod r#async;
 #[cfg(feature = "async-send")]
 /// Asynchronous adapters whose futures are `Send`, generated from the same
-/// source as [`r#async`]. `BlockDevice` has `Send` as a supertrait here, so
+/// source as `r#async`. `BlockDevice` has `Send` as a supertrait here, so
 /// `D: BlockDevice` alone proves a device's futures `Send`.
 pub mod async_send;
 #[cfg(feature = "sync")]

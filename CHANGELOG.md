@@ -23,6 +23,15 @@ Each published package owns its version and may be released independently.
   into `std::io::Error`, returning an `io::Error` device error as itself.
   `AnyError` (`alloc`) erases the device type for code that mixes devices.
   `FsResult<T, E>` names the result.
+  With the `sync`, `async` and `async-send` features, the driver layer, one
+  source generated per mode: `FsDriver` (`&mut self`, for format crates) and
+  `FileSystem` (`&self`), `impl_fs_driver!` to implement `FsDriver` from
+  inherent methods, `Volume<F, K>` with `StdMutex`, `Spin`, `Local`,
+  `AsyncMutex` and (with `embassy-sync`) an async `Local` lock, the
+  `Lexical` and `Posix<N>` resolvers and `WithResolver`, the `DriverExt` and
+  `PathExt` path helpers, `OpenFile`, and `File<A>`/`Dir<A>` handles over
+  `Access` (`&mut D`, `&F`, `Arc`, `Rc`, `Volume`). `DirItem` pairs an entry
+  with its name, and `ErrorKind::Symlink` reports `ELOOP`.
 
 ### Changed
 

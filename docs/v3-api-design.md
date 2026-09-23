@@ -464,7 +464,7 @@ pub trait FileSystem { /* the same methods on &self */ }   // shared users; Volu
 impl<F: FileSystem + ?Sized> FsDriver for &F { .. }         // so the path layer is written once
 ```
 
-- A format crate writes each method once, as an inherent method on its driver, and `impl_fs_driver!` generates the `FsDriver` impl from them. Raw users call the inherent methods with no trait import. A `read_only` form of the macro leaves the write methods at their defaults. Optional methods that are not writes (`parent`, `read_link`) are forwarded only when named, `impl_fs_driver!(impl[D: BlockDevice] IsoFs<D>, error = D::Error, read_only; also = [parent, read_link])`, so a driver never forwards a method it does not have. The exported macro uses `$crate::` paths.
+- A format crate writes each method once, as an inherent method on its driver, and `impl_fs_driver!` generates the `FsDriver` impl from them. Raw users call the inherent methods with no trait import. A `read_only` form of the macro leaves the write methods at their defaults. Optional methods that are not writes (`parent`, `read_link`) are forwarded only when named, `impl_fs_driver!(sync, impl[D: BlockDevice] IsoFs<D>, error = D::Error, read_only; also = [parent, read_link])`. The first argument is the mode (`sync`, `async`, `async_send`), which a format crate's per-mode module passes, so a driver never forwards a method it does not have. The exported macro uses `$crate::` paths.
 - `FileSystem` is what shared code programs against. `Volume` (4.4) implements it for every driver, and a format that wants finer locking can implement it directly. Because `&F` is a driver whenever `F` is a `FileSystem`, every helper below is written once over `FsDriver` and serves both.
 - `node_metadata` and `read_dir_entry` carry the `node_`/`_entry` in their names so they never clash with the path helpers `metadata(path)` and `read_dir(path)`; both traits can be in scope at once.
 - `lookup` pins the node it returns. `forget` unpins it. This is the FUSE `lookup`/`forget` contract. ISO, UDF and NTFS have naturally stable IDs, so `forget` does nothing for them. Without a node table, a directory's id is the location of its own `.` record, not of the record in its parent: `parent` is then one read, and a relocated or symlinked directory has one id (the ISO driver in experiment E3). Hard links keep one id per name there. Rejecting a forged id with `InvalidHandle` is best effort for such formats: the driver checks what it can (ISO compares the both-endian fields), and a forged id that still decodes reads garbage but is never undefined behaviour.
@@ -560,7 +560,7 @@ instead makes `vol.root()` ambiguous, since both traits have it, hence
 - `OpenOptions { read, write, append, truncate, create, create_new }` makes overwrite semantics explicit (#90, #91). Opening for writing fails with `ReadOnly` at open time when `capabilities().writable()` is false, before any truncation, instead of at the first write.
 - Opening a symlink node as a file (possible with `Lexical`, which never follows links) fails with `ErrorKind::Symlink`, as POSIX `O_NOFOLLOW` fails with `ELOOP`.
 - `close()` returns `Result`. `Drop` does a best-effort `forget`, never flushes and never panics. `#[must_use]` on handles. `OpenFile` is plain data and does not forget on drop; its owner calls `close`.
-- Helpers on both `DriverExt` and `PathExt`: `exists`, `metadata`, `open`, `read_dir`, `read_to_vec`, `write_file`, `create_dir_all`, `remove_dir_all`, `rename`. Free functions: `copy_tree` (between any two filesystems), and with `std`, `extract_to_host` and `import_from_host`. The host helpers reject absolute names and `..` components so archives and images cannot escape the target directory.
+- Helpers on both `DriverExt` and `PathExt`: `exists`, `metadata`, `open`, `read_dir`, `read_to_vec`, `write_file`, `create_dir_all`, `remove_file`, `remove_dir`, `remove_dir_all`, `rename_path`. `rename_path` is not `rename` because the node method of that name is on the driver traits and both can be in scope. `remove_dir_all` needs no allocation and fails with `LimitExceeded` below 64 levels. Free functions: `copy_tree` (between any two filesystems), and with `std`, `extract_to_host` and `import_from_host`. The host helpers reject absolute names and `..` components so archives and images cannot escape the target directory.
 
 The conformance suite's FAT adapter becomes one generic impl over
 `FileSystem`. The rust-fatfs and mtools peers can keep their own adapters,
@@ -863,8 +863,8 @@ reads a file is 6.0 KB of `.text` (`opt-level = "s"`, LTO), `Volume::local`
 adds 1.9 KB, `Posix<256>` another 0.8 KB, and async raw is 8.7 KB. 64-bit
 division (0.9 KB) and `memcpy` (1 KB) are fixed costs; FAT should shift by the
 cluster size instead of dividing. The binaries were linked and measured, not
-run on hardware. Dropping a `Volume` must apply its queued forgets, or a
-`Volume::local(&mut fs)` leaks pins into `fs`; the prototype discarded them.
+run on hardware. Dropping a `Volume` applies its queued forgets, so a `Volume::local(&mut fs)`
+leaks no pins into `fs`; the prototype discarded them.
 
 Not yet verified: embedded-io behind a feature, error context inside
 `Error<E>`, the async `FromEmbedded` adapter, and a tokio file device. The prototype sizes a `std::fs::File` device from
@@ -1088,7 +1088,7 @@ await is I/O on it), so 2.x documents async volumes as single-task.
 1. **CI guardrails.** semver-checks against the branch point, the `non_exhaustive` lint, the all-features vs no-features API subset check, the sync/async parity check. Report-only at first.
 2. **`hadris-io`.** embedded-io base, `StdIo`, `&mut T`, `ByteSource`, moved onto `strip_async!`. Done on `feat/v3-api`, first with an erased error, then reworked to `ErrorType` (4.1). The erased V2 traits live in `hadris_io::legacy`, which every format crate uses until its own port step; the last port deletes the module. `embedded-io` stays a required dependency until then, because `legacy` and the re-exported `SeekFrom` use it; the `embedded-io` feature and a Hadris `SeekFrom` land with that deletion.
 3. **`hadris-storage`.** `BlockDevice` in both modes from one source, `WriteError`, `std::fs::File`, `StreamDevice`, `MemDevice`, `Slice`, `Cache`, `ByteView`. Done on `feat/v3-api`.
-4. **`hadris-fs`.** Steps 2 and 3 are reworked to associated errors (done). Vocabulary, `ErrorKind`, `Error<E>`, `AnyError`, `DateTime`/`Clock`, `FsDriver`/`FileSystem`, `impl_fs_driver!`, `Volume`/`LockKind`, resolvers, handles and path helpers, `FuseOnError`. Port the prototype's scenarios S1 to S16 as tests. Merge `hadris-path`. Slim `hadris-common` and merge `hadris-fixed` into it. Delete `hadris-archive`.
+4. **`hadris-fs`.** Done: vocabulary, `ErrorKind`, `Error<E>`, `AnyError`, `DateTime`/`Clock`, steps 2 and 3 reworked to associated errors, the three modes (`sync`, `async`, `async_send`), `FsDriver`/`FileSystem`, `impl_fs_driver!`, `Volume`/`LockKind`, resolvers, helpers and handles, tested against an in-memory driver (the FS-generic parts of S1 to S16; the FAT-specific ones move to step 5). `hadris-path`, `hadris-fixed` and `hadris-archive` are merged or removed. Left: `copy_tree`, the std host helpers and `FuseOnError`.
 5. **`hadris-fat` as the reference implementation.** `BlockDevice` input, node table, `FsDriver` through inherent methods, `parent`, `FormatOptions`, `check`, clock and code page generics. Port the conformance adapter to the generic `FileSystem` adapter in the same PR. This step tests the trait design, and the trait can still change here.
 6. **Freeze the traits.** Review `hadris-fs` against FAT, the conformance adapter and a prototype FUSE adapter before any other format ports.
 7. **Errors and the R1/R2/R4/R5 pass, crate by crate.**
@@ -1128,8 +1128,8 @@ imply that its future is `Send`"). E2 tried every option:
 | Spawn concrete types only | Works after the `Access` fix (4.3); a generic function that calls `spawn` cannot compile |
 | **A third mode, `async_send`** | Works. The same source is generated a third time by a `send_async!` macro that turns each trait `async fn` into `fn -> impl Future + Send` and adds `Send`/`Sync` supertraits. Users write `F: FileSystem + 'static` with no `Send` bounds; format crates write nothing |
 
-Proposal: the third mode, named `r#async::send` or similar, behind an
-additive feature. Costs: the code compiles a third time, `send_async!` is
+The mode is `async_send` in each crate, behind an additive `async-send`
+feature. Costs: the code compiles a third time, `send_async!` is
 about 240 lines in `hadris-macros`, the mode needs its own lock trait
 (`LockKind::Lock<T: Send>`, an opaque guard) and a `MaybeSend` marker
 (`Volume<F: MaybeSend, K>`), `Rc` impls are left out of it, and R11 parity
