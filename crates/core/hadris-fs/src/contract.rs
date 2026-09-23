@@ -15,7 +15,11 @@ impl ContractViolation {
     /// Creates a violation of `rule` in `case`. `found` is the error the
     /// driver returned, or `None` when it succeeded where it should not have
     /// or returned a wrong value.
-    pub const fn new(case: &'static str, rule: &'static str, found: Option<ErrorKind>) -> Self {
+    pub(crate) const fn new(
+        case: &'static str,
+        rule: &'static str,
+        found: Option<ErrorKind>,
+    ) -> Self {
         Self { case, rule, found }
     }
 
