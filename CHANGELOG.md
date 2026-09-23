@@ -53,8 +53,7 @@ Each published package owns its version and may be released independently.
   `lookup` (case-insensitive, by long or short name), `read_dir_entry` with
   resumable cursors, `read_at`, `node_metadata` (times and attributes),
   `parent`, `stats` and `forget`; the write methods return
-  `ErrorKind::ReadOnly`. `open`, `open_read_only`, `open_with_table` and
-  `open_read_only_with_table` mount a volume, `into_inner` returns the
+  `ErrorKind::ReadOnly`. `open` mounts a volume, `into_inner` returns the
   device, and `kind` returns the new `FatKind`. Node ids come from the
   location of the directory entry, and `lookup` and `parent` pin them in the
   node table `T`; a full table gives `ErrorKind::LimitExceeded`. Long names
@@ -82,9 +81,21 @@ Each published package owns its version and may be released independently.
   volume read-only, as `capabilities` and `is_read_only` then report.
   Writes are ordered so an interrupted operation or a dropped `async`
   future leaves an `fsck`-repairable volume.
+- **hadris-fat (V3):** Clock and code page generics:
+  `FatFs<D, T = FixedTable<64>, C: Clock = NoClock, P: CodePage = Ascii>`.
+  `MountOptions<T, C, P>` (`new`, `with_read_only`, `with_table`,
+  `with_clock`, `with_code_page`) and `FatFs::open_with(dev, options)`
+  choose them; `FatFs::open(dev)` keeps the defaults. `clock()` and
+  `code_page()` return them. The `CodePage` trait maps short-name bytes
+  above `0x7F`; `Ascii` reads them as U+FFFD, and `Cp437` is the IBM PC code
+  page. `NoClock` stamps 1980-01-01, and `SystemClock` (`std`) the current
+  UTC time.
 
 ### Changed
 
+- **hadris-fat:** The `write` feature no longer implies `alloc`. The V2
+  writer, formatter and their error variants need `write` and `alloc`
+  together; `write` alone adds the allocation-free `FatFs` formatter.
 - **hadris-io (V3):** `Read`, `Write` and `Seek` (sync and async) report the
   implementor's own error through the new `ErrorType` supertrait, as in
   `embedded-io`. The error only needs `core::error::Error + Send + Sync +
@@ -160,6 +171,11 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-fat:** Generated short names no longer turn a non-ASCII
+  character whose code point ends in an ASCII byte into that byte (U+0121
+  became `!`, U+012E was dropped as a `.`), ignore code page bytes below
+  `0x80`, and uppercase non-ASCII characters before the code page maps them,
+  so `Cp437OemCpConverter` stores `é` as CP437 `É` (`0x90`).
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
   libarchive/bsdtar and use only recognized relocation container names. Reject
   relocation when a root `rr_moved` directory would be mistaken for the container

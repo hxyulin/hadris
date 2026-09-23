@@ -8,7 +8,7 @@ use std::io::Read as _;
 
 use common::{CASES, Case, Device, INNER, INNER_FILES, KANJI_NAME, LONG_NAME, UNICODE_NAME};
 use hadris_fat::sync::FatFs;
-use hadris_fat::{FatDir, FatKind, FatVolume, FatVolumeReadExt, FileEntry};
+use hadris_fat::{FatDir, FatKind, FatVolume, FatVolumeReadExt, FileEntry, MountOptions};
 use hadris_fs::sync::{DriverExt, File, FsDriver, PathExt, Volume};
 use hadris_fs::{
     Attributes, CaseSensitivity, CivilDate, CivilTime, DateTime, DirCursor, ErrorKind, FileType,
@@ -20,7 +20,11 @@ use hadris_storage::{BlockSize, MemDevice};
 type Fs<T = HeapTable> = FatFs<Device, T>;
 
 fn open(case: Case, image: Vec<u8>) -> Fs {
-    FatFs::open_with_table(common::device(case, image), HeapTable::new()).unwrap()
+    FatFs::open_with(
+        common::device(case, image),
+        MountOptions::new().with_table(HeapTable::new()),
+    )
+    .unwrap()
 }
 
 fn name(text: &str) -> &Name {
@@ -353,8 +357,11 @@ fn stats_count_clusters() {
 fn full_table_limits_pins_without_touching_the_disk() {
     let case = CASES[1];
     let image = common::build(case);
-    let mut fs: Fs<FixedTable<2>> =
-        FatFs::open_with_table(common::device(case, image.clone()), FixedTable::new()).unwrap();
+    let mut fs: Fs<FixedTable<2>> = FatFs::open_with(
+        common::device(case, image.clone()),
+        MountOptions::new().with_table(FixedTable::new()),
+    )
+    .unwrap();
     let root = fs.root();
     let a = fs.lookup(root, name("README.TXT")).unwrap();
     assert_eq!(fs.lookup(root, name("readme.txt")).unwrap(), a);
@@ -476,7 +483,11 @@ fn cursors_resume_and_stay_at_the_end() {
 fn capabilities_and_write_methods_are_read_only() {
     let case = CASES[0];
     let image = common::build(case);
-    let mut fs = FatFs::open_read_only(common::device(case, image.clone())).unwrap();
+    let mut fs = FatFs::open_with(
+        common::device(case, image.clone()),
+        MountOptions::new().with_read_only(true),
+    )
+    .unwrap();
     assert!(fs.is_read_only());
     let caps = FsDriver::capabilities(&fs);
     assert!(!caps.is_writable());

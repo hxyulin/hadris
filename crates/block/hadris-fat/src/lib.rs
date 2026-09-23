@@ -162,12 +162,14 @@ extern crate alloc;
 // Shared types (compiled once, not duplicated by sync/async modules)
 // ---------------------------------------------------------------------------
 
+mod code_page;
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
 mod codec;
 pub mod error;
 /// FAT filename types, including 8.3 and long-file-name helpers.
 pub mod file;
 pub mod oem;
+mod options;
 /// Raw on-disk FAT structures and attribute flags.
 pub mod raw;
 pub mod time;
@@ -341,8 +343,10 @@ pub mod async_send;
 pub use sync::*;
 
 // Re-exports from shared types
+pub use code_page::{Ascii, CodePage, Cp437};
 pub use codec::entry::FatKind;
 pub use error::{Error, Result};
+pub use options::MountOptions;
 
 #[cfg(all(test, feature = "async", feature = "alloc", feature = "read"))]
 #[path = "../tests/async_roundtrip.rs"]

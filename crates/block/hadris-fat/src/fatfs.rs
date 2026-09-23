@@ -9,13 +9,14 @@ use hadris_fs::{
 use hadris_storage::BlockIndex;
 
 use super::storage::BlockDevice;
-use crate::FatKind;
+use crate::code_page::{Ascii, CodePage};
 use crate::codec::boot::{self, BootError, Geometry, RootDir};
 use crate::codec::dirent::{self, ENTRY_SIZE, ShortEntry, Slot};
 use crate::codec::entry::FIRST_DATA_CLUSTER;
 use crate::codec::lfn::{self, Assembler, Encoded};
 use crate::codec::{date, name as names, short_name};
 use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
+use crate::{FatKind, MountOptions};
 
 const ROOT: NodeId = NodeId::new(1);
 /// Ids from here up are handed out when a node's natural id is taken.
@@ -37,19 +38,6 @@ const ATTR_MAPPED: [(u8, Attributes); 4] = [
     (dirent::ATTR_SYSTEM, Attributes::SYSTEM),
     (dirent::ATTR_ARCHIVE, Attributes::ARCHIVE),
 ];
-
-/// Decodes a short-name byte above `0x7F`. The code page becomes a type
-/// parameter of `FatFs` later; until then such bytes read as U+FFFD, as with
-/// the default `LossyAsciiOemCpConverter` of `FatVolume`.
-fn oem_char(_: u8) -> char {
-    char::REPLACEMENT_CHARACTER
-}
-
-/// Encodes a non-ASCII character for a generated short name; `None` becomes
-/// `_`. Replaced by the code page parameter with [`oem_char`].
-fn oem_byte(_: char) -> Option<u8> {
-    None
-}
 
 fn corrupt(_: BootError) -> ErrorKind {
     ErrorKind::Corrupt
@@ -147,7 +135,7 @@ struct NewName {
 }
 
 impl NewName {
-    fn new(text: &str) -> Result<Self, ErrorKind> {
+    fn new(text: &str, code_page: &impl CodePage) -> Result<Self, ErrorKind> {
         if text.encode_utf16().count() > lfn::MAX_UNITS {
             return Err(ErrorKind::LimitExceeded);
         }
@@ -157,13 +145,15 @@ impl NewName {
         let encoded = Encoded::new(text).ok_or(ErrorKind::InvalidInput)?;
         let mut candidates = [[0u8; 11]; 5];
         for (suffix, candidate) in candidates.iter_mut().enumerate() {
-            if let Some(mut name) = short_name::generate(text, suffix as u8, oem_byte) {
+            if let Some(mut name) =
+                short_name::generate(text, suffix as u8, |ch| code_page.encode(ch))
+            {
                 short_name::to_disk(&mut name);
                 *candidate = name;
             }
         }
         let mut shown = [0u8; short_name::DISPLAY_MAX];
-        let len = short_name::display(&candidates[0], 0, oem_char, &mut shown);
+        let len = short_name::display(&candidates[0], 0, |byte| code_page.decode(byte), &mut shown);
         let lossless = candidates[0][0] != 0
             && text.is_ascii()
             && text
@@ -249,12 +239,22 @@ fn metadata(node: &Node, entry: &ShortEntry) -> Metadata {
 
 /// Whether `query` names the entry, by its long name or its short name,
 /// ignoring case.
-fn matches(query: &str, long: Option<&[u16]>, entry: &ShortEntry) -> bool {
+fn matches(
+    query: &str,
+    long: Option<&[u16]>,
+    entry: &ShortEntry,
+    code_page: &impl CodePage,
+) -> bool {
     if long.is_some_and(|units| names::eq_ignore_case(query.chars(), names::utf16_chars(units))) {
         return true;
     }
     let mut short = [0u8; short_name::DISPLAY_MAX];
-    let len = short_name::display(&entry.name, entry.nt_case, oem_char, &mut short);
+    let len = short_name::display(
+        &entry.name,
+        entry.nt_case,
+        |byte| code_page.decode(byte),
+        &mut short,
+    );
     core::str::from_utf8(&short[..len])
         .is_ok_and(|short| names::eq_ignore_case(query.chars(), short.chars()))
 }
@@ -265,6 +265,7 @@ fn write_name(
     out: &mut NameBuf,
     long: Option<&[u16]>,
     entry: &ShortEntry,
+    code_page: &impl CodePage,
 ) -> Result<usize, ErrorKind> {
     if let Some(units) = long
         && out
@@ -274,7 +275,12 @@ fn write_name(
         return Ok(out.len());
     }
     let mut short = [0u8; short_name::DISPLAY_MAX];
-    let len = short_name::display(&entry.name, entry.nt_case, oem_char, &mut short);
+    let len = short_name::display(
+        &entry.name,
+        entry.nt_case,
+        |byte| code_page.decode(byte),
+        &mut short,
+    );
     out.set_bytes(&short[..len]).map_err(|err| match err {
         NameError::TooLong => ErrorKind::LimitExceeded,
         _ => ErrorKind::Corrupt,
@@ -283,12 +289,22 @@ fn write_name(
 }
 
 /// Whether `query` is exactly the entry's name.
-fn is_exact(query: &str, long: Option<&[u16]>, entry: &ShortEntry) -> bool {
+fn is_exact(
+    query: &str,
+    long: Option<&[u16]>,
+    entry: &ShortEntry,
+    code_page: &impl CodePage,
+) -> bool {
     if let Some(units) = long {
         return names::utf16_chars(units).eq(query.chars());
     }
     let mut short = [0u8; short_name::DISPLAY_MAX];
-    let len = short_name::display(&entry.name, entry.nt_case, oem_char, &mut short);
+    let len = short_name::display(
+        &entry.name,
+        entry.nt_case,
+        |byte| code_page.decode(byte),
+        &mut short,
+    );
     short[..len] == *query.as_bytes()
 }
 
@@ -415,18 +431,26 @@ async fn write_bytes<D: BlockDevice>(
 /// call the node methods directly; they have the same names and signatures
 /// as the `FsDriver` methods, which forward to them.
 ///
-/// Nodes are identified by the location of their directory entry. `lookup`,
-/// `create` and `parent` pin the node they return in the node table `T`, and
-/// `forget` unpins it. A pinned node keeps its id across `rename`. A full
-/// table makes `lookup` and `create` fail with
-/// [`ErrorKind::LimitExceeded`] before anything is written; name
-/// `HeapTable` or a larger `FixedTable<N>` for more open nodes. Ids from
-/// `read_dir_entry` are not pinned and stay valid until that directory
-/// changes.
+/// Mount with [`open`](FatFs::open), or with [`open_with`](FatFs::open_with)
+/// and [`MountOptions`] to choose the type parameters:
+///
+/// - `T`, the node table. Nodes are identified by the location of their
+///   directory entry. `lookup`, `create` and `parent` pin the node they
+///   return in the table, and `forget` unpins it. A pinned node keeps its
+///   id across `rename`. A full table makes `lookup` and `create` fail with
+///   [`ErrorKind::LimitExceeded`] before anything is written; name
+///   `HeapTable` or a larger `FixedTable<N>` for more open nodes. Ids from
+///   `read_dir_entry` are not pinned and stay valid until that directory
+///   changes.
+/// - `C`, the [`Clock`] that stamps created and modified entries. The
+///   default [`NoClock`] writes 1980-01-01, so images are reproducible;
+///   `SystemClock` with `std` writes the current UTC time.
+/// - `P`, the [`CodePage`] of short names. The default [`Ascii`] reads
+///   short-name bytes above `0x7F` as U+FFFD and generates `_` for
+///   non-ASCII characters; `Cp437` maps them.
 ///
 /// Long names are always read and written. Names compare
-/// case-insensitively, by the long name or by the short name, and
-/// short-name bytes above `0x7F` read as U+FFFD. A new name that is a valid
+/// case-insensitively, by the long name or by the short name. A new name that is a valid
 /// 8.3 name, in one case per part, is stored as a short entry alone;
 /// others get long-name entries and a generated short name with a `~N`
 /// tail, as Windows and Linux do.
@@ -478,7 +502,7 @@ async fn write_bytes<D: BlockDevice>(
 ///   hint and is written by `sync`.
 ///
 /// Data written by an interrupted `write_at` may be partly on disk.
-pub struct FatFs<D, T: NodeTable = FixedTable<64>> {
+pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePage = Ascii> {
     dev: D,
     geo: Geometry,
     active_fat: u8,
@@ -495,9 +519,11 @@ pub struct FatFs<D, T: NodeTable = FixedTable<64>> {
     /// Where the search for a free cluster starts.
     next_free: u32,
     read_only: bool,
+    clock: C,
+    code_page: P,
 }
 
-impl<D, T: NodeTable> fmt::Debug for FatFs<D, T> {
+impl<D, T: NodeTable, C: Clock, P: CodePage> fmt::Debug for FatFs<D, T, C, P> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FatFs")
             .field("kind", &self.geo.kind)
@@ -510,36 +536,27 @@ impl<D, T: NodeTable> fmt::Debug for FatFs<D, T> {
 }
 
 impl<D: BlockDevice> FatFs<D> {
-    /// Mounts the volume on `dev` with the default node table.
+    /// Mounts the volume on `dev` with the defaults of [`MountOptions::new`]:
+    /// writable, a `FixedTable<64>`, [`NoClock`] and [`Ascii`].
     ///
     /// Fails with [`ErrorKind::Corrupt`] when the boot sector is not a valid
     /// FAT12, FAT16 or FAT32 boot sector or describes a volume larger than
     /// the device, and with [`ErrorKind::Unsupported`] when the device's
     /// blocks are larger than 4096 bytes.
     pub async fn open(dev: D) -> FsResult<Self, D::Error> {
-        Self::open_with_table(dev, FixedTable::new()).await
-    }
-
-    /// Mounts the volume on `dev` for reading only, with the default node
-    /// table. The driver never calls `write_blocks`.
-    pub async fn open_read_only(dev: D) -> FsResult<Self, D::Error> {
-        Self::open_read_only_with_table(dev, FixedTable::new()).await
+        Self::open_with(dev, MountOptions::new()).await
     }
 }
 
-impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
-    /// Mounts the volume on `dev` with a node table of the kind of `table`.
-    pub async fn open_with_table(dev: D, table: T) -> FsResult<Self, D::Error> {
-        Self::mount(dev, &table, false).await
+impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
+    /// Mounts the volume on `dev` with `options`, which set the node table,
+    /// clock and code page types. Fails as [`open`](FatFs::open) does.
+    pub async fn open_with(dev: D, options: MountOptions<T, C, P>) -> FsResult<Self, D::Error> {
+        let MountOptions { read_only, table, clock, code_page } = options;
+        Self::mount(dev, &table, read_only, clock, code_page).await
     }
 
-    /// Mounts the volume on `dev` for reading only, with a node table of the
-    /// kind of `table`.
-    pub async fn open_read_only_with_table(dev: D, table: T) -> FsResult<Self, D::Error> {
-        Self::mount(dev, &table, true).await
-    }
-
-    async fn mount(mut dev: D, table: &T, read_only: bool) -> FsResult<Self, D::Error> {
+    async fn mount(mut dev: D, table: &T, read_only: bool, clock: C, code_page: P) -> FsResult<Self, D::Error> {
         let size = dev.block_size().get() as usize;
         if size > MAX_BLOCK_SIZE {
             return Err(ErrorKind::Unsupported.into());
@@ -611,6 +628,8 @@ impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
             fs_info_dirty: false,
             next_free,
             read_only,
+            clock,
+            code_page,
         })
     }
 
@@ -620,10 +639,20 @@ impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
     }
 
     /// Whether the volume was mounted with
-    /// [`open_read_only`](FatFs::open_read_only), or the device has refused a
-    /// write since.
+    /// [`MountOptions::with_read_only`], or the device has refused a write
+    /// since.
     pub fn is_read_only(&self) -> bool {
         self.read_only
+    }
+
+    /// The clock that stamps new and modified entries.
+    pub fn clock(&self) -> &C {
+        &self.clock
+    }
+
+    /// The code page of short names.
+    pub fn code_page(&self) -> &P {
+        &self.code_page
     }
 
     /// The FAT variant of the volume.
@@ -696,7 +725,7 @@ impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
             return Ok(None);
         };
         let units = long.finish(lfn::checksum(&found.entry.name));
-        let len = write_name(name, units.filter(|units| !units.is_empty()), &found.entry)?;
+        let len = write_name(name, units.filter(|units| !units.is_empty()), &found.entry, &self.code_page)?;
         let file_type = if found.entry.is_dir() { FileType::Dir } else { FileType::File };
         let node = self.pinned_at(found.offset).unwrap_or(NodeId::new(found.offset / ENTRY_SIZE));
         *cursor = DirCursor::from_raw(found.slot as u64 + 1);
@@ -829,7 +858,7 @@ impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
         };
         let start = self.dir_start(dir).await?;
         let text = entry_name(name, ErrorKind::InvalidInput)?;
-        let new = NewName::new(text)?;
+        let new = NewName::new(text, &self.code_page)?;
         let plan = self.plan(start, text, true, &new, None).await?;
         let reserved = NodeId::new(self.next_id);
         let placeholder = Node {
@@ -921,7 +950,7 @@ impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
         let to_start = self.dir_start(to_dir).await?;
         let from_text = entry_name(from, ErrorKind::NotFound)?;
         let to_text = entry_name(to, ErrorKind::InvalidInput)?;
-        let new = NewName::new(to_text)?;
+        let new = NewName::new(to_text, &self.code_page)?;
         let src = self
             .find_entry(from_start, from_text)
             .await?
@@ -1120,7 +1149,7 @@ impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
     }
 
     fn now(&self) -> DateTime {
-        NoClock.now()
+        self.clock.now()
     }
 
     fn writable(&self) -> Result<(), ErrorKind> {
@@ -1306,12 +1335,12 @@ impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
             let units = long.finish(lfn::checksum(&found.entry.name));
             let named = units.is_some();
             let units = units.filter(|units| !units.is_empty());
-            if matches(query, units, &found.entry) {
+            if matches(query, units, &found.entry, &self.code_page) {
                 return Ok(Some(Located {
                     first: if named { found.long_start } else { found.slot },
                     slot: found.slot,
                     offset: found.offset,
-                    exact: is_exact(query, units, &found.entry),
+                    exact: is_exact(query, units, &found.entry, &self.code_page),
                     entry: found.entry,
                 }));
             }
@@ -1385,7 +1414,7 @@ impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
                             .finish(lfn::checksum(&entry.name))
                             .filter(|units| !units.is_empty());
                         if exclude != Some(offset) {
-                            if check_exists && entry.is_visible() && matches(text, units, &entry) {
+                            if check_exists && entry.is_visible() && matches(text, units, &entry, &self.code_page) {
                                 return Err(ErrorKind::AlreadyExists.into());
                             }
                             for (bit, candidate) in new.candidates.iter().enumerate() {
@@ -1448,7 +1477,7 @@ impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
     /// A short name with a hashed `~HHHH` tail that no entry of `dir` has.
     async fn hashed_short(&mut self, dir: DirStart, text: &str, exclude: Option<u64>) -> FsResult<[u8; 11], D::Error> {
         for suffix in 5..=u8::MAX {
-            let Some(mut candidate) = short_name::generate(text, suffix, oem_byte) else {
+            let Some(mut candidate) = short_name::generate(text, suffix, |ch| self.code_page.encode(ch)) else {
                 continue;
             };
             short_name::to_disk(&mut candidate);
@@ -2092,4 +2121,4 @@ impl<D: BlockDevice, T: NodeTable> FatFs<D, T> {
 
 }
 
-impl_fat_driver!(impl[D: BlockDevice, T: NodeTable] FatFs<D, T>, error = D::Error; also = [parent]);
+impl_fat_driver!(impl[D: BlockDevice, T: NodeTable, C: Clock, P: CodePage] FatFs<D, T, C, P>, error = D::Error; also = [parent]);

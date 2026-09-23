@@ -2676,7 +2676,7 @@ mod fs_metadata_tests {
         }
 
         // Walk root slots until the non-LFN short entry. Its name[3] should
-        // be 0x82 (CP437 'É' uppercase), not 0x5F (lossy underscore).
+        // be 0x90 (CP437 'É'), not 0x5F (lossy underscore).
         let mut found = false;
         for i in 0..16 {
             let pos = data_start_bytes() + i * 32;
@@ -2687,16 +2687,12 @@ mod fs_metadata_tests {
             if attr == 0x0F {
                 continue; // LFN
             }
-            // Short entry. The short-name builder uppercases ASCII via
-            // `to_ascii_uppercase` (no-op on non-ASCII), so 'é' (CP437
-            // 0x82) survives in lowercase form. The point of this test is
-            // that the *converter* mapped 'é' to the correct CP437 byte
-            // (0x82) — not the lossy `_` (0x5F) the default converter
-            // would have produced.
+            // Short entry. Non-ASCII characters are uppercased before the
+            // converter maps them, so 'é' is stored as CP437 'É' (0x90).
             let third_byte = bytes[pos + 3];
             assert_eq!(
-                third_byte, 0x82,
-                "with CP437 converter, name[3] should be CP437 'é' (0x82), got {third_byte:#04x}"
+                third_byte, 0x90,
+                "with CP437 converter, name[3] should be CP437 'É' (0x90), got {third_byte:#04x}"
             );
             found = true;
             break;

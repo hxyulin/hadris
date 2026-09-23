@@ -100,6 +100,28 @@ fn async_send_futures_move_to_other_threads() {
 }
 
 #[test]
+fn async_send_mounts_with_options() {
+    use hadris_fat::async_send::FatFs;
+    use hadris_fat::{Cp437, MountOptions};
+    use hadris_fs::async_send::Volume;
+    use hadris_fs::{HeapTable, SystemClock};
+
+    let case = CASES[0];
+    let options = MountOptions::new()
+        .with_table(HeapTable::new())
+        .with_clock(SystemClock)
+        .with_code_page(Cp437);
+    let fs = block_on(FatFs::open_with(
+        common::device(case, common::build(case)),
+        options,
+    ))
+    .unwrap();
+    let vol = Arc::new(Volume::new(fs));
+    let kanji = spawn_read(Arc::clone(&vol), "/\u{3C3}ABC.TXT");
+    assert_eq!(kanji.join().unwrap(), b"kanji");
+}
+
+#[test]
 fn async_mode_writes() {
     use hadris_fat::r#async::FatFs;
     use hadris_fs::r#async::{DriverExt, PathExt, Volume};

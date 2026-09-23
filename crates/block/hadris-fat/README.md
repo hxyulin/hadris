@@ -87,10 +87,38 @@ vol.sync()?;
 # }
 ```
 
-Open nodes live in a node table, `FixedTable<64>` by default. A full table
-makes `lookup` fail with `ErrorKind::LimitExceeded`; use
-`FatFs::open_with_table(dev, HeapTable::new())` or a larger `FixedTable<N>`
-for more.
+`FatFs<D, T, C, P>` takes three type parameters after the device, each
+with a zero-sized or allocation-free default, chosen through `MountOptions`
+and `FatFs::open_with`:
+
+- `T`, the node table of open nodes, `FixedTable<64>` by default. A full
+  table makes `lookup` fail with `ErrorKind::LimitExceeded`; use
+  `HeapTable::new()` or a larger `FixedTable<N>` for more.
+- `C`, the `hadris_fs::Clock` for new and modified entries. `NoClock`, the
+  default, writes 1980-01-01 so images are reproducible; `SystemClock`
+  (`std`) writes the current UTC time.
+- `P`, the `CodePage` of short names. `Ascii`, the default, reads bytes
+  above `0x7F` as U+FFFD; `Cp437` maps them.
+
+```rust,no_run
+use hadris_fat::sync::FatFs;
+use hadris_fat::{Cp437, MountOptions};
+use hadris_fs::{HeapTable, SystemClock};
+use hadris_storage::{BlockSize, MemDevice};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let image = std::fs::read("disk.img")?;
+let options = MountOptions::new()
+    .with_table(HeapTable::new())
+    .with_clock(SystemClock)
+    .with_code_page(Cp437);
+let fs = FatFs::open_with(MemDevice::new(image, BlockSize::new(512).unwrap()), options)?;
+# Ok(())
+# }
+```
+
+`MountOptions::with_read_only(true)` mounts without ever calling
+`write_blocks`.
 
 Writes go to the device at once, except the size and modification time of
 a pinned file, which stay in the node table so every handle sees one size

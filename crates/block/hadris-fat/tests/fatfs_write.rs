@@ -12,28 +12,32 @@ use std::process::Command;
 
 use common::{CASES, Case, Device, KANJI_NAME};
 use hadris_fat::sync::FatFs;
-use hadris_fat::{FatDir, FatVolume, FatVolumeReadExt};
+use hadris_fat::{Ascii, CodePage, Cp437, FatDir, FatVolume, FatVolumeReadExt, MountOptions};
 use hadris_fs::sync::{DriverExt, FileSystem, FsDriver, PathExt, Volume, copy_tree};
 use hadris_fs::{
-    Attributes, CivilDate, CivilTime, DateTime, DirCursor, ErrorKind, FileTimes, FileType,
-    FixedTable, HeapTable, Name, NameBuf, NewNode, NodeId, NodeTable, OpenOptions, RenameFlags,
-    SetMetadata,
+    Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, FileTimes, FileType,
+    FixedTable, HeapTable, Name, NameBuf, NewNode, NoClock, NodeId, NodeTable, OpenOptions,
+    RenameFlags, SetMetadata,
 };
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, OutOfRange, WriteError};
 
-type Fs<T = HeapTable> = FatFs<Device, T>;
+type Fs<T = HeapTable, C = NoClock, P = Ascii> = FatFs<Device, T, C, P>;
 
 fn open(case: Case, image: Vec<u8>) -> Fs {
-    FatFs::open_with_table(common::device(case, image), HeapTable::new()).unwrap()
+    FatFs::open_with(
+        common::device(case, image),
+        MountOptions::new().with_table(HeapTable::new()),
+    )
+    .unwrap()
 }
 
 fn name(text: &str) -> &Name {
     Name::new(text).unwrap()
 }
 
-fn list<D: BlockDevice, T: NodeTable>(
-    fs: &mut FatFs<D, T>,
+fn list<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage>(
+    fs: &mut FatFs<D, T, C, P>,
     dir: NodeId,
 ) -> Vec<(String, FileType)> {
     let mut cursor = DirCursor::start();
@@ -48,7 +52,10 @@ fn list<D: BlockDevice, T: NodeTable>(
     out
 }
 
-fn read_all<D: BlockDevice, T: NodeTable>(fs: &mut FatFs<D, T>, node: NodeId) -> Vec<u8> {
+fn read_all<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage>(
+    fs: &mut FatFs<D, T, C, P>,
+    node: NodeId,
+) -> Vec<u8> {
     let mut out = Vec::new();
     let mut chunk = [0u8; 1000];
     loop {
@@ -60,12 +67,22 @@ fn read_all<D: BlockDevice, T: NodeTable>(fs: &mut FatFs<D, T>, node: NodeId) ->
     }
 }
 
-fn create(fs: &mut Fs<impl NodeTable>, dir: NodeId, text: &str, kind: NewNode<'_>) -> NodeId {
+fn create<T: NodeTable, C: Clock, P: CodePage>(
+    fs: &mut Fs<T, C, P>,
+    dir: NodeId,
+    text: &str,
+    kind: NewNode<'_>,
+) -> NodeId {
     fs.create(dir, name(text), kind, &SetMetadata::new())
         .unwrap()
 }
 
-fn write_all(fs: &mut Fs<impl NodeTable>, node: NodeId, offset: u64, data: &[u8]) {
+fn write_all<T: NodeTable, C: Clock, P: CodePage>(
+    fs: &mut Fs<T, C, P>,
+    node: NodeId,
+    offset: u64,
+    data: &[u8],
+) {
     let mut done = 0;
     for chunk in data.chunks(777) {
         assert_eq!(
@@ -80,7 +97,7 @@ fn free(fs: &mut Fs<impl NodeTable>) -> u64 {
     fs.stats().unwrap().free_blocks()
 }
 
-fn image(fs: Fs<impl NodeTable>) -> Vec<u8> {
+fn image<T: NodeTable, C: Clock, P: CodePage>(fs: Fs<T, C, P>) -> Vec<u8> {
     fs.into_inner().into_inner()
 }
 
@@ -846,8 +863,11 @@ fn no_space_changes_nothing() {
 fn full_table_changes_nothing_on_disk() {
     let case = CASES[1];
     let before = populate(case);
-    let mut fs: Fs<FixedTable<1>> =
-        FatFs::open_with_table(common::device(case, before.clone()), FixedTable::new()).unwrap();
+    let mut fs: Fs<FixedTable<1>> = FatFs::open_with(
+        common::device(case, before.clone()),
+        MountOptions::new().with_table(FixedTable::new()),
+    )
+    .unwrap();
     let root = fs.root();
     let held = fs.lookup(root, name("README.TXT")).unwrap();
     for kind in [NewNode::File, NewNode::Dir] {
@@ -1249,7 +1269,9 @@ fn interrupted_operations_leave_readable_volumes() {
                 budget: Some(budget),
                 refuse: false,
             };
-            let mut fs = FatFs::open_with_table(dev, HeapTable::<()>::new()).unwrap();
+            let mut fs =
+                FatFs::open_with(dev, MountOptions::new().with_table(HeapTable::<()>::new()))
+                    .unwrap();
             let root = fs.root();
             let result = match op {
                 0 => fs
@@ -1528,4 +1550,119 @@ fn check_model(
 fn host_fsck_runs_when_installed() {
     let ran = fsck(&populate(CASES[2]), "populate");
     eprintln!("{ran} host fsck tools checked the image");
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FixedClock(DateTime);
+
+impl Clock for FixedClock {
+    fn now(&self) -> DateTime {
+        self.0
+    }
+}
+
+#[test]
+fn clock_stamps_new_and_modified_entries() {
+    let case = CASES[0];
+    let midnight = |time: DateTime| {
+        let (date, _) = time.to_civil();
+        DateTime::from_civil(date, CivilTime::new(0, 0, 0).unwrap(), None).unwrap()
+    };
+
+    let mut fs = open(case, common::blank(case));
+    let root = fs.root();
+    let file = create(&mut fs, root, "default.txt", NewNode::File);
+    let times = fs.node_metadata(file).unwrap().times();
+    assert_eq!(times.created(), Some(NoClock::TIME));
+    assert_eq!(times.modified(), Some(NoClock::TIME));
+
+    let created = fat_time(2031, 7, 4, 12, 30, 44);
+    let written = fat_time(2032, 1, 2, 3, 4, 6);
+    let options = MountOptions::new()
+        .with_table(HeapTable::new())
+        .with_clock(FixedClock(created));
+    let mut fs = FatFs::open_with(common::device(case, image(fs)), options).unwrap();
+    assert_eq!(fs.clock().now(), created);
+    let root = fs.root();
+    let file = fs
+        .create(
+            root,
+            name("clocked.txt"),
+            NewNode::File,
+            &SetMetadata::new(),
+        )
+        .unwrap();
+    let times = fs.node_metadata(file).unwrap().times();
+    assert_eq!(times.created(), Some(created));
+    assert_eq!(times.modified(), Some(created));
+    assert_eq!(times.accessed(), Some(midnight(created)));
+    fs.forget(file);
+    fs.sync().unwrap();
+
+    let options = MountOptions::new().with_clock(FixedClock(written));
+    let mut fs = FatFs::open_with(fs.into_inner(), options).unwrap();
+    let root = fs.root();
+    let file = fs.lookup(root, name("clocked.txt")).unwrap();
+    fs.write_at(file, 0, b"tick").unwrap();
+    fs.sync().unwrap();
+    let times = fs.node_metadata(file).unwrap().times();
+    assert_eq!(times.created(), Some(created));
+    assert_eq!(times.modified(), Some(written));
+    assert_eq!(times.accessed(), Some(midnight(written)));
+}
+
+#[test]
+fn code_page_reads_and_generates_short_names() {
+    let case = CASES[0];
+    let built = common::build(case);
+    let cp437 = MountOptions::new()
+        .with_table(HeapTable::new())
+        .with_code_page(Cp437);
+    let mut fs = FatFs::open_with(common::device(case, built.clone()), cp437).unwrap();
+    let root = fs.root();
+    let names: Vec<String> = list(&mut fs, root).into_iter().map(|(n, _)| n).collect();
+    assert!(names.iter().any(|n| n == "\u{3C3}ABC.TXT"), "{names:?}");
+    assert_eq!(
+        fs.lookup(root, name(KANJI_NAME)).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    let kanji = fs.lookup(root, name("\u{3C3}abc.txt")).unwrap();
+    assert_eq!(read_all(&mut fs, kanji), b"kanji");
+    fs.forget(kanji);
+
+    let cafe = create(&mut fs, root, "caf\u{E9}.txt", NewNode::File);
+    write_all(&mut fs, cafe, 0, b"cp437");
+    fs.forget(cafe);
+    fs.sync().unwrap();
+    assert!(
+        list(&mut fs, root)
+            .iter()
+            .any(|(n, _)| n == "caf\u{E9}.txt")
+    );
+    let cafe = fs.lookup(root, name("CAF\u{C9}.TXT")).unwrap();
+    assert_eq!(read_all(&mut fs, cafe), b"cp437");
+    fs.forget(cafe);
+    let short = fs.lookup(root, name("caf\u{E9}~1.txt")).unwrap();
+    assert_eq!(short, cafe);
+    fs.forget(short);
+    let cp437_image = image(fs);
+    assert!(
+        cp437_image
+            .chunks_exact(32)
+            .any(|entry| &entry[..11] == b"CAF\x90~1  TXT")
+    );
+    let v2 = common::open_v2(&cp437_image);
+    assert_eq!(v2_read(&v2, &v2.root_dir(), "caf\u{E9}.txt"), b"cp437");
+
+    let mut fs = open(case, built);
+    let root = fs.root();
+    let cafe = create(&mut fs, root, "caf\u{E9}.txt", NewNode::File);
+    fs.forget(cafe);
+    fs.sync().unwrap();
+    assert!(
+        image(fs)
+            .chunks_exact(32)
+            .any(|entry| &entry[..11] == b"CAF_~1  TXT")
+    );
+    fsck(&cp437_image, "cp437 short names");
 }

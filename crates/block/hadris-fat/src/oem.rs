@@ -6,8 +6,12 @@
 //! non-ASCII codepoint becomes `_`. [`Cp437OemCpConverter`] preserves the
 //! Western-European Latin set commonly seen on physical-media images.
 //!
+//! `FatFs` takes a [`CodePage`] type parameter instead.
+//!
 //! Implementations are stateless and `Sync` so they can be installed
 //! per-`FatVolume` instance and used freely from any thread.
+
+use crate::code_page::{CodePage, Cp437};
 
 /// Pluggable OEM code page used to encode/decode short (8.3) filename bytes.
 /// See [`crate::time::TimeProvider`] for why this is `Sync`: `FatVolume` keeps
@@ -74,46 +78,17 @@ impl OemCpConverter for Cp437OemCpConverter {
         if ch.is_ascii() && !ch.is_ascii_control() {
             return Some(ch as u8);
         }
-        // Linear search of the 128-entry high half. CP437 has no consistent
-        // numerical ordering vs. Unicode, so a table-scan is the simplest
-        // correct encode. (Encoding from a long name happens at most a
-        // handful of times per file create — not a hot path.)
-        CP437_HIGH
-            .iter()
-            .position(|&c| c == ch)
-            .map(|i| 0x80u8 + i as u8)
+        CodePage::encode(&Cp437, ch)
     }
 
     fn decode(&self, byte: u8) -> char {
         if byte < 0x80 {
             byte as char
         } else {
-            CP437_HIGH[(byte - 0x80) as usize]
+            CodePage::decode(&Cp437, byte)
         }
     }
 }
-
-/// CP437 mapping for bytes 0x80..=0xFF.
-///
-/// Source: <https://en.wikipedia.org/wiki/Code_page_437>.
-const CP437_HIGH: [char; 128] = [
-    // 0x80..0x8F
-    'Ç', 'ü', 'é', 'â', 'ä', 'à', 'å', 'ç', 'ê', 'ë', 'è', 'ï', 'î', 'ì', 'Ä', 'Å',
-    // 0x90..0x9F
-    'É', 'æ', 'Æ', 'ô', 'ö', 'ò', 'û', 'ù', 'ÿ', 'Ö', 'Ü', '¢', '£', '¥', '₧', 'ƒ',
-    // 0xA0..0xAF
-    'á', 'í', 'ó', 'ú', 'ñ', 'Ñ', 'ª', 'º', '¿', '⌐', '¬', '½', '¼', '¡', '«', '»',
-    // 0xB0..0xBF
-    '░', '▒', '▓', '│', '┤', '╡', '╢', '╖', '╕', '╣', '║', '╗', '╝', '╜', '╛', '┐',
-    // 0xC0..0xCF
-    '└', '┴', '┬', '├', '─', '┼', '╞', '╟', '╚', '╔', '╩', '╦', '╠', '═', '╬', '╧',
-    // 0xD0..0xDF
-    '╨', '╤', '╥', '╙', '╘', '╒', '╓', '╫', '╪', '┘', '┌', '█', '▄', '▌', '▐', '▀',
-    // 0xE0..0xEF
-    'α', 'ß', 'Γ', 'π', 'Σ', 'σ', 'µ', 'τ', 'Φ', 'Θ', 'Ω', 'δ', '∞', 'φ', 'ε', '∩',
-    // 0xF0..0xFF
-    '≡', '±', '≥', '≤', '⌠', '⌡', '÷', '≈', '°', '∙', '·', '√', 'ⁿ', '²', '■', '\u{00A0}',
-];
 
 #[cfg(test)]
 mod tests {

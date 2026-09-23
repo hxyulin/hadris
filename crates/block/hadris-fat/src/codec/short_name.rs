@@ -85,16 +85,23 @@ pub(crate) fn is_valid_long_name(name: &str) -> bool {
 }
 
 fn process_char(ch: char, encode: &impl Fn(char) -> Option<u8>) -> u8 {
-    if ch.is_ascii_alphanumeric() {
-        ch.to_ascii_uppercase() as u8
-    } else if ALLOWED_SYMBOLS.contains(&(ch as u8)) {
-        ch as u8
-    } else if ch == ' ' || ch == '.' {
+    if !ch.is_ascii() {
+        let mut upper = ch.to_uppercase();
+        let ch = match (upper.next(), upper.next()) {
+            (Some(upper), None) => upper,
+            _ => ch,
+        };
+        return encode(ch).filter(|&byte| byte >= 0x80).unwrap_or(b'_');
+    }
+    let byte = ch as u8;
+    if byte.is_ascii_alphanumeric() {
+        byte.to_ascii_uppercase()
+    } else if ALLOWED_SYMBOLS.contains(&byte) {
+        byte
+    } else if byte == b' ' || byte == b'.' {
         0
-    } else if ch.is_ascii() {
-        b'_'
     } else {
-        encode(ch).unwrap_or(b'_')
+        b'_'
     }
 }
 
@@ -108,8 +115,9 @@ fn hash(name: &str, suffix: u8) -> u16 {
 
 /// Generates the 11-byte short name for `name` with numeric tail `suffix`
 /// (0 for none, `~1` to `~4` for 1 to 4, a hashed `~HHHH` above that).
-/// Non-ASCII characters go through `encode`, the OEM code page, and become
-/// `_` when it has no byte for them. `None` when nothing representable
+/// Non-ASCII characters are uppercased where that gives one character and
+/// go through `encode`, the OEM code page, and become
+/// `_` when it has no byte above `0x7F` for them. `None` when nothing representable
 /// remains.
 pub(crate) fn generate(
     name: &str,
@@ -262,10 +270,19 @@ mod tests {
     #[test]
     fn non_ascii_goes_through_code_page() {
         assert_eq!(
-            generate("caf\u{e9}", 0, |c| (c == '\u{e9}').then_some(0x82)),
-            Some(*b"CAF\x82       ")
+            generate("caf\u{e9}", 0, |c| (c == '\u{c9}').then_some(0x90)),
+            Some(*b"CAF\x90       ")
         );
         assert_eq!(ascii("caf\u{e9}", 0), Some(*b"CAF_       "));
+    }
+
+    #[test]
+    fn non_ascii_never_truncates_to_ascii() {
+        assert_eq!(ascii("\u{121}a\u{12E}b", 0), Some(*b"_A_B       "));
+        assert_eq!(
+            generate("x\u{e9}", 0, |_| Some(b'*')),
+            Some(*b"X_         ")
+        );
     }
 
     #[test]
