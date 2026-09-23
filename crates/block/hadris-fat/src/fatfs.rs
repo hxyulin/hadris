@@ -66,6 +66,12 @@ struct Node {
     /// The directory entry lacks the size and modification time. A dirty
     /// node holds one pin of the driver's own until it is written.
     dirty: bool,
+    /// Opens not yet closed; `remove` and a replacing `rename` refuse the
+    /// node while there are any.
+    opens: u32,
+    /// The node was removed while pinned. Its entry is gone and every
+    /// method but `forget` and `close_node` answers `NotFound`.
+    unlinked: bool,
 }
 
 impl Node {
@@ -77,6 +83,8 @@ impl Node {
             dir: short.is_dir(),
             hint: (0, 0),
             dirty: false,
+            opens: 0,
+            unlinked: false,
         }
     }
 }
@@ -963,11 +971,43 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// Unpins a node. Unknown ids and the root are ignored. A node whose
-    /// size is not yet written stays in the table until `sync_node` or
-    /// `sync`.
+    /// size is not yet written stays in the table until `sync_node`,
+    /// `publish_node` or `sync`; a removed node leaves the table with its
+    /// last pin.
     pub fn forget(&mut self, node: NodeId) {
-        if node != ROOT && self.user_pins(node) > 0 {
-            self.nodes.unpin(node);
+        if node == ROOT || self.user_pins(node) == 0 {
+            return;
+        }
+        if self.nodes.unpin(node) == Some(0)
+            && self.nodes.get(node).is_some_and(|n| n.unlinked)
+        {
+            self.nodes.remove(node);
+        }
+    }
+
+    /// Marks a pinned node as open: until the matching
+    /// [`close_node`](Self::close_node), `remove` and a replacing `rename`
+    /// of it fail with [`ErrorKind::Busy`]. Fails with
+    /// [`ErrorKind::InvalidHandle`] for an id that is not pinned, and with
+    /// [`ErrorKind::NotFound`] for a removed node.
+    pub async fn open_node(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        if node == ROOT {
+            return Ok(());
+        }
+        match self.nodes.get_mut(node) {
+            Some(state) if state.unlinked => Err(ErrorKind::NotFound.into()),
+            Some(state) => {
+                state.opens = state.opens.saturating_add(1);
+                Ok(())
+            }
+            None => Err(ErrorKind::InvalidHandle.into()),
+        }
+    }
+
+    /// Ends one [`open_node`](Self::open_node). Unknown ids are ignored.
+    pub fn close_node(&mut self, node: NodeId) {
+        if let Some(state) = self.nodes.get_mut(node) {
+            state.opens = state.opens.saturating_sub(1);
         }
     }
 
@@ -1008,6 +1048,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             dir: is_dir,
             hint: (0, 0),
             dirty: false,
+            opens: 0,
+            unlinked: false,
         };
         self.nodes
             .insert(reserved, placeholder)
@@ -1037,8 +1079,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     ///
     /// Fails with [`ErrorKind::IsADirectory`] or
     /// [`ErrorKind::NotADirectory`] when the entry is not of `kind`, with
-    /// [`ErrorKind::Busy`] while the node is pinned, and with
+    /// [`ErrorKind::Busy`] while the node is open, and with
     /// [`ErrorKind::DirectoryNotEmpty`] for a directory with entries.
+    ///
+    /// A node that is pinned but not open is removed; its id then answers
+    /// [`ErrorKind::NotFound`] until its last `forget`.
     pub async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), D::Error> {
         self.writable()?;
         let start = self.dir_start(dir).await?;
@@ -1047,7 +1092,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let file_type = if found.entry.is_dir() { FileType::Dir } else { FileType::File };
         kind.check(file_type)?;
         let pinned = self.pinned_at(found.offset);
-        if pinned.is_some_and(|id| self.user_pins(id) > 0) {
+        if pinned.is_some_and(|id| self.is_open(id)) {
             return Err(ErrorKind::Busy.into());
         }
         let first = match pinned.and_then(|id| self.nodes.get(id)) {
@@ -1059,7 +1104,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         }
         self.write(found.offset, &[dirent::FREE]).await?;
         if let Some(id) = pinned {
-            self.nodes.remove(id);
+            self.unlink(id);
         }
         self.clear_slots(start, found.first, found.slot).await?;
         if first != 0 {
@@ -1331,6 +1376,25 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.nodes.pins(id).saturating_sub(dirty as u32)
     }
 
+    fn is_open(&self, id: NodeId) -> bool {
+        self.nodes.get(id).is_some_and(|node| node.opens > 0)
+    }
+
+    /// Drops the table state of a node whose entry was just removed. A node
+    /// callers still pin stays, marked unlinked, so its id answers
+    /// `NotFound` until the last `forget`.
+    fn unlink(&mut self, id: NodeId) {
+        self.clean(id);
+        if self.nodes.pins(id) == 0 {
+            self.nodes.remove(id);
+        } else if let Some(node) = self.nodes.get_mut(id) {
+            node.unlinked = true;
+            node.entry = u64::MAX;
+            node.first = 0;
+            node.size = 0;
+        }
+    }
+
     fn mark_dirty(&mut self, id: NodeId) {
         let fresh = match self.nodes.get_mut(id) {
             Some(node) if !node.dirty => {
@@ -1474,6 +1538,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// The table id and state of a node that is not the root.
     async fn any_node(&mut self, id: NodeId) -> FsResult<(Option<NodeId>, Node), D::Error> {
         if let Some(node) = self.nodes.get(id) {
+            if node.unlinked {
+                return Err(ErrorKind::NotFound.into());
+            }
             return Ok((Some(id), *node));
         }
         let (offset, entry) = self.unpinned(id).await?;
@@ -1798,6 +1865,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 dir: is_dir,
                 hint: (0, 0),
                 dirty: false,
+                opens: 0,
+                unlinked: false,
             }),
             Err(err) => {
                 if first != 0 {
@@ -1883,7 +1952,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         src_id: Option<NodeId>,
     ) -> FsResult<(), D::Error> {
         let target_id = self.pinned_at(target.offset);
-        if target_id.is_some_and(|id| self.user_pins(id) > 0) {
+        if target_id.is_some_and(|id| self.is_open(id)) {
             return Err(ErrorKind::Busy.into());
         }
         match (moved.is_dir(), target.entry.is_dir()) {
@@ -1911,7 +1980,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.move_entry(src, to, new, &plan, moved, dot_dot, src_id, Some(&saved))
             .await?;
         if let Some(id) = target_id {
-            self.nodes.remove(id);
+            self.unlink(id);
         }
         self.clear_slots(from, src.first, src.slot).await?;
         if target_first != 0 {
@@ -2363,4 +2432,4 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
 }
 
-impl_fat_driver!(impl[D: BlockDevice, T: NodeTable, C: Clock, P: CodePage] FatFs<D, T, C, P>, error = D::Error; also = [parent]);
+impl_fat_driver!(impl[D: BlockDevice, T: NodeTable, C: Clock, P: CodePage] FatFs<D, T, C, P>, error = D::Error; also = [parent, open_node, close_node]);

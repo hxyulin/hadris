@@ -15,9 +15,10 @@ io_transform! {
 /// type Disk = Volume<FatFs<std::fs::File>, StdMutex>;
 /// ```
 ///
-/// Handles dropped while another call holds the lock queue their `forget`
-/// for the next lock holder, without allocating. The queue holds 16 distinct
-/// nodes; when it is full, `forget` waits for the lock.
+/// Handles dropped while another call holds the lock queue their
+/// `close_node` and `forget` for the next lock holder, without allocating.
+/// The queue holds 16 distinct nodes; when it is full, the call waits for
+/// the lock.
 pub struct Volume<F: FsDriver, K: LockKind> {
     driver: K::Lock<F>,
     pending: spin::Mutex<ForgetQueue>,
@@ -69,13 +70,37 @@ impl<F: FsDriver, K: LockKind> Volume<F, K> {
         *self.caps.lock() = driver.capabilities();
         let mut pending = self.pending.lock();
         if !pending.is_empty() {
-            pending.drain(|node| driver.forget(node));
+            let driver = core::cell::RefCell::new(driver);
+            pending.drain(
+                |node| driver.borrow_mut().close_node(node),
+                |node| driver.borrow_mut().forget(node),
+            );
         }
     }
 
     fn drain_mut(&mut self) {
-        let driver = self.driver.get_mut();
-        self.pending.get_mut().drain(|node| driver.forget(node));
+        let driver = core::cell::RefCell::new(self.driver.get_mut());
+        self.pending.get_mut().drain(
+            |node| driver.borrow_mut().close_node(node),
+            |node| driver.borrow_mut().forget(node),
+        );
+    }
+
+    /// Runs `call` on the driver now if the lock is free, else queues it
+    /// with `queue` for the next lock holder, waiting for the lock only when
+    /// the queue is full.
+    fn deferred(&self, node: NodeId, call: impl Fn(&mut F, NodeId), queue: impl Fn(&mut ForgetQueue, NodeId) -> bool) {
+        loop {
+            if let Some(mut driver) = self.driver.try_lock() {
+                self.drain(&mut driver);
+                call(&mut driver, node);
+                return;
+            }
+            if queue(&mut self.pending.lock(), node) {
+                return;
+            }
+            core::hint::spin_loop();
+        }
     }
 }
 
@@ -139,17 +164,17 @@ impl<F: FsDriver, K: LockKind> FileSystem for Volume<F, K> {
     /// lock holder. If the queue is full it waits for the lock, which never
     /// comes if this thread, or a suspended task on it, holds the lock.
     fn forget(&self, node: NodeId) {
-        loop {
-            if let Some(mut driver) = self.driver.try_lock() {
-                self.drain(&mut driver);
-                driver.forget(node);
-                return;
-            }
-            if self.pending.lock().push(node) {
-                return;
-            }
-            core::hint::spin_loop();
-        }
+        self.deferred(node, |driver, node| driver.forget(node), ForgetQueue::push);
+    }
+
+    async fn open_node(&self, node: NodeId) -> FsResult<(), F::DeviceError> {
+        self.lock().await.open_node(node).await
+    }
+
+    /// Closes now if the lock is free, else queues the close as
+    /// [`forget`](Self::forget) does.
+    fn close_node(&self, node: NodeId) {
+        self.deferred(node, |driver, node| driver.close_node(node), ForgetQueue::push_close);
     }
 
     async fn parent(&self, dir: NodeId) -> FsResult<NodeId, F::DeviceError> {

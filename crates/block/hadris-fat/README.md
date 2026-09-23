@@ -98,8 +98,10 @@ Writes go to the device at once, except the size and modification time of
 a pinned file, which stay in the node table so every handle sees one size
 until `sync_node` or `sync` writes them; closing a `File` handle calls
 `sync_node`. `sync` also writes the FAT32 FSInfo free count and flushes the
-device. `remove` of a pinned node fails with `ErrorKind::Busy`, and a device
-that refuses a write makes the volume read-only with nothing changed.
+device. `remove` of an open node (an open `File`, or one marked with
+`open_node`) fails with `ErrorKind::Busy`; a node that is only pinned is
+removed and its id answers `ErrorKind::NotFound` until its last `forget`. A
+device that refuses a write makes the volume read-only with nothing changed.
 Writes are ordered so that an interrupted operation, or a dropped `async`
 future, leaves a volume that `fsck` repairs: at worst lost clusters, a
 chain longer than its file, or a renamed node under both names.

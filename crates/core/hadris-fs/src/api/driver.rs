@@ -13,6 +13,12 @@ io_transform! {
 /// Contract:
 /// - `lookup`, `create` and `parent` pin the node they return; `forget`
 ///   unpins it. A pinned `NodeId` stays valid, even across `rename`.
+/// - A pin never blocks a removal. `open_node` marks a pinned node as open
+///   and `close_node` ends that; `remove` and a replacing `rename` fail with
+///   [`ErrorKind::Busy`] only when they would remove the last name of an
+///   open node. A pinned node that is removed keeps its id until its last
+///   `forget`, and every method but `forget` and `close_node` answers
+///   [`ErrorKind::NotFound`] for it.
 /// - `.` and `..` never appear in `read_dir_entry` output, and `lookup`
 ///   rejects them.
 /// - A failed operation leaves the filesystem unchanged, in memory and on
@@ -57,6 +63,22 @@ pub trait FsDriver {
     /// Unpins a node. Never fails.
     fn forget(&mut self, node: NodeId);
 
+    /// Marks a pinned node as open, so that removing its last name fails
+    /// with [`ErrorKind::Busy`] until the matching
+    /// [`close_node`](Self::close_node). The caller keeps its pin while the
+    /// node is open. The default does nothing, which suits drivers that
+    /// cannot remove nodes.
+    async fn open_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+        let _ = node;
+        Ok(())
+    }
+
+    /// Ends one [`open_node`](Self::open_node). Never fails and never
+    /// blocks, so `Drop` can call it.
+    fn close_node(&mut self, node: NodeId) {
+        let _ = node;
+    }
+
     /// The directory containing `dir`, pinned. The root is its own parent.
     async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError> {
         let _ = dir;
@@ -88,17 +110,23 @@ pub trait FsDriver {
         Err(ErrorKind::ReadOnly.into())
     }
 
-    /// Removes `name` from `dir`, which must be of `kind`: a file fails
+    /// Removes `name` from `dir`, which must be of `kind`: a directory fails
     /// with [`ErrorKind::IsADirectory`] for [`RemoveKind::File`], anything
     /// but a directory with [`ErrorKind::NotADirectory`] for
     /// [`RemoveKind::Dir`]. A directory must be empty.
+    ///
+    /// Fails with [`ErrorKind::Busy`] when `name` is the last name of an
+    /// open node. A node that is only pinned is removed, and its id answers
+    /// [`ErrorKind::NotFound`] until its last `forget`.
     async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), Self::DeviceError> {
         let _ = (dir, name, kind);
         Err(ErrorKind::ReadOnly.into())
     }
 
     /// Moves `from` in `from_dir` to `to` in `to_dir`. The moved node keeps
-    /// its `NodeId`.
+    /// its `NodeId`. Replacing an existing `to` removes it as
+    /// [`remove`](Self::remove) would, so an open target fails with
+    /// [`ErrorKind::Busy`].
     async fn rename(
         &mut self,
         from_dir: NodeId,
@@ -196,6 +224,20 @@ pub trait FileSystem {
     /// Unpins a node. Never blocks, so `Drop` can call it in every mode.
     fn forget(&self, node: NodeId);
 
+    /// Marks a pinned node as open, so that removing its last name fails
+    /// with [`ErrorKind::Busy`] until the matching
+    /// [`close_node`](Self::close_node).
+    async fn open_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+        let _ = node;
+        Ok(())
+    }
+
+    /// Ends one [`open_node`](Self::open_node). Never blocks, so `Drop` can
+    /// call it in every mode.
+    fn close_node(&self, node: NodeId) {
+        let _ = node;
+    }
+
     /// The directory containing `dir`, pinned.
     async fn parent(&self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError> {
         let _ = dir;
@@ -227,7 +269,8 @@ pub trait FileSystem {
     }
 
     /// Removes `name` from `dir`, which must be of `kind`. A directory must
-    /// be empty.
+    /// be empty. Fails with [`ErrorKind::Busy`] when `name` is the last name
+    /// of an open node; see [`FsDriver::remove`].
     async fn remove(&self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), Self::DeviceError> {
         let _ = (dir, name, kind);
         Err(ErrorKind::ReadOnly.into())
@@ -308,6 +351,12 @@ macro_rules! forward_driver_methods {
         fn forget(&mut self, node: NodeId) {
             (**self).forget(node)
         }
+        async fn open_node(&mut self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+            (**self).open_node(node).await
+        }
+        fn close_node(&mut self, node: NodeId) {
+            (**self).close_node(node)
+        }
         async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError> {
             (**self).parent(dir).await
         }
@@ -385,6 +434,12 @@ macro_rules! forward_fs_methods {
         }
         fn forget(&self, node: NodeId) {
             (**self).forget(node)
+        }
+        async fn open_node(&self, node: NodeId) -> FsResult<(), Self::DeviceError> {
+            (**self).open_node(node).await
+        }
+        fn close_node(&self, node: NodeId) {
+            (**self).close_node(node)
         }
         async fn parent(&self, dir: NodeId) -> FsResult<NodeId, Self::DeviceError> {
             (**self).parent(dir).await

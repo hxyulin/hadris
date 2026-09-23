@@ -55,8 +55,7 @@ Each published package owns its version and may be released independently.
   allocator, `HeapTable` (`alloc`) grows, and users can implement their own;
   a full table gives `TableFull`, which converts to
   `ErrorKind::LimitExceeded`. `NameBuf` holds 1024 bytes by default, enough
-  for any 255-unit UTF-16 long name. `remove` fails with `ErrorKind::Busy`
-  while the node is pinned.
+  for any 255-unit UTF-16 long name.
 - **hadris-fat (V3):** `FatFs<D, T = FixedTable<64>>`, the V3 driver for
   FAT12, FAT16 and FAT32 on any `hadris_storage` `BlockDevice`, in the
   `sync`, `r#async` and `async_send` modules. It implements `FsDriver`
@@ -180,6 +179,19 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs (V3):** Pins and opens are separate. `lookup`, `create` and
+  `parent` pin a node, which never blocks removal; the new `open_node` and
+  `close_node` (defaults do nothing) mark a pinned node as open. `remove` and
+  a replacing `rename` fail with `ErrorKind::Busy` only for the last name of
+  an open node. A pinned node that is removed keeps its id until its last
+  `forget`, and every other method answers `ErrorKind::NotFound` for it.
+  `File` and `OpenFile` open their node and close it on `close` or drop;
+  `File::from_pinned` and `OpenFile::from_pinned` are now `async`, take the
+  driver and return a `Result`. `Volume::close_node` never blocks: like
+  `forget`, it queues the call when the lock is held. `impl_fs_driver!`
+  forwards `open_node` and `close_node` when named in `also = [..]`.
+  `FatFs` implements both. A FUSE mount, which keeps a lookup on every
+  cached name, can now remove and replace files it has looked up.
 - **hadris-fs (V3):** `remove` takes a `RemoveKind` (`File`, `Dir`,
   `Any`; non-exhaustive): `remove(dir, name, kind)`. The driver checks the
   type it already reads, failing with `IsADirectory` or `NotADirectory`, so

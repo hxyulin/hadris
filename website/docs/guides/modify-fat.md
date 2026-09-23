@@ -52,7 +52,8 @@ leftovers without changing the volume.
 - Close `File` handles (or call `sync_node`) so sizes reach the directory
   entry; `sync` writes all of them.
 - `remove` of a file that is still open fails with `ErrorKind::Busy`; close it
-  first.
+  first. A node you only looked up does not block removal; its id answers
+  `ErrorKind::NotFound` afterwards until you `forget` it.
 - Call `sync` after writes and before ejecting or closing removable media.
 - Do not mutate an image concurrently through another handle. To share one
   volume between threads, wrap the `FatFs` in `hadris_fs::sync::Volume`.

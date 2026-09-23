@@ -659,11 +659,40 @@ fn rename_keeps_the_id_and_moves_directories() {
 }
 
 #[test]
+fn replacing_a_pinned_target_unlinks_it() {
+    let case = CASES[1];
+    let mut fs = open(case, populate(case));
+    let root = fs.root();
+    let target = fs.lookup(root, name("lower.txt")).unwrap();
+    let source = fs.lookup(root, name("README.TXT")).unwrap();
+    fs.rename(
+        root,
+        name("README.TXT"),
+        root,
+        name("lower.txt"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    assert_eq!(
+        fs.node_metadata(target).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert_eq!(fs.lookup(root, name("lower.txt")).unwrap(), source);
+    fs.forget(source);
+    fs.forget(source);
+    fs.forget(target);
+    assert_eq!(fs.open_nodes(), 1);
+    fs.sync().unwrap();
+    fsck(&image(fs), case.name);
+}
+
+#[test]
 fn rename_replaces_or_refuses_existing_targets() {
     let case = CASES[2];
     let mut fs = open(case, populate(case));
     let root = fs.root();
     let long = fs.lookup(root, name("A long file name.txt")).unwrap();
+    fs.open_node(long).unwrap();
     assert_eq!(
         fs.rename(
             root,
@@ -715,6 +744,7 @@ fn rename_replaces_or_refuses_existing_targets() {
         ErrorKind::NotADirectory
     );
     let nested = fs.resolve("/Nested Dir").unwrap();
+    fs.open_node(nested).unwrap();
     assert_eq!(
         fs.rename(
             root,
@@ -727,6 +757,7 @@ fn rename_replaces_or_refuses_existing_targets() {
         .kind(),
         ErrorKind::Busy
     );
+    fs.close_node(nested);
     fs.forget(nested);
     assert_eq!(
         fs.rename(
@@ -753,6 +784,7 @@ fn rename_replaces_or_refuses_existing_targets() {
         ErrorKind::Unsupported
     );
 
+    fs.close_node(long);
     fs.forget(long);
     let before = free(&mut fs);
     fs.rename(
@@ -878,15 +910,27 @@ fn remove_files_and_directories() {
     let root = fs.root();
     let before = free(&mut fs);
     let file = fs.lookup(root, name("a long file name.txt")).unwrap();
+    fs.open_node(file).unwrap();
     assert_eq!(
         fs.remove(root, name("A long file name.txt"), RemoveKind::Any)
             .unwrap_err()
             .kind(),
         ErrorKind::Busy
     );
-    fs.forget(file);
-    fs.remove(root, name("ALONGF~1.TXT"), RemoveKind::Any)
+    fs.close_node(file);
+    fs.remove(root, name("ALONGF~1.TXT"), RemoveKind::File)
         .unwrap();
+    assert_eq!(
+        fs.node_metadata(file).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert_eq!(
+        fs.read_at(file, 0, &mut [0u8; 4]).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert_eq!(fs.open_node(file).unwrap_err().kind(), ErrorKind::NotFound);
+    assert_eq!(fs.open_nodes(), 2, "a removed node keeps its pin");
+    fs.forget(file);
     assert!(free(&mut fs) > before);
     assert_eq!(
         fs.lookup(root, name("A long file name.txt"))

@@ -186,6 +186,7 @@ fn async_mode_writes() {
         )
         .await
         .unwrap();
+        fs.open_node(dir).await.unwrap();
         assert_eq!(
             fs.remove(root, Name::new("A Directory").unwrap(), RemoveKind::Any)
                 .await
@@ -193,10 +194,15 @@ fn async_mode_writes() {
                 .kind(),
             ErrorKind::Busy
         );
-        fs.forget(dir);
-        fs.remove(root, Name::new("a directory").unwrap(), RemoveKind::Any)
+        fs.close_node(dir);
+        fs.remove(root, Name::new("a directory").unwrap(), RemoveKind::Dir)
             .await
             .unwrap();
+        assert_eq!(
+            fs.node_metadata(dir).await.unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        fs.forget(dir);
         let mut buf = vec![0u8; 9_000];
         assert_eq!(fs.read_at(file, 0, &mut buf).await.unwrap(), 8_000);
         assert_eq!(buf[..8_000], data[..8_000]);

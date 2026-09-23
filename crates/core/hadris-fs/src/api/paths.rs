@@ -143,8 +143,10 @@ async fn read_to_vec<D: FsDriver + ?Sized>(
             Err(err) => break Err(err),
         }
     };
-    fs.forget(file.node());
-    result
+    let closed = file.close(fs, Ok(())).await;
+    let out = result?;
+    closed?;
+    Ok(out)
 }
 
 async fn write_file<D: FsDriver + ?Sized>(fs: &mut D, path: &str, data: &[u8]) -> FsResult<(), D::DeviceError> {
