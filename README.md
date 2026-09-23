@@ -200,13 +200,13 @@ For allocation-free `no_std` ISO reading and FAT reading and writing:
 
 ```toml
 [dependencies]
-# No heap allocator: ISO 9660/Joliet lookup and streamed file reads.
-hadris-iso = { version = "2.4.0", default-features = false, features = ["read", "sync"] }
+# No heap allocator: every ISO tree, Rock Ridge metadata and file reads.
+hadris-iso = { version = "2.4.0", default-features = false, features = ["sync"] }
 hadris-fat = { version = "2.4.0", default-features = false, features = ["sync"] }
 ```
 
-Add the `alloc` feature to `hadris-iso` when owned collections, convenience
-reads, and Rock Ridge metadata enrichment are needed without full `std`.
+Add the `alloc` feature to `hadris-iso` for the writer, sessions and the boot
+catalog listing without full `std`.
 
 ## Building
 

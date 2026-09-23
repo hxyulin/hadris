@@ -10,6 +10,58 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-iso (V3):** Rewritten on `hadris-storage` block devices, with
+  the same API in `sync`, `r#async` and `async_send`. `IsoImage::open`
+  reads the descriptor set without an allocator and reports the trees the
+  image carries (`namespaces`); `view(Namespace)` picks the primary tree,
+  Rock Ridge over it, Joliet or the ISO 9660:1999 enhanced tree
+  (`Namespace::Preferred` takes the most capable) as an `IsoView`, which
+  implements `FsDriver` through `impl_fs_driver!`, so the `hadris-fs`
+  path helpers, `Volume`, handles and `extract_to_host` work on it. Node
+  ids are directory record offsets and need no node table. Relocated Rock
+  Ridge directories appear in their real place, lookups in the primary and
+  enhanced trees fall back to ignoring ASCII case, and Joliet trees whose
+  `..` points at itself (libisofs) find their parent through the path
+  table. Logical blocks of 512 to 2048 bytes and device blocks up to 4096
+  bytes work. `IsoView::rock_ridge` (`RockRidgeInfo`), `raw_record`,
+  `extents`, `IsoImage::descriptor`, `primary_descriptor`, `read_bytes`
+  and `boot_catalog` (`BootCatalog`, `BootCatalogEntry`, `Platform`,
+  `Emulation`; `alloc`) expose the rest, and `raw` holds the on-disk
+  layouts (descriptors, directory and path table records, El Torito
+  entries, boot info tables, SUSP entries). `write(dev, &tree, &options)`
+  and `plan(&tree, &options)` (`alloc`) lay out a `hadris_fs::tree::Tree`
+  as `IsoOptions` says (`IsoLevel`, `NameCase`, `Charset`,
+  `VolumeIdentifiers`, `JolietLevel`, `RockRidge` with `Preserve` and
+  `Relocation`, the enhanced tree, `ElTorito` with `BootEntry` images
+  named by tree path and `BootInfo` tables, `HybridBoot` MBR, GPT or
+  hybrid tables, `min_blocks` and an injected `Clock`) and return a
+  `Report` of the size, each file's extents and `Warning`s for what the
+  options could not store. The layout is planned without I/O and written
+  in ascending block order, so any block device works, without `std`.
+  Rock Ridge writes PX, PN, NM, SL, TF, CL, PL and RE, and stores
+  symlinks, device nodes and hard links. `Session` reads an image into a
+  tree whose files point at their extents and writes it back after
+  changes as a new session (`SessionMode::Append`) or in place
+  (`SessionMode::Rewrite`, which keeps the boot catalog and moves the
+  backup GPT), without copying unchanged files. `Error<E>` carries an
+  `ErrorKind`, a `Detail` (`#[non_exhaustive]`) and the device error,
+  converts into `hadris_fs::Error<E>`, `AnyError` and `std::io::Error`,
+  and opening fails with `MountError`, which gives the device back. Nodes
+  inside the volume but past the end of a truncated device are `Corrupt`,
+  other bad ids `InvalidHandle`.
+- **hadris-fs (V3):** `tree` (`alloc`), the input every V3 writer takes:
+  `Tree` holds files, directories, symlinks, device nodes and hard links
+  with their `SetMetadata` under `/` paths, children sorted by name
+  (`add_file`, `add_dir`, `add_symlink`, `add_device`, `add_hard_link`,
+  `set_metadata`, `remove`, `get`, `root`). `Content` is bytes, a blocking
+  or async byte source, a host file opened when read (`std`) or extents
+  already on the device, and `ContentReader` reads it in each mode.
+  `Tree::from_fs` (`std`) imports a host directory, detecting hard links;
+  `FromFsOptions::with_on_error(OnError::Warn)` turns unreadable entries
+  into `Warning`s. `TreeExt::from_filesystem` builds a tree from any
+  mounted filesystem. `Extent` (a byte range) is at the crate root, and
+  `contract::check_read_only` runs the read-only rules of the driver
+  contract, which the ISO views pass.
 - **hadris-part (V3):** The partition tables move onto `hadris-storage`
   block devices and take the block size from the device. `Disk` holds a
   `PartitionTable` (`#[non_exhaustive]`: `Mbr`, `Gpt`, `Hybrid`) and the
@@ -237,6 +289,50 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-iso (V3):** The whole API is new; see Added and Removed.
+  Features are `std`, `alloc`, `sync`, `async` and `async-send`, and no
+  feature changes what an item does. Images written without Rock Ridge
+  are byte for byte those of 2.4 with the same clock; with Rock Ridge, PX
+  serial numbers are per node and shared by hard links, and `..` carries
+  the parent's attributes. Joliet and enhanced trees keep the real
+  hierarchy instead of the relocated one. Without Rock Ridge, symlinks and
+  device nodes are left out with a warning instead of failing the write.
+  The relocation directory is named by `RockRidge::with_relocation`
+  (`rr_moved` by default) and a clash at the root fails instead of
+  falling back to `.rr_moved`. Files of 4 GiB or more need `IsoLevel::L3`.
+  `hadris-common` is no longer a dependency.
+- **hadris-optical (V3):** Opens ISO images through `hadris_iso` `IsoImage`
+  over a transitional `StreamBlocks` adapter for its `hadris_io::legacy`
+  streams; `Error::Iso` holds a `hadris_iso::Error`. A new `async-send`
+  feature enables it in `hadris-iso`, and `read` and `write` no longer
+  forward to `hadris-iso`. The umbrella `hadris` crate forwards
+  `async-send` to it.
+- **hadris-cd (V3):** Writes its ISO part from a `hadris_fs::tree::Tree`
+  with `hadris_iso::sync::write` and takes file positions from the
+  `Report` instead of reading the image back. `IsoOptions` has `level`
+  and `name_case` fields (`IsoLevel`, `NameCase`), `joliet` takes a
+  `JolietLevel` (`L1` to `L3`), `rock_ridge` a `RockRidge`, `boot` an
+  `ElTorito` and `hybrid_boot` a `HybridBoot`. UDF always keeps the
+  original names; before, an image without Joliet gave UDF the ISO names.
+- **hadris-iso-cli (V3):** Reads through the preferred tree with the
+  `hadris-fs` path helpers: listings show Rock Ridge or Joliet names, a
+  path not found there is looked up in the primary tree ignoring ASCII
+  case, `extract` writes symlinks, and `info` lists the boot catalog.
+  `verify` checks the boot catalog entries, and with `--strict` the path
+  table, extent bounds and Rock Ridge fields through `raw`. `create` and
+  `mkisofs` build a `Tree` from the source directory, stamp entries with
+  the current time and print the writer's warnings (dropped metadata only
+  with `--verbose`); `create --dry-run` prints the planned size, and
+  `mkisofs --isohybrid-mbr` uses the file as MBR boot code.
+- **hadris-cd-cli (V3):** Uses the V3 boot and hybrid options, keeps the
+  boot catalog hidden so both namespaces list the same files, and
+  `verify` compares contents only when the ISO tree has just ISO 9660
+  names.
+- **Fuzzing and tests (V3):** `iso_read` walks every tree an image carries
+  through the `FsDriver` methods and reads descriptors, the boot catalog,
+  Rock Ridge entries, raw records, extents and link targets; `fs_dump`
+  lists the preferred tree through the shared driver dump. The ISO
+  conformance suite writes `Tree`s and reads through views.
 - **hadris-io (V3):** The crate root no longer glob re-exports the `sync`
   module (R5). Name the traits through their mode: `hadris_io::sync::Read`,
   `hadris_io::r#async::Read` or `hadris_io::async_send::Read`. The root keeps
@@ -273,10 +369,6 @@ Each published package owns its version and may be released independently.
   what it parses, and `fuzz/scripts/gen-seeds.sh` makes small MBR, EBR,
   GPT (512 and 4096-byte blocks), hybrid and damaged-GPT seeds that fit
   the target's 64 KiB inputs.
-- **hadris-iso:** Builds its MBR, GPT and hybrid partition tables with the
-  V3 `hadris-part` tables and writes them from `Disk::runs`; the images are
-  byte for byte the same. `hadris-part` and `hadris-storage` are optional
-  dependencies that `write` enables.
 - **hadris-block (V3):** The `read` and `write` features no longer enable
   anything in `hadris-part`.
 - **hadris-fs (V3):** The driver contract is written down in full on
@@ -403,6 +495,27 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-iso (V3):** The V2 API: `IsoImage` over `hadris_io` streams
+  with `IsoDir`, `DirEntry`, `DirectoryRef`, `RootDir`, `IsoFileReader`,
+  the allocation-free `IsoReader`, `IsoRoot`, `IsoDirEntry` and
+  `IsoCursor`, `IsoImageWriter`, `IsoFormatOptions`, `CreationFeatures`,
+  `BaseIsoLevel`, `InputFiles`, `InputTree`, `InputEntry`,
+  `InputMetadata`, `FileSource`, the `estimator` (`IsoSizeEstimate`,
+  `SizeBreakdown`), `IsoModifier` and `ModifyOp`, `BootOptions`,
+  `BootEntryOptions`, `BootSectionOptions`, `EmulationType`,
+  `PlatformId`, `HybridBootOptions`, `RripOptions`, `RripBuilder`,
+  `RripMetadata`, `SystemUseIter` and `SystemUseField`, `PathSeparator`,
+  `LogicalSector`, the `IsoStr*` and `IsoString*` character-set types,
+  `FilenameL1`, `FilenameL2`, `FilenameL3`, `EntryType`, the V2 `Error`
+  and `Result`, the `read`, `write`, `joliet` and `unstable-streaming`
+  features and the `hadris_iso::io` re-export. Use `IsoImage`, `IsoView`,
+  `write`, `plan` and `Session` in a mode module, `IsoOptions` and its
+  option types, `hadris_fs::tree::Tree`, and the layouts in `raw`.
+- **hadris-common (V3):** `EndianType`, the fixed-capacity types
+  (`FixedBytes`, `FixedStr`, `FixedUtf16`, `ArrayVec`, `RingBuf`),
+  `BOOT_SECTOR_BIN` and the boot sector project that built it, and the
+  `heapless` dependency, which only the V2 ISO crate used.
+  `Endianness::get` is now `is_le`.
 - **hadris-storage (V3):** `PartitionView`, which bounded a
   `hadris_io::legacy` stream. `Slice` replaces it over a `BlockDevice`.
   `hadris-storage` no longer depends on `embedded-io`.

@@ -70,12 +70,19 @@ hadris-iso mkisofs -o output.iso ./directory
 
 ## Supported Features
 
-- ISO 9660 Level 1-3 reading and writing
-- Joliet extension (UTF-16 filenames)
-- Rock Ridge (RRIP) extension (POSIX semantics; write support is limited — see library docs)
-- El-Torito bootable images
+- ISO 9660 Level 1-3 reading and writing (`--level 1`, `2`, `3`, or `1l`
+  and `2l` to keep lowercase names)
+- Joliet extension (UCS-2 filenames)
+- Rock Ridge (RRIP) extension: modes, owners, times, symlinks, device nodes
+  and hard links, with deep directories relocated
+- El Torito bootable images, with a visible `boot.catalog`
 - Hybrid MBR/GPT USB boot options on `create`
-- SUSP (System Use Sharing Protocol)
+- Listings, `cat` and `extract` use the Rock Ridge or Joliet names when the
+  image has them; a path not found there, such as `/README.TXT`, is looked up
+  in the primary tree, ignoring ASCII case
+- `create --dry-run` prints the planned image size
+- `verify --strict` also checks the path table, extent bounds and Rock
+  Ridge fields
 
 ## Examples
 

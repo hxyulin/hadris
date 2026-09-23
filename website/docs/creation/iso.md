@@ -4,156 +4,171 @@ title: Create ISO images
 
 # Create ISO 9660 images
 
-Use `hadris-iso` to create a seekable ISO image from an in-memory input tree.
-The writer can emit the primary ISO namespace, ISO 9660:1999 enhanced names,
-Joliet, Rock Ridge, and El Torito boot metadata. Creation currently uses the
-synchronous API and requires a target implementing `Read + Write + Seek`.
+`hadris-iso` writes an image from a `hadris_fs::tree::Tree`: the same input
+tree the other Hadris writers take. The writer can emit the primary ISO
+namespace, Rock Ridge, Joliet, an ISO 9660:1999 enhanced tree, El Torito
+boot catalogs and hybrid MBR/GPT tables. It writes to any `hadris-storage`
+block device, in the sync, async and `Send` async APIs.
 
 ## Dependency
 
 ```toml
 [dependencies]
-hadris-iso = { version = "2.4.0", features = ["write", "sync", "joliet"] }
+hadris-fs = "2.4.0"
+hadris-iso = "2.4.0"
 ```
+
+The default features (`std`, `sync`) include the writer. Without `std`,
+`alloc` is enough.
 
 ## Create a basic image
 
-`InputTree` describes the directory hierarchy. `IsoImageWriter::create`
-returns the target so the caller retains ownership of the completed image.
-
 ```rust
-use std::fs::OpenOptions;
-
-use hadris_io::StdIo;
-use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
-use hadris_iso::write::{InputEntry, InputTree, IsoImageWriter};
+use hadris_fs::tree::{Content, Tree};
+use hadris_iso::{Charset, IsoOptions, VolumeIdentifiers};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let tree = InputTree::new(
-        PathSeparator::ForwardSlash,
-        vec![
-            InputEntry::file("README.TXT", b"Hello from Hadris\n"),
-            InputEntry::directory(
-                "DOCS",
-                vec![InputEntry::file("GUIDE.TXT", b"Getting started\n")],
-            ),
-        ],
-    );
+    let mut tree = Tree::new();
+    tree.add_file("README.TXT", Content::bytes("Hello from Hadris\n"))?;
+    tree.add_file("DOCS/GUIDE.TXT", Content::bytes("Getting started\n"))?;
 
-    let options = IsoFormatOptions {
-        volume_name: "HADRIS_DEMO".into(),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: Some("HADRIS".into()),
-        application_id: Some("MY_APP".into()),
-        sector_size: 2048,
-        features: CreationFeatures::default(),
-        path_separator: PathSeparator::ForwardSlash,
-        strict_charset: true,
-    };
+    let options = IsoOptions::default()
+        .with_volume(
+            VolumeIdentifiers::new("HADRIS_DEMO")
+                .with_preparer("HADRIS")
+                .with_application("MY_APP"),
+        )
+        .with_charset(Charset::Strict);
 
-    let image = OpenOptions::new()
+    let image = std::fs::File::options()
         .read(true)
         .write(true)
         .create(true)
         .truncate(true)
         .open("demo.iso")?;
-    let _image = IsoImageWriter::create(StdIo::new(image), tree, options)?;
+    let report = hadris_iso::sync::write(image, &tree, &options)?;
+    println!("{} bytes", report.size_bytes());
     Ok(())
 }
 ```
 
-The output file does not need to be pre-sized. Keep `sector_size` at 2048 for
-optical interoperability.
+`add_file` creates missing parent directories. The output file does not need
+to be pre-sized; `hadris_iso::sync::plan` returns the same `Report` without
+writing when a device must be sized first, such as a `MemDevice`.
 
-## Enable filename namespaces
+The `Report` also lists where each file went (`extent_of`, `extents`) and
+warnings for what the options could not store, such as permissions without
+Rock Ridge or a symlink in an image without it.
 
-The base interchange level and additional filename namespaces are independent:
+## Choose the name rules
 
 ```rust
-use hadris_iso::joliet::JolietLevel;
-use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures};
+use hadris_iso::{IsoLevel, IsoOptions, JolietLevel, NameCase};
 
-let portable = CreationFeatures {
-    filenames: BaseIsoLevel::Level2 {
-        supports_lowercase: false,
-        supports_rrip: false,
-    },
-    joliet: Some(JolietLevel::Level3),
-    ..CreationFeatures::default()
-};
+let portable = IsoOptions::default()
+    .with_level(IsoLevel::L2)
+    .with_joliet(JolietLevel::L3);
 
-let iso_1999 = CreationFeatures {
-    // Compatibility spelling for the ISO 9660:1999 enhanced namespace.
-    long_filenames: true,
-    ..CreationFeatures::default()
-};
+let unix = IsoOptions::default()
+    .with_level(IsoLevel::L3)
+    .with_name_case(NameCase::Preserve)
+    .with_enhanced_tree();
 ```
 
-`BaseIsoLevel::Level3` selects interchange level 3; it is not the switch for
-ISO 9660:1999 names. The `long_filenames` field is retained for compatibility.
-Joliet is usually the most interoperable choice for Unicode names.
+`IsoLevel` is the ECMA-119 interchange level of the primary tree: `L1` for
+8.3 names, `L2` for 31-character names, `L3` for multi-extent files above
+4 GiB. `NameCase::Preserve` keeps lowercase letters, and
+`Charset::Strict` maps every character outside the d-characters.
+`with_enhanced_tree` adds an ISO 9660:1999 tree with long names. Joliet is
+usually the most interoperable choice for Unicode names.
 
 ## Preserve POSIX metadata with Rock Ridge
 
 ```rust
-use hadris_iso::write::options::CreationFeatures;
-use hadris_iso::write::{InputEntry, InputMetadata};
+use hadris_fs::tree::{Content, Tree};
+use hadris_fs::{DateTime, FileTimes, Mode, SetMetadata};
+use hadris_iso::{IsoOptions, RockRidge};
 
-let entry = InputEntry::file("run.sh", b"#!/bin/sh\necho hello\n").with_metadata(
-    InputMetadata {
-        mode: Some(0o755),
-        uid: Some(1000),
-        gid: Some(1000),
-        modified: Some(1_700_000_000),
-        ..InputMetadata::default()
-    },
-);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut tree = Tree::new();
+    tree.add_file("run.sh", Content::bytes("#!/bin/sh\necho hello\n"))?;
+    let time = DateTime::from_unix_seconds(1_700_000_000)?;
+    tree.set_metadata(
+        "run.sh",
+        SetMetadata::new()
+            .with_mode(Mode::new(0o755))
+            .with_uid(1000)
+            .with_gid(1000)
+            .with_times(FileTimes::new().with_modified(time)),
+    )?;
+    tree.add_symlink("latest", "run.sh")?;
 
-let features = CreationFeatures::rock_ridge();
+    let options = IsoOptions::default().with_rock_ridge(RockRidge::default());
+    let _ = hadris_iso::sync::plan(&tree, &options)?;
+    Ok(())
+}
 ```
 
-Explicit timestamps make builds reproducible. Host filesystem scanning can
-populate metadata, but inputs constructed in code give the caller full control.
+Rock Ridge stores modes, owners, times, symlinks, device nodes and hard links.
+Entries without times get the options' clock: the default `NoClock` writes
+1980-01-01, so images are reproducible, and `with_clock(SystemClock)` stamps
+the current time. Directories nested deeper than ECMA-119 allows move into
+a relocation directory (`rr_moved`); `RockRidge::with_relocation` picks
+another name or rejects such trees.
 
 ## Create from a host directory
 
 ```rust
-use std::path::Path;
-use hadris_iso::read::PathSeparator;
-use hadris_iso::write::InputTree;
+use hadris_fs::tree::{FromFsOptions, OnError, Tree};
 
-let tree = InputTree::from_fs(
-    Path::new("image-root"),
-    PathSeparator::ForwardSlash,
-)?;
-# Ok::<(), hadris_iso::write::FileConversionError>(())
+let tree = Tree::from_fs("image-root", FromFsOptions::new().with_on_error(OnError::Warn))?;
+for warning in tree.warnings() {
+    eprintln!("{warning}");
+}
+# Ok::<(), std::io::Error>(())
 ```
 
-The current host-directory convenience API loads regular-file contents into
-memory. For very large trees, construct inputs deliberately and budget memory
-accordingly.
+`Tree::from_fs` records host paths, not contents, so the writer streams each
+file once while writing the image. It keeps modes, owners, times, symlinks,
+device nodes and hard links.
 
 ## Bootable and hybrid images
 
-El Torito and hybrid MBR/GPT options live under `CreationFeatures`. For a full
-boot-catalog example, run:
+```rust
+use hadris_iso::{BootEntry, ElTorito, HybridBoot, IsoOptions, Platform};
+
+let options = IsoOptions::default()
+    .with_el_torito(
+        ElTorito::new(BootEntry::new("boot/bios.img").with_load_size(4))
+            .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi)),
+    )
+    .with_hybrid(HybridBoot::hybrid());
+```
+
+The boot images are paths in the tree. `ElTorito::with_catalog_path` makes the
+boot catalog visible as a file. For a full example, run:
 
 ```bash
-cargo run -p hadris-iso --example create_bootable_iso
+cargo run -p hadris-iso --example create_bootable_iso -- bootable.iso
 ```
 
 Use `hadris-cd` instead when the same payload must be visible through both ISO
 9660 and UDF namespaces.
+
+## Add to an existing image
+
+`hadris_iso::sync::Session` reads an image into a tree whose files point at
+their existing extents. Change the tree, then write it back with
+`SessionMode::Append` (a new session after the old one) or
+`SessionMode::Rewrite` (new directories in place). Unchanged files are not
+copied.
 
 ## Validate the result
 
 ```bash
 xorriso -indev demo.iso -toc
 7z l demo.iso
-hadris-iso info demo.iso
+hadris-iso verify --strict demo.iso
 ```
 
 Treat external validation as part of release testing, especially for bootable,
