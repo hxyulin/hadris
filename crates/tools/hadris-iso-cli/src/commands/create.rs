@@ -1,19 +1,16 @@
-use std::fs::File;
-use std::io::{self, Write};
-use std::num::NonZeroU16;
-
-use hadris_io::StdIo;
-use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
-use hadris_iso::boot::{EmulationType, PlatformId};
-use hadris_iso::joliet::JolietLevel;
-use hadris_iso::read::PathSeparator;
-use hadris_iso::rrip::RripOptions;
-use hadris_iso::write::options::{CreationFeatures, HybridBootOptions, IsoFormatOptions};
-use hadris_iso::write::{InputTree, IsoImageWriter, estimator};
+use hadris_fs::SystemClock;
+use hadris_iso::sync::plan;
+use hadris_iso::{
+    BootEntry, BootInfo, Charset, ElTorito, HybridBoot, IsoOptions, JolietLevel, Platform,
+    RockRidge, VolumeIdentifiers,
+};
 
 use super::super::args::CreateArgs;
 
-use super::{Result, compute_estimated_size, count_files, normalize_path};
+use super::{Result, normalize_path, print_warnings, read_source, write_image};
+
+/// The path of the visible boot catalog in created images.
+pub(super) const CATALOG_PATH: &str = "boot.catalog";
 
 /// Create a new ISO image
 pub fn create(args: CreateArgs) -> Result<()> {
@@ -22,154 +19,84 @@ pub fn create(args: CreateArgs) -> Result<()> {
         println!("Output: {}", args.output.display());
     }
 
-    // Gather input files
-    let input = InputTree::from_fs(&args.source, PathSeparator::ForwardSlash)?;
+    let tree = read_source(&args.source)?;
 
-    if args.verbose {
-        println!("Found {} files/directories", count_files(&input));
+    let mut volume = VolumeIdentifiers::new(args.volume_name.clone());
+    if let Some(id) = &args.system_id {
+        volume = volume.with_system(id.clone());
+    }
+    if let Some(id) = &args.volume_set_id {
+        volume = volume.with_volume_set(id.clone());
+    }
+    if let Some(id) = &args.publisher_id {
+        volume = volume.with_publisher(id.clone());
+    }
+    if let Some(id) = &args.preparer_id {
+        volume = volume.with_preparer(id.clone());
+    }
+    if let Some(id) = &args.application_id {
+        volume = volume.with_application(id.clone());
     }
 
-    // Configure boot options
-    let el_torito = if let Some(boot_path) = &args.boot {
-        let mut boot_opts = BootOptions {
-            write_boot_catalog: true,
-            default: BootEntryOptions {
-                boot_image_path: normalize_path(boot_path),
-                load_size: NonZeroU16::new(args.boot_load_size),
-                boot_info_table: args.boot_info_table,
-                grub2_boot_info: false,
-                emulation: EmulationType::NoEmulation,
-            },
-            entries: vec![],
-        };
-
-        // Add UEFI boot entry if specified
-        if let Some(efi_path) = &args.efi_boot {
-            boot_opts.entries.push((
-                BootSectionOptions {
-                    platform: PlatformId::UEFI,
-                },
-                BootEntryOptions {
-                    boot_image_path: normalize_path(efi_path),
-                    load_size: None,
-                    boot_info_table: false,
-                    grub2_boot_info: false,
-                    emulation: EmulationType::NoEmulation,
-                },
-            ));
-        }
-
-        Some(boot_opts)
-    } else {
-        None
-    };
-
-    // Configure hybrid boot
-    let hybrid_boot = if args.hybrid_mbr && args.hybrid_gpt {
-        Some(HybridBootOptions::hybrid())
-    } else if args.hybrid_gpt {
-        Some(HybridBootOptions::gpt())
-    } else if args.hybrid_mbr {
-        Some(HybridBootOptions::mbr())
-    } else {
-        None
-    };
-
-    // Configure Rock Ridge
-    let mut filenames = args.level.0;
+    let mut options = IsoOptions::default()
+        .with_volume(volume)
+        .with_level(args.level.level)
+        .with_name_case(args.level.name_case)
+        .with_clock(SystemClock);
+    if args.strict_charset {
+        options = options.with_charset(Charset::Strict);
+    }
+    if args.joliet {
+        options = options.with_joliet(JolietLevel::L3);
+    }
     if args.rock_ridge {
-        match &mut filenames {
-            hadris_iso::write::options::BaseIsoLevel::Level1 { supports_rrip, .. } => {
-                *supports_rrip = true
-            }
-            hadris_iso::write::options::BaseIsoLevel::Level2 { supports_rrip, .. } => {
-                *supports_rrip = true
-            }
-            hadris_iso::write::options::BaseIsoLevel::Level3 { supports_rrip, .. } => {
-                *supports_rrip = true
-            }
-        }
+        options = options.with_rock_ridge(RockRidge::default());
     }
 
-    // Configure format options
-    let format_options = IsoFormatOptions {
-        volume_name: args.volume_name.clone(),
-        system_id: args.system_id.clone(),
-        volume_set_id: args.volume_set_id.clone(),
-        publisher_id: args.publisher_id.clone(),
-        preparer_id: args.preparer_id.clone(),
-        application_id: args.application_id.clone(),
-        sector_size: 2048,
-        path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures {
-            filenames,
-            long_filenames: false,
-            joliet: if args.joliet {
-                Some(JolietLevel::Level3)
-            } else {
-                None
-            },
-            rock_ridge: if args.rock_ridge {
-                Some(RripOptions::default())
-            } else {
-                None
-            },
-            el_torito,
-            hybrid_boot,
-        },
-        strict_charset: args.strict_charset,
-    };
+    if let Some(boot_path) = &args.boot {
+        let mut bios = BootEntry::new(normalize_path(boot_path));
+        if args.boot_load_size != 0 {
+            bios = bios.with_load_size(args.boot_load_size);
+        }
+        if args.boot_info_table {
+            bios = bios.with_boot_info_table(BootInfo::Standard);
+        }
+        let mut el_torito = ElTorito::new(bios).with_catalog_path(CATALOG_PATH);
+        if let Some(efi_path) = &args.efi_boot {
+            el_torito = el_torito
+                .with_entry(BootEntry::new(normalize_path(efi_path)).with_platform(Platform::Efi));
+        }
+        options = options.with_el_torito(el_torito);
+    }
 
-    // Dry run: print estimate and exit
+    let hybrid = match (args.hybrid_mbr, args.hybrid_gpt) {
+        (true, true) => Some(HybridBoot::hybrid()),
+        (false, true) => Some(HybridBoot::gpt()),
+        (true, false) => Some(HybridBoot::mbr()),
+        (false, false) => None,
+    };
+    if let Some(hybrid) = hybrid {
+        options = options.with_hybrid(hybrid);
+    }
+
     if args.dry_run {
-        let est = estimator::estimate_tree(&input, &format_options);
+        let report = plan(&tree, &options)?;
         println!(
             "Estimated size: {} bytes ({} sectors)",
-            est.minimum_bytes(),
-            est.minimum_sectors
+            report.size_bytes(),
+            report.total_blocks()
         );
-        println!("  System area:        {:>10}", est.breakdown.system_area);
-        println!(
-            "  Volume descriptors: {:>10}",
-            est.breakdown.volume_descriptors
-        );
-        println!("  Path tables:        {:>10}", est.breakdown.path_tables);
-        println!(
-            "  Directory records:  {:>10}",
-            est.breakdown.directory_records
-        );
-        println!(
-            "  Continuation areas: {:>10}",
-            est.breakdown.continuation_areas
-        );
-        println!("  File data:          {:>10}", est.breakdown.file_data);
-        println!("  Boot catalog:       {:>10}", est.breakdown.boot_catalog);
-        println!("  Backup GPT:         {:>10}", est.breakdown.backup_gpt);
+        print_warnings(&report, args.verbose);
         return Ok(());
     }
 
-    // Create output buffer with estimated size
-    let estimated_size = compute_estimated_size(&input, &format_options);
-    let mut buffer = io::Cursor::new(vec![0u8; estimated_size as usize]);
-
-    // Write ISO to buffer
-    IsoImageWriter::create(StdIo::new(&mut buffer), input, format_options)?;
-
-    // Read volume_space_size from PVD (LE u32 at byte offset 32848)
-    let data = buffer.into_inner();
-    let vol_size_le = &data[32848..32852];
-    let volume_sectors = u32::from_le_bytes(vol_size_le.try_into().unwrap()) as usize;
-    let actual_size = (volume_sectors * 2048).max(32 * 2048);
-
-    // Write the ISO to file
-    let mut file = File::create(&args.output)?;
-    file.write_all(&data[..actual_size])?;
+    let report = write_image(&args.output, &tree, &options, args.verbose)?;
 
     if args.verbose {
         println!(
             "Created ISO: {} ({} bytes)",
             args.output.display(),
-            actual_size
+            report.size_bytes()
         );
     } else {
         println!("Created: {}", args.output.display());

@@ -1,37 +1,26 @@
-use std::fs::{self, File};
-use std::io::{self, BufReader, Write};
+use std::ffi::OsStr;
+use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 
-use hadris_io::StdIo;
-use hadris_iso::directory::{DirectoryRef, FileFlags};
-use hadris_iso::read::IsoImage;
-use hadris_iso::{Read, Seek};
+use hadris_fs::FileType;
+use hadris_fs::sync::DriverExt;
 
 use super::super::args::ExtractArgs;
 
-use super::{Result, display_name, navigate_to_path};
+use super::{Result, View, join, list_dir, open, preferred_view};
 
 /// Extract files from an ISO image
 pub fn extract(args: ExtractArgs) -> Result<()> {
-    let file = File::open(&args.input)?;
-    let reader = StdIo::new(BufReader::new(file));
-    let iso = IsoImage::open(reader)?;
-    let entry_type = iso.root_dir().entry_type();
+    let mut iso = open(&args.input)?;
+    let mut view = preferred_view(&mut iso)?;
 
-    // Create output directory
     fs::create_dir_all(&args.output)?;
-
-    let start_ref = if let Some(ref path) = args.path {
-        navigate_to_path(&iso, path)?
-    } else {
-        iso.root_dir().dir_ref()
-    };
-
+    let start = args.path.as_deref().unwrap_or("/");
     let mut extracted_count = 0;
     extract_dir(
-        &iso,
-        start_ref,
-        entry_type,
+        &mut view,
+        start,
         &args.output,
         args.verbose,
         &mut extracted_count,
@@ -45,56 +34,77 @@ pub fn extract(args: ExtractArgs) -> Result<()> {
     Ok(())
 }
 
-fn extract_dir<R: Read + Seek>(
-    iso: &IsoImage<R>,
-    dir_ref: DirectoryRef,
-    entry_type: hadris_iso::file::EntryType,
+fn extract_dir(
+    view: &mut View<'_>,
+    path: &str,
     output_path: &Path,
     verbose: bool,
     count: &mut usize,
 ) -> Result<()> {
-    let dir = iso.open_dir(dir_ref);
-
-    for entry in dir.entries() {
-        let entry = entry?;
-        // Skip . and ..
-        if entry.is_special() {
-            continue;
-        }
-
-        let display_name = display_name(&entry, entry_type);
-        let entry_path = safe_entry_path(output_path, &display_name)?;
-        let flags = FileFlags::from_bits_truncate(entry.header().flags);
-
-        if flags.contains(FileFlags::DIRECTORY) {
-            fs::create_dir_all(&entry_path)?;
-            if verbose {
-                println!("Creating directory: {}", entry_path.display());
+    for entry in list_dir(view, path)? {
+        let source = join(path, &entry.name);
+        let entry_path = safe_entry_path(output_path, &entry.name)?;
+        match entry.meta.file_type() {
+            FileType::Dir => {
+                fs::create_dir_all(&entry_path)?;
+                if verbose {
+                    println!("Creating directory: {}", entry_path.display());
+                }
+                extract_dir(view, &source, &entry_path, verbose, count)?;
             }
-            let child_ref = entry.as_dir_ref(iso)?;
-            extract_dir(iso, child_ref, entry_type, &entry_path, verbose, count)?;
-        } else {
-            let extent = entry.header().extent.read() as u64;
-            let size = entry.header().data_len.read() as usize;
-
-            if verbose {
-                println!("Extracting: {} ({} bytes)", entry_path.display(), size);
+            FileType::File => {
+                if verbose {
+                    println!(
+                        "Extracting: {} ({} bytes)",
+                        entry_path.display(),
+                        entry.meta.len()
+                    );
+                }
+                fs::write(&entry_path, view.read_to_vec(&source)?)?;
+                *count += 1;
             }
-
-            if size > 0 {
-                let mut buffer = vec![0u8; size];
-                iso.read_bytes_at(extent * 2048, &mut buffer)?;
-                let mut output_file = File::create(&entry_path)?;
-                output_file.write_all(&buffer)?;
-            } else {
-                // Create empty file
-                File::create(&entry_path)?;
-            }
-
-            *count += 1;
+            FileType::Symlink => extract_symlink(view, &entry, &entry_path, verbose)?,
+            other => eprintln!("Skipping {source}: cannot extract a {other:?}"),
         }
     }
 
+    Ok(())
+}
+
+#[cfg(unix)]
+fn extract_symlink(
+    view: &mut View<'_>,
+    entry: &super::Entry,
+    entry_path: &Path,
+    verbose: bool,
+) -> Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let mut target = vec![0u8; 4096];
+    let len = view.read_link(entry.node, &mut target)?;
+    target.truncate(len);
+    if verbose {
+        println!(
+            "Linking: {} -> {}",
+            entry_path.display(),
+            String::from_utf8_lossy(&target)
+        );
+    }
+    std::os::unix::fs::symlink(OsStr::from_bytes(&target), entry_path)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn extract_symlink(
+    _view: &mut View<'_>,
+    _entry: &super::Entry,
+    entry_path: &Path,
+    _verbose: bool,
+) -> Result<()> {
+    eprintln!(
+        "Skipping {}: symlinks are not supported here",
+        entry_path.display()
+    );
     Ok(())
 }
 
@@ -102,7 +112,7 @@ fn safe_entry_path(output_path: &Path, name: &str) -> Result<PathBuf> {
     let path = Path::new(name);
     let mut components = path.components();
     match (components.next(), components.next()) {
-        (Some(Component::Normal(component)), None) if component == std::ffi::OsStr::new(name) => {
+        (Some(Component::Normal(component)), None) if component == OsStr::new(name) => {
             Ok(output_path.join(path))
         }
         _ => Err(io::Error::new(

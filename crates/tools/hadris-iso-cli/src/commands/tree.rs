@@ -1,36 +1,20 @@
-use std::fs::File;
-use std::io::BufReader;
-
-use hadris_io::StdIo;
-use hadris_iso::directory::{DirectoryRef, FileFlags};
-use hadris_iso::read::IsoImage;
-use hadris_iso::{Read, Seek};
-
 use super::super::args::TreeArgs;
 
-use super::{Result, display_name, navigate_to_path};
+use super::{Result, View, join, list_dir, open, preferred_view};
 
 /// Display directory tree
 pub fn tree(args: TreeArgs) -> Result<()> {
-    let file = File::open(&args.input)?;
-    let reader = StdIo::new(BufReader::new(file));
-    let iso = IsoImage::open(reader)?;
-    let entry_type = iso.root_dir().entry_type();
+    let mut iso = open(&args.input)?;
+    let mut view = preferred_view(&mut iso)?;
 
     println!("{}", args.path);
-
-    let target = navigate_to_path(&iso, &args.path)?;
     let max_depth = args.depth.unwrap_or(usize::MAX);
-
-    print_tree_recursive(&iso, target, entry_type, "", 0, max_depth)?;
-
-    Ok(())
+    print_tree_recursive(&mut view, &args.path, "", 0, max_depth)
 }
 
-fn print_tree_recursive<R: Read + Seek>(
-    iso: &IsoImage<R>,
-    dir_ref: DirectoryRef,
-    entry_type: hadris_iso::file::EntryType,
+fn print_tree_recursive(
+    view: &mut View<'_>,
+    path: &str,
     prefix: &str,
     depth: usize,
     max_depth: usize,
@@ -39,13 +23,7 @@ fn print_tree_recursive<R: Read + Seek>(
         return Ok(());
     }
 
-    let dir = iso.open_dir(dir_ref);
-    let entries: Vec<_> = dir
-        .entries()
-        .filter_map(|e| e.ok())
-        .filter(|e| !e.is_special())
-        .collect();
-
+    let entries = list_dir(view, path)?;
     for (idx, entry) in entries.iter().enumerate() {
         let is_last_entry = idx == entries.len() - 1;
         let connector = if is_last_entry {
@@ -53,29 +31,19 @@ fn print_tree_recursive<R: Read + Seek>(
         } else {
             "\u{251c}\u{2500}\u{2500} "
         };
-        let display_name = display_name(entry, entry_type);
+        let is_dir = entry.meta.file_type().is_dir();
+        let suffix = if is_dir { "/" } else { "" };
+        println!("{prefix}{connector}{}{suffix}", entry.name);
 
-        let flags = FileFlags::from_bits_truncate(entry.header().flags);
-        let suffix = if flags.contains(FileFlags::DIRECTORY) {
-            "/"
-        } else {
-            ""
-        };
-
-        println!("{prefix}{connector}{display_name}{suffix}");
-
-        if flags.contains(FileFlags::DIRECTORY)
-            && let Ok(child_ref) = entry.as_dir_ref(iso)
-        {
+        if is_dir {
             let new_prefix = if is_last_entry {
                 format!("{prefix}    ")
             } else {
                 format!("{prefix}\u{2502}   ")
             };
             print_tree_recursive(
-                iso,
-                child_ref,
-                entry_type,
+                view,
+                &join(path, &entry.name),
                 &new_prefix,
                 depth + 1,
                 max_depth,
