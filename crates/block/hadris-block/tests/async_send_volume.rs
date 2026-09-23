@@ -105,7 +105,6 @@ fn failures_give_the_device_back() {
                 opened: FatVariant::Fat12,
             }
         ));
-        let dev = dev.unwrap();
         assert_eq!(dev.get_ref().len(), VOLUME_LEN);
 
         let error: Error<_> = OpenVolume::open(device(vec![0_u8; 1024]))
@@ -118,5 +117,15 @@ fn failures_give_the_device_back() {
         let past = MbrPartition::new(MbrPartitionType::Fat12, 4096, 16);
         let dev = mbr_partition(dev, &past).err().unwrap();
         assert_eq!(dev.get_ref().len(), VOLUME_LEN);
+
+        let mut image = dev.into_inner();
+        image.truncate(VOLUME_LEN / 2);
+        let (error, dev) = OpenVolume::open(device(image.clone()))
+            .await
+            .err()
+            .unwrap()
+            .into_parts();
+        assert!(matches!(error, Error::Fat(_)));
+        assert_eq!(dev.into_inner(), image);
     });
 }
