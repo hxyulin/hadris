@@ -35,6 +35,11 @@ assert!(OpenOptions::write().create().append().validate().is_ok());
 | `alloc` | No | `OwnedName` and owned path normalization |
 | `std` | No | Implies `alloc`; adds `SystemClock` |
 
+## Documentation
+
+- [Crate overview](https://hxyulin.github.io/hadris/crates)
+- [API reference](https://docs.rs/hadris-fs)
+
 ## License
 
 Licensed under the [MIT license](../../../LICENSE-MIT).

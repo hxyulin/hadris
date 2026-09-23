@@ -1,15 +1,15 @@
 name: V3 guardrails
 
 # Stability rule checks from docs/v3-api-design.md (R11). Report-only until
-# 3.0.0-rc.1: every job uses continue-on-error so findings never block a merge.
+# 3.0.0-rc.1: every check step uses continue-on-error so findings never block a merge.
 
 on:
   push:
     branches:
-      - v3
+      - main
   pull_request:
     branches:
-      - v3
+      - main
 
 permissions:
   contents: read
@@ -21,7 +21,6 @@ jobs:
   semver:
     name: semver-checks against branch point
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
         with:
@@ -34,23 +33,23 @@ jobs:
       - name: Install cargo-semver-checks
         run: cargo +stable install cargo-semver-checks --locked
       - name: Check semver against merge-base with main
+        continue-on-error: true
         run: scripts/check-semver.sh origin/main
 
   non-exhaustive:
     name: non_exhaustive lint (R1)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - name: Self-test lint
         run: python3 scripts/check-non-exhaustive.py --self-test
       - name: Check public enums and structs
+        continue-on-error: true
         run: python3 scripts/check-non-exhaustive.py
 
   api-shape:
     name: "API ${{ matrix.check }}"
     runs-on: ubuntu-latest
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -70,6 +69,7 @@ jobs:
       - name: Install cargo-public-api
         run: cargo install cargo-public-api --version 0.52.0 --locked
       - name: Run ${{ matrix.check }} check
+        continue-on-error: true
         env:
           RUSTUP_TOOLCHAIN: nightly-2026-09-04
         run: python3 scripts/check-v3-api.py ${{ matrix.check }}
