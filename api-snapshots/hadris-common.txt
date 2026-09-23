@@ -1,50 +1,4 @@
 pub mod hadris_common
-pub mod hadris_common::alg
-pub mod hadris_common::alg::hash
-pub mod hadris_common::alg::hash::crc
-pub struct hadris_common::alg::hash::crc::Crc32HasherIsoHdlc
-impl hadris_common::alg::hash::crc::Crc32HasherIsoHdlc
-pub fn hadris_common::alg::hash::crc::Crc32HasherIsoHdlc::checksum(&[u8]) -> u32
-pub mod hadris_common::optical
-#[repr(u8)] pub enum hadris_common::optical::OpticalMediaType
-pub hadris_common::optical::OpticalMediaType::BdR = 10
-pub hadris_common::optical::OpticalMediaType::BdRe = 11
-pub hadris_common::optical::OpticalMediaType::BdRom = 9
-pub hadris_common::optical::OpticalMediaType::CdR = 1
-pub hadris_common::optical::OpticalMediaType::CdRom = 0
-pub hadris_common::optical::OpticalMediaType::CdRw = 2
-pub hadris_common::optical::OpticalMediaType::DvdPlusR = 5
-pub hadris_common::optical::OpticalMediaType::DvdPlusRw = 7
-pub hadris_common::optical::OpticalMediaType::DvdR = 4
-pub hadris_common::optical::OpticalMediaType::DvdRam = 8
-pub hadris_common::optical::OpticalMediaType::DvdRom = 3
-pub hadris_common::optical::OpticalMediaType::DvdRw = 6
-impl hadris_common::optical::OpticalMediaType
-pub const fn hadris_common::optical::OpticalMediaType::capacity(&self) -> u64
-pub const fn hadris_common::optical::OpticalMediaType::is_rewritable(&self) -> bool
-pub const fn hadris_common::optical::OpticalMediaType::is_writable(&self) -> bool
-pub const fn hadris_common::optical::OpticalMediaType::is_write_once(&self) -> bool
-impl core::fmt::Display for hadris_common::optical::OpticalMediaType
-pub fn hadris_common::optical::OpticalMediaType::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct hadris_common::optical::SessionInfo
-pub hadris_common::optical::SessionInfo::end_sector: u32
-pub hadris_common::optical::SessionInfo::is_last_session: bool
-pub hadris_common::optical::SessionInfo::session_number: u16
-pub hadris_common::optical::SessionInfo::start_sector: u32
-impl hadris_common::optical::SessionInfo
-pub const fn hadris_common::optical::SessionInfo::as_last(self) -> Self
-pub const fn hadris_common::optical::SessionInfo::byte_size(&self) -> u64
-pub const fn hadris_common::optical::SessionInfo::new(u16, u32, u32) -> Self
-pub const fn hadris_common::optical::SessionInfo::sector_count(&self) -> u32
-impl core::default::Default for hadris_common::optical::SessionInfo
-pub fn hadris_common::optical::SessionInfo::default() -> Self
-impl core::fmt::Display for hadris_common::optical::SessionInfo
-pub fn hadris_common::optical::SessionInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub const hadris_common::optical::OPTICAL_SECTOR_SIZE: usize
-pub trait hadris_common::optical::OpticalMetadataWriter
-pub type hadris_common::optical::OpticalMetadataWriter::Error
-pub type hadris_common::optical::OpticalMetadataWriter::Options
-pub fn hadris_common::optical::OpticalMetadataWriter::write_metadata<W: hadris_io::legacy::sync::api::Write + hadris_io::legacy::sync::api::Seek>(&mut W, &hadris_common::types::layout::DirectoryLayout, &Self::Options) -> core::result::Result<(), Self::Error>
 pub mod hadris_common::types
 pub mod hadris_common::types::endian
 pub enum hadris_common::types::endian::EndianType
@@ -101,9 +55,9 @@ pub fn hadris_common::types::endian::NativeEndian::set_u24(u32, &mut [u8; 3])
 pub fn hadris_common::types::endian::NativeEndian::set_u32(u32, &mut [u8; 4])
 pub fn hadris_common::types::endian::NativeEndian::set_u64(u64, &mut [u8; 8])
 pub trait hadris_common::types::endian::Endian
-pub type hadris_common::types::endian::Endian::LsbType: hadris_common::types::endian::MaybePod + hadris_common::types::endian::Endian<Output = Self::Output>
-pub type hadris_common::types::endian::Endian::MsbType: hadris_common::types::endian::MaybePod + hadris_common::types::endian::Endian<Output = Self::Output>
-pub type hadris_common::types::endian::Endian::Output: hadris_common::types::endian::MaybePod
+pub type hadris_common::types::endian::Endian::LsbType: hadris_common::types::endian::Endian<Output = Self::Output>
+pub type hadris_common::types::endian::Endian::MsbType: hadris_common::types::endian::Endian<Output = Self::Output>
+pub type hadris_common::types::endian::Endian::Output
 pub fn hadris_common::types::endian::Endian::get(&self) -> Self::Output
 pub fn hadris_common::types::endian::Endian::new(Self::Output) -> Self
 pub fn hadris_common::types::endian::Endian::set(&mut self, Self::Output)
@@ -175,8 +129,6 @@ pub fn hadris_common::types::endian::NativeEndian::set_u16(u16, &mut [u8; 2])
 pub fn hadris_common::types::endian::NativeEndian::set_u24(u32, &mut [u8; 3])
 pub fn hadris_common::types::endian::NativeEndian::set_u32(u32, &mut [u8; 4])
 pub fn hadris_common::types::endian::NativeEndian::set_u64(u64, &mut [u8; 8])
-pub trait hadris_common::types::endian::MaybePod: bytemuck::pod::Pod + bytemuck::zeroable::Zeroable
-impl<T: bytemuck::pod::Pod + bytemuck::zeroable::Zeroable> hadris_common::types::endian::MaybePod for T
 pub mod hadris_common::types::extent
 #[repr(u8)] pub enum hadris_common::types::extent::FileType
 pub hadris_common::types::extent::FileType::Directory = 1

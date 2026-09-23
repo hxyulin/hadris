@@ -74,26 +74,40 @@ pub hadris_block::Error::Fat(hadris_fs::error::Error<E>)
 pub hadris_block::Error::PartitionedDisk(hadris_block::detect::PartitionTableKind)
 pub hadris_block::Error::UnknownFormat
 pub hadris_block::Error::UnsupportedFormat(hadris_block::detect::BlockFormat)
+impl<E> hadris_block::Error<E>
+pub fn hadris_block::Error<E>::device_error(&self) -> core::option::Option<&E>
+pub fn hadris_block::Error<E>::into_device_error(self) -> core::option::Option<E>
+pub fn hadris_block::Error<E>::kind(&self) -> hadris_fs::error::ErrorKind
 impl<D, E> core::convert::From<hadris_block::OpenError<D, E>> for hadris_block::Error<E>
 pub fn hadris_block::Error<E>::from(hadris_block::OpenError<D, E>) -> Self
 impl<E: core::error::Error + 'static> core::error::Error for hadris_block::Error<E>
 pub fn hadris_block::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_block::Error<E>> for core::io::error::Error
+pub fn core::io::error::Error::from(hadris_block::Error<E>) -> Self
 impl<E: core::fmt::Display> core::fmt::Display for hadris_block::Error<E>
 pub fn hadris_block::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_block::Error<E>> for hadris_fs::error::Error<E>
+pub fn hadris_fs::error::Error<E>::from(hadris_block::Error<E>) -> Self
 impl<E> core::convert::From<hadris_fs::error::Error<E>> for hadris_block::Error<E>
 pub fn hadris_block::Error<E>::from(hadris_fs::error::Error<E>) -> Self
 pub struct hadris_block::OpenError<D, E>
 impl<D, E> hadris_block::OpenError<D, E>
+pub fn hadris_block::OpenError<D, E>::device(&self) -> &D
 pub fn hadris_block::OpenError<D, E>::error(&self) -> &hadris_block::Error<E>
 pub fn hadris_block::OpenError<D, E>::into_device(self) -> D
 pub fn hadris_block::OpenError<D, E>::into_error(self) -> hadris_block::Error<E>
 pub fn hadris_block::OpenError<D, E>::into_parts(self) -> (hadris_block::Error<E>, D)
+pub fn hadris_block::OpenError<D, E>::kind(&self) -> hadris_fs::error::ErrorKind
 impl<D, E: core::error::Error + 'static> core::error::Error for hadris_block::OpenError<D, E>
 pub fn hadris_block::OpenError<D, E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_block::OpenError<D, E>> for core::io::error::Error
+pub fn core::io::error::Error::from(hadris_block::OpenError<D, E>) -> Self
 impl<D, E: core::fmt::Debug> core::fmt::Debug for hadris_block::OpenError<D, E>
 pub fn hadris_block::OpenError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<D, E: core::fmt::Display> core::fmt::Display for hadris_block::OpenError<D, E>
 pub fn hadris_block::OpenError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<D, E> core::convert::From<hadris_block::OpenError<D, E>> for hadris_block::Error<E>
 pub fn hadris_block::Error<E>::from(hadris_block::OpenError<D, E>) -> Self
+impl<D, E> core::convert::From<hadris_block::OpenError<D, E>> for hadris_fs::error::Error<E>
+pub fn hadris_fs::error::Error<E>::from(hadris_block::OpenError<D, E>) -> Self
 pub type hadris_block::Result<T, E> = core::result::Result<T, hadris_block::Error<E>>
