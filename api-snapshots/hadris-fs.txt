@@ -1,0 +1,516 @@
+pub mod hadris_fs
+pub mod hadris_fs::path
+#[non_exhaustive] pub enum hadris_fs::path::Component<'a>
+pub hadris_fs::path::Component::Current
+pub hadris_fs::path::Component::Normal(&'a str)
+pub hadris_fs::path::Component::Parent
+pub hadris_fs::path::Component::Root
+#[non_exhaustive] pub enum hadris_fs::path::PathError
+pub hadris_fs::path::PathError::EscapesRoot
+impl core::error::Error for hadris_fs::path::PathError
+impl core::fmt::Display for hadris_fs::path::PathError
+pub fn hadris_fs::path::PathError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum hadris_fs::path::Separators
+pub hadris_fs::path::Separators::Slash
+pub hadris_fs::path::Separators::SlashOrBackslash
+pub struct hadris_fs::path::Components<'a>
+impl<'a> core::iter::traits::iterator::Iterator for hadris_fs::path::Components<'a>
+pub type hadris_fs::path::Components<'a>::Item = hadris_fs::path::Component<'a>
+pub fn hadris_fs::path::Components<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct hadris_fs::path::VPath<'a>
+impl hadris_fs::path::VPath<'_>
+pub fn hadris_fs::path::VPath<'_>::normalize(self) -> core::result::Result<alloc::string::String, hadris_fs::path::PathError>
+impl<'a> hadris_fs::path::VPath<'a>
+pub const fn hadris_fs::path::VPath<'a>::as_str(self) -> &'a str
+pub fn hadris_fs::path::VPath<'a>::components(self) -> hadris_fs::path::Components<'a>
+pub fn hadris_fs::path::VPath<'a>::file_name(self) -> core::option::Option<&'a str>
+pub fn hadris_fs::path::VPath<'a>::is_absolute(self) -> bool
+pub const fn hadris_fs::path::VPath<'a>::new(&'a str) -> Self
+pub fn hadris_fs::path::VPath<'a>::parent(self) -> core::option::Option<Self>
+pub const fn hadris_fs::path::VPath<'a>::separators(self) -> hadris_fs::path::Separators
+pub fn hadris_fs::path::VPath<'a>::split_file(self) -> core::option::Option<(Self, &'a str)>
+pub const fn hadris_fs::path::VPath<'a>::with_separators(&'a str, hadris_fs::path::Separators) -> Self
+impl core::convert::AsRef<str> for hadris_fs::path::VPath<'_>
+pub fn hadris_fs::path::VPath<'_>::as_ref(&self) -> &str
+impl core::fmt::Display for hadris_fs::path::VPath<'_>
+pub fn hadris_fs::path::VPath<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::convert::From<&'a str> for hadris_fs::path::VPath<'a>
+pub fn hadris_fs::path::VPath<'a>::from(&'a str) -> Self
+pub fn hadris_fs::path::split_path(&str) -> core::option::Option<(alloc::string::String, alloc::string::String)>
+#[non_exhaustive] pub enum hadris_fs::CaseSensitivity
+pub hadris_fs::CaseSensitivity::Insensitive
+pub hadris_fs::CaseSensitivity::InsensitivePreserving
+pub hadris_fs::CaseSensitivity::Sensitive
+#[non_exhaustive] pub enum hadris_fs::DateTimeError
+pub hadris_fs::DateTimeError::InvalidCivil
+pub hadris_fs::DateTimeError::InvalidNanoseconds
+pub hadris_fs::DateTimeError::InvalidOffset
+pub hadris_fs::DateTimeError::OutOfRange
+impl hadris_fs::DateTimeError
+pub const fn hadris_fs::DateTimeError::kind(self) -> hadris_fs::ErrorKind
+impl core::convert::From<hadris_fs::DateTimeError> for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::from(hadris_fs::DateTimeError) -> Self
+impl core::error::Error for hadris_fs::DateTimeError
+impl core::fmt::Display for hadris_fs::DateTimeError
+pub fn hadris_fs::DateTimeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum hadris_fs::DeviceKind
+pub hadris_fs::DeviceKind::Block
+pub hadris_fs::DeviceKind::Char
+#[non_exhaustive] pub enum hadris_fs::ErrorKind
+pub hadris_fs::ErrorKind::AlreadyExists
+pub hadris_fs::ErrorKind::Busy
+pub hadris_fs::ErrorKind::Corrupt
+pub hadris_fs::ErrorKind::DirectoryNotEmpty
+pub hadris_fs::ErrorKind::InvalidHandle
+pub hadris_fs::ErrorKind::InvalidInput
+pub hadris_fs::ErrorKind::Io
+pub hadris_fs::ErrorKind::IsADirectory
+pub hadris_fs::ErrorKind::LimitExceeded
+pub hadris_fs::ErrorKind::NoSpace
+pub hadris_fs::ErrorKind::NotADirectory
+pub hadris_fs::ErrorKind::NotFound
+pub hadris_fs::ErrorKind::ReadOnly
+pub hadris_fs::ErrorKind::Unsupported
+impl core::convert::From<hadris_fs::DateTimeError> for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::from(hadris_fs::DateTimeError) -> Self
+impl core::convert::From<hadris_fs::NameError> for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::from(hadris_fs::NameError) -> Self
+impl core::convert::From<hadris_fs::OpenOptionsError> for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::from(hadris_fs::OpenOptionsError) -> Self
+impl core::error::Error for hadris_fs::ErrorKind
+impl core::fmt::Display for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum hadris_fs::FileType
+pub hadris_fs::FileType::BlockDevice
+pub hadris_fs::FileType::CharDevice
+pub hadris_fs::FileType::Dir
+pub hadris_fs::FileType::Fifo
+pub hadris_fs::FileType::File
+pub hadris_fs::FileType::Socket
+pub hadris_fs::FileType::Symlink
+impl hadris_fs::FileType
+pub const fn hadris_fs::FileType::is_dir(self) -> bool
+pub const fn hadris_fs::FileType::is_file(self) -> bool
+pub const fn hadris_fs::FileType::is_symlink(self) -> bool
+#[non_exhaustive] pub enum hadris_fs::NameCharset
+pub hadris_fs::NameCharset::Bytes
+pub hadris_fs::NameCharset::DCharacters
+pub hadris_fs::NameCharset::OemCodePage
+pub hadris_fs::NameCharset::Ucs2
+pub hadris_fs::NameCharset::Utf16
+pub hadris_fs::NameCharset::Utf8
+#[non_exhaustive] pub enum hadris_fs::NameError
+pub hadris_fs::NameError::CurrentDir
+pub hadris_fs::NameError::Empty
+pub hadris_fs::NameError::Nul
+pub hadris_fs::NameError::ParentDir
+pub hadris_fs::NameError::Separator
+pub hadris_fs::NameError::TooLong
+impl hadris_fs::NameError
+pub const fn hadris_fs::NameError::kind(self) -> hadris_fs::ErrorKind
+impl core::convert::From<hadris_fs::NameError> for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::from(hadris_fs::NameError) -> Self
+impl core::error::Error for hadris_fs::NameError
+impl core::fmt::Display for hadris_fs::NameError
+pub fn hadris_fs::NameError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum hadris_fs::NewNode<'a>
+pub hadris_fs::NewNode::Device(hadris_fs::DeviceKind, hadris_fs::DeviceNumber)
+pub hadris_fs::NewNode::Dir
+pub hadris_fs::NewNode::File
+pub hadris_fs::NewNode::Symlink(&'a [u8])
+impl hadris_fs::NewNode<'_>
+pub const fn hadris_fs::NewNode<'_>::file_type(&self) -> hadris_fs::FileType
+#[non_exhaustive] pub enum hadris_fs::OpenOptionsError
+pub hadris_fs::OpenOptionsError::AppendWithTruncate
+pub hadris_fs::OpenOptionsError::RequiresWrite
+impl hadris_fs::OpenOptionsError
+pub const fn hadris_fs::OpenOptionsError::kind(self) -> hadris_fs::ErrorKind
+impl core::convert::From<hadris_fs::OpenOptionsError> for hadris_fs::ErrorKind
+pub fn hadris_fs::ErrorKind::from(hadris_fs::OpenOptionsError) -> Self
+impl core::error::Error for hadris_fs::OpenOptionsError
+impl core::fmt::Display for hadris_fs::OpenOptionsError
+pub fn hadris_fs::OpenOptionsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fs::Attributes(_)
+impl hadris_fs::Attributes
+pub const hadris_fs::Attributes::ARCHIVE: Self
+pub const hadris_fs::Attributes::HIDDEN: Self
+pub const hadris_fs::Attributes::READ_ONLY: Self
+pub const hadris_fs::Attributes::SYSTEM: Self
+impl hadris_fs::Attributes
+pub const fn hadris_fs::Attributes::all() -> Self
+pub const fn hadris_fs::Attributes::bits(&self) -> u32
+pub const fn hadris_fs::Attributes::complement(self) -> Self
+pub const fn hadris_fs::Attributes::contains(&self, Self) -> bool
+pub const fn hadris_fs::Attributes::difference(self, Self) -> Self
+pub const fn hadris_fs::Attributes::empty() -> Self
+pub const fn hadris_fs::Attributes::from_bits(u32) -> core::option::Option<Self>
+pub const fn hadris_fs::Attributes::from_bits_retain(u32) -> Self
+pub const fn hadris_fs::Attributes::from_bits_truncate(u32) -> Self
+pub fn hadris_fs::Attributes::from_name(&str) -> core::option::Option<Self>
+pub fn hadris_fs::Attributes::insert(&mut self, Self)
+pub const fn hadris_fs::Attributes::intersection(self, Self) -> Self
+pub const fn hadris_fs::Attributes::intersects(&self, Self) -> bool
+pub const fn hadris_fs::Attributes::is_all(&self) -> bool
+pub const fn hadris_fs::Attributes::is_empty(&self) -> bool
+pub fn hadris_fs::Attributes::remove(&mut self, Self)
+pub fn hadris_fs::Attributes::set(&mut self, Self, bool)
+pub const fn hadris_fs::Attributes::symmetric_difference(self, Self) -> Self
+pub fn hadris_fs::Attributes::toggle(&mut self, Self)
+pub const fn hadris_fs::Attributes::union(self, Self) -> Self
+impl hadris_fs::Attributes
+pub const fn hadris_fs::Attributes::iter(&self) -> bitflags::iter::Iter<hadris_fs::Attributes>
+pub const fn hadris_fs::Attributes::iter_names(&self) -> bitflags::iter::IterNames<hadris_fs::Attributes>
+impl bitflags::traits::Flags for hadris_fs::Attributes
+pub type hadris_fs::Attributes::Bits = u32
+pub const hadris_fs::Attributes::FLAGS: &'static [bitflags::traits::Flag<hadris_fs::Attributes>]
+pub fn hadris_fs::Attributes::all_named() -> hadris_fs::Attributes
+pub fn hadris_fs::Attributes::bits(&self) -> u32
+pub fn hadris_fs::Attributes::from_bits_retain(u32) -> hadris_fs::Attributes
+impl bitflags::traits::PublicFlags for hadris_fs::Attributes
+pub type hadris_fs::Attributes::Internal = InternalBitFlags
+pub type hadris_fs::Attributes::Primitive = u32
+impl core::fmt::Binary for hadris_fs::Attributes
+pub fn hadris_fs::Attributes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::LowerHex for hadris_fs::Attributes
+pub fn hadris_fs::Attributes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Octal for hadris_fs::Attributes
+pub fn hadris_fs::Attributes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::UpperHex for hadris_fs::Attributes
+pub fn hadris_fs::Attributes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::collect::Extend<hadris_fs::Attributes> for hadris_fs::Attributes
+pub fn hadris_fs::Attributes::extend<T: core::iter::traits::collect::IntoIterator<Item = Self>>(&mut self, T)
+impl core::iter::traits::collect::FromIterator<hadris_fs::Attributes> for hadris_fs::Attributes
+pub fn hadris_fs::Attributes::from_iter<T: core::iter::traits::collect::IntoIterator<Item = Self>>(T) -> Self
+impl core::iter::traits::collect::IntoIterator for hadris_fs::Attributes
+pub type hadris_fs::Attributes::IntoIter = bitflags::iter::Iter<hadris_fs::Attributes>
+pub type hadris_fs::Attributes::Item = hadris_fs::Attributes
+pub fn hadris_fs::Attributes::into_iter(self) -> Self::IntoIter
+impl core::ops::arith::Sub for hadris_fs::Attributes
+pub type hadris_fs::Attributes::Output = hadris_fs::Attributes
+pub fn hadris_fs::Attributes::sub(self, Self) -> Self
+impl core::ops::arith::SubAssign for hadris_fs::Attributes
+pub fn hadris_fs::Attributes::sub_assign(&mut self, Self)
+impl core::ops::bit::BitAnd for hadris_fs::Attributes
+pub type hadris_fs::Attributes::Output = hadris_fs::Attributes
+pub fn hadris_fs::Attributes::bitand(self, Self) -> Self
+impl core::ops::bit::BitAndAssign for hadris_fs::Attributes
+pub fn hadris_fs::Attributes::bitand_assign(&mut self, Self)
+impl core::ops::bit::BitOr for hadris_fs::Attributes
+pub type hadris_fs::Attributes::Output = hadris_fs::Attributes
+pub fn hadris_fs::Attributes::bitor(self, hadris_fs::Attributes) -> Self
+impl core::ops::bit::BitOrAssign for hadris_fs::Attributes
+pub fn hadris_fs::Attributes::bitor_assign(&mut self, Self)
+impl core::ops::bit::BitXor for hadris_fs::Attributes
+pub type hadris_fs::Attributes::Output = hadris_fs::Attributes
+pub fn hadris_fs::Attributes::bitxor(self, Self) -> Self
+impl core::ops::bit::BitXorAssign for hadris_fs::Attributes
+pub fn hadris_fs::Attributes::bitxor_assign(&mut self, Self)
+impl core::ops::bit::Not for hadris_fs::Attributes
+pub type hadris_fs::Attributes::Output = hadris_fs::Attributes
+pub fn hadris_fs::Attributes::not(self) -> Self
+pub struct hadris_fs::Capabilities
+impl hadris_fs::Capabilities
+pub const fn hadris_fs::Capabilities::case_sensitivity(&self) -> hadris_fs::CaseSensitivity
+pub const fn hadris_fs::Capabilities::is_writable(&self) -> bool
+pub const fn hadris_fs::Capabilities::max_name_len(&self) -> usize
+pub const fn hadris_fs::Capabilities::name_charset(&self) -> hadris_fs::NameCharset
+pub const fn hadris_fs::Capabilities::new() -> Self
+pub const fn hadris_fs::Capabilities::supports_hard_links(&self) -> bool
+pub const fn hadris_fs::Capabilities::supports_owners(&self) -> bool
+pub const fn hadris_fs::Capabilities::supports_permissions(&self) -> bool
+pub const fn hadris_fs::Capabilities::supports_symlinks(&self) -> bool
+pub const fn hadris_fs::Capabilities::timestamp_resolution_ns(&self) -> u32
+pub const fn hadris_fs::Capabilities::with_case_sensitivity(self, hadris_fs::CaseSensitivity) -> Self
+pub const fn hadris_fs::Capabilities::with_hard_links(self) -> Self
+pub const fn hadris_fs::Capabilities::with_max_name_len(self, usize) -> Self
+pub const fn hadris_fs::Capabilities::with_name_charset(self, hadris_fs::NameCharset) -> Self
+pub const fn hadris_fs::Capabilities::with_owners(self) -> Self
+pub const fn hadris_fs::Capabilities::with_permissions(self) -> Self
+pub const fn hadris_fs::Capabilities::with_symlinks(self) -> Self
+pub const fn hadris_fs::Capabilities::with_timestamp_resolution_ns(self, u32) -> Self
+pub const fn hadris_fs::Capabilities::with_writable(self) -> Self
+impl core::default::Default for hadris_fs::Capabilities
+pub fn hadris_fs::Capabilities::default() -> Self
+pub struct hadris_fs::CivilDate
+impl hadris_fs::CivilDate
+pub const fn hadris_fs::CivilDate::day(&self) -> u8
+pub const fn hadris_fs::CivilDate::month(&self) -> u8
+pub const fn hadris_fs::CivilDate::new(i32, u8, u8) -> core::result::Result<Self, hadris_fs::DateTimeError>
+pub const fn hadris_fs::CivilDate::year(&self) -> i32
+pub struct hadris_fs::CivilTime
+impl hadris_fs::CivilTime
+pub const hadris_fs::CivilTime::MIDNIGHT: Self
+pub const fn hadris_fs::CivilTime::hour(&self) -> u8
+pub const fn hadris_fs::CivilTime::minute(&self) -> u8
+pub const fn hadris_fs::CivilTime::new(u8, u8, u8) -> core::result::Result<Self, hadris_fs::DateTimeError>
+pub const fn hadris_fs::CivilTime::second(&self) -> u8
+pub struct hadris_fs::DateTime
+impl hadris_fs::DateTime
+pub const hadris_fs::DateTime::MAX: Self
+pub const hadris_fs::DateTime::MIN: Self
+pub const hadris_fs::DateTime::UNIX_EPOCH: Self
+pub const fn hadris_fs::DateTime::from_civil(hadris_fs::CivilDate, hadris_fs::CivilTime, core::option::Option<i16>) -> core::result::Result<Self, hadris_fs::DateTimeError>
+pub const fn hadris_fs::DateTime::from_unix_seconds(i64) -> core::result::Result<Self, hadris_fs::DateTimeError>
+pub const fn hadris_fs::DateTime::nanoseconds(&self) -> u32
+pub const fn hadris_fs::DateTime::new(i64, u32) -> core::result::Result<Self, hadris_fs::DateTimeError>
+pub const fn hadris_fs::DateTime::to_civil(&self) -> (hadris_fs::CivilDate, hadris_fs::CivilTime)
+pub const fn hadris_fs::DateTime::to_civil_utc(&self) -> (hadris_fs::CivilDate, hadris_fs::CivilTime)
+pub const fn hadris_fs::DateTime::unix_seconds(&self) -> i64
+pub const fn hadris_fs::DateTime::utc_offset_minutes(&self) -> core::option::Option<i16>
+pub const fn hadris_fs::DateTime::with_nanoseconds(self, u32) -> core::result::Result<Self, hadris_fs::DateTimeError>
+pub const fn hadris_fs::DateTime::with_utc_offset_minutes(self, core::option::Option<i16>) -> core::result::Result<Self, hadris_fs::DateTimeError>
+pub struct hadris_fs::DeviceNumber
+impl hadris_fs::DeviceNumber
+pub const fn hadris_fs::DeviceNumber::major(&self) -> u32
+pub const fn hadris_fs::DeviceNumber::minor(&self) -> u32
+pub const fn hadris_fs::DeviceNumber::new(u32, u32) -> Self
+pub struct hadris_fs::DirCursor(_)
+impl hadris_fs::DirCursor
+pub const fn hadris_fs::DirCursor::from_raw(u64) -> Self
+pub const fn hadris_fs::DirCursor::into_raw(self) -> u64
+pub const fn hadris_fs::DirCursor::is_start(self) -> bool
+pub const fn hadris_fs::DirCursor::start() -> Self
+pub struct hadris_fs::DirEntry
+impl hadris_fs::DirEntry
+pub const fn hadris_fs::DirEntry::file_type(&self) -> hadris_fs::FileType
+pub const fn hadris_fs::DirEntry::name_len(&self) -> usize
+pub const fn hadris_fs::DirEntry::new(hadris_fs::NodeId, hadris_fs::FileType, usize) -> Self
+pub const fn hadris_fs::DirEntry::node(&self) -> hadris_fs::NodeId
+pub struct hadris_fs::FileTimes
+impl hadris_fs::FileTimes
+pub const fn hadris_fs::FileTimes::accessed(&self) -> core::option::Option<hadris_fs::DateTime>
+pub const fn hadris_fs::FileTimes::changed(&self) -> core::option::Option<hadris_fs::DateTime>
+pub const fn hadris_fs::FileTimes::created(&self) -> core::option::Option<hadris_fs::DateTime>
+pub const fn hadris_fs::FileTimes::is_empty(&self) -> bool
+pub const fn hadris_fs::FileTimes::modified(&self) -> core::option::Option<hadris_fs::DateTime>
+pub const fn hadris_fs::FileTimes::new() -> Self
+pub fn hadris_fs::FileTimes::with_accessed(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
+pub fn hadris_fs::FileTimes::with_changed(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
+pub fn hadris_fs::FileTimes::with_created(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
+pub fn hadris_fs::FileTimes::with_modified(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
+pub struct hadris_fs::FsStats
+impl hadris_fs::FsStats
+pub const fn hadris_fs::FsStats::block_size(&self) -> u32
+pub const fn hadris_fs::FsStats::file_count(&self) -> core::option::Option<u64>
+pub const fn hadris_fs::FsStats::free_blocks(&self) -> u64
+pub const fn hadris_fs::FsStats::free_bytes(&self) -> u64
+pub const fn hadris_fs::FsStats::new(u64, u64, u32) -> Self
+pub const fn hadris_fs::FsStats::total_blocks(&self) -> u64
+pub const fn hadris_fs::FsStats::total_bytes(&self) -> u64
+pub const fn hadris_fs::FsStats::used_blocks(&self) -> u64
+pub fn hadris_fs::FsStats::with_file_count(self, impl core::convert::Into<core::option::Option<u64>>) -> Self
+pub struct hadris_fs::Metadata
+impl hadris_fs::Metadata
+pub const fn hadris_fs::Metadata::attributes(&self) -> hadris_fs::Attributes
+pub const fn hadris_fs::Metadata::file_type(&self) -> hadris_fs::FileType
+pub const fn hadris_fs::Metadata::len(&self) -> u64
+pub const fn hadris_fs::Metadata::new(hadris_fs::FileType) -> Self
+pub const fn hadris_fs::Metadata::nlink(&self) -> u64
+pub const fn hadris_fs::Metadata::owner(&self) -> core::option::Option<(u32, u32)>
+pub const fn hadris_fs::Metadata::permissions(&self) -> core::option::Option<hadris_fs::Mode>
+pub const fn hadris_fs::Metadata::times(&self) -> hadris_fs::FileTimes
+pub const fn hadris_fs::Metadata::with_attributes(self, hadris_fs::Attributes) -> Self
+pub const fn hadris_fs::Metadata::with_file_type(self, hadris_fs::FileType) -> Self
+pub const fn hadris_fs::Metadata::with_len(self, u64) -> Self
+pub const fn hadris_fs::Metadata::with_nlink(self, u64) -> Self
+pub fn hadris_fs::Metadata::with_owner(self, impl core::convert::Into<core::option::Option<(u32, u32)>>) -> Self
+pub fn hadris_fs::Metadata::with_permissions(self, impl core::convert::Into<core::option::Option<hadris_fs::Mode>>) -> Self
+pub const fn hadris_fs::Metadata::with_times(self, hadris_fs::FileTimes) -> Self
+pub struct hadris_fs::Mode(_)
+impl hadris_fs::Mode
+pub const hadris_fs::Mode::MASK: u32
+pub const fn hadris_fs::Mode::bits(self) -> u32
+pub const fn hadris_fs::Mode::new(u32) -> Self
+impl core::fmt::Debug for hadris_fs::Mode
+pub fn hadris_fs::Mode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(transparent)] pub struct hadris_fs::Name(_)
+impl hadris_fs::Name
+pub const fn hadris_fs::Name::as_bytes(&self) -> &[u8]
+pub const fn hadris_fs::Name::from_bytes(&[u8]) -> core::result::Result<&hadris_fs::Name, hadris_fs::NameError>
+pub const fn hadris_fs::Name::len(&self) -> usize
+pub fn hadris_fs::Name::new<B: core::convert::AsRef<[u8]> + ?core::marker::Sized>(&B) -> core::result::Result<&hadris_fs::Name, hadris_fs::NameError>
+pub const fn hadris_fs::Name::to_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
+impl alloc::borrow::ToOwned for hadris_fs::Name
+pub type hadris_fs::Name::Owned = hadris_fs::OwnedName
+pub fn hadris_fs::Name::to_owned(&self) -> hadris_fs::OwnedName
+impl core::borrow::Borrow<hadris_fs::Name> for hadris_fs::OwnedName
+pub fn hadris_fs::OwnedName::borrow(&self) -> &hadris_fs::Name
+impl core::convert::AsRef<[u8]> for hadris_fs::Name
+pub fn hadris_fs::Name::as_ref(&self) -> &[u8]
+impl core::convert::AsRef<hadris_fs::Name> for hadris_fs::Name
+pub fn hadris_fs::Name::as_ref(&self) -> &hadris_fs::Name
+impl core::convert::AsRef<hadris_fs::Name> for hadris_fs::OwnedName
+pub fn hadris_fs::OwnedName::as_ref(&self) -> &hadris_fs::Name
+impl core::convert::From<&hadris_fs::Name> for hadris_fs::OwnedName
+pub fn hadris_fs::OwnedName::from(&hadris_fs::Name) -> Self
+impl core::fmt::Debug for hadris_fs::Name
+pub fn hadris_fs::Name::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::convert::TryFrom<&'a [u8]> for &'a hadris_fs::Name
+pub type &'a hadris_fs::Name::Error = hadris_fs::NameError
+pub fn &'a hadris_fs::Name::try_from(&'a [u8]) -> core::result::Result<Self, Self::Error>
+impl<'a> core::convert::TryFrom<&'a str> for &'a hadris_fs::Name
+pub type &'a hadris_fs::Name::Error = hadris_fs::NameError
+pub fn &'a hadris_fs::Name::try_from(&'a str) -> core::result::Result<Self, Self::Error>
+pub struct hadris_fs::NameBuf<const N: usize>
+impl<const N: usize> hadris_fs::NameBuf<N>
+pub const hadris_fs::NameBuf<N>::CAPACITY: usize
+pub fn hadris_fs::NameBuf<N>::as_bytes(&self) -> &[u8]
+pub fn hadris_fs::NameBuf<N>::as_name(&self) -> core::option::Option<&hadris_fs::Name>
+pub const fn hadris_fs::NameBuf<N>::capacity(&self) -> usize
+pub fn hadris_fs::NameBuf<N>::clear(&mut self)
+pub fn hadris_fs::NameBuf<N>::from_name(&hadris_fs::Name) -> core::result::Result<Self, hadris_fs::NameError>
+pub const fn hadris_fs::NameBuf<N>::is_empty(&self) -> bool
+pub const fn hadris_fs::NameBuf<N>::len(&self) -> usize
+pub const fn hadris_fs::NameBuf<N>::new() -> Self
+pub fn hadris_fs::NameBuf<N>::set(&mut self, &hadris_fs::Name) -> core::result::Result<(), hadris_fs::NameError>
+pub fn hadris_fs::NameBuf<N>::set_bytes(&mut self, &[u8]) -> core::result::Result<(), hadris_fs::NameError>
+impl<const N: usize> core::cmp::Eq for hadris_fs::NameBuf<N>
+impl<const N: usize> core::cmp::PartialEq for hadris_fs::NameBuf<N>
+pub fn hadris_fs::NameBuf<N>::eq(&self, &Self) -> bool
+impl<const N: usize> core::default::Default for hadris_fs::NameBuf<N>
+pub fn hadris_fs::NameBuf<N>::default() -> Self
+impl<const N: usize> core::fmt::Debug for hadris_fs::NameBuf<N>
+pub fn hadris_fs::NameBuf<N>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<const N: usize> core::hash::Hash for hadris_fs::NameBuf<N>
+pub fn hadris_fs::NameBuf<N>::hash<H: core::hash::Hasher>(&self, &mut H)
+pub struct hadris_fs::NoClock
+impl hadris_fs::NoClock
+pub const hadris_fs::NoClock::TIME: hadris_fs::DateTime
+impl hadris_fs::Clock for hadris_fs::NoClock
+pub fn hadris_fs::NoClock::now(&self) -> hadris_fs::DateTime
+pub struct hadris_fs::NodeId(_)
+impl hadris_fs::NodeId
+pub const fn hadris_fs::NodeId::get(self) -> u64
+pub const fn hadris_fs::NodeId::new(u64) -> Self
+pub struct hadris_fs::OpenOptions(_)
+impl hadris_fs::OpenOptions
+pub const fn hadris_fs::OpenOptions::append(self) -> Self
+pub const fn hadris_fs::OpenOptions::create(self) -> Self
+pub const fn hadris_fs::OpenOptions::create_new(self) -> Self
+pub const fn hadris_fs::OpenOptions::is_append(&self) -> bool
+pub const fn hadris_fs::OpenOptions::is_create(&self) -> bool
+pub const fn hadris_fs::OpenOptions::is_create_new(&self) -> bool
+pub const fn hadris_fs::OpenOptions::is_read(&self) -> bool
+pub const fn hadris_fs::OpenOptions::is_truncate(&self) -> bool
+pub const fn hadris_fs::OpenOptions::is_write(&self) -> bool
+pub const fn hadris_fs::OpenOptions::read() -> Self
+pub const fn hadris_fs::OpenOptions::read_write() -> Self
+pub const fn hadris_fs::OpenOptions::truncate(self) -> Self
+pub const fn hadris_fs::OpenOptions::validate(&self) -> core::result::Result<(), hadris_fs::OpenOptionsError>
+pub const fn hadris_fs::OpenOptions::write() -> Self
+pub struct hadris_fs::OwnedName(_)
+impl hadris_fs::OwnedName
+pub fn hadris_fs::OwnedName::as_name(&self) -> &hadris_fs::Name
+pub fn hadris_fs::OwnedName::into_bytes(self) -> alloc::vec::Vec<u8>
+pub fn hadris_fs::OwnedName::new(alloc::vec::Vec<u8>) -> core::result::Result<Self, hadris_fs::NameError>
+impl core::borrow::Borrow<hadris_fs::Name> for hadris_fs::OwnedName
+pub fn hadris_fs::OwnedName::borrow(&self) -> &hadris_fs::Name
+impl core::convert::AsRef<hadris_fs::Name> for hadris_fs::OwnedName
+pub fn hadris_fs::OwnedName::as_ref(&self) -> &hadris_fs::Name
+impl core::convert::From<&hadris_fs::Name> for hadris_fs::OwnedName
+pub fn hadris_fs::OwnedName::from(&hadris_fs::Name) -> Self
+impl core::fmt::Debug for hadris_fs::OwnedName
+pub fn hadris_fs::OwnedName::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::deref::Deref for hadris_fs::OwnedName
+pub type hadris_fs::OwnedName::Target = hadris_fs::Name
+pub fn hadris_fs::OwnedName::deref(&self) -> &hadris_fs::Name
+pub struct hadris_fs::RenameFlags(_)
+impl hadris_fs::RenameFlags
+pub const hadris_fs::RenameFlags::NO_REPLACE: Self
+impl hadris_fs::RenameFlags
+pub const fn hadris_fs::RenameFlags::all() -> Self
+pub const fn hadris_fs::RenameFlags::bits(&self) -> u32
+pub const fn hadris_fs::RenameFlags::complement(self) -> Self
+pub const fn hadris_fs::RenameFlags::contains(&self, Self) -> bool
+pub const fn hadris_fs::RenameFlags::difference(self, Self) -> Self
+pub const fn hadris_fs::RenameFlags::empty() -> Self
+pub const fn hadris_fs::RenameFlags::from_bits(u32) -> core::option::Option<Self>
+pub const fn hadris_fs::RenameFlags::from_bits_retain(u32) -> Self
+pub const fn hadris_fs::RenameFlags::from_bits_truncate(u32) -> Self
+pub fn hadris_fs::RenameFlags::from_name(&str) -> core::option::Option<Self>
+pub fn hadris_fs::RenameFlags::insert(&mut self, Self)
+pub const fn hadris_fs::RenameFlags::intersection(self, Self) -> Self
+pub const fn hadris_fs::RenameFlags::intersects(&self, Self) -> bool
+pub const fn hadris_fs::RenameFlags::is_all(&self) -> bool
+pub const fn hadris_fs::RenameFlags::is_empty(&self) -> bool
+pub fn hadris_fs::RenameFlags::remove(&mut self, Self)
+pub fn hadris_fs::RenameFlags::set(&mut self, Self, bool)
+pub const fn hadris_fs::RenameFlags::symmetric_difference(self, Self) -> Self
+pub fn hadris_fs::RenameFlags::toggle(&mut self, Self)
+pub const fn hadris_fs::RenameFlags::union(self, Self) -> Self
+impl hadris_fs::RenameFlags
+pub const fn hadris_fs::RenameFlags::iter(&self) -> bitflags::iter::Iter<hadris_fs::RenameFlags>
+pub const fn hadris_fs::RenameFlags::iter_names(&self) -> bitflags::iter::IterNames<hadris_fs::RenameFlags>
+impl bitflags::traits::Flags for hadris_fs::RenameFlags
+pub type hadris_fs::RenameFlags::Bits = u32
+pub const hadris_fs::RenameFlags::FLAGS: &'static [bitflags::traits::Flag<hadris_fs::RenameFlags>]
+pub fn hadris_fs::RenameFlags::all_named() -> hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::bits(&self) -> u32
+pub fn hadris_fs::RenameFlags::from_bits_retain(u32) -> hadris_fs::RenameFlags
+impl bitflags::traits::PublicFlags for hadris_fs::RenameFlags
+pub type hadris_fs::RenameFlags::Internal = InternalBitFlags
+pub type hadris_fs::RenameFlags::Primitive = u32
+impl core::fmt::Binary for hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::LowerHex for hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Octal for hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::UpperHex for hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::collect::Extend<hadris_fs::RenameFlags> for hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::extend<T: core::iter::traits::collect::IntoIterator<Item = Self>>(&mut self, T)
+impl core::iter::traits::collect::FromIterator<hadris_fs::RenameFlags> for hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::from_iter<T: core::iter::traits::collect::IntoIterator<Item = Self>>(T) -> Self
+impl core::iter::traits::collect::IntoIterator for hadris_fs::RenameFlags
+pub type hadris_fs::RenameFlags::IntoIter = bitflags::iter::Iter<hadris_fs::RenameFlags>
+pub type hadris_fs::RenameFlags::Item = hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::into_iter(self) -> Self::IntoIter
+impl core::ops::arith::Sub for hadris_fs::RenameFlags
+pub type hadris_fs::RenameFlags::Output = hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::sub(self, Self) -> Self
+impl core::ops::arith::SubAssign for hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::sub_assign(&mut self, Self)
+impl core::ops::bit::BitAnd for hadris_fs::RenameFlags
+pub type hadris_fs::RenameFlags::Output = hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::bitand(self, Self) -> Self
+impl core::ops::bit::BitAndAssign for hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::bitand_assign(&mut self, Self)
+impl core::ops::bit::BitOr for hadris_fs::RenameFlags
+pub type hadris_fs::RenameFlags::Output = hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::bitor(self, hadris_fs::RenameFlags) -> Self
+impl core::ops::bit::BitOrAssign for hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::bitor_assign(&mut self, Self)
+impl core::ops::bit::BitXor for hadris_fs::RenameFlags
+pub type hadris_fs::RenameFlags::Output = hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::bitxor(self, Self) -> Self
+impl core::ops::bit::BitXorAssign for hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::bitxor_assign(&mut self, Self)
+impl core::ops::bit::Not for hadris_fs::RenameFlags
+pub type hadris_fs::RenameFlags::Output = hadris_fs::RenameFlags
+pub fn hadris_fs::RenameFlags::not(self) -> Self
+pub struct hadris_fs::SetMetadata
+impl hadris_fs::SetMetadata
+pub const fn hadris_fs::SetMetadata::attributes(&self) -> core::option::Option<hadris_fs::Attributes>
+pub const fn hadris_fs::SetMetadata::gid(&self) -> core::option::Option<u32>
+pub const fn hadris_fs::SetMetadata::is_empty(&self) -> bool
+pub const fn hadris_fs::SetMetadata::mode(&self) -> core::option::Option<hadris_fs::Mode>
+pub const fn hadris_fs::SetMetadata::new() -> Self
+pub const fn hadris_fs::SetMetadata::times(&self) -> hadris_fs::FileTimes
+pub const fn hadris_fs::SetMetadata::uid(&self) -> core::option::Option<u32>
+pub fn hadris_fs::SetMetadata::with_attributes(self, impl core::convert::Into<core::option::Option<hadris_fs::Attributes>>) -> Self
+pub fn hadris_fs::SetMetadata::with_gid(self, impl core::convert::Into<core::option::Option<u32>>) -> Self
+pub fn hadris_fs::SetMetadata::with_mode(self, impl core::convert::Into<core::option::Option<hadris_fs::Mode>>) -> Self
+pub const fn hadris_fs::SetMetadata::with_times(self, hadris_fs::FileTimes) -> Self
+pub fn hadris_fs::SetMetadata::with_uid(self, impl core::convert::Into<core::option::Option<u32>>) -> Self
+pub struct hadris_fs::SystemClock
+impl hadris_fs::Clock for hadris_fs::SystemClock
+pub fn hadris_fs::SystemClock::now(&self) -> hadris_fs::DateTime
+pub trait hadris_fs::Clock
+pub fn hadris_fs::Clock::now(&self) -> hadris_fs::DateTime
+impl hadris_fs::Clock for hadris_fs::NoClock
+pub fn hadris_fs::NoClock::now(&self) -> hadris_fs::DateTime
+impl hadris_fs::Clock for hadris_fs::SystemClock
+pub fn hadris_fs::SystemClock::now(&self) -> hadris_fs::DateTime
+impl<C: hadris_fs::Clock + ?core::marker::Sized> hadris_fs::Clock for &C
+pub fn &C::now(&self) -> hadris_fs::DateTime

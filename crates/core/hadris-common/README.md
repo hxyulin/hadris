@@ -10,7 +10,7 @@ format crate instead.
 
 It provides endian-aware types, extents, fixed-capacity byte, text and
 collection types (`types::fixed`, formerly the `hadris-fixed` crate), and
-optional optical-media types. Virtual path code uses `hadris-path`.
+optional optical-media types. Virtual path code uses `hadris_fs::path`.
 
 ## Features
 

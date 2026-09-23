@@ -1,5 +1,5 @@
 pub mod hadris
 pub use hadris::block
 pub use hadris::cpio
+pub use hadris::fs
 pub use hadris::optical
-pub use hadris::path

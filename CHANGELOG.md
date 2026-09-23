@@ -8,7 +8,21 @@ Each published package owns its version and may be released independently.
 
 ## [Unreleased]
 
+### Added
+
+- **hadris-fs (V3):** New crate with the shared, mode-independent filesystem
+  vocabulary: `NodeId`, `FileType`, byte names (`Name`, `NameBuf`,
+  `OwnedName`), `DateTime` with civil-time conversions, `FileTimes`, `Clock`
+  (`NoClock`, `SystemClock`), `Mode`, `Attributes`, `Metadata`,
+  `SetMetadata`, `Capabilities`, `FsStats`, `ErrorKind`, `DirCursor`,
+  `DirEntry`, `OpenOptions`, `RenameFlags` and `NewNode`.
+
 ### Removed
+
+- **hadris-path (V3):** Merged into `hadris-fs` as `hadris_fs::path`.
+  `Component`, `Separators` and `PathError` are now `#[non_exhaustive]`. The
+  umbrella `hadris` crate replaces its `path` feature and `hadris::path` module
+  with `fs` and `hadris::fs`.
 
 - **hadris-fixed (V3):** Folded into `hadris-common` as `types::fixed`, which
   also absorbs the former `types::no_alloc` (`ArrayVec`, `RingBuf`).

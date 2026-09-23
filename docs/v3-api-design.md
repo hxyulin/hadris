@@ -912,4 +912,6 @@ through 3.0 either way.
 page and long names are UTF-16. ISO primary names are d-characters, Joliet is
 UCS-2. The trait takes bytes. Does `Capabilities` describe the charset
 precisely enough for a VFS to translate names, or does each format also need
-a `NameCodec`?
+a `NameCodec`? Still open: `hadris-fs` ships `Capabilities::name_charset()`
+returning a non-exhaustive `NameCharset` (`Bytes`, `Utf8`, `Ucs2`, `Utf16`,
+`DCharacters`, `OemCodePage`) as the interim answer.

@@ -19,12 +19,12 @@ crates=(
   hadris-common
   hadris-cpio
   hadris-fat
+  hadris-fs
   hadris-io
   hadris-iso
   hadris-macros
   hadris-optical
   hadris-part
-  hadris-path
   hadris-storage
   hadris-udf
 )

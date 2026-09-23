@@ -66,7 +66,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 ### Core Libraries
 
 - **[hadris-io](crates/core/hadris-io)** - No-std I/O abstraction layer (`Read`, `Write`, `Seek`)
-- **[hadris-path](crates/core/hadris-path)** - Allocation-free lexical paths for virtual filesystems and archives
+- **[hadris-fs](crates/core/hadris-fs)** - Shared filesystem vocabulary (names, times, metadata, error kinds) and allocation-free lexical paths
 - **[hadris-common](crates/core/hadris-common)** - Internal shared utilities (endian types, fixed-capacity byte and text types, CRC, optical helpers); not for direct use
 - **[hadris-storage](crates/core/hadris-storage)** - Format-neutral block geometry, device traits, and seekable-stream adapters
 - **[hadris-macros](crates/core/hadris-macros)** - Proc macros for dual sync/async code generation
@@ -191,7 +191,7 @@ Each package now owns its version; all current packages target **2.4.0**:
 hadris-iso = "2.4.0"
 hadris-fat = "2.4.0"
 hadris-part = { version = "2.4.0", features = ["read"] }
-hadris-path = "2.4.0"
+hadris-fs = "2.4.0"
 ```
 
 For allocation-free `no_std` ISO reading:

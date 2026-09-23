@@ -103,13 +103,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # hadris-path
-          - crate: hadris-path
+          # hadris-fs
+          - crate: hadris-fs
             tier: no-std
             features: ""
-          - crate: hadris-path
+          - crate: hadris-fs
             tier: alloc
             features: "alloc"
+          - crate: hadris-fs
+            tier: std
+            features: "std"
 
           # hadris-io
           - crate: hadris-io

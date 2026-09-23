@@ -182,7 +182,7 @@ not impose a shared version. Update only the packages being released and keep
 their requirements in `[workspace.dependencies]` aligned.
 
 When several unpublished versions depend on one another, publish in dependency
-order: `hadris-macros`/`hadris-io`/`hadris-path`; then
+order: `hadris-macros`/`hadris-io`/`hadris-fs`; then
 `hadris-common`/`hadris-storage`/`hadris-part`; then format crates; then category
 facades and `hadris-cd`; then the `hadris` umbrella and CLI packages. Cargo
 validates dependent packages against crates.io, so each prerequisite version
