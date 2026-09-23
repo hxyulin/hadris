@@ -239,3 +239,46 @@ fn async_send_writers_on_other_threads() {
     let fs = Arc::into_inner(vol).unwrap().into_inner();
     assert_eq!(fs.open_nodes(), 1);
 }
+
+#[test]
+fn format_in_the_async_modes() {
+    use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
+    use hadris_storage::{BlockSize, MemDevice};
+
+    fn assert_send<T: Send>(value: T) -> T {
+        value
+    }
+    let options = || {
+        FormatOptions::new()
+            .with_kind(FatKind::Fat32)
+            .with_label(VolumeLabel::new("ASYNC").unwrap())
+    };
+    let device = || MemDevice::new(vec![0u8; 40 << 20], BlockSize::new(512).unwrap());
+
+    let sync = hadris_fat::sync::format(device(), options())
+        .unwrap()
+        .into_inner()
+        .into_inner();
+    let image = block_on(async {
+        use hadris_fs::r#async::{FileSystem, PathExt, Volume};
+        let fs = hadris_fat::r#async::format(device(), options())
+            .await
+            .unwrap();
+        assert_eq!(fs.kind(), FatKind::Fat32);
+        let vol = Volume::new(fs);
+        vol.write_file("/async.txt", b"async").await.unwrap();
+        vol.sync().await.unwrap();
+        vol.into_inner().into_inner().into_inner()
+    });
+    let send = block_on(assert_send(hadris_fat::async_send::format(
+        device(),
+        options(),
+    )))
+    .unwrap()
+    .into_inner()
+    .into_inner();
+    assert_eq!(sync, send);
+    let v2 = common::open_v2(&image);
+    assert_eq!(v2.volume_info().volume_label(), "ASYNC");
+    common::fsck(&image, "async format");
+}

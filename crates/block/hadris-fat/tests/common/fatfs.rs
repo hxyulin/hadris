@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
 use std::io::Cursor;
+use std::path::Path;
+use std::process::Command;
 
 use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter, SectorSize};
 use hadris_fat::raw::DirEntryAttrFlags;
@@ -183,4 +185,52 @@ pub fn block_on<F: core::future::Future>(future: F) -> F::Output {
             return out;
         }
     }
+}
+
+/// A tool that checks an image file without changing it.
+struct Fsck {
+    program: &'static str,
+    args: &'static [&'static str],
+}
+
+const FSCKS: [Fsck; 2] = [
+    Fsck {
+        program: "fsck.fat",
+        args: &["-n", "-V"],
+    },
+    Fsck {
+        program: "fsck_msdos",
+        args: &["-n"],
+    },
+];
+
+/// Runs every installed `fsck` on `image` and fails on any complaint.
+/// Returns how many ran.
+pub fn fsck(image: &[u8], label: &str) -> usize {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("image.img");
+    std::fs::write(&path, image).unwrap();
+    let mut ran = 0;
+    for tool in FSCKS {
+        let Some(output) = run(tool.program, tool.args, &path) else {
+            continue;
+        };
+        ran += 1;
+        let text = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.status.success(),
+            "{} rejected {label}:\n{text}",
+            tool.program
+        );
+        std::fs::write(&path, image).unwrap();
+    }
+    ran
+}
+
+fn run(program: &str, args: &[&str], path: &Path) -> Option<std::process::Output> {
+    Command::new(program).args(args).arg(path).output().ok()
 }

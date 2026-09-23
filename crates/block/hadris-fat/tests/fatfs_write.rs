@@ -7,10 +7,8 @@ mod common;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::io::{Read as _, Write as _};
-use std::path::Path;
-use std::process::Command;
 
-use common::{CASES, Case, Device, KANJI_NAME};
+use common::{CASES, Case, Device, KANJI_NAME, fsck};
 use hadris_fat::sync::FatFs;
 use hadris_fat::{Ascii, CodePage, Cp437, FatDir, FatVolume, FatVolumeReadExt, MountOptions};
 use hadris_fs::sync::{DriverExt, FileSystem, FsDriver, PathExt, Volume, copy_tree};
@@ -118,54 +116,6 @@ fn v2_names(dir: &FatDir<'_, common::Image>) -> Vec<String> {
 fn v2_read(v2: &FatVolume<common::Image>, dir: &FatDir<'_, common::Image>, file: &str) -> Vec<u8> {
     let entry = dir.find(file).unwrap().unwrap();
     v2.read_file(&entry).unwrap().read_to_vec().unwrap()
-}
-
-/// A tool that checks an image file without changing it.
-struct Fsck {
-    program: &'static str,
-    args: &'static [&'static str],
-}
-
-const FSCKS: [Fsck; 2] = [
-    Fsck {
-        program: "fsck.fat",
-        args: &["-n", "-V"],
-    },
-    Fsck {
-        program: "fsck_msdos",
-        args: &["-n"],
-    },
-];
-
-/// Runs every installed `fsck` on `image` and fails on any complaint.
-/// Returns how many ran.
-fn fsck(image: &[u8], label: &str) -> usize {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("image.img");
-    std::fs::write(&path, image).unwrap();
-    let mut ran = 0;
-    for tool in FSCKS {
-        let Some(output) = run(tool.program, tool.args, &path) else {
-            continue;
-        };
-        ran += 1;
-        let text = format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(
-            output.status.success(),
-            "{} rejected {label}:\n{text}",
-            tool.program
-        );
-        std::fs::write(&path, image).unwrap();
-    }
-    ran
-}
-
-fn run(program: &str, args: &[&str], path: &Path) -> Option<std::process::Output> {
-    Command::new(program).args(args).arg(path).output().ok()
 }
 
 fn fat_time(year: i32, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> DateTime {

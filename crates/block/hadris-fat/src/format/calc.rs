@@ -5,6 +5,8 @@
 
 use crate::error::{Error, Result};
 use super::super::fat_table::FatType;
+use crate::FatKind;
+use crate::codec::layout::{self, FAT12_MAX_CLUSTERS, FAT16_MAX_CLUSTERS};
 
 use super::options::{FatTypeSelection, FatFormatOptions};
 
@@ -47,9 +49,6 @@ const MAX_FAT12_SIZE: u64 = 32 * 1024 * 1024; // ~32 MB max for FAT12
 const MAX_FAT16_SIZE: u64 = 2u64 * 1024 * 1024 * 1024; // 2 GB max for FAT16
 const MAX_FAT32_SIZE: u64 = 2u64 * 1024 * 1024 * 1024 * 1024; // 2 TB max for FAT32
 
-/// Microsoft FAT specification cluster count thresholds
-const FAT12_MAX_CLUSTERS: u32 = 4084;
-const FAT16_MAX_CLUSTERS: u32 = 65524;
 
 /// Calculate formatting parameters from options.
 pub fn calculate_params(options: &FatFormatOptions) -> Result<FormatParams> {
@@ -205,80 +204,24 @@ fn determine_fat_type(options: &FatFormatOptions) -> Result<FatType> {
     }
 }
 
+fn kind(fat_type: FatType) -> FatKind {
+    match fat_type {
+        FatType::Fat12 => FatKind::Fat12,
+        FatType::Fat16 => FatKind::Fat16,
+        FatType::Fat32 => FatKind::Fat32,
+    }
+}
+
 /// Calculate optimal sectors per cluster based on volume size.
 ///
 /// These values are based on Microsoft's recommendations.
 fn calculate_sectors_per_cluster(volume_size: u64, fat_type: FatType, sector_size: usize) -> u8 {
-    let size_mb = volume_size / (1024 * 1024);
-
+    if sector_size == 512 {
+        return layout::default_cluster_sectors(kind(fat_type), volume_size) as u8;
+    }
     match fat_type {
-        FatType::Fat12 => {
-            // FAT12: Keep clusters small for efficiency
-            if sector_size == 512 {
-                if size_mb <= 2 {
-                    1
-                } else if size_mb <= 4 {
-                    2
-                } else if size_mb <= 8 {
-                    4
-                } else if size_mb <= 16 {
-                    8
-                } else {
-                    16
-                }
-            } else {
-                1
-            }
-        }
-        FatType::Fat16 => {
-            // FAT16: Microsoft recommended defaults
-            if sector_size == 512 {
-                if size_mb <= 8 {
-                    1
-                } else if size_mb <= 16 {
-                    2
-                } else if size_mb <= 32 {
-                    4
-                } else if size_mb <= 64 {
-                    8
-                } else if size_mb <= 128 {
-                    16
-                } else if size_mb <= 256 {
-                    32
-                } else if size_mb <= 512 {
-                    64
-                } else {
-                    128
-                }
-            } else {
-                // Adjust for larger sector sizes
-                (32768 / sector_size).clamp(1, 128) as u8
-            }
-        }
-        FatType::Fat32 => {
-            // FAT32: Microsoft recommended defaults
-            let size_gb = volume_size / (1024 * 1024 * 1024);
-            if sector_size == 512 {
-                if size_mb <= 64 {
-                    1
-                } else if size_mb <= 128 {
-                    2
-                } else if size_mb <= 256 {
-                    4
-                } else if size_gb <= 8 {
-                    8
-                } else if size_gb <= 16 {
-                    16
-                } else if size_gb <= 32 {
-                    32
-                } else {
-                    64
-                }
-            } else {
-                // Adjust for larger sector sizes
-                (32768 / sector_size).clamp(1, 128) as u8
-            }
-        }
+        FatType::Fat12 => 1,
+        FatType::Fat16 | FatType::Fat32 => (32768 / sector_size).clamp(1, 128) as u8,
     }
 }
 
@@ -292,7 +235,6 @@ fn calculate_fat_size(
     fat_count: u32,
     sector_size: usize,
 ) -> Result<(u32, u32)> {
-    // Available sectors for FAT and data
     let overhead = reserved_sectors + root_dir_sectors;
     if total_sectors <= overhead {
         return Err(Error::VolumeTooSmall {
@@ -300,80 +242,21 @@ fn calculate_fat_size(
             min_size: (overhead + 1) as u64 * sector_size as u64,
         });
     }
-
-    let data_and_fat_sectors = total_sectors - overhead;
-
-    // Calculate based on FAT entry size
-    let (sectors_per_fat, cluster_count) = match fat_type {
-        FatType::Fat12 => {
-            // FAT12: 1.5 bytes per entry
-            // Formula: clusters = (data_and_fat_sectors - fat_count * fat_sectors) / spc
-            // fat_sectors = ceil((clusters + 2) * 1.5 / sector_size)
-            // Solve iteratively
-            let mut fat_sectors = 1u32;
-            loop {
-                let data_sectors = data_and_fat_sectors.saturating_sub(fat_count * fat_sectors);
-                let clusters = data_sectors / sectors_per_cluster;
-                let needed_fat_bytes = ((clusters + 2) * 3).div_ceil(2);
-                let needed_fat_sectors = needed_fat_bytes.div_ceil(sector_size as u32);
-
-                if needed_fat_sectors <= fat_sectors {
-                    break (fat_sectors, clusters);
-                }
-                fat_sectors = needed_fat_sectors;
-                if fat_sectors > total_sectors {
-                    return Err(Error::VolumeTooSmall {
-                        size: total_sectors as u64 * sector_size as u64,
-                        min_size: MIN_FAT12_SIZE,
-                    });
-                }
-            }
-        }
-        FatType::Fat16 => {
-            // FAT16: 2 bytes per entry
-            let mut fat_sectors = 1u32;
-            loop {
-                let data_sectors = data_and_fat_sectors.saturating_sub(fat_count * fat_sectors);
-                let clusters = data_sectors / sectors_per_cluster;
-                let needed_fat_bytes = (clusters + 2) * 2;
-                let needed_fat_sectors = needed_fat_bytes.div_ceil(sector_size as u32);
-
-                if needed_fat_sectors <= fat_sectors {
-                    break (fat_sectors, clusters);
-                }
-                fat_sectors = needed_fat_sectors;
-                if fat_sectors > total_sectors {
-                    return Err(Error::VolumeTooSmall {
-                        size: total_sectors as u64 * sector_size as u64,
-                        min_size: MIN_FAT16_SIZE,
-                    });
-                }
-            }
-        }
-        FatType::Fat32 => {
-            // FAT32: 4 bytes per entry
-            let mut fat_sectors = 1u32;
-            loop {
-                let data_sectors = data_and_fat_sectors.saturating_sub(fat_count * fat_sectors);
-                let clusters = data_sectors / sectors_per_cluster;
-                let needed_fat_bytes = (clusters + 2) * 4;
-                let needed_fat_sectors = needed_fat_bytes.div_ceil(sector_size as u32);
-
-                if needed_fat_sectors <= fat_sectors {
-                    break (fat_sectors, clusters);
-                }
-                fat_sectors = needed_fat_sectors;
-                if fat_sectors > total_sectors {
-                    return Err(Error::VolumeTooSmall {
-                        size: total_sectors as u64 * sector_size as u64,
-                        min_size: MIN_FAT32_SIZE,
-                    });
-                }
-            }
-        }
-    };
-
-    Ok((sectors_per_fat, cluster_count))
+    layout::fat_sectors(
+        kind(fat_type),
+        total_sectors - overhead,
+        sectors_per_cluster,
+        fat_count,
+        sector_size as u32,
+    )
+    .ok_or(Error::VolumeTooSmall {
+        size: total_sectors as u64 * sector_size as u64,
+        min_size: match fat_type {
+            FatType::Fat12 => MIN_FAT12_SIZE,
+            FatType::Fat16 => MIN_FAT16_SIZE,
+            FatType::Fat32 => MIN_FAT32_SIZE,
+        },
+    })
 }
 
 /// Validate that the cluster count is appropriate for the FAT type.

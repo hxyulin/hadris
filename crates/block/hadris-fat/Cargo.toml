@@ -103,3 +103,7 @@ required-features = ["std", "sync", "async-send", "write"]
 [[test]]
 name = "fatfs_write"
 required-features = ["std", "sync", "write"]
+
+[[test]]
+name = "fatfs_format"
+required-features = ["std", "sync", "write"]

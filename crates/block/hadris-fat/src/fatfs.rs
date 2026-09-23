@@ -22,7 +22,7 @@ const ROOT: NodeId = NodeId::new(1);
 /// Ids from here up are handed out when a node's natural id is taken.
 const FALLBACK_IDS: u64 = 1 << 63;
 /// The largest device block [`FatFs`] can buffer.
-const MAX_BLOCK_SIZE: usize = 4096;
+pub(super) const MAX_BLOCK_SIZE: usize = 4096;
 const BOOT_SECTOR_LEN: usize = 512;
 const BPB_LEN: usize = size_of::<RawBpb>();
 const FAT32_MIRRORING_DISABLED: u16 = 0x80;
@@ -205,10 +205,20 @@ struct Growth {
 }
 
 /// One device block, the driver's only buffer.
-struct BlockBuf {
+pub(super) struct BlockBuf {
     data: [u8; MAX_BLOCK_SIZE],
     size: usize,
     cached: Option<u64>,
+}
+
+impl BlockBuf {
+    pub(super) fn new(size: usize) -> Self {
+        Self {
+            data: [0; MAX_BLOCK_SIZE],
+            size,
+            cached: None,
+        }
+    }
 }
 
 fn metadata(node: &Node, entry: &ShortEntry) -> Metadata {
@@ -379,10 +389,11 @@ async fn read_bytes<D: BlockDevice>(
 }
 
 /// Writes `len` bytes at byte `offset`: from `data`, or zeros when `data` is
-/// `None`. Whole blocks of `data` go straight to the device; partial blocks
+/// `None`. Whole blocks of `data` go straight to the device, whole blocks of
+/// zeros go from `block` as many at once as it holds, and partial blocks
 /// are read, patched and written through `block`, which is left holding the
 /// device's copy or nothing.
-async fn write_bytes<D: BlockDevice>(
+pub(super) async fn write_bytes<D: BlockDevice>(
     dev: &mut D,
     block: &mut BlockBuf,
     offset: u64,
@@ -396,6 +407,14 @@ async fn write_bytes<D: BlockDevice>(
         let index = pos / size as u64;
         let at = (pos % size as u64) as usize;
         let whole = (len - done) / size * size;
+        if data.is_none() && at == 0 && whole > 0 {
+            let chunk = whole.min(MAX_BLOCK_SIZE / size * size);
+            block.cached = None;
+            block.data[..chunk].fill(0);
+            dev.write_blocks(BlockIndex(index), &block.data[..chunk]).await?;
+            done += chunk;
+            continue;
+        }
         if let Some(data) = data
             && at == 0
             && whole > 0
@@ -561,7 +580,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         if size > MAX_BLOCK_SIZE {
             return Err(ErrorKind::Unsupported.into());
         }
-        let mut block = BlockBuf { data: [0; MAX_BLOCK_SIZE], size, cached: None };
+        let mut block = BlockBuf::new(size);
         let mut sector = [0u8; BOOT_SECTOR_LEN];
         read_bytes(&mut dev, &mut block, 0, &mut sector).await?;
         let bpb: RawBpb = bytemuck::pod_read_unaligned(&sector[..BPB_LEN]);

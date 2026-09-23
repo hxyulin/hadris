@@ -54,6 +54,37 @@
 //! # fn main() {}
 //! ```
 //!
+//! `FatFs<D, T, C, P>` also takes the node table, the [`Clock`](hadris_fs::Clock)
+//! that stamps entries and the [`CodePage`] of short names as type
+//! parameters, chosen with [`MountOptions`] and `FatFs::open_with`.
+//!
+//! ## Formatting with `FatFs`
+//!
+//! With the `write` feature, `format` (in each mode) lays out a FAT12,
+//! FAT16 or FAT32 volume that fills a block device and mounts it. It needs
+//! no allocator. [`FormatOptions`] sets the variant, label, volume id,
+//! sector and cluster size and the other boot sector fields; everything
+//! defaults from the device's size.
+//!
+//! ```rust
+//! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use hadris_fat::sync::format;
+//! use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
+//! use hadris_fs::sync::{PathExt, Volume};
+//! use hadris_storage::{BlockSize, MemDevice};
+//!
+//! let dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(512).unwrap());
+//! let fs = format(dev, FormatOptions::new().with_label(VolumeLabel::new("DATA")?))?;
+//! assert_eq!(fs.kind(), FatKind::Fat12);
+//! let vol = Volume::new(fs);
+//! vol.write_file("/hello.txt", b"hello")?;
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]
+//! # fn main() {}
+//! ```
+//!
 //! ## Builder: custom providers and FAT caching
 //!
 //! [`FatVolume::builder`] configures the clock and
@@ -98,7 +129,7 @@
 //! | `async`  | No      | Asynchronous API via `hadris-io` async traits |
 //! | `async-send` | No  | Asynchronous API with `Send` futures (`async_send` module) |
 //! | `read`   | Yes     | Read operations |
-//! | `write`  | Yes     | Write operations (requires `alloc` + `read`) |
+//! | `write`  | Yes     | `format` for `FatFs`; with `alloc`, the V2 writer and formatter |
 //! | `lfn`    | Yes     | Long filename (VFAT) support |
 //! | `cache`  | No      | FAT sector caching for reduced I/O |
 //! | `tool`   | No      | Analysis and diagnostic utilities |
@@ -131,6 +162,8 @@
 //! ## Modules
 //!
 //! - `sync::FatFs`, `r#async::FatFs`, `async_send::FatFs` — the V3 driver
+//! - `sync::format`, `r#async::format`, `async_send::format` — the V3
+//!   formatter (requires `write`)
 //! - `error` — Error types for FAT operations
 //! - `file` — Short filename (8.3) types and validation
 //! - `raw` — On-disk structures: boot sector, BPB, directory entries
@@ -140,7 +173,7 @@
 //! - `sync::write` — Write extension trait for file modification
 //! - `sync::fat_table` — FAT table access (FAT12/16/32)
 //! - `sync::cache` — Optional FAT sector caching
-//! - `sync::format` — Filesystem formatting (requires `write`)
+//! - `sync::format` — V2 filesystem formatting (requires `write` and `alloc`)
 //! - `sync::tool` — Analysis and verification (requires `tool`)
 
 #![cfg_attr(not(test), no_std)]
@@ -216,6 +249,11 @@ pub mod sync {
     #[path = "fatfs.rs"]
     mod fatfs;
     pub use fatfs::FatFs;
+    #[cfg(feature = "write")]
+    #[path = "mkfs.rs"]
+    mod mkfs;
+    #[cfg(feature = "write")]
+    pub use mkfs::format;
 
     #[path = "."]
     mod __inner {
@@ -290,6 +328,11 @@ pub mod r#async {
     #[path = "fatfs.rs"]
     mod fatfs;
     pub use fatfs::FatFs;
+    #[cfg(feature = "write")]
+    #[path = "mkfs.rs"]
+    mod mkfs;
+    #[cfg(feature = "write")]
+    pub use mkfs::format;
 
     #[path = "."]
     mod __inner {
@@ -346,7 +389,9 @@ pub use sync::*;
 pub use code_page::{Ascii, CodePage, Cp437};
 pub use codec::entry::FatKind;
 pub use error::{Error, Result};
-pub use options::MountOptions;
+#[cfg(feature = "write")]
+pub use options::FormatOptions;
+pub use options::{MountOptions, VolumeLabel};
 
 #[cfg(all(test, feature = "async", feature = "alloc", feature = "read"))]
 #[path = "../tests/async_roundtrip.rs"]
