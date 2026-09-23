@@ -175,11 +175,13 @@ impl Gpt {
     }
 
     /// Builds a table from the validated header `header` of copy `source`.
+    /// `backup_entries` is where a valid backup copy keeps its array.
     pub(crate) fn from_disk(
         header: &RawGptHeader,
         source: GptCopy,
         entries: Vec<RawGptEntry>,
         damaged: Option<GptCopy>,
+        backup_entries: Option<u64>,
         block_count: u64,
         block_size: BlockSize,
     ) -> Self {
@@ -203,9 +205,10 @@ impl Gpt {
             }
             GptCopy::Backup => (2, header.my_lba()),
         };
-        let backup_entries_lba = match source {
-            GptCopy::Backup => header.partition_entry_lba(),
-            GptCopy::Primary => backup_lba.saturating_sub(array),
+        let backup_entries_lba = match (source, backup_entries) {
+            (GptCopy::Backup, _) => header.partition_entry_lba(),
+            (_, Some(lba)) if damaged.is_none() => lba,
+            _ => backup_lba.saturating_sub(array),
         };
         Self {
             block_size,

@@ -23,6 +23,8 @@ struct Found {
     array: Array,
     copy: GptCopy,
     damaged: Option<GptCopy>,
+    /// The array block of the backup copy, when it is valid.
+    backup_entries: Option<u64>,
 }
 
 fn geometry<D: BlockDevice>(dev: &D) -> Result<(BlockSize, u64), Error<D::Error>> {
@@ -95,15 +97,18 @@ async fn find_gpt<D: BlockDevice>(
     let backup = load_copy(dev, backup_lba, block_count, buf).await?;
     match (primary, backup) {
         (Ok((header, array)), backup) => {
-            let damaged = match backup {
-                Ok((other, _)) if codec::same_table(&header, &other) => None,
-                _ => Some(GptCopy::Backup),
+            let backup_entries = match backup {
+                Ok((other, other_array)) if codec::same_table(&header, &other) => {
+                    Some(other_array.lba)
+                }
+                _ => None,
             };
             Ok(Found {
                 header,
                 array,
                 copy: GptCopy::Primary,
-                damaged,
+                damaged: backup_entries.is_none().then_some(GptCopy::Backup),
+                backup_entries,
             })
         }
         (Err(_), Ok((header, array))) => Ok(Found {
@@ -111,6 +116,7 @@ async fn find_gpt<D: BlockDevice>(
             array,
             copy: GptCopy::Backup,
             damaged: Some(GptCopy::Primary),
+            backup_entries: Some(array.lba),
         }),
         (Err(detail), Err(_)) => Err(Error::corrupt(detail)),
     }
@@ -247,6 +253,7 @@ pub async fn read<D: BlockDevice>(dev: &mut D) -> Result<Disk, Error<D::Error>> 
                 found.copy,
                 entries,
                 found.damaged,
+                found.backup_entries,
                 block_count,
                 size,
             );

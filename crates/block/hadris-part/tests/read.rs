@@ -448,3 +448,31 @@ fn errors_convert_to_io_errors_with_their_detail() {
     assert_eq!(fs.kind(), ErrorKind::Io);
     assert!(fs.device_error().is_some());
 }
+
+#[test]
+fn rewriting_keeps_where_the_backup_array_lives() {
+    let mut image = crafted_gpt(100, 4, 128, &[(0, entry(0xAF, 10, 20))]);
+    let array = image[98 * 512..99 * 512].to_vec();
+    image[98 * 512..99 * 512].fill(0);
+    image[95 * 512..96 * 512].copy_from_slice(&array);
+    for (h, entries) in [(512usize, None), (99 * 512, Some(95u64))] {
+        image[h + 48..h + 56].copy_from_slice(&90u64.to_le_bytes());
+        if let Some(lba) = entries {
+            image[h + 72..h + 80].copy_from_slice(&lba.to_le_bytes());
+        }
+        image[h + 16..h + 20].fill(0);
+        let crc = crc32(&image[h..h + 92]);
+        image[h + 16..h + 20].copy_from_slice(&crc.to_le_bytes());
+    }
+    let mut dev = device(image);
+    let disk = read(&mut dev).unwrap();
+    assert_eq!(gpt(&mut dev).damaged_copy(), None);
+
+    let mut copy = device(vec![0; 100 * 512]);
+    write(&mut copy, &disk).unwrap();
+    let bytes = copy.get_ref();
+    let backup_entries = &bytes[99 * 512 + 72..99 * 512 + 80];
+    assert_eq!(u64::from_le_bytes(backup_entries.try_into().unwrap()), 95);
+    assert_eq!(bytes[95 * 512..96 * 512], array[..]);
+    assert_eq!(read(&mut copy).unwrap(), disk);
+}
