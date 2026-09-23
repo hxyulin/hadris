@@ -23,6 +23,10 @@ mod fsck;
 pub use fsck::{check, check_with};
 
 const ROOT: NodeId = NodeId::new(1);
+/// Unpinned ids from here up name the entry at `(id - MOVED_IDS) * 32`. A
+/// listing hands them out when a pinned node that has moved holds the
+/// natural id.
+const MOVED_IDS: u64 = 1 << 62;
 /// Ids from here up are handed out when a node's natural id is taken.
 const FALLBACK_IDS: u64 = 1 << 63;
 /// The largest device block [`FatFs`] can buffer.
@@ -768,7 +772,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let units = long.finish(lfn::checksum(&found.entry.name));
         let len = write_name(name, units.filter(|units| !units.is_empty()), &found.entry, &self.code_page)?;
         let file_type = if found.entry.is_dir() { FileType::Dir } else { FileType::File };
-        let node = self.pinned_at(found.offset).unwrap_or(NodeId::new(found.offset / ENTRY_SIZE));
+        let node = self.id_at(found.offset);
         *cursor = DirCursor::from_raw(found.slot as u64 + 1);
         Ok(Some(DirEntry::new(node, file_type, len)))
     }
@@ -957,8 +961,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             }
         };
         self.nodes.remove(reserved);
-        let natural = NodeId::new(node.entry / ENTRY_SIZE);
-        if self.nodes.get(natural).is_none() && self.nodes.insert(natural, node).is_ok() {
+        if let Some(natural) = self.natural_id(node.entry)
+            && self.nodes.insert(natural, node).is_ok()
+        {
             return Ok(natural);
         }
         self.nodes
@@ -2032,15 +2037,30 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.nodes.find(&mut |_, node| node.entry == offset)
     }
 
+    /// The id derived from the location of the entry at `offset`, unless a
+    /// node that has moved away from it holds that id.
+    fn natural_id(&self, offset: u64) -> Option<NodeId> {
+        let id = NodeId::new(offset / ENTRY_SIZE);
+        self.nodes.get(id).is_none().then_some(id)
+    }
+
+    /// The id of the entry at `offset` without pinning it: its pinned id,
+    /// else its natural id, else its id in the moved range.
+    fn id_at(&self, offset: u64) -> NodeId {
+        self.pinned_at(offset)
+            .or_else(|| self.natural_id(offset))
+            .unwrap_or(NodeId::new(MOVED_IDS + offset / ENTRY_SIZE))
+    }
+
     /// Pins the node whose short entry is at `offset`.
     fn intern(&mut self, offset: u64, entry: &ShortEntry) -> Result<NodeId, ErrorKind> {
         if let Some(id) = self.pinned_at(offset) {
             self.nodes.pin(id);
             return Ok(id);
         }
-        let natural = NodeId::new(offset / ENTRY_SIZE);
-        let fallback = self.nodes.get(natural).is_some();
-        let id = if fallback { NodeId::new(self.next_id) } else { natural };
+        let natural = self.natural_id(offset);
+        let fallback = natural.is_none();
+        let id = natural.unwrap_or(NodeId::new(self.next_id));
         self.nodes
             .insert(id, Node::new(offset, entry, self.geo.kind))
             .map_err(|_| ErrorKind::LimitExceeded)?;
@@ -2058,9 +2078,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// The entry of an id that is not pinned, decoded from its location.
     async fn unpinned(&mut self, id: NodeId) -> FsResult<(u64, ShortEntry), D::Error> {
-        let raw = id.get();
+        let mut raw = id.get();
         if raw == ROOT.get() || raw >= FALLBACK_IDS {
             return Err(ErrorKind::InvalidHandle.into());
+        }
+        if raw >= MOVED_IDS {
+            raw -= MOVED_IDS;
         }
         let offset = raw.checked_mul(ENTRY_SIZE).ok_or(ErrorKind::InvalidHandle)?;
         let in_root = matches!(

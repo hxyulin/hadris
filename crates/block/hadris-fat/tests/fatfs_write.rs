@@ -1652,3 +1652,54 @@ fn code_page_reads_and_generates_short_names() {
     );
     fsck(&cp437_image, "cp437 short names");
 }
+
+#[test]
+fn listing_never_hands_out_the_id_of_a_moved_pinned_node() {
+    for case in CASES {
+        let mut fs = open(case, common::blank(case));
+        let root = fs.root();
+        let a = create(&mut fs, root, "A.TXT", NewNode::File);
+        write_all(&mut fs, a, 0, b"aaaaa");
+        fs.sync_node(a).unwrap();
+        fs.rename(
+            root,
+            name("A.TXT"),
+            root,
+            name("C.TXT"),
+            RenameFlags::empty(),
+        )
+        .unwrap();
+        let b = create(&mut fs, root, "B.TXT", NewNode::File);
+        write_all(&mut fs, b, 0, b"bbb");
+        fs.forget(b);
+
+        let listed: Vec<_> = {
+            let mut cursor = DirCursor::start();
+            let mut buf = NameBuf::new();
+            let mut out = Vec::new();
+            while let Some(entry) = fs.read_dir_entry(root, &mut cursor, &mut buf).unwrap() {
+                out.push((
+                    buf.as_name().unwrap().to_str().unwrap().to_owned(),
+                    entry.node(),
+                ));
+            }
+            out
+        };
+        let id = |text: &str| listed.iter().find(|(n, _)| n == text).unwrap().1;
+        assert_eq!(id("C.TXT"), a, "{}", case.name);
+        let b = id("B.TXT");
+        assert_ne!(b, a, "{}", case.name);
+        assert_eq!(fs.node_metadata(b).unwrap().len(), 3, "{}", case.name);
+        assert_eq!(read_all(&mut fs, b), b"bbb", "{}", case.name);
+        write_all(&mut fs, b, 3, b"B");
+        assert_eq!(read_all(&mut fs, a), b"aaaaa", "{}", case.name);
+        assert_eq!(read_all(&mut fs, b), b"bbbB", "{}", case.name);
+
+        fs.forget(a);
+        assert_eq!(read_all(&mut fs, b), b"bbbB", "{}", case.name);
+        fs.sync().unwrap();
+        let image = image(fs);
+        assert_eq!(fresh_read(case, &image, "/C.TXT"), b"aaaaa");
+        assert_eq!(fresh_read(case, &image, "/B.TXT"), b"bbbB");
+    }
+}
