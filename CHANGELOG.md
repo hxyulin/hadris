@@ -10,6 +10,9 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-cpio-cli:** `extract` now skips, with a warning, entries whose names
+  are absolute, contain `..`, or lead through a symlink extracted earlier.
+  Before, such entries were written outside the output directory.
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
   libarchive/bsdtar and use only recognized relocation container names. Reject
   relocation when a root `rr_moved` directory would be mistaken for the container

@@ -540,6 +540,7 @@ dependencies = [
  "clap",
  "hadris-cpio",
  "libc",
+ "tempfile",
 ]
 
 [[package]]
