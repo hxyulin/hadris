@@ -1,6 +1,8 @@
 # Hadris V3 API design
 
-Status: draft for discussion. Branch: `design/v3-api`.
+Status: draft for discussion. Sections 3, 4.1 to 4.4, 4.6, 4.12 and 4.13
+were revised after the lock-placement prototype
+(`experiments/lock-placement`, variant D, scenarios S1 to S16).
 
 V3 is the release where the public shapes stop moving. V2 kept breaking semver
 inside minor releases (#83, #93, #94) or hid new work behind `unstable-*` flags
@@ -11,9 +13,9 @@ traits and error kinds they need already exist.
 That gives a rule for scope. Every feature listed in [section 5](#5-per-crate-changes)
 is V3 work. Every one of them must have its public shape in 3.0.0. The
 implementation of a feature can follow in 3.x only if it fits a shape that
-already shipped. NTFS write is the obvious example: `FileSystemMut` exists in
-3.0, NTFS reports itself read-only through `Capabilities`, and write support
-arrives later without a break.
+already shipped. NTFS write is the obvious example: the write methods of `FsDriver` exist in
+3.0 with `ReadOnly` defaults, NTFS reports itself read-only through
+`Capabilities`, and write support arrives later without a break.
 
 V3 serves three kinds of users, and none of them is optional:
 
@@ -211,11 +213,11 @@ than four parameters take a struct.
 
 ### R10. Traits can grow
 
-Public traits that users implement (`FileSystem`, `FileSystemMut`,
-`BlockDevice`, `ByteSource`, `Clock`, `Lock`) are not sealed. Methods added in
-3.x must have a default body. For filesystem operations the default returns
-`ErrorKind::Unsupported`, and `Capabilities` gains a matching flag that
-defaults to off. Traits that only Hadris implements are sealed.
+Public traits that users implement (`FsDriver`, `FileSystem`, `Resolver`,
+`BlockDevice`, `ByteSource`, `Clock`, `LockKind`) are not sealed. Methods
+added in 3.x must have a default body. For filesystem operations the default
+returns `ErrorKind::Unsupported` (`ReadOnly` for writes), and `Capabilities`
+gains a matching flag that defaults to off. Traits that only Hadris implements are sealed.
 
 ### R11. CI enforces it
 
@@ -229,27 +231,29 @@ defaults to off. Traits that only Hadris implements are sealed.
 ## 3. Layers
 
 ```
-hadris-io        embedded-io traits, StdIo adapter, ByteSource, io::Error
-hadris-storage   BlockDevice, device adapters, Slice, Cache
-hadris-fs        shared vocabulary, FileSystem traits, path layer, handles,
-                 Shared<F, L>, Tree/Content for writers
-format crates    native API with full fidelity + FileSystem impls
+hadris-io        Read/Write/Seek with an associated error (ErrorType), ExactError,
+                 FromEmbedded (embedded-io feature), StdIo, ByteSource
+hadris-storage   BlockDevice, WriteError, MemDevice, StreamDevice, Slice, Cache,
+                 std::fs::File as a device
+hadris-fs        vocabulary, Error<E>, FsDriver and FileSystem, Volume<F, K>,
+                 Resolver (Lexical, Posix), handles, Tree/Content for writers
+format crates    native API with full fidelity; FsDriver through inherent methods
 hadris-block,    detection and dispatch; OpenVolume / OpenOpticalImage
-hadris-optical   implement FileSystem by delegation
+hadris-optical   implement FsDriver by delegation
 hadris-vfs       object-safe DynFileSystem, host helpers, FUSE (std only)
 hadris           umbrella with flat paths
 ```
 
 Two ideas carry the design.
 
-**One common trait, not one common API.** `FileSystem` and `FileSystemMut`
-cover what every filesystem can express: look up a name, read a directory,
-read and write bytes at an offset, change metadata. Generic code, the
-conformance suite, `hadris-vfs` and kernel integrations target these traits.
-Format crates keep a native API for what the trait does not model: formatting,
-fsck, FAT attributes and cluster chains, ISO namespaces and boot catalogs,
-NTFS streams. The native API and the trait impl share one implementation, so
-the trait never falls behind.
+**One common trait, not one common API.** `FsDriver` covers what every
+filesystem can express: look up a name, read a directory, read and write
+bytes at an offset, change metadata. Generic code, the conformance suite,
+`hadris-vfs` and kernel integrations target it, or its shared twin
+`FileSystem`. Format crates keep a native API for what the trait does not
+model: formatting, fsck, FAT attributes and cluster chains, ISO namespaces
+and boot catalogs, NTFS streams. The trait impl is generated from the
+inherent methods, so the trait never falls behind.
 
 The trait is the wrong abstraction for three jobs, and V3 does not force it on
 them:
@@ -258,9 +262,12 @@ them:
 - Streaming archives (cpio, later tar) are forward-only. They get an entry reader, not random access.
 - Tools (fsck, analysis, the ISO verifier) use `raw` and native types.
 
-**The library holds no locks.** Volumes take `&mut self` and contain no mutex.
-Callers choose how to share through `Shared<F, L>`, which is generic over the
-lock. [Section 4.4](#44-sharing-and-locking) explains why.
+**Every layer above the driver is opt-in.** A driver takes `&mut self`,
+owns its device and holds no lock, no `Arc` and no allocation beyond its own
+tables. Users who need several open files wrap it in `Volume<F, K>`, which
+picks its lock by type. Users who need owned handles put that in an `Arc` or
+`Rc`. Each layer adds only its own cost, and every layer can do every job
+(4.3). [Section 4.4](#44-sharing-and-locking) explains the locking.
 
 ---
 
@@ -268,16 +275,30 @@ lock. [Section 4.4](#44-sharing-and-locking) explains why.
 
 ### 4.1 `hadris-io`
 
-**Traits.** `hadris_io::{Read, Write, Seek}` and their async counterparts are
-Hadris's own traits. They have no associated error type and return
-`hadris_io::Result<T>`. Implementors write only `read`, `write`/`flush` and
-`seek`. Everything else has a default.
+**Traits.** `Read`, `Write` and `Seek` follow the embedded-io shape: each
+reports its own error through a shared `ErrorType` supertrait. Sync and async
+come from one source file, so they cannot drift.
 
-- `&mut T` implements each trait when `T` does. With `alloc`, so does `Box<T>`. The `Borrowed` wrapper goes away, and generic code can pass `&mut R` to anything that takes a reader.
-- `FromEmbedded<T>` adapts an `embedded-io` or `embedded-io-async` device. Its error becomes the `hadris_io::Error` source.
-- `std` adds `StdIo<T>`, which implements the Hadris traits for `T: std::io::Read/Write/Seek`, and `ToStd<T>`, which exposes a Hadris reader or writer as `std::io`. Enabling `std` only adds items.
-- `ReadSeek`, `ReadWrite` and `ReadWriteSeek` exist in both modes.
-- The sync and async traits come from one source file, so they cannot drift.
+```rust
+pub trait ErrorType {
+    type Error: core::error::Error + Send + Sync + 'static;
+}
+
+pub trait Read: ErrorType {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
+    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), ExactError<Self::Error>> { .. }
+}
+pub trait Write: ErrorType { /* write, flush, write_all -> ExactError */ }
+pub trait Seek: ErrorType { /* seek */ }
+
+pub enum ExactError<E> { UnexpectedEof, WriteZero, Io(E) }
+```
+
+- The bound is the whole error contract. A kernel writes its own enum with `Display` and an empty `impl core::error::Error`. std devices use `std::io::Error`. embedded-io errors pass through unchanged. There is no Hadris error trait to implement.
+- `Send + Sync` lets code erase any device error into `AnyError` or `std::io::Error` (4.6) with no extra where-clauses. It rules out errors that hold an `Rc` or a raw pointer; such a device wraps them.
+- `&mut T` implements each trait when `T` does, and so does `Box<T>` with `alloc`.
+- `FromEmbedded<T>` adapts an `embedded-io` or `embedded-io-async` stream. Its error is `T::Error`, unwrapped. It is the only item that names embedded-io, so the dependency sits behind an `embedded-io` feature.
+- With `std`, `StdIo<T>` adapts any `std::io` stream (a `Cursor`, a pipe) and reports `std::io::Error`. A host image file does not need it: `std::fs::File` is a `BlockDevice` directly (4.2), and file handles implement `std::io` directly (4.3).
 
 A blanket `impl<T: embedded_io::Read> Read for T` was the first plan. It fails
 on coherence. A `&mut T` impl overlaps it, and without that impl, generic code
@@ -286,49 +307,32 @@ holding `R: Read` cannot pass `&mut R` on, because `&mut R` is not an
 the whole class of problem. This addresses #16 and #18.
 
 ```rust
-let file = std::fs::File::open("disk.img")?;
-let dev = hadris_storage::sync::StreamDevice::new(StdIo::new(file), BlockSize::B512)?;
-let vol = hadris_fat::sync::FatVolume::open(dev, VolumeOptions::default())?;
+let file = std::fs::File::options().read(true).write(true).open("disk.img")?;
+let fs = hadris_fat::sync::FatFs::open(file)?;           // no adapter, errors are io::Error
 ```
 
-**Error.** `hadris_io::Error` keeps the original error:
-
-```rust
-#[non_exhaustive]
-pub struct Error {
-    kind: ErrorKind,
-    message: Option<&'static str>,
-    #[cfg(feature = "alloc")]
-    source: Option<Box<dyn core::error::Error + Send + Sync>>,
-}
-```
-
-The field is private, so the `alloc` gate does not change the public shape. With
-`alloc`, `source()` returns the device error. Without `alloc`, only the kind
-survives, which matches V2. `Error::new(kind, message)` covers errors raised by
-Hadris itself, and `downcast_source` recovers a typed device error. `erase`
-and `from_source` are removed. `core::error::Error` is used
-everywhere, so error traits need no `std` gate.
-
-A generic `Error<E>` was the other option. It is lossless without `alloc`, but
-it puts a type parameter on every signature and makes errors from two devices
-different types. Kernels without `alloc` get the kind, which is what they map
-to errno anyway.
+**Errors are the device's own.** The earlier draft erased every device error
+into one `hadris_io::Error`. That lost the device error without `alloc`,
+which is exactly the kernel case, and it made a std user unwrap a Hadris
+error to get the `io::Error` back. With an associated error the device error
+survives unchanged in every build, and 4.6 describes how code that mixes
+devices erases it on purpose. Step 2 of the migration built the erased error;
+step 4 replaces it.
 
 **Byte sources.** One source type for every writer input replaces the two
 `FileSource` copies:
 
 ```rust
-pub trait ByteSource {
+pub trait ByteSource: ErrorType {
     fn len(&self) -> u64;
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize>;
+    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Self::Error>;
 }
 ```
 
 `ByteSource` is positional so writers can read a file twice (checksum pass,
-data pass) without a seek contract. The async module has the same trait with
-`async fn read_at`. `&[u8]`, `Vec<u8>` and `&mut S` implement it, and
-`SeekSource<T>` adapts any `Read + Seek`. `hadris-fs::Content` wraps it (4.7).
+data pass) without a seek contract. `&[u8]`, `Vec<u8>` and `&mut S`
+implement it, and `SeekSource<T>` adapts any `Read + Seek`. `hadris-fs::Content`
+wraps it (4.7).
 
 ### 4.2 `hadris-storage`
 
@@ -338,34 +342,49 @@ devices and 2048-byte optical media stop being special cases, and a partition
 is just another device.
 
 ```rust
-pub trait BlockDevice {
+pub trait BlockDevice: ErrorType {
     fn block_size(&self) -> BlockSize;
     fn block_count(&self) -> u64;
-    fn access(&self) -> Access { Access::ReadOnly }               // ReadOnly | ReadWrite
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<()>;
-    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<()> { unsupported }
-    async fn flush(&mut self) -> Result<()> { Ok(()) }
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error>;
+    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8])
+        -> Result<(), WriteError<Self::Error>> { Err(WriteError::ReadOnly) }
+    async fn flush(&mut self) -> Result<(), Self::Error> { Ok(()) }
 }
+
+#[non_exhaustive]
+pub enum WriteError<E> { ReadOnly, Device(E) }
 ```
 
 `async fn` here means "written once, generated for both modes" (4.8). A
-read-only device implements three methods.
+read-only device implements three methods and no write method.
+
+**No `writable()` query.** A static flag is wrong too often: an SD card's lock
+switch moves while mounted, `std::fs::File` cannot tell whether it was opened
+for writing, and a USB stick can be write-protected at any time. Probing with
+a test write is worse: it writes, it wears flash, and write-once media keep
+it. Instead each write answers for itself:
+
+- A device that refuses writes returns `WriteError::ReadOnly`. `Error<E>` converts it to `ErrorKind::ReadOnly` with no device error attached.
+- The driver remembers the first refusal and from then on rejects writes before touching the device or its own tables (`is_read_only()`).
+- Users who know up front mount with `open_read_only`, which never calls `write_blocks`. That also covers media where even an attempted write is unwelcome.
+- Format crates must leave their in-memory state unchanged when a write is refused. That is the rule 4.3 already sets for every failed operation, so it adds no new contract.
 
 Provided devices and adapters:
 
 | Type | Purpose |
 |---|---|
 | `impl BlockDevice for &mut D`, `Box<D>` | Borrow or box a device instead of moving it in. |
-| `StreamDevice<T>` | Any `Read + Seek + Write` byte stream, with a block size the caller picks. `StreamDevice<ReadOnly<T>>` needs only `Read + Seek` and reports `ReadOnly`. The migration path for every V2 user. |
-| `MemDevice<B>` | `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, and `Vec<u8>` or `Box<[u8]>` with `alloc`, through the `MemBuffer` trait. For tests and in-memory images. |
+| `std::fs::File` | With `std`, a host image file is a device with 512-byte blocks and `std::io::Error`. A file opened read-only fails writes with the OS error, which reaches the caller unchanged. |
+| `StreamDevice<T>` | Any `Read + Seek + Write` byte stream, with a block size the caller picks. Error `ExactError<T::Error>`. `StreamDevice<ReadOnly<T>>` needs only `Read + Seek` and answers writes with `WriteError::ReadOnly`. The migration path for every V2 user. |
+| `MemDevice<B>` | `&[u8]` (answers writes with `ReadOnly`), `&mut [u8]`, `[u8; N]`, and `Vec<u8>` or `Box<[u8]>` with `alloc`, through the `MemBuffer` trait. For tests and in-memory images. |
 | `Slice<D>` | A block range of `D`. `D` can be owned or `&mut`. Replaces `PartitionView`. |
 | `Cache<D>` | Write-back LRU over whole blocks, `alloc` only. Explicit `flush`, or `finish` to flush and return the device. Capacity set at construction. Works in both modes. Kernels skip it. |
 | `ByteView<D>` | Byte-granular `read_at`/`write_at` with read-modify-write for partial blocks, and a bounded `Read + Write + Seek` stream. Used by format crates for records that straddle blocks. Without `alloc` its scratch buffer caps the block size at 4096. |
 
 `StreamDevice` picks its write support through a small `StreamWrite` trait,
-implemented for every `Write` and for `ReadOnly<T>`. A second
-`impl BlockDevice` for read-only streams would overlap the first, so the
-marker type carries the choice.
+implemented for every `Write` and for `ReadOnly<T>`, whose write returns
+`WriteError::ReadOnly`. A second `impl BlockDevice` for read-only streams
+would overlap the first, so the marker type carries the choice.
 
 A filesystem sector can be larger than the device block (FAT 4096-byte sectors
 on a 512-byte image) but not smaller unless the device is a `StreamDevice`,
@@ -398,118 +417,163 @@ New crate. It takes the useful parts of `hadris-common` and `hadris-path`.
 | `ErrorKind` | The shared kind set (4.6). |
 | `VPath` | The `hadris-path` type, moved here. Path parsing is convenience only; the traits take names. |
 
-**The read trait.**
+**The driver traits.** One node API, in two receivers:
 
 ```rust
-pub trait FileSystem {
+pub trait FsDriver {                               // format crates; &mut self, no locks
+    type DeviceError: core::error::Error + Send + Sync + 'static;
+
     fn capabilities(&self) -> Capabilities;
     fn root(&self) -> NodeId;
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, Self::DeviceError>;
+    async fn node_metadata(&mut self, node: NodeId) -> FsResult<Metadata, Self::DeviceError>;
+    async fn read_dir_entry(&mut self, dir: NodeId, cursor: &mut DirCursor, name: &mut NameBuf)
+        -> FsResult<Option<DirEntry>, Self::DeviceError>;
+    async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, ..>;
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, ..> { unsupported }
+    async fn read_link(&mut self, link: NodeId, buf: &mut [u8]) -> FsResult<usize, ..> { unsupported }
+    async fn stats(&mut self) -> FsResult<FsStats, ..>;
+    fn forget(&mut self, node: NodeId);
+    async fn resolve(&mut self, path: &str) -> FsResult<NodeId, ..> { Lexical.resolve(self, path) }
 
-    async fn lookup(&mut self, dir: NodeId, name: &Name) -> Result<NodeId>;
-    async fn metadata(&mut self, node: NodeId) -> Result<Metadata>;
-    async fn read_dir(&mut self, dir: NodeId, cursor: &mut DirCursor, name: &mut NameBuf)
-        -> Result<Option<DirEntry>>;
-    async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> Result<usize>;
-    async fn read_link(&mut self, node: NodeId, target: &mut NameBuf) -> Result<()> { unsupported }
-    async fn stats(&mut self) -> Result<FsStats>;
-    fn forget(&mut self, node: NodeId) {}
-}
-```
-
-- `lookup` pins the node it returns. `forget` unpins it. This is the FUSE `lookup`/`forget` contract. ISO, UDF and NTFS have naturally stable IDs, so `forget` does nothing for them.
-- `read_dir` is a resumable cursor. `DirCursor` is a `Copy` value that the caller can store and reuse, which FUSE `readdir(offset)` and kernel `getdents` need. It returns one entry per call into a caller buffer, so it works without `alloc`. `DirEntry` carries the name length, `FileType`, and the entry's `NodeId`. Entries from `read_dir` are not pinned; a caller that wants to keep one calls `lookup`.
-- Everything is positional. There is no cursor inside a file node.
-- `.` and `..` never appear in `read_dir` output and `lookup` rejects them. The path layer handles `..` itself by tracking the parent chain.
-
-**The write trait.**
-
-```rust
-pub trait FileSystemMut: FileSystem {
+    // Write methods default to ErrorKind::ReadOnly.
     async fn create(&mut self, dir: NodeId, name: &Name, kind: NewNode<'_>, meta: &SetMetadata)
-        -> Result<NodeId>;                                  // File | Dir | Symlink(target) | Device(..)
-    async fn remove(&mut self, dir: NodeId, name: &Name) -> Result<()>;
+        -> FsResult<NodeId, ..>;                            // File | Dir | Symlink(target) | Device(..)
+    async fn remove(&mut self, dir: NodeId, name: &Name) -> FsResult<(), ..>;
     async fn rename(&mut self, from_dir: NodeId, from: &Name, to_dir: NodeId, to: &Name,
-        flags: RenameFlags) -> Result<()>;                  // NoReplace | Exchange later via R10
-    async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> Result<usize>;
-    async fn set_len(&mut self, node: NodeId, len: u64) -> Result<()>;   // grow or shrink
-    async fn set_metadata(&mut self, node: NodeId, changes: &SetMetadata) -> Result<()>;
-    async fn sync_node(&mut self, node: NodeId) -> Result<()>;
-    async fn sync(&mut self) -> Result<()>;
+        flags: RenameFlags) -> FsResult<(), ..>;            // NoReplace | Exchange later via R10
+    async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, ..>;
+    async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), ..>;
+    async fn set_metadata(&mut self, node: NodeId, changes: &SetMetadata) -> FsResult<(), ..>;
+    async fn sync_node(&mut self, node: NodeId) -> FsResult<(), ..>;
+    async fn sync(&mut self) -> FsResult<(), ..>;
 }
+
+pub trait FileSystem { /* the same methods on &self */ }   // shared users; Volume implements it
+impl<F: FileSystem + ?Sized> FsDriver for &F { .. }         // so the path layer is written once
 ```
 
+- A format crate writes each method once, as an inherent method on its driver, and `impl_fs_driver!` generates the `FsDriver` impl from them. Raw users call the inherent methods with no trait import. A `read_only` form of the macro leaves the write methods at their defaults.
+- `FileSystem` is what shared code programs against. `Volume` (4.4) implements it for every driver, and a format that wants finer locking can implement it directly. Because `&F` is a driver whenever `F` is a `FileSystem`, every helper below is written once over `FsDriver` and serves both.
+- `node_metadata` and `read_dir_entry` carry the `node_`/`_entry` in their names so they never clash with the path helpers `metadata(path)` and `read_dir(path)`; both traits can be in scope at once.
+- `lookup` pins the node it returns. `forget` unpins it. This is the FUSE `lookup`/`forget` contract. ISO, UDF and NTFS have naturally stable IDs, so `forget` does nothing for them.
+- `read_dir_entry` is a resumable cursor. `DirCursor` is a `Copy` value that the caller can store and reuse, which FUSE `readdir(offset)` and kernel `getdents` need. It returns one entry per call into a caller buffer, so it works without `alloc`. `DirEntry` carries the name length, `FileType`, and the entry's `NodeId`. Entries are not pinned; a caller that wants to keep one calls `lookup`.
+- Everything is positional. There is no cursor inside a file node.
+- `.` and `..` never appear in `read_dir_entry` output and `lookup` rejects them. Paths resolve through a `Resolver` (4.12): the default never asks the driver about `..`, and `Posix` calls `parent`.
 - `rename` keeps the `NodeId` of the moved node. That is the point of the open-node table (4.5).
-- A failed operation leaves the volume unchanged. The conformance suite already tests this ("rejection" scenarios), and the trait docs make it part of the contract.
+- A failed operation leaves the volume unchanged, in memory and on disk. The conformance suite already tests this ("rejection" scenarios), and the trait docs make it part of the contract.
 - `sync` writes every piece of cached metadata (FSInfo, dirty FAT sectors, directory entries) and flushes the device. There is one durability call, not V2's `sync` plus `flush`.
+
+The earlier draft split reads and writes into `FileSystem` and
+`FileSystemMut`. The prototype kept one trait. A compile-time split doubles
+the traits, the forwarding impls and the bounds on every helper, and it still
+cannot describe the common case: a driver that becomes read-only at runtime
+when its device refuses a write (4.2). `Capabilities::writable` and
+`ErrorKind::ReadOnly` cover it.
 
 **Volume-specific operations stay native.** Labels, formatting, fsck, FAT
 attribute bits beyond `Attributes`, cluster chains, ISO namespaces and NTFS
-streams are inherent methods on the format types.
+streams are inherent methods on the format types. On a shared volume they are
+reached through `vol.lock()`.
 
-**The path and handle layer.** An extension trait with a blanket impl gives
-every `FileSystem` a std-like API. It lives in `hadris-fs`, so it is written
-once:
+**Tiers.** Every tier can do every job; the tiers differ in how much the user
+wraps, not in what they can reach. The test S15 runs the same operations on
+all three.
+
+| Tier | Build it with | Costs | Paths and handles |
+|---|---|---|---|
+| Raw | `FatFs::open(dev)?` | Nothing | Node API as inherent methods. `DriverExt` adds path helpers on `&mut self`. `File<&mut FatFs<_>>` is one open file borrowing the driver. `OpenFile` is a `Copy` cursor, so a kernel file table holds many beside one `&mut` driver. |
+| Shared | `Volume::new(fs)`, `Volume::spin(fs)`, `Volume::local(fs)` | One lock | `PathExt` on `&self`, any number of `File<&Volume<..>>`. |
+| Owned | `Arc::new(Volume::new(fs))` or `Rc` | One allocation | The shared API unchanged; `File<Arc<Volume<..>>>` can move to another thread or task. |
+
+**One canonical pattern per tier.** Each tier's module docs open with one
+pattern, and the rustdoc examples use only that pattern. Alternatives exist,
+but they sit behind an extension trait that the user imports, so they do not
+show up until asked for.
 
 ```rust
-use hadris_fs::sync::prelude::*;
+// Raw tier: a kernel VFS or a format tool. Node ids, no paths, no lock.
+let mut fs = FatFs::open(dev)?;
+let boot = fs.lookup(fs.root(), Name::new("boot")?)?;
+let n = fs.read_at(boot, 0, &mut buf)?;
+fs.forget(boot);
 
-let mut vol = FatVolume::open(dev, VolumeOptions::default())?;
-let mut f = vol.open("/EFI/BOOT/BOOTX64.EFI", OpenOptions::read())?;   // File<'_, _>: Read + Seek
+// Shared tier: applications, embedded, scripts. Paths and std-like handles.
+let vol = Volume::new(FatFs::open(file)?);         // Volume::spin / Volume::local on no_std
 let mut log = vol.open("/log.txt", OpenOptions::write().create().append())?;
-log.write_all(b"hello")?;
-log.close()?;                                   // returns errors; Drop is best effort
-vol.create_dir_all("/a/b/c")?;
-vol.rename("/a/b", "/a/renamed")?;
-vol.remove_dir_all("/a")?;
-let meta = vol.metadata("/EFI")?;
+writeln!(log, "hello")?;
+log.close()?;                                      // returns errors; Drop is best effort
 for entry in vol.read_dir("/EFI")? { let entry = entry?; }       // fuses on error
-vol.sync()?;
+
+// Owned tier: handles that outlive a borrow.
+let vol = Arc::new(Volume::new(FatFs::open(file)?));
+let file = File::open(Arc::clone(&vol), "/big.bin", OpenOptions::read())?;
+std::thread::spawn(move || read_all(file));
 ```
 
-- `File<'a, F>` and `Dir<'a, F>` hold a `NodeId`, a position and a borrow of `F`. They implement `hadris_io::{Read, Write, Seek}`, `std::io` traits with `std`, and `Iterator` for directories in sync builds.
+| Job | Raw | Shared or owned |
+|---|---|---|
+| Open by path | `DriverExt::open`, or `OpenFile::open` for a file table | `PathExt::open`, `File::open` for `Arc` |
+| Several files at once | `OpenFile` values beside `&mut fs` | Any number of `File`s |
+| `std::io` on a file | `File<&mut FatFs<_>>` | `File<&Volume<..>>`, `File<Arc<..>>` |
+| List a directory | `DriverExt::read_dir`, or `read_dir_entry` with a cursor | `PathExt::read_dir` |
+| Format-specific calls | Inherent methods | `vol.lock()` |
+| Other calls while a file is open | `file.driver()` | `vol` directly |
+| Path semantics | `fs.with_resolver(Posix::new())` or `Posix::new().resolve(&mut fs, path)` | `Volume::new(fs.with_resolver(Posix::new()))` |
+| Get the device back | `fs.into_inner()` | `vol.into_inner().into_inner()`, or `Volume::local(&mut fs)` for a scope |
+
+**Handles.** One `File<A>` and one `Dir<A>` serve all tiers. `A` is how the
+handle reaches the filesystem, through a small `Access` trait implemented for
+`&mut D`, `&F`, `Rc<F>`, `Arc<F>` and `Volume` by value. Users name `Access`
+only in generic code over handles.
+
+- `File` implements `hadris_io::{Read, Write, Seek}` and, with `std`, the `std::io` traits for any device error (4.6). `Dir` is an `Iterator` in sync builds and has `next_entry` in async builds.
 - `OpenOptions { read, write, append, truncate, create, create_new }` makes overwrite semantics explicit (#90, #91).
-- `close()` returns `Result`. `Drop` does a best-effort `forget`, never flushes and never panics. `#[must_use]` on handles.
-- Helpers: `exists`, `read_to_vec`, `write_all_to`, `create_dir_all`, `remove_dir_all`, `copy_tree` (between any two `FileSystem`s), and with `std`, `extract_to_host` and `import_from_host`. The host helpers reject absolute names and `..` components so archives and images cannot escape the target directory.
-- `F` can be the volume itself (one handle at a time, borrow-checked) or `&Shared<V, L>` (many handles, 4.4).
+- `close()` returns `Result`. `Drop` does a best-effort `forget`, never flushes and never panics. `#[must_use]` on handles. `OpenFile` is plain data and does not forget on drop; its owner calls `close`.
+- Helpers on both `DriverExt` and `PathExt`: `exists`, `metadata`, `open`, `read_dir`, `read_to_vec`, `write_file`, `create_dir_all`, `remove_dir_all`, `rename`. Free functions: `copy_tree` (between any two filesystems), and with `std`, `extract_to_host` and `import_from_host`. The host helpers reject absolute names and `..` components so archives and images cannot escape the target directory.
 
 The conformance suite's FAT adapter becomes one generic impl over
-`FileSystemMut`. The rust-fatfs and mtools peers can keep their own adapters,
+`FileSystem`. The rust-fatfs and mtools peers can keep their own adapters,
 or implement the trait themselves.
 
 ### 4.4 Sharing and locking
 
-Volumes take `&mut self` and hold no lock. Sharing is a wrapper:
+Drivers take `&mut self` and hold no lock. Sharing is a wrapper the user
+chooses:
 
 ```rust
-pub struct Shared<F, L: Lock> { /* L wraps F */ }
+pub struct Volume<F, K: LockKind> { .. }
+impl<F: FsDriver, K: LockKind> FileSystem for Volume<F, K> { .. }
 
-impl<F: FileSystem, L: Lock> FileSystem for &Shared<F, L> { .. }
-impl<F: FileSystemMut, L: Lock> FileSystemMut for &Shared<F, L> { .. }
+Volume::new(fs)               // sync: std mutex (std); async: async mutex
+Volume::spin(fs)              // spin mutex, no_std
+Volume::local(fs)             // one thread: a RefCell flag, no_std, no alloc
+Volume::with_lock::<K>(fs)    // any LockKind: critical-section, embassy-sync, tokio
 ```
 
-Because `&Shared` implements the traits, every helper in 4.3 works on it, and
-many `File` handles can be open at once. With `alloc`, `Arc<Shared<F, L>>`
-gives owned handles (`OwnedFile<F, L>`) that can move between tasks or live in
-a kernel file table.
+- There is one constructor per lock and no default `K`. A default that depended on the `std` feature would change the type of every `Volume` in the build when any crate enabled `std`, which R3 forbids. Constructors infer `K`, so it appears only in stored types, and there the user writes one alias: `type Disk = Volume<FatFs<File>, StdMutex>;`. Hadris ships no aliases, because each would be a second spelling of the same type.
+- The lock is held for one driver call. Path resolution runs under one lock hold, so a path costs one lock, not one per component.
+- `forget` never blocks, so handle `Drop` works in both modes. If the lock is taken, the node goes on a queue that the next lock drains.
+- `vol.lock()` returns a guard to the driver for format-specific calls. Calling a `FileSystem` method on the same volume while holding the guard deadlocks, or panics with `Local`.
+- `Volume::local(&mut fs)` borrows a driver for one scope: a kernel keeps ownership, opens several handles, and gets the driver back afterwards.
+- `Arc<Volume>` and `Rc<Volume>` give owned handles that move between tasks or live in a kernel file table.
 
-`Lock` is generated for both modes:
+`LockKind` is generated for both modes:
 
-| Mode | Lock implementations |
+| Mode | Lock kinds |
 |---|---|
-| sync | Any `lock_api::RawMutex` (spin, parking_lot, critical-section based mutexes). `SingleThread` wraps `RefCell` for single-threaded no-alloc users. `StdMutex` with `std`. |
-| async | A small `AsyncLock` trait. Impls behind features for `embassy-sync` and `async-lock`. Users can implement it for tokio's mutex in a few lines. |
+| sync | `StdMutex` with `std`, `Spin`, `Local` (no alloc, not `Sync`), and any `lock_api::RawMutex`. |
+| async | `AsyncMutex` (async-lock) and impls behind features for `embassy-sync`. Users can add tokio's mutex in a few lines. |
 
-The lock is held for one trait call. A `read_at` on one file and a `lookup` on
-another serialize, which V2 already does through its internal mutex.
+Operations on one volume serialize, as they do in V2. A format that needs
+concurrent readers implements `FileSystem` itself with finer locks around its
+node table and cache; `FileSystem` takes `&self`, so callers do not change.
 
-The other option was `&self` methods with a lock inside every format crate.
-It allows concurrent readers in principle, but each crate has to pick a lock,
-async builds need an async lock inside the format crate, and the V2 bug class
-(guard held across `.await`) stays possible. With the lock outside, the format
-crates cannot make that mistake because they never see a lock. Real read
-concurrency needs a device that supports concurrent positional reads plus
-finer locks around the node table and cache. If a kernel user needs that,
-`Shared` can grow an `RwLock` mode in 3.x without changing the traits. See
+The alternative was `&self` methods with a lock inside every format crate.
+The prototype built it (variant B). Each crate has to pick a lock, async
+builds need an async lock inside the format crate, the V2 bug class (guard
+held across `.await`) stays possible, and a kernel that wants no lock pays for
+one anyway. With the lock outside, format crates never see a lock. See
 [Q1](#7-open-questions).
 
 ### 4.5 Node identity: the open-node table
@@ -536,43 +600,63 @@ they need no table.
 
 ### 4.6 Errors
 
-Each crate has exactly one error type, `hadris_<crate>::Error`:
+Every filesystem operation in every crate returns one type, generic over the
+device's error:
 
 ```rust
-#[non_exhaustive]
-#[derive(Debug)]
-pub struct Error {
+pub struct Error<E> {
     kind: ErrorKind,
     context: Context,          // private: sector, cluster, node, field name
-    source: Option<hadris_io::Error>,
+    device: Option<E>,
 }
+
+impl<E> Error<E> {
+    pub fn kind(&self) -> ErrorKind;
+    pub fn device_error(&self) -> Option<&E>;
+    pub fn into_device_error(self) -> Option<E>;
+    pub fn map_device<F>(self, f: impl FnOnce(E) -> F) -> Error<F>;
+}
+
+pub type FsResult<T, E> = Result<T, Error<E>>;
+
+pub struct AnyError { .. }     // alloc: kind plus the boxed device error
+impl<E: ..> From<Error<E>> for AnyError { .. }
+impl<E: ..> From<Error<E>> for std::io::Error { .. }       // std
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
-    Io,
+    Io,                  // the device failed; device_error() is Some
     NotFound,
     AlreadyExists,
     NotADirectory,
     IsADirectory,
     DirectoryNotEmpty,
     NoSpace,
-    ReadOnly,
+    ReadOnly,            // a read-only mount, or the device answered WriteError::ReadOnly
     InvalidInput,        // bad options, names or arguments from the caller
     Corrupt,             // disk data violates the specification
     Unsupported,         // valid but not implemented, or not in Capabilities
-    LimitExceeded,       // a value does not fit the on-disk field
+    LimitExceeded,       // a value does not fit; also symlink loops and overlong paths
     InvalidHandle,       // unknown or forgotten NodeId
     Busy,                // e.g. a second writer, or removing a mounted root
 }
 ```
 
-- `hadris-fs` defines `ErrorKind` once. Crates re-export it, and the traits use `hadris_fs::Error`, which every crate error converts into without losing kind or source.
-- Callers match on `err.kind()`. New failure modes add context, not kinds.
-- Crate-specific detail comes through typed accessors (`err.sector()`, `err.cluster()`) and a `#[non_exhaustive] enum Detail` where matching is useful.
+- **Kernels** keep their own error without `alloc`. The errno mapping is one `match (err.kind(), err.device_error())` (S12). Filesystem failures have no device error.
+- **std users** use `?` into `std::io::Error` or `Box<dyn Error>`. A device error that is already an `io::Error` comes back as itself, found by a downcast through `Any` that does not allocate, so `raw_os_error()` survives (S11). Any other device error becomes the source of an `io::Error` with kind `Other` and can be downcast back out. Filesystem failures map their kind (`NotFound` to `NotFound`, `ReadOnly` to `ReadOnlyFilesystem`, and so on).
+- **Code that mixes devices** returns `AnyError`, or `io::Error` with `std`. Both accept `?` from any `Error<E>`, so `copy_tree` from a `MemDevice` into an embedded card is one function with no extra bounds (S4).
+- **Generic code** names the device error through the trait: `fn install<F: FileSystem>(vol: &F) -> FsResult<(), F::DeviceError>`, or returns `AnyError`.
+- Writers return `Error<W::Error>` for their output stream.
+- Callers match on `err.kind()`. New failure modes add context, not kinds. Crate-specific detail comes through typed accessors (`err.sector()`, `err.cluster()`) and a `#[non_exhaustive] enum Detail` where matching is useful.
 - No `String` payloads without `alloc`. No foreign types (`bytemuck::PodCastError`, `PathBuf`) in the public API.
-- Wrapper crates (`hadris-cd`, `hadris-optical`, `hadris-block`) hold the inner error as `source`, keep its kind, and add context.
+- Wrapper crates (`hadris-cd`, `hadris-optical`, `hadris-block`) keep the kind and the device error and add context.
 - Module-level `Error`/`Result` aliases (`write::Error`, `modify::Error`) are removed.
+
+The earlier draft rejected `Error<E>` for putting a type parameter on every
+signature and making errors from two devices different types. In practice the
+parameter hides behind `FsResult<T, F::DeviceError>` and the `?` conversions
+above, and the erased form it replaced lost the kernel's error entirely.
 
 ### 4.7 Shared input tree for writers
 
@@ -624,8 +708,9 @@ Keep the `strip_async!` code generation and use it everywhere:
 
 | Feature | Meaning |
 |---|---|
-| `alloc` | Heap-backed conveniences: owned names, trees, boxed sources, error sources, the FAT node table, FAT write. |
-| `std` | Implies `alloc`. `StdIo`, `std::io` impls on handles, `Content::path`, `SystemClock`, host helpers. |
+| `alloc` | Heap-backed conveniences: owned names, trees, boxed sources, `AnyError`, the FAT node table, FAT write. |
+| `std` | Implies `alloc`. `std::fs::File` as a `BlockDevice`, `std::io` impls on handles, `From<Error<E>> for std::io::Error`, `StdMutex` and `Volume::new`, `StdIo`, `Content::path`, `SystemClock`, host helpers. |
+| `embedded-io` | `FromEmbedded<T>` for embedded-io and embedded-io-async streams. Nothing else names embedded-io. |
 | `sync` | Sync API. On by default. |
 | `async` | Async API. |
 | `write` | Writers, formatters, modifiers. Enables every correctness dependency (CRC and so on). |
@@ -634,6 +719,7 @@ Keep the `strip_async!` code generation and use it everywhere:
 - `read` is dropped; reading is always available.
 - `crc` and `rand` stop being user-facing features. CRC is always compiled with `write`. Random GUIDs come from the caller (4.10).
 - `cache` stops being a feature. `Cache<D>` is always available and costs nothing unless constructed.
+- No feature changes behaviour. Path semantics (4.12) and lock choice (4.4) are types, so enabling a feature anywhere in the build only adds items.
 - The umbrella forwards the same axes plus one feature per format.
 
 A no-alloc FAT write tier (fixed-capacity node table through a const generic)
@@ -649,18 +735,98 @@ a volume serial take one in options, defaulting to one derived from the clock.
 
 | V2 crate | V3 |
 |---|---|
-| `hadris-io` | Kept. Traits, `StdIo`, `Error`, `ByteSource`. |
-| `hadris-storage` | Kept and adopted by every filesystem. `BlockDevice`, adapters, `Slice`, `Cache`. |
-| `hadris-fs` | New. Vocabulary, traits, path and handle layer, `Shared`, `Tree`/`Content`, `FuseOnError`, `VPath`. |
+| `hadris-io` | Kept. `ErrorType`, `Read`/`Write`/`Seek`, `ExactError`, `FromEmbedded`, `StdIo`, `ByteSource`. |
+| `hadris-storage` | Kept and adopted by every filesystem. `BlockDevice`, `WriteError`, adapters, `Slice`, `Cache`. |
+| `hadris-fs` | New. Vocabulary, `Error<E>`, `FsDriver`/`FileSystem`, `impl_fs_driver!`, `Volume`/`LockKind`, resolvers, handles, `Tree`/`Content`, `FuseOnError`, `VPath`. |
 | `hadris-common` | Internal. Endianness and fixed-size string types, merged with `hadris-fixed` into one set. Documented as not for direct use. |
 | `hadris-fixed` | Merged into `hadris-common`. |
 | `hadris-path` | Merged into `hadris-fs`. |
 | `hadris-macros` | Kept, internal. |
 | `hadris-archive` | Removed. The umbrella re-exports `hadris-cpio` directly. |
-| `hadris-block`, `hadris-optical` | Detection and dispatch. `OpenVolume` and `OpenOpticalImage` implement `FileSystem` by delegation. |
+| `hadris-block`, `hadris-optical` | Detection and dispatch. `OpenVolume` and `OpenOpticalImage` implement `FsDriver` by delegation. |
 | `hadris-vfs` | New, `std` only, can ship in 3.x. `DynFileSystem` (object-safe, boxed futures in async), a mount table for composing volumes, and a `fuser` adapter. |
 | Format crates | Kept. |
 | `hadris` | Re-exports `io`, `storage` and `fs` so no_std users need one dependency. Flat paths: `hadris::fat`, `hadris::iso`. |
+
+### 4.12 Path resolution
+
+Path semantics are a type, `Resolver`, never a cargo feature. Features unify
+across the build graph: if `alloc` or a `posix` feature switched how `..`
+works, one dependency turning it on would change what paths mean for every
+other crate in the build. A type only affects the code that names it, so two
+crates, or two volumes in one program, can resolve differently (S14).
+
+```rust
+pub trait Resolver {
+    async fn resolve<D: FsDriver + ?Sized>(&self, fs: &mut D, path: &str)
+        -> FsResult<NodeId, D::DeviceError>;
+}
+
+pub struct Lexical;                           // the default everywhere
+pub struct Posix<const N: usize = 1024>;      // POSIX, with an N-byte symlink buffer
+pub struct WithResolver<D, R> { .. }          // a driver whose paths use R
+```
+
+| | `Lexical` (default) | `Posix<N>` |
+|---|---|---|
+| `..` | Removes the previous component of the text | Goes to the real parent through `FsDriver::parent` |
+| `/a/missing/../b` | `/b` | `NotFound` |
+| `/file.txt/..` | `/` | `NotADirectory` |
+| Trailing `/` on a file | Ignored | `NotADirectory` |
+| Symlinks | Not followed; a link mid-path gives `NotADirectory` | Followed, 40 at most (`LimitExceeded`), absolute and relative targets |
+| Driver methods used | `lookup` | `lookup`, `node_metadata`, `parent`, `read_link` |
+| Cost | One pin at a time, one `lookup` per component | Plus one `node_metadata` per component, and `parent` per `..` (a directory scan on FAT) |
+| Memory | Nothing | An `N`-byte buffer in the resolve call, touched only when a symlink is followed. Path plus link text beyond `N` fails with `LimitExceeded`, like `ENAMETOOLONG` |
+| `alloc` | Not needed | Not needed |
+
+`Lexical` is the default because it works on every filesystem, including
+ones with no `parent` support, and costs the least. It is how Windows and URL
+resolution treat `..`. On a filesystem without symlinks it agrees with POSIX
+whenever every component exists. `Posix` needs no `alloc`: symlink targets are
+spliced into a fixed buffer, so POSIX semantics are available to kernels too.
+
+Choosing a policy, per tier:
+
+- Raw: `Posix::new().resolve(&mut fs, path)` for one call, or `fs.with_resolver(Posix::new())` so every `DriverExt` helper uses it. `Posix::<256>` picks a smaller buffer.
+- Shared: `Volume::new(fs.with_resolver(Posix::new()))`. Every handle and helper on that volume uses it, and the whole path resolves under one lock hold.
+- Generic code calls `resolve` on `FsDriver` or `FileSystem`. `Volume` forwards to its driver's policy; a custom `FileSystem` gets `Lexical` unless it overrides `resolve`.
+
+Users can write their own `Resolver`. Two obvious ones: a jail that refuses
+`..` past a starting directory, and case-insensitive lookup on top of a
+case-sensitive format.
+
+Not in 3.0: a no-follow mode for the last component (`lstat`, `O_NOFOLLOW`).
+`Posix` always follows a final symlink. The shape allows adding it in 3.x as
+another resolver type or an option on `Posix`.
+
+### 4.13 Known costs and limitations
+
+Each row is a deliberate trade, what it buys, and what a user does about it.
+
+| Cost | Why it stays | What users do |
+|---|---|---|
+| Device errors must be `core::error::Error + Send + Sync + 'static` | Makes every device error erasable into `AnyError` and `io::Error` with no where-clauses | Wrap an error that holds an `Rc` or raw pointer |
+| A non-io device error becomes `io::ErrorKind::Other` in std | std has no kind for "your device's enum" | Downcast `io::Error::into_inner()` to get it back |
+| Generic code carries `F::DeviceError` | Keeps the device error without allocation | Use `FsResult<T, F::DeviceError>`, or return `AnyError` |
+| Stored `Volume` types name the lock | A default lock would depend on a feature (R3) | One user-written alias |
+| Read-only is detected on the first refused write, not up front | A static flag is unreliable and a probe write is harmful (4.2) | `open_read_only` when it is known; `is_read_only()` afterwards |
+| The default resolver is lexical, not POSIX | Works on every format, costs least, needs no `parent` | `with_resolver(Posix::new())` |
+| `Posix` costs a metadata call per component and a stack buffer | Symlink detection needs the type; no `alloc` | Pick `N`; use `Lexical` on formats without symlinks |
+| No no-follow resolution | Not needed for 3.0 users so far | Planned as an additive 3.x resolver |
+| Calls on one `Volume` serialize; a path resolves under one lock hold | One lock per call keeps format crates lock-free | A format can implement `FileSystem` with finer locks |
+| Holding `vol.lock()` and calling the same volume deadlocks (panics with `Local`) | The guard is a plain lock guard | Drop the guard first; documented on `lock()` |
+| `Volume`'s forget queue allocates under contention | `forget` must not block in `Drop` | A fixed-capacity queue for no-alloc builds, not yet built |
+| `OpenFile` does not forget on drop | It is `Copy` plain data for file tables | Call `close`; `File` handles forget on drop |
+| `read_exact`/`write_all` return `ExactError<E>` | Short reads and zero-length writes need their own cases, as in embedded-io | `?` converts into `Error<E>` |
+| `Access` appears in generic code over handles | One `File` type serves all tiers | `fn f<A: Access>(file: &mut File<A>)` |
+| `Dir` is not an `Iterator` in async builds | No async iterator in core | `next_entry().await` |
+| Async futures from generic code are not provably `Send` | `async fn` in traits | See [Q2](#7-open-questions) |
+
+Not yet verified by the prototype: a real `no_std` build, embedded-io behind a
+feature, error context inside `Error<E>`, the async `FromEmbedded` adapter,
+and a tokio file device. The prototype sizes a `std::fs::File` device from
+its metadata, which reports 0 for host block devices such as `/dev/sdX`; the
+real impl seeks to the end instead.
 
 ---
 
@@ -679,13 +845,13 @@ vol.kind();                                      // FatKind::{Fat12, Fat16, Fat3
 vol.label()?; vol.set_label(&VolumeLabel::new("BOOT")?)?;
 vol.fat_attributes(node)?; vol.set_fat_attributes(node, FatAttributes::HIDDEN)?;
 vol.cluster_chain(node)?;                        // native, for tools
-// Everything else goes through FileSystem / FileSystemMut and the path layer.
+// Everything else goes through the node API (FsDriver) and the path layer.
 
 let vol = hadris_fat::sync::format(dev, &FormatOptions::default().with_kind(FatKind::Fat32))?;
 let report = hadris_fat::sync::check(&mut vol)?;           // fsck, both modes
 ```
 
-- `FatVolume` implements `FileSystem` and `FileSystemMut`. Path methods come from the `hadris-fs` path layer. `FatVolumeReadExt` and `FatVolumeWriteExt` are removed.
+- `FatVolume` implements `FsDriver` through its inherent methods (`impl_fs_driver!`). Path methods come from the `hadris-fs` path layer. `FatVolumeReadExt` and `FatVolumeWriteExt` are removed. See [Q7](#7-open-questions) for the name.
 - The node table (4.5) replaces `FileEntry` snapshots. `StaleEntry` and `WriterConflict` go away as errors; a second writer on the same node shares the node and its size.
 - Clock and code page are generic parameters with zero-sized defaults: `FatVolume<D, C: Clock = NoClock, P: CodePage = Ascii>`. No `'static` borrows, no `Sync` supertraits (#83).
 - The FAT sector cache is gone as a separate thing. Users wrap the device in `Cache<D>`. `FatSectorCache`, `CachedFat`, `with_cached_fat` and `fat_cache` are removed (#27). Chain caching becomes an internal detail of the node table.
@@ -711,14 +877,14 @@ let report = hadris_fat::sync::check(&mut vol)?;           // fsck, both modes
 ```rust
 let mut iso = IsoImage::open(dev)?;
 let ns = iso.namespaces();                         // what the image has
-let mut view = iso.view(Namespace::Preferred)?;    // IsoView<'_, D>: FileSystem
+let mut view = iso.view(Namespace::Preferred)?;    // IsoView<'_, D>: FsDriver
 let entry = view.metadata_path("/boot/grub/grub.cfg")?;
 let rr = view.rock_ridge(node)?;                   // Option<RockRidgeInfo>, native
 let boot = iso.boot_catalog()?;                    // Option<BootCatalog>, native
 ```
 
 - `IsoReader` (no-alloc) and `IsoImage` (alloc) merge. The no-alloc core is the implementation, and `alloc` adds convenience on the same types.
-- An ISO has up to four trees (primary, Joliet, Rock Ridge over primary, enhanced). `IsoView` picks one and implements `FileSystem` over it. `Namespace::Preferred` keeps V2's preference order, but Rock Ridge no longer hides Joliet names; the caller can pick.
+- An ISO has up to four trees (primary, Joliet, Rock Ridge over primary, enhanced). `IsoView` picks one and implements `FsDriver` over it. `Namespace::Preferred` keeps V2's preference order, but Rock Ridge no longer hides Joliet names; the caller can pick.
 - `DirectoryRef`, `LogicalSector` and raw records are not needed to walk a tree. They stay under `raw` and via `view.raw_record(node)` for the CLI verifier.
 - `BootCatalog` is public and readable. The CLI stops parsing boot records by hand.
 - `IsoStr::as_str` returns `Result`. Panicking `best_choice` and `primary` are removed.
@@ -770,13 +936,13 @@ be 3.x.
 
 ### 5.3 `hadris-udf`
 
-- `UdfVolume` implements `FileSystem`: path lookup, streaming `read_at`, and metadata with times, permissions and owners. V2 has only `read_file -> Vec` and no path lookup.
+- `UdfVolume` implements `FsDriver`: path lookup, streaming `read_at`, and metadata with times, permissions and owners. V2 has only `read_file -> Vec` and no path lookup.
 - A no-alloc read path. V2 needs `alloc` for everything.
 - The writer takes the shared `Tree` and `UdfOptions` (non_exhaustive, `with_*`) and returns `UdfReport`. `SimpleFile` and `SimpleDir` are removed.
 - Low-level descriptor writers (`write_lvid(location, close: bool)`, `write_fids`) become `pub(crate)` or move to `raw::write` with enums instead of bools.
 - No trait bounds on the `UdfVolume` struct definition.
 - `write` no longer needs `std`.
-- The dead `modify.rs` is deleted. UDF on random-access media is a real read-write filesystem, so modification means `UdfVolume` implementing `FileSystemMut` for Type 1 partitions, not a second modifier API. The shape ships in 3.0 with `Capabilities::writable` false; the implementation can be 3.x.
+- The dead `modify.rs` is deleted. UDF on random-access media is a real read-write filesystem, so modification means `UdfVolume` implementing the `FsDriver` write methods for Type 1 partitions, not a second modifier API. The shape ships in 3.0 with `Capabilities::writable` false; the implementation can be 3.x.
 - Reader coverage: UDF 1.50 and 2.01 reading, prevailing-descriptor selection, allocation-extent chaining, extended allocation descriptors, stream directories.
 - 3.x: VAT, sparing tables, metadata partitions (2.50+), which all live behind the same `UdfVolume`.
 
@@ -790,7 +956,7 @@ be 3.x.
 
 ### 5.5 `hadris-ntfs`
 
-- `NtfsVolume` (renamed from `NtfsFs`) implements `FileSystem`, with metadata including times and security descriptors through `extra()`.
+- `NtfsVolume` (renamed from `NtfsFs`) implements `FsDriver`, with metadata including times and security descriptors through `extra()`.
 - `NtfsError` becomes `Error`. `raw::*` is no longer glob re-exported. `attr` types with raw `u8`/`u32` codes move to `raw`; the public API uses enums.
 - Native API for streams: `vol.streams(node)` lists named data streams, and `vol.read_stream_at(node, name, offset, buf)` reads one.
 - `open` seeks to the boot sector instead of reading from the current position (falls out of `BlockDevice`).
@@ -799,7 +965,7 @@ be 3.x.
 **Feature work.** `$ATTRIBUTE_LIST`, `$MFTMirr` fallback, compressed streams,
 reparse points (exposed as symlinks where they are symlinks or junctions),
 keyed B-tree lookup, filtering DOS 8.3 duplicates from listings. Encrypted
-streams stay `Unsupported`. Write support is 3.x behind `FileSystemMut`, and
+streams stay `Unsupported`. Write support is 3.x behind the `FsDriver` write methods, and
 `$LogFile` replay comes with it. NTFS stays in `unstable` until its read side
 passes a conformance slice. See [Q5](#7-open-questions).
 
@@ -861,7 +1027,7 @@ remove and resize, overlap checks in every edit.
 ### 5.8 `hadris-block` and `hadris-optical`
 
 - `detect` takes a `BlockDevice`.
-- `OpenVolume` is `#[non_exhaustive]` and covers FAT, exFAT and NTFS. `OpenOpticalImage` covers ISO views and UDF. Both implement `FileSystem`, so "open whatever this is and list it" is one generic function.
+- `OpenVolume` is `#[non_exhaustive]` and covers FAT, exFAT and NTFS. `OpenOpticalImage` covers ISO views and UDF. Both implement `FsDriver`, so "open whatever this is and list it" is one generic function.
 - `hadris-optical` holds `hadris_iso::Error` instead of `hadris_io::Error` for ISO, and drops the remaining `expect` in `image_sync.rs`.
 - `Error` exists in every feature combination.
 
@@ -877,10 +1043,10 @@ the V3 changes in 4.2 and 4.4 (the device lives inside the mutex and every
 await is I/O on it), so 2.x documents async volumes as single-task.
 
 1. **CI guardrails.** semver-checks against the branch point, the `non_exhaustive` lint, the all-features vs no-features API subset check, the sync/async parity check. Report-only at first.
-2. **`hadris-io`.** embedded-io base, `StdIo`, `&mut T`, lossless `Error`, `ByteSource`, moved onto `strip_async!`. Update every crate to compile.
-3. **`hadris-storage`.** `BlockDevice` in both modes from one source, `StreamDevice`, `MemDevice`, `Slice`, `Cache`, `ByteView`.
-4. **`hadris-fs`.** Vocabulary, `ErrorKind`, `DateTime`/`Clock`, traits, path and handle layer, `Shared`/`Lock`, `FuseOnError`. Merge `hadris-path`. Slim `hadris-common` and merge `hadris-fixed` into it. Delete `hadris-archive`.
-5. **`hadris-fat` as the reference implementation.** `BlockDevice` input, node table, `FileSystem`/`FileSystemMut`, `FormatOptions`, `check`, clock and code page generics. Port the conformance adapter to the generic `FileSystemMut` adapter in the same PR. This step tests the trait design, and the trait can still change here.
+2. **`hadris-io`.** embedded-io base, `StdIo`, `&mut T`, lossless `Error`, `ByteSource`, moved onto `strip_async!`. Update every crate to compile. Done on `feat/v3-api` with the erased error; step 4 reworks it to `ErrorType`.
+3. **`hadris-storage`.** `BlockDevice` in both modes from one source, `StreamDevice`, `MemDevice`, `Slice`, `Cache`, `ByteView`. Done on `feat/v3-api` with `access()`; step 4 reworks it to `WriteError` and adds `std::fs::File`.
+4. **`hadris-fs`.** Rework steps 2 and 3 to associated errors (4.1, 4.2). Vocabulary, `ErrorKind`, `Error<E>`, `AnyError`, `DateTime`/`Clock`, `FsDriver`/`FileSystem`, `impl_fs_driver!`, `Volume`/`LockKind`, resolvers, handles and path helpers, `FuseOnError`. Port the prototype's scenarios S1 to S16 as tests. Merge `hadris-path`. Slim `hadris-common` and merge `hadris-fixed` into it. Delete `hadris-archive`.
+5. **`hadris-fat` as the reference implementation.** `BlockDevice` input, node table, `FsDriver` through inherent methods, `parent`, `FormatOptions`, `check`, clock and code page generics. Port the conformance adapter to the generic `FileSystem` adapter in the same PR. This step tests the trait design, and the trait can still change here.
 6. **Freeze the traits.** Review `hadris-fs` against FAT, the conformance adapter and a prototype FUSE adapter before any other format ports.
 7. **Errors and the R1/R2/R4/R5 pass, crate by crate.**
 8. **`hadris-part`.** `Disk`, `DiskLayout`, `MbrType`, GUIDs, CRC always on, EBR.
@@ -897,15 +1063,12 @@ await is I/O on it), so 2.x documents async volumes as single-task.
 
 ## 7. Open questions
 
-**Q1. Lock placement.** The proposal keeps locks out of format crates and
-puts them in `Shared<F, L>` (4.4). The user wants flexible end usage and has
-not settled this. The case for it: callers pick any lock, including async and
-single-threaded ones, and the lock-across-await bug cannot happen inside a
-format crate. The cost: operations on one volume serialize, as they do in V2.
-If a kernel needs concurrent readers, the upgrade path is an `RwLock` mode in
-`Shared` plus a device that supports concurrent positional reads. That needs
-read methods on `&self`, which would be a trait change, so it has to be
-decided before step 6.
+**Q1. Lock placement.** Resolved. Four variants were prototyped on
+`feat/v3-lock-prototype` under `experiments/lock-placement`: an external
+wrapper over `&mut self` (A), a lock inside each format (B), a `&mut` driver
+trait plus a `&self` trait with a shared `Volume` (C), and C with opt-in tiers
+and device-typed errors (D). V3 takes D: 4.1 to 4.4, 4.6, 4.12 and 4.13
+describe it, and scenarios S1 to S16 are its acceptance tests.
 
 **Q2. `Send` futures.** `async fn` in traits does not let a generic caller
 require `Send` futures. Tokio users spawning tasks over a generic
@@ -934,3 +1097,9 @@ precisely enough for a VFS to translate names, or does each format also need
 a `NameCodec`? Still open: `hadris-fs` ships `Capabilities::name_charset()`
 returning a non-exhaustive `NameCharset` (`Bytes`, `Utf8`, `Ucs2`, `Utf16`,
 `DCharacters`, `OemCodePage`) as the interim answer.
+
+**Q7. Driver type names.** `Volume<F, K>` is now the sharing wrapper, which
+makes `FatVolume`, `UdfVolume` and `NtfsVolume` read as if they were already
+shared. The prototype named the FAT driver `FatFs`. Options: rename every
+driver to `<Format>Fs`, or rename the wrapper (`Shared<F, K>`). Recommendation:
+`<Format>Fs` for drivers, since `Volume` is what most users type.
