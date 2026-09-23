@@ -1703,3 +1703,24 @@ fn listing_never_hands_out_the_id_of_a_moved_pinned_node() {
         assert_eq!(fresh_read(case, &image, "/B.TXT"), b"bbbB");
     }
 }
+
+#[test]
+fn a_zero_fsinfo_free_count_does_not_stop_allocation() {
+    let case = CASES[2];
+    assert_eq!(case.kind, hadris_fat::FatKind::Fat32);
+    let mut blank = common::blank(case);
+    let actual = free(&mut common::mount(case, &blank));
+    let sector = u16::from_le_bytes([blank[11], blank[12]]) as usize;
+    let fs_info = u16::from_le_bytes([blank[48], blank[49]]) as usize * sector;
+    blank[fs_info + 488..fs_info + 492].copy_from_slice(&0u32.to_le_bytes());
+    let mut fs = open(case, blank);
+    let root = fs.root();
+    let file = create(&mut fs, root, "X.BIN", NewNode::File);
+    write_all(&mut fs, file, 0, b"hi");
+    assert_eq!(free(&mut fs), actual - 1);
+    fs.forget(file);
+    fs.sync().unwrap();
+    let image = image(fs);
+    assert_eq!(fresh_read(case, &image, "/X.BIN"), b"hi");
+    assert_eq!(free(&mut common::mount(case, &image)), actual - 1);
+}

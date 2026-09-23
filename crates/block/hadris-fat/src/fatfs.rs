@@ -849,7 +849,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// Space usage in clusters. Free space comes from the FAT32 FSInfo
     /// sector when it is valid, and otherwise from one scan of the FAT,
-    /// which is then kept.
+    /// which is then kept. The FSInfo count is a hint: allocation scans the
+    /// FAT regardless, and one that finds it wrong drops it.
     pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
         let free = match self.free_clusters {
             Some(free) => free,
@@ -1837,11 +1838,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         Ok(())
     }
 
-    /// Takes a free cluster and marks it as the end of a chain.
+    /// Takes a free cluster and marks it as the end of a chain. The FAT is
+    /// scanned whatever the free count says, since FSInfo is only a hint.
     async fn allocate(&mut self) -> FsResult<u32, D::Error> {
-        if self.free_clusters == Some(0) {
-            return Err(ErrorKind::NoSpace.into());
-        }
         let max = self.geo.max_cluster;
         let count = max - FIRST_DATA_CLUSTER + 1;
         let from = self.next_free.clamp(FIRST_DATA_CLUSTER, max) - FIRST_DATA_CLUSTER;
@@ -1851,10 +1850,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 continue;
             }
             self.set_fat(cluster, self.geo.kind.end_of_chain()).await?;
-            self.free_clusters = self.free_clusters.map(|free| free.saturating_sub(1));
+            self.free_clusters = self.free_clusters.and_then(|free| free.checked_sub(1));
             self.next_free = if cluster == max { FIRST_DATA_CLUSTER } else { cluster + 1 };
             self.fs_info_dirty = true;
             return Ok(cluster);
+        }
+        if self.free_clusters != Some(0) {
+            self.free_clusters = Some(0);
+            self.fs_info_dirty = true;
         }
         Err(ErrorKind::NoSpace.into())
     }
