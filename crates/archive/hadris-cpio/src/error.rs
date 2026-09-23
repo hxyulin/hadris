@@ -4,7 +4,7 @@ use core::fmt;
 #[derive(Debug)]
 pub enum Error {
     /// An I/O error occurred while reading or writing the archive.
-    Io(hadris_io::Error),
+    Io(hadris_io::legacy::Error),
     /// The header magic bytes are not `070701` or `070702`.
     InvalidMagic {
         /// Six bytes read from the archive magic field.
@@ -96,8 +96,8 @@ impl fmt::Display for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-impl From<hadris_io::Error> for Error {
-    fn from(e: hadris_io::Error) -> Self {
+impl From<hadris_io::legacy::Error> for Error {
+    fn from(e: hadris_io::legacy::Error) -> Self {
         Self::Io(e)
     }
 }

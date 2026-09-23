@@ -49,7 +49,7 @@ fn main() {
     println!("Extracted {count} files");
 }
 
-fn extract_directory<R: hadris_io::Read + hadris_io::Seek, C: Read + Seek>(
+fn extract_directory<R: hadris_io::legacy::Read + hadris_io::legacy::Seek, C: Read + Seek>(
     image: &IsoImage<R>,
     content_reader: &mut C,
     dir: &hadris_iso::read::RootDir,

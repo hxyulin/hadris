@@ -41,7 +41,7 @@ pub enum Error {
         cluster: u32,
     },
     /// I/O error from the underlying storage
-    Io(hadris_io::Error),
+    Io(hadris_io::legacy::Error),
     /// I/O error annotated with the operation and (optionally) the sector
     /// where it happened. Used at trust boundaries — boot sector parse,
     /// FSInfo read, FAT chain walk entry, directory iteration head — so
@@ -53,7 +53,7 @@ pub enum Error {
         /// Sector where the failure originated, when known.
         sector: Option<u64>,
         /// The wrapped underlying I/O error.
-        source: hadris_io::Error,
+        source: hadris_io::legacy::Error,
     },
     /// On-disk arithmetic on an untrusted value would overflow or underflow.
     ///
@@ -343,14 +343,14 @@ impl fmt::Display for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-impl From<hadris_io::Error> for Error {
-    fn from(e: hadris_io::Error) -> Self {
+impl From<hadris_io::legacy::Error> for Error {
+    fn from(e: hadris_io::legacy::Error) -> Self {
         Self::Io(e)
     }
 }
 
 /// Manual `defmt::Format` impl rather than `derive`, because the wrapped
-/// `hadris_io::Error` does not (yet) implement `Format`. The Io variant logs
+/// `hadris_io::legacy::Error` does not (yet) implement `Format`. The Io variant logs
 /// without details; everything else mirrors the Display output.
 #[cfg(feature = "defmt")]
 impl defmt::Format for Error {
@@ -390,7 +390,7 @@ impl defmt::Format for Error {
             Self::UnexpectedEndOfChain { cluster } => {
                 defmt::write!(f, "unexpected end of cluster chain at {=u32}", *cluster)
             }
-            // hadris_io::Error doesn't implement defmt::Format yet — log a
+            // hadris_io::legacy::Error doesn't implement defmt::Format yet — log a
             // generic message rather than dragging the dependency tree.
             Self::Io(_) => defmt::write!(f, "I/O error"),
             Self::IoContext { op, sector, .. } => match sector {

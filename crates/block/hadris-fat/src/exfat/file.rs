@@ -92,7 +92,7 @@ impl<DATA: Read + Seek> ExFatFileReader<'_, DATA> {
     }
 }
 
-impl<DATA: Read + Seek> hadris_io::sync::Read for ExFatFileReader<'_, DATA> {
+impl<DATA: Read + Seek> hadris_io::legacy::sync::Read for ExFatFileReader<'_, DATA> {
     fn read(&mut self, buf: &mut [u8]) -> crate::io::IoResult<usize> {
         if self.position >= self.valid_length {
             return Ok(0);
@@ -146,7 +146,7 @@ impl<DATA: Read + Seek> hadris_io::sync::Read for ExFatFileReader<'_, DATA> {
     }
 }
 
-impl<DATA: Read + Seek> hadris_io::sync::Seek for ExFatFileReader<'_, DATA> {
+impl<DATA: Read + Seek> hadris_io::legacy::sync::Seek for ExFatFileReader<'_, DATA> {
     fn seek(&mut self, pos: SeekFrom) -> crate::io::IoResult<u64> {
         let new_pos = match pos {
             SeekFrom::Start(offset) => offset as i64,
@@ -313,7 +313,7 @@ impl<'a, DATA: Read + Write + Seek> ExFatFileWriter<'a, DATA> {
 }
 
 #[cfg(feature = "write")]
-impl<DATA: Read + Write + Seek> hadris_io::sync::Write for ExFatFileWriter<'_, DATA> {
+impl<DATA: Read + Write + Seek> hadris_io::legacy::sync::Write for ExFatFileWriter<'_, DATA> {
     fn write(&mut self, buf: &[u8]) -> crate::io::IoResult<usize> {
         if buf.is_empty() {
             return Ok(0);

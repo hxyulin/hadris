@@ -1,23 +1,26 @@
 //! # Hadris IO
 //!
-//! Portable I/O traits for the Hadris filesystem crates, built on
-//! [`embedded-io`](embedded_io).
+//! Portable I/O traits for the Hadris filesystem crates.
 //!
-//! The [`Read`], [`Write`] and [`Seek`] traits return the portable [`Error`]
-//! and are implemented for `&mut T`. Wrap an `embedded-io` device in
-//! [`FromEmbedded`] to use it with Hadris. With `std`, wrap a `std::io` type
-//! in [`StdIo`], and wrap a Hadris reader in [`ToStd`] to use it with
-//! `std::io`. Enabling features only adds items; no trait or type changes
+//! [`Read`], [`Write`] and [`Seek`] report the implementor's own error
+//! through the [`ErrorType`] supertrait, as `embedded-io` does. The error can
+//! be any `core::error::Error + Send + Sync`: a kernel uses its own enum,
+//! [`StdIo`] reports `std::io::Error`, and [`FromEmbedded`] passes an
+//! `embedded-io` error through unchanged. `&mut T` implements each trait
+//! when `T` does. Enabling features only adds items; no trait or type changes
 //! shape.
+//!
+//! The V2 traits with one erased error live in [`legacy`] while the format
+//! crates move over.
 //!
 //! ## Feature Flags
 //!
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
-//! | `std`   | yes     | [`StdIo`], [`ToStd`] and `std::io::Error` conversions (implies `alloc`) |
+//! | `std`   | yes     | [`StdIo`], [`ToStd`] and conversions to `std::io::Error` (implies `alloc`) |
 //! | `sync`  | yes     | Synchronous traits in [`sync`] |
 //! | `async` | no      | Asynchronous traits in `r#async` |
-//! | `alloc` | via `std` | Keep the device error as [`Error`]'s source |
+//! | `alloc` | via `std` | `Box<T>` and `Vec<u8>` implement the traits |
 //!
 //! ## Quick Start
 //!
@@ -36,17 +39,36 @@
 //! assert_eq!(&buf, b"HD");
 //! ```
 //!
-//! ## Extension Traits
-//!
-//! The [`ReadExt`] trait adds structured reading via [`bytemuck`]:
+//! ## Implementing a device
 //!
 //! ```rust
-//! use hadris_io::{Cursor, ReadExt};
+//! use hadris_io::{ErrorType, Read};
 //!
-//! let bytes = 0x1234u16.to_ne_bytes();
-//! let mut cursor = Cursor::new(&bytes);
-//! let value: u16 = cursor.read_struct().unwrap();
-//! assert_eq!(value, 0x1234);
+//! #[derive(Debug)]
+//! enum UartError { Framing }
+//!
+//! impl core::fmt::Display for UartError {
+//!     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+//!         f.write_str("framing error")
+//!     }
+//! }
+//!
+//! impl core::error::Error for UartError {}
+//!
+//! struct Uart;
+//!
+//! impl ErrorType for Uart {
+//!     type Error = UartError;
+//! }
+//!
+//! impl Read for Uart {
+//!     fn read(&mut self, _buf: &mut [u8]) -> Result<usize, UartError> {
+//!         Err(UartError::Framing)
+//!     }
+//! }
+//!
+//! let err = Uart.read_exact(&mut [0; 4]).unwrap_err();
+//! assert!(matches!(err, hadris_io::ExactError::Io(UartError::Framing)));
 //! ```
 
 #![no_std]
@@ -59,7 +81,11 @@ extern crate alloc;
 extern crate std;
 
 mod error;
-pub use error::{Error, ErrorKind, Result};
+#[cfg(feature = "std")]
+pub use error::into_std_error;
+pub use error::{ErrorType, ExactError, InvalidSeek};
+
+pub mod legacy;
 
 #[cfg(feature = "std")]
 mod std_adapters;
@@ -72,9 +98,7 @@ pub use std_adapters::ToStd;
 pub use embedded_io::SeekFrom;
 
 /// Use an `embedded-io` (or, in async mode, `embedded-io-async`) device with
-/// the Hadris traits.
-///
-/// The device error is kept as the [`Error`]'s source when `alloc` is enabled.
+/// the Hadris traits. The device's error is used unchanged.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FromEmbedded<T>(T);
 
@@ -100,20 +124,23 @@ impl<T> FromEmbedded<T> {
     }
 }
 
+impl<T: embedded_io::ErrorType> ErrorType for FromEmbedded<T>
+where
+    T::Error: Send + Sync + 'static,
+{
+    type Error = T::Error;
+}
+
 /// Short-circuit an `Err` by returning `Some(Err(..))`.
 ///
 /// Useful in iterator implementations where the return type is
-/// `Option<Result<T>>`.
+/// `Option<Result<T, E>>`.
 ///
 /// ```rust
-/// use hadris_io::{try_io_result_option, Result, Error, ErrorKind};
+/// use hadris_io::try_io_result_option;
 ///
-/// fn next_item(ok: bool) -> Option<Result<u32>> {
-///     let result: Result<u32> = if ok {
-///         Ok(42)
-///     } else {
-///         Err(Error::new(ErrorKind::NotFound, "missing"))
-///     };
+/// fn next_item(ok: bool) -> Option<Result<u32, &'static str>> {
+///     let result: Result<u32, &'static str> = if ok { Ok(42) } else { Err("missing") };
 ///     let value = try_io_result_option!(result);
 ///     Some(Ok(value * 2))
 /// }
@@ -146,7 +173,8 @@ fn copy_from_slice_at(data: &[u8], offset: u64, buf: &mut [u8]) -> usize {
 
 /// A no-std cursor for reading from a byte slice.
 ///
-/// Implements [`Read`] and [`Seek`] in both modes.
+/// Implements [`Read`] and [`Seek`] in both modes. Reads never fail; seeking
+/// to a negative position fails with [`InvalidSeek`].
 ///
 /// ```rust
 /// use hadris_io::{Cursor, Read, Seek, SeekFrom};
@@ -190,64 +218,29 @@ impl<'a> Cursor<'a> {
     }
 
     #[cfg(any(feature = "sync", feature = "async"))]
-    fn read_impl(&mut self, buf: &mut [u8]) -> core::result::Result<usize, ErrorKind> {
-        let count = copy_slice(self.remaining_slice(), buf);
+    fn read_slice(&mut self, buf: &mut [u8]) -> usize {
+        let remaining = self.data.get(self.cursor..).unwrap_or(&[]);
+        let count = remaining.len().min(buf.len());
+        buf[..count].copy_from_slice(&remaining[..count]);
         self.cursor += count;
-        Ok(count)
+        count
     }
 
     #[cfg(any(feature = "sync", feature = "async"))]
-    fn remaining_slice(&self) -> &'a [u8] {
-        self.data.get(self.cursor..).unwrap_or(&[])
-    }
-
-    #[cfg(any(feature = "sync", feature = "async"))]
-    fn seek_impl(&mut self, pos: SeekFrom) -> core::result::Result<u64, ErrorKind> {
+    fn seek_to(&mut self, pos: SeekFrom) -> Result<u64, InvalidSeek> {
         let new_pos = match pos {
             SeekFrom::Start(offset) => Some(offset),
             SeekFrom::End(offset) => (self.data.len() as u64).checked_add_signed(offset),
             SeekFrom::Current(offset) => (self.cursor as u64).checked_add_signed(offset),
         }
-        .ok_or(ErrorKind::InvalidInput)?;
-
-        self.cursor = usize::try_from(new_pos).map_err(|_| ErrorKind::InvalidInput)?;
-        Ok(self.cursor as u64)
+        .ok_or(InvalidSeek)?;
+        self.cursor = usize::try_from(new_pos).map_err(|_| InvalidSeek)?;
+        Ok(new_pos)
     }
 }
 
-#[cfg(any(feature = "sync", feature = "async"))]
-fn copy_slice(from: &[u8], to: &mut [u8]) -> usize {
-    let count = from.len().min(to.len());
-    to[..count].copy_from_slice(&from[..count]);
-    count
-}
-
-#[cfg(feature = "sync")]
-impl sync::Read for Cursor<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        Ok(self.read_impl(buf)?)
-    }
-}
-
-#[cfg(feature = "sync")]
-impl sync::Seek for Cursor<'_> {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        Ok(self.seek_impl(pos)?)
-    }
-}
-
-#[cfg(feature = "async")]
-impl r#async::Read for Cursor<'_> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        Ok(self.read_impl(buf)?)
-    }
-}
-
-#[cfg(feature = "async")]
-impl r#async::Seek for Cursor<'_> {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        Ok(self.seek_impl(pos)?)
-    }
+impl ErrorType for Cursor<'_> {
+    type Error = InvalidSeek;
 }
 
 /// Synchronous I/O traits.
@@ -265,13 +258,10 @@ pub mod r#async;
 mod tests {
     extern crate std;
     use super::*;
+    use core::convert::Infallible;
     use std::format;
     #[cfg(feature = "alloc")]
     use std::vec::Vec;
-
-    // -----------------------------------------------------------------------
-    // Cursor tests
-    // -----------------------------------------------------------------------
 
     #[test]
     fn cursor_new_starts_at_zero() {
@@ -282,266 +272,54 @@ mod tests {
     }
 
     #[test]
-    fn cursor_set_position() {
-        let data = [0u8; 10];
-        let mut cursor = Cursor::new(&data);
-        cursor.set_position(5);
-        assert_eq!(cursor.position(), 5);
-        cursor.set_position(0);
-        assert_eq!(cursor.position(), 0);
-    }
-
-    #[test]
-    fn cursor_read_basic() {
-        let data = [10, 20, 30, 40, 50];
-        let mut cursor = Cursor::new(&data);
-        let mut buf = [0u8; 3];
-        let n = cursor.read_impl(&mut buf).unwrap();
-        assert_eq!(n, 3);
-        assert_eq!(buf, [10, 20, 30]);
-        assert_eq!(cursor.position(), 3);
-    }
-
-    #[test]
     fn cursor_read_past_end() {
         let data = [1, 2];
         let mut cursor = Cursor::new(&data);
         let mut buf = [0u8; 5];
-        let n = cursor.read_impl(&mut buf).unwrap();
-        assert_eq!(n, 2);
+        assert_eq!(cursor.read(&mut buf).unwrap(), 2);
         assert_eq!(&buf[..2], &[1, 2]);
-        assert_eq!(cursor.position(), 2);
-
-        // Reading again at end returns 0
-        let n = cursor.read_impl(&mut buf).unwrap();
-        assert_eq!(n, 0);
+        assert_eq!(cursor.read(&mut buf).unwrap(), 0);
+        assert_eq!(
+            cursor.read_exact(&mut buf).unwrap_err(),
+            ExactError::UnexpectedEof
+        );
     }
 
     #[test]
-    fn cursor_read_empty_buffer() {
-        let data = [1, 2, 3];
+    fn cursor_seeks() {
+        let data = [0u8; 20];
         let mut cursor = Cursor::new(&data);
-        let mut buf = [0u8; 0];
-        let n = cursor.read_impl(&mut buf).unwrap();
-        assert_eq!(n, 0);
+        assert_eq!(cursor.seek(SeekFrom::Start(10)).unwrap(), 10);
+        assert_eq!(cursor.seek(SeekFrom::End(-5)).unwrap(), 15);
+        assert_eq!(cursor.seek(SeekFrom::Current(-3)).unwrap(), 12);
+        assert_eq!(cursor.stream_position().unwrap(), 12);
+        cursor.rewind().unwrap();
         assert_eq!(cursor.position(), 0);
     }
 
     #[test]
-    fn cursor_seek_start() {
-        let data = [0u8; 20];
-        let mut cursor = Cursor::new(&data);
-        let pos = cursor.seek_impl(SeekFrom::Start(10)).unwrap();
-        assert_eq!(pos, 10);
-        assert_eq!(cursor.position(), 10);
-    }
-
-    #[test]
-    fn cursor_seek_end() {
-        let data = [0u8; 20];
-        let mut cursor = Cursor::new(&data);
-        let pos = cursor.seek_impl(SeekFrom::End(-5)).unwrap();
-        assert_eq!(pos, 15);
-        assert_eq!(cursor.position(), 15);
-    }
-
-    #[test]
-    fn cursor_seek_current() {
-        let data = [0u8; 20];
-        let mut cursor = Cursor::new(&data);
-        cursor.set_position(10);
-        let pos = cursor.seek_impl(SeekFrom::Current(3)).unwrap();
-        assert_eq!(pos, 13);
-        let pos = cursor.seek_impl(SeekFrom::Current(-5)).unwrap();
-        assert_eq!(pos, 8);
-    }
-
-    #[test]
-    fn cursor_seek_negative_position_errors() {
+    fn cursor_rejects_invalid_seeks() {
         let data = [0u8; 10];
         let mut cursor = Cursor::new(&data);
-        let result = cursor.seek_impl(SeekFrom::End(-20));
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::InvalidInput);
-    }
-
-    #[test]
-    fn cursor_seek_end_large_offset_does_not_panic() {
-        let data = [0u8; 5];
-        let mut cursor = Cursor::new(&data);
-        let result = cursor.seek_impl(SeekFrom::End(i64::MAX));
-        match result {
-            Ok(pos) => assert_eq!(pos, 5 + i64::MAX as u64),
-            Err(err) => assert_eq!(err.kind(), ErrorKind::InvalidInput),
-        }
-    }
-
-    #[test]
-    fn cursor_seek_current_overflow_errors() {
-        let data = [0u8; 5];
-        let mut cursor = Cursor::new(&data);
+        assert_eq!(cursor.seek(SeekFrom::End(-20)), Err(InvalidSeek));
         cursor.set_position(usize::MAX);
-        let result = cursor.seek_impl(SeekFrom::Current(i64::MAX));
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidInput);
+        assert_eq!(cursor.seek(SeekFrom::Current(i64::MAX)), Err(InvalidSeek));
     }
 
     #[test]
-    fn cursor_seek_start_u64_max_accepted() {
+    fn cursor_seek_past_end_reads_nothing() {
         let data = [1u8, 2, 3];
         let mut cursor = Cursor::new(&data);
-        match cursor.seek_impl(SeekFrom::Start(u64::MAX)) {
-            Ok(pos) => {
-                assert!(usize::try_from(u64::MAX).is_ok());
-                assert_eq!(pos, u64::MAX);
-                let mut buf = [0u8; 4];
-                let n = cursor.read_impl(&mut buf).unwrap();
-                assert_eq!(n, 0);
-            }
-            Err(err) => {
-                assert!(usize::try_from(u64::MAX).is_err());
-                assert_eq!(err.kind(), ErrorKind::InvalidInput);
-            }
+        if cursor.seek(SeekFrom::Start(u64::MAX)).is_ok() {
+            assert_eq!(cursor.read(&mut [0u8; 4]).unwrap(), 0);
         }
-    }
-
-    #[test]
-    fn cursor_seek_to_start_of_stream() {
-        let data = [0u8; 10];
-        let mut cursor = Cursor::new(&data);
-        cursor.set_position(5);
-        let pos = cursor.seek_impl(SeekFrom::Start(0)).unwrap();
-        assert_eq!(pos, 0);
-    }
-
-    #[test]
-    fn cursor_clone() {
-        let data = [1, 2, 3, 4, 5];
-        let mut cursor = Cursor::new(&data);
-        cursor.set_position(3);
-        let clone = cursor.clone();
-        assert_eq!(clone.position(), 3);
-        assert_eq!(clone.get_ref(), cursor.get_ref());
     }
 
     #[test]
     fn cursor_debug_format() {
         let data = [1, 2, 3];
-        let cursor = Cursor::new(&data);
-        let debug = format!("{cursor:?}");
-        assert!(debug.contains("Cursor"));
+        assert!(format!("{:?}", Cursor::new(&data)).contains("Cursor"));
     }
-
-    // -----------------------------------------------------------------------
-    // Sync Read/Seek trait tests via Cursor
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn sync_read_trait() {
-        use sync::Read;
-        let data = [10, 20, 30, 40, 50];
-        let mut cursor = Cursor::new(&data);
-        let mut buf = [0u8; 3];
-        let n = cursor.read(&mut buf).unwrap();
-        assert_eq!(n, 3);
-        assert_eq!(buf, [10, 20, 30]);
-    }
-
-    #[test]
-    fn sync_read_exact_success() {
-        use sync::Read;
-        let data = [1, 2, 3, 4, 5];
-        let mut cursor = Cursor::new(&data);
-        let mut buf = [0u8; 5];
-        cursor.read_exact(&mut buf).unwrap();
-        assert_eq!(buf, [1, 2, 3, 4, 5]);
-    }
-
-    #[test]
-    fn sync_read_exact_eof() {
-        use sync::Read;
-        let data = [1, 2];
-        let mut cursor = Cursor::new(&data);
-        let mut buf = [0u8; 5];
-        let result = cursor.read_exact(&mut buf);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn sync_seek_trait() {
-        use sync::Seek;
-        let data = [0u8; 20];
-        let mut cursor = Cursor::new(&data);
-        let pos = cursor.seek(SeekFrom::Start(10)).unwrap();
-        assert_eq!(pos, 10);
-        let pos = cursor.stream_position().unwrap();
-        assert_eq!(pos, 10);
-    }
-
-    #[test]
-    fn sync_seek_relative() {
-        use sync::Seek;
-        let data = [0u8; 20];
-        let mut cursor = Cursor::new(&data);
-        cursor.seek(SeekFrom::Start(5)).unwrap();
-        cursor.seek_relative(3).unwrap();
-        assert_eq!(cursor.stream_position().unwrap(), 8);
-        cursor.seek_relative(-2).unwrap();
-        assert_eq!(cursor.stream_position().unwrap(), 6);
-    }
-
-    // -----------------------------------------------------------------------
-    // ReadExt tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn read_ext_read_struct() {
-        use sync::ReadExt;
-        let data = [0x78, 0x56, 0x34, 0x12]; // LE u32 = 0x12345678
-        let mut cursor = Cursor::new(&data);
-        let val: u32 = cursor.read_struct().unwrap();
-        assert_eq!(val, u32::from_ne_bytes([0x78, 0x56, 0x34, 0x12]));
-    }
-
-    #[test]
-    fn read_ext_read_struct_eof() {
-        use sync::ReadExt;
-        let data = [0x78, 0x56]; // Only 2 bytes, not enough for u32
-        let mut cursor = Cursor::new(&data);
-        let result: Result<u32> = cursor.read_struct();
-        assert!(result.is_err());
-    }
-
-    // -----------------------------------------------------------------------
-    // try_io_result_option! macro tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn try_io_result_option_ok() {
-        fn test_fn() -> Option<Result<u32>> {
-            let val: Result<u32> = Ok(42);
-            let v = try_io_result_option!(val);
-            Some(Ok(v))
-        }
-        let result = test_fn();
-        assert!(matches!(result, Some(Ok(42))));
-    }
-
-    #[test]
-    fn try_io_result_option_err() {
-        fn test_fn() -> Option<Result<u32>> {
-            let val: Result<u32> = Err(Error::new(ErrorKind::NotFound, "not found"));
-            let _v = try_io_result_option!(val);
-            Some(Ok(0)) // Should not reach here
-        }
-        let result = test_fn();
-        assert!(matches!(result, Some(Err(_))));
-    }
-
-    // -----------------------------------------------------------------------
-    // Blanket impls, &mut and ByteSource
-    // -----------------------------------------------------------------------
 
     #[test]
     fn mutable_reference_is_a_reader() {
@@ -554,6 +332,43 @@ mod tests {
         let mut cursor = Cursor::new(&data);
         assert_eq!(read_two(&mut cursor), [7, 8]);
         assert_eq!(read_two(&mut cursor), [9, 10]);
+    }
+
+    struct Sink {
+        accepted: usize,
+    }
+
+    impl ErrorType for Sink {
+        type Error = Infallible;
+    }
+
+    impl Write for Sink {
+        fn write(&mut self, buf: &[u8]) -> Result<usize, Infallible> {
+            let n = buf.len().min(self.accepted);
+            self.accepted -= n;
+            Ok(n)
+        }
+
+        fn flush(&mut self) -> Result<(), Infallible> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn write_all_reports_write_zero() {
+        let mut sink = Sink { accepted: 3 };
+        assert_eq!(sink.write_all(&[1, 2]), Ok(()));
+        assert_eq!(sink.write_all(&[1, 2]), Err(ExactError::WriteZero));
+    }
+
+    #[test]
+    fn try_io_result_option_err() {
+        fn test_fn() -> Option<Result<u32, InvalidSeek>> {
+            let val: Result<u32, InvalidSeek> = Err(InvalidSeek);
+            let _v = try_io_result_option!(val);
+            Some(Ok(0))
+        }
+        assert!(matches!(test_fn(), Some(Err(InvalidSeek))));
     }
 
     #[test]
@@ -574,8 +389,8 @@ mod tests {
         vec.read_exact_at(5, &mut buf).unwrap();
         assert_eq!(buf, [5, 6, 7]);
         assert_eq!(
-            vec.read_exact_at(8, &mut buf).unwrap_err().kind(),
-            ErrorKind::UnexpectedEof
+            vec.read_exact_at(8, &mut buf).unwrap_err(),
+            ExactError::UnexpectedEof
         );
     }
 

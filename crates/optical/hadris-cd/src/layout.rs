@@ -195,7 +195,7 @@ impl LayoutManager {
         for file in &mut dir.files {
             let size = file
                 .size()
-                .map_err(|error| Error::Io(hadris_io::Error::from(error)))?;
+                .map_err(|error| Error::Io(hadris_io::legacy::Error::from(error)))?;
 
             if size == 0 {
                 // Zero-size files have no extent (sector 0 per ISO spec)

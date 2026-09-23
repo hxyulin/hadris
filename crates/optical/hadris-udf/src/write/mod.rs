@@ -120,15 +120,15 @@ impl FileSource {
 #[cfg(feature = "unstable-streaming")]
 fn io_error(error: std::io::Error) -> crate::error::Error {
     let kind = match error.kind() {
-        std::io::ErrorKind::NotFound => hadris_io::ErrorKind::NotFound,
-        std::io::ErrorKind::PermissionDenied => hadris_io::ErrorKind::PermissionDenied,
-        std::io::ErrorKind::UnexpectedEof => hadris_io::ErrorKind::UnexpectedEof,
-        std::io::ErrorKind::InvalidData => hadris_io::ErrorKind::InvalidData,
-        std::io::ErrorKind::InvalidInput => hadris_io::ErrorKind::InvalidInput,
-        std::io::ErrorKind::Interrupted => hadris_io::ErrorKind::Interrupted,
-        _ => hadris_io::ErrorKind::Other,
+        std::io::ErrorKind::NotFound => hadris_io::legacy::ErrorKind::NotFound,
+        std::io::ErrorKind::PermissionDenied => hadris_io::legacy::ErrorKind::PermissionDenied,
+        std::io::ErrorKind::UnexpectedEof => hadris_io::legacy::ErrorKind::UnexpectedEof,
+        std::io::ErrorKind::InvalidData => hadris_io::legacy::ErrorKind::InvalidData,
+        std::io::ErrorKind::InvalidInput => hadris_io::legacy::ErrorKind::InvalidInput,
+        std::io::ErrorKind::Interrupted => hadris_io::legacy::ErrorKind::Interrupted,
+        _ => hadris_io::legacy::ErrorKind::Other,
     };
-    crate::error::Error::Io(hadris_io::Error::new(kind, "reading a file source"))
+    crate::error::Error::Io(hadris_io::legacy::Error::new(kind, "reading a file source"))
 }
 
 /// A simple file for the high-level format API
@@ -758,8 +758,8 @@ impl<W: Write + Seek> UdfFormatter<W> {
             let want = usize::try_from(remaining.min(buffer.len() as u64)).unwrap_or(buffer.len());
             let got = match std::io::Read::read(&mut reader, &mut buffer[..want]) {
                 Ok(0) => {
-                    return Err(crate::error::Error::Io(hadris_io::Error::new(
-                        hadris_io::ErrorKind::UnexpectedEof,
+                    return Err(crate::error::Error::Io(hadris_io::legacy::Error::new(
+                        hadris_io::legacy::ErrorKind::UnexpectedEof,
                         "file source ended before its declared length",
                     )));
                 }

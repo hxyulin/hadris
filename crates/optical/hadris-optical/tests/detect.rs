@@ -91,7 +91,7 @@ mod asynchronous {
     use std::task::{Wake, Waker};
 
     use hadris_io::SeekFrom;
-    use hadris_io::r#async::Seek;
+    use hadris_io::legacy::r#async::Seek;
     use hadris_optical::detect::{UdfVrs, r#async::detect};
 
     struct ThreadWaker(std::thread::Thread);

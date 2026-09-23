@@ -9,7 +9,7 @@ use hadris_block::Error;
 use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant};
 use hadris_io::SeekFrom;
-use hadris_io::r#async::{Read, Seek, Write};
+use hadris_io::legacy::r#async::{Read, Seek, Write};
 use hadris_storage::PartitionView;
 
 struct ThreadWaker(std::thread::Thread);
@@ -85,9 +85,10 @@ impl AsyncCursor {
 }
 
 impl Read for AsyncCursor {
-    async fn read(&mut self, buffer: &mut [u8]) -> hadris_io::Result<usize> {
-        let start = usize::try_from(self.position)
-            .map_err(|_| hadris_io::Error::from_kind(hadris_io::ErrorKind::InvalidInput))?;
+    async fn read(&mut self, buffer: &mut [u8]) -> hadris_io::legacy::Result<usize> {
+        let start = usize::try_from(self.position).map_err(|_| {
+            hadris_io::legacy::Error::from_kind(hadris_io::legacy::ErrorKind::InvalidInput)
+        })?;
         let available = self.bytes.len().saturating_sub(start);
         let len = available.min(buffer.len());
         buffer[..len].copy_from_slice(&self.bytes[start..start + len]);
@@ -97,35 +98,38 @@ impl Read for AsyncCursor {
 }
 
 impl Write for AsyncCursor {
-    async fn write(&mut self, buffer: &[u8]) -> hadris_io::Result<usize> {
-        let start = usize::try_from(self.position)
-            .map_err(|_| hadris_io::Error::from_kind(hadris_io::ErrorKind::InvalidInput))?;
-        let end = start
-            .checked_add(buffer.len())
-            .ok_or_else(|| hadris_io::Error::from_kind(hadris_io::ErrorKind::InvalidInput))?;
+    async fn write(&mut self, buffer: &[u8]) -> hadris_io::legacy::Result<usize> {
+        let start = usize::try_from(self.position).map_err(|_| {
+            hadris_io::legacy::Error::from_kind(hadris_io::legacy::ErrorKind::InvalidInput)
+        })?;
+        let end = start.checked_add(buffer.len()).ok_or_else(|| {
+            hadris_io::legacy::Error::from_kind(hadris_io::legacy::ErrorKind::InvalidInput)
+        })?;
         if end > self.bytes.len() {
-            return Err(hadris_io::Error::from_kind(hadris_io::ErrorKind::WriteZero));
+            return Err(hadris_io::legacy::Error::from_kind(
+                hadris_io::legacy::ErrorKind::WriteZero,
+            ));
         }
         self.bytes[start..end].copy_from_slice(buffer);
         self.position = end as u64;
         Ok(buffer.len())
     }
 
-    async fn flush(&mut self) -> hadris_io::Result<()> {
+    async fn flush(&mut self) -> hadris_io::legacy::Result<()> {
         Ok(())
     }
 }
 
 impl Seek for AsyncCursor {
-    async fn seek(&mut self, position: SeekFrom) -> hadris_io::Result<u64> {
+    async fn seek(&mut self, position: SeekFrom) -> hadris_io::legacy::Result<u64> {
         let next = match position {
             SeekFrom::Start(position) => i128::from(position),
             SeekFrom::Current(offset) => i128::from(self.position) + i128::from(offset),
             SeekFrom::End(offset) => self.bytes.len() as i128 + i128::from(offset),
         };
         if !(0..=self.bytes.len() as i128).contains(&next) {
-            return Err(hadris_io::Error::from_kind(
-                hadris_io::ErrorKind::InvalidInput,
+            return Err(hadris_io::legacy::Error::from_kind(
+                hadris_io::legacy::ErrorKind::InvalidInput,
             ));
         }
         self.position = next as u64;
@@ -270,7 +274,7 @@ fn async_partition_table_gpt_write_detect_open_and_reject_malformed() {
         assert!(matches!(
             hadris_block::part::r#async::partition_table::open(&mut truncated, 512).await,
             Err(hadris_block::part::Error::Io(error))
-                if error.kind() == hadris_io::ErrorKind::UnexpectedEof
+                if error.kind() == hadris_io::legacy::ErrorKind::UnexpectedEof
         ));
 
         let mut corrupt = disk.bytes;
@@ -326,7 +330,7 @@ fn async_partition_table_mbr_write_detect_open_and_reject_malformed() {
             )
             .await,
             Err(Error::Io(error))
-                if error.kind() == hadris_io::ErrorKind::UnexpectedEof
+                if error.kind() == hadris_io::legacy::ErrorKind::UnexpectedEof
         ));
 
         let mut invalid = vec![0_u8; 512];

@@ -19,23 +19,28 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
-- **hadris-io (V3):** `Read`, `Write` and `Seek` (sync and async) are now
-  Hadris's own traits with no associated error type. Every method returns
-  `hadris_io::Result<T>`, and implementors write only `read`, `write`/`flush`
-  and `seek`. `hadris_io::Error` is a single non-generic type with a kind, an
-  optional static message and, with `alloc`, the original device error as its
-  source (`downcast_source` recovers it). `&mut T` and `Box<T>` implement the
-  traits, so the `Borrowed` wrapper is gone. The blanket impls over
-  `embedded-io` and `std::io` types are replaced by explicit adapters:
-  `FromEmbedded<T>` for `embedded-io` devices, `StdIo<T>` for `std::io` types,
-  and `ToStd<T>` to use a Hadris reader or writer as `std::io`. Wrap a
-  `std::fs::File` in `StdIo::new(file)` before passing it to a format crate.
-  `Error::erase`, `Error::from_source`, `IoError` and `ToEmbedded` are removed.
+- **hadris-io (V3):** `Read`, `Write` and `Seek` (sync and async) report the
+  implementor's own error through the new `ErrorType` supertrait, as in
+  `embedded-io`. The error only needs `core::error::Error + Send + Sync +
+  'static`, so a kernel uses its own enum and a device error reaches the
+  caller unchanged without allocation. `read_exact` and `write_all` return
+  `ExactError<E>`. `&mut T` and `Box<T>` implement the traits, so the
+  `Borrowed` wrapper is gone. The blanket impls over `embedded-io` and
+  `std::io` types are replaced by explicit adapters: `FromEmbedded<T>` (error
+  `T::Error`), `StdIo<T>` (error `std::io::Error`) and `ToStd<T>`. With `std`,
+  `std::fs::File` has `std::io::Error` as its error, `into_std_error` converts
+  any device error to `std::io::Error` (returning an `io::Error` as itself),
+  and `ExactError<E>` converts with `?`. `Cursor` reports `InvalidSeek`.
   `ByteSource` and `SeekSource` add a positional byte source for writers.
-- **All format crates (V3):** Error types now wrap the non-generic
-  `hadris_io::Error`, and generic bounds no longer spell out
-  `Seek<Error = ...>`.
-- **hadris-storage (V3):** `PartitionView::new` returns `hadris_io::Result`.
+  The V2 traits with the erased `Error`, `ErrorKind`, `Result`, `ReadExt`,
+  `Parsable` and `Writable` move to `hadris_io::legacy`, which format crates
+  use until they are ported and which is removed before 3.0. `Error::erase`,
+  `Error::from_source`, `IoError` and `ToEmbedded` are removed.
+- **All format crates (V3):** Use `hadris_io::legacy` for now. Error types
+  wrap the non-generic `hadris_io::legacy::Error`, and generic bounds no
+  longer spell out `Seek<Error = ...>`.
+- **hadris-storage (V3):** `PartitionView` implements the `hadris_io::legacy`
+  traits and `PartitionView::new` returns `hadris_io::legacy::Result`. The old
   `BlockDevice`, `BlockDeviceMut`, `SeekBlockDevice` and the crate's own error
   type are removed.
 - **hadris (V3):** Re-exports `hadris-io` as `hadris::io`.
@@ -43,11 +48,17 @@ Each published package owns its version and may be released independently.
 ### Added
 
 - **hadris-storage (V3):** `BlockDevice`, one trait for sync and async
-  whole-block devices with an explicit block size and access mode, implemented
-  for `&mut D` and `Box<D>`. Devices and adapters: `StreamDevice` over any
-  seekable stream (`ReadOnly` for streams without `Write`), `MemDevice` over
-  byte buffers, `Slice` for a block range, `Cache` for write-back LRU caching
-  (`alloc`), and `ByteView` for byte-granular access and a bounded stream.
+  whole-block devices with an explicit block size and the device's own error,
+  implemented for `&mut D`, `Box<D>` and, with `std`, `std::fs::File`.
+  `write_blocks` and `flush` return `WriteError<E>`, whose `ReadOnly` variant
+  is how a device refuses writes; the default `write_blocks` returns it, so a
+  read-only device implements no write method, and there is no `writable()`
+  or access query. Devices and adapters: `StreamDevice` over any seekable
+  stream (`ReadOnly` for streams without `Write`), `MemDevice` over byte
+  buffers (error `OutOfRange`), `Slice` for a block range, `Cache` for
+  write-back LRU caching (`alloc`, first write goes straight through), and
+  `ByteView` for byte-granular access and a bounded stream. Adapters that can
+  refuse a request report `StorageError<E>`.
 
 ### Removed
 

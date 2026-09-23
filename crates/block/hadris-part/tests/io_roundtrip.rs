@@ -7,8 +7,8 @@
 #![cfg(all(feature = "sync", feature = "write", feature = "crc"))]
 
 use hadris_io::Cursor;
-use hadris_io::ErrorKind;
-use hadris_io::{Seek, SeekFrom, StdIo};
+use hadris_io::legacy::ErrorKind;
+use hadris_io::legacy::{Seek, SeekFrom, StdIo};
 use hadris_part::hybrid::HybridMbrBuilder;
 use hadris_part::{
     Error, GptHeader, GptHeaderReadExt, GptHeaderWriteExt, GptPartitionEntry, Guid,

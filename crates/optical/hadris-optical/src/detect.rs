@@ -80,8 +80,8 @@ impl ScanState {
 /// Synchronous optical-filesystem detection.
 pub mod sync {
     use super::*;
-    use hadris_io::sync::{Read, Seek};
-    use hadris_io::{ErrorKind, Result, SeekFrom};
+    use hadris_io::legacy::sync::{Read, Seek};
+    use hadris_io::legacy::{ErrorKind, Result, SeekFrom};
 
     /// Detects every recognized optical filesystem and restores source position.
     pub fn detect<R>(source: &mut R) -> Result<Option<OpticalFormats>>
@@ -120,8 +120,8 @@ pub mod sync {
 /// Asynchronous optical-filesystem detection.
 pub mod r#async {
     use super::*;
-    use hadris_io::r#async::{Read, Seek};
-    use hadris_io::{ErrorKind, Result, SeekFrom};
+    use hadris_io::legacy::r#async::{Read, Seek};
+    use hadris_io::legacy::{ErrorKind, Result, SeekFrom};
 
     /// Asynchronously detects all optical filesystems and restores source position.
     pub async fn detect<R>(source: &mut R) -> Result<Option<OpticalFormats>>

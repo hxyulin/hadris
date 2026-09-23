@@ -1,7 +1,7 @@
 use crate::detect::{BlockFormat, FatVariant};
 use crate::{Error, Result};
 use hadris_io::SeekFrom;
-use hadris_io::sync::{Read, Seek};
+use hadris_io::legacy::sync::{Read, Seek};
 
 /// An opened block filesystem with lossless access to its concrete handle.
 #[non_exhaustive]

@@ -1,6 +1,6 @@
 //! Error types for hadris-cd
 
-use hadris_io as io;
+use hadris_io::legacy as io;
 
 /// Errors that can occur during CD/DVD image creation
 #[derive(Debug, thiserror::Error)]

@@ -1,4 +1,5 @@
 use hadris_io::SeekFrom;
+use hadris_io::legacy::sync as legacy;
 use hadris_io::sync::{Read, Seek, Write};
 
 use crate::PartitionView;
@@ -12,8 +13,8 @@ macro_rules! io_transform {
 mod api;
 pub use api::*;
 
-impl<S: Read + Seek> Read for PartitionView<'_, S> {
-    fn read(&mut self, buffer: &mut [u8]) -> hadris_io::Result<usize> {
+impl<S: legacy::Read + legacy::Seek> legacy::Read for PartitionView<'_, S> {
+    fn read(&mut self, buffer: &mut [u8]) -> hadris_io::legacy::Result<usize> {
         let length = buffer.len().min(self.remaining());
         if length == 0 {
             return Ok(0);
@@ -26,15 +27,15 @@ impl<S: Read + Seek> Read for PartitionView<'_, S> {
     }
 }
 
-impl<S: Read + Seek> Seek for PartitionView<'_, S> {
-    fn seek(&mut self, from: SeekFrom) -> hadris_io::Result<u64> {
+impl<S: legacy::Read + legacy::Seek> legacy::Seek for PartitionView<'_, S> {
+    fn seek(&mut self, from: SeekFrom) -> hadris_io::legacy::Result<u64> {
         self.position = self.seek_position(from)?;
         Ok(self.position)
     }
 }
 
-impl<S: Read + Write + Seek> Write for PartitionView<'_, S> {
-    fn write(&mut self, buffer: &[u8]) -> hadris_io::Result<usize> {
+impl<S: legacy::Read + legacy::Write + legacy::Seek> legacy::Write for PartitionView<'_, S> {
+    fn write(&mut self, buffer: &[u8]) -> hadris_io::legacy::Result<usize> {
         let length = buffer.len().min(self.remaining());
         if length == 0 {
             return Ok(0);
@@ -46,14 +47,57 @@ impl<S: Read + Write + Seek> Write for PartitionView<'_, S> {
         Ok(written)
     }
 
-    fn flush(&mut self) -> hadris_io::Result<()> {
+    fn flush(&mut self) -> hadris_io::legacy::Result<()> {
         self.source.flush()
     }
 }
 
-#[cfg(test)]
+/// A host file is a block device with 512-byte blocks.
+///
+/// Errors are the `std::io::Error` itself, so `raw_os_error()` survives. A
+/// file opened read-only fails writes with the OS error. The block count is
+/// measured by seeking to the end, which also works for block device nodes.
+#[cfg(feature = "std")]
+impl BlockDevice for std::fs::File {
+    fn block_size(&self) -> crate::BlockSize {
+        const { crate::BlockSize::new(512).unwrap() }
+    }
+
+    fn block_count(&self) -> u64 {
+        let mut file = self;
+        let Ok(here) = std::io::Seek::stream_position(&mut file) else {
+            return 0;
+        };
+        let end = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0)).unwrap_or(0);
+        let _ = std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(here));
+        end / 512
+    }
+
+    fn read_blocks(&mut self, first: crate::BlockIndex, buf: &mut [u8]) -> std::io::Result<()> {
+        let offset = crate::device::byte_offset(self.block_size(), first)?;
+        std::io::Seek::seek(self, std::io::SeekFrom::Start(offset))?;
+        std::io::Read::read_exact(self, buf)
+    }
+
+    fn write_blocks(
+        &mut self,
+        first: crate::BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), crate::WriteError<std::io::Error>> {
+        let offset =
+            crate::device::byte_offset(self.block_size(), first).map_err(std::io::Error::from)?;
+        std::io::Seek::seek(self, std::io::SeekFrom::Start(offset))?;
+        Ok(std::io::Write::write_all(self, buf)?)
+    }
+
+    fn flush(&mut self) -> Result<(), crate::WriteError<std::io::Error>> {
+        Ok(std::io::Write::flush(self)?)
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
 mod tests {
-    use hadris_io::sync::{Read, Seek, Write};
+    use hadris_io::legacy::sync::{Read, Seek, Write};
     use hadris_io::{SeekFrom, StdIo};
     use std::vec;
 
@@ -85,10 +129,15 @@ mod tests {
         assert!(view.seek(SeekFrom::Start(5)).is_err());
         assert!(view.seek(SeekFrom::End(-5)).is_err());
     }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod device_tests {
+    use hadris_io::sync::{Read as _, Seek as _, Write as _};
+    use hadris_io::{ErrorType, SeekFrom, StdIo};
 
     use crate::sync::{BlockDevice, ByteView, Cache, Slice, StreamDevice};
-    use crate::{Access, BlockIndex, BlockSize, MemDevice, ReadOnly};
-    use hadris_io::ErrorKind;
+    use crate::{BlockIndex, BlockSize, MemDevice, OutOfRange, ReadOnly, StorageError, WriteError};
 
     const B4: BlockSize = match BlockSize::new(4) {
         Some(size) => size,
@@ -103,7 +152,6 @@ mod tests {
     fn mem_device_reads_writes_and_bounds() {
         let mut device = MemDevice::new(counting(18), B4);
         assert_eq!(device.block_count(), 4);
-        assert_eq!(device.access(), Access::ReadWrite);
 
         let mut buf = [0_u8; 8];
         device.read_blocks(BlockIndex(1), &mut buf).unwrap();
@@ -112,18 +160,18 @@ mod tests {
         device.write_blocks(BlockIndex(3), &[9; 4]).unwrap();
         assert_eq!(&device.get_ref()[12..18], &[9, 9, 9, 9, 16, 17]);
 
-        let kind = |r: hadris_io::Result<()>| r.unwrap_err().kind();
+        assert_eq!(device.read_blocks(BlockIndex(3), &mut buf), Err(OutOfRange));
         assert_eq!(
-            kind(device.read_blocks(BlockIndex(3), &mut buf)),
-            ErrorKind::InvalidInput
+            device.read_blocks(BlockIndex(0), &mut buf[..3]),
+            Err(OutOfRange)
         );
         assert_eq!(
-            kind(device.read_blocks(BlockIndex(0), &mut buf[..3])),
-            ErrorKind::InvalidInput
+            device.read_blocks(BlockIndex(u64::MAX), &mut buf),
+            Err(OutOfRange)
         );
         assert_eq!(
-            kind(device.read_blocks(BlockIndex(u64::MAX), &mut buf)),
-            ErrorKind::InvalidInput
+            device.write_blocks(BlockIndex(4), &[0; 4]),
+            Err(WriteError::Device(OutOfRange))
         );
     }
 
@@ -131,9 +179,44 @@ mod tests {
     fn read_only_buffers_reject_writes() {
         let bytes = counting(8);
         let mut device = MemDevice::new(&bytes[..], B4);
-        assert_eq!(device.access(), Access::ReadOnly);
-        let error = device.write_blocks(BlockIndex(0), &[0; 4]).unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        assert_eq!(
+            device.write_blocks(BlockIndex(0), &[0; 4]),
+            Err(WriteError::ReadOnly)
+        );
+    }
+
+    /// A device that implements no write method.
+    struct Rom<'a>(&'a [u8]);
+
+    impl ErrorType for Rom<'_> {
+        type Error = OutOfRange;
+    }
+
+    impl BlockDevice for Rom<'_> {
+        fn block_size(&self) -> BlockSize {
+            B4
+        }
+
+        fn block_count(&self) -> u64 {
+            self.0.len() as u64 / 4
+        }
+
+        fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
+            let at = first.0 as usize * 4;
+            buf.copy_from_slice(self.0.get(at..at + buf.len()).ok_or(OutOfRange)?);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn read_only_devices_need_no_write_method() {
+        let bytes = counting(8);
+        let mut rom = Rom(&bytes);
+        assert_eq!(
+            rom.write_blocks(BlockIndex(0), &[0; 4]),
+            Err(WriteError::ReadOnly)
+        );
+        assert_eq!(rom.flush(), Ok(()));
     }
 
     #[test]
@@ -146,7 +229,14 @@ mod tests {
         let mut buf = [0_u8; 4];
         slice.read_blocks(BlockIndex(1), &mut buf).unwrap();
         assert_eq!(buf, [8, 9, 10, 11]);
-        assert!(slice.read_blocks(BlockIndex(2), &mut buf).is_err());
+        assert_eq!(
+            slice.read_blocks(BlockIndex(2), &mut buf),
+            Err(StorageError::OutOfRange)
+        );
+        assert_eq!(
+            slice.write_blocks(BlockIndex(2), &buf),
+            Err(WriteError::Device(StorageError::OutOfRange))
+        );
 
         slice.write_blocks(BlockIndex(0), &[0xAA; 4]).unwrap();
         assert_eq!(&device.get_ref()[4..8], &[0xAA; 4]);
@@ -157,26 +247,45 @@ mod tests {
         let stream = StdIo::new(std::io::Cursor::new(counting(10)));
         let mut device = StreamDevice::new(stream, B4).unwrap();
         assert_eq!(device.block_count(), 2);
-        assert_eq!(device.access(), Access::ReadWrite);
         device.write_blocks(BlockIndex(1), &[7; 4]).unwrap();
         let mut buf = [0_u8; 8];
         device.read_blocks(BlockIndex(0), &mut buf).unwrap();
         assert_eq!(buf, [0, 1, 2, 3, 7, 7, 7, 7]);
+        assert!(matches!(
+            device.write_blocks(BlockIndex(2), &[0; 4]),
+            Err(WriteError::Device(StorageError::OutOfRange))
+        ));
 
         let bytes = counting(8);
         let stream = ReadOnly::new(hadris_io::Cursor::new(&bytes));
         let mut device = StreamDevice::new(stream, B4).unwrap();
-        assert_eq!(device.access(), Access::ReadOnly);
         device.read_blocks(BlockIndex(1), &mut buf[..4]).unwrap();
         assert_eq!(&buf[..4], &[4, 5, 6, 7]);
-        let error = device.write_blocks(BlockIndex(0), &[0; 4]).unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::Unsupported);
+        assert_eq!(
+            device.write_blocks(BlockIndex(0), &[0; 4]),
+            Err(WriteError::ReadOnly)
+        );
+    }
+
+    #[test]
+    fn stream_device_keeps_std_errors() {
+        let stream = StdIo::new(std::io::Cursor::new(counting(8)));
+        let mut device = StreamDevice::with_block_count(stream, B4, 4);
+        let err: std::io::Error = device
+            .read_blocks(BlockIndex(3), &mut [0; 4])
+            .unwrap_err()
+            .into();
+        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
     }
 
     #[test]
     fn cache_writes_back_on_eviction_and_flush() {
         let device = MemDevice::new(counting(16), B4);
         let mut cache = Cache::new(device, 2);
+
+        cache.write_blocks(BlockIndex(3), &[3; 4]).unwrap();
+        assert!(!cache.is_dirty());
+        assert_eq!(&cache.get_ref().get_ref()[12..], &[3; 4]);
 
         cache.write_blocks(BlockIndex(0), &[1; 4]).unwrap();
         cache.write_blocks(BlockIndex(1), &[2; 4]).unwrap();
@@ -193,16 +302,20 @@ mod tests {
         let mut all = [0_u8; 16];
         cache.read_blocks(BlockIndex(0), &mut all).unwrap();
         assert_eq!(&all[..8], &[1, 1, 1, 1, 2, 2, 2, 2]);
+        assert_eq!(cache.read_blocks(BlockIndex(4), &mut buf), Err(OutOfRange));
 
         let device = cache.finish().unwrap();
         assert_eq!(&device.get_ref()[..8], &[1, 1, 1, 1, 2, 2, 2, 2]);
     }
 
     #[test]
-    fn cache_rejects_writes_to_read_only_devices() {
+    fn cache_reports_read_only_on_the_first_write() {
         let bytes = counting(8);
         let mut cache = Cache::new(MemDevice::new(&bytes[..], B4), 4);
-        assert!(cache.write_blocks(BlockIndex(0), &[0; 4]).is_err());
+        assert_eq!(
+            cache.write_blocks(BlockIndex(0), &[0; 4]),
+            Err(WriteError::ReadOnly)
+        );
         assert!(!cache.is_dirty());
     }
 
@@ -223,11 +336,8 @@ mod tests {
             ]
         );
 
-        assert_eq!(
-            view.read_at(12, &mut buf).unwrap_err().kind(),
-            ErrorKind::UnexpectedEof
-        );
-        assert!(view.write_at(15, &[0; 2]).is_err());
+        assert_eq!(view.read_at(12, &mut buf), Err(StorageError::UnexpectedEof));
+        assert_eq!(view.write_at(15, &[0; 2]), Err(StorageError::OutOfRange));
     }
 
     #[test]
@@ -241,10 +351,45 @@ mod tests {
 
         view.seek(SeekFrom::End(-3)).unwrap();
         assert_eq!(view.write(&[1, 2, 3, 4]).unwrap(), 3);
-        assert_eq!(
-            view.write_all(&[5]).unwrap_err().kind(),
-            ErrorKind::WriteZero
-        );
+        assert_eq!(view.write_all(&[5]), Err(hadris_io::ExactError::WriteZero));
         assert_eq!(&view.get_ref().get_ref()[5..], &[1, 2, 3]);
+
+        let bytes = counting(8);
+        let mut view = ByteView::new(MemDevice::new(&bytes[..], B4));
+        assert_eq!(view.write(&[1]), Err(StorageError::ReadOnly));
+    }
+
+    #[test]
+    fn std_file_is_a_device() {
+        let path = std::env::temp_dir().join(std::format!(
+            "hadris-storage-file-{}.img",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            counting(0)
+                .iter()
+                .chain(&[5u8; 1024])
+                .copied()
+                .collect::<std::vec::Vec<u8>>(),
+        )
+        .unwrap();
+        let mut file = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        assert_eq!(file.block_count(), 2);
+        file.write_blocks(BlockIndex(1), &[9; 512]).unwrap();
+        let mut block = [0u8; 512];
+        file.read_blocks(BlockIndex(1), &mut block).unwrap();
+        assert_eq!(block, [9; 512]);
+
+        let mut read_only = std::fs::File::open(&path).unwrap();
+        match read_only.write_blocks(BlockIndex(0), &block) {
+            Err(WriteError::Device(err)) => assert!(err.raw_os_error().is_some()),
+            other => panic!("expected an OS error, got {other:?}"),
+        }
+        std::fs::remove_file(&path).unwrap();
     }
 }

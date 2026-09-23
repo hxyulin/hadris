@@ -342,7 +342,7 @@ mod integration_tests {
     #[test]
     fn test_root_listing_skips_mkfs_style_lowercase_label() {
         use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
-        use hadris_io::Seek;
+        use hadris_io::legacy::Seek;
 
         let volume_size: u64 = 256 * 1024 * 1024;
         let mut buffer = vec![0u8; volume_size as usize];
@@ -418,7 +418,7 @@ mod integration_tests {
 
     #[test]
     fn test_read_directory_entries() {
-        use hadris_io::Seek;
+        use hadris_io::legacy::Seek;
 
         let mut cursor = create_test_fat32_image();
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
@@ -457,7 +457,7 @@ mod integration_tests {
 
     #[test]
     fn test_read_file_contents() {
-        use hadris_io::Seek;
+        use hadris_io::legacy::Seek;
 
         let mut cursor = create_test_fat32_image();
         cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
@@ -480,7 +480,7 @@ mod integration_tests {
     #[test]
     #[cfg(feature = "lfn")]
     fn test_read_lfn_entries() {
-        use hadris_io::Seek;
+        use hadris_io::legacy::Seek;
 
         // Note: The current write API only creates short filenames (8.3 format).
         // The LFN feature is primarily for reading existing LFN entries created
@@ -517,7 +517,7 @@ mod integration_tests {
 mod navigation_tests {
     use super::integration_tests::create_test_fat32_image;
     use hadris_fat::{Error, FatVolume};
-    use hadris_io::Seek;
+    use hadris_io::legacy::Seek;
 
     /// Test that find() returns None for non-existent entries
     #[test]
@@ -598,7 +598,7 @@ mod navigation_tests {
         fn test_open_path_empty_returns_invalid() {
             use super::super::integration_tests::create_test_fat32_image;
             use hadris_fat::FatVolume;
-            use hadris_io::Seek;
+            use hadris_io::legacy::Seek;
 
             let mut cursor = create_test_fat32_image();
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
@@ -619,7 +619,7 @@ mod navigation_tests {
         fn test_open_path_slash_only_returns_invalid() {
             use super::super::integration_tests::create_test_fat32_image;
             use hadris_fat::FatVolume;
-            use hadris_io::Seek;
+            use hadris_io::legacy::Seek;
 
             let mut cursor = create_test_fat32_image();
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
@@ -640,7 +640,7 @@ mod navigation_tests {
         fn test_open_path_traversal() {
             use super::super::integration_tests::create_test_fat32_image;
             use hadris_fat::FatVolume;
-            use hadris_io::Seek;
+            use hadris_io::legacy::Seek;
 
             let mut cursor = create_test_fat32_image();
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
@@ -661,7 +661,7 @@ mod navigation_tests {
         fn test_open_file_path() {
             use super::super::integration_tests::create_test_fat32_image;
             use hadris_fat::FatVolume;
-            use hadris_io::Seek;
+            use hadris_io::legacy::Seek;
 
             let mut cursor = create_test_fat32_image();
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
@@ -679,7 +679,7 @@ mod navigation_tests {
         fn test_open_dir_path() {
             use super::super::integration_tests::create_test_fat32_image;
             use hadris_fat::FatVolume;
-            use hadris_io::Seek;
+            use hadris_io::legacy::Seek;
 
             let mut cursor = create_test_fat32_image();
             cursor.seek(std::io::SeekFrom::Start(0).into()).unwrap();
@@ -712,7 +712,7 @@ mod navigation_tests {
 mod fuzz_regression_tests {
     use hadris_fat::format::{FatFormatOptions, FatTypeSelection, FatVolumeFormatter};
     use hadris_fat::{Error, FatVolume, FatVolumeWriteExt};
-    use hadris_io::Seek;
+    use hadris_io::legacy::Seek;
     use std::io::Cursor;
 
     /// Minimal FAT32 image (auto-select would pick FAT16 at this size) with

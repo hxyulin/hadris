@@ -4,8 +4,7 @@ use crate::SeekFrom;
 ///
 /// Implements the Hadris sync traits, and the `embedded-io` traits, for
 /// whichever of `std::io::Read`, `BufRead`, `Write` and `Seek` the inner type
-/// implements. The `std::io::Error` is kept as the [`Error`](crate::Error)'s
-/// source.
+/// implements. Errors are the `std::io::Error` itself.
 ///
 /// ```rust
 /// use hadris_io::{Read, StdIo};
@@ -43,6 +42,10 @@ impl<T: ?Sized> StdIo<T> {
 }
 
 impl<T: ?Sized> embedded_io::ErrorType for StdIo<T> {
+    type Error = std::io::Error;
+}
+
+impl<T: ?Sized> crate::ErrorType for StdIo<T> {
     type Error = std::io::Error;
 }
 
@@ -122,49 +125,49 @@ impl<T: ?Sized> ToStd<T> {
 #[cfg(feature = "sync")]
 impl<T: crate::sync::Read + ?Sized> std::io::Read for ToStd<T> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        Ok(self.0.read(buf)?)
+        self.0.read(buf).map_err(crate::into_std_error)
     }
 }
 
 #[cfg(feature = "sync")]
 impl<T: crate::sync::Write + ?Sized> std::io::Write for ToStd<T> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        Ok(self.0.write(buf)?)
+        self.0.write(buf).map_err(crate::into_std_error)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        Ok(self.0.flush()?)
+        self.0.flush().map_err(crate::into_std_error)
     }
 }
 
 #[cfg(feature = "sync")]
 impl<T: crate::sync::Seek + ?Sized> std::io::Seek for ToStd<T> {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        Ok(self.0.seek(pos.into())?)
+        self.0.seek(pos.into()).map_err(crate::into_std_error)
     }
 }
 
 #[cfg(feature = "sync")]
 impl<T: std::io::Read + ?Sized> crate::sync::Read for StdIo<T> {
-    fn read(&mut self, buf: &mut [u8]) -> crate::Result<usize> {
-        Ok(self.0.read(buf)?)
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
     }
 }
 
 #[cfg(feature = "sync")]
 impl<T: std::io::Write + ?Sized> crate::sync::Write for StdIo<T> {
-    fn write(&mut self, buf: &[u8]) -> crate::Result<usize> {
-        Ok(self.0.write(buf)?)
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
     }
 
-    fn flush(&mut self) -> crate::Result<()> {
-        Ok(self.0.flush()?)
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
     }
 }
 
 #[cfg(feature = "sync")]
 impl<T: std::io::Seek + ?Sized> crate::sync::Seek for StdIo<T> {
-    fn seek(&mut self, pos: SeekFrom) -> crate::Result<u64> {
-        Ok(self.0.seek(pos.into())?)
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.0.seek(pos.into())
     }
 }

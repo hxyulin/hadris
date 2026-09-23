@@ -105,7 +105,7 @@ pub trait OpticalMetadataWriter {
     ///
     /// It should NOT write file data, as that is assumed to
     /// already exist at the locations specified in the extents.
-    fn write_metadata<W: hadris_io::Write + hadris_io::Seek>(
+    fn write_metadata<W: hadris_io::legacy::Write + hadris_io::legacy::Seek>(
         writer: &mut W,
         root: &DirectoryLayout,
         options: &Self::Options,

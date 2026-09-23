@@ -85,7 +85,7 @@ fn main() {
     list_directory(&image, &root, 0);
 }
 
-fn list_directory<R: hadris_io::Read + hadris_io::Seek>(
+fn list_directory<R: hadris_io::legacy::Read + hadris_io::legacy::Seek>(
     image: &IsoImage<R>,
     dir: &hadris_iso::read::RootDir,
     indent: usize,

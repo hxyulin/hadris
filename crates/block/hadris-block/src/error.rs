@@ -7,7 +7,7 @@ use crate::detect::{BlockFormat, FatVariant, PartitionTableKind};
 #[non_exhaustive]
 pub enum Error {
     /// The source could not be read or repositioned.
-    Io(hadris_io::Error),
+    Io(hadris_io::legacy::Error),
     /// No supported format was recognized.
     UnknownFormat,
     /// The source is a partitioned disk rather than a directly openable volume.
@@ -52,8 +52,8 @@ impl fmt::Display for Error {
 #[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
-impl From<hadris_io::Error> for Error {
-    fn from(error: hadris_io::Error) -> Self {
+impl From<hadris_io::legacy::Error> for Error {
+    fn from(error: hadris_io::legacy::Error) -> Self {
         Self::Io(error)
     }
 }

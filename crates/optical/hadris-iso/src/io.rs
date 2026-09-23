@@ -4,7 +4,7 @@ use core::{
 };
 
 pub use super::super::{Parsable, Read, ReadExt, Seek, Writable, Write};
-pub use hadris_io::{Error, ErrorKind, Result, SeekFrom, try_io_result_option};
+pub use hadris_io::legacy::{Error, ErrorKind, Result, SeekFrom, try_io_result_option};
 
 /// A Logical Sector, size has to be 2^n and > 2048
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

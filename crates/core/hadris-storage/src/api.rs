@@ -1,7 +1,9 @@
 use super::{Read, Seek, Write};
-use crate::device::{byte_offset, check_blocks, read_only};
-use crate::{Access, BlockIndex, BlockSize, MemBuffer, MemDevice, ReadOnly};
-use hadris_io::{Error, ErrorKind, Result, SeekFrom};
+use crate::device::{byte_offset, check_blocks};
+use crate::{
+    BlockIndex, BlockSize, MemBuffer, MemDevice, OutOfRange, ReadOnly, StorageError, WriteError,
+};
+use hadris_io::{ErrorType, ExactError, SeekFrom};
 
 io_transform! {
 
@@ -10,30 +12,33 @@ io_transform! {
 /// Buffers passed to [`read_blocks`](Self::read_blocks) and
 /// [`write_blocks`](Self::write_blocks) must be a whole number of blocks, and
 /// the request must lie within the device. A read-only device implements only
-/// `block_size`, `block_count` and `read_blocks`.
-pub trait BlockDevice {
+/// `block_size`, `block_count` and `read_blocks`: the default `write_blocks`
+/// answers [`WriteError::ReadOnly`].
+pub trait BlockDevice: ErrorType {
     /// Size of one block.
     fn block_size(&self) -> BlockSize;
 
     /// Number of addressable blocks.
     fn block_count(&self) -> u64;
 
-    /// Whether the device accepts writes.
-    fn access(&self) -> Access {
-        Access::ReadOnly
-    }
+    /// Reads whole blocks starting at `first`.
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error>;
 
-    /// Read whole blocks starting at `first`.
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<()>;
-
-    /// Write whole blocks starting at `first`.
-    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<()> {
+    /// Writes whole blocks starting at `first`.
+    async fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), WriteError<Self::Error>> {
         let _ = (first, buf);
-        Err(read_only())
+        Err(WriteError::ReadOnly)
     }
 
-    /// Flush buffered writes to the underlying storage.
-    async fn flush(&mut self) -> Result<()> {
+    /// Flushes buffered writes to the underlying storage.
+    ///
+    /// A write-back device writes here, so it can report
+    /// [`WriteError::ReadOnly`] too.
+    async fn flush(&mut self) -> Result<(), WriteError<Self::Error>> {
         Ok(())
     }
 }
@@ -47,19 +52,19 @@ impl<D: BlockDevice + ?Sized> BlockDevice for &mut D {
         D::block_count(self)
     }
 
-    fn access(&self) -> Access {
-        D::access(self)
-    }
-
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<()> {
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error> {
         D::read_blocks(self, first, buf).await
     }
 
-    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<()> {
+    async fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), WriteError<Self::Error>> {
         D::write_blocks(self, first, buf).await
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    async fn flush(&mut self) -> Result<(), WriteError<Self::Error>> {
         D::flush(self).await
     }
 }
@@ -74,19 +79,19 @@ impl<D: BlockDevice + ?Sized> BlockDevice for alloc::boxed::Box<D> {
         D::block_count(self)
     }
 
-    fn access(&self) -> Access {
-        D::access(self)
-    }
-
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<()> {
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error> {
         D::read_blocks(self, first, buf).await
     }
 
-    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<()> {
+    async fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), WriteError<Self::Error>> {
         D::write_blocks(self, first, buf).await
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    async fn flush(&mut self) -> Result<(), WriteError<Self::Error>> {
         D::flush(self).await
     }
 }
@@ -100,74 +105,65 @@ impl<B: MemBuffer> BlockDevice for MemDevice<B> {
         MemDevice::block_count(self)
     }
 
-    fn access(&self) -> Access {
-        if B::WRITABLE { Access::ReadWrite } else { Access::ReadOnly }
-    }
-
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<()> {
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
         let range = self.range(first, buf.len())?;
         buf.copy_from_slice(&self.buffer.bytes()[range]);
         Ok(())
     }
 
-    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<()> {
+    async fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), WriteError<OutOfRange>> {
         let range = self.range(first, buf.len())?;
-        let bytes = self.buffer.bytes_mut().ok_or_else(read_only)?;
+        let bytes = self.buffer.bytes_mut().ok_or(WriteError::ReadOnly)?;
         bytes[range].copy_from_slice(buf);
         Ok(())
     }
 }
 
 impl<T: Read> Read for ReadOnly<T> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.0.read(buf).await
     }
 }
 
 impl<T: Seek> Seek for ReadOnly<T> {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.0.seek(pos).await
     }
 }
 
 /// The write half of a [`StreamDevice`] stream.
 ///
-/// Implemented for every [`Write`] and for [`ReadOnly`], which rejects writes.
-pub trait StreamWrite {
-    /// Whether the stream accepts writes.
-    fn stream_access(&self) -> Access;
+/// Implemented for every [`Write`] and for [`ReadOnly`], which answers
+/// [`WriteError::ReadOnly`]. A second `BlockDevice` impl for read-only
+/// streams would overlap the first, so the marker type carries the choice.
+pub trait StreamWrite: ErrorType {
+    /// Writes all of `buf`.
+    async fn stream_write_all(&mut self, buf: &[u8]) -> Result<(), WriteError<ExactError<Self::Error>>>;
 
-    /// Write all of `buf`.
-    async fn stream_write_all(&mut self, buf: &[u8]) -> Result<()>;
-
-    /// Flush the stream.
-    async fn stream_flush(&mut self) -> Result<()>;
+    /// Flushes the stream.
+    async fn stream_flush(&mut self) -> Result<(), WriteError<Self::Error>>;
 }
 
 impl<T: Write + ?Sized> StreamWrite for T {
-    fn stream_access(&self) -> Access {
-        Access::ReadWrite
+    async fn stream_write_all(&mut self, buf: &[u8]) -> Result<(), WriteError<ExactError<Self::Error>>> {
+        Ok(self.write_all(buf).await?)
     }
 
-    async fn stream_write_all(&mut self, buf: &[u8]) -> Result<()> {
-        self.write_all(buf).await
-    }
-
-    async fn stream_flush(&mut self) -> Result<()> {
-        self.flush().await
+    async fn stream_flush(&mut self) -> Result<(), WriteError<Self::Error>> {
+        Ok(self.flush().await?)
     }
 }
 
-impl<T> StreamWrite for ReadOnly<T> {
-    fn stream_access(&self) -> Access {
-        Access::ReadOnly
+impl<T: ErrorType> StreamWrite for ReadOnly<T> {
+    async fn stream_write_all(&mut self, _buf: &[u8]) -> Result<(), WriteError<ExactError<Self::Error>>> {
+        Err(WriteError::ReadOnly)
     }
 
-    async fn stream_write_all(&mut self, _buf: &[u8]) -> Result<()> {
-        Err(read_only())
-    }
-
-    async fn stream_flush(&mut self) -> Result<()> {
+    async fn stream_flush(&mut self) -> Result<(), WriteError<Self::Error>> {
         Ok(())
     }
 }
@@ -185,10 +181,10 @@ pub struct StreamDevice<T> {
 }
 
 impl<T: Seek> StreamDevice<T> {
-    /// Wrap `inner`, measuring its length by seeking to the end.
+    /// Wraps `inner`, measuring its length by seeking to the end.
     ///
     /// Trailing bytes that do not fill a block are not addressable.
-    pub async fn new(mut inner: T, block_size: BlockSize) -> Result<Self> {
+    pub async fn new(mut inner: T, block_size: BlockSize) -> Result<Self, T::Error> {
         let len = inner.seek(SeekFrom::End(0)).await?;
         let block_count = len / u64::from(block_size.get());
         Ok(Self { inner, block_size, block_count })
@@ -196,25 +192,29 @@ impl<T: Seek> StreamDevice<T> {
 }
 
 impl<T> StreamDevice<T> {
-    /// Wrap `inner` with a known block count.
+    /// Wraps `inner` with a known block count.
     pub fn with_block_count(inner: T, block_size: BlockSize, block_count: u64) -> Self {
         Self { inner, block_size, block_count }
     }
 
-    /// Recover the stream.
+    /// Recovers the stream.
     pub fn into_inner(self) -> T {
         self.inner
     }
 
-    /// Borrow the stream.
+    /// Borrows the stream.
     pub fn get_ref(&self) -> &T {
         &self.inner
     }
 
-    /// Mutably borrow the stream.
+    /// Mutably borrows the stream.
     pub fn get_mut(&mut self) -> &mut T {
         &mut self.inner
     }
+}
+
+impl<T: ErrorType> ErrorType for StreamDevice<T> {
+    type Error = StorageError<T::Error>;
 }
 
 impl<T: Read + Seek + StreamWrite> BlockDevice for StreamDevice<T> {
@@ -226,36 +226,37 @@ impl<T: Read + Seek + StreamWrite> BlockDevice for StreamDevice<T> {
         self.block_count
     }
 
-    fn access(&self) -> Access {
-        self.inner.stream_access()
-    }
-
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<()> {
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error> {
         check_blocks(self.block_size, self.block_count, first, buf.len())?;
         let offset = byte_offset(self.block_size, first)?;
-        self.inner.seek(SeekFrom::Start(offset)).await?;
-        self.inner.read_exact(buf).await
+        self.inner.seek(SeekFrom::Start(offset)).await.map_err(StorageError::Device)?;
+        Ok(self.inner.read_exact(buf).await?)
     }
 
-    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<()> {
-        if !self.inner.stream_access().is_writable() {
-            return Err(read_only());
-        }
-        check_blocks(self.block_size, self.block_count, first, buf.len())?;
-        let offset = byte_offset(self.block_size, first)?;
-        self.inner.seek(SeekFrom::Start(offset)).await?;
-        self.inner.stream_write_all(buf).await
+    async fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), WriteError<Self::Error>> {
+        check_blocks(self.block_size, self.block_count, first, buf.len()).map_err(StorageError::from)?;
+        let offset = byte_offset(self.block_size, first).map_err(StorageError::from)?;
+        self.inner.seek(SeekFrom::Start(offset)).await.map_err(StorageError::Device)?;
+        self.inner
+            .stream_write_all(buf)
+            .await
+            .map_err(|err| err.map_device(StorageError::from))
     }
 
-    async fn flush(&mut self) -> Result<()> {
-        self.inner.stream_flush().await
+    async fn flush(&mut self) -> Result<(), WriteError<Self::Error>> {
+        self.inner.stream_flush().await.map_err(|err| err.map_device(StorageError::Device))
     }
 }
 
 /// A contiguous block range of another device.
 ///
 /// `D` can be owned or `&mut`. Block 0 of the slice is block `first` of the
-/// underlying device.
+/// underlying device. Requests past the end of the slice fail with
+/// [`StorageError::OutOfRange`] and never reach the device.
 #[derive(Debug)]
 pub struct Slice<D> {
     inner: D,
@@ -264,11 +265,13 @@ pub struct Slice<D> {
 }
 
 impl<D: BlockDevice> Slice<D> {
-    /// Restrict `inner` to `count` blocks starting at `first`.
-    pub fn new(inner: D, first: BlockIndex, count: u64) -> Result<Self> {
+    /// Restricts `inner` to `count` blocks starting at `first`.
+    ///
+    /// Fails, returning `inner`, if the range does not fit.
+    pub fn new(inner: D, first: BlockIndex, count: u64) -> Result<Self, D> {
         match first.0.checked_add(count) {
             Some(end) if end <= inner.block_count() => Ok(Self { inner, first: first.0, count }),
-            _ => Err(Error::new(ErrorKind::InvalidInput, "slice is out of range")),
+            _ => Err(inner),
         }
     }
 
@@ -277,20 +280,24 @@ impl<D: BlockDevice> Slice<D> {
         BlockIndex(self.first)
     }
 
-    /// Recover the underlying device.
+    /// Recovers the underlying device.
     pub fn into_inner(self) -> D {
         self.inner
     }
 
-    /// Borrow the underlying device.
+    /// Borrows the underlying device.
     pub fn get_ref(&self) -> &D {
         &self.inner
     }
 
-    /// Mutably borrow the underlying device.
+    /// Mutably borrows the underlying device.
     pub fn get_mut(&mut self) -> &mut D {
         &mut self.inner
     }
+}
+
+impl<D: ErrorType> ErrorType for Slice<D> {
+    type Error = StorageError<D::Error>;
 }
 
 impl<D: BlockDevice> BlockDevice for Slice<D> {
@@ -302,22 +309,28 @@ impl<D: BlockDevice> BlockDevice for Slice<D> {
         self.count
     }
 
-    fn access(&self) -> Access {
-        self.inner.access()
-    }
-
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<()> {
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error> {
         check_blocks(self.inner.block_size(), self.count, first, buf.len())?;
-        self.inner.read_blocks(BlockIndex(self.first + first.0), buf).await
+        self.inner
+            .read_blocks(BlockIndex(self.first + first.0), buf)
+            .await
+            .map_err(StorageError::Device)
     }
 
-    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<()> {
-        check_blocks(self.inner.block_size(), self.count, first, buf.len())?;
-        self.inner.write_blocks(BlockIndex(self.first + first.0), buf).await
+    async fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), WriteError<Self::Error>> {
+        check_blocks(self.inner.block_size(), self.count, first, buf.len()).map_err(StorageError::from)?;
+        self.inner
+            .write_blocks(BlockIndex(self.first + first.0), buf)
+            .await
+            .map_err(|err| err.map_device(StorageError::Device))
     }
 
-    async fn flush(&mut self) -> Result<()> {
-        self.inner.flush().await
+    async fn flush(&mut self) -> Result<(), WriteError<Self::Error>> {
+        self.inner.flush().await.map_err(|err| err.map_device(StorageError::Device))
     }
 }
 
@@ -325,19 +338,24 @@ impl<D: BlockDevice> BlockDevice for Slice<D> {
 ///
 /// Writes stay in memory until [`flush`](BlockDevice::flush), eviction or
 /// [`finish`](Self::finish). Dropping the cache discards unflushed writes.
+///
+/// The first write goes straight to the device, so a device that refuses
+/// writes says so on that call rather than at a later flush. Requests outside
+/// the device bypass the cache and fail with the device's own error.
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct Cache<D> {
     inner: D,
     state: crate::cache::CacheState,
+    written: bool,
 }
 
 #[cfg(feature = "alloc")]
 impl<D: BlockDevice> Cache<D> {
-    /// Cache up to `capacity` blocks of `inner`. A capacity of zero is treated as one.
+    /// Caches up to `capacity` blocks of `inner`. A capacity of zero is treated as one.
     pub fn new(inner: D, capacity: usize) -> Self {
         let block_size = inner.block_size().get() as usize;
-        Self { inner, state: crate::cache::CacheState::new(capacity, block_size) }
+        Self { inner, state: crate::cache::CacheState::new(capacity, block_size), written: false }
     }
 
     /// Whether any cached block has unflushed writes.
@@ -345,23 +363,23 @@ impl<D: BlockDevice> Cache<D> {
         self.state.is_dirty()
     }
 
-    /// Flush every dirty block and return the underlying device.
-    pub async fn finish(mut self) -> Result<D> {
+    /// Flushes every dirty block and returns the underlying device.
+    pub async fn finish(mut self) -> Result<D, WriteError<D::Error>> {
         self.flush().await?;
         Ok(self.inner)
     }
 
-    /// Return the underlying device, discarding unflushed writes.
+    /// Returns the underlying device, discarding unflushed writes.
     pub fn into_inner(self) -> D {
         self.inner
     }
 
-    /// Borrow the underlying device.
+    /// Borrows the underlying device.
     pub fn get_ref(&self) -> &D {
         &self.inner
     }
 
-    async fn slot_for(&mut self, index: u64, load: bool) -> Result<usize> {
+    async fn slot_for(&mut self, index: u64, load: bool) -> Result<usize, WriteError<D::Error>> {
         if let Some(slot) = self.state.lookup(index) {
             return Ok(slot);
         }
@@ -381,6 +399,15 @@ impl<D: BlockDevice> Cache<D> {
         self.state.assign(slot, index);
         Ok(slot)
     }
+
+    fn in_range(&self, first: BlockIndex, len: usize) -> bool {
+        check_blocks(self.inner.block_size(), self.inner.block_count(), first, len).is_ok()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<D: ErrorType> ErrorType for Cache<D> {
+    type Error = D::Error;
 }
 
 #[cfg(feature = "alloc")]
@@ -393,25 +420,36 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         self.inner.block_count()
     }
 
-    fn access(&self) -> Access {
-        self.inner.access()
-    }
-
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<()> {
-        check_blocks(self.inner.block_size(), self.inner.block_count(), first, buf.len())?;
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error> {
+        if !self.in_range(first, buf.len()) {
+            return self.inner.read_blocks(first, buf).await;
+        }
         let size = self.inner.block_size().get() as usize;
         for (i, chunk) in buf.chunks_exact_mut(size).enumerate() {
-            let slot = self.slot_for(first.0 + i as u64, true).await?;
+            let slot = match self.slot_for(first.0 + i as u64, true).await {
+                Ok(slot) => slot,
+                Err(WriteError::Device(err)) => return Err(err),
+                Err(_) => {
+                    self.inner.read_blocks(BlockIndex(first.0 + i as u64), chunk).await?;
+                    continue;
+                }
+            };
             chunk.copy_from_slice(self.state.data(slot));
         }
         Ok(())
     }
 
-    async fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<()> {
-        if !self.inner.access().is_writable() {
-            return Err(read_only());
+    async fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), WriteError<Self::Error>> {
+        if !self.written || !self.in_range(first, buf.len()) {
+            self.inner.write_blocks(first, buf).await?;
+            self.written = true;
+            self.state.invalidate(first.0, buf.len() / self.inner.block_size().get() as usize);
+            return Ok(());
         }
-        check_blocks(self.inner.block_size(), self.inner.block_count(), first, buf.len())?;
         let size = self.inner.block_size().get() as usize;
         for (i, chunk) in buf.chunks_exact(size).enumerate() {
             let slot = self.slot_for(first.0 + i as u64, false).await?;
@@ -421,9 +459,9 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         Ok(())
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    async fn flush(&mut self) -> Result<(), WriteError<Self::Error>> {
         while let Some(slot) = self.state.next_dirty() {
-            let index = self.state.dirty_index(slot).expect("next_dirty returns a dirty slot");
+            let Some(index) = self.state.dirty_index(slot) else { break };
             self.inner.write_blocks(BlockIndex(index), self.state.data(slot)).await?;
             self.state.clean(slot);
         }
@@ -444,10 +482,10 @@ pub struct ByteView<D> {
 }
 
 impl<D: BlockDevice> ByteView<D> {
-    /// Wrap a device.
+    /// Wraps a device.
     ///
     /// Without `alloc`, block sizes above 4096 bytes fail with
-    /// [`ErrorKind::Unsupported`] on the first partial-block access.
+    /// [`StorageError::BlockTooLarge`] on the first partial-block access.
     pub fn new(inner: D) -> Self {
         Self { inner, position: 0, scratch: crate::scratch::Scratch::new() }
     }
@@ -462,25 +500,25 @@ impl<D: BlockDevice> ByteView<D> {
         self.len() == 0
     }
 
-    /// Recover the device.
+    /// Recovers the device.
     pub fn into_inner(self) -> D {
         self.inner
     }
 
-    /// Borrow the device.
+    /// Borrows the device.
     pub fn get_ref(&self) -> &D {
         &self.inner
     }
 
-    /// Mutably borrow the device.
+    /// Mutably borrows the device.
     pub fn get_mut(&mut self) -> &mut D {
         &mut self.inner
     }
 
-    /// Fill `buf` from byte `offset`.
-    pub async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
+    /// Fills `buf` from byte `offset`.
+    pub async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), StorageError<D::Error>> {
         if !self.fits(offset, buf.len()) {
-            return Err(Error::from_kind(ErrorKind::UnexpectedEof));
+            return Err(StorageError::UnexpectedEof);
         }
         let size = self.inner.block_size().get() as usize;
         let mut done = 0;
@@ -491,12 +529,15 @@ impl<D: BlockDevice> ByteView<D> {
             let left = buf.len() - done;
             if within == 0 && left >= size {
                 let whole = left / size * size;
-                self.inner.read_blocks(BlockIndex(block), &mut buf[done..done + whole]).await?;
+                self.inner
+                    .read_blocks(BlockIndex(block), &mut buf[done..done + whole])
+                    .await
+                    .map_err(StorageError::Device)?;
                 done += whole;
             } else {
                 let n = (size - within).min(left);
-                let scratch = self.scratch.get(size)?;
-                self.inner.read_blocks(BlockIndex(block), scratch).await?;
+                let scratch = self.scratch.get(size).ok_or(StorageError::BlockTooLarge)?;
+                self.inner.read_blocks(BlockIndex(block), scratch).await.map_err(StorageError::Device)?;
                 buf[done..done + n].copy_from_slice(&scratch[within..within + n]);
                 done += n;
             }
@@ -504,13 +545,10 @@ impl<D: BlockDevice> ByteView<D> {
         Ok(())
     }
 
-    /// Write all of `buf` at byte `offset`.
-    pub async fn write_at(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
-        if !self.inner.access().is_writable() {
-            return Err(read_only());
-        }
+    /// Writes all of `buf` at byte `offset`.
+    pub async fn write_at(&mut self, offset: u64, buf: &[u8]) -> Result<(), StorageError<D::Error>> {
         if !self.fits(offset, buf.len()) {
-            return Err(Error::new(ErrorKind::InvalidInput, "write past the end of the device"));
+            return Err(StorageError::OutOfRange);
         }
         let size = self.inner.block_size().get() as usize;
         let mut done = 0;
@@ -525,8 +563,8 @@ impl<D: BlockDevice> ByteView<D> {
                 done += whole;
             } else {
                 let n = (size - within).min(left);
-                let scratch = self.scratch.get(size)?;
-                self.inner.read_blocks(BlockIndex(block), scratch).await?;
+                let scratch = self.scratch.get(size).ok_or(StorageError::BlockTooLarge)?;
+                self.inner.read_blocks(BlockIndex(block), scratch).await.map_err(StorageError::Device)?;
                 scratch[within..within + n].copy_from_slice(&buf[done..done + n]);
                 self.inner.write_blocks(BlockIndex(block), scratch).await?;
                 done += n;
@@ -544,8 +582,12 @@ impl<D: BlockDevice> ByteView<D> {
     }
 }
 
+impl<D: ErrorType> ErrorType for ByteView<D> {
+    type Error = StorageError<D::Error>;
+}
+
 impl<D: BlockDevice> Read for ByteView<D> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let n = buf.len().min(self.remaining());
         self.read_at(self.position, &mut buf[..n]).await?;
         self.position += n as u64;
@@ -554,26 +596,26 @@ impl<D: BlockDevice> Read for ByteView<D> {
 }
 
 impl<D: BlockDevice> Write for ByteView<D> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let n = buf.len().min(self.remaining());
         self.write_at(self.position, &buf[..n]).await?;
         self.position += n as u64;
         Ok(n)
     }
 
-    async fn flush(&mut self) -> Result<()> {
-        self.inner.flush().await
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(self.inner.flush().await?)
     }
 }
 
 impl<D: BlockDevice> Seek for ByteView<D> {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         let position = match pos {
             SeekFrom::Start(position) => Some(position),
             SeekFrom::Current(delta) => self.position.checked_add_signed(delta),
             SeekFrom::End(delta) => self.len().checked_add_signed(delta),
         }
-        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "seek overflows"))?;
+        .ok_or(StorageError::OutOfRange)?;
         self.position = position;
         Ok(position)
     }

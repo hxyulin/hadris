@@ -302,7 +302,7 @@ fn partition_error_display() {
 #[test]
 fn partition_io_error_preserves_kind() {
     use hadris_io::Cursor;
-    use hadris_io::ErrorKind;
+    use hadris_io::legacy::ErrorKind;
     use hadris_part::MasterBootRecordReadExt;
 
     let mut cursor = Cursor::new(&[0u8; 10]); // too short for a 512-byte MBR

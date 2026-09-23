@@ -254,7 +254,7 @@ fn relocation_rejects_an_ambiguous_user_directory() {
     )
     .unwrap_err();
     assert!(
-        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::ErrorKind::InvalidInput)
+        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::legacy::ErrorKind::InvalidInput)
     );
     assert!(error.to_string().contains("root rr_moved directory"));
 }
@@ -295,7 +295,7 @@ fn relocation_rejects_two_occupied_names() {
     )
     .unwrap_err();
     assert!(
-        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::ErrorKind::InvalidInput)
+        matches!(&error, hadris_iso::write::IsoCreationError::Io(inner) if inner.kind() == hadris_io::legacy::ErrorKind::InvalidInput)
     );
 }
 

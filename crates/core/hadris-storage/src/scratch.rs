@@ -1,7 +1,3 @@
-use hadris_io::Result;
-#[cfg(not(feature = "alloc"))]
-use hadris_io::{Error, ErrorKind};
-
 #[cfg(not(feature = "alloc"))]
 const INLINE: usize = 4096;
 
@@ -24,21 +20,18 @@ impl Scratch {
         }
     }
 
+    /// A buffer of `len` bytes, or `None` if `len` exceeds the inline buffer.
     #[cfg(feature = "alloc")]
-    pub(crate) fn get(&mut self, len: usize) -> Result<&mut [u8]> {
+    pub(crate) fn get(&mut self, len: usize) -> Option<&mut [u8]> {
         if self.buf.len() < len {
             self.buf.resize(len, 0);
         }
-        Ok(&mut self.buf[..len])
+        Some(&mut self.buf[..len])
     }
 
+    /// A buffer of `len` bytes, or `None` if `len` exceeds the inline buffer.
     #[cfg(not(feature = "alloc"))]
-    pub(crate) fn get(&mut self, len: usize) -> Result<&mut [u8]> {
-        self.buf.get_mut(..len).ok_or_else(|| {
-            Error::new(
-                ErrorKind::Unsupported,
-                "block size exceeds the scratch buffer",
-            )
-        })
+    pub(crate) fn get(&mut self, len: usize) -> Option<&mut [u8]> {
+        self.buf.get_mut(..len)
     }
 }

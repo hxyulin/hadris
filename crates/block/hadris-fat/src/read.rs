@@ -439,7 +439,7 @@ impl<'a, DATA: Read + Seek> FileReader<'a, DATA> {
     /// new position from the start of the file.
     pub async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
         fn invalid(message: &'static str) -> Error {
-            Error::Io(hadris_io::Error::new(ErrorKind::InvalidInput, message))
+            Error::Io(hadris_io::legacy::Error::new(ErrorKind::InvalidInput, message))
         }
 
         let target = match pos {

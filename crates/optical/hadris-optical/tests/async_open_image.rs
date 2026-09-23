@@ -176,7 +176,7 @@ fn asynchronously_traverses_a_bridge_under_both_policies() {
 #[test]
 fn async_malformed_optical_inputs_use_category_errors() {
     use hadris_io::SeekFrom;
-    use hadris_io::r#async::Seek;
+    use hadris_io::legacy::r#async::Seek;
 
     block_on(async {
         let unknown = [0xA5_u8; 4096];

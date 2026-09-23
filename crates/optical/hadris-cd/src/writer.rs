@@ -314,7 +314,7 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
                 }
                 FileData::Path(path) => {
                     let data = std::fs::read(path)
-                        .map_err(hadris_io::Error::from)?;
+                        .map_err(hadris_io::legacy::Error::from)?;
                     self.writer.write_all(&data).await?;
                 }
             }
@@ -428,7 +428,7 @@ impl<W: Read + Write + Seek> OpticalImageWriter<W> {
             let data = match &file.data {
                 FileData::Buffer(b) => b.clone(),
                 FileData::Path(p) => std::fs::read(p)
-                    .map_err(hadris_io::Error::from)?,
+                    .map_err(hadris_io::legacy::Error::from)?,
             };
             files.push(hadris_iso::write::InputEntry::file(
                 file.name.as_ref().clone(),

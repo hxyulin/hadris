@@ -1,27 +1,24 @@
 use super::base;
-use crate::FromEmbedded;
-use crate::{Error, ErrorKind, Result, SeekFrom};
+use crate::{ErrorType, ExactError, FromEmbedded, SeekFrom};
 
 io_transform! {
 
-/// Read bytes from a source.
+/// A byte source.
 ///
 /// Implemented for `&mut T` and, with `alloc`, `Box<T>`. Wrap an
 /// `embedded-io` device in [`FromEmbedded`] and a `std::io` type in
 /// [`StdIo`](crate::StdIo).
-pub trait Read {
-    /// Read some bytes, returning zero at end of input.
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
+pub trait Read: ErrorType {
+    /// Reads up to `buf.len()` bytes. Returns 0 only at the end of input or
+    /// for an empty `buf`.
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
 
-    /// Fill `buf`, retrying interrupted operations.
-    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
-        let mut read = 0;
-        while read < buf.len() {
-            match self.read(&mut buf[read..]).await {
-                Ok(0) => return Err(Error::from_kind(ErrorKind::UnexpectedEof)),
-                Ok(n) => read += n,
-                Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-                Err(error) => return Err(error),
+    /// Fills `buf`.
+    async fn read_exact(&mut self, mut buf: &mut [u8]) -> Result<(), ExactError<Self::Error>> {
+        while !buf.is_empty() {
+            match self.read(buf).await.map_err(ExactError::Io)? {
+                0 => return Err(ExactError::UnexpectedEof),
+                n => buf = &mut buf[n..],
             }
         }
         Ok(())
@@ -29,22 +26,22 @@ pub trait Read {
 }
 
 impl<T: Read + ?Sized> Read for &mut T {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         T::read(self, buf).await
     }
 
-    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), ExactError<Self::Error>> {
         T::read_exact(self, buf).await
     }
 }
 
 #[cfg(feature = "alloc")]
 impl<T: Read + ?Sized> Read for alloc::boxed::Box<T> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         T::read(self, buf).await
     }
 
-    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), ExactError<Self::Error>> {
         T::read_exact(self, buf).await
     }
 }
@@ -53,30 +50,27 @@ impl<T: base::Read> Read for FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
 {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        base::Read::read(&mut self.0, buf).await.map_err(Error::from_io)
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        base::Read::read(&mut self.0, buf).await
     }
 }
 
-/// Write bytes to a destination.
+/// A byte sink.
 ///
 /// Implemented for `&mut T` and, with `alloc`, `Box<T>`.
-pub trait Write {
-    /// Write some bytes.
-    async fn write(&mut self, buf: &[u8]) -> Result<usize>;
+pub trait Write: ErrorType {
+    /// Writes up to `buf.len()` bytes. Returns 0 only for an empty `buf`.
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error>;
 
-    /// Flush buffered output.
-    async fn flush(&mut self) -> Result<()>;
+    /// Flushes buffered output.
+    async fn flush(&mut self) -> Result<(), Self::Error>;
 
-    /// Write all bytes, retrying interrupted operations.
-    async fn write_all(&mut self, buf: &[u8]) -> Result<()> {
-        let mut written = 0;
-        while written < buf.len() {
-            match self.write(&buf[written..]).await {
-                Ok(0) => return Err(Error::from_kind(ErrorKind::WriteZero)),
-                Ok(n) => written += n,
-                Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-                Err(error) => return Err(error),
+    /// Writes all of `buf`.
+    async fn write_all(&mut self, mut buf: &[u8]) -> Result<(), ExactError<Self::Error>> {
+        while !buf.is_empty() {
+            match self.write(buf).await.map_err(ExactError::Io)? {
+                0 => return Err(ExactError::WriteZero),
+                n => buf = &buf[n..],
             }
         }
         Ok(())
@@ -84,30 +78,30 @@ pub trait Write {
 }
 
 impl<T: Write + ?Sized> Write for &mut T {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         T::write(self, buf).await
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
         T::flush(self).await
     }
 
-    async fn write_all(&mut self, buf: &[u8]) -> Result<()> {
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), ExactError<Self::Error>> {
         T::write_all(self, buf).await
     }
 }
 
 #[cfg(feature = "alloc")]
 impl<T: Write + ?Sized> Write for alloc::boxed::Box<T> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         T::write(self, buf).await
     }
 
-    async fn flush(&mut self) -> Result<()> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
         T::flush(self).await
     }
 
-    async fn write_all(&mut self, buf: &[u8]) -> Result<()> {
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), ExactError<Self::Error>> {
         T::write_all(self, buf).await
     }
 }
@@ -116,57 +110,51 @@ impl<T: base::Write> Write for FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
 {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        base::Write::write(&mut self.0, buf).await.map_err(Error::from_io)
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        base::Write::write(&mut self.0, buf).await
     }
 
-    async fn flush(&mut self) -> Result<()> {
-        base::Write::flush(&mut self.0).await.map_err(Error::from_io)
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        base::Write::flush(&mut self.0).await
     }
 }
 
-/// Move within a stream.
+/// A seekable stream.
 ///
 /// Implemented for `&mut T` and, with `alloc`, `Box<T>`.
-pub trait Seek {
-    /// Seek to a new byte position.
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64>;
+pub trait Seek: ErrorType {
+    /// Moves to `pos` and returns the new position from the start.
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error>;
 
-    /// Return the current byte position.
-    async fn stream_position(&mut self) -> Result<u64> {
+    /// Returns the current position.
+    async fn stream_position(&mut self) -> Result<u64, Self::Error> {
         self.seek(SeekFrom::Current(0)).await
     }
 
-    /// Seek relative to the current byte position.
-    async fn seek_relative(&mut self, offset: i64) -> Result<()> {
-        self.seek(SeekFrom::Current(offset)).await?;
-        Ok(())
-    }
-
-    /// Seek to the start of the stream.
-    async fn rewind(&mut self) -> Result<()> {
+    /// Moves to the start.
+    async fn rewind(&mut self) -> Result<(), Self::Error> {
         self.seek(SeekFrom::Start(0)).await?;
         Ok(())
     }
 }
 
 impl<T: Seek + ?Sized> Seek for &mut T {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         T::seek(self, pos).await
     }
 
-    async fn stream_position(&mut self) -> Result<u64> {
+    async fn stream_position(&mut self) -> Result<u64, Self::Error> {
         T::stream_position(self).await
     }
 }
 
 #[cfg(feature = "alloc")]
 impl<T: Seek + ?Sized> Seek for alloc::boxed::Box<T> {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         T::seek(self, pos).await
     }
 
-    async fn stream_position(&mut self) -> Result<u64> {
+    async fn stream_position(&mut self) -> Result<u64, Self::Error> {
         T::stream_position(self).await
     }
 }
@@ -175,59 +163,28 @@ impl<T: base::Seek> Seek for FromEmbedded<T>
 where
     T::Error: Send + Sync + 'static,
 {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        base::Seek::seek(&mut self.0, pos).await.map_err(Error::from_io)
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        base::Seek::seek(&mut self.0, pos).await
     }
 }
 
-/// A reader that can seek.
-pub trait ReadSeek: Read + Seek {}
-impl<T: Read + Seek + ?Sized> ReadSeek for T {}
-
-/// A reader that can write.
-pub trait ReadWrite: Read + Write {}
-impl<T: Read + Write + ?Sized> ReadWrite for T {}
-
-/// A reader that can write and seek.
-pub trait ReadWriteSeek: Read + Write + Seek {}
-impl<T: Read + Write + Seek + ?Sized> ReadWriteSeek for T {}
-
-/// Structured-reading helpers.
-pub trait ReadExt: Read {
-    /// Read an arbitrary-bit-pattern value.
-    async fn read_struct<T: bytemuck::AnyBitPattern + bytemuck::NoUninit>(&mut self) -> Result<T> {
-        let mut temp = T::zeroed();
-        self.read_exact(bytemuck::bytes_of_mut(&mut temp)).await?;
-        Ok(temp)
-    }
-
-    /// Parse a value with its custom parser.
-    async fn parse<T: Parsable>(&mut self) -> Result<T>
-    where
-        Self: Sized,
-    {
-        T::parse(self).await
+impl Read for crate::Cursor<'_> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        Ok(self.read_slice(buf))
     }
 }
-impl<T: Read + ?Sized> ReadExt for T {}
 
-/// Parse a value from a reader.
-pub trait Parsable: Sized {
-    /// Parse `Self` from `reader`.
-    async fn parse<R: Read>(reader: &mut R) -> Result<Self>;
-}
-
-/// Write a value to a writer.
-pub trait Writable: Sized {
-    /// Write `Self` to `writer`.
-    async fn write<W: Write>(&self, writer: &mut W) -> Result<()>;
+impl Seek for crate::Cursor<'_> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        self.seek_to(pos)
+    }
 }
 
 /// A positional source of bytes with a known length.
 ///
-/// Writers use it for file contents so they can read the same bytes more than
-/// once without a seek contract.
-pub trait ByteSource {
+/// Writers read file contents through it, so they can read the same bytes
+/// more than once without a seek contract.
+pub trait ByteSource: ErrorType {
     /// Total length in bytes.
     fn len(&self) -> u64;
 
@@ -236,21 +193,22 @@ pub trait ByteSource {
         self.len() == 0
     }
 
-    /// Read bytes starting at `offset`. Returns zero at or past the end.
-    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize>;
+    /// Reads bytes starting at `offset`. Returns 0 at or past the end.
+    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Self::Error>;
 
-    /// Fill `buf` from `offset`, failing with `UnexpectedEof` if the source ends first.
-    async fn read_exact_at(&mut self, mut offset: u64, buf: &mut [u8]) -> Result<()> {
-        let mut read = 0;
-        while read < buf.len() {
-            match self.read_at(offset, &mut buf[read..]).await {
-                Ok(0) => return Err(Error::from_kind(ErrorKind::UnexpectedEof)),
-                Ok(n) => {
-                    read += n;
+    /// Fills `buf` from `offset`.
+    async fn read_exact_at(
+        &mut self,
+        mut offset: u64,
+        mut buf: &mut [u8],
+    ) -> Result<(), ExactError<Self::Error>> {
+        while !buf.is_empty() {
+            match self.read_at(offset, buf).await.map_err(ExactError::Io)? {
+                0 => return Err(ExactError::UnexpectedEof),
+                n => {
+                    buf = &mut buf[n..];
                     offset += n as u64;
                 }
-                Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-                Err(error) => return Err(error),
             }
         }
         Ok(())
@@ -262,7 +220,7 @@ impl ByteSource for &[u8] {
         <[u8]>::len(self) as u64
     }
 
-    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize> {
+    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Self::Error> {
         Ok(crate::copy_from_slice_at(self, offset, buf))
     }
 }
@@ -273,7 +231,7 @@ impl ByteSource for alloc::vec::Vec<u8> {
         <[u8]>::len(self) as u64
     }
 
-    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize> {
+    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Self::Error> {
         Ok(crate::copy_from_slice_at(self, offset, buf))
     }
 }
@@ -283,7 +241,7 @@ impl<S: ByteSource + ?Sized> ByteSource for &mut S {
         S::len(self)
     }
 
-    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize> {
+    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Self::Error> {
         S::read_at(self, offset, buf).await
     }
 }
@@ -296,21 +254,25 @@ pub struct SeekSource<T> {
 }
 
 impl<T: Read + Seek> SeekSource<T> {
-    /// Wrap `inner`, measuring its length by seeking to the end.
-    pub async fn new(mut inner: T) -> Result<Self> {
+    /// Wraps `inner`, measuring its length by seeking to the end.
+    pub async fn new(mut inner: T) -> Result<Self, T::Error> {
         let len = inner.seek(SeekFrom::End(0)).await?;
         Ok(Self { inner, len })
     }
 
-    /// Wrap `inner` with a known length.
+    /// Wraps `inner` with a known length.
     pub fn with_len(inner: T, len: u64) -> Self {
         Self { inner, len }
     }
 
-    /// Recover the reader.
+    /// Returns the reader.
     pub fn into_inner(self) -> T {
         self.inner
     }
+}
+
+impl<T: ErrorType> ErrorType for SeekSource<T> {
+    type Error = T::Error;
 }
 
 impl<T: Read + Seek> ByteSource for SeekSource<T> {
@@ -318,7 +280,7 @@ impl<T: Read + Seek> ByteSource for SeekSource<T> {
         self.len
     }
 
-    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize> {
+    async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Self::Error> {
         if offset >= self.len {
             return Ok(0);
         }

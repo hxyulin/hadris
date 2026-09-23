@@ -1,5 +1,6 @@
 use hadris_io::SeekFrom;
 use hadris_io::r#async::{Read, Seek, Write};
+use hadris_io::legacy::r#async as legacy;
 
 use crate::PartitionView;
 
@@ -12,8 +13,8 @@ macro_rules! io_transform {
 mod api;
 pub use api::*;
 
-impl<S: Read + Seek> Read for PartitionView<'_, S> {
-    async fn read(&mut self, buffer: &mut [u8]) -> hadris_io::Result<usize> {
+impl<S: legacy::Read + legacy::Seek> legacy::Read for PartitionView<'_, S> {
+    async fn read(&mut self, buffer: &mut [u8]) -> hadris_io::legacy::Result<usize> {
         let length = buffer.len().min(self.remaining());
         if length == 0 {
             return Ok(0);
@@ -26,15 +27,15 @@ impl<S: Read + Seek> Read for PartitionView<'_, S> {
     }
 }
 
-impl<S: Read + Seek> Seek for PartitionView<'_, S> {
-    async fn seek(&mut self, from: SeekFrom) -> hadris_io::Result<u64> {
+impl<S: legacy::Read + legacy::Seek> legacy::Seek for PartitionView<'_, S> {
+    async fn seek(&mut self, from: SeekFrom) -> hadris_io::legacy::Result<u64> {
         self.position = self.seek_position(from)?;
         Ok(self.position)
     }
 }
 
-impl<S: Read + Write + Seek> Write for PartitionView<'_, S> {
-    async fn write(&mut self, buffer: &[u8]) -> hadris_io::Result<usize> {
+impl<S: legacy::Read + legacy::Write + legacy::Seek> legacy::Write for PartitionView<'_, S> {
+    async fn write(&mut self, buffer: &[u8]) -> hadris_io::legacy::Result<usize> {
         let length = buffer.len().min(self.remaining());
         if length == 0 {
             return Ok(0);
@@ -46,7 +47,7 @@ impl<S: Read + Write + Seek> Write for PartitionView<'_, S> {
         Ok(written)
     }
 
-    async fn flush(&mut self) -> hadris_io::Result<()> {
+    async fn flush(&mut self) -> hadris_io::legacy::Result<()> {
         self.source.flush().await
     }
 }

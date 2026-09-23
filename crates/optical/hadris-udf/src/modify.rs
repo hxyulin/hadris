@@ -33,7 +33,7 @@ use super::super::{Read, Seek, SeekFrom, Write};
 use hadris_common::types::extent::{Extent, FileType};
 use hadris_common::types::layout::{AllocationMap, DirectoryLayout, FileLayout};
 use hadris_fs::path::split_path;
-use hadris_io as io;
+use hadris_io::legacy as io;
 
 use super::descriptor::AnchorVolumeDescriptorPointer;
 use crate::{AVDP_LOCATION, Error as VolumeError, SECTOR_SIZE, UdfRevision};

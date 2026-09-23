@@ -110,9 +110,9 @@ pub mod sync {
     //!
     //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
 
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::legacy::Result as IoResult;
+    pub use hadris_io::legacy::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
+    pub use hadris_io::legacy::{Error, ErrorKind, SeekFrom};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
@@ -163,9 +163,9 @@ pub mod r#async {
     //!
     //! All I/O operations use async `Read`/`Write`/`Seek` traits.
 
-    pub use hadris_io::Result as IoResult;
-    pub use hadris_io::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::{Error, ErrorKind, SeekFrom};
+    pub use hadris_io::legacy::Result as IoResult;
+    pub use hadris_io::legacy::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
+    pub use hadris_io::legacy::{Error, ErrorKind, SeekFrom};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };

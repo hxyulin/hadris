@@ -105,6 +105,14 @@ impl CacheState {
             .find(|&slot| self.entries[slot].dirty)
     }
 
+    pub(crate) fn invalidate(&mut self, first: u64, count: usize) {
+        for index in first..first.saturating_add(count as u64) {
+            if let Some(slot) = self.slots.get(&index).copied() {
+                self.forget(slot);
+            }
+        }
+    }
+
     fn touch(&mut self, slot: usize) {
         self.tick += 1;
         self.entries[slot].used = self.tick;

@@ -84,7 +84,7 @@ impl<DATA: Seek> SectorCursor<DATA> {
     }
 
     /// Seeks to the beginning of a sector.
-    pub async fn seek_sector(&mut self, sector: impl SectorLike) -> hadris_io::Result<u64> {
+    pub async fn seek_sector(&mut self, sector: impl SectorLike) -> hadris_io::legacy::Result<u64> {
         self.seek(SeekFrom::Start(sector.to_bytes(self.sector_size) as u64))
             .await
 
@@ -92,24 +92,24 @@ impl<DATA: Seek> SectorCursor<DATA> {
 }
 
 impl<T: Seek> Seek for SectorCursor<T> {
-    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::Result<u64> {
+    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> hadris_io::legacy::Result<u64> {
         self.data.seek(pos).await
     }
 }
 
 impl<T: Read + Seek> Read for SectorCursor<T> {
-    async fn read(&mut self, buf: &mut [u8]) -> hadris_io::Result<usize> {
+    async fn read(&mut self, buf: &mut [u8]) -> hadris_io::legacy::Result<usize> {
         self.data.read(buf).await
     }
 }
 
 #[cfg(feature = "write")]
 impl<T: Write + Seek> Write for SectorCursor<T> {
-    async fn write(&mut self, buf: &[u8]) -> hadris_io::Result<usize> {
+    async fn write(&mut self, buf: &[u8]) -> hadris_io::legacy::Result<usize> {
         self.data.write(buf).await
     }
 
-    async fn flush(&mut self) -> hadris_io::Result<()> {
+    async fn flush(&mut self) -> hadris_io::legacy::Result<()> {
         self.data.flush().await
     }
 }

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::task::{Wake, Waker};
 
 use hadris_io::SeekFrom;
-use hadris_io::r#async::Seek;
+use hadris_io::legacy::r#async::Seek;
 use hadris_part::r#async::partition_table;
 use hadris_part::sync::scheme_io::PartitionTableWriteExt;
 use hadris_part::{GptPartitionEntry, Guid, PartitionSchemeType, PartitionTable};

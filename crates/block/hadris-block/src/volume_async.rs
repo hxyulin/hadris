@@ -3,7 +3,7 @@ use crate::{Error, Result};
 use hadris_fat::r#async::fat_table::FatType;
 use hadris_fat::r#async::fs::FatVolume;
 use hadris_io::SeekFrom;
-use hadris_io::r#async::{Read, Seek};
+use hadris_io::legacy::r#async::{Read, Seek};
 
 /// An asynchronously opened block filesystem with concrete-format access.
 #[non_exhaustive]

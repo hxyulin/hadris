@@ -4,38 +4,39 @@ No-std I/O abstraction layer for the Hadris filesystem crates.
 
 ## Overview
 
-This crate provides the `Read`, `Write`, and `Seek` traits that every Hadris
-format crate consumes. They work in no-std environments, so the same
-filesystem code runs on desktops, bootloaders, kernels, and embedded devices.
+This crate provides the `Read`, `Write` and `Seek` traits that Hadris format
+crates consume. They work without the standard library or an allocator, so
+the same filesystem code runs on desktops, bootloaders, kernels and embedded
+devices.
 
-The traits are Hadris's own. They have no associated error type: every method
-returns `hadris_io::Result<T>` with the single, non-generic
-[`Error`](https://docs.rs/hadris-io) type. Devices from other I/O ecosystems
-are connected through explicit adapters rather than blanket implementations.
+Each trait reports the implementor's own error through the `ErrorType`
+supertrait, as `embedded-io` does. The only requirement on the error is
+`core::error::Error + Send + Sync + 'static`: a kernel uses its own enum,
+`StdIo` and `std::fs::File` report `std::io::Error`, and `FromEmbedded` passes
+an `embedded-io` error through unchanged.
+
+The V2 traits, which return one erased `Error`, live in `hadris_io::legacy`
+while the format crates move over. That module is removed before 3.0.
 
 ## Features
 
-- **No-std Compatible** - Works without the standard library or an allocator
-- **Sync and async** - Both trait sets share one definition and never drift
-- **Explicit adapters** - `StdIo`, `ToStd`, and `FromEmbedded` at the edges
-- **Zero-copy helpers** - [`ReadExt`](https://docs.rs/hadris-io) structured reads via bytemuck
-- **In-memory [`Cursor`](https://docs.rs/hadris-io)** - Byte-slice reader/seeker for parsing
+- **No-std compatible** - no standard library or allocator needed
+- **Sync and async** - both trait sets come from one source and never drift
+- **Typed errors** - the device's error reaches the caller unchanged, with no allocation
+- **Explicit adapters** - `StdIo`, `ToStd` and `FromEmbedded` at the edges
+- **In-memory `Cursor`** - byte-slice reader and seeker for parsing
 - **Positional sources** - `ByteSource` for writer inputs that are read more than once
-
-> Sector-aligned wrappers such as `SectorCursor` live in **`hadris-fat`**, not in this crate.
 
 ## Feature Flags
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| `std` | `StdIo`, `ToStd`, and `std::io::Error` conversions; implies `alloc` | Yes |
-| `sync` | Synchronous I/O traits | Yes |
-| `async` | Asynchronous I/O traits in `hadris_io::r#async` | No |
-| `alloc` | Keeps the device error as the `Error` source; `Box<T>` implements the traits | via `std` |
+| `std` | `StdIo`, `ToStd`, `std::fs::File` errors and conversions to `std::io::Error`; implies `alloc` | Yes |
+| `sync` | Synchronous traits | Yes |
+| `async` | Asynchronous traits in `hadris_io::r#async` | No |
+| `alloc` | `Box<T>` and `Vec<u8>` implement the traits | via `std` |
 
-`std` and the I/O mode are independent. Defaults enable both `std` and `sync`,
-while custom configurations may select `sync`, `async`, or both. Enabling a
-feature only adds items; no trait or type changes shape.
+Enabling a feature only adds items; no trait or type changes shape.
 
 ## Usage
 
@@ -76,23 +77,28 @@ Implementors write only `read`, `write` and `flush`, and `seek`. Everything
 else has a default:
 
 ```rust,ignore
-pub trait Read {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
-    fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> { ... }
+pub trait ErrorType {
+    type Error: core::error::Error + Send + Sync + 'static;
 }
 
-pub trait Write {
-    fn write(&mut self, buf: &[u8]) -> Result<usize>;
-    fn flush(&mut self) -> Result<()>;
-    fn write_all(&mut self, buf: &[u8]) -> Result<()> { ... }
+pub trait Read: ErrorType {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), ExactError<Self::Error>> { ... }
 }
 
-pub trait Seek {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64>;
-    fn stream_position(&mut self) -> Result<u64> { ... }
-    fn seek_relative(&mut self, offset: i64) -> Result<()> { ... }
-    fn rewind(&mut self) -> Result<()> { ... }
+pub trait Write: ErrorType {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error>;
+    fn flush(&mut self) -> Result<(), Self::Error>;
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), ExactError<Self::Error>> { ... }
 }
+
+pub trait Seek: ErrorType {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error>;
+    fn stream_position(&mut self) -> Result<u64, Self::Error> { ... }
+    fn rewind(&mut self) -> Result<(), Self::Error> { ... }
+}
+
+pub enum ExactError<E> { UnexpectedEof, WriteZero, Io(E) }
 ```
 
 The async traits in `hadris_io::r#async` have the same shape with `async fn`.
@@ -101,38 +107,56 @@ The async traits in `hadris_io::r#async` have the same shape with `async fn`.
 `Box<T>`. Generic code holding `R: Read` can therefore pass `&mut R` to any API
 that takes a reader and keep using it afterwards.
 
-A custom device implements the traits directly:
+A custom device implements the traits directly, with its own error:
 
 ```rust
-use hadris_io::{Error, ErrorKind, Read, Result};
+use hadris_io::{ErrorType, ExactError, Read};
+
+#[derive(Debug, PartialEq)]
+struct Offline;
+
+impl core::fmt::Display for Offline {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("device offline")
+    }
+}
+
+impl core::error::Error for Offline {}
 
 struct Zeroes {
     online: bool,
 }
 
+impl ErrorType for Zeroes {
+    type Error = Offline;
+}
+
 impl Read for Zeroes {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Offline> {
         if !self.online {
-            return Err(Error::new(ErrorKind::NotConnected, "device offline"));
+            return Err(Offline);
         }
         buf.fill(0);
         Ok(buf.len())
     }
 }
 
-let mut device = Zeroes { online: true };
 let mut buf = [0xff_u8; 4];
-device.read_exact(&mut buf).unwrap();
+Zeroes { online: true }.read_exact(&mut buf).unwrap();
 assert_eq!(buf, [0; 4]);
+assert_eq!(
+    Zeroes { online: false }.read_exact(&mut buf),
+    Err(ExactError::Io(Offline))
+);
 ```
 
 ## Adapters
 
-| Adapter | Feature | Purpose |
-|---------|---------|---------|
-| `StdIo<T>` | `std` | Use a `std::io` reader, writer, or seeker as a Hadris device |
-| `ToStd<T>` | `std` + `sync` | Expose a Hadris reader, writer, or seeker as `std::io` |
-| `FromEmbedded<T>` | always | Use an `embedded-io` or `embedded-io-async` device |
+| Adapter | Feature | Error | Purpose |
+|---------|---------|-------|---------|
+| `StdIo<T>` | `std` | `std::io::Error` | Use a `std::io` reader, writer or seeker |
+| `ToStd<T>` | `std` + `sync` | | Expose a Hadris reader, writer or seeker as `std::io` |
+| `FromEmbedded<T>` | always | `T::Error` | Use an `embedded-io` or `embedded-io-async` device |
 
 ```rust
 use hadris_io::{Cursor, Read, StdIo, ToStd};
@@ -148,40 +172,34 @@ std::io::Read::read_to_string(&mut reader, &mut text).unwrap();
 assert_eq!(text, "xyz");
 ```
 
-`FromEmbedded::new(device)` works the same way for any type implementing the
-`embedded-io` traits, and for `embedded-io-async` types when `async` is
-enabled.
-
 ## Errors
 
-`Error` holds a portable `ErrorKind`, an optional static message, and with
-`alloc` the original device error as its source. Its public shape is the same
-with and without `alloc`; without it, only the kind and message survive.
-
-| Constructor | Use |
-|-------------|-----|
-| `Error::from_kind(kind)` | A bare kind, also available as `From<ErrorKind>` |
-| `Error::new(kind, msg)` | A kind with static context |
-| `Error::other(msg)` | `ErrorKind::Other` with static context |
-| `Error::from_io(err)` | Convert an `embedded-io` error, keeping it as the source |
-| `Error::with_source(kind, err)` | Wrap any `core::error::Error` as the source |
-
-`downcast_source::<E>()` recovers a typed device error. With `std`,
-`std::io::Error` converts to and from `Error` in both directions.
+With `std`, every error converts to `std::io::Error` with `?`.
+`into_std_error` returns an `std::io::Error` device error as itself, found by
+a downcast that does not allocate, so `raw_os_error()` survives. Any other
+device error becomes the source of an `Other` error and can be downcast back.
 
 ```rust
-use hadris_io::{Error, ErrorKind};
+use hadris_io::{ExactError, Read, StdIo};
 
-let error = Error::from(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"));
-assert_eq!(error.kind(), ErrorKind::NotFound);
-assert!(error.downcast_source::<std::io::Error>().is_some());
+fn read_header(file: &mut StdIo<std::fs::File>) -> std::io::Result<[u8; 4]> {
+    let mut header = [0u8; 4];
+    file.read_exact(&mut header)?;
+    Ok(header)
+}
+
+let err: std::io::Error = ExactError::Io(std::io::Error::from_raw_os_error(5)).into();
+assert_eq!(err.raw_os_error(), Some(5));
 ```
+
+`Cursor` never fails to read and reports `InvalidSeek` for a seek to a
+negative position.
 
 ## Byte Sources
 
 `ByteSource` is a positional source of bytes with a known length. Writers use
 it for file contents so they can read the same bytes more than once without a
-seek contract. `&[u8]`, `Vec<u8>`, and `&mut S` implement it, and
+seek contract. `&[u8]`, `Vec<u8>` and `&mut S` implement it, and
 `SeekSource<T>` adapts any `Read + Seek`:
 
 ```rust

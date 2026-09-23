@@ -134,8 +134,8 @@ fn fat_variant(sector: &[u8; 512]) -> Option<FatVariant> {
 /// Synchronous block-format detection.
 pub mod sync {
     use super::{BlockFormat, PartitionTableKind, detect_sector};
-    use hadris_io::sync::{Read, Seek};
-    use hadris_io::{Result, SeekFrom};
+    use hadris_io::legacy::sync::{Read, Seek};
+    use hadris_io::legacy::{Result, SeekFrom};
 
     /// Detect a layout and restore the reader's original position.
     pub fn detect<R>(reader: &mut R, logical_block_size: u32) -> Result<Option<BlockFormat>>
@@ -176,8 +176,8 @@ pub mod sync {
 /// Asynchronous block-format detection.
 pub mod r#async {
     use super::{BlockFormat, PartitionTableKind, detect_sector};
-    use hadris_io::r#async::{Read, Seek};
-    use hadris_io::{Result, SeekFrom};
+    use hadris_io::legacy::r#async::{Read, Seek};
+    use hadris_io::legacy::{Result, SeekFrom};
 
     /// Detect a layout asynchronously and restore the reader's original position.
     pub async fn detect<R>(reader: &mut R, logical_block_size: u32) -> Result<Option<BlockFormat>>
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn stream_probe_validates_gpt_signature_and_restores_position() {
         use hadris_io::SeekFrom;
-        use hadris_io::sync::Seek;
+        use hadris_io::legacy::sync::Seek;
 
         let mut image = [0u8; 1024];
         image[446 + 4] = 0xee;

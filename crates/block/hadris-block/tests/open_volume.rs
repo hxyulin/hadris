@@ -12,7 +12,9 @@ fn std_cursor(data: Vec<u8>) -> StdIo<std::io::Cursor<Vec<u8>>> {
 }
 
 fn format_fat12(
-    source: impl hadris_io::sync::Read + hadris_io::sync::Write + hadris_io::sync::Seek,
+    source: impl hadris_io::legacy::sync::Read
+    + hadris_io::legacy::sync::Write
+    + hadris_io::legacy::sync::Seek,
 ) {
     let options = FatFormatOptions::new(VOLUME_LEN as u64).fat_type(FatTypeSelection::Fat12);
     let volume = FatVolumeFormatter::format(source, options).unwrap();

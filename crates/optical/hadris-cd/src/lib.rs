@@ -85,7 +85,7 @@ pub mod tree;
 /// Synchronous hybrid optical-image writer API.
 pub mod sync {
     pub use hadris_io::SeekFrom;
-    pub use hadris_io::sync::{Read, Seek, Write};
+    pub use hadris_io::legacy::sync::{Read, Seek, Write};
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };

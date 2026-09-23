@@ -1,7 +1,7 @@
 use crate::detect::OpticalFormats;
 use crate::{Error, OpenPolicy, OpticalFormat, Result};
 use hadris_io::SeekFrom;
-use hadris_io::sync::{Read, Seek};
+use hadris_io::legacy::sync::{Read, Seek};
 
 /// One opened filesystem selected from an optical image.
 #[non_exhaustive]

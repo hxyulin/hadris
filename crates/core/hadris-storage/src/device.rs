@@ -1,31 +1,10 @@
-use crate::{BlockIndex, BlockSize};
-use hadris_io::{Error, ErrorKind, Result};
-
-/// Whether a device accepts writes.
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Access {
-    /// Only reads are supported.
-    ReadOnly,
-    /// Reads and writes are supported.
-    ReadWrite,
-}
-
-impl Access {
-    /// Returns whether writes are supported.
-    pub const fn is_writable(self) -> bool {
-        matches!(self, Self::ReadWrite)
-    }
-}
+use crate::{BlockIndex, BlockSize, OutOfRange};
 
 /// Byte storage backing a [`MemDevice`].
 ///
 /// Implemented for `&[u8]` (read-only), `&mut [u8]`, `[u8; N]` and, with
 /// `alloc`, `Vec<u8>` and `Box<[u8]>`.
 pub trait MemBuffer {
-    /// Whether [`bytes_mut`](Self::bytes_mut) returns `Some`.
-    const WRITABLE: bool;
-
     /// Borrow the bytes.
     fn bytes(&self) -> &[u8];
 
@@ -34,8 +13,6 @@ pub trait MemBuffer {
 }
 
 impl MemBuffer for &[u8] {
-    const WRITABLE: bool = false;
-
     fn bytes(&self) -> &[u8] {
         self
     }
@@ -46,8 +23,6 @@ impl MemBuffer for &[u8] {
 }
 
 impl MemBuffer for &mut [u8] {
-    const WRITABLE: bool = true;
-
     fn bytes(&self) -> &[u8] {
         self
     }
@@ -58,8 +33,6 @@ impl MemBuffer for &mut [u8] {
 }
 
 impl<const N: usize> MemBuffer for [u8; N] {
-    const WRITABLE: bool = true;
-
     fn bytes(&self) -> &[u8] {
         self
     }
@@ -71,8 +44,6 @@ impl<const N: usize> MemBuffer for [u8; N] {
 
 #[cfg(feature = "alloc")]
 impl MemBuffer for alloc::vec::Vec<u8> {
-    const WRITABLE: bool = true;
-
     fn bytes(&self) -> &[u8] {
         self
     }
@@ -84,8 +55,6 @@ impl MemBuffer for alloc::vec::Vec<u8> {
 
 #[cfg(feature = "alloc")]
 impl MemBuffer for alloc::boxed::Box<[u8]> {
-    const WRITABLE: bool = true;
-
     fn bytes(&self) -> &[u8] {
         self
     }
@@ -132,7 +101,11 @@ impl<B: MemBuffer> MemDevice<B> {
     }
 
     #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
-    pub(crate) fn range(&self, first: BlockIndex, len: usize) -> Result<core::ops::Range<usize>> {
+    pub(crate) fn range(
+        &self,
+        first: BlockIndex,
+        len: usize,
+    ) -> Result<core::ops::Range<usize>, OutOfRange> {
         check_blocks(self.block_size, self.block_count(), first, len)?;
         let start = (first.0 * u64::from(self.block_size.get())) as usize;
         Ok(start..start + len)
@@ -141,8 +114,8 @@ impl<B: MemBuffer> MemDevice<B> {
 
 /// Marks a stream as read-only for `StreamDevice`.
 ///
-/// A `StreamDevice` over `ReadOnly<T>` reports [`Access::ReadOnly`] and needs
-/// only `T: Read + Seek`.
+/// A `StreamDevice` over `ReadOnly<T>` needs only `T: Read + Seek` and answers
+/// writes with [`WriteError::ReadOnly`](crate::WriteError::ReadOnly).
 #[derive(Debug, Clone, Default)]
 pub struct ReadOnly<T>(pub(crate) T);
 
@@ -174,33 +147,30 @@ pub(crate) fn check_blocks(
     block_count: u64,
     first: BlockIndex,
     len: usize,
-) -> Result<u64> {
+) -> Result<u64, OutOfRange> {
     let size = u64::from(block_size.get());
     if len as u64 % size != 0 {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "buffer is not a whole number of blocks",
-        ));
+        return Err(OutOfRange);
     }
     let count = len as u64 / size;
     match first.0.checked_add(count) {
         Some(end) if end <= block_count => Ok(count),
-        _ => Err(Error::new(
-            ErrorKind::InvalidInput,
-            "block request is out of range",
-        )),
+        _ => Err(OutOfRange),
     }
 }
 
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
-pub(crate) fn read_only() -> Error {
-    Error::new(ErrorKind::Unsupported, "device is read-only")
-}
-
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
-pub(crate) fn byte_offset(block_size: BlockSize, first: BlockIndex) -> Result<u64> {
+pub(crate) fn byte_offset(block_size: BlockSize, first: BlockIndex) -> Result<u64, OutOfRange> {
     first
         .0
         .checked_mul(u64::from(block_size.get()))
-        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "block offset overflows"))
+        .ok_or(OutOfRange)
+}
+
+impl<B> hadris_io::ErrorType for MemDevice<B> {
+    type Error = OutOfRange;
+}
+
+impl<T: hadris_io::ErrorType> hadris_io::ErrorType for ReadOnly<T> {
+    type Error = T::Error;
 }
