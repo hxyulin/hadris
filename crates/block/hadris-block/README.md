@@ -45,6 +45,10 @@ driver, which works with the `hadris-fs` path helpers. Partitioned disks must
 first be narrowed to a partition with `partition::sync`, `partition::r#async`
 or `partition::async_send`, which return `hadris-storage` slices. A failed
 open returns an `OpenError` that carries the device back to the caller.
+Like `hadris_fs::Error`, `Error` and `OpenError` report a shared
+`ErrorKind` through `kind()` and the device's own error through
+`device_error()`, and convert into `hadris_fs::Error` and, with `std`,
+`std::io::Error`.
 
 ## Features
 
