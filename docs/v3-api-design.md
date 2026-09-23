@@ -1113,7 +1113,7 @@ trait plus a `&self` trait with a shared `Volume` (C), and C with opt-in tiers
 and device-typed errors (D). V3 takes D: 4.1 to 4.4, 4.6, 4.12 and 4.13
 describe it, and scenarios S1 to S16 are its acceptance tests.
 
-**Q2. `Send` futures.** `async fn` in traits does not let a generic caller
+**Q2. `Send` futures.** Resolved: V3 ships the `async_send` mode below. `async fn` in traits does not let a generic caller
 require `Send` futures, so tokio code that spawns over a generic
 `F: FileSystem` does not compile (E2 baseline: 25 errors, "`<F as
 FileSystem>::sync` is an `async fn` in trait, which does not automatically
@@ -1135,9 +1135,7 @@ about 240 lines in `hadris-macros`, the mode needs its own lock trait
 (`Volume<F: MaybeSend, K>`), `Rc` impls are left out of it, and R11 parity
 covers three modes. When return type notation is stable, `SendFileSystem`
 aliases over the `async` traits replace the mode as a deprecation, not a
-break, because the `async` traits never change. Still open: whether the
-third mode is worth its compile time, or whether 3.0 ships `async` only with
-"spawn concrete types" documented.
+break, because the `async` traits never change. Decided: add the mode.
 
 **Q3. Removing an open file.** POSIX semantics (entry gone, clusters freed at
 the last `forget`) need orphan tracking, and a crash leaves lost clusters that
@@ -1160,7 +1158,7 @@ a `NameCodec`? Still open: `hadris-fs` ships `Capabilities::name_charset()`
 returning a non-exhaustive `NameCharset` (`Bytes`, `Utf8`, `Ucs2`, `Utf16`,
 `DCharacters`, `OemCodePage`) as the interim answer.
 
-**Q8. FAT node table capacity.** Without `alloc` the table is a fixed array
+**Q8. FAT node table capacity.** Resolved: a `NodeTable` type parameter. Without `alloc` the table is a fixed array
 (E1): `FatFs<D, const N: usize = 64>`, full table gives `LimitExceeded`, and
 `FsDriver`, `Volume` and handles never see `N`. A default const parameter is
 not used for inference, so other sizes need `FatFs::<_, 8>::open_sized(dev)`.
@@ -1169,11 +1167,12 @@ which a FUSE mount (the kernel holds inodes until it forgets them) can exceed.
 Options: keep the const generic and raise the default; make the table a type
 parameter with a fixed default and a growable `HeapTable` under `alloc`
 (`FatFs<D, T: NodeTable = FixedTable<64>>`); or evict unpinned entries so
-the capacity only bounds open nodes. Recommendation: the type parameter, with
+the capacity only bounds open nodes. Decided: the type parameter, with
 `hadris-vfs` and the FUSE adapter naming `HeapTable`.
 
-**Q7. Driver type names.** `Volume<F, K>` is now the sharing wrapper, which
+**Q7. Driver type names.** Resolved: `<Format>Fs`. `Volume<F, K>` is now the sharing wrapper, which
 makes `FatVolume`, `UdfVolume` and `NtfsVolume` read as if they were already
 shared. The prototype named the FAT driver `FatFs`. Options: rename every
-driver to `<Format>Fs`, or rename the wrapper (`Shared<F, K>`). Recommendation:
-`<Format>Fs` for drivers, since `Volume` is what most users type.
+driver to `<Format>Fs`, or rename the wrapper (`Shared<F, K>`). Decided:
+`<Format>Fs` for drivers (`FatFs`, `ExFatFs`, `IsoFs`, `UdfFs`, `NtfsFs`),
+since `Volume` is what most users type.
