@@ -91,3 +91,11 @@ required-features = ["unstable-exfat"]
 [[test]]
 name = "exfat_roundtrip"
 required-features = ["unstable-exfat", "write"]
+
+[[test]]
+name = "fatfs_read"
+required-features = ["std", "sync", "write"]
+
+[[test]]
+name = "fatfs_async"
+required-features = ["std", "sync", "async-send", "write"]

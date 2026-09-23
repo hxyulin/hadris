@@ -49,6 +49,45 @@ if let Some(entry) = root.find("README.TXT")? {
 with `std::io::Seek`, positions past the end are valid and reads there return
 zero bytes.
 
+### The V3 `FatFs` Driver
+
+`FatFs` is the node-based driver of the upcoming V3 API, available as
+`sync::FatFs`, `r#async::FatFs` and `async_send::FatFs`. It mounts any
+`hadris-storage` block device, needs no allocator (its only buffer is one
+device block of at most 4096 bytes), and implements the `hadris-fs`
+`FsDriver` trait, so `Volume`, the path helpers and the `File`/`Dir` handles
+of `hadris-fs` work on it. Long names are always read. This first version
+reads only; its write methods return `ErrorKind::ReadOnly`.
+
+```rust,no_run
+use hadris_fat::sync::FatFs;
+use hadris_fs::sync::{PathExt, Volume};
+use hadris_fs::Name;
+use hadris_storage::{BlockSize, MemDevice};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let image = std::fs::read("disk.img")?;
+let mut fs = FatFs::open(MemDevice::new(image, BlockSize::new(512).unwrap()))?;
+
+// Raw tier: node ids, no locks. `lookup` pins, `forget` unpins.
+let root = fs.root();
+let efi = fs.lookup(root, Name::new("efi")?)?;
+fs.forget(efi);
+
+// Shared tier: paths and handles.
+let vol = Volume::new(fs);
+for entry in vol.read_dir("/EFI")? {
+    println!("{}", entry?.name_str().unwrap_or("?"));
+}
+# Ok(())
+# }
+```
+
+Open nodes live in a node table, `FixedTable<64>` by default. A full table
+makes `lookup` fail with `ErrorKind::LimitExceeded`; use
+`FatFs::open_with_table(dev, HeapTable::new())` or a larger `FixedTable<N>`
+for more.
+
 ### Writing to a FAT Filesystem
 
 ```rust,no_run

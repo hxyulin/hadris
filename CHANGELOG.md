@@ -45,6 +45,23 @@ Each published package owns its version and may be released independently.
   `ErrorKind::LimitExceeded`. `NameBuf` holds 1024 bytes by default, enough
   for any 255-unit UTF-16 long name. `remove` fails with `ErrorKind::Busy`
   while the node is pinned.
+- **hadris-fat (V3):** `FatFs<D, T = FixedTable<64>>`, the V3 driver for
+  FAT12, FAT16 and FAT32 on any `hadris_storage` `BlockDevice`, in the
+  `sync`, `r#async` and `async_send` modules. It implements `FsDriver`
+  through `impl_fs_driver!`, so `Volume`, the path helpers and the `File` and
+  `Dir` handles of `hadris-fs` work on it. This first version reads:
+  `lookup` (case-insensitive, by long or short name), `read_dir_entry` with
+  resumable cursors, `read_at`, `node_metadata` (times and attributes),
+  `parent`, `stats` and `forget`; the write methods return
+  `ErrorKind::ReadOnly`. `open`, `open_read_only`, `open_with_table` and
+  `open_read_only_with_table` mount a volume, `into_inner` returns the
+  device, and `kind` returns the new `FatKind`. Node ids come from the
+  location of the directory entry, and `lookup` and `parent` pin them in the
+  node table `T`; a full table gives `ErrorKind::LimitExceeded`. Long names
+  are always read, whatever the `lfn` feature says, and a leading `0x05` in a
+  short name reads as `0xE5`. The driver needs no allocator: its only buffer
+  is one device block of at most 4096 bytes, and larger blocks are rejected
+  with `ErrorKind::Unsupported`.
 
 ### Changed
 
@@ -88,7 +105,7 @@ Each published package owns its version and may be released independently.
 - **hadris-fat (V3):** Depends on `hadris-storage`. The `sync`, `async`,
   `alloc` and `std` features also enable the same features of `hadris-fs`
   and `hadris-storage`, and a new additive `async-send` feature adds an
-  `async_send` module, empty until the V3 `FatFs` driver lands.
+  `async_send` module, which holds the V3 `FatFs` driver.
 - **hadris-storage (V3):** `BlockDevice`, one trait for sync and async
   whole-block devices with an explicit block size and the device's own error,
   implemented for `&mut D`, `Box<D>` and, with `std`, `std::fs::File`.

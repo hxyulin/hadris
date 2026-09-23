@@ -15,6 +15,7 @@ const KANJI_LEAD: u8 = 0x05;
 const DELETED: u8 = 0xE5;
 
 /// Replaces a leading `0xE5` with `0x05` before the name is written.
+#[allow(dead_code)]
 pub(crate) fn to_disk(name: &mut [u8; 11]) {
     if name[0] == DELETED {
         name[0] = KANJI_LEAD;
@@ -28,8 +29,53 @@ pub(crate) fn from_disk(name: &mut [u8; 11]) {
     }
 }
 
+/// Longest UTF-8 display form of a short name: 11 characters of up to 4
+/// bytes and a dot.
+pub(crate) const DISPLAY_MAX: usize = 11 * 4 + 1;
+
+/// Writes the display form of a stored short name as UTF-8 and returns its
+/// length: a leading `0x05` read as `0xE5`, padding dropped, the `DIR_NTRes`
+/// case bits applied, and bytes above `0x7F` decoded with `decode`.
+pub(crate) fn display(
+    stored: &[u8; 11],
+    nt_case: u8,
+    decode: impl Fn(u8) -> char,
+    out: &mut [u8; DISPLAY_MAX],
+) -> usize {
+    let mut name = *stored;
+    from_disk(&mut name);
+    let (base, ext) = name.split_at(8);
+    let trim = |part: &[u8]| part.iter().rposition(|&b| b != b' ').map_or(0, |i| i + 1);
+    let mut len = 0;
+    let mut push = |byte: u8, lower: bool| {
+        let ch = if byte < 0x80 {
+            let byte = if lower {
+                byte.to_ascii_lowercase()
+            } else {
+                byte
+            };
+            byte as char
+        } else {
+            decode(byte)
+        };
+        len += ch.encode_utf8(&mut out[len..]).len();
+    };
+    for &byte in &base[..trim(base)] {
+        push(byte, nt_case & LOWER_BASE != 0);
+    }
+    let ext = &ext[..trim(ext)];
+    if !ext.is_empty() {
+        push(b'.', false);
+        for &byte in ext {
+            push(byte, nt_case & LOWER_EXT != 0);
+        }
+    }
+    len
+}
+
 /// Whether `name` is a valid long name: not empty, `.` or `..`, at most 255
 /// UTF-16 code units, and free of control characters and `"*/:<>?\|`.
+#[allow(dead_code)]
 pub(crate) fn is_valid_long_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
@@ -40,6 +86,7 @@ pub(crate) fn is_valid_long_name(name: &str) -> bool {
         })
 }
 
+#[allow(dead_code)]
 fn process_char(ch: char, encode: &impl Fn(char) -> Option<u8>) -> u8 {
     if ch.is_ascii_alphanumeric() {
         ch.to_ascii_uppercase() as u8
@@ -54,6 +101,7 @@ fn process_char(ch: char, encode: &impl Fn(char) -> Option<u8>) -> u8 {
     }
 }
 
+#[allow(dead_code)]
 fn hash(name: &str, suffix: u8) -> u16 {
     let mut hash = suffix as u16;
     for &byte in name.as_bytes() {
@@ -67,6 +115,7 @@ fn hash(name: &str, suffix: u8) -> u16 {
 /// Non-ASCII characters go through `encode`, the OEM code page, and become
 /// `_` when it has no byte for them. `None` when nothing representable
 /// remains.
+#[allow(dead_code)]
 pub(crate) fn generate(
     name: &str,
     suffix: u8,
@@ -142,6 +191,7 @@ pub(crate) fn generate(
 /// alone, or `None` when it needs LFN entries: too long, several dots,
 /// mixed case within the base or extension, or characters outside the
 /// short-name set. An uppercase 8.3 name gives `Some(0)`.
+#[allow(dead_code)]
 pub(crate) fn case_bits(name: &str) -> Option<u8> {
     let (base, ext) = match name.rfind('.') {
         Some(pos) if pos > 0 => (&name[..pos], &name[pos + 1..]),
@@ -242,6 +292,34 @@ mod tests {
         assert_eq!(name[0], 0x05);
         from_disk(&mut name);
         assert_eq!(name[0], 0xE5);
+    }
+
+    fn shown(stored: &[u8; 11], nt_case: u8) -> std::string::String {
+        let mut out = [0u8; DISPLAY_MAX];
+        let len = display(stored, nt_case, |_| char::REPLACEMENT_CHARACTER, &mut out);
+        std::string::String::from_utf8(out[..len].to_vec()).unwrap()
+    }
+
+    #[test]
+    fn display_forms() {
+        assert_eq!(shown(b"README  TXT", 0), "README.TXT");
+        assert_eq!(shown(b"README  TXT", LOWER_BASE), "readme.TXT");
+        assert_eq!(shown(b"MAKEFILE   ", LOWER_BASE | LOWER_EXT), "makefile");
+        assert_eq!(shown(b"\x05BC     TXT", 0), "\u{FFFD}BC.TXT");
+        assert_eq!(
+            shown(b"\xE5\xE5\xE5\xE5\xE5\xE5\xE5\xE5\xE5\xE5\xE5", 0)
+                .chars()
+                .count(),
+            12
+        );
+        let mut out = [0u8; DISPLAY_MAX];
+        let len = display(
+            b"\x05BC     TXT",
+            0,
+            |b| if b == 0xE5 { '\u{3C3}' } else { '?' },
+            &mut out,
+        );
+        assert_eq!(&out[..len], "\u{3C3}BC.TXT".as_bytes());
     }
 
     #[test]

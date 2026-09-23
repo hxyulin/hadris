@@ -5,6 +5,8 @@
 
 pub(crate) mod boot;
 pub(crate) mod date;
+pub(crate) mod dirent;
 pub(crate) mod entry;
 pub(crate) mod lfn;
+pub(crate) mod name;
 pub(crate) mod short_name;

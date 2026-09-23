@@ -1,10 +1,15 @@
 //! FAT12, FAT16 and FAT32 allocation-table entries.
 
-/// The allocation-table width of a FAT volume.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FatKind {
+/// The FAT variant of a volume, named by its allocation-table entry width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum FatKind {
+    /// 12-bit entries, fewer than 4085 clusters.
     Fat12,
+    /// 16-bit entries, fewer than 65525 clusters.
     Fat16,
+    /// 28-bit entries.
     Fat32,
 }
 
@@ -92,6 +97,7 @@ impl FatKind {
 
     /// Stores `value` as the entry of `cluster` into the bytes at its offset,
     /// keeping the neighbouring FAT12 nibble and FAT32's reserved high nibble.
+    #[allow(dead_code)]
     pub(crate) fn encode(self, cluster: u64, value: u32, bytes: &mut [u8]) {
         match self {
             Self::Fat12 if cluster % 2 == 0 => {

@@ -20,6 +20,36 @@
 //! }
 //! ```
 //!
+//! ## The V3 driver: `FatFs`
+//!
+//! `FatFs` is the node-based driver of the V3 API, generated for each mode
+//! (`sync::FatFs`, `r#async::FatFs`, `async_send::FatFs`). It mounts any
+//! `hadris_storage` block device, needs no allocator, and implements the
+//! `hadris_fs` `FsDriver` trait, so the `hadris-fs` path helpers, `Volume`
+//! and handles work on it. It reads only for now; its write methods return
+//! `ErrorKind::ReadOnly`.
+//!
+//! ```rust,no_run
+//! # #[cfg(all(feature = "sync", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use hadris_fat::sync::FatFs;
+//! use hadris_fs::sync::{PathExt, Volume};
+//! use hadris_storage::{BlockSize, MemDevice};
+//!
+//! let image = std::fs::read("disk.img")?;
+//! let fs = FatFs::open(MemDevice::new(image, BlockSize::new(512).unwrap()))?;
+//! let vol = Volume::new(fs);
+//! for entry in vol.read_dir("/EFI")? {
+//!     println!("{}", entry?.name_str().unwrap_or("?"));
+//! }
+//! let config = vol.read_to_vec("/boot/grub.cfg")?;
+//! # let _ = config;
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "std")))]
+//! # fn main() {}
+//! ```
+//!
 //! ## Builder: custom providers and FAT caching
 //!
 //! [`FatVolume::builder`] configures the clock and
@@ -96,6 +126,7 @@
 //!
 //! ## Modules
 //!
+//! - `sync::FatFs`, `r#async::FatFs`, `async_send::FatFs` — the V3 driver
 //! - `error` — Error types for FAT operations
 //! - `file` — Short filename (8.3) types and validation
 //! - `raw` — On-disk structures: boot sector, BPB, directory entries
@@ -127,7 +158,7 @@ extern crate alloc;
 // Shared types (compiled once, not duplicated by sync/async modules)
 // ---------------------------------------------------------------------------
 
-#[allow(dead_code)]
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
 mod codec;
 pub mod error;
 /// FAT filename types, including 8.3 and long-file-name helpers.
@@ -169,6 +200,16 @@ pub mod sync {
     macro_rules! async_only {
         ($($item:tt)*) => {};
     }
+
+    use hadris_storage::sync as storage;
+
+    macro_rules! impl_fat_driver {
+        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(sync, $($t)*); };
+    }
+
+    #[path = "fatfs.rs"]
+    mod fatfs;
+    pub use fatfs::FatFs;
 
     #[path = "."]
     mod __inner {
@@ -234,6 +275,16 @@ pub mod r#async {
         ($($item:tt)*) => { $($item)* };
     }
 
+    use hadris_storage::r#async as storage;
+
+    macro_rules! impl_fat_driver {
+        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
+    }
+
+    #[path = "fatfs.rs"]
+    mod fatfs;
+    pub use fatfs::FatFs;
+
     #[path = "."]
     mod __inner {
         // Note: `cache` is intentionally absent here. The cache module uses
@@ -272,8 +323,9 @@ pub mod r#async {
 /// multi-threaded executors.
 ///
 /// Generated a third time from the same source as `r#async`, following
-/// `hadris_fs::async_send`. It holds no items yet; the V3 `FatFs` driver
-/// lands here beside the other modes.
+/// `hadris_fs::async_send`. It holds only the V3 [`FatFs`](async_send::FatFs)
+/// driver, whose `FsDriver` futures are `Send` when the device is and the
+/// node table holds `Send` values, as `FixedTable` and `HeapTable` do.
 #[cfg(feature = "async-send")]
 pub mod async_send;
 
@@ -285,6 +337,7 @@ pub mod async_send;
 pub use sync::*;
 
 // Re-exports from shared types
+pub use codec::entry::FatKind;
 pub use error::{Error, Result};
 
 #[cfg(all(test, feature = "async", feature = "alloc", feature = "read"))]
