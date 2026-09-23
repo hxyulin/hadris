@@ -979,7 +979,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Mode and owner are ignored, as for `set_metadata`. Fails with [`ErrorKind::AlreadyExists`]
     /// when a long or short name matches, [`ErrorKind::InvalidInput`] for a
     /// name FAT cannot hold (control characters, `"*/:<>?\|`, or a trailing
-    /// dot or space), and [`ErrorKind::NoSpace`] when a FAT12/16 root
+    /// dot or space, refused rather than stripped so a created name is the
+    /// name listed), and [`ErrorKind::NoSpace`] when a FAT12/16 root
     /// directory is full or a directory would pass 65536 entries.
     pub async fn create(
         &mut self,
@@ -1072,8 +1073,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// short alias, and the new name takes the target's slots when it fits
     /// them, so a full FAT12/16 root directory still allows the replace. A
     /// pinned target fails with [`ErrorKind::Busy`].
-    /// Moving a directory into itself or below fails with
-    /// [`ErrorKind::InvalidInput`], and unknown flags with
+    /// Moving a directory into itself or below, or a `to` that `create`
+    /// would refuse, fails with [`ErrorKind::InvalidInput`], and unknown
+    /// flags with
     /// [`ErrorKind::Unsupported`].
     pub async fn rename(
         &mut self,

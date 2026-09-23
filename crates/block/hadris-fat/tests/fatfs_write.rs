@@ -369,7 +369,14 @@ fn long_names_up_to_255_units() {
             ErrorKind::LimitExceeded
         );
     }
-    for bad in ["a:b", "trailing.", "trailing ", "tab\tname", "q?"] {
+    for bad in [
+        "a:b",
+        "trailing.",
+        "trailing ",
+        "trailing. .",
+        "tab\tname",
+        "q?",
+    ] {
         assert_eq!(
             fs.create(root, name(bad), NewNode::File, &SetMetadata::new())
                 .unwrap_err()
@@ -377,7 +384,25 @@ fn long_names_up_to_255_units() {
             ErrorKind::InvalidInput,
             "{bad}"
         );
+        assert_eq!(
+            fs.rename(
+                root,
+                name("twelve chars"),
+                root,
+                name(bad),
+                RenameFlags::empty()
+            )
+            .unwrap_err()
+            .kind(),
+            ErrorKind::InvalidInput,
+            "{bad}"
+        );
     }
+    assert_eq!(
+        fs.lookup(root, name("twelve chars.")).unwrap_err().kind(),
+        ErrorKind::NotFound,
+        "trailing dots are not stripped on lookup either"
+    );
     fs.sync().unwrap();
     let names: Vec<String> = list(&mut fs, root).into_iter().map(|(n, _)| n).collect();
     assert_eq!(names, texts);
