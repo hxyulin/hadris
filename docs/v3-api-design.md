@@ -154,7 +154,7 @@ extend, and those live in `raw` (R4).
 
 ### R2. User-facing structs have private fields
 
-- **Options** are `#[non_exhaustive]`, implement `Default`, and take consuming `with_*` setters. Presets are associated functions that return a configured value. They compose because they are starting points:
+- **Options** either are `#[non_exhaustive]` or have private fields (which already rule out struct literals, so they need no attribute), implement `Default`, and take consuming `with_*` setters. Presets are associated functions that return a configured value. They compose because they are starting points:
 
   ```rust
   let opts = IsoOptions::default()
