@@ -22,7 +22,11 @@ Each published package owns its version and may be released independently.
   (`ReadOnly` becomes `ErrorKind::ReadOnly`) and `NameError`, and with `std`
   into `std::io::Error`, returning an `io::Error` device error as itself.
   `AnyError` (`alloc`) erases the device type for code that mixes devices.
-  `FsResult<T, E>` names the result.
+  `FsResult<T, E>` names the result. `MountError<D, E>` is the error of a
+  mount or format that takes its device by value: the `Error<E>` and the device given
+  back (`kind`, `error`, `device`, `into_error`, `into_device`,
+  `into_parts`). `?` converts it into `Error<E>`, `AnyError` or
+  `std::io::Error`.
   With the `sync`, `async` and `async-send` features, the driver layer, one
   source generated per mode: `FsDriver` (`&mut self`, for format crates) and
   `FileSystem` (`&self`), `impl_fs_driver!` to implement `FsDriver` from
@@ -93,7 +97,8 @@ Each published package owns its version and may be released independently.
   `FatFs<D, T = FixedTable<64>, C: Clock = NoClock, P: CodePage = Ascii>`.
   `MountOptions<T, C, P>` (`new`, `with_read_only`, `with_table`,
   `with_clock`, `with_code_page`) and `FatFs::open_with(dev, options)`
-  choose them; `FatFs::open(dev)` keeps the defaults. `clock()` and
+  choose them; `FatFs::open(dev)` keeps the defaults. Both fail with
+  `hadris_fs::MountError`, which gives the device back. `clock()` and
   `code_page()` return them. The `CodePage` trait maps short-name bytes
   above `0x7F`; `Ascii` reads them as U+FFFD, and `Cp437` is the IBM PC code
   page. `NoClock` stamps 1980-01-01, and `SystemClock` (`std`) the current
@@ -112,7 +117,9 @@ Each published package owns its version and may be released independently.
   reproducible images. `VolumeLabel::new` checks and uppercases a label.
   Errors: `NoSpace` for a device too small, `LimitExceeded` for one too
   large, `InvalidInput` for a bad option, `Unsupported` for blocks over
-  4096 bytes. Checked with `fsck.fat` and `fsck_msdos`.
+  4096 bytes. Every failure, including the final mount, is a
+  `hadris_fs::MountError` that gives the device back. Checked with
+  `fsck.fat` and `fsck_msdos`.
 - **hadris-fat (V3):** `check(&mut fs) -> CheckReport` and
   `check_with(&mut fs, bitmap, on_finding)` in `sync`, `r#async` and
   `async_send` check a mounted `FatFs` read-only, without an allocator.
@@ -183,11 +190,11 @@ Each published package owns its version and may be released independently.
   holds a `FatFs<D>`, with `into_inner` returning the device. `Error<E>`
   carries the device error in `Device` and the mount error as
   `Fat(hadris_fs::Error<E>)`. `OpenVolume::open` and `open_detected` fail
-  with `OpenError<D, E>`, which carries the `Error` and gives the device
-  back (`error`, `into_error`, `into_device`, `into_parts`) instead of
-  dropping it; the volume is validated on a borrow of the device first, so
-  only a device failing during the final mount keeps it. `?` converts an
-  `OpenError` into `Error`. `partition::sync` and `partition::r#async` turn
+  with `OpenError<D, E>`, which carries the `Error` and always gives the
+  device back (`error`, `into_error`, `into_device`, `into_parts`) instead
+  of dropping it. The volume is mounted once, and a failed mount returns
+  the device through `FatFs`'s `MountError`. `?` converts an `OpenError`
+  into `Error`. `partition::sync` and `partition::r#async` turn
   MBR and GPT entries into `Slice<D>`s of the disk. The `detect` feature
   depends on `hadris-storage` instead of `hadris-io`. The `sync` and
   `r#async` openers are generated from one source.

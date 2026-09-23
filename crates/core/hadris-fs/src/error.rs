@@ -211,6 +211,94 @@ impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for std::io::
     }
 }
 
+/// Error of mounting or formatting a filesystem that takes its device by
+/// value: the [`Error`] and the device, given back instead of dropped.
+///
+/// `?` converts it into [`Error`], dropping the device.
+///
+/// ```rust
+/// use hadris_fs::{ErrorKind, MountError};
+///
+/// let err = MountError::<_, ()>::new(ErrorKind::Corrupt.into(), [0u8; 4]);
+/// assert_eq!(err.kind(), ErrorKind::Corrupt);
+/// let (error, device) = err.into_parts();
+/// assert_eq!((error.kind(), device), (ErrorKind::Corrupt, [0u8; 4]));
+/// ```
+pub struct MountError<D, E> {
+    error: Error<E>,
+    device: D,
+}
+
+impl<D, E> MountError<D, E> {
+    /// Pairs the reason the mount failed with the device.
+    pub const fn new(error: Error<E>, device: D) -> Self {
+        Self { error, device }
+    }
+
+    /// What went wrong.
+    pub const fn kind(&self) -> ErrorKind {
+        self.error.kind()
+    }
+
+    /// Borrows the reason the mount failed.
+    pub const fn error(&self) -> &Error<E> {
+        &self.error
+    }
+
+    /// Borrows the device.
+    pub const fn device(&self) -> &D {
+        &self.device
+    }
+
+    /// Returns the reason the mount failed, dropping the device.
+    pub fn into_error(self) -> Error<E> {
+        self.error
+    }
+
+    /// Returns the device, dropping the reason.
+    pub fn into_device(self) -> D {
+        self.device
+    }
+
+    /// Returns the reason and the device.
+    pub fn into_parts(self) -> (Error<E>, D) {
+        (self.error, self.device)
+    }
+}
+
+impl<D, E: fmt::Debug> fmt::Debug for MountError<D, E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MountError")
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<D, E: fmt::Display> fmt::Display for MountError<D, E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl<D, E: core::error::Error + 'static> core::error::Error for MountError<D, E> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        self.error.source()
+    }
+}
+
+impl<D, E> From<MountError<D, E>> for Error<E> {
+    fn from(err: MountError<D, E>) -> Self {
+        err.error
+    }
+}
+
+#[cfg(feature = "std")]
+impl<D, E: core::error::Error + Send + Sync + 'static> From<MountError<D, E>> for std::io::Error {
+    fn from(err: MountError<D, E>) -> Self {
+        err.error.into()
+    }
+}
+
 /// An error with the device type erased, for code that mixes volumes on
 /// different devices.
 ///
@@ -243,6 +331,13 @@ impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for AnyError 
             kind: err.kind,
             device: err.device.map(|err| alloc::boxed::Box::new(err) as _),
         }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<D, E: core::error::Error + Send + Sync + 'static> From<MountError<D, E>> for AnyError {
+    fn from(err: MountError<D, E>) -> Self {
+        err.error.into()
     }
 }
 
@@ -326,6 +421,17 @@ mod tests {
     fn map_device_keeps_the_kind() {
         let err = Error::from_device(Ata::Timeout).map_device(|_| 5u8);
         assert_eq!((err.kind(), err.device_error()), (ErrorKind::Io, Some(&5)));
+    }
+
+    #[test]
+    fn mount_errors_give_the_device_back() {
+        let err = MountError::new(Error::from_device(Ata::Timeout), [7u8; 3]);
+        assert_eq!(err.kind(), ErrorKind::Io);
+        assert_eq!(err.device(), &[7u8; 3]);
+        let plain: Error<Ata> = MountError::new(Error::from_device(Ata::Timeout), ()).into();
+        assert_eq!(plain.into_device_error(), Some(Ata::Timeout));
+        let (error, device) = err.into_parts();
+        assert_eq!((error.kind(), device), (ErrorKind::Io, [7u8; 3]));
     }
 
     #[cfg(feature = "std")]

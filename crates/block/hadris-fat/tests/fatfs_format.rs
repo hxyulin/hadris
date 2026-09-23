@@ -470,6 +470,32 @@ fn rejects_bad_options_and_devices() {
 }
 
 #[test]
+fn failed_formats_give_the_device_back() {
+    let err = format(device(8 * 1024, 512), FormatOptions::new()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::NoSpace);
+    assert_eq!(err.into_device().into_inner(), vec![0u8; 8 * 1024]);
+
+    let options = FormatOptions::new().with_kind(FatKind::Fat32);
+    let (error, dev) = format(device(4 * MIB, 512), options)
+        .unwrap_err()
+        .into_parts();
+    assert_eq!(error.kind(), ErrorKind::NoSpace);
+    assert_eq!(dev.get_ref().len(), (4 * MIB) as usize);
+
+    let image = vec![0xA5u8; MIB as usize];
+    let read_only = MemDevice::new(&image[..], BlockSize::new(512).unwrap());
+    let err = format(read_only, FormatOptions::new()).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::ReadOnly);
+    assert!(core::ptr::eq(*err.device().get_ref(), &image[..]));
+
+    let err: hadris_fs::Error<_> = format(device(8 * 1024, 512), FormatOptions::new())
+        .map(|_| ())
+        .map_err(Into::into)
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::NoSpace);
+}
+
+#[test]
 fn labels() {
     assert_eq!(label("boot").as_bytes(), b"BOOT       ");
     assert_eq!(label("My Disk 1").as_str(), "MY DISK 1");

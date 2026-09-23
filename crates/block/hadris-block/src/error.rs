@@ -67,31 +67,18 @@ impl<E> From<hadris_fs::Error<E>> for Error<E> {
 }
 
 /// Error of `OpenVolume::open` and `OpenVolume::open_detected`: an [`Error`]
-/// and, in every case the opener can arrange, the device it was given.
+/// and the device the opener was given.
 ///
-/// The device is missing only when it fails while the validated volume is
-/// mounted for keeps, after a first mount on a borrow of it succeeded. `?`
-/// converts it into [`Error`], dropping the device.
+/// `?` converts it into [`Error`], dropping the device.
 pub struct OpenError<D, E> {
     error: Error<E>,
-    device: Option<D>,
+    device: D,
 }
 
 impl<D, E> OpenError<D, E> {
     #[cfg(any(feature = "sync", feature = "async"))]
     pub(crate) fn new(error: Error<E>, device: D) -> Self {
-        Self {
-            error,
-            device: Some(device),
-        }
-    }
-
-    #[cfg(any(feature = "sync", feature = "async"))]
-    pub(crate) fn without_device(error: Error<E>) -> Self {
-        Self {
-            error,
-            device: None,
-        }
+        Self { error, device }
     }
 
     /// Borrows the reason the open failed.
@@ -104,13 +91,13 @@ impl<D, E> OpenError<D, E> {
         self.error
     }
 
-    /// Returns the device, if it could be given back.
-    pub fn into_device(self) -> Option<D> {
+    /// Returns the device, dropping the reason.
+    pub fn into_device(self) -> D {
         self.device
     }
 
     /// Returns the reason and the device.
-    pub fn into_parts(self) -> (Error<E>, Option<D>) {
+    pub fn into_parts(self) -> (Error<E>, D) {
         (self.error, self.device)
     }
 }
@@ -120,8 +107,7 @@ impl<D, E: fmt::Debug> fmt::Debug for OpenError<D, E> {
         formatter
             .debug_struct("OpenError")
             .field("error", &self.error)
-            .field("device", &self.device.as_ref().map(|_| ..))
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

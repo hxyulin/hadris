@@ -35,18 +35,30 @@ impl<D: BlockDevice> OpenVolume<D> {
 
     /// Opens `dev` as a previously detected FAT variant.
     ///
-    /// The volume is mounted once on a borrow of `dev` to validate it, so a
-    /// volume that fails validation gives `dev` back in the [`OpenError`].
+    /// The volume is mounted once. On failure, including a mounted variant
+    /// other than `detected`, the [`OpenError`] gives `dev` back.
     pub async fn open_detected(
-        mut dev: D,
+        dev: D,
         detected: FatVariant,
     ) -> Result<Self, OpenError<D, D::Error>> {
-        if let Err(error) = validate(&mut dev, detected).await {
-            return Err(OpenError::new(error, dev));
+        let unsupported = Error::UnsupportedFormat(BlockFormat::Fat(detected));
+        if detected == FatVariant::ExFat {
+            return Err(OpenError::new(unsupported, dev));
         }
-        match FatFs::open(dev).await {
-            Ok(fat) => Ok(Self::Fat(fat)),
-            Err(error) => Err(OpenError::without_device(error.into())),
+        let fat = match FatFs::open(dev).await {
+            Ok(fat) => fat,
+            Err(error) => {
+                let (error, dev) = error.into_parts();
+                return Err(OpenError::new(error.into(), dev));
+            }
+        };
+        match fat_variant(fat.kind()) {
+            Some(opened) if opened == detected => Ok(Self::Fat(fat)),
+            Some(opened) => Err(OpenError::new(
+                Error::DetectedFormatMismatch { detected, opened },
+                fat.into_inner(),
+            )),
+            None => Err(OpenError::new(unsupported, fat.into_inner())),
         }
     }
 
@@ -85,20 +97,6 @@ impl<D: BlockDevice> OpenVolume<D> {
         match self {
             Self::Fat(fat) => fat.into_inner(),
         }
-    }
-}
-
-/// Mounts the volume on a borrow of `dev` and checks it is `detected`.
-async fn validate<D: BlockDevice>(dev: &mut D, detected: FatVariant) -> Result<(), Error<D::Error>> {
-    let unsupported = Error::UnsupportedFormat(BlockFormat::Fat(detected));
-    if detected == FatVariant::ExFat {
-        return Err(unsupported);
-    }
-    let kind = FatFs::open(dev).await?.kind();
-    match fat_variant(kind) {
-        Some(opened) if opened == detected => Ok(()),
-        Some(opened) => Err(Error::DetectedFormatMismatch { detected, opened }),
-        None => Err(unsupported),
     }
 }
 

@@ -41,7 +41,9 @@
 //!
 //! `FatFs<D, T, C, P>` also takes the node table, the [`Clock`](hadris_fs::Clock)
 //! that stamps entries and the [`CodePage`] of short names as type
-//! parameters, chosen with [`MountOptions`] and `FatFs::open_with`.
+//! parameters, chosen with [`MountOptions`] and `FatFs::open_with`. A failed
+//! mount returns a [`MountError`](hadris_fs::MountError) that gives the
+//! device back.
 //!
 //! ## Formatting with `FatFs`
 //!
@@ -49,7 +51,8 @@
 //! FAT16 or FAT32 volume that fills a block device and mounts it. It needs
 //! no allocator. [`FormatOptions`] sets the variant, label, volume id,
 //! sector and cluster size and the other boot sector fields; everything
-//! defaults from the device's size.
+//! defaults from the device's size. A failed format also returns a
+//! [`MountError`](hadris_fs::MountError) with the device.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]

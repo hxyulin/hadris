@@ -1,4 +1,4 @@
-use hadris_fs::{Clock, DateTime, ErrorKind, FixedTable, FsResult};
+use hadris_fs::{Clock, DateTime, ErrorKind, FixedTable, FsResult, MountError};
 
 use super::fatfs::{BlockBuf, FatFs, MAX_BLOCK_SIZE, write_bytes};
 use super::storage::BlockDevice;
@@ -43,11 +43,22 @@ io_transform! {
 /// [`ErrorKind::Unsupported`] when its blocks are larger than 4096 bytes,
 /// and with [`ErrorKind::ReadOnly`] when it refuses writes. Nothing is
 /// written unless the options are valid; a format that fails later, or is
-/// interrupted, leaves a device that does not mount.
+/// interrupted, leaves a device that does not mount. On any failure,
+/// including the final mount, the [`MountError`] gives `dev` back.
 pub async fn format<D: BlockDevice, C: Clock>(
     mut dev: D,
     options: FormatOptions<C>,
-) -> FsResult<FatFs<D, FixedTable<64>, C>, D::Error> {
+) -> Result<FatFs<D, FixedTable<64>, C>, MountError<D, D::Error>> {
+    if let Err(error) = write_volume(&mut dev, &options).await {
+        return Err(MountError::new(error, dev));
+    }
+    FatFs::open_with(dev, MountOptions::new().with_clock(options.clock)).await
+}
+
+async fn write_volume<D: BlockDevice, C: Clock>(
+    dev: &mut D,
+    options: &FormatOptions<C>,
+) -> FsResult<(), D::Error> {
     let block_size = dev.block_size().get() as usize;
     if block_size > MAX_BLOCK_SIZE {
         return Err(ErrorKind::Unsupported.into());
@@ -79,9 +90,9 @@ pub async fn format<D: BlockDevice, C: Clock>(
         label: options.label.map(|label| *label.as_bytes()),
     };
     let mut block = BlockBuf::new(block_size);
-    write_layout(&mut dev, &mut block, &layout, &fields, now).await?;
+    write_layout(dev, &mut block, &layout, &fields, now).await?;
     dev.flush().await?;
-    FatFs::open_with(dev, MountOptions::new().with_clock(options.clock)).await
+    Ok(())
 }
 
 async fn write_layout<D: BlockDevice>(

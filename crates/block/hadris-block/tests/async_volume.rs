@@ -224,8 +224,36 @@ fn async_open_reports_mismatch() {
             err.error(),
             hadris_block::Error::DetectedFormatMismatch { .. }
         ));
-        let dev = err.into_device().unwrap();
+        let dev = err.into_device();
         assert_eq!(dev.get_ref().len(), 2 * 1024 * 1024);
+    });
+}
+
+#[test]
+fn async_detected_volume_that_fails_to_mount_gives_the_device_back() {
+    let mut image = formatted_fat12();
+    image.truncate(image.len() / 2);
+    block_on(async {
+        let mut dev = device(image.clone());
+        assert_eq!(
+            hadris_block::detect::r#async::detect(&mut dev)
+                .await
+                .unwrap(),
+            Some(BlockFormat::Fat(FatVariant::Fat12))
+        );
+        let (error, dev) = OpenVolume::open(dev).await.err().unwrap().into_parts();
+        let Error::Fat(error) = error else {
+            panic!("{error:?}");
+        };
+        assert_eq!(error.kind(), ErrorKind::Corrupt);
+        assert_eq!(dev.get_ref(), &image);
+
+        let err = OpenVolume::open_detected(dev, FatVariant::Fat12)
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(err.error(), Error::Fat(_)));
+        assert_eq!(err.into_device().into_inner(), image);
     });
 }
 
@@ -443,6 +471,6 @@ fn async_unknown_block_input_is_category_typed() {
         );
         let (error, dev) = OpenVolume::open(dev).await.err().unwrap().into_parts();
         assert!(matches!(error, hadris_block::Error::UnknownFormat));
-        assert_eq!(dev.unwrap().get_ref().len(), 4096);
+        assert_eq!(dev.get_ref().len(), 4096);
     });
 }

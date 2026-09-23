@@ -1766,6 +1766,8 @@ impl core::error::Error for hadris_fs::AnyError
 pub fn hadris_fs::AnyError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl core::fmt::Display for hadris_fs::AnyError
 pub fn hadris_fs::AnyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_fs::MountError<D, E>> for hadris_fs::AnyError
+pub fn hadris_fs::AnyError::from(hadris_fs::MountError<D, E>) -> Self
 impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_fs::Error<E>> for hadris_fs::AnyError
 pub fn hadris_fs::AnyError::from(hadris_fs::Error<E>) -> Self
 pub struct hadris_fs::Attributes(_)
@@ -1929,6 +1931,8 @@ pub const fn hadris_fs::Error<E>::from_device(E) -> Self
 pub fn hadris_fs::Error<E>::into_device_error(self) -> core::option::Option<E>
 pub const fn hadris_fs::Error<E>::kind(&self) -> hadris_fs::ErrorKind
 pub fn hadris_fs::Error<E>::map_device<F>(self, impl core::ops::function::FnOnce(E) -> F) -> hadris_fs::Error<F>
+impl<D, E> core::convert::From<hadris_fs::MountError<D, E>> for hadris_fs::Error<E>
+pub fn hadris_fs::Error<E>::from(hadris_fs::MountError<D, E>) -> Self
 impl<E: core::error::Error + 'static> core::error::Error for hadris_fs::Error<E>
 pub fn hadris_fs::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_fs::Error<E>> for core::io::error::Error
@@ -2049,6 +2053,27 @@ pub const fn hadris_fs::Mode::bits(self) -> u32
 pub const fn hadris_fs::Mode::new(u32) -> Self
 impl core::fmt::Debug for hadris_fs::Mode
 pub fn hadris_fs::Mode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fs::MountError<D, E>
+impl<D, E> hadris_fs::MountError<D, E>
+pub const fn hadris_fs::MountError<D, E>::device(&self) -> &D
+pub const fn hadris_fs::MountError<D, E>::error(&self) -> &hadris_fs::Error<E>
+pub fn hadris_fs::MountError<D, E>::into_device(self) -> D
+pub fn hadris_fs::MountError<D, E>::into_error(self) -> hadris_fs::Error<E>
+pub fn hadris_fs::MountError<D, E>::into_parts(self) -> (hadris_fs::Error<E>, D)
+pub const fn hadris_fs::MountError<D, E>::kind(&self) -> hadris_fs::ErrorKind
+pub const fn hadris_fs::MountError<D, E>::new(hadris_fs::Error<E>, D) -> Self
+impl<D, E: core::error::Error + 'static> core::error::Error for hadris_fs::MountError<D, E>
+pub fn hadris_fs::MountError<D, E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_fs::MountError<D, E>> for core::io::error::Error
+pub fn core::io::error::Error::from(hadris_fs::MountError<D, E>) -> Self
+impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_fs::MountError<D, E>> for hadris_fs::AnyError
+pub fn hadris_fs::AnyError::from(hadris_fs::MountError<D, E>) -> Self
+impl<D, E: core::fmt::Debug> core::fmt::Debug for hadris_fs::MountError<D, E>
+pub fn hadris_fs::MountError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D, E: core::fmt::Display> core::fmt::Display for hadris_fs::MountError<D, E>
+pub fn hadris_fs::MountError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D, E> core::convert::From<hadris_fs::MountError<D, E>> for hadris_fs::Error<E>
+pub fn hadris_fs::Error<E>::from(hadris_fs::MountError<D, E>) -> Self
 #[repr(transparent)] pub struct hadris_fs::Name(_)
 impl hadris_fs::Name
 pub const fn hadris_fs::Name::as_bytes(&self) -> &[u8]

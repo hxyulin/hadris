@@ -22,7 +22,7 @@ fn failure<T, D, E>(result: Result<T, OpenError<D, E>>) -> (Error<E>, D) {
         panic!("the volume opened");
     };
     let (error, dev) = err.into_parts();
-    (error, dev.expect("the device comes back"))
+    (error, dev)
 }
 
 fn format_fat12<D: BlockDevice>(dev: D) -> D {
@@ -134,6 +134,8 @@ fn a_volume_that_fails_to_mount_gives_the_device_back() {
     };
     assert_eq!(error.kind(), hadris_fs::ErrorKind::Corrupt);
     assert_eq!(dev.get_ref().len(), VOLUME_LEN / 2);
+    let (error, dev) = failure(OpenVolume::open_detected(dev, FatVariant::Fat12));
+    assert!(matches!(error, Error::Fat(_)));
     assert_eq!(
         format!("{}", failure(OpenVolume::open(dev)).0),
         "FAT open failed: corrupt filesystem data"

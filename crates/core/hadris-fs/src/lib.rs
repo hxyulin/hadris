@@ -7,7 +7,9 @@
 //!
 //! [`Error<E>`] is the error of every filesystem operation. `E` is the
 //! device's own error, so it survives without allocation; [`AnyError`]
-//! erases it for code that mixes devices.
+//! erases it for code that mixes devices. A driver that takes its device
+//! by value fails to mount or format with [`MountError`], which gives the
+//! device back.
 //!
 //! # Features
 //!
@@ -44,7 +46,7 @@ pub use caps::{Capabilities, CaseSensitivity, FsStats, NameCharset};
 pub use dir::{DirCursor, DirEntry, DirItem};
 #[cfg(feature = "alloc")]
 pub use error::AnyError;
-pub use error::{Error, ErrorKind, FsResult};
+pub use error::{Error, ErrorKind, FsResult, MountError};
 pub use fuse::FuseOnError;
 pub use meta::{Attributes, Metadata, Mode, SetMetadata};
 #[cfg(feature = "alloc")]
