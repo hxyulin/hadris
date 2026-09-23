@@ -41,7 +41,9 @@
 //!
 //! `FatFs<D, T, C, P>` also takes the node table, the [`Clock`](hadris_fs::Clock)
 //! that stamps entries and the [`CodePage`] of short names as type
-//! parameters, chosen with [`MountOptions`] and `FatFs::open_with`.
+//! parameters, chosen with [`MountOptions`] and `FatFs::open_with`. A failed
+//! mount returns a [`MountError`](hadris_fs::MountError) that gives the
+//! device back.
 //!
 //! ## Formatting with `FatFs`
 //!

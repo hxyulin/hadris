@@ -503,6 +503,58 @@ fn rejects_what_it_cannot_mount() {
 }
 
 #[test]
+fn failed_opens_give_the_device_back() {
+    let case = CASES[0];
+    let mut corrupt = common::build(case);
+    corrupt[11..13].copy_from_slice(&0u16.to_le_bytes());
+    let images = [vec![0u8; 64 * 1024], corrupt];
+    for image in images {
+        let err = FatFs::open(common::device(case, image.clone())).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt);
+        assert_eq!(err.device().get_ref(), &image);
+        let (error, dev) = err.into_parts();
+        assert_eq!(error.kind(), ErrorKind::Corrupt);
+        assert_eq!(dev.into_inner(), image);
+
+        let options = MountOptions::new().with_read_only(true);
+        let err = FatFs::open_with(common::device(case, image.clone()), options).unwrap_err();
+        assert_eq!(err.into_device().into_inner(), image);
+    }
+    let big_blocks = MemDevice::new(common::build(case), BlockSize::new(8192).unwrap());
+    let err = FatFs::open(big_blocks).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Unsupported);
+    assert_eq!(err.into_device().get_ref(), &common::build(case));
+}
+
+#[test]
+fn mount_errors_convert_with_the_question_mark() {
+    fn plain(dev: Device) -> hadris_fs::FsResult<Fs, hadris_storage::OutOfRange> {
+        Ok(FatFs::open_with(
+            dev,
+            MountOptions::new().with_table(HeapTable::new()),
+        )?)
+    }
+    fn io(dev: Device) -> std::io::Result<()> {
+        FatFs::open(dev)?;
+        Ok(())
+    }
+    fn boxed(dev: Device) -> Result<(), Box<dyn std::error::Error>> {
+        FatFs::open(dev)?;
+        Ok(())
+    }
+    let case = CASES[0];
+    let blank = || common::device(case, vec![0u8; 4096]);
+    assert_eq!(plain(blank()).unwrap_err().kind(), ErrorKind::Corrupt);
+    assert_eq!(
+        io(blank()).unwrap_err().kind(),
+        std::io::ErrorKind::InvalidData
+    );
+    let err = boxed(blank()).unwrap_err();
+    assert_eq!(err.to_string(), ErrorKind::Corrupt.to_string());
+    assert!(format!("{:?}", FatFs::open(blank()).unwrap_err()).starts_with("MountError"));
+}
+
+#[test]
 fn volume_paths_and_handles() {
     let case = CASES[2];
     let mut fs = open(case, common::build(case));

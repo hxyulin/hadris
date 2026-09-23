@@ -89,6 +89,11 @@ let fs = FatFs::open_with(MemDevice::new(image, BlockSize::new(512).unwrap()), o
 `MountOptions::with_read_only(true)` mounts without ever calling
 `write_blocks`.
 
+A failed `open` or `open_with` returns a `hadris_fs::MountError`, which
+gives the device back through `into_device` or `into_parts`. `?` converts
+it into `hadris_fs::Error`, `AnyError` or `std::io::Error`, dropping the
+device.
+
 Writes go to the device at once, except the size and modification time of
 a pinned file, which stay in the node table so every handle sees one size
 until `sync_node` or `sync` writes them; closing a `File` handle calls

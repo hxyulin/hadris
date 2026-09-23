@@ -46,7 +46,7 @@ impl<D: BlockDevice> OpenVolume<D> {
         }
         match FatFs::open(dev).await {
             Ok(fat) => Ok(Self::Fat(fat)),
-            Err(error) => Err(OpenError::without_device(error.into())),
+            Err(error) => Err(OpenError::without_device(error.into_error().into())),
         }
     }
 
@@ -94,7 +94,7 @@ async fn validate<D: BlockDevice>(dev: &mut D, detected: FatVariant) -> Result<(
     if detected == FatVariant::ExFat {
         return Err(unsupported);
     }
-    let kind = FatFs::open(dev).await?.kind();
+    let kind = FatFs::open(dev).await.map_err(|error| error.into_error())?.kind();
     match fat_variant(kind) {
         Some(opened) if opened == detected => Ok(()),
         Some(opened) => Err(Error::DetectedFormatMismatch { detected, opened }),

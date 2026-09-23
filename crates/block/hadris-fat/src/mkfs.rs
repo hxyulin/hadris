@@ -81,7 +81,7 @@ pub async fn format<D: BlockDevice, C: Clock>(
     let mut block = BlockBuf::new(block_size);
     write_layout(&mut dev, &mut block, &layout, &fields, now).await?;
     dev.flush().await?;
-    FatFs::open_with(dev, MountOptions::new().with_clock(options.clock)).await
+    Ok(FatFs::open_with(dev, MountOptions::new().with_clock(options.clock)).await?)
 }
 
 async fn write_layout<D: BlockDevice>(

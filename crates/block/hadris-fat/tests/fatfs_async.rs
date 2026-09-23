@@ -122,6 +122,38 @@ fn async_send_mounts_with_options() {
 }
 
 #[test]
+fn async_failed_opens_give_the_device_back() {
+    let case = CASES[0];
+    let mut corrupt = common::build(case);
+    corrupt[11..13].copy_from_slice(&0u16.to_le_bytes());
+    for image in [vec![0u8; 64 * 1024], corrupt] {
+        block_on(async {
+            let err = hadris_fat::r#async::FatFs::open(common::device(case, image.clone()))
+                .await
+                .unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Corrupt);
+            assert_eq!(err.into_device().into_inner(), image);
+
+            let err = hadris_fat::async_send::FatFs::open(common::device(case, image.clone()))
+                .await
+                .unwrap_err();
+            let (error, dev) = err.into_parts();
+            assert_eq!(error.kind(), ErrorKind::Corrupt);
+            assert_eq!(dev.into_inner(), image);
+
+            let options = hadris_fat::MountOptions::new().with_read_only(true);
+            let err = hadris_fat::async_send::FatFs::open_with(
+                common::device(case, image.clone()),
+                options,
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(err.into_device().into_inner(), image);
+        });
+    }
+}
+
+#[test]
 fn async_mode_writes() {
     use hadris_fat::r#async::FatFs;
     use hadris_fs::r#async::{DriverExt, PathExt, Volume};

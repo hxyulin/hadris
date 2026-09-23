@@ -3,8 +3,8 @@ use core::fmt;
 use hadris_common::types::endian::Endian;
 use hadris_fs::{
     Attributes, Capabilities, CaseSensitivity, Clock, DateTime, DirCursor, DirEntry, Error,
-    ErrorKind, FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, Name, NameBuf,
-    NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RenameFlags, SetMetadata,
+    ErrorKind, FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name,
+    NameBuf, NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RenameFlags, SetMetadata,
 };
 use hadris_storage::BlockIndex;
 
@@ -550,47 +550,27 @@ pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePa
     code_page: P,
 }
 
-impl<D, T: NodeTable, C: Clock, P: CodePage> fmt::Debug for FatFs<D, T, C, P> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FatFs")
-            .field("kind", &self.geo.kind)
-            .field("cluster_size", &self.geo.cluster_size)
-            .field("open_nodes", &(self.nodes.len() + 1))
-            .field("free_clusters", &self.free_clusters)
-            .field("read_only", &self.read_only)
-            .finish_non_exhaustive()
-    }
+/// The state a mount reads from the boot and FSInfo sectors.
+struct Mount {
+    geo: Geometry,
+    active_fat: u8,
+    mirrored: bool,
+    data_end: u64,
+    block: BlockBuf,
+    free_clusters: Option<u32>,
+    fs_info: Option<u64>,
+    next_free: u32,
 }
 
-impl<D: BlockDevice> FatFs<D> {
-    /// Mounts the volume on `dev` with the defaults of [`MountOptions::new`]:
-    /// writable, a `FixedTable<64>`, [`NoClock`] and [`Ascii`].
-    ///
-    /// Fails with [`ErrorKind::Corrupt`] when the boot sector is not a valid
-    /// FAT12, FAT16 or FAT32 boot sector or describes a volume larger than
-    /// the device, and with [`ErrorKind::Unsupported`] when the device's
-    /// blocks are larger than 4096 bytes.
-    pub async fn open(dev: D) -> FsResult<Self, D::Error> {
-        Self::open_with(dev, MountOptions::new()).await
-    }
-}
-
-impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
-    /// Mounts the volume on `dev` with `options`, which set the node table,
-    /// clock and code page types. Fails as [`open`](FatFs::open) does.
-    pub async fn open_with(dev: D, options: MountOptions<T, C, P>) -> FsResult<Self, D::Error> {
-        let MountOptions { read_only, table, clock, code_page } = options;
-        Self::mount(dev, &table, read_only, clock, code_page).await
-    }
-
-    async fn mount(mut dev: D, table: &T, read_only: bool, clock: C, code_page: P) -> FsResult<Self, D::Error> {
+impl Mount {
+    async fn read<D: BlockDevice>(dev: &mut D) -> FsResult<Self, D::Error> {
         let size = dev.block_size().get() as usize;
         if size > MAX_BLOCK_SIZE {
             return Err(ErrorKind::Unsupported.into());
         }
         let mut block = BlockBuf::new(size);
         let mut sector = [0u8; BOOT_SECTOR_LEN];
-        read_bytes(&mut dev, &mut block, 0, &mut sector).await?;
+        read_bytes(dev, &mut block, 0, &mut sector).await?;
         let bpb: RawBpb = bytemuck::pod_read_unaligned(&sector[..BPB_LEN]);
         boot::check_bpb(&bpb).map_err(corrupt)?;
         let (geo, active_fat, mirrored, fs_info) = if boot::is_fat32(&bpb) {
@@ -626,7 +606,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             Some(at) if at != 0 && at < bpb.reserved_sector_count.get() => {
                 let mut sector = [0u8; BOOT_SECTOR_LEN];
                 let offset = at as u64 * geo.sector_size as u64;
-                read_bytes(&mut dev, &mut block, offset, &mut sector).await?;
+                read_bytes(dev, &mut block, offset, &mut sector).await?;
                 let info: RawFsInfo = bytemuck::pod_read_unaligned(&sector);
                 let valid = boot::check_fs_info(&info).is_ok();
                 let free = info.free_count.get();
@@ -642,18 +622,69 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             _ => None,
         };
         Ok(Self {
-            dev,
             geo,
             active_fat,
             mirrored,
             data_end,
-            nodes: table.empty(),
-            next_id: FALLBACK_IDS,
             block,
             free_clusters,
             fs_info,
-            fs_info_dirty: false,
             next_free,
+        })
+    }
+}
+
+impl<D, T: NodeTable, C: Clock, P: CodePage> fmt::Debug for FatFs<D, T, C, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FatFs")
+            .field("kind", &self.geo.kind)
+            .field("cluster_size", &self.geo.cluster_size)
+            .field("open_nodes", &(self.nodes.len() + 1))
+            .field("free_clusters", &self.free_clusters)
+            .field("read_only", &self.read_only)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<D: BlockDevice> FatFs<D> {
+    /// Mounts the volume on `dev` with the defaults of [`MountOptions::new`]:
+    /// writable, a `FixedTable<64>`, [`NoClock`] and [`Ascii`].
+    ///
+    /// Fails with [`ErrorKind::Corrupt`] when the boot sector is not a valid
+    /// FAT12, FAT16 or FAT32 boot sector or describes a volume larger than
+    /// the device, and with [`ErrorKind::Unsupported`] when the device's
+    /// blocks are larger than 4096 bytes. The [`MountError`] gives `dev`
+    /// back.
+    pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
+        Self::open_with(dev, MountOptions::new()).await
+    }
+}
+
+impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
+    /// Mounts the volume on `dev` with `options`, which set the node table,
+    /// clock and code page types. Fails as [`open`](FatFs::open) does.
+    pub async fn open_with(
+        mut dev: D,
+        options: MountOptions<T, C, P>,
+    ) -> Result<Self, MountError<D, D::Error>> {
+        let MountOptions { read_only, table, clock, code_page } = options;
+        let mount = match Mount::read(&mut dev).await {
+            Ok(mount) => mount,
+            Err(error) => return Err(MountError::new(error, dev)),
+        };
+        Ok(Self {
+            dev,
+            geo: mount.geo,
+            active_fat: mount.active_fat,
+            mirrored: mount.mirrored,
+            data_end: mount.data_end,
+            nodes: table.empty(),
+            next_id: FALLBACK_IDS,
+            block: mount.block,
+            free_clusters: mount.free_clusters,
+            fs_info: mount.fs_info,
+            fs_info_dirty: false,
+            next_free: mount.next_free,
             read_only,
             clock,
             code_page,
