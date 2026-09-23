@@ -179,6 +179,12 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat (V3):** A node id is the slot of its directory entry plus a
+  tier in the bits above bit 40, which counts up only while a pinned node
+  that has moved away holds the slot's lower tiers. `read_dir_entry` and
+  `lookup` therefore report the same id for an entry, where before a
+  listing could report a "moved" id and a lookup a "fallback" id for the
+  same file after a rename. Ids are never 0 and stay below `2^63`.
 - **hadris-storage (V3):** `BlockDevice::flush` for `std::fs::File` calls
   `sync_data`, so `sync` and `sync_node` on a host image or block device
   reach stable storage. It used to call `Write::flush`, which does nothing

@@ -658,6 +658,45 @@ fn rename_keeps_the_id_and_moves_directories() {
     }
 }
 
+/// The id `read_dir_entry` reports for `text` in `dir`.
+fn listed_id(fs: &mut Fs, dir: NodeId, text: &str) -> NodeId {
+    let mut cursor = DirCursor::start();
+    let mut buf = NameBuf::new();
+    while let Some(entry) = fs.read_dir_entry(dir, &mut cursor, &mut buf).unwrap() {
+        if buf.as_bytes() == text.as_bytes() {
+            return entry.node();
+        }
+    }
+    panic!("{text} is not listed");
+}
+
+#[test]
+fn listed_ids_are_the_ids_lookup_pins() {
+    let case = CASES[1];
+    let mut fs = open(case, common::blank(case));
+    let root = fs.root();
+    let a = create(&mut fs, root, "a", NewNode::File);
+    fs.rename(root, name("a"), root, name("b"), RenameFlags::empty())
+        .unwrap();
+    let c = create(&mut fs, root, "c", NewNode::File);
+    assert_eq!(c.get() & ((1 << 40) - 1), a.get(), "c takes a's old slot");
+    assert_eq!(c.get() >> 40, 1, "a still holds the slot's first id");
+    fs.forget(c);
+    let listed = listed_id(&mut fs, root, "c");
+    let looked_up = fs.lookup(root, name("c")).unwrap();
+    assert_eq!(listed, looked_up);
+    assert_eq!(listed_id(&mut fs, root, "b"), a);
+    assert!(listed.get() != 0 && listed.get() < 1 << 63);
+    fs.forget(looked_up);
+    fs.forget(a);
+    assert_eq!(fs.open_nodes(), 1);
+    assert_eq!(
+        listed_id(&mut fs, root, "c"),
+        a,
+        "with a forgotten, c takes the slot's first id"
+    );
+}
+
 #[test]
 fn replacing_a_pinned_target_unlinks_it() {
     let case = CASES[1];

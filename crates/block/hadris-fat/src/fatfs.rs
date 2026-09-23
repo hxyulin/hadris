@@ -24,12 +24,19 @@ mod fsck;
 pub use fsck::{check, check_with};
 
 const ROOT: NodeId = NodeId::new(1);
-/// Unpinned ids from here up name the entry at `(id - MOVED_IDS) * 32`. A
-/// listing hands them out when a pinned node that has moved holds the
-/// natural id.
-const MOVED_IDS: u64 = 1 << 62;
-/// Ids from here up are handed out when a node's natural id is taken.
-const FALLBACK_IDS: u64 = 1 << 63;
+/// A node id holds the slot of its short entry, the entry's byte offset
+/// divided by 32, in its low `SLOT_BITS` bits. The bits above, the tier,
+/// count up when that id is taken by a pinned node that has since moved
+/// away from the slot, so a listing and a lookup of one entry agree on its
+/// id. A FAT volume has at most `2^32` sectors of 4096 bytes, so slots stay
+/// below `2^39`, and no id is 0.
+const SLOT_BITS: u32 = 40;
+const SLOT_MASK: u64 = (1 << SLOT_BITS) - 1;
+/// Highest value of the bits above the slot, so ids stay below `2^63`.
+const MAX_TIER: u64 = (1 << (63 - SLOT_BITS)) - 1;
+/// The id of the table slot `create` reserves before it writes anything.
+/// Never handed out.
+const RESERVED: NodeId = NodeId::new(1 << 63);
 /// The largest device block [`FatFs`] can buffer.
 pub(super) const MAX_BLOCK_SIZE: usize = 4096;
 const BOOT_SECTOR_LEN: usize = 512;
@@ -502,7 +509,8 @@ pub(super) async fn write_bytes<D: BlockDevice>(
 ///   [`ErrorKind::LimitExceeded`] before anything is written; name
 ///   `HeapTable` or a larger `FixedTable<N>` for more open nodes. Ids from
 ///   `read_dir_entry` are not pinned and stay valid until that directory
-///   changes.
+///   changes; until then, and unless a node is forgotten in between, they
+///   are the ids a `lookup` of the same names pins.
 /// - `C`, the [`Clock`] that stamps created and modified entries. The
 ///   default [`NoClock`] writes 1980-01-01, so images are reproducible;
 ///   `SystemClock` with `std` writes the current UTC time.
@@ -572,7 +580,6 @@ pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePa
     mirrored: bool,
     data_end: u64,
     nodes: T::With<Node>,
-    next_id: u64,
     block: BlockBuf,
     free_clusters: Option<u32>,
     /// Byte offset of a valid FAT32 FSInfo sector.
@@ -714,7 +721,6 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             mirrored: mount.mirrored,
             data_end: mount.data_end,
             nodes: table.empty(),
-            next_id: FALLBACK_IDS,
             block: mount.block,
             free_clusters: mount.free_clusters,
             fs_info: mount.fs_info,
@@ -1041,7 +1047,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let text = entry_name(name, ErrorKind::InvalidInput)?;
         let new = NewName::new(text, &self.code_page)?;
         let plan = self.plan(start, text, true, &new, Skip::default()).await?;
-        let reserved = NodeId::new(self.next_id);
+        let reserved = RESERVED;
         let placeholder = Node {
             entry: u64::MAX,
             first: 0,
@@ -1063,16 +1069,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             }
         };
         self.nodes.remove(reserved);
-        if let Some(natural) = self.natural_id(node.entry)
-            && self.nodes.insert(natural, node).is_ok()
-        {
-            return Ok(natural);
-        }
+        let id = self.free_id(node.entry).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
-            .insert(reserved, node)
+            .insert(id, node)
             .map_err(|_| ErrorKind::LimitExceeded)?;
-        self.next_id += 1;
-        Ok(reserved)
+        Ok(id)
     }
 
     /// Removes the file or empty directory `name` from `dir` and frees its
@@ -2257,19 +2258,21 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.nodes.find(&mut |_, node| node.entry == offset)
     }
 
-    /// The id derived from the location of the entry at `offset`, unless a
-    /// node that has moved away from it holds that id.
-    fn natural_id(&self, offset: u64) -> Option<NodeId> {
-        let id = NodeId::new(offset / ENTRY_SIZE);
-        self.nodes.get(id).is_none().then_some(id)
+    /// The first id for the entry at `offset` that no node in the table
+    /// holds. `None` only when every generation of the slot is taken.
+    fn free_id(&self, offset: u64) -> Option<NodeId> {
+        let slot = offset / ENTRY_SIZE;
+        (0..=MAX_TIER)
+            .map(|tier| NodeId::new(tier << SLOT_BITS | slot))
+            .find(|&id| self.nodes.get(id).is_none())
     }
 
     /// The id of the entry at `offset` without pinning it: its pinned id,
-    /// else its natural id, else its id in the moved range.
+    /// else the id a lookup would pin.
     fn id_at(&self, offset: u64) -> NodeId {
         self.pinned_at(offset)
-            .or_else(|| self.natural_id(offset))
-            .unwrap_or(NodeId::new(MOVED_IDS + offset / ENTRY_SIZE))
+            .or_else(|| self.free_id(offset))
+            .unwrap_or(NodeId::new(offset / ENTRY_SIZE))
     }
 
     /// Pins the node whose short entry is at `offset`.
@@ -2278,15 +2281,10 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             self.nodes.pin(id);
             return Ok(id);
         }
-        let natural = self.natural_id(offset);
-        let fallback = natural.is_none();
-        let id = natural.unwrap_or(NodeId::new(self.next_id));
+        let id = self.free_id(offset).ok_or(ErrorKind::LimitExceeded)?;
         self.nodes
             .insert(id, Node::new(offset, entry, self.geo.kind))
             .map_err(|_| ErrorKind::LimitExceeded)?;
-        if fallback {
-            self.next_id += 1;
-        }
         Ok(id)
     }
 
@@ -2298,14 +2296,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// The entry of an id that is not pinned, decoded from its location.
     async fn unpinned(&mut self, id: NodeId) -> FsResult<(u64, ShortEntry), D::Error> {
-        let mut raw = id.get();
-        if raw == ROOT.get() || raw >= FALLBACK_IDS {
+        let raw = id.get();
+        if raw == ROOT.get() || raw >= RESERVED.get() {
             return Err(ErrorKind::InvalidHandle.into());
         }
-        if raw >= MOVED_IDS {
-            raw -= MOVED_IDS;
-        }
-        let offset = raw.checked_mul(ENTRY_SIZE).ok_or(ErrorKind::InvalidHandle)?;
+        let offset = (raw & SLOT_MASK) * ENTRY_SIZE;
         let in_root = matches!(
             self.geo.root,
             RootDir::Fixed { start, size } if (start..start + size).contains(&offset)
