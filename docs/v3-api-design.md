@@ -2,7 +2,10 @@
 
 Status: draft for discussion. Sections 3, 4.1 to 4.4, 4.6, 4.12 and 4.13
 were revised after the lock-placement prototype
-(`experiments/lock-placement`, variant D, scenarios S1 to S16).
+(`experiments/lock-placement`, variant D, scenarios S1 to S16). Sections
+4.3 to 4.6, 4.11 and R10 were revised after the step 6 trait review
+([`v3-trait-review.md`](v3-trait-review.md)), which froze the `hadris-fs`
+traits.
 
 V3 is the release where the public shapes stop moving. V2 kept breaking semver
 inside minor releases (#83, #93, #94) or hid new work behind `unstable-*` flags
@@ -217,10 +220,24 @@ than four parameters take a struct.
 ### R10. Traits can grow
 
 Public traits that users implement (`FsDriver`, `FileSystem`, `Resolver`,
-`BlockDevice`, `ByteSource`, `Clock`, `LockKind`) are not sealed. Methods
-added in 3.x must have a default body. For filesystem operations the default
-returns `ErrorKind::Unsupported` (`ReadOnly` for writes), and `Capabilities`
-gains a matching flag that defaults to off. Traits that only Hadris implements are sealed.
+`BlockDevice`, `ByteSource`, `Clock`, `LockKind`, `NodeTable`) are not
+sealed. Methods added in 3.x must have a default body. For filesystem
+operations the default returns `ErrorKind::Unsupported` (`ReadOnly` for
+writes) or composes existing methods, and `Capabilities` gains a matching
+flag that defaults to off. Traits that only Hadris implements are sealed.
+
+Growing `FsDriver` and `FileSystem` has two more rules, both stated in the
+trait docs:
+
+- `impl_fs_driver!` forwards a new method only when a format names it in
+  `also = [..]`. Adding it to the macro's write list would require every
+  third-party format to have an inherent method of that name.
+- A method is added to both traits and forwarded by every Hadris wrapper
+  (`&mut F`, `Box<F>`, `&F`, `Arc<F>`, `Rc<F>`, `AsDriver`, `Volume`,
+  `WithResolver`). `tests/sync_forwarding.rs` in `hadris-fs` reads the method
+  lists from the trait definitions and fails until each wrapper forwards the
+  new one. User types that wrap a driver keep the default until they forward
+  it themselves; the docs say so.
 
 ### R11. CI enforces it
 
@@ -372,7 +389,7 @@ it. Instead each write answers for itself:
 
 - A device that refuses writes returns `WriteError::ReadOnly`. `Error<E>` converts it to `ErrorKind::ReadOnly` with no device error attached.
 - The driver remembers the first refusal and from then on rejects writes before touching the device or its own tables (`is_read_only()`).
-- Users who know up front mount read-only (`FatFs::open_with(dev, MountOptions::new().with_read_only(true))`), which never calls `write_blocks`. That also covers media where even an attempted write is unwelcome.
+- Users who know up front mount read-only (`FatFs::open_with(dev, MountOptions::new().with_read_only())`), which never calls `write_blocks`. That also covers media where even an attempted write is unwelcome.
 - Format crates must leave their in-memory state unchanged when a write is refused. That is the rule 4.3 already sets for every failed operation, so it adds no new contract.
 
 Provided devices and adapters:
@@ -419,17 +436,19 @@ New crate. It takes the useful parts of `hadris-common` and `hadris-path`.
 
 | Type | Notes |
 |---|---|
-| `NodeId` | Opaque `u64`. Stable for as long as the node is pinned (4.5). Maps directly to FUSE `ino` and kernel inode numbers. |
+| `NodeId` | Opaque `u64`, never 0. Stable for as long as the node is pinned (4.5). Maps directly to FUSE `ino` and kernel inode numbers; the root may have any value, and a FUSE layer maps it to 1. |
 | `FileType` | `File`, `Dir`, `Symlink`, `CharDevice`, `BlockDevice`, `Fifo`, `Socket`. Non-exhaustive. One definition for every crate. |
 | `Name` / `NameBuf<N>` | Names are bytes. `Name::to_str()` returns `Result`. `NameBuf` is a fixed-capacity buffer so no-alloc callers can read directories. The default capacity is 1024 bytes, enough for a 255-unit UTF-16 long name in UTF-8, so `dyn`-friendly signatures that name the default `NameBuf` work for every format. |
 | `NodeTable` | Per-node driver state with pin counts (4.5). `FixedTable<N>` (no alloc), `HeapTable` (`alloc`), or a user type. |
-| `Metadata` | `file_type`, `len: u64`, `times: FileTimes`, `permissions: Option<Mode>`, `owner: Option<(u32, u32)>`, `nlink`, plus `attributes: Attributes` (DOS-style flags) and an `extra()` hook for per-format types. Getters only. |
+| `Metadata` | `file_type`, `len: u64`, `times: FileTimes`, `permissions: Option<Mode>`, `owner: Option<(u32, u32)>`, `nlink` (1 on a directory means not counted), plus `attributes: Attributes` (DOS-style flags). Getters only, `Copy`. Per-format metadata (FAT attribute bits, NTFS security descriptors) stays native, reached through `vol.lock()`; there is no `extra()` hook, since one holding owned data could not be `Copy`. Plain fields can be added in 3.x (section 4.14). |
 | `DateTime` | Private fields: seconds since 1970, nanoseconds, optional UTC offset in minutes. Every format converts to and from its own encoding in `raw`. |
 | `FileTimes` | `created`, `modified`, `accessed`, `changed`, each `Option<DateTime>`, with `with_*` setters. Used for both reads and `set_metadata`. |
 | `Clock` | `fn now(&self) -> DateTime`. `NoClock` (fixed documented epoch) is the default, `SystemClock` with `std`. |
 | `Capabilities` | Flags and limits: writable, symlinks, hard links, case sensitivity (`Sensitive`, `InsensitivePreserving`, `Insensitive`), max name length, name charset, supports permissions, supports owners, timestamp resolution. |
 | `FsStats` | Total, free and used blocks, block size, file count if known. |
 | `ErrorKind` | The shared kind set (4.6). |
+| `DirCursor` | A `Copy` position in a listing. Raw value 0 is the start; drivers return raw values up to `DirCursor::MAX_RAW` (`2^63 - 16`), so a cursor fits `off_t` with room for the `.` and `..` a FUSE layer adds. |
+| `RemoveKind` | `File`, `Dir`, `Any`: what `remove` expects to find. Non-exhaustive. |
 | `VPath` | The `hadris-path` type, moved here. Path parsing is convenience only; the traits take names. |
 
 **The driver traits.** One node API, in two receivers:
@@ -449,18 +468,21 @@ pub trait FsDriver {                               // format crates; &mut self, 
     async fn read_link(&mut self, link: NodeId, buf: &mut [u8]) -> FsResult<usize, ..> { unsupported }
     async fn stats(&mut self) -> FsResult<FsStats, ..>;
     fn forget(&mut self, node: NodeId);
+    async fn open_node(&mut self, node: NodeId) -> FsResult<(), ..> { Ok(()) }
+    fn close_node(&mut self, node: NodeId) {}
     async fn resolve(&mut self, path: &str) -> FsResult<NodeId, ..> { Lexical.resolve(self, path) }
 
     // Write methods default to ErrorKind::ReadOnly.
     async fn create(&mut self, dir: NodeId, name: &Name, kind: NewNode<'_>, meta: &SetMetadata)
         -> FsResult<NodeId, ..>;                            // File | Dir | Symlink(target) | Device(..)
-    async fn remove(&mut self, dir: NodeId, name: &Name) -> FsResult<(), ..>;
+    async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), ..>;
     async fn rename(&mut self, from_dir: NodeId, from: &Name, to_dir: NodeId, to: &Name,
         flags: RenameFlags) -> FsResult<(), ..>;            // NoReplace | Exchange later via R10
     async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, ..>;
     async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), ..>;
     async fn set_metadata(&mut self, node: NodeId, changes: &SetMetadata) -> FsResult<(), ..>;
-    async fn sync_node(&mut self, node: NodeId) -> FsResult<(), ..>;
+    async fn sync_node(&mut self, node: NodeId) -> FsResult<(), ..>;     // durable, like fsync
+    async fn publish_node(&mut self, node: NodeId) -> FsResult<(), ..> { self.sync_node(node) }
     async fn sync(&mut self) -> FsResult<(), ..>;
 }
 
@@ -468,16 +490,19 @@ pub trait FileSystem { /* the same methods on &self */ }   // shared users; Volu
 impl<F: FileSystem + ?Sized> FsDriver for &F { .. }         // so the path layer is written once
 ```
 
-- A format crate writes each method once, as an inherent method on its driver, and `impl_fs_driver!` generates the `FsDriver` impl from them. Raw users call the inherent methods with no trait import. A `read_only` form of the macro leaves the write methods at their defaults. Optional methods that are not writes (`parent`, `read_link`) are forwarded only when named, `impl_fs_driver!(sync, impl[D: BlockDevice] IsoFs<D>, error = D::Error, read_only; also = [parent, read_link])`. The first argument is the mode (`sync`, `async`, `async_send`), which a format crate's per-mode module passes, so a driver never forwards a method it does not have. The exported macro uses `$crate::` paths.
+- A format crate writes each method once, as an inherent method on its driver, and `impl_fs_driver!` generates the `FsDriver` impl from them. Raw users call the inherent methods with no trait import. A `read_only` form of the macro leaves the write methods at their defaults. Optional methods (`parent`, `read_link`, `resolve`, `open_node`, `close_node`, `publish_node`, and every method added after 3.0) are forwarded only when named, `impl_fs_driver!(sync, impl[D: BlockDevice] IsoFs<D>, error = D::Error, read_only; also = [parent, read_link])`. The first argument is the mode (`sync`, `async`, `async_send`), which a format crate's per-mode module passes, so a driver never forwards a method it does not have. The exported macro uses `$crate::` paths.
 - `FileSystem` is what shared code programs against. `Volume` (4.4) implements it for every driver, and a format that wants finer locking can implement it directly. Because `&F` is a driver whenever `F` is a `FileSystem`, every helper below is written once over `FsDriver` and serves both.
 - `node_metadata` and `read_dir_entry` carry the `node_`/`_entry` in their names so they never clash with the path helpers `metadata(path)` and `read_dir(path)`; both traits can be in scope at once.
-- `lookup` pins the node it returns. `forget` unpins it. This is the FUSE `lookup`/`forget` contract. ISO, UDF and NTFS have naturally stable IDs, so `forget` does nothing for them. Without a node table, a directory's id is the location of its own `.` record, not of the record in its parent: `parent` is then one read, and a relocated or symlinked directory has one id (the ISO driver in experiment E3). Hard links keep one id per name there. Rejecting a forged id with `InvalidHandle` is best effort for such formats: the driver checks what it can (ISO compares the both-endian fields), and a forged id that still decodes reads garbage but is never undefined behaviour.
-- `read_dir_entry` is a resumable cursor. `DirCursor` is a `Copy` value that the caller can store and reuse, which FUSE `readdir(offset)` and kernel `getdents` need. It returns one entry per call into a caller buffer, so it works without `alloc`. `DirEntry` carries the name length, `FileType`, and the entry's `NodeId`. Entries are not pinned; a caller that wants to keep one calls `lookup`.
+- `lookup` pins the node it returns. `forget` unpins it. This is the FUSE `lookup`/`forget` contract. A pin never blocks a removal: a pinned node that is removed keeps its id until its last `forget`, and every other method answers `NotFound` for it. `open_node` marks a pinned node as open and `close_node` ends that; `remove` and a replacing `rename` fail with `Busy` only for the last name of an open node (Q3). `File` and `OpenFile` open their node. The split exists because a FUSE kernel holds a lookup on every cached name: with pins blocking removal, every `rm` failed (review F1). `close_node`, like `forget`, never fails or blocks. ISO, UDF and NTFS have naturally stable IDs, so `forget` does nothing for them. Without a node table, a directory's id is the location of its own `.` record, not of the record in its parent: `parent` is then one read, and a relocated or symlinked directory has one id (the ISO driver in experiment E3). Hard links keep one id per name there. Rejecting a forged id with `InvalidHandle` is best effort for such formats: the driver checks what it can (ISO compares the both-endian fields), and a forged id that still decodes reads garbage but is never undefined behaviour.
+- `read_dir_entry` is a resumable cursor. `DirCursor` is a `Copy` value that the caller can store and reuse, which FUSE `readdir(offset)` and kernel `getdents` need. It returns one entry per call into a caller buffer, so it works without `alloc`. `DirEntry` carries the name length, `FileType`, and the entry's `NodeId`. Entries are not pinned; a caller that wants to keep one calls `lookup`. Until the directory changes, and unless a node is forgotten in between, a listed id is the id a `lookup` of that name returns, so `ls -i` and `stat` agree.
 - Everything is positional. There is no cursor inside a file node.
 - `.` and `..` never appear in `read_dir_entry` output and `lookup` rejects them. Paths resolve through a `Resolver` (4.12): the default never asks the driver about `..`, and `Posix` calls `parent`.
 - `rename` keeps the `NodeId` of the moved node. That is the point of the open-node table (4.5).
 - A failed operation leaves the volume unchanged, in memory and on disk. The conformance suite already tests this ("rejection" scenarios), and the trait docs make it part of the contract.
-- `sync` writes every piece of cached metadata (FSInfo, dirty FAT sectors, directory entries) and flushes the device. There is one durability call, not V2's `sync` plus `flush`.
+- `sync` writes every piece of cached metadata (FSInfo, dirty FAT sectors, directory entries) and flushes the device. There is one durability call per scope, not V2's `sync` plus `flush`: `sync_node` makes one node durable (`fsync`), `sync` the volume. `publish_node` writes a node's pending metadata without flushing the device, which is what closing a file needs; its default calls `sync_node`.
+- `remove(dir, name, kind)` checks the node's type against `RemoveKind`, so `unlink` and `rmdir` need no lookup first.
+- Reads never change times. `node_metadata` shows a pending size at once; other fields a driver keeps in memory may lag until `publish_node`, `sync_node` or `sync`. In the async modes a call whose future is dropped before it completes leaves no pin.
+- The `contract` feature adds `contract::check(&mut fs)` in each mode: the format-independent rules of this contract as a test kit, which every format port runs. The test driver and `FatFs` pass it.
 
 The earlier draft split reads and writes into `FileSystem` and
 `FileSystemMut`. The prototype kept one trait. A compile-time split doubles
@@ -563,7 +588,7 @@ instead makes `vol.root()` ambiguous, since both traits have it, hence
 - `File` implements `hadris_io::{Read, Write, Seek}` and, with `std`, the `std::io` traits for any device error (4.6). `Dir` is an `Iterator` in sync builds and has `next_entry` in async builds.
 - `OpenOptions { read, write, append, truncate, create, create_new }` makes overwrite semantics explicit (#90, #91). Opening for writing fails with `ReadOnly` at open time when `capabilities().writable()` is false, before any truncation, instead of at the first write.
 - Opening a symlink node as a file (possible with `Lexical`, which never follows links) fails with `ErrorKind::Symlink`, as POSIX `O_NOFOLLOW` fails with `ELOOP`.
-- `close()` returns `Result`. `Drop` does a best-effort `forget`, never flushes and never panics. `#[must_use]` on handles. `OpenFile` is plain data and does not forget on drop; its owner calls `close`.
+- `close()` returns `Result`. It publishes the node's metadata; `sync_all()` makes the file durable first. `Drop` does a best-effort `close_node` and `forget`, never flushes and never panics. `#[must_use]` on handles. `OpenFile` is plain data and does not close or forget on drop; its owner calls `close`.
 - Helpers on both `DriverExt` and `PathExt`: `exists`, `metadata`, `open`, `read_dir`, `read_to_vec`, `write_file`, `create_dir_all`, `remove_file`, `remove_dir`, `remove_dir_all`, `rename_path`. `rename_path` is not `rename` because the node method of that name is on the driver traits and both can be in scope. `remove_dir_all` needs no allocation and fails with `LimitExceeded` below 64 levels. Free functions: `copy_tree` (between any two filesystems, with `alloc`), and with `std` in the sync API, `extract_to_host` and `import_from_host`. Each side is any `Access`, so `&mut fs`, `&vol` and an `Arc` all work. The host helpers reject absolute names, separators, drive prefixes and `..` components, and never write through an existing host symlink, so archives and images cannot escape the target directory.
 
 ```rust
@@ -603,7 +628,7 @@ Volume::with_lock::<K>(fs)    // any LockKind: critical-section, embassy-sync, t
 
 - There is one constructor per lock and no default `K`. A default that depended on the `std` feature would change the type of every `Volume` in the build when any crate enabled `std`, which R3 forbids. Constructors infer `K`, so it appears only in stored types, and there the user writes one alias: `type Disk = Volume<FatFs<File>, StdMutex>;`. Hadris ships no aliases, because each would be a second spelling of the same type.
 - The lock is held for one driver call. Path resolution runs under one lock hold, so a path costs one lock, not one per component.
-- `forget` never blocks, so handle `Drop` works in both modes. If the lock is taken, the node goes on a queue that the next lock drains.
+- `forget` and `close_node` never block, so handle `Drop` works in both modes. If the lock is taken, the call goes on a queue that the next lock drains, closes before forgets.
 - `vol.lock()` returns a guard to the driver for format-specific calls. Calling a `FileSystem` method on the same volume while holding the guard deadlocks, or panics with `Local`.
 - `Volume::local(&mut fs)` borrows a driver for one scope: a kernel keeps ownership, opens several handles, and gets the driver back afterwards.
 - `Arc<Volume>` and `Rc<Volume>` give owned handles that move between tasks or live in a kernel file table.
@@ -638,7 +663,8 @@ V3 keeps an open-node table inside `FatFs` (and `ExFatFs`):
 - The entry records the directory-entry location, the first cluster, the size, the pin count and whether a writer holds it. The `NodeId` comes from the entry's location when the node is first pinned and stays with the node.
 - `lookup` finds or creates the table entry and increments the pin count. `forget` decrements it, and the entry may be freed at zero. A full table gives `ErrorKind::LimitExceeded` (`TableFull`). A driver that must keep state past the last pin (unwritten metadata) holds a pin of its own.
 - `rename` updates the location in place, so the `NodeId` stays valid. `set_len` and `write_at` update the size in the table, so every handle sees the same size and the directory entry is written on `sync_node` or `sync`.
-- `remove` on a pinned node fails with `ErrorKind::Busy`. See [Q3](#7-open-questions).
+- `remove` of a pinned node succeeds; the table entry stays, marked unlinked, until the last `forget`, and answers `NotFound`. The entry also counts opens, and removing an open node fails with `ErrorKind::Busy`. See [Q3](#7-open-questions).
+- A FAT id is the slot of the node's short entry plus a tier in the bits above bit 40. The tier counts up only while a pinned node that has moved away holds the lower tiers of that slot, so a listing and a lookup compute the same id.
 - IDs of unpinned entries from `read_dir` are valid until the next mutation of that directory. The docs state this, and `lookup` is the way to keep one.
 
 ISO (directory record location), UDF (ICB location and partition) and NTFS
@@ -687,10 +713,12 @@ pub enum ErrorKind {
     InvalidInput,        // bad options, names or arguments from the caller
     Corrupt,             // disk data violates the specification
     Unsupported,         // valid but not implemented, or not in Capabilities
-    LimitExceeded,       // a value does not fit, or a path is too long
+    LimitExceeded,       // a value does not fit a field or buffer, a path is too long, a table is full
     Symlink,             // too many symlinks, or a symlink where a file or directory was needed (ELOOP)
     InvalidHandle,       // unknown or forgotten NodeId
-    Busy,                // e.g. a second writer, or removing a mounted root
+    Busy,                // removing the last name of an open node
+    NameTooLong,         // ENAMETOOLONG
+    FileTooLarge,        // EFBIG: past the format's file size limit
 }
 ```
 
@@ -700,6 +728,8 @@ pub enum ErrorKind {
 - **Drivers that take the device by value** fail to mount with `MountError<D, E>`, which gives the device back (`into_device`, `into_parts`). `?` still converts it to `Error<E>`, `AnyError` or `io::Error`, dropping the device.
 - **Generic code** names the device error through the trait: `fn install<F: FileSystem>(vol: &F) -> FsResult<(), F::DeviceError>`, or returns `AnyError`.
 - Writers return `Error<W::Error>` for their output stream.
+- Each kind maps to one errno. `NameTooLong` and `FileTooLarge` were split from `LimitExceeded` in the step 6 review, because one kind covered three errnos.
+- `Error<E>` equality compares the kind and the device error only; context added later never takes part, so tests that compare errors keep passing.
 - Callers match on `err.kind()`. New failure modes add context, not kinds. Crate-specific detail comes through typed accessors (`err.sector()`, `err.cluster()`) and a `#[non_exhaustive] enum Detail` where matching is useful.
 - No `String` payloads without `alloc`. No foreign types (`bytemuck::PodCastError`, `PathBuf`) in the public API.
 - Wrapper crates (`hadris-cd`, `hadris-optical`, `hadris-block`) keep the kind and the device error and add context.
@@ -804,7 +834,7 @@ a volume serial take one in options, defaulting to one derived from the clock.
 | `hadris-macros` | Kept, internal. |
 | `hadris-archive` | Removed. The umbrella re-exports `hadris-cpio` directly. |
 | `hadris-block`, `hadris-optical` | Detection and dispatch. `OpenVolume` and `OpenOpticalImage` implement `FsDriver` by delegation. |
-| `hadris-vfs` | New, `std` only, can ship in 3.x. `DynFileSystem` (object-safe, boxed futures in async), a mount table for composing volumes, and a `fuser` adapter. Experiment E3 built the sync form: `DynFileSystem` repeats `FileSystem`'s methods on `&self` returning `AnyError`, a blanket impl covers every `FileSystem`, and `dyn DynFileSystem` implements `FileSystem` back, so path helpers, handles and resolvers work on an erased volume and one `Vec<Box<dyn DynFileSystem + Send + Sync>>` holds FAT and ISO volumes with different device errors. Lost: the typed device error (boxed, error path only), format-specific methods and `lock()`. If the `dyn` impl beside the blanket impl proves fragile, the fallback is to implement `FileSystem` for `Box<dyn ..>` and `Arc<dyn ..>` only. |
+| `hadris-vfs` | New, `std` only, can ship in 3.x. Type erasure, a mount table for composing volumes, and a `fuser` adapter (prototyped in `experiments/fuse-prototype`, on `FileSystem` and `HeapTable`). The sync `FileSystem` is already dyn-compatible once its error is fixed, so the sync form needs no second trait: an `Erased<F>` wrapper implements `FileSystem<DeviceError = AnyError>` for any `F`, and one `Vec<Box<dyn FileSystem<DeviceError = AnyError> + Send + Sync>>` holds FAT and ISO volumes with different device errors; path helpers, handles and resolvers work on it unchanged. E3's `DynFileSystem`, which repeated every method, would have been a second list to grow under R10. The async forms still need an object-safe trait with boxed futures, since `async fn` is not dyn-compatible. Lost: the typed device error (boxed, error path only), format-specific methods and `lock()`. |
 | Format crates | Kept. |
 | `hadris` | Re-exports `io`, `storage` and `fs` so no_std users need one dependency. Flat paths: `hadris::fat`, `hadris::iso`. |
 
@@ -875,11 +905,12 @@ Each row is a deliberate trade, what it buys, and what a user does about it.
 | No no-follow resolution | Not needed for 3.0 users so far | Planned as an additive 3.x resolver |
 | Calls on one `Volume` serialize; a path resolves under one lock hold | One lock per call keeps format crates lock-free | A format can implement `FileSystem` with finer locks |
 | Holding `vol.lock()` and calling the same volume deadlocks (panics with `Local`) | The guard is a plain lock guard | Drop the guard first; documented on `lock()` |
-| `Volume`'s forget queue is 16 `(node, count)` entries; when it is full, `forget` spins until the lock or a slot frees | `forget` runs in `Drop` and must neither lose a pin nor allocate (E1) | Spinning never ends only if one thread or task drops handles to 16 distinct nodes while it holds `vol.lock()`; drop the guard first |
+| `Volume`'s queue is 16 `(node, closes, forgets)` entries; when it is full, `forget` or `close_node` spins until the lock or a slot frees | Both run in `Drop` and must neither lose a call nor allocate (E1) | Spinning never ends only if one thread or task drops handles to 16 distinct nodes while it holds `vol.lock()`; drop the guard first |
+| Removing the last name of an open file fails with `Busy` | POSIX unlink of an open file needs orphan tracking, and a crash leaves lost clusters (Q3) | Close first; orphans can come in 3.x without a break |
 | Async `Volume::new` needs `alloc` | `async-lock` and `event-listener` link `alloc` unconditionally | The `embassy-sync` feature adds an async `Local` lock with no allocator |
 | The default FAT node table is `FixedTable<64>`; a full table gives `LimitExceeded` | No allocation in the driver, and a feature cannot change the table (R3) | Name `HeapTable` or a larger `FixedTable<N>` in the driver type ([Q8](#7-open-questions)) |
 | Each device type monomorphizes the driver: about 2.4 KB of FAT per extra device type on Cortex-M, 180 bytes per extra device of the same type | Typed errors and static dispatch | Use one device type per binary where size matters |
-| `OpenFile` does not forget on drop | It is `Copy` plain data for file tables | Call `close`; `File` handles forget on drop |
+| `OpenFile` does not close or forget on drop | It is `Copy` plain data for file tables | Call `close`; `File` handles close and forget on drop |
 | `read_exact`/`write_all` return `ExactError<E>` | Short reads and zero-length writes need their own cases, as in embedded-io | `?` converts into `Error<E>` |
 | `Access` appears in generic code over handles | One `File` type serves all tiers | `fn f<A: Access>(file: &mut File<A>)` |
 | `Dir` is not an `Iterator` in async builds | No async iterator in core | `next_entry().await` |
@@ -898,6 +929,27 @@ Not yet verified: embedded-io behind a feature, error context inside
 `Error<E>`, the async `FromEmbedded` adapter, and a tokio file device. The prototype sizes a `std::fs::File` device from
 its metadata, which reports 0 for host block devices such as `/dev/sdX`; the
 real impl seeks to the end instead.
+
+### 4.14 Compatible 3.x additions to the frozen traits
+
+The step 6 review found these gaps. Each fits R10: a default method or a new
+private field with a getter, plus a `Capabilities` flag where callers must
+ask first. None needs a break, so none blocks 3.0.
+
+| Addition | Default | Needed by |
+|---|---|---|
+| `pin(node)` for an id just returned by `read_dir_entry` | `Unsupported` | FUSE `readdirplus`, `getdents` plus `stat` without a second directory scan |
+| `forget_n(node, count)` | Calls `forget` `count` times | FUSE `forget` and `batch_forget` |
+| `Metadata::allocated()`, `generation()`, `device()` | `None`, 0, `None` | `stat` block counts, FUSE generations for reused ids, device numbers from ISO RRIP and cpio |
+| `link(node, dir, name)` | `ReadOnly` | NTFS and UDF write, FUSE `link` |
+| `NewNode::Fifo`, `NewNode::Socket` | Formats refuse with `Unsupported` | cpio, ISO RRIP, FUSE `mknod` |
+| `RenameFlags::EXCHANGE` | Formats refuse unknown flags with `Unsupported` | `renameat2` |
+| Extended attributes and named streams | `Unsupported` | NTFS ADS, UDF named streams, macOS clients |
+| A `lookup` that also returns the stored name | Lookup plus a listing scan | Case-insensitive formats, the FAT CLI |
+| `FsStats` available blocks and free file slots | Free blocks, unknown | FUSE `statfs` `bavail` and `ffree` |
+| Per-field time resolution in `Capabilities` | The modification time's | FAT (created 10 ms, modified 2 s, accessed 1 day) |
+| `DateTime` conversions to and from `SystemTime` | None | Every std adapter |
+| Orphan tracking: unlink of an open node succeeds | `Busy` | POSIX semantics (Q3) |
 
 ---
 
@@ -939,7 +991,7 @@ let report = hadris_fat::sync::check(&mut vol)?;           // fsck, both modes
 - Random-access writes, read-write handles, grow through `set_len`.
 - Create the root label entry when absent, and write the BPB label.
 - Exact free space on FAT12/16 by scanning, cached after first use.
-- `remove` of a pinned node fails with `Busy` (4.5, Q3).
+- `remove` of an open node fails with `Busy`; a pinned node is removed and answers `NotFound` (4.5, Q3).
 - Close audit items C2 (cancellation safety of compound async operations) and B3 to B7, or confirm they are fixed.
 - exFAT: async, rename, attributes and times, label, directory growth, fragmented bitmap and upcase table, entry sets that cross clusters, fsck. exFAT stays in the `hadris_fat::exfat` preview, behind `unstable-exfat`, until it passes the conformance suite, then becomes the stable `ExFatFs` in a 3.x minor. See [Q5](#7-open-questions).
 - TexFAT and fsck repair: 3.x.
@@ -1030,7 +1082,7 @@ be 3.x.
 
 ### 5.5 `hadris-ntfs`
 
-- `NtfsVolume` (renamed from `NtfsFs`) implements `FsDriver`, with metadata including times and security descriptors through `extra()`.
+- `NtfsVolume` (renamed from `NtfsFs`) implements `FsDriver`, with metadata including times. Security descriptors are native (`vol.security_descriptor(node)`), since `Metadata` stays `Copy` (4.3).
 - `NtfsError` becomes `Error`. `raw::*` is no longer glob re-exported. `attr` types with raw `u8`/`u32` codes move to `raw`; the public API uses enums.
 - Native API for streams: `vol.streams(node)` lists named data streams, and `vol.read_stream_at(node, name, offset, buf)` reads one.
 - `open` seeks to the boot sector instead of reading from the current position (falls out of `BlockDevice`).
@@ -1123,7 +1175,7 @@ await is I/O on it), so 2.x documents async volumes as single-task.
 4. **`hadris-fs`.** Done: vocabulary, `ErrorKind`, `Error<E>`, `AnyError`, `DateTime`/`Clock`, steps 2 and 3 reworked to associated errors, the three modes (`sync`, `async`, `async_send`), `FsDriver`/`FileSystem`, `impl_fs_driver!`, `Volume`/`LockKind`, resolvers, helpers and handles, tested against an in-memory driver (the FS-generic parts of S1 to S16; the FAT-specific ones move to step 5), `copy_tree`, the sync host helpers `extract_to_host` and `import_from_host`, and `FuseOnError`. `hadris-path`, `hadris-fixed` and `hadris-archive` are merged or removed.
 5. **`hadris-fat` as the reference implementation.** `BlockDevice` input, node table, `FsDriver` through inherent methods, `parent`, `FormatOptions`, `check`, clock and code page generics. Port the conformance adapter to the generic `FileSystem` adapter in the same PR. This step tests the trait design, and the trait can still change here. Done on `feat/v3-api`: the mode-independent codecs, the `async_send` mode, the public `NodeTable`, and `FatFs` reading and writing (`create`, `remove`, `rename`, `write_at`, `set_len`, `set_metadata`, `sync_node`, `sync`) for FAT12/16/32, checked against the V2 driver and the host `fsck` before it was deleted. Clock and code page generics with `MountOptions` and `FatFs::open_with`; `FormatOptions` with `format` in all three modes, without allocation, checked with `fsck.fat` and `fsck_msdos` and at the FAT12, FAT16 and FAT32 size limits; `check` and `check_with` in all three modes, without allocation, checked against `fsck.fat -n` verdicts and the leftovers of interrupted operations; `FatFs::label` and `FatFs::cluster_chain`. The conformance suite drives Hadris through `tests/src/fat/generic.rs`, one adapter over any `FileSystem`. The V2 driver is deleted with its `read`, `lfn`, `cache`, `tool` and `dirty-file-panic` features and the `chrono` dependency, and every user is ported: `hadris-block` detects on a `BlockDevice` and opens `FatFs` (an early part of step 11), `hadris-fat-cli` runs on `FatFs`, `check_with`, `cluster_chain` and the `hadris-fs` host helpers, and the fuzz targets and examples drive `FatFs`. The exFAT preview keeps its API on `hadris_io::legacy` with its own `exfat::Error` until step 12. Follow-ups: a library `analysis` module (the CLI computes fragmentation from `cluster_chain`), `set_label`, `fat_attributes`, and repair in 3.x.
    Spec compliance pass, done: mode, uid and gid stay ignored, as the `FsDriver::set_metadata` contract says and `copy_tree` and `import_from_host` rely on, with `Capabilities` reporting neither. A rename onto an existing target gives the result the requested name and case, as Windows and mtools do (Linux `vfat` keeps the target's), and reuses the target's slots so a full FAT12/16 root still accepts it. Short-name tails stay `~1` to `~4`, then take the Windows layout, two basis characters, four hashed hex digits and `~1` to `~9` (`LO1A2F~1.TXT`), instead of `LO~1A2F`. Renamed files get the archive bit, and the conformance model sets it on rename and on any change of contents or size. Names with a trailing dot or space stay refused with `InvalidInput`, so a created name is always the listed name; the specification says they are ignored, and Windows, Linux `vfat` (dots only) and mtools strip them.
-6. **Freeze the traits.** Review `hadris-fs` against FAT, the conformance adapter and a prototype FUSE adapter before any other format ports.
+6. **Freeze the traits.** Review `hadris-fs` against FAT, the conformance adapter and a prototype FUSE adapter before any other format ports. Done: [`v3-trait-review.md`](v3-trait-review.md) records the review, and the traits are frozen; later additions follow R10 and section 4.14. A FUSE prototype (`experiments/fuse-prototype`, `fuser` 0.18) mounted `FatFs` in a Linux container and ran shell workloads, then `fsck.fat`. The changes: pins and opens are separate (`open_node`, `close_node`), and only the last name of an open node is `Busy` (Q3); `remove` takes a `RemoveKind`; `ErrorKind` gains `NameTooLong` and `FileTooLarge`; `publish_node` writes pending metadata without a device flush while `sync_node` is durable, and the host `File` device's flush calls `sync_data`; `NodeId` 0 and cursors above `DirCursor::MAX_RAW` are ruled out; a listed id is the id `lookup` returns (a FAT id is now slot plus tier); the contract gained sentences on times, pending fields, cancellation and zone-less times; R10 gained rules for growing the traits and a forwarding test; `Metadata` stays `Copy` and `extra()` is dropped; sync `hadris-vfs` erases through `dyn FileSystem`; the `contract` feature adds a driver test kit that the test driver and `FatFs` pass; and `MountOptions::with_read_only()` lost its bool (R9).
 7. **Errors and the R1/R2/R4/R5 pass, crate by crate.**
 8. **`hadris-part`.** `Disk`, `DiskLayout`, `MbrType`, GUIDs, CRC always on, EBR.
 9. **`hadris-iso`.** Unified reader, `IsoView`, `IsoOptions`, `Tree` input, report, sessions, async writer.
@@ -1170,12 +1222,16 @@ covers three modes. When return type notation is stable, `SendFileSystem`
 aliases over the `async` traits replace the mode as a deprecation, not a
 break, because the `async` traits never change. Decided: add the mode.
 
-**Q3. Removing an open file.** Resolved: `ErrorKind::Busy`. POSIX semantics
-(entry gone, clusters freed at the last `forget`) need orphan tracking, and a
-crash leaves lost clusters that fsck has to reclaim. `remove` on a node with
-live pins fails with `Busy` instead, and the `FsDriver` and `FileSystem`
-docs say so. Deferred freeing can come later without a break, since it only
-turns an error into a success.
+**Q3. Removing an open file.** Resolved, revised in step 6. POSIX semantics
+(entry gone, clusters freed at the last close) need orphan tracking, and a
+crash leaves lost clusters that fsck has to reclaim, so removing the last
+name of an open node fails with `ErrorKind::Busy`. The first answer made any
+pin block removal; the FUSE prototype showed that a kernel pins every cached
+name, so every `rm` failed. Now a node is open between `open_node` and
+`close_node` (as `File` and `OpenFile` hold it), a pinned node that is only
+looked up is removed, and its id answers `NotFound` until its last `forget`.
+Orphans can come in 3.x without a break, since they only turn `Busy` into a
+success.
 
 **Q4. MSRV.** `core::error::Error` needs 1.81 and `async fn` in traits 1.75, so
 the current 1.88 works. Raise it only if `dyn`-compatible async traits
