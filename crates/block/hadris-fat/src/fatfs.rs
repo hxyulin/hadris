@@ -1637,7 +1637,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         })
     }
 
-    /// A short name with a hashed `~HHHH` tail that no entry of `dir` has.
+    /// A short name with a hashed `HHHH~N` tail that no entry of `dir` has.
     async fn hashed_short(&mut self, dir: DirStart, text: &str, skip: Skip) -> FsResult<[u8; 11], D::Error> {
         for suffix in 5..=u8::MAX {
             let Some(mut candidate) = short_name::generate(text, suffix, |ch| self.code_page.encode(ch)) else {

@@ -304,7 +304,7 @@ fn short_name_collisions_get_numeric_then_hashed_tails() {
     for case in [CASES[0], CASES[2]] {
         let mut fs = open(case, common::blank(case));
         let root = fs.root();
-        let texts: Vec<String> = (0..7).map(|i| format!("long file name {i}.txt")).collect();
+        let texts: Vec<String> = (0..15).map(|i| format!("long file name {i}.txt")).collect();
         for text in &texts {
             let node = create(&mut fs, root, text, NewNode::File);
             write_all(&mut fs, node, 0, text.as_bytes());
@@ -332,8 +332,12 @@ fn short_name_collisions_get_numeric_then_hashed_tails() {
             assert_eq!(short, format!("LONGFI~{}TXT", i + 1).as_bytes());
         }
         for short in &shorts[4..] {
-            assert_eq!(&short[..3], b"LO~", "{:?}", String::from_utf8_lossy(short));
-            assert!(short[3..7].iter().all(u8::is_ascii_hexdigit));
+            let shown = String::from_utf8_lossy(short);
+            assert_eq!(&short[..2], b"LO", "{shown}");
+            assert!(short[2..6].iter().all(u8::is_ascii_hexdigit), "{shown}");
+            assert_eq!(short[6], b'~', "{shown}");
+            assert!((b'1'..=b'9').contains(&short[7]), "{shown}");
+            assert_eq!(&short[8..], b"TXT", "{shown}");
         }
         let mut unique = shorts.clone();
         unique.sort();
