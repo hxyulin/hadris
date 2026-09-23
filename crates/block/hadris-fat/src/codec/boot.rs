@@ -53,10 +53,13 @@ pub(crate) struct Geometry {
 }
 
 impl Geometry {
-    /// Byte offset of `cluster`'s first byte. `cluster` must be a data
-    /// cluster.
-    pub(crate) const fn cluster_offset(&self, cluster: u32) -> u64 {
-        self.data_start + (cluster - FIRST_DATA_CLUSTER) as u64 * self.cluster_size as u64
+    /// Byte offset of `cluster`'s first byte, or `None` when `cluster` is
+    /// not a data cluster.
+    pub(crate) const fn cluster_offset(&self, cluster: u32) -> Option<u64> {
+        if cluster < FIRST_DATA_CLUSTER || cluster > self.max_cluster {
+            return None;
+        }
+        Some(self.data_start + (cluster - FIRST_DATA_CLUSTER) as u64 * self.cluster_size as u64)
     }
 }
 
@@ -289,8 +292,11 @@ mod tests {
         );
         assert_eq!(geo.data_start, 33 * 512);
         assert_eq!(geo.max_cluster, 2880 - 33 + 1);
-        assert_eq!(geo.cluster_offset(2), geo.data_start);
-        assert_eq!(geo.cluster_offset(3), geo.data_start + 512);
+        assert_eq!(geo.cluster_offset(2), Some(geo.data_start));
+        assert_eq!(geo.cluster_offset(3), Some(geo.data_start + 512));
+        assert_eq!(geo.cluster_offset(0), None);
+        assert_eq!(geo.cluster_offset(1), None);
+        assert_eq!(geo.cluster_offset(geo.max_cluster + 1), None);
     }
 
     #[test]

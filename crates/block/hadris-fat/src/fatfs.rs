@@ -808,7 +808,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             }
             let within = pos % cluster_size;
             let n = ((cluster_size - within) as usize).min(count - done);
-            let at = self.geo.cluster_offset(cluster) + within;
+            let at = self.cluster_at(cluster)? + within;
             read_bytes(&mut self.dev, &mut self.block, at, &mut buf[done..done + n]).await?;
             done += n;
         }
@@ -1043,6 +1043,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             Some(node) => *node,
             None => Node::new(src.offset, &src.entry, self.geo.kind),
         };
+        if src_node.dir {
+            self.check_cluster(src_node.first)?;
+        }
         if src_node.dir && self.is_within(to_start, src_node.first).await? {
             return Err(ErrorKind::InvalidInput.into());
         }
@@ -1690,7 +1693,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             let mut raw = [0u8; 2 * ENTRY_SIZE as usize];
             raw[..32].copy_from_slice(&dot.encode());
             raw[32..].copy_from_slice(&dot_dot.encode());
-            if let Err(err) = self.write(self.geo.cluster_offset(first), &raw).await {
+            let written = match self.cluster_at(first) {
+                Ok(at) => self.write(at, &raw).await,
+                Err(kind) => Err(kind.into()),
+            };
+            if let Err(err) = written {
                 let _ = self.free_chain(first).await;
                 return Err(err);
             }
@@ -1714,7 +1721,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     async fn set_dot_dot(&mut self, dir: u32, parent: u32) -> FsResult<(), D::Error> {
-        let at = self.geo.cluster_offset(dir) + ENTRY_SIZE;
+        let at = self.cluster_at(dir)? + ENTRY_SIZE;
         let mut entry = self.read_short(at).await?;
         if !entry.is_dot_dot() {
             return Err(ErrorKind::Corrupt.into());
@@ -1897,8 +1904,10 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let cluster = self.allocate().await?;
         let mut result = Ok(());
         if zero {
-            let at = self.geo.cluster_offset(cluster);
-            result = self.put(at, None, self.geo.cluster_size as usize).await;
+            result = match self.cluster_at(cluster) {
+                Ok(at) => self.put(at, None, self.geo.cluster_size as usize).await,
+                Err(kind) => Err(kind.into()),
+            };
         }
         if result.is_ok() && prev != 0 {
             result = self.set_fat(prev, cluster).await;
@@ -2011,7 +2020,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             }
             let within = at % cluster_size;
             let n = ((cluster_size - within) as usize).min(len - done);
-            let offset = self.geo.cluster_offset(cluster) + within;
+            let offset = self.cluster_at(cluster)? + within;
             self.put(offset, data.map(|data| &data[done..done + n]), n).await?;
             done += n;
         }
@@ -2034,6 +2043,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         } else {
             Err(ErrorKind::Corrupt)
         }
+    }
+
+    /// Byte offset of a data cluster; [`ErrorKind::Corrupt`] for any other.
+    fn cluster_at(&self, cluster: u32) -> Result<u64, ErrorKind> {
+        self.geo.cluster_offset(cluster).ok_or(ErrorKind::Corrupt)
     }
 
     fn pinned_at(&self, offset: u64) -> Option<NodeId> {
@@ -2168,7 +2182,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                     }
                 }
                 let within = (slot % per_cluster) as u64 * ENTRY_SIZE;
-                Ok(Some(self.geo.cluster_offset(walk.cluster) + within))
+                Ok(Some(self.cluster_at(walk.cluster)? + within))
             }
         }
     }
@@ -2207,7 +2221,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// The parent cluster recorded in the `..` entry of the directory at
     /// `first`, or `None` for the root.
     async fn dot_dot(&mut self, first: u32) -> FsResult<Option<u32>, D::Error> {
-        let offset = self.geo.cluster_offset(first) + ENTRY_SIZE;
+        let offset = self.cluster_at(first)? + ENTRY_SIZE;
         let Slot::Short(entry) = self.read_slot(offset).await? else {
             return Err(ErrorKind::Corrupt.into());
         };

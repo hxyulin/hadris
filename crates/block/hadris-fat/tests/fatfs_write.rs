@@ -1724,3 +1724,47 @@ fn a_zero_fsinfo_free_count_does_not_stop_allocation() {
     assert_eq!(fresh_read(case, &image, "/X.BIN"), b"hi");
     assert_eq!(free(&mut common::mount(case, &image)), actual - 1);
 }
+
+#[test]
+fn renaming_a_directory_with_a_reserved_first_cluster_fails_cleanly() {
+    for case in &CASES[..3] {
+        for bad in [0u32, 1] {
+            let mut fs = open(*case, common::blank(*case));
+            let root = fs.root();
+            for text in ["D", "S", "T"] {
+                let node = create(&mut fs, root, text, NewNode::Dir);
+                fs.forget(node);
+            }
+            let s = fs.lookup(root, name("S")).unwrap();
+            let t = create(&mut fs, s, "T", NewNode::Dir);
+            fs.forget(t);
+            fs.forget(s);
+            fs.sync().unwrap();
+            let mut image = image(fs);
+            let at = image
+                .chunks_exact(32)
+                .position(|entry| &entry[..11] == b"D          ")
+                .unwrap()
+                * 32;
+            image[at + 20..at + 22].fill(0);
+            image[at + 26..at + 28].copy_from_slice(&(bad as u16).to_le_bytes());
+
+            let mut fs = open(*case, image.clone());
+            let root = fs.root();
+            let s = fs.lookup(root, name("S")).unwrap();
+            for (to_dir, to) in [(s, "D"), (s, "T"), (root, "E"), (root, "T")] {
+                assert_eq!(
+                    fs.rename(root, name("D"), to_dir, name(to), RenameFlags::empty())
+                        .unwrap_err()
+                        .kind(),
+                    ErrorKind::Corrupt,
+                    "{} cluster {bad} to {to}",
+                    case.name
+                );
+            }
+            fs.forget(s);
+            fs.sync().unwrap();
+            assert!(fs.into_inner().into_inner() == image, "{}", case.name);
+        }
+    }
+}

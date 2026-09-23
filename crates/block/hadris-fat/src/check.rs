@@ -502,7 +502,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage, F: FnMut(Finding)> Che
     /// it.
     async fn may_enter(&mut self, parent: &Dir, slot: u32, entry: u64, cluster: u32) -> FsResult<bool, D::Error> {
         let kind = self.fs.geo.kind;
-        let at = self.fs.geo.cluster_offset(cluster);
+        let at = self.fs.cluster_at(cluster)?;
         let dot = match self.fs.read_slot(at).await? {
             Slot::Short(dot) => dot.name == DOT && dot.is_dir() && dot.first_cluster(kind) == cluster,
             _ => false,
@@ -521,7 +521,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage, F: FnMut(Finding)> Che
     /// after the entry naming `dir`.
     async fn ascend(&mut self, dir: &Dir) -> FsResult<(Dir, u32), D::Error> {
         let kind = self.fs.geo.kind;
-        let at = self.fs.geo.cluster_offset(dir.cluster) + ENTRY_SIZE;
+        let at = self.fs.cluster_at(dir.cluster)? + ENTRY_SIZE;
         let Slot::Short(up) = self.fs.read_slot(at).await? else {
             return Err(ErrorKind::Corrupt.into());
         };
