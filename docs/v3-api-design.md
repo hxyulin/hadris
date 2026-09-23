@@ -538,6 +538,24 @@ handle reaches the filesystem, through a small `Access` trait implemented for
 `&mut D`, `&F`, `Rc<F>`, `Arc<F>` and `Volume` by value. Users name `Access`
 only in generic code over handles.
 
+```rust
+pub trait Access {
+    type DeviceError: ..;
+    type Driver: FsDriver<DeviceError = Self::DeviceError>;
+    fn into_driver(self) -> Self::Driver;
+}
+// &mut D -> &mut D, &F -> &F, Arc<F> / Rc<F> / Volume -> AsDriver<Self>
+pub struct AsDriver<F>(F);      // FsDriver for a FileSystem held by value; Deref<Target = F>
+```
+
+The handle stores `A::Driver`, and `file.driver()` returns `&mut A::Driver`.
+The prototype's first `Access` had a lifetime GAT (`type Driver<'a>`), and a
+handle holding that projection across an `.await` could not be spawned, even
+for a concrete `File<&Volume<..>>` (E2: "implementation of `Access` is not
+general enough"). Implementing `FsDriver` directly on `Arc<F>` and `Volume`
+instead makes `vol.root()` ambiguous, since both traits have it, hence
+`AsDriver`.
+
 - `File` implements `hadris_io::{Read, Write, Seek}` and, with `std`, the `std::io` traits for any device error (4.6). `Dir` is an `Iterator` in sync builds and has `next_entry` in async builds.
 - `OpenOptions { read, write, append, truncate, create, create_new }` makes overwrite semantics explicit (#90, #91). Opening for writing fails with `ReadOnly` at open time when `capabilities().writable()` is false, before any truncation, instead of at the first write.
 - Opening a symlink node as a file (possible with `Lexical`, which never follows links) fails with `ErrorKind::Symlink`, as POSIX `O_NOFOLLOW` fails with `ELOOP`.
@@ -715,7 +733,7 @@ Keep the `strip_async!` code generation and use it everywhere:
 - Only types that do I/O live in `sync` and `async`.
 - Every crate exposes the same public items in both modes. The parity check in R11 enforces it. V2 gaps to close: ISO async write and modify, exFAT async, CD async, UDF async writer, FAT cache on the async path (solved by `Cache<D>`), fsck in async.
 - `hadris-macros` gains span-preserving errors so contributors see the right line.
-- Traits in the async module use `async fn`. See [Q2](#7-open-questions) for the `Send` question.
+- Traits in the async module use `async fn`. See [Q2](#7-open-questions) for the `Send` question: the proposal is a third generated mode, `async_send`, whose futures are `Send`.
 
 ### 4.9 Feature flags
 
@@ -837,7 +855,7 @@ Each row is a deliberate trade, what it buys, and what a user does about it.
 | `read_exact`/`write_all` return `ExactError<E>` | Short reads and zero-length writes need their own cases, as in embedded-io | `?` converts into `Error<E>` |
 | `Access` appears in generic code over handles | One `File` type serves all tiers | `fn f<A: Access>(file: &mut File<A>)` |
 | `Dir` is not an `Iterator` in async builds | No async iterator in core | `next_entry().await` |
-| Async futures from generic code are not provably `Send` | `async fn` in traits | See [Q2](#7-open-questions) |
+| Async futures from generic code are not provably `Send` in the `async` mode | `async fn` in traits; `+ Send` would reject every non-`Send` device, including embedded-io-async ones | Use the `async_send` mode ([Q2](#7-open-questions)); spawn concrete types in `async` |
 
 Experiment E1 built the prototype for `thumbv7em-none-eabihf` with no
 allocator, with `alloc`, and with std. The raw tier that opens a FAT volume and
@@ -1096,11 +1114,30 @@ and device-typed errors (D). V3 takes D: 4.1 to 4.4, 4.6, 4.12 and 4.13
 describe it, and scenarios S1 to S16 are its acceptance tests.
 
 **Q2. `Send` futures.** `async fn` in traits does not let a generic caller
-require `Send` futures. Tokio users spawning tasks over a generic
-`F: FileSystem` hit this. Options: ship a `Send` variant generated with
-`trait_variant`, wait for return type notation, or document that the concrete
-volume types (whose futures are `Send` when the device is) are what to spawn
-over. Recommendation: generate both variants in the async module.
+require `Send` futures, so tokio code that spawns over a generic
+`F: FileSystem` does not compile (E2 baseline: 25 errors, "`<F as
+FileSystem>::sync` is an `async fn` in trait, which does not automatically
+imply that its future is `Send`"). E2 tried every option:
+
+| Option | Result |
+|---|---|
+| `trait_variant` 0.1.3 | Does not compile: default bodies are not wrapped in `async move`, and its blanket impl conflicts with the `&`, `&mut`, `Box` and `&F` forwarding impls |
+| The same pattern by hand | A format crate can implement the `Send` variant or the local one for `FatFs<D>`, not both, so "`Send` when the device is" cannot be written |
+| `+ Send` in the async traits | Works, but rejects every non-`Send` device: an `Rc` device, a `RefCell` volume, any embedded-io-async adapter |
+| Return type notation | Unstable (E0658 on 1.98.1). On nightly a blanket `SendFileSystem` alias works with no trait changes |
+| Spawn concrete types only | Works after the `Access` fix (4.3); a generic function that calls `spawn` cannot compile |
+| **A third mode, `async_send`** | Works. The same source is generated a third time by a `send_async!` macro that turns each trait `async fn` into `fn -> impl Future + Send` and adds `Send`/`Sync` supertraits. Users write `F: FileSystem + 'static` with no `Send` bounds; format crates write nothing |
+
+Proposal: the third mode, named `r#async::send` or similar, behind an
+additive feature. Costs: the code compiles a third time, `send_async!` is
+about 240 lines in `hadris-macros`, the mode needs its own lock trait
+(`LockKind::Lock<T: Send>`, an opaque guard) and a `MaybeSend` marker
+(`Volume<F: MaybeSend, K>`), `Rc` impls are left out of it, and R11 parity
+covers three modes. When return type notation is stable, `SendFileSystem`
+aliases over the `async` traits replace the mode as a deprecation, not a
+break, because the `async` traits never change. Still open: whether the
+third mode is worth its compile time, or whether 3.0 ships `async` only with
+"spawn concrete types" documented.
 
 **Q3. Removing an open file.** POSIX semantics (entry gone, clusters freed at
 the last `forget`) need orphan tracking, and a crash leaves lost clusters that
