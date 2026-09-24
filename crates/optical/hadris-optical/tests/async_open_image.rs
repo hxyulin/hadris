@@ -138,16 +138,16 @@ fn asynchronously_traverses_a_bridge_under_both_policies() {
 
     block_on(async {
         let mut source = hadris_io::Cursor::new(bytes.as_slice());
-        let opened = hadris_optical::r#async::OpenOpticalImage::open(
-            &mut source,
-            hadris_optical::OpenPolicy::Udf,
-        )
-        .await
-        .unwrap();
-        let mut opened = opened;
-        let udf = opened.as_udf_mut().unwrap();
-        assert_eq!(udf.read_to_vec("/DOCS/README.TXT").await.unwrap(), PAYLOAD);
-        drop(opened);
+        {
+            let mut opened = hadris_optical::r#async::OpenOpticalImage::open(
+                &mut source,
+                hadris_optical::OpenPolicy::Udf,
+            )
+            .await
+            .unwrap();
+            let udf = opened.as_udf_mut().unwrap();
+            assert_eq!(udf.read_to_vec("/DOCS/README.TXT").await.unwrap(), PAYLOAD);
+        }
 
         let opened = hadris_optical::r#async::OpenOpticalImage::open(
             &mut source,
