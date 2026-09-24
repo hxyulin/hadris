@@ -265,11 +265,17 @@ fn verify(path: &Path) -> Result<()> {
         .map_err(|error| format!("UDF namespace is not readable: {error}"))?;
 
     let mut view = iso.view(Namespace::Preferred)?;
-    let names_match = view.namespace() != Namespace::Primary;
+    let namespace = view.namespace();
+    let names_match = namespace != Namespace::Primary;
     let mut iso_nodes = BTreeMap::new();
     collect(&mut view, "", &mut iso_nodes)?;
     let mut udf_nodes = BTreeMap::new();
     collect(&mut udf, "", &mut udf_nodes)?;
+    if namespace == Namespace::RockRidge {
+        for name in relocation_dirs(&mut iso, &iso_nodes, &udf_nodes)? {
+            iso_nodes.remove(&name);
+        }
+    }
 
     if !names_match {
         println!("  ISO tree has only ISO 9660 identifiers; comparing contents, not names");
@@ -302,6 +308,42 @@ fn verify(path: &Path) -> Result<()> {
         iso_nodes.len()
     );
     Ok(())
+}
+
+/// Root directories of the Rock Ridge tree that hold relocated deep
+/// directories: absent from UDF, empty in the Rock Ridge view because their
+/// children are shown in their real place, and not empty in the primary tree.
+fn relocation_dirs(
+    iso: &mut IsoImage<File>,
+    iso_nodes: &BTreeMap<String, Node>,
+    udf_nodes: &BTreeMap<String, Node>,
+) -> Result<Vec<String>> {
+    let candidates: Vec<&String> = iso_nodes
+        .iter()
+        .filter(|(path, node)| {
+            **node == Node::Directory
+                && !path.contains('/')
+                && !udf_nodes.contains_key(*path)
+                && !iso_nodes.keys().any(|other| {
+                    other
+                        .strip_prefix(path.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'))
+                })
+        })
+        .map(|(path, _)| path)
+        .collect();
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut primary = iso.view(Namespace::Primary)?;
+    let mut found = Vec::new();
+    for path in candidates {
+        let mut children = primary.read_dir(&format!("/{path}"))?;
+        if children.next().is_some() {
+            found.push(path.clone());
+        }
+    }
+    Ok(found)
 }
 
 fn collect<F: FsDriver>(fs: &mut F, prefix: &str, nodes: &mut BTreeMap<String, Node>) -> Result<()>

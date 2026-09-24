@@ -166,6 +166,31 @@ fn create_stores_symbolic_links_with_rock_ridge() {
 }
 
 #[test]
+fn verify_accepts_a_rock_ridge_image_with_relocated_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source");
+    let deep = source.join("a/b/c/d/e/f/g/h/i");
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(deep.join("leaf.txt"), b"deep").unwrap();
+    std::fs::write(source.join("top.txt"), b"top").unwrap();
+    let image = temp.path().join("rr.iso");
+    let binary = env!("CARGO_BIN_EXE_hadris-cd");
+
+    let created = Command::new(binary)
+        .args(["create", "-R", source.to_str().unwrap(), "--output"])
+        .arg(&image)
+        .output()
+        .unwrap();
+    assert!(created.status.success(), "{created:?}");
+    let verified = Command::new(binary)
+        .arg("verify")
+        .arg(&image)
+        .output()
+        .unwrap();
+    assert!(verified.status.success(), "{verified:?}");
+}
+
+#[test]
 fn failed_create_leaves_no_output_and_keeps_existing_files() {
     let temp = tempfile::tempdir().unwrap();
     let source = temp.path().join("source");

@@ -948,6 +948,9 @@ Each published package owns its version and may be released independently.
   with a name that is too long emptied it) or leaves a partial image
   behind. An existing device or other non-regular file is still written in
   place, and `hadris-fat create` still refuses an existing output.
+- **hadris-cd-cli:** `verify` accepts a Rock Ridge image whose deep
+  directories were relocated: the relocation directory, which only the ISO
+  side holds, is no longer reported as a mismatch.
 
 ## [2.4.0] - 2026-09-08
 
