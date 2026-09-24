@@ -462,6 +462,17 @@ jobs:
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
+      - name: Attach a loop device for the disk size tests
+        if: runner.os == 'Linux'
+        run: |
+          truncate -s 4M "$RUNNER_TEMP/disk.img"
+          dev=$(sudo losetup --find --show "$RUNNER_TEMP/disk.img")
+          sudo chmod a+r "$dev"
+          {
+            echo "HADRIS_TEST_DISK=$dev"
+            echo "HADRIS_TEST_DISK_LEN=4194304"
+            echo "HADRIS_REQUIRE_TEST_DISK=1"
+          } >> "$GITHUB_ENV"
       - name: Run all-feature tests
         if: runner.os != 'Windows'
         run: cargo test --workspace --all-features --tests
@@ -483,6 +494,58 @@ jobs:
         run: cargo test -p hadris-optical --all-features --test open_image --test async_open_image
       - name: Run CPIO async writer integration test
         run: cargo test -p hadris-cpio --all-features --test async_writer
+
+  # A disk device node reports no size through its metadata, so
+  # `hadris_storage::file_len` asks the OS. These jobs attach a real device
+  # where the platform needs its own request.
+  test-device-freebsd:
+    name: Test disk device size (FreeBSD)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Measure an md device in a FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y curl
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.88.0
+          run: |
+            set -e
+            . "$HOME/.cargo/env"
+            truncate -s 4M /tmp/disk.img
+            dev=/dev/$(mdconfig -a -t vnode -f /tmp/disk.img)
+            export RUSTUP_TOOLCHAIN=1.88.0 HADRIS_REQUIRE_TEST_DISK=1
+            export HADRIS_TEST_DISK="$dev" HADRIS_TEST_DISK_LEN=4194304
+            cargo test -p hadris-storage --lib device_tests
+            cargo test -p hadris-fs --features std,sync --test tree content_path
+
+  test-device-windows:
+    name: Test disk device size (Windows)
+    runs-on: windows-latest
+    env:
+      HADRIS_REQUIRE_TEST_DISK: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Attach a VHD
+        shell: pwsh
+        run: |
+          $vhd = Join-Path $env:RUNNER_TEMP "disk.vhd"
+          $script = Join-Path $env:RUNNER_TEMP "attach.txt"
+          "create vdisk file=`"$vhd`" maximum=4 type=fixed`r`nattach vdisk" | Set-Content -Encoding ascii $script
+          diskpart /s $script
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $disk = Get-DiskImage -ImagePath $vhd | Get-Disk
+          "HADRIS_TEST_DISK=\\.\PhysicalDrive$($disk.Number)" >> $env:GITHUB_ENV
+          "HADRIS_TEST_DISK_LEN=$($disk.Size)" >> $env:GITHUB_ENV
+      - name: Measure the VHD as a block device
+        run: cargo test -p hadris-storage --lib device_tests
+      - name: Read the VHD as tree content
+        run: cargo test -p hadris-fs --features std,sync --test tree content_path
 
   test-exfat:
     name: Test exFAT (with external tools)

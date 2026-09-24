@@ -505,3 +505,4 @@ pub fn alloc::vec::Vec<u8>::bytes_mut(&mut self) -> core::option::Option<&mut [u
 impl<const N: usize> hadris_storage::MemBuffer for [u8; N]
 pub fn [u8; N]::bytes(&self) -> &[u8]
 pub fn [u8; N]::bytes_mut(&mut self) -> core::option::Option<&mut [u8]>
+pub fn hadris_storage::file_len(&std::fs::File) -> core::io::error::Result<u64>

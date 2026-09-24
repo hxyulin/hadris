@@ -963,12 +963,19 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
-- **hadris-storage (V3):** On macOS a `std::fs::File` opened on a disk
-  device node such as `/dev/disk4` reports its size from the
-  `DKIOCGETBLOCKCOUNT` and `DKIOCGETBLOCKSIZE` ioctls. `stat` and `lseek`
-  give 0 there, so the device had no blocks and every image on it failed to
-  open. The `hadris-iso verify` command measures its input the same way
-  instead of from file metadata, which is 0 for devices on Linux too.
+- **hadris-storage (V3):** A `std::fs::File` opened on a disk device
+  reports its size on every platform, through the new
+  `hadris_storage::file_len`: the `DKIOCGETBLOCKCOUNT` and
+  `DKIOCGETBLOCKSIZE` ioctls on macOS, `DIOCGMEDIASIZE` on FreeBSD,
+  `IOCTL_DISK_GET_LENGTH_INFO` on Windows (`\\.\PhysicalDriveN` and volume
+  paths) and a seek to the end elsewhere. `stat` and `lseek` give 0 for such
+  devices, so they had no blocks and every image on them failed to open.
+  `file_len` fails with `ErrorKind::Unsupported` instead of returning 0 for
+  a device it cannot measure. The `hadris-iso verify` command measures its
+  input the same way instead of from file metadata.
+- **hadris-fs (V3):** A disk device given as `Content::path` is read in
+  full. Its length came from file metadata, so it was stored as an empty
+  file.
 - **hadris-fs (V3):** `TreeExt::from_filesystem`, `copy_tree` and
   `extract_to_host` fail with `ErrorKind::Corrupt` when a directory entry
   leads back to a directory on its own path, as a corrupt ISO 9660 or UDF

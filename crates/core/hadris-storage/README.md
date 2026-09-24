@@ -30,9 +30,10 @@ implements `block_size`, `block_count` and `read_blocks`, and nothing else.
 ## Opening an image
 
 A host file is a device with 512-byte blocks, and its errors are the
-`std::io::Error` itself. Disk device nodes such as `/dev/sdb` or
-`/dev/disk4` work too; on macOS their size comes from the disk ioctls,
-since `stat` and `lseek` report 0:
+`std::io::Error` itself. Disk devices such as `/dev/sdb`, `/dev/disk4`,
+`/dev/md0` or `\\.\PhysicalDrive1` work too: `file_len` measures them with
+the platform's disk size request (seeking to the end on Linux), since their
+metadata reports 0, and fails rather than report 0 bytes when it cannot:
 
 ```rust,no_run
 use hadris_storage::BlockIndex;

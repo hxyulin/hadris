@@ -24,6 +24,8 @@ mod cache;
 mod device;
 mod error;
 mod geometry;
+#[cfg(feature = "std")]
+mod host;
 mod scratch;
 
 #[cfg(feature = "async")]
@@ -53,3 +55,5 @@ pub mod sync;
 pub use device::{MemBuffer, MemDevice, ReadOnly};
 pub use error::{OutOfRange, StorageError, WriteError};
 pub use geometry::{BlockCount, BlockGeometry, BlockIndex, BlockRange, BlockSize};
+#[cfg(feature = "std")]
+pub use host::file_len;
