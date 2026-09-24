@@ -48,13 +48,18 @@ fn mount_rejects_bad_boot_sectors() {
         let mut image = base.clone();
         patch(&mut image);
         common::seal_boot(&mut image, 512);
-        assert_eq!(mount_err(image), ErrorKind::Corrupt, "{what}");
+        let want = match what {
+            "name" => ErrorKind::NotRecognized,
+            _ => ErrorKind::Corrupt,
+        };
+        assert_eq!(mount_err(image), want, "{what}");
     }
     let mut image = base.clone();
     let at = geo.root_entries(&image, 0x82)[0];
     put32(&mut image, at + 20, 0);
     assert_eq!(mount_err(image), ErrorKind::Corrupt, "up-case table");
     let err = ExFatFs::open(common::device(vec![0u8; 1 << 20], 512)).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::NotRecognized);
     assert_eq!(
         err.into_device().into_inner().len(),
         1 << 20,
@@ -90,7 +95,11 @@ fn damaged_main_boot_regions_mount_from_the_backup() {
         );
         assert_eq!(created.unwrap_err().kind(), ErrorKind::ReadOnly, "{what}");
         damage(&mut image[12 * 512..]);
-        assert_eq!(mount_err(image), ErrorKind::Corrupt, "{what} in both");
+        let want = match what {
+            "name" => ErrorKind::NotRecognized,
+            _ => ErrorKind::Corrupt,
+        };
+        assert_eq!(mount_err(image), want, "{what} in both");
     }
 }
 

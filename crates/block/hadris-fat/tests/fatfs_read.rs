@@ -497,7 +497,10 @@ fn rejects_what_it_cannot_mount() {
         ErrorKind::Unsupported
     );
     let blank = common::device(case, vec![0u8; 64 * 1024]);
-    assert_eq!(FatFs::open(blank).unwrap_err().kind(), ErrorKind::Corrupt);
+    assert_eq!(
+        FatFs::open(blank).unwrap_err().kind(),
+        ErrorKind::NotRecognized
+    );
     let truncated = common::device(case, image[..image.len() / 2].to_vec());
     assert_eq!(
         FatFs::open(truncated).unwrap_err().kind(),
@@ -515,10 +518,10 @@ fn failed_opens_give_the_device_back() {
     let images = [vec![0u8; 64 * 1024], corrupt];
     for image in images {
         let err = FatFs::open(common::device(case, image.clone())).unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::Corrupt);
+        assert_eq!(err.kind(), ErrorKind::NotRecognized);
         assert_eq!(err.device().get_ref(), &image);
         let (error, dev) = err.into_parts();
-        assert_eq!(error.kind(), ErrorKind::Corrupt);
+        assert_eq!(error.kind(), ErrorKind::NotRecognized);
         assert_eq!(dev.into_inner(), image);
 
         let options = MountOptions::new().with_read_only();
@@ -549,13 +552,13 @@ fn mount_errors_convert_with_the_question_mark() {
     }
     let case = CASES[0];
     let blank = || common::device(case, vec![0u8; 4096]);
-    assert_eq!(plain(blank()).unwrap_err().kind(), ErrorKind::Corrupt);
+    assert_eq!(plain(blank()).unwrap_err().kind(), ErrorKind::NotRecognized);
     assert_eq!(
         io(blank()).unwrap_err().kind(),
         std::io::ErrorKind::InvalidData
     );
     let err = boxed(blank()).unwrap_err();
-    assert_eq!(err.to_string(), ErrorKind::Corrupt.to_string());
+    assert_eq!(err.to_string(), ErrorKind::NotRecognized.to_string());
     assert!(format!("{:?}", FatFs::open(blank()).unwrap_err()).starts_with("MountError"));
 }
 

@@ -64,6 +64,13 @@
 //!
 //! The on-disk headers are in [`raw`].
 //!
+//! Reading fails with [`hadris_fs::Error`]; [`Detail::of`] names the
+//! field at fault, and an archive whose first header has no cpio magic
+//! fails with
+//! [`ErrorKind::NotRecognized`](hadris_fs::ErrorKind::NotRecognized).
+//! Writing fails with [`hadris_fs::PathError`], which carries the path of
+//! the entry that failed; [`Detail::from_code`] reads its detail.
+//!
 //! ## Features
 //!
 //! | Feature | Default | Description |
@@ -160,5 +167,5 @@ pub mod async_send;
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use entry::{NewEntry, Report};
-pub use error::{Detail, Error};
+pub use error::Detail;
 pub use options::{CpioOptions, Format, ReaderOptions};

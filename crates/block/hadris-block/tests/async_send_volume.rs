@@ -5,13 +5,14 @@ use core::task::{Context, Poll};
 use std::sync::Arc;
 use std::task::{Wake, Waker};
 
+use hadris_block::Detail;
 use hadris_block::async_send::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
 use hadris_block::part::async_send::open;
 use hadris_block::part::{Disk, Mbr, MbrEntry, MbrType, Partition};
-use hadris_block::{Detail, Error, OpenError};
 use hadris_fat::{FatKind, FormatOptions};
 use hadris_fs::async_send::DriverExt;
+use hadris_fs::{Error, ErrorKind, MountError};
 use hadris_storage::async_send::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 
@@ -83,8 +84,8 @@ fn opens_fat_through_an_mbr_partition() {
         );
         let err = OpenVolume::open(&mut disk).await.err().unwrap();
         assert_eq!(
-            err.error().detail(),
-            Some(Detail::PartitionedDisk(PartitionTableKind::Mbr))
+            err.error().detail().and_then(Detail::from_code),
+            Some(Detail::PartitionedDisk)
         );
 
         let partition = open(&mut disk, &entry).unwrap();
@@ -126,21 +127,17 @@ fn failures_give_the_device_back() {
             .unwrap()
             .into_parts();
         assert!(matches!(
-            error.detail(),
-            Some(Detail::FormatMismatch {
-                detected: FatVariant::Fat32,
-                opened: FatVariant::Fat12,
-                ..
-            })
+            error.detail().and_then(Detail::from_code),
+            Some(Detail::FormatMismatch)
         ));
         assert_eq!(dev.get_ref().len(), VOLUME_LEN);
 
         let error: Error<_> = OpenVolume::open(device(vec![0_u8; 1024]))
             .await
-            .map_err(OpenError::into_error)
+            .map_err(MountError::into_error)
             .err()
             .unwrap();
-        assert_eq!(error.detail(), Some(Detail::UnknownFormat));
+        assert_eq!(error.kind(), ErrorKind::NotRecognized);
 
         let (_, past) = mbr_partition(8192, 4096, 16);
         let mut dev = dev;
@@ -154,10 +151,7 @@ fn failures_give_the_device_back() {
             .err()
             .unwrap()
             .into_parts();
-        assert_eq!(
-            error.detail(),
-            Some(Detail::Mount(BlockFormat::Fat(FatVariant::Fat12)))
-        );
+        assert_eq!(error.detail().and_then(Detail::from_code), None);
         assert_eq!(dev.into_inner(), image);
     });
 }

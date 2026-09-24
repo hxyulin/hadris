@@ -20,7 +20,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = ["std", "sync"]
 # `PathError` conversions.
 alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
-# Implies `alloc`; `std::io::Error` conversions.
+# Implies `alloc`.
 std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync"]
 async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async"]

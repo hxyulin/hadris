@@ -347,10 +347,7 @@ impl Gpt {
         self.entries
             .get(index)
             .filter(|e| !e.is_unused())
-            .ok_or(TableError::new(
-                ErrorKind::NotFound,
-                Detail::NoSuchPartition { index },
-            ))
+            .ok_or(TableError::new(ErrorKind::NotFound, Detail::NoSuchPartition).at(index))
     }
 
     fn edit(&mut self, index: usize, f: impl FnOnce(&mut GptEntry)) -> Result<(), TableError> {
@@ -379,9 +376,9 @@ impl Gpt {
         let end = entry
             .start
             .checked_add(entry.len)
-            .ok_or(TableError::invalid(Detail::OutOfBounds { index }))?;
+            .ok_or(TableError::invalid(Detail::OutOfBounds).at(index))?;
         if entry.start < self.first_usable || end - 1 > self.last_usable {
-            return Err(TableError::invalid(Detail::OutOfBounds { index }));
+            return Err(TableError::invalid(Detail::OutOfBounds).at(index));
         }
         for (other, existing) in self.entries.iter().enumerate() {
             if other == index || existing.is_unused() {
@@ -390,7 +387,9 @@ impl Gpt {
             let first = existing.first_lba();
             let last = existing.last_lba();
             if entry.start <= last && first < end {
-                return Err(TableError::invalid(Detail::Overlap { index, other }));
+                return Err(TableError::invalid(Detail::Overlap)
+                    .at(index)
+                    .overlapping(other));
             }
         }
         Ok(())

@@ -132,11 +132,11 @@ impl Info {
         let part = self
             .partitions()
             .get(usize::from(partition))
-            .ok_or(Error::corrupt(Detail::Partition))?;
+            .ok_or(Detail::Partition.corrupt())?;
         let bs = u64::from(self.block_size);
         let blocks = count.div_ceil(bs);
         if u64::from(block) + blocks > u64::from(part.len) {
-            return Err(Error::corrupt(Detail::Partition));
+            return Err(Detail::Partition.corrupt());
         }
         Ok((u64::from(part.start) + u64::from(block)) * bs)
     }
@@ -178,8 +178,8 @@ impl Icb {
         block_size: usize,
     ) -> Result<Self, Error<E>> {
         let data = &block[..block_size];
-        let tag = check_tag(data, None, at.block).map_err(|_| Error::corrupt(Detail::Icb))?;
-        let bad = || Error::corrupt(Detail::Icb);
+        let tag = check_tag(data, None, at.block).map_err(|_| Detail::Icb.corrupt())?;
+        let bad = || Detail::Icb.corrupt();
         let (fixed, header): (usize, Header) = match tag.identifier.get() {
             tag::FILE_ENTRY => {
                 let fe: FileEntry = bytemuck::pod_read_unaligned(data.get(..176).ok_or_else(bad)?);

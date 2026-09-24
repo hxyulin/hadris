@@ -1,16 +1,16 @@
 pub mod hadris_part
 pub mod hadris_part::async
-pub async fn hadris_part::async::create<D: hadris_storage::async::api::BlockDevice>(&mut D, &hadris_part::DiskLayout) -> core::result::Result<hadris_part::Disk, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_part::async::open<D: hadris_storage::async::api::BlockDevice>(D, &hadris_part::Partition) -> core::result::Result<hadris_storage::async::api::Slice<D>, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_part::async::read<D: hadris_storage::async::api::BlockDevice>(&mut D) -> core::result::Result<hadris_part::Disk, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_part::async::scan<D: hadris_storage::async::api::BlockDevice>(&mut D, impl core::ops::function::FnMut(hadris_part::Partition) -> core::ops::control_flow::ControlFlow<()>) -> core::result::Result<hadris_part::TableKind, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_part::async::write<D: hadris_storage::async::api::BlockDevice>(&mut D, &hadris_part::Disk) -> core::result::Result<(), hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_part::async::create<D: hadris_storage::async::api::BlockDevice>(&mut D, &hadris_part::DiskLayout) -> core::result::Result<hadris_part::Disk, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_part::async::open<D: hadris_storage::async::api::BlockDevice>(D, &hadris_part::Partition) -> core::result::Result<hadris_storage::async::api::Slice<D>, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_part::async::read<D: hadris_storage::async::api::BlockDevice>(&mut D) -> core::result::Result<hadris_part::Disk, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_part::async::scan<D: hadris_storage::async::api::BlockDevice>(&mut D, impl core::ops::function::FnMut(hadris_part::Partition) -> core::ops::control_flow::ControlFlow<()>) -> core::result::Result<hadris_part::TableKind, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_part::async::write<D: hadris_storage::async::api::BlockDevice>(&mut D, &hadris_part::Disk) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub mod hadris_part::async_send
-pub async fn hadris_part::async_send::create<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &hadris_part::DiskLayout) -> core::result::Result<hadris_part::Disk, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_part::async_send::open<D: hadris_storage::async_send::api::BlockDevice>(D, &hadris_part::Partition) -> core::result::Result<hadris_storage::async_send::api::Slice<D>, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_part::async_send::read<D: hadris_storage::async_send::api::BlockDevice>(&mut D) -> core::result::Result<hadris_part::Disk, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_part::async_send::scan<D: hadris_storage::async_send::api::BlockDevice>(&mut D, impl core::ops::function::FnMut(hadris_part::Partition) -> core::ops::control_flow::ControlFlow<()>) -> core::result::Result<hadris_part::TableKind, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_part::async_send::write<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &hadris_part::Disk) -> core::result::Result<(), hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_part::async_send::create<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &hadris_part::DiskLayout) -> core::result::Result<hadris_part::Disk, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_part::async_send::open<D: hadris_storage::async_send::api::BlockDevice>(D, &hadris_part::Partition) -> core::result::Result<hadris_storage::async_send::api::Slice<D>, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_part::async_send::read<D: hadris_storage::async_send::api::BlockDevice>(&mut D) -> core::result::Result<hadris_part::Disk, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_part::async_send::scan<D: hadris_storage::async_send::api::BlockDevice>(&mut D, impl core::ops::function::FnMut(hadris_part::Partition) -> core::ops::control_flow::ControlFlow<()>) -> core::result::Result<hadris_part::TableKind, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_part::async_send::write<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &hadris_part::Disk) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub mod hadris_part::gpt
 pub mod hadris_part::gpt::types
 pub const hadris_part::gpt::types::APPLE_APFS: hadris_part::Guid
@@ -172,42 +172,44 @@ pub const hadris_part::raw::MBR_SIGNATURE: [u8; 2]
 pub fn hadris_part::raw::crc32(&[u8]) -> u32
 pub fn hadris_part::raw::gpt_header_crc(&[u8], u32) -> core::option::Option<u32>
 pub mod hadris_part::sync
-pub fn hadris_part::sync::create<D: hadris_storage::sync::api::BlockDevice>(&mut D, &hadris_part::DiskLayout) -> core::result::Result<hadris_part::Disk, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_part::sync::open<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_part::Partition) -> core::result::Result<hadris_storage::sync::api::Slice<D>, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_part::sync::read<D: hadris_storage::sync::api::BlockDevice>(&mut D) -> core::result::Result<hadris_part::Disk, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_part::sync::scan<D: hadris_storage::sync::api::BlockDevice>(&mut D, impl core::ops::function::FnMut(hadris_part::Partition) -> core::ops::control_flow::ControlFlow<()>) -> core::result::Result<hadris_part::TableKind, hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_part::sync::write<D: hadris_storage::sync::api::BlockDevice>(&mut D, &hadris_part::Disk) -> core::result::Result<(), hadris_part::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_part::sync::create<D: hadris_storage::sync::api::BlockDevice>(&mut D, &hadris_part::DiskLayout) -> core::result::Result<hadris_part::Disk, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_part::sync::open<D: hadris_storage::sync::api::BlockDevice>(D, &hadris_part::Partition) -> core::result::Result<hadris_storage::sync::api::Slice<D>, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_part::sync::read<D: hadris_storage::sync::api::BlockDevice>(&mut D) -> core::result::Result<hadris_part::Disk, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_part::sync::scan<D: hadris_storage::sync::api::BlockDevice>(&mut D, impl core::ops::function::FnMut(hadris_part::Partition) -> core::ops::control_flow::ControlFlow<()>) -> core::result::Result<hadris_part::TableKind, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_part::sync::write<D: hadris_storage::sync::api::BlockDevice>(&mut D, &hadris_part::Disk) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 #[non_exhaustive] pub enum hadris_part::Alignment
 pub hadris_part::Alignment::Block
 pub hadris_part::Alignment::Blocks(u64)
 pub hadris_part::Alignment::MiB1
 #[non_exhaustive] pub enum hadris_part::Detail
-pub hadris_part::Detail::BlockSize
-pub hadris_part::Detail::Bootstrap
-pub hadris_part::Detail::DiskTooSmall
-pub hadris_part::Detail::EbrChain
-pub hadris_part::Detail::Extended
-pub hadris_part::Detail::ExtendedInUse
-pub hadris_part::Detail::FieldOverflow
-pub hadris_part::Detail::Flags
-pub hadris_part::Detail::GptEntries
-pub hadris_part::Detail::GptEntriesCrc
-pub hadris_part::Detail::GptHeader
-pub hadris_part::Detail::GptHeaderCrc
-pub hadris_part::Detail::Kind
-pub hadris_part::Detail::MbrEntry
-pub hadris_part::Detail::Mirror
-pub hadris_part::Detail::Name
-pub hadris_part::Detail::NoSuchPartition
-pub hadris_part::Detail::NoSuchPartition::index: usize
-pub hadris_part::Detail::NoTable
-pub hadris_part::Detail::OutOfBounds
-pub hadris_part::Detail::OutOfBounds::index: usize
-pub hadris_part::Detail::Overlap
-pub hadris_part::Detail::Overlap::index: usize
-pub hadris_part::Detail::Overlap::other: usize
-pub hadris_part::Detail::Size
-pub hadris_part::Detail::TableFull
+pub hadris_part::Detail::BlockSize = 8
+pub hadris_part::Detail::Bootstrap = 22
+pub hadris_part::Detail::DiskTooSmall = 17
+pub hadris_part::Detail::EbrChain = 3
+pub hadris_part::Detail::Extended = 13
+pub hadris_part::Detail::ExtendedInUse = 14
+pub hadris_part::Detail::FieldOverflow = 18
+pub hadris_part::Detail::Flags = 20
+pub hadris_part::Detail::GptEntries = 6
+pub hadris_part::Detail::GptEntriesCrc = 7
+pub hadris_part::Detail::GptHeader = 4
+pub hadris_part::Detail::GptHeaderCrc = 5
+pub hadris_part::Detail::Kind = 19
+pub hadris_part::Detail::MbrEntry = 2
+pub hadris_part::Detail::Mirror = 16
+pub hadris_part::Detail::Name = 15
+pub hadris_part::Detail::NoSuchPartition = 12
+pub hadris_part::Detail::NoTable = 1
+pub hadris_part::Detail::OutOfBounds = 10
+pub hadris_part::Detail::Overlap = 9
+pub hadris_part::Detail::Size = 21
+pub hadris_part::Detail::TableFull = 11
+impl hadris_part::Detail
+pub const fn hadris_part::Detail::code(self) -> hadris_io::fs_error::DetailCode
+pub fn hadris_part::Detail::from_code(hadris_io::fs_error::DetailCode) -> core::option::Option<Self>
+pub fn hadris_part::Detail::of<E>(&hadris_io::fs_error::Error<E>) -> core::option::Option<Self>
+impl core::convert::From<hadris_part::Detail> for hadris_io::fs_error::DetailCode
+pub fn hadris_io::fs_error::DetailCode::from(hadris_part::Detail) -> Self
 impl core::fmt::Display for hadris_part::Detail
 pub fn hadris_part::Detail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub enum hadris_part::GptCopy
@@ -267,28 +269,6 @@ pub fn hadris_part::DiskLayout::hybrid(hadris_part::Guid) -> Self
 pub fn hadris_part::DiskLayout::mbr() -> Self
 pub fn hadris_part::DiskLayout::partition(self, hadris_part::PartitionSpec) -> Self
 pub fn hadris_part::DiskLayout::with_alignment(self, hadris_part::Alignment) -> Self
-pub struct hadris_part::Error<E>
-impl<E> hadris_part::Error<E>
-pub const fn hadris_part::Error<E>::detail(&self) -> core::option::Option<hadris_part::Detail>
-pub const fn hadris_part::Error<E>::device_error(&self) -> core::option::Option<&E>
-pub fn hadris_part::Error<E>::into_device_error(self) -> core::option::Option<E>
-pub const fn hadris_part::Error<E>::kind(&self) -> hadris_io::kind::ErrorKind
-pub fn hadris_part::Error<E>::map_device<F>(self, impl core::ops::function::FnOnce(E) -> F) -> hadris_part::Error<F>
-impl<E: core::cmp::Eq> core::cmp::Eq for hadris_part::Error<E>
-impl<E: core::cmp::PartialEq> core::cmp::PartialEq for hadris_part::Error<E>
-pub fn hadris_part::Error<E>::eq(&self, &Self) -> bool
-impl<E: core::error::Error + 'static> core::error::Error for hadris_part::Error<E>
-pub fn hadris_part::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_part::Error<E>> for core::io::error::Error
-pub fn core::io::error::Error::from(hadris_part::Error<E>) -> Self
-impl<E: core::fmt::Display> core::fmt::Display for hadris_part::Error<E>
-pub fn hadris_part::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_io::fs_error::Error<E>> for hadris_part::Error<E>
-pub fn hadris_part::Error<E>::from(hadris_io::fs_error::Error<E>) -> Self
-impl<E> core::convert::From<hadris_part::Error<E>> for hadris_io::fs_error::Error<E>
-pub fn hadris_io::fs_error::Error<E>::from(hadris_part::Error<E>) -> Self
-impl<E> core::convert::From<hadris_part::TableError> for hadris_part::Error<E>
-pub fn hadris_part::Error<E>::from(hadris_part::TableError) -> Self
 pub struct hadris_part::Gpt
 impl hadris_part::Gpt
 pub fn hadris_part::Gpt::add(&mut self, hadris_part::GptEntry) -> core::result::Result<usize, hadris_part::TableError>
@@ -564,7 +544,9 @@ pub fn hadris_part::Runs<'a>::size_hint(&self) -> (usize, core::option::Option<u
 pub struct hadris_part::TableError
 impl hadris_part::TableError
 pub const fn hadris_part::TableError::detail(&self) -> hadris_part::Detail
+pub const fn hadris_part::TableError::index(&self) -> core::option::Option<usize>
 pub const fn hadris_part::TableError::kind(&self) -> hadris_io::kind::ErrorKind
+pub const fn hadris_part::TableError::other(&self) -> core::option::Option<usize>
 impl core::convert::From<hadris_part::TableError> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_part::TableError) -> Self
 impl core::error::Error for hadris_part::TableError
@@ -572,5 +554,3 @@ impl core::fmt::Display for hadris_part::TableError
 pub fn hadris_part::TableError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<hadris_part::TableError> for hadris_io::fs_error::Error<E>
 pub fn hadris_io::fs_error::Error<E>::from(hadris_part::TableError) -> Self
-impl<E> core::convert::From<hadris_part::TableError> for hadris_part::Error<E>
-pub fn hadris_part::Error<E>::from(hadris_part::TableError) -> Self

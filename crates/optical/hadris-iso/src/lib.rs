@@ -59,6 +59,13 @@
 //! changes: as a new session after the old one ([`SessionMode::Append`]),
 //! or rebuilt in place ([`SessionMode::Rewrite`]).
 //!
+//! Reading fails with [`hadris_fs::Error`]; [`Detail::of`] names the
+//! structure or option at fault, and a device whose first volume descriptor
+//! is not ISO 9660 fails with
+//! [`ErrorKind::NotRecognized`](hadris_fs::ErrorKind::NotRecognized).
+//! Writing fails with [`hadris_fs::PathError`], which carries the path of
+//! the file whose content failed; [`Detail::from_code`] reads its detail.
+//!
 //! ## Features
 //!
 //! | Feature | Default | Description |
@@ -183,7 +190,7 @@ pub mod async_send;
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use boot::BootCatalog;
 pub use boot::{BootCatalogEntry, Emulation, Platform};
-pub use error::{Detail, Error};
+pub use error::Detail;
 pub use namespace::{JolietLevel, Namespace, Namespaces};
 #[cfg(feature = "alloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]

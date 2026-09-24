@@ -15,7 +15,7 @@ pub async fn hadris_udf::async::UdfFs<D>::open(D) -> core::result::Result<Self, 
 pub async fn hadris_udf::async::UdfFs<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::async::UdfFs<D>::partitions(&self) -> &[hadris_udf::Partition]
 pub async fn hadris_udf::async::UdfFs<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_udf::async::UdfFs<D>::read_bytes(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_udf::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_udf::async::UdfFs<D>::read_bytes(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub async fn hadris_udf::async::UdfFs<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_udf::async::UdfFs<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::async::UdfFs<D>::revision(&self) -> hadris_udf::UdfRevision
@@ -34,8 +34,8 @@ pub async fn hadris_udf::async::UdfFs<D>::read_dir_entry(&mut self, hadris_fs::n
 pub async fn hadris_udf::async::UdfFs<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::async::UdfFs<D>::root(&self) -> hadris_fs::node::NodeId
 pub async fn hadris_udf::async::UdfFs<D>::stats(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_udf::async::plan<C: hadris_fs::time::Clock>(&hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_udf::Error<core::convert::Infallible>>
-pub async fn hadris_udf::async::write<D: hadris_storage::async::api::BlockDevice, C: hadris_fs::time::Clock>(D, &hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_udf::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_udf::async::plan<C: hadris_fs::time::Clock>(&hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_fs::error::PathError>
+pub async fn hadris_udf::async::write<D: hadris_storage::async::api::BlockDevice, C: hadris_fs::time::Clock>(D, &hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_fs::error::PathError>
 pub mod hadris_udf::async_send
 pub struct hadris_udf::async_send::UdfFs<D>
 impl<D: hadris_storage::async_send::api::BlockDevice> hadris_udf::async_send::UdfFs<D>
@@ -52,7 +52,7 @@ pub async fn hadris_udf::async_send::UdfFs<D>::open(D) -> core::result::Result<S
 pub async fn hadris_udf::async_send::UdfFs<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::async_send::UdfFs<D>::partitions(&self) -> &[hadris_udf::Partition]
 pub async fn hadris_udf::async_send::UdfFs<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_udf::async_send::UdfFs<D>::read_bytes(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_udf::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_udf::async_send::UdfFs<D>::read_bytes(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub async fn hadris_udf::async_send::UdfFs<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_udf::async_send::UdfFs<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::async_send::UdfFs<D>::revision(&self) -> hadris_udf::UdfRevision
@@ -71,8 +71,8 @@ pub async fn hadris_udf::async_send::UdfFs<D>::read_dir_entry(&mut self, hadris_
 pub async fn hadris_udf::async_send::UdfFs<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::async_send::UdfFs<D>::root(&self) -> hadris_fs::node::NodeId
 pub async fn hadris_udf::async_send::UdfFs<D>::stats(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_udf::async_send::plan<C: hadris_fs::time::Clock>(&hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_udf::Error<core::convert::Infallible>>
-pub async fn hadris_udf::async_send::write<D: hadris_storage::async_send::api::BlockDevice, C: hadris_fs::time::Clock>(D, &hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_udf::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_udf::async_send::plan<C: hadris_fs::time::Clock>(&hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_fs::error::PathError>
+pub async fn hadris_udf::async_send::write<D: hadris_storage::async_send::api::BlockDevice, C: hadris_fs::time::Clock>(D, &hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_fs::error::PathError>
 pub mod hadris_udf::raw
 pub mod hadris_udf::raw::allocation
 pub const hadris_udf::raw::allocation::EMBEDDED: u16
@@ -742,7 +742,7 @@ pub fn hadris_udf::sync::UdfFs<D>::open(D) -> core::result::Result<Self, hadris_
 pub fn hadris_udf::sync::UdfFs<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::sync::UdfFs<D>::partitions(&self) -> &[hadris_udf::Partition]
 pub fn hadris_udf::sync::UdfFs<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_udf::sync::UdfFs<D>::read_bytes(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_udf::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_udf::sync::UdfFs<D>::read_bytes(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_udf::sync::UdfFs<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::sync::UdfFs<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::sync::UdfFs<D>::revision(&self) -> hadris_udf::UdfRevision
@@ -761,61 +761,40 @@ pub fn hadris_udf::sync::UdfFs<D>::read_dir_entry(&mut self, hadris_fs::node::No
 pub fn hadris_udf::sync::UdfFs<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_udf::sync::UdfFs<D>::root(&self) -> hadris_fs::node::NodeId
 pub fn hadris_udf::sync::UdfFs<D>::stats(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_udf::sync::plan<C: hadris_fs::time::Clock>(&hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_udf::Error<core::convert::Infallible>>
-pub fn hadris_udf::sync::write<D: hadris_storage::sync::api::BlockDevice, C: hadris_fs::time::Clock>(D, &hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_udf::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_udf::sync::plan<C: hadris_fs::time::Clock>(&hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_fs::error::PathError>
+pub fn hadris_udf::sync::write<D: hadris_storage::sync::api::BlockDevice, C: hadris_fs::time::Clock>(D, &hadris_fs::tree::Tree, &hadris_udf::UdfOptions<C>) -> core::result::Result<hadris_udf::Report, hadris_fs::error::PathError>
 #[non_exhaustive] pub enum hadris_udf::Detail
-pub hadris_udf::Detail::AllocationDescriptor
-pub hadris_udf::Detail::Anchor
-pub hadris_udf::Detail::BlockSize
-pub hadris_udf::Detail::Content
-pub hadris_udf::Detail::Descriptor
-pub hadris_udf::Detail::DescriptorSequence
-pub hadris_udf::Detail::FileIdentifier
-pub hadris_udf::Detail::FileSet
-pub hadris_udf::Detail::Icb
-pub hadris_udf::Detail::Identifier
-pub hadris_udf::Detail::ImageTooLarge
-pub hadris_udf::Detail::OutputBlockSize
-pub hadris_udf::Detail::OutsideImage
-pub hadris_udf::Detail::Partition
-pub hadris_udf::Detail::PartitionMap
-pub hadris_udf::Detail::PathComponent
-pub hadris_udf::Detail::RecognitionSequence
-pub hadris_udf::Detail::StoredContent
-pub hadris_udf::Detail::Timestamp
+pub hadris_udf::Detail::AllocationDescriptor = 10
+pub hadris_udf::Detail::Anchor = 2
+pub hadris_udf::Detail::BlockSize = 5
+pub hadris_udf::Detail::Content = 17
+pub hadris_udf::Detail::Descriptor = 4
+pub hadris_udf::Detail::DescriptorSequence = 3
+pub hadris_udf::Detail::FileIdentifier = 11
+pub hadris_udf::Detail::FileSet = 8
+pub hadris_udf::Detail::Icb = 9
+pub hadris_udf::Detail::Identifier = 14
+pub hadris_udf::Detail::ImageTooLarge = 15
+pub hadris_udf::Detail::OutputBlockSize = 19
+pub hadris_udf::Detail::OutsideImage = 13
+pub hadris_udf::Detail::Partition = 7
+pub hadris_udf::Detail::PartitionMap = 6
+pub hadris_udf::Detail::PathComponent = 12
+pub hadris_udf::Detail::RecognitionSequence = 1
+pub hadris_udf::Detail::StoredContent = 18
+pub hadris_udf::Detail::Timestamp = 16
+impl hadris_udf::Detail
+pub const fn hadris_udf::Detail::code(self) -> hadris_io::fs_error::DetailCode
+pub fn hadris_udf::Detail::from_code(hadris_io::fs_error::DetailCode) -> core::option::Option<Self>
+pub fn hadris_udf::Detail::of<E>(&hadris_io::fs_error::Error<E>) -> core::option::Option<Self>
+impl core::convert::From<hadris_udf::Detail> for hadris_io::fs_error::DetailCode
+pub fn hadris_io::fs_error::DetailCode::from(hadris_udf::Detail) -> Self
 impl core::fmt::Display for hadris_udf::Detail
 pub fn hadris_udf::Detail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_udf::Bridge
 impl hadris_udf::Bridge
 pub const fn hadris_udf::Bridge::iso_descriptors(&self) -> u32
 pub const fn hadris_udf::Bridge::new(u32) -> Self
-pub struct hadris_udf::Error<E>
-impl<E> hadris_udf::Error<E>
-pub fn hadris_udf::Error<E>::content_error(&self) -> core::option::Option<&hadris_fs::error::PathError>
-pub const fn hadris_udf::Error<E>::detail(&self) -> core::option::Option<hadris_udf::Detail>
-pub const fn hadris_udf::Error<E>::device_error(&self) -> core::option::Option<&E>
-pub fn hadris_udf::Error<E>::into_device_error(self) -> core::option::Option<E>
-pub const fn hadris_udf::Error<E>::kind(&self) -> hadris_io::kind::ErrorKind
-pub fn hadris_udf::Error<E>::map_device<F>(self, impl core::ops::function::FnOnce(E) -> F) -> hadris_udf::Error<F>
-impl<E: core::cmp::Eq> core::cmp::Eq for hadris_udf::Error<E>
-impl<E: core::cmp::PartialEq> core::cmp::PartialEq for hadris_udf::Error<E>
-pub fn hadris_udf::Error<E>::eq(&self, &Self) -> bool
-impl<E: core::error::Error + 'static> core::error::Error for hadris_udf::Error<E>
-pub fn hadris_udf::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_udf::Error<E>> for core::io::error::Error
-pub fn core::io::error::Error::from(hadris_udf::Error<E>) -> Self
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_udf::Error<E>> for hadris_fs::error::PathError
-pub fn hadris_fs::error::PathError::from(hadris_udf::Error<E>) -> Self
-impl<E: core::fmt::Display> core::fmt::Display for hadris_udf::Error<E>
-pub fn hadris_udf::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_fs::tree::TreeError> for hadris_udf::Error<E>
-pub fn hadris_udf::Error<E>::from(hadris_fs::tree::TreeError) -> Self
-impl<E> core::convert::From<hadris_io::fs_error::Error<E>> for hadris_udf::Error<E>
-pub fn hadris_udf::Error<E>::from(hadris_io::fs_error::Error<E>) -> Self
-impl<E> core::convert::From<hadris_io::kind::ErrorKind> for hadris_udf::Error<E>
-pub fn hadris_udf::Error<E>::from(hadris_io::kind::ErrorKind) -> Self
-impl<E> core::convert::From<hadris_udf::Error<E>> for hadris_io::fs_error::Error<E>
-pub fn hadris_io::fs_error::Error<E>::from(hadris_udf::Error<E>) -> Self
 pub struct hadris_udf::Partition
 impl hadris_udf::Partition
 pub const fn hadris_udf::Partition::is_empty(&self) -> bool

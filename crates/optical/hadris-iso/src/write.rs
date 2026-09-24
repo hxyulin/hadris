@@ -1,9 +1,11 @@
 use alloc::collections::BTreeMap;
+use alloc::format;
+use alloc::string::String;
 use alloc::vec;
 use core::convert::Infallible;
 
 use hadris_fs::tree::{NodeKind, Tree};
-use hadris_fs::{Clock, ErrorKind};
+use hadris_fs::{Clock, ErrorKind, PathError};
 use hadris_storage::BlockIndex;
 
 use super::fs::ContentReader;
@@ -17,30 +19,27 @@ use crate::report::Report;
 /// Bytes read from a content per request.
 const CHUNK: usize = 64 * 1024;
 
-fn never<E>(err: Error<Infallible>) -> Error<E> {
-    err.map_device(|never| match never {})
-}
-
 io_transform! {
 
 /// Measures every file of `tree`. Stored content is accepted only when
 /// `stored` is set.
-pub(crate) async fn measure(tree: &Tree, stored: bool) -> Result<BTreeMap<usize, ContentInfo>, Error<Infallible>> {
+pub(crate) async fn measure(tree: &Tree, stored: bool) -> Result<BTreeMap<usize, ContentInfo>, PathError> {
     let mut out = BTreeMap::new();
-    let mut pending = vec![tree.root()];
-    while let Some(dir) = pending.pop() {
-        for (_, child) in dir.children() {
+    let mut pending = vec![(String::new(), tree.root())];
+    while let Some((dir_path, dir)) = pending.pop() {
+        for (name, child) in dir.children() {
+            let path = format!("{dir_path}/{name}");
             match child.kind() {
-                NodeKind::Dir => pending.push(child),
+                NodeKind::Dir => pending.push((path, child)),
                 NodeKind::File(content) if !out.contains_key(&child.id()) => {
                     let info = match content.stored_extents() {
                         Some(extents) if stored => ContentInfo {
                             len: extents.iter().map(|extent| extent.len()).sum(),
                             stored: Some(extents.to_vec()),
                         },
-                        Some(_) => return Err(Error::new(ErrorKind::Unsupported, Detail::StoredContent)),
+                        Some(_) => return Err(PathError::from(Detail::StoredContent.error::<Infallible>(ErrorKind::Unsupported)).with_path(path)),
                         None => {
-                            let reader = ContentReader::open(content).await.map_err(Error::content)?;
+                            let reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;
                             ContentInfo { len: reader.len(), stored: None }
                         }
                     };
@@ -58,7 +57,7 @@ pub(crate) async fn measure(tree: &Tree, stored: bool) -> Result<BTreeMap<usize,
 ///
 /// Size an output device with [`Report::size_bytes`]. Host files are
 /// opened and measured; nothing else is read.
-pub async fn plan<C: Clock>(tree: &Tree, opts: &IsoOptions<C>) -> Result<Report, Error<Infallible>> {
+pub async fn plan<C: Clock>(tree: &Tree, opts: &IsoOptions<C>) -> Result<Report, PathError> {
     let contents = measure(tree, false).await?;
     Ok(plan::plan(tree, opts, &contents, Base::image())?.report)
 }
@@ -77,11 +76,12 @@ pub async fn plan<C: Clock>(tree: &Tree, opts: &IsoOptions<C>) -> Result<Report,
 /// fit, a relocation clash or a tree too deep without Rock Ridge;
 /// [`ErrorKind::LimitExceeded`] for MBR boot code over 446 bytes;
 /// [`ErrorKind::FileTooLarge`] for a file of 4 GiB or more below Level 3.
-/// A content that cannot be read fails with [`Detail::Content`].
-pub async fn write<D: BlockDevice, C: Clock>(mut out: D, tree: &Tree, opts: &IsoOptions<C>) -> Result<Report, Error<D::Error>> {
+/// An error from a file's content carries the file's path
+/// ([`PathError::path`]).
+pub async fn write<D: BlockDevice, C: Clock>(mut out: D, tree: &Tree, opts: &IsoOptions<C>) -> Result<Report, PathError> {
     check_block_size(&out)?;
-    let contents = measure(tree, false).await.map_err(never)?;
-    let plan = plan::plan(tree, opts, &contents, Base::image()).map_err(never)?;
+    let contents = measure(tree, false).await?;
+    let plan = plan::plan(tree, opts, &contents, Base::image())?;
     emit(&mut out, tree, &plan).await?;
     Ok(plan.report)
 }
@@ -89,7 +89,7 @@ pub async fn write<D: BlockDevice, C: Clock>(mut out: D, tree: &Tree, opts: &Iso
 pub(crate) fn check_block_size<D: BlockDevice>(out: &D) -> Result<(), Error<D::Error>> {
     let block = out.block_size().get() as usize;
     if block > SECTOR_SIZE || SECTOR_SIZE % block != 0 {
-        return Err(Error::new(ErrorKind::Unsupported, Detail::OutputBlockSize));
+        return Err(Detail::OutputBlockSize.error(ErrorKind::Unsupported));
     }
     Ok(())
 }
@@ -102,7 +102,7 @@ async fn write_sectors<D: BlockDevice>(out: &mut D, sector: u64, data: &[u8]) ->
 
 /// Writes the regions of `plan` in order, zero-filling the gaps when the
 /// plan asks for it, and flushes.
-pub(crate) async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) -> Result<(), Error<D::Error>> {
+pub(crate) async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) -> Result<(), PathError> {
     let mut next = plan.regions.first().map_or(0, Region::block);
     if plan.fill_gaps {
         next = 0;
@@ -110,7 +110,7 @@ pub(crate) async fn emit<D: BlockDevice>(out: &mut D, tree: &Tree, plan: &Plan) 
     let mut buf = vec![0u8; CHUNK];
     for region in &plan.regions {
         if region.block() < next {
-            return Err(Error::corrupt(Detail::Session));
+            return Err(Detail::Session.corrupt::<Infallible>().into());
         }
         if plan.fill_gaps {
             zero(out, next, region.block(), &mut buf).await?;
@@ -153,7 +153,7 @@ async fn zero<D: BlockDevice>(out: &mut D, from: u64, to: u64, buf: &mut [u8]) -
 
 /// The sum of the image's 32-bit words from byte 64, as a boot information
 /// table records it.
-async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<u32, hadris_fs::PathError> {
+async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<u32, PathError> {
     let words_end = 64 + (len - 64) / 4 * 4;
     let mut sum = 0u32;
     let mut offset = 64;
@@ -176,17 +176,18 @@ async fn file<D: BlockDevice>(
     len: u64,
     info: Option<InfoTable>,
     buf: &mut [u8],
-) -> Result<(), Error<D::Error>> {
+) -> Result<(), PathError> {
+    let changed = || PathError::from(Detail::Content.corrupt::<Infallible>()).with_path(path);
     let Some(NodeKind::File(content)) = tree.get(path).map(|node| node.kind()) else {
-        return Err(Error::corrupt(Detail::Content));
+        return Err(changed());
     };
-    let mut reader = ContentReader::open(content).await.map_err(Error::content)?;
+    let mut reader = ContentReader::open(content).await.map_err(|err| err.with_path(path))?;
     if reader.len() != len {
-        return Err(Error::content(ErrorKind::Corrupt.into()));
+        return Err(changed());
     }
     let table = match info {
         Some(info) => {
-            let sum = checksum(&mut reader, len, buf).await.map_err(Error::content)?;
+            let sum = checksum(&mut reader, len, buf).await.map_err(|err| err.with_path(path))?;
             let table = raw::Grub2BootInfoTable {
                 pvd_lba: raw::U32Le::new(raw::DESCRIPTOR_START),
                 file_lba: raw::U32Le::new(info.block),
@@ -208,7 +209,7 @@ async fn file<D: BlockDevice>(
     let mut sector = block;
     while offset < len {
         let take = (len - offset).min(buf.len() as u64) as usize;
-        reader.read_exact_at(offset, &mut buf[..take]).await.map_err(Error::content)?;
+        reader.read_exact_at(offset, &mut buf[..take]).await.map_err(|err| err.with_path(path))?;
         if let Some((bytes, size)) = &table
             && offset == 0
         {
@@ -224,15 +225,4 @@ async fn file<D: BlockDevice>(
     Ok(())
 }
 
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn plan_errors_convert_to_any_device() {
-        let err: Error<u8> = never(Error::invalid(Detail::BootImage));
-        assert_eq!(err.detail(), Some(Detail::BootImage));
-    }
 }

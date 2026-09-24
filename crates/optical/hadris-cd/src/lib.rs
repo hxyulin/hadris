@@ -45,6 +45,11 @@
 //! mode, pointing at the extents the ISO [`Report`](hadris_iso::Report)
 //! gives. Nothing is read back from the device.
 //!
+//! Writing fails with [`hadris_fs::PathError`]. An error of the ISO 9660
+//! or UDF writer keeps its detail code, which
+//! [`hadris_iso::Detail::from_code`] or [`hadris_udf::Detail::from_code`]
+//! reads; [`Detail`] covers the hybrid writer's own failures.
+//!
 //! ## Features
 //!
 //! | Feature | Default | Description |
@@ -118,7 +123,7 @@ pub mod r#async {
 #[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
 pub mod async_send;
 
-pub use error::{Detail, Error};
+pub use error::Detail;
 pub use hadris_iso::IsoOptions;
 pub use hadris_udf::UdfOptions;
 pub use options::CdOptions;

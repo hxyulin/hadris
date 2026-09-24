@@ -5,10 +5,11 @@ use core::task::{Context, Poll};
 use std::sync::Arc;
 use std::task::{Wake, Waker};
 
+use hadris_block::Detail;
 use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant};
-use hadris_block::{Detail, OpenError};
 use hadris_fat::{FatKind, FormatOptions};
+use hadris_fs::MountError;
 use hadris_fs::r#async::DriverExt;
 use hadris_fs::{ErrorKind, OpenOptions};
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
@@ -133,12 +134,9 @@ fn async_opens_detected_exfat() {
         let error = OpenVolume::open(device(image))
             .await
             .map(|_| ())
-            .map_err(OpenError::into_error)
+            .map_err(MountError::into_error)
             .unwrap_err();
-        assert_eq!(
-            error.detail(),
-            Some(Detail::Mount(BlockFormat::Fat(FatVariant::ExFat)))
-        );
+        assert_eq!(error.detail().and_then(Detail::from_code), None);
     });
 }
 
@@ -172,8 +170,8 @@ fn async_open_reports_mismatch() {
             .err()
             .unwrap();
         assert!(matches!(
-            err.error().detail(),
-            Some(Detail::FormatMismatch { .. })
+            err.error().detail().and_then(Detail::from_code),
+            Some(Detail::FormatMismatch)
         ));
         let dev = err.into_device();
         assert_eq!(dev.get_ref().len(), 2 * 1024 * 1024);
@@ -194,12 +192,12 @@ fn async_detected_volume_that_fails_to_mount_gives_the_device_back() {
         );
         let (error, dev) = OpenVolume::open(dev).await.err().unwrap().into_parts();
         let fat12 = BlockFormat::Fat(FatVariant::Fat12);
-        assert_eq!(error.detail(), Some(Detail::Mount(fat12)));
+        assert_eq!(error.detail().and_then(Detail::from_code), None);
         assert_eq!(error.kind(), ErrorKind::Corrupt);
         assert_eq!(dev.get_ref(), &image);
 
         let err = OpenVolume::open_detected(dev, fat12).await.err().unwrap();
-        assert_eq!(err.error().detail(), Some(Detail::Mount(fat12)));
+        assert_eq!(err.error().detail().and_then(Detail::from_code), None);
         assert_eq!(err.into_device().into_inner(), image);
     });
 }
@@ -312,7 +310,7 @@ fn async_partition_table_mbr_write_detect_open_and_reject_malformed() {
         invalid[510..].copy_from_slice(&[0x12, 0x34]);
         assert_eq!(
             read(&mut device(invalid)).await.unwrap_err().kind(),
-            ErrorKind::NotFound
+            ErrorKind::NotRecognized
         );
     });
 }
@@ -380,7 +378,7 @@ fn async_unknown_block_input_is_category_typed() {
             None
         );
         let (error, dev) = OpenVolume::open(dev).await.err().unwrap().into_parts();
-        assert_eq!(error.detail(), Some(Detail::UnknownFormat));
+        assert_eq!(error.kind(), ErrorKind::NotRecognized);
         assert_eq!(dev.get_ref().len(), 4096);
     });
 }

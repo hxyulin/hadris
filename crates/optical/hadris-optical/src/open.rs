@@ -1,12 +1,17 @@
 use hadris_fs::{
-    Capabilities, DirCursor, DirEntry, ErrorKind, FsResult, FsStats, Metadata, Name, NameBuf,
-    NodeId,
+    Capabilities, DirCursor, DirEntry, ErrorKind, FsResult, FsStats, Metadata, MountError, Name,
+    NameBuf, NodeId,
 };
 use hadris_iso::Namespace;
 
 use super::{BlockDevice, IsoImage, IsoView, UdfFs, detect};
 use crate::detect::OpticalFormats;
-use crate::{Detail, Error, OpenError, OpenPolicy, OpticalFormat};
+use crate::error::Error;
+use crate::{Detail, OpenPolicy, OpticalFormat};
+
+fn unknown<E>() -> Error<E> {
+    Error::new(ErrorKind::NotRecognized, "no ISO 9660 or UDF volume")
+}
 
 io_transform! {
 
@@ -43,53 +48,41 @@ impl<D: BlockDevice> core::fmt::Debug for OpenOpticalImage<D> {
 
 impl<D: BlockDevice> OpenOpticalImage<D> {
     /// Detects the filesystems of `dev` and opens the one `policy`
-    /// selects. On failure the [`OpenError`] gives `dev` back.
-    pub async fn open(mut dev: D, policy: OpenPolicy) -> Result<Self, OpenError<D, D::Error>> {
+    /// selects. An image with neither fails with
+    /// [`ErrorKind::NotRecognized`]. On failure the [`MountError`] gives
+    /// `dev` back.
+    pub async fn open(mut dev: D, policy: OpenPolicy) -> Result<Self, MountError<D, D::Error>> {
         match detect(&mut dev).await {
             Ok(Some(formats)) => Self::open_detected(dev, formats, policy).await,
-            Ok(None) => Err(OpenError::new(
-                Error::new(ErrorKind::Unsupported, Detail::UnknownFormat),
-                dev,
-            )),
-            Err(err) => Err(OpenError::new(err.into(), dev)),
+            Ok(None) => Err(MountError::new(unknown(), dev)),
+            Err(err) => Err(MountError::new(err, dev)),
         }
     }
 
     /// Opens the filesystem `policy` selects from previously detected
     /// `formats`. The volume is mounted once. On failure the
-    /// [`OpenError`] gives `dev` back.
+    /// [`MountError`] gives `dev` back; a driver that refuses the volume
+    /// returns its own error.
     pub async fn open_detected(
         dev: D,
         formats: OpticalFormats,
         policy: OpenPolicy,
-    ) -> Result<Self, OpenError<D, D::Error>> {
+    ) -> Result<Self, MountError<D, D::Error>> {
         let Some(selected) = policy.select(formats) else {
-            let detail = match policy.required() {
-                Some(format) => Detail::FormatUnavailable(format),
-                None => Detail::UnknownFormat,
+            let err = match policy.required() {
+                Some(_) => Detail::FormatUnavailable.error(ErrorKind::Unsupported),
+                None => unknown(),
             };
-            return Err(OpenError::new(Error::new(ErrorKind::Unsupported, detail), dev));
+            return Err(MountError::new(err, dev));
         };
         match selected {
-            OpticalFormat::Udf => match UdfFs::open(dev).await {
-                Ok(udf) => Ok(Self { inner: Inner::Udf(udf) }),
-                Err(err) => {
-                    let (err, dev) = err.into_parts();
-                    Err(OpenError::new(Error::mount(err, selected), dev))
-                }
-            },
+            OpticalFormat::Udf => {
+                UdfFs::open(dev).await.map(|udf| Self { inner: Inner::Udf(udf) })
+            }
             OpticalFormat::Iso9660 => {
-                let opened = match IsoImage::open(dev).await {
-                    Ok(image) => image.into_view(Namespace::Preferred),
-                    Err(err) => Err(err),
-                };
-                match opened {
-                    Ok(view) => Ok(Self { inner: Inner::Iso(view) }),
-                    Err(err) => {
-                        let (err, dev) = err.into_parts();
-                        Err(OpenError::new(Error::mount(err, OpticalFormat::Iso9660), dev))
-                    }
-                }
+                let image = IsoImage::open(dev).await?;
+                let view = image.into_view(Namespace::Preferred)?;
+                Ok(Self { inner: Inner::Iso(view) })
             }
         }
     }

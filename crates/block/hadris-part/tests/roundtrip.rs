@@ -333,10 +333,8 @@ fn open_gives_a_slice_of_the_partition() {
 
     let mut short = device(1000, B512);
     assert_eq!(
-        open(&mut short, &disk.partition(0).unwrap())
-            .unwrap_err()
-            .detail(),
-        Some(hadris_part::Detail::OutOfBounds { index: 0 })
+        hadris_part::Detail::of(&open(&mut short, &disk.partition(0).unwrap()).unwrap_err()),
+        Some(hadris_part::Detail::OutOfBounds)
     );
 }
 

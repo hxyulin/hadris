@@ -1,41 +1,43 @@
 use core::fmt;
 
-use hadris_fs::ErrorKind;
+pub(crate) use hadris_fs::Error;
+use hadris_fs::{DetailCode, ErrorKind};
 use hadris_io::ExactError;
+
+const DOMAIN: &str = "hadris-cpio";
 
 /// What exactly went wrong, beyond the [`ErrorKind`].
 ///
 /// Callers match on the kind; the detail tells a tool which part of the
-/// archive or which input it concerns.
+/// archive or which input it concerns. Read it back from an [`Error`] with
+/// [`Detail::of`], or from a [`PathError`](hadris_fs::PathError) with
+/// [`Detail::from_code`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Detail {
     /// A header starts with no known cpio magic.
-    Magic,
+    Magic = 1,
     /// A header field is not a valid number, or a value does not fit its
     /// field.
-    Field,
+    Field = 2,
     /// A name is empty, too long, not NUL-terminated, or the reserved
     /// trailer name.
-    Name,
+    Name = 3,
     /// Alignment padding is not zero.
-    Padding,
+    Padding = 4,
     /// The check field of a `070701` entry is not zero.
-    Check,
+    Check = 5,
     /// The data of a `070702` entry does not sum to its check field.
-    Checksum,
+    Checksum = 6,
     /// The trailer has data, is missing where required, or is cut off.
-    Trailer,
+    Trailer = 7,
     /// The archive ends inside an entry.
-    Truncated,
-    /// Reading the content of a file from the tree failed; see
-    /// [`Error::content_error`].
-    Content,
+    Truncated = 8,
     /// An entry cannot be written: an empty symlink target, an empty hard
     /// link group, or a node kind the format cannot store.
-    Entry,
+    Entry = 10,
     /// The format cannot be written, such as old binary cpio.
-    Format,
+    Format = 11,
 }
 
 impl Detail {
@@ -49,7 +51,6 @@ impl Detail {
             Self::Checksum => "070702 checksum mismatch",
             Self::Trailer => "invalid or missing trailer",
             Self::Truncated => "archive ends inside an entry",
-            Self::Content => "reading file content failed",
             Self::Entry => "entry cannot be written",
             Self::Format => "format cannot be written",
         }
@@ -62,233 +63,83 @@ impl fmt::Display for Detail {
     }
 }
 
-/// Error of reading or writing a cpio archive on a stream with error `E`.
-///
-/// Like [`hadris_fs::Error`], it keeps the stream's own error without
-/// allocation. Callers match on [`kind`](Self::kind); [`detail`](Self::detail)
-/// names the structure or input. Two errors are equal when their kinds and
-/// stream errors are.
-///
-/// `?` converts it into [`hadris_fs::Error<E>`], and with `std` into
-/// [`std::io::Error`], returning an `io::Error` stream error as itself.
-#[derive(Debug)]
-pub struct Error<E> {
-    kind: ErrorKind,
-    detail: Option<Detail>,
-    device: Option<E>,
-    #[cfg(feature = "alloc")]
-    content: Option<hadris_fs::PathError>,
-}
+impl Detail {
+    const ALL: [Self; 10] = [
+        Self::Magic,
+        Self::Field,
+        Self::Name,
+        Self::Padding,
+        Self::Check,
+        Self::Checksum,
+        Self::Trailer,
+        Self::Truncated,
+        Self::Entry,
+        Self::Format,
+    ];
 
-impl<E> Error<E> {
-    pub(crate) const fn new(kind: ErrorKind, detail: Detail) -> Self {
-        Self {
-            kind,
-            detail: Some(detail),
-            device: None,
-            #[cfg(feature = "alloc")]
-            content: None,
-        }
+    /// The detail a cpio operation recorded on `err`, if any.
+    pub fn of<E>(err: &Error<E>) -> Option<Self> {
+        err.detail().and_then(Self::from_code)
     }
 
-    pub(crate) const fn device(err: E) -> Self {
-        Self {
-            kind: ErrorKind::Io,
-            detail: None,
-            device: Some(err),
-            #[cfg(feature = "alloc")]
-            content: None,
-        }
+    /// The detail `code` stands for, when it is one of this crate's codes.
+    pub fn from_code(code: DetailCode) -> Option<Self> {
+        let code = code.code_in(DOMAIN)?;
+        Self::ALL.into_iter().find(|detail| *detail as u16 == code)
     }
 
-    pub(crate) const fn corrupt(detail: Detail) -> Self {
-        Self::new(ErrorKind::Corrupt, detail)
+    /// The code this detail is recorded with, in the `hadris-cpio` domain.
+    /// Codes never change meaning.
+    pub const fn code(self) -> DetailCode {
+        DetailCode::new(DOMAIN, self as u16)
     }
 
-    pub(crate) const fn invalid(detail: Detail) -> Self {
-        Self::new(ErrorKind::InvalidInput, detail)
+    pub(crate) fn error<E>(self, kind: ErrorKind) -> Error<E> {
+        Error::new(kind, self.description()).with_detail(self.code())
     }
 
-    /// A short read of the archive: truncated, or the stream failed.
-    pub(crate) fn read(err: ExactError<E>) -> Self {
-        match err {
-            ExactError::Io(err) => Self::device(err),
-            _ => Self::corrupt(Detail::Truncated),
-        }
+    pub(crate) fn corrupt<E>(self) -> Error<E> {
+        self.error(ErrorKind::Corrupt)
     }
 
-    /// A failed write of the archive.
-    pub(crate) fn write(err: ExactError<E>) -> Self {
-        match err {
-            ExactError::Io(err) => Self::device(err),
-            _ => ErrorKind::NoSpace.into(),
-        }
-    }
-
-    #[cfg(feature = "alloc")]
-    pub(crate) fn content(err: hadris_fs::PathError) -> Self {
-        Self {
-            kind: err.kind(),
-            detail: Some(Detail::Content),
-            device: None,
-            content: Some(err),
-        }
-    }
-
-    /// What went wrong. [`ErrorKind::Io`] when the stream failed.
-    pub const fn kind(&self) -> ErrorKind {
-        self.kind
-    }
-
-    /// Which structure or input it concerns, when known.
-    pub const fn detail(&self) -> Option<Detail> {
-        self.detail
-    }
-
-    /// The stream error, if the stream failed.
-    pub const fn device_error(&self) -> Option<&E> {
-        self.device.as_ref()
-    }
-
-    /// Takes the stream error, if the stream failed.
-    pub fn into_device_error(self) -> Option<E> {
-        self.device
-    }
-
-    /// The error of reading a file's content from the tree, for
-    /// [`Detail::Content`].
-    #[cfg(feature = "alloc")]
-    pub fn content_error(&self) -> Option<&hadris_fs::PathError> {
-        self.content.as_ref()
-    }
-
-    /// Converts the stream error.
-    pub fn map_device<F>(self, f: impl FnOnce(E) -> F) -> Error<F> {
-        Error {
-            kind: self.kind,
-            detail: self.detail,
-            device: self.device.map(f),
-            #[cfg(feature = "alloc")]
-            content: self.content,
-        }
+    pub(crate) fn invalid<E>(self) -> Error<E> {
+        self.error(ErrorKind::InvalidInput)
     }
 }
 
-impl<E: PartialEq> PartialEq for Error<E> {
-    fn eq(&self, other: &Self) -> bool {
-        self.kind == other.kind && self.device == other.device
+impl From<Detail> for DetailCode {
+    fn from(detail: Detail) -> Self {
+        detail.code()
     }
 }
 
-impl<E: Eq> Eq for Error<E> {}
-
-impl<E> From<ErrorKind> for Error<E> {
-    fn from(kind: ErrorKind) -> Self {
-        Self {
-            kind,
-            detail: None,
-            device: None,
-            #[cfg(feature = "alloc")]
-            content: None,
-        }
+/// A short read of the archive: truncated, or the stream failed.
+pub(crate) fn read_failed<E>(err: ExactError<E>) -> Error<E> {
+    match err {
+        ExactError::Io(err) => Error::device(err, "reading the archive failed"),
+        _ => Detail::Truncated.corrupt(),
     }
 }
 
-impl<E> From<hadris_fs::Error<E>> for Error<E> {
-    fn from(err: hadris_fs::Error<E>) -> Self {
-        let kind = err.kind();
-        Self {
-            kind,
-            detail: None,
-            device: err.into_device_error(),
-            #[cfg(feature = "alloc")]
-            content: None,
-        }
+/// A failed write of the archive.
+pub(crate) fn write_failed<E>(err: ExactError<E>) -> Error<E> {
+    match err {
+        ExactError::Io(err) => Error::device(err, "writing the archive failed"),
+        _ => Error::new(ErrorKind::NoSpace, "the output accepted no bytes"),
     }
 }
 
-#[cfg(feature = "alloc")]
-impl<E> From<hadris_fs::tree::TreeError> for Error<E> {
-    fn from(err: hadris_fs::tree::TreeError) -> Self {
-        err.kind().into()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn details_round_trip_through_their_codes() {
+        for detail in Detail::ALL {
+            let err: Error<()> = Error::new(ErrorKind::Corrupt, "").with_detail(detail.code());
+            assert_eq!(Detail::of(&err), Some(detail));
+        }
+        let foreign = DetailCode::new("another-crate", Detail::ALL[0] as u16);
+        assert_eq!(Detail::from_code(foreign), None);
     }
 }
-
-impl<E> From<Error<E>> for hadris_fs::Error<E> {
-    fn from(err: Error<E>) -> Self {
-        match err.device {
-            Some(device) => hadris_fs::Error::device(device, "device failed"),
-            None => err.kind.into(),
-        }
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for hadris_fs::PathError {
-    fn from(err: Error<E>) -> Self {
-        match err.content {
-            Some(content) => content,
-            None => hadris_fs::Error::from(err).into(),
-        }
-    }
-}
-
-impl<E: fmt::Display> fmt::Display for Error<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(device) = &self.device {
-            return write!(f, "stream error: {device}");
-        }
-        #[cfg(feature = "alloc")]
-        if let Some(content) = &self.content {
-            return write!(f, "reading file content failed: {content}");
-        }
-        match self.detail {
-            Some(detail) => write!(f, "{}: {detail}", self.kind),
-            None => self.kind.fmt(f),
-        }
-    }
-}
-
-impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
-    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        if let Some(device) = &self.device {
-            return Some(device);
-        }
-        #[cfg(feature = "alloc")]
-        if let Some(content) = &self.content {
-            return Some(content);
-        }
-        None
-    }
-}
-
-/// A stream error that is a `std::io::Error` comes back as itself.
-#[cfg(feature = "std")]
-impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for std::io::Error {
-    fn from(err: Error<E>) -> Self {
-        if err.device.is_some() {
-            return hadris_fs::Error::from(err).into();
-        }
-        if let Some(content) = err.content {
-            return content.into();
-        }
-        std::io::Error::new(err.kind.into(), StdMessage(err.kind, err.detail))
-    }
-}
-
-#[cfg(feature = "std")]
-#[derive(Debug)]
-struct StdMessage(ErrorKind, Option<Detail>);
-
-#[cfg(feature = "std")]
-impl fmt::Display for StdMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.1 {
-            Some(detail) => write!(f, "{}: {detail}", self.0),
-            None => self.0.fmt(f),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for StdMessage {}

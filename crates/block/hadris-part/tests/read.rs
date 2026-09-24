@@ -113,13 +113,13 @@ fn both_copies_damaged_is_corrupt() {
     dev.get_mut()[4095 * 512] = b'X';
     let err = read(&mut dev).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Corrupt);
-    assert_eq!(err.detail(), Some(Detail::GptHeader));
+    assert_eq!(Detail::of(&err), Some(Detail::GptHeader));
 
     let mut dev = gpt_disk(4096);
     dev.get_mut()[1024] ^= 1;
     dev.get_mut()[(4095 - 32) * 512] ^= 1;
     assert_eq!(
-        read(&mut dev).unwrap_err().detail(),
+        Detail::of(&read(&mut dev).unwrap_err()),
         Some(Detail::GptEntriesCrc)
     );
 }
@@ -128,8 +128,8 @@ fn both_copies_damaged_is_corrupt() {
 fn block_zero_without_a_signature_has_no_table() {
     let mut dev = device(vec![0; 4096]);
     let err = read(&mut dev).unwrap_err();
-    assert_eq!(err.kind(), ErrorKind::NotFound);
-    assert_eq!(err.detail(), Some(Detail::NoTable));
+    assert_eq!(err.kind(), ErrorKind::NotRecognized);
+    assert_eq!(Detail::of(&err), Some(Detail::NoTable));
 
     let mut short = device(vec![0; 100]);
     assert_eq!(
@@ -145,20 +145,20 @@ fn invalid_boot_indicators_and_double_extended_partitions_are_corrupt() {
     image[446] = 0x01;
     image[446 + 4] = 0x83;
     assert_eq!(
-        read(&mut device(image.clone())).unwrap_err().detail(),
+        Detail::of(&read(&mut device(image.clone())).unwrap_err()),
         Some(Detail::MbrEntry)
     );
     image[446] = 0;
     image[446 + 4] = 0x05;
     assert_eq!(
-        read(&mut device(image.clone())).unwrap_err().detail(),
+        Detail::of(&read(&mut device(image.clone())).unwrap_err()),
         Some(Detail::EbrChain)
     );
     image[446 + 8] = 1;
     image[462 + 4] = 0x0F;
     image[462 + 8] = 2;
     assert_eq!(
-        read(&mut device(image)).unwrap_err().detail(),
+        Detail::of(&read(&mut device(image)).unwrap_err()),
         Some(Detail::MbrEntry)
     );
 }
@@ -242,7 +242,7 @@ fn broken_ebr_chains_are_corrupt() {
         }
         let err = read(&mut device(image)).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Corrupt, "at {at}");
-        assert_eq!(err.detail(), Some(Detail::EbrChain), "at {at}");
+        assert_eq!(Detail::of(&err), Some(Detail::EbrChain), "at {at}");
     }
 
     let mut unsigned = ebr_image();
@@ -355,7 +355,11 @@ fn hostile_entry_arrays_are_rejected_without_allocating() {
         }
         let err = read(&mut device(image)).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Corrupt);
-        assert_eq!(err.detail(), Some(Detail::GptEntries), "{count} x {size}");
+        assert_eq!(
+            Detail::of(&err),
+            Some(Detail::GptEntries),
+            "{count} x {size}"
+        );
     }
 
     for field in [72usize, 32, 40, 48] {
@@ -395,7 +399,7 @@ fn unsupported_block_sizes_are_refused() {
     let mut dev = MemDevice::new(vec![0u8; 520 * 8], BlockSize::new(520).unwrap());
     let err = read(&mut dev).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Unsupported);
-    assert_eq!(err.detail(), Some(Detail::BlockSize));
+    assert_eq!(Detail::of(&err), Some(Detail::BlockSize));
     let mut dev = MemDevice::new(vec![0u8; 256 * 8], BlockSize::new(256).unwrap());
     assert_eq!(read(&mut dev).unwrap_err().kind(), ErrorKind::Unsupported);
 
@@ -443,13 +447,12 @@ fn scan_matches_read_and_stops_on_break() {
 fn errors_convert_to_io_errors_with_their_detail() {
     let err = read(&mut device(vec![0; 1024])).unwrap_err();
     let io: std::io::Error = err.into();
-    assert_eq!(io.kind(), std::io::ErrorKind::NotFound);
+    assert_eq!(io.kind(), std::io::ErrorKind::InvalidData);
     assert_eq!(io.to_string(), "no partition table signature");
 
     let err = read(&mut device(vec![0; 10])).unwrap_err();
-    let fs: hadris_fs::Error<_> = err.into();
-    assert_eq!(fs.kind(), ErrorKind::InvalidInput);
-    assert!(fs.device_error().is_none());
+    assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    assert!(err.device_error().is_none());
 }
 
 #[test]

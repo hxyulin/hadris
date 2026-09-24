@@ -54,8 +54,9 @@ read-only, as `hadris_ntfs`'s `NtfsFs`, and implements the `hadris-fs` driver
 trait over each, so the path helpers work on the result. `as_fat`,
 `into_fat`, `as_exfat` and `into_exfat` reach the FAT and exFAT drivers; the
 `unstable-ntfs` feature adds `as_ntfs` and `into_ntfs`. Errors are
-`hadris_block::Error<E>`, carrying the device's error type, and a failed open
-returns the device in an `OpenError`.
+`hadris_fs::Error<E>`, carrying the device's error type, and a failed open
+returns the device in a `MountError`. A device with no known format fails
+with `ErrorKind::NotRecognized`.
 
 The [`volume-list` example](https://github.com/hxyulin/hadris/tree/next/examples/volume-list)
 is a complete program: it detects the format, opens it, and prints the tree

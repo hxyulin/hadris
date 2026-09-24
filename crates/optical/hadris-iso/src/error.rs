@@ -1,73 +1,79 @@
 use core::fmt;
 
-use hadris_fs::ErrorKind;
+pub(crate) use hadris_fs::Error;
+use hadris_fs::{DetailCode, ErrorKind};
+
+const DOMAIN: &str = "hadris-iso";
 
 /// What exactly went wrong, beyond the [`ErrorKind`].
 ///
 /// Callers match on the kind; the detail tells a tool which structure or
-/// option to report.
+/// option to report. Read it back from an [`Error`] with [`Detail::of`],
+/// or from a [`PathError`](hadris_fs::PathError) with
+/// [`Detail::from_code`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Detail {
-    /// A volume descriptor lacks `CD001` or has an unknown version.
-    DescriptorHeader,
+    /// A volume descriptor lacks `CD001` or has an unknown version. At the
+    /// first descriptor the kind is [`ErrorKind::NotRecognized`].
+    DescriptorHeader = 1,
     /// The descriptor set has no primary volume descriptor, or no
     /// terminator within 64 descriptors.
-    NoPrimaryDescriptor,
+    NoPrimaryDescriptor = 2,
     /// The set terminator's body is not zero.
-    Terminator,
+    Terminator = 3,
     /// The logical block size is not a power of two from 512 to 2048, the
     /// device block is larger than 4096 bytes, or a descriptor's redundant
     /// fields disagree.
-    BlockSize,
+    BlockSize = 4,
     /// A descriptor's both-endian fields disagree.
-    DescriptorFields,
+    DescriptorFields = 5,
     /// A directory record breaks ECMA-119: its length, padding, redundant
     /// fields, or a pointer outside the image.
-    DirectoryRecord,
+    DirectoryRecord = 6,
     /// A multi-extent file's records are cut short or do not match.
-    MultiExtent,
+    MultiExtent = 7,
     /// A descriptor or record points outside the image.
-    OutsideImage,
+    OutsideImage = 8,
     /// A file is interleaved or lives on another volume of a set.
-    Interleaved,
+    Interleaved = 9,
     /// A system use area or a Rock Ridge entry is malformed.
-    SystemUse,
+    SystemUse = 10,
     /// The El Torito boot catalog is malformed.
-    BootCatalog,
+    BootCatalog = 11,
     /// The image has no tree for the requested namespace.
-    NoNamespace,
+    NoNamespace = 12,
     /// A boot image named in the options is not a file in the tree, a
     /// diskette image is not the diskette's size, or a load size is zero.
-    BootImage,
+    BootImage = 13,
     /// A boot image is too small for the requested boot information table.
-    BootInfoTable,
+    BootInfoTable = 14,
     /// The boot catalog path clashes with an entry of the tree or has no
     /// parent directory.
-    CatalogPath,
+    CatalogPath = 15,
     /// The Rock Ridge relocation directory's name is taken by a root entry
     /// that is not a directory, a root directory named `rr_moved` or
     /// `.rr_moved` would come before it, or relocation is refused and the
     /// tree is too deep.
-    Relocation,
+    Relocation = 16,
     /// A volume identifier does not fit its field.
-    Identifier,
+    Identifier = 17,
     /// The image would exceed the 32-bit block counts of ISO 9660 or an MBR
     /// partition entry.
-    ImageTooLarge,
+    ImageTooLarge = 18,
     /// The hybrid boot options do not fit the image: the EFI partition image
     /// is missing or outside the ISO area, or the boot code is too long.
-    HybridBoot,
-    /// Reading the content of a file from the tree failed; see
-    /// [`Error::content_error`].
-    Content,
+    HybridBoot = 19,
+    /// A file of the tree changed or vanished between measuring and
+    /// writing.
+    Content = 20,
     /// A file's content is extents on a device other than the output.
-    StoredContent,
+    StoredContent = 21,
     /// The output device's block size does not divide 2048.
-    OutputBlockSize,
+    OutputBlockSize = 22,
     /// A session cannot be appended or rewritten: the image is not the one
     /// the session was opened on, or its layout leaves no room.
-    Session,
+    Session = 23,
 }
 
 impl Detail {
@@ -92,7 +98,7 @@ impl Detail {
             Self::Identifier => "volume identifier too long",
             Self::ImageTooLarge => "image exceeds a 32-bit block count",
             Self::HybridBoot => "hybrid boot options do not fit the image",
-            Self::Content => "reading file content failed",
+            Self::Content => "a file changed after it was measured",
             Self::StoredContent => "stored content lives on another device",
             Self::OutputBlockSize => "output block size does not divide 2048",
             Self::Session => "session cannot be written on this image",
@@ -106,207 +112,80 @@ impl fmt::Display for Detail {
     }
 }
 
-/// Error of reading or writing an ISO image on a device with error `E`.
-///
-/// Like [`hadris_fs::Error`], it keeps the device's own error without
-/// allocation. Callers match on [`kind`](Self::kind); [`detail`](Self::detail)
-/// names the structure or option. Two errors are equal when their kinds and
-/// device errors are.
-///
-/// `?` converts it into [`hadris_fs::Error<E>`], and with `std` into
-/// [`std::io::Error`], returning an `io::Error` device error as itself.
-#[derive(Debug)]
-pub struct Error<E> {
-    kind: ErrorKind,
-    detail: Option<Detail>,
-    device: Option<E>,
-    #[cfg(feature = "alloc")]
-    content: Option<hadris_fs::PathError>,
-}
+impl Detail {
+    const ALL: [Self; 23] = [
+        Self::DescriptorHeader,
+        Self::NoPrimaryDescriptor,
+        Self::Terminator,
+        Self::BlockSize,
+        Self::DescriptorFields,
+        Self::DirectoryRecord,
+        Self::MultiExtent,
+        Self::OutsideImage,
+        Self::Interleaved,
+        Self::SystemUse,
+        Self::BootCatalog,
+        Self::NoNamespace,
+        Self::BootImage,
+        Self::BootInfoTable,
+        Self::CatalogPath,
+        Self::Relocation,
+        Self::Identifier,
+        Self::ImageTooLarge,
+        Self::HybridBoot,
+        Self::Content,
+        Self::StoredContent,
+        Self::OutputBlockSize,
+        Self::Session,
+    ];
 
-impl<E> Error<E> {
-    pub(crate) const fn new(kind: ErrorKind, detail: Detail) -> Self {
-        Self {
-            kind,
-            detail: Some(detail),
-            device: None,
-            #[cfg(feature = "alloc")]
-            content: None,
-        }
+    /// The detail an ISO 9660 operation recorded on `err`, if any.
+    pub fn of<E>(err: &Error<E>) -> Option<Self> {
+        err.detail().and_then(Self::from_code)
     }
 
-    pub(crate) const fn corrupt(detail: Detail) -> Self {
-        Self::new(ErrorKind::Corrupt, detail)
+    /// The detail `code` stands for, when it is one of this crate's codes.
+    pub fn from_code(code: DetailCode) -> Option<Self> {
+        let code = code.code_in(DOMAIN)?;
+        Self::ALL.into_iter().find(|detail| *detail as u16 == code)
     }
 
-    pub(crate) const fn invalid(detail: Detail) -> Self {
-        Self::new(ErrorKind::InvalidInput, detail)
+    /// The code this detail is recorded with, in the `hadris-iso` domain.
+    /// Codes never change meaning.
+    pub const fn code(self) -> DetailCode {
+        DetailCode::new(DOMAIN, self as u16)
     }
 
-    #[cfg(feature = "alloc")]
-    pub(crate) fn content(err: hadris_fs::PathError) -> Self {
-        Self {
-            kind: err.kind(),
-            detail: Some(Detail::Content),
-            device: None,
-            content: Some(err),
-        }
+    pub(crate) fn error<E>(self, kind: ErrorKind) -> Error<E> {
+        Error::new(kind, self.description()).with_detail(self.code())
     }
 
-    /// What went wrong. [`ErrorKind::Io`] when the device failed.
-    pub const fn kind(&self) -> ErrorKind {
-        self.kind
+    pub(crate) fn corrupt<E>(self) -> Error<E> {
+        self.error(ErrorKind::Corrupt)
     }
 
-    /// Which structure or option it concerns, when known.
-    pub const fn detail(&self) -> Option<Detail> {
-        self.detail
-    }
-
-    /// The device error, if the device failed.
-    pub const fn device_error(&self) -> Option<&E> {
-        self.device.as_ref()
-    }
-
-    /// Takes the device error, if the device failed.
-    pub fn into_device_error(self) -> Option<E> {
-        self.device
-    }
-
-    /// The error of reading a file's content from the tree, for
-    /// [`Detail::Content`].
-    #[cfg(feature = "alloc")]
-    pub fn content_error(&self) -> Option<&hadris_fs::PathError> {
-        self.content.as_ref()
-    }
-
-    /// Converts the device error.
-    pub fn map_device<F>(self, f: impl FnOnce(E) -> F) -> Error<F> {
-        Error {
-            kind: self.kind,
-            detail: self.detail,
-            device: self.device.map(f),
-            #[cfg(feature = "alloc")]
-            content: self.content,
-        }
+    pub(crate) fn invalid<E>(self) -> Error<E> {
+        self.error(ErrorKind::InvalidInput)
     }
 }
 
-impl<E: PartialEq> PartialEq for Error<E> {
-    fn eq(&self, other: &Self) -> bool {
-        self.kind == other.kind && self.device == other.device
+impl From<Detail> for DetailCode {
+    fn from(detail: Detail) -> Self {
+        detail.code()
     }
 }
 
-impl<E: Eq> Eq for Error<E> {}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl<E> From<ErrorKind> for Error<E> {
-    fn from(kind: ErrorKind) -> Self {
-        Self {
-            kind,
-            detail: None,
-            device: None,
-            #[cfg(feature = "alloc")]
-            content: None,
+    #[test]
+    fn details_round_trip_through_their_codes() {
+        for detail in Detail::ALL {
+            let err: Error<()> = Error::new(ErrorKind::Corrupt, "").with_detail(detail.code());
+            assert_eq!(Detail::of(&err), Some(detail));
         }
+        let foreign = DetailCode::new("another-crate", Detail::ALL[0] as u16);
+        assert_eq!(Detail::from_code(foreign), None);
     }
 }
-
-impl<E> From<hadris_fs::Error<E>> for Error<E> {
-    fn from(err: hadris_fs::Error<E>) -> Self {
-        let kind = err.kind();
-        Self {
-            kind,
-            detail: None,
-            device: err.into_device_error(),
-            #[cfg(feature = "alloc")]
-            content: None,
-        }
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<E> From<hadris_fs::tree::TreeError> for Error<E> {
-    fn from(err: hadris_fs::tree::TreeError) -> Self {
-        err.kind().into()
-    }
-}
-
-impl<E> From<Error<E>> for hadris_fs::Error<E> {
-    fn from(err: Error<E>) -> Self {
-        match err.device {
-            Some(device) => hadris_fs::Error::device(device, "device failed"),
-            None => err.kind.into(),
-        }
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for hadris_fs::PathError {
-    fn from(err: Error<E>) -> Self {
-        match err.content {
-            Some(content) => content,
-            None => hadris_fs::Error::from(err).into(),
-        }
-    }
-}
-
-impl<E: fmt::Display> fmt::Display for Error<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(device) = &self.device {
-            return write!(f, "device error: {device}");
-        }
-        #[cfg(feature = "alloc")]
-        if let Some(content) = &self.content {
-            return write!(f, "reading file content failed: {content}");
-        }
-        match self.detail {
-            Some(detail) => write!(f, "{}: {detail}", self.kind),
-            None => self.kind.fmt(f),
-        }
-    }
-}
-
-impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
-    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        if let Some(device) = &self.device {
-            return Some(device);
-        }
-        #[cfg(feature = "alloc")]
-        if let Some(content) = &self.content {
-            return Some(content);
-        }
-        None
-    }
-}
-
-/// A device error that is a `std::io::Error` comes back as itself.
-#[cfg(feature = "std")]
-impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for std::io::Error {
-    fn from(err: Error<E>) -> Self {
-        if err.device.is_some() {
-            return hadris_fs::Error::from(err).into();
-        }
-        if let Some(content) = err.content {
-            return content.into();
-        }
-        std::io::Error::new(err.kind.into(), StdMessage(err.kind, err.detail))
-    }
-}
-
-#[cfg(feature = "std")]
-#[derive(Debug)]
-struct StdMessage(ErrorKind, Option<Detail>);
-
-#[cfg(feature = "std")]
-impl fmt::Display for StdMessage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.1 {
-            Some(detail) => write!(f, "{}: {detail}", self.0),
-            None => self.0.fmt(f),
-        }
-    }
-}
-
-#[cfg(feature = "std")]
-impl std::error::Error for StdMessage {}

@@ -40,8 +40,7 @@ async fn read_block<D: BlockDevice>(
     lba: u64,
     buf: &mut [u8],
 ) -> Result<(), Error<D::Error>> {
-    dev.read_blocks(BlockIndex::new(lba), buf).await.map_err(Error::from)
-}
+    dev.read_blocks(BlockIndex::new(lba), buf).await}
 
 async fn read_record<D: BlockDevice>(
     dev: &mut D,
@@ -118,7 +117,7 @@ async fn find_gpt<D: BlockDevice>(
             damaged: Some(GptCopy::Primary),
             backup_entries: Some(array.lba),
         }),
-        (Err(detail), Err(_)) => Err(Error::corrupt(detail)),
+        (Err(detail), Err(_)) => Err(Detail::corrupt(detail)),
     }
 }
 
@@ -160,7 +159,7 @@ async fn walk_ebr<D: BlockDevice>(
     buf: &mut [u8],
     mut f: impl FnMut(Logical) -> ControlFlow<()>,
 ) -> Result<(), Error<D::Error>> {
-    let chain = || Error::corrupt(Detail::EbrChain);
+    let chain = || Detail::corrupt(Detail::EbrChain);
     let mut ebr = ext_start;
     for step in 0..=MAX_LOGICAL {
         if ebr >= ext_end || ebr >= dev.block_count() {
@@ -172,7 +171,7 @@ async fn walk_ebr<D: BlockDevice>(
         }
         let [logical, link, ..] = record.entries;
         if (logical.boot_indicator | link.boot_indicator) & !crate::raw::MBR_ACTIVE != 0 {
-            return Err(Error::corrupt(Detail::MbrEntry));
+            return Err(Detail::corrupt(Detail::MbrEntry));
         }
         if !logical.is_empty() {
             if MbrType::new(logical.kind).is_extended() {
@@ -218,7 +217,7 @@ fn extended_range(record: &RawMbr) -> Option<(u64, u64)> {
 /// and [`write`](write()) repairs it. Logical partitions are read from the chain of
 /// extended boot records.
 ///
-/// Fails with [`ErrorKind::NotFound`] when block 0 has no boot signature,
+/// Fails with [`ErrorKind::NotRecognized`] when block 0 has no boot signature,
 /// [`ErrorKind::Corrupt`] when the MBR, the EBR chain or both GPT copies
 /// are invalid, [`ErrorKind::Unsupported`] unless the block size is a power
 /// of two of at least 512 bytes, and [`ErrorKind::Io`] when the device fails.
@@ -281,7 +280,7 @@ pub async fn scan<D: BlockDevice>(
     let mut storage = [0u8; MAX_SCAN_BLOCK];
     let buf = storage
         .get_mut(..size.get() as usize)
-        .ok_or(Error::new(ErrorKind::Unsupported, Detail::BlockSize))?;
+        .ok_or(Detail::BlockSize.error(ErrorKind::Unsupported))?;
     let record = read_record(dev, 0, buf).await?;
     let kind = codec::classify(&record)?;
     if kind == TableKind::Mbr {
@@ -329,7 +328,7 @@ pub async fn scan<D: BlockDevice>(
 #[cfg(feature = "alloc")]
 pub async fn write<D: BlockDevice>(dev: &mut D, disk: &Disk) -> Result<(), Error<D::Error>> {
     if dev.block_size() != disk.block_size() {
-        return Err(Error::new(ErrorKind::InvalidInput, Detail::BlockSize));
+        return Err(Detail::BlockSize.error(ErrorKind::InvalidInput));
     }
     let gpt = match disk.table() {
         PartitionTable::Gpt(gpt) => Some(gpt),
@@ -338,7 +337,7 @@ pub async fn write<D: BlockDevice>(dev: &mut D, disk: &Disk) -> Result<(), Error
     };
     let fits = gpt.is_none_or(|gpt| gpt.fits(dev.block_count()));
     if disk.block_count() > dev.block_count() || !fits {
-        return Err(Error::new(ErrorKind::NoSpace, Detail::DiskTooSmall));
+        return Err(Detail::DiskTooSmall.error(ErrorKind::NoSpace));
     }
     for run in disk.runs() {
         dev.write_blocks(BlockIndex::new(run.lba()), run.bytes()).await?;
@@ -391,14 +390,8 @@ pub async fn create<D: BlockDevice>(
 /// keep it.
 pub fn open<D: BlockDevice>(dev: D, partition: &Partition) -> Result<Slice<D>, Error<D::Error>> {
     if dev.block_size() != partition.block_size() {
-        return Err(Error::new(ErrorKind::InvalidInput, Detail::BlockSize));
+        return Err(Detail::BlockSize.error(ErrorKind::InvalidInput));
     }
-    Slice::new(dev, BlockIndex::new(partition.start()), partition.len()).map_err(|_| {
-        Error::new(
-            ErrorKind::InvalidInput,
-            Detail::OutOfBounds {
-                index: partition.index(),
-            },
-        )
-    })
+    Slice::new(dev, BlockIndex::new(partition.start()), partition.len())
+        .map_err(|_| Detail::OutOfBounds.error(ErrorKind::InvalidInput))
 }

@@ -236,7 +236,10 @@ fn trees_without_rock_ridge_report_what_they_drop() {
     let deep = sample(true, false);
     let err = hadris_iso::sync::plan(&deep, &IsoOptions::default()).unwrap_err();
     assert_eq!(
-        (err.kind(), err.detail()),
+        (
+            err.kind(),
+            err.detail().and_then(hadris_iso::Detail::from_code)
+        ),
         (
             ErrorKind::InvalidInput,
             Some(hadris_iso::Detail::Relocation)

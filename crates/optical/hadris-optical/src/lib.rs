@@ -9,7 +9,7 @@
 //! `async_send::OpenOpticalImage`), detects and mounts the filesystem an
 //! [`OpenPolicy`] selects and implements the `hadris_fs` `FsDriver` trait
 //! read-only by delegating to it. A failed open gives the device back in
-//! an [`OpenError`]. Neither needs an allocator.
+//! a `hadris_fs::MountError`. Neither needs an allocator.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "std"))]
@@ -68,7 +68,7 @@ pub mod detect;
 mod error;
 mod image;
 
-pub use error::{Detail, Error, OpenError, OpticalFormat};
+pub use error::{Detail, OpticalFormat};
 pub use image::OpenPolicy;
 
 #[cfg(feature = "sync")]

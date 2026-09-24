@@ -2,7 +2,7 @@ pub mod hadris_cpio
 pub mod hadris_cpio::async
 pub struct hadris_cpio::async::CpioReader<R>
 impl<R: hadris_io::async::api::Read> hadris_cpio::async::CpioReader<R>
-pub async fn hadris_cpio::async::CpioReader<R>::next_entry(&mut self) -> core::result::Result<core::option::Option<hadris_cpio::async::Entry<'_, R>>, hadris_cpio::Error<<R as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_cpio::async::CpioReader<R>::next_entry(&mut self) -> core::result::Result<core::option::Option<hadris_cpio::async::Entry<'_, R>>, hadris_io::fs_error::Error<<R as hadris_io::error::ErrorType>::Error>>
 impl<R> hadris_cpio::async::CpioReader<R>
 pub fn hadris_cpio::async::CpioReader<R>::at_trailer(&self) -> bool
 pub fn hadris_cpio::async::CpioReader<R>::continue_after_trailer(&mut self)
@@ -14,10 +14,10 @@ impl<R> core::fmt::Debug for hadris_cpio::async::CpioReader<R>
 pub fn hadris_cpio::async::CpioReader<R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_cpio::async::CpioWriter<W>
 impl<W: hadris_io::async::api::Write> hadris_cpio::async::CpioWriter<W>
-pub async fn hadris_cpio::async::CpioWriter<W>::append(&mut self, &str, &hadris_fs::meta::SetMetadata, hadris_cpio::NewEntry<'_>) -> core::result::Result<(), hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_cpio::async::CpioWriter<W>::append_hard_links(&mut self, &[&str], &hadris_fs::meta::SetMetadata, &hadris_fs::tree::Content) -> core::result::Result<(), hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_cpio::async::CpioWriter<W>::finish(self) -> core::result::Result<W, hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_cpio::async::CpioWriter<W>::write_tree(&mut self, &hadris_fs::tree::Tree) -> core::result::Result<hadris_cpio::Report, hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_cpio::async::CpioWriter<W>::append(&mut self, &str, &hadris_fs::meta::SetMetadata, hadris_cpio::NewEntry<'_>) -> core::result::Result<(), hadris_fs::error::PathError>
+pub async fn hadris_cpio::async::CpioWriter<W>::append_hard_links(&mut self, &[&str], &hadris_fs::meta::SetMetadata, &hadris_fs::tree::Content) -> core::result::Result<(), hadris_fs::error::PathError>
+pub async fn hadris_cpio::async::CpioWriter<W>::finish(self) -> core::result::Result<W, hadris_fs::error::PathError>
+pub async fn hadris_cpio::async::CpioWriter<W>::write_tree(&mut self, &hadris_fs::tree::Tree) -> core::result::Result<hadris_cpio::Report, hadris_fs::error::PathError>
 impl<W> hadris_cpio::async::CpioWriter<W>
 pub fn hadris_cpio::async::CpioWriter<W>::bytes_written(&self) -> u64
 pub fn hadris_cpio::async::CpioWriter<W>::entries(&self) -> u64
@@ -48,14 +48,14 @@ pub fn hadris_cpio::async::Entry<'_, R>::uid(&self) -> u32
 impl<R: hadris_io::async::api::Read> hadris_io::async::api::Read for hadris_cpio::async::Entry<'_, R>
 pub async fn hadris_cpio::async::Entry<'_, R>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<R: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_cpio::async::Entry<'_, R>
-pub type hadris_cpio::async::Entry<'_, R>::Error = hadris_cpio::Error<<R as hadris_io::error::ErrorType>::Error>
+pub type hadris_cpio::async::Entry<'_, R>::Error = hadris_io::fs_error::Error<<R as hadris_io::error::ErrorType>::Error>
 impl<R> core::fmt::Debug for hadris_cpio::async::Entry<'_, R>
 pub fn hadris_cpio::async::Entry<'_, R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub async fn hadris_cpio::async::write<W: hadris_io::async::api::Write>(W, &hadris_fs::tree::Tree, &hadris_cpio::CpioOptions) -> core::result::Result<hadris_cpio::Report, hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_cpio::async::write<W: hadris_io::async::api::Write>(W, &hadris_fs::tree::Tree, &hadris_cpio::CpioOptions) -> core::result::Result<hadris_cpio::Report, hadris_fs::error::PathError>
 pub mod hadris_cpio::async_send
 pub struct hadris_cpio::async_send::CpioReader<R>
 impl<R: hadris_io::async_send::api::Read> hadris_cpio::async_send::CpioReader<R>
-pub async fn hadris_cpio::async_send::CpioReader<R>::next_entry(&mut self) -> core::result::Result<core::option::Option<hadris_cpio::async_send::Entry<'_, R>>, hadris_cpio::Error<<R as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_cpio::async_send::CpioReader<R>::next_entry(&mut self) -> core::result::Result<core::option::Option<hadris_cpio::async_send::Entry<'_, R>>, hadris_io::fs_error::Error<<R as hadris_io::error::ErrorType>::Error>>
 impl<R> hadris_cpio::async_send::CpioReader<R>
 pub fn hadris_cpio::async_send::CpioReader<R>::at_trailer(&self) -> bool
 pub fn hadris_cpio::async_send::CpioReader<R>::continue_after_trailer(&mut self)
@@ -67,10 +67,10 @@ impl<R> core::fmt::Debug for hadris_cpio::async_send::CpioReader<R>
 pub fn hadris_cpio::async_send::CpioReader<R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_cpio::async_send::CpioWriter<W>
 impl<W: hadris_io::async_send::api::Write> hadris_cpio::async_send::CpioWriter<W>
-pub async fn hadris_cpio::async_send::CpioWriter<W>::append(&mut self, &str, &hadris_fs::meta::SetMetadata, hadris_cpio::NewEntry<'_>) -> core::result::Result<(), hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_cpio::async_send::CpioWriter<W>::append_hard_links(&mut self, &[&str], &hadris_fs::meta::SetMetadata, &hadris_fs::tree::Content) -> core::result::Result<(), hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_cpio::async_send::CpioWriter<W>::finish(self) -> core::result::Result<W, hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_cpio::async_send::CpioWriter<W>::write_tree(&mut self, &hadris_fs::tree::Tree) -> core::result::Result<hadris_cpio::Report, hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_cpio::async_send::CpioWriter<W>::append(&mut self, &str, &hadris_fs::meta::SetMetadata, hadris_cpio::NewEntry<'_>) -> core::result::Result<(), hadris_fs::error::PathError>
+pub async fn hadris_cpio::async_send::CpioWriter<W>::append_hard_links(&mut self, &[&str], &hadris_fs::meta::SetMetadata, &hadris_fs::tree::Content) -> core::result::Result<(), hadris_fs::error::PathError>
+pub async fn hadris_cpio::async_send::CpioWriter<W>::finish(self) -> core::result::Result<W, hadris_fs::error::PathError>
+pub async fn hadris_cpio::async_send::CpioWriter<W>::write_tree(&mut self, &hadris_fs::tree::Tree) -> core::result::Result<hadris_cpio::Report, hadris_fs::error::PathError>
 impl<W> hadris_cpio::async_send::CpioWriter<W>
 pub fn hadris_cpio::async_send::CpioWriter<W>::bytes_written(&self) -> u64
 pub fn hadris_cpio::async_send::CpioWriter<W>::entries(&self) -> u64
@@ -101,10 +101,10 @@ pub fn hadris_cpio::async_send::Entry<'_, R>::uid(&self) -> u32
 impl<R: hadris_io::async_send::api::Read> hadris_io::async_send::api::Read for hadris_cpio::async_send::Entry<'_, R>
 pub async fn hadris_cpio::async_send::Entry<'_, R>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<R: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_cpio::async_send::Entry<'_, R>
-pub type hadris_cpio::async_send::Entry<'_, R>::Error = hadris_cpio::Error<<R as hadris_io::error::ErrorType>::Error>
+pub type hadris_cpio::async_send::Entry<'_, R>::Error = hadris_io::fs_error::Error<<R as hadris_io::error::ErrorType>::Error>
 impl<R> core::fmt::Debug for hadris_cpio::async_send::Entry<'_, R>
 pub fn hadris_cpio::async_send::Entry<'_, R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub async fn hadris_cpio::async_send::write<W: hadris_io::async_send::api::Write>(W, &hadris_fs::tree::Tree, &hadris_cpio::CpioOptions) -> core::result::Result<hadris_cpio::Report, hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_cpio::async_send::write<W: hadris_io::async_send::api::Write>(W, &hadris_fs::tree::Tree, &hadris_cpio::CpioOptions) -> core::result::Result<hadris_cpio::Report, hadris_fs::error::PathError>
 pub mod hadris_cpio::raw
 pub struct hadris_cpio::raw::BinaryFields
 pub hadris_cpio::raw::BinaryFields::dev: u16
@@ -176,7 +176,7 @@ pub const hadris_cpio::raw::TRAILER_NAME: &[u8]
 pub mod hadris_cpio::sync
 pub struct hadris_cpio::sync::CpioReader<R>
 impl<R: hadris_io::sync::api::Read> hadris_cpio::sync::CpioReader<R>
-pub fn hadris_cpio::sync::CpioReader<R>::next_entry(&mut self) -> core::result::Result<core::option::Option<hadris_cpio::sync::Entry<'_, R>>, hadris_cpio::Error<<R as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_cpio::sync::CpioReader<R>::next_entry(&mut self) -> core::result::Result<core::option::Option<hadris_cpio::sync::Entry<'_, R>>, hadris_io::fs_error::Error<<R as hadris_io::error::ErrorType>::Error>>
 impl<R> hadris_cpio::sync::CpioReader<R>
 pub fn hadris_cpio::sync::CpioReader<R>::at_trailer(&self) -> bool
 pub fn hadris_cpio::sync::CpioReader<R>::continue_after_trailer(&mut self)
@@ -188,10 +188,10 @@ impl<R> core::fmt::Debug for hadris_cpio::sync::CpioReader<R>
 pub fn hadris_cpio::sync::CpioReader<R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_cpio::sync::CpioWriter<W>
 impl<W: hadris_io::sync::api::Write> hadris_cpio::sync::CpioWriter<W>
-pub fn hadris_cpio::sync::CpioWriter<W>::append(&mut self, &str, &hadris_fs::meta::SetMetadata, hadris_cpio::NewEntry<'_>) -> core::result::Result<(), hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_cpio::sync::CpioWriter<W>::append_hard_links(&mut self, &[&str], &hadris_fs::meta::SetMetadata, &hadris_fs::tree::Content) -> core::result::Result<(), hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_cpio::sync::CpioWriter<W>::finish(self) -> core::result::Result<W, hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_cpio::sync::CpioWriter<W>::write_tree(&mut self, &hadris_fs::tree::Tree) -> core::result::Result<hadris_cpio::Report, hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_cpio::sync::CpioWriter<W>::append(&mut self, &str, &hadris_fs::meta::SetMetadata, hadris_cpio::NewEntry<'_>) -> core::result::Result<(), hadris_fs::error::PathError>
+pub fn hadris_cpio::sync::CpioWriter<W>::append_hard_links(&mut self, &[&str], &hadris_fs::meta::SetMetadata, &hadris_fs::tree::Content) -> core::result::Result<(), hadris_fs::error::PathError>
+pub fn hadris_cpio::sync::CpioWriter<W>::finish(self) -> core::result::Result<W, hadris_fs::error::PathError>
+pub fn hadris_cpio::sync::CpioWriter<W>::write_tree(&mut self, &hadris_fs::tree::Tree) -> core::result::Result<hadris_cpio::Report, hadris_fs::error::PathError>
 impl<W> hadris_cpio::sync::CpioWriter<W>
 pub fn hadris_cpio::sync::CpioWriter<W>::bytes_written(&self) -> u64
 pub fn hadris_cpio::sync::CpioWriter<W>::entries(&self) -> u64
@@ -220,24 +220,29 @@ pub fn hadris_cpio::sync::Entry<'_, R>::rdev(&self) -> hadris_fs::ops::DeviceNum
 pub fn hadris_cpio::sync::Entry<'_, R>::remaining(&self) -> u64
 pub fn hadris_cpio::sync::Entry<'_, R>::uid(&self) -> u32
 impl<R: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_cpio::sync::Entry<'_, R>
-pub type hadris_cpio::sync::Entry<'_, R>::Error = hadris_cpio::Error<<R as hadris_io::error::ErrorType>::Error>
+pub type hadris_cpio::sync::Entry<'_, R>::Error = hadris_io::fs_error::Error<<R as hadris_io::error::ErrorType>::Error>
 impl<R: hadris_io::sync::api::Read> hadris_io::sync::api::Read for hadris_cpio::sync::Entry<'_, R>
 pub fn hadris_cpio::sync::Entry<'_, R>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<R> core::fmt::Debug for hadris_cpio::sync::Entry<'_, R>
 pub fn hadris_cpio::sync::Entry<'_, R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn hadris_cpio::sync::write<W: hadris_io::sync::api::Write>(W, &hadris_fs::tree::Tree, &hadris_cpio::CpioOptions) -> core::result::Result<hadris_cpio::Report, hadris_cpio::Error<<W as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_cpio::sync::write<W: hadris_io::sync::api::Write>(W, &hadris_fs::tree::Tree, &hadris_cpio::CpioOptions) -> core::result::Result<hadris_cpio::Report, hadris_fs::error::PathError>
 #[non_exhaustive] pub enum hadris_cpio::Detail
-pub hadris_cpio::Detail::Check
-pub hadris_cpio::Detail::Checksum
-pub hadris_cpio::Detail::Content
-pub hadris_cpio::Detail::Entry
-pub hadris_cpio::Detail::Field
-pub hadris_cpio::Detail::Format
-pub hadris_cpio::Detail::Magic
-pub hadris_cpio::Detail::Name
-pub hadris_cpio::Detail::Padding
-pub hadris_cpio::Detail::Trailer
-pub hadris_cpio::Detail::Truncated
+pub hadris_cpio::Detail::Check = 5
+pub hadris_cpio::Detail::Checksum = 6
+pub hadris_cpio::Detail::Entry = 10
+pub hadris_cpio::Detail::Field = 2
+pub hadris_cpio::Detail::Format = 11
+pub hadris_cpio::Detail::Magic = 1
+pub hadris_cpio::Detail::Name = 3
+pub hadris_cpio::Detail::Padding = 4
+pub hadris_cpio::Detail::Trailer = 7
+pub hadris_cpio::Detail::Truncated = 8
+impl hadris_cpio::Detail
+pub const fn hadris_cpio::Detail::code(self) -> hadris_io::fs_error::DetailCode
+pub fn hadris_cpio::Detail::from_code(hadris_io::fs_error::DetailCode) -> core::option::Option<Self>
+pub fn hadris_cpio::Detail::of<E>(&hadris_io::fs_error::Error<E>) -> core::option::Option<Self>
+impl core::convert::From<hadris_cpio::Detail> for hadris_io::fs_error::DetailCode
+pub fn hadris_io::fs_error::DetailCode::from(hadris_cpio::Detail) -> Self
 impl core::fmt::Display for hadris_cpio::Detail
 pub fn hadris_cpio::Detail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub enum hadris_cpio::Format
@@ -259,33 +264,6 @@ impl hadris_cpio::CpioOptions
 pub const fn hadris_cpio::CpioOptions::format(&self) -> hadris_cpio::Format
 pub const fn hadris_cpio::CpioOptions::new() -> Self
 pub const fn hadris_cpio::CpioOptions::with_format(self, hadris_cpio::Format) -> Self
-pub struct hadris_cpio::Error<E>
-impl<E> hadris_cpio::Error<E>
-pub fn hadris_cpio::Error<E>::content_error(&self) -> core::option::Option<&hadris_fs::error::PathError>
-pub const fn hadris_cpio::Error<E>::detail(&self) -> core::option::Option<hadris_cpio::Detail>
-pub const fn hadris_cpio::Error<E>::device_error(&self) -> core::option::Option<&E>
-pub fn hadris_cpio::Error<E>::into_device_error(self) -> core::option::Option<E>
-pub const fn hadris_cpio::Error<E>::kind(&self) -> hadris_io::kind::ErrorKind
-pub fn hadris_cpio::Error<E>::map_device<F>(self, impl core::ops::function::FnOnce(E) -> F) -> hadris_cpio::Error<F>
-impl<E: core::cmp::Eq> core::cmp::Eq for hadris_cpio::Error<E>
-impl<E: core::cmp::PartialEq> core::cmp::PartialEq for hadris_cpio::Error<E>
-pub fn hadris_cpio::Error<E>::eq(&self, &Self) -> bool
-impl<E: core::error::Error + 'static> core::error::Error for hadris_cpio::Error<E>
-pub fn hadris_cpio::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_cpio::Error<E>> for core::io::error::Error
-pub fn core::io::error::Error::from(hadris_cpio::Error<E>) -> Self
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_cpio::Error<E>> for hadris_fs::error::PathError
-pub fn hadris_fs::error::PathError::from(hadris_cpio::Error<E>) -> Self
-impl<E: core::fmt::Display> core::fmt::Display for hadris_cpio::Error<E>
-pub fn hadris_cpio::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_cpio::Error<E>> for hadris_io::fs_error::Error<E>
-pub fn hadris_io::fs_error::Error<E>::from(hadris_cpio::Error<E>) -> Self
-impl<E> core::convert::From<hadris_fs::tree::TreeError> for hadris_cpio::Error<E>
-pub fn hadris_cpio::Error<E>::from(hadris_fs::tree::TreeError) -> Self
-impl<E> core::convert::From<hadris_io::fs_error::Error<E>> for hadris_cpio::Error<E>
-pub fn hadris_cpio::Error<E>::from(hadris_io::fs_error::Error<E>) -> Self
-impl<E> core::convert::From<hadris_io::kind::ErrorKind> for hadris_cpio::Error<E>
-pub fn hadris_cpio::Error<E>::from(hadris_io::kind::ErrorKind) -> Self
 pub struct hadris_cpio::ReaderOptions
 impl hadris_cpio::ReaderOptions
 pub const fn hadris_cpio::ReaderOptions::new() -> Self

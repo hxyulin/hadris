@@ -105,7 +105,7 @@ struct Dir<'a> {
 }
 
 fn too_large() -> Error<Infallible> {
-    Error::invalid(Detail::ImageTooLarge)
+    Detail::ImageTooLarge.invalid()
 }
 
 fn block_of(value: u64) -> PlanResult<u32> {
@@ -263,7 +263,7 @@ impl<'a, C: Clock> Planner<'a, C> {
     fn file_data(&mut self, node: TreeNode<'a>) -> PlanResult<Data> {
         let Some(info) = self.contents.get(&node.id()) else {
             return match self.measured {
-                true => Err(Error::corrupt(Detail::Content)),
+                true => Err(Detail::Content.corrupt()),
                 false => Ok(Data::None),
             };
         };
@@ -271,11 +271,11 @@ impl<'a, C: Clock> Planner<'a, C> {
             let mut extents = Vec::new();
             for extent in stored.iter().filter(|extent| !extent.is_empty()) {
                 if extent.offset() % SECTOR as u64 != 0 {
-                    return Err(Error::invalid(Detail::StoredContent));
+                    return Err(Detail::StoredContent.invalid());
                 }
                 let block = (extent.offset() / SECTOR as u64)
                     .checked_sub(u64::from(PARTITION_START))
-                    .ok_or(Error::invalid(Detail::StoredContent))?;
+                    .ok_or(Detail::StoredContent.invalid())?;
                 extents.push((block_of(block)?, extent.len()));
             }
             return Ok(if extents.is_empty() {
@@ -504,7 +504,7 @@ impl<C: Clock> Planner<'_, C> {
 
     fn timestamp(&self, time: Option<hadris_fs::DateTime>) -> PlanResult<Timestamp> {
         match time {
-            Some(time) => from_datetime(time).ok_or(Error::invalid(Detail::Timestamp)),
+            Some(time) => from_datetime(time).ok_or(Detail::Timestamp.invalid()),
             None => Ok(self.now),
         }
     }
@@ -667,13 +667,13 @@ pub(crate) fn plan<C: Clock>(
     measured: bool,
 ) -> PlanResult<Plan> {
     if opts.revision() >= crate::UdfRevision::V2_50 {
-        return Err(Error::new(ErrorKind::Unsupported, Detail::PartitionMap));
+        return Err(Detail::PartitionMap.error(ErrorKind::Unsupported));
     }
     let mut encoded = [0u8; 256];
     if write_dstring(&mut encoded[..128], opts.volume_id()) {
-        return Err(Error::invalid(Detail::Identifier));
+        return Err(Detail::Identifier.invalid());
     }
-    let now = from_datetime(opts.clock().now()).ok_or(Error::invalid(Detail::Timestamp))?;
+    let now = from_datetime(opts.clock().now()).ok_or(Detail::Timestamp.invalid())?;
     let mut planner = Planner {
         opts,
         contents,
@@ -712,7 +712,7 @@ pub(crate) fn plan<C: Clock>(
             for &(block, len) in extents {
                 let start = u64::from(PARTITION_START) + u64::from(block);
                 if start < allocated_end {
-                    return Err(Error::invalid(Detail::StoredContent));
+                    return Err(Detail::StoredContent.invalid());
                 }
                 data_end = data_end.max(start + len.div_ceil(SECTOR as u64));
             }

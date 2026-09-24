@@ -1,11 +1,12 @@
+use hadris_block::Detail;
 use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
 use hadris_block::part::sync::open;
 use hadris_block::part::{self, MbrEntry, MbrType};
 use hadris_block::sync::OpenVolume;
-use hadris_block::{Detail, Error, OpenError};
 use hadris_fat::{FatKind, FormatOptions};
 use hadris_fs::ErrorKind;
 use hadris_fs::sync::DriverExt;
+use hadris_fs::{Error, MountError};
 use hadris_storage::sync::{BlockDevice, Slice};
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 
@@ -20,7 +21,7 @@ fn device(bytes: Vec<u8>) -> MemDevice<Vec<u8>> {
 }
 
 /// The reason an open failed, and the device it gave back.
-fn failure<T, D, E>(result: Result<T, OpenError<D, E>>) -> (Error<E>, D) {
+fn failure<T, D, E>(result: Result<T, MountError<D, E>>) -> (Error<E>, D) {
     let Err(err) = result else {
         panic!("the volume opened");
     };
@@ -71,8 +72,8 @@ fn opens_fat_inside_mbr_partition() {
     );
     let (error, _) = failure(OpenVolume::open(&mut disk));
     assert_eq!(
-        error.detail(),
-        Some(Detail::PartitionedDisk(PartitionTableKind::Mbr))
+        error.detail().and_then(Detail::from_code),
+        Some(Detail::PartitionedDisk)
     );
     assert_eq!(error.kind(), ErrorKind::InvalidInput);
 
@@ -122,8 +123,7 @@ fn partitions_past_the_disk_are_refused() {
 #[test]
 fn rejects_unknown_and_mismatched_formats() {
     let (error, dev) = failure(OpenVolume::open(device(vec![0_u8; 1024])));
-    assert_eq!(error.detail(), Some(Detail::UnknownFormat));
-    assert_eq!(error.kind(), ErrorKind::Unsupported);
+    assert_eq!(error.kind(), ErrorKind::NotRecognized);
     assert_eq!(dev.get_ref().len(), 1024);
 
     let dev = format_fat12(device(vec![0_u8; VOLUME_LEN]));
@@ -133,12 +133,8 @@ fn rejects_unknown_and_mismatched_formats() {
     ));
     assert_eq!(error.kind(), ErrorKind::Corrupt);
     assert!(matches!(
-        error.detail(),
-        Some(Detail::FormatMismatch {
-            detected: FatVariant::Fat16,
-            opened: FatVariant::Fat12,
-            ..
-        })
+        error.detail().and_then(Detail::from_code),
+        Some(Detail::FormatMismatch)
     ));
     assert_eq!(dev.get_ref().len(), VOLUME_LEN);
     assert_eq!(
@@ -171,14 +167,14 @@ fn a_volume_that_fails_to_mount_gives_the_device_back() {
     image.truncate(VOLUME_LEN / 2);
     let (error, dev) = failure(OpenVolume::open(device(image)));
     assert_eq!(error.device_error(), None);
-    assert_eq!(error.detail(), Some(Detail::Mount(FAT12)));
+    assert_eq!(error.detail().and_then(Detail::from_code), None);
     assert_eq!(error.kind(), ErrorKind::Corrupt);
     assert_eq!(dev.get_ref().len(), VOLUME_LEN / 2);
     let (error, dev) = failure(OpenVolume::open_detected(dev, FAT12));
-    assert_eq!(error.detail(), Some(Detail::Mount(FAT12)));
+    assert_eq!(error.detail().and_then(Detail::from_code), None);
     assert_eq!(
         format!("{}", failure(OpenVolume::open(dev)).0),
-        "corrupt filesystem data: mounting Fat(Fat12) failed"
+        "corrupt filesystem data"
     );
 }
 
@@ -214,7 +210,7 @@ fn a_bad_exfat_volume_gives_the_device_back() {
     image[510..512].copy_from_slice(&[0x55, 0xaa]);
 
     let (error, dev) = failure(OpenVolume::open(device(image)));
-    assert_eq!(error.detail(), Some(Detail::Mount(EXFAT)));
+    assert_eq!(error.detail().and_then(Detail::from_code), None);
     assert_eq!(error.kind(), ErrorKind::Corrupt);
     assert_eq!(dev.get_ref().len(), 512);
 }
@@ -223,7 +219,7 @@ fn a_bad_exfat_volume_gives_the_device_back() {
 fn devices_smaller_than_a_block_are_unknown() {
     let dev = MemDevice::new(vec![0_u8; 512], BlockSize::new(4096).unwrap());
     let (error, _) = failure(OpenVolume::open(dev));
-    assert_eq!(error.detail(), Some(Detail::UnknownFormat));
+    assert_eq!(error.kind(), ErrorKind::NotRecognized);
 }
 
 #[test]
@@ -249,8 +245,8 @@ fn detects_gpt_on_4096_byte_blocks() {
     );
     let (error, _) = failure(OpenVolume::open(dev));
     assert_eq!(
-        error.detail(),
-        Some(Detail::PartitionedDisk(PartitionTableKind::Gpt))
+        error.detail().and_then(Detail::from_code),
+        Some(Detail::PartitionedDisk)
     );
 }
 
@@ -290,7 +286,7 @@ fn a_corrupt_ntfs_volume_gives_the_device_back() {
     let mut image = ntfs_image::base_image();
     image[11..13].copy_from_slice(&1000u16.to_le_bytes());
     let (error, dev) = failure(OpenVolume::open(device(image)));
-    assert_eq!(error.detail(), Some(Detail::Mount(BlockFormat::Ntfs)));
+    assert_eq!(error.detail().and_then(Detail::from_code), None);
     assert_eq!(error.kind(), ErrorKind::Corrupt);
     assert_eq!(dev.into_inner().len(), ntfs_image::IMAGE_LEN);
 }

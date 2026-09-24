@@ -30,9 +30,9 @@ pub(crate) async fn read_bytes<D: BlockDevice>(
 ) -> Result<(), Error<D::Error>> {
     let end = offset
         .checked_add(buf.len() as u64)
-        .ok_or(Error::corrupt(Detail::OutsideImage))?;
+        .ok_or(Detail::OutsideImage.corrupt())?;
     if end > len {
-        return Err(Error::corrupt(Detail::OutsideImage));
+        return Err(Detail::OutsideImage.corrupt());
     }
     let bs = u64::from(dev.block_size().get());
     let mut done = 0;
@@ -44,14 +44,13 @@ pub(crate) async fn read_bytes<D: BlockDevice>(
         if within == 0 && left as u64 >= bs {
             let whole = left - left % bs as usize;
             dev.read_blocks(block, &mut buf[done..done + whole])
-                .await
-                .map_err(Error::from)?;
+                .await?;
             done += whole;
             pos += whole as u64;
         } else {
             let mut scratch = [0u8; MAX_DEVICE_BLOCK];
             let scratch = &mut scratch[..bs as usize];
-            dev.read_blocks(block, scratch).await.map_err(Error::from)?;
+            dev.read_blocks(block, scratch).await?;
             let take = (bs as usize - within).min(left);
             buf[done..done + take].copy_from_slice(&scratch[within..within + take]);
             done += take;
@@ -65,7 +64,7 @@ pub(crate) async fn read_bytes<D: BlockDevice>(
 async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>> {
     let block = dev.block_size().get() as usize;
     if block > MAX_DEVICE_BLOCK {
-        return Err(Error::new(ErrorKind::Unsupported, Detail::BlockSize));
+        return Err(Detail::BlockSize.error(ErrorKind::Unsupported));
     }
     let len = dev.block_count().saturating_mul(block as u64);
     let mut scan = DescriptorScan::new();
@@ -73,12 +72,17 @@ async fn read_info<D: BlockDevice>(dev: &mut D) -> Result<Info, Error<D::Error>>
     let mut index = u64::from(raw::DESCRIPTOR_START);
     loop {
         read_bytes(dev, len, index * SECTOR_SIZE as u64, &mut sector).await?;
-        if scan.feed(&sector).map_err(Error::corrupt)? {
+        let first = index == u64::from(raw::DESCRIPTOR_START);
+        let done = scan.feed(&sector).map_err(|detail| match detail {
+            Detail::DescriptorHeader if first => detail.error(ErrorKind::NotRecognized),
+            _ => detail.corrupt(),
+        })?;
+        if done {
             break;
         }
         index += 1;
     }
-    let mut info = scan.finish().map_err(Error::corrupt)?;
+    let mut info = scan.finish().map_err(Detail::corrupt)?;
     let mut probe = View::new(info, Namespace::Primary, info.primary, len);
     info.rock_ridge = probe.detect_rock_ridge(dev).await?;
     Ok(info)
@@ -115,7 +119,7 @@ impl<D: BlockDevice> IsoImage<D> {
                 let len = dev.block_count().saturating_mul(u64::from(dev.block_size().get()));
                 Ok(Self { dev, info, len })
             }
-            Err(err) => Err(MountError::new(err.into(), dev)),
+            Err(err) => Err(MountError::new(err, dev)),
         }
     }
 
@@ -148,7 +152,7 @@ impl<D: BlockDevice> IsoImage<D> {
         let (namespace, root) = self
             .info
             .tree(namespace)
-            .ok_or(Error::new(ErrorKind::NotFound, Detail::NoNamespace))?;
+            .ok_or(Detail::NoNamespace.error(ErrorKind::NotFound))?;
         Ok(IsoView {
             dev: &mut self.dev,
             view: View::new(self.info, namespace, root, self.len),
@@ -193,7 +197,7 @@ impl<D: BlockDevice> IsoImage<D> {
             }
             index += 1;
         }
-        Err(Error::corrupt(Detail::NoPrimaryDescriptor))
+        Err(Detail::NoPrimaryDescriptor.corrupt())
     }
 
     /// Reads the El Torito boot catalog, or `None` without a boot record.
@@ -221,13 +225,13 @@ impl<D: BlockDevice> IsoImage<D> {
             let mut chunk = [0u8; 32];
             chunk.copy_from_slice(&sector[used..used + 32]);
             used += 32;
-            match parser.feed(&chunk).map_err(|()| Error::corrupt(Detail::BootCatalog))? {
+            match parser.feed(&chunk).map_err(|()| Detail::BootCatalog.corrupt())? {
                 Step::Entry(entry) => entries.push(entry),
                 Step::More => {}
                 Step::Done => return Ok(parser.finish(block, entries)),
             }
         }
-        Err(Error::corrupt(Detail::BootCatalog))
+        Err(Detail::BootCatalog.corrupt())
     }
 
     /// Borrows the device.
@@ -331,7 +335,7 @@ fn handle<E>(err: Error<E>, node: NodeId, view: &View) -> hadris_fs::Error<E> {
     let volume_end = u64::from(view.info.volume_blocks) * u64::from(view.info.block_size);
     let id = node.get();
     if err.kind() == ErrorKind::Io || (id != 0 && id % 2 == 0 && id < volume_end.max(view.len)) {
-        err.into()
+        err
     } else {
         ErrorKind::InvalidHandle.into()
     }
@@ -371,7 +375,7 @@ impl View {
     async fn record_at<D: BlockDevice>(&self, dev: &mut D, offset: u64) -> Result<DirectoryRecord, Error<D::Error>> {
         let bs = self.bs();
         if offset == 0 {
-            return Err(Error::corrupt(Detail::DirectoryRecord));
+            return Err(Detail::DirectoryRecord.corrupt());
         }
         let mut block = [0u8; SECTOR_SIZE];
         let block = &mut block[..bs as usize];
@@ -379,7 +383,7 @@ impl View {
         let within = (offset % bs) as usize;
         match DirectoryRecord::parse(&block[within..]) {
             Ok(Some(record)) => Ok(record),
-            _ => Err(Error::corrupt(Detail::DirectoryRecord)),
+            _ => Err(Detail::DirectoryRecord.corrupt()),
         }
     }
 
@@ -424,7 +428,7 @@ impl View {
                     return Ok(Some(Found { offset, record }));
                 }
                 Ok(None) => *pos = (*pos / bs + 1) * bs,
-                Err(()) => return Err(Error::corrupt(Detail::DirectoryRecord)),
+                Err(()) => return Err(Detail::DirectoryRecord.corrupt()),
             }
         }
         Ok(None)
@@ -448,13 +452,13 @@ impl View {
             let next = self
                 .next_record(dev, dir, pos, block)
                 .await?
-                .ok_or(Error::corrupt(Detail::MultiExtent))?;
+                .ok_or(Detail::MultiExtent.corrupt())?;
             if next.record.name() != first.name() {
-                return Err(Error::corrupt(Detail::MultiExtent));
+                return Err(Detail::MultiExtent.corrupt());
             }
             last = next.record;
         }
-        Err(Error::corrupt(Detail::MultiExtent))
+        Err(Detail::MultiExtent.corrupt())
     }
 
     /// Follows the system use area of `record` through its continuation
@@ -584,8 +588,8 @@ impl View {
         let end = self.len.max(u64::from(self.info.volume_blocks) * self.bs());
         let dir_id = |start: Option<u64>| match start {
             Some(start) if start != 0 && start < end => Ok(NodeId::new(start)),
-            Some(start) if start != 0 => Err(Error::corrupt(Detail::OutsideImage)),
-            _ => Err(Error::corrupt(Detail::DirectoryRecord)),
+            Some(start) if start != 0 => Err(Detail::OutsideImage.corrupt()),
+            _ => Err(Detail::DirectoryRecord.corrupt()),
         };
         if let Some(skip) = self.rock_ridge() {
             let mut name = [0u8; 1024];
@@ -746,11 +750,11 @@ impl View {
             }
             current = self.following(dev, current.0, &current.1).await?;
             if current.1.name() != record.name() {
-                return Err(Error::corrupt(Detail::MultiExtent));
+                return Err(Detail::MultiExtent.corrupt());
             }
             total += u64::from(current.1.header().data_len.get());
         }
-        Err(Error::corrupt(Detail::MultiExtent))
+        Err(Detail::MultiExtent.corrupt())
     }
 
     /// The record after the one at `offset`, in the same block or at the
@@ -779,7 +783,7 @@ impl View {
         for _ in 0..MAX_EXTENTS {
             let header = *current.1.header();
             if header.file_unit_size != 0 || header.interleave_gap_size != 0 || header.volume_sequence_number.get() > 1 {
-                return Err(Error::new(ErrorKind::Unsupported, Detail::Interleaved).into());
+                return Err(Detail::Interleaved.error(ErrorKind::Unsupported));
             }
             let len = u64::from(header.data_len.get());
             if offset < start + len {
@@ -795,11 +799,11 @@ impl View {
             }
             let next = self.following(dev, current.0, &current.1).await?;
             if next.1.name() != record.name() {
-                return Err(Error::corrupt(Detail::MultiExtent).into());
+                return Err(Detail::MultiExtent.corrupt());
             }
             current = next;
         }
-        Err(Error::corrupt(Detail::MultiExtent).into())
+        Err(Detail::MultiExtent.corrupt())
     }
 
     async fn parent<D: BlockDevice>(&self, dev: &mut D, dir: NodeId) -> FsResult<NodeId, D::Error> {
@@ -852,7 +856,7 @@ impl View {
             pos += header.record_len() as u64;
             number += 1;
         }
-        Err(Error::corrupt(Detail::DirectoryRecord))
+        Err(Detail::DirectoryRecord.corrupt())
     }
 
     async fn read_link<D: BlockDevice>(&self, dev: &mut D, link: NodeId, buf: &mut [u8]) -> FsResult<usize, D::Error> {
@@ -1011,17 +1015,17 @@ impl<D: BlockDevice> IsoView<D> {
         let record = self.view.record_at(&mut self.dev, node.get()).await?;
         let mut current = (node.get(), record);
         for _ in 0..MAX_EXTENTS {
-            let start = self.view.extent_start(&current.1).ok_or(Error::corrupt(Detail::DirectoryRecord))?;
+            let start = self.view.extent_start(&current.1).ok_or(Detail::DirectoryRecord.corrupt())?;
             visit(hadris_fs::Extent::new(start, u64::from(current.1.header().data_len.get())));
             if !current.1.header().file_flags().contains(FileFlags::NOT_FINAL) {
                 return Ok(());
             }
             current = self.view.following(&mut self.dev, current.0, &current.1).await?;
             if current.1.name() != record.name() {
-                return Err(Error::corrupt(Detail::MultiExtent));
+                return Err(Detail::MultiExtent.corrupt());
             }
         }
-        Err(Error::corrupt(Detail::MultiExtent))
+        Err(Detail::MultiExtent.corrupt())
     }
 }
 

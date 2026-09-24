@@ -1,78 +1,73 @@
 use core::fmt;
 
-use hadris_fs::ErrorKind;
+pub(crate) use hadris_fs::Error;
+use hadris_fs::{DetailCode, ErrorKind};
+
+const DOMAIN: &str = "hadris-part";
 
 /// What exactly went wrong, beyond the [`ErrorKind`].
 ///
 /// Callers match on the kind; the detail tells a tool which structure or
-/// partition to report.
+/// partition to report. Read it back from an [`Error`] with [`Detail::of`],
+/// or from a [`TableError`] with [`TableError::detail`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Detail {
     /// Block 0 lacks the `55 AA` boot signature, so the disk has no
     /// partition table.
-    NoTable,
+    NoTable = 1,
     /// An MBR or EBR entry is invalid: a boot indicator other than `0x00`
     /// or `0x80`, or a second extended partition.
-    MbrEntry,
+    MbrEntry = 2,
     /// The chain of extended boot records loops, leaves the extended
     /// partition, or is too long.
-    EbrChain,
+    EbrChain = 3,
     /// A GPT header field is invalid: signature, revision, size, location or
     /// usable range.
-    GptHeader,
+    GptHeader = 4,
     /// A GPT header fails its CRC.
-    GptHeaderCrc,
+    GptHeaderCrc = 5,
     /// The GPT entry size, count or array location is invalid.
-    GptEntries,
+    GptEntries = 6,
     /// A GPT entry array fails its CRC.
-    GptEntriesCrc,
+    GptEntriesCrc = 7,
     /// The block size is not a power of two of at least 512 bytes, or does
     /// not match the table's.
-    BlockSize,
-    /// The partition would overlap partition `other` (or, for `other ==
-    /// index`, a structure of the table itself).
-    Overlap {
-        /// Index of the partition being placed.
-        index: usize,
-        /// Index of the partition it would overlap.
-        other: usize,
-    },
+    BlockSize = 8,
+    /// The partition would overlap another partition or a structure of the
+    /// table itself; [`TableError::index`] and [`TableError::other`] name
+    /// them.
+    Overlap = 9,
     /// The partition lies outside the usable area of the disk or the
-    /// extended partition.
-    OutOfBounds {
-        /// Index of the partition.
-        index: usize,
-    },
+    /// extended partition; [`TableError::index`] names it.
+    OutOfBounds = 10,
     /// Every slot of the table is in use.
-    TableFull,
-    /// No partition has this index.
-    NoSuchPartition {
-        /// The index asked for.
-        index: usize,
-    },
+    TableFull = 11,
+    /// No partition has the index asked for; [`TableError::index`] names
+    /// it.
+    NoSuchPartition = 12,
     /// A logical partition needs an extended partition, or a second
     /// extended partition was requested.
-    Extended,
+    Extended = 13,
     /// The extended partition still holds logical partitions.
-    ExtendedInUse,
+    ExtendedInUse = 14,
     /// A partition name is too long or contains a NUL.
-    Name,
+    Name = 15,
     /// A hybrid MBR mirror is invalid.
-    Mirror,
+    Mirror = 16,
     /// The disk is too small for the table or the layout.
-    DiskTooSmall,
+    DiskTooSmall = 17,
     /// A value does not fit its 32-bit MBR field.
-    FieldOverflow,
+    FieldOverflow = 18,
     /// The partition kind does not belong to this table (a GUID in an MBR,
     /// a type code in a GPT), or is the unused kind.
-    Kind,
+    Kind = 19,
     /// A flag the table cannot store.
-    Flags,
+    Flags = 20,
     /// A partition size is zero, or `Size::Remaining` is not last.
-    Size,
+    Size = 21,
     /// Boot code longer than 446 bytes.
-    Bootstrap,
+    Bootstrap = 22,
 }
 
 impl Detail {
@@ -86,10 +81,10 @@ impl Detail {
             Self::GptEntries => "invalid GPT partition entry array",
             Self::GptEntriesCrc => "GPT partition entry array CRC mismatch",
             Self::BlockSize => "unsupported or mismatched block size",
-            Self::Overlap { .. } => "partitions overlap",
-            Self::OutOfBounds { .. } => "partition outside the usable area",
+            Self::Overlap => "partitions overlap",
+            Self::OutOfBounds => "partition outside the usable area",
             Self::TableFull => "partition table is full",
-            Self::NoSuchPartition { .. } => "no such partition",
+            Self::NoSuchPartition => "no such partition",
             Self::Extended => "logical partitions need exactly one extended partition",
             Self::ExtendedInUse => "extended partition holds logical partitions",
             Self::Name => "invalid partition name",
@@ -104,38 +99,105 @@ impl Detail {
     }
 }
 
+impl Detail {
+    const ALL: [Self; 22] = [
+        Self::NoTable,
+        Self::MbrEntry,
+        Self::EbrChain,
+        Self::GptHeader,
+        Self::GptHeaderCrc,
+        Self::GptEntries,
+        Self::GptEntriesCrc,
+        Self::BlockSize,
+        Self::Overlap,
+        Self::OutOfBounds,
+        Self::TableFull,
+        Self::NoSuchPartition,
+        Self::Extended,
+        Self::ExtendedInUse,
+        Self::Name,
+        Self::Mirror,
+        Self::DiskTooSmall,
+        Self::FieldOverflow,
+        Self::Kind,
+        Self::Flags,
+        Self::Size,
+        Self::Bootstrap,
+    ];
+
+    /// The detail a partition table operation recorded on `err`, if any.
+    pub fn of<E>(err: &Error<E>) -> Option<Self> {
+        err.detail().and_then(Self::from_code)
+    }
+
+    /// The detail `code` stands for, when it is one of this crate's codes.
+    pub fn from_code(code: DetailCode) -> Option<Self> {
+        let code = code.code_in(DOMAIN)?;
+        Self::ALL.into_iter().find(|detail| *detail as u16 == code)
+    }
+
+    /// The code this detail is recorded with, in the `hadris-part` domain.
+    /// Codes never change meaning.
+    pub const fn code(self) -> DetailCode {
+        DetailCode::new(DOMAIN, self as u16)
+    }
+
+    pub(crate) fn error<E>(self, kind: ErrorKind) -> Error<E> {
+        Error::new(kind, self.description()).with_detail(self.code())
+    }
+
+    pub(crate) fn corrupt<E>(self) -> Error<E> {
+        self.error(ErrorKind::Corrupt)
+    }
+}
+
+impl From<Detail> for DetailCode {
+    fn from(detail: Detail) -> Self {
+        detail.code()
+    }
+}
+
 impl fmt::Display for Detail {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Overlap { index, other } => {
-                write!(f, "partition {index} would overlap partition {other}")
-            }
-            Self::OutOfBounds { index } => {
-                write!(f, "partition {index} lies outside the usable area")
-            }
-            Self::NoSuchPartition { index } => write!(f, "no partition {index}"),
-            other => f.write_str(other.description()),
-        }
+        f.write_str(self.description())
     }
 }
 
 /// Error of a table operation that touches no device: an edit, a layout,
 /// a name.
 ///
-/// Converts with `?` into [`Error<E>`] and [`hadris_fs::Error<E>`].
+/// Converts with `?` into [`Error<E>`](hadris_fs::Error), keeping the kind
+/// and the detail code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TableError {
     kind: ErrorKind,
     detail: Detail,
+    index: Option<usize>,
+    other: Option<usize>,
 }
 
 impl TableError {
     pub(crate) const fn new(kind: ErrorKind, detail: Detail) -> Self {
-        Self { kind, detail }
+        Self {
+            kind,
+            detail,
+            index: None,
+            other: None,
+        }
     }
 
     pub(crate) const fn invalid(detail: Detail) -> Self {
         Self::new(ErrorKind::InvalidInput, detail)
+    }
+
+    pub(crate) const fn at(mut self, index: usize) -> Self {
+        self.index = Some(index);
+        self
+    }
+
+    pub(crate) const fn overlapping(mut self, other: usize) -> Self {
+        self.other = Some(other);
+        self
     }
 
     /// What went wrong.
@@ -147,19 +209,40 @@ impl TableError {
     pub const fn detail(&self) -> Detail {
         self.detail
     }
+
+    /// The index of the partition it concerns, when there is one.
+    pub const fn index(&self) -> Option<usize> {
+        self.index
+    }
+
+    /// For [`Detail::Overlap`], the index of the partition overlapped; the
+    /// same as [`index`](Self::index) when the partition overlaps a
+    /// structure of the table itself.
+    pub const fn other(&self) -> Option<usize> {
+        self.other
+    }
 }
 
 impl fmt::Display for TableError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.detail.fmt(f)
+        match (self.detail, self.index, self.other) {
+            (Detail::Overlap, Some(index), Some(other)) => {
+                write!(f, "partition {index} would overlap partition {other}")
+            }
+            (Detail::OutOfBounds, Some(index), _) => {
+                write!(f, "partition {index} lies outside the usable area")
+            }
+            (Detail::NoSuchPartition, Some(index), _) => write!(f, "no partition {index}"),
+            (detail, _, _) => detail.fmt(f),
+        }
     }
 }
 
 impl core::error::Error for TableError {}
 
-impl<E> From<TableError> for hadris_fs::Error<E> {
+impl<E> From<TableError> for Error<E> {
     fn from(err: TableError) -> Self {
-        err.kind.into()
+        err.detail.error(err.kind)
     }
 }
 
@@ -170,125 +253,17 @@ impl From<TableError> for std::io::Error {
     }
 }
 
-/// Error of reading, writing or opening a partition table on a device with
-/// error `E`.
-///
-/// Like [`hadris_fs::Error`], it keeps the device's own error without
-/// allocation. Callers match on [`kind`](Self::kind): [`ErrorKind::Io`]
-/// when the device failed, [`ErrorKind::Corrupt`] when the disk data breaks
-/// the specification, [`ErrorKind::NotFound`] when block 0 holds no table.
-/// [`detail`](Self::detail) names the structure. Two errors are equal when
-/// their kinds and device errors are.
-///
-/// `?` converts it into [`hadris_fs::Error<E>`], and with `std` into
-/// [`std::io::Error`], returning an `io::Error` device error as itself.
-#[derive(Debug, Clone)]
-pub struct Error<E> {
-    kind: ErrorKind,
-    detail: Option<Detail>,
-    device: Option<E>,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl<E> Error<E> {
-    pub(crate) const fn new(kind: ErrorKind, detail: Detail) -> Self {
-        Self {
-            kind,
-            detail: Some(detail),
-            device: None,
+    #[test]
+    fn details_round_trip_through_their_codes() {
+        for detail in Detail::ALL {
+            let err: Error<()> = Error::new(ErrorKind::Corrupt, "").with_detail(detail.code());
+            assert_eq!(Detail::of(&err), Some(detail));
         }
-    }
-
-    pub(crate) const fn corrupt(detail: Detail) -> Self {
-        Self::new(ErrorKind::Corrupt, detail)
-    }
-
-    /// What went wrong. [`ErrorKind::Io`] when the device failed.
-    pub const fn kind(&self) -> ErrorKind {
-        self.kind
-    }
-
-    /// Which structure or partition it concerns, when known.
-    pub const fn detail(&self) -> Option<Detail> {
-        self.detail
-    }
-
-    /// The device error, if the device failed.
-    pub const fn device_error(&self) -> Option<&E> {
-        self.device.as_ref()
-    }
-
-    /// Takes the device error, if the device failed.
-    pub fn into_device_error(self) -> Option<E> {
-        self.device
-    }
-
-    /// Converts the device error.
-    pub fn map_device<F>(self, f: impl FnOnce(E) -> F) -> Error<F> {
-        Error {
-            kind: self.kind,
-            detail: self.detail,
-            device: self.device.map(f),
-        }
-    }
-}
-
-impl<E: PartialEq> PartialEq for Error<E> {
-    fn eq(&self, other: &Self) -> bool {
-        self.kind == other.kind && self.device == other.device
-    }
-}
-
-impl<E: Eq> Eq for Error<E> {}
-
-impl<E> From<TableError> for Error<E> {
-    fn from(err: TableError) -> Self {
-        Self::new(err.kind, err.detail)
-    }
-}
-
-impl<E> From<hadris_fs::Error<E>> for Error<E> {
-    fn from(err: hadris_fs::Error<E>) -> Self {
-        Self {
-            kind: err.kind(),
-            detail: None,
-            device: err.into_device_error(),
-        }
-    }
-}
-
-impl<E> From<Error<E>> for hadris_fs::Error<E> {
-    fn from(err: Error<E>) -> Self {
-        match err.device {
-            Some(device) => hadris_fs::Error::device(device, "device failed"),
-            None => err.kind.into(),
-        }
-    }
-}
-
-impl<E: fmt::Display> fmt::Display for Error<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match (&self.device, self.detail) {
-            (Some(err), _) => write!(f, "device error: {err}"),
-            (None, Some(detail)) => detail.fmt(f),
-            (None, None) => self.kind.fmt(f),
-        }
-    }
-}
-
-impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
-    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        self.device.as_ref().map(|err| err as _)
-    }
-}
-
-/// A device error that is a `std::io::Error` comes back as itself.
-#[cfg(feature = "std")]
-impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for std::io::Error {
-    fn from(err: Error<E>) -> Self {
-        match (err.device, err.detail) {
-            (Some(device), _) => hadris_io::into_std_error(device),
-            (None, Some(detail)) => TableError::new(err.kind, detail).into(),
-            (None, None) => std::io::Error::new(err.kind.into(), err.kind),
-        }
+        let foreign = DetailCode::new("another-crate", Detail::ALL[0] as u16);
+        assert_eq!(Detail::from_code(foreign), None);
     }
 }

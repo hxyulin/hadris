@@ -34,9 +34,10 @@ for entry in image.read_dir("/")? {
   the `hadris-fs` `FsDriver` trait read-only by delegating to the driver,
   so the path helpers, `Volume` and handles work on either; `as_iso` and
   `as_udf` reach the drivers' native API.
-- Every failure is an `Error<E>` with a shared `ErrorKind`, a `Detail` and
-  the device's own error, and a failed open gives the device back in an
-  `OpenError`.
+- Every failure is a `hadris_fs::Error<E>` with a shared `ErrorKind` and
+  the device's own error, and a failed open gives the device back in a
+  `hadris_fs::MountError`. An image with neither filesystem fails with
+  `NotRecognized`; a driver that refuses the volume returns its own error.
 
 ## Features
 

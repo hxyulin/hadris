@@ -3,7 +3,8 @@
 mod common;
 
 use common::{PAYLOAD, block_on, device, image_of, populated_tree};
-use hadris_optical::{Detail, OpenPolicy, OpticalFormat};
+use hadris_fs::ErrorKind;
+use hadris_optical::{OpenPolicy, OpticalFormat};
 
 #[test]
 fn async_mode_opens_each_filesystem_of_a_bridge() {
@@ -64,6 +65,7 @@ fn async_send_mode_shares_an_opened_image() {
             .await
             .map(|_| ())
             .unwrap_err();
-        assert_eq!(err.error().detail(), Some(Detail::UnknownFormat));
+        assert_eq!(err.kind(), ErrorKind::NotRecognized);
+        assert_eq!(err.error().detail(), None);
     });
 }

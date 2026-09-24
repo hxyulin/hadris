@@ -131,14 +131,14 @@ fn async_failed_opens_give_the_device_back() {
             let err = hadris_fat::r#async::FatFs::open(common::device(case, image.clone()))
                 .await
                 .unwrap_err();
-            assert_eq!(err.kind(), ErrorKind::Corrupt);
+            assert_eq!(err.kind(), ErrorKind::NotRecognized);
             assert_eq!(err.into_device().into_inner(), image);
 
             let err = hadris_fat::async_send::FatFs::open(common::device(case, image.clone()))
                 .await
                 .unwrap_err();
             let (error, dev) = err.into_parts();
-            assert_eq!(error.kind(), ErrorKind::Corrupt);
+            assert_eq!(error.kind(), ErrorKind::NotRecognized);
             assert_eq!(dev.into_inner(), image);
 
             let options = hadris_fat::MountOptions::new().with_read_only();

@@ -357,7 +357,7 @@ impl Mbr {
             return Err(TableError::invalid(Detail::Extended));
         }
         if end > self.block_count {
-            return Err(TableError::invalid(Detail::OutOfBounds { index: slot }));
+            return Err(TableError::invalid(Detail::OutOfBounds).at(slot));
         }
         for (other, existing) in self.primary.iter().enumerate() {
             if other == slot || existing.is_empty() {
@@ -369,7 +369,9 @@ impl Mbr {
             let start = u64::from(existing.start_lba());
             let stop = start + u64::from(existing.sector_count());
             if entry.start < stop && start < end {
-                return Err(TableError::invalid(Detail::Overlap { index: slot, other }));
+                return Err(TableError::invalid(Detail::Overlap)
+                    .at(slot)
+                    .overlapping(other));
             }
         }
         Ok(())
@@ -439,7 +441,7 @@ fn check_flags(flags: PartitionFlags) -> Result<(), TableError> {
 }
 
 fn no_such(index: usize) -> TableError {
-    TableError::new(ErrorKind::NotFound, Detail::NoSuchPartition { index })
+    TableError::new(ErrorKind::NotFound, Detail::NoSuchPartition).at(index)
 }
 
 /// Sorts logical partitions, places their extended boot records and checks
@@ -457,7 +459,7 @@ pub(crate) fn place_logicals(
             return Err(TableError::invalid(Detail::Size));
         }
         if l.start <= ext_start || l.end() > ext_end || l.start.checked_add(l.len).is_none() {
-            return Err(TableError::invalid(Detail::OutOfBounds { index }));
+            return Err(TableError::invalid(Detail::OutOfBounds).at(index));
         }
         if k == 0 {
             l.ebr = ext_start;
@@ -466,7 +468,9 @@ pub(crate) fn place_logicals(
         }
         if l.ebr < prev_end {
             let other = if k == 0 { index } else { index - 1 };
-            return Err(TableError::invalid(Detail::Overlap { index, other }));
+            return Err(TableError::invalid(Detail::Overlap)
+                .at(index)
+                .overlapping(other));
         }
         prev_end = l.end();
     }
@@ -488,11 +492,14 @@ mod tests {
         let err = mbr
             .add(MbrEntry::new(MbrType::LINUX, 150, 100))
             .unwrap_err();
-        assert_eq!(err.detail(), Detail::Overlap { index: 1, other: 0 });
+        assert_eq!(
+            (err.detail(), err.index(), err.other()),
+            (Detail::Overlap, Some(1), Some(0))
+        );
         let err = mbr
             .add(MbrEntry::new(MbrType::LINUX, 99_950, 100))
             .unwrap_err();
-        assert_eq!(err.detail(), Detail::OutOfBounds { index: 1 });
+        assert_eq!((err.detail(), err.index()), (Detail::OutOfBounds, Some(1)));
         let err = mbr
             .add(MbrEntry::new(MbrType::LINUX, 1 << 32, 1))
             .unwrap_err();
@@ -538,23 +545,22 @@ mod tests {
             Ok(4)
         );
         assert_eq!(mbr.entry(5).unwrap().start(), 1500);
-        assert_eq!(
-            mbr.add_logical(MbrEntry::new(MbrType::LINUX, 1000, 10))
-                .unwrap_err()
-                .detail(),
-            Detail::OutOfBounds { index: 4 }
-        );
+        let err = mbr
+            .add_logical(MbrEntry::new(MbrType::LINUX, 1000, 10))
+            .unwrap_err();
+        assert_eq!((err.detail(), err.index()), (Detail::OutOfBounds, Some(4)));
         assert_eq!(
             mbr.add_logical(MbrEntry::new(MbrType::LINUX, 1950, 100))
                 .unwrap_err()
                 .kind(),
             ErrorKind::InvalidInput
         );
+        let err = mbr
+            .add_logical(MbrEntry::new(MbrType::LINUX, 1200, 300))
+            .unwrap_err();
         assert_eq!(
-            mbr.add_logical(MbrEntry::new(MbrType::LINUX, 1200, 300))
-                .unwrap_err()
-                .detail(),
-            Detail::Overlap { index: 5, other: 4 }
+            (err.detail(), err.index(), err.other()),
+            (Detail::Overlap, Some(5), Some(4))
         );
         let records = mbr.ebr_records();
         assert_eq!(records.len(), 2);
