@@ -1103,6 +1103,17 @@ Pass 1 (core mounted API), accepted on 2026-09-24:
 - UDF read-write arrives in 3.x through a new `UdfFs::mount_writable`; `mount` stays read-only in every version.
 - `forget(node, count)`, generation, allocated size and device number are 3.0 (the catalog overrides D12). No-follow resolution is 3.0 (overrides 4.13).
 
+Pass 2 (builders), accepted on 2026-09-24:
+
+- One mode-independent `Tree` feeds every writer and `copy_tree(&Tree, &mut F, dir)`. A mounted volume becomes a tree with `read_tree(&Volume<F>, path)`, whose content is read lazily, so large conversions do not load file data into memory. Lazy content is readable only in the mode that produced it; the other mode fails with `Unsupported`.
+- Every format has `fmt::plan(&tree, &opts)` and `fmt::{sync,async}::write(dev, &tree, &opts)`, both returning one `Report` (size, warnings, extents). FAT and exFAT write through format plus `copy_tree`.
+- One path-carrying error, `PathError` (alloc), is used crate wide by writers, tree edits and host helpers. It replaces `host::Error`.
+- Reproducible output comes from `with_time` and `with_seed` on the options; there is no clock parameter, and ids and GUIDs derive from time plus tree. mtime clamping lives in `host::TreeOptions`.
+- `Hybrid` is a struct with constructors (`mbr`, `gpt`, `gpt_hybrid_mbr`), not an enum, so APM in 3.x is a new method.
+- cpio has an alloc-free stream reader over a caller path buffer, a streaming writer, and `cpio::{sync,async}::read_tree`.
+- Pass 1 changes: `BlockDevice` gains a defaulted `max_block_count` for growable outputs, and a fallible `host::FileDevice::new(File)` replaces `impl BlockDevice for File`, since `block_count` cannot fail.
+- Open: `Content::source` for user lazy content is added later; the cpio stream entry has no dev/ino accessor yet; `copy_tree` fails with `AlreadyExists` on an existing name; `FatOptions` and `ExFatOptions` merge with the format pass's `FormatOptions`; cpio writing without alloc is 3.x.
+
 ---
 
 ## 5. Per-crate changes
