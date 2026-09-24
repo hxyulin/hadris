@@ -465,6 +465,8 @@ dependencies = [
  "defmt",
  "hadris-common",
  "hadris-fs",
+ "hadris-macros",
+ "hadris-storage",
 ]
 
 [[package]]

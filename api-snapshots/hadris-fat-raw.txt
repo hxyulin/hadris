@@ -188,6 +188,135 @@ pub fn hadris_fat_raw::exfat::set_checksum(&[hadris_fat_raw::exfat::RawEntry]) -
 pub fn hadris_fat_raw::exfat::table_checksum(u32, &[u8]) -> u32
 pub fn hadris_fat_raw::exfat::valid_unit(u16) -> bool
 pub type hadris_fat_raw::exfat::RawEntry = [u8; 32]
+pub mod hadris_fat_raw::io
+pub mod hadris_fat_raw::io::async
+pub async fn hadris_fat_raw::io::async::allocate<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, core::option::Option<&mut hadris_fat_raw::io::Held>) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::allocate_run<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, core::option::Option<&mut hadris_fat_raw::io::Held>, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::clear_slots<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, hadris_fat_raw::io::DirStart, u32, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::count_free<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::free_chain<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::Held, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::get<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::get_copy<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u8, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::load<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::mirror<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::mkfs<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::layout::Layout, &hadris_fat_raw::layout::BootFields, hadris_fs::time::DateTime) -> hadris_io::fs_error::FsResult<hadris_fat_raw::Geometry, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::next<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u32) -> hadris_io::fs_error::FsResult<core::option::Option<u32>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::read_bytes<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::read_fat<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, hadris_fat_raw::Geometry) -> hadris_io::fs_error::FsResult<hadris_fat_raw::io::Fat, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::read_geometry<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf) -> hadris_io::fs_error::FsResult<hadris_fat_raw::Geometry, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::read_slot<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64) -> hadris_io::fs_error::FsResult<hadris_fat_raw::Slot, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::run<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::ChainPos, usize, usize) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::set<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, u32, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::slot_offset<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::DirWalk, u32) -> hadris_io::fs_error::FsResult<core::option::Option<u64>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::store<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::walk<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u32, hadris_fat_raw::io::ChainPos, u32) -> hadris_io::fs_error::FsResult<hadris_fat_raw::io::ChainPos, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::write_bytes<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64, &[u8]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::write_fs_info<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::write_slots<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::DirWalk, u32, u32, impl core::ops::function::FnMut(u32) -> [u8; 32], &mut u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async::write_zeros<D: hadris_storage::async::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64, usize) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub mod hadris_fat_raw::io::async_send
+pub async fn hadris_fat_raw::io::async_send::allocate<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, core::option::Option<&mut hadris_fat_raw::io::Held>) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::allocate_run<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, core::option::Option<&mut hadris_fat_raw::io::Held>, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::clear_slots<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, hadris_fat_raw::io::DirStart, u32, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::count_free<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::free_chain<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::Held, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::get<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::get_copy<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u8, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::load<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::mirror<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::mkfs<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::layout::Layout, &hadris_fat_raw::layout::BootFields, hadris_fs::time::DateTime) -> hadris_io::fs_error::FsResult<hadris_fat_raw::Geometry, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::next<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u32) -> hadris_io::fs_error::FsResult<core::option::Option<u32>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::read_bytes<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::read_fat<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, hadris_fat_raw::Geometry) -> hadris_io::fs_error::FsResult<hadris_fat_raw::io::Fat, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::read_geometry<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf) -> hadris_io::fs_error::FsResult<hadris_fat_raw::Geometry, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::read_slot<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64) -> hadris_io::fs_error::FsResult<hadris_fat_raw::Slot, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::run<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::ChainPos, usize, usize) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::set<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, u32, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::slot_offset<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::DirWalk, u32) -> hadris_io::fs_error::FsResult<core::option::Option<u64>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::store<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::walk<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u32, hadris_fat_raw::io::ChainPos, u32) -> hadris_io::fs_error::FsResult<hadris_fat_raw::io::ChainPos, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::write_bytes<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64, &[u8]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::write_fs_info<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::write_slots<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::DirWalk, u32, u32, impl core::ops::function::FnMut(u32) -> [u8; 32], &mut u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_fat_raw::io::async_send::write_zeros<D: hadris_storage::async_send::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64, usize) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub mod hadris_fat_raw::io::sync
+pub fn hadris_fat_raw::io::sync::allocate<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, core::option::Option<&mut hadris_fat_raw::io::Held>) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::allocate_run<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, core::option::Option<&mut hadris_fat_raw::io::Held>, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::clear_slots<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, hadris_fat_raw::io::DirStart, u32, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::count_free<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::free_chain<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::Held, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::get<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::get_copy<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u8, u32) -> hadris_io::fs_error::FsResult<u32, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::load<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::mirror<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::mkfs<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::layout::Layout, &hadris_fat_raw::layout::BootFields, hadris_fs::time::DateTime) -> hadris_io::fs_error::FsResult<hadris_fat_raw::Geometry, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::next<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u32) -> hadris_io::fs_error::FsResult<core::option::Option<u32>, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::read_bytes<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::read_fat<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, hadris_fat_raw::Geometry) -> hadris_io::fs_error::FsResult<hadris_fat_raw::io::Fat, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::read_geometry<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf) -> hadris_io::fs_error::FsResult<hadris_fat_raw::Geometry, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::read_slot<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64) -> hadris_io::fs_error::FsResult<hadris_fat_raw::Slot, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::run<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::ChainPos, usize, usize) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::set<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat, u32, u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::slot_offset<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::DirWalk, u32) -> hadris_io::fs_error::FsResult<core::option::Option<u64>, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::store<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::walk<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, u32, hadris_fat_raw::io::ChainPos, u32) -> hadris_io::fs_error::FsResult<hadris_fat_raw::io::ChainPos, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::write_bytes<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64, &[u8]) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::write_fs_info<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &mut hadris_fat_raw::io::Fat) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::write_slots<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, &hadris_fat_raw::io::Fat, &mut hadris_fat_raw::io::DirWalk, u32, u32, impl core::ops::function::FnMut(u32) -> [u8; 32], &mut u32) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_fat_raw::io::sync::write_zeros<D: hadris_storage::sync::api::BlockDevice>(&mut D, &mut hadris_fat_raw::io::BlockBuf, u64, usize) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
+pub enum hadris_fat_raw::io::DirStart
+pub hadris_fat_raw::io::DirStart::Chain(u32)
+pub hadris_fat_raw::io::DirStart::Fixed
+pub hadris_fat_raw::io::DirStart::Fixed::slots: u32
+pub hadris_fat_raw::io::DirStart::Fixed::start: u64
+impl hadris_fat_raw::io::DirStart
+pub const fn hadris_fat_raw::io::DirStart::root(&hadris_fat_raw::Geometry) -> Self
+pub struct hadris_fat_raw::io::BlockBuf<B: ?core::marker::Sized>
+impl<B: ?core::marker::Sized + core::convert::AsRef<[u8]> + core::convert::AsMut<[u8]>> hadris_fat_raw::io::BlockBuf<B>
+pub fn hadris_fat_raw::io::BlockBuf<B>::block_size(&self) -> usize
+pub fn hadris_fat_raw::io::BlockBuf<B>::cached(&self) -> core::option::Option<u64>
+pub fn hadris_fat_raw::io::BlockBuf<B>::contents(&self) -> &[u8]
+pub fn hadris_fat_raw::io::BlockBuf<B>::contents_mut(&mut self) -> &mut [u8]
+pub fn hadris_fat_raw::io::BlockBuf<B>::invalidate(&mut self)
+impl<const N: usize> hadris_fat_raw::io::BlockBuf<[u8; N]>
+pub const fn hadris_fat_raw::io::BlockBuf<[u8; N]>::new(usize) -> core::option::Option<Self>
+pub struct hadris_fat_raw::io::ChainPos
+impl hadris_fat_raw::io::ChainPos
+pub const hadris_fat_raw::io::ChainPos::NONE: Self
+pub fn hadris_fat_raw::io::ChainPos::advance(&mut self, u32) -> bool
+pub const fn hadris_fat_raw::io::ChainPos::cluster(&self) -> u32
+pub const fn hadris_fat_raw::io::ChainPos::index(&self) -> u32
+pub const fn hadris_fat_raw::io::ChainPos::is_known(&self) -> bool
+pub const fn hadris_fat_raw::io::ChainPos::new(u32, u32) -> Self
+pub const fn hadris_fat_raw::io::ChainPos::start(u32) -> Self
+pub struct hadris_fat_raw::io::DirWalk
+impl hadris_fat_raw::io::DirWalk
+pub const fn hadris_fat_raw::io::DirWalk::new(hadris_fat_raw::io::DirStart) -> Self
+pub const fn hadris_fat_raw::io::DirWalk::pos(&self) -> hadris_fat_raw::io::ChainPos
+pub const fn hadris_fat_raw::io::DirWalk::resume(hadris_fat_raw::io::DirStart, hadris_fat_raw::io::ChainPos) -> Self
+pub const fn hadris_fat_raw::io::DirWalk::start(&self) -> hadris_fat_raw::io::DirStart
+pub struct hadris_fat_raw::io::Fat
+impl hadris_fat_raw::io::Fat
+pub const fn hadris_fat_raw::io::Fat::check_cluster(&self, u32) -> core::result::Result<u32, hadris_io::kind::ErrorKind>
+pub const fn hadris_fat_raw::io::Fat::cluster_at(&self, u32) -> core::result::Result<u64, hadris_io::kind::ErrorKind>
+pub fn hadris_fat_raw::io::Fat::forget_unmirrored(&mut self)
+pub const fn hadris_fat_raw::io::Fat::free_clusters(&self) -> core::option::Option<u32>
+pub const fn hadris_fat_raw::io::Fat::fs_info(&self) -> core::option::Option<u64>
+pub const fn hadris_fat_raw::io::Fat::fs_info_dirty(&self) -> bool
+pub const fn hadris_fat_raw::io::Fat::geometry(&self) -> &hadris_fat_raw::Geometry
+pub const fn hadris_fat_raw::io::Fat::is_cluster(&self, u32) -> bool
+pub const fn hadris_fat_raw::io::Fat::new(hadris_fat_raw::Geometry) -> Self
+pub const fn hadris_fat_raw::io::Fat::next_free(&self) -> u32
+pub const fn hadris_fat_raw::io::Fat::root(&self) -> hadris_fat_raw::io::DirStart
+pub const fn hadris_fat_raw::io::Fat::unmirrored(&self) -> core::option::Option<(u32, u32)>
+pub struct hadris_fat_raw::io::Held
+impl hadris_fat_raw::io::Held
+pub const hadris_fat_raw::io::Held::NONE: Self
+pub const fn hadris_fat_raw::io::Held::extra(&self) -> u32
+pub const fn hadris_fat_raw::io::Held::head(&self) -> u32
+pub const fn hadris_fat_raw::io::Held::new(u32, u32) -> Self
+pub fn hadris_fat_raw::io::Held::set_extra(&mut self, u32)
+pub fn hadris_fat_raw::io::Held::set_head(&mut self, u32)
 pub mod hadris_fat_raw::layout
 #[non_exhaustive] pub enum hadris_fat_raw::layout::LayoutError
 pub hadris_fat_raw::layout::LayoutError::Invalid(&'static str)

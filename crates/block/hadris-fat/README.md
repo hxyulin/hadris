@@ -265,8 +265,11 @@ The on-disk layouts and the I/O-free codecs the drivers use live in the
 `hadris_fat::raw` (and its exFAT part as `hadris_fat::exfat::raw`): boot
 sector parsing into a `Geometry`, FAT entry encoding, directory slots,
 long and short names, timestamps, the format layout planner and the exFAT
-checksums and up-case decoder. It is for tools and firmware that the
-drivers do not fit, and it has its own version.
+checksums and up-case decoder. Its `io` module holds the device
+primitives `FatFs` is built on: FAT entry reads and writes on every copy,
+chain walks, batched allocation and freeing, directory slots and `mkfs`,
+generated for each mode. It is for tools and firmware that the drivers do
+not fit, and it has its own version.
 
 ## No-std Compatibility
 

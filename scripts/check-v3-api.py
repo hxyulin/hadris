@@ -52,7 +52,7 @@ MINIMAL_FEATURES = {
     "hadris-common": "",
     "hadris-cpio": "sync",
     "hadris-fat": "sync",
-    "hadris-fat-raw": "",
+    "hadris-fat-raw": "sync",
     "hadris-fs": "",
     "hadris-io": "sync",
     "hadris-iso": "sync",
