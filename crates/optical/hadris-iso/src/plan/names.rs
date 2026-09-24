@@ -18,20 +18,19 @@ pub(crate) enum Rules {
 /// The longest Joliet identifier, in UCS-2 characters.
 pub(crate) const JOLIET_MAX_CHARS: usize = 64;
 
-fn substitute(bytes: &mut [u8], case: NameCase) {
-    for byte in bytes {
-        match case {
-            NameCase::Upper if byte.is_ascii_lowercase() => *byte = byte.to_ascii_uppercase(),
-            _ if byte.is_ascii_alphanumeric() || *byte == b'_' => {}
-            _ => *byte = b'_',
-        }
+/// The byte a name character becomes: ASCII letters, digits and `_`, and
+/// `_` for every other character.
+fn convert_char(c: char, case: NameCase) -> u8 {
+    match c {
+        'a'..='z' if case == NameCase::Upper => c.to_ascii_uppercase() as u8,
+        _ if c.is_ascii_alphanumeric() || c == '_' => c as u8,
+        _ => b'_',
     }
 }
 
-fn push_converted(out: &mut Vec<u8>, part: &[u8], case: NameCase) {
-    let start = out.len();
-    out.extend_from_slice(part);
-    substitute(&mut out[start..], case);
+/// Appends the first `max` characters of `part`, converted.
+fn push_converted(out: &mut Vec<u8>, part: &str, case: NameCase, max: usize) {
+    out.extend(part.chars().take(max).map(|c| convert_char(c, case)));
 }
 
 /// A Level 1 file identifier: 8.3 with `;1`.
@@ -40,17 +39,15 @@ fn push_converted(out: &mut Vec<u8>, part: &[u8], case: NameCase) {
 /// @hadris-compliance full
 /// @hadris-tests iso::spec::hadris_iso_matches_ecma_119_oracle
 pub(crate) fn convert_l1(name: &str, case: NameCase) -> Vec<u8> {
-    let bytes = name.as_bytes();
     let mut out = Vec::with_capacity(14);
-    match name.rfind('.') {
-        Some(index) => {
-            push_converted(&mut out, &bytes[..index.min(8)], case);
+    match name.rsplit_once('.') {
+        Some((base, ext)) => {
+            push_converted(&mut out, base, case, 8);
             out.push(b'.');
-            let ext_len = (name.len() - index - 1).min(3);
-            push_converted(&mut out, &bytes[index + 1..index + 1 + ext_len], case);
+            push_converted(&mut out, ext, case, 3);
         }
         None => {
-            push_converted(&mut out, &bytes[..name.len().min(8)], case);
+            push_converted(&mut out, name, case, 8);
             out.push(b'.');
         }
     }
@@ -58,24 +55,20 @@ pub(crate) fn convert_l1(name: &str, case: NameCase) -> Vec<u8> {
     out
 }
 
-/// `name` cut to `max` bytes and split at its last dot. With `separator`,
-/// a name without an extension still ends in `.`.
+/// `name` split at its last dot and cut to `max` characters, dot included:
+/// the base is cut first, so the extension stays unless it alone is too
+/// long. With `separator`, a name without an extension still ends in `.`.
 fn convert_long(name: &str, case: NameCase, max: usize, separator: bool) -> Vec<u8> {
-    let bytes = name.as_bytes();
     let mut out = Vec::new();
-    match name.rfind('.') {
-        Some(index) => {
-            let base_end = index.min(max);
-            push_converted(&mut out, &bytes[..base_end], case);
-            let remaining = max.saturating_sub(base_end + 1);
-            if remaining > 0 || separator {
-                out.push(b'.');
-                let ext_end = (index + 1 + remaining).min(name.len());
-                push_converted(&mut out, &bytes[index + 1..ext_end], case);
-            }
+    match name.rsplit_once('.') {
+        Some((base, ext)) => {
+            let ext_len = ext.chars().count().min(max.saturating_sub(2));
+            push_converted(&mut out, base, case, max - 1 - ext_len);
+            out.push(b'.');
+            push_converted(&mut out, ext, case, ext_len);
         }
         None => {
-            push_converted(&mut out, &bytes[..name.len().min(max)], case);
+            push_converted(&mut out, name, case, max);
             if separator {
                 out.push(b'.');
             }
@@ -133,17 +126,8 @@ pub(crate) fn joliet_change(name: &str) -> Option<&'static str> {
 }
 
 fn primary_directory(name: &str, max: usize, case: NameCase) -> Vec<u8> {
-    let end = if name.len() <= max {
-        name.len()
-    } else {
-        name.char_indices()
-            .map(|(offset, _)| offset)
-            .take_while(|offset| *offset <= max)
-            .last()
-            .unwrap_or(0)
-    };
-    let mut out = Vec::with_capacity(end);
-    push_converted(&mut out, &name.as_bytes()[..end], case);
+    let mut out = Vec::with_capacity(max);
+    push_converted(&mut out, name, case, max);
     out
 }
 
@@ -291,6 +275,38 @@ mod tests {
         assert_eq!(convert_l3("x.tar.gz"), b"x_tar.gz");
         assert_eq!(convert_l3("readme.txt"), b"readme.txt");
         assert_eq!(convert_l3(&"a".repeat(250)).len(), 207);
+    }
+
+    #[test]
+    fn names_map_per_character() {
+        assert_eq!(convert_l1("caf\u{e9}.txt", NameCase::Upper), b"CAF_.TXT;1");
+        assert_eq!(
+            convert_l1(&"\u{e9}".repeat(9), NameCase::Upper),
+            b"________.;1"
+        );
+        assert_eq!(
+            convert_l2("r\u{e9}sum\u{e9}.pdf", NameCase::Upper),
+            b"R_SUM_.PDF;1"
+        );
+        assert_eq!(convert_l3("\u{1F600}.txt"), b"_.txt");
+        assert_eq!(L2.directory("\u{f1}and\u{fa}"), b"_AND_");
+        assert_eq!(L1.directory(&"\u{e9}".repeat(9)), b"________");
+    }
+
+    #[test]
+    fn long_names_keep_their_extension() {
+        let long = alloc::format!("{}.txt", "a".repeat(40));
+        let mut want = "A".repeat(26).into_bytes();
+        want.extend_from_slice(b".TXT;1");
+        assert_eq!(convert_l2(&long, NameCase::Upper), want);
+        let long = alloc::format!("{}.txt", "a".repeat(250));
+        let l3 = convert_l3(&long);
+        assert_eq!(l3.len(), 207);
+        assert!(l3.ends_with(b".txt"));
+        let ext = alloc::format!("a.{}", "b".repeat(40));
+        let l2 = convert_l2(&ext, NameCase::Upper);
+        assert_eq!(l2.len(), 32);
+        assert!(l2.starts_with(b"A."));
     }
 
     #[test]
