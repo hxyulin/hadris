@@ -1005,6 +1005,17 @@ Each published package owns its version and may be released independently.
   of U+FFFD, and encodes those characters back to their bytes. Short names
   without a long name that differed only in such bytes listed as one name,
   and a lookup of it found only the first.
+- **hadris-fat (V3):** A `FatFs` operation interrupted by a dropped
+  `async` future or a failed write no longer leaks clusters for good or
+  leaves the FAT copies different after `sync`. The driver remembers the
+  clusters an unfinished operation allocated but had not linked, or had
+  unlinked but not freed, the long-name entries it may have left without
+  their short entry, and a FAT entry it had not yet mirrored; the next
+  `create`, `remove`, `rename`, `write_at`, `set_len`, `set_metadata` or
+  `sync` frees, clears or mirrors them, unless the interrupted write did
+  land. A growing write that was dropped has its chain cut back to the
+  file's size. The free count follows each change of the active FAT, so
+  it stays exact across interruptions.
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
   libarchive/bsdtar and use only recognized relocation container names. Reject
   relocation when a root `rr_moved` directory would be mistaken for the container

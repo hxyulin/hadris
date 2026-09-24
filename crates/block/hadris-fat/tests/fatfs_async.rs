@@ -407,3 +407,140 @@ fn async_futures_stay_small() {
         4480,
     );
 }
+
+#[path = "common/cancel.rs"]
+mod cancel;
+
+fn text(value: &str) -> &Name {
+    Name::new(value).unwrap()
+}
+
+/// One step of a random workload, which may be dropped part way through.
+async fn step<D: hadris_storage::r#async::BlockDevice, T: hadris_fs::NodeTable>(
+    fs: &mut hadris_fat::r#async::FatFs<D, T>,
+    kind: u64,
+    i: u64,
+) -> Result<(), ErrorKind> {
+    let root = fs.root();
+    let meta = SetMetadata::new();
+    let dir_name = format!("directory {}", i % 3);
+    let file = format!("file number {}.bin", i % 5);
+    let dir = match fs.lookup(root, text(&dir_name)).await {
+        Ok(dir) => dir,
+        Err(_) if kind == 0 => fs
+            .create(root, text(&dir_name), NewNode::Dir, &meta)
+            .await
+            .map_err(|err| err.kind())?,
+        Err(err) => return Err(err.kind()),
+    };
+    let result = match kind {
+        0 => {
+            let node = match fs.create(dir, text(&file), NewNode::File, &meta).await {
+                Ok(node) => node,
+                Err(_) => fs
+                    .lookup(dir, text(&file))
+                    .await
+                    .map_err(|err| err.kind())?,
+            };
+            let data = common::payload(3000 + (i as usize % 7) * 1500, i as u8);
+            let written = fs.write_at(node, 0, &data).await.map(|_| ());
+            let published = fs.publish_node(node).await;
+            fs.forget(node);
+            written.and(published).map_err(|err| err.kind())
+        }
+        1 => fs
+            .remove(dir, text(&file), RemoveKind::File)
+            .await
+            .map_err(|err| err.kind()),
+        2 => {
+            let to_name = format!("directory {}", (i + 1) % 3);
+            match fs.lookup(root, text(&to_name)).await {
+                Ok(to) => {
+                    let moved = fs
+                        .rename(
+                            dir,
+                            text(&file),
+                            to,
+                            text(&format!("renamed {}.bin", i % 4)),
+                            RenameFlags::empty(),
+                        )
+                        .await;
+                    fs.forget(to);
+                    moved.map_err(|err| err.kind())
+                }
+                Err(err) => Err(err.kind()),
+            }
+        }
+        3 => match fs.lookup(dir, text(&file)).await {
+            Ok(node) => {
+                let set = fs.set_len(node, i * 1777 % 20_000).await;
+                let published = fs.publish_node(node).await;
+                fs.forget(node);
+                set.and(published).map_err(|err| err.kind())
+            }
+            Err(err) => Err(err.kind()),
+        },
+        _ => {
+            let mut cursor = DirCursor::start();
+            let mut name = NameBuf::new();
+            let mut names = Vec::new();
+            while fs
+                .read_dir_entry(dir, &mut cursor, &mut name)
+                .await
+                .map_err(|err| err.kind())?
+                .is_some()
+            {
+                names.push(name.as_name().unwrap().to_str().unwrap().to_owned());
+            }
+            for entry in &names {
+                fs.remove(dir, text(entry), RemoveKind::File)
+                    .await
+                    .map_err(|err| err.kind())?;
+            }
+            fs.remove(root, text(&dir_name), RemoveKind::Dir)
+                .await
+                .map_err(|err| err.kind())
+        }
+    };
+    fs.forget(dir);
+    result
+}
+
+#[test]
+fn dropped_operations_leave_no_lost_clusters_or_unequal_fats() {
+    use hadris_fat::MountOptions;
+    use hadris_fat::r#async::{FatFs, check_with};
+    use hadris_fs::HeapTable;
+
+    for case in [CASES[0], CASES[2]] {
+        let dev = cancel::YieldDev(common::device(case, common::blank(case)));
+        let options = MountOptions::new().with_table(HeapTable::new());
+        let mut fs = cancel::run_for(FatFs::open_with(dev, options), usize::MAX)
+            .unwrap()
+            .unwrap();
+        let mut rng = cancel::Rng(7);
+        let mut dropped = 0;
+        for i in 0..400 {
+            let kind = rng.below(5);
+            let polls = rng.below(50) as usize + 1;
+            match cancel::run_for(step(&mut fs, kind, i), polls) {
+                None => dropped += 1,
+                Some(Err(kind @ (ErrorKind::Corrupt | ErrorKind::Io))) => {
+                    panic!("{}: step {i}: {kind:?}", case.name)
+                }
+                Some(_) => {}
+            }
+        }
+        assert!(dropped > 50, "{}: {dropped} dropped", case.name);
+        cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+        let mut findings = Vec::new();
+        let report = cancel::run_for(
+            check_with(&mut fs, &mut [0u8; 8192], |finding| findings.push(finding)),
+            usize::MAX,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(report.is_clean(), "{}: {findings:?}", case.name);
+        common::fsck(&fs.into_inner().0.into_inner(), "dropped operations");
+    }
+}

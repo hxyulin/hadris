@@ -247,10 +247,64 @@ struct SavedRun {
 #[derive(Clone, Copy)]
 struct Growth {
     first: u32,
-    /// The old last cluster, 0 when the file had none.
-    tail: u32,
     /// The first added cluster, 0 when none were added.
     added: u32,
+}
+
+/// What links the chain of a [`Pending`] into the volume.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Owner {
+    /// Nothing does.
+    None,
+    /// The FAT entry of this cluster.
+    Cluster(u32),
+    /// The FAT entry of this cluster, for a file whose new size is not yet
+    /// recorded: recovery cuts the chain there.
+    Tail(u32),
+    /// The short entry at this byte offset, of a node that stays.
+    Entry(u64),
+    /// The short entry at this byte offset, of a node being removed.
+    Removed(u64),
+}
+
+/// Clusters an unfinished operation holds: allocated but not yet linked,
+/// or unlinked but not yet freed. The next writing operation frees them
+/// unless `owner` links `head` on disk.
+#[derive(Debug, Clone, Copy)]
+struct Pending {
+    /// The chain, 0 for none.
+    head: u32,
+    /// One more chain, allocated or being freed, that `head` does not
+    /// reach: a single cluster, or one that leads into `head`. 0 for none.
+    extra: u32,
+    owner: Owner,
+}
+
+impl Pending {
+    const fn chain(head: u32, owner: Owner) -> Self {
+        Self {
+            head,
+            extra: 0,
+            owner,
+        }
+    }
+}
+
+/// Long-name slots `first..short` of `dir` that belong to the short entry
+/// in slot `short`. An operation that writes or clears them sets this
+/// first; the next writing operation clears them when that short entry is
+/// not there.
+#[derive(Debug, Clone, Copy)]
+struct Run {
+    dir: DirStart,
+    first: u32,
+    short: u32,
+}
+
+impl Run {
+    fn of(dir: DirStart, first: u32, short: u32) -> Option<Self> {
+        (first < short).then_some(Self { dir, first, short })
+    }
 }
 
 fn metadata(node: &Node, entry: &ShortEntry) -> Metadata {
@@ -456,17 +510,31 @@ io_transform! {
 /// completes, and the driver's own state stays consistent with the disk:
 ///
 /// - Clusters are marked in the FAT before anything points to them, and
-///   freed only after nothing does. An interrupted operation can leave lost
-///   clusters, never a cross-linked or dangling chain.
+///   freed only after nothing does, so an interruption never leaves a
+///   cross-linked or dangling chain. The driver remembers the clusters an
+///   unfinished operation holds, allocated but not yet linked or unlinked
+///   but not yet freed, and the next writing operation or `sync` frees
+///   them unless the interrupted write did link them. Lost clusters remain
+///   only when the process stops, or the driver is dropped, in between.
 /// - `write_at` and `set_len` link new clusters before they publish the new
-///   size, so an interrupted write leaves a chain longer than the size. A
-///   shrinking `set_len` writes the new size before it frees clusters.
+///   size, so an interrupted write leaves a chain longer than the size;
+///   the next writing operation cuts it back. A shrinking `set_len` writes
+///   the new size before it frees clusters.
 /// - `create` prepares a new directory's cluster, then writes the name
 ///   entries, the short entry last. `remove` clears the short entry first.
+///   Long-name entries an interruption leaves without their short entry
+///   are cleared by the next writing operation.
 /// - `rename` writes the new entry, then the moved directory's `..`, then
 ///   clears the old entry, so an interruption can leave the node under both
 ///   names.
-/// - FAT copies are written active copy first; the FSInfo free count is a
+///
+/// That clean-up runs at the start of the next `create`, `remove`,
+/// `rename`, `write_at`, `set_len`, `set_metadata` or `sync`. What it
+/// cannot finish because the volume turns out to be corrupt is dropped,
+/// and `check` reports it as lost clusters.
+/// - FAT copies are written active copy first. An entry whose mirrors an
+///   interruption left behind is copied to them by the next FAT write or
+///   `sync`, so after `sync` the copies match. The FSInfo free count is a
 ///   hint and is written by `sync`.
 ///
 /// Data written by an interrupted `write_at` may be partly on disk.
@@ -485,6 +553,14 @@ pub struct FatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock, P: CodePa
     fs_info_dirty: bool,
     /// Where the search for a free cluster starts.
     next_free: u32,
+    /// Clusters an interrupted operation left to free.
+    pending: Option<Pending>,
+    /// Long-name slots an interrupted operation may have left without
+    /// their short entry.
+    run: Option<Run>,
+    /// Clusters, first and last, whose FAT entries may differ between the
+    /// copies.
+    unmirrored: Option<(u32, u32)>,
     read_only: bool,
     clock: C,
     code_page: P,
@@ -627,6 +703,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             fs_info: mount.fs_info,
             fs_info_dirty: false,
             next_free: mount.next_free,
+            pending: None,
+            run: None,
+            unmirrored: None,
             read_only,
             clock,
             code_page,
@@ -912,8 +991,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         self.nodes.get(dir).map_or(Hint::NONE, |node| node.hint)
     }
 
-    /// Records a position in the chain of `dir`, which only ever grows, for
-    /// the next `read_dir_entry` to start from.
+    /// Records a position in the chain of `dir` for the next
+    /// `read_dir_entry` to start from. Shrinking a directory chain resets
+    /// the positions.
     fn set_dir_hint(&mut self, dir: NodeId, hint: Hint) {
         if dir == ROOT {
             self.root_hint = hint;
@@ -969,7 +1049,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         kind: NewNode<'_>,
         meta: &SetMetadata,
     ) -> FsResult<NodeId, D::Error> {
-        self.writable()?;
+        self.prepare().await?;
         let is_dir = match kind {
             NewNode::File => false,
             NewNode::Dir => true,
@@ -1019,7 +1099,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// A node that is pinned but not open is removed; its id then answers
     /// [`ErrorKind::NotFound`] until its last `forget`.
     pub async fn remove(&mut self, dir: NodeId, name: &Name, kind: RemoveKind) -> FsResult<(), D::Error> {
-        self.writable()?;
+        self.prepare().await?;
         let start = self.dir_start(dir).await?;
         let query = entry_name(name, ErrorKind::NotFound)?;
         let found = self.find_entry(start, query).await?.ok_or(ErrorKind::NotFound)?;
@@ -1036,11 +1116,16 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         if found.entry.is_dir() && !self.dir_is_empty(self.check_cluster(first)?).await? {
             return Err(ErrorKind::DirectoryNotEmpty.into());
         }
+        if first != 0 {
+            self.pending = Some(Pending::chain(first, Owner::Removed(found.offset)));
+        }
+        self.run = Run::of(start, found.first, found.slot);
         self.write(found.offset, &[dirent::FREE]).await?;
         if let Some(id) = pinned {
             self.unlink(id);
         }
         self.clear_slots(start, found.first, found.slot).await?;
+        self.run = None;
         if first != 0 {
             self.free_chain(first).await?;
         }
@@ -1071,7 +1156,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         to: &Name,
         flags: RenameFlags,
     ) -> FsResult<(), D::Error> {
-        self.writable()?;
+        self.prepare().await?;
         if flags.bits() & !RenameFlags::NO_REPLACE.bits() != 0 {
             return Err(ErrorKind::Unsupported.into());
         }
@@ -1119,11 +1204,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                     run: None,
                 };
                 let plan = self.plan(to_start, to_text, false, &new, skip).await?;
-                self.move_entry(&src, to_start, &new, &plan, moved, dot_dot, src_id, None)
+                let grown = self.grow(&plan).await?;
+                self.move_entry(from_start, &src, to_start, &new, &plan, grown, moved, dot_dot, src_id, None)
                     .await?;
             }
         }
-        self.clear_slots(from_start, src.first, src.slot).await
+        self.clear_slots(from_start, src.first, src.slot).await?;
+        self.run = None;
+        Ok(())
     }
 
     /// Writes to a file at `offset`, growing it and zero-filling any gap
@@ -1136,7 +1224,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// `sync_node` or `sync`, with the modification time and the archive
     /// attribute.
     pub async fn write_at(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
-        self.writable()?;
+        self.prepare().await?;
         let (id, state) = self.file_node(node).await?;
         if buf.is_empty() {
             return Ok(0);
@@ -1170,6 +1258,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             self.undo_growth(growth).await;
             return Err(err);
         }
+        self.pending = None;
         Ok(count)
     }
 
@@ -1179,7 +1268,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// changes nothing. A length past 4 GiB - 1 fails with
     /// [`ErrorKind::FileTooLarge`].
     pub async fn set_len(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
-        self.writable()?;
+        self.prepare().await?;
         let (id, state) = self.file_node(node).await?;
         if len > MAX_FILE_SIZE {
             return Err(ErrorKind::FileTooLarge.into());
@@ -1196,6 +1285,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 self.undo_growth(growth).await;
                 return Err(err);
             }
+            self.pending = None;
             return Ok(());
         }
         if len == old {
@@ -1203,6 +1293,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         }
         let keep = len.div_ceil(self.geo.cluster_size as u64) as u32;
         let first = if keep == 0 { 0 } else { state.first };
+        if keep == 0 && state.first != 0 {
+            self.pending = Some(Pending::chain(state.first, Owner::Entry(state.entry)));
+        }
         self.store(id, &state, first, len as u32, Hint::NONE).await?;
         if state.first == 0 {
             return Ok(());
@@ -1215,6 +1308,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         if reached.index == keep - 1
             && let Some(next) = self.next_cluster(last).await?
         {
+            self.pending = Some(Pending::chain(next, Owner::Cluster(last)));
             self.set_fat(last, self.geo.kind.end_of_chain()).await?;
             self.free_chain(next).await?;
         }
@@ -1230,7 +1324,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// [`capabilities`](Self::capabilities) reports neither permissions nor
     /// owners, so a caller that needs them can check first.
     pub async fn set_metadata(&mut self, node: NodeId, changes: &SetMetadata) -> FsResult<(), D::Error> {
-        self.writable()?;
+        self.prepare().await?;
         if node == ROOT {
             return Ok(());
         }
@@ -1289,6 +1383,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Writes every pending size and modification time and the FAT32
     /// FSInfo free count, then flushes the device.
     pub async fn sync(&mut self) -> FsResult<(), D::Error> {
+        if !self.read_only {
+            self.recover().await?;
+        }
         while let Some(id) = self.nodes.find(&mut |_, node| node.dirty) {
             self.flush_node(id).await?;
         }
@@ -1310,6 +1407,148 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     fn writable(&self) -> Result<(), ErrorKind> {
         if self.read_only { Err(ErrorKind::ReadOnly) } else { Ok(()) }
+    }
+
+    /// Checks that the volume is writable and finishes what an interrupted
+    /// operation left.
+    async fn prepare(&mut self) -> FsResult<(), D::Error> {
+        self.writable()?;
+        self.nodes.remove(RESERVED);
+        self.recover().await
+    }
+
+    /// Copies FAT entries an interrupted write did not mirror, clears
+    /// long-name slots it left without their short entry, and frees the
+    /// clusters it held unless it linked them. What cannot be finished
+    /// because the volume is corrupt is dropped.
+    async fn recover(&mut self) -> FsResult<(), D::Error> {
+        match self.finish_interrupted().await {
+            Err(err) if err.kind() == ErrorKind::Corrupt => {
+                self.unmirrored = None;
+                self.run = None;
+                self.pending = None;
+                Ok(())
+            }
+            other => other,
+        }
+    }
+
+    async fn finish_interrupted(&mut self) -> FsResult<(), D::Error> {
+        if let Some(cluster) = self.unmirrored {
+            self.mirror(cluster).await?;
+        }
+        if let Some(run) = self.run {
+            let mut walk = Walk::new(run.dir);
+            let short = match self.slot_offset(&mut walk, run.short).await? {
+                Some(at) => matches!(self.read_slot(at).await?, Slot::Short(entry) if entry.is_visible()),
+                None => true,
+            };
+            if !short {
+                self.clear_slots(run.dir, run.first, run.short).await?;
+            }
+            self.run = None;
+        }
+        let Some(pending) = self.pending else {
+            return Ok(());
+        };
+        let mut owned = pending.head != 0 && self.links(pending.owner, pending.head).await?;
+        if let Owner::Tail(tail) = pending.owner
+            && owned
+        {
+            self.set_fat(tail, self.geo.kind.end_of_chain()).await?;
+            owned = false;
+        }
+        match pending.owner {
+            Owner::Entry(offset) => self.reconcile(offset).await?,
+            Owner::Removed(offset) if !owned => {
+                if let Some(id) = self.pinned_at(offset)
+                    && self.nodes.get(id).is_some_and(|node| node.first == pending.head)
+                {
+                    self.unlink(id);
+                }
+            }
+            _ => {}
+        }
+        if !owned {
+            self.pending = Some(Pending {
+                owner: Owner::None,
+                ..pending
+            });
+            if pending.extra != 0 {
+                self.reclaim(pending.extra, pending.head).await?;
+            }
+            if pending.head != 0 {
+                self.reclaim(pending.head, 0).await?;
+            }
+        }
+        self.pending = None;
+        Ok(())
+    }
+
+    /// Whether `owner` links the chain at `head` on disk.
+    async fn links(&mut self, owner: Owner, head: u32) -> FsResult<bool, D::Error> {
+        Ok(match owner {
+            Owner::None => false,
+            Owner::Cluster(prev) | Owner::Tail(prev) => {
+                self.check_cluster(prev).is_ok()
+                    && self.fat_entry(prev).await? & self.geo.kind.mask() == head
+            }
+            Owner::Entry(offset) | Owner::Removed(offset) => matches!(
+                self.read_slot(offset).await?,
+                Slot::Short(entry) if entry.is_visible() && entry.first_cluster(self.geo.kind) == head
+            ),
+        })
+    }
+
+    /// Brings a pinned node at `offset` in line with its entry after an
+    /// interrupted write to that entry.
+    async fn reconcile(&mut self, offset: u64) -> FsResult<(), D::Error> {
+        let Some(id) = self.pinned_at(offset) else {
+            return Ok(());
+        };
+        let Slot::Short(entry) = self.read_slot(offset).await? else {
+            return Ok(());
+        };
+        let first = entry.first_cluster(self.geo.kind);
+        let stale = self.nodes.get(id).is_some_and(|node| node.first != first);
+        if stale {
+            self.clean(id);
+            if let Some(node) = self.nodes.get_mut(id) {
+                node.first = first;
+                node.size = entry.size;
+                node.hint = Hint::NONE;
+            }
+        }
+        Ok(())
+    }
+
+    /// Frees the clusters of a chain from `head` for as long as they are
+    /// allocated, stopping at a free or bad cluster, the end, or a link out
+    /// of range. `keep` stays pending once the chain ends.
+    async fn reclaim(&mut self, head: u32, keep: u32) -> FsResult<(), D::Error> {
+        let kind = self.geo.kind;
+        let mut cluster = head;
+        for _ in 0..self.geo.max_cluster {
+            if self.check_cluster(cluster).is_err() {
+                break;
+            }
+            let stored = self.fat_entry(cluster).await? & kind.mask();
+            if stored == 0 || kind.is_bad(stored) {
+                break;
+            }
+            let next = kind.next(stored, self.geo.max_cluster).ok().flatten();
+            self.pending = Some(Pending {
+                head: next.unwrap_or(keep),
+                extra: cluster,
+                owner: Owner::None,
+            });
+            self.release(cluster).await?;
+            match next {
+                Some(next) => cluster = next,
+                None => break,
+            }
+        }
+        Ok(())
     }
 
     /// Pins held by callers, not counting the driver's own pin on a dirty
@@ -1699,24 +1938,53 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         Ok(false)
     }
 
+    /// Appends the zeroed clusters `plan` needs to its directory. Returns
+    /// the first, 0 when none were needed.
+    async fn grow(&mut self, plan: &Plan) -> FsResult<u32, D::Error> {
+        if plan.grow == 0 {
+            return Ok(0);
+        }
+        let grown = self.allocate_chain(plan.grow, true, Owner::Cluster(plan.tail)).await?;
+        if let Err(err) = self.set_fat(plan.tail, grown).await {
+            let _ = self.recover().await;
+            return Err(err);
+        }
+        self.pending = None;
+        Ok(grown)
+    }
+
+    /// Takes back the clusters [`grow`](Self::grow) appended. Best effort.
+    /// Another pending chain is kept.
+    async fn ungrow(&mut self, plan: &Plan, grown: u32) {
+        if grown == 0 {
+            return;
+        }
+        let held = self.pending.replace(Pending::chain(grown, Owner::Cluster(plan.tail)));
+        let _ = self.set_fat(plan.tail, self.geo.kind.end_of_chain()).await;
+        self.root_hint = Hint::NONE;
+        while let Some(id) = self.nodes.find(&mut |_, node| node.dir && node.hint.cluster != 0) {
+            if let Some(node) = self.nodes.get_mut(id) {
+                node.hint = Hint::NONE;
+            }
+        }
+        if self.recover().await.is_ok() {
+            self.pending = held;
+        }
+    }
+
     /// Writes `entry` and the long name of `new` into the run `plan` found,
-    /// growing the directory first when needed. Returns the short entry's
-    /// offset.
+    /// in a directory [`grow`](Self::grow) has grown by `grown`. Returns
+    /// the short entry's offset. A pending allocation is owned by the short
+    /// entry from its write on.
     async fn insert_entry(
         &mut self,
         dir: DirStart,
         new: &NewName<'_>,
         plan: &Plan,
         entry: &ShortEntry,
+        grown: u32,
     ) -> FsResult<u64, D::Error> {
-        let mut grown = 0;
-        if plan.grow > 0 {
-            grown = self.allocate_chain(plan.grow, true).await?;
-            if let Err(err) = self.set_fat(plan.tail, grown).await {
-                let _ = self.free_chain(grown).await;
-                return Err(err);
-            }
-        }
+        self.run = Run::of(dir, plan.start, plan.start + plan.slots - 1);
         let checksum = lfn::checksum(&entry.name);
         let mut walk = Walk::new(dir);
         let mut offset = 0;
@@ -1732,6 +2000,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             let result = match self.slot_offset(&mut walk, plan.start + written).await {
                 Ok(Some(at)) => {
                     offset = at;
+                    if written + 1 == plan.slots
+                        && let Some(pending) = self.pending.as_mut()
+                        && pending.owner == Owner::None
+                    {
+                        pending.owner = Owner::Entry(at);
+                    }
                     self.write(at, &raw).await
                 }
                 Ok(None) => Err(ErrorKind::Corrupt.into()),
@@ -1744,12 +2018,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             written += 1;
         }
         let Some(err) = failed else {
+            self.run = None;
             return Ok(offset);
         };
-        let _ = self.clear_slots(dir, plan.start, plan.start + written).await;
-        if grown != 0 && self.set_fat(plan.tail, self.geo.kind.end_of_chain()).await.is_ok() {
-            let _ = self.free_chain(grown).await;
+        if self.clear_slots(dir, plan.start, plan.start + written).await.is_ok() {
+            self.run = None;
         }
+        self.ungrow(plan, grown).await;
         Err(err)
     }
 
@@ -1788,9 +2063,16 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             times.modified().unwrap_or(now),
             times.accessed().unwrap_or(now),
         );
+        let grown = self.grow(plan).await?;
         let mut first = 0;
         if is_dir {
-            first = self.allocate_chain(1, true).await?;
+            first = match self.allocate_chain(1, true, Owner::None).await {
+                Ok(first) => first,
+                Err(err) => {
+                    self.ungrow(plan, grown).await;
+                    return Err(err);
+                }
+            };
             entry.set_first_cluster(kind, first);
             let mut dot = entry;
             dot.name = *b".          ";
@@ -1807,28 +2089,29 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 Err(kind) => Err(kind.into()),
             };
             if let Err(err) = written {
-                let _ = self.free_chain(first).await;
+                let _ = self.recover().await;
+                self.ungrow(plan, grown).await;
                 return Err(err);
             }
         }
-        match self.insert_entry(dir, new, plan, &entry).await {
-            Ok(offset) => Ok(Node {
-                entry: offset,
-                first,
-                size: 0,
-                dir: is_dir,
-                hint: Hint::NONE,
-                dirty: false,
-                opens: 0,
-                unlinked: false,
-            }),
+        let offset = match self.insert_entry(dir, new, plan, &entry, grown).await {
+            Ok(offset) => offset,
             Err(err) => {
-                if first != 0 {
-                    let _ = self.free_chain(first).await;
-                }
-                Err(err)
+                let _ = self.recover().await;
+                return Err(err);
             }
-        }
+        };
+        self.pending = None;
+        Ok(Node {
+            entry: offset,
+            first,
+            size: 0,
+            dir: is_dir,
+            hint: Hint::NONE,
+            dirty: false,
+            opens: 0,
+            unlinked: false,
+        })
     }
 
     async fn set_dot_dot(&mut self, dir: u32, parent: u32) -> FsResult<(), D::Error> {
@@ -1842,16 +2125,19 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// Writes `moved` under the name `new` where `plan` found room in `to`,
-    /// then frees `src`'s short entry. On failure the new entry is cleared
+    /// which [`grow`](Self::grow) has grown by `grown`, then frees `src`'s
+    /// short entry. On failure the new entry is cleared
     /// and `saved` written back. `src`'s long-name slots are left to the
     /// caller.
     #[allow(clippy::too_many_arguments)]
     async fn move_entry(
         &mut self,
+        from: DirStart,
         src: &Located,
         to: DirStart,
         new: &NewName<'_>,
         plan: &Plan,
+        grown: u32,
         moved: ShortEntry,
         dot_dot: Option<(u32, u32, u32)>,
         src_id: Option<NodeId>,
@@ -1860,7 +2146,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         let mut entry = moved;
         entry.name = plan.short;
         entry.nt_case = plan.nt_case;
-        let offset = match self.insert_entry(to, new, plan, &entry).await {
+        let offset = match self.insert_entry(to, new, plan, &entry, grown).await {
             Ok(offset) => offset,
             Err(err) => {
                 self.restore_run(to, saved).await;
@@ -1875,7 +2161,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             self.restore_run(to, saved).await;
             return Err(err);
         }
+        self.run = Run::of(from, src.first, src.slot);
         if let Err(err) = self.write(src.offset, &[dirent::FREE]).await {
+            self.run = None;
             if let Some((dir, old, _)) = dot_dot {
                 let _ = self.set_dot_dot(dir, old).await;
             }
@@ -1933,16 +2221,34 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             raw: [[0; ENTRY_SIZE as usize]; lfn::MAX_ENTRIES + 1],
         };
         self.save_run(to, target.slot, &mut saved).await?;
-        if let Err(err) = self.clear_slots(to, target.first, target.slot + 1).await {
+        let grown = self.grow(&plan).await?;
+        let held = (target_first != 0).then(|| Pending::chain(target_first, Owner::Removed(target.offset)));
+        self.pending = held;
+        self.run = Run::of(to, target.first, target.slot);
+        let cleared = match self.write(target.offset, &[dirent::FREE]).await {
+            Ok(()) => self.clear_slots(to, target.first, target.slot).await,
+            Err(err) => Err(err),
+        };
+        if let Err(err) = cleared {
             self.restore_run(to, Some(&saved)).await;
+            self.run = None;
+            let _ = self.recover().await;
             return Err(err);
         }
-        self.move_entry(src, to, new, &plan, moved, dot_dot, src_id, Some(&saved))
-            .await?;
+        if let Err(err) = self
+            .move_entry(from, src, to, new, &plan, grown, moved, dot_dot, src_id, Some(&saved))
+            .await
+        {
+            self.pending = held;
+            let _ = self.recover().await;
+            return Err(err);
+        }
+        self.pending = held;
         if let Some(id) = target_id {
             self.unlink(id);
         }
         self.clear_slots(from, src.first, src.slot).await?;
+        self.run = None;
         if target_first != 0 {
             self.free_chain(target_first).await?;
         }
@@ -1981,23 +2287,71 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// Stores `value` as the FAT entry of `cluster`, in the active copy
     /// first, then in the mirrors.
     async fn set_fat(&mut self, cluster: u32, value: u32) -> FsResult<(), D::Error> {
+        let copies = if self.mirrored { self.geo.fat_count } else { 1 };
+        if copies > 1 {
+            if let Some(other) = self.unmirrored
+                && other != (cluster, cluster)
+            {
+                self.mirror(other).await?;
+            }
+            self.unmirrored = Some((cluster, cluster));
+        }
+        for step in 0..copies {
+            self.put_fat(step, cluster, value).await?;
+        }
+        self.unmirrored = None;
+        Ok(())
+    }
+
+    /// Copies the active FAT entries of the clusters `first..=last` to the
+    /// other copies where they differ.
+    async fn mirror(&mut self, (first, last): (u32, u32)) -> FsResult<(), D::Error> {
+        let kind = self.geo.kind;
+        if self.mirrored {
+            for cluster in first..=last.min(self.geo.max_cluster) {
+                let value = self.fat_entry(cluster).await? & kind.mask();
+                for step in 1..self.geo.fat_count {
+                    let copy = (self.active_fat + step) % self.geo.fat_count;
+                    let at = self.fat_copy(copy) + kind.entry_offset(cluster as u64);
+                    let mut bytes = [0u8; 4];
+                    read_bytes(&mut self.dev, &mut self.block, at, &mut bytes[..kind.entry_len()]).await?;
+                    if kind.decode(cluster as u64, &bytes) & kind.mask() != value {
+                        self.put_fat(step, cluster, value).await?;
+                    }
+                }
+            }
+        }
+        self.unmirrored = None;
+        Ok(())
+    }
+
+    /// Stores `value` as the entry of `cluster` in the FAT copy `step`
+    /// copies after the active one. A write to the active copy that frees
+    /// or takes the cluster updates the free count.
+    async fn put_fat(&mut self, step: u8, cluster: u32, value: u32) -> FsResult<(), D::Error> {
         let kind = self.geo.kind;
         let len = kind.entry_len();
-        let within = kind.entry_offset(cluster as u64);
-        let copies = if self.mirrored { self.geo.fat_count } else { 1 };
-        for step in 0..copies {
-            let copy = (self.active_fat + step) % self.geo.fat_count;
-            let at = self.geo.fat_start + copy as u64 * self.geo.fat_size + within;
-            let mut bytes = [0u8; 4];
-            read_bytes(&mut self.dev, &mut self.block, at, &mut bytes[..len]).await?;
-            kind.encode(cluster as u64, value, &mut bytes);
-            self.write(at, &bytes[..len]).await?;
+        let copy = (self.active_fat + step) % self.geo.fat_count;
+        let at = self.geo.fat_start + copy as u64 * self.geo.fat_size + kind.entry_offset(cluster as u64);
+        let mut bytes = [0u8; 4];
+        read_bytes(&mut self.dev, &mut self.block, at, &mut bytes[..len]).await?;
+        let was_free = kind.decode(cluster as u64, &bytes) & kind.mask() == 0;
+        kind.encode(cluster as u64, value, &mut bytes);
+        self.write(at, &bytes[..len]).await?;
+        let is_free = value & kind.mask() == 0;
+        if step == 0 && was_free != is_free {
+            let total = self.geo.max_cluster - 1;
+            self.free_clusters = self.free_clusters.and_then(|free| {
+                if is_free { Some((free + 1).min(total)) } else { free.checked_sub(1) }
+            });
+            self.fs_info_dirty = true;
         }
         Ok(())
     }
 
-    /// Takes a free cluster and marks it as the end of a chain. The FAT is
-    /// scanned whatever the free count says, since FSInfo is only a hint.
+    /// Takes a free cluster and marks it as the end of a chain, recording
+    /// it in the pending allocation. The FAT is scanned whatever the free
+    /// count says, since FSInfo is only a hint.
     async fn allocate(&mut self) -> FsResult<u32, D::Error> {
         let max = self.geo.max_cluster;
         let count = max - FIRST_DATA_CLUSTER + 1;
@@ -2007,8 +2361,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             if self.fat_entry(cluster).await? & self.geo.kind.mask() != 0 {
                 continue;
             }
+            if let Some(pending) = self.pending.as_mut() {
+                if pending.head == 0 {
+                    pending.head = cluster;
+                } else {
+                    pending.extra = cluster;
+                }
+            }
             self.set_fat(cluster, self.geo.kind.end_of_chain()).await?;
-            self.free_clusters = self.free_clusters.and_then(|free| free.checked_sub(1));
             self.next_free = if cluster == max { FIRST_DATA_CLUSTER } else { cluster + 1 };
             self.fs_info_dirty = true;
             return Ok(cluster);
@@ -2021,18 +2381,21 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     async fn release(&mut self, cluster: u32) -> FsResult<(), D::Error> {
-        self.set_fat(cluster, 0).await?;
-        let total = self.geo.max_cluster - 1;
-        self.free_clusters = self.free_clusters.map(|free| (free + 1).min(total));
-        self.fs_info_dirty = true;
-        Ok(())
+        self.set_fat(cluster, 0).await
     }
 
     /// Allocates a chain of `count` clusters, zeroed when `zero` is set, and
-    /// returns its first cluster. Nothing is left allocated on failure.
-    async fn allocate_chain(&mut self, count: u32, zero: bool) -> FsResult<u32, D::Error> {
+    /// returns its first cluster. The chain stays pending, to be linked
+    /// through `owner`; the caller clears `pending` once it is. Nothing is
+    /// left allocated on failure.
+    async fn allocate_chain(&mut self, count: u32, zero: bool, owner: Owner) -> FsResult<u32, D::Error> {
+        self.pending = Some(Pending::chain(0, owner));
         if !zero && count > 1 && self.geo.kind != FatKind::Fat12 {
-            return self.allocate_run(count).await;
+            let allocated = self.allocate_run(count).await;
+            if allocated.is_err() {
+                let _ = self.recover().await;
+            }
+            return allocated;
         }
         let (mut first, mut last) = (0, 0);
         for _ in 0..count {
@@ -2044,9 +2407,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                     last = cluster;
                 }
                 Err(err) => {
-                    if first != 0 {
-                        let _ = self.free_chain(first).await;
-                    }
+                    let _ = self.recover().await;
                     return Err(err);
                 }
             }
@@ -2056,40 +2417,47 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     async fn append_cluster(&mut self, prev: u32, zero: bool) -> FsResult<u32, D::Error> {
         let cluster = self.allocate().await?;
-        let mut result = Ok(());
         if zero {
-            result = match self.cluster_at(cluster) {
-                Ok(at) => self.put(at, None, self.geo.cluster_size as usize).await,
-                Err(kind) => Err(kind.into()),
-            };
+            let at = self.cluster_at(cluster)?;
+            self.put(at, None, self.geo.cluster_size as usize).await?;
         }
-        if result.is_ok() && prev != 0 {
-            result = self.set_fat(prev, cluster).await;
-        }
-        if let Err(err) = result {
-            let _ = self.release(cluster).await;
-            return Err(err);
+        if prev != 0 {
+            self.set_fat(prev, cluster).await?;
+            if let Some(pending) = self.pending.as_mut() {
+                pending.extra = 0;
+            }
         }
         Ok(cluster)
     }
 
-    /// Frees the chain starting at `first`. A freed cluster reads as free,
-    /// so a cyclic chain ends with [`ErrorKind::Corrupt`]. The entries of
-    /// consecutive clusters of the chain that share a device block of every
-    /// FAT copy are freed with one write per copy.
+    /// Frees the chain starting at `first`, which nothing links any more,
+    /// and clears `pending`. A freed cluster reads as free, so a cyclic
+    /// chain ends with [`ErrorKind::Corrupt`]; what is left of the chain
+    /// stays pending. The entries of consecutive clusters of the chain that
+    /// share a device block of every FAT copy are freed with one write per
+    /// copy.
     async fn free_chain(&mut self, first: u32) -> FsResult<(), D::Error> {
         let mut cluster = self.check_cluster(first)?;
         if self.geo.kind == FatKind::Fat12 {
             loop {
                 let next = self.next_cluster(cluster).await?;
+                self.pending = Some(Pending {
+                    head: next.unwrap_or(0),
+                    extra: cluster,
+                    owner: Owner::None,
+                });
                 self.release(cluster).await?;
                 match next {
                     Some(next) => cluster = next,
-                    None => return Ok(()),
+                    None => {
+                        self.pending = None;
+                        return Ok(());
+                    }
                 }
             }
         }
         loop {
+            let start = cluster;
             let base = self.block_base(cluster);
             let mut group = ClusterGroup::new(base);
             let next = loop {
@@ -2106,14 +2474,20 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 }
             };
             if group.count > 0 {
+                let after = next.as_ref().ok().copied().flatten();
+                self.pending = Some(Pending {
+                    head: after.unwrap_or(0),
+                    extra: start,
+                    owner: Owner::None,
+                });
                 self.patch_fat(&group, None).await?;
             }
-            let total = self.geo.max_cluster - 1;
-            self.free_clusters = self.free_clusters.map(|free| (free + group.count).min(total));
-            self.fs_info_dirty = true;
             match next? {
                 Some(next) => cluster = next,
-                None => return Ok(()),
+                None => {
+                    self.pending = None;
+                    return Ok(());
+                }
             }
         }
     }
@@ -2122,7 +2496,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// free ones from `next_free` on, and returns its first cluster. The
     /// entries are written a device block at a time, from the chain's end
     /// back to its start, so no written entry points to a free cluster.
-    /// Nothing is left allocated on failure. FAT16 and FAT32 only.
+    /// What it wrote is recorded in the pending allocation. FAT16 and FAT32
+    /// only.
     async fn allocate_run(&mut self, count: u32) -> FsResult<u32, D::Error> {
         let kind = self.geo.kind;
         let max = self.geo.max_cluster;
@@ -2158,13 +2533,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 if cluster > high || !self.same_fat_block(cluster, high) {
                     break;
                 }
-                let free = match self.fat_entry(cluster).await {
-                    Ok(value) => value & kind.mask() == 0,
-                    Err(err) => {
-                        self.undo_run(head).await;
-                        return Err(err);
-                    }
-                };
+                let free = self.fat_entry(cluster).await? & kind.mask() == 0;
                 if free {
                     group.add(cluster);
                 }
@@ -2173,24 +2542,20 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             if group.count == 0 {
                 continue;
             }
-            if let Err(err) = self.patch_fat(&group, Some(head)).await {
-                self.undo_run(head).await;
-                return Err(err);
+            if let Some(pending) = self.pending.as_mut() {
+                pending.head = if head == end { 0 } else { head };
+                pending.extra = group.lowest();
             }
+            self.patch_fat(&group, Some(head)).await?;
             head = group.lowest();
-            self.free_clusters = self.free_clusters.and_then(|free| free.checked_sub(group.count));
-            self.fs_info_dirty = true;
+            if let Some(pending) = self.pending.as_mut() {
+                pending.head = head;
+                pending.extra = 0;
+            }
         }
         let tail = at(last);
         self.next_free = if tail == max { FIRST_DATA_CLUSTER } else { tail + 1 };
         Ok(head)
-    }
-
-    /// Frees the part of a chain [`allocate_run`](Self::allocate_run) wrote.
-    async fn undo_run(&mut self, head: u32) {
-        if head != self.geo.kind.end_of_chain() {
-            let _ = self.free_chain(head).await;
-        }
     }
 
     /// The byte offset of FAT copy `copy`.
@@ -2228,19 +2593,37 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// copy, one block write per copy, active copy first. With `chain`, the
     /// clusters are linked in ascending order and the highest points to
     /// `chain`; without, they are freed.
+    ///
+    /// The free count follows the active copy.
     async fn patch_fat(&mut self, group: &ClusterGroup, chain: Option<u32>) -> FsResult<(), D::Error> {
         let kind = self.geo.kind;
         let len = kind.entry_len();
         let size = self.block.size as u64;
+        if self.copies() > 1 {
+            let range = (group.lowest(), group.descending().next().unwrap_or(group.lowest()));
+            if let Some(other) = self.unmirrored
+                && other != range
+            {
+                self.mirror(other).await?;
+            }
+            self.unmirrored = Some(range);
+        }
         for step in 0..self.copies() {
             let base = self.fat_copy((self.active_fat + step) % self.geo.fat_count);
             let index = (base + kind.entry_offset(group.lowest() as u64)) / size;
             load(&mut self.dev, &mut self.block, index).await?;
             self.block.cached = None;
             let mut value = chain.unwrap_or(0);
+            let (mut taken, mut freed) = (0, 0);
             for cluster in group.descending() {
                 let at = (base + kind.entry_offset(cluster as u64) - index * size) as usize;
+                let was_free = kind.decode(cluster as u64, &self.block.data[at..at + len]) & kind.mask() == 0;
                 kind.encode(cluster as u64, value, &mut self.block.data[at..at + len]);
+                match (was_free, value & kind.mask() == 0) {
+                    (true, false) => taken += 1,
+                    (false, true) => freed += 1,
+                    _ => {}
+                }
                 if chain.is_some() {
                     value = cluster;
                 }
@@ -2254,7 +2637,16 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
                 return Err(err);
             }
             self.block.cached = Some(index);
+            if step == 0 && taken != freed {
+                let total = self.geo.max_cluster - 1;
+                self.free_clusters = self
+                    .free_clusters
+                    .and_then(|free| (free + freed).checked_sub(taken))
+                    .map(|free| free.min(total));
+                self.fs_info_dirty = true;
+            }
         }
+        self.unmirrored = None;
         Ok(())
     }
 
@@ -2278,45 +2670,37 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// Extends a file's chain to hold `end` bytes. The new clusters are
-    /// linked but not zeroed.
+    /// linked but not zeroed, and stay pending until the caller has
+    /// recorded the new size.
     async fn cover(&mut self, state: &Node, end: u64) -> FsResult<Growth, D::Error> {
         let need = end.div_ceil(self.geo.cluster_size as u64) as u32;
-        let none = Growth { first: state.first, tail: 0, added: 0 };
+        let none = Growth { first: state.first, added: 0 };
         if need == 0 {
             return Ok(none);
         }
         if state.first == 0 {
-            let first = self.allocate_chain(need, false).await?;
-            return Ok(Growth { first, tail: 0, added: first });
+            let first = self.allocate_chain(need, false, Owner::Entry(state.entry)).await?;
+            return Ok(Growth { first, added: first });
         }
         let reached = self.walk(state.first, state.hint, need - 1).await?;
         let (index, tail) = (reached.index, reached.cluster);
         if index + 1 >= need {
             return Ok(none);
         }
-        let added = self.allocate_chain(need - 1 - index, false).await?;
+        let added = self.allocate_chain(need - 1 - index, false, Owner::Tail(tail)).await?;
         if let Err(err) = self.set_fat(tail, added).await {
-            let _ = self.free_chain(added).await;
+            let _ = self.recover().await;
             return Err(err);
         }
-        Ok(Growth { first: state.first, tail, added })
+        Ok(Growth { first: state.first, added })
     }
 
-    /// Frees what [`cover`](Self::cover) added. Best effort: on failure
-    /// the clusters stay allocated.
+    /// Frees what [`cover`](Self::cover) added, which is still pending.
+    /// Best effort: on failure the clusters stay allocated.
     async fn undo_growth(&mut self, growth: Growth) {
-        if growth.added == 0 {
-            return;
+        if growth.added != 0 {
+            let _ = self.recover().await;
         }
-        if growth.tail != 0
-            && self
-                .set_fat(growth.tail, self.geo.kind.end_of_chain())
-                .await
-                .is_err()
-        {
-            return;
-        }
-        let _ = self.free_chain(growth.added).await;
     }
 
     /// Writes `len` bytes of `data`, or zeros, at byte `pos` of the chain at
