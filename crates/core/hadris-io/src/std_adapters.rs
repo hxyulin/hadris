@@ -1,3 +1,4 @@
+#[cfg(any(feature = "sync", feature = "embedded-io"))]
 use crate::SeekFrom;
 
 /// Use a `std::io` type as a Hadris device.

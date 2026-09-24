@@ -15,7 +15,7 @@ pub type hadris_storage::async::ByteView<D>::Error = hadris_storage::StorageErro
 impl<D: hadris_storage::async::BlockDevice> hadris_io::async::api::Read for hadris_storage::async::ByteView<D>
 pub async fn hadris_storage::async::ByteView<D>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<D: hadris_storage::async::BlockDevice> hadris_io::async::api::Seek for hadris_storage::async::ByteView<D>
-pub async fn hadris_storage::async::ByteView<D>::seek(&mut self, embedded_io::SeekFrom) -> core::result::Result<u64, Self::Error>
+pub async fn hadris_storage::async::ByteView<D>::seek(&mut self, hadris_io::SeekFrom) -> core::result::Result<u64, Self::Error>
 impl<D: hadris_storage::async::BlockDevice> hadris_io::async::api::Write for hadris_storage::async::ByteView<D>
 pub async fn hadris_storage::async::ByteView<D>::flush(&mut self) -> core::result::Result<(), Self::Error>
 pub async fn hadris_storage::async::ByteView<D>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
@@ -132,7 +132,7 @@ pub type hadris_storage::async_send::ByteView<D>::Error = hadris_storage::Storag
 impl<D: hadris_storage::async_send::BlockDevice> hadris_io::async_send::api::Read for hadris_storage::async_send::ByteView<D>
 pub async fn hadris_storage::async_send::ByteView<D>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<D: hadris_storage::async_send::BlockDevice> hadris_io::async_send::api::Seek for hadris_storage::async_send::ByteView<D>
-pub async fn hadris_storage::async_send::ByteView<D>::seek(&mut self, embedded_io::SeekFrom) -> core::result::Result<u64, Self::Error>
+pub async fn hadris_storage::async_send::ByteView<D>::seek(&mut self, hadris_io::SeekFrom) -> core::result::Result<u64, Self::Error>
 impl<D: hadris_storage::async_send::BlockDevice> hadris_io::async_send::api::Write for hadris_storage::async_send::ByteView<D>
 pub async fn hadris_storage::async_send::ByteView<D>::flush(&mut self) -> core::result::Result<(), Self::Error>
 pub async fn hadris_storage::async_send::ByteView<D>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
@@ -249,7 +249,7 @@ pub type hadris_storage::sync::ByteView<D>::Error = hadris_storage::StorageError
 impl<D: hadris_storage::sync::BlockDevice> hadris_io::sync::api::Read for hadris_storage::sync::ByteView<D>
 pub fn hadris_storage::sync::ByteView<D>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<D: hadris_storage::sync::BlockDevice> hadris_io::sync::api::Seek for hadris_storage::sync::ByteView<D>
-pub fn hadris_storage::sync::ByteView<D>::seek(&mut self, embedded_io::SeekFrom) -> core::result::Result<u64, Self::Error>
+pub fn hadris_storage::sync::ByteView<D>::seek(&mut self, hadris_io::SeekFrom) -> core::result::Result<u64, Self::Error>
 impl<D: hadris_storage::sync::BlockDevice> hadris_io::sync::api::Write for hadris_storage::sync::ByteView<D>
 pub fn hadris_storage::sync::ByteView<D>::flush(&mut self) -> core::result::Result<(), Self::Error>
 pub fn hadris_storage::sync::ByteView<D>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
@@ -467,11 +467,11 @@ pub const fn hadris_storage::ReadOnly<T>::new(T) -> Self
 impl<T: hadris_io::async::api::Read> hadris_io::async::api::Read for hadris_storage::ReadOnly<T>
 pub async fn hadris_storage::ReadOnly<T>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<T: hadris_io::async::api::Seek> hadris_io::async::api::Seek for hadris_storage::ReadOnly<T>
-pub async fn hadris_storage::ReadOnly<T>::seek(&mut self, embedded_io::SeekFrom) -> core::result::Result<u64, Self::Error>
+pub async fn hadris_storage::ReadOnly<T>::seek(&mut self, hadris_io::SeekFrom) -> core::result::Result<u64, Self::Error>
 impl<T: hadris_io::async_send::api::Read> hadris_io::async_send::api::Read for hadris_storage::ReadOnly<T>
 pub async fn hadris_storage::ReadOnly<T>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<T: hadris_io::async_send::api::Seek> hadris_io::async_send::api::Seek for hadris_storage::ReadOnly<T>
-pub async fn hadris_storage::ReadOnly<T>::seek(&mut self, embedded_io::SeekFrom) -> core::result::Result<u64, Self::Error>
+pub async fn hadris_storage::ReadOnly<T>::seek(&mut self, hadris_io::SeekFrom) -> core::result::Result<u64, Self::Error>
 impl<T: hadris_io::error::ErrorType + hadris_io::async::MaybeSend> hadris_storage::async::StreamWrite for hadris_storage::ReadOnly<T>
 pub async fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
 pub async fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<Self::Error>>>
@@ -486,7 +486,7 @@ pub type hadris_storage::ReadOnly<T>::Error = <T as hadris_io::error::ErrorType>
 impl<T: hadris_io::sync::api::Read> hadris_io::sync::api::Read for hadris_storage::ReadOnly<T>
 pub fn hadris_storage::ReadOnly<T>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<T: hadris_io::sync::api::Seek> hadris_io::sync::api::Seek for hadris_storage::ReadOnly<T>
-pub fn hadris_storage::ReadOnly<T>::seek(&mut self, embedded_io::SeekFrom) -> core::result::Result<u64, Self::Error>
+pub fn hadris_storage::ReadOnly<T>::seek(&mut self, hadris_io::SeekFrom) -> core::result::Result<u64, Self::Error>
 pub trait hadris_storage::MemBuffer
 pub fn hadris_storage::MemBuffer::bytes(&self) -> &[u8]
 pub fn hadris_storage::MemBuffer::bytes_mut(&mut self) -> core::option::Option<&mut [u8]>
