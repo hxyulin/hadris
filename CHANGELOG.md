@@ -1016,6 +1016,11 @@ Each published package owns its version and may be released independently.
   another keeps its size and is reported. `Append` warns when the options
   have hybrid boot it does not apply, and the `Session::write` and
   `SessionMode` docs say which mode writes the system area.
+- **hadris-iso (V3):** In the Rock Ridge view, the names of a hard link
+  share one node id: the first record in path table order with the same
+  `PX` serial number, or without one, the same data extent. They had one
+  id per name while reporting two links, so `Tree::from_filesystem` and
+  FUSE adapters split them into separate files.
 
 ## [2.4.0] - 2026-09-08
 

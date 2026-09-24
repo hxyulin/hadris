@@ -246,7 +246,11 @@ impl<D: BlockDevice> IsoImage<D> {
 ///
 /// Node ids are byte offsets of directory records: a directory's is its
 /// `.` record, so a relocated directory has one id, and a file's is its
-/// first record in its parent. Every id is stable, so [`forget`](Self::forget)
+/// first record in its parent. In the Rock Ridge view the names of a hard
+/// link share one id, that of the first record in path table order with
+/// the same `PX` serial number (or, without one, the same data): listing a
+/// file with more than one link scans the directories before it. Every id
+/// is stable, so [`forget`](Self::forget)
 /// does nothing. An id no record can have (zero, odd, or past the volume
 /// and the device) fails with [`ErrorKind::InvalidHandle`]; any other id is
 /// read as a record, and a damaged one fails with [`ErrorKind::Corrupt`].
@@ -302,6 +306,15 @@ impl Block {
 enum PathTableQuery {
     Extent(u64),
     Number(u64),
+}
+
+/// What the names of one hard-linked file share.
+#[derive(Clone, Copy)]
+enum LinkKey {
+    /// The Rock Ridge `PX` serial number.
+    Serial(u32),
+    /// The byte offset of the data.
+    Extent(u64),
 }
 
 /// A listed entry: its id, type and name length.
@@ -481,6 +494,79 @@ impl View {
         })
     }
 
+    /// The id of the non-directory record at `offset`. A Rock Ridge file
+    /// with more than one link gets the id of the first record of the same
+    /// file in path table order, so all its names share one id: records
+    /// with its `PX` serial number, or without one, at its data extent.
+    async fn link_id<D: BlockDevice>(
+        &self,
+        dev: &mut D,
+        offset: u64,
+        record: &DirectoryRecord,
+        info: &RockRidgeInfo,
+        skip: u8,
+    ) -> Result<u64, Error<D::Error>> {
+        if info.links().unwrap_or(1) <= 1 {
+            return Ok(offset);
+        }
+        let key = match info.serial().filter(|&serial| serial != 0) {
+            Some(serial) => LinkKey::Serial(serial),
+            None if record.header().data_len.get() > 0 && info.file_type().is_none_or(|t| t == FileType::File) => {
+                match self.extent_start(record) {
+                    Some(start) => LinkKey::Extent(start),
+                    None => return Ok(offset),
+                }
+            }
+            None => return Ok(offset),
+        };
+        Ok(self.first_link(dev, key, skip).await?.unwrap_or(offset))
+    }
+
+    /// The first record in path table order of the hard-linked file `key`
+    /// names.
+    async fn first_link<D: BlockDevice>(&self, dev: &mut D, key: LinkKey, skip: u8) -> Result<Option<u64>, Error<D::Error>> {
+        let (table, size) = self.root.path_table;
+        let base = u64::from(table) * self.bs();
+        let mut pos = 0u64;
+        while pos + 8 <= u64::from(size) {
+            let mut header = [0u8; 8];
+            read_bytes(dev, self.len, base + pos, &mut header).await?;
+            let header: raw::PathTableHeader = bytemuck::cast(header);
+            pos += header.record_len() as u64;
+            let start = (u64::from(header.extent_le()) + u64::from(header.extended_attr_record)) * self.bs();
+            let dot = self.record_at(dev, start).await?;
+            let dir = Dir {
+                start,
+                size: dot.header().data_len.get(),
+            };
+            let mut at = 0;
+            let mut block = Block::new();
+            while let Some(found) = self.next_record(dev, dir, &mut at, &mut block).await? {
+                let record = found.record;
+                self.skip_continuations(dev, dir, &mut at, &mut block, &record).await?;
+                if record.is_dot() || record.header().is_directory() {
+                    continue;
+                }
+                let mut scan = Scan::new();
+                self.scan(dev, &record, skip, &mut scan).await?;
+                let info = scan.info;
+                if info.links().unwrap_or(1) <= 1 || info.is_relocated() || info.child_link().is_some() {
+                    continue;
+                }
+                let same = match key {
+                    LinkKey::Serial(serial) => info.serial() == Some(serial),
+                    LinkKey::Extent(extent) => {
+                        record.header().data_len.get() > 0 && self.extent_start(&record) == Some(extent)
+                    }
+                };
+                if same {
+                    return Ok(Some(found.offset));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// The name, type and id a record lists under, or `None` for records
     /// the listing hides.
     async fn list<D: BlockDevice>(
@@ -521,7 +607,8 @@ impl View {
             let (node, file_type) = if is_dir {
                 (dir_id(self.extent_start(record))?, FileType::Dir)
             } else {
-                (NodeId::new(found.offset), info.file_type().unwrap_or(FileType::File))
+                let node = self.link_id(dev, found.offset, record, &info, skip).await?;
+                (NodeId::new(node), info.file_type().unwrap_or(FileType::File))
             };
             return Ok(Some(Listed { node, file_type, len }));
         }

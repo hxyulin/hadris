@@ -290,7 +290,30 @@ fn async_modes_read_and_write_alike() {
             .await
             .unwrap();
         assert_eq!(data, pattern(100_000));
+        let linked = hadris_fs::async_send::FsDriver::resolve(&mut view, "/docs/hard.txt")
+            .await
+            .unwrap();
+        let target = hadris_fs::async_send::FsDriver::resolve(&mut view, "/readme.txt")
+            .await
+            .unwrap();
+        assert_eq!(linked, target);
     });
+}
+
+#[test]
+fn hard_links_share_one_node_id() {
+    let tree = sample(true, true);
+    let mut iso = IsoImage::open(image(&tree, &full())).unwrap();
+    let mut view = iso.view(Namespace::RockRidge).unwrap();
+    let target = view.resolve("/readme.txt").unwrap();
+    assert_eq!(view.resolve("/docs/hard.txt").unwrap(), target);
+    assert_ne!(view.resolve("/docs/big.bin").unwrap(), target);
+    assert_eq!(view.metadata("/docs/hard.txt").unwrap().nlink(), 2);
+    let mut primary = iso.view(Namespace::Primary).unwrap();
+    assert_ne!(
+        primary.resolve("/README.TXT").unwrap(),
+        primary.resolve("/DOCS/HARD.TXT").unwrap()
+    );
 }
 
 trait AwaitView<T> {
