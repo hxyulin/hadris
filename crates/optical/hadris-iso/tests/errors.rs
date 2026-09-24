@@ -256,6 +256,54 @@ fn malformed_images_are_refused() {
     assert!(IsoImage::open(MemDevice::new(truncated, common::SECTOR)).is_err());
 }
 
+/// A directory record whose extent points at something that is not a
+/// directory yields a listed id that reads as corrupt, not as an invalid
+/// handle (inspect-2).
+#[test]
+fn damaged_records_behind_listed_ids_are_corrupt() {
+    let tree = sample(false, false);
+    let good = image(&tree, &IsoOptions::default()).into_inner();
+    let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
+    let mut view = iso.view(Namespace::Primary).unwrap();
+    let docs = view.resolve("/DOCS").unwrap();
+    let big = view.resolve("/DOCS/BIG.BIN").unwrap();
+    let data = view.raw_record(big).unwrap().header().extent.get();
+    let root = view.root().get() as usize;
+    let record = (root..root + 2048)
+        .step_by(2)
+        .find(|&at| {
+            let len = good[at + 2..at + 6].try_into().unwrap();
+            u64::from(u32::from_le_bytes(len)) * 2048 == docs.get() && good[at + 32] == 4
+        })
+        .unwrap();
+    let point = |bytes: &mut Vec<u8>, block: u32| {
+        bytes[record + 2..record + 6].copy_from_slice(&block.to_le_bytes());
+        bytes[record + 6..record + 10].copy_from_slice(&block.to_be_bytes());
+    };
+
+    let mut bad = good.clone();
+    point(&mut bad, data + 1);
+    let mut iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
+    let mut view = iso.view(Namespace::Primary).unwrap();
+    let listed = view
+        .lookup(view.root(), hadris_fs::Name::new(b"DOCS").unwrap())
+        .unwrap();
+    assert_eq!(listed.get(), u64::from(data + 1) * 2048);
+    assert_eq!(
+        view.node_metadata(listed).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+
+    let mut bad = good;
+    point(&mut bad, u32::MAX);
+    let mut iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
+    let mut view = iso.view(Namespace::Primary).unwrap();
+    let err = view
+        .lookup(view.root(), hadris_fs::Name::new(b"DOCS").unwrap())
+        .unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+}
+
 #[test]
 fn missing_namespaces_are_reported() {
     let tree = sample(false, false);

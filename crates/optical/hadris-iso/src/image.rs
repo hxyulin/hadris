@@ -247,8 +247,10 @@ impl<D: BlockDevice> IsoImage<D> {
 /// Node ids are byte offsets of directory records: a directory's is its
 /// `.` record, so a relocated directory has one id, and a file's is its
 /// first record in its parent. Every id is stable, so [`forget`](Self::forget)
-/// does nothing. The view is read-only; write methods fail with
-/// [`ErrorKind::ReadOnly`].
+/// does nothing. An id no record can have (zero, odd, or past the volume
+/// and the device) fails with [`ErrorKind::InvalidHandle`]; any other id is
+/// read as a record, and a damaged one fails with [`ErrorKind::Corrupt`].
+/// The view is read-only; write methods fail with [`ErrorKind::ReadOnly`].
 ///
 /// Names drop the `;1` version. In the primary and enhanced trees a lookup
 /// that finds no exact name retries ignoring ASCII case.
@@ -309,15 +311,16 @@ struct Listed {
     len: usize,
 }
 
-/// A node id that does not name a valid record is an invalid handle, unless
-/// it lies inside the volume but past the end of the device: the image is
-/// truncated.
-fn handle<E>(err: Error<E>, node: NodeId, info: &Info) -> hadris_fs::Error<E> {
-    let volume_end = u64::from(info.volume_blocks) * u64::from(info.block_size);
-    match (err.kind(), err.detail()) {
-        (ErrorKind::Io, _) => err.into(),
-        (_, Some(Detail::OutsideImage)) if node.get() < volume_end => err.into(),
-        _ => ErrorKind::InvalidHandle.into(),
+/// A node id no record can have (zero, odd, or past both the volume and
+/// the device) is an invalid handle. Any other id is read as a record, so a
+/// damaged record, or one past the end of a truncated image, is corrupt.
+fn handle<E>(err: Error<E>, node: NodeId, view: &View) -> hadris_fs::Error<E> {
+    let volume_end = u64::from(view.info.volume_blocks) * u64::from(view.info.block_size);
+    let id = node.get();
+    if err.kind() == ErrorKind::Io || (id != 0 && id % 2 == 0 && id < volume_end.max(view.len)) {
+        err.into()
+    } else {
+        ErrorKind::InvalidHandle.into()
     }
 }
 
@@ -369,7 +372,7 @@ impl View {
 
     /// The directory a node names: its `.` record, or a directory record.
     async fn dir_of<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Dir, D::Error> {
-        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, &self.info))?;
+        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         if !record.header().is_directory() {
             return Err(ErrorKind::NotADirectory.into());
         }
@@ -492,8 +495,10 @@ impl View {
             return Ok(None);
         }
         let is_dir = header.is_directory();
+        let end = self.len.max(u64::from(self.info.volume_blocks) * self.bs());
         let dir_id = |start: Option<u64>| match start {
-            Some(start) if start != 0 => Ok(NodeId::new(start)),
+            Some(start) if start != 0 && start < end => Ok(NodeId::new(start)),
+            Some(start) if start != 0 => Err(Error::corrupt(Detail::OutsideImage)),
             _ => Err(Error::corrupt(Detail::DirectoryRecord)),
         };
         if let Some(skip) = self.rock_ridge() {
@@ -607,7 +612,7 @@ impl View {
     }
 
     async fn node_metadata<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Metadata, D::Error> {
-        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, &self.info))?;
+        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         let header = *record.header();
         let mut times = FileTimes::new().with_modified(header.date_time.to_datetime());
         let rr = match self.rock_ridge() {
@@ -678,7 +683,7 @@ impl View {
     }
 
     async fn read_at<D: BlockDevice>(&self, dev: &mut D, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, &self.info))?;
+        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         if record.header().is_directory() {
             return Err(ErrorKind::IsADirectory.into());
         }
@@ -767,7 +772,7 @@ impl View {
         let Some(skip) = self.rock_ridge() else {
             return Err(ErrorKind::InvalidInput.into());
         };
-        let record = self.record_at(dev, link.get()).await.map_err(|err| handle(err, link, &self.info))?;
+        let record = self.record_at(dev, link.get()).await.map_err(|err| handle(err, link, self))?;
         let mut scan = Scan::new().with_link(buf);
         self.scan(dev, &record, skip, &mut scan).await?;
         if !scan.info.is_symlink() {

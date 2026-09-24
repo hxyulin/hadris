@@ -68,13 +68,11 @@ struct Fid {
     next: u64,
 }
 
-/// A node id the caller gave that names nothing valid is an invalid handle,
-/// unless the device failed or the volume is cut short.
-fn handle<E>(err: Error<E>) -> hadris_fs::Error<E> {
-    match (err.kind(), err.detail()) {
-        (ErrorKind::Io, _) | (_, Some(Detail::OutsideImage)) => err.into(),
-        _ => ErrorKind::InvalidHandle.into(),
-    }
+/// The id of the entry `fid` names, when its ICB lies inside a partition.
+fn fid_node<E>(info: &Info, fid: &Fid) -> Result<NodeId, Error<E>> {
+    info.offset::<E>(fid.icb.partition, fid.icb.block, 1)
+        .map_err(|_| Error::corrupt(Detail::FileIdentifier))?;
+    Ok(fid.icb.id())
 }
 
 /// The revision a logical volume's domain records, when it agrees with the
@@ -681,8 +679,10 @@ async fn link_target<D: BlockDevice>(info: &Info, dev: &mut D, icb: &Icb, out: &
 /// allocator. It implements `hadris_fs::FsDriver` read-only through its
 /// inherent methods: node ids are ICB locations, so they are stable and
 /// [`forget`](Self::forget) does nothing; a directory's id is the id its
-/// name in the parent lists, and hard links share one id. Write methods
-/// fail with [`ErrorKind::ReadOnly`].
+/// name in the parent lists, and hard links share one id. An id outside
+/// every partition fails with [`ErrorKind::InvalidHandle`]; one inside a
+/// partition is read as an entry, and a damaged entry fails with
+/// [`ErrorKind::Corrupt`]. Write methods fail with [`ErrorKind::ReadOnly`].
 ///
 /// ```rust,ignore
 /// let mut udf = UdfFs::open(dev)?;
@@ -753,8 +753,10 @@ impl<D: BlockDevice> UdfFs<D> {
     }
 
     async fn icb(&mut self, node: NodeId) -> FsResult<Icb, D::Error> {
-        let at = Location::of(node).ok_or(ErrorKind::InvalidHandle)?;
-        icb_at(&self.info, &mut self.dev, at).await.map_err(handle)
+        let at = Location::of(node)
+            .filter(|at| self.info.offset::<D::Error>(at.partition, at.block, 1).is_ok())
+            .ok_or(ErrorKind::InvalidHandle)?;
+        Ok(icb_at(&self.info, &mut self.dev, at).await?)
     }
 
     async fn dir(&mut self, node: NodeId) -> FsResult<Icb, D::Error> {
@@ -789,7 +791,7 @@ impl<D: BlockDevice> UdfFs<D> {
             }
             let len = fid_name(&self.info, &mut self.dev, &icb, &fid, &mut buf).await?;
             if &buf[..len] == name.as_bytes() {
-                return Ok(fid.icb.id());
+                return Ok(fid_node(&self.info, &fid)?);
             }
         }
         Err(ErrorKind::NotFound.into())
@@ -822,7 +824,7 @@ impl<D: BlockDevice> UdfFs<D> {
             };
             name.set_bytes(&buf[..len])?;
             *cursor = DirCursor::from_raw(pos);
-            return Ok(Some(DirEntry::new(fid.icb.id(), file_type, len)));
+            return Ok(Some(DirEntry::new(fid_node(&self.info, &fid)?, file_type, len)));
         }
         *cursor = DirCursor::from_raw(pos.max(icb.size));
         Ok(None)
@@ -878,7 +880,7 @@ impl<D: BlockDevice> UdfFs<D> {
         while pos < icb.size {
             let fid = fid_at(&self.info, &mut self.dev, &icb, pos).await?;
             if fid.characteristics.contains(FileCharacteristics::PARENT) {
-                return Ok(fid.icb.id());
+                return Ok(fid_node(&self.info, &fid)?);
             }
             pos = fid.next;
         }

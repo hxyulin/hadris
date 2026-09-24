@@ -72,12 +72,44 @@ fn malformed_volumes_are_refused() {
 }
 
 #[test]
+fn damaged_entries_behind_listed_ids_are_corrupt() {
+    let good = good();
+    let mut udf = open(good.clone());
+    let node = udf.resolve("/readme.txt").unwrap();
+    let block = ((node.get() - 1) & 0xFFFF_FFFF) as u32;
+    let sector = (0..good.len() / 2048)
+        .find(|&sector| {
+            hadris_udf::raw::Tag::read(&good[sector * 2048..]).is_some_and(|tag| {
+                tag.is_checksum_valid()
+                    && matches!(tag.identifier.get(), 261 | 266)
+                    && tag.location.get() == block
+            })
+        })
+        .unwrap();
+    let mut bad = good;
+    bad[sector * 2048 + 100] ^= 0xFF;
+    let mut udf = open(bad);
+    let listed = udf.resolve("/readme.txt").unwrap();
+    assert_eq!(listed, node);
+    assert_eq!(
+        udf.node_metadata(listed).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+}
+
+#[test]
 fn forged_node_ids_are_invalid_handles() {
     let mut udf = open(good());
-    for raw in [0, 1, 12345, u64::MAX, (5u64 << 32) + 2] {
+    for raw in [0, 12345, u64::MAX, (5u64 << 32) + 2] {
         let err = udf.node_metadata(NodeId::new(raw)).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidHandle, "{raw}");
     }
+    let err = udf.node_metadata(NodeId::new(1)).unwrap_err();
+    assert_eq!(
+        err.kind(),
+        ErrorKind::Corrupt,
+        "an id inside a partition is read as an entry"
+    );
     let file = udf.resolve("/readme.txt").unwrap();
     assert_eq!(
         udf.lookup(file, hadris_fs::Name::new("x").unwrap())

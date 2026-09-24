@@ -994,6 +994,12 @@ Each published package owns its version and may be released independently.
   hybrid table with several UEFI entries and no
   `HybridBoot::with_efi_partition` warns that it has no EFI system
   partition.
+- **hadris-iso, hadris-udf (V3):** A damaged record or entry reached
+  through a node id the driver listed fails with `ErrorKind::Corrupt`
+  instead of `InvalidHandle`. `InvalidHandle` is kept for ids no record can
+  have: for ISO zero, odd or past the volume and the device, for UDF
+  outside every partition. A directory record or file identifier that
+  points outside the image fails the listing as corrupt.
 
 ## [2.4.0] - 2026-09-08
 
