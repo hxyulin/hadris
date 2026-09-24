@@ -963,6 +963,13 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-fs (V3):** `TreeExt::from_filesystem`, `copy_tree` and
+  `extract_to_host` fail with `ErrorKind::Corrupt` when a directory entry
+  leads back to a directory on its own path, as a corrupt ISO 9660 or UDF
+  image can hold, and with `ErrorKind::LimitExceeded` below 1024
+  directories. They walked such a tree without end. A copy of a directory
+  into itself on one volume now stops at the same depth instead of filling
+  the volume.
 - **hadris-fat (V3):** exFAT `remove`, and `rename` when it replaces a
   node, free the clusters the node's Vendor Allocation entries (and other
   benign secondary entries with an allocation) hold. They were left

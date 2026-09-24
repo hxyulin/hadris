@@ -11,8 +11,9 @@ use std::sync::Arc;
 use common::MemError;
 use common::sync::{MemFs, fixture};
 use hadris_fs::sync::{
-    DriverExt, FsDriver, PathExt, Volume, copy_tree, extract_to_host, import_from_host,
+    DriverExt, FsDriver, PathExt, TreeExt, Volume, copy_tree, extract_to_host, import_from_host,
 };
+use hadris_fs::tree::Tree;
 use hadris_fs::{AnyError, ErrorKind, NewNode};
 
 fn link_target(fs: &mut MemFs, path: &str) -> Vec<u8> {
@@ -98,6 +99,57 @@ fn conflicts_and_failures_release_pins() {
         err.downcast_device::<MemError>(),
         Some(&MemError::Timeout { lba: 9 })
     );
+    assert_eq!((src.open_nodes(), dst.open_nodes()), (1, 1));
+}
+
+#[test]
+fn cyclic_directories_are_corrupt() {
+    let scratch = Scratch::new("cycle");
+    let cases = [("/etc", "/etc"), ("/etc", "/"), ("/deep/er", "/deep")];
+    for (case, (dir, target)) in cases.into_iter().enumerate() {
+        let mut src = fixture();
+        src.create_dir_all("/deep/er").unwrap();
+        src.alias(dir, "back", target);
+        let err = Tree::from_filesystem(&mut src).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt, "{dir} -> {target}");
+        let mut dst = MemFs::new();
+        let err = copy_tree(&mut src, "/", &mut dst, "/").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt, "{dir} -> {target}");
+        if dir == "/deep/er" {
+            let err = copy_tree(&mut src, "/deep", &mut dst, "/copy").unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Corrupt);
+        }
+        #[cfg(not(unix))]
+        for link in ["/link", "/abs", "/loop", "/long", "/etc/up"] {
+            src.remove_file(link).unwrap();
+        }
+        let err = extract_to_host(&mut src, "/", scratch.0.join(case.to_string())).unwrap_err();
+        let kind = err
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<ErrorKind>());
+        assert_eq!(kind, Some(&ErrorKind::Corrupt), "{dir} -> {target}: {err}");
+        assert_eq!((src.open_nodes(), dst.open_nodes()), (1, 1));
+    }
+}
+
+#[test]
+fn walks_stop_at_a_depth_limit() {
+    let mut src = MemFs::new();
+    let mut path = String::new();
+    for _ in 0..1100 {
+        src.add(
+            if path.is_empty() { "/" } else { &path },
+            "d",
+            NewNode::Dir,
+            b"",
+        );
+        path.push_str("/d");
+    }
+    let err = Tree::from_filesystem(&mut src).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::LimitExceeded);
+    let mut dst = MemFs::new();
+    let err = copy_tree(&mut src, "/", &mut dst, "/").unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::LimitExceeded);
     assert_eq!((src.open_nodes(), dst.open_nodes()), (1, 1));
 }
 

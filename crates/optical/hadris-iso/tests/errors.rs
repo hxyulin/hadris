@@ -347,3 +347,31 @@ fn directories_past_the_end_of_a_truncated_image_are_corrupt() {
         ErrorKind::InvalidHandle
     );
 }
+
+/// A directory record that points back at an ancestor's extent makes the
+/// tree walks fail as corrupt instead of descending forever.
+#[test]
+fn directory_cycles_are_corrupt() {
+    let mut tree = Tree::new();
+    tree.add_file("a/b/f.txt", Content::bytes("f")).unwrap();
+    let good = image(&tree, &IsoOptions::default()).into_inner();
+    let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
+    let mut view = iso.view(Namespace::Primary).unwrap();
+    let root = view.root().get() as u32 / 2048;
+    let a = view.resolve("/A").unwrap().get() as usize;
+    let record = (a..a + 2048)
+        .find(|&at| good[at] >= 34 && good[at + 32] == 1 && good[at + 33] == b'B')
+        .unwrap();
+    for target in [a as u32 / 2048, root] {
+        let mut bad = good.clone();
+        bad[record + 2..record + 6].copy_from_slice(&target.to_le_bytes());
+        bad[record + 6..record + 10].copy_from_slice(&target.to_be_bytes());
+        let mut iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
+        let mut view = iso.view(Namespace::Primary).unwrap();
+        let err = <Tree as hadris_fs::sync::TreeExt>::from_filesystem(&mut view).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Corrupt);
+        let out = tempfile::tempdir().unwrap();
+        let err = hadris_fs::sync::extract_to_host(&mut view, "/", out.path()).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData, "{err}");
+    }
+}

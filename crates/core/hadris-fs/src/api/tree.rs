@@ -116,7 +116,10 @@ pub trait TreeExt: Sized {
     /// the same id again becomes a hard link.
     ///
     /// Device nodes, FIFOs and sockets are left out and listed in
-    /// [`Tree::warnings`], since `Metadata` carries no device number.
+    /// [`Tree::warnings`], since `Metadata` carries no device number. A
+    /// directory entry that leads back to a directory on its own path fails
+    /// with [`ErrorKind::Corrupt`], and a tree more than 1024 directories
+    /// deep with [`ErrorKind::LimitExceeded`].
     async fn from_filesystem<A: Access + io::MaybeSend>(src: A) -> FsResult<Self, A::DeviceError>;
 }
 
@@ -162,7 +165,13 @@ async fn import<D: FsDriver + ?Sized>(
         let path = alloc::format!("{prefix}/{text}");
         let child = fs.lookup(dir, child_name).await?;
         match import_node(fs, tree, child, &path, seen).await {
-            Ok(true) => stack.push((child, path, DirCursor::start())),
+            Ok(true) => {
+                if let Err(err) = super::copy::enter(stack.iter().map(|(node, ..)| *node), child) {
+                    fs.forget(child);
+                    return Err(err.into());
+                }
+                stack.push((child, path, DirCursor::start()));
+            }
             Ok(false) => fs.forget(child),
             Err(err) => {
                 fs.forget(child);

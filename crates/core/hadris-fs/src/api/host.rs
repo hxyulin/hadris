@@ -196,7 +196,10 @@ fn extract_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(NodeId, DirCu
         let child_name = name.as_name().ok_or(ErrorKind::Corrupt).map_err(Error::<D::DeviceError>::from)?;
         let child = fs.lookup(dir, child_name)?;
         let result = match fs.node_metadata(child) {
-            Ok(meta) if meta.file_type().is_dir() => match create_host_dir(&target) {
+            Ok(meta) if meta.file_type().is_dir() => match super::copy::enter(stack.iter().map(|(node, ..)| *node), child)
+                .map_err(|kind| io::Error::from(Error::<D::DeviceError>::from(kind)))
+                .and_then(|()| create_host_dir(&target))
+            {
                 Ok(()) => {
                     stack.push((child, DirCursor::start(), target));
                     continue;
@@ -235,7 +238,11 @@ fn extract_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(NodeId, DirCu
 /// sticky bits) are applied. Symlinks are created on Unix only, and a target
 /// longer than 4096 bytes fails with [`std::io::ErrorKind::Other`] carrying
 /// [`ErrorKind::LimitExceeded`]; device nodes, FIFOs and sockets fail with
-/// [`std::io::ErrorKind::Unsupported`].
+/// [`std::io::ErrorKind::Unsupported`]. A directory entry that leads back to
+/// a directory on its own path fails with
+/// [`std::io::ErrorKind::InvalidData`] carrying [`ErrorKind::Corrupt`], and a
+/// tree more than 1024 directories deep with [`std::io::ErrorKind::Other`]
+/// carrying [`ErrorKind::LimitExceeded`].
 ///
 /// Only in the sync API: the host side is blocking `std::fs`.
 pub fn extract_to_host<S: Access>(src: S, from: &str, host: impl AsRef<Path>) -> io::Result<()> {
