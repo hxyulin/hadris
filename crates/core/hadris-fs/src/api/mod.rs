@@ -1,6 +1,6 @@
 use super::io;
 use super::lock::{Lock, LockKind};
-use crate::forget_queue::ForgetQueue;
+use crate::forget_queue::{ForgetQueue, Op};
 use crate::path::{Component, Components, VPath};
 use crate::{
     Capabilities, DirCursor, DirEntry, DirItem, Error, ErrorKind, FileType, FsResult, FsStats,

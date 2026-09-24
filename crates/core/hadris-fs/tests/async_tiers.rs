@@ -75,6 +75,48 @@ mod plain {
             assert_eq!(vol.into_inner().open_nodes(), 1);
         });
     }
+
+    #[test]
+    fn a_dropped_file_leaves_publishing_to_the_driver() {
+        block_on(async {
+            let mut fs = fixture();
+            let mut file = fs
+                .open("/log", OpenOptions::write().create())
+                .await
+                .unwrap();
+            file.write_all(b"entry").await.unwrap();
+            drop(file);
+            assert_eq!(fs.publishes(), 0);
+            let mut file = fs.open("/log", OpenOptions::write()).await.unwrap();
+            file.write_all(b"entry").await.unwrap();
+            file.close().await.unwrap();
+            assert_eq!(fs.publishes(), 1);
+            assert_eq!(fs.open_nodes(), 1);
+        });
+    }
+
+    #[test]
+    fn many_handles_dropped_under_the_lock_are_queued() {
+        block_on(async {
+            let mut fs = fixture();
+            for i in 0..40 {
+                fs.write_file(&format!("/h{i}"), b"x").await.unwrap();
+            }
+            let vol = Volume::new(fs);
+            let mut files = Vec::new();
+            for i in 0..40 {
+                files.push(
+                    vol.open(&format!("/h{i}"), OpenOptions::read())
+                        .await
+                        .unwrap(),
+                );
+            }
+            let guard = vol.lock().await;
+            drop(files);
+            drop(guard);
+            assert_eq!(vol.into_inner().open_nodes(), 1);
+        });
+    }
 }
 
 mod send {

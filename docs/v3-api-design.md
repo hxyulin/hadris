@@ -588,7 +588,7 @@ instead makes `vol.root()` ambiguous, since both traits have it, hence
 - `File` implements `hadris_io::{Read, Write, Seek}` and, with `std`, the `std::io` traits for any device error (4.6). `Dir` is an `Iterator` in sync builds and has `next_entry` in async builds.
 - `OpenOptions { read, write, append, truncate, create, create_new }` makes overwrite semantics explicit (#90, #91). Opening for writing fails with `ReadOnly` at open time when `capabilities().writable()` is false, before any truncation, instead of at the first write.
 - Opening a symlink node as a file (possible with `Lexical`, which never follows links) fails with `ErrorKind::Symlink`, as POSIX `O_NOFOLLOW` fails with `ELOOP`.
-- `close()` returns `Result`. It publishes the node's metadata; `sync_all()` makes the file durable first. `Drop` does a best-effort `close_node` and `forget`, never flushes and never panics. `#[must_use]` on handles. `OpenFile` is plain data and does not close or forget on drop; its owner calls `close`.
+- `close()` returns `Result`. It publishes the node's metadata; `sync_all()` makes the file durable first. `Drop` does a best-effort `close_node` and `forget` and never flushes the device. In the blocking API it also publishes a written file's metadata, ignoring errors, so a dropped log file keeps its size across a power cut; the async APIs cannot await in `Drop`, so there the metadata stays pending in the driver until the next `publish_node`, `sync_node` or `sync`. `#[must_use]` on handles. `OpenFile` is plain data and does not close or forget on drop; its owner calls `close`.
 - Helpers on both `DriverExt` and `PathExt`: `exists`, `metadata`, `open`, `read_dir`, `read_to_vec`, `write_file`, `create_dir_all`, `remove_file`, `remove_dir`, `remove_dir_all`, `rename_path`. `rename_path` is not `rename` because the node method of that name is on the driver traits and both can be in scope. `remove_dir_all` needs no allocation and fails with `LimitExceeded` below 64 levels. Free functions: `copy_tree` (between any two filesystems, with `alloc`), and with `std` in the sync API, `extract_to_host` and `import_from_host`. Each side is any `Access`, so `&mut fs`, `&vol` and an `Arc` all work. The host helpers reject absolute names, separators, drive prefixes and `..` components, and never write through an existing host symlink, so archives and images cannot escape the target directory.
 
 ```rust
@@ -628,7 +628,7 @@ Volume::with_lock::<K>(fs)    // any LockKind: critical-section, embassy-sync, t
 
 - There is one constructor per lock and no default `K`. A default that depended on the `std` feature would change the type of every `Volume` in the build when any crate enabled `std`, which R3 forbids. Constructors infer `K`, so it appears only in stored types, and there the user writes one alias: `type Disk = Volume<FatFs<File>, StdMutex>;`. Hadris ships no aliases, because each would be a second spelling of the same type.
 - The lock is held for one driver call. Path resolution runs under one lock hold, so a path costs one lock, not one per component.
-- `forget` and `close_node` never block, so handle `Drop` works in both modes. If the lock is taken, the call goes on a queue that the next lock drains, closes before forgets.
+- `forget` and `close_node` never block, so handle `Drop` works in both modes. If the lock is taken, the call goes on a queue that the next lock drains, publishes before closes before forgets. A blocking `publish_node` for a node whose close is queued joins the queue instead of waiting, so a written `File` can be dropped under `vol.lock()`. With `alloc` the queue grows; without it, it holds 16 distinct nodes and a 17th panics rather than waiting for a lock this thread may hold.
 - `vol.lock()` returns a guard to the driver for format-specific calls. Calling a `FileSystem` method on the same volume while holding the guard deadlocks, or panics with `Local`.
 - `Volume::local(&mut fs)` borrows a driver for one scope: a kernel keeps ownership, opens several handles, and gets the driver back afterwards.
 - `Arc<Volume>` and `Rc<Volume>` give owned handles that move between tasks or live in a kernel file table.
@@ -637,7 +637,7 @@ Volume::with_lock::<K>(fs)    // any LockKind: critical-section, embassy-sync, t
 
 | Mode | Lock kinds |
 |---|---|
-| sync | `StdMutex` with `std`, `Spin`, `Local` (no alloc, not `Sync`), and any `lock_api::RawMutex`. |
+| sync | `StdMutex` with `std`, `Spin` (on targets with atomic compare-and-swap), `Local` (no alloc, not `Sync`), and any `lock_api::RawMutex`. |
 | async | `AsyncMutex` (async-lock) and impls behind features for `embassy-sync`. Users can add tokio's mutex in a few lines. |
 
 Operations on one volume serialize, as they do in V2. A format that needs
@@ -905,7 +905,7 @@ Each row is a deliberate trade, what it buys, and what a user does about it.
 | No no-follow resolution | Not needed for 3.0 users so far | Planned as an additive 3.x resolver |
 | Calls on one `Volume` serialize; a path resolves under one lock hold | One lock per call keeps format crates lock-free | A format can implement `FileSystem` with finer locks |
 | Holding `vol.lock()` and calling the same volume deadlocks (panics with `Local`) | The guard is a plain lock guard | Drop the guard first; documented on `lock()` |
-| `Volume`'s queue is 16 `(node, closes, forgets)` entries; when it is full, `forget` or `close_node` spins until the lock or a slot frees | Both run in `Drop` and must neither lose a call nor allocate (E1) | Spinning never ends only if one thread or task drops handles to 16 distinct nodes while it holds `vol.lock()`; drop the guard first |
+| Without `alloc`, `Volume`'s queue is 16 `(node, publishes, closes, forgets)` entries; when it is full and the lock is held, `forget` or `close_node` panics | Both run in `Drop` and must neither lose a call nor allocate (E1), and waiting could never end if this thread or task holds the lock | Drop the `vol.lock()` guard before dropping handles to more than 16 distinct nodes, or enable `alloc`, where the queue grows |
 | Removing the last name of an open file fails with `Busy` | POSIX unlink of an open file needs orphan tracking, and a crash leaves lost clusters (Q3) | Close first; orphans can come in 3.x without a break |
 | Async `Volume::new` needs `alloc` | `async-lock` and `event-listener` link `alloc` unconditionally | The `embassy-sync` feature adds an async `Local` lock with no allocator |
 | The default FAT node table is `FixedTable<64>`; a full table gives `LimitExceeded` | No allocation in the driver, and a feature cannot change the table (R3) | Name `HeapTable` or a larger `FixedTable<N>` in the driver type ([Q8](#7-open-questions)) |

@@ -195,9 +195,16 @@ impl<F: FsDriver, K: LockKind> Access for Volume<F, K> {
 ///
 /// Implements the `hadris-io` traits and, with `std` in sync builds, the
 /// `std::io` traits. The node is open while the handle lives, so removing
-/// the file's last name fails with [`ErrorKind::Busy`]. Dropping it closes
-/// and forgets the node without flushing; call [`close`](Self::close) to see
-/// write errors.
+/// the file's last name fails with [`ErrorKind::Busy`].
+///
+/// Dropping it closes and forgets the node without flushing the device. In
+/// the blocking API, dropping a file that was written also publishes its
+/// metadata first, as [`close`](Self::close) does, ignoring errors; on a
+/// [`Volume`] whose lock is held, the publish waits in the queue with the
+/// close. The async APIs cannot await in `Drop`, so there a dropped file's
+/// new size and times stay pending in the driver until the next
+/// `publish_node`, `sync_node` or `sync` of that node or filesystem. Call
+/// [`close`](Self::close) to see write errors, and in async code to publish.
 #[must_use = "dropping a file closes its node without reporting errors"]
 pub struct File<A: Access> {
     fs: A::Driver,
@@ -262,7 +269,7 @@ impl<A: Access> File<A> {
     /// forgets it. It does not flush the device; call
     /// [`sync_all`](Self::sync_all) first for durability.
     pub async fn close(mut self) -> FsResult<(), A::DeviceError> {
-        if self.file.dirty {
+        if core::mem::take(&mut self.file.dirty) {
             self.fs.publish_node(self.file.node).await?;
         }
         Ok(())
@@ -278,6 +285,11 @@ impl<A: Access> core::fmt::Debug for File<A> {
 impl<A: Access> Drop for File<A> {
     fn drop(&mut self) {
         self.fs.close_node(self.file.node);
+        sync_only! {
+            if self.file.dirty {
+                let _ = self.fs.publish_node(self.file.node);
+            }
+        }
         self.fs.forget(self.file.node);
     }
 }
@@ -300,7 +312,9 @@ impl<A: Access> io::Write for File<A> {
     /// Publishes the file's metadata, as [`close`](File::close) does,
     /// without flushing the device.
     async fn flush(&mut self) -> FsResult<(), A::DeviceError> {
-        self.fs.publish_node(self.file.node).await
+        self.fs.publish_node(self.file.node).await?;
+        self.file.dirty = false;
+        Ok(())
     }
 }
 

@@ -42,9 +42,7 @@ hadris-io = { workspace = true }
 hadris-fs = { workspace = true }
 hadris-storage = { workspace = true }
 hadris-macros = { workspace = true }
-spin.workspace = true
 
-bitflags = { workspace = true }
 bytemuck = { workspace = true, features = [
   "derive",
   "min_const_generics",
