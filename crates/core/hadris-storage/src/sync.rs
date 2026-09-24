@@ -11,70 +11,14 @@ use hadris_io::sync::MaybeSend;
 mod api;
 pub use api::*;
 
-#[cfg(feature = "std")]
-type FileResult = Result<(), hadris_io::Error<std::io::Error>>;
-
-/// Windows refuses `FlushFileBuffers` on a handle without write access.
-#[cfg(feature = "std")]
-fn is_read_only_handle(err: &std::io::Error) -> bool {
-    cfg!(windows) && err.kind() == std::io::ErrorKind::PermissionDenied
-}
-
-/// A host file is a block device with 512-byte blocks.
-///
-/// Device errors are the `std::io::Error` itself, so `raw_os_error()`
-/// survives. A file opened read-only fails writes with the OS error. The block count
-/// comes from [`file_len`](crate::file_len), so disk devices are measured
-/// too; it is 0 when the size cannot be determined.
-#[cfg(feature = "std")]
-impl BlockDevice for std::fs::File {
-    fn block_size(&self) -> crate::BlockSize {
-        const { crate::BlockSize::new(512).unwrap() }
-    }
-
-    fn block_count(&self) -> u64 {
-        crate::file_len(self).map_or(0, |len| len / 512)
-    }
-
-    fn read_blocks(&mut self, first: crate::BlockIndex, buf: &mut [u8]) -> FileResult {
-        let offset = crate::device::byte_offset(self.block_size(), first)?;
-        std::io::Seek::seek(self, std::io::SeekFrom::Start(offset))
-            .and_then(|_| std::io::Read::read_exact(self, buf))
-            .map_err(|err| {
-                hadris_io::Error::device(err, "reading the file failed")
-                    .with_location(hadris_io::Location::Block(first.get()))
-            })
-    }
-
-    fn write_blocks(&mut self, first: crate::BlockIndex, buf: &[u8]) -> FileResult {
-        let offset = crate::device::byte_offset(self.block_size(), first)?;
-        std::io::Seek::seek(self, std::io::SeekFrom::Start(offset))
-            .and_then(|_| std::io::Write::write_all(self, buf))
-            .map_err(|err| {
-                hadris_io::Error::device(err, "writing the file failed")
-                    .with_location(hadris_io::Location::Block(first.get()))
-            })
-    }
-
-    /// Calls `sync_data`, so a flush reaches stable storage. On Windows a
-    /// file opened read-only has nothing to write and succeeds without
-    /// syncing.
-    fn flush(&mut self) -> FileResult {
-        match self.sync_data() {
-            Ok(()) => Ok(()),
-            Err(err) if is_read_only_handle(&err) => Ok(()),
-            Err(err) => Err(hadris_io::Error::device(err, "syncing the file failed")),
-        }
-    }
-}
-
 #[cfg(all(test, feature = "std"))]
 mod device_tests {
     use hadris_io::sync::{Read as _, Seek as _, Write as _};
     use hadris_io::{Error, ErrorKind, ErrorType, Location, SeekFrom, StdIo};
 
-    use crate::sync::{BlockDevice, ByteView, Cache, Slice, StreamDevice};
-    use crate::{BlockIndex, BlockSize, MemDevice, ReadOnly};
+    use crate::host::FileDevice;
+    use crate::sync::{BlockDevice, ByteView, Cache, StreamDevice};
+    use crate::{BlockIndex, BlockSize, MemDevice, Partition, ReadOnly};
 
     fn kind<T, E>(result: Result<T, Error<E>>) -> ErrorKind {
         match result {
@@ -165,6 +109,9 @@ mod device_tests {
     fn read_only_devices_need_no_write_method() {
         let bytes = counting(8);
         let mut rom = Rom(&bytes);
+        assert!(!rom.writable());
+        assert_eq!(rom.max_block_count(), 2);
+        assert_eq!(rom.disk_offset(), 0);
         assert_eq!(
             kind(rom.write_blocks(BlockIndex::new(0), &[0; 4])),
             ErrorKind::ReadOnly
@@ -173,25 +120,95 @@ mod device_tests {
     }
 
     #[test]
-    fn slice_offsets_and_bounds() {
+    fn partition_offsets_and_bounds() {
         let mut device = MemDevice::new(counting(16), B4);
-        assert!(Slice::new(&mut device, BlockIndex::new(3), 2).is_err());
-
-        let mut slice = Slice::new(&mut device, BlockIndex::new(1), 2).unwrap();
-        assert_eq!(slice.block_count(), 2);
+        let mut partition = Partition::new(&mut device, 4, 8);
+        assert_eq!(partition.block_count(), 2);
+        assert_eq!(partition.disk_offset(), 4);
+        assert!(partition.writable());
         let mut buf = [0_u8; 4];
-        slice.read_blocks(BlockIndex::new(1), &mut buf).unwrap();
+        partition.read_blocks(BlockIndex::new(1), &mut buf).unwrap();
         assert_eq!(buf, [8, 9, 10, 11]);
-        let err = slice.read_blocks(BlockIndex::new(2), &mut buf).unwrap_err();
+        let err = partition
+            .read_blocks(BlockIndex::new(2), &mut buf)
+            .unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
         assert_eq!(err.location(), Some(Location::Block(2)));
         assert_eq!(
-            kind(slice.write_blocks(BlockIndex::new(2), &buf)),
+            kind(partition.write_blocks(BlockIndex::new(2), &buf)),
+            ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            kind(partition.read_blocks(BlockIndex::new(u64::MAX), &mut buf)),
             ErrorKind::InvalidInput
         );
 
-        slice.write_blocks(BlockIndex::new(0), &[0xAA; 4]).unwrap();
+        partition
+            .write_blocks(BlockIndex::new(0), &[0xAA; 4])
+            .unwrap();
         assert_eq!(&device.get_ref()[4..8], &[0xAA; 4]);
+
+        let mut nested = Partition::new(Partition::new(&mut device, 4, 12), 4, 4);
+        assert_eq!(nested.disk_offset(), 8);
+        nested.read_blocks(BlockIndex::new(0), &mut buf).unwrap();
+        assert_eq!(buf, [8, 9, 10, 11]);
+
+        let mut past = Partition::new(&mut device, 12, 8);
+        assert_eq!(
+            kind(past.read_blocks(BlockIndex::new(1), &mut buf)),
+            ErrorKind::InvalidInput
+        );
+        let mut unaligned = Partition::new(&mut device, 2, 8);
+        assert_eq!(
+            kind(unaligned.read_blocks(BlockIndex::new(0), &mut buf)),
+            ErrorKind::InvalidInput
+        );
+
+        let bytes = counting(16);
+        let read_only = Partition::new(MemDevice::new(&bytes[..], B4), 4, 8);
+        assert!(!read_only.writable());
+    }
+
+    #[test]
+    fn vec_grows_when_written_past_its_end() {
+        let mut image = std::vec::Vec::new();
+        assert_eq!(image.block_count(), 0);
+        assert!(image.writable());
+        assert!(image.max_block_count() > 0);
+        let mut block = [0_u8; 512];
+        assert_eq!(
+            kind(image.read_blocks(BlockIndex::new(0), &mut block)),
+            ErrorKind::InvalidInput
+        );
+        image.write_blocks(BlockIndex::new(2), &[5; 512]).unwrap();
+        assert_eq!(image.len(), 1536);
+        assert_eq!(image.block_count(), 3);
+        image.read_blocks(BlockIndex::new(0), &mut block).unwrap();
+        assert_eq!(block, [0; 512]);
+        image.write_blocks(BlockIndex::new(1), &[6; 512]).unwrap();
+        assert_eq!(image.len(), 1536);
+        image.read_blocks(BlockIndex::new(2), &mut block).unwrap();
+        assert_eq!(block, [5; 512]);
+        assert_eq!(
+            kind(image.write_blocks(BlockIndex::new(0), &[0; 100])),
+            ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            kind(image.write_blocks(BlockIndex::new(u64::MAX / 512), &[0; 512])),
+            ErrorKind::InvalidInput
+        );
+    }
+
+    #[test]
+    fn writable_follows_the_storage() {
+        let bytes = counting(8);
+        assert!(!MemDevice::new(&bytes[..], B4).writable());
+        assert!(MemDevice::new(counting(8), B4).writable());
+        assert!(Cache::new(MemDevice::new(counting(8), B4), 2).writable());
+        let stream = ReadOnly::new(hadris_io::Cursor::new(&bytes));
+        assert!(!StreamDevice::with_block_count(stream, B4, 2).writable());
+        let stream = StdIo::new(std::io::Cursor::new(counting(8)));
+        assert!(StreamDevice::with_block_count(stream, B4, 2).writable());
     }
 
     #[test]
@@ -323,40 +340,80 @@ mod device_tests {
         assert_eq!(kind(view.write(&[1])), ErrorKind::ReadOnly);
     }
 
-    #[test]
-    fn std_file_is_a_device() {
-        let path = std::env::temp_dir().join(std::format!(
-            "hadris-storage-file-{}.img",
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(std::format!(
+            "hadris-storage-{name}-{}.img",
             std::process::id()
-        ));
-        std::fs::write(
-            &path,
-            counting(0)
-                .iter()
-                .chain(&[5u8; 1024])
-                .copied()
-                .collect::<std::vec::Vec<u8>>(),
-        )
-        .unwrap();
-        let mut file = std::fs::File::options()
+        ))
+    }
+
+    #[test]
+    fn file_device_reads_writes_and_grows() {
+        let path = temp_path("file");
+        std::fs::write(&path, [5u8; 1100]).unwrap();
+        let file = std::fs::File::options()
             .read(true)
             .write(true)
             .open(&path)
             .unwrap();
-        assert_eq!(file.block_count(), 2);
-        file.write_blocks(BlockIndex::new(1), &[9; 512]).unwrap();
+        let mut dev = FileDevice::new(file).unwrap();
+        assert!(dev.writable());
+        assert_eq!(dev.block_count(), 2);
+        assert!(dev.max_block_count() > dev.block_count());
+        dev.write_blocks(BlockIndex::new(1), &[9; 512]).unwrap();
         let mut block = [0u8; 512];
-        file.read_blocks(BlockIndex::new(1), &mut block).unwrap();
+        dev.read_blocks(BlockIndex::new(1), &mut block).unwrap();
         assert_eq!(block, [9; 512]);
-        file.flush().unwrap();
+        assert_eq!(
+            kind(dev.read_blocks(BlockIndex::new(2), &mut block)),
+            ErrorKind::InvalidInput
+        );
+        dev.write_blocks(BlockIndex::new(3), &[4; 512]).unwrap();
+        assert_eq!(dev.block_count(), 4);
+        dev.read_blocks(BlockIndex::new(2), &mut block).unwrap();
+        assert_eq!(&block[..76], &[5; 76]);
+        assert_eq!(&block[76..], &[0; 436]);
+        dev.flush().unwrap();
+        drop(dev);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 2048);
 
-        let mut read_only = std::fs::File::open(&path).unwrap();
+        let mut read_only = FileDevice::open(&path).unwrap();
+        assert!(!read_only.writable());
+        assert_eq!(read_only.block_count(), 4);
+        assert_eq!(read_only.max_block_count(), 4);
         read_only.flush().unwrap();
-        let err = read_only
-            .write_blocks(BlockIndex::new(0), &block)
+        assert_eq!(
+            kind(read_only.write_blocks(BlockIndex::new(0), &block)),
+            ErrorKind::ReadOnly
+        );
+        let file = std::fs::File::open(&path).unwrap();
+        let mut read_only = FileDevice::new(file).unwrap();
+        assert!(!read_only.writable());
+        assert_eq!(
+            kind(read_only.write_blocks(BlockIndex::new(0), &block)),
+            ErrorKind::ReadOnly
+        );
+        read_only.flush().unwrap();
+        drop(read_only);
+        assert_eq!(std::fs::read(&path).unwrap()[..512], [5; 512]);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn file_device_errors_keep_the_os_error() {
+        let path = temp_path("missing");
+        let err = FileDevice::open(&path).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+
+        let path = temp_path("short");
+        std::fs::write(&path, [1u8; 512]).unwrap();
+        let mut dev = FileDevice::open(&path).unwrap();
+        std::fs::write(&path, []).unwrap();
+        let err = dev
+            .read_blocks(BlockIndex::new(0), &mut [0; 512])
             .unwrap_err();
-        assert_eq!(err.kind(), ErrorKind::Io);
-        assert!(err.device_error().unwrap().raw_os_error().is_some());
+        assert_eq!(err.location(), Some(Location::Block(0)));
+        drop(dev);
         std::fs::remove_file(&path).unwrap();
     }
 
@@ -395,7 +452,7 @@ mod device_tests {
             std::eprintln!("skipped: hdiutil cannot attach an image");
             return;
         };
-        let measured = std::fs::File::open(&device).map(|mut file| {
+        let measured = FileDevice::open(&device).map(|mut file| {
             let mut block = [0u8; 512];
             let read = file
                 .read_blocks(BlockIndex::new(1), &mut block)
@@ -421,12 +478,12 @@ mod device_tests {
         ));
         std::fs::write(&path, [1u8; 1000]).unwrap();
         assert_eq!(
-            crate::file_len(&std::fs::File::open(&path).unwrap()).unwrap(),
+            crate::host::file_len(&std::fs::File::open(&path).unwrap()).unwrap(),
             1000
         );
         std::fs::write(&path, []).unwrap();
         assert_eq!(
-            crate::file_len(&std::fs::File::open(&path).unwrap()).unwrap(),
+            crate::host::file_len(&std::fs::File::open(&path).unwrap()).unwrap(),
             0
         );
         std::fs::remove_file(&path).unwrap();
@@ -434,9 +491,10 @@ mod device_tests {
         #[cfg(unix)]
         {
             let null = std::fs::File::open("/dev/null").unwrap();
-            let err = crate::file_len(&null).unwrap_err();
+            let err = crate::host::file_len(&null).unwrap_err();
             assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
-            assert_eq!(null.block_count(), 0);
+            let err = FileDevice::open("/dev/null").unwrap_err();
+            assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
         }
     }
 
@@ -458,9 +516,11 @@ mod device_tests {
             .expect("HADRIS_TEST_DISK_LEN")
             .parse()
             .unwrap();
-        let mut file = std::fs::File::open(&disk).unwrap();
-        assert_eq!(crate::file_len(&file).unwrap(), len);
+        let file = std::fs::File::open(&disk).unwrap();
+        assert_eq!(crate::host::file_len(&file).unwrap(), len);
+        let mut file = FileDevice::new(file).unwrap();
         assert_eq!(file.block_count(), len / 512);
+        assert_eq!(file.max_block_count(), len / 512);
         let mut block = [0u8; 512];
         file.read_blocks(BlockIndex::new(len / 512 - 1), &mut block)
             .unwrap();

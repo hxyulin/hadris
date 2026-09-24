@@ -206,8 +206,9 @@ fn reports_devices_and_modes_agree() {
                 .map_or(u64::MAX, |e| e.offset() / 2048)
     );
 
-    let mut file = tempfile_like();
-    let written = hadris_cd::sync::write(&mut file.0, &tree, &options).unwrap();
+    let file = tempfile_like();
+    let dev = hadris_storage::host::FileDevice::new(file.0.try_clone().unwrap()).unwrap();
+    let written = hadris_cd::sync::write(dev, &tree, &options).unwrap();
     assert_eq!(written.size_bytes(), file.0.metadata().unwrap().len());
     let mut host = Vec::new();
     std::io::Read::read_to_end(&mut std::fs::File::open(&file.1).unwrap(), &mut host).unwrap();

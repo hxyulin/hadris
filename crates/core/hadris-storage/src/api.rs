@@ -1,6 +1,6 @@
 use super::{MaybeSend, Read, Seek, Write};
 use crate::device::{byte_offset, check_blocks};
-use crate::{BlockIndex, BlockSize, MemBuffer, MemDevice, ReadOnly};
+use crate::{BlockIndex, BlockSize, MemBuffer, MemDevice, Partition, ReadOnly};
 use core::convert::Infallible;
 use hadris_io::{Error, ErrorKind, ErrorType, SeekFrom};
 
@@ -18,14 +18,44 @@ io_transform! {
 /// [`Error<Self::Error>`](Error): a device failure is
 /// [`Error::device`], and a request the device refuses itself, such as one
 /// past its end, is an [`ErrorKind`] with a location. A read-only device
-/// implements only `block_size`, `block_count` and `read_blocks`: the
-/// default `write_blocks` answers [`ErrorKind::ReadOnly`].
+/// implements only `block_size`, `block_count` and `read_blocks`: it is
+/// not [`writable`](Self::writable), and the default `write_blocks`
+/// answers [`ErrorKind::ReadOnly`]. A device that accepts writes overrides
+/// `writable`, `write_blocks` and, if it buffers, `flush`.
 pub trait BlockDevice: ErrorType {
     /// Size of one block.
     fn block_size(&self) -> BlockSize;
 
     /// Number of addressable blocks.
     fn block_count(&self) -> u64;
+
+    /// Number of blocks the device can hold when written past its end.
+    ///
+    /// A device that grows on write, such as a `Vec<u8>` or a host image
+    /// file, reports more than [`block_count`](Self::block_count), which it
+    /// defaults to. A writer checks the size it plans against this before
+    /// writing anything.
+    fn max_block_count(&self) -> u64 {
+        self.block_count()
+    }
+
+    /// Byte offset of block 0 within the disk this device is a window of.
+    ///
+    /// 0 unless the device is a window of another, such as a
+    /// [`Partition`], which adds its offset.
+    fn disk_offset(&self) -> u64 {
+        0
+    }
+
+    /// Whether the device accepts writes at all.
+    ///
+    /// False unless overridden. A driver mounts a device that says false
+    /// read-only. A device that says true may still refuse a later write
+    /// with [`ErrorKind::ReadOnly`], for example when media are
+    /// write-protected while mounted.
+    fn writable(&self) -> bool {
+        false
+    }
 
     /// Reads whole blocks starting at `first`.
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>>;
@@ -60,6 +90,18 @@ impl<D: BlockDevice + ?Sized> BlockDevice for &mut D {
         D::block_count(self)
     }
 
+    fn max_block_count(&self) -> u64 {
+        D::max_block_count(self)
+    }
+
+    fn disk_offset(&self) -> u64 {
+        D::disk_offset(self)
+    }
+
+    fn writable(&self) -> bool {
+        D::writable(self)
+    }
+
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
         D::read_blocks(self, first, buf).await
     }
@@ -85,6 +127,18 @@ impl<D: BlockDevice + ?Sized> BlockDevice for alloc::boxed::Box<D> {
 
     fn block_count(&self) -> u64 {
         D::block_count(self)
+    }
+
+    fn max_block_count(&self) -> u64 {
+        D::max_block_count(self)
+    }
+
+    fn disk_offset(&self) -> u64 {
+        D::disk_offset(self)
+    }
+
+    fn writable(&self) -> bool {
+        D::writable(self)
     }
 
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
@@ -113,6 +167,10 @@ impl<B: MemBuffer + MaybeSend> BlockDevice for MemDevice<B> {
         MemDevice::block_count(self)
     }
 
+    fn writable(&self) -> bool {
+        self.buffer.writable()
+    }
+
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Infallible>> {
         let range = self.range(first, buf.len())?;
         buf.copy_from_slice(&self.buffer.bytes()[range]);
@@ -130,6 +188,53 @@ impl<B: MemBuffer + MaybeSend> BlockDevice for MemDevice<B> {
             .bytes_mut()
             .ok_or(Error::new(ErrorKind::ReadOnly, "memory buffer is read-only"))?;
         bytes[range].copy_from_slice(buf);
+        Ok(())
+    }
+}
+
+/// An in-memory image with 512-byte blocks that grows when written past
+/// its end, filling any gap with zeros. Trailing bytes that do not fill a
+/// block are not readable until a write covers them. A write fails with
+/// [`ErrorKind::NoSpace`] when the vector cannot grow.
+#[cfg(feature = "alloc")]
+impl BlockDevice for alloc::vec::Vec<u8> {
+    fn block_size(&self) -> BlockSize {
+        crate::device::BLOCK_512
+    }
+
+    fn block_count(&self) -> u64 {
+        self.len() as u64 / u64::from(crate::device::BLOCK_512.get())
+    }
+
+    fn max_block_count(&self) -> u64 {
+        isize::MAX as u64 / u64::from(crate::device::BLOCK_512.get())
+    }
+
+    fn writable(&self) -> bool {
+        true
+    }
+
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Infallible>> {
+        check_blocks(crate::device::BLOCK_512, self.block_count(), first, buf.len())?;
+        let start = byte_offset(crate::device::BLOCK_512, first)? as usize;
+        buf.copy_from_slice(&self[start..start + buf.len()]);
+        Ok(())
+    }
+
+    async fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), Error<Infallible>> {
+        check_blocks(crate::device::BLOCK_512, self.max_block_count(), first, buf.len())?;
+        let start = byte_offset(crate::device::BLOCK_512, first)? as usize;
+        let end = start + buf.len();
+        if end > self.len() {
+            self.try_reserve(end - self.len())
+                .map_err(|_| Error::new(ErrorKind::NoSpace, "cannot grow the image"))?;
+            self.resize(end, 0);
+        }
+        self[start..end].copy_from_slice(buf);
         Ok(())
     }
 }
@@ -153,6 +258,9 @@ impl<T: Seek> Seek for ReadOnly<T> {
 /// streams would overlap the first, so the marker type carries the choice.
 /// The trait is sealed.
 pub trait StreamWrite: ErrorType + sealed::Sealed {
+    /// Whether the stream accepts writes: false for [`ReadOnly`].
+    fn stream_writable(&self) -> bool;
+
     /// Writes all of `buf`.
     async fn stream_write_all(&mut self, buf: &[u8]) -> Result<(), Error<Self::Error>>;
 
@@ -164,6 +272,10 @@ impl<T: Write + ?Sized> sealed::Sealed for T {}
 impl<T: ErrorType + MaybeSend> sealed::Sealed for ReadOnly<T> {}
 
 impl<T: Write + ?Sized> StreamWrite for T {
+    fn stream_writable(&self) -> bool {
+        true
+    }
+
     async fn stream_write_all(&mut self, buf: &[u8]) -> Result<(), Error<Self::Error>> {
         Ok(self.write_all(buf).await?)
     }
@@ -174,6 +286,10 @@ impl<T: Write + ?Sized> StreamWrite for T {
 }
 
 impl<T: ErrorType + MaybeSend> StreamWrite for ReadOnly<T> {
+    fn stream_writable(&self) -> bool {
+        false
+    }
+
     async fn stream_write_all(&mut self, _buf: &[u8]) -> Result<(), Error<Self::Error>> {
         Err(Error::new(ErrorKind::ReadOnly, "stream is read-only"))
     }
@@ -241,6 +357,10 @@ impl<T: Read + Seek + StreamWrite> BlockDevice for StreamDevice<T> {
         self.block_count
     }
 
+    fn writable(&self) -> bool {
+        self.inner.stream_writable()
+    }
+
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
         check_blocks(self.block_size, self.block_count, first, buf.len())?;
         let offset = byte_offset(self.block_size, first)?;
@@ -273,66 +393,26 @@ impl<T: Read + Seek + StreamWrite> BlockDevice for StreamDevice<T> {
     }
 }
 
-/// A contiguous block range of another device.
-///
-/// `D` can be owned or `&mut`. Block 0 of the slice is block `first` of the
-/// underlying device. Requests past the end of the slice fail with
-/// [`ErrorKind::InvalidInput`] at their block and never reach the device.
-#[derive(Debug)]
-pub struct Slice<D> {
-    inner: D,
-    first: u64,
-    count: u64,
-}
-
-impl<D: BlockDevice> Slice<D> {
-    /// Restricts `inner` to `count` blocks starting at `first`.
-    ///
-    /// Fails, returning `inner`, if the range does not fit.
-    pub fn new(inner: D, first: BlockIndex, count: u64) -> Result<Self, D> {
-        match first.get().checked_add(count) {
-            Some(end) if end <= inner.block_count() => Ok(Self { inner, first: first.get(), count }),
-            _ => Err(inner),
-        }
-    }
-
-    /// First block of the slice on the underlying device.
-    pub fn first(&self) -> BlockIndex {
-        BlockIndex::new(self.first)
-    }
-
-    /// Recovers the underlying device.
-    pub fn into_inner(self) -> D {
-        self.inner
-    }
-
-    /// Borrows the underlying device.
-    pub fn get_ref(&self) -> &D {
-        &self.inner
-    }
-
-    /// Mutably borrows the underlying device.
-    pub fn get_mut(&mut self) -> &mut D {
-        &mut self.inner
-    }
-}
-
-impl<D: ErrorType> ErrorType for Slice<D> {
-    type Error = D::Error;
-}
-
-impl<D: BlockDevice> BlockDevice for Slice<D> {
+impl<D: BlockDevice> BlockDevice for Partition<D> {
     fn block_size(&self) -> BlockSize {
         self.inner.block_size()
     }
 
     fn block_count(&self) -> u64 {
-        self.count
+        self.len() / u64::from(self.inner.block_size().get())
+    }
+
+    fn disk_offset(&self) -> u64 {
+        self.inner.disk_offset().saturating_add(self.offset())
+    }
+
+    fn writable(&self) -> bool {
+        self.inner.writable()
     }
 
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
-        check_blocks(self.inner.block_size(), self.count, first, buf.len())?;
-        self.inner.read_blocks(BlockIndex::new(self.first + first.get()), buf).await
+        let at = self.locate(self.inner.block_size(), first, buf.len())?;
+        self.inner.read_blocks(at, buf).await
     }
 
     async fn write_blocks(
@@ -340,8 +420,8 @@ impl<D: BlockDevice> BlockDevice for Slice<D> {
         first: BlockIndex,
         buf: &[u8],
     ) -> Result<(), Error<Self::Error>> {
-        check_blocks(self.inner.block_size(), self.count, first, buf.len())?;
-        self.inner.write_blocks(BlockIndex::new(self.first + first.get()), buf).await
+        let at = self.locate(self.inner.block_size(), first, buf.len())?;
+        self.inner.write_blocks(at, buf).await
     }
 
     async fn flush(&mut self) -> Result<(), Error<Self::Error>> {
@@ -452,6 +532,18 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
 
     fn block_count(&self) -> u64 {
         self.inner.block_count()
+    }
+
+    fn max_block_count(&self) -> u64 {
+        self.inner.max_block_count()
+    }
+
+    fn disk_offset(&self) -> u64 {
+        self.inner.disk_offset()
+    }
+
+    fn writable(&self) -> bool {
+        self.inner.writable()
     }
 
     async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {

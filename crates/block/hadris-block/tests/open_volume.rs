@@ -7,8 +7,8 @@ use hadris_fat::{FatKind, FormatOptions};
 use hadris_fs::ErrorKind;
 use hadris_fs::sync::DriverExt;
 use hadris_fs::{Error, MountError};
-use hadris_storage::sync::{BlockDevice, Slice};
-use hadris_storage::{BlockIndex, BlockSize, MemDevice};
+use hadris_storage::sync::BlockDevice;
+use hadris_storage::{BlockSize, MemDevice, Partition};
 
 const VOLUME_LEN: usize = 2 * 1024 * 1024;
 const BLOCK: BlockSize = match BlockSize::new(512) {
@@ -107,8 +107,8 @@ fn opens_fat_inside_gpt_partition() {
     );
     let volume = OpenVolume::open(open(&mut disk, &entry).unwrap()).unwrap();
     assert_eq!(volume.format(), FAT12);
-    let slice: Slice<_> = volume.into_inner();
-    assert_eq!(slice.first(), BlockIndex::new(start_lba));
+    let partition: Partition<_> = volume.into_inner();
+    assert_eq!(partition.offset(), start_lba * 512);
 }
 
 #[test]

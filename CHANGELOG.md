@@ -10,6 +10,34 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-storage (V3):** `BlockDevice` gains `max_block_count` (how many
+  blocks a device holds once written past its end, `block_count` by
+  default), `disk_offset` (the byte offset of block 0 on the disk a device
+  is a window of, 0 by default) and `writable` (whether the device accepts
+  writes at all, false by default). `&mut D`, `Box<D>`, `Cache` and
+  `Partition` forward them.
+- **hadris-storage (V3):** `Partition<D>`, a byte window of a device such
+  as an MBR or GPT partition, with `new(dev, offset, len)`, `offset`,
+  `len`, `into_inner`, `get_ref` and `get_mut`. It is one type for every
+  mode, reports `disk_offset` as the device's plus its offset, and refuses
+  a request past its end, or to a window not aligned to the device blocks,
+  with kind `InvalidInput` before it reaches the device.
+- **hadris-storage (V3):** `host::FileDevice` (`std` and `sync`), a host
+  image file or disk device with 512-byte blocks. `open(path)` opens it
+  read-only; `new(file)` takes a file the caller opened and is writable
+  when the file was opened for writing. Both measure the size with
+  `host::file_len` and fail when a disk device cannot be measured. A
+  writable image file grows when written past its end, and its
+  `max_block_count` is unbounded; a read-only one refuses writes with kind
+  `ReadOnly` without calling the OS.
+- **hadris-storage (V3):** `Vec<u8>` is a block device with 512-byte blocks
+  that grows when written past its end, filling any gap with zeros.
+- **hadris-io, hadris-storage (V3):** A `local` module (with `async`) holds
+  the async traits whose futures need not be `Send`, for single-threaded
+  executors: `hadris_io::local::{Read, Write, Seek}` and
+  `hadris_storage::local::BlockDevice`, generated from the same source as
+  `r#async`. `Partition`, `MemDevice` and `Vec<u8>` implement it.
+
 - **hadris-io (V3):** `Error<E>`, `ErrorKind`, `Location`, `DetailCode`,
   `Errno` and `FsResult` live here, the lowest crate, so block devices and
   filesystems return one error type; `hadris-fs` and the `hadris` root
@@ -461,6 +489,15 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat (V3):** `FatFs` and `ExFatFs` mount a device that is not
+  `writable` read-only, as if `MountOptions::with_read_only` were set.
+- **hadris-part (V3):** `open` returns a `hadris_storage::Partition` of the
+  disk instead of a `Slice`.
+- **hadris-storage (V3):** `file_len` moves to `host::file_len`.
+  `MemBuffer` gains `writable`, true unless overridden and false for
+  `&[u8]`, and `StreamWrite` gains `stream_writable`, false for
+  `ReadOnly`, so `MemDevice` and `StreamDevice` report `writable`.
+
 - **hadris-iso, hadris-udf, hadris-cpio, hadris-part, hadris-ntfs,
   hadris-cd, hadris-block, hadris-optical (V3):** Each crate returns
   `hadris_fs::Error<E>` and keeps a `Detail` enum of fieldless, numbered
@@ -897,6 +934,12 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-storage (V3):** `impl BlockDevice for std::fs::File`, since
+  `block_count` cannot fail and a `File` cannot tell how it was opened;
+  use `host::FileDevice`. `Slice` is replaced by `Partition`.
+- **hadris-io (V3):** `impl ErrorType for std::fs::File`, which only the
+  removed `File` device used.
+
 - **hadris-iso, hadris-udf, hadris-cpio, hadris-part, hadris-ntfs,
   hadris-cd, hadris-block, hadris-optical (V3):** The per-crate `Error<E>`
   wrappers and their `content_error`; use `hadris_fs::Error`,
@@ -1054,7 +1097,7 @@ Each published package owns its version and may be released independently.
 
 - **hadris-storage (V3):** A `std::fs::File` opened on a disk device
   reports its size on every platform, through the new
-  `hadris_storage::file_len`: the `DKIOCGETBLOCKCOUNT` and
+  `hadris_storage::host::file_len`: the `DKIOCGETBLOCKCOUNT` and
   `DKIOCGETBLOCKSIZE` ioctls on macOS, `DIOCGMEDIASIZE` on FreeBSD,
   `IOCTL_DISK_GET_LENGTH_INFO` on Windows (`\\.\PhysicalDriveN` and volume
   paths) and a seek to the end elsewhere. `stat` and `lseek` give 0 for such

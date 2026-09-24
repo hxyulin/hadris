@@ -31,7 +31,7 @@ hadris-fs = { version = "2.4.0", features = ["std", "sync"] }
 use hadris_fs::sync::DriverExt;
 use hadris_udf::sync::UdfFs;
 
-let file = std::fs::File::open("movie.udf").unwrap();
+let file = hadris_storage::host::FileDevice::open("movie.udf").unwrap();
 let mut udf = UdfFs::open(file).unwrap();
 println!("Volume: {} (UDF {})", udf.logical_volume_id(), udf.revision());
 
@@ -41,8 +41,8 @@ for entry in udf.read_dir("/").unwrap() {
 let readme = udf.read_to_vec("/README.TXT").unwrap();
 ```
 
-`UdfFs` opens any `hadris_storage` block device: a host file, a
-`MemDevice`, a `Slice` of a disk. It finds the anchor at block 256, N-256
+`UdfFs` opens any `hadris_storage` block device: a host `FileDevice`, a
+`MemDevice`, a `Partition` of a disk. It finds the anchor at block 256, N-256
 or N-1 for logical blocks of 512 to 4096 bytes, uses the prevailing
 descriptors and falls back to the reserve sequence. Wrap it in
 `hadris_fs::sync::Volume` for shared access and `File` handles.
@@ -61,8 +61,8 @@ tree.add_file("video.bin", Content::path("/data/video.bin")).unwrap();
 let options = UdfOptions::default()
     .with_volume_id("MY_DISC")
     .with_revision(UdfRevision::V2_01);
-let mut out = std::fs::File::create("disc.udf").unwrap();
-let report = write(&mut out, &tree, &options).unwrap();
+let out = hadris_storage::host::FileDevice::new(std::fs::File::create("disc.udf").unwrap()).unwrap();
+let report = write(out, &tree, &options).unwrap();
 println!("{} blocks", report.total_blocks());
 for warning in report.warnings() {
     eprintln!("{warning}");

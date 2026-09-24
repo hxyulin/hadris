@@ -13,16 +13,17 @@ block range.
 anyhow = "1"
 hadris-block = "2.4.0"
 hadris-fs = "2.4.0"
+hadris-storage = "2.4.0"
 ```
 
 ```rust,no_run
 use anyhow::{Context, Result};
 use hadris_block::{part, sync::OpenVolume};
 use hadris_fs::sync::DriverExt;
-use std::fs::File;
+use hadris_storage::host::FileDevice;
 
 fn main() -> Result<()> {
-    let mut disk = File::open("disk.img")?;
+    let mut disk = FileDevice::open("disk.img")?;
     let table = part::sync::read(&mut disk)?;
     let partition = table.partition(0).context("the disk has no partitions")?;
 
@@ -42,8 +43,8 @@ fn main() -> Result<()> {
 }
 ```
 
-`part::sync::open` returns a `hadris_storage` `Slice` of the disk: block 0 of
-the slice is the partition's first block, and requests past its end fail
+`part::sync::open` returns a `hadris_storage` `Partition` of the disk: block 0 of
+the partition is the partition's first block, and requests past its end fail
 before they reach the disk. `part::r#async::open` and
 `part::async_send::open` do the same for async devices, and the table is
 read with `part::r#async::read` there.

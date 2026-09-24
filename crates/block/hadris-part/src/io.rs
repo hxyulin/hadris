@@ -3,7 +3,7 @@ use core::ops::ControlFlow;
 use hadris_fs::ErrorKind;
 use hadris_storage::{BlockIndex, BlockSize};
 
-use super::storage::{BlockDevice, Slice};
+use super::storage::BlockDevice;
 use crate::codec::{self, Array, Logical, MAX_LOGICAL};
 use crate::error::{Detail, Error};
 use crate::raw::{RawGptEntry, RawGptHeader, RawMbr};
@@ -362,8 +362,8 @@ pub async fn write<D: BlockDevice>(dev: &mut D, disk: &Disk) -> Result<(), Error
 ///     .partition(PartitionSpec::new(types::LINUX_FILESYSTEM, Size::Remaining));
 /// let disk = hadris_part::sync::create(&mut dev, &layout)?;
 /// let esp = disk.partition(0).unwrap();
-/// let slice = hadris_part::sync::open(&mut dev, &esp)?;
-/// assert_eq!(hadris_storage::sync::BlockDevice::block_count(&slice), 8192);
+/// let esp_dev = hadris_part::sync::open(&mut dev, &esp)?;
+/// assert_eq!(hadris_storage::sync::BlockDevice::block_count(&esp_dev), 8192);
 /// assert_eq!(hadris_part::sync::read(&mut dev)?, disk);
 /// # Ok(())
 /// # }
@@ -388,10 +388,24 @@ pub async fn create<D: BlockDevice>(
 /// when the block size is not the partition's or the partition does not
 /// fit on `dev`; an owned device is dropped then, so pass `&mut dev` to
 /// keep it.
-pub fn open<D: BlockDevice>(dev: D, partition: &Partition) -> Result<Slice<D>, Error<D::Error>> {
+pub fn open<D: BlockDevice>(
+    dev: D,
+    partition: &Partition,
+) -> Result<hadris_storage::Partition<D>, Error<D::Error>> {
     if dev.block_size() != partition.block_size() {
         return Err(Detail::BlockSize.error(ErrorKind::InvalidInput));
     }
-    Slice::new(dev, BlockIndex::new(partition.start()), partition.len())
-        .map_err(|_| Detail::OutOfBounds.error(ErrorKind::InvalidInput))
+    let size = u64::from(dev.block_size().get());
+    let fits = partition
+        .start()
+        .checked_add(partition.len())
+        .is_some_and(|end| end <= dev.block_count());
+    match (
+        fits,
+        partition.start().checked_mul(size),
+        partition.len().checked_mul(size),
+    ) {
+        (true, Some(offset), Some(len)) => Ok(hadris_storage::Partition::new(dev, offset, len)),
+        _ => Err(Detail::OutOfBounds.error(ErrorKind::InvalidInput)),
+    }
 }

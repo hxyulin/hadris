@@ -46,7 +46,7 @@ use hadris_iso::Namespace;
 use hadris_iso::sync::IsoImage;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut iso = IsoImage::open(std::fs::File::open("image.iso")?)?;
+let mut iso = IsoImage::open(hadris_storage::host::FileDevice::open("image.iso")?)?;
 println!("trees: {:?}", iso.namespaces().iter().collect::<Vec<_>>());
 
 // Rock Ridge if present, then Joliet, the enhanced tree, the primary tree.
@@ -104,7 +104,7 @@ let file = std::fs::File::options()
     .create(true)
     .truncate(true)
     .open("out.iso")?;
-let report = hadris_iso::sync::write(file, &tree, &options)?;
+let report = hadris_iso::sync::write(hadris_storage::host::FileDevice::new(file)?, &tree, &options)?;
 assert_eq!(report.size_bytes(), size);
 for warning in report.warnings() {
     eprintln!("warning: {warning}");
@@ -153,7 +153,7 @@ use hadris_iso::sync::Session;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let file = std::fs::File::options().read(true).write(true).open("image.iso")?;
-let mut session = Session::open(file)?;
+let mut session = Session::open(hadris_storage::host::FileDevice::new(file)?)?;
 session.tree_mut().add_file("notes.txt", Content::bytes("added later"))?;
 session.tree_mut().remove("old.log")?;
 let options = session.options();

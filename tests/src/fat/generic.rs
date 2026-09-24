@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use hadris_fat::sync::{FatFs, format as format_fat};
@@ -17,6 +17,7 @@ use hadris_fs::{
     Attributes, DirCursor, FileType, FsResult, Name, NameBuf, NewNode, NodeId, RemoveKind,
     RenameFlags, SetMetadata,
 };
+use hadris_storage::host::FileDevice;
 
 use super::adapter::FatAdapter;
 use super::model::{EntryState, FsState, Operation};
@@ -266,13 +267,14 @@ pub const NAME: &str = "Hadris";
 pub struct HadrisFat;
 
 impl Mount for HadrisFat {
-    type Fs = Volume<FatFs<File>, StdMutex>;
+    type Fs = Volume<FatFs<FileDevice>, StdMutex>;
 
     fn mount(&self, image: &Path) -> Result<Self::Fs, String> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(image)
+            .and_then(FileDevice::new)
             .map_err(|error| error.to_string())?;
         let fs = FatFs::open(file).map_err(|error| error.to_string())?;
         Ok(Volume::new(fs))
@@ -304,6 +306,7 @@ pub fn format(path: &Path, case: FatCase) -> Result<(), String> {
         .open(path)
         .map_err(|error| error.to_string())?;
     file.set_len(case.size).map_err(|error| error.to_string())?;
+    let file = FileDevice::new(file).map_err(|error| error.to_string())?;
     let label = VolumeLabel::new(LABEL).map_err(|error| error.to_string())?;
     let options = FormatOptions::new()
         .with_kind(kind)

@@ -30,7 +30,7 @@ impl<'a> ContentReader<'a> {
             #[cfg(feature = "std")]
             Repr::Path { path, .. } => {
                 let file = std::fs::File::open(path).map_err(|err| host_error(err, path))?;
-                let len = hadris_storage::file_len(&file).map_err(|err| host_error(err, path))?;
+                let len = hadris_storage::host::file_len(&file).map_err(|err| host_error(err, path))?;
                 return Ok(Self { content, len, file: Some(file) });
             }
             Repr::Stored(_) => return Err(ErrorKind::Unsupported.into()),

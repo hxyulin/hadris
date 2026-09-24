@@ -2,11 +2,10 @@
 //! `ntfs-3g`, read back. Each test is skipped when its tools are missing;
 //! `scripts/test-ntfs.sh` runs them in a container that has them.
 
-use std::fs::File;
-
 use hadris_fs::sync::DriverExt;
 use hadris_fs::{ErrorKind, FileType, Name};
 use hadris_ntfs::sync::NtfsFs;
+use hadris_storage::host::FileDevice;
 
 mod common;
 use common::NtfsTestImage;
@@ -20,11 +19,11 @@ macro_rules! require_image {
     };
 }
 
-fn open(img: &NtfsTestImage) -> NtfsFs<File> {
-    NtfsFs::open(File::open(img.path()).unwrap()).unwrap()
+fn open(img: &NtfsTestImage) -> NtfsFs<FileDevice> {
+    NtfsFs::open(FileDevice::open(img.path()).unwrap()).unwrap()
 }
 
-fn names(fs: &mut NtfsFs<File>, path: &str) -> Vec<String> {
+fn names(fs: &mut NtfsFs<FileDevice>, path: &str) -> Vec<String> {
     fs.read_dir(path)
         .unwrap()
         .map(|entry| entry.unwrap().name().to_str().unwrap().to_string())

@@ -14,16 +14,17 @@ format's full validation.
 [dependencies]
 hadris-block = "2.4.0"
 hadris-fs = "2.4.0"
+hadris-storage = "2.4.0"
 ```
 
 ```rust,no_run
 use hadris_block::detect::BlockFormat;
 use hadris_block::sync::OpenVolume;
 use hadris_fs::sync::DriverExt;
-use std::fs::File;
+use hadris_storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut image = File::open("disk.img")?;
+    let mut image = FileDevice::open("disk.img")?;
     let format = hadris_block::detect::sync::detect(&mut image)?;
     println!("detected: {format:?}");
 
@@ -47,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 Detection and `OpenVolume` take any `hadris-storage` block device; a
-`std::fs::File` is one with 512-byte blocks, and the device's block size is
+`host::FileDevice` is one with 512-byte blocks, and the device's block size is
 the logical block size used to find a GPT header. `OpenVolume` opens
 FAT12/16/32 as `hadris_fat`'s `FatFs`, exFAT as its `ExFatFs`, and NTFS,
 read-only, as `hadris_ntfs`'s `NtfsFs`, and implements the `hadris-fs` driver
@@ -71,15 +72,16 @@ and restrict the device to it before opening its filesystem.
 [dependencies]
 hadris-fs = "2.4.0"
 hadris-optical = "2.4.0"
+hadris-storage = "2.4.0"
 ```
 
 ```rust,no_run
 use hadris_fs::sync::DriverExt;
 use hadris_optical::{OpenPolicy, sync::OpenOpticalImage};
-use std::fs::File;
+use hadris_storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let image = File::open("disc.img")?;
+    let image = FileDevice::open("disc.img")?;
     let mut opened = OpenOpticalImage::open(image, OpenPolicy::PreferUdf)?;
 
     if let Some(udf) = opened.as_udf() {

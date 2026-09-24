@@ -41,7 +41,7 @@ use hadris_part::sync::{open, read};
 use hadris_part::PartitionKind;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut disk = std::fs::File::open("disk.img")?;
+let mut disk = hadris_storage::host::FileDevice::open("disk.img")?;
 let table = read(&mut disk)?;
 for p in table.partitions() {
     let name = p.name().map(|n| n.to_string()).unwrap_or_default();
@@ -51,7 +51,7 @@ let esp = table
     .partitions()
     .find(|p| p.kind() == PartitionKind::Gpt(hadris_part::gpt::types::EFI_SYSTEM))
     .expect("an EFI system partition");
-let esp_device = open(&mut disk, &esp)?; // a hadris_storage Slice
+let esp_device = open(&mut disk, &esp)?; // a hadris_storage Partition
 # let _ = esp_device;
 # Ok(())
 # }
@@ -64,7 +64,8 @@ use hadris_part::gpt::types;
 use hadris_part::{Alignment, DiskLayout, Guid, PartitionSpec, Size};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut disk = std::fs::File::options().read(true).write(true).open("disk.img")?;
+let file = std::fs::File::options().read(true).write(true).open("disk.img")?;
+let mut disk = hadris_storage::host::FileDevice::new(file)?;
 let layout = DiskLayout::gpt(Guid::random())
     .with_alignment(Alignment::MiB1)
     .partition(PartitionSpec::new(types::EFI_SYSTEM, Size::MiB(100)).with_name("EFI"))
@@ -89,7 +90,8 @@ use hadris_part::sync::{read, write};
 use hadris_part::{GptEntry, Guid, PartitionTable};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let mut dev = std::fs::File::options().read(true).write(true).open("disk.img")?;
+let file = std::fs::File::options().read(true).write(true).open("disk.img")?;
+let mut dev = hadris_storage::host::FileDevice::new(file)?;
 let mut disk = read(&mut dev)?;
 if let PartitionTable::Gpt(gpt) = disk.table_mut() {
     gpt.resize(1, 409_600)?;

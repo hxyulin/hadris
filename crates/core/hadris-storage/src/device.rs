@@ -12,6 +12,12 @@ pub trait MemBuffer {
 
     /// Mutably borrow the bytes, or `None` when the buffer is read-only.
     fn bytes_mut(&mut self) -> Option<&mut [u8]>;
+
+    /// Whether [`bytes_mut`](Self::bytes_mut) returns the bytes. True
+    /// unless overridden.
+    fn writable(&self) -> bool {
+        true
+    }
 }
 
 impl MemBuffer for &[u8] {
@@ -21,6 +27,10 @@ impl MemBuffer for &[u8] {
 
     fn bytes_mut(&mut self) -> Option<&mut [u8]> {
         None
+    }
+
+    fn writable(&self) -> bool {
+        false
     }
 }
 
@@ -114,6 +124,86 @@ impl<B: MemBuffer> MemDevice<B> {
     }
 }
 
+/// A byte window of another device, such as an MBR or GPT partition or the
+/// partition of a hybrid ISO.
+///
+/// Block 0 of the partition is the device block at byte `offset`. `D` can
+/// be owned or `&mut`. The offset and length must be multiples of the
+/// device block size; a request to a partition that is not, or one past
+/// the partition's end, fails with [`ErrorKind::InvalidInput`] and never
+/// reaches the device. `disk_offset` adds `offset` to the device's own, and
+/// the partition is writable when the device is.
+#[derive(Debug, Clone)]
+pub struct Partition<D> {
+    pub(crate) inner: D,
+    offset: u64,
+    len: u64,
+}
+
+impl<D> Partition<D> {
+    /// The `len` bytes of `inner` from byte `offset`.
+    pub const fn new(inner: D, offset: u64, len: u64) -> Self {
+        Self { inner, offset, len }
+    }
+
+    /// Byte offset of the partition on the device.
+    pub const fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    /// Length of the partition in bytes.
+    pub const fn len(&self) -> u64 {
+        self.len
+    }
+
+    /// Whether the partition is empty.
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Recovers the device.
+    pub fn into_inner(self) -> D {
+        self.inner
+    }
+
+    /// Borrows the device.
+    pub const fn get_ref(&self) -> &D {
+        &self.inner
+    }
+
+    /// Mutably borrows the device.
+    pub fn get_mut(&mut self) -> &mut D {
+        &mut self.inner
+    }
+
+    /// The device block that holds block `first` of the partition, once the
+    /// `len` bytes from there are known to lie within it.
+    #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+    pub(crate) fn locate<E>(
+        &self,
+        block_size: BlockSize,
+        first: BlockIndex,
+        len: usize,
+    ) -> Result<BlockIndex, Error<E>> {
+        let size = u64::from(block_size.get());
+        if self.offset % size != 0 || self.len % size != 0 {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "partition is not aligned to the device blocks",
+            ));
+        }
+        check_blocks(block_size, self.len / size, first, len)?;
+        (self.offset / size)
+            .checked_add(first.get())
+            .map(BlockIndex::new)
+            .ok_or_else(|| out_of_range(first))
+    }
+}
+
+impl<D: hadris_io::ErrorType> hadris_io::ErrorType for Partition<D> {
+    type Error = D::Error;
+}
+
 /// Marks a stream as read-only for `StreamDevice`.
 ///
 /// A `StreamDevice` over `ReadOnly<T>` needs only `T: Read + Seek` and answers
@@ -142,6 +232,13 @@ impl<T> ReadOnly<T> {
         &mut self.0
     }
 }
+
+#[cfg(feature = "alloc")]
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+pub(crate) const BLOCK_512: BlockSize = match BlockSize::new(512) {
+    Some(size) => size,
+    None => panic!(),
+};
 
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
 pub(crate) fn check_blocks<E>(

@@ -9,3 +9,4 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 hadris-optical = { workspace = true, features = ["std", "sync"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }

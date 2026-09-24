@@ -203,15 +203,20 @@ let volume = hadris_fat::sync::FatFs::open(disk);
 ```
 
 A byte stream implementing the `hadris-io` traits becomes a block device
-through `hadris_storage::sync::StreamDevice`, and `std::fs::File` and
+through `hadris_storage::sync::StreamDevice`, and
+`hadris_storage::host::FileDevice`, `Vec<u8>` and
 `hadris_storage::MemDevice` are block devices already.
 
 ## Device requirements
 
 Report the device's real block size and count, read and write whole blocks
 only, and fail requests past the end rather than wrapping. A device that
-cannot write leaves `write_blocks` to its default, which returns kind
-`ReadOnly`, and drivers pass that on. A request past the end fails with
+cannot write leaves `writable` and `write_blocks` to their defaults: it is
+not writable, so drivers mount it read-only, and a write returns kind
+`ReadOnly`. A device that can write returns true from `writable` and
+implements `write_blocks`; it may still refuse a write with `ReadOnly`, for
+example when its media become write-protected, and drivers then stop
+writing. A request past the end fails with
 kind `InvalidInput`.
 `flush` must make earlier writes durable, because `sync` and `sync_node`
 rely on it.

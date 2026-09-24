@@ -8,7 +8,8 @@
           never change the shape of an existing one (R3).
   parity  For crates exposing both `sync` and `async` modules, report public
           items that exist in only one mode, from the --all-features API, and
-          the same between `async` and `async_send` when the crate has it.
+          the same between `async` and `async_send`, and between `async` and
+          `local`, when the crate has them.
           Differences listed in PARITY_ALLOWED are printed with their reason
           and not counted.
 
@@ -18,7 +19,7 @@ under the nightly pinned by the public-api CI job (see scripts/check-public-api.
 Limits: the comparison is textual on `cargo public-api -sss` output, so auto
 trait and blanket impls are not compared. Parity pairs items by their path
 after deleting the mode module segment (`sync`, `async`, `r#async`,
-`async_send`; a segment counts only when a path segment follows it, so a
+`async_send`, `local`; a segment counts only when a path segment follows it, so a
 method named `sync` is not a mode; hadris-io's `sync_api`/`async_api` become
 one name) and dropping `async` keywords, `impl Future<Output = T>` wrappers
 and the `Send` bounds `async_send` adds. rustdoc prints the members of sync items
@@ -88,7 +89,7 @@ PARITY_ALLOWED: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-MODE_MODULE = re.compile(r"\b(hadris\w*(?:::\w+)*?)::(async_send|sync|r#async|async)(?=::)")
+MODE_MODULE = re.compile(r"\b(hadris\w*(?:::\w+)*?)::(async_send|sync|r#async|async|local)(?=::)")
 MODE_API = re.compile(r"\b(hadris\w*(?:::\w+)*?)::(sync|async)_api\b")
 ASYNC_KW = re.compile(r"\basync\s+")
 FUTURE = re.compile(r"impl core::future::future::Future<Output = ")
@@ -186,7 +187,7 @@ def line_mode(line: str, crate_ident: str, sync_names: set[str]) -> str | None:
     scope = line_scope(line)
     found = MODE_MODULE.search(scope)
     if found:
-        return {"sync": "sync", "async_send": "async_send"}.get(found.group(2), "async")
+        return {"sync": "sync", "async_send": "async_send", "local": "local"}.get(found.group(2), "async")
     m = re.match(rf"{crate_ident}::(\w+)", scope)
     if m and m.group(1) in sync_names:
         return "sync"
@@ -263,13 +264,13 @@ def check_parity(crates: list[str]) -> dict[str, int]:
             for line in api
             if not line.startswith("pub use ") and (m := re.match(rf"{ident}::sync::(\w+)", line_scope(line)))
         }
-        modes: dict[str, dict[str, set[str]]] = {"sync": {}, "async": {}, "async_send": {}}
+        modes: dict[str, dict[str, set[str]]] = {"sync": {}, "async": {}, "async_send": {}, "local": {}}
         for line in api:
             mode = line_mode(line, ident, sync_names)
             if mode:
                 norm = normalize(line)
                 modes[mode].setdefault(item_key(norm), set()).add(norm)
-        sync, asyn, send = modes["sync"], modes["async"], modes["async_send"]
+        sync, asyn, send, local = modes["sync"], modes["async"], modes["async_send"], modes["local"]
         if not sync or not asyn:
             present = "sync" if sync else "async" if asyn else "neither"
             print(f"== {crate}: skipped, public API has {present} mode only")
@@ -285,6 +286,9 @@ def check_parity(crates: list[str]) -> dict[str, int]:
         if send:
             print(f"== {crate}: async vs async_send")
             findings += compare_modes("async", asyn, "async_send", send, allowed)
+        if local:
+            print(f"== {crate}: async vs local")
+            findings += compare_modes("async", asyn, "local", local, allowed)
         counts[crate] = findings
     return counts
 

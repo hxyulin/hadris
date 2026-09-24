@@ -112,7 +112,7 @@ chain longer than its file, or a renamed node under both names.
 
 `format` (the `write` feature, every mode, no allocator) lays out a volume
 that fills the block device, using its block count and size, and returns it
-mounted. Format a partition by passing a `hadris_storage` `Slice`.
+mounted. Format a partition by passing a `hadris_storage` `Partition`.
 
 ```rust,no_run
 use hadris_fat::sync::format;
@@ -200,7 +200,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | `sync` | Synchronous API in `sync` | `hadris-io/sync` |
 | `async` | Asynchronous API in `r#async` | `hadris-io/async` |
 | `async-send` | Asynchronous API with `Send` futures, in `async_send` | `async` |
-| `std` | `std::fs::File` as a device and `SystemClock` | `std`, `alloc` |
+| `std` | `hadris_storage::host::FileDevice` for image files and `SystemClock` | `std`, `alloc` |
 | `defmt` | `defmt::Format` for `FatKind` and `Finding` | `defmt` |
 
 Default features: `write`, `std`, `sync`

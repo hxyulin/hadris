@@ -97,6 +97,10 @@ mod sync {
             self.inner.block_count()
         }
 
+        fn writable(&self) -> bool {
+            self.inner.writable()
+        }
+
         fn read_blocks(
             &mut self,
             first: BlockIndex,

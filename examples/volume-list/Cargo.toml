@@ -10,3 +10,4 @@ license.workspace = true
 anyhow.workspace = true
 hadris-block = { workspace = true, features = ["std", "sync"] }
 hadris-fs = { workspace = true, features = ["std", "sync"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }

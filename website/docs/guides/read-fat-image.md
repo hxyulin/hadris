@@ -12,6 +12,7 @@ filesystem.
 anyhow = "1"
 hadris-fat = "2.4.0"
 hadris-fs = "2.4.0"
+hadris-storage = "2.4.0"
 ```
 
 ```rust,no_run
@@ -19,10 +20,10 @@ use anyhow::{Context, Result};
 use hadris_fat::MountOptions;
 use hadris_fat::sync::FatFs;
 use hadris_fs::sync::DriverExt;
-use std::fs::File;
+use hadris_storage::host::FileDevice;
 
 fn main() -> Result<()> {
-    let image = File::open("disk.img").context("open disk.img")?;
+    let image = FileDevice::open("disk.img").context("open disk.img")?;
     let mut volume = FatFs::open_with(image, MountOptions::new().with_read_only())
         .context("open FAT filesystem")?;
 
@@ -46,7 +47,7 @@ fn main() -> Result<()> {
 }
 ```
 
-`std::fs::File` is a block device with 512-byte blocks; `FatFs` also opens any
+`host::FileDevice` is a block device with 512-byte blocks; `FatFs` also opens any
 other `hadris-storage` device, such as a `MemDevice` over bytes already in
 memory. Lookups ignore case, and long names are always read. Streams opened
 with `volume.open(path, hadris_fs::OpenOptions::read())` implement

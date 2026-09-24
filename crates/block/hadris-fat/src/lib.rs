@@ -108,7 +108,7 @@
 //!
 //! | Feature  | Default | Description |
 //! |----------|---------|-------------|
-//! | `std`    | Yes     | Standard library support (enables `alloc`); `std::fs::File` and `SystemClock` from the storage and fs crates |
+//! | `std`    | Yes     | Standard library support (enables `alloc`); `hadris_storage::host::FileDevice` and `SystemClock` from the storage and fs crates |
 //! | `alloc`  | No      | Heap-backed conveniences of `hadris-fs`, such as `HeapTable` |
 //! | `sync`   | Yes     | Synchronous API in `sync` |
 //! | `async`  | No      | Asynchronous API in `r#async` |

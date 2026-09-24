@@ -9,20 +9,29 @@ Every device names its own error through `hadris_io::ErrorType`, and every
 block operation returns `hadris_io::Error<E>` over it: `Error::device` when
 the device failed, kind `ReadOnly` when it refuses a write, and a kind with
 the block it concerns when an adapter refuses a request itself, such as one
-past the end of a `Slice`. Adapters keep the error type of the device
-underneath. There is no `writable()` query: a static flag is wrong for an SD card
-whose lock switch moves while mounted and for a `std::fs::File` that cannot
-tell how it was opened, and a probe write wears flash. A read-only device
-implements `block_size`, `block_count` and `read_blocks`, and nothing else.
+past the end of a `Partition`. Adapters keep the error type of the device
+underneath.
+
+A read-only device implements `block_size`, `block_count` and
+`read_blocks`, and nothing else. A device that accepts writes also
+overrides `writable()`, which defaults to false, and `write_blocks`.
+`writable()` answers whether the device accepts writes at all; a driver
+mounts a device that says false read-only. A device that says true may
+still refuse a later write with `ReadOnly`, as an SD card does when its
+lock switch moves while mounted. `max_block_count()` is how far a device
+grows when written past its end, and `disk_offset()` is the byte offset of
+block 0 on the disk a device is a window of.
 
 ## Core types
 
 | Type | Purpose |
 |---|---|
-| `BlockDevice` | Whole-block reads, optional writes and flush. `&mut D`, `Box<D>` and, with `std`, `std::fs::File` implement it too |
+| `BlockDevice` | Whole-block reads, optional writes and flush, in `sync`, `r#async`, `async_send` (`Send` futures) and `local` (futures need not be `Send`). `&mut D` and `Box<D>` implement it too |
+| `Vec<u8>` | With `alloc`, an in-memory image with 512-byte blocks that grows when written past its end. Device error `Infallible` |
+| `MemDevice` | A fixed-size block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`, with any block size. Device error `Infallible`; requests past the end fail with kind `InvalidInput` |
+| `Partition` | A byte window of another device, such as an MBR or GPT partition. Its offset and length are multiples of the device block size. Requests past its end never reach the device, and `disk_offset` reports its start |
+| `host::FileDevice` | With `std` and `sync`, a host image file or disk device with 512-byte blocks. `open(path)` is read-only; `new(file)` takes a file the caller opened and is writable when the file is. An image file grows when written past its end |
 | `StreamDevice` | A block device over any `Read + Seek` stream, with any block size. Wrap read-only streams in `ReadOnly`; the sealed `StreamWrite` trait carries the choice |
-| `MemDevice` | A block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`. Device error `Infallible`; requests past the end fail with kind `InvalidInput` |
-| `Slice` | A contiguous block range of another device, such as a partition. Requests past its end never reach the device |
 | `Cache` | Write-back LRU cache of whole blocks (`alloc`). Its first write goes straight through, so a read-only device says so at once. Requests of at least `capacity` blocks bypass it |
 | `ByteView` | Byte-granular reads and writes over a device, also usable as a stream |
 | `BlockIndex`, `BlockCount`, `BlockSize` | Value types with private fields and `const fn` constructors and accessors |
@@ -30,22 +39,26 @@ implements `block_size`, `block_count` and `read_blocks`, and nothing else.
 
 ## Opening an image
 
-A host file is a device with 512-byte blocks, and its errors are the
-`std::io::Error` itself. Disk devices such as `/dev/sdb`, `/dev/disk4`,
-`/dev/md0` or `\\.\PhysicalDrive1` work too: `file_len` measures them with
-the platform's disk size request (seeking to the end on Linux), since their
-metadata reports 0, and fails rather than report 0 bytes when it cannot:
+`host::FileDevice` opens a host image file with 512-byte blocks, and its
+errors are the `std::io::Error` itself. Disk devices such as `/dev/sdb`,
+`/dev/disk4`, `/dev/md0` or `\\.\PhysicalDrive1` work too:
+`host::file_len` measures them with the platform's disk size request
+(seeking to the end on Linux), since their metadata reports 0, and
+`FileDevice` refuses a device it cannot measure rather than report 0
+bytes:
 
 ```rust,no_run
-use hadris_storage::BlockIndex;
-use hadris_storage::sync::{BlockDevice, Slice};
+use hadris_storage::{BlockIndex, Partition};
+use hadris_storage::host::FileDevice;
+use hadris_storage::sync::BlockDevice;
 
-let disk = std::fs::File::open("disk.img")?;
-let mut partition = Slice::new(disk, BlockIndex::new(2048), 65536).expect("partition fits");
+let disk = FileDevice::open("disk.img")?;
+let mut partition = Partition::new(disk, 2048 * 512, 65536 * 512);
+assert_eq!(partition.disk_offset(), 2048 * 512);
 
 let mut sector = [0_u8; 512];
 partition.read_blocks(BlockIndex::new(0), &mut sector)?;
-# Ok::<(), std::io::Error>(())
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 Any seekable stream works through `StreamDevice`, with any block size:
@@ -79,10 +92,10 @@ assert_eq!(geometry.byte_len(), Some(4 * 1024 * 1024));
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `std` | Yes | Hosted byte-stream support and `alloc` |
-| `alloc` | Via `std` | `Cache`, `Box` impls, and block sizes above 4096 bytes in `ByteView` |
+| `std` | Yes | `host::FileDevice`, `host::file_len` and `alloc` |
+| `alloc` | Via `std` | `Cache`, the `Vec<u8>` device, `Box` impls, and block sizes above 4096 bytes in `ByteView` |
 | `sync` | Yes | Synchronous device traits and adapters |
-| `async` | No | Asynchronous device traits and adapters |
+| `async` | No | Asynchronous device traits and adapters in `r#async` and `local` |
 | `async-send` | No | Asynchronous devices with `Send` futures in `async_send`; implies `async` |
 
 `std` and the I/O mode are independent. Disable default features and select

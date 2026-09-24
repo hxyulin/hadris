@@ -12,7 +12,7 @@ file, memory, firmware protocol, or device driver
                          |
       hadris-io streams / hadris-storage block devices
                          |
-          partition slice (hadris-part, Slice)
+      partition window (hadris-part, Partition)
                          |
        format driver (FatFs, IsoView, UdfFs, ...)
                          |
@@ -38,13 +38,16 @@ pipes.
 
 Every filesystem driver reads a `hadris-storage` `BlockDevice`, which reads
 and writes whole logical blocks of an explicit size. It does not assume
-512-byte sectors. `std::fs::File` is a device with 512-byte blocks,
-`MemDevice` wraps bytes in memory, `StreamDevice` turns any seekable stream
+512-byte sectors. `host::FileDevice` is a host image file or disk device
+with 512-byte blocks, `Vec<u8>` is an in-memory image that grows when
+written past its end, `MemDevice` wraps fixed bytes in memory, `StreamDevice` turns any seekable stream
 into a device with the block size you give it, and `Cache` adds a write-back
 block cache. Every block operation returns `hadris_io::Error<E>` over the
 device's own error `E`: a device refuses writes with kind `ReadOnly`, and an
 adapter refuses a request past its end with kind `InvalidInput` and the
-block it concerns.
+block it concerns. A device that accepts writes says so through
+`writable()`, which defaults to false; a driver mounts a device that is not
+writable read-only.
 
 The format crates validate their own sector and filesystem geometry on top of
 the device's block size.
@@ -52,9 +55,8 @@ the device's block size.
 ## Partition boundaries
 
 Partition tables describe bounded regions of a larger disk. Before opening a
-filesystem inside a partition, create a checked view (a `Slice` of a block
-device, as `hadris-fat` needs) restricted to that
-partition. This prevents filesystem offsets from escaping into neighboring
+filesystem inside a partition, create a checked view (a `Partition` of a
+block device) restricted to that partition. This prevents filesystem offsets from escaping into neighboring
 partitions and keeps offsets relative to the filesystem start.
 
 `hadris-part` reads, edits and writes MBR, GPT and hybrid tables on a block

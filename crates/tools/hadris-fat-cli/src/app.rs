@@ -13,6 +13,7 @@ use hadris_fat::exfat::sync::ExFatFs;
 use hadris_fat::raw::{RawBpb, RawBpbExt16, RawBpbExt32};
 use hadris_fat::sync::FatFs;
 use hadris_fat::{FatKind, exfat};
+use hadris_storage::host::FileDevice;
 use output::Output;
 
 use hadris_fs::sync::{DriverExt, FsDriver, extract_to_host, import_from_host};
@@ -168,8 +169,8 @@ pub fn run() -> Result<()> {
     }
 }
 
-type Fat = FatFs<File, HeapTable, SystemClock>;
-type ExFat = ExFatFs<File, HeapTable, SystemClock>;
+type Fat = FatFs<FileDevice, HeapTable, SystemClock>;
+type ExFat = ExFatFs<FileDevice, HeapTable, SystemClock>;
 
 /// A mounted FAT12/16/32 or exFAT volume.
 enum Volume {
@@ -206,7 +207,7 @@ fn is_exfat(sector: &[u8; 512]) -> bool {
 /// sector names.
 fn open(path: &Path) -> Result<Volume> {
     let exfat = is_exfat(&boot_sector(path)?);
-    let file = File::open(path)
+    let file = FileDevice::open(path)
         .with_context(|| format!("Failed to open image file: {}", path.display()))?;
     if exfat {
         let options = exfat::MountOptions::new()
@@ -820,7 +821,7 @@ fn estimate_image_size(bytes: u64, entries: u64, fat_type: KindArg) -> u64 {
 }
 
 /// Formats `file` as `fat_type` and mounts it for writing.
-fn format_image(file: File, fat_type: KindArg, label: &str) -> Result<Volume> {
+fn format_image(file: FileDevice, fat_type: KindArg, label: &str) -> Result<Volume> {
     if fat_type == KindArg::Exfat {
         let label = exfat::VolumeLabel::new(label)
             .map_err(|kind| anyhow::anyhow!("Invalid volume label {label:?}: {kind}"))?;
@@ -883,6 +884,7 @@ fn cmd_create(
 
     let handle = file
         .try_clone()
+        .and_then(FileDevice::new)
         .with_context(|| format!("Failed to create image: {}", output.display()))?;
     let mut volume = format_image(handle, fat_type, volume_label).with_context(|| {
         format!(

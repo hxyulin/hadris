@@ -62,6 +62,10 @@ impl BlockDevice for SparseDevice {
         (LEN >> 11) + 4096
     }
 
+    fn writable(&self) -> bool {
+        true
+    }
+
     fn read_blocks(
         &mut self,
         first: BlockIndex,

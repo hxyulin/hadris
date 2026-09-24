@@ -16,6 +16,7 @@ block device, in the sync, async and `Send` async APIs.
 [dependencies]
 hadris-fs = "2.4.0"
 hadris-iso = "2.4.0"
+hadris-storage = "2.4.0"
 ```
 
 The default features (`std`, `sync`) include the writer. Without `std`,
@@ -46,6 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .create(true)
         .truncate(true)
         .open("demo.iso")?;
+    let image = hadris_storage::host::FileDevice::new(image)?;
     let report = hadris_iso::sync::write(image, &tree, &options)?;
     println!("{} bytes", report.size_bytes());
     Ok(())

@@ -32,11 +32,6 @@ impl ErrorType for alloc::vec::Vec<u8> {
     type Error = Infallible;
 }
 
-#[cfg(feature = "std")]
-impl ErrorType for std::fs::File {
-    type Error = std::io::Error;
-}
-
 /// Failure of `read_exact`, `write_all` or `read_exact_at`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]

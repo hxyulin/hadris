@@ -14,7 +14,7 @@ use hadris_fat::{FatKind, FormatOptions};
 use hadris_fs::async_send::DriverExt;
 use hadris_fs::{Error, ErrorKind, MountError};
 use hadris_storage::async_send::BlockDevice;
-use hadris_storage::{BlockIndex, BlockSize, MemDevice};
+use hadris_storage::{BlockSize, MemDevice};
 
 type Device = MemDevice<Vec<u8>>;
 
@@ -95,7 +95,7 @@ fn opens_fat_through_an_mbr_partition() {
         fs.write_file("/HELLO.TXT", b"hello").await.unwrap();
         assert_eq!(fs.read_to_vec("/HELLO.TXT").await.unwrap(), b"hello");
         fs.sync().await.unwrap();
-        assert_eq!(fs.into_inner().first(), BlockIndex::new(1));
+        assert_eq!(fs.into_inner().offset(), 512);
     });
 }
 

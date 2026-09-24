@@ -18,7 +18,6 @@ pub use mkisofs::mkisofs;
 pub use tree::tree;
 pub use verify::verify;
 
-use std::fs::File;
 use std::path::Path;
 
 use hadris_fs::sync::DriverExt;
@@ -26,22 +25,23 @@ use hadris_fs::tree::{FromFsOptions, Tree, WarningKind};
 use hadris_fs::{Metadata, NodeId, SystemClock};
 use hadris_iso::sync::{IsoImage, IsoView, write};
 use hadris_iso::{IsoOptions, Namespace, Report};
+use hadris_storage::host::FileDevice;
 
 use super::output::Output;
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-type View<'a> = IsoView<&'a mut File>;
+type View<'a> = IsoView<&'a mut FileDevice>;
 
-fn open(path: &Path) -> Result<IsoImage<File>> {
-    Ok(IsoImage::open(File::open(path)?)?)
+fn open(path: &Path) -> Result<IsoImage<FileDevice>> {
+    Ok(IsoImage::open(FileDevice::open(path)?)?)
 }
 
 /// The most capable tree of the image (Rock Ridge, then Joliet, then the
 /// enhanced tree, then the primary tree) when `path` is in it, and otherwise
 /// the primary tree, whose lookups ignore ASCII case, so ISO 9660 paths such
 /// as `/README.TXT` work too.
-fn view_for<'a>(iso: &'a mut IsoImage<File>, path: &str) -> Result<View<'a>> {
+fn view_for<'a>(iso: &'a mut IsoImage<FileDevice>, path: &str) -> Result<View<'a>> {
     let preferred = iso
         .view(Namespace::Preferred)?
         .exists(path)
@@ -127,9 +127,12 @@ fn write_image(
     options: &IsoOptions<SystemClock>,
     verbose: bool,
 ) -> Result<Report> {
-    let (mut file, pending) = Output::create(output)
+    let (file, pending) = Output::create(output)
         .map_err(|err| format!("cannot create {}: {err}", output.display()))?;
-    let report = write(&mut file, tree, options)?;
+    let mut dev = FileDevice::new(file)
+        .map_err(|err| format!("cannot create {}: {err}", output.display()))?;
+    let report = write(&mut dev, tree, options)?;
+    let file = dev.into_inner();
     print_warnings(&report, verbose);
     let min_size = 32 * 2048;
     if pending.is_regular() && file.metadata()?.len() < min_size {

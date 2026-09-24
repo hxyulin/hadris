@@ -7,15 +7,16 @@ title: Read a partition table
 ```toml
 [dependencies]
 hadris-part = "2.4.0"
+hadris-storage = "2.4.0"
 ```
 
 ```rust
 use hadris_part::sync::read;
 use hadris_part::{PartitionKind, PartitionTable};
-use std::fs::File;
+use hadris_storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut disk = File::open("disk.img")?;
+    let mut disk = FileDevice::open("disk.img")?;
     let table = read(&mut disk)?;
 
     if let PartitionTable::Gpt(gpt) = table.table() {
@@ -43,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-The block size comes from the device: `std::fs::File` has 512-byte blocks,
+The block size comes from the device: `host::FileDevice` has 512-byte blocks,
 and a `hadris_storage::sync::StreamDevice` over any stream takes the block
 size you give it, such as 4096 for a 4Kn disk image. GPT CRCs are always
 checked; when the primary copy is damaged the table is read from the backup,

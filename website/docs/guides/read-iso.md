@@ -26,7 +26,7 @@ use hadris_iso::Namespace;
 use hadris_iso::sync::IsoImage;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut iso = IsoImage::open(std::fs::File::open("image.iso")?)?;
+    let mut iso = IsoImage::open(hadris_storage::host::FileDevice::open("image.iso")?)?;
     if let Some(catalog) = iso.boot_catalog()? {
         for entry in catalog.entries() {
             println!("boot: {:?} at block {}", entry.platform(), entry.load_block());

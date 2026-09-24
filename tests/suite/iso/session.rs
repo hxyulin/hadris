@@ -57,6 +57,7 @@ fn sessions_keep_partitions_appended_after_the_image() {
             .read(true)
             .write(true)
             .open(&image)
+            .and_then(hadris_storage::host::FileDevice::new)
             .unwrap();
         let mut session = Session::open(file).map_err(|err| err.into_error()).unwrap();
         session
