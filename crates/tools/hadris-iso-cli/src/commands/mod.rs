@@ -27,6 +27,8 @@ use hadris_fs::{Metadata, NodeId, SystemClock};
 use hadris_iso::sync::{IsoImage, IsoView, write};
 use hadris_iso::{IsoOptions, Namespace, Report};
 
+use super::output::Output;
+
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 type View<'a> = IsoView<&'a mut File>;
@@ -117,25 +119,25 @@ fn print_warnings(report: &Report, verbose: bool) {
     }
 }
 
-/// Writes `tree` to the file `output`, padded to at least 32 blocks.
+/// Writes `tree` to `output`, padded to at least 32 blocks. The file appears
+/// only once the image is complete.
 fn write_image(
     output: &Path,
     tree: &Tree,
     options: &IsoOptions<SystemClock>,
     verbose: bool,
 ) -> Result<Report> {
-    let mut file = File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(output)?;
+    let (mut file, pending) = Output::create(output)
+        .map_err(|err| format!("cannot create {}: {err}", output.display()))?;
     let report = write(&mut file, tree, options)?;
     print_warnings(&report, verbose);
     let min_size = 32 * 2048;
-    if file.metadata()?.len() < min_size {
+    if pending.is_regular() && file.metadata()?.len() < min_size {
         file.set_len(min_size)?;
     }
+    pending
+        .commit(file)
+        .map_err(|err| format!("cannot write {}: {err}", output.display()))?;
     Ok(report)
 }
 

@@ -1,9 +1,8 @@
-use std::fs;
-
 use hadris_fs::tree::{FromFsOptions, OnError, Tree, WarningKind};
 use hadris_udf::{UdfOptions, UdfRevision};
 
 use super::super::args::CreateArgs;
+use super::super::output::Output;
 use super::Result;
 
 /// Create a new UDF image
@@ -41,8 +40,12 @@ pub fn create(args: CreateArgs) -> Result<()> {
         return Ok(());
     }
 
-    let mut output = fs::File::create(&args.output)?;
-    let report = hadris_udf::sync::write(&mut output, &tree, &options)?;
+    let (mut file, pending) = Output::create(&args.output)
+        .map_err(|err| format!("cannot create {}: {err}", args.output.display()))?;
+    let report = hadris_udf::sync::write(&mut file, &tree, &options)?;
+    pending
+        .commit(file)
+        .map_err(|err| format!("cannot write {}: {err}", args.output.display()))?;
     for warning in report.warnings() {
         if warning.kind() != WarningKind::IgnoredMetadata || args.verbose {
             eprintln!("warning: {warning}");

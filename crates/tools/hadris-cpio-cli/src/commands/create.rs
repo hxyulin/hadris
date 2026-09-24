@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
 
@@ -8,6 +7,7 @@ use hadris_fs::tree::{FromFsOptions, OnError, Tree, WarningKind};
 use hadris_io::StdIo;
 
 use crate::app::ArchiveFormat;
+use crate::app::output::Output;
 
 pub fn create(
     directory: PathBuf,
@@ -31,17 +31,30 @@ pub fn create(
     };
     let options = CpioOptions::default().with_format(format);
     let to_stdout = output.as_os_str() == "-";
-    let sink: Box<dyn Write> = if to_stdout {
-        Box::new(io::stdout().lock())
+    let report = if to_stdout {
+        let mut out = StdIo::new(BufWriter::new(io::stdout().lock()));
+        let report = hadris_cpio::sync::write(&mut out, &tree, &options)
+            .context("Failed to write CPIO archive")?;
+        out.into_inner()
+            .flush()
+            .context("Failed to write CPIO archive")?;
+        report
     } else {
-        Box::new(
-            File::create(&output)
-                .with_context(|| format!("Failed to create output file: {}", output.display()))?,
-        )
+        let (file, pending) = Output::create(&output)
+            .with_context(|| format!("Failed to create output file: {}", output.display()))?;
+        let mut out = StdIo::new(BufWriter::new(file));
+        let report = hadris_cpio::sync::write(&mut out, &tree, &options)
+            .context("Failed to write CPIO archive")?;
+        let file = out
+            .into_inner()
+            .into_inner()
+            .map_err(|err| err.into_error())
+            .context("Failed to write CPIO archive")?;
+        pending
+            .commit(file)
+            .with_context(|| format!("Failed to write output file: {}", output.display()))?;
+        report
     };
-    let mut out = StdIo::new(BufWriter::new(sink));
-    let report = hadris_cpio::sync::write(&mut out, &tree, &options)
-        .context("Failed to write CPIO archive")?;
 
     for warning in report.warnings() {
         if verbose || warning.kind() != WarningKind::IgnoredMetadata {

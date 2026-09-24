@@ -941,6 +941,16 @@ Each published package owns its version and may be released independently.
   libarchive/bsdtar and use only recognized relocation container names. Reject
   relocation when a root `rr_moved` directory would be mistaken for the container
   or both supported names are occupied, instead of producing an unreadable image.
+- **hadris-iso-cli, hadris-udf-cli, hadris-cd-cli, hadris-fat-cli,
+  hadris-cpio-cli:** `create` writes to a temporary file in the output's
+  directory and renames it into place once the image is complete. A failed
+  `create` no longer truncates an existing output (`hadris-iso create -V`
+  with a name that is too long emptied it) or leaves a partial image
+  behind. An existing device or other non-regular file is still written in
+  place, and `hadris-fat create` still refuses an existing output.
+- **hadris-cd-cli:** `verify` accepts a Rock Ridge image whose deep
+  directories were relocated: the relocation directory, which only the ISO
+  side holds, is no longer reported as a mismatch.
 
 ## [2.4.0] - 2026-09-08
 

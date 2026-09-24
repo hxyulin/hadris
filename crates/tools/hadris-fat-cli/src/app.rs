@@ -1,6 +1,9 @@
 //! Hadris FAT12/16/32 and exFAT analysis and management utility.
 
-use std::fs::{self, File, OpenOptions as HostOpenOptions};
+#[path = "output.rs"]
+mod output;
+
+use std::fs::{self, File};
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
@@ -10,6 +13,7 @@ use hadris_fat::exfat::sync::ExFatFs;
 use hadris_fat::raw::{RawBpb, RawBpbExt16, RawBpbExt32};
 use hadris_fat::sync::FatFs;
 use hadris_fat::{FatKind, exfat};
+use output::Output;
 
 use hadris_fs::sync::{DriverExt, FsDriver, extract_to_host, import_from_host};
 use hadris_fs::tree::{FromFsOptions, NodeKind, Tree, TreeNode};
@@ -872,16 +876,15 @@ fn cmd_create(
 
     let image_size =
         requested_size.unwrap_or_else(|| estimate_image_size(bytes, entries, fat_type));
-    let file = HostOpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .open(output)
+    let (file, pending) = Output::create_new(output)
         .with_context(|| format!("Failed to create image: {}", output.display()))?;
     file.set_len(image_size)
         .with_context(|| format!("Failed to size image to {image_size} bytes"))?;
 
-    let mut volume = format_image(file, fat_type, volume_label).with_context(|| {
+    let handle = file
+        .try_clone()
+        .with_context(|| format!("Failed to create image: {}", output.display()))?;
+    let mut volume = format_image(handle, fat_type, volume_label).with_context(|| {
         format!(
             "Failed to format {image_size}-byte image; choose a compatible type or increase --size"
         )
@@ -893,6 +896,10 @@ fn cmd_create(
         )?;
         fs.sync().context("Failed to write the image")?;
     });
+    drop(volume);
+    pending
+        .commit(file)
+        .with_context(|| format!("Failed to write image: {}", output.display()))?;
     println!("Created {} ({kind}, {image_size} bytes)", output.display());
     Ok(())
 }
