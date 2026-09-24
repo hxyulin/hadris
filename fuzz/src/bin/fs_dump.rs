@@ -240,24 +240,31 @@ fn dump_udf(data: &[u8]) -> Vec<String> {
 }
 
 fn dump_cpio(data: &[u8]) -> Vec<String> {
-    use hadris_cpio::mode::FileType;
-    use hadris_cpio::sync::CpioArchiveReader;
+    use hadris_cpio::sync::CpioReader;
+    use hadris_fs::FileType;
+    use hadris_io::sync::Read;
 
     let mut lines = Vec::new();
     let mut budget = ENTRY_BUDGET;
-    let mut reader = CpioArchiveReader::new(Cursor::new(data));
-    while let Ok(Some(entry)) = reader.next_entry_alloc() {
+    let mut reader = CpioReader::new(Cursor::new(data));
+    while let Ok(Some(mut entry)) = reader.next_entry() {
         if budget == 0 {
             break;
         }
         budget -= 1;
         let name = String::from_utf8_lossy(entry.name()).into_owned();
-        let content = reader.read_entry_data_alloc(&entry).unwrap_or_default();
         match entry.file_type() {
-            FileType::Directory => lines.push(format!("dir {name}")),
+            FileType::Dir => lines.push(format!("dir {name}")),
             _ => {
-                let head = &content[..content.len().min(CONTENT_CAP)];
-                lines.push(file_line(u64::from(entry.file_size()), head, &name));
+                let mut head = vec![0u8; CONTENT_CAP];
+                let mut filled = 0;
+                while filled < head.len() {
+                    match entry.read(&mut head[filled..]) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => filled += read,
+                    }
+                }
+                lines.push(file_line(entry.len(), &head[..filled], &name));
             }
         }
     }
