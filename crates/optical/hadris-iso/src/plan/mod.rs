@@ -58,6 +58,10 @@ const PART_BLOCK: BlockSize = match BlockSize::new(512) {
     None => panic!("512 is not zero"),
 };
 const BACKUP_GPT_SECTORS: u64 = 33;
+/// Zero blocks after the data, counted in the volume, as `mkisofs -pad`
+/// and xorriso write by default. Readers such as `isoinfo` read ahead
+/// past the last structure and fail on shorter images.
+pub(crate) const PADDING_BLOCKS: u64 = 150;
 const ISO_DATA_START_512: u64 = 64;
 
 /// What the writer learned about a file's content before planning.
@@ -1037,7 +1041,12 @@ impl<C: Clock> Planner<'_, C> {
             _ => self.base.keep_catalog,
         };
 
-        let end = cursor.div_ceil(SECTOR);
+        let data_end = cursor.div_ceil(SECTOR);
+        regions.push(Region::Bytes {
+            block: data_end,
+            data: vec![0; PADDING_BLOCKS as usize * SECTOR_SIZE],
+        });
+        let end = data_end + PADDING_BLOCKS;
         let hybrid = if self.base.system_area {
             self.opts.hybrid()
         } else {

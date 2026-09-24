@@ -981,6 +981,10 @@ Each published package owns its version and may be released independently.
   carries its Rock Ridge entries (`PX`, `TF`, `NM`), as libisofs writes
   them. Only the first did, so `bsdtar` refused the image and xorriso
   showed the file with mode `0000` under its primary name.
+- **hadris-iso (V3):** Images and sessions end in 150 zero blocks counted
+  in the volume space size, as xorriso and `mkisofs -pad` write by
+  default. `isoinfo` refused images shorter than 48 blocks ("Short read on
+  old image").
 
 ## [2.4.0] - 2026-09-08
 

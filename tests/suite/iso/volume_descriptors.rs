@@ -2,11 +2,48 @@
 
 use std::fs;
 
+use hadris_fs::tree::{Content, Tree};
+use hadris_iso::IsoOptions;
 use hadris_iso::raw::VolumeDescriptor;
+use hadris_tests::harness::command::{program_available, run_command};
+use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
 
-use super::{descriptors, open_file, volume_id, xorriso_sample_image};
+use super::{descriptors, open, open_file, volume_id, xorriso_sample_image};
+
+/// Images end in 150 zero blocks inside the volume, as xorriso and
+/// `mkisofs -pad` write, so readers that read ahead (isoinfo) accept small
+/// images (integrate-5).
+#[test]
+fn small_images_are_padded_like_xorriso() {
+    let mut tree = Tree::new();
+    tree.add_file("a.txt", Content::bytes("hi\n")).unwrap();
+    let bytes = write_tree(&tree, &IsoOptions::default()).unwrap();
+    let image = open(bytes.clone());
+    let volume = image.volume_blocks() as usize;
+    assert_eq!(volume * 2048, bytes.len());
+    assert!(volume >= 150 + 18, "{volume}");
+    assert!(bytes[(volume - 150) * 2048..].iter().all(|&byte| byte == 0));
+
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("small.iso");
+    fs::write(&path, &bytes).unwrap();
+    if program_available("isoinfo", "-version") {
+        run_command("isoinfo", vec!["-d".into(), "-i".into(), path.into()]).unwrap();
+    }
+    if xorriso::require() {
+        let source = temp.path().join("source");
+        fs::create_dir(&source).unwrap();
+        fs::write(source.join("a.txt"), "hi\n").unwrap();
+        let peer = temp.path().join("peer.iso");
+        xorriso::mkisofs(&source, &peer, "PEER", &[]).unwrap();
+        let peer = open_file(&peer);
+        let data_blocks = |image: &hadris_tests::iso::hadris::Image| image.volume_blocks() - 150;
+        assert!(data_blocks(&peer) < 150);
+        assert!(data_blocks(&image) < 150);
+    }
+}
 
 #[test]
 fn test_read_xorriso_minimal_iso() {
