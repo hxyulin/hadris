@@ -1,20 +1,15 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{BufReader, Cursor, Write};
-use std::num::NonZeroU16;
+use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
 use hadris_cd::{FileTree, JolietLevel, OpticalImageOptions, OpticalImageWriter};
+use hadris_fs::sync::DriverExt;
 use hadris_io::StdIo;
-use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
-use hadris_iso::boot::{EmulationType, PlatformId};
-use hadris_iso::directory::DirectoryRef;
-use hadris_iso::read::IsoImage;
-use hadris_iso::rrip::RripOptions;
-use hadris_iso::write::options::HybridBootOptions;
-use hadris_iso::{Read, Seek};
+use hadris_iso::sync::{IsoImage, IsoView};
+use hadris_iso::{BootEntry, BootInfo, ElTorito, HybridBoot, Namespace, Platform, RockRidge};
 use hadris_udf::{UdfRevision, UdfVolume};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -106,7 +101,7 @@ impl FromStr for RevisionArg {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Node {
     Directory,
     File(Vec<u8>),
@@ -158,13 +153,13 @@ fn create(args: CreateArgs) -> Result<()> {
 
     let mut options = OpticalImageOptions::default().volume_id(args.volume_name.clone());
     options.udf.revision = args.udf_revision.0;
-    options.iso.joliet = (!args.no_joliet).then_some(JolietLevel::Level3);
-    options.iso.rock_ridge = args.rock_ridge.then(RripOptions::default);
+    options.iso.joliet = (!args.no_joliet).then_some(JolietLevel::L3);
+    options.iso.rock_ridge = args.rock_ridge.then(RockRidge::default);
     options.boot = boot_options(&args);
     options.hybrid_boot = match (args.hybrid_mbr, args.hybrid_gpt) {
-        (true, true) => Some(HybridBootOptions::hybrid()),
-        (true, false) => Some(HybridBootOptions::mbr()),
-        (false, true) => Some(HybridBootOptions::gpt()),
+        (true, true) => Some(HybridBoot::hybrid()),
+        (true, false) => Some(HybridBoot::mbr()),
+        (false, true) => Some(HybridBoot::gpt()),
         (false, false) => None,
     };
 
@@ -177,43 +172,26 @@ fn create(args: CreateArgs) -> Result<()> {
     Ok(())
 }
 
-fn boot_options(args: &CreateArgs) -> Option<BootOptions> {
-    let default_path = args.boot.as_ref().or(args.efi_boot.as_ref())?;
-    let efi_only = args.boot.is_none();
-    let mut options = BootOptions {
-        write_boot_catalog: true,
-        default: BootEntryOptions {
-            boot_image_path: normalize(default_path),
-            load_size: if efi_only {
-                None
-            } else {
-                NonZeroU16::new(args.boot_load_size)
-            },
-            boot_info_table: !efi_only && args.boot_info_table,
-            grub2_boot_info: false,
-            emulation: EmulationType::NoEmulation,
-        },
-        entries: Vec::new(),
+fn boot_options(args: &CreateArgs) -> Option<ElTorito> {
+    let efi = args
+        .efi_boot
+        .as_ref()
+        .map(|efi| BootEntry::new(normalize(efi)).with_platform(Platform::Efi));
+    let Some(bios) = &args.boot else {
+        return efi.map(ElTorito::new);
     };
-    if let Some(efi) = &args.efi_boot {
-        // The default entry has no platform field in El Torito's Rust model.
-        // Emit an explicit UEFI section as well so EFI-only catalogs carry the
-        // platform ID expected by firmware, while retaining the EFI image as
-        // the catalog's default entry.
-        options.entries.push((
-            BootSectionOptions {
-                platform: PlatformId::UEFI,
-            },
-            BootEntryOptions {
-                boot_image_path: normalize(efi),
-                load_size: None,
-                boot_info_table: false,
-                grub2_boot_info: false,
-                emulation: EmulationType::NoEmulation,
-            },
-        ));
+    let mut bios = BootEntry::new(normalize(bios));
+    if args.boot_load_size != 0 {
+        bios = bios.with_load_size(args.boot_load_size);
     }
-    Some(options)
+    if args.boot_info_table {
+        bios = bios.with_boot_info_table(BootInfo::Standard);
+    }
+    let mut el_torito = ElTorito::new(bios);
+    if let Some(efi) = efi {
+        el_torito = el_torito.with_entry(efi);
+    }
+    Some(el_torito)
 }
 
 fn validate_host_tree(path: &Path) -> Result<()> {
@@ -250,7 +228,7 @@ fn normalize(path: &str) -> String {
 }
 
 fn info(path: &Path) -> Result<()> {
-    let iso = IsoImage::open(StdIo::new(BufReader::new(File::open(path)?))).ok();
+    let iso = IsoImage::open(File::open(path)?).ok();
     let udf = UdfVolume::open(StdIo::new(File::open(path)?)).ok();
     if iso.is_none() && udf.is_none() {
         return Err("image contains neither a readable ISO 9660 nor UDF filesystem".into());
@@ -260,11 +238,17 @@ fn info(path: &Path) -> Result<()> {
     println!("  ISO 9660: {}", yes_no(iso.is_some()));
     println!("  UDF:      {}", yes_no(udf.is_some()));
     println!("  Bridge:   {}", yes_no(iso.is_some() && udf.is_some()));
-    if let Some(iso) = iso {
-        let pvd = iso.read_pvd()?;
-        println!("  ISO volume: {}", pvd.volume_identifier);
-        println!("  ISO size:   {} sectors", pvd.volume_space_size.read());
-        println!("  Rock Ridge: {}", yes_no(iso.supports_rrip()));
+    if let Some(mut iso) = iso {
+        let pvd = iso.primary_descriptor()?;
+        println!(
+            "  ISO volume: {}",
+            String::from_utf8_lossy(pvd.volume_identifier.trimmed())
+        );
+        println!("  ISO size:   {} sectors", iso.volume_blocks());
+        println!(
+            "  Rock Ridge: {}",
+            yes_no(iso.namespaces().contains(Namespace::RockRidge))
+        );
     }
     if let Some(udf) = udf {
         println!(
@@ -277,16 +261,35 @@ fn info(path: &Path) -> Result<()> {
 }
 
 fn verify(path: &Path) -> Result<()> {
-    let iso = IsoImage::open(StdIo::new(BufReader::new(File::open(path)?)))
+    let mut iso = IsoImage::open(File::open(path)?)
         .map_err(|error| format!("ISO namespace is not readable: {error}"))?;
     let udf = UdfVolume::open(StdIo::new(File::open(path)?))
         .map_err(|error| format!("UDF namespace is not readable: {error}"))?;
 
+    let mut view = iso.view(Namespace::Preferred)?;
+    let names_match = view.namespace() != Namespace::Primary;
     let mut iso_nodes = BTreeMap::new();
-    collect_iso(&iso, iso.root_dir().dir_ref(), "", &mut iso_nodes)?;
+    collect_iso(&mut view, "", &mut iso_nodes)?;
     let mut udf_nodes = BTreeMap::new();
     let root = udf.root_dir()?;
     collect_udf(&udf, &root, "", &mut udf_nodes)?;
+
+    if !names_match {
+        println!("  ISO tree has only ISO 9660 identifiers; comparing contents, not names");
+        let mut iso_contents: Vec<_> = iso_nodes.into_values().collect();
+        let mut udf_contents: Vec<_> = udf_nodes.into_values().collect();
+        iso_contents.sort();
+        udf_contents.sort();
+        if iso_contents != udf_contents {
+            return Err("ISO and UDF namespaces differ".into());
+        }
+        println!(
+            "Verified: {} ({} shared entries)",
+            path.display(),
+            iso_contents.len()
+        );
+        return Ok(());
+    }
 
     if iso_nodes != udf_nodes {
         for key in iso_nodes.keys().chain(udf_nodes.keys()) {
@@ -304,31 +307,28 @@ fn verify(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn collect_iso<R: Read + Seek>(
-    iso: &IsoImage<R>,
-    directory: DirectoryRef,
+fn collect_iso(
+    view: &mut IsoView<&mut File>,
     prefix: &str,
     nodes: &mut BTreeMap<String, Node>,
 ) -> Result<()> {
-    for entry in iso.open_dir(directory).entries() {
-        let entry = entry?;
-        if entry.is_special() {
-            continue;
-        }
-        let name = match entry
-            .rrip
-            .as_ref()
-            .and_then(|m| m.alternate_name.as_deref())
-        {
-            Some(rrip_name) => rrip_name.to_string(),
-            None => clean_iso_name(entry.name()),
-        };
+    let dir = if prefix.is_empty() { "/" } else { prefix };
+    let mut entries = Vec::new();
+    for item in view.read_dir(dir)? {
+        let item = item?;
+        entries.push((
+            String::from_utf8_lossy(item.name_bytes()).into_owned(),
+            item.file_type().is_dir(),
+        ));
+    }
+    for (name, is_dir) in entries {
         let path = join(prefix, &name);
-        if entry.is_directory() {
+        if is_dir {
             nodes.insert(path.clone(), Node::Directory);
-            collect_iso(iso, entry.as_dir_ref(iso)?, &path, nodes)?;
+            collect_iso(view, &path, nodes)?;
         } else {
-            nodes.insert(path, Node::File(iso.read_file(&entry)?));
+            let data = view.read_to_vec(&format!("/{path}"))?;
+            nodes.insert(path, Node::File(data));
         }
     }
     Ok(())
@@ -351,25 +351,6 @@ fn collect_udf(
         }
     }
     Ok(())
-}
-
-fn clean_iso_name(bytes: &[u8]) -> String {
-    let decoded;
-    let name = if bytes.len().is_multiple_of(2) && bytes.chunks_exact(2).any(|pair| pair[0] == 0) {
-        let utf16 = bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
-            .collect::<Vec<_>>();
-        decoded = String::from_utf16_lossy(&utf16);
-        std::borrow::Cow::Borrowed(decoded.as_str())
-    } else {
-        String::from_utf8_lossy(bytes)
-    };
-    if let Some((base, _)) = name.rsplit_once(';') {
-        base.to_string()
-    } else {
-        name.into_owned()
-    }
 }
 
 fn join(prefix: &str, name: &str) -> String {

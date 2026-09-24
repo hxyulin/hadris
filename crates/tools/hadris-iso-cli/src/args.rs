@@ -1,5 +1,5 @@
 use clap::Parser;
-use hadris_iso::write::options::BaseIsoLevel;
+use hadris_iso::{IsoLevel, NameCase};
 use std::{path::PathBuf, str::FromStr};
 
 #[derive(Debug, Clone, Parser)]
@@ -209,15 +209,19 @@ pub struct CatArgs {
     pub path: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct ArgLevel(pub BaseIsoLevel);
+/// An ISO level, and whether names keep their case.
+#[derive(Debug, Clone, Copy)]
+pub struct ArgLevel {
+    pub level: IsoLevel,
+    pub name_case: NameCase,
+}
 
 impl Default for ArgLevel {
     fn default() -> Self {
-        Self(BaseIsoLevel::Level1 {
-            supports_lowercase: false,
-            supports_rrip: false,
-        })
+        Self {
+            level: IsoLevel::L1,
+            name_case: NameCase::Upper,
+        }
     }
 }
 
@@ -225,28 +229,14 @@ impl FromStr for ArgLevel {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "1" => Self(BaseIsoLevel::Level1 {
-                supports_lowercase: false,
-                supports_rrip: false,
-            }),
-            "2" => Self(BaseIsoLevel::Level2 {
-                supports_lowercase: false,
-                supports_rrip: false,
-            }),
-            "1l" => Self(BaseIsoLevel::Level1 {
-                supports_lowercase: true,
-                supports_rrip: false,
-            }),
-            "2l" => Self(BaseIsoLevel::Level2 {
-                supports_lowercase: true,
-                supports_rrip: false,
-            }),
-            "3" => Self(BaseIsoLevel::Level3 {
-                supports_lowercase: true,
-                supports_rrip: false,
-            }),
+        let (level, name_case) = match s {
+            "1" => (IsoLevel::L1, NameCase::Upper),
+            "2" => (IsoLevel::L2, NameCase::Upper),
+            "1l" => (IsoLevel::L1, NameCase::Preserve),
+            "2l" => (IsoLevel::L2, NameCase::Preserve),
+            "3" => (IsoLevel::L3, NameCase::Preserve),
             _ => return Err("invalid level (use 1, 2, 1l, 2l, or 3)"),
-        })
+        };
+        Ok(Self { level, name_case })
     }
 }

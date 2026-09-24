@@ -230,26 +230,29 @@ jobs:
 
           # hadris-iso
           - crate: hadris-iso
-            tier: no-std
-            features: "sync,read,joliet"
+            tier: no-std-sync
+            features: "sync"
           - crate: hadris-iso
-            tier: alloc
-            features: "alloc,sync,read,joliet"
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-iso
+            tier: no-std-async-send
+            features: "async-send"
+          - crate: hadris-iso
+            tier: alloc-sync
+            features: "alloc,sync"
+          - crate: hadris-iso
+            tier: alloc-async-send
+            features: "alloc,async-send"
           - crate: hadris-iso
             tier: std
-            features: "std,sync,read,write,joliet"
+            features: "std,sync"
           - crate: hadris-iso
-            tier: async-read
-            features: "alloc,async,read,joliet"
-          - crate: hadris-iso
-            tier: hosted-async-read
-            features: "std,async,read,joliet"
-          - crate: hadris-iso
-            tier: sync-and-async-read
-            features: "alloc,sync,async,read,joliet"
+            tier: hosted-async
+            features: "std,async"
           - crate: hadris-iso
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,joliet,unstable-streaming"
+            features: "std,alloc,sync,async,async-send"
 
           # hadris-udf
           - crate: hadris-udf
@@ -322,8 +325,11 @@ jobs:
             tier: hosted-async-with-cd
             features: "std,async,read,open,cd"
           - crate: hadris-optical
+            tier: iso-only
+            features: "iso,sync"
+          - crate: hadris-optical
             tier: all-capabilities
-            features: "std,alloc,sync,async,read,write,open,cd"
+            features: "std,alloc,sync,async,async-send,read,write,open,cd"
 
           # hadris umbrella/category forwarding
           - crate: hadris
@@ -551,7 +557,7 @@ jobs:
         run: cargo +nightly miri test -p hadris-common --lib
       - name: Miri - hadris-fat (LFN UTF-16, surrogate pairs and name decoding)
         run: "cargo +nightly miri test -p hadris-fat --lib codec::"
-      - name: Miri — hadris-iso (IsoStr / IsoString safety)
-        run: cargo +nightly miri test -p hadris-iso --lib types::iso_str_safety_tests
+      - name: Miri - hadris-iso (on-disk layouts, name and Rock Ridge decoding)
+        run: "cargo +nightly miri test -p hadris-iso --lib -- raw:: name:: rock_ridge::"
       - name: Miri - hadris-part (on-disk layouts, CRC, UTF-16 partition names)
         run: cargo +nightly miri test -p hadris-part --lib

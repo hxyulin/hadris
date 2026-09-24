@@ -1,22 +1,16 @@
 //! El Torito boot catalogs: Hadris output, xorriso output, and QEMU boots.
 
 use std::fs;
-use std::io::Cursor;
-use std::num::NonZeroU16;
-use std::sync::Arc;
 use std::time::Duration;
 
-use hadris_io::StdIo;
-use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
-use hadris_iso::boot::{BaseBootCatalog, EmulationType, PlatformId};
-use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
-use hadris_iso::write::{File as IsoFile, InputEntry, InputFiles, InputTree, IsoImageWriter};
+use hadris_fs::tree::{Content, Tree};
+use hadris_iso::{BootEntry, ElTorito, Emulation, IsoOptions, Platform, VolumeIdentifiers};
 use hadris_tests::harness::qemu;
+use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
 
-use super::{find_boot_catalog, validation_checksum};
+use super::{find_boot_catalog, open, validation_checksum};
 
 /// The line the boot code prints, chosen so firmware chatter cannot match it.
 const BOOT_MARKER: &str = "HADRIS-OK";
@@ -56,132 +50,52 @@ fn padded_boot_image(code: &[u8]) -> Vec<u8> {
 
 /// A Level 1 image with a single no-emulation boot entry for `boot_data`.
 fn hadris_bootable_image(boot_data: Vec<u8>) -> Vec<u8> {
-    let files = InputFiles {
-        path_separator: PathSeparator::ForwardSlash,
-        files: vec![IsoFile::File {
-            name: Arc::new("boot.bin".to_string()),
-            contents: boot_data,
-        }],
-    };
-    let boot_options = BootOptions {
-        write_boot_catalog: true,
-        default: BootEntryOptions {
-            boot_image_path: "boot.bin".to_string(),
-            load_size: Some(NonZeroU16::new(4).unwrap()),
-            boot_info_table: false,
-            grub2_boot_info: false,
-            emulation: EmulationType::NoEmulation,
-        },
-        entries: vec![],
-    };
-    let format_options = IsoFormatOptions {
-        volume_name: "BOOT_TEST".to_string(),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: None,
-        application_id: None,
-        sector_size: 2048,
-        path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures {
-            filenames: BaseIsoLevel::Level1 {
-                supports_lowercase: false,
-                supports_rrip: false,
-            },
-            long_filenames: false,
-            joliet: None,
-            rock_ridge: None,
-            el_torito: Some(boot_options),
-            hybrid_boot: None,
-        },
-        strict_charset: false,
-    };
-    let mut iso_buffer = Cursor::new(vec![0u8; 256 * 2048]);
-    IsoImageWriter::create(StdIo::new(&mut iso_buffer), files, format_options)
-        .expect("Failed to create bootable ISO with hadris-iso");
-    iso_buffer.into_inner()
+    let mut tree = Tree::new();
+    tree.add_file("boot.bin", Content::bytes(boot_data))
+        .unwrap();
+    let options = IsoOptions::default()
+        .with_volume(VolumeIdentifiers::new("BOOT_TEST"))
+        .with_el_torito(
+            ElTorito::new(BootEntry::new("boot.bin").with_load_size(4))
+                .with_catalog_path("boot.catalog"),
+        );
+    write_tree(&tree, &options).expect("Failed to create bootable ISO with hadris-iso")
 }
 
 #[test]
 fn test_hadris_multisection_boot_catalog() {
-    let bios = vec![0x11; 2048];
-    let ppc = vec![0x22; 2048];
-    let uefi = vec![0x33; 4096];
-    let tree = InputTree::new(
-        PathSeparator::ForwardSlash,
-        vec![
-            InputEntry::file("bios.img", bios),
-            InputEntry::file("ppc.img", ppc),
-            InputEntry::file("uefi.img", uefi),
-        ],
-    );
-    let boot = BootOptions {
-        write_boot_catalog: true,
-        default: BootEntryOptions {
-            load_size: Some(NonZeroU16::new(4).unwrap()),
-            boot_image_path: "bios.img".to_string(),
-            boot_info_table: false,
-            grub2_boot_info: false,
-            emulation: EmulationType::NoEmulation,
-        },
-        entries: vec![
-            (
-                BootSectionOptions {
-                    platform: PlatformId::PowerPC,
-                },
-                BootEntryOptions {
-                    load_size: Some(NonZeroU16::new(4).unwrap()),
-                    boot_image_path: "ppc.img".to_string(),
-                    boot_info_table: false,
-                    grub2_boot_info: false,
-                    emulation: EmulationType::NoEmulation,
-                },
-            ),
-            (
-                BootSectionOptions {
-                    platform: PlatformId::UEFI,
-                },
-                BootEntryOptions {
-                    load_size: Some(NonZeroU16::new(8).unwrap()),
-                    boot_image_path: "uefi.img".to_string(),
-                    boot_info_table: false,
-                    grub2_boot_info: false,
-                    emulation: EmulationType::NoEmulation,
-                },
-            ),
-        ],
-    };
-    let options = IsoFormatOptions {
-        volume_name: "MULTIBOOT".to_string(),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: None,
-        application_id: None,
-        sector_size: 2048,
-        features: CreationFeatures {
-            el_torito: Some(boot),
-            ..CreationFeatures::default()
-        },
-        path_separator: PathSeparator::ForwardSlash,
-        strict_charset: false,
-    };
-    let output = IsoImageWriter::create(
-        StdIo::new(Cursor::new(vec![0; 2 * 1024 * 1024])),
-        tree,
-        options,
-    )
-    .unwrap()
-    .into_inner()
-    .into_inner();
+    let mut tree = Tree::new();
+    tree.add_file("bios.img", Content::bytes(vec![0x11; 2048]))
+        .unwrap();
+    tree.add_file("ppc.img", Content::bytes(vec![0x22; 2048]))
+        .unwrap();
+    tree.add_file("uefi.img", Content::bytes(vec![0x33; 4096]))
+        .unwrap();
+    let options = IsoOptions::default()
+        .with_volume(VolumeIdentifiers::new("MULTIBOOT"))
+        .with_el_torito(
+            ElTorito::new(BootEntry::new("bios.img").with_load_size(4))
+                .with_entry(
+                    BootEntry::new("ppc.img")
+                        .with_platform(Platform::PowerPc)
+                        .with_load_size(4),
+                )
+                .with_entry(
+                    BootEntry::new("uefi.img")
+                        .with_platform(Platform::Efi)
+                        .with_load_size(8),
+                )
+                .with_catalog_path("boot.catalog"),
+        );
+    let output = write_tree(&tree, &options).unwrap();
 
     let (_, catalog_lba) = find_boot_catalog(&output).expect("boot record volume descriptor");
     let catalog = &output[catalog_lba * 2048..];
     assert_eq!(catalog[64], 0x90);
-    assert_eq!(catalog[65], PlatformId::PowerPC.to_u8());
+    assert_eq!(catalog[65], Platform::PowerPc.id());
     assert_eq!(u16::from_le_bytes([catalog[66], catalog[67]]), 1);
     assert_eq!(catalog[128], 0x91);
-    assert_eq!(catalog[129], PlatformId::UEFI.to_u8());
+    assert_eq!(catalog[129], Platform::Efi.id());
     assert_eq!(u16::from_le_bytes([catalog[130], catalog[131]]), 1);
     assert_eq!(&catalog[192..224], &[0; 32]);
 
@@ -195,52 +109,23 @@ fn test_hadris_multisection_boot_catalog() {
 
 #[test]
 fn test_floppy_emulation_media_type_and_default_load_size() {
-    let floppy = vec![0x44u8; 2048];
-    let tree = InputTree::new(
-        PathSeparator::ForwardSlash,
-        vec![InputEntry::file("floppy.img", floppy)],
-    );
-    let boot = BootOptions {
-        write_boot_catalog: true,
-        default: BootEntryOptions {
-            load_size: None,
-            boot_image_path: "floppy.img".to_string(),
-            boot_info_table: false,
-            grub2_boot_info: false,
-            emulation: EmulationType::Floppy1_44,
-        },
-        entries: vec![],
-    };
-    let options = IsoFormatOptions {
-        volume_name: "FLOPPYBOOT".to_string(),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: None,
-        application_id: None,
-        sector_size: 2048,
-        features: CreationFeatures {
-            el_torito: Some(boot),
-            ..CreationFeatures::default()
-        },
-        path_separator: PathSeparator::ForwardSlash,
-        strict_charset: false,
-    };
-    let output = IsoImageWriter::create(
-        StdIo::new(Cursor::new(vec![0; 2 * 1024 * 1024])),
-        tree,
-        options,
-    )
-    .unwrap()
-    .into_inner()
-    .into_inner();
+    let mut tree = Tree::new();
+    tree.add_file("floppy.img", Content::bytes(vec![0x44u8; 2048]))
+        .unwrap();
+    let options = IsoOptions::default()
+        .with_volume(VolumeIdentifiers::new("FLOPPYBOOT"))
+        .with_el_torito(
+            ElTorito::new(BootEntry::new("floppy.img").with_emulation(Emulation::Floppy144))
+                .with_catalog_path("boot.catalog"),
+        );
+    let output = write_tree(&tree, &options).unwrap();
 
     let (_, catalog_lba) = find_boot_catalog(&output).expect("boot record volume descriptor");
     let catalog = &output[catalog_lba * 2048..];
     assert_eq!(catalog[32], 0x88, "entry must be bootable");
     assert_eq!(
         catalog[33],
-        EmulationType::Floppy1_44.to_u8(),
+        Emulation::Floppy144.media_type(),
         "media type must record 1.44 MB floppy emulation"
     );
     assert_eq!(
@@ -280,11 +165,12 @@ fn test_eltorito_boot_catalog_comparison() {
     );
     assert_eq!(default_entry[0], 0x88, "Default entry should be bootable");
 
-    let mut catalog_cursor = hadris_io::Cursor::new(&iso_data[catalog_offset..catalog_offset + 64]);
-    let catalog = BaseBootCatalog::parse(&mut catalog_cursor)
-        .expect("hadris-iso should parse the xorriso boot catalog");
-    assert!(catalog.validation.is_valid());
-    assert!(catalog.default_entry.is_bootable());
+    let catalog = open(iso_data)
+        .boot_catalog()
+        .expect("hadris-iso should parse the xorriso boot catalog")
+        .expect("the image has a boot catalog");
+    assert!(catalog.validation().is_valid());
+    assert!(catalog.default_entry().is_bootable());
 }
 
 #[test]

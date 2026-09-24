@@ -9,6 +9,11 @@ macro_rules! sync_only {
 }
 
 #[allow(unused_macros)]
+macro_rules! async_only {
+    ($($item:tt)*) => { $($item)* };
+}
+
+#[allow(unused_macros)]
 macro_rules! local_only {
     ($($item:tt)*) => { $($item)* };
 }

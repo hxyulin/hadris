@@ -1,5 +1,7 @@
 #![cfg(all(feature = "open", feature = "async", feature = "sync", feature = "cd"))]
 
+use hadris_fs::r#async::DriverExt;
+
 use core::future::Future;
 use core::task::{Context, Poll};
 use std::sync::Arc;
@@ -45,16 +47,6 @@ fn create_cd_image(options: hadris_optical::cd::OpticalImageOptions) -> Vec<u8> 
     image.into_inner().into_inner()
 }
 
-fn iso_name(entry: &hadris_optical::iso::r#async::read::DirEntry) -> String {
-    entry
-        .display_name()
-        .chars()
-        .filter(|character| *character != '\0')
-        .collect::<String>()
-        .trim_end_matches(";1")
-        .to_owned()
-}
-
 #[test]
 fn asynchronously_opens_and_recovers_an_iso_source() {
     let bytes = create_cd_image(hadris_optical::cd::OpticalImageOptions::default().iso_only());
@@ -68,34 +60,28 @@ fn asynchronously_opens_and_recovers_an_iso_source() {
         .await
         .unwrap();
         assert_eq!(opened.format(), hadris_optical::OpticalFormat::Iso9660);
-        let iso = opened.as_iso9660().unwrap();
-        let readme = iso.find_path("/DOCS//README.TXT").await.unwrap().unwrap();
-        assert!(readme.is_file());
-        assert_eq!(iso.read_file(&readme).await.unwrap(), PAYLOAD);
-        let unicode = iso.find_path("DOCS/Résumé.txt").await.unwrap().unwrap();
-        assert_eq!(iso.read_file(&unicode).await.unwrap(), PAYLOAD);
-        assert!(iso.find_path("DOCS/MISSING.TXT").await.unwrap().is_none());
-        assert!(
-            iso.find_path("DOCS/README.TXT/CHILD")
-                .await
-                .unwrap()
-                .is_none()
+        let mut opened = opened;
+        let iso = opened.as_iso9660_mut().unwrap();
+        let mut view = iso.view(hadris_optical::iso::Namespace::Preferred).unwrap();
+        assert_eq!(
+            view.read_to_vec("/DOCS//README.TXT").await.unwrap(),
+            PAYLOAD
         );
-        assert!(iso.find_path("../README.TXT").await.is_err());
-
-        let root = iso.open_dir(iso.root_dir().dir_ref());
-        let entries = root.read_entries().await.unwrap();
-        let docs = entries
-            .iter()
-            .find(|entry| entry.is_directory() && iso_name(entry).eq_ignore_ascii_case("DOCS"))
+        assert_eq!(view.read_to_vec("DOCS/Résumé.txt").await.unwrap(), PAYLOAD);
+        assert!(!view.exists("DOCS/MISSING.TXT").await.unwrap());
+        assert_eq!(
+            view.read_to_vec("DOCS/README.TXT/CHILD")
+                .await
+                .unwrap_err()
+                .kind(),
+            hadris_fs::ErrorKind::NotADirectory
+        );
+        let root = view.root();
+        let docs = view
+            .lookup(root, hadris_fs::Name::new("DOCS").unwrap())
+            .await
             .unwrap();
-        let nested = iso.open_dir(docs.as_dir_ref(iso).await.unwrap());
-        let entries = nested.read_entries().await.unwrap();
-        let readme = entries
-            .iter()
-            .find(|entry| entry.is_file() && iso_name(entry).eq_ignore_ascii_case("README.TXT"))
-            .unwrap();
-        assert_eq!(iso.read_file(readme).await.unwrap(), PAYLOAD);
+        assert!(view.node_metadata(docs).await.unwrap().file_type().is_dir());
         let _ = opened.into_inner();
     });
 }
@@ -161,14 +147,10 @@ fn asynchronously_traverses_a_bridge_under_both_policies() {
         )
         .await
         .unwrap();
-        let iso = opened.as_iso9660().unwrap();
-        let root = iso.open_dir(iso.root_dir().dir_ref());
-        let entries = root.read_entries().await.unwrap();
-        assert!(
-            entries.iter().any(|entry| {
-                entry.is_directory() && iso_name(entry).eq_ignore_ascii_case("DOCS")
-            })
-        );
+        let mut opened = opened;
+        let iso = opened.as_iso9660_mut().unwrap();
+        let mut view = iso.view(hadris_optical::iso::Namespace::Preferred).unwrap();
+        assert_eq!(view.read_to_vec("/DOCS/README.TXT").await.unwrap(), PAYLOAD);
         let _ = opened.into_inner();
     });
 }

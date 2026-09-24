@@ -39,8 +39,9 @@ handle.
 | `alloc` | yes | Heap-backed APIs without requiring `std` |
 | `sync` | yes | Synchronous I/O APIs |
 | `async` | no | Asynchronous read/open APIs |
-| `read` | yes | ISO and UDF reading |
-| `write` | yes | Leaf-format writing |
+| `async-send` | no | The `async_send` mode of `hadris-iso` |
+| `read` | yes | UDF reading (ISO reading needs no feature) |
+| `write` | yes | UDF writing (the ISO writer comes with `alloc`) |
 | `detect` | via `open` | Non-destructive ISO/UDF detection |
 | `open` | yes | Detection plus policy-based opening |
 | `iso` | via `open` | Re-export `hadris-iso` |

@@ -8,66 +8,56 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "Pure Rust ISO 9660 library with allocation-free reading, Joliet, Rock Ridge, and El Torito"
+description = "Pure Rust ISO 9660 library with allocation-free reading, Joliet, Rock Ridge, El Torito, hybrid boot and sessions"
 keywords = ["iso9660", "joliet", "rock-ridge", "el-torito", "no-std"]
 categories = ["filesystem", "embedded", "no-std"]
 exclude = ["/spec"]
 
 [package.metadata.docs.rs]
-features = ["std", "write", "joliet", "read", "alloc", "sync", "async", "unstable-streaming"]
+features = ["std", "sync", "async", "async-send"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-default = ["std", "write", "sync"]
-# No-std + no-alloc read support (minimal, for bootloaders)
-read = ["hadris-common/bytemuck"]
-# Heap allocation without full std
-alloc = ["read", "hadris-io/alloc", "hadris-fs/alloc", "hadris-common/alloc"]
-# Standard library support (includes alloc)
-std = ["hadris-io/std", "hadris-common/std", "hadris-common/bytemuck", "alloc", "dep:thiserror", "dep:tracing", "dep:chrono", "chrono/std", "chrono/clock"]
-
-sync = ["hadris-io/sync", "hadris-common/sync"]
-async = ["hadris-io/async", "hadris-common/async"]
-
-write = ["alloc", "std", "dep:hadris-part", "hadris-part/alloc", "dep:hadris-storage"]
-joliet = ["alloc"]
-# Unstable streaming input for the writer (`InputEntryKind::Source`, `FileSource`).
-# Outside the V2 stability promise; enabling it adds a variant to `InputEntryKind`.
-unstable-streaming = ["write"]
+default = ["std", "sync"]
+# The writer, sessions, the boot catalog reader and the tree input.
+alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc", "dep:hadris-part", "hadris-part/alloc"]
+# Implies `alloc`; `std::io::Error` conversions and host files as tree content.
+std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std", "hadris-part/std"]
+sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-part?/sync"]
+async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-part?/async"]
+# The asynchronous API a third time, with `Send` futures, in `async_send`.
+async-send = ["async", "hadris-io/async-send", "hadris-fs/async-send", "hadris-storage/async-send", "hadris-part?/async-send"]
 
 [dependencies]
-bitflags = { workspace = true, features = ["bytemuck"] }
+bitflags = { workspace = true }
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
-thiserror = { workspace = true, optional = true }
-chrono = { workspace = true, optional = true }
-tracing = { workspace = true, optional = true }
-hadris-io = { workspace = true }
-hadris-fs = { workspace = true }
+hadris-io = { workspace = true, default-features = false }
+hadris-fs = { workspace = true, default-features = false }
+hadris-storage = { workspace = true, default-features = false }
 hadris-macros = { workspace = true }
-hadris-common = { workspace = true, features = ["bytemuck"] }
 hadris-part = { workspace = true, default-features = false, optional = true }
-hadris-storage = { workspace = true, default-features = false, optional = true }
-spin.workspace = true
 
 [dev-dependencies]
-hadris-part = { workspace = true, features = ["std", "sync"] }
+hadris-fs = { workspace = true, features = ["contract"] }
 hadris-storage = { workspace = true, features = ["std", "sync"] }
-static_assertions.workspace = true
 tempfile.workspace = true
-criterion.workspace = true
 
 [[test]]
-name = "no_alloc_reader"
-required-features = ["std", "sync", "read"]
+name = "roundtrip"
+required-features = ["std", "sync", "async-send"]
 
 [[test]]
-name = "dir_iter_error"
-required-features = ["std", "sync", "write"]
+name = "contract"
+required-features = ["std", "sync", "async-send"]
 
 [[test]]
-name = "rrip_writer_metadata"
-required-features = ["std", "sync", "write"]
+name = "sessions"
+required-features = ["std", "sync", "async-send"]
 
-[[bench]]
-name = "iso_benchmarks"
-harness = false
+[[test]]
+name = "errors"
+required-features = ["std", "sync"]
+
+[[test]]
+name = "multi_extent"
+required-features = ["std", "sync"]

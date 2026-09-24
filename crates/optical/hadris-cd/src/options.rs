@@ -1,9 +1,7 @@
 //! Configuration options for hybrid CD/DVD image creation
 
-use hadris_iso::boot::options::BootOptions;
-pub use hadris_iso::joliet::JolietLevel;
-use hadris_iso::rrip::RripOptions;
-use hadris_iso::write::options::{BaseIsoLevel, HybridBootOptions};
+pub use hadris_iso::JolietLevel;
+use hadris_iso::{ElTorito, HybridBoot, IsoLevel, NameCase, RockRidge};
 use hadris_udf::UdfRevision;
 
 /// Options for creating a hybrid ISO+UDF image
@@ -18,9 +16,9 @@ pub struct OpticalImageOptions {
     /// UDF options
     pub udf: UdfOptions,
     /// El-Torito boot options
-    pub boot: Option<BootOptions>,
+    pub boot: Option<ElTorito>,
     /// Hybrid boot options (MBR/GPT for USB booting)
-    pub hybrid_boot: Option<HybridBootOptions>,
+    pub hybrid_boot: Option<HybridBoot>,
 }
 
 impl Default for OpticalImageOptions {
@@ -50,19 +48,19 @@ impl OpticalImageOptions {
     }
 
     /// Set Rock Ridge options.
-    pub fn rock_ridge(mut self, options: RripOptions) -> Self {
+    pub fn rock_ridge(mut self, options: RockRidge) -> Self {
         self.iso.rock_ridge = Some(options);
         self
     }
 
     /// Set boot options.
-    pub fn boot(mut self, boot: BootOptions) -> Self {
+    pub fn boot(mut self, boot: ElTorito) -> Self {
         self.boot = Some(boot);
         self
     }
 
     /// Set hybrid boot options for USB booting.
-    pub fn hybrid_boot(mut self, hybrid: HybridBootOptions) -> Self {
+    pub fn hybrid_boot(mut self, hybrid: HybridBoot) -> Self {
         self.hybrid_boot = Some(hybrid);
         self
     }
@@ -85,26 +83,26 @@ impl OpticalImageOptions {
 pub struct IsoOptions {
     /// Enable ISO 9660 (default: true)
     pub enabled: bool,
-    /// Base ISO level (L1 = 8.3, L2 = 30 chars)
-    pub level: BaseIsoLevel,
-    /// Enable ISO 9660:1999 (Level 3, long filenames)
+    /// Interchange level of the primary tree (L1 = 8.3, L2 and L3 = 30 chars)
+    pub level: IsoLevel,
+    /// Whether primary names keep lowercase letters
+    pub name_case: NameCase,
+    /// Enable the ISO 9660:1999 enhanced tree (long filenames)
     pub long_filenames: bool,
     /// Joliet extension (Windows long filenames)
     pub joliet: Option<JolietLevel>,
     /// Rock Ridge extension (POSIX attributes)
-    pub rock_ridge: Option<RripOptions>,
+    pub rock_ridge: Option<RockRidge>,
 }
 
 impl Default for IsoOptions {
     fn default() -> Self {
         Self {
             enabled: true,
-            level: BaseIsoLevel::Level2 {
-                supports_lowercase: false,
-                supports_rrip: false,
-            },
+            level: IsoLevel::L2,
+            name_case: NameCase::Upper,
             long_filenames: true,
-            joliet: Some(JolietLevel::Level3),
+            joliet: Some(JolietLevel::L3),
             rock_ridge: None,
         }
     }
@@ -145,8 +143,8 @@ mod tests {
     fn test_builder_pattern() {
         let opts = OpticalImageOptions::default()
             .volume_id("MY_DISC")
-            .joliet(JolietLevel::Level3)
-            .rock_ridge(RripOptions::default());
+            .joliet(JolietLevel::L3)
+            .rock_ridge(RockRidge::default());
 
         assert_eq!(opts.volume_id, "MY_DISC");
         assert!(opts.iso.joliet.is_some());

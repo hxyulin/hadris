@@ -19,8 +19,9 @@ doc = false
 [dependencies]
 clap.workspace = true
 hadris-cd = { workspace = true, features = ["std", "sync"] }
+hadris-fs = { workspace = true, features = ["std", "sync"] }
 hadris-io = { workspace = true, features = ["std", "sync"] }
-hadris-iso = { workspace = true, features = ["std", "sync", "write", "joliet"] }
+hadris-iso = { workspace = true, features = ["std", "sync"] }
 hadris-udf = { workspace = true, features = ["std", "sync", "write"] }
 
 [dev-dependencies]

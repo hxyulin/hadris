@@ -183,42 +183,20 @@ fn dump_ntfs(data: &[u8]) -> Vec<String> {
 }
 
 fn dump_iso(data: &[u8]) -> Vec<String> {
-    use hadris_iso::read::IsoImage;
+    use hadris_iso::sync::IsoImage;
+    use hadris_iso::Namespace;
+    use hadris_storage::{BlockSize, MemDevice};
 
-    let mut lines = Vec::new();
-    let Ok(image) = IsoImage::open(Cursor::new(data)) else {
-        return lines;
+    let mut bytes = data.to_vec();
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
+    let Ok(mut image) = IsoImage::open(dev) else {
+        return Vec::new();
     };
-    let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(image.root_dir().dir_ref(), String::from("/"), 0u32)];
-    while let Some((dref, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        let dir = image.open_dir(dref);
-        for item in dir.entries() {
-            if budget == 0 {
-                return lines;
-            }
-            budget -= 1;
-            let Ok(entry) = item else { continue };
-            if entry.is_special() {
-                continue;
-            }
-            let child_path = format!("{path}{}", entry.display_name());
-            if entry.is_directory() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = entry.as_dir_ref(&image) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
-                }
-            } else {
-                let content = image.read_file(&entry).unwrap_or_default();
-                let head = &content[..content.len().min(CONTENT_CAP)];
-                lines.push(file_line(entry.total_size(), head, &child_path));
-            }
-        }
+    match image.view(Namespace::Preferred) {
+        Ok(mut view) => dump_driver(&mut view),
+        Err(_) => Vec::new(),
     }
-    lines
 }
 
 fn dump_udf(data: &[u8]) -> Vec<String> {

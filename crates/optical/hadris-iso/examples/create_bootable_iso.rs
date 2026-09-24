@@ -1,101 +1,52 @@
-//! Example: Creating a Bootable ISO
+//! Writes a bootable hybrid image: El Torito for BIOS and UEFI from optical
+//! media, and a hybrid MBR and GPT for USB sticks.
 //!
-//! This example demonstrates how to create a bootable ISO image with El-Torito
-//! boot support. The resulting ISO can be used to boot virtual machines or
-//! be written to physical media.
-//!
-//! Run with: `cargo run --example create_bootable_iso`
+//! ```text
+//! cargo run -p hadris-iso --example create_bootable_iso -- bootable.iso
+//! ```
 
-use std::io::Cursor;
-use std::sync::Arc;
+use hadris_fs::tree::{Content, Tree};
+use hadris_iso::{
+    BootEntry, BootInfo, ElTorito, HybridBoot, IsoLevel, IsoOptions, JolietLevel, Platform,
+    RockRidge, VolumeIdentifiers,
+};
 
-use hadris_iso::boot::EmulationType;
-use hadris_iso::boot::options::{BootEntryOptions, BootOptions};
-use hadris_iso::read::PathSeparator;
-use hadris_iso::write::options::{BaseIsoLevel, CreationFeatures, IsoFormatOptions};
-use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "bootable.iso".into());
 
-fn main() {
-    // Create a simple boot image (normally this would be a real bootloader)
-    // This is just a placeholder that does an infinite loop (jmp $)
-    let mut boot_image = vec![0u8; 2048];
-    boot_image[0] = 0xEB; // jmp
-    boot_image[1] = 0xFE; // -2 (infinite loop)
+    let mut tree = Tree::new();
+    tree.add_file("boot/bios.img", Content::bytes(vec![0u8; 2048]))?;
+    tree.add_file("boot/efi.img", Content::bytes(vec![0u8; 1 << 20]))?;
+    tree.add_file("README.txt", Content::bytes("A hadris-iso example image\n"))?;
 
-    // Create some additional files for the ISO
-    let readme_content = b"This is a bootable ISO created with hadris-iso!\n";
+    let options = IsoOptions::default()
+        .with_volume(VolumeIdentifiers::new("HADRIS_BOOT"))
+        .with_level(IsoLevel::L3)
+        .with_joliet(JolietLevel::L3)
+        .with_rock_ridge(RockRidge::default())
+        .with_el_torito(
+            ElTorito::new(
+                BootEntry::new("boot/bios.img")
+                    .with_load_size(4)
+                    .with_boot_info_table(BootInfo::Standard),
+            )
+            .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi))
+            .with_catalog_path("boot/boot.cat"),
+        )
+        .with_hybrid(HybridBoot::hybrid());
 
-    // Prepare the file tree
-    let files = InputFiles {
-        path_separator: PathSeparator::ForwardSlash,
-        files: vec![
-            IsoFile::File {
-                name: Arc::new("boot.bin".to_string()),
-                contents: boot_image,
-            },
-            IsoFile::File {
-                name: Arc::new("README.TXT".to_string()),
-                contents: readme_content.to_vec(),
-            },
-            IsoFile::Directory {
-                name: Arc::new("docs".to_string()),
-                children: vec![IsoFile::File {
-                    name: Arc::new("MANUAL.TXT".to_string()),
-                    contents: b"User manual goes here.\n".to_vec(),
-                }],
-            },
-        ],
-    };
-
-    // Configure El-Torito boot options
-    let boot_options = BootOptions {
-        write_boot_catalog: true,
-        default: BootEntryOptions {
-            boot_image_path: "boot.bin".to_string(),
-            // Load 4 sectors (4 * 512 = 2048 bytes)
-            load_size: Some(std::num::NonZeroU16::new(4).unwrap()),
-            // Enable boot info table if your bootloader needs it
-            boot_info_table: false,
-            grub2_boot_info: false,
-            emulation: EmulationType::NoEmulation,
-        },
-        entries: vec![],
-    };
-
-    // Configure ISO creation options
-    let format_options = IsoFormatOptions {
-        volume_name: "BOOTABLE_ISO".to_string(),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: None,
-        application_id: None,
-        sector_size: 2048,
-        path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures {
-            filenames: BaseIsoLevel::Level1 {
-                supports_lowercase: false,
-                supports_rrip: false,
-            },
-            long_filenames: false,
-            joliet: None,
-            rock_ridge: None,
-            el_torito: Some(boot_options),
-            hybrid_boot: None,
-        },
-        strict_charset: false,
-    };
-
-    // Create the ISO in memory
-    let mut buffer = hadris_io::StdIo::new(Cursor::new(vec![0u8; 512 * 1024])); // 512KB buffer
-    IsoImageWriter::create(&mut buffer, files, format_options).expect("Failed to create ISO");
-
-    // Write to file
-    let iso_data = buffer.into_inner().into_inner();
-    std::fs::write("bootable.iso", &iso_data).expect("Failed to write ISO file");
-
-    println!("Created bootable.iso ({} bytes)", iso_data.len());
-    println!();
-    println!("You can test it with QEMU:");
-    println!("  qemu-system-x86_64 -cdrom bootable.iso -boot d");
+    let file = std::fs::File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)?;
+    let report = hadris_iso::sync::write(file, &tree, &options)?;
+    println!("Wrote {path}: {} bytes", report.size_bytes());
+    for warning in report.warnings() {
+        println!("warning: {warning}");
+    }
+    Ok(())
 }

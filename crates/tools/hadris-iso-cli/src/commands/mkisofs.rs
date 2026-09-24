@@ -1,19 +1,13 @@
-use std::fs::File;
-use std::io::{self, Seek, Write};
-use std::num::NonZeroU16;
-
-use hadris_io::StdIo;
-use hadris_iso::boot::options::{BootEntryOptions, BootOptions, BootSectionOptions};
-use hadris_iso::boot::{EmulationType, PlatformId};
-use hadris_iso::joliet::JolietLevel;
-use hadris_iso::read::PathSeparator;
-use hadris_iso::rrip::RripOptions;
-use hadris_iso::write::options::{CreationFeatures, HybridBootOptions, IsoFormatOptions};
-use hadris_iso::write::{InputTree, IsoImageWriter};
+use hadris_fs::SystemClock;
+use hadris_iso::{
+    BootEntry, BootInfo, ElTorito, HybridBoot, IsoOptions, JolietLevel, Platform, RockRidge,
+    VolumeIdentifiers,
+};
 
 use super::super::args::MkisofsArgs;
 
-use super::{Result, compute_estimated_size, normalize_path};
+use super::create::CATALOG_PATH;
+use super::{Result, normalize_path, read_source, write_image};
 
 /// xorriso-compatible mkisofs mode
 pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
@@ -23,107 +17,42 @@ pub fn mkisofs(args: MkisofsArgs) -> Result<()> {
         p
     });
 
-    // Gather input files
-    let input = InputTree::from_fs(&args.source, PathSeparator::ForwardSlash)?;
+    let tree = read_source(&args.source)?;
 
-    // Configure boot options
-    let el_torito = if let Some(boot_path) = &args.boot_image {
-        Some(BootOptions {
-            write_boot_catalog: true,
-            default: BootEntryOptions {
-                boot_image_path: normalize_path(boot_path),
-                load_size: NonZeroU16::new(args.boot_load_size.unwrap_or(4)),
-                boot_info_table: args.boot_info_table,
-                grub2_boot_info: false,
-                emulation: EmulationType::NoEmulation,
-            },
-            entries: if let Some(efi_path) = &args.efi_boot {
-                vec![(
-                    BootSectionOptions {
-                        platform: PlatformId::UEFI,
-                    },
-                    BootEntryOptions {
-                        boot_image_path: normalize_path(efi_path),
-                        load_size: None,
-                        boot_info_table: false,
-                        grub2_boot_info: false,
-                        emulation: EmulationType::NoEmulation,
-                    },
-                )]
-            } else {
-                vec![]
-            },
-        })
-    } else {
-        None
-    };
-
-    // Configure hybrid boot
-    let hybrid_boot = if args.isohybrid_mbr.is_some() {
-        Some(HybridBootOptions::mbr())
-    } else {
-        None
-    };
-
-    // Configure format options
-    let format_options = IsoFormatOptions {
-        volume_name: args.volume_name.unwrap_or_else(|| "CDROM".to_string()),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: None,
-        application_id: None,
-        sector_size: 2048,
-        path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures {
-            filenames: hadris_iso::write::options::BaseIsoLevel::Level1 {
-                supports_lowercase: false,
-                supports_rrip: args.rock_ridge,
-            },
-            long_filenames: false,
-            joliet: if args.joliet {
-                Some(JolietLevel::Level3)
-            } else {
-                None
-            },
-            rock_ridge: if args.rock_ridge {
-                Some(RripOptions::default())
-            } else {
-                None
-            },
-            el_torito,
-            hybrid_boot,
-        },
-        strict_charset: false,
-    };
-
-    // Create output buffer with estimated size
-    let estimated_size = compute_estimated_size(&input, &format_options);
-    let mut buffer = io::Cursor::new(vec![0u8; estimated_size as usize]);
-
-    // Write ISO to buffer
-    IsoImageWriter::create(StdIo::new(&mut buffer), input, format_options)?;
-
-    // Seek to end to get actual size
-    buffer.seek(io::SeekFrom::End(0))?;
-    let mut actual_size = buffer.position() as usize;
-
-    // ISO must be at least 32 sectors
-    let min_size = 32 * 2048;
-    if actual_size < min_size {
-        actual_size = min_size;
+    let volume = args.volume_name.as_deref().unwrap_or("CDROM");
+    let mut options = IsoOptions::default()
+        .with_volume(VolumeIdentifiers::new(volume))
+        .with_clock(SystemClock);
+    if args.joliet {
+        options = options.with_joliet(JolietLevel::L3);
+    }
+    if args.rock_ridge {
+        options = options.with_rock_ridge(RockRidge::default());
     }
 
-    let data = buffer.into_inner();
+    if let Some(boot_path) = &args.boot_image {
+        let mut bios = BootEntry::new(normalize_path(boot_path))
+            .with_load_size(args.boot_load_size.unwrap_or(4));
+        if args.boot_info_table {
+            bios = bios.with_boot_info_table(BootInfo::Standard);
+        }
+        let mut el_torito = ElTorito::new(bios).with_catalog_path(CATALOG_PATH);
+        if let Some(efi_path) = &args.efi_boot {
+            el_torito = el_torito
+                .with_entry(BootEntry::new(normalize_path(efi_path)).with_platform(Platform::Efi));
+        }
+        options = options.with_el_torito(el_torito);
+    }
 
-    // Write the ISO to file
-    let mut file = File::create(&output_path)?;
-    file.write_all(&data[..actual_size])?;
+    if let Some(mbr) = &args.isohybrid_mbr {
+        options = options.with_hybrid(HybridBoot::mbr().with_bootstrap(std::fs::read(mbr)?));
+    }
 
+    let report = write_image(&output_path, &tree, &options, false)?;
     println!(
         "Written to {} ({} bytes)",
         output_path.display(),
-        actual_size
+        report.size_bytes().max(32 * 2048)
     );
 
     Ok(())

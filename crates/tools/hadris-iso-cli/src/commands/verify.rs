@@ -1,19 +1,13 @@
 use std::fs::File;
-use std::io::{self, BufReader};
 
-use hadris_io::StdIo;
-use hadris_iso::directory::FileFlags;
-use hadris_iso::read::IsoImage;
-use hadris_iso::susp::SystemUseIter;
-use hadris_iso::types::Endian;
-use hadris_iso::volume::VolumeDescriptor;
-use hadris_iso::{Read, Seek};
+use hadris_fs::FileType;
+use hadris_iso::Namespace;
+use hadris_iso::raw::VolumeDescriptor;
+use hadris_iso::sync::IsoImage;
 
 use super::super::args::VerifyArgs;
 
-use super::Result;
-
-// ── Verify types ──
+use super::{Entry, Result, View, join, list_dir, open};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IssueSeverity {
@@ -42,118 +36,90 @@ impl VerifyIssue {
     }
 }
 
-// ── Verify sub-checks ──
+/// Directory nesting past which the image is assumed to loop.
+const MAX_DEPTH: usize = 256;
 
-fn check_volume_descriptors<R: Read + Seek>(
-    iso: &IsoImage<R>,
+/// What the descriptor scan found.
+struct Descriptors {
+    found_terminator: bool,
+    boot_catalog: Option<u32>,
+    path_table: Option<(u32, u32)>,
+}
+
+fn check_volume_descriptors(
+    iso: &mut IsoImage<File>,
     verbose: bool,
-) -> (Vec<VerifyIssue>, bool, Option<u32>) {
-    let mut issues = Vec::new();
-    let mut found_pvd = false;
-    let mut found_terminator = false;
-    let mut boot_catalog_sector = None;
-
-    for vd in iso.read_volume_descriptors() {
-        match vd {
-            Ok(VolumeDescriptor::Primary(_)) => {
-                found_pvd = true;
+    issues: &mut Vec<VerifyIssue>,
+) -> Descriptors {
+    let mut found = Descriptors {
+        found_terminator: false,
+        boot_catalog: None,
+        path_table: None,
+    };
+    let mut index = 0;
+    loop {
+        let descriptor = match iso.descriptor(index) {
+            Ok(Some(descriptor)) => descriptor,
+            Ok(None) => break,
+            Err(error) => {
+                issues.push(VerifyIssue::error(format!(
+                    "Error reading volume descriptor {index}: {error}"
+                )));
+                break;
+            }
+        };
+        index += 1;
+        match descriptor {
+            VolumeDescriptor::Primary(pvd) => {
+                found.path_table = Some((pvd.type_l_path_table.get(), pvd.path_table_size.get()));
                 if verbose {
                     println!("  Found Primary Volume Descriptor");
                 }
             }
-            Ok(VolumeDescriptor::End(_)) => {
-                found_terminator = true;
+            VolumeDescriptor::Terminator(_) => {
+                found.found_terminator = true;
                 if verbose {
                     println!("  Found Volume Descriptor Set Terminator");
                 }
             }
-            Ok(VolumeDescriptor::BootRecord(br)) => {
-                boot_catalog_sector = Some(br.catalog_ptr.get());
+            VolumeDescriptor::BootRecord(boot) => {
+                if boot.is_el_torito() {
+                    found.boot_catalog = Some(boot.catalog_ptr.get());
+                }
                 if verbose {
                     println!(
                         "  Found Boot Record (catalog sector: {})",
-                        br.catalog_ptr.get()
+                        boot.catalog_ptr.get()
                     );
                 }
             }
-            Ok(VolumeDescriptor::Supplementary(_)) => {
+            VolumeDescriptor::Supplementary(_) => {
                 if verbose {
                     println!("  Found Supplementary Volume Descriptor");
                 }
             }
-            Ok(VolumeDescriptor::Unknown(u)) => {
+            other => {
                 if verbose {
-                    println!("  Found Unknown Volume Descriptor (type {u:?})");
+                    println!(
+                        "  Found Unknown Volume Descriptor (type {:?})",
+                        other.header().kind()
+                    );
                 }
-            }
-            Err(e) => {
-                issues.push(VerifyIssue::error(format!(
-                    "Error reading volume descriptor: {e}"
-                )));
             }
         }
     }
 
-    if !found_pvd {
-        issues.push(VerifyIssue::error("Missing Primary Volume Descriptor"));
-    }
-    if !found_terminator {
+    if !found.found_terminator {
         issues.push(VerifyIssue::error(
             "Missing Volume Descriptor Set Terminator",
         ));
     }
-
-    (issues, found_pvd, boot_catalog_sector)
+    found
 }
 
-fn check_root_directory<R: Read + Seek>(iso: &IsoImage<R>, verbose: bool) -> Vec<VerifyIssue> {
+fn check_volume_size(iso: &IsoImage<File>, file_size: u64, verbose: bool) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
-    let root = iso.root_dir();
-    let mut file_count = 0u64;
-    let mut dir_count = 0u64;
-
-    for entry in root.iter(iso).entries() {
-        match entry {
-            Ok(e) => {
-                let flags = FileFlags::from_bits_truncate(e.header().flags);
-                if flags.contains(FileFlags::DIRECTORY) {
-                    dir_count += 1;
-                } else {
-                    file_count += 1;
-                }
-            }
-            Err(e) => {
-                issues.push(VerifyIssue::error(format!(
-                    "Error reading root directory entry: {e}"
-                )));
-            }
-        }
-    }
-
-    if verbose {
-        println!("  Files in root: {file_count}");
-        println!("  Directories in root: {dir_count}");
-    }
-
-    issues
-}
-
-fn check_volume_size<R: Read + Seek>(
-    iso: &IsoImage<R>,
-    file_size: u64,
-    verbose: bool,
-) -> Vec<VerifyIssue> {
-    let mut issues = Vec::new();
-    let pvd = match iso.read_pvd() {
-        Ok(pvd) => pvd,
-        Err(error) => {
-            issues.push(VerifyIssue::error(format!(
-                "Failed to read primary volume descriptor: {error}"
-            )));
-            return issues;
-        }
-    };
-    let declared_size = pvd.volume_space_size.read() as u64 * 2048;
+    let declared_size = u64::from(iso.volume_blocks()) * u64::from(iso.block_size());
 
     if verbose {
         println!("  Volume size: {declared_size} bytes (declared), {file_size} bytes (file)");
@@ -175,180 +141,20 @@ fn check_volume_size<R: Read + Seek>(
     issues
 }
 
-fn check_path_table_consistency<R: Read + Seek>(
-    iso: &IsoImage<R>,
-    verbose: bool,
-) -> Vec<VerifyIssue> {
+fn check_boot_catalog(iso: &mut IsoImage<File>, verbose: bool) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
-    let pt = iso.path_table();
-    let entries: Vec<_> = match pt.entries(iso).collect::<std::result::Result<Vec<_>, _>>() {
-        Ok(e) => e,
-        Err(e) => {
-            issues.push(VerifyIssue::error(format!(
-                "Failed to read path table: {e}"
-            )));
-            return issues;
-        }
-    };
-
-    let total = entries.len();
-    if verbose {
-        println!("  Path table entries: {total}");
-    }
-
-    if total == 0 {
-        issues.push(VerifyIssue::error("Path table is empty (no root entry)"));
-        return issues;
-    }
-
-    // Root should have parent_index == 1
-    if entries[0].parent_index != 1 {
-        issues.push(VerifyIssue::error(format!(
-            "Root path table entry has parent_index {} (expected 1)",
-            entries[0].parent_index
-        )));
-    }
-
-    for (i, entry) in entries.iter().enumerate() {
-        let idx = i + 1; // path table is 1-indexed
-        let parent = entry.parent_index as usize;
-        if parent < 1 || parent > total {
-            issues.push(VerifyIssue::error(format!(
-                "Path table entry {idx} has invalid parent_index {parent} (valid range: 1..{total})"
-            )));
-            continue;
-        }
-
-        // Try to open the directory at this LBA
-        let dir_ref = hadris_iso::directory::DirectoryRef {
-            extent: hadris_iso::io::LogicalSector(entry.parent_lba as usize),
-            size: 2048, // minimum; actual size may differ but this validates readability
-        };
-        let dir = iso.open_dir(dir_ref);
-        if dir.entries().next().is_none() && entry.parent_lba != 0 {
-            issues.push(VerifyIssue::warning(format!(
-                "Path table entry {} (LBA {}) could not be read as a directory",
-                idx, entry.parent_lba
-            )));
-        }
-    }
-
-    issues
-}
-
-fn check_extent_bounds<R: Read + Seek>(
-    iso: &IsoImage<R>,
-    file_size: u64,
-    verbose: bool,
-) -> Vec<VerifyIssue> {
-    let mut issues = Vec::new();
-    let pvd = match iso.read_pvd() {
-        Ok(pvd) => pvd,
+    let catalog = match iso.boot_catalog() {
+        Ok(Some(catalog)) => catalog,
+        Ok(None) => return issues,
         Err(error) => {
             issues.push(VerifyIssue::error(format!(
-                "Failed to read primary volume descriptor: {error}"
-            )));
-            return issues;
-        }
-    };
-    let volume_size = pvd.volume_space_size.read() as u64 * 2048;
-
-    fn walk_dir<R: Read + Seek>(
-        iso: &IsoImage<R>,
-        dir_ref: hadris_iso::directory::DirectoryRef,
-        volume_size: u64,
-        file_size: u64,
-        issues: &mut Vec<VerifyIssue>,
-        depth: usize,
-    ) {
-        if depth > 256 {
-            issues.push(VerifyIssue::error(
-                "Directory nesting exceeds 256 levels (possible loop in image)",
-            ));
-            return;
-        }
-
-        let dir = iso.open_dir(dir_ref);
-        for entry in dir.entries() {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(e) => {
-                    issues.push(VerifyIssue::error(format!(
-                        "Error reading directory entry at depth {depth}: {e}"
-                    )));
-                    continue;
-                }
-            };
-
-            if entry.is_special() {
-                continue;
-            }
-
-            let extent = entry.header().extent.read() as u64;
-            let data_len = entry.header().data_len.read() as u64;
-            if extent == 0 && data_len == 0 {
-                continue; // zero-size file
-            }
-
-            let end_byte = extent * 2048 + data_len;
-            if end_byte > volume_size {
-                let name = String::from_utf8_lossy(entry.name());
-                issues.push(VerifyIssue::error(format!(
-                    "Entry '{name}' extent end ({end_byte}) exceeds volume size ({volume_size})"
-                )));
-            }
-            if end_byte > file_size {
-                let name = String::from_utf8_lossy(entry.name());
-                issues.push(VerifyIssue::error(format!(
-                    "Entry '{name}' extent end ({end_byte}) exceeds file size ({file_size})"
-                )));
-            }
-
-            if entry.is_directory()
-                && let Ok(child_ref) = entry.as_dir_ref(iso)
-            {
-                walk_dir(iso, child_ref, volume_size, file_size, issues, depth + 1);
-            }
-        }
-    }
-
-    if verbose {
-        println!("  Checking extent bounds...");
-    }
-
-    let root = iso.root_dir();
-    walk_dir(iso, root.dir_ref(), volume_size, file_size, &mut issues, 0);
-
-    issues
-}
-
-fn check_boot_catalog<R: Read + Seek>(
-    iso: &IsoImage<R>,
-    catalog_sector: u32,
-    verbose: bool,
-) -> Vec<VerifyIssue> {
-    let mut issues = Vec::new();
-    let byte_pos = catalog_sector as u64 * 2048;
-    let mut buf = [0u8; 32];
-
-    if let Err(e) = iso.read_bytes_at(byte_pos, &mut buf) {
-        issues.push(VerifyIssue::error(format!(
-            "Failed to read boot catalog at sector {catalog_sector}: {e}"
-        )));
-        return issues;
-    }
-
-    let mut cursor = StdIo::new(io::Cursor::new(&buf[..]));
-    let validation = match hadris_iso::boot::BootValidationEntry::parse(&mut cursor) {
-        Ok(v) => v,
-        Err(e) => {
-            issues.push(VerifyIssue::error(format!(
-                "Failed to parse boot catalog validation entry: {e}"
+                "Failed to read boot catalog: {error}"
             )));
             return issues;
         }
     };
 
+    let validation = catalog.validation();
     if validation.header_id != 0x01 {
         issues.push(VerifyIssue::error(format!(
             "Boot catalog validation entry has header_id {:#x} (expected 0x01)",
@@ -361,209 +167,307 @@ fn check_boot_catalog<R: Read + Seek>(
             validation.key
         )));
     }
-
-    let stored_checksum = validation.checksum.get();
-    let calculated = validation.calculate_checksum();
-    if stored_checksum != calculated {
+    let stored = validation.checksum.get();
+    let calculated = validation.expected_checksum();
+    if stored != calculated {
         issues.push(VerifyIssue::error(format!(
-            "Boot catalog checksum mismatch: stored {stored_checksum:#06x}, calculated {calculated:#06x}"
+            "Boot catalog checksum mismatch: stored {stored:#06x}, calculated {calculated:#06x}"
         )));
     }
 
+    let volume_blocks = iso.volume_blocks();
+    for entry in catalog.entries() {
+        if entry.is_bootable() && entry.load_block() >= volume_blocks {
+            issues.push(VerifyIssue::error(format!(
+                "Boot entry image at block {} is outside the volume ({volume_blocks} blocks)",
+                entry.load_block()
+            )));
+        }
+    }
+
     if verbose && issues.is_empty() {
-        println!("  Boot catalog validation passed");
+        println!(
+            "  Boot catalog validation passed ({} entries)",
+            catalog.entries().len()
+        );
     }
 
     issues
 }
 
-fn check_rrip_fields<R: Read + Seek>(iso: &IsoImage<R>, verbose: bool) -> Vec<VerifyIssue> {
+fn check_path_table(
+    iso: &mut IsoImage<File>,
+    (block, size): (u32, u32),
+    verbose: bool,
+) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
-    let pvd = match iso.read_pvd() {
-        Ok(pvd) => pvd,
-        Err(error) => {
-            issues.push(VerifyIssue::error(format!(
-                "Failed to read primary volume descriptor: {error}"
-            )));
-            return issues;
-        }
-    };
-    let volume_sectors = pvd.volume_space_size.read();
-
-    fn walk_rrip<R: Read + Seek>(
-        iso: &IsoImage<R>,
-        dir_ref: hadris_iso::directory::DirectoryRef,
-        volume_sectors: u32,
-        issues: &mut Vec<VerifyIssue>,
-        depth: usize,
-    ) {
-        if depth > 256 {
-            return;
-        }
-
-        let dir = iso.open_dir(dir_ref);
-        for entry in dir.entries() {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-
-            let su = entry.system_use();
-            if su.is_empty() {
-                if !entry.is_special()
-                    && entry.is_directory()
-                    && let Ok(child_ref) = entry.as_dir_ref(iso)
-                {
-                    walk_rrip(iso, child_ref, volume_sectors, issues, depth + 1);
-                }
-                continue;
-            }
-
-            let is_dir =
-                FileFlags::from_bits_truncate(entry.header().flags).contains(FileFlags::DIRECTORY);
-
-            for field in SystemUseIter::new(su, 0) {
-                match &field {
-                    hadris_iso::susp::SystemUseField::PosixAttributes(px) => {
-                        let mode = px.file_mode.read();
-                        let file_type = mode & 0o170000;
-                        if is_dir && file_type != 0o040000 && file_type != 0 {
-                            let name = String::from_utf8_lossy(entry.name());
-                            issues.push(VerifyIssue::warning(format!(
-                                "PX mode type {file_type:#o} doesn't match directory flag for '{name}'"
-                            )));
-                        } else if !is_dir && file_type == 0o040000 {
-                            let name = String::from_utf8_lossy(entry.name());
-                            issues.push(VerifyIssue::warning(format!(
-                                "PX mode indicates directory but entry '{name}' is not flagged as directory"
-                            )));
-                        }
-                    }
-                    hadris_iso::susp::SystemUseField::ChildLink(cl) => {
-                        if cl.child_directory_location.read() >= volume_sectors {
-                            issues.push(VerifyIssue::error(format!(
-                                "CL location {} exceeds volume size ({} sectors)",
-                                cl.child_directory_location.read(),
-                                volume_sectors
-                            )));
-                        }
-                    }
-                    hadris_iso::susp::SystemUseField::ParentLink(pl) => {
-                        if pl.parent_directory_location.read() >= volume_sectors {
-                            issues.push(VerifyIssue::error(format!(
-                                "PL location {} exceeds volume size ({} sectors)",
-                                pl.parent_directory_location.read(),
-                                volume_sectors
-                            )));
-                        }
-                    }
-                    hadris_iso::susp::SystemUseField::Timestamps(tf) => {
-                        use hadris_iso::rrip::TfFlags;
-                        let stamp_size: usize = if tf.flags.contains(TfFlags::LONG_FORM) {
-                            17
-                        } else {
-                            7
-                        };
-                        let expected_count = [
-                            TfFlags::CREATION,
-                            TfFlags::MODIFY,
-                            TfFlags::ACCESS,
-                            TfFlags::ATTRIBUTES,
-                            TfFlags::BACKUP,
-                            TfFlags::EXPIRATION,
-                            TfFlags::EFFECTIVE,
-                        ]
-                        .iter()
-                        .filter(|f| tf.flags.contains(**f))
-                        .count();
-                        let expected_len = expected_count * stamp_size;
-                        if tf.timestamps.len() != expected_len {
-                            let name = String::from_utf8_lossy(entry.name());
-                            issues.push(VerifyIssue::warning(format!(
-                                "TF timestamp data length {} doesn't match expected {} for entry '{}'",
-                                tf.timestamps.len(),
-                                expected_len,
-                                name
-                            )));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            if !entry.is_special()
-                && is_dir
-                && let Ok(child_ref) = entry.as_dir_ref(iso)
-            {
-                walk_rrip(iso, child_ref, volume_sectors, issues, depth + 1);
-            }
-        }
-    }
-
-    let has_rrip = iso.supports_rrip();
-    if !has_rrip {
-        if verbose {
-            println!("  No Rock Ridge detected, skipping RRIP checks");
-        }
+    let mut table = vec![0u8; size as usize];
+    let offset = u64::from(block) * u64::from(iso.block_size());
+    if let Err(error) = iso.read_bytes(offset, &mut table) {
+        issues.push(VerifyIssue::error(format!(
+            "Failed to read path table: {error}"
+        )));
         return issues;
     }
 
+    let mut records = Vec::new();
+    let mut pos = 0;
+    while pos + 8 <= table.len() {
+        let len = usize::from(table[pos]);
+        if len == 0 {
+            break;
+        }
+        let extent = u32::from_le_bytes(table[pos + 2..pos + 6].try_into().unwrap());
+        let parent = u16::from_le_bytes([table[pos + 6], table[pos + 7]]);
+        records.push((extent, usize::from(parent)));
+        pos += (8 + len + 1) & !1;
+    }
+    if pos > table.len() {
+        issues.push(VerifyIssue::error(
+            "Path table record runs past the table's end",
+        ));
+    }
+
+    let total = records.len();
+    if verbose {
+        println!("  Path table entries: {total}");
+    }
+    if total == 0 {
+        issues.push(VerifyIssue::error("Path table is empty (no root entry)"));
+        return issues;
+    }
+    if records[0].1 != 1 {
+        issues.push(VerifyIssue::error(format!(
+            "Root path table entry has parent_index {} (expected 1)",
+            records[0].1
+        )));
+    }
+
+    let volume_blocks = iso.volume_blocks();
+    for (i, &(extent, parent)) in records.iter().enumerate() {
+        let idx = i + 1;
+        if parent < 1 || parent > total {
+            issues.push(VerifyIssue::error(format!(
+                "Path table entry {idx} has invalid parent_index {parent} (valid range: 1..{total})"
+            )));
+        } else if parent > idx {
+            issues.push(VerifyIssue::warning(format!(
+                "Path table entry {idx} names parent {parent}, which comes after it"
+            )));
+        }
+        if extent >= volume_blocks {
+            issues.push(VerifyIssue::error(format!(
+                "Path table entry {idx} (LBA {extent}) is outside the volume ({volume_blocks} blocks)"
+            )));
+        }
+    }
+
+    issues
+}
+
+/// Every entry below the root with its path, depth first.
+fn walk(view: &mut View<'_>, issues: &mut Vec<VerifyIssue>) -> Vec<(String, Entry)> {
+    fn visit(
+        view: &mut View<'_>,
+        path: &str,
+        depth: usize,
+        out: &mut Vec<(String, Entry)>,
+        issues: &mut Vec<VerifyIssue>,
+    ) {
+        if depth > MAX_DEPTH {
+            issues.push(VerifyIssue::error(format!(
+                "Directory nesting exceeds {MAX_DEPTH} levels (possible loop in image)"
+            )));
+            return;
+        }
+        let entries = match list_dir(view, path) {
+            Ok(entries) => entries,
+            Err(error) => {
+                issues.push(VerifyIssue::error(format!(
+                    "Error reading directory {path}: {error}"
+                )));
+                return;
+            }
+        };
+        for entry in entries {
+            let child = join(path, &entry.name);
+            let is_dir = entry.meta.file_type().is_dir();
+            out.push((child.clone(), entry));
+            if is_dir {
+                visit(view, &child, depth + 1, out, issues);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    visit(view, "/", 0, &mut out, issues);
+    out
+}
+
+fn check_root_directory(view: &mut View<'_>, verbose: bool) -> Vec<VerifyIssue> {
+    let mut issues = Vec::new();
+    match list_dir(view, "/") {
+        Ok(entries) => {
+            if verbose {
+                let dirs = entries
+                    .iter()
+                    .filter(|entry| entry.meta.file_type().is_dir())
+                    .count();
+                println!("  Files in root: {}", entries.len() - dirs);
+                println!("  Directories in root: {dirs}");
+            }
+        }
+        Err(error) => issues.push(VerifyIssue::error(format!(
+            "Error reading root directory: {error}"
+        ))),
+    }
+    issues
+}
+
+fn check_extent_bounds(
+    view: &mut View<'_>,
+    entries: &[(String, Entry)],
+    volume_size: u64,
+    file_size: u64,
+    verbose: bool,
+) -> Vec<VerifyIssue> {
+    let mut issues = Vec::new();
+    if verbose {
+        println!("  Checking extent bounds...");
+    }
+    for (path, entry) in entries {
+        let mut extents = Vec::new();
+        if let Err(error) = view.extents(entry.node, |extent| extents.push(extent)) {
+            issues.push(VerifyIssue::error(format!(
+                "Failed to read the extents of '{path}': {error}"
+            )));
+            continue;
+        }
+        for extent in extents.into_iter().filter(|extent| !extent.is_empty()) {
+            let end = extent.end();
+            if end > volume_size {
+                issues.push(VerifyIssue::error(format!(
+                    "Entry '{path}' extent end ({end}) exceeds volume size ({volume_size})"
+                )));
+            }
+            if end > file_size {
+                issues.push(VerifyIssue::error(format!(
+                    "Entry '{path}' extent end ({end}) exceeds file size ({file_size})"
+                )));
+            }
+        }
+    }
+    issues
+}
+
+fn check_rrip_fields(
+    view: &mut View<'_>,
+    entries: &[(String, Entry)],
+    volume_blocks: u32,
+    verbose: bool,
+) -> Vec<VerifyIssue> {
+    let mut issues = Vec::new();
     if verbose {
         println!("  Checking RRIP field correctness...");
     }
-
-    let root = iso.root_dir();
-    walk_rrip(iso, root.dir_ref(), volume_sectors, &mut issues, 0);
-
+    for (path, entry) in entries {
+        let info = match view.rock_ridge(entry.node) {
+            Ok(Some(info)) => info,
+            Ok(None) => continue,
+            Err(error) => {
+                issues.push(VerifyIssue::error(format!(
+                    "Failed to read Rock Ridge entries of '{path}': {error}"
+                )));
+                continue;
+            }
+        };
+        let is_dir = match view.raw_record(entry.node) {
+            Ok(record) => record.header().is_directory(),
+            Err(_) => entry.meta.file_type() == FileType::Dir,
+        };
+        if let Some(mode) = info.mode() {
+            let file_type = mode & 0o170000;
+            if is_dir && file_type != 0o040000 && file_type != 0 {
+                issues.push(VerifyIssue::warning(format!(
+                    "PX mode type {file_type:#o} doesn't match directory flag for '{path}'"
+                )));
+            } else if !is_dir && file_type == 0o040000 {
+                issues.push(VerifyIssue::warning(format!(
+                    "PX mode indicates directory but entry '{path}' is not flagged as directory"
+                )));
+            }
+        }
+        if let Some(block) = info.child_link()
+            && block >= volume_blocks
+        {
+            issues.push(VerifyIssue::error(format!(
+                "CL location {block} of '{path}' exceeds volume size ({volume_blocks} sectors)"
+            )));
+        }
+        if let Some(block) = info.parent_link()
+            && block >= volume_blocks
+        {
+            issues.push(VerifyIssue::error(format!(
+                "PL location {block} of '{path}' exceeds volume size ({volume_blocks} sectors)"
+            )));
+        }
+    }
     issues
 }
 
 /// Verify ISO image integrity
 pub fn verify(args: VerifyArgs) -> Result<()> {
-    let file = File::open(&args.input)?;
-    let file_size = file.metadata()?.len();
-    let reader = StdIo::new(BufReader::new(file));
-    let iso = IsoImage::open(reader)?;
+    let file_size = std::fs::metadata(&args.input)?.len();
+    let mut iso = open(&args.input)?;
 
     if args.verbose {
         println!("Verifying: {}", args.input.display());
     }
 
     let mut all_issues = Vec::new();
-
-    // 1. Volume descriptors (always)
-    let (vd_issues, found_pvd, boot_catalog_sector) = check_volume_descriptors(&iso, args.verbose);
-    all_issues.extend(vd_issues);
-
-    // 2. Root directory (always)
-    all_issues.extend(check_root_directory(&iso, args.verbose));
-
-    // 3. Volume size (always, if PVD was found)
-    if found_pvd {
-        all_issues.extend(check_volume_size(&iso, file_size, args.verbose));
+    let descriptors = check_volume_descriptors(&mut iso, args.verbose, &mut all_issues);
+    all_issues.extend(check_volume_size(&iso, file_size, args.verbose));
+    if descriptors.boot_catalog.is_some() {
+        all_issues.extend(check_boot_catalog(&mut iso, args.verbose));
+    }
+    if args.strict
+        && let Some(table) = descriptors.path_table
+    {
+        all_issues.extend(check_path_table(&mut iso, table, args.verbose));
     }
 
-    // 4. Boot catalog (always, if boot record present)
-    if let Some(catalog_sector) = boot_catalog_sector {
-        all_issues.extend(check_boot_catalog(&iso, catalog_sector, args.verbose));
+    let volume_blocks = iso.volume_blocks();
+    let volume_size = u64::from(volume_blocks) * u64::from(iso.block_size());
+    let has_rrip = iso.namespaces().contains(Namespace::RockRidge);
+    {
+        let mut view = iso.view(Namespace::Primary)?;
+        all_issues.extend(check_root_directory(&mut view, args.verbose));
+        if args.strict {
+            let entries = walk(&mut view, &mut all_issues);
+            all_issues.extend(check_extent_bounds(
+                &mut view,
+                &entries,
+                volume_size,
+                file_size,
+                args.verbose,
+            ));
+        }
+    }
+    if args.strict {
+        if has_rrip {
+            let mut view = iso.view(Namespace::RockRidge)?;
+            let entries = walk(&mut view, &mut all_issues);
+            all_issues.extend(check_rrip_fields(
+                &mut view,
+                &entries,
+                volume_blocks,
+                args.verbose,
+            ));
+        } else if args.verbose {
+            println!("  No Rock Ridge detected, skipping RRIP checks");
+        }
     }
 
-    // 5. Path table consistency (strict only)
-    if args.strict && found_pvd {
-        all_issues.extend(check_path_table_consistency(&iso, args.verbose));
-    }
-
-    // 6. Extent bounds (strict only)
-    if args.strict && found_pvd {
-        all_issues.extend(check_extent_bounds(&iso, file_size, args.verbose));
-    }
-
-    // 7. RRIP fields (strict only, if Rock Ridge detected)
-    if args.strict && found_pvd {
-        all_issues.extend(check_rrip_fields(&iso, args.verbose));
-    }
-
-    // Report results
     let errors: Vec<_> = all_issues
         .iter()
         .filter(|i| i.severity == IssueSeverity::Error)

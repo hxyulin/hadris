@@ -1,59 +1,51 @@
-use std::fs::File;
-use std::io::BufReader;
-
-use hadris_io::StdIo;
-use hadris_iso::directory::FileFlags;
-use hadris_iso::read::IsoImage;
+use hadris_fs::FileType;
 
 use super::super::args::LsArgs;
 
-use super::{Result, display_name, navigate_to_path};
+use super::{Result, first_block, list_dir, open, view_for};
+
+fn type_char(file_type: FileType) -> char {
+    match file_type {
+        FileType::Dir => 'd',
+        FileType::Symlink => 'l',
+        FileType::CharDevice => 'c',
+        FileType::BlockDevice => 'b',
+        FileType::Fifo => 'p',
+        FileType::Socket => 's',
+        _ => '-',
+    }
+}
 
 /// List directory contents
 pub fn ls(args: LsArgs) -> Result<()> {
-    let file = File::open(&args.input)?;
-    let reader = StdIo::new(BufReader::new(file));
-    let iso = IsoImage::open(reader)?;
-    let entry_type = iso.root_dir().entry_type();
+    let mut iso = open(&args.input)?;
+    let mut view = view_for(&mut iso, &args.path)?;
+    let entries = list_dir(&mut view, &args.path)?;
 
-    let target = navigate_to_path(&iso, &args.path)?;
-    let dir = iso.open_dir(target);
-
-    for entry in dir.entries() {
-        let entry = entry?;
-        // Handle special entries
-        let display_name = match entry.name() {
-            [0x00] => {
-                if !args.all {
-                    continue;
-                }
-                ".".to_string()
-            }
-            [0x01] => {
-                if !args.all {
-                    continue;
-                }
-                "..".to_string()
-            }
-            _ => display_name(&entry, entry_type),
-        };
-
-        let flags = FileFlags::from_bits_truncate(entry.header().flags);
-
-        if args.long {
-            let type_char = if flags.contains(FileFlags::DIRECTORY) {
-                'd'
+    if args.all {
+        for name in [".", ".."] {
+            if args.long {
+                println!("d  {:>10}  {:>8}  {name}", "", "");
             } else {
-                '-'
-            };
-            let size = entry.header().data_len.read();
-            let extent = entry.header().extent.read();
+                println!("{name}/");
+            }
+        }
+    }
 
-            println!("{type_char}  {size:>10}  {extent:>8}  {display_name}");
-        } else if flags.contains(FileFlags::DIRECTORY) {
-            println!("{display_name}/");
+    for entry in entries {
+        let file_type = entry.meta.file_type();
+        if args.long {
+            let block = first_block(&mut view, entry.node)?;
+            println!(
+                "{}  {:>10}  {block:>8}  {}",
+                type_char(file_type),
+                entry.meta.len(),
+                entry.name
+            );
+        } else if file_type.is_dir() {
+            println!("{}/", entry.name);
         } else {
-            println!("{display_name}");
+            println!("{}", entry.name);
         }
     }
 

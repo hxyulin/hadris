@@ -2,20 +2,19 @@
 
 use std::fs;
 
-use hadris_iso::volume::VolumeDescriptor;
+use hadris_iso::raw::VolumeDescriptor;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
 
-use super::{open_file, xorriso_sample_image};
+use super::{descriptors, open_file, volume_id, xorriso_sample_image};
 
 #[test]
 fn test_read_xorriso_minimal_iso() {
     let Some((_temp, iso_path)) = xorriso_sample_image(xorriso::create_minimal) else {
         return;
     };
-    let image = open_file(&iso_path);
-    let pvd = image.read_pvd().unwrap();
-    assert_eq!(pvd.volume_identifier.to_str().trim(), "MINIMAL");
+    let mut image = open_file(&iso_path);
+    assert_eq!(volume_id(&mut image), "MINIMAL");
 }
 
 #[test]
@@ -23,13 +22,12 @@ fn test_read_xorriso_joliet_iso() {
     let Some((_temp, iso_path)) = xorriso_sample_image(xorriso::create_joliet) else {
         return;
     };
-    let image = open_file(&iso_path);
-    let pvd = image.read_pvd().unwrap();
-    assert_eq!(pvd.volume_identifier.to_str().trim(), "JOLIET_TEST");
+    let mut image = open_file(&iso_path);
+    assert_eq!(volume_id(&mut image), "JOLIET_TEST");
 
-    let has_joliet = image
-        .read_volume_descriptors()
-        .any(|vd| matches!(vd, Ok(VolumeDescriptor::Supplementary(_))));
+    let has_joliet = descriptors(&mut image)
+        .iter()
+        .any(|vd| matches!(vd, VolumeDescriptor::Supplementary(_)));
     assert!(
         has_joliet,
         "Should have supplementary volume descriptor for Joliet"
@@ -41,9 +39,8 @@ fn test_read_xorriso_rockridge_iso() {
     let Some((_temp, iso_path)) = xorriso_sample_image(xorriso::create_joliet_rock_ridge) else {
         return;
     };
-    let image = open_file(&iso_path);
-    let pvd = image.read_pvd().unwrap();
-    assert_eq!(pvd.volume_identifier.to_str().trim(), "TEST_VOLUME");
+    let mut image = open_file(&iso_path);
+    assert_eq!(volume_id(&mut image), "TEST_VOLUME");
 }
 
 #[test]
@@ -60,10 +57,10 @@ fn test_unicode_filenames_joliet() {
     fs::write(content_dir.join("한국어.txt"), "Korean filename\n").unwrap();
     xorriso::create_joliet(&content_dir, &iso_path).unwrap();
 
-    let image = open_file(&iso_path);
-    let has_joliet = image
-        .read_volume_descriptors()
-        .any(|vd| matches!(vd, Ok(VolumeDescriptor::Supplementary(_))));
+    let mut image = open_file(&iso_path);
+    let has_joliet = descriptors(&mut image)
+        .iter()
+        .any(|vd| matches!(vd, VolumeDescriptor::Supplementary(_)));
     assert!(has_joliet, "Should have Joliet supplementary volume");
 }
 
@@ -79,15 +76,15 @@ fn test_volume_descriptor_chain() {
     fs::write(content_dir.join("test.txt"), "test").unwrap();
     xorriso::create_joliet_rock_ridge(&content_dir, &iso_path).unwrap();
 
-    let image = open_file(&iso_path);
+    let mut image = open_file(&iso_path);
     let mut primary_count = 0;
     let mut supplementary_count = 0;
     let mut terminator_count = 0;
-    for vd_result in image.read_volume_descriptors() {
-        match vd_result {
-            Ok(VolumeDescriptor::Primary(_)) => primary_count += 1,
-            Ok(VolumeDescriptor::Supplementary(_)) => supplementary_count += 1,
-            Ok(VolumeDescriptor::End(_)) => terminator_count += 1,
+    for vd in descriptors(&mut image) {
+        match vd {
+            VolumeDescriptor::Primary(_) => primary_count += 1,
+            VolumeDescriptor::Supplementary(_) => supplementary_count += 1,
+            VolumeDescriptor::Terminator(_) => terminator_count += 1,
             _ => {}
         }
     }

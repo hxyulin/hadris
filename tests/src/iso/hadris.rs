@@ -1,22 +1,23 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Cursor;
 use std::path::Path;
-use std::sync::Arc;
 
-use hadris_io::StdIo;
-use hadris_iso::directory::DirectoryRef;
-use hadris_iso::read::{IsoImage, PathSeparator};
-use hadris_iso::write::options::{CreationFeatures, IsoFormatOptions};
-use hadris_iso::write::{File as IsoFile, InputFiles, IsoImageWriter};
+use hadris_fs::sync::DriverExt;
+use hadris_fs::tree::{Content, Tree};
+use hadris_iso::sync::{IsoImage, IsoView, plan};
+use hadris_iso::{Charset, IsoOptions, Namespace, VolumeIdentifiers};
+use hadris_storage::{BlockSize, MemDevice};
 
 use super::adapter::{IsoConsumer, IsoProducer};
 use super::model::{IsoState, compare_state, strip_version};
-use super::{SECTOR_SIZE, spec};
+use super::spec;
 use crate::harness::join_path;
 use crate::harness::tree::EntryData;
 
 pub const NAME: &str = "Hadris";
+
+/// An image held in memory.
+pub type Image = IsoImage<MemDevice<Vec<u8>>>;
 
 /// The Hadris ISO implementation as a peer of the external tools.
 pub struct HadrisIso;
@@ -41,41 +42,62 @@ impl IsoConsumer for HadrisIso {
     }
 }
 
+/// Opens an image held in memory. The bytes are padded to whole 512-byte
+/// device blocks.
+pub fn open(mut bytes: Vec<u8>) -> Result<Image, String> {
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
+    IsoImage::open(dev).map_err(|error| error.to_string())
+}
+
+/// Writes `tree` into memory, sized by `plan`.
+pub fn write_tree<C: hadris_fs::Clock>(
+    tree: &Tree,
+    options: &IsoOptions<C>,
+) -> Result<Vec<u8>, String> {
+    let size = plan(tree, options)
+        .map_err(|error| error.to_string())?
+        .size_bytes();
+    let size = usize::try_from(size).map_err(|error| error.to_string())?;
+    let mut dev = MemDevice::new(vec![0u8; size], BlockSize::new(2048).unwrap());
+    hadris_iso::sync::write(&mut dev, tree, options).map_err(|error| error.to_string())?;
+    Ok(dev.into_inner())
+}
+
+/// The tree of a conformance state.
+pub fn tree(state: &IsoState) -> Result<Tree, String> {
+    let mut tree = Tree::new();
+    for (path, data) in &state.entries {
+        let result = match data {
+            EntryData::Directory => tree.add_dir(path),
+            EntryData::File(contents) => tree.add_file(path, Content::bytes(contents.clone())),
+        };
+        result.map_err(|error| format!("{path}: {error}"))?;
+    }
+    Ok(tree)
+}
+
 /// Writes a strict Level 1 image in memory.
 pub fn write(state: &IsoState) -> Result<Vec<u8>, String> {
-    let options = IsoFormatOptions {
-        volume_name: state.volume_id.clone(),
-        system_id: None,
-        volume_set_id: None,
-        publisher_id: None,
-        preparer_id: None,
-        application_id: Some("HADRIS CONFORMANCE".to_string()),
-        sector_size: SECTOR_SIZE,
-        path_separator: PathSeparator::ForwardSlash,
-        features: CreationFeatures::default(),
-        strict_charset: true,
-    };
-    IsoImageWriter::create(
-        StdIo::new(Cursor::new(Vec::new())),
-        input_files(state),
-        options,
-    )
-    .map(|cursor| cursor.into_inner().into_inner())
-    .map_err(|error| error.to_string())
+    let options = IsoOptions::default()
+        .with_volume(
+            VolumeIdentifiers::new(state.volume_id.clone()).with_application("HADRIS CONFORMANCE"),
+        )
+        .with_charset(Charset::Strict);
+    write_tree(&tree(state)?, &options)
 }
 
 pub fn snapshot(bytes: Vec<u8>) -> Result<IsoState, String> {
-    let image =
-        IsoImage::open(StdIo::new(Cursor::new(bytes))).map_err(|error| error.to_string())?;
-    let volume_id = image
-        .read_pvd()
-        .map_err(|error| error.to_string())?
-        .volume_identifier
-        .to_str()
-        .trim_end()
-        .to_string();
+    let mut image = open(bytes)?;
+    let pvd = image
+        .primary_descriptor()
+        .map_err(|error| error.to_string())?;
+    let volume_id = String::from_utf8_lossy(pvd.volume_identifier.trimmed()).into_owned();
+    let mut view = image
+        .view(Namespace::Primary)
+        .map_err(|error| error.to_string())?;
     let mut entries = BTreeMap::new();
-    snapshot_dir(&image, image.root_dir().dir_ref(), "/", &mut entries)?;
+    snapshot_dir(&mut view, "/", &mut entries)?;
     Ok(IsoState { volume_id, entries })
 }
 
@@ -87,57 +109,29 @@ pub fn verify_image(label: &str, bytes: Vec<u8>, expected: &IsoState) -> Result<
     compare_state(&format!("Hadris reading {label}"), expected, &hadris)
 }
 
-fn input_files(state: &IsoState) -> InputFiles {
-    fn children(state: &IsoState, parent: &str) -> Vec<IsoFile> {
-        state
-            .entries
-            .iter()
-            .filter_map(|(path, data)| {
-                let relative = path.strip_prefix(parent)?;
-                if relative.is_empty() || relative.contains('/') {
-                    return None;
-                }
-                let name = Arc::new(relative.to_string());
-                Some(match data {
-                    EntryData::Directory => IsoFile::Directory {
-                        name,
-                        children: children(state, &format!("{path}/")),
-                    },
-                    EntryData::File(contents) => IsoFile::File {
-                        name,
-                        contents: contents.clone(),
-                    },
-                })
-            })
-            .collect()
-    }
-
-    InputFiles {
-        path_separator: PathSeparator::ForwardSlash,
-        files: children(state, "/"),
-    }
-}
-
-fn snapshot_dir(
-    image: &IsoImage<StdIo<Cursor<Vec<u8>>>>,
-    directory: DirectoryRef,
+/// Every entry of the directory `path` of `view`, keyed by path, with the
+/// version suffix of each name removed.
+pub fn snapshot_dir<D: hadris_storage::sync::BlockDevice>(
+    view: &mut IsoView<D>,
     path: &str,
     entries: &mut BTreeMap<String, EntryData>,
 ) -> Result<(), String> {
-    for entry in image.open_dir(directory).entries() {
-        let entry = entry.map_err(|error| error.to_string())?;
-        if entry.is_special() {
-            continue;
-        }
-        let display_name = entry.display_name();
-        let name = strip_version(&display_name);
-        let child_path = join_path(path, name);
-        if entry.is_directory() {
-            let child = entry.as_dir_ref(image).map_err(|error| error.to_string())?;
+    let mut children = Vec::new();
+    for item in view.read_dir(path).map_err(|error| error.to_string())? {
+        let item = item.map_err(|error| error.to_string())?;
+        let name = String::from_utf8_lossy(item.name_bytes()).into_owned();
+        children.push((name, item.file_type().is_dir()));
+    }
+    for (name, is_dir) in children {
+        let child_path = join_path(path, strip_version(&name));
+        let source = join_path(path, &name);
+        if is_dir {
             entries.insert(child_path.clone(), EntryData::Directory);
-            snapshot_dir(image, child, &child_path, entries)?;
+            snapshot_dir(view, &source, entries)?;
         } else {
-            let contents = image.read_file(&entry).map_err(|error| error.to_string())?;
+            let contents = view
+                .read_to_vec(&source)
+                .map_err(|error| error.to_string())?;
             entries.insert(child_path, EntryData::File(contents));
         }
     }

@@ -10,7 +10,7 @@ where
     S: Read + Seek,
 {
     /// An opened ISO 9660 filesystem.
-    Iso9660(hadris_iso::r#async::read::IsoImage<&'a mut S>),
+    Iso9660(hadris_iso::r#async::IsoImage<StreamBlocks<&'a mut S>>),
     /// An opened UDF filesystem.
     Udf(hadris_udf::r#async::fs::UdfVolume<&'a mut S>),
 }
@@ -42,10 +42,13 @@ where
         })?;
         source.seek(SeekFrom::Start(0)).await.map_err(Error::Io)?;
         match selected {
-            OpticalFormat::Iso9660 => hadris_iso::r#async::read::IsoImage::open(source)
-                .await
-                .map(Self::Iso9660)
-                .map_err(Error::Iso),
+            OpticalFormat::Iso9660 => {
+                let blocks = StreamBlocks::new(source).await.map_err(Error::Io)?;
+                hadris_iso::r#async::IsoImage::open(blocks)
+                    .await
+                    .map(Self::Iso9660)
+                    .map_err(|err| Error::Iso(err.into_error().into()))
+            }
             OpticalFormat::Udf => hadris_udf::r#async::fs::UdfVolume::open(source)
                 .await
                 .map(Self::Udf)
@@ -62,7 +65,7 @@ where
     }
 
     /// Borrows the ISO 9660 handle when that format was selected.
-    pub fn as_iso9660(&self) -> Option<&hadris_iso::r#async::read::IsoImage<&'a mut S>> {
+    pub fn as_iso9660(&self) -> Option<&hadris_iso::r#async::IsoImage<StreamBlocks<&'a mut S>>> {
         match self {
             Self::Iso9660(image) => Some(image),
             Self::Udf(_) => None,
@@ -80,7 +83,7 @@ where
     /// Mutably borrows the ISO 9660 handle when that format was selected.
     pub fn as_iso9660_mut(
         &mut self,
-    ) -> Option<&mut hadris_iso::r#async::read::IsoImage<&'a mut S>> {
+    ) -> Option<&mut hadris_iso::r#async::IsoImage<StreamBlocks<&'a mut S>>> {
         match self {
             Self::Iso9660(image) => Some(image),
             Self::Udf(_) => None,
@@ -98,8 +101,56 @@ where
     /// Closes the selected filesystem and returns the borrowed source.
     pub fn into_inner(self) -> &'a mut S {
         match self {
-            Self::Iso9660(image) => image.into_inner(),
+            Self::Iso9660(image) => image.into_inner().into_inner(),
             Self::Udf(image) => image.into_inner(),
         }
+    }
+}
+
+/// A legacy byte stream as a block device of 2048-byte blocks, so the
+/// ISO 9660 reader can open it. Transitional until the optical facade moves
+/// to block devices.
+#[derive(Debug)]
+pub struct StreamBlocks<S> {
+    inner: S,
+    blocks: u64,
+}
+
+impl<S: Seek> StreamBlocks<S> {
+    /// Wraps `inner`, measuring its length.
+    pub async fn new(mut inner: S) -> core::result::Result<Self, hadris_io::legacy::Error> {
+        let len = inner.seek(SeekFrom::End(0)).await?;
+        Ok(Self {
+            inner,
+            blocks: len / 2048,
+        })
+    }
+
+    /// Returns the stream.
+    pub fn into_inner(self) -> S {
+        self.inner
+    }
+}
+
+impl<S> hadris_io::ErrorType for StreamBlocks<S> {
+    type Error = hadris_io::legacy::Error;
+}
+
+impl<S: Read + Seek> hadris_storage::r#async::BlockDevice for StreamBlocks<S> {
+    fn block_size(&self) -> hadris_storage::BlockSize {
+        const { hadris_storage::BlockSize::new(2048).unwrap() }
+    }
+
+    fn block_count(&self) -> u64 {
+        self.blocks
+    }
+
+    async fn read_blocks(
+        &mut self,
+        first: hadris_storage::BlockIndex,
+        buf: &mut [u8],
+    ) -> core::result::Result<(), Self::Error> {
+        self.inner.seek(SeekFrom::Start(first.get() * 2048)).await?;
+        self.inner.read_exact(buf).await
     }
 }

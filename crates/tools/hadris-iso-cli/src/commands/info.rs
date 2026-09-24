@@ -1,100 +1,112 @@
-use std::fs::File;
-use std::io::BufReader;
-
-use hadris_io::StdIo;
-use hadris_iso::joliet::JolietLevel;
-use hadris_iso::read::IsoImage;
-use hadris_iso::types::Endian;
-use hadris_iso::volume::VolumeDescriptor;
+use hadris_iso::raw::VolumeDescriptor;
+use hadris_iso::{JolietLevel, Namespace};
 
 use super::super::args::InfoArgs;
 
-use super::Result;
+use super::{Result, open};
+
+fn text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn ucs2(bytes: &[u8]) -> String {
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+        .collect();
+    String::from_utf16_lossy(&units)
+        .trim_end_matches([' ', '\0'])
+        .to_string()
+}
 
 /// Display information about an ISO image
 pub fn info(args: InfoArgs) -> Result<()> {
-    let file = File::open(&args.input)?;
-    let reader = StdIo::new(BufReader::new(file));
-    let iso = IsoImage::open(reader)?;
+    let mut iso = open(&args.input)?;
+    let block_size = u64::from(iso.block_size());
 
     println!("ISO 9660 Image: {}", args.input.display());
     println!();
 
-    // Read and display volume descriptors
-    let mut has_boot = false;
-    let mut has_joliet = false;
-    let has_rockridge = iso.supports_rrip();
-
-    for vd in iso.read_volume_descriptors() {
-        let vd = vd?;
-        match vd {
+    let mut index = 0;
+    while let Some(descriptor) = iso.descriptor(index)? {
+        index += 1;
+        match descriptor {
             VolumeDescriptor::Primary(pvd) => {
                 println!("Primary Volume Descriptor:");
-                println!("  Volume ID:        {}", pvd.volume_identifier);
-                println!("  System ID:        {}", pvd.system_identifier);
-                println!("  Volume Set ID:    {}", pvd.volume_set_identifier);
-                println!("  Publisher ID:     {}", pvd.publisher_identifier);
-                println!("  Preparer ID:      {}", pvd.preparer_identifier);
-                println!("  Application ID:   {}", pvd.application_identifier);
                 println!(
-                    "  Volume Size:      {} sectors ({} bytes)",
-                    pvd.volume_space_size.read(),
-                    pvd.volume_space_size.read() as u64 * 2048
+                    "  Volume ID:        {}",
+                    text(pvd.volume_identifier.trimmed())
                 );
                 println!(
-                    "  Block Size:       {} bytes",
-                    pvd.logical_block_size.read()
+                    "  System ID:        {}",
+                    text(pvd.system_identifier.trimmed())
                 );
-                println!("  Path Table Size:  {} bytes", pvd.path_table_size.read());
+                println!(
+                    "  Volume Set ID:    {}",
+                    text(pvd.volume_set_identifier.trimmed())
+                );
+                println!(
+                    "  Publisher ID:     {}",
+                    text(pvd.publisher_identifier.trimmed())
+                );
+                println!(
+                    "  Preparer ID:      {}",
+                    text(pvd.preparer_identifier.trimmed())
+                );
+                println!(
+                    "  Application ID:   {}",
+                    text(pvd.application_identifier.trimmed())
+                );
+                let blocks = u64::from(pvd.volume_space_size.get());
+                println!(
+                    "  Volume Size:      {blocks} sectors ({} bytes)",
+                    blocks * block_size
+                );
+                println!("  Block Size:       {block_size} bytes");
+                println!("  Path Table Size:  {} bytes", pvd.path_table_size.get());
                 if args.verbose {
                     println!(
                         "  Root Extent:      sector {}",
-                        pvd.dir_record.header.extent.read()
+                        pvd.root.header.extent.get()
                     );
                     println!(
                         "  Root Size:        {} bytes",
-                        pvd.dir_record.header.data_len.read()
+                        pvd.root.header.data_len.get()
                     );
                 }
             }
             VolumeDescriptor::BootRecord(boot) => {
-                has_boot = true;
                 println!();
                 println!("Boot Record (El-Torito):");
-                let sys_id = core::str::from_utf8(&boot.boot_system_identifier)
-                    .unwrap_or("<invalid>")
-                    .trim();
-                println!("  System ID:        {sys_id}");
+                println!(
+                    "  System ID:        {}",
+                    text(&boot.boot_system_identifier).trim_end_matches(['\0', ' '])
+                );
                 println!("  Catalog Sector:   {}", boot.catalog_ptr.get());
             }
+            VolumeDescriptor::Supplementary(svd) if svd.is_enhanced() => {
+                println!();
+                println!("Enhanced Volume Descriptor (ISO 9660:1999):");
+                println!(
+                    "  Volume ID:        {}",
+                    text(svd.volume_identifier.trimmed())
+                );
+            }
             VolumeDescriptor::Supplementary(svd) => {
-                // Check for Joliet
-                for level in JolietLevel::all() {
-                    if svd.escape_sequences == level.escape_sequence() {
-                        has_joliet = true;
-                        println!();
+                println!();
+                match JolietLevel::from_escape_sequences(&svd.escape_sequences) {
+                    Some(level) => {
                         println!("Joliet Extension ({level:?}):");
-                        // Joliet volume identifier is UTF-16BE encoded
-                        let raw = svd.volume_identifier.as_bytes();
-                        let utf16: Vec<u16> = raw
-                            .as_slice()
-                            .chunks_exact(2)
-                            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
-                            .collect();
-                        let vol_name = String::from_utf16_lossy(&utf16);
-                        println!("  Volume ID:        {}", vol_name.trim_end());
-                        break;
+                        println!(
+                            "  Volume ID:        {}",
+                            ucs2(svd.volume_identifier.as_bytes())
+                        );
                     }
-                }
-                // Check for enhanced volume descriptor
-                if svd.file_structure_version == 2 {
-                    println!();
-                    println!("Enhanced Volume Descriptor (ISO 9660:1999):");
-                    println!("  Volume ID:        {}", svd.volume_identifier);
+                    None => println!("Supplementary Volume Descriptor"),
                 }
             }
-            VolumeDescriptor::End(_) => {}
-            VolumeDescriptor::Unknown(_) => {
+            VolumeDescriptor::Terminator(_) => {}
+            _ => {
                 if args.verbose {
                     println!();
                     println!("Unknown Volume Descriptor");
@@ -103,21 +115,47 @@ pub fn info(args: InfoArgs) -> Result<()> {
         }
     }
 
-    // Summary
+    let catalog = iso.boot_catalog()?;
+    if let Some(catalog) = &catalog {
+        println!();
+        println!("Boot Catalog:");
+        for entry in catalog.entries() {
+            let emulation = entry
+                .emulation()
+                .map_or_else(|| "unknown".to_string(), |e| format!("{e:?}"));
+            println!(
+                "  {:?} {emulation}: block {}, {} sectors{}",
+                entry.platform(),
+                entry.load_block(),
+                entry.sector_count(),
+                if entry.is_bootable() {
+                    ""
+                } else {
+                    " (not bootable)"
+                }
+            );
+        }
+    }
+
+    let namespaces = iso.namespaces();
+    let yes_no = |present: bool| if present { "Yes" } else { "No" };
     println!();
     println!("Features:");
-    println!(
-        "  El-Torito Boot:   {}",
-        if has_boot { "Yes" } else { "No" }
-    );
+    println!("  El-Torito Boot:   {}", yes_no(catalog.is_some()));
     println!(
         "  Joliet:           {}",
-        if has_joliet { "Yes" } else { "No" }
+        yes_no(namespaces.contains(Namespace::Joliet))
     );
     println!(
         "  Rock Ridge:       {}",
-        if has_rockridge { "Yes" } else { "No" }
+        yes_no(namespaces.contains(Namespace::RockRidge))
     );
+    if args.verbose {
+        println!(
+            "  Enhanced Tree:    {}",
+            yes_no(namespaces.contains(Namespace::Enhanced))
+        );
+    }
 
     Ok(())
 }
