@@ -980,6 +980,29 @@ Each published package owns its version and may be released independently.
   node, free the clusters the node's Vendor Allocation entries (and other
   benign secondary entries with an allocation) hold. They were left
   allocated, and `check` reported them as lost.
+- **hadris-iso (V3):** A tree that needs Rock Ridge relocation is refused
+  with `Detail::Relocation` when its root holds a directory named `rr_moved`
+  or `.rr_moved`, other than the relocation directory, whose record comes
+  first: `.rr_moved` with `NameCase::Preserve` and the default `rr_moved`,
+  or `rr_moved` with a `.rr_moved` relocation directory. libarchive takes
+  that directory for the relocation directory, and `bsdtar` failed on the
+  image with "Invalid Rockridge RE".
+- **hadris-iso (V3):** A session that keeps the boot catalog and replaces
+  a no-emulation boot image sets the entry's load size from the new image
+  when the entry loaded the old one whole, and writes a boot information
+  table into the new image when the old one held one. The entry kept the
+  old load size, and the table was not written, so firmware loaded part of
+  the new image and loaders that check the table, such as ISOLINUX, failed.
+- **hadris-cd (V3):** The volume space size of the ISO 9660 volume
+  descriptors of a bridge image covers the whole image. It left out the
+  UDF structures and trailing anchor after the ISO 9660 image, so readers
+  that trust it saw a volume shorter than the image.
+- **hadris-iso (V3):** Primary and enhanced tree identifiers map each
+  character of a name to one byte, so `café.txt` becomes `CAF_.TXT;1`
+  instead of `CAF__.TXT;1`, and Level 1 and 2 limits count characters.
+  A Level 2 or enhanced name that is too long loses the end of its base
+  name and keeps its extension, cut only when the extension alone does not
+  fit; before, a base name of 30 characters or more dropped the extension.
 - **hadris-fs (V3):** Dropping a written `File` without `close` in the
   blocking API publishes its size and times, ignoring errors, so a file
   dropped before a power cut keeps its data reachable. On a `Volume` whose

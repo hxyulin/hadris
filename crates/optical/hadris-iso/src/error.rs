@@ -46,8 +46,9 @@ pub enum Detail {
     /// parent directory.
     CatalogPath,
     /// The Rock Ridge relocation directory's name is taken by a root entry
-    /// that is not a directory, or relocation is refused and the tree is
-    /// too deep.
+    /// that is not a directory, a root directory named `rr_moved` or
+    /// `.rr_moved` would come before it, or relocation is refused and the
+    /// tree is too deep.
     Relocation,
     /// A volume identifier does not fit its field.
     Identifier,

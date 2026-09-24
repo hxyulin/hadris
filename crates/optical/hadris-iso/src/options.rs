@@ -174,6 +174,13 @@ pub enum Relocation {
     /// `RE` entries describe. A directory of the tree with that name is
     /// reused and keeps its own entries; any other entry with that name
     /// fails with [`Detail::Relocation`](crate::Detail::Relocation).
+    /// libarchive (`bsdtar`) takes the first root directory named
+    /// `rr_moved` or `.rr_moved` for this directory, so a tree directory
+    /// with the other of the two names whose primary identifier sorts
+    /// first fails too: `.rr_moved` with [`NameCase::Preserve`] and the
+    /// default `rr_moved`, or `rr_moved` with a `.rr_moved` container and
+    /// [`NameCase::Upper`]. libarchive reads relocated directories only
+    /// from a directory with one of those two names.
     Directory(String),
     /// Fail with [`ErrorKind::InvalidInput`](hadris_fs::ErrorKind::InvalidInput).
     Reject,

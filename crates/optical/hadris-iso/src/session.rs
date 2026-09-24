@@ -16,8 +16,8 @@ use super::storage::BlockDevice;
 use super::write::{check_block_size, emit, measure};
 use crate::error::{Detail, Error};
 use crate::namespace::Namespace;
-use crate::options::{IsoLevel, IsoOptions, RockRidge, SessionMode, VolumeIdentifiers};
-use crate::plan::{self, Base, Region};
+use crate::options::{BootInfo, IsoLevel, IsoOptions, RockRidge, SessionMode, VolumeIdentifiers};
+use crate::plan::{self, Base, InfoTable, Region};
 use crate::raw::{self, SECTOR_SIZE};
 use crate::report::Report;
 
@@ -47,6 +47,18 @@ fn set_metadata(meta: &hadris_fs::Metadata) -> SetMetadata {
         Some((uid, gid)) => set.with_uid(uid).with_gid(gid),
         None => set,
     }
+}
+
+/// An entry of a kept boot catalog whose boot image is a file of the tree.
+#[derive(Debug, Clone)]
+struct BootImage {
+    /// The entry's byte offset in the catalog.
+    at: usize,
+    path: String,
+    /// The image's length when the catalog was last written.
+    len: u64,
+    /// The boot information table the image holds.
+    table: BootInfo,
 }
 
 /// A 512-byte-block window on a device, for reading partition tables.
@@ -106,9 +118,9 @@ pub struct Session<D> {
     tree: Tree,
     volume_blocks: u64,
     catalog: Option<u32>,
-    /// The byte offset in the kept catalog of each entry whose boot image
-    /// is a file of the tree, and that file's path.
-    boot: Vec<(usize, String)>,
+    /// The entries of the kept catalog whose boot images are files of the
+    /// tree.
+    boot: Vec<BootImage>,
     options: IsoOptions,
     warnings: Vec<Warning>,
 }
@@ -182,9 +194,15 @@ impl<D: BlockDevice> Session<D> {
     /// its entries follow the tree paths of their boot images: an entry
     /// whose image was replaced points at the new content, in place in the
     /// old catalog, and one whose image was removed fails with
-    /// [`ErrorKind::InvalidInput`] and [`Detail::BootImage`]. Boot
-    /// information tables in replaced images are not written. With El
-    /// Torito in `opts`, a new catalog is written.
+    /// [`ErrorKind::InvalidInput`] and [`Detail::BootImage`]. A replaced
+    /// no-emulation image that the entry loaded whole is loaded whole again:
+    /// its load size follows the new length. One that the entry loaded only
+    /// in part keeps the load size, cut to the new length. A replaced image
+    /// whose old image held a boot information table (`-boot-info-table`)
+    /// gets one too, with the 40 reserved bytes when the old table had them
+    /// zeroed; an image shorter than 64 bytes then fails with
+    /// [`Detail::BootInfoTable`]. With El Torito in `opts`, a new catalog is
+    /// written.
     ///
     /// New data goes after the old volume and after every partition of
     /// the image's partition table, so partitions appended after the ISO
@@ -266,10 +284,11 @@ impl<D: BlockDevice> Session<D> {
                 ));
             }
         }
-        if let Some(block) = keep_catalog
-            && let Some(region) = self.patched_catalog(block, &plan.report).await?
-        {
-            plan.regions.push(region);
+        if let Some(block) = keep_catalog {
+            self.add_info_tables(&mut plan.regions)?;
+            if let Some(region) = self.patched_catalog(block, &plan.report).await? {
+                plan.regions.push(region);
+            }
         }
         if let Some(tables) = tables {
             let (system, tail, kept) = self.updated_tables(tables, plan.end_blocks, plan.total_blocks).await?;
@@ -299,6 +318,11 @@ impl<D: BlockDevice> Session<D> {
         if keep_catalog.is_none() {
             self.catalog = None;
             self.boot.clear();
+        }
+        for boot in &mut self.boot {
+            if let Some(extent) = plan.report.extent_of(&boot.path) {
+                boot.len = extent.len();
+            }
         }
         self.store_new_files(&plan.report, &contents);
         Ok(plan.report)
@@ -360,13 +384,58 @@ impl<D: BlockDevice> Session<D> {
                 } else if let Some(NodeKind::File(content)) = Some(child.kind())
                     && let Some(first) = content.stored_extents().and_then(|extents| extents.first())
                 {
-                    firsts.entry(first.offset()).or_insert(path);
+                    let len = content.len().unwrap_or(0);
+                    firsts.entry(first.offset()).or_insert((path, len));
                 }
             }
         }
+        let len = self.dev.block_count().saturating_mul(u64::from(self.dev.block_size().get()));
         for (at, rba) in entries {
-            if let Some(path) = firsts.get(&(u64::from(rba) * SECTOR)) {
-                self.boot.push((at, path.clone()));
+            let offset = u64::from(rba) * SECTOR;
+            let Some((path, image_len)) = firsts.get(&offset) else {
+                continue;
+            };
+            let mut head = [0u8; 64];
+            let table = if *image_len >= 64 && super::image::read_bytes(&mut self.dev, len, offset, &mut head).await.is_ok() {
+                info_table_of(&head, rba, *image_len)
+            } else {
+                BootInfo::None
+            };
+            self.boot.push(BootImage {
+                at,
+                path: path.clone(),
+                len: *image_len,
+                table,
+            });
+        }
+        Ok(())
+    }
+
+    /// Gives the replaced boot images that held a boot information table a
+    /// new one.
+    fn add_info_tables<E>(&self, regions: &mut [Region]) -> Result<(), Error<E>> {
+        for boot in &self.boot {
+            if boot.table == BootInfo::None {
+                continue;
+            }
+            let want = boot.path.trim_start_matches('/');
+            for region in regions.iter_mut() {
+                let Region::File { block, path, len, info } = region else {
+                    continue;
+                };
+                if path.trim_start_matches('/') != want {
+                    continue;
+                }
+                if *len < 64 {
+                    return Err(Error::invalid(Detail::BootInfoTable));
+                }
+                let block = u32::try_from(*block).map_err(|_| Error::invalid(Detail::ImageTooLarge))?;
+                let len = u32::try_from(*len).map_err(|_| Error::invalid(Detail::BootInfoTable))?;
+                *info = Some(InfoTable {
+                    kind: boot.table,
+                    block,
+                    len,
+                });
             }
         }
         Ok(())
@@ -374,8 +443,8 @@ impl<D: BlockDevice> Session<D> {
 
     /// Fails when a boot image the kept catalog loads is gone from the tree.
     fn check_boot_images<E>(&self) -> Result<(), Error<E>> {
-        for (_, path) in &self.boot {
-            match self.tree.get(path).map(|node| node.kind()) {
+        for boot in &self.boot {
+            match self.tree.get(&boot.path).map(|node| node.kind()) {
                 Some(NodeKind::File(content)) if content.len() != Some(0) => {}
                 _ => return Err(Error::invalid(Detail::BootImage)),
             }
@@ -401,19 +470,30 @@ impl<D: BlockDevice> Session<D> {
         }
         let mut bytes = self.read_catalog(block).await?;
         let mut changed = false;
-        for (at, path) in &self.boot {
-            let extent = report.extent_of(path).ok_or(Error::invalid(Detail::BootImage))?;
+        for boot in &self.boot {
+            let at = boot.at;
+            let extent = report.extent_of(&boot.path).ok_or(Error::invalid(Detail::BootImage))?;
             let rba = u32::try_from(extent.offset() / SECTOR).map_err(|_| Error::invalid(Detail::ImageTooLarge))?;
-            let field = &mut bytes[at + 8..at + 12];
-            if field != rba.to_le_bytes() {
-                field.copy_from_slice(&rba.to_le_bytes());
-                changed = true;
+            if bytes[at + 8..at + 12] == rba.to_le_bytes() {
+                continue;
             }
+            bytes[at + 8..at + 12].copy_from_slice(&rba.to_le_bytes());
+            if bytes[at + 1] & 0x0F == crate::Emulation::NoEmulation.media_type() {
+                let old = u16::from_le_bytes([bytes[at + 6], bytes[at + 7]]);
+                let sectors = |len: u64| u16::try_from(len.div_ceil(512)).unwrap_or(u16::MAX);
+                let load = if old >= sectors(boot.len) {
+                    sectors(extent.len())
+                } else {
+                    old.min(sectors(extent.len()))
+                };
+                bytes[at + 6..at + 8].copy_from_slice(&load.to_le_bytes());
+            }
+            changed = true;
         }
         if !changed {
             return Ok(None);
         }
-        let used = self.boot.iter().map(|(at, _)| at + 32).max().unwrap_or(0);
+        let used = self.boot.iter().map(|boot| boot.at + 32).max().unwrap_or(0);
         bytes.truncate(used.div_ceil(SECTOR_SIZE) * SECTOR_SIZE);
         Ok(Some(Region::Bytes {
             block: u64::from(block),
@@ -641,6 +721,20 @@ struct Tables {
     iso_end: u64,
     /// The 512-byte sector after the backup GPT, or 0 for an MBR.
     backup_end: u64,
+}
+
+/// The boot information table that the first 64 bytes `head` of the boot
+/// image at `rba`, `len` bytes long, hold: the Grub 2 form when its
+/// reserved bytes are zero.
+fn info_table_of(head: &[u8; 64], rba: u32, len: u64) -> BootInfo {
+    let word = |at: usize| u32::from_le_bytes([head[at], head[at + 1], head[at + 2], head[at + 3]]);
+    if word(12) != rba || u64::from(word(16)) != len {
+        BootInfo::None
+    } else if head[24..].iter().all(|&byte| byte == 0) {
+        BootInfo::Grub2
+    } else {
+        BootInfo::Standard
+    }
 }
 
 /// The byte offset and load block of each boot entry in the El Torito
