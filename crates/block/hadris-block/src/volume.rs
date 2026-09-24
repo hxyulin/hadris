@@ -49,6 +49,14 @@ pub struct OpenVolume<D> {
     inner: Inner<D>,
 }
 
+impl<D: BlockDevice> core::fmt::Debug for OpenVolume<D> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("OpenVolume")
+            .field("format", &self.format())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<D: BlockDevice> OpenVolume<D> {
     /// Detects and opens the filesystem on `dev`.
     ///

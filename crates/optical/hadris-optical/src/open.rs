@@ -33,6 +33,14 @@ pub struct OpenOpticalImage<D> {
     inner: Inner<D>,
 }
 
+impl<D: BlockDevice> core::fmt::Debug for OpenOpticalImage<D> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("OpenOpticalImage")
+            .field("format", &self.format())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<D: BlockDevice> OpenOpticalImage<D> {
     /// Detects the filesystems of `dev` and opens the one `policy`
     /// selects. On failure the [`OpenError`] gives `dev` back.

@@ -34,7 +34,7 @@
 //! ```
 //!
 //! A partitioned disk is opened one partition at a time: `hadris_part`
-//! (re-exported as [`part`] with the `part` feature) reads the table and
+//! (re-exported as `part` with the `part` feature) reads the table and
 //! turns a partition into a `hadris_storage` `Slice`, which `OpenVolume`
 //! opens. exFAT is detected but not opened while it is a preview in
 //! `hadris-fat`.
@@ -49,7 +49,7 @@
 //! | `async` | No | The asynchronous API in `r#async` |
 //! | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
 //! | `write` | No | `hadris_fat` formatting, through [`fat`] |
-//! | `part` | No | Re-exports `hadris-part` as [`part`] |
+//! | `part` | No | Re-exports `hadris-part` as `part` |
 //! | `unstable-ntfs` | No | Re-exports the `hadris-ntfs` preview as `ntfs` and reaches `OpenVolume`'s NTFS driver |
 //!
 //! No feature changes what an item does: `OpenVolume` always opens FAT and
