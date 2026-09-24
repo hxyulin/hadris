@@ -18,13 +18,13 @@
 use std::collections::HashMap;
 
 use hadris_fat::exfat::sync::{check, format, ExFatFs};
-use hadris_fat::exfat::{FormatOptions, MountOptions, VolumeLabel};
+use hadris_fat::exfat::{FormatOptions, VolumeLabel};
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, FileType, HeapTable, Name, NodeId, RenameMode, Resolve, SetAttr};
+use hadris_fs::{DirCursor, FileType, MountOptions, Name, NodeId, RenameMode, Resolve, SetAttr};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
 
-type Fs = ExFatFs<MemDevice<Vec<u8>>, HeapTable>;
+type Fs = ExFatFs<MemDevice<Vec<u8>>>;
 
 const IMAGE_SIZE: usize = 4 * 1024 * 1024;
 const MAX_OPS: usize = 64;
@@ -320,10 +320,7 @@ fn drive(data: &[u8]) {
         // that is itself a finding, but it is not fuzz-driven, so bail.
         return;
     };
-    let mounted = ExFatFs::open_with(
-        formatted.into_inner(),
-        MountOptions::new().with_table(HeapTable::new()),
-    );
+    let mounted = ExFatFs::mount(formatted.into_inner(), MountOptions::new());
     let Ok(mut fs) = mounted else {
         return;
     };
@@ -356,9 +353,9 @@ fn drive(data: &[u8]) {
 
     // Remount fresh and walk the whole tree.
     let image = dev.into_inner();
-    let Ok(mut fs) = ExFatFs::open_with(
+    let Ok(mut fs) = ExFatFs::mount(
         MemDevice::new(image, BlockSize::new(512).unwrap()),
-        MountOptions::new().with_table(HeapTable::new()),
+        MountOptions::new(),
     ) else {
         panic!("ORACLE: remount of a synced volume failed");
     };

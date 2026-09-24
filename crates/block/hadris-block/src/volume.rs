@@ -1,7 +1,7 @@
 use hadris_fat::FatKind;
 use hadris_fs::{
-    Capabilities, DirCursor, DirEntry, ErrorKind, FsResult, FsStats, Metadata, MountError, Name,
-    NodeId, OpenMode, RenameMode, Resolve, SetAttr,
+    Capabilities, DirCursor, DirEntry, ErrorKind, FsResult, FsStats, Metadata, MountError,
+    MountOptions, Name, NodeId, OpenMode, RenameMode, Resolve, SetAttr,
 };
 
 use super::{BlockDevice, ExFatFs, FatFs, FileSystem, NtfsFs, detect};
@@ -96,10 +96,10 @@ impl<D: BlockDevice> OpenVolume<D> {
         let unsupported = Detail::UnsupportedFormat.error(ErrorKind::Unsupported);
         match detected {
             BlockFormat::Fat(FatVariant::ExFat) => {
-                ExFatFs::open(dev).await.map(|exfat| Self { inner: Inner::ExFat(exfat) })
+                ExFatFs::mount(dev, MountOptions::new()).await.map(|exfat| Self { inner: Inner::ExFat(exfat) })
             }
             BlockFormat::Fat(variant) => {
-                let fat = FatFs::open(dev).await?;
+                let fat = FatFs::mount(dev, MountOptions::new()).await?;
                 match fat_variant(fat.kind()) {
                     Some(opened) if opened == variant => Ok(Self { inner: Inner::Fat(fat) }),
                     Some(_) => Err(MountError::new(

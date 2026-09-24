@@ -1,13 +1,13 @@
 use hadris_common::types::endian::LittleEndian;
 use hadris_common::types::number::{U16, U32, U64};
-use hadris_fs::{Clock, DateTime, ErrorKind, FixedTable, FsResult, MountError};
+use hadris_fs::{DateTime, ErrorKind, FsResult, MountError, MountOptions};
 
 use super::block_io::{new_block, write_bytes};
 use super::fs::ExFatFs;
 use super::storage::BlockDevice;
 use hadris_fat_raw::exfat::{self as raw, BootSector, ENTRY_SIZE, RawEntry};
 
-use crate::exfat::{FormatOptions, MountOptions};
+use crate::exfat::FormatOptions;
 
 /// The smallest volume `format` lays out.
 const MIN_VOLUME: u64 = 1 << 20;
@@ -74,11 +74,7 @@ fn shift_of(value: u64) -> Option<u8> {
 }
 
 /// Plans a volume of `device_bytes`, or says why it cannot.
-fn plan(
-    device_bytes: u64,
-    block_size: u32,
-    options: &FormatOptions<impl Clock>,
-) -> Result<Layout, ErrorKind> {
+fn plan(device_bytes: u64, block_size: u32, options: &FormatOptions) -> Result<Layout, ErrorKind> {
     let sector = options.sector_size.unwrap_or(match block_size {
         512 | 1024 | 2048 | 4096 => block_size,
         _ => 512,
@@ -155,7 +151,7 @@ fn volume_id(now: DateTime) -> u32 {
     (seconds as u32) ^ ((seconds >> 32) as u32) ^ now.nanoseconds().rotate_left(16)
 }
 
-fn boot_sector(layout: &Layout, options: &FormatOptions<impl Clock>, serial: u32) -> BootSector {
+fn boot_sector(layout: &Layout, options: &FormatOptions, serial: u32) -> BootSector {
     let mut boot: BootSector = bytemuck::Zeroable::zeroed();
     boot.jump_boot = raw::JUMP_BOOT;
     boot.file_system_name = raw::FILE_SYSTEM_NAME;
@@ -180,7 +176,7 @@ fn boot_sector(layout: &Layout, options: &FormatOptions<impl Clock>, serial: u32
 
 /// The root directory's first entries: the label, when there is one, the
 /// Allocation Bitmaps and the Up-case Table.
-fn root_entries(layout: &Layout, options: &FormatOptions<impl Clock>) -> ([RawEntry; 4], usize) {
+fn root_entries(layout: &Layout, options: &FormatOptions) -> ([RawEntry; 4], usize) {
     let mut entries = [[0u8; ENTRY_SIZE]; 4];
     let mut count = 0;
     if let Some(label) = &options.label {
@@ -212,7 +208,7 @@ fn root_entries(layout: &Layout, options: &FormatOptions<impl Clock>) -> ([RawEn
 io_transform! {
 
 /// Formats `dev` as an exFAT volume that fills it, and mounts it with the
-/// default node table and the options' clock.
+/// default [`MountOptions`] and the options' clock.
 ///
 /// The volume uses every whole sector of the device; pass a
 /// `hadris_storage` `Partition` to format a partition. Written are both boot
@@ -230,19 +226,19 @@ io_transform! {
 /// and with [`ErrorKind::ReadOnly`] when it refuses writes. Nothing is
 /// written unless the options are valid. On any failure, including the
 /// final mount, the [`MountError`] gives `dev` back.
-pub async fn format<D: BlockDevice, C: Clock>(
+pub async fn format<D: BlockDevice>(
     mut dev: D,
-    options: FormatOptions<C>,
-) -> Result<ExFatFs<D, FixedTable<64>, C>, MountError<D, D::Error>> {
+    options: FormatOptions,
+) -> Result<ExFatFs<D>, MountError<D, D::Error>> {
     if let Err(error) = write_volume(&mut dev, &options).await {
         return Err(MountError::new(error, dev));
     }
-    ExFatFs::open_with(dev, MountOptions::new().with_clock(options.clock)).await
+    ExFatFs::mount(dev, MountOptions::new().with_clock(options.clock)).await
 }
 
-async fn write_volume<D: BlockDevice, C: Clock>(
+async fn write_volume<D: BlockDevice>(
     dev: &mut D,
-    options: &FormatOptions<C>,
+    options: &FormatOptions,
 ) -> FsResult<(), D::Error> {
     let block_size = dev.block_size().get() as usize;
     let mut block = new_block(block_size)?;
@@ -341,19 +337,18 @@ async fn write_volume<D: BlockDevice, C: Clock>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hadris_fs::NoClock;
 
     #[test]
     fn layouts_match_mkfs_exfat() {
-        let layout = plan(64 << 20, 512, &FormatOptions::<NoClock>::new()).unwrap();
+        let layout = plan(64 << 20, 512, &FormatOptions::new()).unwrap();
         assert_eq!(layout.fat_offset, 2048);
         assert_eq!(layout.heap_offset, 4096);
         assert_eq!(layout.root(), 5);
         assert_eq!(
-            plan(512 << 10, 512, &FormatOptions::<NoClock>::new()).err(),
+            plan(512 << 10, 512, &FormatOptions::new()).err(),
             Some(ErrorKind::NoSpace)
         );
-        let odd = FormatOptions::<NoClock>::new().with_cluster_size(3000);
+        let odd = FormatOptions::new().with_cluster_size(3000);
         assert_eq!(
             plan(8 << 20, 512, &odd).err(),
             Some(ErrorKind::InvalidInput)

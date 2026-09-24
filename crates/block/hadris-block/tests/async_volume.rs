@@ -9,9 +9,9 @@ use hadris_block::Detail;
 use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant};
 use hadris_fat::{FatKind, FormatOptions};
-use hadris_fs::MountError;
 use hadris_fs::r#async::{FileSystem, Volume};
 use hadris_fs::{ErrorKind, OpenOptions};
+use hadris_fs::{MountError, MountOptions};
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 
 mod common;
@@ -242,7 +242,9 @@ fn async_fat_content_mutation_traversal_and_recovery() {
         fs.sync().await.unwrap();
 
         let dev = fs.into_inner();
-        let mut fs = hadris_fat::r#async::FatFs::open(dev).await.unwrap();
+        let mut fs = hadris_fat::r#async::FatFs::mount(dev, MountOptions::new())
+            .await
+            .unwrap();
         assert_eq!(
             get(&mut fs, "/NESTED/PAYLOAD.BIN").await.unwrap(),
             payload[..513]

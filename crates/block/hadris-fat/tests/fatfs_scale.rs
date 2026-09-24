@@ -5,6 +5,7 @@
 #[path = "common/fatfs.rs"]
 mod common;
 
+use hadris_fs::MountOptions;
 use std::collections::BTreeSet;
 
 use common::{CASES, Case, Device, Fs, block_on, formatted, payload};
@@ -12,7 +13,7 @@ use hadris_fat::FormatOptions;
 use hadris_fat::sync::FatFs;
 use hadris_fs::r#async::FileSystem as _;
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NodeId, NodeTable, RenameMode, SetAttr};
+use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NodeId, RenameMode, SetAttr};
 
 fn name(text: &str) -> &Name {
     Name::new(text)
@@ -273,7 +274,6 @@ fn allocation_wraps_to_the_start_and_fails_cleanly_when_full() {
 #[test]
 fn async_multi_cluster_io_matches_sync() {
     use hadris_fat::r#async::FatFs;
-    use hadris_fs::HeapTable;
 
     let case = CASES[2];
     let cluster = cluster_size(case);
@@ -293,8 +293,8 @@ fn async_multi_cluster_io_matches_sync() {
 
     let image = block_on(async {
         let dev = common::device(case, image);
-        let options = hadris_fat::MountOptions::new().with_table(HeapTable::new());
-        let mut fs = FatFs::open_with(dev, options).await.unwrap();
+        let options = hadris_fs::MountOptions::new();
+        let mut fs = FatFs::mount(dev, options).await.unwrap();
         let root = fs.root();
         let node = fs
             .create(root, name("x.bin"), &SetAttr::new())
@@ -361,7 +361,7 @@ fn listing_resumes_while_the_directory_grows() {
     }
 }
 
-fn pins_follow_renames_and_removals<T: NodeTable>(mut fs: FatFs<Device, T>, count: usize) {
+fn pins_follow_renames_and_removals(mut fs: FatFs<Device>, count: usize) {
     let root = fs.root();
     let new = SetAttr::new();
     let dir = fs.mkdir(root, name("pins"), &new).unwrap();
@@ -422,6 +422,10 @@ fn pinned_lookups_follow_renames_and_removals() {
     let case = CASES[2];
     let image = common::blank(case);
     pins_follow_renames_and_removals(common::mount(case, &image), 300);
-    let fixed = FatFs::open(common::device(case, image)).unwrap();
+    let fixed = FatFs::mount(
+        common::device(case, image),
+        MountOptions::new().with_node_limit(64),
+    )
+    .unwrap();
     pins_follow_renames_and_removals(fixed, 40);
 }

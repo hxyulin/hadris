@@ -1,92 +1,10 @@
 use core::fmt;
 
-use hadris_fs::{Clock, ErrorKind, FixedTable, NoClock, NodeTable};
+use hadris_fs::ErrorKind;
+#[cfg(feature = "write")]
+use hadris_fs::{Clock, NoClock};
 
 use hadris_fat_raw::exfat::{MAX_LABEL_UNITS, valid_unit};
-
-/// How `ExFatFs` mounts a volume: read-only or not, the node table and the
-/// clock.
-///
-/// `MountOptions::new()` gives the defaults of `ExFatFs::open`: writable,
-/// a `FixedTable<64>` and [`NoClock`]. Each `with_*` method that takes a
-/// value of another type changes the matching type parameter.
-///
-/// ```rust
-/// # #[cfg(all(feature = "sync", feature = "write", feature = "std"))]
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use hadris_fat::exfat::sync::{ExFatFs, format};
-/// use hadris_fat::exfat::{FormatOptions, MountOptions};
-/// use hadris_fs::{HeapTable, SystemClock};
-/// use hadris_storage::{BlockSize, MemDevice};
-///
-/// let dev = MemDevice::new(vec![0u8; 8 << 20], BlockSize::new(512).unwrap());
-/// let dev = format(dev, FormatOptions::new())?.into_inner();
-/// let options = MountOptions::new()
-///     .with_table(HeapTable::new())
-///     .with_clock(SystemClock);
-/// let fs = ExFatFs::open_with(dev, options)?;
-/// assert!(!fs.is_read_only());
-/// # Ok(())
-/// # }
-/// # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]
-/// # fn main() {}
-/// ```
-#[derive(Debug, Clone)]
-pub struct MountOptions<T = FixedTable<64>, C = NoClock> {
-    pub(crate) read_only: bool,
-    pub(crate) table: T,
-    pub(crate) clock: C,
-}
-
-impl MountOptions {
-    /// The defaults: writable, `FixedTable<64>` and [`NoClock`].
-    pub const fn new() -> Self {
-        Self {
-            read_only: false,
-            table: FixedTable::new(),
-            clock: NoClock,
-        }
-    }
-}
-
-impl Default for MountOptions {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T, C> MountOptions<T, C> {
-    /// Mounts for reading only: the driver never calls `write_blocks`, and
-    /// writing methods fail with `ErrorKind::ReadOnly`.
-    pub fn with_read_only(mut self) -> Self {
-        self.read_only = true;
-        self
-    }
-
-    /// Keeps pinned nodes in a table of the kind of `table`, such as
-    /// `HeapTable::new()` or a larger `FixedTable::<N>::new()`.
-    pub fn with_table<U: NodeTable<Value = ()>>(self, table: U) -> MountOptions<U, C> {
-        MountOptions {
-            read_only: self.read_only,
-            table,
-            clock: self.clock,
-        }
-    }
-
-    /// Stamps new and modified entries with the time from `clock`.
-    pub fn with_clock<K: Clock>(self, clock: K) -> MountOptions<T, K> {
-        MountOptions {
-            read_only: self.read_only,
-            table: self.table,
-            clock,
-        }
-    }
-
-    /// Whether the volume is mounted for reading only.
-    pub fn is_read_only(&self) -> bool {
-        self.read_only
-    }
-}
 
 /// An exFAT volume label: 1 to 11 UTF-16 code units, stored as given.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -122,7 +40,7 @@ impl VolumeLabel {
     }
 
     /// A label as read from a volume, unchecked.
-    #[cfg(any(feature = "sync", feature = "async"))]
+    #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
     pub(crate) fn from_disk(units: [u16; MAX_LABEL_UNITS], len: u8) -> Self {
         Self {
             units,
@@ -187,8 +105,8 @@ impl fmt::Debug for VolumeLabel {
 /// ```
 #[cfg(feature = "write")]
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
-#[derive(Debug, Clone)]
-pub struct FormatOptions<C = NoClock> {
+#[derive(Clone, Copy)]
+pub struct FormatOptions {
     pub(crate) label: Option<VolumeLabel>,
     pub(crate) volume_id: Option<u32>,
     pub(crate) sector_size: Option<u32>,
@@ -196,7 +114,22 @@ pub struct FormatOptions<C = NoClock> {
     pub(crate) alignment: Option<u32>,
     pub(crate) partition_offset: u64,
     pub(crate) fat_count: u8,
-    pub(crate) clock: C,
+    pub(crate) clock: &'static dyn Clock,
+}
+
+#[cfg(feature = "write")]
+impl core::fmt::Debug for FormatOptions {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FormatOptions")
+            .field("label", &self.label)
+            .field("volume_id", &self.volume_id)
+            .field("sector_size", &self.sector_size)
+            .field("cluster_size", &self.cluster_size)
+            .field("alignment", &self.alignment)
+            .field("partition_offset", &self.partition_offset)
+            .field("fat_count", &self.fat_count)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(feature = "write")]
@@ -213,7 +146,7 @@ impl FormatOptions {
             alignment: None,
             partition_offset: 0,
             fat_count: 1,
-            clock: NoClock,
+            clock: &NoClock,
         }
     }
 }
@@ -226,7 +159,7 @@ impl Default for FormatOptions {
 }
 
 #[cfg(feature = "write")]
-impl<C> FormatOptions<C> {
+impl FormatOptions {
     /// Writes `label` as the root directory's Volume Label entry.
     pub fn with_label(mut self, label: VolumeLabel) -> Self {
         self.label = Some(label);
@@ -275,17 +208,9 @@ impl<C> FormatOptions<C> {
 
     /// Uses `clock` for the volume serial number and the returned
     /// `ExFatFs`.
-    pub fn with_clock<K: Clock>(self, clock: K) -> FormatOptions<K> {
-        FormatOptions {
-            label: self.label,
-            volume_id: self.volume_id,
-            sector_size: self.sector_size,
-            cluster_size: self.cluster_size,
-            alignment: self.alignment,
-            partition_offset: self.partition_offset,
-            fat_count: self.fat_count,
-            clock,
-        }
+    pub fn with_clock(mut self, clock: &'static dyn Clock) -> Self {
+        self.clock = clock;
+        self
     }
 }
 

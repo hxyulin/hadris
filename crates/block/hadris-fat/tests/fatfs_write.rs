@@ -5,42 +5,34 @@
 #[path = "common/fatfs.rs"]
 mod common;
 use common::{FsPaths, VolumePaths};
+use hadris_fs::{Ascii, Cp437, MountOptions};
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::io::{Read as _, Write as _};
 
-use common::{CASES, Case, Device, KANJI_NAME, fsck};
+use common::{CASES, Case, Device, KANJI_ASCII, KANJI_NAME, fsck};
 use hadris_fat::sync::FatFs;
-use hadris_fat::{Ascii, CodePage, Cp437, MountOptions};
 use hadris_fs::sync::{FileSystem, Volume, copy_tree};
 use hadris_fs::{
-    Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, Field, FileType,
-    FixedTable, HeapTable, Name, NoClock, NodeId, NodeTable, OpenMode, OpenOptions, Owner,
-    Permissions, RenameMode, SetAttr, Stored,
+    Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, Field, FileType, Name,
+    NoClock, NodeId, OpenMode, OpenOptions, Owner, Permissions, RenameMode, SetAttr, Stored,
 };
 use hadris_io::Error;
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize};
 
-type Fs<T = HeapTable, C = NoClock, P = Ascii> = FatFs<Device, T, C, P>;
+type Fs = FatFs<Device>;
 
 fn open(case: Case, image: Vec<u8>) -> Fs {
-    FatFs::open_with(
-        common::device(case, image),
-        MountOptions::new().with_table(HeapTable::new()),
-    )
-    .unwrap()
+    FatFs::mount(common::device(case, image), MountOptions::new()).unwrap()
 }
 
 fn name(text: &str) -> &Name {
     Name::new(text)
 }
 
-fn list<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage>(
-    fs: &mut FatFs<D, T, C, P>,
-    dir: NodeId,
-) -> Vec<(String, FileType)> {
+fn list<D: BlockDevice>(fs: &mut FatFs<D>, dir: NodeId) -> Vec<(String, FileType)> {
     let mut cursor = DirCursor::START;
     let mut out = Vec::new();
     while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
@@ -50,10 +42,7 @@ fn list<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage>(
     out
 }
 
-fn read_all<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage>(
-    fs: &mut FatFs<D, T, C, P>,
-    node: NodeId,
-) -> Vec<u8> {
+fn read_all<D: BlockDevice>(fs: &mut FatFs<D>, node: NodeId) -> Vec<u8> {
     let mut out = Vec::new();
     let mut chunk = [0u8; 1000];
     loop {
@@ -65,12 +54,7 @@ fn read_all<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage>(
     }
 }
 
-fn create<T: NodeTable, C: Clock, P: CodePage>(
-    fs: &mut Fs<T, C, P>,
-    dir: NodeId,
-    text: &str,
-    kind: FileType,
-) -> NodeId {
+fn create(fs: &mut Fs, dir: NodeId, text: &str, kind: FileType) -> NodeId {
     match kind {
         FileType::Dir => fs.mkdir(dir, name(text), &SetAttr::new()),
         _ => fs.create(dir, name(text), &SetAttr::new()),
@@ -78,12 +62,7 @@ fn create<T: NodeTable, C: Clock, P: CodePage>(
     .unwrap()
 }
 
-fn write_all<T: NodeTable, C: Clock, P: CodePage>(
-    fs: &mut Fs<T, C, P>,
-    node: NodeId,
-    offset: u64,
-    data: &[u8],
-) {
+fn write_all(fs: &mut Fs, node: NodeId, offset: u64, data: &[u8]) {
     let mut done = 0;
     for chunk in data.chunks(777) {
         assert_eq!(fs.write(node, offset + done, chunk).unwrap(), chunk.len());
@@ -91,11 +70,11 @@ fn write_all<T: NodeTable, C: Clock, P: CodePage>(
     }
 }
 
-fn free(fs: &mut Fs<impl NodeTable>) -> u64 {
+fn free(fs: &mut Fs) -> u64 {
     fs.statfs().unwrap().free_blocks()
 }
 
-fn image<T: NodeTable, C: Clock, P: CodePage>(fs: Fs<T, C, P>) -> Vec<u8> {
+fn image(fs: Fs) -> Vec<u8> {
     fs.into_inner().into_inner()
 }
 
@@ -1066,9 +1045,9 @@ fn no_space_changes_nothing() {
 fn full_table_changes_nothing_on_disk() {
     let case = CASES[1];
     let before = populate(case);
-    let mut fs: Fs<FixedTable<1>> = FatFs::open_with(
+    let mut fs: Fs = FatFs::mount(
         common::device(case, before.clone()),
-        MountOptions::new().with_table(FixedTable::new()),
+        MountOptions::new().with_node_limit(1),
     )
     .unwrap();
     let root = fs.root();
@@ -1576,7 +1555,7 @@ fn close_writes_the_entry_without_a_flush() {
         inner: common::device(case, common::blank(case)),
         flushes: 0,
     };
-    let mut fs = FatFs::open(dev).unwrap();
+    let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
     let root = fs.root();
     let node = fs.create(root, name("log.txt"), &SetAttr::new()).unwrap();
     fs.write(node, 0, b"published").unwrap();
@@ -1589,10 +1568,13 @@ fn close_writes_the_entry_without_a_flush() {
     let mut fresh = open(case, image.clone());
     assert_eq!(fresh.read_to_vec("/log.txt").unwrap(), b"published");
 
-    let mut fs = FatFs::open(Flushes {
-        inner: common::device(case, image),
-        flushes: 0,
-    })
+    let mut fs = FatFs::mount(
+        Flushes {
+            inner: common::device(case, image),
+            flushes: 0,
+        },
+        MountOptions::new(),
+    )
     .unwrap();
     let node = fs.lookup(fs.root(), name("log.txt")).unwrap();
     fs.fsync(node).unwrap();
@@ -1610,7 +1592,7 @@ fn refused_writes_make_the_volume_read_only() {
         refuse: true,
         once: false,
     };
-    let mut fs = FatFs::open(dev).unwrap();
+    let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
     assert!(FileSystem::capabilities(&fs).writable());
     let root = fs.root();
     let stats = fs.statfs().unwrap();
@@ -1651,7 +1633,7 @@ fn refused_writes_make_the_volume_read_only() {
             refuse: true,
             once: false,
         };
-        let mut fs = FatFs::open(dev).unwrap();
+        let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
         let root = fs.root();
         let err = match op {
             0 => fs.mkdir(root, name("a long new name"), &meta).map(|_| ()),
@@ -1686,9 +1668,7 @@ fn interrupted_operations_leave_readable_volumes() {
                 refuse: false,
                 once: false,
             };
-            let mut fs =
-                FatFs::open_with(dev, MountOptions::new().with_table(HeapTable::<()>::new()))
-                    .unwrap();
+            let mut fs = FatFs::mount(dev, MountOptions::new()).unwrap();
             let root = fs.root();
             let result = match op {
                 0 => fs.mkdir(root, name("a new directory"), &meta).map(|_| ()),
@@ -1747,18 +1727,18 @@ fn a_failed_replace_keeps_the_target() {
     };
     let untouched = state(&before);
     for to in ["A LONG FILE NAME.TXT", "ALONGF~1.TXT"] {
-        let rename = |fs: &mut FatFs<Faulty, HeapTable>| {
+        let rename = |fs: &mut FatFs<Faulty>| {
             let root = fs.root();
             fs.rename(root, name("lower.txt"), root, name(to), RenameMode::Replace)
         };
-        let mut fs = FatFs::open_with(
+        let mut fs = FatFs::mount(
             Faulty {
                 inner: common::device(case, before.clone()),
                 budget: None,
                 refuse: false,
                 once: false,
             },
-            MountOptions::new().with_table(HeapTable::new()),
+            MountOptions::new(),
         )
         .unwrap();
         rename(&mut fs).unwrap();
@@ -1766,14 +1746,14 @@ fn a_failed_replace_keeps_the_target() {
         assert!(renamed.0.contains(&to.to_owned()));
         let (mut failures, mut undone) = (0, 0);
         for budget in 0..40 {
-            let mut fs = FatFs::open_with(
+            let mut fs = FatFs::mount(
                 Faulty {
                     inner: common::device(case, before.clone()),
                     budget: Some(budget),
                     refuse: false,
                     once: true,
                 },
-                MountOptions::new().with_table(HeapTable::new()),
+                MountOptions::new(),
             )
             .unwrap();
             let result = rename(&mut fs);
@@ -2066,10 +2046,8 @@ fn clock_stamps_new_and_modified_entries() {
 
     let created = fat_time(2031, 7, 4, 12, 30, 44);
     let written = fat_time(2032, 1, 2, 3, 4, 6);
-    let options = MountOptions::new()
-        .with_table(HeapTable::new())
-        .with_clock(FixedClock(created));
-    let mut fs = FatFs::open_with(common::device(case, image(fs)), options).unwrap();
+    let options = MountOptions::new().with_clock(Box::leak(Box::new(FixedClock(created))));
+    let mut fs = FatFs::mount(common::device(case, image(fs)), options).unwrap();
     assert_eq!(fs.clock().now(), created);
     let root = fs.root();
     let file = fs
@@ -2082,8 +2060,8 @@ fn clock_stamps_new_and_modified_entries() {
     fs.forget(file, 1);
     fs.sync().unwrap();
 
-    let options = MountOptions::new().with_clock(FixedClock(written));
-    let mut fs = FatFs::open_with(fs.into_inner(), options).unwrap();
+    let options = MountOptions::new().with_clock(Box::leak(Box::new(FixedClock(written))));
+    let mut fs = FatFs::mount(fs.into_inner(), options).unwrap();
     let root = fs.root();
     let file = fs.lookup(root, name("clocked.txt")).unwrap();
     fs.write(file, 0, b"tick").unwrap();
@@ -2098,15 +2076,13 @@ fn clock_stamps_new_and_modified_entries() {
 fn code_page_reads_and_generates_short_names() {
     let case = CASES[0];
     let built = common::build(case);
-    let cp437 = MountOptions::new()
-        .with_table(HeapTable::new())
-        .with_code_page(Cp437);
-    let mut fs = FatFs::open_with(common::device(case, built.clone()), cp437).unwrap();
+    let cp437 = MountOptions::new().with_code_page(&Cp437);
+    let mut fs = FatFs::mount(common::device(case, built.clone()), cp437).unwrap();
     let root = fs.root();
     let names: Vec<String> = list(&mut fs, root).into_iter().map(|(n, _)| n).collect();
     assert!(names.iter().any(|n| n == "\u{3C3}ABC.TXT"), "{names:?}");
     assert_eq!(
-        fs.lookup(root, name(KANJI_NAME)).unwrap_err().kind(),
+        fs.lookup(root, name(KANJI_ASCII)).unwrap_err().kind(),
         ErrorKind::NotFound
     );
     let kanji = fs.lookup(root, name("\u{3C3}abc.txt")).unwrap();
@@ -2134,14 +2110,15 @@ fn code_page_reads_and_generates_short_names() {
             .chunks_exact(32)
             .any(|entry| &entry[..11] == b"CAF\x90~1  TXT")
     );
-    let mut fresh = FatFs::open_with(
+    let mut fresh = FatFs::mount(
         common::device(case, cp437_image.clone()),
-        MountOptions::new().with_code_page(Cp437),
+        MountOptions::new().with_code_page(&Cp437),
     )
     .unwrap();
     assert_eq!(fresh.read_to_vec("/caf\u{E9}.txt").unwrap(), b"cp437");
 
-    let mut fs = open(case, built);
+    let ascii = MountOptions::new().with_code_page(&Ascii);
+    let mut fs = FatFs::mount(common::device(case, built), ascii).unwrap();
     let root = fs.root();
     let cafe = create(&mut fs, root, "caf\u{E9}.txt", FileType::File);
     fs.forget(cafe, 1);
@@ -2265,4 +2242,90 @@ fn renaming_a_directory_with_a_reserved_first_cluster_fails_cleanly() {
             assert!(fs.into_inner().into_inner() == image, "{}", case.name);
         }
     }
+}
+
+#[test]
+fn utc_offset_reads_and_writes_local_time() {
+    let case = CASES[0];
+    let utc = fat_time(2030, 5, 6, 10, 20, 30);
+    let options = MountOptions::new()
+        .with_clock(Box::leak(Box::new(FixedClock(utc))))
+        .with_utc_offset(120)
+        .unwrap();
+    let mut fs = FatFs::mount(common::device(case, common::blank(case)), options).unwrap();
+    assert_eq!(fs.utc_offset(), Some(120));
+    let root = fs.root();
+    let file = create(&mut fs, root, "zoned.txt", FileType::File);
+    let modified = fs.stat(file).unwrap().modified().unwrap();
+    assert_eq!(modified.unix_seconds(), utc.unix_seconds());
+    assert_eq!(modified.utc_offset_minutes(), Some(120));
+    fs.forget(file, 1);
+    let bytes = image(fs);
+    let at = bytes
+        .chunks_exact(32)
+        .position(|entry| &entry[..11] == b"ZONED   TXT")
+        .unwrap()
+        * 32;
+    let stored = u16::from_le_bytes([bytes[at + 22], bytes[at + 23]]);
+    assert_eq!(stored >> 11, 12, "stored as local time, two hours east");
+
+    let mut fs = open(case, bytes);
+    let root = fs.root();
+    let file = fs.lookup(root, name("zoned.txt")).unwrap();
+    let plain = fs.stat(file).unwrap().modified().unwrap();
+    assert_eq!(plain.unix_seconds(), utc.unix_seconds() + 2 * 3600);
+    assert_eq!(plain.utc_offset_minutes(), None);
+    let written = fat_time(2031, 1, 1, 0, 0, 0);
+    fs.setattr(file, &SetAttr::new().with_modified(written))
+        .unwrap();
+    fs.forget(file, 1);
+    fs.sync().unwrap();
+    let zoned = MountOptions::new().with_utc_offset(120).unwrap();
+    let mut fs = FatFs::mount(fs.into_inner(), zoned).unwrap();
+    let root = fs.root();
+    let file = fs.lookup(root, name("zoned.txt")).unwrap();
+    let read = fs.stat(file).unwrap().modified().unwrap();
+    assert_eq!(read.unix_seconds(), written.unix_seconds() - 2 * 3600);
+    assert_eq!(read.utc_offset_minutes(), Some(120));
+    fs.forget(file, 1);
+}
+
+#[test]
+fn node_limit_caps_pinned_nodes() {
+    let case = CASES[1];
+    let options = MountOptions::new().with_node_limit(1);
+    let mut fs = FatFs::mount(common::device(case, common::build(case)), options).unwrap();
+    let root = fs.root();
+    let held = fs.lookup(root, name("README.TXT")).unwrap();
+    assert_eq!(
+        fs.lookup(root, name("lower.txt")).unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+    assert_eq!(
+        fs.create(root, name("new.txt"), &SetAttr::new())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+    fs.forget(held, 1);
+    let other = fs.lookup(root, name("lower.txt")).unwrap();
+    fs.forget(other, 1);
+}
+
+#[test]
+fn unmount_syncs_and_returns_the_device() {
+    let case = CASES[2];
+    let mut fs = open(case, common::blank(case));
+    let root = fs.root();
+    let file = create(&mut fs, root, "kept.bin", FileType::File);
+    write_all(&mut fs, file, 0, &[7u8; 5000]);
+    let dev = fs.unmount().unwrap();
+    let bytes = dev.into_inner();
+    let mut fs = open(case, bytes.clone());
+    let root = fs.root();
+    let file = fs.lookup(root, name("kept.bin")).unwrap();
+    assert_eq!(fs.stat(file).unwrap().len(), 5000);
+    assert_eq!(read_all(&mut fs, file), [7u8; 5000]);
+    fs.forget(file, 1);
+    fsck(&bytes, "unmount");
 }

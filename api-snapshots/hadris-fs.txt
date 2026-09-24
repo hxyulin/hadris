@@ -524,6 +524,10 @@ pub hadris_fs::Severity::Warning
 pub hadris_fs::Stored::No
 pub hadris_fs::Stored::Partial
 pub hadris_fs::Stored::Yes
+pub struct hadris_fs::Ascii
+impl hadris_fs::CodePage for hadris_fs::Ascii
+pub fn hadris_fs::Ascii::decode(&self, u8) -> char
+pub fn hadris_fs::Ascii::encode(&self, char) -> core::option::Option<u8>
 pub struct hadris_fs::Attributes(_)
 impl hadris_fs::Attributes
 pub const hadris_fs::Attributes::ARCHIVE: Self
@@ -648,6 +652,10 @@ pub const fn hadris_fs::ContractViolation::rule(&self) -> &'static str
 impl core::error::Error for hadris_fs::ContractViolation
 impl core::fmt::Display for hadris_fs::ContractViolation
 pub fn hadris_fs::ContractViolation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_fs::Cp437
+impl hadris_fs::CodePage for hadris_fs::Cp437
+pub fn hadris_fs::Cp437::decode(&self, u8) -> char
+pub fn hadris_fs::Cp437::encode(&self, char) -> core::option::Option<u8>
 pub struct hadris_fs::DateTime
 impl hadris_fs::DateTime
 pub const hadris_fs::DateTime::MAX: Self
@@ -723,29 +731,6 @@ impl core::fmt::Debug for hadris_fs::Finding<'_>
 pub fn hadris_fs::Finding<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for hadris_fs::Finding<'_>
 pub fn hadris_fs::Finding<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct hadris_fs::FixedTable<const N: usize, V>
-impl<const N: usize, V> hadris_fs::FixedTable<N, V>
-pub const fn hadris_fs::FixedTable<N, V>::capacity(&self) -> usize
-pub const fn hadris_fs::FixedTable<N, V>::new() -> Self
-impl<const N: usize, V> core::default::Default for hadris_fs::FixedTable<N, V>
-pub fn hadris_fs::FixedTable<N, V>::default() -> Self
-impl<const N: usize, V> core::fmt::Debug for hadris_fs::FixedTable<N, V>
-pub fn hadris_fs::FixedTable<N, V>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<const N: usize, V> hadris_fs::NodeTable for hadris_fs::FixedTable<N, V>
-pub type hadris_fs::FixedTable<N, V>::Value = V
-pub type hadris_fs::FixedTable<N, V>::With<W> = hadris_fs::FixedTable<N, W>
-pub fn hadris_fs::FixedTable<N, V>::empty<W>(&self) -> hadris_fs::FixedTable<N, W>
-pub fn hadris_fs::FixedTable<N, V>::find(&self, &mut dyn core::ops::function::FnMut(hadris_fs::NodeId, &V) -> bool) -> core::option::Option<hadris_fs::NodeId>
-pub fn hadris_fs::FixedTable<N, V>::for_each_mut(&mut self, &mut dyn core::ops::function::FnMut(hadris_fs::NodeId, &mut V))
-pub fn hadris_fs::FixedTable<N, V>::get(&self, hadris_fs::NodeId) -> core::option::Option<&V>
-pub fn hadris_fs::FixedTable<N, V>::get_mut(&mut self, hadris_fs::NodeId) -> core::option::Option<&mut V>
-pub fn hadris_fs::FixedTable<N, V>::insert(&mut self, hadris_fs::NodeId, V) -> core::result::Result<(), hadris_fs::TableFull<V>>
-pub fn hadris_fs::FixedTable<N, V>::is_empty(&self) -> bool
-pub fn hadris_fs::FixedTable<N, V>::len(&self) -> usize
-pub fn hadris_fs::FixedTable<N, V>::pin(&mut self, hadris_fs::NodeId) -> core::option::Option<u32>
-pub fn hadris_fs::FixedTable<N, V>::pins(&self, hadris_fs::NodeId) -> u32
-pub fn hadris_fs::FixedTable<N, V>::remove(&mut self, hadris_fs::NodeId) -> core::option::Option<V>
-pub fn hadris_fs::FixedTable<N, V>::unpin(&mut self, hadris_fs::NodeId) -> core::option::Option<u32>
 pub struct hadris_fs::FsStats
 impl hadris_fs::FsStats
 pub const fn hadris_fs::FsStats::block_size(&self) -> u32
@@ -767,28 +752,6 @@ pub type hadris_fs::FuseOnError<I>::Item = core::result::Result<T, E>
 pub fn hadris_fs::FuseOnError<I>::next(&mut self) -> core::option::Option<Self::Item>
 pub fn hadris_fs::FuseOnError<I>::size_hint(&self) -> (usize, core::option::Option<usize>)
 impl<I, T, E> core::iter::traits::marker::FusedIterator for hadris_fs::FuseOnError<I> where I: core::iter::traits::iterator::Iterator<Item = core::result::Result<T, E>>
-pub struct hadris_fs::HeapTable<V>
-impl<V> hadris_fs::HeapTable<V>
-pub const fn hadris_fs::HeapTable<V>::new() -> Self
-impl<V> core::default::Default for hadris_fs::HeapTable<V>
-pub fn hadris_fs::HeapTable<V>::default() -> Self
-impl<V> core::fmt::Debug for hadris_fs::HeapTable<V>
-pub fn hadris_fs::HeapTable<V>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<V> hadris_fs::NodeTable for hadris_fs::HeapTable<V>
-pub type hadris_fs::HeapTable<V>::Value = V
-pub type hadris_fs::HeapTable<V>::With<W> = hadris_fs::HeapTable<W>
-pub fn hadris_fs::HeapTable<V>::empty<W>(&self) -> hadris_fs::HeapTable<W>
-pub fn hadris_fs::HeapTable<V>::find(&self, &mut dyn core::ops::function::FnMut(hadris_fs::NodeId, &V) -> bool) -> core::option::Option<hadris_fs::NodeId>
-pub fn hadris_fs::HeapTable<V>::for_each_mut(&mut self, &mut dyn core::ops::function::FnMut(hadris_fs::NodeId, &mut V))
-pub fn hadris_fs::HeapTable<V>::get(&self, hadris_fs::NodeId) -> core::option::Option<&V>
-pub fn hadris_fs::HeapTable<V>::get_mut(&mut self, hadris_fs::NodeId) -> core::option::Option<&mut V>
-pub fn hadris_fs::HeapTable<V>::insert(&mut self, hadris_fs::NodeId, V) -> core::result::Result<(), hadris_fs::TableFull<V>>
-pub fn hadris_fs::HeapTable<V>::is_empty(&self) -> bool
-pub fn hadris_fs::HeapTable<V>::len(&self) -> usize
-pub fn hadris_fs::HeapTable<V>::pin(&mut self, hadris_fs::NodeId) -> core::option::Option<u32>
-pub fn hadris_fs::HeapTable<V>::pins(&self, hadris_fs::NodeId) -> u32
-pub fn hadris_fs::HeapTable<V>::remove(&mut self, hadris_fs::NodeId) -> core::option::Option<V>
-pub fn hadris_fs::HeapTable<V>::unpin(&mut self, hadris_fs::NodeId) -> core::option::Option<u32>
 pub struct hadris_fs::Metadata
 impl hadris_fs::Metadata
 pub const fn hadris_fs::Metadata::accessed(&self) -> core::option::Option<hadris_fs::DateTime>
@@ -837,6 +800,25 @@ impl<D, E: core::fmt::Display> core::fmt::Display for hadris_fs::MountError<D, E
 pub fn hadris_fs::MountError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<D, E> core::convert::From<hadris_fs::MountError<D, E>> for hadris_io::fs_error::Error<E>
 pub fn hadris_io::fs_error::Error<E>::from(hadris_fs::MountError<D, E>) -> Self
+pub struct hadris_fs::MountOptions
+impl hadris_fs::MountOptions
+pub const fn hadris_fs::MountOptions::backup_boot(self) -> Self
+pub const fn hadris_fs::MountOptions::clock(&self) -> &'static dyn hadris_fs::Clock
+pub const fn hadris_fs::MountOptions::code_page(&self) -> &'static dyn hadris_fs::CodePage
+pub const fn hadris_fs::MountOptions::is_backup_boot(&self) -> bool
+pub const fn hadris_fs::MountOptions::is_read_only(&self) -> bool
+pub const fn hadris_fs::MountOptions::new() -> Self
+pub const fn hadris_fs::MountOptions::node_limit(&self) -> core::option::Option<usize>
+pub const fn hadris_fs::MountOptions::read_only(self) -> Self
+pub const fn hadris_fs::MountOptions::utc_offset(&self) -> core::option::Option<i16>
+pub const fn hadris_fs::MountOptions::with_clock(self, &'static dyn hadris_fs::Clock) -> Self
+pub const fn hadris_fs::MountOptions::with_code_page(self, &'static dyn hadris_fs::CodePage) -> Self
+pub const fn hadris_fs::MountOptions::with_node_limit(self, usize) -> Self
+pub const fn hadris_fs::MountOptions::with_utc_offset(self, i16) -> core::result::Result<Self, hadris_fs::DateTimeError>
+impl core::default::Default for hadris_fs::MountOptions
+pub fn hadris_fs::MountOptions::default() -> Self
+impl core::fmt::Debug for hadris_fs::MountOptions
+pub fn hadris_fs::MountOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[repr(transparent)] pub struct hadris_fs::Name(_)
 impl hadris_fs::Name
 pub const fn hadris_fs::Name::as_bytes(&self) -> &[u8]
@@ -996,19 +978,6 @@ pub fn hadris_fs::SetMetadata::with_uid(self, impl core::convert::Into<core::opt
 pub struct hadris_fs::SystemClock
 impl hadris_fs::Clock for hadris_fs::SystemClock
 pub fn hadris_fs::SystemClock::now(&self) -> hadris_fs::DateTime
-pub struct hadris_fs::TableFull<V>(_)
-impl<V> hadris_fs::TableFull<V>
-pub fn hadris_fs::TableFull<V>::into_inner(self) -> V
-pub const fn hadris_fs::TableFull<V>::new(V) -> Self
-impl<V, E> core::convert::From<hadris_fs::TableFull<V>> for hadris_io::fs_error::Error<E>
-pub fn hadris_io::fs_error::Error<E>::from(hadris_fs::TableFull<V>) -> Self
-impl<V> core::convert::From<hadris_fs::TableFull<V>> for hadris_io::kind::ErrorKind
-pub fn hadris_io::kind::ErrorKind::from(hadris_fs::TableFull<V>) -> Self
-impl<V> core::error::Error for hadris_fs::TableFull<V>
-impl<V> core::fmt::Debug for hadris_fs::TableFull<V>
-pub fn hadris_fs::TableFull<V>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<V> core::fmt::Display for hadris_fs::TableFull<V>
-pub fn hadris_fs::TableFull<V>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub trait hadris_fs::Clock: core::marker::Send + core::marker::Sync
 pub fn hadris_fs::Clock::now(&self) -> hadris_fs::DateTime
 impl hadris_fs::Clock for hadris_fs::NoClock
@@ -1017,48 +986,15 @@ impl hadris_fs::Clock for hadris_fs::SystemClock
 pub fn hadris_fs::SystemClock::now(&self) -> hadris_fs::DateTime
 impl<C: hadris_fs::Clock + ?core::marker::Sized> hadris_fs::Clock for &C
 pub fn &C::now(&self) -> hadris_fs::DateTime
-pub trait hadris_fs::NodeTable
-pub type hadris_fs::NodeTable::Value
-pub type hadris_fs::NodeTable::With<W>: hadris_fs::NodeTable<Value = W>
-pub fn hadris_fs::NodeTable::empty<W>(&self) -> Self::With
-pub fn hadris_fs::NodeTable::find(&self, &mut dyn core::ops::function::FnMut(hadris_fs::NodeId, &Self::Value) -> bool) -> core::option::Option<hadris_fs::NodeId>
-pub fn hadris_fs::NodeTable::for_each_mut(&mut self, &mut dyn core::ops::function::FnMut(hadris_fs::NodeId, &mut Self::Value))
-pub fn hadris_fs::NodeTable::get(&self, hadris_fs::NodeId) -> core::option::Option<&Self::Value>
-pub fn hadris_fs::NodeTable::get_mut(&mut self, hadris_fs::NodeId) -> core::option::Option<&mut Self::Value>
-pub fn hadris_fs::NodeTable::insert(&mut self, hadris_fs::NodeId, Self::Value) -> core::result::Result<(), hadris_fs::TableFull<Self::Value>>
-pub fn hadris_fs::NodeTable::is_empty(&self) -> bool
-pub fn hadris_fs::NodeTable::len(&self) -> usize
-pub fn hadris_fs::NodeTable::pin(&mut self, hadris_fs::NodeId) -> core::option::Option<u32>
-pub fn hadris_fs::NodeTable::pins(&self, hadris_fs::NodeId) -> u32
-pub fn hadris_fs::NodeTable::remove(&mut self, hadris_fs::NodeId) -> core::option::Option<Self::Value>
-pub fn hadris_fs::NodeTable::unpin(&mut self, hadris_fs::NodeId) -> core::option::Option<u32>
-impl<V> hadris_fs::NodeTable for hadris_fs::HeapTable<V>
-pub type hadris_fs::HeapTable<V>::Value = V
-pub type hadris_fs::HeapTable<V>::With<W> = hadris_fs::HeapTable<W>
-pub fn hadris_fs::HeapTable<V>::empty<W>(&self) -> hadris_fs::HeapTable<W>
-pub fn hadris_fs::HeapTable<V>::find(&self, &mut dyn core::ops::function::FnMut(hadris_fs::NodeId, &V) -> bool) -> core::option::Option<hadris_fs::NodeId>
-pub fn hadris_fs::HeapTable<V>::for_each_mut(&mut self, &mut dyn core::ops::function::FnMut(hadris_fs::NodeId, &mut V))
-pub fn hadris_fs::HeapTable<V>::get(&self, hadris_fs::NodeId) -> core::option::Option<&V>
-pub fn hadris_fs::HeapTable<V>::get_mut(&mut self, hadris_fs::NodeId) -> core::option::Option<&mut V>
-pub fn hadris_fs::HeapTable<V>::insert(&mut self, hadris_fs::NodeId, V) -> core::result::Result<(), hadris_fs::TableFull<V>>
-pub fn hadris_fs::HeapTable<V>::is_empty(&self) -> bool
-pub fn hadris_fs::HeapTable<V>::len(&self) -> usize
-pub fn hadris_fs::HeapTable<V>::pin(&mut self, hadris_fs::NodeId) -> core::option::Option<u32>
-pub fn hadris_fs::HeapTable<V>::pins(&self, hadris_fs::NodeId) -> u32
-pub fn hadris_fs::HeapTable<V>::remove(&mut self, hadris_fs::NodeId) -> core::option::Option<V>
-pub fn hadris_fs::HeapTable<V>::unpin(&mut self, hadris_fs::NodeId) -> core::option::Option<u32>
-impl<const N: usize, V> hadris_fs::NodeTable for hadris_fs::FixedTable<N, V>
-pub type hadris_fs::FixedTable<N, V>::Value = V
-pub type hadris_fs::FixedTable<N, V>::With<W> = hadris_fs::FixedTable<N, W>
-pub fn hadris_fs::FixedTable<N, V>::empty<W>(&self) -> hadris_fs::FixedTable<N, W>
-pub fn hadris_fs::FixedTable<N, V>::find(&self, &mut dyn core::ops::function::FnMut(hadris_fs::NodeId, &V) -> bool) -> core::option::Option<hadris_fs::NodeId>
-pub fn hadris_fs::FixedTable<N, V>::for_each_mut(&mut self, &mut dyn core::ops::function::FnMut(hadris_fs::NodeId, &mut V))
-pub fn hadris_fs::FixedTable<N, V>::get(&self, hadris_fs::NodeId) -> core::option::Option<&V>
-pub fn hadris_fs::FixedTable<N, V>::get_mut(&mut self, hadris_fs::NodeId) -> core::option::Option<&mut V>
-pub fn hadris_fs::FixedTable<N, V>::insert(&mut self, hadris_fs::NodeId, V) -> core::result::Result<(), hadris_fs::TableFull<V>>
-pub fn hadris_fs::FixedTable<N, V>::is_empty(&self) -> bool
-pub fn hadris_fs::FixedTable<N, V>::len(&self) -> usize
-pub fn hadris_fs::FixedTable<N, V>::pin(&mut self, hadris_fs::NodeId) -> core::option::Option<u32>
-pub fn hadris_fs::FixedTable<N, V>::pins(&self, hadris_fs::NodeId) -> u32
-pub fn hadris_fs::FixedTable<N, V>::remove(&mut self, hadris_fs::NodeId) -> core::option::Option<V>
-pub fn hadris_fs::FixedTable<N, V>::unpin(&mut self, hadris_fs::NodeId) -> core::option::Option<u32>
+pub trait hadris_fs::CodePage: core::marker::Send + core::marker::Sync
+pub fn hadris_fs::CodePage::decode(&self, u8) -> char
+pub fn hadris_fs::CodePage::encode(&self, char) -> core::option::Option<u8>
+impl hadris_fs::CodePage for hadris_fs::Ascii
+pub fn hadris_fs::Ascii::decode(&self, u8) -> char
+pub fn hadris_fs::Ascii::encode(&self, char) -> core::option::Option<u8>
+impl hadris_fs::CodePage for hadris_fs::Cp437
+pub fn hadris_fs::Cp437::decode(&self, u8) -> char
+pub fn hadris_fs::Cp437::encode(&self, char) -> core::option::Option<u8>
+impl<P: hadris_fs::CodePage + ?core::marker::Sized> hadris_fs::CodePage for &P
+pub fn &P::decode(&self, u8) -> char
+pub fn &P::encode(&self, char) -> core::option::Option<u8>

@@ -2,8 +2,8 @@ pub mod hadris_fat_raw
 pub mod hadris_fat_raw::date
 pub const hadris_fat_raw::date::MAX: (u16, u16, u8)
 pub const hadris_fat_raw::date::MIN: (u16, u16, u8)
-pub fn hadris_fat_raw::date::decode(u16, u16, u8) -> core::option::Option<hadris_fs::time::DateTime>
-pub fn hadris_fat_raw::date::encode(hadris_fs::time::DateTime) -> (u16, u16, u8)
+pub fn hadris_fat_raw::date::decode(u16, u16, u8, core::option::Option<i16>) -> core::option::Option<hadris_fs::time::DateTime>
+pub fn hadris_fat_raw::date::encode(hadris_fs::time::DateTime, core::option::Option<i16>) -> (u16, u16, u8)
 pub const fn hadris_fat_raw::date::pack(u16, u8, u8, u8, u8, u8) -> (u16, u16)
 pub mod hadris_fat_raw::exfat
 pub mod hadris_fat_raw::exfat::io
@@ -312,7 +312,7 @@ pub const hadris_fat_raw::exfat::VOLUME_CLEAR_TO_ZERO: u16
 pub const hadris_fat_raw::exfat::VOLUME_DIRTY: u16
 pub const hadris_fat_raw::exfat::VOLUME_MEDIA_FAILURE: u16
 pub fn hadris_fat_raw::exfat::boot_checksum(u32, u64, &[u8]) -> u32
-pub fn hadris_fat_raw::exfat::decode_time(u32, u8, u8) -> core::option::Option<hadris_fs::time::DateTime>
+pub fn hadris_fat_raw::exfat::decode_time(u32, u8, u8, core::option::Option<i16>) -> core::option::Option<hadris_fs::time::DateTime>
 pub fn hadris_fat_raw::exfat::encode_time(hadris_fs::time::DateTime) -> (u32, u8, u8)
 pub fn hadris_fat_raw::exfat::hash_unit(u16, u16) -> u16
 pub const fn hadris_fat_raw::exfat::mandatory_upcase(u16) -> u16

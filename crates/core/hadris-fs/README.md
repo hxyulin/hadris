@@ -14,9 +14,9 @@ The vocabulary is mode-independent and performs no I/O:
 - `DirCursor` and `DirEntry` for resumable directory reads; an entry holds its name inline
 - `OpenMode`, `OpenOptions`, `RenameMode` and `Resolve`
 - `FuseOnError`, an iterator adapter that ends after the first `Err`
-- `NodeTable`, per-node driver state with pin counts for formats without
-  stable inode numbers: `FixedTable<N>` needs no allocator, `HeapTable`
-  (`alloc`) grows, and users can supply their own
+- `MountOptions`, one mount configuration for every format: read-only,
+  the `Clock`, the UTC offset of zoneless timestamps, the FAT `CodePage`
+  (`Cp437` by default, or `Ascii`), a node cap and backup boot structures
 - `tree` (`alloc`): the input of every image writer. `Tree` holds files,
   directories, symlinks, device nodes and hard links with their
   `SetMetadata`; `Content` is bytes, a `ByteSource`, a host file opened
@@ -79,7 +79,7 @@ assert!(OpenOptions::new().write().create().append().validate().is_ok());
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `alloc` | No | `OwnedName`, `PathError`, `HeapTable`, `copy_tree`, the async `Volume`, `Box` forwarding, and `tree` with `ContentReader` and `TreeExt` |
+| `alloc` | No | `OwnedName`, `PathError`, `copy_tree`, the async `Volume`, `Box` forwarding, and `tree` with `ContentReader` and `TreeExt` |
 | `std` | No | Implies `alloc`; adds `SystemClock`, the sync `Volume` and its `std::io` handles, the sync host helpers, `Content::path`, `Tree::from_fs` and conversions to `std::io::Error` |
 | `sync` | No | The blocking API in `sync` |
 | `async` | No | The same API with `Send` futures in `r#async` |

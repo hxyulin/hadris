@@ -6,6 +6,7 @@ use std::path::Path;
 
 use hadris_fat::exfat::sync::{ExFatFs, format as format_exfat};
 use hadris_fat::exfat::{FormatOptions, VolumeLabel};
+use hadris_fs::MountOptions;
 use hadris_storage::host::FileDevice;
 
 use super::ExFatCase;
@@ -28,7 +29,7 @@ impl Mount for HadrisExFat {
             .open(image)
             .and_then(FileDevice::new)
             .map_err(|error| error.to_string())?;
-        ExFatFs::open(file).map_err(|error| error.to_string())
+        ExFatFs::mount(file, MountOptions::new()).map_err(|error| error.to_string())
     }
 
     fn label(&self, fs: &mut Self::Fs) -> Result<String, String> {

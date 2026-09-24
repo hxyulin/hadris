@@ -10,7 +10,8 @@
 //! detects and mounts in one step and implements the `hadris_fs`
 //! `FileSystem` trait by delegating to the driver it opened, so one generic function
 //! lists any volume. A failed open gives the device back in a
-//! `hadris_fs::MountError`. Neither needs an allocator.
+//! `hadris_fs::MountError`. Detection needs no allocator; `OpenVolume` needs
+//! `alloc`, as the FAT and exFAT drivers do.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "write"))]
@@ -50,7 +51,7 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and `hadris_storage::host::FileDevice` |
-//! | `alloc` | via `std` | `PathError` conversions |
+//! | `alloc` | via `std` | `OpenVolume` and `PathError` conversions |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //! | `write` | No | `hadris_fat` formatting, through [`fat`] |
@@ -82,19 +83,28 @@ pub use error::Detail;
 pub mod sync {
     //! The blocking API.
 
+    #[allow(unused_macros)]
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async! { $($item)* } };
     }
 
+    #[cfg(feature = "alloc")]
     use crate::detect::sync::detect;
+    #[cfg(feature = "alloc")]
     use hadris_fat::exfat::sync::ExFatFs;
+    #[cfg(feature = "alloc")]
     use hadris_fat::sync::FatFs;
+    #[cfg(feature = "alloc")]
     use hadris_fs::sync::FileSystem;
+    #[cfg(feature = "alloc")]
     use hadris_ntfs::sync::NtfsFs;
+    #[cfg(feature = "alloc")]
     use hadris_storage::sync::BlockDevice;
 
+    #[cfg(feature = "alloc")]
     #[path = "volume.rs"]
     mod volume;
+    #[cfg(feature = "alloc")]
     pub use volume::OpenVolume;
 }
 
@@ -104,20 +114,29 @@ pub mod sync {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = ""]
 pub mod r#async {
+    #[allow(unused_macros)]
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
+    #[cfg(feature = "alloc")]
     use crate::detect::r#async::detect;
+    #[cfg(feature = "alloc")]
     use hadris_fat::r#async::FatFs;
+    #[cfg(feature = "alloc")]
     use hadris_fat::exfat::r#async::ExFatFs;
+    #[cfg(feature = "alloc")]
     use hadris_fs::r#async::FileSystem;
+    #[cfg(feature = "alloc")]
     use hadris_ntfs::r#async::NtfsFs;
+    #[cfg(feature = "alloc")]
     use hadris_storage::r#async::BlockDevice;
 
+    #[cfg(feature = "alloc")]
     #[allow(clippy::duplicate_mod)]
     #[path = "volume.rs"]
     mod volume;
+    #[cfg(feature = "alloc")]
     pub use volume::OpenVolume;
 }
 

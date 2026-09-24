@@ -57,7 +57,7 @@ the `unstable-ntfs` feature adds the `ntfs` re-export and `as_ntfs`,
 | Feature | Default | Purpose |
 |---------|---------|---------|
 | `std` | yes | Implies `alloc`; `std::io::Error` conversions and `hadris_storage::host::FileDevice` |
-| `alloc` | via `std` | `PathError` conversions |
+| `alloc` | via `std` | `OpenVolume` and `PathError` conversions |
 | `sync` | yes | The blocking API in `sync` |
 | `async` | no | The asynchronous API with `Send` futures in `r#async` |
 | `write` | no | FAT formatting through the `fat` re-export |

@@ -1,15 +1,11 @@
-//! OEM code pages for FAT short names.
-//!
-//! A short (8.3) name is 11 bytes in an OEM code page. Bytes up to `0x7F`
-//! are ASCII in every code page FAT uses, so a [`CodePage`] maps only the
-//! bytes above. [`Ascii`] is the default of `FatFs`; [`Cp437`] is the
-//! original IBM PC code page.
-
-/// Maps the bytes of a short name above `0x7F` to and from characters.
+/// The OEM code page of FAT short names: maps the bytes above `0x7F` to and
+/// from characters.
 ///
-/// `FatFs` takes the code page as a type parameter and calls it when it
-/// shows a short name and when it generates one from a long name.
-pub trait CodePage {
+/// A short (8.3) name is 11 bytes in an OEM code page. Bytes up to `0x7F`
+/// are ASCII in every code page FAT uses, so a code page maps only the bytes
+/// above. [`MountOptions::with_code_page`](crate::MountOptions::with_code_page)
+/// chooses one; [`Cp437`], the original IBM PC code page, is the default.
+pub trait CodePage: Send + Sync {
     /// The character for `byte`, which is above `0x7F`. Return U+FFFD for a
     /// byte the code page leaves undefined.
     fn decode(&self, byte: u8) -> char;

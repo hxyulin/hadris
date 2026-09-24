@@ -1,8 +1,8 @@
 use std::fs::File;
 use std::sync::Arc;
 
-use hadris_fat::MountOptions;
 use hadris_fat::sync::FatFs;
+use hadris_fs::MountOptions;
 use hadris_fs::sync::{FileSystem, Volume};
 use hadris_fs::{OpenOptions, SystemClock};
 use hadris_storage::host::FileDevice;
@@ -12,9 +12,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .unwrap_or_else(|| "disk.img".to_owned());
     let file = File::options().read(true).write(true).open(path)?;
-    let fs = FatFs::open_with(
+    let fs = FatFs::mount(
         FileDevice::new(file)?,
-        MountOptions::new().with_clock(SystemClock),
+        MountOptions::new().with_clock(&SystemClock),
     )?;
     let kind = fs.kind();
 

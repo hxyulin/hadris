@@ -6,17 +6,18 @@
 #[path = "common/exfat.rs"]
 mod common;
 use common::FsPaths;
+use hadris_fs::MountOptions;
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
 use common::{Device, Fs, Geometry, Tool, clean, fsck, le32};
+use hadris_fat::exfat::VolumeLabel;
 use hadris_fat::exfat::sync::ExFatFs;
-use hadris_fat::exfat::{MountOptions, VolumeLabel};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{
-    Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, FileType, HeapTable,
-    Name, NodeId, OpenMode, Owner, Permissions, RenameMode, SetAttr,
+    Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, FileType, Name,
+    NodeId, OpenMode, Owner, Permissions, RenameMode, SetAttr,
 };
 use hadris_io::Error;
 use hadris_storage::sync::BlockDevice;
@@ -34,7 +35,7 @@ fn create(fs: &mut Fs, dir: NodeId, text: &str, kind: FileType) -> NodeId {
     .unwrap()
 }
 
-fn read_all<D: BlockDevice, C: Clock>(fs: &mut ExFatFs<D, HeapTable, C>, node: NodeId) -> Vec<u8> {
+fn read_all<D: BlockDevice>(fs: &mut ExFatFs<D>, node: NodeId) -> Vec<u8> {
     let len = fs.stat(node).unwrap().len() as usize;
     let mut out = vec![0u8; len];
     let mut done = 0;
@@ -170,11 +171,9 @@ impl Clock for FixedClock {
 fn clock_stamps_new_and_modified_entries() {
     let image = common::image(common::small(4 << 20, 4096));
     let now = civil(2024, 12, Some(60));
-    let mut fs = ExFatFs::open_with(
+    let mut fs = ExFatFs::mount(
         common::device(image, 512),
-        MountOptions::new()
-            .with_table(HeapTable::new())
-            .with_clock(FixedClock(now)),
+        MountOptions::new().with_clock(Box::leak(Box::new(FixedClock(now)))),
     )
     .unwrap();
     let root = fs.root();
@@ -842,7 +841,7 @@ fn refused_writes_make_the_volume_read_only() {
         budget: None,
         refuse: true,
     };
-    let mut fs = ExFatFs::open_with(dev, MountOptions::new().with_table(HeapTable::new())).unwrap();
+    let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
     assert!(FileSystem::capabilities(&fs).writable());
     let root = fs.root();
     let file = fs.lookup(root, name("lower.txt")).unwrap();
@@ -875,7 +874,7 @@ fn refused_writes_make_the_volume_read_only() {
     assert_eq!(fs.into_inner().inner.into_inner(), before);
 
     let dev = common::device(before.clone(), 512);
-    let mut fs = ExFatFs::open_with(dev, MountOptions::new().with_read_only()).unwrap();
+    let mut fs = ExFatFs::mount(dev, MountOptions::new().read_only()).unwrap();
     assert_eq!(fs.set_label(None).unwrap_err().kind(), ErrorKind::ReadOnly);
     assert_eq!(fs.into_inner().into_inner(), before);
 }
@@ -894,8 +893,7 @@ fn interrupted_operations_leave_readable_volumes() {
                 budget: Some(budget),
                 refuse: false,
             };
-            let mut fs =
-                ExFatFs::open_with(dev, MountOptions::new().with_table(HeapTable::new())).unwrap();
+            let mut fs = ExFatFs::mount(dev, MountOptions::new()).unwrap();
             let root = fs.root();
             let result = match op {
                 0 => fs.mkdir(root, name("a new directory"), &meta).map(|_| ()),
@@ -978,11 +976,7 @@ fn sync_writes_the_other_nodes_past_a_damaged_entry_set() {
         4 << 20,
         4096,
     ))));
-    let mut fs = ExFatFs::open_with(
-        Shared(image.clone()),
-        MountOptions::new().with_table(HeapTable::new()),
-    )
-    .unwrap();
+    let mut fs = ExFatFs::mount(Shared(image.clone()), MountOptions::new()).unwrap();
     let root = fs.root();
     let texts = ["first.bin", "second.bin", "third.bin", "fourth.bin"];
     let nodes: Vec<NodeId> = texts
@@ -1326,11 +1320,71 @@ fn texfat_with_one_bitmap_mounts() {
     );
     image[106] |= 1;
     assert_eq!(
-        ExFatFs::open(common::device(image, 512))
+        ExFatFs::mount(common::device(image, 512), MountOptions::new())
             .unwrap_err()
             .error()
             .kind(),
         ErrorKind::Corrupt,
         "the active FAT has no bitmap"
     );
+}
+
+#[test]
+fn utc_offset_stamps_new_times() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let utc = civil(2030, 8, None);
+    let options = MountOptions::new()
+        .with_clock(Box::leak(Box::new(FixedClock(utc))))
+        .with_utc_offset(-300)
+        .unwrap();
+    let mut fs = ExFatFs::mount(common::device(image, 512), options).unwrap();
+    let root = fs.root();
+    let node = fs.create(root, name("zoned.txt"), &SetAttr::new()).unwrap();
+    fs.forget(node, 1);
+    let image = common::image(fs);
+    let mut fs = common::mount(&image);
+    let root = fs.root();
+    let node = fs.lookup(root, name("zoned.txt")).unwrap();
+    let created = fs.stat(node).unwrap().created().unwrap();
+    assert_eq!(created.unix_seconds(), utc.unix_seconds());
+    assert_eq!(created.utc_offset_minutes(), Some(-300));
+    fs.forget(node, 1);
+}
+
+#[test]
+fn node_limit_caps_pinned_nodes() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let options = MountOptions::new().with_node_limit(1);
+    let mut fs = ExFatFs::mount(common::device(image, 512), options).unwrap();
+    let root = fs.root();
+    let held = fs.create(root, name("a.txt"), &SetAttr::new()).unwrap();
+    assert_eq!(
+        fs.create(root, name("b.txt"), &SetAttr::new())
+            .unwrap_err()
+            .kind(),
+        ErrorKind::LimitExceeded
+    );
+    fs.forget(held, 1);
+    let b = fs.create(root, name("b.txt"), &SetAttr::new()).unwrap();
+    assert_eq!(
+        fs.lookup(root, name("a.txt")).unwrap_err().kind(),
+        ErrorKind::LimitExceeded
+    );
+    fs.forget(b, 1);
+}
+
+#[test]
+fn unmount_syncs_and_returns_the_device() {
+    let image = common::image(common::small(4 << 20, 4096));
+    let mut fs = common::mount(&image);
+    let root = fs.root();
+    let node = fs.create(root, name("kept.bin"), &SetAttr::new()).unwrap();
+    assert_eq!(fs.write(node, 0, &[9u8; 9000]).unwrap(), 9000);
+    let bytes = fs.unmount().unwrap().into_inner();
+    let mut fs = common::mount(&bytes);
+    let root = fs.root();
+    let node = fs.lookup(root, name("kept.bin")).unwrap();
+    assert_eq!(fs.stat(node).unwrap().len(), 9000);
+    fs.forget(node, 1);
+    clean(&mut fs, "unmount");
 }

@@ -1,110 +1,9 @@
-use hadris_fs::{Clock, ErrorKind, FixedTable, NoClock, NodeTable};
+use hadris_fs::ErrorKind;
+#[cfg(feature = "write")]
+use hadris_fs::{Clock, NoClock};
 
 #[cfg(feature = "write")]
 use crate::FatKind;
-use crate::code_page::Ascii;
-
-/// How [`FatFs`](crate::sync::FatFs) mounts a volume: read-only or not, the
-/// node table, the clock and the code page.
-///
-/// `MountOptions::new()` gives the defaults of `FatFs::open`: writable, a
-/// `FixedTable<64>`, [`NoClock`] and [`Ascii`]. Each `with_*` method that
-/// takes a value of another type changes the matching type parameter, and
-/// `FatFs::open_with` takes the types from the options.
-///
-/// ```rust,no_run
-/// # #[cfg(all(feature = "sync", feature = "std"))]
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use hadris_fat::sync::FatFs;
-/// use hadris_fat::{Cp437, MountOptions};
-/// use hadris_fs::{HeapTable, SystemClock};
-/// use hadris_storage::{BlockSize, MemDevice};
-///
-/// let image = std::fs::read("disk.img")?;
-/// let dev = MemDevice::new(image, BlockSize::new(512).unwrap());
-/// let options = MountOptions::new()
-///     .with_table(HeapTable::new())
-///     .with_clock(SystemClock)
-///     .with_code_page(Cp437);
-/// let fs = FatFs::open_with(dev, options)?;
-/// assert!(!fs.is_read_only());
-/// # Ok(())
-/// # }
-/// # #[cfg(not(all(feature = "sync", feature = "std")))]
-/// # fn main() {}
-/// ```
-#[derive(Debug, Clone)]
-pub struct MountOptions<T = FixedTable<64>, C = NoClock, P = Ascii> {
-    pub(crate) read_only: bool,
-    pub(crate) table: T,
-    pub(crate) clock: C,
-    pub(crate) code_page: P,
-}
-
-impl MountOptions {
-    /// The defaults: writable, `FixedTable<64>`, [`NoClock`] and [`Ascii`].
-    pub const fn new() -> Self {
-        Self {
-            read_only: false,
-            table: FixedTable::new(),
-            clock: NoClock,
-            code_page: Ascii,
-        }
-    }
-}
-
-impl Default for MountOptions {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T, C, P> MountOptions<T, C, P> {
-    /// Mounts for reading only: the driver never calls `write_blocks`, and
-    /// writing methods fail with `ErrorKind::ReadOnly`. Mounts are writable
-    /// unless this is called.
-    pub fn with_read_only(mut self) -> Self {
-        self.read_only = true;
-        self
-    }
-
-    /// Keeps pinned nodes in a table of the kind of `table`, such as
-    /// `HeapTable::new()` or a larger `FixedTable::<N>::new()`. The driver
-    /// makes its own table of that kind, so `table` holds no values.
-    pub fn with_table<U: NodeTable<Value = ()>>(self, table: U) -> MountOptions<U, C, P> {
-        MountOptions {
-            read_only: self.read_only,
-            table,
-            clock: self.clock,
-            code_page: self.code_page,
-        }
-    }
-
-    /// Stamps new and modified entries with the time from `clock`.
-    pub fn with_clock<K: Clock>(self, clock: K) -> MountOptions<T, K, P> {
-        MountOptions {
-            read_only: self.read_only,
-            table: self.table,
-            clock,
-            code_page: self.code_page,
-        }
-    }
-
-    /// Reads and generates short names in `code_page`.
-    pub fn with_code_page<Q: crate::CodePage>(self, code_page: Q) -> MountOptions<T, C, Q> {
-        MountOptions {
-            read_only: self.read_only,
-            table: self.table,
-            clock: self.clock,
-            code_page,
-        }
-    }
-
-    /// Whether the volume is mounted for reading only.
-    pub fn is_read_only(&self) -> bool {
-        self.read_only
-    }
-}
 
 /// A volume label: up to 11 ASCII characters, stored in uppercase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -134,7 +33,7 @@ impl VolumeLabel {
     }
 
     /// A label as read from a volume, unchecked.
-    #[cfg(any(feature = "sync", feature = "async"))]
+    #[cfg(all(feature = "alloc", any(feature = "sync", feature = "async")))]
     pub(crate) const fn from_disk(bytes: [u8; 11]) -> Self {
         Self(bytes)
     }
@@ -184,8 +83,8 @@ impl VolumeLabel {
 /// ```
 #[cfg(feature = "write")]
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
-#[derive(Debug, Clone)]
-pub struct FormatOptions<C = NoClock> {
+#[derive(Clone, Copy)]
+pub struct FormatOptions {
     pub(crate) kind: Option<FatKind>,
     pub(crate) label: Option<VolumeLabel>,
     pub(crate) volume_id: Option<u32>,
@@ -197,7 +96,26 @@ pub struct FormatOptions<C = NoClock> {
     pub(crate) fat_count: u8,
     pub(crate) root_entries: u16,
     pub(crate) media: u8,
-    pub(crate) clock: C,
+    pub(crate) clock: &'static dyn Clock,
+}
+
+#[cfg(feature = "write")]
+impl core::fmt::Debug for FormatOptions {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FormatOptions")
+            .field("kind", &self.kind)
+            .field("label", &self.label)
+            .field("volume_id", &self.volume_id)
+            .field("sector_size", &self.sector_size)
+            .field("cluster_size", &self.cluster_size)
+            .field("oem_name", &self.oem_name)
+            .field("reserved_sectors", &self.reserved_sectors)
+            .field("hidden_sectors", &self.hidden_sectors)
+            .field("fat_count", &self.fat_count)
+            .field("root_entries", &self.root_entries)
+            .field("media", &self.media)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(feature = "write")]
@@ -218,7 +136,7 @@ impl FormatOptions {
             fat_count: 2,
             root_entries: 512,
             media: 0xF8,
-            clock: NoClock,
+            clock: &NoClock,
         }
     }
 }
@@ -231,7 +149,7 @@ impl Default for FormatOptions {
 }
 
 #[cfg(feature = "write")]
-impl<C> FormatOptions<C> {
+impl FormatOptions {
     /// Formats as `kind` instead of choosing from the size. Fails with
     /// `ErrorKind::NoSpace` or `ErrorKind::LimitExceeded` when no cluster
     /// size gives a cluster count `kind` allows.
@@ -308,20 +226,8 @@ impl<C> FormatOptions<C> {
 
     /// Uses `clock` for the label entry's times, the volume id, and the
     /// returned `FatFs`.
-    pub fn with_clock<K: Clock>(self, clock: K) -> FormatOptions<K> {
-        FormatOptions {
-            kind: self.kind,
-            label: self.label,
-            volume_id: self.volume_id,
-            sector_size: self.sector_size,
-            cluster_size: self.cluster_size,
-            oem_name: self.oem_name,
-            reserved_sectors: self.reserved_sectors,
-            hidden_sectors: self.hidden_sectors,
-            fat_count: self.fat_count,
-            root_entries: self.root_entries,
-            media: self.media,
-            clock,
-        }
+    pub fn with_clock(mut self, clock: &'static dyn Clock) -> Self {
+        self.clock = clock;
+        self
     }
 }

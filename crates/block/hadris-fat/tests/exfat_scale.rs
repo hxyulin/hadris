@@ -11,7 +11,7 @@ use common::{Device, Fs, block_on, clean, payload, small};
 use hadris_fat::exfat::sync::ExFatFs;
 use hadris_fs::r#async::FileSystem as _;
 use hadris_fs::sync::FileSystem;
-use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NodeId, NodeTable, RenameMode, SetAttr};
+use hadris_fs::{DirCursor, ErrorKind, FileType, MountOptions, Name, NodeId, RenameMode, SetAttr};
 
 const SIZE: usize = 32 << 20;
 const CLUSTER: usize = 4096;
@@ -244,9 +244,8 @@ fn allocation_wraps_to_the_start_and_fails_cleanly_when_full() {
 
 #[test]
 fn async_multi_cluster_io_matches_sync() {
-    use hadris_fat::exfat::MountOptions;
     use hadris_fat::exfat::r#async::ExFatFs;
-    use hadris_fs::HeapTable;
+    use hadris_fs::MountOptions;
 
     let data = payload(20 * CLUSTER + 1, 5);
     let mut fs = small(SMALL, CLUSTER as u32);
@@ -265,8 +264,8 @@ fn async_multi_cluster_io_matches_sync() {
 
     let image = block_on(async {
         let dev = common::device(image, 512);
-        let options = MountOptions::new().with_table(HeapTable::new());
-        let mut fs = ExFatFs::open_with(dev, options).await.unwrap();
+        let options = MountOptions::new();
+        let mut fs = ExFatFs::mount(dev, options).await.unwrap();
         let root = fs.root();
         let node = fs
             .create(root, name("x.bin"), &SetAttr::new())
@@ -335,7 +334,7 @@ fn listing_resumes_while_the_directory_grows() {
     settle(&mut fs, "grown");
 }
 
-fn pins_follow_renames_and_removals<T: NodeTable>(mut fs: ExFatFs<Device, T>, count: usize) {
+fn pins_follow_renames_and_removals(mut fs: ExFatFs<Device>, count: usize) {
     let root = fs.root();
     let new = SetAttr::new();
     let dir = fs.mkdir(root, name("pins"), &new).unwrap();
@@ -395,6 +394,10 @@ fn pins_follow_renames_and_removals<T: NodeTable>(mut fs: ExFatFs<Device, T>, co
 fn pinned_lookups_follow_renames_and_removals() {
     let image = common::image(small(SIZE, CLUSTER as u32));
     pins_follow_renames_and_removals(common::mount(&image), 300);
-    let fixed = ExFatFs::open(common::device(image, 512)).unwrap();
+    let fixed = ExFatFs::mount(
+        common::device(image, 512),
+        MountOptions::new().with_node_limit(64),
+    )
+    .unwrap();
     pins_follow_renames_and_removals(fixed, 40);
 }

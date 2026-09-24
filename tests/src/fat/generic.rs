@@ -15,8 +15,8 @@ use hadris_fat::sync::{FatFs, format as format_fat};
 use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
 use hadris_fs::sync::FileSystem;
 use hadris_fs::{
-    Attributes, DirCursor, ErrorKind, FileType, FsResult, Name, NodeId, OpenMode, RenameMode,
-    Resolve, SetAttr,
+    Attributes, DirCursor, ErrorKind, FileType, FsResult, MountOptions, Name, NodeId, OpenMode,
+    RenameMode, Resolve, SetAttr,
 };
 use hadris_storage::host::FileDevice;
 
@@ -312,7 +312,7 @@ impl Mount for HadrisFat {
             .open(image)
             .and_then(FileDevice::new)
             .map_err(|error| error.to_string())?;
-        FatFs::open(file).map_err(|error| error.to_string())
+        FatFs::mount(file, MountOptions::new()).map_err(|error| error.to_string())
     }
 
     fn label(&self, fs: &mut Self::Fs) -> Result<String, String> {

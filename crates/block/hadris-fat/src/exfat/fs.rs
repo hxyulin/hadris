@@ -2,20 +2,20 @@ use core::fmt;
 
 use hadris_fs::{
     Attributes, Capabilities, CaseRule, Charset, Clock, DateTime, DirCursor, DirEntry, ErrorKind,
-    Field, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name, NameBuf, NameError,
-    NoClock, NodeId, NodeTable, OpenMode, RenameMode, SetAttr, Stored,
+    Field, FileType, FsResult, FsStats, Metadata, MountError, MountOptions, Name, NameBuf,
+    NameError, NodeId, OpenMode, RenameMode, SetAttr, Stored,
 };
 
 use super::block_io::{BlockBuf, new_block, read_bytes, write_bytes};
 use super::exio;
 use super::fsapi::FileSystem;
-use super::io::MaybeSend;
 use super::storage::BlockDevice;
 use hadris_fat_raw::exfat::io::{BootRegion, ClusterState, DirWalk, ExFat, Extent, Upcase};
 use hadris_fat_raw::exfat::{self as raw, ENTRY_SIZE, MAX_SET, NameUnits, RawEntry};
 use hadris_fat_raw::name as names;
 
-use crate::exfat::{MountOptions, VolumeLabel, le16, le32, le64};
+use crate::exfat::{VolumeLabel, le16, le32, le64};
+use crate::table::Table;
 use crate::{permissions, read_only_bit};
 use hadris_fat_raw::io::{ChainPos, Held};
 
@@ -360,7 +360,7 @@ impl SetPending {
     }
 }
 
-fn metadata(node: &Node, set: &Set) -> Metadata {
+fn metadata(node: &Node, set: &Set, zone: Option<i16>) -> Metadata {
     let primary = &set.raw[0];
     let mut attributes = Attributes::empty();
     for (bit, flag) in ATTR_MAPPED {
@@ -377,13 +377,13 @@ fn metadata(node: &Node, set: &Set) -> Metadata {
     let mut meta = Metadata::new(file_type, permissions(node.dir, read_only))
         .with_len(len)
         .with_attributes(attributes);
-    if let Some(time) = raw::decode_time(le32(primary, 8), primary[20], primary[22]) {
+    if let Some(time) = raw::decode_time(le32(primary, 8), primary[20], primary[22], zone) {
         meta = meta.with_created(time);
     }
-    if let Some(time) = raw::decode_time(le32(primary, 12), primary[21], primary[23]) {
+    if let Some(time) = raw::decode_time(le32(primary, 12), primary[21], primary[23], zone) {
         meta = meta.with_modified(time);
     }
-    if let Some(time) = raw::decode_time(le32(primary, 16), 0, primary[24]) {
+    if let Some(time) = raw::decode_time(le32(primary, 16), 0, primary[24], zone) {
         meta = meta.with_accessed(time);
     }
     meta
@@ -493,9 +493,9 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 /// lock and need no allocator. Share it through `hadris_fs` `Volume`, or
 /// call the trait methods directly.
 ///
-/// Mount with [`open`](ExFatFs::open), or with
-/// [`open_with`](ExFatFs::open_with) and [`MountOptions`] to choose the
-/// node table `T` and the [`Clock`] `C`, as for `FatFs`. Nodes are
+/// Mount with [`mount`](ExFatFs::mount) and [`MountOptions`], which set
+/// read-only, the [`Clock`], the UTC offset of timestamps stored without
+/// one, and the node cap, as for `FatFs`. Nodes are
 /// identified by the location of their File entry; `lookup`, `create` and
 /// `parent` pin the node they return, `forget` unpins it, and a pinned node
 /// keeps its id across `rename`. Ids from `readdir` are not pinned
@@ -559,10 +559,10 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 /// is dropped, in between leaves lost clusters, or secondary entries and a
 /// set checksum that `check` reports. What cannot be finished because the
 /// volume turns out to be corrupt is dropped.
-pub struct ExFatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock> {
+pub struct ExFatFs<D> {
     pub(super) dev: D,
     pub(super) vol: ExFat,
-    nodes: T::With<Node>,
+    nodes: Table<Node>,
     pub(super) block: BlockBuf,
     pub(super) upcase: Upcase,
     /// Clusters an interrupted operation left to free.
@@ -570,7 +570,10 @@ pub struct ExFatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock> {
     /// An entry set an interrupted operation was writing.
     pending_set: Option<SetPending>,
     read_only: bool,
-    clock: C,
+    clock: &'static dyn Clock,
+    /// The UTC offset new timestamps record, and old ones without an
+    /// offset are read in; `None` for UTC.
+    zone: Option<i16>,
     /// Some pinned node is not at the slot its id names, because it was
     /// renamed or removed. Until the table empties, `pinned_at` searches it.
     moved: bool,
@@ -578,7 +581,7 @@ pub struct ExFatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock> {
     root_hint: ChainPos,
 }
 
-impl<D, T: NodeTable, C: Clock> fmt::Debug for ExFatFs<D, T, C> {
+impl<D> fmt::Debug for ExFatFs<D> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExFatFs")
             .field("cluster_size", &self.vol.geometry().cluster_size())
@@ -593,8 +596,7 @@ impl<D, T: NodeTable, C: Clock> fmt::Debug for ExFatFs<D, T, C> {
 io_transform! {
 
 impl<D: BlockDevice> ExFatFs<D> {
-    /// Mounts the volume on `dev` with the defaults of
-    /// [`MountOptions::new`]: writable, a `FixedTable<64>` and [`NoClock`].
+    /// Mounts the volume on `dev` with `options`.
     ///
     /// A main boot region whose boot sector or checksum is bad is replaced by
     /// a valid backup boot region, and the volume is then mounted read-only,
@@ -613,17 +615,8 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// Allocation Bitmap or Up-case Table entry whose chain holds it; and
     /// with [`ErrorKind::Unsupported`] when the device's blocks are larger
     /// than 4096 bytes. The [`MountError`] gives `dev` back.
-    pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
-        Self::open_with(dev, MountOptions::new()).await
-    }
-}
-
-impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
-    /// Mounts the volume on `dev` with `options`, which set the node table
-    /// and clock types. Fails as [`open`](ExFatFs::open) does.
-    pub async fn open_with(mut dev: D, options: MountOptions<T, C>) -> Result<Self, MountError<D, D::Error>> {
-        let MountOptions { read_only, table, clock } = options;
-        let read_only = read_only || !dev.writable();
+    pub async fn mount(mut dev: D, options: MountOptions) -> Result<Self, MountError<D, D::Error>> {
+        let read_only = options.is_read_only() || !dev.writable();
         let mut block = match new_block(dev.block_size().get() as usize) {
             Ok(block) => block,
             Err(error) => return Err(MountError::new(error.into(), dev)),
@@ -642,25 +635,38 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         Ok(Self {
             dev,
             vol,
-            nodes: table.empty(),
+            nodes: Table::new(options.node_limit()),
             block,
             upcase,
             pending: None,
             pending_set: None,
             read_only: read_only || backup || !upcase_valid,
-            clock,
+            clock: options.clock(),
+            zone: options.utc_offset(),
             moved: false,
             root_hint: ChainPos::NONE,
         })
     }
 
-    /// Returns the device.
+    /// Syncs the volume, as `FileSystem::sync` does, and gives the device
+    /// back. When the sync fails the [`MountError`] holds its error and the
+    /// device.
+    pub async fn unmount(mut self) -> Result<D, MountError<D, D::Error>> {
+        let synced = if self.read_only { Ok(()) } else { FileSystem::sync(&mut self).await };
+        match synced {
+            Ok(()) => Ok(self.dev),
+            Err(error) => Err(MountError::new(error, self.dev)),
+        }
+    }
+
+    /// Returns the device without syncing; [`unmount`](Self::unmount)
+    /// syncs first.
     pub fn into_inner(self) -> D {
         self.dev
     }
 
     /// Whether the volume was mounted with
-    /// [`MountOptions::with_read_only`], on a device that is not
+    /// [`MountOptions::read_only`], on a device that is not
     /// [`writable`](BlockDevice::writable), from its backup boot region or
     /// with an up-case table that fails its checksum, or the device has
     /// refused a write since.
@@ -669,8 +675,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// The clock that stamps new and modified entries.
-    pub fn clock(&self) -> &C {
-        &self.clock
+    pub fn clock(&self) -> &'static dyn Clock {
+        self.clock
+    }
+
+    /// The UTC offset new timestamps record, in minutes, `None` for UTC.
+    pub fn utc_offset(&self) -> Option<i16> {
+        self.zone
     }
 
     /// Number of nodes in the node table, plus one for the root, which is
@@ -872,7 +883,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     fn now(&self) -> DateTime {
-        self.clock.now()
+        let now = self.clock.now();
+        match self.zone {
+            Some(_) => now.with_utc_offset_minutes(self.zone).unwrap_or(now),
+            None => now,
+        }
     }
 
     fn writable(&self) -> Result<(), ErrorKind> {
@@ -1382,7 +1397,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             let id = node_id(offset / ENTRY_SIZE as u64);
             return self.nodes.get(id).is_some_and(|node| node.entry == offset).then_some(id);
         }
-        self.nodes.find(&mut |_, node| node.entry == offset)
+        self.nodes.find(|_, node| node.entry == offset)
     }
 
     fn free_id(&self, offset: u64) -> Option<NodeId> {
@@ -2023,7 +2038,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// from the set at `from` to the set at `to`, in the directory whose
     /// set is at `parent`.
     fn repoint(&mut self, id: Option<NodeId>, from: u64, to: u64, parent: u64) {
-        self.nodes.for_each_mut(&mut |_, child| {
+        self.nodes.for_each_mut(|_, child| {
             if child.parent == from {
                 child.parent = to;
             }
@@ -2340,7 +2355,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 }
 
-impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock> FileSystem for ExFatFs<D, T, C> {
+impl<D: BlockDevice> FileSystem for ExFatFs<D> {
     type DeviceError = D::Error;
 
     /// What this volume supports: case-insensitive, case-preserving UTF-16
@@ -2457,7 +2472,7 @@ impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock> FileSystem f
         let (_, state) = self.any_node(node).await?;
         let mut set = Set::new();
         self.set_at(state.entry, &mut set).await?;
-        Ok(metadata(&state, &set))
+        Ok(metadata(&state, &set, self.zone))
     }
 
     /// The entry at or after `from`, or `None` at the end. The raw cursor
@@ -2490,7 +2505,7 @@ impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock> FileSystem f
             None => Node::from_set(&set, dir_entry),
         };
         let name = name.as_name().ok_or(ErrorKind::Corrupt)?;
-        let entry = DirEntry::new(name, node, metadata(&state, &set), DirCursor::from_raw(slot as u64))
+        let entry = DirEntry::new(name, node, metadata(&state, &set, self.zone), DirCursor::from_raw(slot as u64))
             .map_err(|_| ErrorKind::Corrupt)?;
         Ok(Some(entry))
     }
@@ -2839,7 +2854,7 @@ impl<D: BlockDevice, T: NodeTable<With<Node>: MaybeSend>, C: Clock> FileSystem f
             self.recover().await?;
         }
         let mut corrupt = None;
-        while let Some(id) = self.nodes.find(&mut |_, node| node.dirty) {
+        while let Some(id) = self.nodes.find(|_, node| node.dirty) {
             match self.flush_node(id).await {
                 Err(err) if err.kind() == ErrorKind::Corrupt => {
                     self.clean(id);

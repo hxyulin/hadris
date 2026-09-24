@@ -22,8 +22,8 @@ systems, SD cards, and USB drives.
 
 `FatFs` is the node-based driver, available as
 `sync::FatFs` and `r#async::FatFs`. It mounts any
-`hadris-storage` block device, needs no allocator (its only buffer is one
-device block of at most 4096 bytes), and implements the `hadris-fs`
+`hadris-storage` block device, needs `alloc` for its node table (its only
+I/O buffer is one device block of at most 4096 bytes), and implements the `hadris-fs`
 `FileSystem` trait, so `Volume` and its `File` and `ReadDir` handles work
 on it. Long names are always read and written: a name
 that fits 8.3 in one case per part is stored as a short entry alone, and
@@ -32,12 +32,13 @@ other names get long-name entries and a short name with a `~N` tail.
 ```rust,no_run
 use hadris_fat::sync::FatFs;
 use hadris_fs::sync::{FileSystem, Volume};
-use hadris_fs::{Name, OpenOptions};
+use hadris_fs::{MountOptions, Name, OpenOptions};
 use hadris_storage::{BlockSize, MemDevice};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let image = std::fs::read("disk.img")?;
-let mut fs = FatFs::open(MemDevice::new(image, BlockSize::new(512).unwrap()))?;
+let dev = MemDevice::new(image, BlockSize::new(512).unwrap());
+let mut fs = FatFs::mount(dev, MountOptions::new())?;
 
 // Node ids, no locks. `lookup` pins, `forget` unpins.
 let root = fs.root();
@@ -58,41 +59,44 @@ vol.lock().sync()?;
 # }
 ```
 
-`FatFs<D, T, C, P>` takes three type parameters after the device, each
-with a zero-sized or allocation-free default, chosen through `MountOptions`
-and `FatFs::open_with`:
+`FatFs<D>` takes its settings at mount time from `hadris_fs::MountOptions`:
 
-- `T`, the node table of open nodes, `FixedTable<64>` by default. A full
-  table makes `lookup` fail with `ErrorKind::LimitExceeded`; use
-  `HeapTable::new()` or a larger `FixedTable<N>` for more.
-- `C`, the `hadris_fs::Clock` for new and modified entries. `NoClock`, the
-  default, writes 1980-01-01 so images are reproducible; `SystemClock`
-  (`std`) writes the current UTC time.
-- `P`, the `CodePage` of short names. `Ascii`, the default, reads a byte
-  `b` above `0x7F` as the private-use character `U+F700 + b`, so every
-  short name lists as its own name and is found by it; `Cp437` maps them.
+- `read_only()` mounts without ever calling `write_blocks`.
+- `with_clock` sets the `hadris_fs::Clock` for new and modified entries.
+  `NoClock`, the default, writes 1980-01-01 so images are reproducible;
+  `SystemClock` (`std`) writes the current time.
+- `with_utc_offset` names the zone of FAT's zoneless timestamps; without
+  it they are read and written as UTC.
+- `with_code_page` sets the `hadris_fs::CodePage` of short names. `Cp437`
+  is the default; `Ascii` reads a byte `b` above `0x7F` as the private-use
+  character `U+F700 + b`, so every short name lists as its own name and is
+  found by it.
+- `with_node_limit` caps the pinned and open nodes; past it `lookup`,
+  `create` and `mkdir` fail with `ErrorKind::LimitExceeded`. The table is
+  unbounded otherwise.
 
 ```rust,no_run
 use hadris_fat::sync::FatFs;
-use hadris_fat::{Cp437, MountOptions};
-use hadris_fs::{HeapTable, SystemClock};
+use hadris_fs::{Ascii, MountOptions, SystemClock};
 use hadris_storage::{BlockSize, MemDevice};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let image = std::fs::read("disk.img")?;
 let options = MountOptions::new()
-    .with_table(HeapTable::new())
-    .with_clock(SystemClock)
-    .with_code_page(Cp437);
-let fs = FatFs::open_with(MemDevice::new(image, BlockSize::new(512).unwrap()), options)?;
+    .with_clock(&SystemClock)
+    .with_utc_offset(60)?
+    .with_code_page(&Ascii);
+let fs = FatFs::mount(MemDevice::new(image, BlockSize::new(512).unwrap()), options)?;
+let dev = fs.unmount()?;
+# let _ = dev;
 # Ok(())
 # }
 ```
 
-`MountOptions::with_read_only()` mounts without ever calling
-`write_blocks`.
+`unmount` syncs and gives the device back; `into_inner` gives it back
+without syncing.
 
-A failed `open`, `open_with` or `format` returns a `hadris_fs::MountError`, which
+A failed `mount`, `unmount` or `format` returns a `hadris_fs::MountError`, which
 gives the device back through `into_device` or `into_parts`. `?` converts
 it into `hadris_fs::Error`, `PathError` or `std::io::Error`, dropping the
 device.
@@ -112,7 +116,7 @@ chain longer than its file, or a renamed node under both names.
 
 ### Formatting with `FatFs`
 
-`format` (the `write` feature, every mode, no allocator) lays out a volume
+`format` (the `write` feature, every mode, `alloc`) lays out a volume
 that fills the block device, using its block count and size, and returns it
 mounted. Format a partition by passing a `hadris_storage` `Partition`.
 
@@ -127,7 +131,7 @@ let dev = MemDevice::new(vec![0u8; 64 << 20], BlockSize::new(512).unwrap());
 let options = FormatOptions::new()
     .with_kind(FatKind::Fat32)
     .with_label(VolumeLabel::new("BOOT")?)
-    .with_clock(SystemClock);
+    .with_clock(&SystemClock);
 let fs = format(dev, options)?;
 # let _ = fs;
 # Ok(())
@@ -203,7 +207,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | Feature | Description | Dependencies |
 |---------|-------------|--------------|
 | `write` | `format` in each mode; `FatFs` and `ExFatFs` write without it | None |
-| `alloc` | `HeapTable` and the other heap-backed `hadris-fs` conveniences | `alloc` crate |
+| `alloc` | `FatFs`, `ExFatFs` and `format`; without it only `check` and the raw layer | `alloc` crate |
 | `sync` | Synchronous API in `sync` | `hadris-io/sync` |
 | `async` | Asynchronous API with `Send` futures in `r#async` | `hadris-io/async` |
 | `std` | `hadris_storage::host::FileDevice` for image files and `SystemClock` | `std`, `alloc` |
@@ -218,11 +222,11 @@ changes what an item does.
 ### exFAT
 
 `hadris_fat::exfat::sync::ExFatFs` and its `r#async` twin
-are a sibling of `FatFs` that needs no allocator and implements `FileSystem`,
+are a sibling of `FatFs` that needs `alloc` and implements `FileSystem`,
 with `format` (the `write` feature) and `check` in each mode.
-exFAT is stable and needs no feature flag. Its options, label, detail codes
-and on-disk layouts are in `hadris_fat::exfat` (`exfat::FormatOptions`,
-`exfat::MountOptions`, `exfat::Detail`, `exfat::raw`), since their names match FAT's. It reads contiguous and
+exFAT is stable and needs no feature flag. It mounts with the same `hadris_fs::MountOptions`. Its format options, label,
+detail codes and on-disk layouts are in `hadris_fat::exfat` (`exfat::FormatOptions`,
+`exfat::Detail`, `exfat::raw`), since their names match FAT's. It reads contiguous and
 chained allocations, fragmented bitmaps and up-case tables, and entry sets
 that cross clusters; it writes FAT chains, grows directories, and keeps
 `VolumeDirty` and `PercentInUse`. On TexFAT volumes it follows `ActiveFat`
@@ -237,7 +241,9 @@ exfatprogs, macOS `newfs_exfat`/`fsck_exfat` and the macOS kernel driver.
 hadris-fat = { version = "2.4.0", default-features = false, features = ["sync"] }
 ```
 
-Add `write` for `format`, and `alloc` for `HeapTable`.
+Without `alloc` this gives `check` and the raw layer; add `alloc` for
+`FatFs` and `ExFatFs`, and `write` for `format`. A firmware API that needs
+no allocator is planned.
 
 ### For Desktop Applications (full features)
 
