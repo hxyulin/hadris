@@ -2221,7 +2221,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     /// and clears `pending`. What is left of the chain stays pending when
     /// that fails.
     async fn free_chain(&mut self, first: u32) -> FsResult<(), D::Error> {
-        let held = self.pending.map_or(Held::new(first, 0), |pending| pending.held);
+        let held = self.pending.map_or(Held::NONE, |pending| pending.held);
         let pending = self.pending.insert(Pending { held, owner: Owner::None });
         let result =
             rawio::free_chain(&mut self.dev, &mut self.block, &mut self.fat, &mut pending.held, first).await;

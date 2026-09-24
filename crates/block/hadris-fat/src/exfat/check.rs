@@ -145,7 +145,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
 
     async fn check(&mut self) -> FsResult<(), D::Error> {
         self.boot().await?;
-        let max = self.fs.geo.max_cluster();
+        let max = self.fs.vol.geometry().max_cluster();
         let window = (self.bits.len() as u64 * 8).min(1 << 31) as u32;
         let mut lo = raw::FIRST_CLUSTER;
         loop {
@@ -167,7 +167,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
         let mut recorded = [0u8; 1];
         self.read(112, &mut recorded).await?;
         let recorded = recorded[0];
-        let count = self.fs.geo.cluster_count() as u64;
+        let count = self.fs.vol.geometry().cluster_count() as u64;
         let used = self.report.used as u64;
         let floor = (used * 100 / count) as u8;
         let ceil = (used * 100).div_ceil(count) as u8;
@@ -184,7 +184,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
     /// Checks the boot regions, the first FAT entries and the up-case
     /// table.
     async fn boot(&mut self) -> FsResult<(), D::Error> {
-        let sector = self.fs.geo.sector_size();
+        let sector = self.fs.vol.geometry().sector_size();
         let region = raw::BOOT_REGION_SECTORS * sector;
         let mut sum = 0u32;
         let mut backup_differs = false;
@@ -248,7 +248,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
         Ok(match stored {
             raw::FAT_END => Link::End(End::Eoc),
             raw::FAT_BAD => Link::End(End::Bad(cluster)),
-            next if self.fs.geo.is_cluster(next) => Link::Next(next),
+            next if self.fs.vol.geometry().is_cluster(next) => Link::Next(next),
             next => Link::End(End::Broken { cluster, next }),
         })
     }
@@ -301,7 +301,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
     /// `len` bytes from `first`, contiguous or chained. `None` when it has
     /// no clusters.
     async fn claim(&mut self, entry: u64, first: u32, len: u64, contiguous: bool) -> FsResult<Option<Claim>, D::Error> {
-        let cluster_size = self.fs.geo.cluster_size();
+        let cluster_size = self.fs.vol.geometry().cluster_size();
         let needed = len.div_ceil(cluster_size);
         if first == 0 {
             if len > 0 {
@@ -309,13 +309,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
             }
             return Ok(None);
         }
-        if !self.fs.geo.is_cluster(first) {
+        if !self.fs.vol.geometry().is_cluster(first) {
             self.once(Finding::InvalidCluster { entry, cluster: first });
             return Ok(None);
         }
         let alloc = Alloc { first, contiguous };
         if contiguous {
-            let room = (self.fs.geo.max_cluster() - first + 1) as u64;
+            let room = (self.fs.vol.geometry().max_cluster() - first + 1) as u64;
             if needed > room {
                 self.once(Finding::ChainTooShort { entry, size: len, clusters: room as u32 });
             }
@@ -363,7 +363,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
     /// The directory an allocation holds, limited to its checked clusters.
     fn dir(&self, claim: Option<Claim>, len: u64) -> Option<Dir> {
         let claim = claim?;
-        let size = len.min(claim.clusters as u64 * self.fs.geo.cluster_size());
+        let size = len.min(claim.clusters as u64 * self.fs.vol.geometry().cluster_size());
         Some(Dir { walk: Walk::new(DirStart { alloc: claim.alloc, size }), slot: 0 })
     }
 
@@ -377,7 +377,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
     }
 
     async fn walk_tree(&mut self) -> FsResult<(), D::Error> {
-        let root = self.fs.geo.root();
+        let root = self.fs.vol.geometry().root();
         let Some(claim) = self.claim(ROOT_ENTRY, root, u64::MAX, false).await? else {
             return Ok(());
         };
@@ -413,7 +413,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
                     let second_bitmap = kind == raw::ENTRY_BITMAP && entry[1] & 1 != 0;
                     let which = if second_bitmap { 3 } else { (kind - raw::ENTRY_BITMAP) as usize };
                     let bad_label = kind == raw::ENTRY_LABEL && entry[1] as usize > raw::MAX_LABEL_UNITS;
-                    let one_fat = second_bitmap && self.fs.geo.mirror_fat().is_none();
+                    let one_fat = second_bitmap && self.fs.vol.geometry().mirror_fat().is_none();
                     if !is_root || self.seen[which] || bad_label || one_fat {
                         self.once(Finding::RootEntry { entry: at });
                     }
@@ -503,7 +503,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
         let len = le64(&stream, 24);
         let valid = le64(&stream, 8);
         if is_dir {
-            if len % self.fs.geo.cluster_size() != 0 || len > raw::MAX_DIRECTORY_SIZE || valid != len {
+            if len % self.fs.vol.geometry().cluster_size() != 0 || len > raw::MAX_DIRECTORY_SIZE || valid != len {
                 self.once(Finding::DirectorySize { entry: at });
             }
         } else if valid > len {

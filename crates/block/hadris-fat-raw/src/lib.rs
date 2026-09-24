@@ -21,9 +21,10 @@
 //!   encoding its boot sector;
 //! - [`exfat`], the exFAT layouts and codecs.
 //!
-//! With the `sync`, `async` or `async-send` feature, `io` adds the FAT
-//! device primitives the `hadris-fat` driver is built on, generic over a
-//! `hadris-storage` block device and still allocation-free.
+//! With the `sync`, `async` or `async-send` feature, `io` and `exfat::io`
+//! add the FAT and exFAT device primitives the `hadris-fat` drivers are
+//! built on, generic over a `hadris-storage` block device and still
+//! allocation-free.
 //!
 //! The layouts mirror the specifications: they may gain items, and the
 //! existing ones follow the specifications and stay exhaustive.
