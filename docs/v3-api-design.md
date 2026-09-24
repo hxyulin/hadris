@@ -1094,6 +1094,15 @@ Decided on 2026-09-24. [docs/v3/actions.md](v3/actions.md) lists every action on
 
 Before more implementation, the API is redesigned against the catalog as a prototype: a standalone crate with `todo!()` bodies and realistic signatures (lifetimes, `Send` bounds, error types), never merged. An item enters the prototype only when a catalog action cannot be written without it, and names the action IDs it serves. Every `3.0` action gets a usage snippet that must compile, and a FUSE-shaped adapter is written against it as a test of the core set. Sections 4.15 to 4.17 are inputs to check against the prototype, not fixed results.
 
+Pass 1 (core mounted API), accepted on 2026-09-24:
+
+- One node trait `FileSystem` on `&mut self` with the catalog's operation names; write methods default to `ReadOnly`, so ISO and UDF implement the same trait. It replaces `FsDriver`, `Access`, `AsDriver` and `OpenFile` (D6 is superseded).
+- The bare tier tracks opens per node: `open(node)`, `read`/`write` at an offset, `close(node)`. Positions and append live in the caller or in `File`. The bare tier trusts the caller's open mode.
+- `Volume<F>` has no lock parameter (sync uses the std mutex, async a portable async mutex needing only `alloc`); `LockKind` from 4.15 is dropped. A no_std sync user has the node API; `Volume::with_lock` can be added later.
+- `truncate` stays separate from `setattr`, since they fail differently.
+- UDF read-write arrives in 3.x through a new `UdfFs::mount_writable`; `mount` stays read-only in every version.
+- `forget(node, count)`, generation, allocated size and device number are 3.0 (the catalog overrides D12). No-follow resolution is 3.0 (overrides 4.13).
+
 ---
 
 ## 5. Per-crate changes
