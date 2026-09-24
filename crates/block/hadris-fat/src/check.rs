@@ -1,8 +1,9 @@
 use hadris_common::types::endian::Endian;
 use hadris_fs::{Clock, ErrorKind, FsResult, NodeTable};
 
+use super::super::block_io::read_bytes;
 use super::super::storage::BlockDevice;
-use super::{BOOT_SECTOR_LEN, BPB_LEN, DirStart, FatFs, UNKNOWN_FREE, Walk, read_bytes};
+use super::{BOOT_SECTOR_LEN, BPB_LEN, DirStart, FatFs, UNKNOWN_FREE, Walk};
 use crate::code_page::CodePage;
 use crate::codec::boot::{self, RootDir};
 use crate::codec::dirent::{self, ENTRY_SIZE, ShortEntry, Slot};

@@ -183,6 +183,8 @@ pub mod sync {
         ($($t:tt)*) => { hadris_fs::impl_fs_driver!(sync, $($t)*); };
     }
 
+    #[path = "block_io.rs"]
+    pub(crate) mod block_io;
     #[path = "fatfs.rs"]
     mod fatfs;
     pub use fatfs::{FatFs, check, check_with};
@@ -208,6 +210,8 @@ pub mod r#async {
         ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
     }
 
+    #[path = "block_io.rs"]
+    pub(crate) mod block_io;
     #[path = "fatfs.rs"]
     mod fatfs;
     pub use fatfs::{FatFs, check, check_with};
