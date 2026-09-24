@@ -980,6 +980,12 @@ Each published package owns its version and may be released independently.
   node, free the clusters the node's Vendor Allocation entries (and other
   benign secondary entries with an allocation) hold. They were left
   allocated, and `check` reported them as lost.
+- **hadris-iso (V3):** A session that keeps the boot catalog and replaces
+  a no-emulation boot image sets the entry's load size from the new image
+  when the entry loaded the old one whole, and writes a boot information
+  table into the new image when the old one held one. The entry kept the
+  old load size, and the table was not written, so firmware loaded part of
+  the new image and loaders that check the table, such as ISOLINUX, failed.
 - **hadris-cd (V3):** The volume space size of the ISO 9660 volume
   descriptors of a bridge image covers the whole image. It left out the
   UDF structures and trailing anchor after the ISO 9660 image, so readers

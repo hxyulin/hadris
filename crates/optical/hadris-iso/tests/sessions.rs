@@ -8,8 +8,8 @@ use hadris_fs::sync::DriverExt;
 use hadris_fs::tree::Content;
 use hadris_iso::sync::{IsoImage, Session};
 use hadris_iso::{
-    BootEntry, ElTorito, HybridBoot, IsoOptions, JolietLevel, Namespace, Platform, RockRidge,
-    SessionMode,
+    BootEntry, BootInfo, ElTorito, HybridBoot, IsoOptions, JolietLevel, Namespace, Platform,
+    RockRidge, SessionMode,
 };
 use hadris_storage::MemDevice;
 
@@ -187,6 +187,54 @@ fn kept_catalogs_follow_replaced_boot_images() {
         )
     );
     assert_eq!(session.volume_blocks(), before);
+}
+
+/// A kept catalog entry whose image is replaced gets the new image's load
+/// size, unless it loaded only part of the old one, and the new image gets
+/// the boot information table the old one had.
+#[test]
+fn replaced_boot_images_get_load_sizes_and_info_tables() {
+    let tree = sample(false, false);
+    let opts = IsoOptions::default()
+        .with_rock_ridge(RockRidge::default())
+        .with_el_torito(
+            ElTorito::new(
+                BootEntry::new("boot/boot.img")
+                    .with_load_size(4)
+                    .with_boot_info_table(BootInfo::Grub2),
+            )
+            .with_entry(BootEntry::new("boot/efi.img").with_platform(Platform::Efi)),
+        );
+    for mode in [SessionMode::Append, SessionMode::Rewrite] {
+        let mut session = Session::open(grown(image(&tree, &opts))).unwrap();
+        let bios = pattern(10_001);
+        let efi = vec![0xEEu8; 3000];
+        *session.tree_mut().content_mut("boot/boot.img").unwrap() = Content::bytes(bios.clone());
+        *session.tree_mut().content_mut("boot/efi.img").unwrap() = Content::bytes(efi);
+        let kept = session.options();
+        let report = session.write(&kept, mode).unwrap();
+        let moved = report.extent_of("boot/boot.img").unwrap();
+        let mut iso = IsoImage::open(session.into_inner()).unwrap();
+        let catalog = iso.boot_catalog().unwrap().unwrap();
+        let counts: Vec<_> = catalog.entries().iter().map(|e| e.sector_count()).collect();
+        assert_eq!(counts, [4, 6], "{mode:?}");
+        let mut loaded = vec![0u8; bios.len()];
+        iso.read_bytes(moved.offset(), &mut loaded).unwrap();
+        let word = |at: usize| u32::from_le_bytes(loaded[at..at + 4].try_into().unwrap());
+        let sum = bios[64..64 + (bios.len() - 64) / 4 * 4]
+            .chunks_exact(4)
+            .fold(0u32, |sum, w| {
+                sum.wrapping_add(u32::from_le_bytes(w.try_into().unwrap()))
+            });
+        assert_eq!(
+            [word(8), word(12), word(16), word(20)],
+            [16, (moved.offset() / 2048) as u32, bios.len() as u32, sum],
+            "{mode:?}"
+        );
+        assert!(loaded[24..64].iter().all(|&b| b == 0), "{mode:?}");
+        assert_eq!(loaded[..8], bios[..8]);
+        assert_eq!(loaded[64..], bios[64..]);
+    }
 }
 
 /// An appended session leaves the system area alone and says so when the
