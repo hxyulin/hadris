@@ -550,6 +550,76 @@ fn rename_keeps_benign_secondary_entries() {
     common::fsck_with(&image, "vendor entry", &tools);
 }
 
+/// Gives the file `owner` a Vendor Allocation entry that takes over the
+/// clusters of `blob`, whose set directly follows it and is cleared.
+fn vendor_allocation(image: &mut [u8], geo: &Geometry, owner: &str, blob: &str, contiguous: bool) {
+    let set = geo.set(image, geo.root, owner);
+    let blob = geo.set(image, geo.root, blob);
+    assert_eq!(blob[0], set[2] + 32);
+    if contiguous {
+        geo.unchain(image, &blob);
+    }
+    let first = le32(image, blob[1] + 20);
+    let len = image[blob[1] + 24..blob[1] + 32].to_vec();
+    for &at in &blob {
+        image[at] &= 0x7F;
+    }
+    let extra = blob[0];
+    image[extra..extra + 32].fill(0);
+    image[extra] = 0xE1;
+    image[extra + 1] = if contiguous { 0x03 } else { 0x01 };
+    image[extra + 2..extra + 18].copy_from_slice(b"hadris-vendor-id");
+    image[extra + 20..extra + 24].copy_from_slice(&first.to_le_bytes());
+    image[extra + 24..extra + 32].copy_from_slice(&len);
+    image[set[0] + 1] = 3;
+    geo.reseal(image, &[set[0], set[1], set[2], extra]);
+}
+
+#[test]
+fn remove_and_replace_free_vendor_allocations() {
+    let mut fs = common::small(4 << 20, 4096);
+    let root = fs.root();
+    let before = free(&mut fs);
+    for (text, len) in [
+        ("vendor", 10),
+        ("blob1", 6000),
+        ("target", 10),
+        ("blob2", 6000),
+        ("other", 10),
+    ] {
+        let node = common::write(&mut fs, root, text, &common::payload(len, 1));
+        fs.forget(node);
+    }
+    fs.sync().unwrap();
+    let mut image = common::image(fs);
+    let geo = Geometry::of(&image);
+    vendor_allocation(&mut image, &geo, "vendor", "blob1", false);
+    vendor_allocation(&mut image, &geo, "target", "blob2", true);
+    let mut fs = common::mount(&image);
+    clean(&mut fs, "vendor allocations");
+    assert_eq!(free(&mut fs), before - 7);
+    fs.remove(root, name("vendor"), RemoveKind::File).unwrap();
+    assert_eq!(free(&mut fs), before - 4);
+    fs.rename(
+        root,
+        name("other"),
+        root,
+        name("target"),
+        RenameFlags::empty(),
+    )
+    .unwrap();
+    assert_eq!(free(&mut fs), before - 1);
+    fs.sync().unwrap();
+    clean(&mut fs, "vendor allocations freed");
+    let mut fs = common::mount(&common::image(fs));
+    assert_eq!(free(&mut fs), before - 1);
+    let tools: Vec<Tool> = [Tool::Local, Tool::Docker, Tool::MacOs]
+        .into_iter()
+        .filter(|tool| common::exfatprogs_version(tool).is_none_or(|v| v >= (1, 2, 3)))
+        .collect();
+    common::fsck_with(&common::image(fs), "vendor allocations freed", &tools);
+}
+
 #[test]
 fn remove_files_and_directories() {
     let mut fs = common::small(8 << 20, 4096);

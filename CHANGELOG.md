@@ -963,6 +963,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-fat (V3):** exFAT `remove`, and `rename` when it replaces a
+  node, free the clusters the node's Vendor Allocation entries (and other
+  benign secondary entries with an allocation) hold. They were left
+  allocated, and `check` reported them as lost.
 - **hadris-fs (V3):** Dropping a written `File` without `close` in the
   blocking API publishes its size and times, ignoring errors, so a file
   dropped before a power cut keeps its data reachable. On a `Volume` whose
