@@ -30,18 +30,34 @@ impl<P: CodePage + ?Sized> CodePage for &P {
     }
 }
 
-/// ASCII only: bytes above `0x7F` read as U+FFFD, and non-ASCII characters
-/// become `_` in generated short names. Needs no table.
+/// ASCII only. Needs no table.
+///
+/// A byte `b` above `0x7F` reads as the private-use character
+/// `U+F700 + b` (U+F780 to U+F7FF), so every short name has its own
+/// name, and that name finds the entry again. Those characters encode back
+/// to their bytes; every other non-ASCII character becomes `_` in generated
+/// short names.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Ascii;
 
+/// The first of the private-use characters [`Ascii`] reads high bytes as.
+const ASCII_ESCAPE: u32 = 0xF700;
+
 impl CodePage for Ascii {
-    fn decode(&self, _: u8) -> char {
-        char::REPLACEMENT_CHARACTER
+    fn decode(&self, byte: u8) -> char {
+        match byte {
+            0x80.. => {
+                char::from_u32(ASCII_ESCAPE + byte as u32).unwrap_or(char::REPLACEMENT_CHARACTER)
+            }
+            _ => char::REPLACEMENT_CHARACTER,
+        }
     }
 
-    fn encode(&self, _: char) -> Option<u8> {
-        None
+    fn encode(&self, ch: char) -> Option<u8> {
+        (ch as u32)
+            .checked_sub(ASCII_ESCAPE)
+            .and_then(|byte| u8::try_from(byte).ok())
+            .filter(|&byte| byte >= 0x80)
     }
 }
 
@@ -83,9 +99,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ascii_maps_nothing() {
-        assert_eq!(Ascii.decode(0x82), char::REPLACEMENT_CHARACTER);
+    fn ascii_escapes_high_bytes_to_private_use_characters() {
+        for byte in 0x80..=0xFF {
+            let ch = Ascii.decode(byte);
+            assert_eq!(ch as u32, 0xF700 + byte as u32);
+            assert_eq!(Ascii.encode(ch), Some(byte));
+        }
+        assert_eq!(Ascii.decode(0x41), char::REPLACEMENT_CHARACTER);
         assert_eq!(Ascii.encode('\u{E9}'), None);
+        assert_eq!(Ascii.encode('\u{F741}'), None);
+        assert_eq!(Ascii.encode('\u{F800}'), None);
     }
 
     #[test]

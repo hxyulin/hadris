@@ -4,6 +4,7 @@
 //! the driver, the formatter and the checker share it.
 
 pub(crate) mod boot;
+pub(crate) mod cycle;
 pub(crate) mod date;
 pub(crate) mod dirent;
 pub(crate) mod entry;

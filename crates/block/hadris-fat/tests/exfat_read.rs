@@ -312,3 +312,52 @@ fn fragmented_bitmap_and_upcase_table() {
         &[Tool::MacOs],
     );
 }
+
+#[test]
+fn cyclic_chains_are_corrupt_instead_of_repeating() {
+    let image = common::build();
+    let geo = Geometry::of(&image);
+    let (inner, deep) = {
+        let mut fs = common::mount(&image);
+        let inner = fs.resolve("/Nested Dir/inner").unwrap();
+        let deep = fs.resolve("/Nested Dir/inner/deep.bin").unwrap();
+        (common::chain(&mut fs, inner), common::chain(&mut fs, deep))
+    };
+    assert!(inner.len() > 2 && deep.len() > 4);
+
+    let mut dir_image = image.clone();
+    geo.set_fat(&mut dir_image, inner[1], inner[0]);
+    let mut fs = common::mount(&dir_image);
+    let dir = fs.resolve("/Nested Dir/inner").unwrap();
+    let mut cursor = DirCursor::start();
+    let mut buf = NameBuf::new();
+    let listed = loop {
+        match fs.read_dir_entry(dir, &mut cursor, &mut buf) {
+            Ok(Some(_)) => {}
+            Ok(None) => break Ok(()),
+            Err(err) => break Err(err.kind()),
+        }
+    };
+    assert_eq!(listed, Err(ErrorKind::Corrupt));
+    hadris_fat::exfat::sync::check(&mut fs).unwrap();
+
+    let mut file_image = image.clone();
+    geo.set_fat(&mut file_image, deep[3], deep[1]);
+    let mut fs = common::mount(&file_image);
+    let file = fs.resolve("/Nested Dir/inner/deep.bin").unwrap();
+    let mut chunk = [0u8; 777];
+    let mut at = 0;
+    let read = loop {
+        match fs.read_at(file, at, &mut chunk) {
+            Ok(0) => break Ok(()),
+            Ok(n) => at += n as u64,
+            Err(err) => break Err(err.kind()),
+        }
+    };
+    assert_eq!(read, Err(ErrorKind::Corrupt));
+    let mut all = vec![0u8; 70_000];
+    assert_eq!(
+        fs.read_at(file, 0, &mut all).map_err(|err| err.kind()),
+        Err(ErrorKind::Corrupt)
+    );
+}

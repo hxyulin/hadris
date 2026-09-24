@@ -855,6 +855,74 @@ fn interrupted_operations_leave_readable_volumes() {
     }
 }
 
+/// A device whose bytes the test can change under a mounted volume.
+struct Shared(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+
+impl hadris_io::ErrorType for Shared {
+    type Error = OutOfRange;
+}
+
+impl BlockDevice for Shared {
+    fn block_size(&self) -> BlockSize {
+        BlockSize::new(512).unwrap()
+    }
+
+    fn block_count(&self) -> u64 {
+        self.0.borrow().len() as u64 / 512
+    }
+
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
+        let at = first.get() as usize * 512;
+        buf.copy_from_slice(&self.0.borrow()[at..at + buf.len()]);
+        Ok(())
+    }
+
+    fn write_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &[u8],
+    ) -> Result<(), WriteError<OutOfRange>> {
+        let at = first.get() as usize * 512;
+        self.0.borrow_mut()[at..at + buf.len()].copy_from_slice(buf);
+        Ok(())
+    }
+}
+
+#[test]
+fn sync_writes_the_other_nodes_past_a_damaged_entry_set() {
+    let image = std::rc::Rc::new(std::cell::RefCell::new(common::image(common::small(
+        4 << 20,
+        4096,
+    ))));
+    let mut fs = ExFatFs::open_with(
+        Shared(image.clone()),
+        MountOptions::new().with_table(HeapTable::new()),
+    )
+    .unwrap();
+    let root = fs.root();
+    let texts = ["first.bin", "second.bin", "third.bin", "fourth.bin"];
+    let nodes: Vec<NodeId> = texts
+        .iter()
+        .map(|text| {
+            fs.create(root, name(text), NewNode::File, &SetMetadata::new())
+                .unwrap()
+        })
+        .collect();
+    for &node in &nodes {
+        fs.write_at(node, 0, &[7u8; 100]).unwrap();
+        fs.write_at(node, 100, &[7u8; 4900]).unwrap();
+    }
+    let damaged = nodes[0].get() as usize * 32;
+    image.borrow_mut()[damaged + 32 + 4] ^= 0xFF;
+    assert_eq!(fs.sync().unwrap_err().kind(), ErrorKind::Corrupt);
+    assert_eq!(fs.open_nodes(), 1 + nodes.len());
+    fs.sync().unwrap();
+    let mut fresh = common::mount(&image.borrow());
+    for text in &texts[1..] {
+        assert_eq!(fresh.read_to_vec(&format!("/{text}")).unwrap(), [7u8; 5000]);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Model {
     File(Vec<u8>),

@@ -69,7 +69,8 @@ pub const INNER: &str = "/Nested Dir/inner";
 pub const INNER_FILES: usize = 40;
 /// A short entry whose name starts with `0xE5`, stored as `0x05`.
 pub const KANJI_STORED: &[u8; 11] = b"XABC    TXT";
-pub const KANJI_NAME: &str = "\u{FFFD}ABC.TXT";
+/// Read through `Ascii`, which escapes `0xE5` as U+F7E5.
+pub const KANJI_NAME: &str = "\u{F7E5}ABC.TXT";
 
 /// 204 UTF-16 units, 404 bytes of UTF-8.
 pub fn huge_name() -> String {
