@@ -19,18 +19,17 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = ["std", "sync", "read", "write", "open", "cd"]
 std = ["alloc", "hadris-io?/std", "hadris-iso?/std", "hadris-udf?/std", "hadris-cd?/std"]
 alloc = ["hadris-io?/alloc", "hadris-iso?/alloc", "hadris-udf?/alloc"]
-sync = ["hadris-io?/sync", "hadris-iso?/sync", "hadris-udf?/sync", "hadris-storage?/sync"]
-async = ["hadris-io?/async", "hadris-iso?/async", "hadris-udf?/async", "hadris-storage?/async"]
-# The `async_send` mode of hadris-iso.
-async-send = ["async", "hadris-iso?/async-send"]
-read = ["hadris-udf?/read"]
-write = ["alloc", "read", "hadris-udf?/write"]
+sync = ["hadris-io?/sync", "hadris-iso?/sync", "hadris-udf?/sync", "hadris-cd?/sync", "hadris-storage?/sync"]
+async = ["hadris-io?/async", "hadris-iso?/async", "hadris-udf?/async", "hadris-cd?/async", "hadris-storage?/async"]
+# The `async_send` mode of the format crates.
+async-send = ["async", "hadris-iso?/async-send", "hadris-udf?/async-send", "hadris-cd?/async-send", "hadris-storage?/async-send"]
+read = []
+write = ["alloc", "read"]
 detect = ["read", "dep:hadris-io"]
 open = ["detect", "alloc", "iso", "udf"]
 iso = ["dep:hadris-iso", "dep:hadris-storage"]
-udf = ["dep:hadris-udf"]
-# The hybrid writer currently has no async implementation.
-cd = ["dep:hadris-cd", "hadris-cd/sync"]
+udf = ["dep:hadris-udf", "dep:hadris-storage"]
+cd = ["dep:hadris-cd"]
 
 [dependencies]
 hadris-io = { workspace = true, optional = true, default-features = false }
@@ -41,3 +40,4 @@ hadris-cd = { workspace = true, optional = true, default-features = false }
 
 [dev-dependencies]
 hadris-fs = { workspace = true, features = ["std", "sync", "async"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }

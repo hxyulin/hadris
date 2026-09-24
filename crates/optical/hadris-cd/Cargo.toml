@@ -1,5 +1,6 @@
 [package]
 name = "hadris-cd"
+autotests = false
 version = "2.4.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -7,27 +8,34 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "Hybrid ISO+UDF optical disc image creation (UDF Bridge format)"
-keywords = ["iso", "udf", "optical", "cd", "dvd"]
-categories = ["filesystem", "encoding"]
+description = "Hybrid ISO 9660 and UDF optical disc images (UDF Bridge) from one input tree"
+keywords = ["iso9660", "udf", "optical", "cd", "dvd"]
+categories = ["filesystem", "encoding", "no-std"]
+
+[package.metadata.docs.rs]
+features = ["std", "sync", "async", "async-send"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["std", "sync"]
-sync = ["hadris-io/sync", "hadris-iso/sync", "hadris-udf/sync", "hadris-fs/sync", "hadris-storage/sync"]
-std = ["hadris-io/std", "hadris-iso/std", "hadris-udf/std", "hadris-fs/std", "hadris-storage/std", "dep:thiserror"]
+# `std::io::Error` conversions and host files as tree content.
+std = ["hadris-fs/std", "hadris-iso/std", "hadris-udf/std", "hadris-storage/std"]
+sync = ["hadris-fs/sync", "hadris-iso/sync", "hadris-udf/sync", "hadris-storage/sync"]
+async = ["hadris-fs/async", "hadris-iso/async", "hadris-udf/async", "hadris-storage/async"]
+# The asynchronous API a third time, with `Send` futures, in `async_send`.
+async-send = ["async", "hadris-fs/async-send", "hadris-iso/async-send", "hadris-udf/async-send", "hadris-storage/async-send"]
 
 [dependencies]
-hadris-io = { workspace = true, default-features = false, features = ["std"] }
-hadris-iso = { workspace = true, default-features = false, features = ["std", "sync"] }
-hadris-fs = { workspace = true, default-features = false, features = ["std", "sync"] }
-hadris-storage = { workspace = true, default-features = false, features = ["std", "sync"] }
-hadris-udf = { workspace = true, default-features = false, features = ["std", "write"] }
+hadris-fs = { workspace = true, default-features = false, features = ["alloc"] }
+hadris-iso = { workspace = true, default-features = false, features = ["alloc"] }
+hadris-udf = { workspace = true, default-features = false, features = ["alloc"] }
+hadris-storage = { workspace = true, default-features = false, features = ["alloc"] }
 hadris-macros = { workspace = true }
-thiserror = { workspace = true, optional = true }
 
 [dev-dependencies]
-# Local integration-test dependency only. Keeping it path-only avoids a
-# crates.io publication cycle because hadris-optical optionally depends on
-# hadris-cd.
-hadris-optical = { path = "../hadris-optical", features = ["detect", "sync"] }
 hadris-fs = { workspace = true, features = ["std", "sync"] }
+hadris-storage = { workspace = true, features = ["std", "sync"] }
+
+[[test]]
+name = "bridge"
+required-features = ["std", "sync", "async-send"]

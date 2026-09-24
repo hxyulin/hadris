@@ -1,16 +1,20 @@
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
-use hadris_cd::{FileTree, JolietLevel, OpticalImageOptions, OpticalImageWriter};
-use hadris_fs::sync::DriverExt;
-use hadris_io::StdIo;
-use hadris_iso::sync::{IsoImage, IsoView};
-use hadris_iso::{BootEntry, BootInfo, ElTorito, HybridBoot, Namespace, Platform, RockRidge};
-use hadris_udf::{UdfRevision, UdfVolume};
+use hadris_cd::{CdOptions, UdfOptions};
+use hadris_fs::FileType;
+use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::tree::{FromFsOptions, OnError, Tree, WarningKind};
+use hadris_iso::sync::IsoImage;
+use hadris_iso::{
+    BootEntry, BootInfo, ElTorito, HybridBoot, JolietLevel, Namespace, Platform, RockRidge,
+    VolumeIdentifiers,
+};
+use hadris_udf::UdfRevision;
+use hadris_udf::sync::UdfFs;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -134,40 +138,54 @@ fn create(args: CreateArgs) -> Result<()> {
     if !args.source.is_dir() {
         return Err(format!("source is not a directory: {}", args.source.display()).into());
     }
-    validate_host_tree(&args.source)?;
+    let tree = Tree::from_fs(
+        &args.source,
+        FromFsOptions::new().with_on_error(OnError::Warn),
+    )?;
+    for warning in tree.warnings() {
+        eprintln!("warning: {warning}");
+    }
 
-    let tree = FileTree::from_fs(&args.source)?;
-    let source_bytes = tree
-        .root
-        .iter_files()
-        .into_iter()
-        .try_fold(0_u64, |total, file| {
-            file.size().map(|size| total.saturating_add(size))
-        })?;
-    let entry_count = tree.total_files() + tree.total_dirs();
-    let capacity = source_bytes
-        .saturating_add((entry_count as u64).saturating_mul(64 * 1024))
-        .saturating_add(8 * 1024 * 1024)
-        .max(16 * 1024 * 1024);
-    let capacity = usize::try_from(capacity).map_err(|_| "image is too large for this platform")?;
+    let defaults = CdOptions::default();
+    let mut iso = defaults
+        .iso()
+        .clone()
+        .with_volume(VolumeIdentifiers::new(args.volume_name.clone()));
+    if args.no_joliet {
+        iso = hadris_cd::IsoOptions::default()
+            .with_volume(VolumeIdentifiers::new(args.volume_name.clone()))
+            .with_level(defaults.iso().level())
+            .with_enhanced_tree();
+    } else {
+        iso = iso.with_joliet(JolietLevel::L3);
+    }
+    if args.rock_ridge {
+        iso = iso.with_rock_ridge(RockRidge::default());
+    }
+    if let Some(el_torito) = boot_options(&args) {
+        iso = iso.with_el_torito(el_torito);
+    }
+    match (args.hybrid_mbr, args.hybrid_gpt) {
+        (true, true) => iso = iso.with_hybrid(HybridBoot::hybrid()),
+        (true, false) => iso = iso.with_hybrid(HybridBoot::mbr()),
+        (false, true) => iso = iso.with_hybrid(HybridBoot::gpt()),
+        (false, false) => {}
+    }
+    let udf = UdfOptions::default()
+        .with_volume_id(args.volume_name.clone())
+        .with_revision(args.udf_revision.0);
+    let options = CdOptions::default()
+        .with_iso(iso)
+        .with_udf(udf)
+        .with_clock(hadris_fs::SystemClock);
 
-    let mut options = OpticalImageOptions::default().volume_id(args.volume_name.clone());
-    options.udf.revision = args.udf_revision.0;
-    options.iso.joliet = (!args.no_joliet).then_some(JolietLevel::L3);
-    options.iso.rock_ridge = args.rock_ridge.then(RockRidge::default);
-    options.boot = boot_options(&args);
-    options.hybrid_boot = match (args.hybrid_mbr, args.hybrid_gpt) {
-        (true, true) => Some(HybridBoot::hybrid()),
-        (true, false) => Some(HybridBoot::mbr()),
-        (false, true) => Some(HybridBoot::gpt()),
-        (false, false) => None,
-    };
-
-    let cursor = StdIo::new(Cursor::new(vec![0_u8; capacity]));
-    let output = OpticalImageWriter::create(cursor, tree, options)?;
-    let data = output.into_inner().into_inner();
     let mut file = File::create(&args.output)?;
-    file.write_all(&data)?;
+    let report = hadris_cd::sync::write(&mut file, &tree, &options)?;
+    for warning in report.warnings() {
+        if warning.kind() != WarningKind::IgnoredMetadata {
+            eprintln!("warning: {warning}");
+        }
+    }
     println!("Created: {}", args.output.display());
     Ok(())
 }
@@ -194,42 +212,13 @@ fn boot_options(args: &CreateArgs) -> Option<ElTorito> {
     Some(el_torito)
 }
 
-fn validate_host_tree(path: &Path) -> Result<()> {
-    for entry in std::fs::read_dir(path)? {
-        let entry = entry?;
-        let entry_path = entry.path();
-        let name = entry.file_name();
-        if name.to_str().is_none() {
-            return Err(
-                format!("host filename is not valid UTF-8: {}", entry_path.display()).into(),
-            );
-        }
-        let metadata = std::fs::symlink_metadata(&entry_path)?;
-        if metadata.file_type().is_symlink() {
-            return Err(
-                format!("symbolic links are not supported: {}", entry_path.display()).into(),
-            );
-        }
-        if metadata.is_dir() {
-            validate_host_tree(&entry_path)?;
-        } else if !metadata.is_file() {
-            return Err(format!(
-                "special host entries are not supported: {}",
-                entry_path.display()
-            )
-            .into());
-        }
-    }
-    Ok(())
-}
-
 fn normalize(path: &str) -> String {
     path.replace('\\', "/")
 }
 
 fn info(path: &Path) -> Result<()> {
     let iso = IsoImage::open(File::open(path)?).ok();
-    let udf = UdfVolume::open(StdIo::new(File::open(path)?)).ok();
+    let udf = UdfFs::open(File::open(path)?).ok();
     if iso.is_none() && udf.is_none() {
         return Err("image contains neither a readable ISO 9660 nor UDF filesystem".into());
     }
@@ -251,11 +240,8 @@ fn info(path: &Path) -> Result<()> {
         );
     }
     if let Some(udf) = udf {
-        println!(
-            "  UDF volume: {}",
-            udf.info().volume_id.trim_end_matches('\0')
-        );
-        println!("  UDF revision: {}", udf.info().udf_revision);
+        println!("  UDF volume: {}", udf.volume_id());
+        println!("  UDF revision: {}", udf.revision());
     }
     Ok(())
 }
@@ -263,16 +249,15 @@ fn info(path: &Path) -> Result<()> {
 fn verify(path: &Path) -> Result<()> {
     let mut iso = IsoImage::open(File::open(path)?)
         .map_err(|error| format!("ISO namespace is not readable: {error}"))?;
-    let udf = UdfVolume::open(StdIo::new(File::open(path)?))
+    let mut udf = UdfFs::open(File::open(path)?)
         .map_err(|error| format!("UDF namespace is not readable: {error}"))?;
 
     let mut view = iso.view(Namespace::Preferred)?;
     let names_match = view.namespace() != Namespace::Primary;
     let mut iso_nodes = BTreeMap::new();
-    collect_iso(&mut view, "", &mut iso_nodes)?;
+    collect(&mut view, "", &mut iso_nodes)?;
     let mut udf_nodes = BTreeMap::new();
-    let root = udf.root_dir()?;
-    collect_udf(&udf, &root, "", &mut udf_nodes)?;
+    collect(&mut udf, "", &mut udf_nodes)?;
 
     if !names_match {
         println!("  ISO tree has only ISO 9660 identifiers; comparing contents, not names");
@@ -307,47 +292,31 @@ fn verify(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn collect_iso(
-    view: &mut IsoView<&mut File>,
-    prefix: &str,
-    nodes: &mut BTreeMap<String, Node>,
-) -> Result<()> {
+fn collect<F: FsDriver>(fs: &mut F, prefix: &str, nodes: &mut BTreeMap<String, Node>) -> Result<()>
+where
+    F::DeviceError: std::error::Error + Send + Sync + 'static,
+{
     let dir = if prefix.is_empty() { "/" } else { prefix };
     let mut entries = Vec::new();
-    for item in view.read_dir(dir)? {
+    for item in fs.read_dir(dir)? {
         let item = item?;
         entries.push((
             String::from_utf8_lossy(item.name_bytes()).into_owned(),
-            item.file_type().is_dir(),
+            item.file_type(),
         ));
     }
-    for (name, is_dir) in entries {
+    for (name, file_type) in entries {
         let path = join(prefix, &name);
-        if is_dir {
-            nodes.insert(path.clone(), Node::Directory);
-            collect_iso(view, &path, nodes)?;
-        } else {
-            let data = view.read_to_vec(&format!("/{path}"))?;
-            nodes.insert(path, Node::File(data));
-        }
-    }
-    Ok(())
-}
-
-fn collect_udf(
-    udf: &UdfVolume<StdIo<File>>,
-    directory: &hadris_udf::UdfDir,
-    prefix: &str,
-    nodes: &mut BTreeMap<String, Node>,
-) -> Result<()> {
-    for entry in directory.entries().filter(|entry| !entry.is_parent()) {
-        let path = join(prefix, entry.name());
-        if entry.is_dir() {
-            nodes.insert(path.clone(), Node::Directory);
-            let child = udf.read_directory(&entry.icb)?;
-            collect_udf(udf, &child, &path, nodes)?;
-        } else {
-            nodes.insert(path, Node::File(udf.read_file(entry)?));
+        match file_type {
+            FileType::Dir => {
+                nodes.insert(path.clone(), Node::Directory);
+                collect(fs, &path, nodes)?;
+            }
+            FileType::File => {
+                let data = fs.read_to_vec(&format!("/{path}"))?;
+                nodes.insert(path, Node::File(data));
+            }
+            _ => {}
         }
     }
     Ok(())

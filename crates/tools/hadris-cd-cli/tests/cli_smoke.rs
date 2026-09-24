@@ -138,7 +138,7 @@ fn create_supports_efi_only_boot_catalog() {
 
 #[cfg(unix)]
 #[test]
-fn create_rejects_symbolic_links() {
+fn create_stores_symbolic_links_with_rock_ridge() {
     use std::os::unix::fs::symlink;
 
     let temp = tempfile::tempdir().unwrap();
@@ -149,9 +149,18 @@ fn create_rejects_symbolic_links() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_hadris-cd"))
         .args(["create", source.to_str().unwrap(), "--output"])
-        .arg(temp.path().join("bridge.iso"))
+        .arg(temp.path().join("plain.iso"))
         .output()
         .unwrap();
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("symbolic links are not supported"));
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("/link.txt"), "{stderr}");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_hadris-cd"))
+        .args(["create", "-R", source.to_str().unwrap(), "--output"])
+        .arg(temp.path().join("rr.iso"))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("/link.txt"));
 }

@@ -1,39 +1,26 @@
-use std::fs::File;
-
-use hadris_io::StdIo;
-use hadris_udf::UdfVolume;
+use hadris_fs::sync::DriverExt;
 
 use super::super::args::LsArgs;
-
-use super::{Result, navigate_to_path};
+use super::{Result, entries, join, open, type_char};
 
 /// List directory contents
 pub fn ls(args: LsArgs) -> Result<()> {
-    let file = File::open(&args.input)?;
-    let udf = UdfVolume::open(StdIo::new(file))?;
-
-    let dir = navigate_to_path(&udf, &args.path)?;
-
-    let entries: Vec<_> = if args.all {
-        dir.all_entries().collect()
-    } else {
-        dir.entries().collect()
-    };
-
-    for entry in &entries {
-        if entry.is_hidden() && !args.all {
-            continue;
-        }
-
+    let mut udf = open(&args.input)?;
+    for item in entries(&mut udf, &args.path)? {
+        let name = String::from_utf8_lossy(item.name_bytes()).into_owned();
         if args.long {
-            let type_char = if entry.is_dir() { 'd' } else { '-' };
-            println!("{}  {:>10}  {}", type_char, entry.size, entry.name());
-        } else if entry.is_dir() {
-            println!("{}/", entry.name());
+            let meta = udf.metadata(&join(&args.path, &name))?;
+            println!(
+                "{}  {:>10}  {}",
+                type_char(item.file_type()),
+                meta.len(),
+                name
+            );
+        } else if item.file_type().is_dir() {
+            println!("{name}/");
         } else {
-            println!("{}", entry.name());
+            println!("{name}");
         }
     }
-
     Ok(())
 }

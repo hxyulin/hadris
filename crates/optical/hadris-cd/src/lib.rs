@@ -1,128 +1,130 @@
 //! # Hadris CD
 //!
-//! A Rust library for creating hybrid ISO+UDF optical disc images.
-//!
-//! ## Overview
-//!
-//! This crate creates "UDF Bridge" format images that contain both
-//! ISO 9660 and UDF filesystems. This provides maximum compatibility:
-//! - Legacy systems read ISO 9660
-//! - Modern systems read UDF
-//! - **Both filesystems share the same file data on disk**
-//!
-//! ## Quick Start
+//! Hybrid ISO 9660 and UDF optical disc images in the UDF Bridge format,
+//! written from one `hadris_fs::tree::Tree`. Legacy systems read the
+//! ISO 9660 tree, modern ones the UDF tree, and both point at the same
+//! file data.
 //!
 //! ```rust
-//! use hadris_cd::{OpticalImageWriter, OpticalImageOptions, FileTree, FileEntry};
-//! # use std::io::Cursor;
+//! # #[cfg(all(feature = "sync", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use hadris_cd::CdOptions;
+//! use hadris_cd::sync::{plan, write};
+//! use hadris_fs::tree::{Content, Tree};
+//! use hadris_storage::{BlockSize, MemDevice};
 //!
-//! // Create a file tree
-//! let mut tree = FileTree::new();
-//! tree.add_file(FileEntry::from_buffer("readme.txt", b"Hello, World!".to_vec()));
-//!
-//! // Create the hybrid image
-//! # // Use a Cursor for the doctest instead of a real file
-//! # let buffer = vec![0u8; 2 * 1024 * 1024]; // 2MB buffer
-//! # let file = hadris_io::StdIo::new(Cursor::new(buffer));
-//! let options = OpticalImageOptions::default()
-//!     .volume_id("MY_DISC")
-//!     .joliet(hadris_cd::JolietLevel::L3);
-//!
-//! let _file = OpticalImageWriter::new(file, options)
-//!     .finish(tree)
-//!     .unwrap();
+//! let mut tree = Tree::new();
+//! tree.add_file("readme.txt", Content::bytes("Hello, World!"))?;
+//! let options = CdOptions::default();
+//! let size = plan(&tree, &options)?.size_bytes();
+//! let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(2048).unwrap());
+//! let report = write(&mut dev, &tree, &options)?;
+//! assert!(report.extent_of("readme.txt").is_some());
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "std")))]
+//! # fn main() {}
 //! ```
 //!
-//! ## Disk Layout
-//!
-//! The UDF Bridge format interleaves ISO 9660 and UDF structures:
+//! ## Layout
 //!
 //! ```text
-//! Sector 0-15:    System area (boot code, partition tables)
-//! Sector 16-...:  ISO 9660 Volume Descriptors
-//! Sector 17-19:   UDF Volume Recognition Sequence (BEA01, NSR02, TEA01)
-//! Sector 256:     UDF Anchor Volume Descriptor Pointer
-//! Sector 257+:    UDF Volume Descriptor Sequence
-//! File data:      Shared between ISO and UDF (both point to same sectors)
+//! Sector 0-15:    System area (hybrid boot code and partition tables)
+//! Sector 16-...:  ISO 9660 volume descriptors, then the UDF recognition
+//!                 sequence (BEA01, NSR02 or NSR03, TEA01)
+//! Sector 256:     UDF anchor volume descriptor pointer
+//! Sector 257-289: UDF volume descriptor sequences and integrity descriptor
+//! Sector 290-...: UDF file set, file entries and directories
+//! Then:           ISO 9660 directories, path tables and the file data,
+//!                 which both trees point at
+//! End:            UDF anchor at N-256 and 256 blocks after it
 //! ```
+//!
+//! `write` plans the UDF metadata, writes the ISO 9660 image after it with
+//! `hadris_iso`, then writes the UDF structures with `hadris_udf` in bridge
+//! mode, pointing at the extents the ISO [`Report`](hadris_iso::Report)
+//! gives. Nothing is read back from the device.
 //!
 //! ## Features
 //!
-//! - ISO 9660 with Joliet (Windows long filenames) and Rock Ridge (POSIX)
-//! - Selectable mastered UDF revisions from 1.02 through 2.60
-//! - El-Torito bootable images
-//! - Hybrid MBR+GPT for USB booting
+//! | Feature | Default | Description |
+//! |---|---|---|
+//! | `std` | Yes | `std::io::Error` conversions and host files as tree content |
+//! | `sync` | Yes | The blocking API in `sync` |
+//! | `async` | No | The asynchronous API in `r#async` |
+//! | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
 //!
-//! Bridge output is continuously tested by opening the completed image through
-//! both the ISO 9660 and UDF readers.
-//!
-//! Hybrid image creation currently uses the synchronous ISO and UDF writers.
-//! This crate therefore exposes a sync-only writer API; `std` selects hosted
-//! platform support, while the default feature set selects `sync` explicitly.
+//! The crate needs an allocator. No feature changes what an item does.
 
-#![allow(async_fn_in_trait)]
+#![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
+#![allow(async_fn_in_trait)]
+// Sync and async APIs intentionally compile the same source modules twice.
+#![allow(clippy::duplicate_mod)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
 
-// ---------------------------------------------------------------------------
-// Shared types (compiled once)
-// ---------------------------------------------------------------------------
+extern crate alloc;
 
-#[cfg(feature = "sync")]
-pub mod error;
-#[cfg(feature = "sync")]
-pub mod layout;
-#[cfg(feature = "sync")]
-pub mod options;
-#[cfg(feature = "sync")]
-pub mod tree;
+#[cfg(all(feature = "std", not(test)))]
+extern crate std;
 
-// ---------------------------------------------------------------------------
-// Sync module
-// ---------------------------------------------------------------------------
+mod error;
+mod options;
+mod report;
+mod tree;
 
 #[cfg(feature = "sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
 #[path = ""]
-/// Synchronous hybrid optical-image writer API.
 pub mod sync {
-    pub use hadris_io::SeekFrom;
-    pub use hadris_io::legacy::sync::{Read, Seek, Write};
+    //! The blocking API.
 
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
+    use hadris_iso::sync as iso;
+    use hadris_storage::sync as storage;
+    use hadris_udf::sync as udf;
+
+    #[path = "write.rs"]
+    mod write;
+    pub use write::{plan, write};
+}
+
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+#[path = ""]
+pub mod r#async {
+    //! The asynchronous API, generated from the same source as `sync`.
+
+    macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => {};
-    }
+    use hadris_iso::r#async as iso;
+    use hadris_storage::r#async as storage;
+    use hadris_udf::r#async as udf;
 
-    #[path = "."]
-    mod __inner {
-        pub mod writer;
-    }
-    pub use __inner::*;
-
-    pub use __inner::writer::OpticalImageWriter;
+    #[path = "write.rs"]
+    mod write;
+    pub use write::{plan, write};
 }
 
-// ---------------------------------------------------------------------------
-// Default re-exports for backwards compatibility (sync)
-// ---------------------------------------------------------------------------
+/// The asynchronous API with `Send` futures, for generic code on
+/// multi-threaded executors, generated a third time from the same source.
+#[cfg(feature = "async-send")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
+pub mod async_send;
 
-#[cfg(feature = "sync")]
-pub use sync::*;
+pub use error::{Detail, Error};
+pub use hadris_iso::IsoOptions;
+pub use hadris_udf::UdfOptions;
+pub use options::CdOptions;
+pub use report::Report;
 
-// Re-exports from shared types
-#[cfg(feature = "sync")]
-pub use error::{Error, Result};
-#[cfg(feature = "sync")]
-pub use layout::{LayoutInfo, LayoutManager};
-#[cfg(feature = "sync")]
-pub use options::{IsoOptions, JolietLevel, OpticalImageOptions, UdfOptions};
-#[cfg(feature = "sync")]
-pub use tree::{Directory, FileData, FileEntry, FileExtent, FileTree};
+/// The ISO 9660 crate, for the option types of [`IsoOptions`].
+pub use hadris_iso as iso;
+/// The UDF crate, for the option types of [`UdfOptions`].
+pub use hadris_udf as udf;

@@ -11,7 +11,7 @@
 //!
 //! - [`block`] — block filesystems and partition tables
 //! - [`optical`] — optical filesystems and disc image composition
-//! - [`cpio`] — CPIO newc and CRC archives
+//! - [`cpio`] — CPIO newc, CRC and odc archives
 //! - [`fs`] — shared filesystem vocabulary and lexical virtual paths
 //!
 //! # Feature flags
@@ -24,14 +24,9 @@
 //! read/write configuration with `fat`, `iso`, and `cpio`.
 //!
 //! `async-send` implies `async` and adds the `async_send` modules of
-//! `hadris-io`, `hadris-fs`, `hadris-storage`, `hadris-fat`, `hadris-block`
-//! and `hadris-iso`, whose futures are `Send` for multi-threaded executors.
-//! UDF, the hybrid CD writer and the archive crates have no such mode yet.
-//!
-//! Hybrid CD image creation is currently sync-only. Enabling `cd`—directly or
-//! through `optical`—therefore enables the CD writer's sync API, even when the
-//! umbrella `async` feature is also selected. ISO and UDF still expose their
-//! async modules in that configuration.
+//! `hadris-io`, `hadris-fs`, `hadris-storage`, `hadris-fat`, `hadris-block`,
+//! `hadris-iso`, `hadris-udf`, `hadris-cd` and `hadris-cpio`, whose futures
+//! are `Send` for multi-threaded executors.
 //!
 //! # Quick start
 //!
@@ -57,7 +52,7 @@ pub use hadris_block as block;
 #[cfg(any(feature = "iso", feature = "udf", feature = "cd"))]
 pub use hadris_optical as optical;
 
-/// CPIO newc and CRC archives.
+/// CPIO newc, CRC and odc archives.
 #[cfg(feature = "cpio")]
 pub use hadris_cpio as cpio;
 

@@ -1,62 +1,42 @@
-use std::fs::File;
-
-use hadris_io::StdIo;
-use hadris_udf::{UdfDir, UdfVolume};
-
 use super::super::args::TreeArgs;
-
-use super::{Result, navigate_to_path};
+use super::{Result, Udf, entries, join, open};
 
 /// Display directory tree
 pub fn tree(args: TreeArgs) -> Result<()> {
-    let file = File::open(&args.input)?;
-    let udf = UdfVolume::open(StdIo::new(file))?;
-
+    let mut udf = open(&args.input)?;
     println!("{}", args.path);
-
-    let root = navigate_to_path(&udf, &args.path)?;
-    let max_depth = args.depth;
-
-    print_tree(&udf, &root, "", 0, max_depth)?;
-
-    Ok(())
+    print_tree(&mut udf, &args.path, "", 0, args.depth)
 }
 
 fn print_tree(
-    udf: &UdfVolume<StdIo<File>>,
-    dir: &UdfDir,
+    udf: &mut Udf,
+    path: &str,
     prefix: &str,
     depth: usize,
     max_depth: Option<usize>,
 ) -> Result<()> {
-    if let Some(max) = max_depth {
-        if depth >= max {
-            return Ok(());
-        }
+    if max_depth.is_some_and(|max| depth >= max) {
+        return Ok(());
     }
-
-    let entries: Vec<_> = dir.entries().collect();
-
-    for (i, entry) in entries.iter().enumerate() {
-        let is_last = i == entries.len() - 1;
+    let items = entries(udf, path)?;
+    for (i, item) in items.iter().enumerate() {
+        let is_last = i + 1 == items.len();
         let connector = if is_last {
             "\u{2514}\u{2500}\u{2500} "
         } else {
             "\u{251c}\u{2500}\u{2500} "
         };
-        let suffix = if entry.is_dir() { "/" } else { "" };
-        println!("{}{}{}{}", prefix, connector, entry.name(), suffix);
-
-        if entry.is_dir() {
+        let name = String::from_utf8_lossy(item.name_bytes()).into_owned();
+        let is_dir = item.file_type().is_dir();
+        println!("{prefix}{connector}{name}{}", if is_dir { "/" } else { "" });
+        if is_dir {
             let extension = if is_last { "    " } else { "\u{2502}   " };
-            let new_prefix = format!("{prefix}{extension}");
-            let icb = entry.icb;
-            match udf.read_directory(&icb) {
-                Ok(subdir) => print_tree(udf, &subdir, &new_prefix, depth + 1, max_depth)?,
-                Err(e) => println!("{new_prefix}{connector}<error: {e}>"),
+            let child_prefix = format!("{prefix}{extension}");
+            if let Err(e) = print_tree(udf, &join(path, &name), &child_prefix, depth + 1, max_depth)
+            {
+                println!("{child_prefix}{connector}<error: {e}>");
             }
         }
     }
-
     Ok(())
 }

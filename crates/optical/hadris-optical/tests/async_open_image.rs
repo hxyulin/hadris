@@ -28,28 +28,55 @@ fn block_on<F: Future>(future: F) -> F::Output {
 
 const PAYLOAD: &[u8] = b"async optical traversal";
 
-fn populated_tree() -> hadris_optical::cd::FileTree {
-    use hadris_optical::cd::{Directory, FileEntry, FileTree};
+fn populated_tree() -> hadris_fs::tree::Tree {
+    use hadris_fs::tree::{Content, Tree};
 
-    let mut nested = Directory::new("DOCS");
-    nested.add_file(FileEntry::from_buffer("README.TXT", PAYLOAD.to_vec()));
-    nested.add_file(FileEntry::from_buffer("Résumé.txt", PAYLOAD.to_vec()));
-    let mut tree = FileTree::new();
-    tree.add_dir(nested);
+    let mut tree = Tree::new();
+    tree.add_file("DOCS/README.TXT", Content::bytes(PAYLOAD))
+        .unwrap();
+    tree.add_file("DOCS/R\u{e9}sum\u{e9}.txt", Content::bytes(PAYLOAD))
+        .unwrap();
     tree
 }
 
-fn create_cd_image(options: hadris_optical::cd::OpticalImageOptions) -> Vec<u8> {
-    let mut image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]));
-    hadris_optical::cd::OpticalImageWriter::new(&mut image, options)
-        .finish(populated_tree())
-        .unwrap();
-    image.into_inner().into_inner()
+/// An empty image with the ISO 9660 tree, the UDF volume, or both.
+fn image_of(iso: bool, udf: bool, tree: &hadris_fs::tree::Tree) -> Vec<u8> {
+    use hadris_storage::{BlockSize, MemDevice};
+    let block = BlockSize::new(2048).unwrap();
+    let size = 4 * 1024 * 1024;
+    let mut dev = MemDevice::new(vec![0_u8; size], block);
+    match (iso, udf) {
+        (true, false) => {
+            hadris_optical::iso::sync::write(
+                &mut dev,
+                tree,
+                hadris_optical::cd::CdOptions::default().iso(),
+            )
+            .unwrap();
+        }
+        (false, true) => {
+            hadris_optical::udf::sync::write(
+                &mut dev,
+                tree,
+                &hadris_optical::udf::UdfOptions::default(),
+            )
+            .unwrap();
+        }
+        _ => {
+            hadris_optical::cd::sync::write(
+                &mut dev,
+                tree,
+                &hadris_optical::cd::CdOptions::default(),
+            )
+            .unwrap();
+        }
+    }
+    dev.into_inner()
 }
 
 #[test]
 fn asynchronously_opens_and_recovers_an_iso_source() {
-    let bytes = create_cd_image(hadris_optical::cd::OpticalImageOptions::default().iso_only());
+    let bytes = image_of(true, false, &populated_tree());
 
     block_on(async {
         let mut source = hadris_io::Cursor::new(bytes.as_slice());
@@ -88,38 +115,26 @@ fn asynchronously_opens_and_recovers_an_iso_source() {
 
 #[test]
 fn asynchronously_opens_and_recovers_a_udf_source() {
-    use hadris_optical::udf::sync::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
-
-    let mut image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]));
-    let mut root = SimpleDir::root();
-    let mut docs = SimpleDir::new("DOCS");
-    docs.add_file(SimpleFile::new("README.TXT", PAYLOAD.to_vec()));
-    root.add_dir(docs);
-    UdfWriter::create(&mut image, &root, UdfWriteOptions::default()).unwrap();
-    let bytes = image.into_inner().into_inner();
+    let bytes = image_of(false, true, &populated_tree());
 
     block_on(async {
         let mut source = hadris_io::Cursor::new(bytes.as_slice());
-        let opened = hadris_optical::r#async::OpenOpticalImage::open(
+        let mut opened = hadris_optical::r#async::OpenOpticalImage::open(
             &mut source,
             hadris_optical::OpenPolicy::Udf,
         )
         .await
         .unwrap();
         assert_eq!(opened.format(), hadris_optical::OpticalFormat::Udf);
-        let udf = opened.as_udf().unwrap();
-        let root = udf.root_dir().await.unwrap();
-        let docs = root.find("DOCS").unwrap();
-        let nested = udf.read_directory(&docs.icb).await.unwrap();
-        let readme = nested.find("README.TXT").unwrap();
-        assert_eq!(udf.read_file(readme).await.unwrap(), PAYLOAD);
+        let udf = opened.as_udf_mut().unwrap();
+        assert_eq!(udf.read_to_vec("/DOCS/README.TXT").await.unwrap(), PAYLOAD);
         let _ = opened.into_inner();
     });
 }
 
 #[test]
 fn asynchronously_traverses_a_bridge_under_both_policies() {
-    let bytes = create_cd_image(hadris_optical::cd::OpticalImageOptions::default());
+    let bytes = image_of(true, true, &populated_tree());
 
     block_on(async {
         let mut source = hadris_io::Cursor::new(bytes.as_slice());
@@ -129,16 +144,9 @@ fn asynchronously_traverses_a_bridge_under_both_policies() {
         )
         .await
         .unwrap();
-        let udf = opened.as_udf().unwrap();
-        let root = udf.root_dir().await.unwrap();
-        let docs = root.find("DOCS").unwrap();
-        let nested = udf.read_directory(&docs.icb).await.unwrap();
-        assert_eq!(
-            udf.read_file(nested.find("README.TXT").unwrap())
-                .await
-                .unwrap(),
-            PAYLOAD
-        );
+        let mut opened = opened;
+        let udf = opened.as_udf_mut().unwrap();
+        assert_eq!(udf.read_to_vec("/DOCS/README.TXT").await.unwrap(), PAYLOAD);
         drop(opened);
 
         let opened = hadris_optical::r#async::OpenOpticalImage::open(

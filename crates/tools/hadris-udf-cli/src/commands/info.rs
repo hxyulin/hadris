@@ -1,44 +1,34 @@
-use std::fs::File;
-
-use hadris_io::StdIo;
-use hadris_udf::UdfVolume;
-
 use super::super::args::InfoArgs;
-
-use super::Result;
+use super::{Result, entries, open};
 
 /// Display information about a UDF image
 pub fn info(args: InfoArgs) -> Result<()> {
-    let file = File::open(&args.input)?;
-    let udf = UdfVolume::open(StdIo::new(file))?;
-    let info = udf.info();
+    let mut udf = open(&args.input)?;
 
     println!("UDF Image: {}", args.input.display());
     println!();
     println!("Volume Information:");
-    println!("  Volume ID:         {}", info.volume_id);
-    println!("  UDF Revision:      {}", info.udf_revision);
-    println!("  Block Size:        {} bytes", info.block_size);
-    println!("  Partition Start:   sector {}", info.partition_start);
-    println!(
-        "  Partition Length:  {} sectors ({} bytes)",
-        info.partition_length,
-        info.partition_length as u64 * info.block_size as u64
-    );
+    println!("  Volume ID:         {}", udf.volume_id());
+    println!("  Logical Volume:    {}", udf.logical_volume_id());
+    println!("  UDF Revision:      {}", udf.revision());
+    println!("  Block Size:        {} bytes", udf.block_size());
+    for (index, partition) in udf.partitions().iter().enumerate() {
+        println!(
+            "  Partition {index}:       number {}, start block {}, {} blocks ({} bytes)",
+            partition.number(),
+            partition.start(),
+            partition.len(),
+            u64::from(partition.len()) * u64::from(udf.block_size())
+        );
+    }
 
     if args.verbose {
         println!();
         println!("Structure:");
-        match udf.root_dir() {
-            Ok(root) => {
-                let count = root.entries().count();
-                println!("  Root directory:    {count} entries");
-            }
-            Err(e) => {
-                println!("  Root directory:    error ({e})");
-            }
+        match entries(&mut udf, "/") {
+            Ok(root) => println!("  Root directory:    {} entries", root.len()),
+            Err(e) => println!("  Root directory:    error ({e})"),
         }
     }
-
     Ok(())
 }

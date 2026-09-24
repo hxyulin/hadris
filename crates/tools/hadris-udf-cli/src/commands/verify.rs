@@ -1,58 +1,40 @@
-use std::fs::File;
-
-use hadris_io::StdIo;
-use hadris_udf::UdfVolume;
+use hadris_fs::sync::DriverExt;
 
 use super::super::args::VerifyArgs;
-
-use super::Result;
+use super::{Result, Udf, entries, join};
 
 /// Verify UDF image structural integrity
 pub fn verify(args: VerifyArgs) -> Result<()> {
     println!("Verifying: {}", args.input.display());
 
-    let file = File::open(&args.input)?;
-
-    // Step 1: Open the image (validates VRS, AVDP, VDS, FSD)
-    let udf = match UdfVolume::open(StdIo::new(file)) {
-        Ok(fs) => {
-            println!("  [OK] Volume Recognition Sequence");
+    let mut udf = match super::open(&args.input) {
+        Ok(udf) => {
             println!("  [OK] Anchor Volume Descriptor Pointer");
+            println!("  [OK] Volume Recognition Sequence");
             println!("  [OK] Volume Descriptor Sequence");
             println!("  [OK] File Set Descriptor");
-            fs
+            udf
         }
         Err(e) => {
             println!("  [FAIL] Could not open UDF image: {e}");
-            return Err(e.into());
+            return Err(e);
         }
     };
+    println!("  Volume ID:   {}", udf.volume_id());
+    println!("  UDF revision: {}", udf.revision());
 
-    let info = udf.info();
-    println!("  Volume ID:   {}", info.volume_id);
-    println!("  UDF revision: {}", info.udf_revision);
+    if let Err(e) = entries(&mut udf, "/") {
+        println!("  [FAIL] Root directory: {e}");
+        return Err(e);
+    }
+    println!("  [OK] Root directory readable");
 
-    // Step 2: Validate root directory
-    let root = match udf.root_dir() {
-        Ok(dir) => {
-            println!("  [OK] Root directory readable");
-            dir
-        }
-        Err(e) => {
-            println!("  [FAIL] Root directory: {e}");
-            return Err(e.into());
-        }
-    };
-
-    // Step 3: Walk the full directory tree if verbose
     if args.verbose {
-        let mut files = 0usize;
-        let mut dirs = 0usize;
-        let mut errors = 0usize;
-        walk_tree(&udf, &root, &mut files, &mut dirs, &mut errors);
+        let (mut files, mut dirs, mut errors) = (0usize, 0usize, 0usize);
+        walk(&mut udf, "/", &mut files, &mut dirs, &mut errors);
         println!("  Directory tree: {files} files, {dirs} directories, {errors} errors");
         if errors > 0 {
-            println!("  [WARN] {errors} directories could not be read");
+            println!("  [WARN] {errors} entries could not be read");
         } else {
             println!("  [OK] Directory tree fully traversable");
         }
@@ -62,23 +44,21 @@ pub fn verify(args: VerifyArgs) -> Result<()> {
     Ok(())
 }
 
-fn walk_tree(
-    udf: &UdfVolume<StdIo<File>>,
-    dir: &hadris_udf::UdfDir,
-    files: &mut usize,
-    dirs: &mut usize,
-    errors: &mut usize,
-) {
-    for entry in dir.entries() {
-        if entry.is_dir() {
+fn walk(udf: &mut Udf, path: &str, files: &mut usize, dirs: &mut usize, errors: &mut usize) {
+    let Ok(items) = entries(udf, path) else {
+        *errors += 1;
+        return;
+    };
+    for item in items {
+        let child = join(path, &String::from_utf8_lossy(item.name_bytes()));
+        if item.file_type().is_dir() {
             *dirs += 1;
-            let icb = entry.icb;
-            match udf.read_directory(&icb) {
-                Ok(subdir) => walk_tree(udf, &subdir, files, dirs, errors),
-                Err(_) => *errors += 1,
-            }
+            walk(udf, &child, files, dirs, errors);
         } else {
             *files += 1;
+            if item.file_type() == hadris_fs::FileType::File && udf.read_to_vec(&child).is_err() {
+                *errors += 1;
+            }
         }
     }
 }

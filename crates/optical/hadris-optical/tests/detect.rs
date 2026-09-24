@@ -51,29 +51,9 @@ fn sync_probe_distinguishes_iso_udf_and_bridge_and_restores_position() {
 #[cfg(all(feature = "sync", feature = "cd"))]
 #[test]
 fn detects_images_created_by_optical_writer() {
-    let cases = [
-        (
-            hadris_optical::cd::OpticalImageOptions::default().iso_only(),
-            true,
-            false,
-        ),
-        (
-            hadris_optical::cd::OpticalImageOptions::default().udf_only(),
-            false,
-            true,
-        ),
-        (
-            hadris_optical::cd::OpticalImageOptions::default(),
-            true,
-            true,
-        ),
-    ];
-    for (options, iso, udf) in cases {
-        let mut image = hadris_io::StdIo::new(std::io::Cursor::new(vec![0_u8; 4 * 1024 * 1024]));
-        hadris_optical::cd::OpticalImageWriter::new(&mut image, options)
-            .finish(hadris_optical::cd::FileTree::new())
-            .unwrap();
-
+    for (iso, udf) in [(true, false), (false, true), (true, true)] {
+        let bytes = image_of(iso, udf, &hadris_fs::tree::Tree::new());
+        let mut image = hadris_io::StdIo::new(std::io::Cursor::new(bytes));
         let formats = hadris_optical::detect::sync::detect(&mut image)
             .unwrap()
             .unwrap();
@@ -81,6 +61,42 @@ fn detects_images_created_by_optical_writer() {
         assert_eq!(formats.udf().is_some(), udf);
         assert_eq!(formats.is_bridge(), iso && udf);
     }
+}
+
+#[cfg(all(feature = "sync", feature = "cd"))]
+/// An empty image with the ISO 9660 tree, the UDF volume, or both.
+fn image_of(iso: bool, udf: bool, tree: &hadris_fs::tree::Tree) -> Vec<u8> {
+    use hadris_storage::{BlockSize, MemDevice};
+    let block = BlockSize::new(2048).unwrap();
+    let size = 4 * 1024 * 1024;
+    let mut dev = MemDevice::new(vec![0_u8; size], block);
+    match (iso, udf) {
+        (true, false) => {
+            hadris_optical::iso::sync::write(
+                &mut dev,
+                tree,
+                hadris_optical::cd::CdOptions::default().iso(),
+            )
+            .unwrap();
+        }
+        (false, true) => {
+            hadris_optical::udf::sync::write(
+                &mut dev,
+                tree,
+                &hadris_optical::udf::UdfOptions::default(),
+            )
+            .unwrap();
+        }
+        _ => {
+            hadris_optical::cd::sync::write(
+                &mut dev,
+                tree,
+                &hadris_optical::cd::CdOptions::default(),
+            )
+            .unwrap();
+        }
+    }
+    dev.into_inner()
 }
 
 #[cfg(feature = "async")]

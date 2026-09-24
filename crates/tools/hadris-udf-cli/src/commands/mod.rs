@@ -17,24 +17,43 @@ pub use tree::tree;
 pub use verify::verify;
 
 use std::fs::File;
+use std::path::Path;
 
-use hadris_io::StdIo;
-use hadris_udf::{UdfDir, UdfVolume};
+use hadris_fs::sync::DriverExt;
+use hadris_fs::{DirItem, FileType};
+use hadris_udf::sync::UdfFs;
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-/// Navigate into a directory path within the UDF image.
-pub(super) fn navigate_to_path(udf: &UdfVolume<StdIo<File>>, path: &str) -> Result<UdfDir> {
-    let mut dir = udf.root_dir()?;
-    for component in path.split('/').filter(|s| !s.is_empty()) {
-        let icb = dir
-            .entries()
-            .find(|e| e.is_dir() && e.name() == component)
-            .map(|e| e.icb)
-            .ok_or_else(|| -> Box<dyn std::error::Error> {
-                format!("directory not found: {component}").into()
-            })?;
-        dir = udf.read_directory(&icb)?;
+pub(super) type Udf = UdfFs<File>;
+
+/// Opens the UDF volume in the image at `path`.
+pub(super) fn open(path: &Path) -> Result<Udf> {
+    Ok(UdfFs::open(File::open(path)?)?)
+}
+
+/// The entries of the directory at `path`, sorted as the volume lists them.
+pub(super) fn entries(udf: &mut Udf, path: &str) -> Result<Vec<DirItem>> {
+    let mut items = Vec::new();
+    for item in udf.read_dir(path)? {
+        items.push(item?);
     }
-    Ok(dir)
+    Ok(items)
+}
+
+/// `/`-joined image path of `name` in `dir`.
+pub(super) fn join(dir: &str, name: &str) -> String {
+    format!("{}/{name}", dir.trim_end_matches('/'))
+}
+
+pub(super) fn type_char(file_type: FileType) -> char {
+    match file_type {
+        FileType::Dir => 'd',
+        FileType::Symlink => 'l',
+        FileType::CharDevice => 'c',
+        FileType::BlockDevice => 'b',
+        FileType::Fifo => 'p',
+        FileType::Socket => 's',
+        _ => '-',
+    }
 }
