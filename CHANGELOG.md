@@ -440,6 +440,12 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **Fuzzing (V3):** `fs_dump` lists every filesystem through one generic
+  walk over the `hadris-fs` `FileSystem` node API, with each driver wrapped
+  in a `Volume`. Small seeds are committed for `cpio_read` (every format,
+  a `.` entry, concatenated archives), `exfat_read` (a populated volume,
+  which raises its coverage from 280 to over 1200 edges in a minute),
+  `udf_read` (`mkudffs` volumes with 512-byte blocks) and `exfat_ops`.
 - **Docs (V3):** The root README, crate READMEs, crate-level rustdoc,
   CONTRIBUTING, `tests/README.md` and the website describe the V3 API:
   exFAT is stable, NTFS is a preview, the `read`, `cache`, `lfn`,

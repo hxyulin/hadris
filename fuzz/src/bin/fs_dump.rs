@@ -11,6 +11,7 @@
 //! On mount/parse failure (or panic) print nothing and exit 0 — differential
 //! testing only compares images both sides can mount.
 
+use hadris_fs::sync::{FileSystem, FsDriver, Volume};
 use hadris_io::Cursor;
 
 const DEPTH_CAP: u32 = 64;
@@ -30,8 +31,10 @@ fn file_line(size: u64, content: &[u8], path: &str) -> String {
     format!("file {} {:016x} {}", size, fnv1a64(content), path)
 }
 
-/// Lists any `hadris-fs` driver through the node API.
-fn dump_driver<D: hadris_fs::sync::FsDriver>(fs: &mut D) -> Vec<String> {
+/// Lists any filesystem through the shared `FileSystem` node API. Every
+/// format below is opened with its own driver and wrapped in a `Volume`, so
+/// this one walk serves all of them.
+fn dump<F: FileSystem>(fs: &F) -> Vec<String> {
     use hadris_fs::{DirCursor, FileType, NameBuf};
 
     let mut lines = Vec::new();
@@ -76,6 +79,11 @@ fn dump_driver<D: hadris_fs::sync::FsDriver>(fs: &mut D) -> Vec<String> {
     lines
 }
 
+/// Mounts `driver` behind a `Volume` and lists it with [`dump`].
+fn dump_driver<D: FsDriver>(driver: D) -> Vec<String> {
+    dump(&Volume::new(driver))
+}
+
 fn dump_fat(data: &[u8]) -> Vec<String> {
     use hadris_fat::sync::FatFs;
     use hadris_fat::MountOptions;
@@ -87,7 +95,7 @@ fn dump_fat(data: &[u8]) -> Vec<String> {
         .with_read_only()
         .with_table(HeapTable::new());
     match FatFs::open_with(dev, options) {
-        Ok(mut fs) => dump_driver(&mut fs),
+        Ok(fs) => dump_driver(fs),
         Err(_) => Vec::new(),
     }
 }
@@ -105,7 +113,7 @@ fn dump_exfat(data: &[u8]) -> Vec<String> {
         .with_read_only()
         .with_table(HeapTable::new());
     match ExFatFs::open_with(dev, options) {
-        Ok(mut fs) => dump_driver(&mut fs),
+        Ok(fs) => dump_driver(fs),
         Err(_) => Vec::new(),
     }
 }
@@ -117,7 +125,7 @@ fn dump_ntfs(data: &[u8]) -> Vec<String> {
     let mut bytes = data.to_vec();
     bytes.resize(bytes.len().next_multiple_of(512), 0);
     match NtfsFs::open(MemDevice::new(bytes, BlockSize::new(512).unwrap())) {
-        Ok(mut fs) => dump_driver(&mut fs),
+        Ok(fs) => dump_driver(fs),
         Err(_) => Vec::new(),
     }
 }
@@ -130,11 +138,11 @@ fn dump_iso(data: &[u8]) -> Vec<String> {
     let mut bytes = data.to_vec();
     bytes.resize(bytes.len().next_multiple_of(512), 0);
     let dev = MemDevice::new(bytes, BlockSize::new(512).unwrap());
-    let Ok(mut image) = IsoImage::open(dev) else {
+    let Ok(image) = IsoImage::open(dev) else {
         return Vec::new();
     };
-    match image.view(Namespace::Preferred) {
-        Ok(mut view) => dump_driver(&mut view),
+    match image.into_view(Namespace::Preferred) {
+        Ok(view) => dump_driver(view),
         Err(_) => Vec::new(),
     }
 }
@@ -146,7 +154,7 @@ fn dump_udf(data: &[u8]) -> Vec<String> {
     let mut bytes = data.to_vec();
     bytes.resize(bytes.len().next_multiple_of(512), 0);
     match UdfFs::open(MemDevice::new(bytes, BlockSize::new(512).unwrap())) {
-        Ok(mut fs) => dump_driver(&mut fs),
+        Ok(fs) => dump_driver(fs),
         Err(_) => Vec::new(),
     }
 }
