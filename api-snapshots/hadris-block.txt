@@ -59,68 +59,9 @@ pub async fn hadris_block::async::OpenVolume<D>::stats(&mut self) -> hadris_io::
 pub async fn hadris_block::async::OpenVolume<D>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_block::async::OpenVolume<D>::sync_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_block::async::OpenVolume<D>::write_at(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub mod hadris_block::async_send
-pub struct hadris_block::async_send::OpenVolume<D>
-impl<D: hadris_storage::async_send::api::BlockDevice> hadris_block::async_send::OpenVolume<D>
-pub fn hadris_block::async_send::OpenVolume<D>::as_exfat(&self) -> core::option::Option<&hadris_fat::exfat::async_send::fs::ExFatFs<D>>
-pub fn hadris_block::async_send::OpenVolume<D>::as_exfat_mut(&mut self) -> core::option::Option<&mut hadris_fat::exfat::async_send::fs::ExFatFs<D>>
-pub fn hadris_block::async_send::OpenVolume<D>::as_fat(&self) -> core::option::Option<&hadris_fat::async_send::fatfs::FatFs<D>>
-pub fn hadris_block::async_send::OpenVolume<D>::as_fat_mut(&mut self) -> core::option::Option<&mut hadris_fat::async_send::fatfs::FatFs<D>>
-pub fn hadris_block::async_send::OpenVolume<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
-pub fn hadris_block::async_send::OpenVolume<D>::close_node(&mut self, hadris_fs::node::NodeId)
-pub async fn hadris_block::async_send::OpenVolume<D>::create(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::NewNode<'_>, &hadris_fs::meta::SetMetadata) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_block::async_send::OpenVolume<D>::forget(&mut self, hadris_fs::node::NodeId)
-pub fn hadris_block::async_send::OpenVolume<D>::format(&self) -> hadris_block::detect::BlockFormat
-pub fn hadris_block::async_send::OpenVolume<D>::into_exfat(self) -> core::result::Result<hadris_fat::exfat::async_send::fs::ExFatFs<D>, Self>
-pub fn hadris_block::async_send::OpenVolume<D>::into_fat(self) -> core::result::Result<hadris_fat::async_send::fatfs::FatFs<D>, Self>
-pub fn hadris_block::async_send::OpenVolume<D>::into_inner(self) -> D
-pub async fn hadris_block::async_send::OpenVolume<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_block::async_send::OpenVolume<D>::open_detected(D, hadris_block::detect::BlockFormat) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_block::async_send::OpenVolume<D>::open_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::publish_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::remove(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RemoveKind) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::rename(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RenameFlags) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_block::async_send::OpenVolume<D>::root(&self) -> hadris_fs::node::NodeId
-pub async fn hadris_block::async_send::OpenVolume<D>::set_len(&mut self, hadris_fs::node::NodeId, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::set_metadata(&mut self, hadris_fs::node::NodeId, &hadris_fs::meta::SetMetadata) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::stats(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::sync_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::write_at(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-impl<D: hadris_storage::async_send::api::BlockDevice> core::fmt::Debug for hadris_block::async_send::OpenVolume<D>
-pub fn hadris_block::async_send::OpenVolume<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<D: hadris_storage::async_send::api::BlockDevice> hadris_fs::async_send::api::driver::FsDriver for hadris_block::async_send::OpenVolume<D>
-pub type hadris_block::async_send::OpenVolume<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
-pub fn hadris_block::async_send::OpenVolume<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
-pub fn hadris_block::async_send::OpenVolume<D>::close_node(&mut self, hadris_fs::node::NodeId)
-pub async fn hadris_block::async_send::OpenVolume<D>::create(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::NewNode<'_>, &hadris_fs::meta::SetMetadata) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_block::async_send::OpenVolume<D>::forget(&mut self, hadris_fs::node::NodeId)
-pub async fn hadris_block::async_send::OpenVolume<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::open_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::publish_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::remove(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RemoveKind) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::rename(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::node::NodeId, &hadris_fs::name::Name, hadris_fs::ops::RenameFlags) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_block::async_send::OpenVolume<D>::root(&self) -> hadris_fs::node::NodeId
-pub async fn hadris_block::async_send::OpenVolume<D>::set_len(&mut self, hadris_fs::node::NodeId, u64) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::set_metadata(&mut self, hadris_fs::node::NodeId, &hadris_fs::meta::SetMetadata) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::stats(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::sync_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_block::async_send::OpenVolume<D>::write_at(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
 pub mod hadris_block::detect
 pub mod hadris_block::detect::async
 pub async fn hadris_block::detect::async::detect<D: hadris_storage::async::api::BlockDevice + ?core::marker::Sized>(&mut D) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_block::detect::BlockFormat>, <D as hadris_io::error::ErrorType>::Error>
-pub mod hadris_block::detect::async_send
-pub async fn hadris_block::detect::async_send::detect<D: hadris_storage::async_send::api::BlockDevice + ?core::marker::Sized>(&mut D) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_block::detect::BlockFormat>, <D as hadris_io::error::ErrorType>::Error>
 pub mod hadris_block::detect::sync
 pub fn hadris_block::detect::sync::detect<D: hadris_storage::sync::api::BlockDevice + ?core::marker::Sized>(&mut D) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_block::detect::BlockFormat>, <D as hadris_io::error::ErrorType>::Error>
 #[non_exhaustive] pub enum hadris_block::detect::BlockFormat

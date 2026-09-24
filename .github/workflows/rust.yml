@@ -125,11 +125,8 @@ jobs:
             tier: no-std-async
             features: "async"
           - crate: hadris-fs
-            tier: embassy
-            features: "embassy-sync"
-          - crate: hadris-fs
             tier: all-modes
-            features: "alloc,sync,async,async-send"
+            features: "alloc,sync,async"
 
           # hadris-io
           - crate: hadris-io
@@ -141,9 +138,6 @@ jobs:
           - crate: hadris-io
             tier: async
             features: "async,alloc"
-          - crate: hadris-io
-            tier: async-send
-            features: "async-send"
           - crate: hadris-io
             tier: embedded-io
             features: "sync,async,embedded-io"
@@ -167,8 +161,8 @@ jobs:
             tier: sync-and-async
             features: "alloc,sync,async"
           - crate: hadris-storage
-            tier: async-send
-            features: "alloc,async-send"
+            tier: alloc-async
+            features: "alloc,async"
 
           # hadris-part
           - crate: hadris-part
@@ -178,23 +172,20 @@ jobs:
             tier: no-std-async
             features: "async"
           - crate: hadris-part
-            tier: no-std-async-send
-            features: "async-send"
-          - crate: hadris-part
             tier: tables-only
             features: "alloc"
           - crate: hadris-part
             tier: alloc-sync
             features: "alloc,sync"
           - crate: hadris-part
-            tier: alloc-async-send
-            features: "alloc,async-send"
+            tier: alloc-async
+            features: "alloc,async"
           - crate: hadris-part
             tier: std
             features: "std,sync"
           - crate: hadris-part
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send"
+            features: "std,alloc,sync,async"
 
           # hadris-fat-raw
           - crate: hadris-fat-raw
@@ -210,11 +201,8 @@ jobs:
             tier: no-std-async
             features: "async"
           - crate: hadris-fat-raw
-            tier: no-std-async-send
-            features: "async-send"
-          - crate: hadris-fat-raw
             tier: all-modes
-            features: "sync,async,async-send"
+            features: "sync,async"
 
           # hadris-fat
           - crate: hadris-fat
@@ -228,7 +216,7 @@ jobs:
             features: "sync,write"
           - crate: hadris-fat
             tier: no-alloc-async-write
-            features: "async-send,write"
+            features: "async,write"
           - crate: hadris-fat
             tier: alloc
             features: "alloc,sync"
@@ -243,7 +231,7 @@ jobs:
             features: "alloc,sync,async,write"
           - crate: hadris-fat
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send,write,defmt"
+            features: "std,alloc,sync,async,write,defmt"
 
           # hadris-iso
           - crate: hadris-iso
@@ -253,14 +241,11 @@ jobs:
             tier: no-std-async
             features: "async"
           - crate: hadris-iso
-            tier: no-std-async-send
-            features: "async-send"
-          - crate: hadris-iso
             tier: alloc-sync
             features: "alloc,sync"
           - crate: hadris-iso
-            tier: alloc-async-send
-            features: "alloc,async-send"
+            tier: alloc-async
+            features: "alloc,async"
           - crate: hadris-iso
             tier: std
             features: "std,sync"
@@ -269,7 +254,7 @@ jobs:
             features: "std,async"
           - crate: hadris-iso
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send"
+            features: "std,alloc,sync,async"
 
           # hadris-udf
           - crate: hadris-udf
@@ -279,14 +264,11 @@ jobs:
             tier: no-std-async
             features: "async"
           - crate: hadris-udf
-            tier: no-std-async-send
-            features: "async-send"
-          - crate: hadris-udf
             tier: alloc-sync
             features: "alloc,sync"
           - crate: hadris-udf
-            tier: alloc-async-send
-            features: "alloc,async-send"
+            tier: alloc-async
+            features: "alloc,async"
           - crate: hadris-udf
             tier: std
             features: "std,sync"
@@ -295,7 +277,7 @@ jobs:
             features: "std,async"
           - crate: hadris-udf
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send"
+            features: "std,alloc,sync,async"
 
           # hadris-cpio
           - crate: hadris-cpio
@@ -305,14 +287,11 @@ jobs:
             tier: no-std-async-reader
             features: "async"
           - crate: hadris-cpio
-            tier: no-std-async-send-reader
-            features: "async-send"
-          - crate: hadris-cpio
             tier: alloc-sync
             features: "alloc,sync"
           - crate: hadris-cpio
-            tier: alloc-async-send
-            features: "alloc,async-send"
+            tier: alloc-async
+            features: "alloc,async"
           - crate: hadris-cpio
             tier: std
             features: "std,sync"
@@ -321,7 +300,7 @@ jobs:
             features: "std,async"
           - crate: hadris-cpio
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send"
+            features: "std,alloc,sync,async"
 
           # hadris-cd
           - crate: hadris-cd
@@ -331,8 +310,8 @@ jobs:
             tier: no-std-sync
             features: "sync"
           - crate: hadris-cd
-            tier: no-std-async-send
-            features: "async-send"
+            tier: no-std-async
+            features: "async"
           - crate: hadris-cd
             tier: std
             features: "std,sync"
@@ -341,7 +320,7 @@ jobs:
             features: "std,async"
           - crate: hadris-cd
             tier: all-capabilities
-            features: "std,sync,async,async-send"
+            features: "std,sync,async"
 
           # hadris-ntfs
           - crate: hadris-ntfs
@@ -350,9 +329,6 @@ jobs:
           - crate: hadris-ntfs
             tier: no-std-async
             features: "async"
-          - crate: hadris-ntfs
-            tier: no-std-async-send
-            features: "async-send"
           - crate: hadris-ntfs
             tier: alloc-sync
             features: "alloc,sync"
@@ -364,7 +340,7 @@ jobs:
             features: "std,async"
           - crate: hadris-ntfs
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send"
+            features: "std,alloc,sync,async"
 
           # detection and opening facades
           - crate: hadris-block
@@ -377,8 +353,8 @@ jobs:
             tier: no-std-async
             features: "async"
           - crate: hadris-block
-            tier: no-alloc-async-send
-            features: "async-send,write,part"
+            tier: no-alloc-async
+            features: "async,write,part"
           - crate: hadris-block
             tier: alloc-async
             features: "alloc,async,part"
@@ -390,7 +366,7 @@ jobs:
             features: "sync,unstable-ntfs"
           - crate: hadris-block
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send,write,part,unstable-ntfs"
+            features: "std,alloc,sync,async,write,part,unstable-ntfs"
           - crate: hadris-optical
             tier: no-api
             features: ""
@@ -400,9 +376,6 @@ jobs:
           - crate: hadris-optical
             tier: no-std-async
             features: "async"
-          - crate: hadris-optical
-            tier: no-std-async-send
-            features: "async-send"
           - crate: hadris-optical
             tier: alloc-sync
             features: "alloc,sync"
@@ -414,7 +387,7 @@ jobs:
             features: "std,async,cd"
           - crate: hadris-optical
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send,cd"
+            features: "std,alloc,sync,async,cd"
 
           # hadris umbrella forwarding
           - crate: hadris
@@ -448,8 +421,8 @@ jobs:
             tier: no-std-block
             features: "sync,block"
           - crate: hadris
-            tier: no-std-async-send-block
-            features: "async-send,block"
+            tier: no-std-async-block
+            features: "async,block"
           - crate: hadris
             tier: hosted-async-optical
             features: "std,async,optical"
@@ -458,7 +431,7 @@ jobs:
             features: "alloc,sync,async,archive"
           - crate: hadris
             tier: all-capabilities
-            features: "std,alloc,sync,async,async-send,write,block,optical,archive,unstable-ntfs"
+            features: "std,alloc,sync,async,write,block,optical,archive,unstable-ntfs"
 
     steps:
       - uses: actions/checkout@v7
@@ -505,8 +478,8 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           cargo test --workspace --all-features --tests --exclude hadris-fat --exclude hadris-fat-raw
-          cargo test -p hadris-fat --features "std,alloc,sync,async,async-send,write" --tests
-          cargo test -p hadris-fat-raw --features "sync,async,async-send" --tests
+          cargo test -p hadris-fat --features "std,alloc,sync,async,write" --tests
+          cargo test -p hadris-fat-raw --features "sync,async" --tests
       - name: Run block opening integration tests
         run: cargo test -p hadris-block --all-features --test open_volume --test async_volume --test async_send_volume
       - name: Run optical detection integration tests
@@ -585,7 +558,7 @@ jobs:
           sudo apt-get install -y exfatprogs
       - name: Run exFAT tests against fsck.exfat and mkfs.exfat
         run: |
-          cargo test -p hadris-fat --features "std,sync,async-send,write" \
+          cargo test -p hadris-fat --features "std,sync,async,write" \
             --test exfat_read --test exfat_write --test exfat_format --test exfat_check \
             --test exfat_contract --test exfat_native --test exfat_async -- --nocapture
       - name: Run exFAT conformance and interoperability tests

@@ -12,7 +12,7 @@ systems, SD cards, and USB drives.
 - **Long Filenames (VFAT/LFN)** - Always read and written
 - **No-std Compatible** - Use in bootloaders and custom kernels
 - **No allocator needed** - Read, write, format and check without `alloc`
-- **Sync, async and `Send` async** - One driver generated for each mode
+- **Sync and async** - One driver generated for each mode; async futures are `Send`
 - **Checker** - A read-only `fsck` that reports each problem it finds
 - **exFAT** - `ExFatFs` reads, writes, formats and checks exFAT, including TexFAT volumes with two FATs
 
@@ -21,7 +21,7 @@ systems, SD cards, and USB drives.
 ### The `FatFs` Driver
 
 `FatFs` is the node-based driver, available as
-`sync::FatFs`, `r#async::FatFs` and `async_send::FatFs`. It mounts any
+`sync::FatFs` and `r#async::FatFs`. It mounts any
 `hadris-storage` block device, needs no allocator (its only buffer is one
 device block of at most 4096 bytes), and implements the `hadris-fs`
 `FsDriver` trait, so `Volume`, the path helpers and the `File`/`Dir` handles
@@ -202,8 +202,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | `write` | `format` in each mode; `FatFs` and `ExFatFs` write without it | None |
 | `alloc` | `HeapTable` and the other heap-backed `hadris-fs` conveniences | `alloc` crate |
 | `sync` | Synchronous API in `sync` | `hadris-io/sync` |
-| `async` | Asynchronous API in `r#async` | `hadris-io/async` |
-| `async-send` | Asynchronous API with `Send` futures, in `async_send` | `async` |
+| `async` | Asynchronous API with `Send` futures in `r#async` | `hadris-io/async` |
 | `std` | `hadris_storage::host::FileDevice` for image files and `SystemClock` | `std`, `alloc` |
 | `defmt` | `defmt::Format` for `FatKind` | `defmt` |
 
@@ -215,7 +214,7 @@ changes what an item does.
 
 ### exFAT
 
-`hadris_fat::exfat::sync::ExFatFs` and its `r#async` and `async_send` twins
+`hadris_fat::exfat::sync::ExFatFs` and its `r#async` twin
 are a sibling of `FatFs` that needs no allocator and implements `FsDriver`,
 with `format` (the `write` feature) and `check` in each mode.
 exFAT is stable and needs no feature flag. Its options, label, detail codes

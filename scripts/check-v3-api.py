@@ -8,8 +8,7 @@
           never change the shape of an existing one (R3).
   parity  For crates exposing both `sync` and `async` modules, report public
           items that exist in only one mode, from the --all-features API, and
-          the same between `async` and `async_send`, and between `async` and
-          `local`, when the crate has them.
+          the same between `async` and `local`, when the crate has both.
           Differences listed in PARITY_ALLOWED are printed with their reason
           and not counted.
 
@@ -19,10 +18,10 @@ under the nightly pinned by the public-api CI job (see scripts/check-public-api.
 Limits: the comparison is textual on `cargo public-api -sss` output, so auto
 trait and blanket impls are not compared. Parity pairs items by their path
 after deleting the mode module segment (`sync`, `async`, `r#async`,
-`async_send`, `local`; a segment counts only when a path segment follows it, so a
+`local`; a segment counts only when a path segment follows it, so a
 method named `sync` is not a mode; hadris-io's `sync_api`/`async_api` become
 one name) and dropping `async` keywords, `impl Future<Output = T>` wrappers
-and the `Send` bounds `async_send` adds. rustdoc prints the members of sync items
+and the `Send` bounds `r#async` adds. rustdoc prints the members of sync items
 under the crate root when the crate does `pub use sync::*`, so a root path
 whose first segment is also a direct child of `crate::sync` counts as sync;
 an unrelated root item that shares such a name is misattributed. Items that differ only in their signature are listed separately and do not
@@ -70,27 +69,28 @@ PARITY_ALLOWED: dict[str, list[tuple[str, str]]] = {
     "hadris-fs": [
         (r"^sync only: fn hadris_fs::(extract_to_host|import_from_host)$", "host helpers are sync and std only"),
         (r"^sync only: .*\b(Spin|StdMutex)\b", "blocking locks cannot be held across .await"),
-        (r"^async(_send)? only: .*\bAsyncMutex\b", "the async lock of the async modes"),
+        (r"^async only: .*\bAsyncMutex\b", "the async lock of the async mode"),
         (r"^sync only: .*(Iterator for hadris_fs::Dir|hadris_fs::Dir::(next|Item)$)", "async Dir has next_entry; no Iterator exists for it"),
         (r"^sync only: impl<A: hadris_fs::Access> (alloc|core)::io::", "std::io impls on File are blocking"),
         (r"^sync only: fn hadris_fs::Volume::spin$", "blocking locks cannot be held across .await"),
-        (r"^async only: .*\bhadris_fs::(Local\b|Volume::local$)", "Local is not Send, so async_send has none"),
-        (r"^async only: type hadris_fs::lock::Lock::Guard$", "async_send locks return an opaque Send guard"),
-        (r"^async only: .*\b(alloc::rc::Rc|Rc<)", "Rc is not Send, so async_send has no Rc impls"),
+        (r"^sync only: .*\bhadris_fs::(Local\b|Volume::local$)", "Local is not Send, so async has none"),
+        (r"^sync only: type hadris_fs::lock::Lock::Guard$", "async locks return an opaque Send guard"),
+        (r"^sync only: .*\b(alloc::rc::Rc|Rc<)", "Rc is not Send, so async has no Rc impls"),
     ],
     "hadris-fat": [
         (
-            r"^async(_send)? only: impl<.*> hadris_fs::api::driver::FsDriver for hadris_fat::(FatFs<D, T, C, P>|exfat::ExFatFs<D, T, C>)$",
-            "async_send also bounds the node table's values by Send",
+            r"^(sync|async) only: impl<.*> hadris_fs::api::driver::FsDriver for hadris_fat::(FatFs<D, T, C, P>|exfat::ExFatFs<D, T, C>)$",
+            "async also bounds the node table's values by Send",
         ),
     ],
     "hadris-io": [
-        (r"^async only: .*\bFromEmbedded\b", "embedded-io-async futures are not Send"),
+        (r"^local only: .*\bFromEmbedded\b", "embedded-io-async futures are not Send"),
+        (r"^(sync|local) only: .*\b(alloc::rc::Rc|Rc<)", "Rc is not Send, so async has no Rc impls"),
         (r"hadris_io::legacy::", "legacy V2 traits, deleted by the last format port"),
     ],
 }
 
-MODE_MODULE = re.compile(r"\b(hadris\w*(?:::\w+)*?)::(async_send|sync|r#async|async|local)(?=::)")
+MODE_MODULE = re.compile(r"\b(hadris\w*(?:::\w+)*?)::(sync|r#async|async|local)(?=::)")
 MODE_API = re.compile(r"\b(hadris\w*(?:::\w+)*?)::(sync|async)_api\b")
 ASYNC_KW = re.compile(r"\basync\s+")
 FUTURE = re.compile(r"impl core::future::future::Future<Output = ")
@@ -188,7 +188,7 @@ def line_mode(line: str, crate_ident: str, sync_names: set[str]) -> str | None:
     scope = line_scope(line)
     found = MODE_MODULE.search(scope)
     if found:
-        return {"sync": "sync", "async_send": "async_send", "local": "local"}.get(found.group(2), "async")
+        return {"sync": "sync", "local": "local"}.get(found.group(2), "async")
     m = re.match(rf"{crate_ident}::(\w+)", scope)
     if m and m.group(1) in sync_names:
         return "sync"
@@ -265,13 +265,13 @@ def check_parity(crates: list[str]) -> dict[str, int]:
             for line in api
             if not line.startswith("pub use ") and (m := re.match(rf"{ident}::sync::(\w+)", line_scope(line)))
         }
-        modes: dict[str, dict[str, set[str]]] = {"sync": {}, "async": {}, "async_send": {}, "local": {}}
+        modes: dict[str, dict[str, set[str]]] = {"sync": {}, "async": {}, "local": {}}
         for line in api:
             mode = line_mode(line, ident, sync_names)
             if mode:
                 norm = normalize(line)
                 modes[mode].setdefault(item_key(norm), set()).add(norm)
-        sync, asyn, send, local = modes["sync"], modes["async"], modes["async_send"], modes["local"]
+        sync, asyn, local = modes["sync"], modes["async"], modes["local"]
         if not sync or not asyn:
             present = "sync" if sync else "async" if asyn else "neither"
             print(f"== {crate}: skipped, public API has {present} mode only")
@@ -284,9 +284,6 @@ def check_parity(crates: list[str]) -> dict[str, int]:
 
         print(f"== {crate}: sync vs async")
         findings = compare_modes("sync", sync, "async", asyn, allowed)
-        if send:
-            print(f"== {crate}: async vs async_send")
-            findings += compare_modes("async", asyn, "async_send", send, allowed)
         if local:
             print(f"== {crate}: async vs local")
             findings += compare_modes("async", asyn, "local", local, allowed)

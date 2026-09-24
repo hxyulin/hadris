@@ -4,18 +4,14 @@ macro_rules! io_transform {
 }
 
 #[cfg(feature = "alloc")]
-use hadris_fs::async_send as fs;
-use hadris_storage::async_send as storage;
-
-macro_rules! impl_udf_driver {
-    ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async_send, $($t)*); };
-}
+use hadris_fs::r#async as fs;
+use hadris_io::r#async as io;
 
 #[path = "read.rs"]
 mod read;
-pub use read::UdfFs;
+pub use read::{CpioReader, Entry};
 #[cfg(feature = "alloc")]
 #[path = "write.rs"]
 mod write;
 #[cfg(feature = "alloc")]
-pub use write::{plan, write};
+pub use write::{CpioWriter, write};

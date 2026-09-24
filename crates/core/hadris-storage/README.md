@@ -26,7 +26,7 @@ block 0 on the disk a device is a window of.
 
 | Type | Purpose |
 |---|---|
-| `BlockDevice` | Whole-block reads, optional writes and flush, in `sync`, `r#async`, `async_send` (`Send` futures) and `local` (futures need not be `Send`). `&mut D` and `Box<D>` implement it too |
+| `BlockDevice` | Whole-block reads, optional writes and flush, in `sync`, `r#async` (`Send` futures) and `local` (futures need not be `Send`). `&mut D` and `Box<D>` implement it too |
 | `Vec<u8>` | With `alloc`, an in-memory image with 512-byte blocks that grows when written past its end. Device error `Infallible` |
 | `MemDevice` | A fixed-size block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`, with any block size. Device error `Infallible`; requests past the end fail with kind `InvalidInput` |
 | `Partition` | A byte window of another device, such as an MBR or GPT partition. Its offset and length are multiples of the device block size. Requests past its end never reach the device, and `disk_offset` reports its start |
@@ -95,8 +95,7 @@ assert_eq!(geometry.byte_len(), Some(4 * 1024 * 1024));
 | `std` | Yes | `host::FileDevice`, `host::file_len` and `alloc` |
 | `alloc` | Via `std` | `Cache`, the `Vec<u8>` device, `Box` impls, and block sizes above 4096 bytes in `ByteView` |
 | `sync` | Yes | Synchronous device traits and adapters |
-| `async` | No | Asynchronous device traits and adapters in `r#async` and `local` |
-| `async-send` | No | Asynchronous devices with `Send` futures in `async_send`; implies `async` |
+| `async` | No | Asynchronous device traits and adapters with `Send` futures in `r#async`, and without the `Send` bound in `local` |
 
 `std` and the I/O mode are independent. Disable default features and select
 `sync`, `async`, or both explicitly for custom configurations.

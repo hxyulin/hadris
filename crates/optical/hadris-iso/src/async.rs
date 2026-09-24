@@ -4,13 +4,13 @@ macro_rules! io_transform {
 }
 
 #[cfg(feature = "alloc")]
-use hadris_fs::async_send as fs;
+use hadris_fs::r#async as fs;
 #[cfg(feature = "alloc")]
-use hadris_part::async_send as part;
-use hadris_storage::async_send as storage;
+use hadris_part::r#async as part;
+use hadris_storage::r#async as storage;
 
 macro_rules! impl_iso_driver {
-    ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async_send, $($t)*); };
+    ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
 }
 
 #[path = "image.rs"]

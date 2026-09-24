@@ -6,9 +6,6 @@ pub use hadris_cd::udf
 pub mod hadris_cd::async
 pub async fn hadris_cd::async::plan<C: hadris_fs::time::Clock + core::clone::Clone>(&hadris_fs::tree::Tree, &hadris_cd::CdOptions<C>) -> core::result::Result<hadris_cd::Report, hadris_fs::error::PathError>
 pub async fn hadris_cd::async::write<D: hadris_storage::async::api::BlockDevice, C: hadris_fs::time::Clock + core::clone::Clone>(D, &hadris_fs::tree::Tree, &hadris_cd::CdOptions<C>) -> core::result::Result<hadris_cd::Report, hadris_fs::error::PathError>
-pub mod hadris_cd::async_send
-pub async fn hadris_cd::async_send::plan<C: hadris_fs::time::Clock + core::clone::Clone>(&hadris_fs::tree::Tree, &hadris_cd::CdOptions<C>) -> core::result::Result<hadris_cd::Report, hadris_fs::error::PathError>
-pub async fn hadris_cd::async_send::write<D: hadris_storage::async_send::api::BlockDevice, C: hadris_fs::time::Clock + core::clone::Clone>(D, &hadris_fs::tree::Tree, &hadris_cd::CdOptions<C>) -> core::result::Result<hadris_cd::Report, hadris_fs::error::PathError>
 pub mod hadris_cd::sync
 pub fn hadris_cd::sync::plan<C: hadris_fs::time::Clock + core::clone::Clone>(&hadris_fs::tree::Tree, &hadris_cd::CdOptions<C>) -> core::result::Result<hadris_cd::Report, hadris_fs::error::PathError>
 pub fn hadris_cd::sync::write<D: hadris_storage::sync::api::BlockDevice, C: hadris_fs::time::Clock + core::clone::Clone>(D, &hadris_fs::tree::Tree, &hadris_cd::CdOptions<C>) -> core::result::Result<hadris_cd::Report, hadris_fs::error::PathError>

@@ -1,4 +1,4 @@
-//! `send_async!`: the third generation mode, next to `strip_async!`.
+//! `send_async!`: the `Send` async generation mode, next to `strip_async!`.
 
 use proc_macro2::{
     Delimiter, Group, Ident, Punct, Spacing, Span, TokenStream as TokenStream2, TokenTree,

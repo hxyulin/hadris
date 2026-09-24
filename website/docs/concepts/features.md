@@ -7,7 +7,7 @@ title: Features and capabilities
 Hadris separates three decisions that many crates combine:
 
 1. **Platform support:** allocation-free, `alloc`, or `std`
-2. **I/O mode:** `sync`, `async`, `async-send`, or several
+2. **I/O mode:** `sync`, `async`, or both
 3. **Capability:** `write` (FAT formatting), and in the umbrella crate one
    feature per format
 
@@ -32,8 +32,8 @@ without an allocator.
 
 ## I/O modes
 
-The `sync`, `async` and `async-send` features select parallel API
-namespaces generated from one source. They may be enabled together.
+The `sync` and `async` features select parallel API namespaces generated
+from one source. They may be enabled together.
 
 ```toml
 [dependencies]
@@ -45,9 +45,11 @@ hadris-fat = {
 ```
 
 Name I/O types through their mode module, `hadris_fat::sync` or
-`hadris_fat::r#async`; no crate re-exports a mode at its root. The
-`async-send` feature adds a third namespace, `async_send`, whose futures are
-`Send` for multi-threaded executors.
+`hadris_fat::r#async`; no crate re-exports a mode at its root. Async
+futures are `Send` when the device is, so generic code can spawn them on
+multi-threaded executors. `hadris-io` and `hadris-storage` also have a
+`local` namespace, whose futures need not be `Send`, for single-threaded
+executors.
 
 Every crate has the same public items in each mode. The exceptions are the
 `hadris-fs` host helpers (`extract_to_host`, `import_from_host`), which are

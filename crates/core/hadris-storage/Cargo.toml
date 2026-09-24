@@ -13,7 +13,7 @@ categories = ["no-std", "filesystem"]
 
 # docs.rs builds with default features only, which would hide the modes.
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-send"]
+features = ["std", "sync", "async"]
 
 [features]
 default = ["std", "sync"]
@@ -21,7 +21,6 @@ alloc = ["hadris-io/alloc"]
 std = ["alloc", "hadris-io/std"]
 sync = ["hadris-io/sync"]
 async = ["hadris-io/async"]
-async-send = ["async", "hadris-io/async-send"]
 
 [dependencies]
 hadris-io = { workspace = true }

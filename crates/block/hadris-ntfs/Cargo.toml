@@ -13,7 +13,7 @@ license.workspace = true
 repository.workspace = true
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-send"]
+features = ["std", "sync", "async"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -24,8 +24,6 @@ alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
 std = ["alloc", "hadris-io/std", "hadris-fs/std", "hadris-storage/std"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync"]
 async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async"]
-# The asynchronous API a third time, with `Send` futures, in `async_send`.
-async-send = ["async", "hadris-io/async-send", "hadris-fs/async-send", "hadris-storage/async-send"]
 
 [dependencies]
 bytemuck = { workspace = true, features = ["derive", "min_const_generics"] }
@@ -45,4 +43,4 @@ required-features = ["std", "sync"]
 
 [[test]]
 name = "crafted"
-required-features = ["std", "sync", "async-send"]
+required-features = ["std", "sync"]

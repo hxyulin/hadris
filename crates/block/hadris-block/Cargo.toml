@@ -12,7 +12,7 @@ keywords = ["block-device", "storage", "partition", "filesystem", "no-std"]
 categories = ["no-std", "filesystem"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-send", "write", "part", "unstable-ntfs"]
+features = ["std", "sync", "async", "write", "part", "unstable-ntfs"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -23,8 +23,6 @@ alloc = ["hadris-storage/alloc", "hadris-fs/alloc", "hadris-fat/alloc", "hadris-
 std = ["alloc", "hadris-storage/std", "hadris-fs/std", "hadris-fat/std", "hadris-ntfs/std", "hadris-part?/std"]
 sync = ["hadris-storage/sync", "hadris-fs/sync", "hadris-fat/sync", "hadris-ntfs/sync", "hadris-part?/sync"]
 async = ["hadris-storage/async", "hadris-fs/async", "hadris-fat/async", "hadris-ntfs/async", "hadris-part?/async"]
-# The asynchronous API a third time, with `Send` futures, in `async_send`.
-async-send = ["async", "hadris-storage/async-send", "hadris-fs/async-send", "hadris-fat/async-send", "hadris-ntfs/async-send", "hadris-part?/async-send"]
 # FAT formatting through the `fat` re-export.
 write = ["hadris-fat/write"]
 # The `part` re-export.
@@ -56,4 +54,4 @@ required-features = ["std", "async", "write", "part"]
 
 [[test]]
 name = "async_send_volume"
-required-features = ["std", "async-send", "write", "part"]
+required-features = ["std", "write", "part"]

@@ -25,7 +25,7 @@ The vocabulary is mode-independent and performs no I/O:
   `Tree::from_fs` (`std`) imports a host directory, and `Warning` is the
   shape writers use to report what they could not store
 
-The `sync`, `async` and `async-send` features add the driver layer, each
+The `sync` and `async` features add the driver layer, each
 generated from one source:
 
 - `FsDriver`, which format crates implement on `&mut self`, usually through
@@ -67,7 +67,7 @@ let vol = Arc::new(Volume::new(FatFs::open(file)?));
 let file = File::open(Arc::clone(&vol), "/big.bin", OpenOptions::read())?;
 ```
 
-`async_send` has the same API with `Send` futures, so generic code over
+`r#async` has the same API with `Send` futures, so generic code over
 `F: FileSystem + 'static` can spawn on multi-threaded executors.
 
 ## Example
@@ -92,9 +92,7 @@ assert!(OpenOptions::write().create().append().validate().is_ok());
 | `alloc` | No | `OwnedName`, `PathError`, `read_to_vec`, `copy_tree`, `Box`/`Rc`/`Arc` impls, owned path normalization, and `tree` with `ContentReader` and `TreeExt` |
 | `std` | No | Implies `alloc`; adds `SystemClock`, `StdMutex`, `std::io` on handles, the sync host helpers, `Content::path`, `Tree::from_fs` and conversions to `std::io::Error` |
 | `sync` | No | Blocking driver traits, `Volume`, resolvers, helpers and handles in `sync` |
-| `async` | No | The same API with `async fn` in `r#async`; `AsyncMutex` with `alloc` |
-| `async-send` | No | The async API with `Send` futures in `async_send`; implies `async` |
-| `embassy-sync` | No | An allocation-free async `Local` lock for one executor thread |
+| `async` | No | The same API with `Send` futures in `r#async`; `AsyncMutex` with `alloc` |
 | `contract` | No | The driver contract kit: `contract::check` in each mode, for testing a format against the `FsDriver` contract |
 
 ## Documentation

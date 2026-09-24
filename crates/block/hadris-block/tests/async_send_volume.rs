@@ -1,4 +1,4 @@
-#![cfg(feature = "async-send")]
+#![cfg(feature = "async")]
 
 use core::future::Future;
 use core::task::{Context, Poll};
@@ -6,14 +6,14 @@ use std::sync::Arc;
 use std::task::{Wake, Waker};
 
 use hadris_block::Detail;
-use hadris_block::async_send::OpenVolume;
+use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
-use hadris_block::part::async_send::open;
+use hadris_block::part::r#async::open;
 use hadris_block::part::{Disk, Mbr, MbrEntry, MbrType, Partition};
 use hadris_fat::{FatKind, FormatOptions};
-use hadris_fs::async_send::DriverExt;
+use hadris_fs::r#async::DriverExt;
 use hadris_fs::{Error, ErrorKind, MountError};
-use hadris_storage::async_send::BlockDevice;
+use hadris_storage::r#async::BlockDevice;
 use hadris_storage::{BlockSize, MemDevice};
 
 type Device = MemDevice<Vec<u8>>;
@@ -47,7 +47,7 @@ fn block_on<F: Future + Send>(future: F) -> F::Output {
 
 fn formatted_fat12<D: BlockDevice>(dev: D) -> D {
     let options = FormatOptions::new().with_kind(FatKind::Fat12);
-    block_on(hadris_fat::async_send::format(dev, options))
+    block_on(hadris_fat::r#async::format(dev, options))
         .unwrap()
         .into_inner()
 }
@@ -67,7 +67,7 @@ fn partitioned_disk() -> (Device, Partition) {
     let blocks = (VOLUME_LEN / 512) as u64;
     let (table, entry) = mbr_partition(blocks + 1, 1, blocks);
     let mut disk = device(vec![0_u8; VOLUME_LEN + 512]);
-    block_on(hadris_block::part::async_send::write(&mut disk, &table)).unwrap();
+    block_on(hadris_block::part::r#async::write(&mut disk, &table)).unwrap();
     formatted_fat12(open(&mut disk, &entry).unwrap());
     (disk, entry)
 }
@@ -77,7 +77,7 @@ fn opens_fat_through_an_mbr_partition() {
     let (mut disk, entry) = partitioned_disk();
     block_on(async {
         assert_eq!(
-            hadris_block::detect::async_send::detect(&mut disk)
+            hadris_block::detect::r#async::detect(&mut disk)
                 .await
                 .unwrap(),
             Some(BlockFormat::PartitionTable(PartitionTableKind::Mbr))
@@ -104,7 +104,7 @@ fn opens_exfat() {
     block_on(async {
         let dev = device(vec![0_u8; VOLUME_LEN]);
         let options = hadris_fat::exfat::FormatOptions::new();
-        let dev = hadris_fat::exfat::async_send::format(dev, options)
+        let dev = hadris_fat::exfat::r#async::format(dev, options)
             .await
             .unwrap()
             .into_inner();

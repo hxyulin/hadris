@@ -36,17 +36,6 @@ impl hadris_io::ErrorType for Sink {
 }
 
 impl hadris_io::r#async::Write for Sink {
-    async fn write(&mut self, bytes: &[u8]) -> Result<usize, Infallible> {
-        self.0.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    async fn flush(&mut self) -> Result<(), Infallible> {
-        Ok(())
-    }
-}
-
-impl hadris_io::async_send::Write for Sink {
     fn write(&mut self, bytes: &[u8]) -> impl Future<Output = Result<usize, Infallible>> + Send {
         self.0.extend_from_slice(bytes);
         core::future::ready(Ok(bytes.len()))
@@ -73,13 +62,9 @@ fn every_mode_writes_the_same_bytes() {
     hadris_cpio::sync::write(&mut sync, &tree(), &options).unwrap();
     let sync = sync.into_inner();
 
-    let mut local = Sink::default();
-    block_on(hadris_cpio::r#async::write(&mut local, &tree(), &options)).unwrap();
-    assert_eq!(local.0, sync);
-
     let mut send = Sink::default();
     let tree = tree();
-    let future = hadris_cpio::async_send::write(&mut send, &tree, &options);
+    let future = hadris_cpio::r#async::write(&mut send, &tree, &options);
     fn assert_send<T: Send>(value: T) -> T {
         value
     }

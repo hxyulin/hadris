@@ -1,8 +1,8 @@
 //! Device primitives: the reads and writes a FAT driver is made of,
 //! generated for each mode from one source.
 //!
-//! The functions in `sync`, `r#async` and `async_send`, one module for
-//! each mode feature, are generic over the device only. They borrow the
+//! The functions in `sync`, `r#async` (`Send` futures) and `local`
+//! (futures need not be `Send`) are generic over the device only. They borrow the
 //! caller's [`BlockBuf`], which caches one device block, and a [`Fat`],
 //! which holds what the driver tracks about the allocation tables between
 //! calls. Sequences whose order matters when they are interrupted live
@@ -437,10 +437,12 @@ pub mod sync {
 #[cfg(feature = "async")]
 #[path = ""]
 pub mod r#async {
-    //! The asynchronous primitives.
+    //! The asynchronous primitives with `Send` futures, for devices whose
+    //! futures are `Send`.
 
+    #[allow(unused_macros)]
     macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
+        ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
     }
 
     use hadris_storage::r#async as storage;
@@ -461,18 +463,17 @@ pub mod r#async {
     };
 }
 
-#[cfg(feature = "async-send")]
+#[cfg(feature = "async")]
 #[path = ""]
-pub mod async_send {
-    //! The asynchronous primitives with `Send` futures, for devices whose
-    //! futures are `Send`.
+pub mod local {
+    //! The asynchronous primitives whose futures need not be `Send`, for
+    //! single-threaded executors.
 
-    #[allow(unused_macros)]
     macro_rules! io_transform {
-        ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
+        ($($item:tt)*) => { $($item)* };
     }
 
-    use hadris_storage::async_send as storage;
+    use hadris_storage::local as storage;
 
     #[path = "block.rs"]
     mod block;

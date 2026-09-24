@@ -13,13 +13,12 @@ categories = ["no-std", "filesystem"]
 
 # docs.rs builds with default features only, which would hide the modes.
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-send"]
+features = ["std", "sync", "async"]
 
 [features]
 default = ["sync", "std"]
 sync = []
 async = []
-async-send = ["async"]
 alloc = ["embedded-io?/alloc", "embedded-io-async?/alloc"]
 std = ["alloc", "embedded-io?/std", "embedded-io-async?/std"]
 # `FromEmbedded`, the `embedded-io` traits on `StdIo`, and conversions

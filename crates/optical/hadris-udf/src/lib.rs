@@ -7,7 +7,7 @@
 //! ## Reading
 //!
 //! `UdfFs` opens a volume on a `hadris_storage` block device, in each mode
-//! (`sync::UdfFs`, `r#async::UdfFs`, `async_send::UdfFs`). It implements
+//! (`sync::UdfFs`, `r#async::UdfFs`). It implements
 //! the `hadris_fs` `FsDriver` trait read-only, so the path helpers,
 //! `Volume` and handles of `hadris-fs` work on it. Node ids are ICB
 //! locations and need no node table. Reading needs no allocator.
@@ -71,8 +71,7 @@
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
 //! | `alloc` | via `std` | The writer and the `Tree` input |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The asynchronous API in `r#async` |
-//! | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
+//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //!
 //! No feature changes what an item does.
 
@@ -135,39 +134,11 @@ pub mod sync {
     pub use write::{plan, write};
 }
 
+/// The asynchronous API with `Send` futures, for generic code on
+/// multi-threaded executors, generated from the same source as `sync`.
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-#[path = ""]
-pub mod r#async {
-    //! The asynchronous API, generated from the same source as `sync`.
-
-    macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    #[cfg(feature = "alloc")]
-    use hadris_fs::r#async as fs;
-    use hadris_storage::r#async as storage;
-
-    macro_rules! impl_udf_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
-    }
-
-    #[path = "read.rs"]
-    mod read;
-    pub use read::UdfFs;
-    #[cfg(feature = "alloc")]
-    #[path = "write.rs"]
-    mod write;
-    #[cfg(feature = "alloc")]
-    pub use write::{plan, write};
-}
-
-/// The asynchronous API with `Send` futures, for generic code on
-/// multi-threaded executors, generated a third time from the same source.
-#[cfg(feature = "async-send")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
-pub mod async_send;
+pub mod r#async;
 
 pub use error::Detail;
 #[cfg(feature = "alloc")]

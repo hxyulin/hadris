@@ -6,9 +6,10 @@ Filesystem and partition crates write I/O code **once** with `async fn` / `.awai
 then compile it once per mode:
 
 - under a `sync` module via [`strip_async!`](https://docs.rs/hadris-macros) (async keywords removed)
-- under an `async` module unchanged
-- optionally under an `async_send` module via `send_async!`, whose trait
-  methods return `Send` futures
+- under an `r#async` module via `send_async!`, whose trait methods return
+  `Send` futures
+- in `hadris-io` and `hadris-storage`, also under a `local` module
+  unchanged, for executors whose futures are not `Send`
 
 ## `strip_async!`
 
@@ -65,22 +66,9 @@ pub mod sync {
 #[path = ""]
 pub mod r#async {
     macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
-    }
-    use hadris_storage::r#async as storage;
-
-    #[path = "io.rs"]
-    mod io;
-    pub use io::{open, read, scan};
-}
-
-#[cfg(feature = "async-send")]
-#[path = ""]
-pub mod async_send {
-    macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
     }
-    use hadris_storage::async_send as storage;
+    use hadris_storage::r#async as storage;
 
     #[path = "io.rs"]
     mod io;
@@ -90,7 +78,7 @@ pub mod async_send {
 
 The shared file wraps its items in `io_transform! { ... }`, writes
 `async fn` and `.await` throughout, and names I/O traits through the
-per-mode alias (`storage::BlockDevice`). A crate whose `async_send` code
+per-mode alias (`storage::BlockDevice`). A crate whose `r#async` code
 defines no traits can pass the items through unchanged there, as
 `hadris-part` does.
 

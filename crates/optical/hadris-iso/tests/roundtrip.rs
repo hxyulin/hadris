@@ -333,21 +333,21 @@ fn async_modes_read_and_write_alike() {
             .unwrap();
         assert_eq!(dev.get_ref(), &sync_image);
         let mut dev = hadris_storage::MemDevice::new(vec![0u8; size as usize], common::SECTOR);
-        hadris_iso::async_send::write(&mut dev, &tree, &options)
+        hadris_iso::r#async::write(&mut dev, &tree, &options)
             .await
             .unwrap();
         assert_eq!(dev.get_ref(), &sync_image);
 
-        let mut iso = hadris_iso::async_send::IsoImage::open(dev).await.unwrap();
+        let mut iso = hadris_iso::r#async::IsoImage::open(dev).await.unwrap();
         let mut view = iso.view(Namespace::Preferred).await_view();
-        let data = hadris_fs::async_send::DriverExt::read_to_vec(&mut view, "/docs/big.bin")
+        let data = hadris_fs::r#async::DriverExt::read_to_vec(&mut view, "/docs/big.bin")
             .await
             .unwrap();
         assert_eq!(data, pattern(100_000));
-        let linked = hadris_fs::async_send::FsDriver::resolve(&mut view, "/docs/hard.txt")
+        let linked = hadris_fs::r#async::FsDriver::resolve(&mut view, "/docs/hard.txt")
             .await
             .unwrap();
-        let target = hadris_fs::async_send::FsDriver::resolve(&mut view, "/readme.txt")
+        let target = hadris_fs::r#async::FsDriver::resolve(&mut view, "/readme.txt")
             .await
             .unwrap();
         assert_eq!(linked, target);

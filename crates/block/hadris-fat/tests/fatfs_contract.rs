@@ -42,11 +42,11 @@ fn async_modes() {
             .await
             .unwrap();
         hadris_fs::r#async::contract::check(&mut fs).await.unwrap();
-        let fs = hadris_fat::async_send::FatFs::open(common::device(case, common::blank(case)))
+        let fs = hadris_fat::r#async::FatFs::open(common::device(case, common::blank(case)))
             .await
             .unwrap();
-        let vol = hadris_fs::async_send::Volume::new(fs);
-        hadris_fs::async_send::contract::check(&mut &vol)
+        let vol = hadris_fs::r#async::Volume::new(fs);
+        hadris_fs::r#async::contract::check(&mut &vol)
             .await
             .unwrap();
     });

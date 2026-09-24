@@ -42,8 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Reading needs no allocator, and the same API exists in `hadris_iso::r#async`
-and `hadris_iso::async_send`. `IsoView::rock_ridge` returns a node's Rock
+Reading needs no allocator, and the same API exists in `hadris_iso::r#async`. `IsoView::rock_ridge` returns a node's Rock
 Ridge entries, `IsoView::raw_record` its directory record, and
 `hadris_iso::raw` the on-disk layouts.
 

@@ -17,8 +17,8 @@
 //! device failed. It lives here, in the lowest crate, so block devices can
 //! return it; `hadris-fs` and `hadris` re-export it.
 //!
-//! The traits live in one module per mode: [`sync`], `r#async`,
-//! `async_send` and `local` (futures that need not be `Send`). The crate
+//! The traits live in one module per mode: [`sync`], `r#async` (futures
+//! that are `Send`) and `local` (futures that need not be `Send`). The crate
 //! root holds only the mode-independent items, so
 //! `hadris_io::sync::Read` and `hadris_io::r#async::Read` are always named
 //! explicitly.
@@ -29,8 +29,7 @@
 //! |---------|---------|-------------|
 //! | `std`   | yes     | [`StdIo`], [`ToStd`] and conversions to `std::io::Error` (implies `alloc`) |
 //! | `sync`  | yes     | Synchronous traits in [`sync`] |
-//! | `async` | no      | Asynchronous traits in `r#async` and `local` |
-//! | `async-send` | no | Asynchronous traits with `Send` futures in `async_send` (implies `async`) |
+//! | `async` | no      | Asynchronous traits with `Send` futures in `r#async`, and without the `Send` bound in `local` |
 //! | `alloc` | via `std` | `Box<T>` and `Vec<u8>` implement the traits |
 //! | `embedded-io` | no | `FromEmbedded`, the `embedded-io` traits on [`StdIo`] and [`SeekFrom`] conversions |
 //!
@@ -339,27 +338,24 @@ impl ErrorType for Cursor<'_> {
 #[cfg(feature = "sync")]
 pub mod sync;
 
-/// Asynchronous I/O traits.
+/// Asynchronous I/O traits whose futures are `Send`, for generic code on
+/// multi-threaded executors.
+///
+/// Generated from the same source as [`sync`]. Every trait has `Send` as a
+/// supertrait, so `R: Read` alone proves that `R`'s futures are `Send`.
+/// Implementations are written with `async fn`. `FromEmbedded` has no impls
+/// here: `embedded-io-async` futures are not `Send`; it implements the
+/// [`local`] traits.
 #[cfg(feature = "async")]
 pub mod r#async;
 
 /// Asynchronous I/O traits whose futures need not be `Send`, for
 /// single-threaded executors such as embassy.
 ///
-/// Generated from the same source as `r#async`, with the same items.
+/// Generated from the same source as `r#async`, with the same items plus
+/// impls for types that are not `Send`.
 #[cfg(feature = "async")]
 pub mod local;
-
-/// Asynchronous I/O traits whose futures are `Send`, for generic code on
-/// multi-threaded executors.
-///
-/// Generated from the same source as `r#async`. Every trait has `Send` as a
-/// supertrait, so `R: Read` alone proves that `R`'s futures are `Send`.
-/// Implementations are written with `async fn` exactly as in `r#async`.
-/// `FromEmbedded` has no impls here: `embedded-io-async` futures are not
-/// `Send`.
-#[cfg(feature = "async-send")]
-pub mod async_send;
 
 #[cfg(all(test, feature = "sync"))]
 mod tests {

@@ -340,8 +340,11 @@ fn drive(data: &[u8]) {
     if fs.sync().is_err() {
         return;
     }
+    let mut dev = fs.into_inner();
     if consistent {
-        let report = check(&mut fs).expect("check reads an in-memory volume");
+        let blocks = dev.get_ref().len() / 512;
+        let mut scratch = vec![0u8; 1024 + blocks.div_ceil(8).max(512)];
+        let report = check(&mut dev, &mut scratch, |_| {}).expect("check reads an in-memory volume");
         assert!(
             report.is_clean(),
             "ORACLE: check found {} problem(s) on a volume FatFs wrote",
@@ -350,7 +353,7 @@ fn drive(data: &[u8]) {
     }
 
     // Remount fresh and walk the whole tree.
-    let image = fs.into_inner().into_inner();
+    let image = dev.into_inner();
     let Ok(mut fs) = FatFs::open_with(
         MemDevice::new(image, BlockSize::new(512).unwrap()),
         MountOptions::new().with_table(HeapTable::new()),

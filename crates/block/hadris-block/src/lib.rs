@@ -6,7 +6,7 @@
 //!
 //! [`detect`] reads the boot sector of a device and names its format, or
 //! the partition table it holds. `OpenVolume`, in each mode
-//! (`sync::OpenVolume`, `r#async::OpenVolume`, `async_send::OpenVolume`),
+//! (`sync::OpenVolume`, `r#async::OpenVolume`),
 //! detects and mounts in one step and implements the `hadris_fs` `FsDriver`
 //! trait by delegating to the driver it opened, so one generic function
 //! lists any volume. A failed open gives the device back in a
@@ -45,8 +45,7 @@
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and `hadris_storage::host::FileDevice` |
 //! | `alloc` | via `std` | `PathError` conversions |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The asynchronous API in `r#async` |
-//! | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
+//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //! | `write` | No | `hadris_fat` formatting, through [`fat`] |
 //! | `part` | No | Re-exports `hadris-part` as `part` |
 //! | `unstable-ntfs` | No | Re-exports the `hadris-ntfs` preview as `ntfs` and reaches `OpenVolume`'s NTFS driver |
@@ -95,12 +94,12 @@ pub mod sync {
     pub use volume::OpenVolume;
 }
 
+/// The asynchronous API with `Send` futures, for generic code on
+/// multi-threaded executors, generated from the same source as `sync`.
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = ""]
 pub mod r#async {
-    //! The asynchronous API, generated from the same source as `sync`.
-
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
@@ -121,32 +120,6 @@ pub mod r#async {
     pub use volume::OpenVolume;
 }
 
-/// The asynchronous API with `Send` futures, for generic code on
-/// multi-threaded executors, generated a third time from the same source.
-#[cfg(feature = "async-send")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
-#[path = ""]
-pub mod async_send {
-    macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    macro_rules! impl_block_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async_send, $($t)*); };
-    }
-
-    use crate::detect::async_send::detect;
-    use hadris_fat::async_send::FatFs;
-    use hadris_fat::exfat::async_send::ExFatFs;
-    use hadris_ntfs::async_send::NtfsFs;
-    use hadris_storage::async_send::BlockDevice;
-
-    #[allow(clippy::duplicate_mod)]
-    #[path = "volume.rs"]
-    mod volume;
-    pub use volume::OpenVolume;
-}
-
 /// Block devices and adapters.
 pub use hadris_storage as storage;
 
@@ -155,7 +128,7 @@ pub use hadris_storage as storage;
 pub use hadris_fat as fat;
 
 /// MBR, GPT and hybrid partition tables. `part::sync::open` (and its
-/// `r#async` and `async_send` forms) turns a partition into a
+/// `r#async` forms) turns a partition into a
 /// `hadris-storage` `Partition` of the disk, which `OpenVolume` opens.
 #[cfg(feature = "part")]
 #[cfg_attr(docsrs, doc(cfg(feature = "part")))]

@@ -1,7 +1,7 @@
 //! The exFAT driver, `ExFatFs`, its formatter and checker.
 //!
 //! It follows the same shape as `FatFs`. `ExFatFs` is generated for each mode
-//! (`exfat::sync`, `exfat::r#async`, `exfat::async_send`) with `check`
+//! (`exfat::sync`, `exfat::r#async`) with `check`
 //! and, with `write`, `format`; the mode-independent types are here. It needs no allocator and implements the `hadris_fs` `FsDriver`
 //! trait, so `Volume` and the path helpers work on it.
 //!
@@ -98,34 +98,6 @@ pub mod sync {
 #[cfg(feature = "async")]
 #[path = ""]
 pub mod r#async {
-    //! The asynchronous exFAT API.
-
-    macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    use crate::r#async::block_io;
-    use hadris_fat_raw::exfat::io::r#async as exio;
-    use hadris_storage::r#async as storage;
-
-    macro_rules! impl_exfat_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
-    }
-
-    #[path = "fs.rs"]
-    mod fs;
-    pub use exio::check;
-    pub use fs::ExFatFs;
-    #[cfg(feature = "write")]
-    #[path = "mkfs.rs"]
-    mod mkfs;
-    #[cfg(feature = "write")]
-    pub use mkfs::format;
-}
-
-#[cfg(feature = "async-send")]
-#[path = ""]
-pub mod async_send {
     //! The asynchronous exFAT API with `Send` futures. Its futures are
     //! `Send` when the device is and the node table holds `Send` values.
 
@@ -134,14 +106,14 @@ pub mod async_send {
         ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
     }
 
-    use crate::async_send::block_io;
-    use hadris_fat_raw::exfat::io::async_send as exio;
-    use hadris_storage::async_send as storage;
+    use crate::r#async::block_io;
+    use hadris_fat_raw::exfat::io::r#async as exio;
+    use hadris_storage::r#async as storage;
 
     macro_rules! impl_exfat_driver {
         (impl[D: BlockDevice, T: NodeTable, C: Clock] $($rest:tt)*) => {
             hadris_fs::impl_fs_driver!(
-                async_send,
+                async,
                 impl[D: BlockDevice, T: NodeTable<With<Node>: Send>, C: Clock + Send] $($rest)*
             );
         };

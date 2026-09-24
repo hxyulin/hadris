@@ -100,8 +100,8 @@ let bytes: Vec<u8> = fs.into_inner().into_inner();
 # Ok::<(), hadris_fs::Error<core::convert::Infallible>>(())
 ```
 
-The same `format` exists in `hadris_fat::r#async` and `hadris_fat::async_send`
-when the crate is built with `async` or `async-send`. Enable exactly the I/O
+The same `format` exists in `hadris_fat::r#async` when the crate is built
+with `async`. Enable exactly the I/O
 mode your application uses; `std` does not implicitly select `sync`.
 
 ## Format exFAT

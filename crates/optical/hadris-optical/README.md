@@ -46,8 +46,7 @@ for entry in image.read_dir("/")? {
 | `std` | yes | Implies `alloc`; `std::io::Error` conversions and `hadris_storage::host::FileDevice` |
 | `alloc` | via `std` | `PathError` conversions and the ISO 9660 and UDF writers |
 | `sync` | yes | The blocking API in `sync` |
-| `async` | no | The asynchronous API in `r#async` |
-| `async-send` | no | The asynchronous API with `Send` futures in `async_send`; enables `async` |
+| `async` | no | The asynchronous API with `Send` futures in `r#async` |
 | `cd` | no | Re-export `hadris-cd`, the hybrid image writer; implies `alloc` |
 
 No feature changes what an item does. For format-specific controls, use the

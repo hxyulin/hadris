@@ -71,11 +71,11 @@ fn contract_holds_in_every_mode_and_tier() {
         hadris_fs::r#async::contract::check_read_only(&mut fs)
             .await
             .unwrap();
-        let fs = hadris_ntfs::async_send::NtfsFs::open(device(image))
+        let fs = hadris_ntfs::r#async::NtfsFs::open(device(image))
             .await
             .unwrap();
-        let vol = hadris_fs::async_send::Volume::new(fs);
-        hadris_fs::async_send::contract::check_read_only(&mut &vol)
+        let vol = hadris_fs::r#async::Volume::new(fs);
+        hadris_fs::r#async::contract::check_read_only(&mut &vol)
             .await
             .unwrap();
     });
@@ -626,7 +626,7 @@ fn async_modes_walk_and_reject_corruption() {
             .unwrap();
         assert_eq!(fs.read_to_vec("/HELLO.TXT").await.unwrap(), b"hello ntfs");
         let mut fs =
-            hadris_ntfs::async_send::NtfsFs::open(device(allocation_image(u32::MAX, &[1], None)))
+            hadris_ntfs::r#async::NtfsFs::open(device(allocation_image(u32::MAX, &[1], None)))
                 .await
                 .unwrap();
         let root = fs.root();

@@ -82,7 +82,7 @@ impl From<Hybrid> for PartitionTable {
 /// A partitioned disk: its table and the boot code in block 0.
 ///
 /// `Disk` does no I/O. `read`, `write` and `open` in the mode modules
-/// (`hadris_part::sync`, `r#async`, `async_send`) move it to and from a
+/// (`hadris_part::sync`, `r#async`) move it to and from a
 /// block device, and [`runs`](Self::runs) gives its bytes for writers that
 /// are not block devices.
 ///

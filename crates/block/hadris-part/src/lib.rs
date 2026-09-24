@@ -1,7 +1,7 @@
 //! MBR, GPT and hybrid partition tables on `hadris-storage` block devices.
 //!
 //! [`Disk`] holds a partition table and the boot code of block 0. It does no
-//! I/O: the mode modules ([`sync`], `r#async`, `async_send`) read it from a
+//! I/O: the mode modules ([`sync`], `r#async`) read it from a
 //! [`BlockDevice`](hadris_storage::sync::BlockDevice), write it back, and
 //! open a partition as a [`hadris_storage::Partition`] of the device. The block size is always the device's.
 //!
@@ -64,8 +64,7 @@
 //! | `std` | Yes | Implies `alloc`; `Guid::random` and `std::io::Error` conversions |
 //! | `alloc` | via `std` | `Disk`, the tables, `DiskLayout`, and `read`, `write` and `create` |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The asynchronous API in `r#async` |
-//! | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
+//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //!
 //! No feature changes what an item does. CRCs are always computed and
 //! checked, and no GUID is ever made at random unless you call
@@ -133,35 +132,15 @@ pub mod sync {
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = ""]
 pub mod r#async {
-    //! The asynchronous API, generated from the same source as `sync`.
+    //! The asynchronous API over the `Send` devices of
+    //! `hadris_storage::r#async`, whose futures are `Send` when the device
+    //! and callbacks are. Generated from the same source as `sync`.
 
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
     use hadris_storage::r#async as storage;
-
-    #[path = "io.rs"]
-    mod io;
-    #[cfg(feature = "alloc")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
-    pub use io::{create, read, write};
-    pub use io::{open, scan};
-}
-
-#[cfg(feature = "async-send")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
-#[path = ""]
-pub mod async_send {
-    //! The asynchronous API over the `Send` devices of
-    //! `hadris_storage::async_send`, whose futures are `Send` when the device
-    //! and callbacks are. Generated from the same source as `r#async`.
-
-    macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    use hadris_storage::async_send as storage;
 
     #[path = "io.rs"]
     mod io;

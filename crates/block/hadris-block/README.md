@@ -58,8 +58,7 @@ the `unstable-ntfs` feature adds the `ntfs` re-export and `as_ntfs`,
 | `std` | yes | Implies `alloc`; `std::io::Error` conversions and `hadris_storage::host::FileDevice` |
 | `alloc` | via `std` | `PathError` conversions |
 | `sync` | yes | The blocking API in `sync` |
-| `async` | no | The asynchronous API in `r#async` |
-| `async-send` | no | The asynchronous API with `Send` futures in `async_send`; enables `async` |
+| `async` | no | The asynchronous API with `Send` futures in `r#async` |
 | `write` | no | FAT formatting through the `fat` re-export |
 | `part` | no | Re-export `hadris-part` as `part` |
 | `unstable-ntfs` | no | Re-export `hadris-ntfs` as `ntfs` and reach `OpenVolume`'s NTFS driver |

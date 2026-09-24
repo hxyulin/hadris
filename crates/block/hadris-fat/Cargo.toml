@@ -15,20 +15,12 @@ repository.workspace = true
 # docs.rs builds with default features only, which would hide the async
 # modes. Build every mode.
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-send", "write"]
+features = ["std", "sync", "async", "write"]
 
 [features]
 default = ["std", "sync", "write"]
 sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-fat-raw/sync"]
 async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-fat-raw/async"]
-# The asynchronous API a third time, with `Send` futures, in `async_send`.
-async-send = [
-  "async",
-  "hadris-io/async-send",
-  "hadris-fs/async-send",
-  "hadris-storage/async-send",
-  "hadris-fat-raw/async-send",
-]
 alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
 std = [
   "alloc",
@@ -67,7 +59,7 @@ required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "fatfs_async"
-required-features = ["std", "sync", "async-send", "write"]
+required-features = ["std", "sync", "async", "write"]
 
 [[test]]
 name = "fatfs_write"
@@ -79,19 +71,19 @@ required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "fatfs_check"
-required-features = ["std", "sync", "async-send", "write"]
+required-features = ["std", "sync", "async", "write"]
 
 [[test]]
 name = "fatfs_contract"
-required-features = ["std", "sync", "async-send", "write"]
+required-features = ["std", "sync", "async", "write"]
 
 [[test]]
 name = "exfat_contract"
-required-features = ["std", "sync", "async-send", "write"]
+required-features = ["std", "sync", "async", "write"]
 
 [[test]]
 name = "exfat_async"
-required-features = ["std", "sync", "async-send", "write"]
+required-features = ["std", "sync", "async", "write"]
 
 [[test]]
 name = "exfat_format"
@@ -115,8 +107,8 @@ required-features = ["std", "sync", "write"]
 
 [[test]]
 name = "fatfs_scale"
-required-features = ["std", "sync", "async-send", "write"]
+required-features = ["std", "sync", "async", "write"]
 
 [[test]]
 name = "exfat_scale"
-required-features = ["std", "sync", "async-send", "write"]
+required-features = ["std", "sync", "async", "write"]

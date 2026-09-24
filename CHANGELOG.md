@@ -549,6 +549,13 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **All crates (V3):** One async mode. The `async_send` modules become
+  `r#async`, whose futures are `Send` when the device is, and the former
+  `r#async` modules, whose futures were not `Send`, are removed. The
+  `async-send` feature is removed; `async` enables `r#async`. `hadris-io`,
+  `hadris-storage` and `hadris-fat-raw` keep the futures that need not be
+  `Send` in `local`, which `async` also enables. `hadris-fs` drops the
+  `embassy-sync` feature and the async `Local` lock with them.
 - **hadris-fat (V3):** `sync::check`, `r#async::check` and
   `async_send::check` are the `hadris-fat-raw` checker: they take an
   unmounted device and a scratch buffer instead of a `FatFs`, and report

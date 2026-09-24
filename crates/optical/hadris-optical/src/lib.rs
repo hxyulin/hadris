@@ -5,8 +5,7 @@
 //!
 //! [`detect`] reports ISO 9660 and UDF independently, because a bridge
 //! image holds both. `OpenOpticalImage`, in each mode
-//! (`sync::OpenOpticalImage`, `r#async::OpenOpticalImage`,
-//! `async_send::OpenOpticalImage`), detects and mounts the filesystem an
+//! (`sync::OpenOpticalImage`, `r#async::OpenOpticalImage`), detects and mounts the filesystem an
 //! [`OpenPolicy`] selects and implements the `hadris_fs` `FsDriver` trait
 //! read-only by delegating to it. A failed open gives the device back in
 //! a `hadris_fs::MountError`. Neither needs an allocator.
@@ -46,8 +45,7 @@
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and `hadris_storage::host::FileDevice` |
 //! | `alloc` | via `std` | `PathError` conversions and the ISO 9660 and UDF writers |
 //! | `sync` | Yes | The blocking API in `sync` |
-//! | `async` | No | The asynchronous API in `r#async` |
-//! | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
+//! | `async` | No | The asynchronous API with `Send` futures in `r#async` |
 //! | `cd` | No | Re-exports `hadris-cd`, the hybrid image writer; implies `alloc` |
 //!
 //! No feature changes what an item does.
@@ -95,12 +93,12 @@ pub mod sync {
     pub use open::OpenOpticalImage;
 }
 
+/// The asynchronous API with `Send` futures, for generic code on
+/// multi-threaded executors, generated from the same source as `sync`.
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = ""]
 pub mod r#async {
-    //! The asynchronous API, generated from the same source as `sync`.
-
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
@@ -113,31 +111,6 @@ pub mod r#async {
     use hadris_iso::r#async::{IsoImage, IsoView};
     use hadris_storage::r#async::BlockDevice;
     use hadris_udf::r#async::UdfFs;
-
-    #[allow(clippy::duplicate_mod)]
-    #[path = "open.rs"]
-    mod open;
-    pub use open::OpenOpticalImage;
-}
-
-/// The asynchronous API with `Send` futures, for generic code on
-/// multi-threaded executors, generated a third time from the same source.
-#[cfg(feature = "async-send")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
-#[path = ""]
-pub mod async_send {
-    macro_rules! io_transform {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    macro_rules! impl_optical_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async_send, $($t)*); };
-    }
-
-    use crate::detect::async_send::detect;
-    use hadris_iso::async_send::{IsoImage, IsoView};
-    use hadris_storage::async_send::BlockDevice;
-    use hadris_udf::async_send::UdfFs;
 
     #[allow(clippy::duplicate_mod)]
     #[path = "open.rs"]

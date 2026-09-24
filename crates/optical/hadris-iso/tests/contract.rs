@@ -48,10 +48,10 @@ fn async_modes() {
         hadris_fs::r#async::contract::check_read_only(&mut view)
             .await
             .unwrap();
-        let iso = hadris_iso::async_send::IsoImage::open(bytes).await.unwrap();
+        let iso = hadris_iso::r#async::IsoImage::open(bytes).await.unwrap();
         let view = iso.into_view(Namespace::Joliet).unwrap();
-        let vol = hadris_fs::async_send::Volume::new(view);
-        hadris_fs::async_send::contract::check_read_only(&mut &vol)
+        let vol = hadris_fs::r#async::Volume::new(view);
+        hadris_fs::r#async::contract::check_read_only(&mut &vol)
             .await
             .unwrap();
     });

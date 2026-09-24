@@ -23,7 +23,7 @@
 //!   volume, in errors and in check findings;
 //! - [`exfat`], the exFAT layouts and codecs.
 //!
-//! With the `sync`, `async` or `async-send` feature, `io` and `exfat::io`
+//! With the `sync` or `async` feature, `io` and `exfat::io`
 //! add the FAT and exFAT device primitives the `hadris-fat` drivers are
 //! built on, generic over a `hadris-storage` block device and still
 //! allocation-free.
@@ -50,8 +50,7 @@
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
 //! | `sync` | No | The device primitives in `io::sync` |
-//! | `async` | No | The device primitives in `io::r#async` |
-//! | `async-send` | No | The device primitives with `Send` futures in `io::async_send` |
+//! | `async` | No | The device primitives with `Send` futures in `io::r#async`, and without the `Send` bound in `io::local` |
 //! | `defmt` | No | `defmt::Format` for [`FatKind`] |
 
 #![cfg_attr(not(test), no_std)]

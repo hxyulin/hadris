@@ -14,16 +14,14 @@ include = ["src/**/*", "Cargo.toml", "README.md"]
 
 # docs.rs builds with default features only, which would hide the modes.
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-send", "contract"]
+features = ["std", "sync", "async", "contract"]
 
 [features]
 default = []
 alloc = ["hadris-io/alloc", "hadris-storage/alloc", "dep:async-lock"]
 std = ["alloc", "hadris-io/std", "hadris-storage/std", "async-lock?/std"]
 sync = ["hadris-io/sync", "dep:spin", "dep:hadris-macros"]
-async = ["hadris-io/async"]
-async-send = ["async", "hadris-io/async-send", "dep:hadris-macros"]
-embassy-sync = ["async", "dep:embassy-sync"]
+async = ["hadris-io/async", "dep:hadris-macros"]
 # The driver contract kit: `contract::check` in each enabled mode.
 contract = []
 
@@ -33,7 +31,6 @@ hadris-io = { workspace = true, default-features = false }
 hadris-storage = { workspace = true, default-features = false }
 hadris-macros = { workspace = true, optional = true }
 async-lock = { version = "3", default-features = false, optional = true }
-embassy-sync = { version = "0.8", optional = true }
 
 # `spin` needs atomic compare-and-swap, so the `Spin` lock exists only where
 # the target has it.

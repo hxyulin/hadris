@@ -57,64 +57,6 @@ pub fn hadris_iso::async::Session<D>::warnings(&self) -> &[hadris_fs::tree::Warn
 pub async fn hadris_iso::async::Session<D>::write<C: hadris_fs::time::Clock>(&mut self, &hadris_iso::IsoOptions<C>, hadris_iso::SessionMode) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
 pub async fn hadris_iso::async::plan<C: hadris_fs::time::Clock>(&hadris_fs::tree::Tree, &hadris_iso::IsoOptions<C>) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
 pub async fn hadris_iso::async::write<D: hadris_storage::async::api::BlockDevice, C: hadris_fs::time::Clock>(D, &hadris_fs::tree::Tree, &hadris_iso::IsoOptions<C>) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
-pub mod hadris_iso::async_send
-pub struct hadris_iso::async_send::IsoImage<D>
-impl<D: hadris_storage::async_send::api::BlockDevice> hadris_iso::async_send::IsoImage<D>
-pub fn hadris_iso::async_send::IsoImage<D>::block_size(&self) -> u32
-pub async fn hadris_iso::async_send::IsoImage<D>::boot_catalog(&mut self) -> core::result::Result<core::option::Option<hadris_iso::BootCatalog>, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_iso::async_send::IsoImage<D>::boot_catalog_block(&self) -> core::option::Option<u32>
-pub async fn hadris_iso::async_send::IsoImage<D>::descriptor(&mut self, u32) -> core::result::Result<core::option::Option<hadris_iso::raw::VolumeDescriptor>, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_iso::async_send::IsoImage<D>::device(&self) -> &D
-pub fn hadris_iso::async_send::IsoImage<D>::into_inner(self) -> D
-pub fn hadris_iso::async_send::IsoImage<D>::into_view(self, hadris_iso::Namespace) -> core::result::Result<hadris_iso::async_send::IsoView<D>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_iso::async_send::IsoImage<D>::namespaces(&self) -> hadris_iso::Namespaces
-pub async fn hadris_iso::async_send::IsoImage<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_iso::async_send::IsoImage<D>::primary_descriptor(&mut self) -> core::result::Result<hadris_iso::raw::PrimaryVolumeDescriptor, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_iso::async_send::IsoImage<D>::read_bytes(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_iso::async_send::IsoImage<D>::view(&mut self, hadris_iso::Namespace) -> core::result::Result<hadris_iso::async_send::IsoView<&mut D>, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_iso::async_send::IsoImage<D>::volume_blocks(&self) -> u32
-pub struct hadris_iso::async_send::IsoView<D>
-impl<D: hadris_storage::async_send::api::BlockDevice> hadris_iso::async_send::IsoView<D>
-pub fn hadris_iso::async_send::IsoView<D>::block_size(&self) -> u32
-pub fn hadris_iso::async_send::IsoView<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
-pub async fn hadris_iso::async_send::IsoView<D>::extents(&mut self, hadris_fs::node::NodeId, impl core::ops::function::FnMut(hadris_fs::extent::Extent)) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_iso::async_send::IsoView<D>::forget(&mut self, hadris_fs::node::NodeId)
-pub fn hadris_iso::async_send::IsoView<D>::into_inner(self) -> D
-pub async fn hadris_iso::async_send::IsoView<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_iso::async_send::IsoView<D>::namespace(&self) -> hadris_iso::Namespace
-pub async fn hadris_iso::async_send::IsoView<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_iso::async_send::IsoView<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_iso::async_send::IsoView<D>::raw_record(&mut self, hadris_fs::node::NodeId) -> core::result::Result<hadris_iso::raw::DirectoryRecord, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_iso::async_send::IsoView<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_iso::async_send::IsoView<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_iso::async_send::IsoView<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_iso::async_send::IsoView<D>::rock_ridge(&mut self, hadris_fs::node::NodeId) -> core::result::Result<core::option::Option<hadris_iso::RockRidgeInfo>, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_iso::async_send::IsoView<D>::root(&self) -> hadris_fs::node::NodeId
-pub async fn hadris_iso::async_send::IsoView<D>::stats(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-impl<D: hadris_storage::async_send::api::BlockDevice> hadris_fs::async_send::api::driver::FsDriver for hadris_iso::async_send::IsoView<D>
-pub type hadris_iso::async_send::IsoView<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
-pub fn hadris_iso::async_send::IsoView<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
-pub fn hadris_iso::async_send::IsoView<D>::forget(&mut self, hadris_fs::node::NodeId)
-pub async fn hadris_iso::async_send::IsoView<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_iso::async_send::IsoView<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_iso::async_send::IsoView<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_iso::async_send::IsoView<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_iso::async_send::IsoView<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_io::fs_error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_iso::async_send::IsoView<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_iso::async_send::IsoView<D>::root(&self) -> hadris_fs::node::NodeId
-pub async fn hadris_iso::async_send::IsoView<D>::stats(&mut self) -> hadris_io::fs_error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
-pub struct hadris_iso::async_send::Session<D>
-impl<D: hadris_storage::async_send::api::BlockDevice> hadris_iso::async_send::Session<D>
-pub fn hadris_iso::async_send::Session<D>::into_inner(self) -> D
-pub async fn hadris_iso::async_send::Session<D>::open(D) -> core::result::Result<Self, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_iso::async_send::Session<D>::options(&self) -> hadris_iso::IsoOptions
-pub fn hadris_iso::async_send::Session<D>::tree(&self) -> &hadris_fs::tree::Tree
-pub fn hadris_iso::async_send::Session<D>::tree_mut(&mut self) -> &mut hadris_fs::tree::Tree
-pub fn hadris_iso::async_send::Session<D>::volume_blocks(&self) -> u64
-pub fn hadris_iso::async_send::Session<D>::warnings(&self) -> &[hadris_fs::tree::Warning]
-pub async fn hadris_iso::async_send::Session<D>::write<C: hadris_fs::time::Clock>(&mut self, &hadris_iso::IsoOptions<C>, hadris_iso::SessionMode) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
-pub async fn hadris_iso::async_send::plan<C: hadris_fs::time::Clock>(&hadris_fs::tree::Tree, &hadris_iso::IsoOptions<C>) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
-pub async fn hadris_iso::async_send::write<D: hadris_storage::async_send::api::BlockDevice, C: hadris_fs::time::Clock>(D, &hadris_fs::tree::Tree, &hadris_iso::IsoOptions<C>) -> core::result::Result<hadris_iso::Report, hadris_fs::error::PathError>
 pub mod hadris_iso::raw
 pub enum hadris_iso::raw::DescriptorType
 pub hadris_iso::raw::DescriptorType::BootRecord

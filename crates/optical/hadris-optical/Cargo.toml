@@ -12,7 +12,7 @@ keywords = ["iso9660", "udf", "optical", "cd", "dvd"]
 categories = ["filesystem", "encoding"]
 
 [package.metadata.docs.rs]
-features = ["std", "sync", "async", "async-send", "cd"]
+features = ["std", "sync", "async", "cd"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
@@ -23,8 +23,6 @@ alloc = ["hadris-fs/alloc", "hadris-storage/alloc", "hadris-iso/alloc", "hadris-
 std = ["alloc", "hadris-fs/std", "hadris-storage/std", "hadris-iso/std", "hadris-udf/std", "hadris-cd?/std"]
 sync = ["hadris-fs/sync", "hadris-storage/sync", "hadris-iso/sync", "hadris-udf/sync", "hadris-cd?/sync"]
 async = ["hadris-fs/async", "hadris-storage/async", "hadris-iso/async", "hadris-udf/async", "hadris-cd?/async"]
-# The asynchronous API a third time, with `Send` futures, in `async_send`.
-async-send = ["async", "hadris-fs/async-send", "hadris-storage/async-send", "hadris-iso/async-send", "hadris-udf/async-send", "hadris-cd?/async-send"]
 # The `cd` re-export, the hybrid ISO 9660 and UDF writer.
 cd = ["alloc", "dep:hadris-cd"]
 
@@ -43,7 +41,7 @@ hadris-cd = { workspace = true, features = ["std", "sync"] }
 
 [[test]]
 name = "detect"
-required-features = ["std", "sync", "async-send", "cd"]
+required-features = ["std", "sync", "cd"]
 
 [[test]]
 name = "open_image"
@@ -51,4 +49,4 @@ required-features = ["std", "sync", "cd"]
 
 [[test]]
 name = "async_open_image"
-required-features = ["std", "sync", "async-send", "cd"]
+required-features = ["std", "sync", "cd"]

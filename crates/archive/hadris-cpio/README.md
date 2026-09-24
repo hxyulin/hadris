@@ -12,8 +12,8 @@ the shared `hadris_fs::tree::Tree` input of the other Hadris writers.
 - Regular files, directories, symlinks, hard links (GNU cpio layout), device
   nodes, FIFOs and sockets.
 - Works on pipes: the reader and writer need only `Read` and `Write`.
-- The same API blocking (`sync`), asynchronous (`r#async`) and asynchronous
-  with `Send` futures (`async_send`).
+- The same API blocking (`sync`) and asynchronous with `Send` futures
+  (`r#async`).
 - `no_std`; the reader needs no allocator.
 
 ## Reading an archive
@@ -83,8 +83,7 @@ The header layouts are in `hadris_cpio::raw`.
 | `std` | yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
 | `alloc` | via `std` | The writer and the `Tree` input |
 | `sync` | yes | The blocking API in `sync` |
-| `async` | no | The asynchronous API in `r#async` |
-| `async-send` | no | The asynchronous API with `Send` futures in `async_send` |
+| `async` | no | The asynchronous API with `Send` futures in `r#async` |
 
 A bootloader that only reads uses
 `default-features = false, features = ["sync"]`.

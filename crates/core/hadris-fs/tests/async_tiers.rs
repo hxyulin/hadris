@@ -1,7 +1,7 @@
-//! The async mode runs the same jobs, and the `async_send` mode lets generic
-//! code move its futures to other threads.
+//! The async mode runs the same jobs as the sync mode, and lets generic code
+//! move its futures to other threads.
 
-#![cfg(all(feature = "async-send", feature = "std"))]
+#![cfg(all(feature = "async", feature = "std"))]
 
 mod common;
 
@@ -123,11 +123,11 @@ mod send {
     use std::sync::Arc;
 
     use super::*;
-    use common::send::fixture;
+    use common::asynch::fixture;
     use hadris_fs::FsResult;
     use hadris_fs::OpenOptions;
-    use hadris_fs::async_send::{File, FileSystem, PathExt, Volume, copy_tree};
-    use hadris_io::async_send::Read as _;
+    use hadris_fs::r#async::{File, FileSystem, PathExt, Volume, copy_tree};
+    use hadris_io::r#async::Read as _;
 
     /// Generic over the filesystem, with no `Send` bounds: the mode's
     /// supertraits prove them.
@@ -166,7 +166,7 @@ mod send {
     #[test]
     fn copy_tree_futures_are_send() {
         let src = Arc::new(Volume::new(fixture()));
-        let dst = Arc::new(Volume::new(common::send::MemFs::new()));
+        let dst = Arc::new(Volume::new(common::asynch::MemFs::new()));
         spawn_copy(Arc::clone(&src), Arc::clone(&dst))
             .join()
             .unwrap()

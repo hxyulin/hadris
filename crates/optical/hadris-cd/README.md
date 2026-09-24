@@ -68,8 +68,7 @@ End:            UDF anchor at N-256 and 256 blocks after it
 |---------|---------|-------------|
 | `std` | Yes | `std::io::Error` conversions and host files as tree content |
 | `sync` | Yes | The blocking API in `sync` |
-| `async` | No | The asynchronous API in `r#async` |
-| `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
+| `async` | No | The asynchronous API with `Send` futures in `r#async` |
 
 The crate needs an allocator but not `std`. No feature changes what an item
 does.

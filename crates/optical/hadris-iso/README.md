@@ -31,7 +31,6 @@ desktop tools as well as `no_std` bootloaders, kernels and firmware.
 | `alloc` | The writer, sessions, `BootCatalog` and the `Tree` input | via `std` |
 | `sync` | Blocking API in `hadris_iso::sync` | Yes |
 | `async` | Asynchronous API in `hadris_iso::r#async` | - |
-| `async-send` | Asynchronous API with `Send` futures in `hadris_iso::async_send` | - |
 
 No feature changes what an item does. Joliet, Rock Ridge, El Torito and the
 enhanced tree are always available.

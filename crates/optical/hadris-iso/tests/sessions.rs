@@ -274,7 +274,7 @@ fn async_sessions_match_sync_ones() {
     sync_session.write(&opts, SessionMode::Append).unwrap();
     let expected = sync_session.into_inner().into_inner();
     common::block_on(async {
-        let mut session = hadris_iso::async_send::Session::open(dev).await.unwrap();
+        let mut session = hadris_iso::r#async::Session::open(dev).await.unwrap();
         session
             .tree_mut()
             .add_file("x.txt", Content::bytes("x"))

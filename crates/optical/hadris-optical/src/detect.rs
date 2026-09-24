@@ -138,7 +138,8 @@ pub mod sync {
 
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
-/// Asynchronous detection.
+/// Asynchronous detection over the `Send` devices of
+/// `hadris_storage::r#async`.
 pub mod r#async {
     use super::{
         DESCRIPTORS_TO_SCAN, FIRST_DESCRIPTOR_SECTOR, MAX_BLOCK, OpticalFormats, SECTOR_SIZE,
@@ -146,29 +147,6 @@ pub mod r#async {
     };
     use hadris_storage::BlockIndex;
     use hadris_storage::r#async::BlockDevice;
-
-    /// Detects the ISO 9660 and UDF volumes of `dev` from the volume
-    /// descriptors in the 16 sectors of 2048 bytes after byte 32768.
-    ///
-    /// Devices whose blocks are larger than 4096 bytes give `None`.
-    pub async fn detect<D: BlockDevice + ?Sized>(
-        dev: &mut D,
-    ) -> hadris_fs::FsResult<Option<OpticalFormats>, D::Error> {
-        scan!(dev, await)
-    }
-}
-
-#[cfg(feature = "async-send")]
-#[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
-/// Asynchronous detection over the `Send` devices of
-/// `hadris_storage::async_send`.
-pub mod async_send {
-    use super::{
-        DESCRIPTORS_TO_SCAN, FIRST_DESCRIPTOR_SECTOR, MAX_BLOCK, OpticalFormats, SECTOR_SIZE,
-        ScanState,
-    };
-    use hadris_storage::BlockIndex;
-    use hadris_storage::async_send::BlockDevice;
 
     /// Detects the ISO 9660 and UDF volumes of `dev` from the volume
     /// descriptors in the 16 sectors of 2048 bytes after byte 32768.
