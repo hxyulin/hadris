@@ -510,7 +510,7 @@ dependencies = [
 name = "hadris-cpio"
 version = "2.4.0"
 dependencies = [
- "hadris-common",
+ "hadris-fs",
  "hadris-io",
  "hadris-macros",
  "tempfile",
@@ -523,8 +523,10 @@ dependencies = [
  "anyhow",
  "clap",
  "hadris-cpio",
+ "hadris-fs",
  "hadris-io",
  "libc",
+ "tempfile",
 ]
 
 [[package]]
@@ -533,6 +535,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "hadris-cpio",
+ "hadris-fs",
  "hadris-io",
 ]
 

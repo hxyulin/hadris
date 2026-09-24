@@ -1,137 +1,92 @@
 # Hadris CPIO
 
-A Rust implementation of the CPIO archive format (newc/SVR4) with support for no-std environments, streaming reads, and archive creation.
+cpio archives for Linux initramfs, RPM payloads and `cpio(1)`, in pure Rust:
+an allocation-free streaming reader and a streaming writer that also takes
+the shared `hadris_fs::tree::Tree` input of the other Hadris writers.
 
 ## Features
 
-- **Read & Write Support** - Stream entries from existing archives, create new ones
-- **No-std Compatible** - Use in bootloaders, kernels, and embedded systems
-- **newc Format** - Both `070701` (standard) and `070702` (CRC) variants
-- **Full Entry Types** - Regular files, directories, symlinks, hard links, device nodes, FIFOs
-- **Filesystem Scanning** - Build archives directly from a host directory tree
+- Reads `newc` (`070701`), `newc` with checksums (`070702`), `odc`
+  (`070707`) and old binary archives in either byte order.
+- Writes `newc`, `newc` with checksums and `odc`.
+- Regular files, directories, symlinks, hard links (GNU cpio layout), device
+  nodes, FIFOs and sockets.
+- Works on pipes: the reader and writer need only `Read` and `Write`.
+- The same API blocking (`sync`), asynchronous (`r#async`) and asynchronous
+  with `Send` futures (`async_send`).
+- `no_std`; the reader needs no allocator.
 
-## Quick Start
-
-### Reading an Archive
+## Reading an archive
 
 ```rust
 use std::fs::File;
 use std::io::BufReader;
-use hadris_cpio::CpioArchiveReader;
+use hadris_cpio::sync::CpioReader;
 use hadris_io::StdIo;
+use hadris_io::sync::Read;
 
-let file = File::open("archive.cpio")?;
-let mut reader = CpioArchiveReader::new(StdIo::new(BufReader::new(file)));
-
-while let Some(entry) = reader.next_entry_alloc()? {
-    let name = entry.name_str().unwrap_or("<invalid>");
-    println!("{} ({} bytes)", name, entry.file_size());
-    reader.skip_entry_data_owned(&entry)?;
+let file = File::open("initramfs.cpio")?;
+let mut reader = CpioReader::new(StdIo::new(BufReader::new(file)));
+while let Some(mut entry) = reader.next_entry()? {
+    println!("{} ({} bytes)", entry.name_str().unwrap_or("?"), entry.len());
+    if entry.name() == b"etc/hostname" {
+        let mut data = vec![0; entry.len() as usize];
+        entry.read_exact(&mut data)?;
+    }
 }
 ```
 
-### Creating an Archive from a Directory
+Data left unread is skipped by the next `next_entry`, and `070702`
+checksums are verified whether the data is read or skipped. An archive may
+end at an entry boundary without a trailer, as the initramfs format allows;
+`ReaderOptions::with_strict_trailer` requires one. `continue_after_trailer`
+reads archives concatenated after a trailer, such as a microcode archive
+before the main initramfs.
+
+## Writing an archive
 
 ```rust
 use std::fs::File;
 use std::io::BufWriter;
-use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+use hadris_cpio::{CpioOptions, Format};
+use hadris_fs::tree::{FromFsOptions, Tree};
 use hadris_io::StdIo;
 
-let tree = FileTree::from_fs(std::path::Path::new("./my-directory"))?;
-let out = StdIo::new(BufWriter::new(File::create("archive.cpio")?));
-let _out = CpioArchiveWriter::new(out, CpioWriteOptions::default()).finish(&tree)?;
+let tree = Tree::from_fs("./rootfs", FromFsOptions::new())?;
+let mut out = StdIo::new(BufWriter::new(File::create("initramfs.cpio")?));
+let report = hadris_cpio::sync::write(&mut out, &tree, &CpioOptions::default())?;
+for warning in report.warnings() {
+    eprintln!("{warning}");
+}
 ```
 
-### Building an Archive Programmatically
+`CpioWriter` appends entries one at a time (`append`, `append_hard_links`,
+`write_tree`) and `finish` writes the trailer. Metadata cpio cannot store
+(times other than the modification time, sub-second parts, attributes) is
+listed in the report's warnings. Values that do not fit a header field fail
+before the entry is written. `CpioOptions::with_format(Format::Odc)` writes
+`odc`, whose device numbers are stored as `major << 8 | minor`.
 
-```rust
-use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileNode, FileTree};
-use hadris_io::StdIo;
+The header layouts are in `hadris_cpio::raw`.
 
-let mut tree = FileTree::new();
-tree.add(FileNode::file("hello.txt", b"Hello, world!\n".to_vec(), 0o644));
-tree.add(FileNode::dir("subdir", vec![
-    FileNode::file("nested.txt", b"Nested content\n".to_vec(), 0o644),
-], 0o755));
-tree.add(FileNode::symlink("link.txt", "hello.txt"));
+## Feature flags
 
-let buf = CpioArchiveWriter::new(StdIo::new(Vec::new()), CpioWriteOptions::default())
-    .finish(&tree)?
-    .into_inner();
-```
+| Feature | Default | Description |
+|---|---|---|
+| `std` | yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
+| `alloc` | via `std` | The writer and the `Tree` input |
+| `sync` | yes | The blocking API in `sync` |
+| `async` | no | The asynchronous API in `r#async` |
+| `async-send` | no | The asynchronous API with `Send` futures in `async_send` |
 
-## Feature Flags
+A bootloader that only reads uses
+`default-features = false, features = ["sync"]`.
 
-| Feature | Description | Dependencies |
-|---------|-------------|--------------|
-| `read` | Streaming archive reader | None |
-| `alloc` | Heap allocation without full std | `alloc` crate |
-| `std` | Full standard library support | `std`, `alloc` |
-| `sync` | Synchronous archive API | `hadris-io/sync` |
-| `async` | Asynchronous archive API | `hadris-io/async` |
-| `write` | Archive creation | `alloc`, `read` |
+## References
 
-Default features: `std`, `sync`, `read`, `write`
-
-`std` selects platform integration but does not select an I/O mode. Custom
-configurations should enable `sync`, `async`, or both explicitly.
-
-### For Bootloaders (minimal footprint)
-
-```toml
-[dependencies]
-hadris-cpio = { version = "2.4.0", default-features = false, features = ["read", "sync"] }
-```
-
-### For Kernels with Heap (no-std + alloc)
-
-```toml
-[dependencies]
-hadris-cpio = { version = "2.4.0", default-features = false, features = ["read", "alloc", "sync"] }
-```
-
-### For Desktop Applications (full features)
-
-```toml
-[dependencies]
-hadris-cpio = "2.4.0"  # Uses default features
-```
-
-## Archive Format
-
-This crate implements the "new" (newc) ASCII CPIO format, which is the format used by:
-- Linux initramfs images (`gen_init_cpio`)
-- RPM package payloads
-- The `cpio -H newc` command
-
-Each entry consists of a 110-byte ASCII header, a NUL-terminated filename, and file data. All sections are padded to 4-byte boundaries. The archive ends with a `TRAILER!!!` sentinel.
-
-Two magic numbers are supported:
-- `070701` - Standard newc format
-- `070702` - newc with per-file CRC checksums
-
-## No-std Compatibility
-
-The crate is designed for no-std environments:
-
-- Core reading requires only the `read` feature (zero allocations with `next_entry_with_buf`)
-- Allocating reader requires `alloc` (uses `Vec` for filenames and data)
-- Writing and filesystem scanning require `alloc` and `std` respectively
-- All I/O uses `hadris-io` traits instead of `std::io`
-
-## Interoperability
-
-Archives created with this crate are compatible with:
-- GNU cpio (`cpio -t`, `cpio -i`)
-- Linux kernel initramfs loader
-- RPM tools
-
-## Specification References
-
-- `cpio(5)` man page
-- Linux kernel `usr/gen_init_cpio.c`
-- RPM file format specification
+- `cpio(5)`
+- Linux `Documentation/driver-api/early-userspace/buffer-format.rst`
+- GNU cpio manual
 
 ## Documentation
 

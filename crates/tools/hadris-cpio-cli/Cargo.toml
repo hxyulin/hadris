@@ -23,10 +23,14 @@ path = "src/bin/cpioutil.rs"
 doc = false
 
 [dependencies]
-hadris-cpio = { workspace = true, features = ["std", "sync", "read", "write"] }
+hadris-cpio = { workspace = true, features = ["std", "sync"] }
+hadris-fs = { workspace = true, features = ["std", "sync"] }
 hadris-io = { workspace = true, features = ["std", "sync"] }
 clap.workspace = true
 anyhow.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

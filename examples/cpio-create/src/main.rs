@@ -3,19 +3,19 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
+use hadris_cpio::CpioOptions;
+use hadris_fs::tree::{FromFsOptions, Tree};
 use hadris_io::StdIo;
 
 fn main() -> Result<()> {
     let (source_path, archive_path) = arguments()?;
-    let tree = FileTree::from_fs(&source_path)
+    let tree = Tree::from_fs(&source_path, FromFsOptions::new())
         .with_context(|| format!("failed to scan {}", source_path.display()))?;
     let output = File::create(&archive_path)
         .with_context(|| format!("failed to create {}", archive_path.display()))?;
-    let output = StdIo::new(BufWriter::new(output));
+    let mut output = StdIo::new(BufWriter::new(output));
 
-    CpioArchiveWriter::new(output, CpioWriteOptions::default())
-        .finish(&tree)
+    hadris_cpio::sync::write(&mut output, &tree, &CpioOptions::default())
         .with_context(|| format!("failed to write {}", archive_path.display()))?;
 
     println!("created {}", archive_path.display());

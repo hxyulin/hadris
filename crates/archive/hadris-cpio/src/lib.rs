@@ -1,261 +1,164 @@
 //! # Hadris CPIO
 //!
-//! A Rust implementation of the CPIO archive format (newc/SVR4) with support for
-//! no-std environments, streaming reads, and archive creation from in-memory trees
-//! or the host filesystem.
+//! cpio archives, as Linux initramfs, RPM payloads and `cpio(1)` use them:
+//! an allocation-free streaming reader and a streaming writer that also
+//! writes a shared input tree.
 //!
-//! CPIO archives are commonly used for Linux initramfs images, RPM packages, and
-//! general-purpose file archiving. This crate supports the "new" (newc) ASCII format
-//! (`070701`) and its CRC variant (`070702`), which are the formats used by modern
-//! Linux tools.
+//! ## Reading
 //!
-//! ## Quick Start
+//! `CpioReader` (in each mode: `sync::CpioReader`, `r#async::CpioReader`,
+//! `async_send::CpioReader`) reads `newc` (`070701`), `newc` with
+//! checksums (`070702`), `odc` (`070707`) and old binary archives from any
+//! `hadris_io` `Read` stream, such as a pipe. `next_entry` returns an
+//! `Entry` that borrows the reader and implements `Read` over its data;
+//! data left unread is skipped by the next call. Reading needs no
+//! allocator.
 //!
-//! ### Reading an Archive
+//! ```rust
+//! # #[cfg(all(feature = "sync", feature = "std"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use hadris_cpio::sync::{CpioReader, write};
+//! use hadris_cpio::CpioOptions;
+//! use hadris_fs::tree::{Content, Tree};
+//! use hadris_io::{Cursor, StdIo};
+//! use hadris_io::sync::Read;
 //!
-//! ```rust,no_run
-//! use std::fs::File;
-//! use std::io::BufReader;
-//! use hadris_cpio::CpioArchiveReader;
-//! use hadris_io::StdIo;
+//! let mut tree = Tree::new();
+//! tree.add_file("etc/hostname", Content::bytes("hadris\n"))?;
+//! let mut out = StdIo::new(Vec::new());
+//! let report = write(&mut out, &tree, &CpioOptions::default())?;
+//! let archive = out.into_inner();
+//! assert_eq!(report.size_bytes(), archive.len() as u64);
 //!
-//! let file = File::open("archive.cpio").unwrap();
-//! let mut reader = CpioArchiveReader::new(StdIo::new(BufReader::new(file)));
-//!
-//! while let Some(entry) = reader.next_entry_alloc().unwrap() {
-//!     let name = entry.name_str().unwrap();
-//!     println!("{} ({} bytes)", name, entry.file_size());
-//!     reader.skip_entry_data_owned(&entry).unwrap();
+//! let mut reader = CpioReader::new(Cursor::new(&archive));
+//! let mut names = Vec::new();
+//! while let Some(mut entry) = reader.next_entry()? {
+//!     names.push(entry.name_str()?.to_string());
+//!     if entry.name() == b"etc/hostname" {
+//!         let mut data = [0u8; 7];
+//!         entry.read_exact(&mut data)?;
+//!         assert_eq!(&data, b"hadris\n");
+//!     }
 //! }
+//! assert_eq!(names, ["etc", "etc/hostname"]);
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "std")))]
+//! # fn main() {}
 //! ```
 //!
-//! ### Creating an Archive
+//! An archive that ends at an entry boundary without a `TRAILER!!!` entry
+//! is valid, as the Linux initramfs format allows;
+//! [`ReaderOptions::with_strict_trailer`] requires one.
+//! `continue_after_trailer` reads archives concatenated after a trailer.
 //!
-//! ```rust,no_run
-//! use std::fs::File;
-//! use std::io::BufWriter;
-//! use hadris_cpio::{CpioArchiveWriter, CpioWriteOptions, FileTree};
-//! use hadris_io::StdIo;
+//! ## Writing
 //!
-//! let tree = FileTree::from_fs(std::path::Path::new("./my-directory")).unwrap();
-//! let out = StdIo::new(BufWriter::new(File::create("archive.cpio").unwrap()));
-//! let _out = CpioArchiveWriter::new(out, CpioWriteOptions::default())
-//!     .finish(&tree)
-//!     .unwrap();
-//! ```
+//! `CpioWriter` (with `alloc`) streams entries to a `Write` stream in
+//! `newc`, `newc` with checksums or `odc` ([`Format`]): `append` writes one
+//! file, directory, symlink, device node, FIFO or socket with its
+//! `hadris_fs::SetMetadata`, `append_hard_links` a hard link group, and
+//! `write_tree` a whole `hadris_fs::tree::Tree`. `write` writes a tree and
+//! the trailer in one call and returns a [`Report`], whose warnings list the
+//! metadata cpio cannot store.
 //!
-//! ## Feature Flags
+//! The on-disk headers are in [`raw`].
 //!
-//! | Feature | Description | Dependencies |
-//! |---------|-------------|--------------|
-//! | `read` | Streaming archive reader | None |
-//! | `alloc` | Heap allocation without full std | `alloc` crate |
-//! | `std` | Full standard library support | `std`, `alloc` |
-//! | `sync` | Synchronous archive API | `hadris-io/sync` |
-//! | `async` | Asynchronous archive API | `hadris-io/async` |
-//! | `write` | Archive creation | `alloc`, `read` |
+//! ## Features
 //!
-//! Default features: `std`, `sync`, `read`, `write`
+//! | Feature | Default | Description |
+//! |---|---|---|
+//! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
+//! | `alloc` | via `std` | The writer and the `Tree` input |
+//! | `sync` | Yes | The blocking API in `sync` |
+//! | `async` | No | The asynchronous API in `r#async` |
+//! | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |
 //!
-//! `std` does not select an I/O mode. Custom configurations should enable
-//! `sync`, `async`, or both explicitly.
-//!
-//! ### For Bootloaders / Kernels (minimal footprint)
-//!
-//! ```toml
-//! [dependencies]
-//! hadris-cpio = { version = "2.4.0", default-features = false, features = ["read", "sync"] }
-//! ```
-//!
-//! ### For Kernels with Heap (no-std + alloc)
-//!
-//! ```toml
-//! [dependencies]
-//! hadris-cpio = { version = "2.4.0", default-features = false, features = ["read", "alloc", "sync"] }
-//! ```
-//!
-//! ### For Desktop Applications (full features)
-//!
-//! ```toml
-//! [dependencies]
-//! hadris-cpio = "2.4.0"
-//! ```
-//!
-//! ## Archive Format
-//!
-//! The newc format stores entries sequentially. Each entry consists of:
-//!
-//! 1. A 110-byte ASCII header (all numeric fields in uppercase hex)
-//! 2. The filename (NUL-terminated, padded to 4-byte boundary)
-//! 3. The file data (padded to 4-byte boundary)
-//!
-//! The archive ends with a special `TRAILER!!!` sentinel entry.
-//!
-//! Two magic numbers are supported:
-//! - `070701` — Standard newc format
-//! - `070702` — newc with per-file CRC checksums
-//!
-//! ## Architecture
-//!
-//! - [`error`] — Error types and result alias
-//! - [`header`] — Raw 110-byte header parsing and construction
-//! - [`entry`] — Decoded entry header with typed fields
-//! - [`mode`] — Unix file type extraction from mode bits
-//! - [`read`] — Streaming archive reader (`CpioArchiveReader`)
-//! - [`mod@write`] — Archive writer and in-memory file tree
-//!
-//! ## Specification References
-//!
-//! - `cpio(5)` man page — newc format definition
-//! - Linux kernel `usr/gen_init_cpio.c` — Reference implementation
-//! - RPM file format specification — CPIO payload format
+//! No feature changes what an item does.
 
 #![no_std]
-#![cfg_attr(docsrs, feature(doc_cfg))]
-#![allow(async_fn_in_trait)]
 #![deny(missing_docs)]
+#![allow(async_fn_in_trait)]
 // Sync and async APIs intentionally compile the same source modules twice.
 #![allow(clippy::duplicate_mod)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(
+    not(all(feature = "alloc", any(feature = "sync", feature = "async"))),
+    allow(dead_code)
+)]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
 
 #[cfg(feature = "std")]
 extern crate std;
 
 #[cfg(feature = "alloc")]
-extern crate alloc;
+mod entry;
+mod error;
+mod header;
+mod options;
 
-// ---------------------------------------------------------------------------
-// Shared types (compiled once, not duplicated by sync/async modules)
-// ---------------------------------------------------------------------------
-
-/// Error types for CPIO operations.
-pub mod error;
-/// Unix file type constants and mode bit manipulation.
-pub mod mode;
-
-// ---------------------------------------------------------------------------
-// Sync module
-// ---------------------------------------------------------------------------
+pub mod raw;
 
 #[cfg(feature = "sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
 #[path = ""]
 pub mod sync {
-    //! Synchronous CPIO archive API.
-    //!
-    //! All I/O operations use synchronous `Read`/`Write`/`Seek` traits.
+    //! The blocking API.
 
-    pub use hadris_io::legacy::Result as IoResult;
-    pub use hadris_io::legacy::sync::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::legacy::{Error, ErrorKind, SeekFrom};
-
+    #[allow(unused_macros)]
     macro_rules! io_transform {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => { $($item)* };
-    }
+    #[cfg(feature = "alloc")]
+    use hadris_fs::sync as fs;
+    use hadris_io::sync as io;
 
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => {};
-    }
-
-    #[path = "."]
-    mod __inner {
-        /// Decoded entry header with typed fields.
-        pub mod entry;
-        /// Raw 110-byte ASCII newc header parsing and construction.
-        pub mod header;
-        /// Streaming CPIO archive reader.
-        #[cfg(feature = "read")]
-        pub mod read;
-        /// CPIO archive writer and in-memory file tree.
-        #[cfg(feature = "write")]
-        pub mod write;
-    }
-    pub use __inner::*;
-
-    // Convenience re-exports
-    pub use __inner::entry::CpioEntryHeader;
-    pub use __inner::header::{
-        CpioMagic, HEADER_SIZE, MAGIC_NEWC, MAGIC_NEWC_CRC, RawNewcHeader, TRAILER_NAME,
-    };
-    #[cfg(all(feature = "read", feature = "alloc"))]
-    pub use __inner::read::CpioEntryOwned;
-    #[cfg(feature = "read")]
-    pub use __inner::read::{CpioArchiveReader, CpioEntry};
-    #[cfg(feature = "write")]
-    pub use __inner::write::file_tree::{FileNode, FileTree};
-    #[cfg(feature = "write")]
-    pub use __inner::write::{CpioArchiveWriter, CpioWriteOptions};
+    #[path = "read.rs"]
+    mod read;
+    pub use read::{CpioReader, Entry};
+    #[cfg(feature = "alloc")]
+    #[path = "write.rs"]
+    mod write;
+    #[cfg(feature = "alloc")]
+    pub use write::{CpioWriter, write};
 }
 
-// ---------------------------------------------------------------------------
-// Async module
-// ---------------------------------------------------------------------------
-
 #[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 #[path = ""]
 pub mod r#async {
-    //! Asynchronous CPIO archive API.
-    //!
-    //! All I/O operations use async `Read`/`Write`/`Seek` traits.
+    //! The asynchronous API, generated from the same source as `sync`.
 
-    pub use hadris_io::legacy::Result as IoResult;
-    pub use hadris_io::legacy::r#async::{Parsable, Read, ReadExt, Seek, Writable, Write};
-    pub use hadris_io::legacy::{Error, ErrorKind, SeekFrom};
-
+    #[allow(unused_macros)]
     macro_rules! io_transform {
         ($($item:tt)*) => { $($item)* };
     }
 
-    #[allow(unused_macros)]
-    macro_rules! sync_only {
-        ($($item:tt)*) => {};
-    }
+    #[cfg(feature = "alloc")]
+    use hadris_fs::r#async as fs;
+    use hadris_io::r#async as io;
 
-    #[allow(unused_macros)]
-    macro_rules! async_only {
-        ($($item:tt)*) => { $($item)* };
-    }
-
-    #[path = "."]
-    mod __inner {
-        /// Decoded CPIO entry metadata.
-        pub mod entry;
-        /// Raw newc header constants and parsing.
-        pub mod header;
-        #[cfg(feature = "read")]
-        /// Streaming archive reader.
-        pub mod read;
-        #[cfg(feature = "write")]
-        /// Archive writer and in-memory input tree.
-        pub mod write;
-    }
-    pub use __inner::*;
-
-    pub use __inner::entry::CpioEntryHeader;
-    pub use __inner::header::{
-        CpioMagic, HEADER_SIZE, MAGIC_NEWC, MAGIC_NEWC_CRC, RawNewcHeader, TRAILER_NAME,
-    };
-    #[cfg(all(feature = "read", feature = "alloc"))]
-    pub use __inner::read::CpioEntryOwned;
-    #[cfg(feature = "read")]
-    pub use __inner::read::{CpioArchiveReader, CpioEntry};
-    #[cfg(feature = "write")]
-    pub use __inner::write::file_tree::{FileNode, FileTree};
-    #[cfg(feature = "write")]
-    pub use __inner::write::{CpioArchiveWriter, CpioWriteOptions};
+    #[path = "read.rs"]
+    mod read;
+    pub use read::{CpioReader, Entry};
+    #[cfg(feature = "alloc")]
+    #[path = "write.rs"]
+    mod write;
+    #[cfg(feature = "alloc")]
+    pub use write::{CpioWriter, write};
 }
 
-// ---------------------------------------------------------------------------
-// Default re-exports for backwards compatibility (sync)
-// ---------------------------------------------------------------------------
+/// The asynchronous API with `Send` futures, for generic code on
+/// multi-threaded executors, generated a third time from the same source.
+#[cfg(feature = "async-send")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async-send")))]
+pub mod async_send;
 
-#[cfg(feature = "sync")]
-pub use sync::*;
-
-// Re-exports from shared types
-pub use error::{Error, Result};
-pub use mode::FileType;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use entry::{NewEntry, Report};
+pub use error::{Detail, Error};
+pub use options::{CpioOptions, Format, ReaderOptions};

@@ -10,7 +10,29 @@ pub use extract::extract;
 pub use info::info;
 pub use list::list;
 
-use hadris_cpio::FileType;
+use std::fs::File;
+use std::io::{self, BufReader, Read};
+use std::path::Path;
+
+use anyhow::{Context, Result};
+use hadris_cpio::sync::CpioReader;
+use hadris_fs::FileType;
+use hadris_io::StdIo;
+
+/// The archive at `path`, or standard input for `-`.
+pub type Input = StdIo<BufReader<Box<dyn Read>>>;
+
+fn open_reader(path: &Path) -> Result<CpioReader<Input>> {
+    let input: Box<dyn Read> = if path.as_os_str() == "-" {
+        Box::new(io::stdin())
+    } else {
+        Box::new(
+            File::open(path)
+                .with_context(|| format!("Failed to open archive: {}", path.display()))?,
+        )
+    };
+    Ok(CpioReader::new(StdIo::new(BufReader::new(input))))
+}
 
 fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
@@ -52,13 +74,13 @@ fn format_mode(mode: u32) -> String {
 
 fn format_filetype(ft: FileType) -> char {
     match ft {
-        FileType::Directory => 'd',
+        FileType::Dir => 'd',
         FileType::Symlink => 'l',
-        FileType::Regular => '-',
+        FileType::File => '-',
         FileType::CharDevice => 'c',
         FileType::BlockDevice => 'b',
         FileType::Fifo => 'p',
         FileType::Socket => 's',
-        FileType::Unknown(_) => '?',
+        _ => '?',
     }
 }

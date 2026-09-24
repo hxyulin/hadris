@@ -1,85 +1,88 @@
-use super::header::RawNewcHeader;
-use crate::error::Result;
-use crate::mode::FileType;
-use core::fmt;
+use alloc::string::String;
+use alloc::vec::Vec;
 
-/// Decoded CPIO entry header with all fields parsed from hex to `u32`.
-///
-/// Each field corresponds to a field in the 110-byte newc ASCII header.
-/// See [`RawNewcHeader`] for the raw on-disk layout.
-#[derive(Debug, Clone)]
-pub struct CpioEntryHeader {
-    /// Inode number.
-    pub ino: u32,
-    /// File mode (file type + permissions). Use [`FileType::from_mode`] to extract the type.
-    pub mode: u32,
-    /// Owner user ID.
-    pub uid: u32,
-    /// Owner group ID.
-    pub gid: u32,
-    /// Number of hard links.
-    pub nlink: u32,
-    /// Modification time (seconds since Unix epoch).
-    pub mtime: u32,
-    /// File data size in bytes.
-    pub filesize: u32,
-    /// Major number of the device containing this file.
-    pub devmajor: u32,
-    /// Minor number of the device containing this file.
-    pub devminor: u32,
-    /// Major number of the device (for device nodes).
-    pub rdevmajor: u32,
-    /// Minor number of the device (for device nodes).
-    pub rdevminor: u32,
-    /// CRC checksum (only meaningful in `070702` format).
-    pub check: u32,
+use hadris_fs::tree::{Content, Warning};
+use hadris_fs::{DeviceKind, DeviceNumber};
+
+/// What `CpioWriter::append` writes under a name.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub enum NewEntry<'a> {
+    /// A regular file with its contents.
+    File(&'a Content),
+    /// A directory. Its children are separate entries.
+    Dir,
+    /// A symbolic link to a non-empty target.
+    Symlink(&'a [u8]),
+    /// A device node.
+    Device(DeviceKind, DeviceNumber),
+    /// A named pipe.
+    Fifo,
+    /// A Unix domain socket.
+    Socket,
 }
 
-impl fmt::Display for CpioEntryHeader {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ino {} ({} bytes)", self.ino, self.filesize)
+/// What a cpio writer wrote.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Report {
+    entries: u64,
+    size_bytes: u64,
+    warnings: Vec<Warning>,
+}
+
+impl Report {
+    pub(crate) fn new(entries: u64, size_bytes: u64, warnings: Vec<Warning>) -> Self {
+        Self {
+            entries,
+            size_bytes,
+            warnings,
+        }
+    }
+
+    /// Entries written, not counting the trailer.
+    pub fn entries(&self) -> u64 {
+        self.entries
+    }
+
+    /// Bytes written, with the trailer when the archive was finished.
+    pub fn size_bytes(&self) -> u64 {
+        self.size_bytes
+    }
+
+    /// Metadata the format could not store: times other than the
+    /// modification time, sub-second parts, attributes.
+    pub fn warnings(&self) -> &[Warning] {
+        &self.warnings
     }
 }
 
-impl CpioEntryHeader {
-    /// Parse a decoded header from a [`RawNewcHeader`].
-    pub fn from_raw(raw: &RawNewcHeader) -> Result<Self> {
-        Ok(Self {
-            ino: raw.ino()?,
-            mode: raw.mode()?,
-            uid: raw.uid()?,
-            gid: raw.gid()?,
-            nlink: raw.nlink()?,
-            mtime: raw.mtime()?,
-            filesize: raw.filesize()?,
-            devmajor: raw.devmajor()?,
-            devminor: raw.devminor()?,
-            rdevmajor: raw.rdevmajor()?,
-            rdevminor: raw.rdevminor()?,
-            check: raw.check()?,
-        })
+/// Lists what of `meta` a cpio header drops, for a warning.
+pub(crate) fn dropped(meta: &hadris_fs::SetMetadata) -> Option<String> {
+    let times = meta.times();
+    let mut parts: Vec<&str> = Vec::new();
+    if times.created().is_some() {
+        parts.push("creation time");
     }
-
-    /// Returns the file type extracted from the mode bits.
-    pub fn file_type(&self) -> FileType {
-        FileType::from_mode(self.mode)
+    if times.accessed().is_some() {
+        parts.push("access time");
     }
-
-    /// Returns the lower 12 bits of the mode (Unix permission bits).
-    pub fn permissions(&self) -> u32 {
-        self.mode & 0o7777
+    if times.changed().is_some() {
+        parts.push("change time");
     }
-
-    /// Returns true if this looks like a TRAILER sentinel (ino=0, mode=0, nlink=1, filesize=0).
-    pub fn is_trailer_like(&self) -> bool {
-        self.ino == 0 && self.mode == 0 && self.nlink == 1 && self.filesize == 0
+    if times.modified().is_some_and(|time| time.nanoseconds() != 0) {
+        parts.push("sub-second modification time");
     }
-
-    /// Returns true if this record belongs to a hard-link group.
-    ///
-    /// Any member may carry the file data; zero size only means that this
-    /// particular record omits it.
-    pub fn is_hard_link(&self) -> bool {
-        self.file_type() == FileType::Regular && self.nlink > 1
+    if meta
+        .attributes()
+        .is_some_and(|attributes| !attributes.is_empty())
+    {
+        parts.push("attributes");
     }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(alloc::format!(
+        "cpio does not store the {}",
+        parts.join(", ")
+    ))
 }
