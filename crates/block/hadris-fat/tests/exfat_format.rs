@@ -15,9 +15,12 @@ fn formats_every_sector_size() {
     for sector in [512u32, 1024, 2048, 4096] {
         for block in [512u32, 4096] {
             let dev = common::device(vec![0u8; 16 << 20], block);
-            let mut fs = format(dev, FormatOptions::new().with_sector_size(sector)).unwrap();
+            let fs = format(dev, FormatOptions::new().with_sector_size(sector)).unwrap();
             assert_eq!(fs.cluster_size(), 4096);
-            clean_raw(&mut fs, sector);
+            let mut dev = fs.into_inner();
+            let (_, found) = common::check_dev(&mut dev, 4096);
+            assert_eq!(found, [], "{sector}");
+            let mut fs = ExFatFs::open(dev).unwrap();
             let root = fs.root();
             let node = common::write_any(&mut fs, root, "a.txt", b"sector");
             fs.forget(node);
@@ -29,16 +32,6 @@ fn formats_every_sector_size() {
             fsck(&image, &format!("{sector}-byte sectors"));
         }
     }
-}
-
-fn clean_raw<D: hadris_storage::sync::BlockDevice, C: hadris_fs::Clock>(
-    fs: &mut ExFatFs<D, hadris_fs::FixedTable<64>, C>,
-    what: u32,
-) {
-    let mut findings = Vec::new();
-    let report =
-        hadris_fat::exfat::sync::check_with(fs, &mut [0u8; 512], |f| findings.push(f)).unwrap();
-    assert!(report.is_clean(), "{what}: {findings:?}");
 }
 
 #[test]

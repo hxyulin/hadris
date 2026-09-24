@@ -199,9 +199,9 @@ fn opens_detected_exfat() {
     volume.write_file("/Données.txt", b"exfat").unwrap();
     assert_eq!(volume.read_to_vec("/DONNÉES.TXT").unwrap(), b"exfat");
     volume.sync().unwrap();
-    let mut exfat = volume.into_exfat().ok().unwrap();
+    let mut dev = volume.into_exfat().ok().unwrap().into_inner();
     assert!(
-        hadris_fat::exfat::sync::check(&mut exfat)
+        hadris_fat::exfat::sync::check(&mut dev, &mut [0u8; 4096], |_| {})
             .unwrap()
             .is_clean()
     );

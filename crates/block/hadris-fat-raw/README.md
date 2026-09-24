@@ -62,8 +62,9 @@ the boot region and system structures into an `ExFat` state and an
 `Upcase` index that decodes the up-case table lazily; `get`, `next` and
 `set` read and write FAT entries; `bit`, `set_bit`, `allocate`,
 `allocate_run` and `free_chain` work on the Allocation Bitmaps, a device
-block at a time; `write_set` writes an entry set with its secondary
-entries first; and the first write sets `VolumeDirty`.
+block at a time; `slot_offset` with a `DirWalk` finds directory entries;
+`write_set` writes an entry set with its secondary entries first; the
+first write sets `VolumeDirty`; and `check` checks an unmounted volume.
 
 ## Usage
 

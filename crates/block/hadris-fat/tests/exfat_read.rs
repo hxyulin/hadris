@@ -135,8 +135,6 @@ fn reads_a_macos_image() {
         names.contains(&"hello.txt".to_owned()) && names.contains(&"subdir".to_owned()),
         "{names:?}"
     );
-    let report = hadris_fat::exfat::sync::check(&mut fs).unwrap();
-    assert!(report.files() >= 2 && report.directories() >= 2);
     let root = fs.root();
     let node = common::write(&mut fs, root, "added.txt", b"from hadris");
     fs.forget(node);
@@ -361,7 +359,13 @@ fn cyclic_chains_are_corrupt_instead_of_repeating() {
         }
     };
     assert_eq!(listed, Err(ErrorKind::Corrupt));
-    hadris_fat::exfat::sync::check(&mut fs).unwrap();
+    let (_, found) = common::check_dev(&mut common::device(dir_image.clone(), 512), 4096);
+    assert!(
+        found
+            .iter()
+            .any(|f| f.detail == hadris_fat::exfat::Detail::CyclicChain),
+        "{found:?}"
+    );
 
     let mut file_image = image.clone();
     geo.set_fat(&mut file_image, deep[3], deep[1]);

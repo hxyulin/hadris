@@ -49,7 +49,7 @@
 //!
 //! [`exfat`] holds `ExFatFs`, a sibling of `FatFs` with the same shape:
 //! `exfat::sync::ExFatFs` and its `r#async` and `async_send` twins, each
-//! with `check`, `check_with` and, with `write`, `format`. It needs no
+//! with `check` and, with `write`, `format`. It needs no
 //! allocator and implements `FsDriver`.
 //!
 //! ## Formatting with `FatFs`
@@ -117,7 +117,7 @@
 //! | `async`  | No      | Asynchronous API in `r#async` |
 //! | `async-send` | No  | Asynchronous API with `Send` futures in `async_send` |
 //! | `write`  | Yes     | `format` in each mode; `FatFs` and `ExFatFs` write without it |
-//! | `defmt`  | No      | `defmt::Format` for `FatKind` and the exFAT `Finding` |
+//! | `defmt`  | No      | `defmt::Format` for `FatKind` |
 //!
 //! No feature changes what an item does: `FatFs` always reads and writes long
 //! names, and neither `FatFs` nor `ExFatFs` needs an allocator in any mode.

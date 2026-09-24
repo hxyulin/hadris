@@ -135,12 +135,11 @@ fn the_macos_kernel_reads_what_hadris_writes() {
     }
     assert_eq!(fs.read_to_vec("/from kernel/renamed big.bin").unwrap(), big);
     assert!(fs.resolve("/moved.txt").is_err());
-    let mut findings = Vec::new();
-    hadris_fat::exfat::sync::check_with(&mut fs, &mut [0u8; 4096], |f| findings.push(f)).unwrap();
+    let (_, findings) = common::check_dev(&mut common::device(kernel.clone(), 512), 4096);
     assert!(
         findings
             .iter()
-            .all(|f| matches!(f, hadris_fat::exfat::Finding::PercentInUse { .. })),
+            .all(|f| f.detail == hadris_fat::exfat::Detail::PercentInUse),
         "{findings:?}"
     );
     let root = fs.root();

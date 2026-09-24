@@ -1,9 +1,8 @@
 //! The exFAT driver, `ExFatFs`, its formatter and checker.
 //!
 //! It follows the same shape as `FatFs`. `ExFatFs` is generated for each mode
-//! (`exfat::sync`, `exfat::r#async`, `exfat::async_send`) with `check`,
-//! `check_with` and, with `write`, `format`; the mode-independent types are
-//! here. It needs no allocator and implements the `hadris_fs` `FsDriver`
+//! (`exfat::sync`, `exfat::r#async`, `exfat::async_send`) with `check`
+//! and, with `write`, `format`; the mode-independent types are here. It needs no allocator and implements the `hadris_fs` `FsDriver`
 //! trait, so `Volume` and the path helpers work on it.
 //!
 //! ```rust
@@ -15,9 +14,9 @@
 //! use hadris_storage::{BlockSize, MemDevice};
 //!
 //! let dev = MemDevice::new(vec![0u8; 16 << 20], BlockSize::new(512).unwrap());
-//! let mut fs = format(dev, FormatOptions::new())?;
-//! assert!(check(&mut fs)?.is_clean());
-//! let vol = Volume::new(fs);
+//! let mut dev = format(dev, FormatOptions::new())?.into_inner();
+//! assert!(check(&mut dev, &mut [0u8; 4096], |_| {})?.is_clean());
+//! let vol = Volume::new(hadris_fat::exfat::sync::ExFatFs::open(dev)?);
 //! vol.create_dir_all("/Photos")?;
 //! vol.write_file("/Photos/Été.txt", b"hello")?;
 //! assert_eq!(vol.read_to_vec("/photos/ÉTÉ.TXT")?, b"hello");
@@ -36,7 +35,6 @@
 //! keeps both copies equal; TexFAT transactions and repair are not
 //! supported.
 
-mod findings;
 mod options;
 /// The exFAT part of the on-disk layer, `hadris_fat_raw::exfat`: the boot
 /// sector and directory entry layouts with their constants, and the codecs.
@@ -44,7 +42,6 @@ mod options;
 /// The layouts mirror the exFAT specification and stay exhaustive.
 pub use hadris_fat_raw::exfat as raw;
 
-pub use findings::{CheckReport, Finding, FindingKind};
 pub use hadris_fat_raw::exfat::Detail;
 
 /// Reads a little-endian `u16` at `at`.
@@ -89,7 +86,8 @@ pub mod sync {
 
     #[path = "fs.rs"]
     mod fs;
-    pub use fs::{ExFatFs, check, check_with};
+    pub use exio::check;
+    pub use fs::ExFatFs;
     #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;
@@ -116,7 +114,8 @@ pub mod r#async {
 
     #[path = "fs.rs"]
     mod fs;
-    pub use fs::{ExFatFs, check, check_with};
+    pub use exio::check;
+    pub use fs::ExFatFs;
     #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;
@@ -150,7 +149,8 @@ pub mod async_send {
 
     #[path = "fs.rs"]
     mod fs;
-    pub use fs::{ExFatFs, check, check_with};
+    pub use exio::check;
+    pub use fs::ExFatFs;
     #[cfg(feature = "write")]
     #[path = "mkfs.rs"]
     mod mkfs;

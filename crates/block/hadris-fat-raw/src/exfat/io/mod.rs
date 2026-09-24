@@ -134,6 +134,41 @@ impl Default for Upcase {
     }
 }
 
+/// A position in a directory's clusters, kept across slots so a scan walks
+/// the chain once.
+#[derive(Debug, Clone, Copy)]
+pub struct DirWalk {
+    dir: Extent,
+    at: ChainPos,
+}
+
+impl DirWalk {
+    /// A walk of the directory whose entries `dir` holds. Its length is the
+    /// directory's `DataLength`, or `u64::MAX` for the root directory,
+    /// which ends with its chain.
+    pub const fn new(dir: Extent) -> Self {
+        Self {
+            dir,
+            at: ChainPos::NONE,
+        }
+    }
+
+    /// A walk that resumes from `at`, a position in the directory's chain.
+    pub const fn resume(dir: Extent, at: ChainPos) -> Self {
+        Self { dir, at }
+    }
+
+    /// The directory walked.
+    pub const fn dir(&self) -> Extent {
+        self.dir
+    }
+
+    /// The position its chain was last walked to.
+    pub const fn pos(&self) -> ChainPos {
+        self.at
+    }
+}
+
 /// Which boot region a volume was read from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BootRegion {
@@ -259,13 +294,17 @@ pub mod sync {
     use crate::io::sync as block;
     use hadris_storage::sync as storage;
 
+    #[path = "check.rs"]
+    mod check;
     #[path = "volume.rs"]
     mod volume;
 
+    pub use check::check;
+
     pub use volume::{
         allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
-        free_chain, get, next, read_boot, read_volume, set, set_bit, upcase, write_percent_in_use,
-        write_set,
+        free_chain, get, next, read_boot, read_volume, set, set_bit, slot_offset, upcase,
+        write_percent_in_use, write_set,
     };
 }
 
@@ -281,13 +320,17 @@ pub mod r#async {
     use crate::io::r#async as block;
     use hadris_storage::r#async as storage;
 
+    #[path = "check.rs"]
+    mod check;
     #[path = "volume.rs"]
     mod volume;
 
+    pub use check::check;
+
     pub use volume::{
         allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
-        free_chain, get, next, read_boot, read_volume, set, set_bit, upcase, write_percent_in_use,
-        write_set,
+        free_chain, get, next, read_boot, read_volume, set, set_bit, slot_offset, upcase,
+        write_percent_in_use, write_set,
     };
 }
 
@@ -305,12 +348,16 @@ pub mod async_send {
     use crate::io::async_send as block;
     use hadris_storage::async_send as storage;
 
+    #[path = "check.rs"]
+    mod check;
     #[path = "volume.rs"]
     mod volume;
 
+    pub use check::check;
+
     pub use volume::{
         allocate, allocate_run, begin_write, bit, bitmap_bytes, clear_dirty, clear_set, count_free,
-        free_chain, get, next, read_boot, read_volume, set, set_bit, upcase, write_percent_in_use,
-        write_set,
+        free_chain, get, next, read_boot, read_volume, set, set_bit, slot_offset, upcase,
+        write_percent_in_use, write_set,
     };
 }

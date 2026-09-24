@@ -19,7 +19,8 @@ use output::Output;
 use hadris_fs::sync::{DriverExt, FsDriver, extract_to_host, import_from_host};
 use hadris_fs::tree::{FromFsOptions, NodeKind, Tree, TreeNode};
 use hadris_fs::{
-    Attributes, DirCursor, FileType, HeapTable, Metadata, NameBuf, NodeId, OpenOptions, SystemClock,
+    Attributes, DirCursor, FileType, Finding, HeapTable, Metadata, NameBuf, NodeId, OpenOptions,
+    SystemClock,
 };
 
 #[derive(Parser)]
@@ -353,25 +354,18 @@ fn count_tree<D: FsDriver>(fs: &mut D, path: &str, files: &mut u64, dirs: &mut u
 
 /// Checks the image with the checker of its kind, and returns each finding
 /// as text.
-fn check_image(image: &Path, volume: &mut Volume, clusters: u64) -> Result<Vec<String>> {
-    let bitmap = (clusters.div_ceil(8) as usize).max(512);
+fn check_image(image: &Path, volume: &Volume, clusters: u64) -> Result<Vec<String>> {
+    let mut dev = FileDevice::open(image)
+        .with_context(|| format!("Failed to open image file: {}", image.display()))?;
+    let mut scratch = vec![0u8; 1024 + (clusters.div_ceil(8) as usize).max(512)];
     let mut findings = Vec::new();
+    let mut note = |finding: &Finding<'_>| {
+        findings.push(format!("{finding} [{:?}]", finding.severity()));
+    };
     match volume {
-        Volume::Fat(_) => {
-            let mut dev = FileDevice::open(image)
-                .with_context(|| format!("Failed to open image file: {}", image.display()))?;
-            let mut scratch = vec![0u8; 1024 + bitmap];
-            hadris_fat::sync::check(&mut dev, &mut scratch, |finding| {
-                findings.push(format!("{finding} [{:?}]", finding.severity()))
-            })?;
-        }
-        Volume::ExFat(fs) => {
-            let mut scratch = vec![0u8; bitmap];
-            exfat::sync::check_with(fs, &mut scratch, |finding| {
-                findings.push(format!("{finding:?}"))
-            })?;
-        }
-    }
+        Volume::Fat(_) => hadris_fat::sync::check(&mut dev, &mut scratch, &mut note)?,
+        Volume::ExFat(_) => exfat::sync::check(&mut dev, &mut scratch, &mut note)?,
+    };
     Ok(findings)
 }
 
@@ -637,7 +631,7 @@ fn cmd_verify(image: &Path, verbose: bool) -> Result<()> {
     let mut volume = open(image)?;
     let stats =
         with_fs!(&mut volume, fs => fs.stats()).context("Failed to read the allocation table")?;
-    let findings = check_image(image, &mut volume, stats.total_blocks() + 2)
+    let findings = check_image(image, &volume, stats.total_blocks() + 2)
         .context("Failed to verify filesystem")?;
 
     println!("Filesystem Verification");

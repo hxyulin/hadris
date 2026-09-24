@@ -407,7 +407,7 @@
           "name": "set_bit"
         },
         {
-          "path": "crates/block/hadris-fat/src/exfat/check.rs",
+          "path": "crates/block/hadris-fat-raw/src/exfat/io/check.rs",
           "name": "scan_window"
         }
       ],

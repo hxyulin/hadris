@@ -38,9 +38,9 @@ std = [
 ]
 # `format` in each mode. `FatFs` and `ExFatFs` read and write without it.
 write = []
-# Derives `defmt::Format` on `FatKind` and `Finding` so they can be logged
-# through `defmt::info!` etc. without going through `Debug`.
-defmt = ["dep:defmt", "hadris-fat-raw/defmt"]
+# Derives `defmt::Format` on `FatKind` so it can be logged through
+# `defmt::info!` etc. without going through `Debug`.
+defmt = ["hadris-fat-raw/defmt"]
 
 [dependencies]
 hadris-common = { workspace = true, features = ["bytemuck"] }
@@ -54,7 +54,6 @@ bytemuck = { workspace = true, features = [
   "derive",
   "min_const_generics",
 ] }
-defmt = { version = "1.0", optional = true }
 
 [dev-dependencies]
 hadris-fs = { workspace = true, features = ["contract"] }
