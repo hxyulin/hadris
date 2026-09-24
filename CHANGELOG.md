@@ -977,6 +977,10 @@ Each published package owns its version and may be released independently.
   `_`, and the `Report` warns when a Joliet name is cut to 64 characters,
   loses characters outside the BMP or forbidden ones, or differs from a
   sibling only in case.
+- **hadris-iso (V3):** Every directory record of a file larger than 4 GiB
+  carries its Rock Ridge entries (`PX`, `TF`, `NM`), as libisofs writes
+  them. Only the first did, so `bsdtar` refused the image and xorriso
+  showed the file with mode `0000` under its primary name.
 
 ## [2.4.0] - 2026-09-08
 

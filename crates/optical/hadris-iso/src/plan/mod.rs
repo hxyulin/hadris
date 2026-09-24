@@ -869,11 +869,7 @@ impl<C: Clock> Planner<'_, C> {
                 let len = u32::try_from(len).map_err(|_| too_large())?;
                 records.push(PendingRecord {
                     name: name.clone(),
-                    split: if index == 0 {
-                        split.clone()
-                    } else {
-                        SplitSu::default()
-                    },
+                    split: split.clone(),
                     extent: (block, len),
                     flags,
                     time,
