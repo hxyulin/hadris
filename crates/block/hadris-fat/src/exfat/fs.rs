@@ -938,6 +938,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// and clock types. Fails as [`open`](ExFatFs::open) does.
     pub async fn open_with(mut dev: D, options: MountOptions<T, C>) -> Result<Self, MountError<D, D::Error>> {
         let MountOptions { read_only, table, clock } = options;
+        let read_only = read_only || !dev.writable();
         let mut block = BlockBuf::new(dev.block_size().get() as usize);
         let (geo, backup) = match boot(&mut dev, &mut block).await {
             Ok(found) => found,
@@ -981,9 +982,10 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Whether the volume was mounted with
-    /// [`MountOptions::with_read_only`], from its backup boot region or with
-    /// an up-case table that fails its checksum, or the device has refused a
-    /// write since.
+    /// [`MountOptions::with_read_only`], on a device that is not
+    /// [`writable`](BlockDevice::writable), from its backup boot region or
+    /// with an up-case table that fails its checksum, or the device has
+    /// refused a write since.
     pub fn is_read_only(&self) -> bool {
         self.read_only
     }

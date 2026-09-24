@@ -15,7 +15,7 @@ use hadris_block::detect::BlockFormat;
 use hadris_block::sync::OpenVolume;
 use hadris_fs::sync::DriverExt;
 
-// `dev` is any hadris-storage `BlockDevice`, such as a `std::fs::File`.
+// `dev` is any hadris-storage `BlockDevice`, such as a `host::FileDevice`.
 let mut volume = match OpenVolume::open(dev) {
     Ok(volume) => volume,
     // The error gives the device back, so the caller can try another opener.
@@ -40,7 +40,7 @@ for entry in volume.read_dir("/")? {
   FAT and exFAT drivers' native APIs.
 - A partitioned disk is refused with `Detail::PartitionedDisk`; open a
   partition from `hadris_part` (the `part` re-export), which gives a
-  `hadris-storage` `Slice`.
+  `hadris-storage` `Partition`.
 - Every failure is a `hadris_fs::Error<E>` with a shared `ErrorKind` and
   the device's own error, and a failed open gives the device back in a
   `hadris_fs::MountError`. A device with no known format fails with
@@ -55,7 +55,7 @@ the `unstable-ntfs` feature adds the `ntfs` re-export and `as_ntfs`,
 
 | Feature | Default | Purpose |
 |---------|---------|---------|
-| `std` | yes | Implies `alloc`; `std::io::Error` conversions and `std::fs::File` devices |
+| `std` | yes | Implies `alloc`; `std::io::Error` conversions and `hadris_storage::host::FileDevice` |
 | `alloc` | via `std` | `PathError` conversions |
 | `sync` | yes | The blocking API in `sync` |
 | `async` | no | The asynchronous API in `r#async` |

@@ -215,7 +215,7 @@ io_transform! {
 /// default node table and the options' clock.
 ///
 /// The volume uses every whole sector of the device; pass a
-/// `hadris_storage` `Slice` to format a partition. Written are both boot
+/// `hadris_storage` `Partition` to format a partition. Written are both boot
 /// regions, the FATs, the allocation bitmaps, the recommended up-case table
 /// and the root directory with its label, bitmap and up-case entries; the
 /// rest of the cluster heap is left as it is. The boot sector is written

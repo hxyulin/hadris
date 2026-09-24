@@ -773,6 +773,10 @@ impl BlockDevice for Faulty {
         self.inner.block_count()
     }
 
+    fn writable(&self) -> bool {
+        self.inner.writable()
+    }
+
     fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
         self.inner
             .read_blocks(first, buf)
@@ -948,6 +952,10 @@ impl BlockDevice for Shared {
 
     fn block_count(&self) -> u64 {
         self.0.borrow().len() as u64 / 512
+    }
+
+    fn writable(&self) -> bool {
+        true
     }
 
     fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {

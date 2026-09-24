@@ -178,6 +178,10 @@ impl hadris_storage::sync::BlockDevice for SparseFile {
         self.0.metadata().map_or(0, |meta| meta.len() / 2048)
     }
 
+    fn writable(&self) -> bool {
+        true
+    }
+
     fn read_blocks(
         &mut self,
         first: BlockIndex,

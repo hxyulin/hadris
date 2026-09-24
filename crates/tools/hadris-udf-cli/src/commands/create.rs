@@ -40,11 +40,13 @@ pub fn create(args: CreateArgs) -> Result<()> {
         return Ok(());
     }
 
-    let (mut file, pending) = Output::create(&args.output)
+    let (file, pending) = Output::create(&args.output)
         .map_err(|err| format!("cannot create {}: {err}", args.output.display()))?;
-    let report = hadris_udf::sync::write(&mut file, &tree, &options)?;
+    let mut dev = hadris_storage::host::FileDevice::new(file)
+        .map_err(|err| format!("cannot create {}: {err}", args.output.display()))?;
+    let report = hadris_udf::sync::write(&mut dev, &tree, &options)?;
     pending
-        .commit(file)
+        .commit(dev.into_inner())
         .map_err(|err| format!("cannot write {}: {err}", args.output.display()))?;
     for warning in report.warnings() {
         if warning.kind() != WarningKind::IgnoredMetadata || args.verbose {

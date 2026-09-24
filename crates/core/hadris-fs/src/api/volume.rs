@@ -12,7 +12,7 @@ io_transform! {
 /// alias:
 ///
 /// ```ignore
-/// type Disk = Volume<FatFs<std::fs::File>, StdMutex>;
+/// type Disk = Volume<FatFs<FileDevice>, StdMutex>;
 /// ```
 ///
 /// Handles dropped while another call holds the lock queue their

@@ -1,8 +1,8 @@
 #![cfg(all(feature = "async-send", feature = "alloc"))]
 
 use hadris_io::Error;
-use hadris_storage::async_send::{BlockDevice, ByteView, Cache, Slice};
-use hadris_storage::{BlockIndex, BlockSize, MemDevice};
+use hadris_storage::async_send::{BlockDevice, ByteView, Cache};
+use hadris_storage::{BlockIndex, BlockSize, MemDevice, Partition};
 
 fn assert_send<T: Send>(value: T) -> T {
     value
@@ -31,11 +31,11 @@ async fn copy_block<S: BlockDevice, T: BlockDevice>(
 fn generic_device_futures_are_send() {
     let size = BlockSize::new(512).unwrap();
     let image: Vec<u8> = (0..2048u32).map(|i| (i / 512) as u8).collect();
-    let mut src = Slice::new(MemDevice::new(&image[..], size), BlockIndex::new(1), 2).unwrap();
-    let mut dst = Cache::new(MemDevice::new(vec![0u8; 1024], size), 4);
+    let mut src = Partition::new(MemDevice::new(&image[..], size), 512, 1024);
+    let mut dst = Cache::new(Vec::new(), 4);
     block_on(assert_send(copy_block(&mut src, &mut dst))).unwrap();
     let dst = block_on(dst.finish()).unwrap();
-    assert_eq!(dst.get_ref()[..512], [2u8; 512]);
+    assert_eq!(dst[..512], [2u8; 512]);
 
     let mut view = ByteView::new(dst);
     let mut byte = [0u8];

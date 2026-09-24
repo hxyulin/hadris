@@ -48,6 +48,10 @@ impl BlockDevice for YieldDev {
         BlockDevice::block_count(&self.0)
     }
 
+    fn writable(&self) -> bool {
+        BlockDevice::writable(&self.0)
+    }
+
     async fn read_blocks(
         &mut self,
         first: BlockIndex,

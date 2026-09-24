@@ -9,8 +9,15 @@
 //! failure is [`Error::device`](hadris_io::Error::device), a device that
 //! refuses writes answers [`ErrorKind::ReadOnly`](hadris_io::ErrorKind::ReadOnly),
 //! and an adapter that refuses a request itself, such as one past the end of
-//! a `Slice`, answers an [`ErrorKind`](hadris_io::ErrorKind) with the block it
-//! concerns. Adapters keep the error type of the device underneath.
+//! a [`Partition`], answers an [`ErrorKind`](hadris_io::ErrorKind) with the
+//! block it concerns. Adapters keep the error type of the device underneath.
+//!
+//! The device trait exists once per mode: `sync`, `r#async`,
+//! `async_send` (futures are `Send`) and `local` (futures need not be
+//! `Send`, for single-threaded executors). Mode-independent devices such as
+//! [`MemDevice`], [`Partition`] and `Vec<u8>` implement every mode's trait.
+//! With `std` and `sync`, `host::FileDevice` is a host image file or disk
+//! device.
 
 #![no_std]
 #![allow(async_fn_in_trait)]
@@ -26,7 +33,7 @@ mod cache;
 mod device;
 mod geometry;
 #[cfg(feature = "std")]
-mod host;
+pub mod host;
 mod scratch;
 
 #[cfg(feature = "async")]
@@ -37,6 +44,11 @@ pub mod r#async;
 /// source as `r#async`. `BlockDevice` has `Send` as a supertrait here, so
 /// `D: BlockDevice` alone proves a device's futures `Send`.
 pub mod async_send;
+#[cfg(feature = "async")]
+/// Asynchronous adapters whose futures need not be `Send`, generated from
+/// the same source as `r#async`, for single-threaded executors such as
+/// embassy.
+pub mod local;
 #[cfg(feature = "sync")]
 /// Synchronous adapters.
 ///
@@ -55,7 +67,5 @@ pub mod async_send;
 /// ```
 pub mod sync;
 
-pub use device::{MemBuffer, MemDevice, ReadOnly};
+pub use device::{MemBuffer, MemDevice, Partition, ReadOnly};
 pub use geometry::{BlockCount, BlockGeometry, BlockIndex, BlockRange, BlockSize};
-#[cfg(feature = "std")]
-pub use host::file_len;

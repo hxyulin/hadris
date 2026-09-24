@@ -13,6 +13,7 @@ title: Create UDF filesystems
 [dependencies]
 hadris-fs = { version = "2.4.0", features = ["std", "sync"] }
 hadris-udf = "2.4.0"
+hadris-storage = "2.4.0"
 ```
 
 ## Create a volume
@@ -26,14 +27,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tree.add_file("README.txt", Content::bytes("Hello from a UDF image\n"))?;
     tree.add_file("docs/guide.txt", Content::bytes("UDF guide\n"))?;
 
-    let mut target = std::fs::File::create("volume.udf")?;
-    let report = hadris_udf::sync::write(&mut target, &tree, &UdfOptions::default())?;
+    let target = hadris_storage::host::FileDevice::new(std::fs::File::create("volume.udf")?)?;
+    let report = hadris_udf::sync::write(target, &tree, &UdfOptions::default())?;
     println!("wrote {} blocks", report.total_blocks());
     Ok(())
 }
 ```
 
-A host file grows as the writer writes it. For a fixed-size device such as a
+A `FileDevice` over a host file grows as the writer writes it, and so does a
+`Vec<u8>`. For a fixed-size device such as a
 `MemDevice`, size it with `hadris_udf::sync::plan(&tree, &options)` first.
 `Tree::from_fs` imports a host directory without reading the files until the
 image is written.

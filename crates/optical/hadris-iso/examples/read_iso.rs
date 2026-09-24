@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args()
         .nth(1)
         .ok_or("usage: read_iso <image.iso>")?;
-    let mut iso = IsoImage::open(std::fs::File::open(path)?)?;
+    let mut iso = IsoImage::open(hadris_storage::host::FileDevice::open(path)?)?;
 
     let pvd = iso.primary_descriptor()?;
     println!(

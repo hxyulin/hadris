@@ -8,6 +8,7 @@ title: Read and extract UDF
 [dependencies]
 hadris-fs = { version = "2.4.0", features = ["std", "sync"] }
 hadris-udf = "2.4.0"
+hadris-storage = "2.4.0"
 ```
 
 `UdfFs` opens a volume on any `hadris_storage` block device, such as a host
@@ -19,7 +20,7 @@ use hadris_fs::sync::DriverExt;
 use hadris_udf::sync::UdfFs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut udf = UdfFs::open(std::fs::File::open("disc.udf")?)?;
+    let mut udf = UdfFs::open(hadris_storage::host::FileDevice::open("disc.udf")?)?;
     println!("volume: {}", udf.logical_volume_id());
 
     for entry in udf.read_dir("/")? {

@@ -41,7 +41,7 @@
 //! use hadris::iso::Namespace;
 //! use hadris::iso::sync::IsoImage;
 //!
-//! let file = std::fs::File::open("image.iso")?;
+//! let file = hadris::storage::host::FileDevice::open("image.iso")?;
 //! let mut iso = IsoImage::open(file)?;
 //! let mut view = iso.view(Namespace::Preferred)?;
 //! for entry in view.read_dir("/")? {

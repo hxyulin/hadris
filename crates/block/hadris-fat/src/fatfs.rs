@@ -688,6 +688,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         options: MountOptions<T, C, P>,
     ) -> Result<Self, MountError<D, D::Error>> {
         let MountOptions { read_only, table, clock, code_page } = options;
+        let read_only = read_only || !dev.writable();
         let mut block = BlockBuf::new(dev.block_size().get() as usize);
         let mount = match Mount::read(&mut dev, &mut block).await {
             Ok(mount) => mount,
@@ -722,8 +723,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
     }
 
     /// Whether the volume was mounted with
-    /// [`MountOptions::with_read_only`], or the device has refused a write
-    /// since.
+    /// [`MountOptions::with_read_only`] or on a device that is not
+    /// [`writable`](BlockDevice::writable), or the device has refused a
+    /// write since.
     pub fn is_read_only(&self) -> bool {
         self.read_only
     }

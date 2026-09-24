@@ -17,7 +17,7 @@ hadris-optical = "2.4.0"
 use hadris_fs::sync::DriverExt;
 use hadris_optical::{OpenPolicy, sync::OpenOpticalImage};
 
-let file = std::fs::File::open("disc.iso")?;
+let file = hadris_storage::host::FileDevice::open("disc.iso")?;
 let mut image = OpenOpticalImage::open(file, OpenPolicy::PreferUdf)?;
 println!("{:?}", image.format());
 for entry in image.read_dir("/")? {
@@ -43,7 +43,7 @@ for entry in image.read_dir("/")? {
 
 | Feature | Default | Purpose |
 |---------|---------|---------|
-| `std` | yes | Implies `alloc`; `std::io::Error` conversions and `std::fs::File` devices |
+| `std` | yes | Implies `alloc`; `std::io::Error` conversions and `hadris_storage::host::FileDevice` |
 | `alloc` | via `std` | `PathError` conversions and the ISO 9660 and UDF writers |
 | `sync` | yes | The blocking API in `sync` |
 | `async` | no | The asynchronous API in `r#async` |

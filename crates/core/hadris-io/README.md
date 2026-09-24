@@ -12,8 +12,8 @@ devices.
 Each trait reports the implementor's own error through the `ErrorType`
 supertrait, as `embedded-io` does. The only requirement on the error is
 `core::error::Error + Send + Sync + 'static`: a kernel uses its own enum,
-`StdIo` and `std::fs::File` report `std::io::Error`, and `FromEmbedded` (with
-the `embedded-io` feature) passes an `embedded-io` error through unchanged.
+`StdIo` reports `std::io::Error`, and `FromEmbedded` (with the `embedded-io`
+feature) passes an `embedded-io` error through unchanged.
 
 ## Features
 
@@ -28,9 +28,9 @@ the `embedded-io` feature) passes an `embedded-io` error through unchanged.
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| `std` | `StdIo`, `ToStd`, `std::fs::File` errors and conversions to `std::io::Error`; implies `alloc` | Yes |
+| `std` | `StdIo`, `ToStd` and conversions to `std::io::Error`; implies `alloc` | Yes |
 | `sync` | Synchronous traits in `hadris_io::sync` | Yes |
-| `async` | Asynchronous traits in `hadris_io::r#async` | No |
+| `async` | Asynchronous traits in `hadris_io::r#async`, and in `hadris_io::local` for executors whose futures are not `Send` | No |
 | `async-send` | Asynchronous traits with `Send` futures in `hadris_io::async_send`; implies `async` | No |
 | `alloc` | `Box<T>` and `Vec<u8>` implement the traits | via `std` |
 | `embedded-io` | `FromEmbedded`, the `embedded-io` traits on `StdIo`, and `SeekFrom` conversions | No |

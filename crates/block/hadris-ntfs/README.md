@@ -12,7 +12,7 @@ and file handles of `hadris-fs` work on it.
 use hadris_fs::sync::DriverExt;
 use hadris_ntfs::sync::NtfsFs;
 
-let image = std::fs::File::open("disk.img")?;
+let image = hadris_storage::host::FileDevice::open("disk.img")?;
 let mut ntfs = NtfsFs::open(image)?;
 for entry in ntfs.read_dir("/")? {
     println!("{:?}", entry?.name());

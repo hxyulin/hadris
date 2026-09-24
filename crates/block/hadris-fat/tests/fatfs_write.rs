@@ -1532,6 +1532,10 @@ impl BlockDevice for Faulty {
         self.inner.block_count()
     }
 
+    fn writable(&self) -> bool {
+        self.inner.writable()
+    }
+
     fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
         self.inner
             .read_blocks(first, buf)
@@ -1586,6 +1590,10 @@ impl BlockDevice for Flushes {
 
     fn block_count(&self) -> u64 {
         self.inner.block_count()
+    }
+
+    fn writable(&self) -> bool {
+        self.inner.writable()
     }
 
     fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {

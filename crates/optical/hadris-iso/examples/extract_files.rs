@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (Some(image), Some(target)) = (args.next(), args.next()) else {
         return Err("usage: extract_files <image.iso> <directory>".into());
     };
-    let mut iso = IsoImage::open(std::fs::File::open(image)?)?;
+    let mut iso = IsoImage::open(hadris_storage::host::FileDevice::open(image)?)?;
     let mut view = iso.view(Namespace::Preferred)?;
     std::fs::create_dir_all(&target)?;
     hadris_fs::sync::extract_to_host(&mut view, "/", &target)?;

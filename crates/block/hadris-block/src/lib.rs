@@ -35,14 +35,14 @@
 //!
 //! A partitioned disk is opened one partition at a time: `hadris_part`
 //! (re-exported as `part` with the `part` feature) reads the table and
-//! turns a partition into a `hadris_storage` `Slice`, which `OpenVolume`
+//! turns a partition into a `hadris_storage` `Partition`, which `OpenVolume`
 //! opens.
 //!
 //! ## Features
 //!
 //! | Feature | Default | Description |
 //! |---|---|---|
-//! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and `std::fs::File` devices |
+//! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and `hadris_storage::host::FileDevice` |
 //! | `alloc` | via `std` | `PathError` conversions |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API in `r#async` |
@@ -156,7 +156,7 @@ pub use hadris_fat as fat;
 
 /// MBR, GPT and hybrid partition tables. `part::sync::open` (and its
 /// `r#async` and `async_send` forms) turns a partition into a
-/// `hadris-storage` `Slice` of the disk, which `OpenVolume` opens.
+/// `hadris-storage` `Partition` of the disk, which `OpenVolume` opens.
 #[cfg(feature = "part")]
 #[cfg_attr(docsrs, doc(cfg(feature = "part")))]
 pub use hadris_part as part;

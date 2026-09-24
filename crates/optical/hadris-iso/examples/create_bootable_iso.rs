@@ -43,7 +43,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .create(true)
         .truncate(true)
         .open(&path)?;
-    let report = hadris_iso::sync::write(file, &tree, &options)?;
+    let report = hadris_iso::sync::write(
+        hadris_storage::host::FileDevice::new(file)?,
+        &tree,
+        &options,
+    )?;
     println!("Wrote {path}: {} bytes", report.size_bytes());
     for warning in report.warnings() {
         println!("warning: {warning}");

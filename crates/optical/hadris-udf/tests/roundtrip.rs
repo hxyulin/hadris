@@ -208,10 +208,14 @@ fn small_device_blocks_and_growing_devices_work() {
         pattern(70_000, 1)
     );
 
-    let mut file = tempfile::tempfile().unwrap();
-    let report = hadris_udf::sync::write(&mut file, &tree, &options).unwrap();
-    assert_eq!(file.metadata().unwrap().len(), report.size_bytes());
-    let mut udf = hadris_udf::sync::UdfFs::open(&mut file).unwrap();
+    let file = tempfile::tempfile().unwrap();
+    let mut dev = hadris_storage::host::FileDevice::new(file).unwrap();
+    let report = hadris_udf::sync::write(&mut dev, &tree, &options).unwrap();
+    assert_eq!(
+        hadris_storage::sync::BlockDevice::block_count(&dev) * 512,
+        report.size_bytes()
+    );
+    let mut udf = hadris_udf::sync::UdfFs::open(&mut dev).unwrap();
     assert_eq!(udf.read_to_vec("/docs/sub/deep.txt").unwrap(), b"deep");
 }
 

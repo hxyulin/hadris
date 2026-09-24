@@ -4,6 +4,7 @@ use hadris_fs::FileType;
 use hadris_iso::Namespace;
 use hadris_iso::raw::{PathTableHeader, VolumeDescriptor};
 use hadris_iso::sync::IsoImage;
+use hadris_storage::host::FileDevice;
 
 use super::super::args::VerifyArgs;
 
@@ -47,7 +48,7 @@ struct Descriptors {
 }
 
 fn check_volume_descriptors(
-    iso: &mut IsoImage<File>,
+    iso: &mut IsoImage<FileDevice>,
     verbose: bool,
     issues: &mut Vec<VerifyIssue>,
 ) -> Descriptors {
@@ -117,7 +118,11 @@ fn check_volume_descriptors(
     found
 }
 
-fn check_volume_size(iso: &IsoImage<File>, file_size: u64, verbose: bool) -> Vec<VerifyIssue> {
+fn check_volume_size(
+    iso: &IsoImage<FileDevice>,
+    file_size: u64,
+    verbose: bool,
+) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
     let declared_size = u64::from(iso.volume_blocks()) * u64::from(iso.block_size());
 
@@ -141,7 +146,7 @@ fn check_volume_size(iso: &IsoImage<File>, file_size: u64, verbose: bool) -> Vec
     issues
 }
 
-fn check_boot_catalog(iso: &mut IsoImage<File>, verbose: bool) -> Vec<VerifyIssue> {
+fn check_boot_catalog(iso: &mut IsoImage<FileDevice>, verbose: bool) -> Vec<VerifyIssue> {
     let mut issues = Vec::new();
     let catalog = match iso.boot_catalog() {
         Ok(Some(catalog)) => catalog,
@@ -196,7 +201,7 @@ fn check_boot_catalog(iso: &mut IsoImage<File>, verbose: bool) -> Vec<VerifyIssu
 }
 
 fn check_path_table(
-    iso: &mut IsoImage<File>,
+    iso: &mut IsoImage<FileDevice>,
     (block, size): (u32, u32),
     verbose: bool,
 ) -> Vec<VerifyIssue> {
@@ -416,8 +421,8 @@ fn check_rrip_fields(
 
 /// Verify ISO image integrity
 pub fn verify(args: VerifyArgs) -> Result<()> {
+    let file_size = hadris_storage::host::file_len(&File::open(&args.input)?)?;
     let mut iso = open(&args.input)?;
-    let file_size = hadris_storage::file_len(iso.device())?;
 
     if args.verbose {
         println!("Verifying: {}", args.input.display());

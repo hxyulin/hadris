@@ -8,8 +8,7 @@ use hadris_fat::sync::{FatFs, format};
 use hadris_fat::{FatKind, FormatOptions, MountOptions, VolumeLabel};
 use hadris_fs::sync::{DriverExt, FileSystem, PathExt, Volume};
 use hadris_fs::{Clock, DateTime, ErrorKind, HeapTable, NoClock};
-use hadris_storage::sync::Slice;
-use hadris_storage::{BlockIndex, BlockSize, MemDevice};
+use hadris_storage::{BlockSize, MemDevice};
 
 const MIB: u64 = 1024 * 1024;
 
@@ -522,7 +521,7 @@ fn formats_a_partition_slice() {
     let mut disk = MemDevice::new(vec![0xAAu8; 8 * MIB as usize], BlockSize::new(512).unwrap());
     let first = 2048;
     let count = 4 * MIB / 512;
-    let slice = Slice::new(&mut disk, BlockIndex::new(first), count).unwrap();
+    let slice = hadris_storage::Partition::new(&mut disk, first * 512, count * 512);
     let options = FormatOptions::new()
         .with_hidden_sectors(first as u32)
         .with_label(label("PART"));

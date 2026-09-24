@@ -31,7 +31,7 @@ io_transform! {
 /// it with the default node table and code page and the options' clock.
 ///
 /// The volume uses every whole sector of the device; pass a
-/// `hadris_storage` `Slice` to format a partition. Everything before the
+/// `hadris_storage` `Partition` to format a partition. Everything before the
 /// data region is written: the boot sector, on FAT32 the FSInfo sector and
 /// their backups, the FATs, the root directory and its label entry. The
 /// data region is left as it is. The device is flushed before the volume is

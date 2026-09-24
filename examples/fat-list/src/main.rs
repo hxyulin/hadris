@@ -1,14 +1,14 @@
-use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use hadris_fat::MountOptions;
 use hadris_fat::sync::FatFs;
 use hadris_fs::sync::DriverExt;
+use hadris_storage::host::FileDevice;
 
 fn main() -> Result<()> {
     let image_path = image_path()?;
-    let image = File::open(&image_path)
+    let image = FileDevice::open(&image_path)
         .with_context(|| format!("failed to open {}", image_path.display()))?;
     let mut volume = FatFs::open_with(image, MountOptions::new().with_read_only())
         .with_context(|| format!("failed to open FAT volume {}", image_path.display()))?;

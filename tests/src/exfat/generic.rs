@@ -1,12 +1,13 @@
 //! The Hadris exFAT driver, `ExFatFs`, mounted through the generic
 //! `FileSystem` adapter of the FAT suite.
 
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::Path;
 
 use hadris_fat::exfat::sync::{ExFatFs, format as format_exfat};
 use hadris_fat::exfat::{FormatOptions, VolumeLabel};
 use hadris_fs::sync::{StdMutex, Volume};
+use hadris_storage::host::FileDevice;
 
 use super::ExFatCase;
 use crate::fat::LABEL;
@@ -19,13 +20,14 @@ pub const NAME: &str = "Hadris";
 pub struct HadrisExFat;
 
 impl Mount for HadrisExFat {
-    type Fs = Volume<ExFatFs<File>, StdMutex>;
+    type Fs = Volume<ExFatFs<FileDevice>, StdMutex>;
 
     fn mount(&self, image: &Path) -> Result<Self::Fs, String> {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(image)
+            .and_then(FileDevice::new)
             .map_err(|error| error.to_string())?;
         let fs = ExFatFs::open(file).map_err(|error| error.to_string())?;
         Ok(Volume::new(fs))
@@ -49,6 +51,7 @@ pub fn format(path: &Path, case: ExFatCase) -> Result<(), String> {
         .open(path)
         .map_err(|error| error.to_string())?;
     file.set_len(case.size).map_err(|error| error.to_string())?;
+    let file = FileDevice::new(file).map_err(|error| error.to_string())?;
     let label = VolumeLabel::new(LABEL).map_err(|error| error.to_string())?;
     let options = FormatOptions::new()
         .with_label(label)

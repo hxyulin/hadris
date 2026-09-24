@@ -85,10 +85,8 @@ fn async_partition_slices_enforce_their_bounds() {
         let mut disk = device(bytes);
         let entry = mbr_partition(16, 4, 8);
         let mut slice = open(&mut disk, &entry).unwrap();
-        assert_eq!(
-            (slice.first(), slice.block_count()),
-            (BlockIndex::new(4), 8)
-        );
+        assert_eq!((slice.offset(), slice.block_count()), (4 * 512, 8));
+        assert_eq!(slice.disk_offset(), 4 * 512);
         let mut block = [0_u8; 512];
         slice
             .read_blocks(BlockIndex::new(0), &mut block)

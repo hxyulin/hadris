@@ -19,8 +19,15 @@ use hadris_fs::tree::{Content, FromFsOptions, Tree};
 let mut tree = Tree::from_fs("image-root", FromFsOptions::new()).unwrap();
 tree.add_file("readme.txt", Content::bytes("Hello, World!")).unwrap();
 
-let mut out = std::fs::File::create("output.iso").unwrap();
-let report = hadris_cd::sync::write(&mut out, &tree, &CdOptions::default()).unwrap();
+let file = std::fs::File::options()
+    .read(true)
+    .write(true)
+    .create(true)
+    .truncate(true)
+    .open("output.iso")
+    .unwrap();
+let out = hadris_storage::host::FileDevice::new(file).unwrap();
+let report = hadris_cd::sync::write(out, &tree, &CdOptions::default()).unwrap();
 println!("{} blocks", report.total_blocks());
 ```
 

@@ -2,7 +2,6 @@
 //! opens it with `hadris-block`, and prints its tree through one function
 //! that works on any `hadris-fs` driver.
 
-use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
@@ -10,10 +9,11 @@ use hadris_block::detect::BlockFormat;
 use hadris_block::sync::OpenVolume;
 use hadris_fs::FileType;
 use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_storage::host::FileDevice;
 
 fn main() -> Result<()> {
     let image_path = image_path()?;
-    let mut image = File::open(&image_path)
+    let mut image = FileDevice::open(&image_path)
         .with_context(|| format!("failed to open {}", image_path.display()))?;
 
     match hadris_block::detect::sync::detect(&mut image)? {

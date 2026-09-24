@@ -16,20 +16,20 @@ pub use ls::ls;
 pub use tree::tree;
 pub use verify::verify;
 
-use std::fs::File;
 use std::path::Path;
 
 use hadris_fs::sync::DriverExt;
 use hadris_fs::{DirItem, FileType};
+use hadris_storage::host::FileDevice;
 use hadris_udf::sync::UdfFs;
 
 pub(super) type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-pub(super) type Udf = UdfFs<File>;
+pub(super) type Udf = UdfFs<FileDevice>;
 
 /// Opens the UDF volume in the image at `path`.
 pub(super) fn open(path: &Path) -> Result<Udf> {
-    Ok(UdfFs::open(File::open(path)?)?)
+    Ok(UdfFs::open(FileDevice::open(path)?)?)
 }
 
 /// The entries of the directory at `path`, sorted as the volume lists them.

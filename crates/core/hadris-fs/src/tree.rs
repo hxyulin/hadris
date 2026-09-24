@@ -149,7 +149,7 @@ impl Content {
     }
 
     /// The host file at `path`, opened when the image is written. Its length
-    /// is read then too, through [`hadris_storage::file_len`], so a disk
+    /// is read then too, through [`hadris_storage::host::file_len`], so a disk
     /// device such as `/dev/sdb` or `\\.\PhysicalDrive1` supplies its
     /// whole contents.
     ///

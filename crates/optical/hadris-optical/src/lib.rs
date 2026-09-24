@@ -43,7 +43,7 @@
 //!
 //! | Feature | Default | Description |
 //! |---|---|---|
-//! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and `std::fs::File` devices |
+//! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and `hadris_storage::host::FileDevice` |
 //! | `alloc` | via `std` | `PathError` conversions and the ISO 9660 and UDF writers |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API in `r#async` |

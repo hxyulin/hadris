@@ -14,7 +14,7 @@
 //! use hadris_fs::sync::DriverExt;
 //! use hadris_ntfs::sync::NtfsFs;
 //!
-//! let image = std::fs::File::open("disk.img")?;
+//! let image = hadris_storage::host::FileDevice::open("disk.img")?;
 //! let mut ntfs = NtfsFs::open(image)?;
 //! for entry in ntfs.read_dir("/")? {
 //!     let entry = entry?;

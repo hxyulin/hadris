@@ -339,6 +339,7 @@ dependencies = [
  "hadris-cd",
  "hadris-fs",
  "hadris-iso",
+ "hadris-storage",
  "hadris-udf",
  "libc",
  "tempfile",
@@ -393,6 +394,7 @@ dependencies = [
  "anyhow",
  "hadris-fat",
  "hadris-fs",
+ "hadris-storage",
 ]
 
 [[package]]
@@ -401,6 +403,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "hadris-optical",
+ "hadris-storage",
 ]
 
 [[package]]
@@ -420,6 +423,7 @@ dependencies = [
  "anyhow",
  "hadris-block",
  "hadris-fs",
+ "hadris-storage",
 ]
 
 [[package]]
@@ -447,6 +451,7 @@ dependencies = [
  "clap",
  "hadris-fat",
  "hadris-fs",
+ "hadris-storage",
  "libc",
  "tempfile",
 ]
@@ -573,6 +578,7 @@ version = "2.4.0"
 dependencies = [
  "clap",
  "hadris-fs",
+ "hadris-storage",
  "hadris-udf",
  "libc",
  "tempfile",

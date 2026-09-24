@@ -3,8 +3,7 @@
 //! [`Disk`] holds a partition table and the boot code of block 0. It does no
 //! I/O: the mode modules ([`sync`], `r#async`, `async_send`) read it from a
 //! [`BlockDevice`](hadris_storage::sync::BlockDevice), write it back, and
-//! open a partition as a [`Slice`](hadris_storage::sync::Slice) of the
-//! device. The block size is always the device's.
+//! open a partition as a [`hadris_storage::Partition`] of the device. The block size is always the device's.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "std"))]
