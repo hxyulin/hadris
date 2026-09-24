@@ -106,7 +106,7 @@ impl MemFs {
 
     fn device(&mut self) -> FsResult<(), MemError> {
         match self.fail_next.take() {
-            Some(err) => Err(hadris_fs::Error::from_device(err)),
+            Some(err) => Err(hadris_fs::Error::device(err, "device failed")),
             None => Ok(()),
         }
     }

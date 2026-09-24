@@ -4,11 +4,13 @@
 //! block size. It intentionally does not define filesystem concepts such as FAT
 //! clusters or ISO logical sectors.
 //!
-//! Every device reports its own error through
-//! [`hadris_io::ErrorType`]. Writes return [`WriteError`], whose
-//! [`ReadOnly`](WriteError::ReadOnly) variant is how a device refuses writes;
-//! there is no separate query. Adapters that can refuse a request themselves
-//! report [`StorageError`].
+//! Every device names its own error through [`hadris_io::ErrorType`], and
+//! every block operation returns [`hadris_io::Error`] over it: a device
+//! failure is [`Error::device`](hadris_io::Error::device), a device that
+//! refuses writes answers [`ErrorKind::ReadOnly`](hadris_io::ErrorKind::ReadOnly),
+//! and an adapter that refuses a request itself, such as one past the end of
+//! a `Slice`, answers an [`ErrorKind`](hadris_io::ErrorKind) with the block it
+//! concerns. Adapters keep the error type of the device underneath.
 
 #![no_std]
 #![allow(async_fn_in_trait)]
@@ -22,7 +24,6 @@ extern crate std;
 #[cfg(feature = "alloc")]
 mod cache;
 mod device;
-mod error;
 mod geometry;
 #[cfg(feature = "std")]
 mod host;
@@ -40,7 +41,8 @@ pub mod async_send;
 /// Synchronous adapters.
 ///
 /// ```rust
-/// use hadris_storage::{BlockIndex, BlockSize, MemDevice, WriteError};
+/// use hadris_io::ErrorKind;
+/// use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 /// use hadris_storage::sync::BlockDevice;
 ///
 /// let image = [7u8; 2048];
@@ -48,12 +50,12 @@ pub mod async_send;
 /// let mut block = [0u8; 512];
 /// device.read_blocks(BlockIndex::new(3), &mut block).unwrap();
 /// assert_eq!(block, [7; 512]);
-/// assert_eq!(device.write_blocks(BlockIndex::new(0), &block), Err(WriteError::ReadOnly));
+/// let err = device.write_blocks(BlockIndex::new(0), &block).unwrap_err();
+/// assert_eq!(err.kind(), ErrorKind::ReadOnly);
 /// ```
 pub mod sync;
 
 pub use device::{MemBuffer, MemDevice, ReadOnly};
-pub use error::{OutOfRange, StorageError, WriteError};
 pub use geometry::{BlockCount, BlockGeometry, BlockIndex, BlockRange, BlockSize};
 #[cfg(feature = "std")]
 pub use host::file_len;

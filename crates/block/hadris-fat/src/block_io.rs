@@ -1,7 +1,7 @@
 //! One device block of buffering and byte-granular reads and writes over a
 //! block device, shared by every driver of the mode.
 
-use hadris_fs::{Error, FsResult};
+use hadris_fs::FsResult;
 use hadris_storage::BlockIndex;
 
 use super::storage::BlockDevice;
@@ -83,8 +83,7 @@ pub(crate) async fn load<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, inde
     }
     block.cached = None;
     dev.read_blocks(BlockIndex::new(index), &mut block.data[..block.size])
-        .await
-        .map_err(Error::from_device)?;
+        .await?;
     block.cached = Some(index);
     Ok(())
 }
@@ -106,8 +105,7 @@ pub(crate) async fn read_bytes<D: BlockDevice>(
         let whole = (out.len() - done) / size * size;
         if at == 0 && whole > 0 {
             dev.read_blocks(BlockIndex::new(index), &mut out[done..done + whole])
-                .await
-                .map_err(Error::from_device)?;
+                .await?;
             done += whole;
             continue;
         }

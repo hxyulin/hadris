@@ -218,6 +218,12 @@ pub enum PathError {
 }
 
 impl PathError {
+    pub(crate) const fn description(self) -> &'static str {
+        match self {
+            Self::EscapesRoot => "parent component escapes the virtual root",
+        }
+    }
+
     /// Returns the matching error kind.
     pub const fn kind(self) -> crate::ErrorKind {
         crate::ErrorKind::InvalidInput
@@ -232,9 +238,7 @@ impl From<PathError> for crate::ErrorKind {
 
 impl core::fmt::Display for PathError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::EscapesRoot => f.write_str("parent component escapes the virtual root"),
-        }
+        f.write_str(self.description())
     }
 }
 

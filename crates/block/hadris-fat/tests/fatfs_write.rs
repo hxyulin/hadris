@@ -18,8 +18,9 @@ use hadris_fs::{
     FixedTable, HeapTable, Name, NameBuf, NewNode, NoClock, NodeId, NodeTable, OpenOptions,
     RemoveKind, RenameFlags, SetMetadata,
 };
+use hadris_io::Error;
 use hadris_storage::sync::BlockDevice;
-use hadris_storage::{BlockIndex, BlockSize, OutOfRange, WriteError};
+use hadris_storage::{BlockIndex, BlockSize};
 
 type Fs<T = HeapTable, C = NoClock, P = Ascii> = FatFs<Device, T, C, P>;
 
@@ -1519,7 +1520,7 @@ struct Faulty {
 }
 
 impl hadris_io::ErrorType for Faulty {
-    type Error = OutOfRange;
+    type Error = std::io::Error;
 }
 
 impl BlockDevice for Faulty {
@@ -1531,30 +1532,39 @@ impl BlockDevice for Faulty {
         self.inner.block_count()
     }
 
-    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
-        self.inner.read_blocks(first, buf)
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        self.inner
+            .read_blocks(first, buf)
+            .map_err(|err| err.map_device(|never| match never {}))
     }
 
-    fn write_blocks(
-        &mut self,
-        first: BlockIndex,
-        buf: &[u8],
-    ) -> Result<(), WriteError<OutOfRange>> {
+    fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
         if self.refuse {
-            return Err(WriteError::ReadOnly);
+            return Err(Error::new(
+                hadris_fs::ErrorKind::ReadOnly,
+                "write protected",
+            ));
         }
         match &mut self.budget {
             Some(0) => {
                 if self.once {
                     self.budget = None;
                 }
-                Err(WriteError::Device(OutOfRange))
+                Err(Error::device(
+                    std::io::Error::other("injected fault"),
+                    "write failed",
+                ))
             }
             Some(left) => {
                 *left -= 1;
-                self.inner.write_blocks(first, buf)
+                self.inner
+                    .write_blocks(first, buf)
+                    .map_err(|err| err.map_device(|never| match never {}))
             }
-            None => self.inner.write_blocks(first, buf),
+            None => self
+                .inner
+                .write_blocks(first, buf)
+                .map_err(|err| err.map_device(|never| match never {})),
         }
     }
 }
@@ -1566,7 +1576,7 @@ struct Flushes {
 }
 
 impl hadris_io::ErrorType for Flushes {
-    type Error = OutOfRange;
+    type Error = core::convert::Infallible;
 }
 
 impl BlockDevice for Flushes {
@@ -1578,19 +1588,15 @@ impl BlockDevice for Flushes {
         self.inner.block_count()
     }
 
-    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
         self.inner.read_blocks(first, buf)
     }
 
-    fn write_blocks(
-        &mut self,
-        first: BlockIndex,
-        buf: &[u8],
-    ) -> Result<(), WriteError<OutOfRange>> {
+    fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
         self.inner.write_blocks(first, buf)
     }
 
-    fn flush(&mut self) -> Result<(), WriteError<OutOfRange>> {
+    fn flush(&mut self) -> Result<(), Error<Self::Error>> {
         self.flushes += 1;
         Ok(())
     }

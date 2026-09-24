@@ -14,8 +14,9 @@ use hadris_fat::{
 };
 use hadris_fs::sync::{FileSystem, FsDriver, PathExt, Volume};
 use hadris_fs::{ErrorKind, HeapTable, Name, NewNode, RemoveKind, RenameFlags, SetMetadata};
+use hadris_io::Error;
 use hadris_storage::sync::BlockDevice;
-use hadris_storage::{BlockIndex, BlockSize, MemDevice, OutOfRange, WriteError};
+use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 
 type Device = MemDevice<Vec<u8>>;
 
@@ -793,7 +794,7 @@ struct Faulty {
 }
 
 impl hadris_io::ErrorType for Faulty {
-    type Error = OutOfRange;
+    type Error = std::io::Error;
 }
 
 impl BlockDevice for Faulty {
@@ -805,21 +806,25 @@ impl BlockDevice for Faulty {
         self.inner.block_count()
     }
 
-    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
-        self.inner.read_blocks(first, buf)
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        self.inner
+            .read_blocks(first, buf)
+            .map_err(|err| err.map_device(|never| match never {}))
     }
 
-    fn write_blocks(
-        &mut self,
-        first: BlockIndex,
-        buf: &[u8],
-    ) -> Result<(), WriteError<OutOfRange>> {
+    fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
         if self.budget.get() == 0 {
-            return Err(WriteError::Device(OutOfRange));
+            return Err(fault());
         }
         self.budget.set(self.budget.get() - 1);
-        self.inner.write_blocks(first, buf)
+        self.inner
+            .write_blocks(first, buf)
+            .map_err(|err| err.map_device(|never| match never {}))
     }
+}
+
+fn fault() -> Error<std::io::Error> {
+    Error::device(std::io::Error::other("injected fault"), "write failed")
 }
 
 fn name(text: &str) -> &Name {

@@ -533,7 +533,7 @@ fn failed_opens_give_the_device_back() {
 
 #[test]
 fn mount_errors_convert_with_the_question_mark() {
-    fn plain(dev: Device) -> hadris_fs::FsResult<Fs, hadris_storage::OutOfRange> {
+    fn plain(dev: Device) -> hadris_fs::FsResult<Fs, core::convert::Infallible> {
         Ok(FatFs::open_with(
             dev,
             MountOptions::new().with_table(HeapTable::new()),

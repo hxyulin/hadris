@@ -12,7 +12,7 @@ use hadris_io::ErrorType;
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{IsoLevel, IsoOptions, Namespace};
 use hadris_storage::sync::BlockDevice;
-use hadris_storage::{BlockIndex, BlockSize, OutOfRange, WriteError};
+use hadris_storage::{BlockIndex, BlockSize};
 
 const LEN: u64 = (1 << 32) + 4096;
 static ZEROS: [u8; 2048] = [0; 2048];
@@ -50,7 +50,7 @@ struct SparseDevice {
 }
 
 impl ErrorType for SparseDevice {
-    type Error = OutOfRange;
+    type Error = std::convert::Infallible;
 }
 
 impl BlockDevice for SparseDevice {
@@ -62,7 +62,11 @@ impl BlockDevice for SparseDevice {
         (LEN >> 11) + 4096
     }
 
-    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
+    fn read_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
         for (i, chunk) in buf.chunks_mut(2048).enumerate() {
             match self.blocks.get(&(first.get() + i as u64)) {
                 Some(data) => chunk.copy_from_slice(data),
@@ -76,7 +80,7 @@ impl BlockDevice for SparseDevice {
         &mut self,
         first: BlockIndex,
         buf: &[u8],
-    ) -> Result<(), WriteError<OutOfRange>> {
+    ) -> Result<(), hadris_io::Error<Self::Error>> {
         for (i, chunk) in buf.chunks(2048).enumerate() {
             let block = first.get() + i as u64;
             if chunk == &ZEROS[..chunk.len()] {

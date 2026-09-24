@@ -9,7 +9,7 @@ use super::storage::BlockDevice;
 use crate::error::Error;
 use crate::options::CdOptions;
 use crate::report::Report;
-use hadris_storage::{BlockIndex, WriteError};
+use hadris_storage::BlockIndex;
 
 /// Blocks the UDF volume keeps after the last file, before its trailing
 /// anchor, as 2.x did.
@@ -94,7 +94,7 @@ async fn cover<D: BlockDevice, C: Clock>(out: &mut D, opts: &IsoOptions<C>, bloc
         let first = BlockIndex::new(index * per_sector);
         out.read_blocks(first, &mut sector)
             .await
-            .map_err(|err| hadris_iso::Error::from(WriteError::Device(err)))?;
+            .map_err(hadris_iso::Error::from)?;
         if !matches!(sector[0], 1 | 2) || &sector[1..6] != b"CD001" {
             continue;
         }

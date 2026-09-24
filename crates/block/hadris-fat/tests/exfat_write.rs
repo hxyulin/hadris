@@ -17,9 +17,9 @@ use hadris_fs::{
     Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, FileTimes, FileType,
     HeapTable, Name, NameBuf, NewNode, NodeId, RemoveKind, RenameFlags, SetMetadata,
 };
-use hadris_storage::OutOfRange;
+use hadris_io::Error;
 use hadris_storage::sync::BlockDevice;
-use hadris_storage::{BlockIndex, BlockSize, WriteError};
+use hadris_storage::{BlockIndex, BlockSize};
 
 fn name(text: &str) -> &Name {
     Name::new(text).unwrap()
@@ -761,7 +761,7 @@ struct Faulty {
 }
 
 impl hadris_io::ErrorType for Faulty {
-    type Error = OutOfRange;
+    type Error = std::io::Error;
 }
 
 impl BlockDevice for Faulty {
@@ -773,25 +773,34 @@ impl BlockDevice for Faulty {
         self.inner.block_count()
     }
 
-    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
-        self.inner.read_blocks(first, buf)
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
+        self.inner
+            .read_blocks(first, buf)
+            .map_err(|err| err.map_device(|never| match never {}))
     }
 
-    fn write_blocks(
-        &mut self,
-        first: BlockIndex,
-        buf: &[u8],
-    ) -> Result<(), WriteError<OutOfRange>> {
+    fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
         if self.refuse {
-            return Err(WriteError::ReadOnly);
+            return Err(Error::new(
+                hadris_fs::ErrorKind::ReadOnly,
+                "write protected",
+            ));
         }
         match &mut self.budget {
-            Some(0) => Err(WriteError::Device(OutOfRange)),
+            Some(0) => Err(Error::device(
+                std::io::Error::other("injected fault"),
+                "write failed",
+            )),
             Some(left) => {
                 *left -= 1;
-                self.inner.write_blocks(first, buf)
+                self.inner
+                    .write_blocks(first, buf)
+                    .map_err(|err| err.map_device(|never| match never {}))
             }
-            None => self.inner.write_blocks(first, buf),
+            None => self
+                .inner
+                .write_blocks(first, buf)
+                .map_err(|err| err.map_device(|never| match never {})),
         }
     }
 }
@@ -929,7 +938,7 @@ fn interrupted_operations_leave_readable_volumes() {
 struct Shared(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
 
 impl hadris_io::ErrorType for Shared {
-    type Error = OutOfRange;
+    type Error = core::convert::Infallible;
 }
 
 impl BlockDevice for Shared {
@@ -941,17 +950,13 @@ impl BlockDevice for Shared {
         self.0.borrow().len() as u64 / 512
     }
 
-    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<Self::Error>> {
         let at = first.get() as usize * 512;
         buf.copy_from_slice(&self.0.borrow()[at..at + buf.len()]);
         Ok(())
     }
 
-    fn write_blocks(
-        &mut self,
-        first: BlockIndex,
-        buf: &[u8],
-    ) -> Result<(), WriteError<OutOfRange>> {
+    fn write_blocks(&mut self, first: BlockIndex, buf: &[u8]) -> Result<(), Error<Self::Error>> {
         let at = first.get() as usize * 512;
         self.0.borrow_mut()[at..at + buf.len()].copy_from_slice(buf);
         Ok(())

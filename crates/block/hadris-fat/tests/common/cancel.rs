@@ -11,9 +11,10 @@ use hadris_fs::r#async::FsDriver;
 use hadris_fs::{
     DirCursor, ErrorKind, Name, NameBuf, NewNode, RemoveKind, RenameFlags, SetMetadata,
 };
+use hadris_io::Error;
 use hadris_io::ErrorType;
 use hadris_storage::r#async::BlockDevice;
-use hadris_storage::{BlockIndex, BlockSize, MemDevice, OutOfRange, WriteError};
+use hadris_storage::{BlockIndex, BlockSize, MemDevice};
 
 /// A memory device whose reads and writes each return `Pending` once
 /// before they happen.
@@ -35,7 +36,7 @@ impl Future for YieldOnce {
 }
 
 impl ErrorType for YieldDev {
-    type Error = OutOfRange;
+    type Error = core::convert::Infallible;
 }
 
 impl BlockDevice for YieldDev {
@@ -47,7 +48,11 @@ impl BlockDevice for YieldDev {
         BlockDevice::block_count(&self.0)
     }
 
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
+    async fn read_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), Error<Self::Error>> {
         YieldOnce(false).await;
         BlockDevice::read_blocks(&mut self.0, first, buf).await
     }
@@ -56,7 +61,7 @@ impl BlockDevice for YieldDev {
         &mut self,
         first: BlockIndex,
         buf: &[u8],
-    ) -> Result<(), WriteError<OutOfRange>> {
+    ) -> Result<(), Error<Self::Error>> {
         YieldOnce(false).await;
         BlockDevice::write_blocks(&mut self.0, first, buf).await
     }

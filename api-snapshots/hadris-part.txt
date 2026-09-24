@@ -272,7 +272,7 @@ impl<E> hadris_part::Error<E>
 pub const fn hadris_part::Error<E>::detail(&self) -> core::option::Option<hadris_part::Detail>
 pub const fn hadris_part::Error<E>::device_error(&self) -> core::option::Option<&E>
 pub fn hadris_part::Error<E>::into_device_error(self) -> core::option::Option<E>
-pub const fn hadris_part::Error<E>::kind(&self) -> hadris_fs::error::ErrorKind
+pub const fn hadris_part::Error<E>::kind(&self) -> hadris_io::kind::ErrorKind
 pub fn hadris_part::Error<E>::map_device<F>(self, impl core::ops::function::FnOnce(E) -> F) -> hadris_part::Error<F>
 impl<E: core::cmp::Eq> core::cmp::Eq for hadris_part::Error<E>
 impl<E: core::cmp::PartialEq> core::cmp::PartialEq for hadris_part::Error<E>
@@ -283,12 +283,12 @@ impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> 
 pub fn core::io::error::Error::from(hadris_part::Error<E>) -> Self
 impl<E: core::fmt::Display> core::fmt::Display for hadris_part::Error<E>
 pub fn hadris_part::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_part::Error<E>> for hadris_fs::error::Error<E>
-pub fn hadris_fs::error::Error<E>::from(hadris_part::Error<E>) -> Self
+impl<E> core::convert::From<hadris_io::fs_error::Error<E>> for hadris_part::Error<E>
+pub fn hadris_part::Error<E>::from(hadris_io::fs_error::Error<E>) -> Self
+impl<E> core::convert::From<hadris_part::Error<E>> for hadris_io::fs_error::Error<E>
+pub fn hadris_io::fs_error::Error<E>::from(hadris_part::Error<E>) -> Self
 impl<E> core::convert::From<hadris_part::TableError> for hadris_part::Error<E>
 pub fn hadris_part::Error<E>::from(hadris_part::TableError) -> Self
-impl<E> core::convert::From<hadris_storage::error::WriteError<E>> for hadris_part::Error<E>
-pub fn hadris_part::Error<E>::from(hadris_storage::error::WriteError<E>) -> Self
 pub struct hadris_part::Gpt
 impl hadris_part::Gpt
 pub fn hadris_part::Gpt::add(&mut self, hadris_part::GptEntry) -> core::result::Result<usize, hadris_part::TableError>
@@ -564,13 +564,13 @@ pub fn hadris_part::Runs<'a>::size_hint(&self) -> (usize, core::option::Option<u
 pub struct hadris_part::TableError
 impl hadris_part::TableError
 pub const fn hadris_part::TableError::detail(&self) -> hadris_part::Detail
-pub const fn hadris_part::TableError::kind(&self) -> hadris_fs::error::ErrorKind
+pub const fn hadris_part::TableError::kind(&self) -> hadris_io::kind::ErrorKind
 impl core::convert::From<hadris_part::TableError> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_part::TableError) -> Self
 impl core::error::Error for hadris_part::TableError
 impl core::fmt::Display for hadris_part::TableError
 pub fn hadris_part::TableError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_part::TableError> for hadris_fs::error::Error<E>
-pub fn hadris_fs::error::Error<E>::from(hadris_part::TableError) -> Self
+impl<E> core::convert::From<hadris_part::TableError> for hadris_io::fs_error::Error<E>
+pub fn hadris_io::fs_error::Error<E>::from(hadris_part::TableError) -> Self
 impl<E> core::convert::From<hadris_part::TableError> for hadris_part::Error<E>
 pub fn hadris_part::Error<E>::from(hadris_part::TableError) -> Self

@@ -208,6 +208,40 @@ assert_eq!(err.raw_os_error(), Some(5));
 `Cursor` never fails to read and reports `InvalidSeek` for a seek to a
 negative position.
 
+### The Hadris error
+
+`Error<E>` is the error of every block device and filesystem operation in
+Hadris. It lives here so that block devices can return it, and `hadris-fs`
+and `hadris` re-export it. Its context is `Copy` and needs no allocation:
+
+- `kind()`: an `ErrorKind` such as `NotFound`, `ReadOnly`, `Corrupt` or
+  `NotRecognized` (the bytes are not this format at all).
+- `message()`: a static description.
+- `location()`: an optional `Location` (byte, block, cluster, or a byte of
+  a name).
+- `detail()`: an optional `DetailCode`, a number within a static domain
+  that a format crate's `Detail::of(&err)` reads back.
+- `device_error()`: the device's own error `E` when the device failed
+  (kind `Io`).
+
+`Display` shows the message and location; the device error is the
+`source()`, never repeated in the message. `ErrorKind::errno()` gives one
+symbolic `Errno` per kind, with `Errno::linux()` for the number;
+`Unsupported` is `EOPNOTSUPP`.
+
+```rust
+use hadris_io::{Error, ErrorKind, Location};
+
+let err = Error::device(std::io::Error::from_raw_os_error(5), "reading a block failed")
+    .with_location(Location::Block(12));
+assert_eq!(err.kind(), ErrorKind::Io);
+assert_eq!(err.to_string(), "reading a block failed at block 12");
+assert_eq!(ErrorKind::ReadOnly.errno().linux(), 30);
+
+let io: std::io::Error = err.into();
+assert_eq!(io.raw_os_error(), Some(5));
+```
+
 ## Byte Sources
 
 `ByteSource` is a positional source of bytes with a known length. Writers use

@@ -10,9 +10,11 @@
 //! `FileSystem` trait for shared code, `Volume`, the path resolvers, the
 //! `DriverExt` and `PathExt` helpers, and the `File` and `Dir` handles.
 //!
-//! [`Error<E>`] is the error of every filesystem operation. `E` is the
-//! device's own error, so it survives without allocation; [`AnyError`]
-//! erases it for code that mixes devices. A driver that takes its device
+//! [`Error<E>`] is the error of every filesystem operation, re-exported from
+//! `hadris-io` with [`ErrorKind`], [`Location`], [`DetailCode`] and
+//! [`Errno`], so block devices return the same type. `E` is the device's own
+//! error, so it survives without allocation; [`AnyError`] erases it for code
+//! that mixes devices. A driver that takes its device
 //! by value fails to mount or format with [`MountError`], which gives the
 //! device back.
 //!
@@ -65,7 +67,7 @@ pub use contract::ContractViolation;
 pub use dir::{DirCursor, DirEntry, DirItem};
 #[cfg(feature = "alloc")]
 pub use error::AnyError;
-pub use error::{Error, ErrorKind, FsResult, MountError};
+pub use error::{DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
 pub use extent::Extent;
 pub use fuse::FuseOnError;
 pub use meta::{Attributes, Metadata, Mode, SetMetadata};

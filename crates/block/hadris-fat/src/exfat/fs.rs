@@ -1,9 +1,9 @@
 use core::fmt;
 
 use hadris_fs::{
-    Attributes, Capabilities, CaseSensitivity, Clock, DateTime, DirCursor, DirEntry, Error,
-    ErrorKind, FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name,
-    NameBuf, NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RemoveKind, RenameFlags,
+    Attributes, Capabilities, CaseSensitivity, Clock, DateTime, DirCursor, DirEntry, ErrorKind,
+    FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name, NameBuf,
+    NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RemoveKind, RenameFlags,
     SetMetadata,
 };
 
@@ -1983,8 +1983,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let result = self
             .dev
             .write_blocks(hadris_storage::BlockIndex::new(index), &self.block.data[..self.block.size])
-            .await
-            .map_err(Error::from);
+            .await;
         self.note_refusal(&result);
         result?;
         self.block.cached = Some(index);
@@ -1999,7 +1998,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if self.read_only {
             return Ok(());
         }
-        let result = self.dev.flush().await.map_err(Error::from);
+        let result = self.dev.flush().await;
         self.note_refusal(&result);
         result
     }

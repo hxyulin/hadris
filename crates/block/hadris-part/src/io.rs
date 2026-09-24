@@ -40,7 +40,7 @@ async fn read_block<D: BlockDevice>(
     lba: u64,
     buf: &mut [u8],
 ) -> Result<(), Error<D::Error>> {
-    dev.read_blocks(BlockIndex::new(lba), buf).await.map_err(Error::device)
+    dev.read_blocks(BlockIndex::new(lba), buf).await.map_err(Error::from)
 }
 
 async fn read_record<D: BlockDevice>(

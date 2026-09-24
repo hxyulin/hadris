@@ -56,7 +56,7 @@ impl<S: hadris_io::sync::ByteSource + Send> BlockingSource for S {
 
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, crate::AnyError> {
         hadris_io::sync::ByteSource::read_at(self, offset, buf)
-            .map_err(|err| crate::AnyError::from(Error::from_device(err)))
+            .map_err(|err| crate::AnyError::from(Error::device(err, "reading file content failed")))
     }
 }
 
@@ -85,7 +85,9 @@ impl<S: hadris_io::async_send::ByteSource> AsyncSource for S {
         alloc::boxed::Box::pin(async move {
             hadris_io::async_send::ByteSource::read_at(self, offset, buf)
                 .await
-                .map_err(|err| crate::AnyError::from(Error::from_device(err)))
+                .map_err(|err| {
+                    crate::AnyError::from(Error::device(err, "reading file content failed"))
+                })
         })
     }
 }

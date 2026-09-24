@@ -62,6 +62,13 @@ pub enum OpenOptionsError {
 }
 
 impl OpenOptionsError {
+    pub(crate) const fn description(self) -> &'static str {
+        match self {
+            Self::RequiresWrite => "append, truncate and create require write access",
+            Self::AppendWithTruncate => "append and truncate are mutually exclusive",
+        }
+    }
+
     /// Returns the matching error kind.
     pub const fn kind(self) -> ErrorKind {
         ErrorKind::InvalidInput
@@ -76,10 +83,7 @@ impl From<OpenOptionsError> for ErrorKind {
 
 impl fmt::Display for OpenOptionsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::RequiresWrite => "append, truncate and create require write access",
-            Self::AppendWithTruncate => "append and truncate are mutually exclusive",
-        })
+        f.write_str(self.description())
     }
 }
 

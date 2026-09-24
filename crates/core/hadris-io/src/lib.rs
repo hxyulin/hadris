@@ -11,6 +11,12 @@
 //! when `T` does. Enabling features only adds items; no trait or type changes
 //! shape.
 //!
+//! [`Error<E>`](Error) is the error of every block device and filesystem
+//! operation in Hadris: an [`ErrorKind`], a static message, an optional
+//! [`Location`] and [`DetailCode`], and the device's own error `E` when the
+//! device failed. It lives here, in the lowest crate, so block devices can
+//! return it; `hadris-fs` and `hadris` re-export it.
+//!
 //! The traits live in one module per mode: [`sync`], `r#async` and
 //! `async_send`. The crate root holds only the mode-independent items, so
 //! `hadris_io::sync::Read` and `hadris_io::r#async::Read` are always named
@@ -88,9 +94,13 @@ extern crate alloc;
 extern crate std;
 
 mod error;
+mod fs_error;
+mod kind;
 #[cfg(feature = "std")]
 pub use error::into_std_error;
 pub use error::{ErrorType, ExactError, InvalidSeek};
+pub use fs_error::{DetailCode, Error, FsResult, Location};
+pub use kind::{Errno, ErrorKind};
 
 #[cfg(feature = "std")]
 mod std_adapters;

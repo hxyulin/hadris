@@ -26,9 +26,9 @@ hadris-storage = { version = "2.4.0", default-features = false, features = ["asy
 ```rust
 use hadris_fat::r#async::FatFs;
 use hadris_fs::{DirCursor, FsResult, NameBuf};
-use hadris_storage::{BlockSize, MemDevice, OutOfRange};
+use hadris_storage::{BlockSize, MemDevice};
 
-async fn list_root(image: &[u8]) -> FsResult<(), OutOfRange> {
+async fn list_root(image: &[u8]) -> FsResult<(), core::convert::Infallible> {
     let dev = MemDevice::new(image, BlockSize::new(512).unwrap());
     let mut volume = FatFs::open(dev).await?;
     let root = volume.root();

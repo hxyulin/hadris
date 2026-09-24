@@ -305,7 +305,7 @@ fn async_partition_table_mbr_write_detect_open_and_reject_malformed() {
 
         assert_eq!(
             read(&mut device(vec![0_u8; 64])).await.unwrap_err().kind(),
-            ErrorKind::Io
+            ErrorKind::InvalidInput
         );
 
         let mut invalid = vec![0_u8; 512];

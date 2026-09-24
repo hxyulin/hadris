@@ -241,7 +241,7 @@ fn set_metadata_of(meta: &Metadata) -> SetMetadata {
 
 #[cfg(feature = "std")]
 fn host_error(err: std::io::Error) -> AnyError {
-    AnyError::from(Error::from_device(err))
+    AnyError::from(Error::device(err, "reading a host file failed"))
 }
 
 async_only! {

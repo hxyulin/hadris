@@ -190,14 +190,6 @@ pub struct Error<E> {
 }
 
 impl<E> Error<E> {
-    pub(crate) const fn device(err: E) -> Self {
-        Self {
-            kind: ErrorKind::Io,
-            detail: None,
-            device: Some(err),
-        }
-    }
-
     pub(crate) const fn new(kind: ErrorKind, detail: Detail) -> Self {
         Self {
             kind,
@@ -254,15 +246,12 @@ impl<E> From<TableError> for Error<E> {
     }
 }
 
-impl<E> From<hadris_storage::WriteError<E>> for Error<E> {
-    fn from(err: hadris_storage::WriteError<E>) -> Self {
-        match err {
-            hadris_storage::WriteError::Device(err) => Self::device(err),
-            _ => Self {
-                kind: ErrorKind::ReadOnly,
-                detail: None,
-                device: None,
-            },
+impl<E> From<hadris_fs::Error<E>> for Error<E> {
+    fn from(err: hadris_fs::Error<E>) -> Self {
+        Self {
+            kind: err.kind(),
+            detail: None,
+            device: err.into_device_error(),
         }
     }
 }
@@ -270,7 +259,7 @@ impl<E> From<hadris_storage::WriteError<E>> for Error<E> {
 impl<E> From<Error<E>> for hadris_fs::Error<E> {
     fn from(err: Error<E>) -> Self {
         match err.device {
-            Some(device) => hadris_fs::Error::from_device(device),
+            Some(device) => hadris_fs::Error::device(device, "device failed"),
             None => err.kind.into(),
         }
     }

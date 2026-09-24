@@ -111,14 +111,6 @@ impl<E> Error<E> {
         }
     }
 
-    pub(crate) const fn device(err: E) -> Self {
-        Self {
-            kind: ErrorKind::Io,
-            detail: None,
-            device: Some(err),
-        }
-    }
-
     /// What went wrong. [`ErrorKind::Io`] when the device failed.
     pub const fn kind(&self) -> ErrorKind {
         self.kind
@@ -186,7 +178,7 @@ impl<E> From<hadris_fs::Error<E>> for Error<E> {
 impl<E> From<Error<E>> for hadris_fs::Error<E> {
     fn from(err: Error<E>) -> Self {
         match err.device {
-            Some(device) => hadris_fs::Error::from_device(device),
+            Some(device) => hadris_fs::Error::device(device, "device failed"),
             None => err.kind.into(),
         }
     }

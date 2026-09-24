@@ -5,9 +5,12 @@ through `BlockDevice`, whose block size is explicit and non-zero. The crate
 does not assume 512-byte sectors and does not define filesystem concepts such
 as FAT clusters or ISO logical sectors.
 
-Every device reports its own error through `hadris_io::ErrorType`. Writes
-return `WriteError<E>`, whose `ReadOnly` variant is how a device refuses a
-write. There is no `writable()` query: a static flag is wrong for an SD card
+Every device names its own error through `hadris_io::ErrorType`, and every
+block operation returns `hadris_io::Error<E>` over it: `Error::device` when
+the device failed, kind `ReadOnly` when it refuses a write, and a kind with
+the block it concerns when an adapter refuses a request itself, such as one
+past the end of a `Slice`. Adapters keep the error type of the device
+underneath. There is no `writable()` query: a static flag is wrong for an SD card
 whose lock switch moves while mounted and for a `std::fs::File` that cannot
 tell how it was opened, and a probe write wears flash. A read-only device
 implements `block_size`, `block_count` and `read_blocks`, and nothing else.
@@ -17,13 +20,11 @@ implements `block_size`, `block_count` and `read_blocks`, and nothing else.
 | Type | Purpose |
 |---|---|
 | `BlockDevice` | Whole-block reads, optional writes and flush. `&mut D`, `Box<D>` and, with `std`, `std::fs::File` implement it too |
-| `WriteError<E>` | `ReadOnly`, or the device's own error |
 | `StreamDevice` | A block device over any `Read + Seek` stream, with any block size. Wrap read-only streams in `ReadOnly`; the sealed `StreamWrite` trait carries the choice |
-| `MemDevice` | A block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`. Error `OutOfRange` |
+| `MemDevice` | A block device over `&[u8]` (read-only), `&mut [u8]`, `[u8; N]`, `Vec<u8>` or `Box<[u8]>`. Device error `Infallible`; requests past the end fail with kind `InvalidInput` |
 | `Slice` | A contiguous block range of another device, such as a partition. Requests past its end never reach the device |
 | `Cache` | Write-back LRU cache of whole blocks (`alloc`). Its first write goes straight through, so a read-only device says so at once. Requests of at least `capacity` blocks bypass it |
 | `ByteView` | Byte-granular reads and writes over a device, also usable as a stream |
-| `StorageError<E>` | Error of the adapters that can refuse a request themselves (`StreamDevice`, `Slice`, `ByteView`) |
 | `BlockIndex`, `BlockCount`, `BlockSize` | Value types with private fields and `const fn` constructors and accessors |
 | `BlockGeometry`, `BlockRange` | Checked block geometry and ranges |
 

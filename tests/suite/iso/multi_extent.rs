@@ -7,7 +7,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use hadris_fs::sync::{DriverExt, FsDriver};
 use hadris_fs::tree::{Content, Tree};
 use hadris_iso::{IsoLevel, IsoOptions, Namespace, RockRidge};
-use hadris_storage::{BlockIndex, BlockSize, WriteError};
+use hadris_storage::{BlockIndex, BlockSize};
 use hadris_tests::harness::command::{require_or_skip, run_command};
 use hadris_tests::harness::tree::EntryData;
 use hadris_tests::iso::model::IsoState;
@@ -178,28 +178,37 @@ impl hadris_storage::sync::BlockDevice for SparseFile {
         self.0.metadata().map_or(0, |meta| meta.len() / 2048)
     }
 
-    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> std::io::Result<()> {
-        self.0.seek(SeekFrom::Start(first.get() * 2048))?;
-        self.0.read_exact(buf)
+    fn read_blocks(
+        &mut self,
+        first: BlockIndex,
+        buf: &mut [u8],
+    ) -> Result<(), hadris_io::Error<std::io::Error>> {
+        self.0
+            .seek(SeekFrom::Start(first.get() * 2048))
+            .and_then(|_| self.0.read_exact(buf))
+            .map_err(|err| hadris_io::Error::device(err, "read failed"))
     }
 
     fn write_blocks(
         &mut self,
         first: BlockIndex,
         buf: &[u8],
-    ) -> Result<(), WriteError<std::io::Error>> {
-        let mut offset = first.get() * 2048;
-        for chunk in buf.chunks(ZEROS.len()) {
-            if chunk != &ZEROS[..chunk.len()] {
-                self.0.seek(SeekFrom::Start(offset))?;
-                self.0.write_all(chunk)?;
+    ) -> Result<(), hadris_io::Error<std::io::Error>> {
+        let mut write = || -> std::io::Result<()> {
+            let mut offset = first.get() * 2048;
+            for chunk in buf.chunks(ZEROS.len()) {
+                if chunk != &ZEROS[..chunk.len()] {
+                    self.0.seek(SeekFrom::Start(offset))?;
+                    self.0.write_all(chunk)?;
+                }
+                offset += chunk.len() as u64;
             }
-            offset += chunk.len() as u64;
-        }
-        if self.0.metadata()?.len() < offset {
-            self.0.set_len(offset)?;
-        }
-        Ok(())
+            if self.0.metadata()?.len() < offset {
+                self.0.set_len(offset)?;
+            }
+            Ok(())
+        };
+        write().map_err(|err| hadris_io::Error::device(err, "write failed"))
     }
 }
 

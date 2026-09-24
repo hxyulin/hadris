@@ -265,7 +265,7 @@ pub fn hadris_cpio::Error<E>::content_error(&self) -> core::option::Option<&hadr
 pub const fn hadris_cpio::Error<E>::detail(&self) -> core::option::Option<hadris_cpio::Detail>
 pub const fn hadris_cpio::Error<E>::device_error(&self) -> core::option::Option<&E>
 pub fn hadris_cpio::Error<E>::into_device_error(self) -> core::option::Option<E>
-pub const fn hadris_cpio::Error<E>::kind(&self) -> hadris_fs::error::ErrorKind
+pub const fn hadris_cpio::Error<E>::kind(&self) -> hadris_io::kind::ErrorKind
 pub fn hadris_cpio::Error<E>::map_device<F>(self, impl core::ops::function::FnOnce(E) -> F) -> hadris_cpio::Error<F>
 impl<E: core::cmp::Eq> core::cmp::Eq for hadris_cpio::Error<E>
 impl<E: core::cmp::PartialEq> core::cmp::PartialEq for hadris_cpio::Error<E>
@@ -278,14 +278,14 @@ impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> 
 pub fn hadris_fs::error::AnyError::from(hadris_cpio::Error<E>) -> Self
 impl<E: core::fmt::Display> core::fmt::Display for hadris_cpio::Error<E>
 pub fn hadris_cpio::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_cpio::Error<E>> for hadris_fs::error::Error<E>
-pub fn hadris_fs::error::Error<E>::from(hadris_cpio::Error<E>) -> Self
-impl<E> core::convert::From<hadris_fs::error::Error<E>> for hadris_cpio::Error<E>
-pub fn hadris_cpio::Error<E>::from(hadris_fs::error::Error<E>) -> Self
-impl<E> core::convert::From<hadris_fs::error::ErrorKind> for hadris_cpio::Error<E>
-pub fn hadris_cpio::Error<E>::from(hadris_fs::error::ErrorKind) -> Self
+impl<E> core::convert::From<hadris_cpio::Error<E>> for hadris_io::fs_error::Error<E>
+pub fn hadris_io::fs_error::Error<E>::from(hadris_cpio::Error<E>) -> Self
 impl<E> core::convert::From<hadris_fs::tree::TreeError> for hadris_cpio::Error<E>
 pub fn hadris_cpio::Error<E>::from(hadris_fs::tree::TreeError) -> Self
+impl<E> core::convert::From<hadris_io::fs_error::Error<E>> for hadris_cpio::Error<E>
+pub fn hadris_cpio::Error<E>::from(hadris_io::fs_error::Error<E>) -> Self
+impl<E> core::convert::From<hadris_io::kind::ErrorKind> for hadris_cpio::Error<E>
+pub fn hadris_cpio::Error<E>::from(hadris_io::kind::ErrorKind) -> Self
 pub struct hadris_cpio::ReaderOptions
 impl hadris_cpio::ReaderOptions
 pub const fn hadris_cpio::ReaderOptions::new() -> Self
