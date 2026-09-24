@@ -42,57 +42,76 @@ fn push_converted(out: &mut Vec<u8>, part: &[u8], case: NameCase) {
 pub(crate) fn convert_l1(name: &str, case: NameCase) -> Vec<u8> {
     let bytes = name.as_bytes();
     let mut out = Vec::with_capacity(14);
-    match name.find('.') {
+    match name.rfind('.') {
         Some(index) => {
             push_converted(&mut out, &bytes[..index.min(8)], case);
             out.push(b'.');
             let ext_len = (name.len() - index - 1).min(3);
             push_converted(&mut out, &bytes[index + 1..index + 1 + ext_len], case);
         }
-        None => push_converted(&mut out, &bytes[..name.len().min(8)], case),
+        None => {
+            push_converted(&mut out, &bytes[..name.len().min(8)], case);
+            out.push(b'.');
+        }
     }
     out.extend_from_slice(b";1");
     out
 }
 
-fn convert_long(name: &str, case: NameCase, max: usize) -> Vec<u8> {
+/// `name` cut to `max` bytes and split at its last dot. With `separator`,
+/// a name without an extension still ends in `.`.
+fn convert_long(name: &str, case: NameCase, max: usize, separator: bool) -> Vec<u8> {
     let bytes = name.as_bytes();
     let mut out = Vec::new();
-    match name.find('.') {
+    match name.rfind('.') {
         Some(index) => {
             let base_end = index.min(max);
             push_converted(&mut out, &bytes[..base_end], case);
             let remaining = max.saturating_sub(base_end + 1);
-            if remaining > 0 {
+            if remaining > 0 || separator {
                 out.push(b'.');
                 let ext_end = (index + 1 + remaining).min(name.len());
                 push_converted(&mut out, &bytes[index + 1..ext_end], case);
             }
         }
-        None => push_converted(&mut out, &bytes[..name.len().min(max)], case),
+        None => {
+            push_converted(&mut out, &bytes[..name.len().min(max)], case);
+            if separator {
+                out.push(b'.');
+            }
+        }
     }
     out
 }
 
-/// A Level 2 file identifier: 30 bytes with `;1`.
+/// A Level 2 file identifier: 30 bytes, then `.` when the name has no
+/// extension, and `;1`.
+///
+/// @hadris-spec ECMA-119:7.5.1
 pub(crate) fn convert_l2(name: &str, case: NameCase) -> Vec<u8> {
-    let mut out = convert_long(name, case, 30);
+    let mut out = convert_long(name, case, 30, true);
     out.extend_from_slice(b";1");
     out
 }
 
 /// An enhanced tree file identifier: 207 bytes, no version.
 pub(crate) fn convert_l3(name: &str) -> Vec<u8> {
-    convert_long(name, NameCase::Preserve, 207)
+    convert_long(name, NameCase::Preserve, 207, false)
 }
 
-/// A big-endian UCS-2 Joliet identifier. Characters outside the BMP
-/// become `_`; names are cut at [`JOLIET_MAX_CHARS`].
+/// Whether Joliet forbids `c` in an identifier.
+fn joliet_forbidden(c: char) -> bool {
+    matches!(c, '\0'..='\u{1F}' | '*' | '/' | ':' | ';' | '?' | '\\')
+}
+
+/// A big-endian UCS-2 Joliet identifier. Characters outside the BMP and
+/// characters Joliet forbids become `_`; names are cut at
+/// [`JOLIET_MAX_CHARS`].
 pub(crate) fn convert_joliet(name: &str) -> Vec<u8> {
     name.chars()
         .take(JOLIET_MAX_CHARS)
         .flat_map(|c| {
-            let unit = if (c as u32) <= 0xFFFF {
+            let unit = if (c as u32) <= 0xFFFF && !joliet_forbidden(c) {
                 c as u16
             } else {
                 u16::from(b'_')
@@ -100,6 +119,19 @@ pub(crate) fn convert_joliet(name: &str) -> Vec<u8> {
             unit.to_be_bytes()
         })
         .collect()
+}
+
+/// Why the Joliet identifier of `name` differs from it, if it does.
+pub(crate) fn joliet_change(name: &str) -> Option<&'static str> {
+    if name.chars().count() > JOLIET_MAX_CHARS {
+        Some("the Joliet name is cut to 64 characters")
+    } else if name.chars().any(|c| (c as u32) > 0xFFFF) {
+        Some("characters outside the Basic Multilingual Plane become _ in the Joliet name")
+    } else if name.chars().any(joliet_forbidden) {
+        Some("characters Joliet forbids become _ in the Joliet name")
+    } else {
+        None
+    }
 }
 
 fn primary_directory(name: &str, max: usize, case: NameCase) -> Vec<u8> {
@@ -159,7 +191,7 @@ fn joliet_dedup(name: &[u8], suffix: &str) -> Vec<u8> {
     let suffix: Vec<u8> = suffix.encode_utf16().flat_map(u16::to_be_bytes).collect();
     let dot = name
         .chunks_exact(2)
-        .position(|pair| pair == [0x00, b'.'])
+        .rposition(|pair| pair == [0x00, b'.'])
         .map(|index| index * 2);
     let (base, ext) = match dot {
         Some(pos) => (&name[..pos], &name[pos..]),
@@ -235,8 +267,10 @@ mod tests {
             b"this_is_._ve;1"
         );
         assert_eq!(convert_l1("file.", NameCase::Upper), b"FILE.;1");
-        assert_eq!(convert_l1("..", NameCase::Upper), b"._;1");
-        assert_eq!(convert_l1("LONGFILENAME", NameCase::Upper), b"LONGFILE;1");
+        assert_eq!(convert_l1("..", NameCase::Upper), b"_.;1");
+        assert_eq!(convert_l1("LONGFILENAME", NameCase::Upper), b"LONGFILE.;1");
+        assert_eq!(convert_l1("README", NameCase::Upper), b"README.;1");
+        assert_eq!(convert_l1("x.tar.gz", NameCase::Upper), b"X_TAR.GZ;1");
         assert_eq!(
             convert_l1("longname1.longext", NameCase::Upper),
             b"LONGNAME.LON;1"
@@ -252,8 +286,11 @@ mod tests {
                 "this-is-a-very-long-directory-name-without-extension",
                 NameCase::Upper
             ),
-            b"THIS_IS_A_VERY_LONG_DIRECTORY_;1"
+            b"THIS_IS_A_VERY_LONG_DIRECTORY_.;1"
         );
+        assert_eq!(convert_l2("README", NameCase::Upper), b"README.;1");
+        assert_eq!(convert_l2("x.tar.gz", NameCase::Upper), b"X_TAR.GZ;1");
+        assert_eq!(convert_l3("x.tar.gz"), b"x_tar.gz");
         assert_eq!(convert_l3("readme.txt"), b"readme.txt");
         assert_eq!(convert_l3(&"a".repeat(250)).len(), 207);
     }
@@ -262,12 +299,21 @@ mod tests {
     fn joliet_names() {
         assert_eq!(convert_joliet(&"a".repeat(200)).len(), 128);
         assert_eq!(convert_joliet("a\u{1F600}b"), [0, b'a', 0, b'_', 0, b'b']);
+        assert_eq!(convert_joliet("a*:?"), [0, b'a', 0, b'_', 0, b'_', 0, b'_']);
+        assert_eq!(
+            convert_joliet("x;1\\"),
+            [0, b'x', 0, b'_', 0, b'1', 0, b'_']
+        );
+        assert!(joliet_change(&"a".repeat(65)).is_some());
+        assert!(joliet_change("a\u{1F600}").is_some());
+        assert!(joliet_change("a:b").is_some());
+        assert_eq!(joliet_change("caf\u{e9}.txt"), None);
     }
 
     #[test]
     fn dedup_suffixes() {
         assert_eq!(L1.dedup(b"README.TXT;1", 1), b"README_1.TXT;1");
-        assert_eq!(L1.dedup(b"FILENAME;1", 1), b"FILENA_1;1");
+        assert_eq!(L1.dedup(b"FILENAME.;1", 1), b"FILENA_1.;1");
         assert_eq!(L2.dedup(b"LONGFILENAME.EXT;1", 2), b"LONGFILENAME_2.EXT;1");
         assert_eq!(Rules::Enhanced.dedup(b"README.TXT", 1), b"README_1.TXT");
     }

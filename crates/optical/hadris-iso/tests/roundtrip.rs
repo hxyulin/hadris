@@ -4,7 +4,7 @@ mod common;
 
 use common::{image, pattern, sample};
 use hadris_fs::sync::{DriverExt, FsDriver};
-use hadris_fs::tree::WarningKind;
+use hadris_fs::tree::{Content, Tree, WarningKind};
 use hadris_fs::{DeviceNumber, ErrorKind, FileType, Mode, NameBuf};
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{
@@ -338,4 +338,59 @@ fn supplementary_escape_sequences_are_zero_padded() {
         }
     }
     assert_eq!(seen, 2, "a Joliet and an enhanced descriptor");
+}
+
+#[test]
+fn primary_names_keep_the_separator_and_split_at_the_last_dot() {
+    let mut tree = Tree::new();
+    tree.add_file("README", Content::bytes("r")).unwrap();
+    tree.add_file("x.tar.gz", Content::bytes("x")).unwrap();
+    for level in [IsoLevel::L1, IsoLevel::L2] {
+        let options = IsoOptions::default().with_level(level);
+        let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
+        let mut view = iso.view(Namespace::Primary).unwrap();
+        let readme = view.resolve("/README").unwrap();
+        assert_eq!(view.raw_record(readme).unwrap().name(), b"README.;1");
+        let tarball = view.resolve("/X_TAR.GZ").unwrap();
+        assert_eq!(view.raw_record(tarball).unwrap().name(), b"X_TAR.GZ;1");
+        assert_eq!(view.read_to_vec("/README").unwrap(), b"r");
+    }
+}
+
+#[test]
+fn joliet_reports_the_names_it_changes() {
+    let mut tree = Tree::new();
+    let long = "n".repeat(70);
+    for name in [
+        "a*b?c:d",
+        "emoji\u{1F600}.txt",
+        "Makefile",
+        "makefile",
+        long.as_str(),
+        "plain.txt",
+    ] {
+        tree.add_file(name, Content::bytes("x")).unwrap();
+    }
+    let options = IsoOptions::default().with_joliet(JolietLevel::L3);
+    let report = hadris_iso::sync::plan(&tree, &options).unwrap();
+    let mut warned: Vec<_> = report
+        .warnings()
+        .iter()
+        .inspect(|w| assert_eq!(w.kind(), WarningKind::Renamed))
+        .map(|w| w.path().to_string())
+        .collect();
+    warned.sort();
+    assert_eq!(
+        warned,
+        [
+            "/a*b?c:d".to_string(),
+            "/emoji\u{1F600}.txt".to_string(),
+            "/makefile".to_string(),
+            format!("/{long}"),
+        ]
+    );
+    let mut iso = IsoImage::open(image(&tree, &options)).unwrap();
+    let mut view = iso.view(Namespace::Joliet).unwrap();
+    assert_eq!(view.read_to_vec("/a_b_c_d").unwrap(), b"x");
+    assert_eq!(view.read_to_vec("/emoji_.txt").unwrap(), b"x");
 }

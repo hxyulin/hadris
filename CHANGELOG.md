@@ -970,6 +970,13 @@ Each published package owns its version and may be released independently.
 - **hadris-cd-cli:** `verify` accepts a Rock Ridge image whose deep
   directories were relocated: the relocation directory, which only the ISO
   side holds, is no longer reported as a mismatch.
+- **hadris-iso (V3):** Level 1 and 2 file identifiers without an extension
+  keep the separator (`README.;1`), as ECMA-119 7.5.1 requires, and names
+  split at their last dot (`x.tar.gz` becomes `X_TAR.GZ`). Joliet names
+  replace the characters Joliet forbids (`* / : ; ? \` and controls) with
+  `_`, and the `Report` warns when a Joliet name is cut to 64 characters,
+  loses characters outside the BMP or forbidden ones, or differs from a
+  sibling only in case.
 
 ## [2.4.0] - 2026-09-08
 

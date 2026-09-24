@@ -1587,7 +1587,58 @@ impl<C: Clock> Planner<'_, C> {
                 ));
             }
         }
+        if self
+            .trees
+            .iter()
+            .any(|(tree, _)| matches!(tree, TreeKind::Joliet(_)))
+        {
+            self.joliet_warnings(&mut warnings);
+        }
         Report::new(total, extents, warnings)
+    }
+
+    /// Warns about names the Joliet tree changes, and about names that
+    /// differ from a sibling's only in case, which case-insensitive readers
+    /// cannot tell apart.
+    fn joliet_warnings(&self, warnings: &mut Vec<Warning>) {
+        for (index, dir) in self.dirs.iter().enumerate() {
+            if Some(index) == self.rr_moved {
+                continue;
+            }
+            let children = dir
+                .dirs
+                .iter()
+                .map(|&child| (&self.dirs[child].name, &self.dirs[child].path))
+                .chain(
+                    dir.files
+                        .iter()
+                        .map(|&file| &self.files[file])
+                        .filter(|f| !matches!(f.kind, FileKind::Catalog { .. }))
+                        .map(|f| (&f.name, &f.path)),
+                );
+            let mut folded = BTreeMap::new();
+            for (name, path) in children {
+                if let Some(reason) = names::joliet_change(name) {
+                    warnings.push(Warning::new(path.clone(), WarningKind::Renamed, reason));
+                }
+                let key = String::from_utf16_lossy(
+                    &names::convert_joliet(name)
+                        .chunks_exact(2)
+                        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                        .collect::<Vec<_>>(),
+                )
+                .to_lowercase();
+                if let Some(first) = folded.insert(key, path) {
+                    warnings.push(Warning::new(
+                        path.clone(),
+                        WarningKind::Renamed,
+                        alloc::format!(
+                            "the Joliet name differs from {first} only in case; case-insensitive readers see one of them"
+                        ),
+                    ));
+                }
+            }
+        }
     }
 }
 
