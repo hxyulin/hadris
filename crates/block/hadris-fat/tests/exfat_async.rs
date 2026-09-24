@@ -7,7 +7,7 @@ mod common;
 mod cancel;
 
 use hadris_fat::exfat::MountOptions;
-use hadris_fat::exfat::r#async::{ExFatFs, check_with};
+use hadris_fat::exfat::r#async::{ExFatFs, check};
 use hadris_fs::{ErrorKind, HeapTable};
 
 #[test]
@@ -34,14 +34,17 @@ fn dropped_operations_leave_whole_entry_sets_and_no_lost_clusters() {
         }
         assert!(dropped > 50, "{cluster}: {dropped} dropped");
         cancel::run_for(fs.sync(), usize::MAX).unwrap().unwrap();
+        let mut dev = fs.into_inner();
         let mut findings = Vec::new();
         let report = cancel::run_for(
-            check_with(&mut fs, &mut [0u8; 8192], |finding| findings.push(finding)),
+            check(&mut dev, &mut [0u8; 8192], |finding| {
+                findings.push(finding.to_string())
+            }),
             usize::MAX,
         )
         .unwrap()
         .unwrap();
         assert!(report.is_clean(), "{cluster}: {findings:?}");
-        common::fsck(&fs.into_inner().0.into_inner(), "dropped operations");
+        common::fsck(&dev.0.into_inner(), "dropped operations");
     }
 }

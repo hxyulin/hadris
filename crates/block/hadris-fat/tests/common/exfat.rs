@@ -4,9 +4,12 @@ use std::path::Path;
 use std::process::Command;
 
 use hadris_fat::exfat::sync::{ExFatFs, format};
-use hadris_fat::exfat::{FormatOptions, MountOptions, VolumeLabel};
+use hadris_fat::exfat::{Detail, FormatOptions, MountOptions, VolumeLabel};
 use hadris_fs::sync::{DriverExt, FsDriver};
-use hadris_fs::{DirCursor, HeapTable, Name, NameBuf, NewNode, NodeId, SetMetadata};
+use hadris_fs::{
+    CheckReport, DirCursor, Finding, HeapTable, Location, Name, NameBuf, NewNode, NodeId,
+    SetMetadata, Severity,
+};
 use hadris_storage::{BlockSize, MemDevice};
 
 pub type Device = MemDevice<Vec<u8>>;
@@ -129,12 +132,55 @@ pub fn read(fs: &mut Fs, path: &str) -> Vec<u8> {
     fs.read_to_vec(path).unwrap()
 }
 
-/// Asserts that `check` finds nothing.
+/// A finding copied out of the `check` callback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Found {
+    pub detail: Detail,
+    pub severity: Severity,
+    pub location: Option<Location>,
+    pub path: Option<String>,
+    pub message: &'static str,
+}
+
+impl Found {
+    pub fn new(finding: &Finding<'_>) -> Self {
+        Self {
+            detail: Detail::from_code(finding.detail()).unwrap(),
+            severity: finding.severity(),
+            location: finding.location(),
+            path: finding
+                .path()
+                .map(|path| String::from_utf8_lossy(path).into_owned()),
+            message: finding.message(),
+        }
+    }
+}
+
+/// Checks `dev` with `scratch` bytes of scratch space and returns every
+/// finding.
+pub fn check_dev<D: hadris_storage::sync::BlockDevice>(
+    dev: &mut D,
+    scratch: usize,
+) -> (CheckReport, Vec<Found>) {
+    let mut found = Vec::new();
+    let mut scratch = vec![0u8; scratch];
+    let report = hadris_fat::exfat::sync::check(dev, &mut scratch, |finding| {
+        found.push(Found::new(finding))
+    })
+    .unwrap();
+    assert_eq!(report.findings() as usize, found.len());
+    (report, found)
+}
+
+/// Asserts that `check` finds nothing on what `fs` has written, and mounts
+/// the volume again.
 pub fn clean(fs: &mut Fs, what: &str) {
-    let mut findings = Vec::new();
-    let report =
-        hadris_fat::exfat::sync::check_with(fs, &mut [0u8; 4096], |f| findings.push(f)).unwrap();
-    assert!(report.is_clean(), "{what}: {findings:?}");
+    static PLACEHOLDER: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    let placeholder = PLACEHOLDER.get_or_init(|| image(small(4 << 20, 4096)));
+    let mut dev = std::mem::replace(fs, mount(placeholder)).into_inner();
+    let (_, found) = check_dev(&mut dev, 4096);
+    assert_eq!(found, [], "{what}");
+    *fs = ExFatFs::open_with(dev, MountOptions::new().with_table(HeapTable::new())).unwrap();
 }
 
 /// Formats a volume and fills it: nested directories, long and Unicode

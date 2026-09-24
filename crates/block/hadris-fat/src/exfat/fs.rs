@@ -10,16 +10,12 @@ use hadris_fs::{
 use super::block_io::{BlockBuf, new_block, read_bytes, write_bytes};
 use super::exio;
 use super::storage::BlockDevice;
-use hadris_fat_raw::exfat::io::{BootRegion, ClusterState, ExFat, Upcase};
+use hadris_fat_raw::exfat::io::{BootRegion, ClusterState, DirWalk, ExFat, Extent, Upcase};
 use hadris_fat_raw::exfat::{self as raw, ENTRY_SIZE, MAX_SET, NameUnits, RawEntry};
 use hadris_fat_raw::name as names;
 
 use crate::exfat::{MountOptions, VolumeLabel, le16, le32, le64};
 use hadris_fat_raw::io::{ChainPos, Held};
-
-#[path = "check.rs"]
-mod fsck;
-pub use fsck::{check, check_with};
 
 const ROOT: NodeId = NodeId::new(1);
 /// A node id holds the slot of its File entry, the entry's byte offset
@@ -113,24 +109,14 @@ pub(super) struct DirStart {
     pub(super) size: u64,
 }
 
-/// A position in a directory's clusters, kept across slots so a scan
-/// walks the chain once.
-#[derive(Clone, Copy)]
-pub(super) struct Walk {
-    start: DirStart,
-    at: ChainPos,
-    /// The last cluster reached.
-    last: u32,
-}
-
-impl Walk {
-    pub(super) fn new(start: DirStart) -> Self {
-        Self {
-            start,
-            at: ChainPos::NONE,
-            last: 0,
-        }
-    }
+/// A walk of the entries of `dir`.
+fn walk(dir: DirStart) -> DirWalk {
+    let Alloc { first, contiguous } = dir.alloc;
+    DirWalk::new(if contiguous {
+        Extent::contiguous(first, dir.size)
+    } else {
+        Extent::chain(first, dir.size)
+    })
 }
 
 /// A File entry set read from a directory.
@@ -780,14 +766,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let Ok(mut slot) = u32::try_from(cursor.into_raw()) else {
             return Ok(None);
         };
-        let mut walk = Walk::new(start);
+        let mut walk = walk(start);
         if !start.alloc.contiguous {
-            walk.at = self.dir_hint(dir);
+            walk = DirWalk::resume(walk.dir(), self.dir_hint(dir));
         }
         let mut set = Set::new();
         let next = self.next_set(&mut walk, &mut slot, &mut set).await?;
-        if walk.at.cluster() != 0 {
-            self.set_dir_hint(dir, walk.at);
+        if walk.pos().cluster() != 0 {
+            self.set_dir_hint(dir, walk.pos());
         }
         let Some(at) = next else {
             *cursor = DirCursor::from_raw(slot as u64);
@@ -1938,39 +1924,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Byte offset of directory slot `slot`, or `None` past the end.
-    pub(super) async fn slot_offset(&mut self, walk: &mut Walk, slot: u32) -> FsResult<Option<u64>, D::Error> {
-        let bytes = slot as u64 * ENTRY_SIZE as u64;
-        let start = walk.start;
-        if start.alloc.first == 0 || bytes >= start.size || bytes >= raw::MAX_DIRECTORY_SIZE {
-            return Ok(None);
-        }
-        let want = (bytes >> self.vol.geometry().cluster_shift()) as u32;
-        let within = bytes & (self.vol.geometry().cluster_size() - 1);
-        let cluster = if start.alloc.contiguous {
-            self.check_cluster(start.alloc.first.checked_add(want).ok_or(ErrorKind::Corrupt)?)?
-        } else {
-            if walk.at.cluster() == 0 || want < walk.at.index() {
-                walk.at = ChainPos::start(self.check_cluster(start.alloc.first)?);
-            }
-            while walk.at.index() < want {
-                match self.next_cluster(walk.at.cluster()).await? {
-                    Some(next) if walk.at.advance(next) => {}
-                    Some(_) => return Err(ErrorKind::Corrupt.into()),
-                    None => {
-                        walk.last = walk.at.cluster();
-                        return Ok(None);
-                    }
-                }
-            }
-            walk.at.cluster()
-        };
-        walk.last = cluster;
-        Ok(Some(self.cluster_at(cluster)? + within))
+    pub(super) async fn slot_offset(&mut self, walk: &mut DirWalk, slot: u32) -> FsResult<Option<u64>, D::Error> {
+        exio::slot_offset(&mut self.dev, &mut self.block, self.vol.geometry(), walk, slot).await
     }
 
     /// Reads the entry set whose File entry is directory slot `slot` into
     /// `set`. False when the entries there are not a valid set.
-    async fn read_set(&mut self, walk: &mut Walk, slot: u32, primary: RawEntry, offset: u64, set: &mut Set) -> FsResult<bool, D::Error> {
+    async fn read_set(&mut self, walk: &mut DirWalk, slot: u32, primary: RawEntry, offset: u64, set: &mut Set) -> FsResult<bool, D::Error> {
         let count = 1 + primary[1] as usize;
         if !(3..=MAX_SET).contains(&count) {
             return Ok(false);
@@ -1991,7 +1951,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
 
     /// Scans from `slot` to the next valid File entry set, reads it into
     /// `set`, and leaves `slot` after it. Returns the set's slot.
-    async fn next_set(&mut self, walk: &mut Walk, slot: &mut u32, set: &mut Set) -> FsResult<Option<u32>, D::Error> {
+    async fn next_set(&mut self, walk: &mut DirWalk, slot: &mut u32, set: &mut Set) -> FsResult<Option<u32>, D::Error> {
         while let Some(offset) = self.slot_offset(walk, *slot).await? {
             let at = *slot;
             let mut entry = [0u8; ENTRY_SIZE];
@@ -2043,7 +2003,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// another name length or hash are passed over unread.
     async fn find(&mut self, start: DirStart, query: &NameUnits, found: &mut Located) -> FsResult<bool, D::Error> {
         let hash = self.name_hash(query).await?;
-        let mut walk = Walk::new(start);
+        let mut walk = walk(start);
         let mut slot = 0;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
             let at = slot;
@@ -2072,7 +2032,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// Whether the set whose File entry is slot `slot` may be named
     /// `name`: false only when its stream entry records another name
     /// length or name hash. `hash` is the `NameHash` of `name`.
-    async fn may_be_named(&mut self, walk: &mut Walk, slot: u32, name: &NameUnits, hash: u16) -> FsResult<bool, D::Error> {
+    async fn may_be_named(&mut self, walk: &mut DirWalk, slot: u32, name: &NameUnits, hash: u16) -> FsResult<bool, D::Error> {
         let Some(at) = self.slot_offset(walk, slot + 1).await? else {
             return Ok(true);
         };
@@ -2082,7 +2042,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     async fn find_label(&mut self) -> FsResult<Option<(u64, RawEntry)>, D::Error> {
-        let mut walk = Walk::new(self.root_start());
+        let mut walk = walk(self.root_start());
         let mut slot = 0;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
             let mut entry = [0u8; ENTRY_SIZE];
@@ -2098,7 +2058,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     async fn dir_is_empty(&mut self, alloc: Alloc, len: u64) -> FsResult<bool, D::Error> {
-        let mut walk = Walk::new(DirStart { alloc, size: len });
+        let mut walk = walk(DirStart { alloc, size: len });
         let mut slot = 0;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
             let mut entry = [0u8; ENTRY_SIZE];
@@ -2125,7 +2085,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let mut set = Set::new();
         while depth > 0 {
             let (dir, dir_entry, slot) = stack[depth - 1];
-            let mut walk = Walk::new(dir);
+            let mut walk = walk(dir);
             let mut next = slot;
             if self.next_set(&mut walk, &mut next, &mut set).await?.is_none() {
                 depth -= 1;
@@ -2177,7 +2137,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if needed as usize > MAX_SET {
             return Err(ErrorKind::NameTooLong.into());
         }
-        let mut walk = Walk::new(dir);
+        let mut walk = walk(dir);
         let mut slot = 0u32;
         let mut end = false;
         let (mut run_start, mut run_len) = (0, 0);
@@ -2245,7 +2205,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// A pending allocation is owned by the new set from its write on.
     async fn insert(&mut self, dir: DirStart, dir_entry: u64, plan: &Plan, entries: &[RawEntry]) -> FsResult<u64, D::Error> {
         let dir = if plan.grow > 0 { self.grow_dir(dir, dir_entry, plan.grow).await? } else { dir };
-        let mut walk = Walk::new(dir);
+        let mut walk = walk(dir);
         let mut at = [0u64; MAX_SET];
         for (index, slot) in at.iter_mut().enumerate().take(entries.len()) {
             *slot = self
@@ -2516,7 +2476,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
 
     /// Clears the entries a failed move wrote.
     async fn clear_new(&mut self, dir: DirStart, plan: &Plan, count: usize) -> FsResult<(), D::Error> {
-        let mut walk = Walk::new(dir);
+        let mut walk = walk(dir);
         for slot in plan.start..plan.start + count as u32 {
             if let Some(at) = self.slot_offset(&mut walk, slot).await? {
                 let mut entry = [0u8; 1];
@@ -2623,10 +2583,6 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Reads bitmap bytes from `pos`, at most to the end of a cluster.
-    pub(super) async fn bitmap_bytes(&mut self, pos: u64, out: &mut [u8]) -> FsResult<usize, D::Error> {
-        exio::bitmap_bytes(&mut self.dev, &mut self.block, &mut self.vol, pos, out).await
-    }
-
     async fn set_bit(&mut self, cluster: u32, state: ClusterState) -> FsResult<(), D::Error> {
         self.writable()?;
         let result = exio::set_bit(&mut self.dev, &mut self.block, &mut self.vol, cluster, state).await;

@@ -126,6 +126,7 @@ pub mod hadris_fat::exfat
 pub use hadris_fat::exfat::Detail
 pub use hadris_fat::exfat::raw
 pub mod hadris_fat::exfat::async
+pub use hadris_fat::exfat::async::check
 pub struct hadris_fat::exfat::async::ExFatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock>
 impl<D: hadris_storage::async::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock> hadris_fat::exfat::async::ExFatFs<D, T, C>
 pub fn hadris_fat::exfat::async::ExFatFs<D, T, C>::capabilities(&self) -> hadris_fs::caps::Capabilities
@@ -184,10 +185,9 @@ pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::stats(&mut self) -> had
 pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::sync_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::exfat::async::ExFatFs<D, T, C>::write_at(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::check<D: hadris_storage::async::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock>(&mut hadris_fat::exfat::async::ExFatFs<D, T, C>) -> hadris_io::fs_error::FsResult<hadris_fat::exfat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async::check_with<D: hadris_storage::async::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, F: core::ops::function::FnMut(hadris_fat::exfat::Finding)>(&mut hadris_fat::exfat::async::ExFatFs<D, T, C>, &mut [u8], F) -> hadris_io::fs_error::FsResult<hadris_fat::exfat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::exfat::async::format<D: hadris_storage::async::api::BlockDevice, C: hadris_fs::time::Clock>(D, hadris_fat::exfat::FormatOptions<C>) -> core::result::Result<hadris_fat::exfat::async::ExFatFs<D, hadris_fs::table::FixedTable<64>, C>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub mod hadris_fat::exfat::async_send
+pub use hadris_fat::exfat::async_send::check
 pub struct hadris_fat::exfat::async_send::ExFatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock>
 impl<D: hadris_storage::async_send::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock> hadris_fat::exfat::async_send::ExFatFs<D, T, C>
 pub fn hadris_fat::exfat::async_send::ExFatFs<D, T, C>::capabilities(&self) -> hadris_fs::caps::Capabilities
@@ -246,10 +246,9 @@ pub async fn hadris_fat::exfat::async_send::ExFatFs<D, T, C>::stats(&mut self) -
 pub async fn hadris_fat::exfat::async_send::ExFatFs<D, T, C>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::exfat::async_send::ExFatFs<D, T, C>::sync_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::exfat::async_send::ExFatFs<D, T, C>::write_at(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async_send::check<D: hadris_storage::async_send::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock>(&mut hadris_fat::exfat::async_send::ExFatFs<D, T, C>) -> hadris_io::fs_error::FsResult<hadris_fat::exfat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
-pub async fn hadris_fat::exfat::async_send::check_with<D: hadris_storage::async_send::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, F: core::ops::function::FnMut(hadris_fat::exfat::Finding)>(&mut hadris_fat::exfat::async_send::ExFatFs<D, T, C>, &mut [u8], F) -> hadris_io::fs_error::FsResult<hadris_fat::exfat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
 pub async fn hadris_fat::exfat::async_send::format<D: hadris_storage::async_send::api::BlockDevice, C: hadris_fs::time::Clock>(D, hadris_fat::exfat::FormatOptions<C>) -> core::result::Result<hadris_fat::exfat::async_send::ExFatFs<D, hadris_fs::table::FixedTable<64>, C>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
 pub mod hadris_fat::exfat::sync
+pub use hadris_fat::exfat::sync::check
 pub struct hadris_fat::exfat::sync::ExFatFs<D, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock>
 impl<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock> hadris_fat::exfat::sync::ExFatFs<D, T, C>
 pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::capabilities(&self) -> hadris_fs::caps::Capabilities
@@ -308,104 +307,7 @@ pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::stats(&mut self) -> hadris_io:
 pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::sync(&mut self) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::sync_node(&mut self, hadris_fs::node::NodeId) -> hadris_io::fs_error::FsResult<(), <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_fat::exfat::sync::ExFatFs<D, T, C>::write_at(&mut self, hadris_fs::node::NodeId, u64, &[u8]) -> hadris_io::fs_error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::check<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock>(&mut hadris_fat::exfat::sync::ExFatFs<D, T, C>) -> hadris_io::fs_error::FsResult<hadris_fat::exfat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
-pub fn hadris_fat::exfat::sync::check_with<D: hadris_storage::sync::api::BlockDevice, T: hadris_fs::table::NodeTable, C: hadris_fs::time::Clock, F: core::ops::function::FnMut(hadris_fat::exfat::Finding)>(&mut hadris_fat::exfat::sync::ExFatFs<D, T, C>, &mut [u8], F) -> hadris_io::fs_error::FsResult<hadris_fat::exfat::CheckReport, <D as hadris_io::error::ErrorType>::Error>
 pub fn hadris_fat::exfat::sync::format<D: hadris_storage::sync::api::BlockDevice, C: hadris_fs::time::Clock>(D, hadris_fat::exfat::FormatOptions<C>) -> core::result::Result<hadris_fat::exfat::sync::ExFatFs<D, hadris_fs::table::FixedTable<64>, C>, hadris_fs::error::MountError<D, <D as hadris_io::error::ErrorType>::Error>>
-#[non_exhaustive] pub enum hadris_fat::exfat::Finding
-pub hadris_fat::exfat::Finding::BackupBootRegion
-#[non_exhaustive] pub hadris_fat::exfat::Finding::BadCluster
-pub hadris_fat::exfat::Finding::BadCluster::cluster: u32
-pub hadris_fat::exfat::Finding::BadCluster::entry: u64
-#[non_exhaustive] pub hadris_fat::exfat::Finding::BadName
-pub hadris_fat::exfat::Finding::BadName::entry: u64
-pub hadris_fat::exfat::Finding::BootChecksum
-pub hadris_fat::exfat::Finding::BootSector(&'static str)
-#[non_exhaustive] pub hadris_fat::exfat::Finding::BrokenChain
-pub hadris_fat::exfat::Finding::BrokenChain::cluster: u32
-pub hadris_fat::exfat::Finding::BrokenChain::entry: u64
-pub hadris_fat::exfat::Finding::BrokenChain::next: u32
-#[non_exhaustive] pub hadris_fat::exfat::Finding::ChainTooLong
-pub hadris_fat::exfat::Finding::ChainTooLong::clusters: u32
-pub hadris_fat::exfat::Finding::ChainTooLong::entry: u64
-pub hadris_fat::exfat::Finding::ChainTooLong::size: u64
-#[non_exhaustive] pub hadris_fat::exfat::Finding::ChainTooShort
-pub hadris_fat::exfat::Finding::ChainTooShort::clusters: u32
-pub hadris_fat::exfat::Finding::ChainTooShort::entry: u64
-pub hadris_fat::exfat::Finding::ChainTooShort::size: u64
-#[non_exhaustive] pub hadris_fat::exfat::Finding::CrossLinked
-pub hadris_fat::exfat::Finding::CrossLinked::cluster: u32
-pub hadris_fat::exfat::Finding::CrossLinked::entry: u64
-#[non_exhaustive] pub hadris_fat::exfat::Finding::CyclicChain
-pub hadris_fat::exfat::Finding::CyclicChain::cluster: u32
-pub hadris_fat::exfat::Finding::CyclicChain::entry: u64
-#[non_exhaustive] pub hadris_fat::exfat::Finding::DirectorySize
-pub hadris_fat::exfat::Finding::DirectorySize::entry: u64
-#[non_exhaustive] pub hadris_fat::exfat::Finding::EntrySet
-pub hadris_fat::exfat::Finding::EntrySet::entry: u64
-pub hadris_fat::exfat::Finding::FatEntries
-#[non_exhaustive] pub hadris_fat::exfat::Finding::FreeInUse
-pub hadris_fat::exfat::Finding::FreeInUse::count: u32
-pub hadris_fat::exfat::Finding::FreeInUse::first: u32
-#[non_exhaustive] pub hadris_fat::exfat::Finding::InvalidCluster
-pub hadris_fat::exfat::Finding::InvalidCluster::cluster: u32
-pub hadris_fat::exfat::Finding::InvalidCluster::entry: u64
-#[non_exhaustive] pub hadris_fat::exfat::Finding::LostClusters
-pub hadris_fat::exfat::Finding::LostClusters::count: u32
-pub hadris_fat::exfat::Finding::LostClusters::first: u32
-#[non_exhaustive] pub hadris_fat::exfat::Finding::NameHash
-pub hadris_fat::exfat::Finding::NameHash::entry: u64
-#[non_exhaustive] pub hadris_fat::exfat::Finding::PercentInUse
-pub hadris_fat::exfat::Finding::PercentInUse::actual: u8
-pub hadris_fat::exfat::Finding::PercentInUse::recorded: u8
-#[non_exhaustive] pub hadris_fat::exfat::Finding::RootEntry
-pub hadris_fat::exfat::Finding::RootEntry::entry: u64
-#[non_exhaustive] pub hadris_fat::exfat::Finding::SetChecksum
-pub hadris_fat::exfat::Finding::SetChecksum::entry: u64
-#[non_exhaustive] pub hadris_fat::exfat::Finding::TooDeep
-pub hadris_fat::exfat::Finding::TooDeep::entry: u64
-pub hadris_fat::exfat::Finding::UpcaseTable
-#[non_exhaustive] pub hadris_fat::exfat::Finding::ValidDataLength
-pub hadris_fat::exfat::Finding::ValidDataLength::entry: u64
-pub hadris_fat::exfat::Finding::VolumeDirty
-impl hadris_fat::exfat::Finding
-pub const fn hadris_fat::exfat::Finding::kind(&self) -> hadris_fat::exfat::FindingKind
-#[non_exhaustive] pub enum hadris_fat::exfat::FindingKind
-pub hadris_fat::exfat::FindingKind::BackupBootRegion
-pub hadris_fat::exfat::FindingKind::BadCluster
-pub hadris_fat::exfat::FindingKind::BadName
-pub hadris_fat::exfat::FindingKind::BootChecksum
-pub hadris_fat::exfat::FindingKind::BootSector
-pub hadris_fat::exfat::FindingKind::BrokenChain
-pub hadris_fat::exfat::FindingKind::ChainTooLong
-pub hadris_fat::exfat::FindingKind::ChainTooShort
-pub hadris_fat::exfat::FindingKind::CrossLinked
-pub hadris_fat::exfat::FindingKind::CyclicChain
-pub hadris_fat::exfat::FindingKind::DirectorySize
-pub hadris_fat::exfat::FindingKind::EntrySet
-pub hadris_fat::exfat::FindingKind::FatEntries
-pub hadris_fat::exfat::FindingKind::FreeInUse
-pub hadris_fat::exfat::FindingKind::InvalidCluster
-pub hadris_fat::exfat::FindingKind::LostClusters
-pub hadris_fat::exfat::FindingKind::NameHash
-pub hadris_fat::exfat::FindingKind::PercentInUse
-pub hadris_fat::exfat::FindingKind::RootEntry
-pub hadris_fat::exfat::FindingKind::SetChecksum
-pub hadris_fat::exfat::FindingKind::TooDeep
-pub hadris_fat::exfat::FindingKind::UpcaseTable
-pub hadris_fat::exfat::FindingKind::ValidDataLength
-pub hadris_fat::exfat::FindingKind::VolumeDirty
-pub struct hadris_fat::exfat::CheckReport
-impl hadris_fat::exfat::CheckReport
-pub fn hadris_fat::exfat::CheckReport::bad_clusters(&self) -> u32
-pub fn hadris_fat::exfat::CheckReport::count(&self, hadris_fat::exfat::FindingKind) -> u32
-pub fn hadris_fat::exfat::CheckReport::directories(&self) -> u32
-pub fn hadris_fat::exfat::CheckReport::files(&self) -> u32
-pub fn hadris_fat::exfat::CheckReport::findings(&self) -> u32
-pub fn hadris_fat::exfat::CheckReport::free_clusters(&self) -> u32
-pub fn hadris_fat::exfat::CheckReport::is_clean(&self) -> bool
-pub fn hadris_fat::exfat::CheckReport::lost_clusters(&self) -> u32
-pub fn hadris_fat::exfat::CheckReport::passes(&self) -> u32
-pub fn hadris_fat::exfat::CheckReport::used_clusters(&self) -> u32
 pub struct hadris_fat::exfat::FormatOptions<C>
 impl hadris_fat::exfat::FormatOptions
 pub const fn hadris_fat::exfat::FormatOptions::new() -> Self

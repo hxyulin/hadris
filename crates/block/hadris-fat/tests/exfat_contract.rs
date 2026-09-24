@@ -44,13 +44,17 @@ fn async_modes() {
             .await
             .unwrap();
         hadris_fs::r#async::contract::check(&mut fs).await.unwrap();
+        let mut dev = fs.into_inner();
         let mut findings = Vec::new();
-        let report =
-            hadris_fat::exfat::r#async::check_with(&mut fs, &mut [0u8; 64], |f| findings.push(f))
-                .await
-                .unwrap();
+        hadris_fat::exfat::r#async::check(&mut dev, &mut [0u8; 1536], |f| {
+            findings.push(common::Found::new(f))
+        })
+        .await
+        .unwrap();
         assert!(
-            report.count(hadris_fat::exfat::FindingKind::VolumeDirty) <= 1,
+            findings
+                .iter()
+                .all(|f| f.detail == hadris_fat::exfat::Detail::Dirty),
             "{findings:?}"
         );
         let fs =
@@ -83,8 +87,10 @@ fn every_mode_writes_the_same_bytes() {
             .unwrap();
         fs.write_at(file, 0, &common::payload(9000, 3)).unwrap();
         fs.sync().unwrap();
-        assert!(hadris_fat::exfat::sync::check(&mut fs).unwrap().is_clean());
-        fs.into_inner().into_inner()
+        let mut dev = fs.into_inner();
+        let (_, found) = common::check_dev(&mut dev, 4096);
+        assert_eq!(found, []);
+        dev.into_inner()
     };
     let send = block_on(async {
         use hadris_fat::exfat::async_send;
@@ -107,8 +113,12 @@ fn every_mode_writes_the_same_bytes() {
             .await
             .unwrap();
         fs.sync().await.unwrap();
-        assert!(async_send::check(&mut fs).await.unwrap().is_clean());
-        fs.into_inner().into_inner()
+        let mut dev = fs.into_inner();
+        let report = async_send::check(&mut dev, &mut [0u8; 4096], |_| {})
+            .await
+            .unwrap();
+        assert!(report.is_clean());
+        dev.into_inner()
     });
     assert!(sync == send, "sync and async_send write the same image");
 }
@@ -123,6 +133,12 @@ fn async_send_futures_are_send() {
     .unwrap();
     let root = fs.root();
     assert_send(&fs.stats());
-    assert_send(&hadris_fat::exfat::async_send::check(&mut fs));
     let _ = root;
+    let mut dev = fs.into_inner();
+    let mut scratch = [0u8; 1536];
+    assert_send(&hadris_fat::exfat::async_send::check(
+        &mut dev,
+        &mut scratch,
+        |_| {},
+    ));
 }

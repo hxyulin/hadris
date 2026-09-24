@@ -415,7 +415,8 @@ fn pins_follow_renames_and_removals<T: NodeTable>(mut fs: ExFatFs<Device, T>, co
     }
     assert_eq!(fs.open_nodes(), 1);
     fs.sync().unwrap();
-    assert!(hadris_fat::exfat::sync::check(&mut fs).unwrap().is_clean());
+    let (_, found) = common::check_dev(&mut fs.into_inner(), 4096);
+    assert_eq!(found, []);
 }
 
 #[test]

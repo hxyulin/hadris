@@ -2,7 +2,9 @@ use hadris_fs::{Error, ErrorKind, FsResult};
 
 use super::block::{load, read_bytes, store, write_bytes};
 use super::storage::BlockDevice;
-use crate::exfat::io::{BootRegion, ClusterState, Dirty, ExFat, Extent, UPCASE_CACHE, Upcase};
+use crate::exfat::io::{
+    BootRegion, ClusterState, DirWalk, Dirty, ExFat, Extent, UPCASE_CACHE, Upcase,
+};
 use crate::exfat::{self as raw, Detail, ENTRY_SIZE, Geometry, RawEntry, UpcaseDecoder};
 use crate::io::{BlockBuf, ChainPos, ClusterGroup, Held};
 
@@ -377,6 +379,41 @@ async fn locate<D: BlockDevice>(
         }
     }
     Ok(at)
+}
+
+/// Byte offset of slot `slot` of the directory `walk` reads, or `None`
+/// past its end. A chain that loops, or is shorter than a contiguous
+/// directory claims, fails with [`ErrorKind::Corrupt`].
+pub async fn slot_offset<D: BlockDevice>(
+    dev: &mut D,
+    block: &mut BlockBuf,
+    geo: &Geometry,
+    walk: &mut DirWalk,
+    slot: u32,
+) -> FsResult<Option<u64>, D::Error> {
+    let bytes = slot as u64 * ENTRY_SIZE as u64;
+    let dir = walk.dir;
+    if dir.first == 0 || bytes >= dir.len || bytes >= raw::MAX_DIRECTORY_SIZE {
+        return Ok(None);
+    }
+    let want = (bytes >> geo.cluster_shift()) as u32;
+    let within = bytes & (geo.cluster_size() - 1);
+    let cluster = if dir.contiguous {
+        check_cluster(geo, dir.first.checked_add(want).ok_or(ErrorKind::Corrupt)?)?
+    } else {
+        if walk.at.cluster() == 0 || want < walk.at.index() {
+            walk.at = ChainPos::start(check_cluster(geo, dir.first)?);
+        }
+        while walk.at.index() < want {
+            match next(dev, block, geo, walk.at.cluster()).await? {
+                Some(next) if walk.at.advance(next) => {}
+                Some(_) => return Err(Detail::CyclicChain.corrupt()),
+                None => return Ok(None),
+            }
+        }
+        walk.at.cluster()
+    };
+    Ok(Some(cluster_at(geo, cluster)? + within))
 }
 
 /// The stored FAT entry of `cluster`, which may be one of the reserved

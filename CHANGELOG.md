@@ -65,6 +65,11 @@ Each published package owns its version and may be released independently.
   bytes), and returns a `hadris_fs::CheckReport`. A damaged FAT32 boot
   sector is a finding and the check goes on from the backup boot sector.
   A clear FAT16 or FAT32 clean-shutdown bit is a new `Dirty` notice.
+- **hadris-fat-raw (V3):** `exfat::io::{sync, r#async, async_send}::check`,
+  the exFAT checker, on an unmounted device and allocation-free like the
+  FAT one, with `exfat::Detail` codes. A damaged main boot region is a
+  finding and the check goes on from the backup. `exfat::io` also gains
+  `DirWalk` and `slot_offset`, the directory walk `ExFatFs` now uses.
 - **hadris-storage (V3):** `BlockDevice` gains `max_block_count` (how many
   blocks a device holds once written past its end, `block_count` by
   default), `disk_offset` (the byte offset of block 0 on the disk a device
@@ -550,6 +555,8 @@ Each published package owns its version and may be released independently.
   `hadris_fs::Finding`s, whose `detail` is a `hadris_fat::Detail`, instead
   of the `Finding` enum. `CheckReport` counts findings and passes; the
   file, directory and cluster counts are gone (use `FatFs::stats`).
+  `exfat::sync::check` and its twins change the same way, with
+  `hadris_fat::exfat::Detail` codes.
 - **hadris-fat-cli:** `verify` prints each finding as `message: path
   (location)` with its severity, and `stat` counts files and directories
   by walking the tree. `stat` no longer prints bad clusters, and `verify`
@@ -1002,8 +1009,9 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
-- **hadris-fat (V3):** `check_with`, the FAT `Finding` enum, `FindingKind`
-  and the FAT `CheckReport`; use `check` and `hadris_fs::Finding`.
+- **hadris-fat (V3):** `check_with`, the `Finding` enums, `FindingKind` and
+  the `CheckReport` types of FAT and exFAT; use `check` and
+  `hadris_fs::Finding`. The `defmt` feature no longer derives on findings.
 - **hadris-storage (V3):** `impl BlockDevice for std::fs::File`, since
   `block_count` cannot fail and a `File` cannot tell how it was opened;
   use `host::FileDevice`. `Slice` is replaced by `Partition`.

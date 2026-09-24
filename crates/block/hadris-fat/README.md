@@ -205,7 +205,7 @@ cargo run -p hadris-fat --example shared_volume -- disk.img
 | `async` | Asynchronous API in `r#async` | `hadris-io/async` |
 | `async-send` | Asynchronous API with `Send` futures, in `async_send` | `async` |
 | `std` | `hadris_storage::host::FileDevice` for image files and `SystemClock` | `std`, `alloc` |
-| `defmt` | `defmt::Format` for `FatKind` and the exFAT `Finding` | `defmt` |
+| `defmt` | `defmt::Format` for `FatKind` | `defmt` |
 
 Default features: `write`, `std`, `sync`
 
@@ -217,10 +217,10 @@ changes what an item does.
 
 `hadris_fat::exfat::sync::ExFatFs` and its `r#async` and `async_send` twins
 are a sibling of `FatFs` that needs no allocator and implements `FsDriver`,
-with `format` (the `write` feature), `check` and `check_with` in each mode.
-exFAT is stable and needs no feature flag. Its options, label, findings and
-on-disk layouts are in `hadris_fat::exfat` (`exfat::FormatOptions`,
-`exfat::MountOptions`, `exfat::raw`), since their names match FAT's. It reads contiguous and
+with `format` (the `write` feature) and `check` in each mode.
+exFAT is stable and needs no feature flag. Its options, label, detail codes
+and on-disk layouts are in `hadris_fat::exfat` (`exfat::FormatOptions`,
+`exfat::MountOptions`, `exfat::Detail`, `exfat::raw`), since their names match FAT's. It reads contiguous and
 chained allocations, fragmented bitmaps and up-case tables, and entry sets
 that cross clusters; it writes FAT chains, grows directories, and keeps
 `VolumeDirty` and `PercentInUse`. On TexFAT volumes it follows `ActiveFat`

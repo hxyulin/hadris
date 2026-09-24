@@ -431,7 +431,6 @@ name = "hadris-fat"
 version = "2.4.0"
 dependencies = [
  "bytemuck",
- "defmt",
  "hadris-common",
  "hadris-fat-raw",
  "hadris-fs",
