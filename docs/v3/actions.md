@@ -19,7 +19,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
   - `-` = not applicable (for example a mounted-write action on a format that is only built and read).
   - `B` = the format supports it only when building the image, not on a mounted volume.
   - A short note follows where the semantics differ.
-- **Users**: `emb` = embedded firmware (no alloc, tiny stack), `ker` = OS kernel or VFS/FUSE, `host` = host tools and servers, `bld` = image builders (osdev boot media, initramfs), `insp` = inspection and forensics.
+- **Users**: `emb` = embedded firmware (no alloc, tiny stack), `ker` = OS kernel or VFS/FUSE, `host` = host tools and servers, `bld` = image builders (osdev boot media, initramfs), `insp` = inspection and forensics. `emb` on a write row where X is `Y` means exFAT is read-only for embedded users until NF-NOALLOC-02's exFAT write (3.x).
 - **Want**: `3.0`, `3.x` (later, additive), or `no`, followed by a short reason.
 
 ---
@@ -30,7 +30,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 
 | ID | Action (edge case that matters) | Class | F | X | I | U | C | Users | Want |
 |---|---|---|---|---|---|---|---|---|---|
-| IO-OPEN-01 | Open a filesystem on a block device whose logical block size is 512, 1024, 2048 or 4096 bytes, and reject larger sizes with Unsupported, not corruption. ISO needs blocks of at most 2048 bytes and refuses a 4096-byte device with Unsupported | core | Y 512-4096 | Y 512-4096 | Y 2048 normal; 512-2048 legal | Y 512-4096 | - byte stream | all | 3.0: 4Kn disks and optical media are common |
+| IO-OPEN-01 | Open a filesystem on a block device whose logical block size is 512, 1024, 2048 or 4096 bytes, and reject larger sizes with Unsupported, not corruption. ISO needs blocks of at most 2048 bytes and refuses a 4096-byte device with Unsupported. The shared tier takes 512 to 4096; the embedded API takes 512-byte device blocks only and refuses others with Unsupported | core | Y 512-4096 | Y 512-4096 | Y 2048 normal; 512-2048 legal | Y 512-4096 | - byte stream | all | 3.0: 4Kn disks and optical media are common |
 | IO-PART-01 | Open a filesystem inside a partition given as a byte or block window of a larger device (MBR, GPT, or a hybrid ISO's partition) | core | Y | Y | Y | Y | - | all | 3.0: USB sticks, disk images and ESPs are always partitioned |
 | IO-RO-01 | Open on a read-only device (no Write) and get a read-only filesystem. Opening a file for writing fails at open time with ReadOnly, before any truncation | core | Y | Y | Y | Y | Y | all | 3.0: read-only media, forensics write blockers |
 | IO-RO-02 | A write refused by the device mid-operation leaves the volume consistent and turns the mount read-only | core | Y | Y | - | - | - | emb, ker | 3.0: SD cards lock themselves; the volume refuses further writes until remount, like errors=remount-ro (decided 2026-09-24) |
@@ -81,13 +81,13 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | VOL-RESIZE-02 | Shrink a FAT or exFAT filesystem | extra | Y | Y | N | N | - | host | no: needs relocation, risky, rare |
 | VOL-CONVERT-01 | Convert FAT16 to FAT32 in place | extra | Y | - | - | - | - | host | no: niche and risky; reformat plus copy covers it |
 | VOL-FAT-01 | Honour FAT32 mirroring flags: use the active FAT when mirroring is off, and keep every copy equal when it is on | extra | Y | Y (TexFAT ActiveFat) | - | - | - | ker, insp | 3.0: correctness on volumes from other systems |
-| VOL-TEXFAT-01 | Mount and write TexFAT volumes (two FATs and bitmaps) keeping both copies equal; format with two FATs | extra | - | Y | - | - | - | emb | 3.0 mount and write where done; transactions `no` (Windows CE only) |
+| VOL-TEXFAT-01 | Mount and write TexFAT volumes (two FATs and bitmaps) keeping both copies equal; format with two FATs | extra | - | Y | - | - | - | emb | 3.0: read everywhere, write in the shared tier; embedded write with NF-NOALLOC-02 (3.x); transactions `no` (Windows CE only) |
 
 ### 1.3 DIR: directories
 
 | ID | Action (edge case that matters) | Class | F | X | I | U | C | Users | Want |
 |---|---|---|---|---|---|---|---|---|---|
-| DIR-LOOKUP-01 | Look up a name in a directory using the format's rules: FAT and exFAT case-insensitive and case-preserving (exFAT through the volume's up-case table and name hash); ISO primary matches without `;1` and without case; RR, Joliet, UDF and cpio match exactly. An ISO mount uses RR, then Joliet, then the primary names, unless the mount options choose | core | Y | Y | Y | Y | Y (path in archive) | all | 3.0; cpio 3.x (random access needs the 3.x read-only driver, decision 4) |
+| DIR-LOOKUP-01 | Look up a name in a directory using the format's rules: FAT and exFAT case-insensitive and case-preserving: the shared tier folds full Unicode, and shared-tier exFAT compares through the volume's up-case table and name hash; the embedded API folds ASCII by default, with Unicode folding as a one-line opt-in; ISO primary matches without `;1` and without case; RR, Joliet, UDF and cpio match exactly. An ISO mount uses RR, then Joliet, then the primary names, unless the mount options choose | core | Y | Y | Y | Y | Y (path in archive) | all | 3.0; cpio 3.x (random access needs the 3.x read-only driver, decision 4) |
 | DIR-LOOKUP-02 | Look up by the 8.3 alias of a long-named file (`PROGRA~1`) | core | Y | N | - | - | - | ker, host | 3.0: Windows and Linux both allow it; old configs use it |
 | DIR-LOOKUP-03 | Look up an ISO name with several versions (`A.TXT;1`, `A.TXT;2`) and get the highest; an explicit `;N` selects that version; a listing shows only the highest version, without `;N`; look up `README` against the stored `README.;1` | core | - | - | Y | - | - | insp, ker | 3.0: ECMA-119 7.5 |
 | DIR-LOOKUP-04 | Lookup that also returns the name as stored on disk (case canonicalization) | core | Y | Y | Y | - | - | ker, host | 3.x: design 4.14 |
@@ -111,7 +111,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | ID | Action (edge case that matters) | Class | F | X | I | U | C | Users | Want |
 |---|---|---|---|---|---|---|---|---|---|
 | FILE-OPEN-01 | Open by path with read, write, append, truncate, create and create_new. On a read-only volume a write open fails before truncating anything. Opening a directory or a symlink as a file fails clearly | core | Y | Y | Y (read) | Y | Y (read) | all | 3.0; cpio 3.x (random access needs the 3.x read-only driver, decision 4) |
-| FILE-OPEN-02 | Open a node by its NodeId with no path (FUSE and kernel open after lookup); path-based open is a layer over lookup plus this | core | Y | Y | Y (read) | Y | - | ker, emb, host | 3.0: FUSE and VFS only have the inode (decided 2026-09-24) |
+| FILE-OPEN-02 | Open a node by its NodeId with no path (FUSE and kernel open after lookup); path-based open is a layer over lookup plus this. Embedded: no pinned NodeIds; the id is an entry position from a listing, valid until the directory changes | core | Y | Y | Y (read) | Y | - | ker, emb, host | 3.0: FUSE and VFS only have the inode (decided 2026-09-24) |
 | FILE-READ-01 | Read at any offset; short read at end of file; a read never changes access times | core | Y | Y | Y | Y | Y (sequential) | all | 3.0 |
 | FILE-READ-02 | Read a file larger than 4 GiB: exFAT 64-bit length, ISO multi-extent records (RR metadata on every record), UDF 64-bit; odc up to 8 GiB | core | N (4 GiB - 1 max) | Y | Y | Y | Y odc only; newc and bin 4 GiB - 1 | host, insp, bld | 3.0 |
 | FILE-READ-03 | Read data the format marks unwritten and get zeros: exFAT bytes past ValidDataLength, UDF unrecorded or unallocated extents, RR SF sparse files | core | - | Y | Y (SF) | Y | - | all | 3.0 for X and U; RR SF 3.x |
@@ -140,7 +140,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | FILE-RENAME-05 | Rename with NoReplace: AlreadyExists if the target exists | core | Y | Y | - | Y (rw) | - | ker | 3.0 |
 | FILE-RENAME-06 | Atomically swap two names (RENAME_EXCHANGE) | core | Y | Y | - | Y (rw) | - | ker | 3.x: design 4.14 |
 | FILE-SYNC-01 | Make one file durable (fsync): data, size, times and the FAT chain on disk, then a device flush | core | Y | Y | - | Y (rw) | - | all | 3.0 |
-| FILE-CLOSE-01 | Close a handle with a Result, publishing size and times; dropping a written handle publishes its size best effort, so a power cut keeps the data (sync: in Drop; async: Drop cannot await, so the next call on the volume publishes it) | core | Y | Y | Y | Y | - | emb, all | 3.0: embedded-8 (2205 of 2250 bytes lost) |
+| FILE-CLOSE-01 | Close a handle with a Result, publishing size and times; dropping a written handle publishes its size best effort, so a power cut keeps the data (sync: in Drop; async: Drop cannot await, so the next call on the volume publishes it; embedded: a dropped handle keeps its slot until unmount, and the next sync or unmount publishes its size) | core | Y | Y | Y | Y | - | emb, all | 3.0: embedded-8 (2205 of 2250 bytes lost) |
 | FILE-SEEK-01 | Seek from start, end or current position, including past the end; the next write fills the gap | core | Y | Y | Y | Y | N (stream) | all | 3.0 |
 | FILE-SHARE-01 | Several handles on one node: each sees the others' writes and size changes at once, and a handle stays valid and keeps working after its file is renamed or moved | core | Y | Y | Y (read) | Y | - | ker, host | 3.0: kernels and servers open one file many times (decided 2026-09-24) |
 | FILE-COPY-01 | Copy one file inside the same volume (std::fs::copy) | core | Y | Y | - | Y (rw) | - | host | 3.x: convenience over read and write (dx-17) |
@@ -166,7 +166,7 @@ Each action has a stable ID. A conformance test in hadris-tests covers each ID. 
 | META-DEV-01 | Report the device number of a char or block device node (RR PN, UDF device specification EA, cpio rdev) through the common metadata | core | N | N | Y | Y | Y | ker, insp, bld | 3.0: decided 2026-09-24; cpio and RR extraction and FUSE stat need it |
 | META-ALLOC-01 | Report allocated size (st_blocks), which differs from the length for sparse, preallocated and embedded files | core | Y | Y | Y | Y | - | ker | 3.0: decided 2026-09-24; st_blocks for FUSE |
 | META-NAME-01 | Names are bytes: a name that is not valid UTF-8 (RR, cpio, UDF CS0 with odd code points) can be listed, looked up and opened; decoding to text is a separate fallible step | core | N (UTF-16) | N | Y | Y | Y | insp, host | 3.0: inspect-5 (path helpers are `&str` only) |
-| META-NAME-02 | FAT 8.3 names: decode through an OEM code page (CP437 by default on the host; others possible), keep names with high bytes distinct, set NT lowercase flags when the long name is only a case change | core | Y | - | - | - | - | all | 3.0: ASCII and CP437 built in, plus a public code page trait so users add their own (decided 2026-09-24) |
+| META-NAME-02 | FAT 8.3 names: decode through an OEM code page (CP437 by default in every tier, embedded included; others possible), keep names with high bytes distinct, set NT lowercase flags when the long name is only a case change | core | Y | - | - | - | - | all | 3.0: ASCII and CP437 built in, plus a public code page trait so users add their own (decided 2026-09-24) |
 | META-NAME-03 | Read the 8.3 alias of a long-named file | extra | Y | N | Y (primary name vs RR/Joliet name) | - | - | insp, host | 3.x: mdir-style listings, and seeing the ISO primary name under an RR view |
 | META-NAME-04 | Set a chosen 8.3 alias for a new file | extra | Y | - | - | - | - | bld | no: Windows cannot either; generated aliases are enough |
 | META-RAW-01 | Locate the on-disk record of a node (block, byte offset, length) for the FAT entry and LFN slots, exFAT entry set, ISO directory record, UDF FE/EFE, cpio header, and read its bytes | extra | Y | Y | Y | Y | Y | insp | 3.0 through driver methods (`records`, `read_raw`) for every format (decided 2026-09-24); the ISO and UDF raw decoders are 3.x (design 4.15) |
@@ -335,10 +335,10 @@ Each constraint gets its own conformance or CI check. Numbers come from the embe
 | NF-NOALLOC-05 | cpio newc write with no allocator (fixed-size headers, caller content) | 3.x |
 | NF-NOSTD-01 | Every format crate builds `no_std`; std only adds host adapters, host paths and SystemClock | 3.0 |
 | NF-TARGET-01 | Builds for thumbv6m-none-eabi and riscv32imc-unknown-none-elf (no compare-and-swap) and thumbv7em-none-eabihf, checked in CI | 3.0 |
-| NF-STACK-01 | Embedded API: mount under 2 KB of stack and under 2 KB of RAM on thumbv7em (design 4.15 target). Reference: embedded-sdmmc main frame 1208 B | 3.0 |
+| NF-STACK-01 | Embedded API with 4 file slots, device excluded: mount under 2 KB of stack and under 2 KB of RAM on every NF-TARGET-01 target (design 4.15 target). Reference: embedded-sdmmc main frame 1208 B | 3.0 |
 | NF-STACK-02 | No single frame over 1 KB in the embedded API's name, rename and create paths | 3.0 |
 | NF-STACK-03 | Shared-tier sync stack on thumbv7em does not grow; async stays within about 1.7× of sync (measured: 26 KB sync vs 45 KB block_on async) | 3.0: keep sync macro-generated |
-| NF-FLASH-01 | Embedded FAT read/write binary within about 1.5× of embedded-sdmmc (13852 B text): target under 20 KB text on thumbv7em, opt-level s, LTO | 3.0 target |
+| NF-FLASH-01 | Embedded FAT read/write binary, FAT only (the exFAT reader is measured separately), within about 1.5× of embedded-sdmmc (13852 B text): target under 20 KB text on thumbv7em, opt-level s, LTO | 3.0 target |
 | NF-FLASH-02 | No Unicode case tables linked unless the caller asks for Unicode folding (the 12.2 KB `to_uppercase` rodata) | 3.0 |
 | NF-RAM-01 | Driver state size documented and bounded: FAT shared driver (4496 B with 4 slots, 7376 B with 64 today), exFAT 12584 B | 3.0 (document), 3.x (shrink) |
 | NF-BUF-01 | Embedded API works with 512-byte buffers; no fixed 4 KiB buffer when the device block is 512 bytes | 3.0 |

@@ -1126,6 +1126,18 @@ Pass 3 (per-format extras), accepted on 2026-09-24:
 - Pass 2 changes: format modules are no longer alloc-only, and builder items are gated one by one instead; `Tree` rejects `..`; `FileDevice` tracks whether its file is writable.
 - Open: `FileDevice` does not know a partition's start offset for `/dev/sdb1`; `SystemArea` and `Guid` belong in the partition crate; the async module shows a subset; cpio extraction builds the whole tree in memory.
 
+Pass 4 (embedded), accepted on 2026-09-24:
+
+- Firmware gets separate modules, `hadris_fat::embedded` and `hadris_fat::exfat::embedded`, each with `sync` and `r#async`. They are built on the raw layer, not on `FatFs`, and need no allocator. The async variant takes a new `local::BlockDevice` whose futures are not `Send`.
+- `Fat<D, const FILES: usize = 4>` and `ExFat<D, const FILES: usize = 4>` are separate types, so FAT-only firmware does not link the exFAT reader. Embedded exFAT is read-only in 3.0; 3.x writes arrive through a new entry point, and `mount` stays read-only in every version.
+- Device blocks are 512 bytes; other sizes are refused with `Unsupported`. FAT sectors of 512 to 4096 bytes are read in 512-byte pieces through one 512-byte cache in the struct.
+- `File` is a slot index consumed by `close`, with a 16-bit generation so a stale handle or one from another volume fails with `InvalidHandle`. A dropped `File` keeps its slot until `unmount`; `sync` and `unmount` still publish its size. `Dir` is `Copy` and holds no slot. Names are passed per call, with `create_dir_all(dir, path)` as the one path method; `list` takes a callback and lends each `Entry`, whose UTF-16 name lives on the call's stack. `Entry::node()` with `open_node` opens a listed file by its entry position, valid until the directory changes.
+- The embedded API has its own `Options`: a `fn() -> DateTime` clock, a `fn(u16) -> u16` fold that defaults to `fat::raw::fold_ascii` with `fold_unicode` as a one-line opt-in, UTC offset, and CP437 as the default code page. The slot count is the const parameter.
+- Format and check are the shared, already alloc-free `fat::sync::{format, check}`.
+- Footprint (prototype estimate, device excluded): `Fat<(), 4>` is 760 bytes on thumbv7em and 776 on aarch64, `ExFat<(), 4>` 792 and 808: one 512-byte cache, the 80-byte geometry, the options and 32-byte FAT slots (48 for exFAT). This was measured with an 8-bit generation; the 16-bit one adds a few bytes. Both types are const-asserted under 2048 bytes. Stack and flash need the real crate, with `-Z emit-stack-sizes` and a size report on thumbv7em in CI.
+- Changes forced on passes 1 to 3, all additive: `local::BlockDevice` without `Send` (with a `Partition` impl), `fat::raw::fold_ascii` and `fold_unicode`, and the `embedded` modules. No signature changed.
+- Open: a combined FAT-or-exFAT type for SDXC firmware can be added later; the cancel safety of the embedded async API (NF-CANCEL-01) is not specified yet and must be tested in the real crate. Shared FAT folds Unicode while embedded folds ASCII, so a name that differs only in non-ASCII case matches in one tier and not the other; this is documented per tier.
+
 ---
 
 ## 5. Per-crate changes
