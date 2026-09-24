@@ -1104,6 +1104,9 @@ Each published package owns its version and may be released independently.
   entries, instead of failing with `Detail::Relocation`. It is laid out
   first, as for a new container, so libarchive/bsdtar can extract it. A
   root file with that name still fails.
+- **hadris-cpio-cli:** `extract` replaces a symlink where a directory entry
+  lands instead of keeping it, so an archive holding `link -> /outside` and
+  then a directory `link` no longer changes the mode of `/outside`.
 
 ## [2.4.0] - 2026-09-08
 

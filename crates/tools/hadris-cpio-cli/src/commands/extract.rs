@@ -85,6 +85,7 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
         }
         match entry.file_type() {
             FileType::Dir => {
+                replace(&dest);
                 fs::create_dir_all(&dest)
                     .with_context(|| format!("Failed to create directory: {}", dest.display()))?;
                 set_mode(&dest, entry.mode());
