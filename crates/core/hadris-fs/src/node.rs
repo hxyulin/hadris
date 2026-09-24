@@ -1,22 +1,27 @@
+use core::num::NonZeroU64;
+
 /// Opaque identifier of a node within one filesystem.
 ///
 /// The value is stable for as long as the node is pinned (between a lookup
-/// and the matching forget). It maps directly to FUSE `ino` values and
-/// kernel inode numbers. Filesystems choose the encoding; callers must not
-/// interpret it. No filesystem hands out 0, which FUSE reserves; the root
-/// may have any other value.
+/// and the matching forget), and every name of a hard link has the same id.
+/// It maps directly to FUSE `ino` values and kernel inode numbers.
+/// Filesystems choose the encoding; callers must not interpret it. It is
+/// never 0, which FUSE reserves; the root may have any other value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NodeId(u64);
+pub struct NodeId(NonZeroU64);
 
 impl NodeId {
-    /// Creates an identifier from its raw value.
-    pub const fn new(raw: u64) -> Self {
-        Self(raw)
+    /// Creates an identifier from its raw value, or `None` for 0.
+    pub const fn new(raw: u64) -> Option<Self> {
+        match NonZeroU64::new(raw) {
+            Some(raw) => Some(Self(raw)),
+            None => None,
+        }
     }
 
     /// Returns the raw value.
     pub const fn get(self) -> u64 {
-        self.0
+        self.0.get()
     }
 }
 

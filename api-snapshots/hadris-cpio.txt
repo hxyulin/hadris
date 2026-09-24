@@ -41,7 +41,7 @@ pub fn hadris_cpio::async::Entry<'_, R>::mtime(&self) -> u64
 pub fn hadris_cpio::async::Entry<'_, R>::name(&self) -> &[u8]
 pub fn hadris_cpio::async::Entry<'_, R>::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
 pub fn hadris_cpio::async::Entry<'_, R>::nlink(&self) -> u32
-pub fn hadris_cpio::async::Entry<'_, R>::permissions(&self) -> hadris_fs::meta::Mode
+pub fn hadris_cpio::async::Entry<'_, R>::permissions(&self) -> hadris_fs::meta::Permissions
 pub fn hadris_cpio::async::Entry<'_, R>::rdev(&self) -> hadris_fs::ops::DeviceNumber
 pub fn hadris_cpio::async::Entry<'_, R>::remaining(&self) -> u64
 pub fn hadris_cpio::async::Entry<'_, R>::uid(&self) -> u32
@@ -162,7 +162,7 @@ pub fn hadris_cpio::sync::Entry<'_, R>::mtime(&self) -> u64
 pub fn hadris_cpio::sync::Entry<'_, R>::name(&self) -> &[u8]
 pub fn hadris_cpio::sync::Entry<'_, R>::name_str(&self) -> core::result::Result<&str, core::str::error::Utf8Error>
 pub fn hadris_cpio::sync::Entry<'_, R>::nlink(&self) -> u32
-pub fn hadris_cpio::sync::Entry<'_, R>::permissions(&self) -> hadris_fs::meta::Mode
+pub fn hadris_cpio::sync::Entry<'_, R>::permissions(&self) -> hadris_fs::meta::Permissions
 pub fn hadris_cpio::sync::Entry<'_, R>::rdev(&self) -> hadris_fs::ops::DeviceNumber
 pub fn hadris_cpio::sync::Entry<'_, R>::remaining(&self) -> u64
 pub fn hadris_cpio::sync::Entry<'_, R>::uid(&self) -> u32

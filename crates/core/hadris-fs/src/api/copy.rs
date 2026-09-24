@@ -1,13 +1,12 @@
+use super::paths::{create_dir_all, resolve_parent, write_all_at};
 use super::*;
-use crate::PathError;
+use crate::{Field, PathError, Stored};
 use alloc::vec::Vec;
-
-io_transform! {
 
 /// Bytes moved per read.
 pub(super) const CHUNK: usize = 4096;
 
-/// The longest symlink target copied, as Linux `PATH_MAX`.
+/// The longest symlink target read, as Linux `PATH_MAX`.
 pub(super) const MAX_LINK_TARGET: usize = 4096;
 
 /// A buffer for the target of a symlink whose metadata reports `len` bytes.
@@ -26,7 +25,10 @@ pub(super) const MAX_TREE_DEPTH: usize = 1024;
 /// Checks that a walk may enter the directory `child` below the directories
 /// of `path`, the current path from the top: a directory already on it is a
 /// cycle, which only a corrupt volume holds.
-pub(super) fn enter(path: impl ExactSizeIterator<Item = NodeId>, child: NodeId) -> Result<(), ErrorKind> {
+pub(super) fn enter(
+    path: impl ExactSizeIterator<Item = NodeId>,
+    child: NodeId,
+) -> Result<(), ErrorKind> {
     if path.len() >= MAX_TREE_DEPTH {
         return Err(ErrorKind::LimitExceeded);
     }
@@ -37,74 +39,80 @@ pub(super) fn enter(path: impl ExactSizeIterator<Item = NodeId>, child: NodeId) 
     Ok(())
 }
 
-/// A directory being copied: both nodes pinned, and the metadata to apply to
+/// The fields of `meta` a filesystem with `caps` stores, as changes.
+/// Permissions and owner are copied only where fully stored.
+pub(super) fn settable(meta: &Metadata, caps: &Capabilities) -> SetAttr {
+    let stored = |field| caps.stores(field) != Stored::No;
+    let mut set = SetAttr::new();
+    if let Some(time) = meta.created().filter(|_| stored(Field::Created)) {
+        set = set.with_created(time);
+    }
+    if let Some(time) = meta.modified().filter(|_| stored(Field::Modified)) {
+        set = set.with_modified(time);
+    }
+    if let Some(time) = meta.accessed().filter(|_| stored(Field::Accessed)) {
+        set = set.with_accessed(time);
+    }
+    if caps.stores(Field::Permissions) == Stored::Yes {
+        set = set.with_permissions(meta.permissions());
+    }
+    if let Some(owner) = meta
+        .owner()
+        .filter(|_| caps.stores(Field::Owner) == Stored::Yes)
+    {
+        set = set.with_owner(owner);
+    }
+    if stored(Field::Attributes) {
+        set = set.with_attributes(meta.attributes());
+    }
+    set
+}
+
+/// A directory being copied: both nodes pinned, and the changes to apply to
 /// the target once its contents are written (none for the top directory).
 struct Frame {
     src: NodeId,
     dst: NodeId,
     cursor: DirCursor,
-    meta: Option<SetMetadata>,
+    attrs: Option<SetAttr>,
 }
 
-fn set_metadata_of(meta: &Metadata) -> SetMetadata {
-    let set = SetMetadata::new()
-        .with_times(meta.times())
-        .with_mode(meta.permissions())
-        .with_attributes(meta.attributes());
-    match meta.owner() {
-        Some((uid, gid)) => set.with_uid(uid).with_gid(gid),
-        None => set,
-    }
-}
+io_transform! {
 
-/// Finds `name` in `dir`, or creates it as `kind`, and pins it. An existing
-/// node must have the same type ([`ErrorKind::AlreadyExists`] otherwise, and
-/// always for a symlink); an existing file is truncated.
-pub(super) async fn target_child<D: FsDriver + ?Sized>(
-    fs: &mut D,
+/// Finds `name` in `dir`, or makes it as a directory (`dir_kind`) or a
+/// file, and pins it. An existing node must have the same type
+/// ([`ErrorKind::AlreadyExists`] otherwise, and always for a symlink); an
+/// existing file is truncated.
+pub(super) async fn target_child<F: FileSystem + ?Sized>(
+    fs: &mut F,
     dir: NodeId,
     name: &Name,
-    kind: NewNode<'_>,
-) -> FsResult<NodeId, D::DeviceError> {
+    kind: FileType,
+) -> FsResult<NodeId, F::DeviceError> {
     let node = match fs.lookup(dir, name).await {
         Err(err) if err.kind() == ErrorKind::NotFound => {
-            return fs.create(dir, name, kind, &SetMetadata::new()).await;
+            return match kind {
+                FileType::Dir => fs.mkdir(dir, name, &SetAttr::new()).await,
+                _ => fs.create(dir, name, &SetAttr::new()).await,
+            };
         }
         other => other?,
     };
-    let checked = match fs.node_metadata(node).await {
-        Ok(meta) if meta.file_type() != kind.file_type() || meta.file_type().is_symlink() => {
+    let checked = match fs.stat(node).await {
+        Ok(meta) if meta.file_type() != kind || meta.file_type().is_symlink() => {
             Err(ErrorKind::AlreadyExists.into())
         }
-        Ok(meta) if meta.file_type().is_file() && meta.len() > 0 => fs.set_len(node, 0).await,
+        Ok(meta) if meta.file_type().is_file() && meta.len() > 0 => fs.truncate(node, 0).await,
         Ok(_) => Ok(()),
         Err(err) => Err(err),
     };
     match checked {
         Ok(()) => Ok(node),
         Err(err) => {
-            fs.forget(node);
+            fs.forget(node, 1);
             Err(err)
         }
     }
-}
-
-/// Writes all of `buf` at `offset`.
-pub(super) async fn write_all_at<D: FsDriver + ?Sized>(
-    fs: &mut D,
-    node: NodeId,
-    mut offset: u64,
-    mut buf: &[u8],
-) -> FsResult<(), D::DeviceError> {
-    while !buf.is_empty() {
-        let n = fs.write_at(node, offset, buf).await?;
-        if n == 0 {
-            return Err(ErrorKind::NoSpace.into());
-        }
-        buf = &buf[n..];
-        offset += n as u64;
-    }
-    Ok(())
 }
 
 async fn copy_file<S, D>(
@@ -112,25 +120,38 @@ async fn copy_file<S, D>(
     from: NodeId,
     dst: &mut D,
     to: NodeId,
-    meta: &SetMetadata,
+    attrs: &SetAttr,
 ) -> Result<(), PathError>
 where
-    S: FsDriver + ?Sized,
-    D: FsDriver + ?Sized,
+    S: FileSystem + ?Sized,
+    D: FileSystem + ?Sized,
 {
+    src.open(from, OpenMode::Read).await?;
+    if let Err(err) = dst.open(to, OpenMode::Write).await {
+        let _ = src.close(from).await;
+        return Err(err.into());
+    }
     let mut buf = [0u8; CHUNK];
     let mut offset = 0;
-    loop {
-        let n = src.read_at(from, offset, &mut buf).await?;
-        if n == 0 {
-            break;
+    let copied: Result<(), PathError> = loop {
+        let n = match src.read(from, offset, &mut buf).await {
+            Ok(0) => break Ok(()),
+            Ok(n) => n,
+            Err(err) => break Err(err.into()),
+        };
+        if let Err(err) = write_all_at(dst, to, offset, &buf[..n]).await {
+            break Err(err.into());
         }
-        write_all_at(dst, to, offset, &buf[..n]).await?;
         offset += n as u64;
-    }
-    dst.set_metadata(to, meta).await?;
-    dst.publish_node(to).await?;
-    Ok(())
+    };
+    let _ = src.close(from).await;
+    let set = match copied {
+        Ok(()) if !attrs.is_empty() => dst.setattr(to, attrs).await.map_err(PathError::from),
+        other => other,
+    };
+    let closed = dst.close(to).await;
+    set?;
+    Ok(closed?)
 }
 
 /// Copies the pinned `node` to `name` in `dir`. A directory comes back as a
@@ -143,28 +164,21 @@ async fn copy_node<S, D>(
     name: &Name,
 ) -> Result<Option<Frame>, PathError>
 where
-    S: FsDriver + ?Sized,
-    D: FsDriver + ?Sized,
+    S: FileSystem + ?Sized,
+    D: FileSystem + ?Sized,
 {
-    let meta = src.node_metadata(node).await?;
-    let set = set_metadata_of(&meta);
+    let meta = src.stat(node).await?;
+    let attrs = settable(&meta, &dst.capabilities());
     match meta.file_type() {
         FileType::Dir => {
-            let to = target_child(dst, dir, name, NewNode::Dir).await?;
-            Ok(Some(Frame { src: node, dst: to, cursor: DirCursor::start(), meta: Some(set) }))
+            let to = target_child(dst, dir, name, FileType::Dir).await?;
+            Ok(Some(Frame { src: node, dst: to, cursor: DirCursor::START, attrs: Some(attrs) }))
         }
         FileType::File => {
-            let to = target_child(dst, dir, name, NewNode::File).await?;
-            let copied = copy_file(src, node, dst, to, &set).await;
-            dst.forget(to);
+            let to = target_child(dst, dir, name, FileType::File).await?;
+            let copied = copy_file(src, node, dst, to, &attrs).await;
+            dst.forget(to, 1);
             copied.map(|()| None)
-        }
-        FileType::Symlink => {
-            let mut target = link_buffer(meta.len())?;
-            let n = src.read_link(node, &mut target).await?;
-            let to = target_child(dst, dir, name, NewNode::Symlink(&target[..n])).await?;
-            dst.forget(to);
-            Ok(None)
         }
         _ => Err(ErrorKind::Unsupported.into()),
     }
@@ -172,123 +186,117 @@ where
 
 async fn walk<S, D>(src: &mut S, dst: &mut D, stack: &mut Vec<Frame>) -> Result<(), PathError>
 where
-    S: FsDriver + ?Sized,
-    D: FsDriver + ?Sized,
+    S: FileSystem + ?Sized,
+    D: FileSystem + ?Sized,
 {
-    let mut name = NameBuf::new();
     while let Some(top) = stack.last_mut() {
         let (from_dir, to_dir) = (top.src, top.dst);
-        if src.read_dir_entry(from_dir, &mut top.cursor, &mut name).await?.is_some() {
-            let child_name = name.as_name().ok_or(ErrorKind::Corrupt)?;
-            let child = src.lookup(from_dir, child_name).await?;
-            match copy_node(src, child, dst, to_dir, child_name).await {
+        if let Some(entry) = src.readdir(from_dir, top.cursor).await? {
+            top.cursor = entry.next_cursor();
+            let child = src.lookup(from_dir, entry.name()).await?;
+            match copy_node(src, child, dst, to_dir, entry.name()).await {
                 Ok(Some(frame)) => {
                     if let Err(err) = enter(stack.iter().map(|frame| frame.src), child) {
-                        src.forget(child);
-                        dst.forget(frame.dst);
+                        src.forget(child, 1);
+                        dst.forget(frame.dst, 1);
                         return Err(err.into());
                     }
                     stack.push(frame);
                 }
                 other => {
-                    src.forget(child);
+                    src.forget(child, 1);
                     other?;
                 }
             }
         } else if let Some(frame) = stack.pop() {
-            let applied = match frame.meta {
-                Some(meta) => dst.set_metadata(frame.dst, &meta).await,
-                None => Ok(()),
+            let applied = match frame.attrs {
+                Some(attrs) if !attrs.is_empty() => dst.setattr(frame.dst, &attrs).await,
+                _ => Ok(()),
             };
-            src.forget(frame.src);
-            dst.forget(frame.dst);
+            src.forget(frame.src, 1);
+            dst.forget(frame.dst, 1);
             applied?;
         }
     }
     Ok(())
 }
 
-async fn copy_dir<S, D>(src: &mut S, node: NodeId, dst: &mut D, to: &str) -> Result<(), PathError>
+async fn copy_dir<S, D>(src: &mut S, node: NodeId, dst: &mut D, to: &[u8]) -> Result<(), PathError>
 where
-    S: FsDriver + ?Sized,
-    D: FsDriver + ?Sized,
+    S: FileSystem + ?Sized,
+    D: FileSystem + ?Sized,
 {
-    let top = match create_dir_all(dst, to).await {
-        Ok(()) => dst.resolve(to).await,
+    let top = match create_dir_all(dst, to, Resolve::Lexical).await {
+        Ok(()) => dst.resolve(to, Resolve::Lexical).await,
         Err(err) => Err(err),
     };
     let top = match top {
         Ok(top) => top,
         Err(err) => {
-            src.forget(node);
+            src.forget(node, 1);
             return Err(err.into());
         }
     };
     let mut stack = Vec::new();
-    stack.push(Frame { src: node, dst: top, cursor: DirCursor::start(), meta: None });
+    stack.push(Frame { src: node, dst: top, cursor: DirCursor::START, attrs: None });
     let result = walk(src, dst, &mut stack).await;
     for frame in stack {
-        src.forget(frame.src);
-        dst.forget(frame.dst);
+        src.forget(frame.src, 1);
+        dst.forget(frame.dst, 1);
     }
     result
 }
 
-async fn copy_one<S, D>(src: &mut S, node: NodeId, dst: &mut D, to: &str) -> Result<(), PathError>
-where
-    S: FsDriver + ?Sized,
-    D: FsDriver + ?Sized,
-{
-    let (dir, name) = resolve_parent(dst, to).await?;
-    let copied = copy_node(src, node, dst, dir, name).await;
-    dst.forget(dir);
-    copied.map(|_| ())
-}
-
-/// Copies the file, symlink or directory tree at `from` on `src` to `to` on
-/// `dst`, which may be different filesystems on different devices.
-///
-/// Both sides are any [`Access`]: `&mut fs` for a raw driver, `&vol` for a
-/// shared one, or an `Arc`. Errors from either device come back as
-/// [`PathError`].
+/// Copies the file or directory tree at `from` on `src` to `to` on `dst`,
+/// which may be different filesystems on different devices. Paths resolve
+/// lexically, and errors from either device come back as [`PathError`].
 ///
 /// A directory is merged into `to`, which is created with its parents when
-/// missing. Existing files are overwritten; an existing node of another type,
-/// or an existing symlink, fails with [`ErrorKind::AlreadyExists`]. Times,
-/// permissions, owner and attributes are copied where `dst` can store them.
-/// Device nodes, FIFOs and sockets fail with [`ErrorKind::Unsupported`].
-/// Symlinks are copied as links, never followed; a target longer than 4096
-/// bytes fails with [`ErrorKind::LimitExceeded`]. A directory entry that
-/// leads back to a directory on the path being copied fails with
-/// [`ErrorKind::Corrupt`], and a tree more than 1024 directories deep with
-/// [`ErrorKind::LimitExceeded`], which also ends a copy of a directory into
-/// itself on one volume. Each file is published, not flushed; call `sync` on
-/// `dst` to make the copy durable.
+/// missing. Existing files are overwritten; an existing node of another
+/// type, or an existing symlink, fails with [`ErrorKind::AlreadyExists`].
+/// Times, attributes and, where `dst` stores them fully, permissions and
+/// owner are copied. Symlinks, device nodes, FIFOs and sockets fail with
+/// [`ErrorKind::Unsupported`], since the shared trait cannot create them. A
+/// directory entry that leads back to a directory on the path being copied
+/// fails with [`ErrorKind::Corrupt`], and a tree more than 1024 directories
+/// deep with [`ErrorKind::LimitExceeded`], which also ends a copy of a
+/// directory into itself on one volume. Each file is closed, not flushed;
+/// call `sync` on `dst` to make the copy durable.
 ///
 /// ```rust,ignore
-/// copy_tree(&mut iso, "/EFI", &card, "/EFI")?;
+/// copy_tree(&mut iso, "/EFI", &mut fat, "/EFI")?;
 /// ```
-pub async fn copy_tree<S: Access, T: Access>(
-    src: S,
-    from: &str,
-    dst: T,
-    to: &str,
-) -> Result<(), PathError> {
-    let mut src = src.into_driver();
-    let mut dst = dst.into_driver();
-    let node = src.resolve(from).await?;
-    let is_dir = match src.node_metadata(node).await {
+pub async fn copy_tree<S, D>(
+    src: &mut S,
+    from: impl AsRef<[u8]>,
+    dst: &mut D,
+    to: impl AsRef<[u8]>,
+) -> Result<(), PathError>
+where
+    S: FileSystem + ?Sized,
+    D: FileSystem + ?Sized,
+{
+    let to = to.as_ref();
+    let node = src.resolve(from.as_ref(), Resolve::Lexical).await?;
+    let is_dir = match src.stat(node).await {
         Ok(meta) => meta.file_type().is_dir(),
         Err(err) => {
-            src.forget(node);
+            src.forget(node, 1);
             return Err(err.into());
         }
     };
     if is_dir {
-        return copy_dir(&mut src, node, &mut dst, to).await;
+        return copy_dir(src, node, dst, to).await;
     }
-    let copied = copy_one(&mut src, node, &mut dst, to).await;
-    src.forget(node);
+    let copied = match resolve_parent(dst, to, Resolve::Lexical).await {
+        Ok((dir, name)) => {
+            let copied = copy_node(src, node, dst, dir, name).await;
+            dst.forget(dir, 1);
+            copied.map(|_| ())
+        }
+        Err(err) => Err(err.into()),
+    };
+    src.forget(node, 1);
     copied
 }
 

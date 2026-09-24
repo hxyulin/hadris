@@ -2,6 +2,7 @@
 
 #[path = "common/exfat.rs"]
 mod common;
+use hadris_fs::r#async::FileSystem;
 
 #[path = "common/cancel.rs"]
 mod cancel;

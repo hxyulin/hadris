@@ -1,6 +1,6 @@
 use super::*;
-use crate::PathError;
 use crate::tree::{Content, Repr, Tree, Warning, WarningKind};
+use crate::{FileTimes, PathError, SetMetadata};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -117,65 +117,62 @@ pub trait TreeExt: Sized {
     /// the same id again becomes a hard link.
     ///
     /// Device nodes, FIFOs and sockets are left out and listed in
-    /// [`Tree::warnings`], since `Metadata` carries no device number. A
-    /// directory entry that leads back to a directory on its own path fails
-    /// with [`ErrorKind::Corrupt`], and a tree more than 1024 directories
-    /// deep with [`ErrorKind::LimitExceeded`].
-    async fn from_filesystem<A: Access + io::MaybeSend>(src: A) -> FsResult<Self, A::DeviceError>;
+    /// [`Tree::warnings`]. A directory entry that leads back to a directory
+    /// on its own path fails with [`ErrorKind::Corrupt`], and a tree more
+    /// than 1024 directories deep with [`ErrorKind::LimitExceeded`].
+    async fn from_filesystem<F: FileSystem + ?Sized>(src: &mut F) -> FsResult<Self, F::DeviceError>;
 }
 
 impl TreeExt for Tree {
-    async fn from_filesystem<A: Access + io::MaybeSend>(src: A) -> FsResult<Self, A::DeviceError> {
-        let mut fs = src.into_driver();
+    async fn from_filesystem<F: FileSystem + ?Sized>(fs: &mut F) -> FsResult<Self, F::DeviceError> {
         let mut tree = Tree::new();
         let root = fs.root();
-        let meta = fs.node_metadata(root).await?;
+        let meta = fs.stat(root).await?;
         tree.set_metadata("/", set_metadata_of(&meta))?;
-        let mut stack: Vec<(NodeId, String, DirCursor)> = alloc::vec![(root, String::new(), DirCursor::start())];
+        let mut stack: Vec<(NodeId, String, DirCursor)> = alloc::vec![(root, String::new(), DirCursor::START)];
         let mut seen: Vec<(NodeId, String)> = Vec::new();
-        let result = import(&mut fs, &mut tree, &mut stack, &mut seen).await;
+        let result = import(fs, &mut tree, &mut stack, &mut seen).await;
         for (node, _, _) in stack.iter().skip(1) {
-            fs.forget(*node);
+            fs.forget(*node, 1);
         }
         result.map(|()| tree)
     }
 }
 
-async fn import<D: FsDriver + ?Sized>(
-    fs: &mut D,
+async fn import<F: FileSystem + ?Sized>(
+    fs: &mut F,
     tree: &mut Tree,
     stack: &mut Vec<(NodeId, String, DirCursor)>,
     seen: &mut Vec<(NodeId, String)>,
-) -> FsResult<(), D::DeviceError> {
-    let mut name = NameBuf::new();
+) -> FsResult<(), F::DeviceError> {
     loop {
         let Some((dir, prefix, cursor)) = stack.last_mut() else {
             return Ok(());
         };
         let dir = *dir;
-        if fs.read_dir_entry(dir, cursor, &mut name).await?.is_none() {
+        let Some(entry) = fs.readdir(dir, *cursor).await? else {
             if let Some((node, _, _)) = stack.pop()
                 && node != fs.root()
             {
-                fs.forget(node);
+                fs.forget(node, 1);
             }
             continue;
-        }
-        let child_name = name.as_name().ok_or(ErrorKind::Corrupt)?;
-        let text = child_name.to_str().map_err(|_| ErrorKind::InvalidInput)?;
+        };
+        *cursor = entry.next_cursor();
+        let text = entry.name().to_str().map_err(|_| ErrorKind::InvalidInput)?;
         let path = alloc::format!("{prefix}/{text}");
-        let child = fs.lookup(dir, child_name).await?;
+        let child = fs.lookup(dir, entry.name()).await?;
         match import_node(fs, tree, child, &path, seen).await {
             Ok(true) => {
                 if let Err(err) = super::copy::enter(stack.iter().map(|(node, ..)| *node), child) {
-                    fs.forget(child);
+                    fs.forget(child, 1);
                     return Err(err.into());
                 }
-                stack.push((child, path, DirCursor::start()));
+                stack.push((child, path, DirCursor::START));
             }
-            Ok(false) => fs.forget(child),
+            Ok(false) => fs.forget(child, 1),
             Err(err) => {
-                fs.forget(child);
+                fs.forget(child, 1);
                 return Err(err);
             }
         }
@@ -184,14 +181,14 @@ async fn import<D: FsDriver + ?Sized>(
 
 /// Adds the pinned `node` at `path`. Returns whether it is a directory to
 /// walk.
-async fn import_node<D: FsDriver + ?Sized>(
-    fs: &mut D,
+async fn import_node<F: FileSystem + ?Sized>(
+    fs: &mut F,
     tree: &mut Tree,
     node: NodeId,
     path: &str,
     seen: &mut Vec<(NodeId, String)>,
-) -> FsResult<bool, D::DeviceError> {
-    let meta = fs.node_metadata(node).await?;
+) -> FsResult<bool, F::DeviceError> {
+    let meta = fs.stat(node).await?;
     match meta.file_type() {
         FileType::Dir => tree.add_dir(path)?,
         FileType::File => {
@@ -202,20 +199,16 @@ async fn import_node<D: FsDriver + ?Sized>(
                 }
                 seen.push((node, String::from(path)));
             }
-            let mut data = Vec::new();
-            let mut chunk = [0u8; 4096];
-            loop {
-                let n = fs.read_at(node, data.len() as u64, &mut chunk).await?;
-                if n == 0 {
-                    break;
-                }
-                data.extend_from_slice(&chunk[..n]);
-            }
+            fs.open(node, OpenMode::Read).await?;
+            let data = read_all(fs, node).await;
+            let closed = fs.close(node).await;
+            let data = data?;
+            closed?;
             tree.add_file(path, Content::bytes(data))?;
         }
         FileType::Symlink => {
-            let mut target = alloc::vec![0u8; 4096];
-            let n = fs.read_link(node, &mut target).await?;
+            let mut target = super::copy::link_buffer(meta.len())?;
+            let n = fs.readlink(node, &mut target).await?.len();
             tree.add_symlink(path, &target[..n])?;
         }
         _ => {
@@ -227,22 +220,39 @@ async fn import_node<D: FsDriver + ?Sized>(
     Ok(meta.file_type().is_dir())
 }
 
+async fn read_all<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId) -> FsResult<Vec<u8>, F::DeviceError> {
+    let mut data = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = fs.read(node, data.len() as u64, &mut chunk).await?;
+        if n == 0 {
+            return Ok(data);
+        }
+        data.extend_from_slice(&chunk[..n]);
+    }
+}
+
 }
 
 fn set_metadata_of(meta: &Metadata) -> SetMetadata {
+    let times = FileTimes::new()
+        .with_created(meta.created())
+        .with_modified(meta.modified())
+        .with_accessed(meta.accessed())
+        .with_changed(meta.changed());
     let set = SetMetadata::new()
-        .with_times(meta.times())
+        .with_times(times)
         .with_mode(meta.permissions())
         .with_attributes(meta.attributes());
     match meta.owner() {
-        Some((uid, gid)) => set.with_uid(uid).with_gid(gid),
+        Some(owner) => set.with_uid(owner.uid()).with_gid(owner.gid()),
         None => set,
     }
 }
 
 #[cfg(feature = "std")]
 fn host_error(err: std::io::Error, path: &std::path::Path) -> PathError {
-    PathError::from(Error::device(err, "reading a host file failed")).with_host_path(path)
+    PathError::from(crate::Error::device(err, "reading a host file failed")).with_host_path(path)
 }
 
 async_only! {

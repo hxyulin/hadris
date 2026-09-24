@@ -19,10 +19,8 @@ use std::collections::HashMap;
 
 use hadris_fat::exfat::sync::{check, format, ExFatFs};
 use hadris_fat::exfat::{FormatOptions, MountOptions, VolumeLabel};
-use hadris_fs::{
-    DirCursor, FileType, HeapTable, Name, NameBuf, NewNode, NodeId, RemoveKind, RenameFlags,
-    SetMetadata,
-};
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{DirCursor, FileType, HeapTable, Name, NodeId, RenameMode, Resolve, SetAttr};
 use hadris_storage::{BlockSize, MemDevice};
 use libfuzzer_sys::fuzz_target;
 
@@ -120,22 +118,21 @@ fn split(path: &str) -> (&str, &str) {
 }
 
 fn name(text: &str) -> &Name {
-    Name::new(text).expect("generated names are valid")
+    Name::new(text)
 }
 
 /// Resolves a model directory path ("" for the root) and pins it.
 fn resolve(fs: &mut Fs, path: &str) -> Option<NodeId> {
-    use hadris_fs::sync::FsDriver;
     if path.is_empty() {
         return Some(fs.root());
     }
-    FsDriver::resolve(fs, path).ok()
+    fs.resolve(path.as_bytes(), Resolve::Lexical).ok()
 }
 
 /// Writes all of `data` at `offset`.
 fn write_all(fs: &mut Fs, node: NodeId, mut offset: u64, mut data: &[u8]) -> bool {
     while !data.is_empty() {
-        match fs.write_at(node, offset, data) {
+        match fs.write(node, offset, data) {
             Ok(0) | Err(_) => return false,
             Ok(n) => {
                 offset += n as u64;
@@ -150,7 +147,7 @@ fn write_all(fs: &mut Fs, node: NodeId, mut offset: u64, mut data: &[u8]) -> boo
 fn with_node<T>(fs: &mut Fs, path: &str, f: impl FnOnce(&mut Fs, NodeId) -> T) -> Option<T> {
     let node = resolve(fs, path)?;
     let out = f(fs, node);
-    fs.forget(node);
+    fs.forget(node, 1);
     Some(out)
 }
 
@@ -183,23 +180,26 @@ fn apply(
             let Some(parent) = resolve(fs, &parent_path) else {
                 return false;
             };
-            let kind = if is_dir { NewNode::Dir } else { NewNode::File };
-            let created = fs.create(parent, name(&child), kind, &SetMetadata::new());
+            let created = if is_dir {
+                fs.mkdir(parent, name(&child), &SetAttr::new())
+            } else {
+                fs.create(parent, name(&child), &SetAttr::new())
+            };
             let Ok(node) = created else {
-                fs.forget(parent);
+                fs.forget(parent, 1);
                 return true;
             };
             let ok = write_all(fs, node, 0, &content);
-            fs.forget(node);
+            fs.forget(node, 1);
             if !ok {
                 // The entry exists but its content is unknown. Best-effort
                 // cleanup; if even that fails the model can no longer mirror
                 // the disk, so stop.
-                let removed = fs.remove(parent, name(&child), RemoveKind::Any).is_ok();
-                fs.forget(parent);
+                let removed = fs.unlink(parent, name(&child)).is_ok();
+                fs.forget(parent, 1);
                 return removed;
             }
-            fs.forget(parent);
+            fs.forget(parent, 1);
             *written += content.len();
             model.push(ModelEntry {
                 path: format!("{parent_path}/{child}"),
@@ -214,10 +214,12 @@ fn apply(
             let idx = (input.u8() as usize) % model.len();
             let (dir, child) = split(&model[idx].path);
             let child = child.to_owned();
+            let is_dir = model[idx].is_dir;
             // Removing a non-empty directory fails inside the library;
             // failed ops leave both sides unchanged.
-            if with_node(fs, dir, |fs, dir| {
-                fs.remove(dir, name(&child), RemoveKind::Any).is_ok()
+            if with_node(fs, dir, |fs, dir| match is_dir {
+                true => fs.rmdir(dir, name(&child)).is_ok(),
+                false => fs.unlink(dir, name(&child)).is_ok(),
             }) == Some(true)
             {
                 model.remove(idx);
@@ -248,10 +250,10 @@ fn apply(
                 name(from_name),
                 to,
                 name(&child),
-                RenameFlags::NO_REPLACE,
+                RenameMode::NoReplace,
             );
-            fs.forget(from);
-            fs.forget(to);
+            fs.forget(from, 1);
+            fs.forget(to, 1);
             if renamed.is_err() {
                 return true;
             }
@@ -294,7 +296,7 @@ fn apply(
                 *written += data.len();
             } else {
                 let len = (input.u16() % MAX_FILE_SIZE).min(old + budget);
-                match with_node(fs, &path, |fs, node| fs.set_len(node, len as u64).is_ok()) {
+                match with_node(fs, &path, |fs, node| fs.truncate(node, len as u64).is_ok()) {
                     Some(true) => {}
                     // A failed extension may have allocated part of the
                     // growth; the size on disk is then unknown.
@@ -343,7 +345,8 @@ fn drive(data: &[u8]) {
     if consistent {
         let blocks = dev.get_ref().len() / 512;
         let mut scratch = vec![0u8; 1024 + blocks.div_ceil(8).max(512)];
-        let report = check(&mut dev, &mut scratch, |_| {}).expect("check reads an in-memory volume");
+        let report =
+            check(&mut dev, &mut scratch, |_| {}).expect("check reads an in-memory volume");
         assert!(
             report.is_clean(),
             "ORACLE: check found {} problem(s) on a volume ExFatFs wrote",
@@ -371,19 +374,19 @@ fn drive(data: &[u8]) {
         if depth > MAX_DEPTH {
             continue;
         }
-        let mut cursor = DirCursor::start();
-        let mut buf = NameBuf::new();
+        let mut cursor = DirCursor::START;
         loop {
             if budget == 0 {
                 return;
             }
             budget -= 1;
-            let entry = match fs.read_dir_entry(dir, &mut cursor, &mut buf) {
+            let entry = match fs.readdir(dir, cursor) {
                 Ok(Some(entry)) => entry,
                 Ok(None) => break,
                 Err(err) => panic!("ORACLE: listing {prefix}/ failed: {err:?}"),
             };
-            let text = buf.as_name().and_then(|n| n.to_str().ok()).unwrap_or("");
+            cursor = entry.next_cursor();
+            let text = entry.name().to_str().unwrap_or("");
             assert!(
                 !text.is_empty(),
                 "ORACLE: entry with an empty name under {prefix}/"
@@ -399,9 +402,7 @@ fn drive(data: &[u8]) {
                 stack.push((entry.node(), path, depth + 1));
                 continue;
             }
-            let meta = fs
-                .node_metadata(entry.node())
-                .expect("metadata of a listed file");
+            let meta = fs.stat(entry.node()).expect("metadata of a listed file");
             assert_eq!(
                 meta.len(),
                 m.content.len() as u64,
@@ -410,7 +411,7 @@ fn drive(data: &[u8]) {
             let mut bytes = vec![0u8; m.content.len()];
             let mut filled = 0;
             while filled < bytes.len() {
-                match fs.read_at(entry.node(), filled as u64, &mut bytes[filled..]) {
+                match fs.read(entry.node(), filled as u64, &mut bytes[filled..]) {
                     Ok(0) | Err(_) => panic!("ORACLE: cannot read {path} after remount"),
                     Ok(n) => filled += n,
                 }

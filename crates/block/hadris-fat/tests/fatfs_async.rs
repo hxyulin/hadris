@@ -2,18 +2,19 @@
 
 #[path = "common/fatfs.rs"]
 mod common;
+use common::FsPaths;
+use common::paths::r#async::{FsPaths as _, VolumePaths as _};
+use hadris_fs::r#async::FileSystem;
 
 use std::sync::Arc;
 
 use common::{CASES, INNER, INNER_FILES, LONG_NAME, block_on};
-use hadris_fs::{
-    DirCursor, ErrorKind, Name, NameBuf, NewNode, OpenOptions, RemoveKind, RenameFlags, SetMetadata,
-};
+use hadris_fs::{DirCursor, ErrorKind, Name, OpenMode, OpenOptions, RenameMode, SetAttr};
 
 #[test]
 fn async_mode_reads_through_every_tier() {
     use hadris_fat::r#async::FatFs;
-    use hadris_fs::r#async::{DriverExt, PathExt, Volume};
+    use hadris_fs::r#async::Volume;
     use hadris_io::r#async::Read as _;
 
     let case = CASES[2];
@@ -23,22 +24,16 @@ fn async_mode_reads_through_every_tier() {
             .unwrap();
         let root = fs.root();
         let long = fs
-            .lookup(root, Name::new("a LONG file name.TXT").unwrap())
+            .lookup(root, Name::new("a LONG file name.TXT"))
             .await
             .unwrap();
         let mut buf = [0u8; 16];
-        assert_eq!(fs.read_at(long, 4990, &mut buf).await.unwrap(), 10);
+        assert_eq!(fs.read(long, 4990, &mut buf).await.unwrap(), 10);
         assert_eq!(buf[..10], common::payload(5000, 1)[4990..]);
-        fs.forget(long);
+        fs.forget(long, 1);
 
-        let mut cursor = DirCursor::start();
-        let mut name = NameBuf::new();
-        let first = fs
-            .read_dir_entry(root, &mut cursor, &mut name)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(name.as_bytes(), b"README.TXT");
+        let first = fs.readdir(root, DirCursor::START).await.unwrap().unwrap();
+        assert_eq!(first.name().as_bytes(), b"README.TXT");
         assert!(first.file_type().is_file());
         assert_eq!(
             fs.read_to_vec("/Nested Dir/sibling.txt").await.unwrap(),
@@ -54,21 +49,23 @@ fn async_mode_reads_through_every_tier() {
         }
         drop(dir);
         assert_eq!(count, INNER_FILES);
-        let mut file = vol.open("/frag.bin", OpenOptions::read()).await.unwrap();
+        let mut file = vol
+            .open("/frag.bin", OpenOptions::new().read())
+            .await
+            .unwrap();
         let mut head = [0u8; 100];
         file.read_exact(&mut head).await.unwrap();
         assert_eq!(head[..], common::payload(100, 2)[..]);
         file.close().await.unwrap();
-        assert_eq!(vol.into_inner().open_nodes(), 1);
+        assert_eq!(vol.into_inner().await.unwrap().open_nodes(), 1);
     });
 }
 
-fn spawn_read<F: hadris_fs::r#async::FileSystem + 'static>(
-    fs: Arc<F>,
+fn spawn_read<F: hadris_fs::r#async::FileSystem + Send + 'static>(
+    vol: Arc<hadris_fs::r#async::Volume<F>>,
     path: &'static str,
 ) -> std::thread::JoinHandle<Vec<u8>> {
-    use hadris_fs::r#async::PathExt;
-    std::thread::spawn(move || block_on(async move { fs.read_to_vec(path).await.unwrap() }))
+    std::thread::spawn(move || block_on(async move { vol.read_to_vec(path).await.unwrap() }))
 }
 
 #[test]
@@ -87,15 +84,15 @@ fn async_futures_move_to_other_threads() {
     let task = async {
         let mut fs = vol.lock().await;
         let root = fs.root();
-        fs.lookup(root, Name::new(LONG_NAME).unwrap())
+        fs.lookup(root, Name::new(LONG_NAME))
             .await
-            .map(|node| fs.forget(node))
+            .map(|node| fs.forget(node, 1))
     };
     fn assert_send<T: Send>(value: T) -> T {
         value
     }
     block_on(assert_send(task)).unwrap();
-    let fs = Arc::into_inner(vol).unwrap().into_inner();
+    let fs = block_on(Arc::into_inner(vol).unwrap().into_inner()).unwrap();
     assert_eq!(fs.open_nodes(), 1);
 }
 
@@ -154,7 +151,7 @@ fn async_failed_opens_give_the_device_back() {
 #[test]
 fn async_mode_writes() {
     use hadris_fat::r#async::FatFs;
-    use hadris_fs::r#async::{DriverExt, PathExt, Volume};
+    use hadris_fs::r#async::Volume;
     use hadris_io::r#async::Write as _;
 
     let case = CASES[0];
@@ -163,62 +160,54 @@ fn async_mode_writes() {
             .await
             .unwrap();
         let root = fs.root();
-        let meta = SetMetadata::new();
+        let meta = SetAttr::new();
         let dir = fs
-            .create(root, Name::new("A Directory").unwrap(), NewNode::Dir, &meta)
+            .mkdir(root, Name::new("A Directory"), &meta)
             .await
             .unwrap();
-        let file = fs
-            .create(dir, Name::new("notes.txt").unwrap(), NewNode::File, &meta)
-            .await
-            .unwrap();
+        let file = fs.create(dir, Name::new("notes.txt"), &meta).await.unwrap();
         let data = common::payload(9_000, 3);
-        assert_eq!(fs.write_at(file, 0, &data).await.unwrap(), data.len());
-        fs.set_len(file, 8_000).await.unwrap();
+        assert_eq!(fs.write(file, 0, &data).await.unwrap(), data.len());
+        fs.truncate(file, 8_000).await.unwrap();
         fs.rename(
             dir,
-            Name::new("notes.txt").unwrap(),
+            Name::new("notes.txt"),
             root,
-            Name::new("Renamed Notes.txt").unwrap(),
-            RenameFlags::empty(),
+            Name::new("Renamed Notes.txt"),
+            RenameMode::Replace,
         )
         .await
         .unwrap();
-        fs.open_node(dir).await.unwrap();
+        fs.open(file, OpenMode::Write).await.unwrap();
         assert_eq!(
-            fs.remove(root, Name::new("A Directory").unwrap(), RemoveKind::Any)
+            fs.unlink(root, Name::new("renamed notes.txt"))
                 .await
                 .unwrap_err()
                 .kind(),
             ErrorKind::Busy
         );
-        fs.close_node(dir);
-        fs.remove(root, Name::new("a directory").unwrap(), RemoveKind::Dir)
-            .await
-            .unwrap();
-        assert_eq!(
-            fs.node_metadata(dir).await.unwrap_err().kind(),
-            ErrorKind::NotFound
-        );
-        fs.forget(dir);
+        fs.close(file).await.unwrap();
+        fs.rmdir(root, Name::new("a directory")).await.unwrap();
+        assert_eq!(fs.stat(dir).await.unwrap_err().kind(), ErrorKind::NotFound);
+        fs.forget(dir, 1);
         let mut buf = vec![0u8; 9_000];
-        assert_eq!(fs.read_at(file, 0, &mut buf).await.unwrap(), 8_000);
+        assert_eq!(fs.read(file, 0, &mut buf).await.unwrap(), 8_000);
         assert_eq!(buf[..8_000], data[..8_000]);
-        fs.forget(file);
+        fs.forget(file, 1);
         fs.sync().await.unwrap();
         assert_eq!(fs.open_nodes(), 1);
         fs.write_file("/second.bin", b"second").await.unwrap();
 
         let vol = Volume::new(fs);
         let mut log = vol
-            .open("/log.txt", OpenOptions::write().create().append())
+            .open("/log.txt", OpenOptions::new().write().create().append())
             .await
             .unwrap();
         log.write_all(b"one ").await.unwrap();
         log.write_all(b"two").await.unwrap();
         log.close().await.unwrap();
         assert_eq!(vol.read_to_vec("/LOG.TXT").await.unwrap(), b"one two");
-        let mut fs = vol.into_inner();
+        let mut fs = vol.into_inner().await.unwrap();
         fs.sync().await.unwrap();
         fs.into_inner().into_inner()
     });
@@ -239,7 +228,7 @@ fn async_mode_writes() {
 #[test]
 fn async_writers_on_other_threads() {
     use hadris_fat::r#async::FatFs;
-    use hadris_fs::r#async::{FileSystem, PathExt, Volume};
+    use hadris_fs::r#async::Volume;
 
     let case = CASES[2];
     let fs = block_on(FatFs::open(common::device(case, common::blank(case)))).unwrap();
@@ -272,8 +261,8 @@ fn async_writers_on_other_threads() {
         );
         assert_eq!(data.join().unwrap(), common::payload(20_000, i));
     }
-    block_on(vol.sync()).unwrap();
-    let fs = Arc::into_inner(vol).unwrap().into_inner();
+    block_on(async { vol.lock().await.sync().await }).unwrap();
+    let fs = block_on(Arc::into_inner(vol).unwrap().into_inner()).unwrap();
     assert_eq!(fs.open_nodes(), 1);
 }
 
@@ -303,7 +292,7 @@ fn async_failed_formats_give_the_device_back() {
 #[test]
 fn format_in_the_async_modes() {
     use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
-    use hadris_fs::sync::DriverExt as _;
+
     use hadris_storage::{BlockSize, MemDevice};
 
     fn assert_send<T: Send>(value: T) -> T {
@@ -321,15 +310,15 @@ fn format_in_the_async_modes() {
         .into_inner()
         .into_inner();
     let image = block_on(async {
-        use hadris_fs::r#async::{FileSystem, PathExt, Volume};
+        use hadris_fs::r#async::Volume;
         let fs = hadris_fat::r#async::format(device(), options())
             .await
             .unwrap();
         assert_eq!(fs.kind(), FatKind::Fat32);
         let vol = Volume::new(fs);
         vol.write_file("/async.txt", b"async").await.unwrap();
-        vol.sync().await.unwrap();
-        vol.into_inner().into_inner().into_inner()
+        vol.lock().await.sync().await.unwrap();
+        vol.into_inner().await.unwrap().into_inner().into_inner()
     });
     let send = block_on(assert_send(hadris_fat::r#async::format(
         device(),
@@ -342,7 +331,7 @@ fn format_in_the_async_modes() {
     let mut fs =
         hadris_fat::sync::FatFs::open(MemDevice::new(image.clone(), BlockSize::new(512).unwrap()))
             .unwrap();
-    assert_eq!(fs.label().unwrap().unwrap().as_str(), "ASYNC");
+    assert_eq!(fs.label_text().unwrap().unwrap(), "ASYNC");
     assert_eq!(fs.read_to_vec("/async.txt").unwrap(), b"async");
     common::fsck(&image, "async format");
 }
@@ -363,9 +352,9 @@ fn async_futures_stay_small() {
 
     const BLOCK: usize = 4096;
     let case = CASES[0];
-    let name = Name::new("a long file name.txt").unwrap();
-    let flags = RenameFlags::empty();
-    let meta = SetMetadata::new();
+    let name = Name::new("a long file name.txt");
+    let flags = RenameMode::Replace;
+    let meta = SetAttr::new();
     let empty = || MemDevice::new(Vec::new(), BlockSize::new(512).unwrap());
 
     let options = hadris_fat::MountOptions::new().with_table(FixedTable::<1>::new());
@@ -377,11 +366,7 @@ fn async_futures_stay_small() {
         fat.rename(root, name, root, name, flags),
         3584,
     );
-    assert_below(
-        "FatFs create",
-        fat.create(root, name, NewNode::File, &meta),
-        2240,
-    );
+    assert_below("FatFs create", fat.create(root, name, &meta), 2240);
 
     let options = hadris_fat::exfat::MountOptions::new().with_table(FixedTable::<1>::new());
     assert_below(
@@ -399,11 +384,7 @@ fn async_futures_stay_small() {
         exfat.rename(root, name, root, name, flags),
         2 * BLOCK,
     );
-    assert_below(
-        "ExFatFs create",
-        exfat.create(root, name, NewNode::File, &meta),
-        4608,
-    );
+    assert_below("ExFatFs create", exfat.create(root, name, &meta), 4608);
 }
 
 #[path = "common/cancel.rs"]

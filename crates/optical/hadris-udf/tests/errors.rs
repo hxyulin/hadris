@@ -3,8 +3,9 @@
 
 mod common;
 
+use common::Paths;
 use common::{SECTOR, image, open, reseal, sample};
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::tree::{Content, Tree};
 use hadris_fs::{ErrorKind, Extent, FileTimes, NodeId, SetMetadata};
 use hadris_storage::{BlockSize, MemDevice};
@@ -64,8 +65,7 @@ fn malformed_volumes_are_refused() {
         .unwrap();
     bad[root_fids + name + 1] = b'R';
     let mut udf = open(bad);
-    let listed: Result<Vec<_>, _> = udf.read_dir("/").unwrap().collect();
-    assert_eq!(listed.unwrap_err().kind(), ErrorKind::Corrupt);
+    assert_eq!(udf.names("/").unwrap_err().kind(), ErrorKind::Corrupt);
 
     let mut udf = UdfFs::open(MemDevice::new(good, BlockSize::new(4096).unwrap())).unwrap();
     assert_eq!(udf.read_to_vec("/readme.txt").unwrap(), b"hello");
@@ -75,7 +75,7 @@ fn malformed_volumes_are_refused() {
 fn damaged_entries_behind_listed_ids_are_corrupt() {
     let good = good();
     let mut udf = open(good.clone());
-    let node = udf.resolve("/readme.txt").unwrap();
+    let node = udf.resolve_path("/readme.txt").unwrap();
     let block = ((node.get() - 1) & 0xFFFF_FFFF) as u32;
     let sector = (0..good.len() / 2048)
         .find(|&sector| {
@@ -89,46 +89,43 @@ fn damaged_entries_behind_listed_ids_are_corrupt() {
     let mut bad = good;
     bad[sector * 2048 + 100] ^= 0xFF;
     let mut udf = open(bad);
-    let listed = udf.resolve("/readme.txt").unwrap();
+    let listed = udf.resolve_path("/readme.txt").unwrap();
     assert_eq!(listed, node);
-    assert_eq!(
-        udf.node_metadata(listed).unwrap_err().kind(),
-        ErrorKind::Corrupt
-    );
+    assert_eq!(udf.stat(listed).unwrap_err().kind(), ErrorKind::Corrupt);
 }
 
 #[test]
 fn forged_node_ids_are_invalid_handles() {
     let mut udf = open(good());
-    for raw in [0, 12345, u64::MAX, (5u64 << 32) + 2] {
-        let err = udf.node_metadata(NodeId::new(raw)).unwrap_err();
+    for raw in [12345, u64::MAX, (5u64 << 32) + 2] {
+        let err = udf.stat(NodeId::new(raw).unwrap()).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidHandle, "{raw}");
     }
-    let err = udf.node_metadata(NodeId::new(1)).unwrap_err();
+    let err = udf.stat(NodeId::new(1).unwrap()).unwrap_err();
     assert_eq!(
         err.kind(),
         ErrorKind::Corrupt,
         "an id inside a partition is read as an entry"
     );
-    let file = udf.resolve("/readme.txt").unwrap();
+    let file = udf.resolve_path("/readme.txt").unwrap();
     assert_eq!(
-        udf.lookup(file, hadris_fs::Name::new("x").unwrap())
+        udf.lookup(file, hadris_fs::Name::new("x"))
             .unwrap_err()
             .kind(),
         ErrorKind::NotADirectory
     );
     let root = udf.root();
     assert_eq!(
-        udf.read_at(root, 0, &mut [0; 4]).unwrap_err().kind(),
+        udf.read(root, 0, &mut [0; 4]).unwrap_err().kind(),
         ErrorKind::IsADirectory
     );
     assert_eq!(
-        udf.read_link(file, &mut [0; 4]).unwrap_err().kind(),
+        udf.readlink(file, &mut [0; 4]).unwrap_err().kind(),
         ErrorKind::InvalidInput
     );
-    let link = udf.resolve("/abs").unwrap();
+    let link = udf.resolve_path("/abs").unwrap();
     assert_eq!(
-        udf.read_link(link, &mut [0; 4]).unwrap_err().kind(),
+        udf.readlink(link, &mut [0; 4]).unwrap_err().kind(),
         ErrorKind::LimitExceeded
     );
 }

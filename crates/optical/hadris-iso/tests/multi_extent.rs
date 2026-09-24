@@ -5,8 +5,9 @@ mod common;
 
 use std::collections::BTreeMap;
 
+use common::Paths;
 use hadris_fs::ErrorKind;
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::tree::{Content, Tree};
 use hadris_io::ErrorType;
 use hadris_iso::sync::IsoImage;
@@ -112,8 +113,8 @@ fn large_files_take_several_extents_at_level_3() {
 
     let mut iso = IsoImage::open(dev).unwrap();
     let mut view = iso.view(Namespace::Primary).unwrap();
-    let node = view.resolve("/BIG.BIN").unwrap();
-    assert_eq!(view.node_metadata(node).unwrap().len(), LEN);
+    let node = view.resolve_path("/BIG.BIN").unwrap();
+    assert_eq!(view.stat(node).unwrap().len(), LEN);
     let mut extents = Vec::new();
     view.extents(node, |extent| extents.push(extent)).unwrap();
     assert_eq!(extents.len(), 2);
@@ -122,12 +123,12 @@ fn large_files_take_several_extents_at_level_3() {
     for mib in [0u64, 4095, 4096] {
         let at = (mib << 20) + (1 << 20) - 1;
         if at < LEN {
-            view.read_at(node, at, &mut byte).unwrap();
+            view.read(node, at, &mut byte).unwrap();
             assert_eq!(byte[0], mib as u8, "MiB {mib}");
         }
     }
     let mut tail = [0xFFu8; 8192];
-    let n = view.read_at(node, LEN - 4096, &mut tail).unwrap();
+    let n = view.read(node, LEN - 4096, &mut tail).unwrap();
     assert_eq!(n, 4096);
     assert_eq!(view.read_to_vec("/SMALL.TXT").unwrap(), b"after");
     hadris_fs::sync::contract::check_read_only(&mut view).unwrap();

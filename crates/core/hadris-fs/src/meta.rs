@@ -1,29 +1,59 @@
 use core::fmt;
 
-use crate::{FileTimes, FileType};
+use crate::{DateTime, DeviceNumber, FileTimes, FileType};
 
-/// POSIX permission bits: the `0o7777` part of `st_mode`.
+/// POSIX permission bits: the `0o7777` part of `st_mode`, with the setuid,
+/// setgid and sticky bits.
+///
+/// Formats that store none derive them: FAT and exFAT report `0o755` for a
+/// directory and `0o644` for a file, without the write bits when the node
+/// is read-only.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct Mode(u32);
+pub struct Permissions(u16);
 
-impl Mode {
-    /// Every bit a `Mode` can hold.
-    pub const MASK: u32 = 0o7777;
+impl Permissions {
+    /// Every bit a `Permissions` can hold.
+    pub const MASK: u16 = 0o7777;
 
-    /// Creates a mode. Bits outside [`MASK`](Self::MASK) are discarded.
-    pub const fn new(bits: u32) -> Self {
-        Self(bits & Self::MASK)
+    /// Creates permissions. Bits outside [`MASK`](Self::MASK), such as the
+    /// file type bits of `st_mode`, are discarded.
+    pub const fn new(mode: u32) -> Self {
+        Self((mode & Self::MASK as u32) as u16)
     }
 
     /// Returns the permission bits.
     pub const fn bits(self) -> u32 {
-        self.0
+        self.0 as u32
     }
 }
 
-impl fmt::Debug for Mode {
+impl fmt::Debug for Permissions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Mode({:#o})", self.0)
+        write!(f, "Permissions({:#o})", self.0)
+    }
+}
+
+/// The user and group that own a node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Owner {
+    uid: u32,
+    gid: u32,
+}
+
+impl Owner {
+    /// Creates an owner.
+    pub const fn new(uid: u32, gid: u32) -> Self {
+        Self { uid, gid }
+    }
+
+    /// Returns the user id.
+    pub const fn uid(self) -> u32 {
+        self.uid
+    }
+
+    /// Returns the group id.
+    pub const fn gid(self) -> u32 {
+        self.gid
     }
 }
 
@@ -42,33 +72,57 @@ bitflags::bitflags! {
     }
 }
 
-/// Metadata of a filesystem node.
+impl Attributes {
+    /// No attribute set.
+    pub const NONE: Self = Self::empty();
+
+    /// Returns `self` without the flags of `other`.
+    pub const fn without(self, other: Self) -> Self {
+        self.difference(other)
+    }
+}
+
+/// Metadata of a filesystem node, as `stat` returns it.
 ///
 /// Filesystems build it with [`new`](Self::new) and the `with_*` setters;
-/// callers read it through getters.
+/// callers read it through getters. Fields a format does not store are
+/// absent: `None` for times, owner and device, 0 for `allocated` and
+/// `generation`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Metadata {
     file_type: FileType,
     len: u64,
-    times: FileTimes,
-    permissions: Option<Mode>,
-    owner: Option<(u32, u32)>,
-    nlink: u64,
+    allocated: u64,
+    created: Option<DateTime>,
+    modified: Option<DateTime>,
+    accessed: Option<DateTime>,
+    changed: Option<DateTime>,
+    permissions: Permissions,
+    owner: Option<Owner>,
     attributes: Attributes,
+    nlink: u64,
+    generation: u64,
+    device: Option<DeviceNumber>,
 }
 
 impl Metadata {
-    /// Creates metadata for a node of `file_type` with length 0, one link,
-    /// no times, no permissions, no owner and no attributes.
-    pub const fn new(file_type: FileType) -> Self {
+    /// Creates metadata for a node of `file_type` with `permissions`, length
+    /// 0, one link and nothing else.
+    pub const fn new(file_type: FileType, permissions: Permissions) -> Self {
         Self {
             file_type,
             len: 0,
-            times: FileTimes::new(),
-            permissions: None,
+            allocated: 0,
+            created: None,
+            modified: None,
+            accessed: None,
+            changed: None,
+            permissions,
             owner: None,
-            nlink: 1,
             attributes: Attributes::empty(),
+            nlink: 1,
+            generation: 0,
+            device: None,
         }
     }
 
@@ -77,25 +131,52 @@ impl Metadata {
         self.file_type
     }
 
-    /// Returns the length in bytes.
+    /// Returns the length in bytes: 0 for a directory, the target length for
+    /// a symlink.
     #[allow(clippy::len_without_is_empty)]
     pub const fn len(&self) -> u64 {
         self.len
     }
 
-    /// Returns the node's timestamps.
-    pub const fn times(&self) -> FileTimes {
-        self.times
+    /// Returns the bytes allocated on the device (`st_blocks` times 512).
+    pub const fn allocated(&self) -> u64 {
+        self.allocated
     }
 
-    /// Returns the POSIX permissions, if the format stores them.
-    pub const fn permissions(&self) -> Option<Mode> {
+    /// Returns the creation (birth) time.
+    pub const fn created(&self) -> Option<DateTime> {
+        self.created
+    }
+
+    /// Returns the last content modification time.
+    pub const fn modified(&self) -> Option<DateTime> {
+        self.modified
+    }
+
+    /// Returns the last access time.
+    pub const fn accessed(&self) -> Option<DateTime> {
+        self.accessed
+    }
+
+    /// Returns the last metadata change time.
+    pub const fn changed(&self) -> Option<DateTime> {
+        self.changed
+    }
+
+    /// Returns the POSIX permissions, stored or derived.
+    pub const fn permissions(&self) -> Permissions {
         self.permissions
     }
 
-    /// Returns the `(uid, gid)` owner, if the format stores one.
-    pub const fn owner(&self) -> Option<(u32, u32)> {
+    /// Returns the owner. `None` means the format stores no owner, which is
+    /// not uid 0.
+    pub const fn owner(&self) -> Option<Owner> {
         self.owner
+    }
+
+    /// Returns the DOS-style attributes.
+    pub const fn attributes(&self) -> Attributes {
+        self.attributes
     }
 
     /// Returns the number of hard links. 1 on a directory means the format
@@ -104,14 +185,15 @@ impl Metadata {
         self.nlink
     }
 
-    /// Returns the DOS-style attributes.
-    pub const fn attributes(&self) -> Attributes {
-        self.attributes
+    /// Returns the generation, which tells a reused [`NodeId`](crate::NodeId)
+    /// from the node that had it before. 0 when the format keeps none.
+    pub const fn generation(&self) -> u64 {
+        self.generation
     }
 
-    /// Sets the node type.
-    pub const fn with_file_type(self, file_type: FileType) -> Self {
-        Self { file_type, ..self }
+    /// Returns the device number of a character or block device.
+    pub const fn device(&self) -> Option<DeviceNumber> {
+        self.device
     }
 
     /// Sets the length in bytes.
@@ -119,25 +201,54 @@ impl Metadata {
         Self { len, ..self }
     }
 
-    /// Sets the timestamps.
-    pub const fn with_times(self, times: FileTimes) -> Self {
-        Self { times, ..self }
+    /// Sets the bytes allocated on the device.
+    pub const fn with_allocated(self, allocated: u64) -> Self {
+        Self { allocated, ..self }
     }
 
-    /// Sets the POSIX permissions.
-    pub fn with_permissions(self, permissions: impl Into<Option<Mode>>) -> Self {
+    /// Sets the creation time.
+    pub const fn with_created(self, time: DateTime) -> Self {
         Self {
-            permissions: permissions.into(),
+            created: Some(time),
             ..self
         }
     }
 
-    /// Sets the `(uid, gid)` owner.
-    pub fn with_owner(self, owner: impl Into<Option<(u32, u32)>>) -> Self {
+    /// Sets the modification time.
+    pub const fn with_modified(self, time: DateTime) -> Self {
         Self {
-            owner: owner.into(),
+            modified: Some(time),
             ..self
         }
+    }
+
+    /// Sets the access time.
+    pub const fn with_accessed(self, time: DateTime) -> Self {
+        Self {
+            accessed: Some(time),
+            ..self
+        }
+    }
+
+    /// Sets the metadata change time.
+    pub const fn with_changed(self, time: DateTime) -> Self {
+        Self {
+            changed: Some(time),
+            ..self
+        }
+    }
+
+    /// Sets the owner.
+    pub const fn with_owner(self, owner: Owner) -> Self {
+        Self {
+            owner: Some(owner),
+            ..self
+        }
+    }
+
+    /// Sets the DOS-style attributes.
+    pub const fn with_attributes(self, attributes: Attributes) -> Self {
+        Self { attributes, ..self }
     }
 
     /// Sets the number of hard links.
@@ -145,21 +256,150 @@ impl Metadata {
         Self { nlink, ..self }
     }
 
-    /// Sets the DOS-style attributes.
-    pub const fn with_attributes(self, attributes: Attributes) -> Self {
-        Self { attributes, ..self }
+    /// Sets the generation.
+    pub const fn with_generation(self, generation: u64) -> Self {
+        Self { generation, ..self }
+    }
+
+    /// Sets the device number.
+    pub const fn with_device(self, device: DeviceNumber) -> Self {
+        Self {
+            device: Some(device),
+            ..self
+        }
     }
 }
 
-/// Metadata changes for `set_metadata` and for creating nodes.
+/// Attribute changes for `setattr`, and the initial attributes of `create`
+/// and `mkdir`.
 ///
 /// Every field is optional; unset fields are left unchanged, or take the
-/// filesystem's default on create. Filesystems ignore fields they cannot
+/// filesystem's default on create. `create` and `mkdir` ignore fields the
+/// format cannot store, as `open(2)` ignores mode bits a filesystem lacks.
+/// `setattr` succeeds when the value the format would report after storing
+/// it equals what was asked, after rounding to the field's resolution and
+/// deriving dependent bits, and fails with
+/// [`ErrorKind::Unsupported`](crate::ErrorKind::Unsupported) otherwise.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct SetAttr {
+    accessed: Option<DateTime>,
+    modified: Option<DateTime>,
+    created: Option<DateTime>,
+    permissions: Option<Permissions>,
+    owner: Option<Owner>,
+    attributes: Option<Attributes>,
+}
+
+impl SetAttr {
+    /// Creates an empty change set.
+    pub const fn new() -> Self {
+        Self {
+            accessed: None,
+            modified: None,
+            created: None,
+            permissions: None,
+            owner: None,
+            attributes: None,
+        }
+    }
+
+    /// Sets the access time.
+    pub const fn with_accessed(self, time: DateTime) -> Self {
+        Self {
+            accessed: Some(time),
+            ..self
+        }
+    }
+
+    /// Sets the modification time.
+    pub const fn with_modified(self, time: DateTime) -> Self {
+        Self {
+            modified: Some(time),
+            ..self
+        }
+    }
+
+    /// Sets the creation time.
+    pub const fn with_created(self, time: DateTime) -> Self {
+        Self {
+            created: Some(time),
+            ..self
+        }
+    }
+
+    /// Sets the permissions.
+    pub const fn with_permissions(self, permissions: Permissions) -> Self {
+        Self {
+            permissions: Some(permissions),
+            ..self
+        }
+    }
+
+    /// Sets the owner.
+    pub const fn with_owner(self, owner: Owner) -> Self {
+        Self {
+            owner: Some(owner),
+            ..self
+        }
+    }
+
+    /// Replaces the DOS attributes; read `stat` first to change one bit.
+    pub const fn with_attributes(self, attributes: Attributes) -> Self {
+        Self {
+            attributes: Some(attributes),
+            ..self
+        }
+    }
+
+    /// Returns the access time to set.
+    pub const fn accessed(&self) -> Option<DateTime> {
+        self.accessed
+    }
+
+    /// Returns the modification time to set.
+    pub const fn modified(&self) -> Option<DateTime> {
+        self.modified
+    }
+
+    /// Returns the creation time to set.
+    pub const fn created(&self) -> Option<DateTime> {
+        self.created
+    }
+
+    /// Returns the permissions to set.
+    pub const fn permissions(&self) -> Option<Permissions> {
+        self.permissions
+    }
+
+    /// Returns the owner to set.
+    pub const fn owner(&self) -> Option<Owner> {
+        self.owner
+    }
+
+    /// Returns the attributes to set.
+    pub const fn attributes(&self) -> Option<Attributes> {
+        self.attributes
+    }
+
+    /// Returns whether the change set changes nothing.
+    pub const fn is_empty(&self) -> bool {
+        self.accessed.is_none()
+            && self.modified.is_none()
+            && self.created.is_none()
+            && self.permissions.is_none()
+            && self.owner.is_none()
+            && self.attributes.is_none()
+    }
+}
+
+/// The metadata of a [`Tree`](crate::tree::Tree) node, which image writers
 /// store.
+///
+/// Every field is optional; unset fields take the writer's default.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct SetMetadata {
     times: FileTimes,
-    mode: Option<Mode>,
+    mode: Option<Permissions>,
     uid: Option<u32>,
     gid: Option<u32>,
     attributes: Option<Attributes>,
@@ -183,7 +423,7 @@ impl SetMetadata {
     }
 
     /// Returns the permissions to set.
-    pub const fn mode(&self) -> Option<Mode> {
+    pub const fn mode(&self) -> Option<Permissions> {
         self.mode
     }
 
@@ -208,7 +448,7 @@ impl SetMetadata {
     }
 
     /// Sets the permissions.
-    pub fn with_mode(self, mode: impl Into<Option<Mode>>) -> Self {
+    pub fn with_mode(self, mode: impl Into<Option<Permissions>>) -> Self {
         Self {
             mode: mode.into(),
             ..self
@@ -252,39 +492,50 @@ impl SetMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DateTime;
 
     #[test]
-    fn mode_masks_file_type_bits() {
-        assert_eq!(Mode::new(0o100644).bits(), 0o644);
-        assert_eq!(Mode::new(0o4755).bits(), 0o4755);
+    fn permissions_mask_file_type_bits() {
+        assert_eq!(Permissions::new(0o100644).bits(), 0o644);
+        assert_eq!(Permissions::new(0o4755).bits(), 0o4755);
     }
 
     #[test]
     fn metadata_builder() {
-        let meta = Metadata::new(FileType::File)
+        let meta = Metadata::new(FileType::File, Permissions::new(0o600))
             .with_len(42)
-            .with_permissions(Mode::new(0o600))
-            .with_owner((1000, 100))
+            .with_allocated(512)
+            .with_owner(Owner::new(1000, 100))
             .with_nlink(2)
+            .with_generation(7)
             .with_attributes(Attributes::HIDDEN | Attributes::ARCHIVE)
-            .with_times(FileTimes::new().with_modified(DateTime::UNIX_EPOCH));
+            .with_modified(DateTime::UNIX_EPOCH);
         assert_eq!(meta.file_type(), FileType::File);
-        assert_eq!(meta.len(), 42);
-        assert_eq!(meta.permissions(), Some(Mode::new(0o600)));
-        assert_eq!(meta.owner(), Some((1000, 100)));
-        assert_eq!(meta.nlink(), 2);
+        assert_eq!((meta.len(), meta.allocated()), (42, 512));
+        assert_eq!(meta.permissions(), Permissions::new(0o600));
+        assert_eq!(meta.owner(), Some(Owner::new(1000, 100)));
+        assert_eq!((meta.nlink(), meta.generation()), (2, 7));
         assert!(meta.attributes().contains(Attributes::HIDDEN));
-        assert_eq!(meta.times().modified(), Some(DateTime::UNIX_EPOCH));
+        assert_eq!(meta.modified(), Some(DateTime::UNIX_EPOCH));
+        assert_eq!(meta.created(), None);
+        assert_eq!(meta.device(), None);
     }
 
     #[test]
-    fn set_metadata_defaults_to_no_change() {
-        assert!(SetMetadata::default().is_empty());
-        let change = SetMetadata::new().with_mode(Mode::new(0o644)).with_uid(0);
+    fn attributes_without() {
+        let attrs = Attributes::HIDDEN.union(Attributes::ARCHIVE);
+        assert_eq!(attrs.without(Attributes::HIDDEN), Attributes::ARCHIVE);
+        assert_eq!(Attributes::NONE, Attributes::empty());
+    }
+
+    #[test]
+    fn set_attr_defaults_to_no_change() {
+        assert!(SetAttr::default().is_empty());
+        let change = SetAttr::new()
+            .with_permissions(Permissions::new(0o644))
+            .with_owner(Owner::new(0, 0));
         assert!(!change.is_empty());
-        assert_eq!(change.mode(), Some(Mode::new(0o644)));
-        assert_eq!(change.uid(), Some(0));
-        assert_eq!(change.gid(), None);
+        assert_eq!(change.permissions(), Some(Permissions::new(0o644)));
+        assert_eq!(change.owner(), Some(Owner::new(0, 0)));
+        assert_eq!(change.modified(), None);
     }
 }

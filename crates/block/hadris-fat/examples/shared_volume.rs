@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use hadris_fat::MountOptions;
 use hadris_fat::sync::FatFs;
-use hadris_fs::SystemClock;
-use hadris_fs::sync::{FileSystem, PathExt, Volume};
+use hadris_fs::sync::{FileSystem, Volume};
+use hadris_fs::{OpenOptions, SystemClock};
 use hadris_storage::host::FileDevice;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,14 +18,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let kind = fs.kind();
 
-    // Volume puts the driver behind a lock, so its path helpers work on
+    // Volume puts the filesystem behind a lock, so its path methods work on
     // `&self` and an Arc shares it between threads.
     let volume = Arc::new(Volume::new(fs));
     let worker = Arc::clone(&volume);
-    std::thread::spawn(move || worker.write_file("/hello.txt", b"hello from a thread"))
-        .join()
-        .expect("volume worker panicked")?;
-    volume.sync()?;
+    std::thread::spawn(move || -> Result<(), hadris_fs::Error<std::io::Error>> {
+        let options = OpenOptions::new().write().create().truncate();
+        let mut file = worker.open("/hello.txt", options)?;
+        file.write(b"hello from a thread")?;
+        file.close()
+    })
+    .join()
+    .expect("volume worker panicked")?;
+    volume.lock().sync()?;
 
     println!("mounted {kind:?}, wrote /hello.txt");
     Ok(())

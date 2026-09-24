@@ -24,34 +24,36 @@ systems, SD cards, and USB drives.
 `sync::FatFs` and `r#async::FatFs`. It mounts any
 `hadris-storage` block device, needs no allocator (its only buffer is one
 device block of at most 4096 bytes), and implements the `hadris-fs`
-`FsDriver` trait, so `Volume`, the path helpers and the `File`/`Dir` handles
-of `hadris-fs` work on it. Long names are always read and written: a name
+`FileSystem` trait, so `Volume` and its `File` and `ReadDir` handles work
+on it. Long names are always read and written: a name
 that fits 8.3 in one case per part is stored as a short entry alone, and
 other names get long-name entries and a short name with a `~N` tail.
 
 ```rust,no_run
 use hadris_fat::sync::FatFs;
-use hadris_fs::sync::{FileSystem, PathExt, Volume};
-use hadris_fs::Name;
+use hadris_fs::sync::{FileSystem, Volume};
+use hadris_fs::{Name, OpenOptions};
 use hadris_storage::{BlockSize, MemDevice};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let image = std::fs::read("disk.img")?;
 let mut fs = FatFs::open(MemDevice::new(image, BlockSize::new(512).unwrap()))?;
 
-// Raw tier: node ids, no locks. `lookup` pins, `forget` unpins.
+// Node ids, no locks. `lookup` pins, `forget` unpins.
 let root = fs.root();
-let efi = fs.lookup(root, Name::new("efi")?)?;
-fs.forget(efi);
+let efi = fs.lookup(root, Name::new("efi"))?;
+fs.forget(efi, 1);
 
-// Shared tier: paths and handles.
+// Paths and handles, shared behind a lock.
 let vol = Volume::new(fs);
 for entry in vol.read_dir("/EFI")? {
-    println!("{}", entry?.name_str().unwrap_or("?"));
+    println!("{:?}", entry?.name());
 }
 vol.create_dir_all("/logs")?;
-vol.write_file("/logs/boot.txt", b"booted")?;
-vol.sync()?;
+let mut log = vol.open("/logs/boot.txt", OpenOptions::new().write().create())?;
+log.write(b"booted")?;
+log.close()?;
+vol.lock().sync()?;
 # Ok(())
 # }
 ```
@@ -97,11 +99,11 @@ device.
 
 Writes go to the device at once, except the size and modification time of
 a pinned file, which stay in the node table so every handle sees one size
-until `publish_node`, `sync_node` or `sync` writes them; closing a `File`
-handle calls `publish_node`, which does not flush the device, and
-`File::sync_all` calls `sync_node`, which does. `sync` also writes the FAT32 FSInfo free count and flushes the
-device. `remove` of an open node (an open `File`, or one marked with
-`open_node`) fails with `ErrorKind::Busy`; a node that is only pinned is
+until `close`, `fsync` or `sync` writes them; closing a `File` handle
+calls `close`, which does not flush the device, and `File::sync_all` calls
+`fsync`, which does. `sync` also writes the FAT32 FSInfo free count and
+flushes the device. `unlink` of an open file (an open `File`, or one
+opened with `open`) fails with `ErrorKind::Busy`; a node that is only pinned is
 removed and its id answers `ErrorKind::NotFound` until its last `forget`. A
 device that refuses a write makes the volume read-only with nothing changed.
 Writes are ordered so that an interrupted operation, or a dropped `async`
@@ -180,13 +182,14 @@ checking its device. A volume left by an interrupted `FatFs` operation shows onl
 what the crash-safety rules allow: lost clusters, chains longer than their
 file, a renamed node under both names, orphaned long-name fragments, FAT
 copies that lag the active one and a stale FSInfo free count.
-`FatFs::label` reads the volume label from the root directory, and
+`FatFs::volume_label` reads the raw volume label from the root directory
+(`FileSystem::label` gives it as text), and
 `FatFs::cluster_chain` passes the clusters of a file or directory to a
 callback, for tools that show layout or fragmentation.
 
 ### Sharing a Volume Between Threads
 
-`hadris_fs::sync::Volume` puts a `FatFs` behind a lock, so its path helpers
+`hadris_fs::sync::Volume` puts a `FatFs` behind a lock, so its path methods
 work on `&self` and an `Arc` shares it between threads. The runnable
 `shared_volume` example mounts an image with a `SystemClock` and writes from a
 worker thread:
@@ -215,7 +218,7 @@ changes what an item does.
 ### exFAT
 
 `hadris_fat::exfat::sync::ExFatFs` and its `r#async` twin
-are a sibling of `FatFs` that needs no allocator and implements `FsDriver`,
+are a sibling of `FatFs` that needs no allocator and implements `FileSystem`,
 with `format` (the `write` feature) and `check` in each mode.
 exFAT is stable and needs no feature flag. Its options, label, detail codes
 and on-disk layouts are in `hadris_fat::exfat` (`exfat::FormatOptions`,

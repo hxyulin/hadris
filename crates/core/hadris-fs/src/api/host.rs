@@ -1,8 +1,9 @@
 sync_only! {
 
-use super::copy::{CHUNK, link_buffer, target_child, write_all_at};
+use super::copy::{CHUNK, link_buffer, target_child};
+use super::paths::{create_dir_all, resolve_parent, write_all_at};
 use super::*;
-use crate::{DateTime, FileTimes, Mode};
+use crate::{DateTime, Error, Field, Stored};
 use alloc::vec::Vec;
 use std::ffi::OsStr;
 use std::fs as host;
@@ -137,44 +138,37 @@ fn create_host_dir(path: &Path) -> io::Result<()> {
 }
 
 /// Writes the pinned non-directory `node` to the host path `path`.
-fn extract_node<D: FsDriver + ?Sized>(fs: &mut D, node: NodeId, meta: &Metadata, path: &Path) -> io::Result<()> {
+fn extract_node<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId, meta: &Metadata, path: &Path) -> io::Result<()> {
     match meta.file_type() {
         FileType::File => {
             let mut file = create_host_file(path)?;
-            let mut buf = [0u8; CHUNK];
-            let mut offset = 0;
-            loop {
-                let n = fs.read_at(node, offset, &mut buf)?;
-                if n == 0 {
-                    break;
-                }
-                file.write_all(&buf[..n])?;
-                offset += n as u64;
-            }
-            if let Some(time) = meta.times().modified().and_then(to_system_time) {
+            fs.open(node, OpenMode::Read)?;
+            let copied = copy_out(fs, node, &mut file);
+            let closed = fs.close(node);
+            copied?;
+            closed?;
+            if let Some(time) = meta.modified().and_then(to_system_time) {
                 file.set_modified(time)?;
             }
             #[cfg(unix)]
-            if let Some(mode) = meta.permissions() {
+            {
                 use std::os::unix::fs::PermissionsExt;
-                file.set_permissions(host::Permissions::from_mode(mode.bits() & PERMISSION_BITS))?;
+                let mode = meta.permissions().bits() & PERMISSION_BITS;
+                file.set_permissions(host::Permissions::from_mode(mode))?;
             }
             Ok(())
         }
         FileType::Symlink => {
-            let mut target = link_buffer(meta.len()).map_err(Error::<D::DeviceError>::from)?;
-            let n = fs.read_link(node, &mut target)?;
+            let mut target = link_buffer(meta.len()).map_err(Error::<F::DeviceError>::from)?;
+            let target = fs.readlink(node, &mut target)?;
             #[cfg(unix)]
             {
                 clear_host_path(path)?;
-                std::os::unix::fs::symlink(
-                    <OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(&target[..n]),
-                    path,
-                )
+                std::os::unix::fs::symlink(<OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(target), path)
             }
             #[cfg(not(unix))]
             {
-                let _ = n;
+                let _ = target;
                 Err(io::Error::new(io::ErrorKind::Unsupported, "symlinks are extracted on Unix only"))
             }
         }
@@ -182,26 +176,39 @@ fn extract_node<D: FsDriver + ?Sized>(fs: &mut D, node: NodeId, meta: &Metadata,
     }
 }
 
-fn extract_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(NodeId, DirCursor, PathBuf)>) -> io::Result<()> {
-    let mut name = NameBuf::new();
+/// Copies the open file `node` into `file`.
+fn copy_out<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId, file: &mut host::File) -> io::Result<()> {
+    let mut buf = [0u8; CHUNK];
+    let mut offset = 0;
+    loop {
+        let n = fs.read(node, offset, &mut buf)?;
+        if n == 0 {
+            return Ok(());
+        }
+        file.write_all(&buf[..n])?;
+        offset += n as u64;
+    }
+}
+
+fn extract_walk<F: FileSystem + ?Sized>(fs: &mut F, stack: &mut Vec<(NodeId, DirCursor, PathBuf)>) -> io::Result<()> {
     while let Some((dir, cursor, path)) = stack.last_mut() {
         let dir = *dir;
-        if fs.read_dir_entry(dir, cursor, &mut name)?.is_none() {
+        let Some(entry) = fs.readdir(dir, *cursor)? else {
             if let Some((done, ..)) = stack.pop() {
-                fs.forget(done);
+                fs.forget(done, 1);
             }
             continue;
-        }
-        let target = path.join(host_name(name.as_bytes())?);
-        let child_name = name.as_name().ok_or(ErrorKind::Corrupt).map_err(Error::<D::DeviceError>::from)?;
-        let child = fs.lookup(dir, child_name)?;
-        let result = match fs.node_metadata(child) {
+        };
+        *cursor = entry.next_cursor();
+        let target = path.join(host_name(entry.name().as_bytes())?);
+        let child = fs.lookup(dir, entry.name())?;
+        let result = match fs.stat(child) {
             Ok(meta) if meta.file_type().is_dir() => match super::copy::enter(stack.iter().map(|(node, ..)| *node), child)
-                .map_err(|kind| io::Error::from(Error::<D::DeviceError>::from(kind)))
+                .map_err(|kind| io::Error::from(Error::<F::DeviceError>::from(kind)))
                 .and_then(|()| create_host_dir(&target))
             {
                 Ok(()) => {
-                    stack.push((child, DirCursor::start(), target));
+                    stack.push((child, DirCursor::START, target));
                     continue;
                 }
                 Err(err) => Err(err),
@@ -209,7 +216,7 @@ fn extract_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(NodeId, DirCu
             Ok(meta) => extract_node(fs, child, &meta, &target),
             Err(err) => Err(err.into()),
         };
-        fs.forget(child);
+        fs.forget(child, 1);
         result?;
     }
     Ok(())
@@ -218,7 +225,7 @@ fn extract_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(NodeId, DirCu
 /// Copies the file, symlink or directory tree at `from` on `src` to the host
 /// path `host`, as `tar -x` or `7z x` would.
 ///
-/// `src` is any [`Access`]. A directory is merged into `host`, which is
+/// `from` resolves lexically. A directory is merged into `host`, which is
 /// created with its parents when missing. An existing file is replaced by a
 /// new one rather than truncated, so other hard links to it keep their
 /// contents.
@@ -245,78 +252,102 @@ fn extract_walk<D: FsDriver + ?Sized>(fs: &mut D, stack: &mut Vec<(NodeId, DirCu
 /// carrying [`ErrorKind::LimitExceeded`].
 ///
 /// Only in the sync API: the host side is blocking `std::fs`.
-pub fn extract_to_host<S: Access>(src: S, from: &str, host: impl AsRef<Path>) -> io::Result<()> {
+pub fn extract_to_host<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    from: impl AsRef<[u8]>,
+    host: impl AsRef<Path>,
+) -> io::Result<()> {
     let host = host.as_ref();
-    let mut fs = src.into_driver();
-    let node = fs.resolve(from)?;
-    let meta = match fs.node_metadata(node) {
+    let node = fs.resolve(from.as_ref(), Resolve::Lexical)?;
+    let meta = match fs.stat(node) {
         Ok(meta) => meta,
         Err(err) => {
-            fs.forget(node);
+            fs.forget(node, 1);
             return Err(err.into());
         }
     };
     if !meta.file_type().is_dir() {
-        let result = extract_node(&mut fs, node, &meta, host);
-        fs.forget(node);
+        let result = extract_node(fs, node, &meta, host);
+        fs.forget(node, 1);
         return result;
     }
     if let Err(err) = host::create_dir_all(host) {
-        fs.forget(node);
+        fs.forget(node, 1);
         return Err(err);
     }
     let mut stack = Vec::new();
-    stack.push((node, DirCursor::start(), host.to_path_buf()));
-    let result = extract_walk(&mut fs, &mut stack);
+    stack.push((node, DirCursor::START, host.to_path_buf()));
+    let result = extract_walk(fs, &mut stack);
     for (dir, ..) in stack {
-        fs.forget(dir);
+        fs.forget(dir, 1);
     }
     result
 }
 
 /// Copies the host file at `path` into the pinned `node`.
-fn import_file<D: FsDriver + ?Sized>(fs: &mut D, node: NodeId, path: &Path, meta: &host::Metadata) -> io::Result<()> {
+fn import_file<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId, path: &Path, meta: &host::Metadata) -> io::Result<()> {
     let mut file = host::File::open(path)?;
+    fs.open(node, OpenMode::Write)?;
+    let copied = copy_in(fs, node, &mut file);
+    let set = match copied {
+        Ok(()) => {
+            let changes = host_attrs(meta, &fs.capabilities());
+            if changes.is_empty() { Ok(()) } else { fs.setattr(node, &changes).map_err(io::Error::from) }
+        }
+        Err(err) => Err(err),
+    };
+    let closed = fs.close(node);
+    set?;
+    Ok(closed?)
+}
+
+fn copy_in<F: FileSystem + ?Sized>(fs: &mut F, node: NodeId, file: &mut host::File) -> io::Result<()> {
     let mut buf = [0u8; CHUNK];
     let mut offset = 0;
     loop {
         let n = file.read(&mut buf)?;
         if n == 0 {
-            break;
+            return Ok(());
         }
         write_all_at(fs, node, offset, &buf[..n])?;
         offset += n as u64;
     }
-    let times = FileTimes::new().with_modified(meta.modified().ok().and_then(from_system_time));
+}
+
+/// The modification time and, on Unix, permissions of a host file, where
+/// a filesystem with `caps` stores them.
+fn host_attrs(meta: &host::Metadata, caps: &Capabilities) -> SetAttr {
+    let mut set = SetAttr::new();
+    if caps.stores(Field::Modified) != Stored::No
+        && let Some(time) = meta.modified().ok().and_then(from_system_time)
+    {
+        set = set.with_modified(time);
+    }
     #[cfg(unix)]
-    let mode = Some(Mode::new(std::os::unix::fs::PermissionsExt::mode(&meta.permissions())));
-    #[cfg(not(unix))]
-    let mode: Option<Mode> = None;
-    fs.set_metadata(node, &SetMetadata::new().with_times(times).with_mode(mode))?;
-    fs.publish_node(node)?;
-    Ok(())
+    if caps.stores(Field::Permissions) == Stored::Yes {
+        let mode = std::os::unix::fs::PermissionsExt::mode(&meta.permissions());
+        set = set.with_permissions(crate::Permissions::new(mode));
+    }
+    set
 }
 
 /// Copies the host non-directory at `path` to `name` in `dir`.
-fn import_node<D: FsDriver + ?Sized>(
-    fs: &mut D,
+fn import_node<F: FileSystem + ?Sized>(
+    fs: &mut F,
     dir: NodeId,
     name: &Name,
     path: &Path,
     meta: &host::Metadata,
 ) -> io::Result<()> {
-    if meta.file_type().is_symlink() {
-        let target = host::read_link(path)?;
-        let node = target_child(fs, dir, name, NewNode::Symlink(os_bytes(target.as_os_str())?))?;
-        fs.forget(node);
-        return Ok(());
-    }
     if !meta.file_type().is_file() {
-        return Err(io::Error::new(io::ErrorKind::Unsupported, "cannot import device nodes, FIFOs or sockets"));
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "cannot import symlinks, device nodes, FIFOs or sockets",
+        ));
     }
-    let node = target_child(fs, dir, name, NewNode::File)?;
+    let node = target_child(fs, dir, name, FileType::File)?;
     let result = import_file(fs, node, path, meta);
-    fs.forget(node);
+    fs.forget(node, 1);
     result
 }
 
@@ -327,32 +358,32 @@ fn sorted_entries(path: &Path) -> io::Result<alloc::vec::IntoIter<host::DirEntry
     Ok(entries.into_iter())
 }
 
-fn import_walk<D: FsDriver + ?Sized>(
-    fs: &mut D,
+fn import_walk<F: FileSystem + ?Sized>(
+    fs: &mut F,
     stack: &mut Vec<(alloc::vec::IntoIter<host::DirEntry>, NodeId)>,
 ) -> io::Result<()> {
     while let Some((entries, dir)) = stack.last_mut() {
         let dir = *dir;
         let Some(entry) = entries.next() else {
             if let Some((_, done)) = stack.pop() {
-                fs.forget(done);
+                fs.forget(done, 1);
             }
             continue;
         };
         let file_name = entry.file_name();
-        let name = Name::new(os_bytes(&file_name)?)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+        let name = Name::new(os_bytes(&file_name)?);
+        name.check().map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
         let path = entry.path();
         let meta = host::symlink_metadata(&path)?;
         if !meta.file_type().is_dir() {
             import_node(fs, dir, name, &path, &meta)?;
             continue;
         }
-        let node = target_child(fs, dir, name, NewNode::Dir)?;
+        let node = target_child(fs, dir, name, FileType::Dir)?;
         match sorted_entries(&path) {
             Ok(entries) => stack.push((entries, node)),
             Err(err) => {
-                fs.forget(node);
+                fs.forget(node, 1);
                 return Err(err);
             }
         }
@@ -363,46 +394,50 @@ fn import_walk<D: FsDriver + ?Sized>(
 /// Copies the host file, symlink or directory tree at `host` to `to` on
 /// `dst`, as `mkisofs` or `mcopy -s` would.
 ///
-/// `dst` is any [`Access`]. A directory is merged into `to`, which is created
+/// `to` resolves lexically. A directory is merged into `to`, which is created
 /// with its parents when missing. The entries of each directory are copied
 /// in order of their name bytes, whatever order the host lists them in, so
 /// the same tree always gives the same image. Existing files are overwritten; an existing
 /// node of another type, or an existing symlink, fails with
 /// [`std::io::ErrorKind::AlreadyExists`]. File modification times and, on
-/// Unix, permissions are copied where `dst` can store them. Symlinks are
-/// copied as links, never followed; device nodes, FIFOs and sockets fail
-/// with [`std::io::ErrorKind::Unsupported`]. Host names that are not valid
+/// Unix, permissions are copied where `dst` stores them. Symlinks, device
+/// nodes, FIFOs and sockets fail with [`std::io::ErrorKind::Unsupported`],
+/// since the shared trait cannot create them. Host names that are not valid
 /// [`Name`]s, or not UTF-8 outside Unix, fail with
 /// [`std::io::ErrorKind::InvalidData`].
 ///
-/// Each file is published, not flushed; call `sync` on `dst` to make the
+/// Each file is closed, not flushed; call `sync` on `dst` to make the
 /// import durable.
 ///
 /// Only in the sync API: the host side is blocking `std::fs`.
-pub fn import_from_host<T: Access>(host: impl AsRef<Path>, dst: T, to: &str) -> io::Result<()> {
+pub fn import_from_host<F: FileSystem + ?Sized>(
+    host: impl AsRef<Path>,
+    fs: &mut F,
+    to: impl AsRef<[u8]>,
+) -> io::Result<()> {
     let host = host.as_ref();
-    let mut fs = dst.into_driver();
+    let to = to.as_ref();
     let meta = host::symlink_metadata(host)?;
     if !meta.file_type().is_dir() {
-        let (dir, name) = resolve_parent(&mut fs, to)?;
-        let result = import_node(&mut fs, dir, name, host, &meta);
-        fs.forget(dir);
+        let (dir, name) = resolve_parent(fs, to, Resolve::Lexical)?;
+        let result = import_node(fs, dir, name, host, &meta);
+        fs.forget(dir, 1);
         return result;
     }
-    create_dir_all(&mut fs, to)?;
-    let top = fs.resolve(to)?;
+    create_dir_all(fs, to, Resolve::Lexical)?;
+    let top = fs.resolve(to, Resolve::Lexical)?;
     let entries = match sorted_entries(host) {
         Ok(entries) => entries,
         Err(err) => {
-            fs.forget(top);
+            fs.forget(top, 1);
             return Err(err);
         }
     };
     let mut stack = Vec::new();
     stack.push((entries, top));
-    let result = import_walk(&mut fs, &mut stack);
+    let result = import_walk(fs, &mut stack);
     for (_, dir) in stack {
-        fs.forget(dir);
+        fs.forget(dir, 1);
     }
     result
 }

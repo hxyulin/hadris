@@ -14,13 +14,14 @@ hadris-optical = "2.4.0"
 ```
 
 ```rust,no_run
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::Volume;
 use hadris_optical::{OpenPolicy, sync::OpenOpticalImage};
 
 let file = hadris_storage::host::FileDevice::open("disc.iso")?;
-let mut image = OpenOpticalImage::open(file, OpenPolicy::PreferUdf)?;
+let image = OpenOpticalImage::open(file, OpenPolicy::PreferUdf)?;
 println!("{:?}", image.format());
-for entry in image.read_dir("/")? {
+let vol = Volume::new(image);
+for entry in vol.read_dir("/")? {
     println!("{:?}", entry?.name());
 }
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -31,8 +32,8 @@ for entry in image.read_dir("/")? {
 - `OpenOpticalImage` detects and mounts the filesystem an `OpenPolicy`
   selects: UDF or ISO 9660 first on a bridge image, or one of them only.
   ISO 9660 opens as an `IsoView` of the preferred namespace. It implements
-  the `hadris-fs` `FsDriver` trait read-only by delegating to the driver,
-  so the path helpers, `Volume` and handles work on either; `as_iso` and
+  the `hadris-fs` `FileSystem` trait read-only by delegating to the driver,
+  so `Volume`, its handles and `copy_tree` work on either; `as_iso` and
   `as_udf` reach the drivers' native API.
 - Every failure is a `hadris_fs::Error<E>` with a shared `ErrorKind` and
   the device's own error, and a failed open gives the device back in a

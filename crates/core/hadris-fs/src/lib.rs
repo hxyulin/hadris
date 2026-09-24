@@ -1,15 +1,17 @@
-//! Shared filesystem vocabulary and driver traits for the Hadris crates.
+//! Shared filesystem vocabulary and the filesystem trait for the Hadris
+//! crates.
 //!
 //! The crate root defines the mode-independent types every Hadris filesystem
 //! speaks: node identity, file types, byte names, timestamps and clocks,
-//! metadata, capabilities, errors, directory cursors, open options,
-//! node tables, lexical virtual paths, and what checkers report
-//! ([`Finding`], [`Severity`], [`CheckReport`]). None of them does I/O.
+//! metadata and attribute changes, capabilities, errors, directory entries
+//! and cursors, open options, path policies, node tables, and what checkers
+//! report ([`Finding`], [`Severity`], [`CheckReport`]). None of them does
+//! I/O.
 //!
-//! The mode modules (`sync`, `r#async`) hold the driver
-//! layer: the `FsDriver` trait that format crates implement, the
-//! `FileSystem` trait for shared code, `Volume`, the path resolvers, the
-//! `DriverExt` and `PathExt` helpers, and the `File` and `Dir` handles.
+//! The mode modules (`sync`, `r#async`) hold what does: the `FileSystem`
+//! trait every format implements, on node ids and `&mut self`; `Volume`,
+//! which shares a filesystem between threads and tasks with paths and
+//! `File` and `ReadDir` handles named after `std::fs`; and `copy_tree`.
 //!
 //! [`Error<E>`] is the error of every filesystem operation, re-exported from
 //! `hadris-io` with [`ErrorKind`], [`Location`], [`DetailCode`] and
@@ -24,9 +26,9 @@
 //!
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
-//! | `alloc` | No | [`OwnedName`], [`PathError`], [`HeapTable`], `copy_tree`, owned path normalization, and the writer input [`tree`] with `ContentReader` and `TreeExt` in each mode |
-//! | `std` | No | Implies `alloc`; adds [`SystemClock`], `extract_to_host` and `import_from_host` in `sync`, `Content::path` and `Tree::from_fs`, and conversions to `std::io::Error` |
-//! | `sync` | No | The blocking driver layer in `sync` |
+//! | `alloc` | No | [`OwnedName`], [`PathError`], [`HeapTable`], `copy_tree`, the async `Volume`, and the writer input [`tree`] with `ContentReader` and `TreeExt` in each mode |
+//! | `std` | No | Implies `alloc`; adds [`SystemClock`], the sync `Volume` and its `std::io` handles, `extract_to_host` and `import_from_host` in `sync`, `Content::path` and `Tree::from_fs`, and conversions to `std::io::Error` |
+//! | `sync` | No | The blocking API in `sync` |
 //! | `async` | No | The same API with `Send` futures in `r#async` |
 //! | `contract` | No | The driver contract kit, `contract::check` in each mode, and `ContractViolation` |
 //!
@@ -48,37 +50,34 @@ mod contract;
 mod dir;
 mod error;
 mod extent;
-#[cfg(any(feature = "sync", feature = "async"))]
-mod forget_queue;
 mod fuse;
-mod macros;
 mod meta;
 mod name;
 mod node;
 mod ops;
-pub mod path;
 mod table;
 mod time;
 #[cfg(feature = "alloc")]
 pub mod tree;
 
-pub use caps::{Capabilities, CaseSensitivity, FsStats, NameCharset};
+pub use caps::{Capabilities, CaseRule, Charset, Field, FsStats, Stored};
 pub use check::{CheckReport, Finding, Severity};
 #[cfg(feature = "contract")]
 pub use contract::ContractViolation;
-pub use dir::{DirCursor, DirEntry, DirItem};
+pub use dir::{DirCursor, DirEntry};
 #[cfg(feature = "alloc")]
 pub use error::PathError;
 pub use error::{DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
 pub use extent::Extent;
 pub use fuse::FuseOnError;
-pub use meta::{Attributes, Metadata, Mode, SetMetadata};
+pub use hadris_io::SeekFrom;
+pub use meta::{Attributes, Metadata, Owner, Permissions, SetAttr, SetMetadata};
 #[cfg(feature = "alloc")]
 pub use name::OwnedName;
 pub use name::{Name, NameBuf, NameError};
 pub use node::{FileType, NodeId};
 pub use ops::{
-    DeviceKind, DeviceNumber, NewNode, OpenOptions, OpenOptionsError, RemoveKind, RenameFlags,
+    DeviceKind, DeviceNumber, OpenMode, OpenOptions, OpenOptionsError, RenameMode, Resolve,
 };
 #[cfg(feature = "alloc")]
 pub use table::HeapTable;
@@ -87,18 +86,17 @@ pub use table::{FixedTable, NodeTable, TableFull};
 pub use time::SystemClock;
 pub use time::{CivilDate, CivilTime, Clock, DateTime, DateTimeError, FileTimes, NoClock};
 
-/// The blocking driver traits, [`Volume`](sync::Volume), resolvers, path
-/// helpers and handles.
+/// The blocking API: the `FileSystem` trait, and with `std` the `Volume`
+/// with its `File` and `ReadDir` handles.
 #[cfg(feature = "sync")]
 pub mod sync;
 
-/// The asynchronous driver traits, `Volume`, resolvers, path helpers and
-/// handles, generated from the same source as [`sync`], with `Send`
-/// futures for generic code on multi-threaded executors.
+/// The asynchronous API, generated from the same source as [`sync`], with
+/// `Send` futures for generic code on multi-threaded executors.
 ///
 /// Every trait has `Send` (and `Sync` when it has `&self` async methods) as
 /// a supertrait, so `F: FileSystem + 'static` alone lets a generic function
-/// spawn work over `F`. Implementations are written with `async fn`. `Rc`
-/// has no impls here.
+/// spawn work over `F`. Implementations are written with `async fn`. The
+/// `Volume` needs `alloc`.
 #[cfg(feature = "async")]
 pub mod r#async;

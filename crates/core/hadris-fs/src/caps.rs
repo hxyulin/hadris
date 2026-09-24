@@ -1,7 +1,7 @@
 /// How a filesystem compares names.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum CaseSensitivity {
+pub enum CaseRule {
     /// Names that differ in case are different names.
     #[default]
     Sensitive,
@@ -11,102 +11,139 @@ pub enum CaseSensitivity {
     Insensitive,
 }
 
-/// The encoding of names on disk, which determines which bytes a name may hold.
-///
-/// Whether this is precise enough for a VFS to translate names, or whether
-/// formats also need a name codec, is open question Q6 in
-/// `docs/v3-api-design.md`.
+/// Which names a filesystem can store.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum NameCharset {
+pub enum Charset {
     /// Arbitrary bytes, as on most Unix filesystems.
     #[default]
     Bytes,
-    /// UTF-8 text.
-    Utf8,
-    /// UCS-2, as in Joliet. Names are exchanged as UTF-8.
-    Ucs2,
-    /// UTF-16, as in FAT long names, exFAT and NTFS. Names are exchanged as UTF-8.
-    Utf16,
-    /// ISO 9660 d-characters: `A`-`Z`, `0`-`9` and `_`.
-    DCharacters,
-    /// An OEM code page, as in FAT short names.
-    OemCodePage,
+    /// Unicode text, exchanged as UTF-8: FAT long names, exFAT, NTFS,
+    /// Joliet and UDF.
+    Unicode,
+}
+
+/// A metadata field a format may or may not store, for
+/// [`Capabilities::stores`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Field {
+    /// The creation time.
+    Created,
+    /// The modification time.
+    Modified,
+    /// The access time.
+    Accessed,
+    /// The metadata change time.
+    Changed,
+    /// POSIX permissions.
+    Permissions,
+    /// The owner.
+    Owner,
+    /// DOS-style attributes.
+    Attributes,
+    /// Device numbers.
+    Device,
+}
+
+impl Field {
+    const COUNT: usize = 8;
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Created => 0,
+            Self::Modified => 1,
+            Self::Accessed => 2,
+            Self::Changed => 3,
+            Self::Permissions => 4,
+            Self::Owner => 5,
+            Self::Attributes => 6,
+            Self::Device => 7,
+        }
+    }
+}
+
+/// How much of a [`Field`] a format stores.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Stored {
+    /// Not stored; `setattr` of it fails with
+    /// [`ErrorKind::Unsupported`](crate::ErrorKind::Unsupported).
+    #[default]
+    No,
+    /// Stored in part, such as FAT's read-only bit standing for the write
+    /// permission bits.
+    Partial,
+    /// Stored.
+    Yes,
 }
 
 /// What a mounted filesystem supports.
 ///
 /// Filesystems start from [`new`](Self::new), which describes a read-only
-/// filesystem with no optional features, and enable what they support.
+/// filesystem that stores no optional field, and enable what they support.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Capabilities {
     writable: bool,
     symlinks: bool,
     hard_links: bool,
-    permissions: bool,
-    owners: bool,
-    case_sensitivity: CaseSensitivity,
-    max_name_len: usize,
-    name_charset: NameCharset,
+    case: CaseRule,
+    charset: Charset,
+    max_name_bytes: usize,
+    stored: [Stored; Field::COUNT],
     timestamp_resolution_ns: u32,
 }
 
 impl Capabilities {
-    /// A read-only, case-sensitive filesystem with byte names of up to 255
-    /// bytes, one-second timestamps and no optional features.
-    pub const fn new() -> Self {
+    /// A read-only filesystem that compares names by `case`, stores names
+    /// in `charset` of up to `max_name_bytes` UTF-8 bytes (FUSE `namemax`),
+    /// has one-second timestamps and stores no optional field.
+    pub const fn new(case: CaseRule, charset: Charset, max_name_bytes: usize) -> Self {
         Self {
             writable: false,
             symlinks: false,
             hard_links: false,
-            permissions: false,
-            owners: false,
-            case_sensitivity: CaseSensitivity::Sensitive,
-            max_name_len: 255,
-            name_charset: NameCharset::Bytes,
+            case,
+            charset,
+            max_name_bytes,
+            stored: [Stored::No; Field::COUNT],
             timestamp_resolution_ns: 1_000_000_000,
         }
     }
 
     /// Returns whether the filesystem accepts writes.
-    pub const fn is_writable(&self) -> bool {
+    pub const fn writable(&self) -> bool {
         self.writable
     }
 
     /// Returns whether symbolic links are supported.
-    pub const fn supports_symlinks(&self) -> bool {
+    pub const fn symlinks(&self) -> bool {
         self.symlinks
     }
 
     /// Returns whether hard links are supported.
-    pub const fn supports_hard_links(&self) -> bool {
+    pub const fn hard_links(&self) -> bool {
         self.hard_links
     }
 
-    /// Returns whether POSIX permissions are stored.
-    pub const fn supports_permissions(&self) -> bool {
-        self.permissions
-    }
-
-    /// Returns whether owner user and group IDs are stored.
-    pub const fn supports_owners(&self) -> bool {
-        self.owners
-    }
-
     /// Returns how names are compared.
-    pub const fn case_sensitivity(&self) -> CaseSensitivity {
-        self.case_sensitivity
+    pub const fn case(&self) -> CaseRule {
+        self.case
     }
 
-    /// Returns the longest name the filesystem accepts, in bytes of the
-    /// exchanged (UTF-8 or raw) form.
-    pub const fn max_name_len(&self) -> usize {
-        self.max_name_len
+    /// Returns which names the filesystem can store.
+    pub const fn charset(&self) -> Charset {
+        self.charset
     }
 
-    /// Returns the on-disk name encoding.
-    pub const fn name_charset(&self) -> NameCharset {
-        self.name_charset
+    /// Returns the longest name the filesystem accepts, in UTF-8 bytes.
+    pub const fn max_name_bytes(&self) -> usize {
+        self.max_name_bytes
+    }
+
+    /// Returns how much of `field` the format stores.
+    pub const fn stores(&self, field: Field) -> Stored {
+        self.stored[field.index()]
     }
 
     /// Returns the resolution of modification times, in nanoseconds.
@@ -138,44 +175,10 @@ impl Capabilities {
         }
     }
 
-    /// Marks POSIX permissions as stored.
-    pub const fn with_permissions(self) -> Self {
-        Self {
-            permissions: true,
-            ..self
-        }
-    }
-
-    /// Marks owner IDs as stored.
-    pub const fn with_owners(self) -> Self {
-        Self {
-            owners: true,
-            ..self
-        }
-    }
-
-    /// Sets how names are compared.
-    pub const fn with_case_sensitivity(self, case_sensitivity: CaseSensitivity) -> Self {
-        Self {
-            case_sensitivity,
-            ..self
-        }
-    }
-
-    /// Sets the longest accepted name in bytes.
-    pub const fn with_max_name_len(self, max_name_len: usize) -> Self {
-        Self {
-            max_name_len,
-            ..self
-        }
-    }
-
-    /// Sets the on-disk name encoding.
-    pub const fn with_name_charset(self, name_charset: NameCharset) -> Self {
-        Self {
-            name_charset,
-            ..self
-        }
+    /// Records how much of `field` the format stores.
+    pub const fn with_stored(mut self, field: Field, stored: Stored) -> Self {
+        self.stored[field.index()] = stored;
+        self
     }
 
     /// Sets the resolution of modification times, in nanoseconds.
@@ -184,12 +187,6 @@ impl Capabilities {
             timestamp_resolution_ns,
             ..self
         }
-    }
-}
-
-impl Default for Capabilities {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -263,16 +260,22 @@ mod tests {
 
     #[test]
     fn capabilities_start_read_only() {
-        let caps = Capabilities::default();
-        assert!(!caps.is_writable());
+        let caps = Capabilities::new(CaseRule::InsensitivePreserving, Charset::Unicode, 765);
+        assert!(!caps.writable());
+        assert_eq!(caps.stores(Field::Modified), Stored::No);
         let caps = caps
             .with_writable()
-            .with_case_sensitivity(CaseSensitivity::InsensitivePreserving)
-            .with_name_charset(NameCharset::Utf16)
+            .with_stored(Field::Modified, Stored::Yes)
+            .with_stored(Field::Permissions, Stored::Partial)
             .with_timestamp_resolution_ns(2_000_000_000);
-        assert!(caps.is_writable());
-        assert!(!caps.supports_symlinks());
-        assert_eq!(caps.name_charset(), NameCharset::Utf16);
+        assert!(caps.writable());
+        assert!(!caps.symlinks() && !caps.hard_links());
+        assert_eq!(caps.case(), CaseRule::InsensitivePreserving);
+        assert_eq!(caps.charset(), Charset::Unicode);
+        assert_eq!(caps.max_name_bytes(), 765);
+        assert_eq!(caps.stores(Field::Modified), Stored::Yes);
+        assert_eq!(caps.stores(Field::Permissions), Stored::Partial);
+        assert_eq!(caps.stores(Field::Owner), Stored::No);
         assert_eq!(caps.timestamp_resolution_ns(), 2_000_000_000);
     }
 

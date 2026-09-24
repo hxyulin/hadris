@@ -8,14 +8,17 @@
 //!
 //! `UdfFs` opens a volume on a `hadris_storage` block device, in each mode
 //! (`sync::UdfFs`, `r#async::UdfFs`). It implements
-//! the `hadris_fs` `FsDriver` trait read-only, so the path helpers,
-//! `Volume` and handles of `hadris-fs` work on it. Node ids are ICB
+//! the `hadris_fs` `FileSystem` trait read-only, so `Volume` and its
+//! handles work on it. Node ids are ICB
 //! locations and need no node table. Reading needs no allocator.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "std"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use hadris_fs::sync::DriverExt;
+//! use std::io::Read;
+//!
+//! use hadris_fs::sync::Volume;
+//! use hadris_fs::OpenOptions;
 //! use hadris_fs::tree::{Content, Tree};
 //! use hadris_storage::{BlockSize, MemDevice};
 //! use hadris_udf::UdfOptions;
@@ -28,9 +31,12 @@
 //! let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(2048).unwrap());
 //! write(&mut dev, &tree, &options)?;
 //!
-//! let mut udf = UdfFs::open(dev)?;
+//! let udf = UdfFs::open(dev)?;
 //! assert_eq!(udf.volume_id(), "DOCS");
-//! assert_eq!(udf.read_to_vec("/docs/readme.txt")?, b"hello");
+//! let vol = Volume::new(udf);
+//! let mut text = String::new();
+//! vol.open("/docs/readme.txt", OpenOptions::new().read())?.read_to_string(&mut text)?;
+//! assert_eq!(text, "hello");
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "std")))]
@@ -120,9 +126,7 @@ pub mod sync {
     use hadris_fs::sync as fs;
     use hadris_storage::sync as storage;
 
-    macro_rules! impl_udf_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(sync, $($t)*); };
-    }
+    use hadris_fs::sync::FileSystem;
 
     #[path = "read.rs"]
     mod read;

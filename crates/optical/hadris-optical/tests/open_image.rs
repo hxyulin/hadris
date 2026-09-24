@@ -2,9 +2,10 @@
 
 mod common;
 
+use common::sync::get;
 use common::{PAYLOAD, device, image_of, populated_tree};
 use hadris_fs::ErrorKind;
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::FileSystem;
 use hadris_optical::sync::OpenOpticalImage;
 use hadris_optical::{Detail, OpenPolicy, OpticalFormat};
 
@@ -21,8 +22,8 @@ fn opens_single_format_images_and_gives_the_device_back() {
         assert_eq!(opened.format(), expected);
         assert_eq!(opened.as_iso().is_some(), iso);
         assert_eq!(opened.as_udf().is_some(), udf);
-        assert_eq!(opened.read_to_vec("/DOCS/README.TXT").unwrap(), PAYLOAD);
-        assert!(!opened.capabilities().is_writable());
+        assert_eq!(get(&mut opened, "/DOCS/README.TXT").unwrap(), PAYLOAD);
+        assert!(!opened.capabilities().writable());
         hadris_fs::sync::contract::check_read_only(&mut opened).unwrap();
         assert_eq!(opened.into_inner().into_inner().len(), len);
     }
@@ -34,14 +35,14 @@ fn bridge_images_open_as_either_filesystem() {
     let mut opened = OpenOpticalImage::open(device(bytes, 2048), OpenPolicy::PreferUdf).unwrap();
     assert_eq!(opened.format(), OpticalFormat::Udf);
     assert_eq!(
-        opened.read_to_vec("/DOCS/R\u{e9}sum\u{e9}.txt").unwrap(),
+        get(&mut opened, "/DOCS/R\u{e9}sum\u{e9}.txt").unwrap(),
         PAYLOAD
     );
     let udf = opened.into_udf().map_err(|_| ()).unwrap();
 
     let mut opened = OpenOpticalImage::open(udf.into_inner(), OpenPolicy::PreferIso9660).unwrap();
     assert_eq!(opened.format(), OpticalFormat::Iso9660);
-    assert_eq!(opened.read_to_vec("/DOCS/README.TXT").unwrap(), PAYLOAD);
+    assert_eq!(get(&mut opened, "/DOCS/README.TXT").unwrap(), PAYLOAD);
     let view = opened.into_iso().map_err(|_| ()).unwrap();
     assert!(!view.into_inner().into_inner().is_empty());
 }
@@ -86,6 +87,6 @@ fn smaller_device_blocks_open_too() {
     let bytes = image_of(true, true, &populated_tree());
     for policy in [OpenPolicy::Udf, OpenPolicy::Iso9660] {
         let mut opened = OpenOpticalImage::open(device(bytes.clone(), 512), policy).unwrap();
-        assert_eq!(opened.read_to_vec("/DOCS/README.TXT").unwrap(), PAYLOAD);
+        assert_eq!(get(&mut opened, "/DOCS/README.TXT").unwrap(), PAYLOAD);
     }
 }

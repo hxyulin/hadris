@@ -5,6 +5,7 @@
 
 #[path = "common/exfat.rs"]
 mod common;
+use common::FsPaths;
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
@@ -12,30 +13,33 @@ use std::collections::btree_map::Entry;
 use common::{Device, Fs, Geometry, Tool, clean, fsck, le32};
 use hadris_fat::exfat::sync::ExFatFs;
 use hadris_fat::exfat::{MountOptions, VolumeLabel};
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::{
-    Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, FileTimes, FileType,
-    HeapTable, Name, NameBuf, NewNode, NodeId, RemoveKind, RenameFlags, SetMetadata,
+    Attributes, CivilDate, CivilTime, Clock, DateTime, DirCursor, ErrorKind, FileType, HeapTable,
+    Name, NodeId, OpenMode, Owner, Permissions, RenameMode, SetAttr,
 };
 use hadris_io::Error;
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize};
 
 fn name(text: &str) -> &Name {
-    Name::new(text).unwrap()
+    Name::new(text)
 }
 
-fn create(fs: &mut Fs, dir: NodeId, text: &str, kind: NewNode<'_>) -> NodeId {
-    fs.create(dir, name(text), kind, &SetMetadata::new())
-        .unwrap()
+fn create(fs: &mut Fs, dir: NodeId, text: &str, kind: FileType) -> NodeId {
+    match kind {
+        FileType::Dir => fs.mkdir(dir, name(text), &SetAttr::new()),
+        _ => fs.create(dir, name(text), &SetAttr::new()),
+    }
+    .unwrap()
 }
 
 fn read_all<D: BlockDevice, C: Clock>(fs: &mut ExFatFs<D, HeapTable, C>, node: NodeId) -> Vec<u8> {
-    let len = fs.node_metadata(node).unwrap().len() as usize;
+    let len = fs.stat(node).unwrap().len() as usize;
     let mut out = vec![0u8; len];
     let mut done = 0;
     while done < len {
-        let n = fs.read_at(node, done as u64, &mut out[done..]).unwrap();
+        let n = fs.read(node, done as u64, &mut out[done..]).unwrap();
         assert!(n > 0);
         done += n;
     }
@@ -43,20 +47,17 @@ fn read_all<D: BlockDevice, C: Clock>(fs: &mut ExFatFs<D, HeapTable, C>, node: N
 }
 
 fn list(fs: &mut Fs, dir: NodeId) -> Vec<(String, FileType)> {
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
+    let mut cursor = DirCursor::START;
     let mut out = Vec::new();
-    while let Some(entry) = fs.read_dir_entry(dir, &mut cursor, &mut buf).unwrap() {
-        out.push((
-            buf.as_name().unwrap().to_str().unwrap().to_owned(),
-            entry.file_type(),
-        ));
+    while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
+        cursor = entry.next_cursor();
+        out.push((entry.name().to_str().unwrap().to_owned(), entry.file_type()));
     }
     out
 }
 
 fn free(fs: &mut Fs) -> u64 {
-    fs.stats().unwrap().free_blocks()
+    fs.statfs().unwrap().free_blocks()
 }
 
 fn civil(year: i32, hour: u8, offset: Option<i16>) -> DateTime {
@@ -77,57 +78,80 @@ fn times_and_attributes_round_trip() {
         .unwrap();
     let modified = civil(2030, 22, Some(330));
     let accessed = civil(1990, 1, None);
-    let meta = SetMetadata::new()
-        .with_times(
-            FileTimes::new()
-                .with_created(Some(created))
-                .with_modified(Some(modified))
-                .with_accessed(Some(accessed)),
-        )
+    let meta = SetAttr::new()
+        .with_created(created)
+        .with_modified(modified)
+        .with_accessed(accessed)
         .with_attributes(Attributes::HIDDEN | Attributes::SYSTEM);
-    let node = fs
-        .create(root, name("stamped.txt"), NewNode::File, &meta)
-        .unwrap();
-    let dir = fs
-        .create(root, name("stamped dir"), NewNode::Dir, &meta)
-        .unwrap();
-    fs.forget(dir);
-    fs.forget(node);
+    let node = fs.create(root, name("stamped.txt"), &meta).unwrap();
+    let dir = fs.mkdir(root, name("stamped dir"), &meta).unwrap();
+    fs.forget(dir, 1);
+    fs.forget(node, 1);
     fs.sync().unwrap();
     let mut fs = common::mount(&common::image(fs));
-    let node = fs.resolve("/STAMPED.TXT").unwrap();
-    let got = fs.node_metadata(node).unwrap();
-    assert_eq!(got.times().created(), Some(created));
-    assert_eq!(got.times().modified(), Some(modified));
+    let node = fs.resolve_path("/STAMPED.TXT").unwrap();
+    let got = fs.stat(node).unwrap();
+    assert_eq!(got.created(), Some(created));
+    assert_eq!(got.modified(), Some(modified));
     assert_eq!(
-        got.times().accessed().map(|t| t.to_civil().0),
+        got.accessed().map(|t| t.to_civil().0),
         Some(accessed.to_civil().0)
     );
     assert_eq!(got.attributes(), Attributes::HIDDEN | Attributes::SYSTEM);
-    let dir = fs.resolve("/stamped dir").unwrap();
+    let dir = fs.resolve_path("/stamped dir").unwrap();
     assert_eq!(
-        fs.node_metadata(dir).unwrap().attributes(),
+        fs.stat(dir).unwrap().attributes(),
         Attributes::HIDDEN | Attributes::SYSTEM
     );
-    assert_eq!(fs.node_metadata(dir).unwrap().file_type(), FileType::Dir);
+    assert_eq!(fs.stat(dir).unwrap().file_type(), FileType::Dir);
 
-    fs.set_metadata(
-        node,
-        &SetMetadata::new().with_attributes(Attributes::READ_ONLY),
-    )
-    .unwrap();
+    fs.setattr(node, &SetAttr::new().with_attributes(Attributes::READ_ONLY))
+        .unwrap();
+    assert_eq!(fs.stat(node).unwrap().attributes(), Attributes::READ_ONLY);
+    fs.write(node, 0, b"x").unwrap();
+    fs.fsync(node).unwrap();
     assert_eq!(
-        fs.node_metadata(node).unwrap().attributes(),
-        Attributes::READ_ONLY
-    );
-    fs.write_at(node, 0, b"x").unwrap();
-    fs.sync_node(node).unwrap();
-    assert_eq!(
-        fs.node_metadata(node).unwrap().attributes(),
+        fs.stat(node).unwrap().attributes(),
         Attributes::READ_ONLY | Attributes::ARCHIVE
     );
-    fs.forget(node);
-    fs.forget(dir);
+    assert_eq!(
+        fs.stat(node).unwrap().permissions(),
+        Permissions::new(0o444)
+    );
+    fs.setattr(
+        node,
+        &SetAttr::new().with_permissions(Permissions::new(0o644)),
+    )
+    .unwrap();
+    assert_eq!(fs.stat(node).unwrap().attributes(), Attributes::ARCHIVE);
+    fs.setattr(
+        dir,
+        &SetAttr::new().with_permissions(Permissions::new(0o555)),
+    )
+    .unwrap();
+    assert!(
+        fs.stat(dir)
+            .unwrap()
+            .attributes()
+            .contains(Attributes::READ_ONLY)
+    );
+    for changes in [
+        SetAttr::new().with_permissions(Permissions::new(0o600)),
+        SetAttr::new().with_owner(Owner::new(1000, 100)),
+    ] {
+        assert_eq!(
+            fs.setattr(node, &changes).unwrap_err().kind(),
+            ErrorKind::Unsupported
+        );
+    }
+    assert_eq!(
+        fs.setattr(root, &SetAttr::new().with_attributes(Attributes::HIDDEN))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::Unsupported
+    );
+    fs.forget(node, 1);
+    fs.forget(dir, 1);
     fs.sync().unwrap();
     clean(&mut fs, "times");
     fsck(&common::image(fs), "times");
@@ -154,13 +178,11 @@ fn clock_stamps_new_and_modified_entries() {
     )
     .unwrap();
     let root = fs.root();
-    let node = fs
-        .create(root, name("now.txt"), NewNode::File, &SetMetadata::new())
-        .unwrap();
-    let times = fs.node_metadata(node).unwrap().times();
+    let node = fs.create(root, name("now.txt"), &SetAttr::new()).unwrap();
+    let times = fs.stat(node).unwrap();
     assert_eq!(times.created(), Some(now));
     assert_eq!(times.modified(), Some(now));
-    fs.forget(node);
+    fs.forget(node, 1);
 }
 
 #[test]
@@ -169,11 +191,11 @@ fn long_names_up_to_255_units() {
     let root = fs.root();
     let longest = "\u{1F600}".repeat(127) + "e";
     assert_eq!(longest.encode_utf16().count(), 255);
-    let node = create(&mut fs, root, &longest, NewNode::File);
-    fs.forget(node);
+    let node = create(&mut fs, root, &longest, FileType::File);
+    fs.forget(node, 1);
     let too_long = "\u{1F600}".repeat(128);
     assert_eq!(
-        fs.create(root, name(&too_long), NewNode::File, &SetMetadata::new())
+        fs.create(root, name(&too_long), &SetAttr::new())
             .unwrap_err()
             .kind(),
         ErrorKind::NameTooLong
@@ -191,18 +213,18 @@ fn long_names_up_to_255_units() {
         "\"q\"",
     ] {
         assert_eq!(
-            fs.create(root, name(bad), NewNode::File, &SetMetadata::new())
+            fs.create(root, name(bad), &SetAttr::new())
                 .unwrap_err()
                 .kind(),
             ErrorKind::InvalidInput,
             "{bad:?}"
         );
     }
-    let node = create(&mut fs, root, "Straße Ωmega", NewNode::File);
-    fs.forget(node);
+    let node = create(&mut fs, root, "Straße Ωmega", FileType::File);
+    fs.forget(node, 1);
     for twin in ["STRAßE ΩMEGA", "straße ωmega"] {
         assert_eq!(
-            fs.create(root, name(twin), NewNode::File, &SetMetadata::new())
+            fs.create(root, name(twin), &SetAttr::new())
                 .unwrap_err()
                 .kind(),
             ErrorKind::AlreadyExists,
@@ -214,17 +236,20 @@ fn long_names_up_to_255_units() {
     fs.sync().unwrap();
     let image = common::image(fs);
     let mut fs = common::mount(&image);
-    assert!(fs.resolve(&format!("/{}", longest.to_uppercase())).is_ok());
+    assert!(
+        fs.resolve_path(&format!("/{}", longest.to_uppercase()))
+            .is_ok()
+    );
     fsck(&image, "long names");
 }
 
 #[test]
 fn labels_are_set_and_removed() {
     let mut fs = common::small(4 << 20, 4096);
-    assert!(fs.label().unwrap().is_none());
+    assert!(fs.label_text().unwrap().is_none());
     fs.set_label(Some(VolumeLabel::new("Première").unwrap()))
         .unwrap();
-    assert_eq!(fs.label().unwrap().unwrap().to_string(), "Première");
+    assert_eq!(fs.label_text().unwrap().unwrap(), "Première");
     fs.set_label(Some(VolumeLabel::new("Second").unwrap()))
         .unwrap();
     fs.sync().unwrap();
@@ -233,9 +258,9 @@ fn labels_are_set_and_removed() {
     assert_eq!(geo.root_entries(&image, 0x83).len(), 1);
     fsck(&image, "label");
     let mut fs = common::mount(&image);
-    assert_eq!(fs.label().unwrap().unwrap().to_string(), "Second");
+    assert_eq!(fs.label_text().unwrap().unwrap(), "Second");
     fs.set_label(None).unwrap();
-    assert!(fs.label().unwrap().is_none());
+    assert!(fs.label_text().unwrap().is_none());
     fs.sync().unwrap();
     clean(&mut fs, "no label");
     fsck(&common::image(fs), "no label");
@@ -245,13 +270,18 @@ fn labels_are_set_and_removed() {
 fn directories_grow_across_clusters() {
     let mut fs = common::small(8 << 20, 512);
     let root = fs.root();
-    let dir = create(&mut fs, root, "grown", NewNode::Dir);
+    let dir = create(&mut fs, root, "grown", FileType::Dir);
     for i in 0..200 {
-        let node = create(&mut fs, dir, &format!("entry number {i:03}"), NewNode::File);
-        fs.forget(node);
+        let node = create(
+            &mut fs,
+            dir,
+            &format!("entry number {i:03}"),
+            FileType::File,
+        );
+        fs.forget(node, 1);
         if i % 50 == 0 {
             let spacer = common::write(&mut fs, root, &format!("spacer {i}"), &[7; 700]);
-            fs.forget(spacer);
+            fs.forget(spacer, 1);
         }
     }
     for i in 0..60 {
@@ -259,16 +289,16 @@ fn directories_grow_across_clusters() {
             &mut fs,
             root,
             &format!("root entry number {i:03}"),
-            NewNode::File,
+            FileType::File,
         );
-        fs.forget(node);
+        fs.forget(node, 1);
     }
     let clusters = common::chain(&mut fs, dir);
     assert_eq!(clusters.len(), 200 * 4 * 32 / 512);
     assert!(clusters.windows(2).any(|pair| pair[1] != pair[0] + 1));
     assert!(common::chain(&mut fs, root).len() > 1);
     assert_eq!(list(&mut fs, dir).len(), 200);
-    fs.forget(dir);
+    fs.forget(dir, 1);
     fs.sync().unwrap();
     let image = common::image(fs);
     let geo = Geometry::of(&image);
@@ -287,7 +317,7 @@ fn contiguous_files_grow_into_chains() {
     let root = fs.root();
     for (text, len) in [("grow.bin", 3000), ("shrink.bin", 5000), ("gone.bin", 2000)] {
         let node = common::write(&mut fs, root, text, &common::payload(len, 1));
-        fs.forget(node);
+        fs.forget(node, 1);
     }
     fs.sync().unwrap();
     let mut image = common::image(fs);
@@ -298,16 +328,16 @@ fn contiguous_files_grow_into_chains() {
     }
     let mut fs = common::mount(&image);
     let before = free(&mut fs);
-    let grow = fs.resolve("/grow.bin").unwrap();
+    let grow = fs.resolve_path("/grow.bin").unwrap();
     common::append(&mut fs, grow, 3000, &common::payload(4000, 2));
     let mut expected = common::payload(3000, 1);
     expected.extend(common::payload(4000, 2));
     assert_eq!(read_all(&mut fs, grow), expected);
-    fs.forget(grow);
-    let shrink = fs.resolve("/shrink.bin").unwrap();
-    fs.set_len(shrink, 1000).unwrap();
-    fs.forget(shrink);
-    fs.remove(root, name("gone.bin"), RemoveKind::File).unwrap();
+    fs.forget(grow, 1);
+    let shrink = fs.resolve_path("/shrink.bin").unwrap();
+    fs.truncate(shrink, 1000).unwrap();
+    fs.forget(shrink, 1);
+    fs.unlink(root, name("gone.bin")).unwrap();
     assert_eq!(free(&mut fs), before - 8 + 8 + 4);
     fs.sync().unwrap();
     clean(&mut fs, "contiguous");
@@ -329,11 +359,11 @@ fn contiguous_files_grow_into_chains() {
 fn rename_keeps_the_id_and_moves_directories() {
     let mut fs = common::small(8 << 20, 4096);
     let root = fs.root();
-    let a = create(&mut fs, root, "a", NewNode::Dir);
-    let b = create(&mut fs, root, "b", NewNode::Dir);
-    let inner = create(&mut fs, a, "inner", NewNode::Dir);
+    let a = create(&mut fs, root, "a", FileType::Dir);
+    let b = create(&mut fs, root, "b", FileType::Dir);
+    let inner = create(&mut fs, a, "inner", FileType::Dir);
     let file = common::write(&mut fs, inner, "file.txt", b"moved");
-    fs.rename(root, name("a"), b, name("A moved"), RenameFlags::empty())
+    fs.rename(root, name("a"), b, name("A moved"), RenameMode::Replace)
         .unwrap();
     assert_eq!(read_all(&mut fs, file), b"moved");
     assert_eq!(
@@ -341,11 +371,11 @@ fn rename_keeps_the_id_and_moves_directories() {
         b"moved"
     );
     assert_eq!(fs.parent(a).unwrap(), b);
-    fs.forget(b);
+    fs.forget(b, 1);
     assert_eq!(fs.parent(inner).unwrap(), a);
-    fs.forget(a);
+    fs.forget(a, 1);
     assert_eq!(
-        fs.rename(root, name("b"), inner, name("loop"), RenameFlags::empty())
+        fs.rename(root, name("b"), inner, name("loop"), RenameMode::Replace)
             .unwrap_err()
             .kind(),
         ErrorKind::InvalidInput
@@ -355,7 +385,7 @@ fn rename_keeps_the_id_and_moves_directories() {
         name("file.txt"),
         inner,
         name("FILE.TXT"),
-        RenameFlags::empty(),
+        RenameMode::Replace,
     )
     .unwrap();
     assert_eq!(list(&mut fs, inner)[0].0, "FILE.TXT");
@@ -365,17 +395,17 @@ fn rename_keeps_the_id_and_moves_directories() {
         name("FILE.TXT"),
         inner,
         name("FILE.TXT"),
-        RenameFlags::empty(),
+        RenameMode::Replace,
     )
     .unwrap();
-    fs.forget(file);
-    fs.forget(inner);
+    fs.forget(file, 1);
+    fs.forget(inner, 1);
     fs.sync().unwrap();
     let image = common::image(fs);
     let mut fs = common::mount(&image);
-    let deep = fs.resolve("/b/A moved/inner").unwrap();
+    let deep = fs.resolve_path("/b/A moved/inner").unwrap();
     let parent = fs.parent(deep).unwrap();
-    assert_eq!(fs.parent(parent).unwrap(), fs.resolve("/b").unwrap());
+    assert_eq!(fs.parent(parent).unwrap(), fs.resolve_path("/b").unwrap());
     clean(&mut fs, "renamed");
     fsck(&image, "renamed");
 }
@@ -386,28 +416,22 @@ fn rename_replaces_or_refuses_existing_targets() {
     let root = fs.root();
     for (text, data) in [("one", &b"1"[..]), ("two", b"22"), ("three", b"333")] {
         let node = common::write(&mut fs, root, text, data);
-        fs.forget(node);
+        fs.forget(node, 1);
     }
-    let empty = create(&mut fs, root, "empty", NewNode::Dir);
-    let full = create(&mut fs, root, "full", NewNode::Dir);
-    let child = create(&mut fs, full, "child", NewNode::File);
-    fs.forget(child);
-    let other = create(&mut fs, root, "other", NewNode::Dir);
-    fs.forget(other);
+    let empty = create(&mut fs, root, "empty", FileType::Dir);
+    let full = create(&mut fs, root, "full", FileType::Dir);
+    let child = create(&mut fs, full, "child", FileType::File);
+    fs.forget(child, 1);
+    let other = create(&mut fs, root, "other", FileType::Dir);
+    fs.forget(other, 1);
     let before = free(&mut fs);
     assert_eq!(
-        fs.rename(
-            root,
-            name("one"),
-            root,
-            name("TWO"),
-            RenameFlags::NO_REPLACE
-        )
-        .unwrap_err()
-        .kind(),
+        fs.rename(root, name("one"), root, name("TWO"), RenameMode::NoReplace)
+            .unwrap_err()
+            .kind(),
         ErrorKind::AlreadyExists
     );
-    fs.rename(root, name("one"), root, name("TWO"), RenameFlags::empty())
+    fs.rename(root, name("one"), root, name("TWO"), RenameMode::Replace)
         .unwrap();
     assert_eq!(fs.read_to_vec("/two").unwrap(), b"1");
     assert!(list(&mut fs, root).iter().any(|(n, _)| n == "TWO"));
@@ -418,7 +442,7 @@ fn rename_replaces_or_refuses_existing_targets() {
             name("three"),
             root,
             name("empty"),
-            RenameFlags::empty()
+            RenameMode::Replace
         )
         .unwrap_err()
         .kind(),
@@ -430,22 +454,16 @@ fn rename_replaces_or_refuses_existing_targets() {
             name("empty"),
             root,
             name("three"),
-            RenameFlags::empty()
+            RenameMode::Replace
         )
         .unwrap_err()
         .kind(),
         ErrorKind::NotADirectory
     );
     assert_eq!(
-        fs.rename(
-            root,
-            name("other"),
-            root,
-            name("full"),
-            RenameFlags::empty()
-        )
-        .unwrap_err()
-        .kind(),
+        fs.rename(root, name("other"), root, name("full"), RenameMode::Replace)
+            .unwrap_err()
+            .kind(),
         ErrorKind::DirectoryNotEmpty
     );
     fs.rename(
@@ -453,49 +471,44 @@ fn rename_replaces_or_refuses_existing_targets() {
         name("other"),
         root,
         name("empty"),
-        RenameFlags::empty(),
+        RenameMode::Replace,
     )
     .unwrap();
+    assert_eq!(fs.stat(empty).unwrap_err().kind(), ErrorKind::NotFound);
+    fs.forget(empty, 1);
+    let three = fs.resolve_path("/three").unwrap();
+    fs.open(three, OpenMode::Write).unwrap();
     assert_eq!(
-        fs.node_metadata(empty).unwrap_err().kind(),
-        ErrorKind::NotFound
-    );
-    fs.forget(empty);
-    let three = fs.resolve("/three").unwrap();
-    fs.open_node(three).unwrap();
-    assert_eq!(
-        fs.rename(root, name("TWO"), root, name("three"), RenameFlags::empty())
+        fs.rename(root, name("TWO"), root, name("three"), RenameMode::Replace)
             .unwrap_err()
             .kind(),
         ErrorKind::Busy
     );
     assert_eq!(
-        fs.remove(root, name("three"), RemoveKind::File)
-            .unwrap_err()
-            .kind(),
+        fs.unlink(root, name("three")).unwrap_err().kind(),
         ErrorKind::Busy
     );
-    fs.close_node(three);
-    fs.forget(three);
+    fs.close(three).unwrap();
+    fs.forget(three, 1);
     assert_eq!(
         fs.rename(
             root,
             name("TWO"),
             root,
             name("bad:name"),
-            RenameFlags::empty()
+            RenameMode::Replace
         )
         .unwrap_err()
         .kind(),
         ErrorKind::InvalidInput
     );
     assert_eq!(
-        fs.rename(root, name("missing"), root, name("x"), RenameFlags::empty())
+        fs.rename(root, name("missing"), root, name("x"), RenameMode::Replace)
             .unwrap_err()
             .kind(),
         ErrorKind::NotFound
     );
-    fs.forget(full);
+    fs.forget(full, 1);
     fs.sync().unwrap();
     clean(&mut fs, "replaced");
     fsck(&common::image(fs), "replaced");
@@ -506,7 +519,7 @@ fn rename_keeps_benign_secondary_entries() {
     let mut fs = common::small(4 << 20, 4096);
     let root = fs.root();
     let node = common::write(&mut fs, root, "vendor", b"data");
-    fs.forget(node);
+    fs.forget(node, 1);
     fs.sync().unwrap();
     let mut image = common::image(fs);
     let geo = Geometry::of(&image);
@@ -524,7 +537,7 @@ fn rename_keeps_benign_secondary_entries() {
         name("vendor"),
         root,
         name("a longer name for the vendor file"),
-        RenameFlags::empty(),
+        RenameMode::Replace,
     )
     .unwrap();
     fs.sync().unwrap();
@@ -588,7 +601,7 @@ fn remove_and_replace_free_vendor_allocations() {
         ("other", 10),
     ] {
         let node = common::write(&mut fs, root, text, &common::payload(len, 1));
-        fs.forget(node);
+        fs.forget(node, 1);
     }
     fs.sync().unwrap();
     let mut image = common::image(fs);
@@ -598,14 +611,14 @@ fn remove_and_replace_free_vendor_allocations() {
     let mut fs = common::mount(&image);
     clean(&mut fs, "vendor allocations");
     assert_eq!(free(&mut fs), before - 7);
-    fs.remove(root, name("vendor"), RemoveKind::File).unwrap();
+    fs.unlink(root, name("vendor")).unwrap();
     assert_eq!(free(&mut fs), before - 4);
     fs.rename(
         root,
         name("other"),
         root,
         name("target"),
-        RenameFlags::empty(),
+        RenameMode::Replace,
     )
     .unwrap();
     assert_eq!(free(&mut fs), before - 1);
@@ -625,40 +638,32 @@ fn remove_files_and_directories() {
     let mut fs = common::small(8 << 20, 4096);
     let root = fs.root();
     let before = free(&mut fs);
-    let dir = create(&mut fs, root, "dir", NewNode::Dir);
+    let dir = create(&mut fs, root, "dir", FileType::Dir);
     let file = common::write(&mut fs, dir, "file", &common::payload(10_000, 3));
     assert_eq!(free(&mut fs), before - 1 - 3);
     assert_eq!(
-        fs.remove(root, name("dir"), RemoveKind::Any)
-            .unwrap_err()
-            .kind(),
+        fs.remove_any(root, name("dir")).unwrap_err().kind(),
         ErrorKind::DirectoryNotEmpty
     );
     assert_eq!(
-        fs.remove(root, name("dir"), RemoveKind::File)
-            .unwrap_err()
-            .kind(),
+        fs.unlink(root, name("dir")).unwrap_err().kind(),
         ErrorKind::IsADirectory
     );
     assert_eq!(
-        fs.remove(dir, name("file"), RemoveKind::Dir)
-            .unwrap_err()
-            .kind(),
+        fs.rmdir(dir, name("file")).unwrap_err().kind(),
         ErrorKind::NotADirectory
     );
-    fs.remove(dir, name("FILE"), RemoveKind::File).unwrap();
+    fs.unlink(dir, name("FILE")).unwrap();
     assert_eq!(
-        fs.read_at(file, 0, &mut [0; 4]).unwrap_err().kind(),
+        fs.read(file, 0, &mut [0; 4]).unwrap_err().kind(),
         ErrorKind::NotFound
     );
-    fs.forget(file);
-    fs.forget(dir);
-    fs.remove(root, name("dir"), RemoveKind::Dir).unwrap();
+    fs.forget(file, 1);
+    fs.forget(dir, 1);
+    fs.rmdir(root, name("dir")).unwrap();
     assert_eq!(free(&mut fs), before);
     assert_eq!(
-        fs.remove(root, name("dir"), RemoveKind::Any)
-            .unwrap_err()
-            .kind(),
+        fs.remove_any(root, name("dir")).unwrap_err().kind(),
         ErrorKind::NotFound
     );
     assert_eq!(fs.open_nodes(), 1);
@@ -674,18 +679,18 @@ fn set_len_shrinks_frees_and_grows_zeroed() {
     let before = free(&mut fs);
     let node = common::write(&mut fs, root, "f", &common::payload(20_000, 1));
     assert_eq!(free(&mut fs), before - 5);
-    fs.set_len(node, 5000).unwrap();
+    fs.truncate(node, 5000).unwrap();
     assert_eq!(free(&mut fs), before - 2);
-    fs.set_len(node, 9000).unwrap();
+    fs.truncate(node, 9000).unwrap();
     let data = read_all(&mut fs, node);
     assert_eq!(&data[..5000], &common::payload(20_000, 1)[..5000]);
     assert!(data[5000..].iter().all(|&b| b == 0));
-    fs.set_len(node, 0).unwrap();
+    fs.truncate(node, 0).unwrap();
     assert_eq!(free(&mut fs), before);
-    fs.forget(node);
+    fs.forget(node, 1);
     fs.sync().unwrap();
-    clean(&mut fs, "set_len");
-    fsck(&common::image(fs), "set_len");
+    clean(&mut fs, "truncate");
+    fsck(&common::image(fs), "truncate");
 }
 
 #[test]
@@ -696,31 +701,30 @@ fn no_space_changes_nothing_and_space_is_reclaimed() {
     let node = common::write(&mut fs, root, "fill", &[]);
     let huge = vec![5u8; (total as usize + 1) * 4096];
     assert_eq!(
-        fs.write_at(node, 0, &huge).unwrap_err().kind(),
+        fs.write(node, 0, &huge).unwrap_err().kind(),
         ErrorKind::NoSpace
     );
     assert_eq!(free(&mut fs), total);
-    assert_eq!(fs.node_metadata(node).unwrap().len(), 0);
-    fs.write_at(node, 0, &huge[..total as usize * 4096])
-        .unwrap();
+    assert_eq!(fs.stat(node).unwrap().len(), 0);
+    fs.write(node, 0, &huge[..total as usize * 4096]).unwrap();
     assert_eq!(free(&mut fs), 0);
     assert_eq!(
-        fs.write_at(node, total * 4096, b"x").unwrap_err().kind(),
+        fs.write(node, total * 4096, b"x").unwrap_err().kind(),
         ErrorKind::NoSpace
     );
     assert_eq!(
-        fs.create(root, name("dir"), NewNode::Dir, &SetMetadata::new())
+        fs.mkdir(root, name("dir"), &SetAttr::new())
             .unwrap_err()
             .kind(),
         ErrorKind::NoSpace
     );
-    fs.forget(node);
+    fs.forget(node, 1);
     fs.sync().unwrap();
     clean(&mut fs, "full");
-    fs.remove(root, name("fill"), RemoveKind::File).unwrap();
+    fs.unlink(root, name("fill")).unwrap();
     assert_eq!(free(&mut fs), total);
     let again = common::write(&mut fs, root, "again", &huge[..total as usize * 4096]);
-    fs.forget(again);
+    fs.forget(again, 1);
     fs.sync().unwrap();
     clean(&mut fs, "refilled");
     fsck(&common::image(fs), "refilled");
@@ -733,7 +737,7 @@ fn volume_flags_and_percent_in_use() {
     let mut fs = common::mount(&image);
     let root = fs.root();
     let node = common::write(&mut fs, root, "f", &common::payload(100_000, 1));
-    fs.forget(node);
+    fs.forget(node, 1);
     let dirty = fs.into_inner().into_inner();
     assert_eq!(dirty[106] & 2, 2, "the first write sets VolumeDirty");
     let mut fs = common::mount(&dirty);
@@ -742,10 +746,10 @@ fn volume_flags_and_percent_in_use() {
     assert_eq!(still[106] & 2, 2, "a volume dirty at mount stays dirty");
     let mut fs = common::mount(&image);
     let node = common::write(&mut fs, root, "f", &common::payload(1_000_000, 1));
-    fs.forget(node);
+    fs.forget(node, 1);
     fs.sync().unwrap();
-    let total = fs.stats().unwrap().total_blocks();
-    let used = total - fs.stats().unwrap().free_blocks();
+    let total = fs.statfs().unwrap().total_blocks();
+    let used = total - fs.statfs().unwrap().free_blocks();
     let synced = common::image(fs);
     assert_eq!(synced[106] & 2, 0, "sync clears VolumeDirty");
     assert_eq!(synced[112] as u64, used * 100 / total);
@@ -818,14 +822,14 @@ fn populated() -> Vec<u8> {
         ("grown.bin", 9000),
     ] {
         let node = common::write(&mut fs, root, text, &common::payload(len, 4));
-        fs.forget(node);
+        fs.forget(node, 1);
     }
-    let dir = create(&mut fs, root, "Nested Dir", NewNode::Dir);
+    let dir = create(&mut fs, root, "Nested Dir", FileType::Dir);
     for i in 0..20 {
-        let node = create(&mut fs, dir, &format!("child {i}"), NewNode::File);
-        fs.forget(node);
+        let node = create(&mut fs, dir, &format!("child {i}"), FileType::File);
+        fs.forget(node, 1);
     }
-    fs.forget(dir);
+    fs.forget(dir, 1);
     fs.sync().unwrap();
     common::image(fs)
 }
@@ -839,36 +843,35 @@ fn refused_writes_make_the_volume_read_only() {
         refuse: true,
     };
     let mut fs = ExFatFs::open_with(dev, MountOptions::new().with_table(HeapTable::new())).unwrap();
-    assert!(FsDriver::capabilities(&fs).is_writable());
+    assert!(FileSystem::capabilities(&fs).writable());
     let root = fs.root();
     let file = fs.lookup(root, name("lower.txt")).unwrap();
     assert_eq!(
-        fs.write_at(file, 0, b"x").unwrap_err().kind(),
+        fs.write(file, 0, b"x").unwrap_err().kind(),
         ErrorKind::ReadOnly
     );
     assert!(fs.is_read_only());
-    assert!(!FsDriver::capabilities(&fs).is_writable());
-    let meta = SetMetadata::new();
+    assert!(!FileSystem::capabilities(&fs).writable());
+    let meta = SetAttr::new();
     let kinds = [
-        fs.create(root, name("new"), NewNode::File, &meta)
-            .map(|_| ()),
-        fs.remove(root, name("lower.txt"), RemoveKind::Any),
+        fs.create(root, name("new"), &meta).map(|_| ()),
+        fs.remove_any(root, name("lower.txt")),
         fs.rename(
             root,
             name("lower.txt"),
             root,
             name("x"),
-            RenameFlags::empty(),
+            RenameMode::Replace,
         ),
-        fs.set_len(file, 0),
-        fs.set_metadata(file, &meta.with_attributes(Attributes::HIDDEN)),
+        fs.truncate(file, 0),
+        fs.setattr(file, &meta.with_attributes(Attributes::HIDDEN)),
         fs.set_label(None),
     ]
     .map(|result| result.unwrap_err().kind());
     assert_eq!(kinds, [ErrorKind::ReadOnly; 6]);
     assert_eq!(read_all(&mut fs, file), common::payload(10, 4));
     fs.sync().unwrap();
-    fs.forget(file);
+    fs.forget(file, 1);
     assert_eq!(fs.into_inner().inner.into_inner(), before);
 
     let dev = common::device(before.clone(), 512);
@@ -883,7 +886,7 @@ fn refused_writes_make_the_volume_read_only() {
 #[test]
 fn interrupted_operations_leave_readable_volumes() {
     let before = populated();
-    let meta = SetMetadata::new();
+    let meta = SetAttr::new();
     for op in 0..7 {
         for budget in 0..60 {
             let dev = Faulty {
@@ -895,30 +898,28 @@ fn interrupted_operations_leave_readable_volumes() {
                 ExFatFs::open_with(dev, MountOptions::new().with_table(HeapTable::new())).unwrap();
             let root = fs.root();
             let result = match op {
-                0 => fs
-                    .create(root, name("a new directory"), NewNode::Dir, &meta)
-                    .map(|_| ()),
-                1 => fs.remove(root, name("a long file name.txt"), RemoveKind::Any),
+                0 => fs.mkdir(root, name("a new directory"), &meta).map(|_| ()),
+                1 => fs.remove_any(root, name("a long file name.txt")),
                 2 => fs.rename(
                     root,
                     name("Nested Dir"),
                     root,
                     name("Renamed Dir"),
-                    RenameFlags::empty(),
+                    RenameMode::Replace,
                 ),
                 3 => fs.rename(
                     root,
                     name("lower.txt"),
                     root,
                     name("grown.bin"),
-                    RenameFlags::empty(),
+                    RenameMode::Replace,
                 ),
                 4 => fs
-                    .resolve("/grown.bin")
-                    .and_then(|node| fs.write_at(node, 8_000, &[3u8; 20_000]).map(|_| ())),
+                    .resolve_path("/grown.bin")
+                    .and_then(|node| fs.write(node, 8_000, &[3u8; 20_000]).map(|_| ())),
                 5 => fs
-                    .resolve("/a long file name.txt")
-                    .and_then(|node| fs.set_len(node, 100)),
+                    .resolve_path("/a long file name.txt")
+                    .and_then(|node| fs.truncate(node, 100)),
                 _ => fs.set_label(Some(VolumeLabel::new("Label").unwrap())),
             };
             let finished = result.is_ok();
@@ -986,14 +987,11 @@ fn sync_writes_the_other_nodes_past_a_damaged_entry_set() {
     let texts = ["first.bin", "second.bin", "third.bin", "fourth.bin"];
     let nodes: Vec<NodeId> = texts
         .iter()
-        .map(|text| {
-            fs.create(root, name(text), NewNode::File, &SetMetadata::new())
-                .unwrap()
-        })
+        .map(|text| fs.create(root, name(text), &SetAttr::new()).unwrap())
         .collect();
     for &node in &nodes {
-        fs.write_at(node, 0, &[7u8; 100]).unwrap();
-        fs.write_at(node, 100, &[7u8; 4900]).unwrap();
+        fs.write(node, 0, &[7u8; 100]).unwrap();
+        fs.write(node, 100, &[7u8; 4900]).unwrap();
     }
     let damaged = nodes[0].get() as usize * 32;
     image.borrow_mut()[damaged + 32 + 4] ^= 0xFF;
@@ -1050,7 +1048,7 @@ fn random_operations_match_a_model() {
         let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
         let mut fs = common::small(size, cluster);
         let root = fs.root();
-        let sub = create(&mut fs, root, "sub", NewNode::Dir);
+        let sub = create(&mut fs, root, "sub", FileType::Dir);
         let dirs = [root, sub];
         let mut model: BTreeMap<(usize, usize), Model> = BTreeMap::new();
         for step in 0..400 {
@@ -1062,11 +1060,14 @@ fn random_operations_match_a_model() {
             match rng.below(6) {
                 0 => {
                     let kind = if rng.below(4) == 0 {
-                        NewNode::Dir
+                        FileType::Dir
                     } else {
-                        NewNode::File
+                        FileType::File
                     };
-                    let result = fs.create(dirs[d], name(text), kind, &SetMetadata::new());
+                    let result = match kind {
+                        FileType::Dir => fs.mkdir(dirs[d], name(text), &SetAttr::new()),
+                        _ => fs.create(dirs[d], name(text), &SetAttr::new()),
+                    };
                     match model.entry(key) {
                         Entry::Occupied(_) => {
                             assert_eq!(
@@ -1076,9 +1077,9 @@ fn random_operations_match_a_model() {
                             )
                         }
                         Entry::Vacant(slot) => {
-                            fs.forget(result.unwrap());
+                            fs.forget(result.unwrap(), 1);
                             slot.insert(match kind {
-                                NewNode::Dir => Model::Dir,
+                                FileType::Dir => Model::Dir,
                                 _ => Model::File(Vec::new()),
                             });
                         }
@@ -1098,7 +1099,7 @@ fn random_operations_match_a_model() {
                         data.resize(end, 0);
                     }
                     data[offset as usize..end].copy_from_slice(&bytes);
-                    fs.forget(node);
+                    fs.forget(node, 1);
                 }
                 3 => {
                     let Some(Model::File(data)) = model.get_mut(&key) else {
@@ -1106,12 +1107,12 @@ fn random_operations_match_a_model() {
                     };
                     let node = fs.lookup(dirs[d], name(text)).unwrap();
                     let len = rng.below(data.len() as u64 * 2 + 100) as usize;
-                    fs.set_len(node, len as u64).unwrap();
+                    fs.truncate(node, len as u64).unwrap();
                     data.resize(len, 0);
-                    fs.forget(node);
+                    fs.forget(node, 1);
                 }
                 4 => {
-                    let result = fs.remove(dirs[d], name(text), RemoveKind::Any);
+                    let result = fs.remove_any(dirs[d], name(text));
                     match model.get(&key) {
                         None => {
                             assert_eq!(result.unwrap_err().kind(), ErrorKind::NotFound, "{context}")
@@ -1130,7 +1131,7 @@ fn random_operations_match_a_model() {
                         name(text),
                         dirs[to_d],
                         name(POOL[j]),
-                        RenameFlags::empty(),
+                        RenameMode::Replace,
                     );
                     let src = model.get(&key).cloned();
                     let dst = model.get(&(to_d, j)).cloned();
@@ -1167,7 +1168,7 @@ fn random_operations_match_a_model() {
             }
             check_model(&mut fs, &dirs, &model, &context);
         }
-        fs.forget(sub);
+        fs.forget(sub, 1);
         fs.sync().unwrap();
         assert_eq!(fs.open_nodes(), 1);
         clean(&mut fs, "model");
@@ -1211,9 +1212,9 @@ fn check_model(
         let node = fs.lookup(dirs[*d], name(POOL[*i])).unwrap();
         match value {
             Model::File(data) => assert_eq!(&read_all(fs, node), data, "{context} {}", POOL[*i]),
-            Model::Dir => assert_eq!(fs.node_metadata(node).unwrap().file_type(), FileType::Dir),
+            Model::Dir => assert_eq!(fs.stat(node).unwrap().file_type(), FileType::Dir),
         }
-        fs.forget(node);
+        fs.forget(node, 1);
     }
 }
 
@@ -1222,14 +1223,9 @@ fn unpinned_ids_write_through() {
     let mut fs = common::small(4 << 20, 4096);
     let root = fs.root();
     let node = common::write(&mut fs, root, "f", b"abc");
-    fs.forget(node);
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
-    let entry = fs
-        .read_dir_entry(root, &mut cursor, &mut buf)
-        .unwrap()
-        .unwrap();
-    fs.write_at(entry.node(), 3, b"def").unwrap();
+    fs.forget(node, 1);
+    let entry = fs.readdir(root, DirCursor::START).unwrap().unwrap();
+    fs.write(entry.node(), 3, b"def").unwrap();
     assert_eq!(fs.read_to_vec("/f").unwrap(), b"abcdef");
     assert_eq!(fs.open_nodes(), 1);
     let _ = le32;
@@ -1272,17 +1268,12 @@ fn texfat_workload(fs: &mut Fs, tag: &str) {
             &format!("{tag} {index}"),
             &common::payload(index * 700, index as u8),
         );
-        fs.forget(node);
+        fs.forget(node, 1);
     }
-    let doomed = fs.resolve(&format!("/dir {tag}/{tag} 7")).unwrap();
-    fs.remove(
-        dir,
-        Name::new(&format!("{tag} 7")).unwrap(),
-        RemoveKind::File,
-    )
-    .unwrap();
-    fs.forget(doomed);
-    fs.forget(dir);
+    let doomed = fs.resolve_path(&format!("/dir {tag}/{tag} 7")).unwrap();
+    fs.unlink(dir, Name::new(&format!("{tag} 7"))).unwrap();
+    fs.forget(doomed, 1);
+    fs.forget(dir, 1);
     fs.sync().unwrap();
 }
 

@@ -3,8 +3,8 @@
 
 mod common;
 
+use common::Paths;
 use common::{image, pattern, sample};
-use hadris_fs::sync::DriverExt;
 use hadris_fs::tree::Content;
 use hadris_iso::sync::{IsoImage, Session};
 use hadris_iso::{

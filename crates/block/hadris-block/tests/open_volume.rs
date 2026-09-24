@@ -5,10 +5,13 @@ use hadris_block::part::{self, MbrEntry, MbrType};
 use hadris_block::sync::OpenVolume;
 use hadris_fat::{FatKind, FormatOptions};
 use hadris_fs::ErrorKind;
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::FileSystem;
 use hadris_fs::{Error, MountError};
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockSize, MemDevice, Partition};
+
+mod common;
+use common::sync::{get, put};
 
 const VOLUME_LEN: usize = 2 * 1024 * 1024;
 const BLOCK: BlockSize = match BlockSize::new(512) {
@@ -46,8 +49,8 @@ fn opens_detected_fat_and_returns_the_device() {
     let mut volume = OpenVolume::open(&mut dev).unwrap();
     assert_eq!(volume.format(), FAT12);
     assert!(volume.as_fat().is_some());
-    volume.write_file("/a.txt", b"fat").unwrap();
-    assert_eq!(volume.read_to_vec("/a.txt").unwrap(), b"fat");
+    put(&mut volume, "/a.txt", b"fat").unwrap();
+    assert_eq!(get(&mut volume, "/a.txt").unwrap(), b"fat");
     volume.sync().unwrap();
     let dev = volume.into_inner();
     assert_eq!(dev.get_ref().len(), VOLUME_LEN);
@@ -196,8 +199,8 @@ fn opens_detected_exfat() {
     assert_eq!(volume.format(), EXFAT);
     assert!(volume.as_fat().is_none());
     assert!(volume.as_exfat_mut().is_some());
-    volume.write_file("/Données.txt", b"exfat").unwrap();
-    assert_eq!(volume.read_to_vec("/DONNÉES.TXT").unwrap(), b"exfat");
+    put(&mut volume, "/Données.txt", b"exfat").unwrap();
+    assert_eq!(get(&mut volume, "/DONNÉES.TXT").unwrap(), b"exfat");
     volume.sync().unwrap();
     let mut dev = volume.into_exfat().ok().unwrap().into_inner();
     assert!(
@@ -264,10 +267,10 @@ fn opens_ntfs_read_only() {
     let mut volume = OpenVolume::open(dev).unwrap();
     assert_eq!(volume.format(), BlockFormat::Ntfs);
     assert!(volume.as_fat().is_none());
-    assert!(!volume.capabilities().is_writable());
-    assert_eq!(volume.read_to_vec("/HELLO.TXT").unwrap(), b"hello ntfs");
+    assert!(!volume.capabilities().writable());
+    assert_eq!(get(&mut volume, "/HELLO.TXT").unwrap(), b"hello ntfs");
     assert_eq!(
-        volume.write_file("/new.txt", b"x").unwrap_err().kind(),
+        put(&mut volume, "/new.txt", b"x").unwrap_err().kind(),
         ErrorKind::ReadOnly
     );
     hadris_fs::sync::contract::check_read_only(&mut volume).unwrap();

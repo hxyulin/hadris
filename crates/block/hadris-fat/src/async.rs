@@ -4,16 +4,9 @@ macro_rules! io_transform {
 }
 
 use hadris_fat_raw::io::r#async as rawio;
+use hadris_fs::r#async as fsapi;
+use hadris_io::r#async as io;
 use hadris_storage::r#async as storage;
-
-macro_rules! impl_fat_driver {
-    (impl[D: BlockDevice, T: NodeTable, C: Clock, P: CodePage] $($rest:tt)*) => {
-        hadris_fs::impl_fs_driver!(
-            async,
-            impl[D: BlockDevice, T: NodeTable<With<Node>: Send>, C: Clock + Send, P: CodePage + Send] $($rest)*
-        );
-    };
-}
 
 #[path = "block_io.rs"]
 pub(crate) mod block_io;

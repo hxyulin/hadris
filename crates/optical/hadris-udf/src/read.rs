@@ -1,9 +1,10 @@
 use hadris_fs::{
     Capabilities, DirCursor, DirEntry, ErrorKind, FileType, FsResult, FsStats, Metadata,
-    MountError, Name, NameBuf, NodeId,
+    MountError, Name, NodeId, OpenMode,
 };
 use hadris_storage::BlockIndex;
 
+use super::FileSystem;
 use super::storage::BlockDevice;
 use crate::UdfRevision;
 use crate::error::{Detail, Error};
@@ -675,9 +676,8 @@ async fn link_target<D: BlockDevice>(info: &Info, dev: &mut D, icb: &Icb, out: &
 /// An open UDF volume on a block device.
 ///
 /// It reads the volume structures once, when opened, and needs no
-/// allocator. It implements `hadris_fs::FsDriver` read-only through its
-/// inherent methods: node ids are ICB locations, so they are stable and
-/// [`forget`](Self::forget) does nothing; a directory's id is the id its
+/// allocator. It implements the `hadris_fs` `FileSystem` trait read-only:
+/// node ids are ICB locations, so they are stable and `forget` does nothing; a directory's id is the id its
 /// name in the parent lists, and hard links share one id. An id outside
 /// every partition fails with [`ErrorKind::InvalidHandle`]; one inside a
 /// partition is read as an entry, and a damaged entry fails with
@@ -685,7 +685,9 @@ async fn link_target<D: BlockDevice>(info: &Info, dev: &mut D, icb: &Icb, out: &
 ///
 /// ```rust,ignore
 /// let mut udf = UdfFs::open(dev)?;
-/// let data = hadris_fs::sync::DriverExt::read_to_vec(&mut udf, "/docs/readme.txt")?;
+/// let file = udf.resolve(b"/docs/readme.txt", Resolve::Lexical)?;
+/// let mut buf = [0u8; 64];
+/// let n = udf.read(file, 0, &mut buf)?;
 /// ```
 #[derive(Debug)]
 pub struct UdfFs<D> {
@@ -766,135 +768,16 @@ impl<D: BlockDevice> UdfFs<D> {
         Ok(icb)
     }
 
-    /// Read-only, with symlinks, hard links, permissions and owners;
-    /// names are UTF-16 and compared exactly.
-    pub fn capabilities(&self) -> Capabilities {
-        self.info.capabilities()
-    }
-
-    /// The root directory.
-    pub fn root(&self) -> NodeId {
-        self.info.root.id()
-    }
-
-    /// Finds `name` in `dir`.
-    pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
-        let icb = self.dir(dir).await?;
-        let mut pos = 0;
-        let mut buf = [0u8; 1024];
-        while pos < icb.size {
-            let fid = fid_at(&self.info, &mut self.dev, &icb, pos).await?;
-            pos = fid.next;
-            if fid.characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT) {
-                continue;
-            }
-            let len = fid_name(&self.info, &mut self.dev, &icb, &fid, &mut buf).await?;
-            if &buf[..len] == name.as_bytes() {
-                return fid_node(&self.info, &fid);
-            }
-        }
-        Err(ErrorKind::NotFound.into())
-    }
-
-    /// Writes the entry after `cursor` into `name` and advances `cursor`,
-    /// the byte offset of the next identifier in the directory. Parent and
-    /// deleted identifiers are skipped.
-    pub async fn read_dir_entry(
-        &mut self,
-        dir: NodeId,
-        cursor: &mut DirCursor,
-        name: &mut NameBuf,
-    ) -> FsResult<Option<DirEntry>, D::Error> {
-        let icb = self.dir(dir).await?;
-        let mut pos = cursor.into_raw();
-        let mut buf = [0u8; 1024];
-        while pos < icb.size {
-            let fid = fid_at(&self.info, &mut self.dev, &icb, pos).await?;
-            pos = fid.next;
-            if fid.characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT) {
-                continue;
-            }
-            let len = fid_name(&self.info, &mut self.dev, &icb, &fid, &mut buf).await?;
-            let file_type = if fid.characteristics.contains(FileCharacteristics::DIRECTORY) {
-                FileType::Dir
-            } else {
-                let child = icb_at(&self.info, &mut self.dev, fid.icb).await?;
-                child.fs_type().ok_or(Detail::Icb.corrupt())?
-            };
-            name.set_bytes(&buf[..len])?;
-            *cursor = DirCursor::from_raw(pos);
-            return Ok(Some(DirEntry::new(fid_node(&self.info, &fid)?, file_type, len)));
-        }
-        *cursor = DirCursor::from_raw(pos.max(icb.size));
-        Ok(None)
-    }
-
-    /// Metadata of a node: type, size, times (creation only from extended
-    /// file entries), permissions, owner and link count. A symlink's size
-    /// is the length of its target.
-    pub async fn node_metadata(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
-        let icb = self.icb(node).await?;
-        let file_type = icb.fs_type().ok_or(ErrorKind::Corrupt)?;
+    async fn icb_metadata(&mut self, icb: &Icb) -> FsResult<Metadata, D::Error> {
+        let file_type = icb.fs_type().ok_or(Detail::Icb.corrupt())?;
         let mut meta = icb.metadata(file_type);
         if file_type == FileType::Symlink {
             let mut target = [0u8; 4096];
-            if let Ok(len) = link_target(&self.info, &mut self.dev, &icb, &mut target).await {
+            if let Ok(len) = link_target(&self.info, &mut self.dev, icb, &mut target).await {
                 meta = meta.with_len(len as u64);
             }
         }
         Ok(meta)
-    }
-
-    /// Reads from a file at `offset`. Allocated but unrecorded extents read
-    /// as zeros. Directories fail with [`ErrorKind::IsADirectory`] and
-    /// symlinks with [`ErrorKind::Symlink`].
-    pub async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        let icb = self.icb(node).await?;
-        match icb.fs_type() {
-            Some(FileType::Dir) => return Err(ErrorKind::IsADirectory.into()),
-            Some(FileType::Symlink) => return Err(ErrorKind::Symlink.into()),
-            None => return Err(ErrorKind::Corrupt.into()),
-            _ => {}
-        }
-        read_stream(&self.info, &mut self.dev, &icb, offset, buf).await
-    }
-
-    /// The partitions' size, and the free space a closed integrity
-    /// descriptor records.
-    pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
-        let total = self.info.partitions().iter().map(|p| u64::from(p.len())).sum();
-        Ok(FsStats::new(total, self.info.free_blocks.unwrap_or(0), self.info.block_size))
-    }
-
-    /// Does nothing: UDF node ids are stable.
-    pub fn forget(&mut self, node: NodeId) {
-        let _ = node;
-    }
-
-    /// The directory containing `dir`, from its parent identifier. The
-    /// root is its own parent.
-    pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
-        let icb = self.dir(dir).await?;
-        let mut pos = 0;
-        while pos < icb.size {
-            let fid = fid_at(&self.info, &mut self.dev, &icb, pos).await?;
-            if fid.characteristics.contains(FileCharacteristics::PARENT) {
-                return fid_node(&self.info, &fid);
-            }
-            pos = fid.next;
-        }
-        Err(Detail::FileIdentifier.corrupt())
-    }
-
-    /// Writes a symlink's target into `buf`, its path components joined
-    /// with `/`. [`ErrorKind::InvalidInput`] for other nodes,
-    /// [`ErrorKind::LimitExceeded`] when `buf` is too small.
-    pub async fn read_link(&mut self, link: NodeId, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        let icb = self.icb(link).await?;
-        if icb.fs_type() != Some(FileType::Symlink) {
-            return Err(ErrorKind::InvalidInput.into());
-        }
-        link_target(&self.info, &mut self.dev, &icb, buf).await
     }
 
     /// Calls `visit` with the byte range of each recorded extent of a
@@ -918,6 +801,144 @@ impl<D: BlockDevice> UdfFs<D> {
     }
 }
 
+impl<D: BlockDevice> FileSystem for UdfFs<D> {
+    type DeviceError = D::Error;
+
+    /// Read-only, with symlinks, hard links, permissions and owners;
+    /// names are UTF-16 and compared exactly.
+    fn capabilities(&self) -> Capabilities {
+        self.info.capabilities()
+    }
+
+    fn root(&self) -> NodeId {
+        self.info.root.id()
+    }
+
+    /// The partitions' size, and the free space a closed integrity
+    /// descriptor records.
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
+        let total = self.info.partitions().iter().map(|p| u64::from(p.len())).sum();
+        Ok(FsStats::new(total, self.info.free_blocks.unwrap_or(0), self.info.block_size))
+    }
+
+    /// The logical volume identifier.
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+        let id = self.info.logical_volume_id.as_str();
+        if id.is_empty() {
+            return Ok(None);
+        }
+        let out = buf.get_mut(..id.len()).ok_or(ErrorKind::LimitExceeded)?;
+        out.copy_from_slice(id.as_bytes());
+        Ok(core::str::from_utf8(out).ok())
+    }
+
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+        name.check()?;
+        let icb = self.dir(dir).await?;
+        let mut pos = 0;
+        let mut buf = [0u8; 1024];
+        while pos < icb.size {
+            let fid = fid_at(&self.info, &mut self.dev, &icb, pos).await?;
+            pos = fid.next;
+            if fid.characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT) {
+                continue;
+            }
+            let len = fid_name(&self.info, &mut self.dev, &icb, &fid, &mut buf).await?;
+            if &buf[..len] == name.as_bytes() {
+                return fid_node(&self.info, &fid);
+            }
+        }
+        Err(ErrorKind::NotFound.into())
+    }
+
+    /// Does nothing: UDF node ids are stable.
+    fn forget(&mut self, node: NodeId, count: u64) {
+        let _ = (node, count);
+    }
+
+    /// The directory containing `dir`, from its parent identifier. The
+    /// root is its own parent.
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+        let icb = self.dir(dir).await?;
+        let mut pos = 0;
+        while pos < icb.size {
+            let fid = fid_at(&self.info, &mut self.dev, &icb, pos).await?;
+            if fid.characteristics.contains(FileCharacteristics::PARENT) {
+                return fid_node(&self.info, &fid);
+            }
+            pos = fid.next;
+        }
+        Err(Detail::FileIdentifier.corrupt())
+    }
+
+    /// Type, size, times (creation only from extended file entries),
+    /// permissions, owner and link count. A symlink's size is the length of
+    /// its target.
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+        let icb = self.icb(node).await?;
+        self.icb_metadata(&icb).await
+    }
+
+    /// The cursor is the byte offset of the next identifier in the
+    /// directory. Parent and deleted identifiers are skipped.
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+        let icb = self.dir(dir).await?;
+        let mut pos = from.into_raw();
+        let mut buf = [0u8; 1024];
+        while pos < icb.size {
+            let fid = fid_at(&self.info, &mut self.dev, &icb, pos).await?;
+            pos = fid.next;
+            if fid.characteristics.intersects(FileCharacteristics::DELETED | FileCharacteristics::PARENT) {
+                continue;
+            }
+            let len = fid_name(&self.info, &mut self.dev, &icb, &fid, &mut buf).await?;
+            let node = fid_node(&self.info, &fid)?;
+            let child = icb_at(&self.info, &mut self.dev, fid.icb).await?;
+            let meta = self.icb_metadata(&child).await?;
+            let entry = DirEntry::new(Name::new(&buf[..len]), node, meta, DirCursor::from_raw(pos))?;
+            return Ok(Some(entry));
+        }
+        Ok(None)
+    }
+
+    /// The target's path components joined with `/`.
+    /// [`ErrorKind::InvalidInput`] for other nodes.
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+        let icb = self.icb(node).await?;
+        if icb.fs_type() != Some(FileType::Symlink) {
+            return Err(ErrorKind::InvalidInput.into());
+        }
+        let len = link_target(&self.info, &mut self.dev, &icb, buf).await?;
+        Ok(&buf[..len])
+    }
+
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+        let icb = self.icb(node).await?;
+        match icb.fs_type() {
+            Some(FileType::Dir) => Err(ErrorKind::IsADirectory.into()),
+            Some(FileType::Symlink) => Err(ErrorKind::Symlink.into()),
+            None => Err(Detail::Icb.corrupt()),
+            _ if mode == OpenMode::Write => Err(ErrorKind::ReadOnly.into()),
+            _ => Ok(()),
+        }
+    }
+
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        let _ = node;
+        Ok(())
+    }
+
+    /// Allocated but unrecorded extents read as zeros.
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        let icb = self.icb(node).await?;
+        match icb.fs_type() {
+            Some(FileType::Dir) => return Err(ErrorKind::IsADirectory.into()),
+            Some(FileType::Symlink) => return Err(ErrorKind::Symlink.into()),
+            None => return Err(Detail::Icb.corrupt()),
+            _ => {}
+        }
+        read_stream(&self.info, &mut self.dev, &icb, offset, buf).await
+    }
 }
 
-impl_udf_driver!(impl[D: BlockDevice] UdfFs<D>, error = D::Error, read_only; also = [parent, read_link]);
+}

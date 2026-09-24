@@ -1,19 +1,14 @@
 use std::io::{self, Write};
 
-use hadris_fs::OpenOptions;
-use hadris_fs::sync::DriverExt;
-
 use super::super::args::CatArgs;
-use super::{Result, open};
+use super::{Result, copy_file, open};
 
 /// Print file contents to stdout
 pub fn cat(args: CatArgs) -> Result<()> {
     let mut udf = open(&args.input)?;
-    let mut file = udf
-        .open(&args.path, OpenOptions::read())
-        .map_err(|err| format!("File not found: {}: {err}", args.path))?;
     let mut stdout = io::stdout().lock();
-    io::copy(&mut file, &mut stdout)?;
+    copy_file(&mut udf, &args.path, &mut stdout)
+        .map_err(|err| format!("File not found: {}: {err}", args.path))?;
     stdout.flush()?;
     Ok(())
 }

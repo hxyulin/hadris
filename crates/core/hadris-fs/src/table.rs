@@ -361,7 +361,7 @@ mod tests {
     use super::*;
 
     fn id(raw: u64) -> NodeId {
-        NodeId::new(raw)
+        NodeId::new(raw).unwrap()
     }
 
     fn pins_and_removal<T: NodeTable<Value = u32>>(mut table: T) {

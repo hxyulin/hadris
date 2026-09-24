@@ -3,33 +3,24 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use hadris_fat::MountOptions;
 use hadris_fat::sync::FatFs;
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::Volume;
 use hadris_storage::host::FileDevice;
 
 fn main() -> Result<()> {
     let image_path = image_path()?;
     let image = FileDevice::open(&image_path)
         .with_context(|| format!("failed to open {}", image_path.display()))?;
-    let mut volume = FatFs::open_with(image, MountOptions::new().with_read_only())
+    let volume = FatFs::open_with(image, MountOptions::new().with_read_only())
         .with_context(|| format!("failed to open FAT volume {}", image_path.display()))?;
+    let vol = Volume::new(volume);
 
-    let mut names = Vec::new();
-    for entry in volume
+    for entry in vol
         .read_dir("/")
         .context("failed to open the root directory")?
     {
         let entry = entry.context("failed to read a FAT directory entry")?;
-        names.push(
-            entry
-                .name_str()
-                .context("entry name is not UTF-8")?
-                .to_owned(),
-        );
-    }
-    for name in names {
-        let meta = volume
-            .metadata(&format!("/{name}"))
-            .with_context(|| format!("failed to read metadata of {name}"))?;
+        let name = entry.name().to_str().context("entry name is not UTF-8")?;
+        let meta = entry.metadata();
         let kind = if meta.file_type().is_dir() {
             "dir "
         } else {

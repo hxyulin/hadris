@@ -6,7 +6,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Shared filesystem vocabulary for the Hadris crates: names, times, metadata, errors and virtual paths"
+description = "Shared filesystem vocabulary and the FileSystem trait for the Hadris crates: names, times, metadata, errors, volumes and handles"
 readme = "README.md"
 keywords = ["filesystem", "no-std", "path", "metadata"]
 categories = ["no-std", "filesystem"]
@@ -18,9 +18,9 @@ features = ["std", "sync", "async", "contract"]
 
 [features]
 default = []
-alloc = ["hadris-io/alloc", "hadris-storage/alloc", "dep:async-lock"]
+alloc = ["hadris-io/alloc", "hadris-storage/alloc", "dep:async-lock", "dep:spin"]
 std = ["alloc", "hadris-io/std", "hadris-storage/std", "async-lock?/std"]
-sync = ["hadris-io/sync", "dep:spin", "dep:hadris-macros"]
+sync = ["hadris-io/sync", "dep:hadris-macros"]
 async = ["hadris-io/async", "dep:hadris-macros"]
 # The driver contract kit: `contract::check` in each enabled mode.
 contract = []
@@ -32,8 +32,8 @@ hadris-storage = { workspace = true, default-features = false }
 hadris-macros = { workspace = true, optional = true }
 async-lock = { version = "3", default-features = false, optional = true }
 
-# `spin` needs atomic compare-and-swap, so the `Spin` lock exists only where
-# the target has it.
+# `spin` guards the queue of calls dropped handles leave for a `Volume`, which
+# needs atomic compare-and-swap like the `Arc` it lives in.
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { version = "0.12", default-features = false, features = ["mutex", "spin_mutex"], optional = true }
 

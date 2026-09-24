@@ -5,13 +5,17 @@ use std::process::Command;
 
 use hadris_fat::sync::{FatFs, format};
 use hadris_fat::{CodePage, Detail, FatKind, FormatOptions, MountOptions, VolumeLabel};
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::{
-    Attributes, CheckReport, Clock, DirCursor, Finding, HeapTable, Location, Name, NameBuf,
-    NewNode, NodeId, NodeTable, SetMetadata, Severity,
+    Attributes, CheckReport, Clock, DirCursor, Finding, HeapTable, Location, Name, NodeId,
+    NodeTable, SetAttr, Severity,
 };
+
+#[path = "paths.rs"]
+pub mod paths;
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockSize, MemDevice};
+pub use paths::sync::{FsPaths, VolumePaths};
 
 pub type Device = MemDevice<Vec<u8>>;
 pub type Fs = FatFs<Device, HeapTable>;
@@ -85,34 +89,21 @@ pub fn payload(len: usize, seed: u8) -> Vec<u8> {
 }
 
 fn write(fs: &mut Fs, dir: NodeId, text: &str, data: &[u8]) -> NodeId {
-    let node = fs
-        .create(
-            dir,
-            Name::new(text).unwrap(),
-            NewNode::File,
-            &SetMetadata::new(),
-        )
-        .unwrap();
+    let node = fs.create(dir, Name::new(text), &SetAttr::new()).unwrap();
     append(fs, node, 0, data);
     node
 }
 
 fn append(fs: &mut Fs, node: NodeId, mut at: u64, mut data: &[u8]) {
     while !data.is_empty() {
-        let n = fs.write_at(node, at, data).unwrap();
+        let n = fs.write(node, at, data).unwrap();
         at += n as u64;
         data = &data[n..];
     }
 }
 
 fn mkdir(fs: &mut Fs, dir: NodeId, text: &str) -> NodeId {
-    fs.create(
-        dir,
-        Name::new(text).unwrap(),
-        NewNode::Dir,
-        &SetMetadata::new(),
-    )
-    .unwrap()
+    fs.mkdir(dir, Name::new(text), &SetAttr::new()).unwrap()
 }
 
 /// The clusters of `node`'s chain.
@@ -143,16 +134,16 @@ pub fn build(case: Case) -> Vec<u8> {
         ("empty.dat", b""),
     ] {
         let node = write(&mut fs, root, text, data);
-        fs.forget(node);
+        fs.forget(node, 1);
     }
     let hidden = write(&mut fs, root, "hidden.sys", b"h");
-    fs.set_metadata(
+    fs.setattr(
         hidden,
-        &SetMetadata::new()
+        &SetAttr::new()
             .with_attributes(Attributes::HIDDEN | Attributes::SYSTEM | Attributes::READ_ONLY),
     )
     .unwrap();
-    fs.forget(hidden);
+    fs.forget(hidden, 1);
 
     let frag = write(&mut fs, root, "frag.bin", &payload(100, 2));
     let spacer = write(&mut fs, root, "spacer.bin", &payload(100, 3));
@@ -162,7 +153,7 @@ pub fn build(case: Case) -> Vec<u8> {
         "{}: frag.bin must be followed by spacer.bin",
         case.name
     );
-    fs.forget(spacer);
+    fs.forget(spacer, 1);
     append(&mut fs, frag, 100, &payload(40_000, 4));
     let clusters = chain(&mut fs, frag);
     assert!(
@@ -170,23 +161,23 @@ pub fn build(case: Case) -> Vec<u8> {
         "{}: frag.bin must be fragmented",
         case.name
     );
-    fs.forget(frag);
+    fs.forget(frag, 1);
 
     let nested = mkdir(&mut fs, root, "Nested Dir");
     let sibling = write(&mut fs, nested, "sibling.txt", b"sibling");
-    fs.forget(sibling);
+    fs.forget(sibling, 1);
     let inner = mkdir(&mut fs, nested, "inner");
     let deep = write(&mut fs, inner, "deep.bin", &payload(70_000, 5));
-    fs.forget(deep);
+    fs.forget(deep, 1);
     for i in 0..INNER_FILES - 1 {
         let text = format!("file number {i:02}.txt");
         let node = write(&mut fs, inner, &text, text.as_bytes());
-        fs.forget(node);
+        fs.forget(node, 1);
     }
-    fs.forget(inner);
-    fs.forget(nested);
+    fs.forget(inner, 1);
+    fs.forget(nested, 1);
     let kanji = write(&mut fs, root, "XABC.TXT", b"kanji");
-    fs.forget(kanji);
+    fs.forget(kanji, 1);
     fs.sync().unwrap();
     let mut image = fs.into_inner().into_inner();
     let at = image
@@ -228,18 +219,14 @@ pub fn mount(case: Case, image: &[u8]) -> Fs {
 
 /// The names in the directory at `path`, in directory order.
 pub fn names(fs: &mut Fs, path: &str) -> Vec<String> {
-    let dir = fs.resolve(path).unwrap();
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
+    let dir = fs.resolve_path(path).unwrap();
+    let mut cursor = DirCursor::START;
     let mut out = Vec::new();
-    while fs
-        .read_dir_entry(dir, &mut cursor, &mut buf)
-        .unwrap()
-        .is_some()
-    {
-        out.push(buf.as_name().unwrap().to_str().unwrap().to_owned());
+    while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
+        out.push(entry.name().to_str().unwrap().to_owned());
+        cursor = entry.next_cursor();
     }
-    fs.forget(dir);
+    fs.forget(dir, 1);
     out
 }
 

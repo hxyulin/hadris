@@ -6,14 +6,15 @@
 
 #[path = "common/exfat.rs"]
 mod common;
+use common::FsPaths;
 
 use common::{clean, fsck};
-use hadris_fs::sync::{DriverExt, FsDriver};
-use hadris_fs::{Name, RemoveKind, RenameFlags};
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{Name, RenameMode};
 
 fn exercise(image: &[u8], label: &str, what: &str) -> Vec<u8> {
     let mut fs = common::mount(image);
-    assert_eq!(fs.label().unwrap().unwrap().to_string(), label, "{what}");
+    assert_eq!(fs.label_text().unwrap().unwrap(), label, "{what}");
     clean(&mut fs, what);
     let root = fs.root();
     let dir = common::mkdir(&mut fs, root, "Hadris Dir");
@@ -24,26 +25,22 @@ fn exercise(image: &[u8], label: &str, what: &str) -> Vec<u8> {
             &format!("written by hadris {i:03}.txt"),
             &common::payload(i * 97, i as u8),
         );
-        fs.forget(node);
+        fs.forget(node, 1);
     }
     let big = common::write(&mut fs, root, "big.bin", &common::payload(3 << 20, 1));
-    fs.set_len(big, 1 << 20).unwrap();
-    fs.forget(big);
+    fs.truncate(big, 1 << 20).unwrap();
+    fs.forget(big, 1);
     fs.rename(
         dir,
-        Name::new("written by hadris 000.txt").unwrap(),
+        Name::new("written by hadris 000.txt"),
         root,
-        Name::new("moved.txt").unwrap(),
-        RenameFlags::empty(),
+        Name::new("moved.txt"),
+        RenameMode::Replace,
     )
     .unwrap();
-    fs.remove(
-        dir,
-        Name::new("written by hadris 001.txt").unwrap(),
-        RemoveKind::File,
-    )
-    .unwrap();
-    fs.forget(dir);
+    fs.unlink(dir, Name::new("written by hadris 001.txt"))
+        .unwrap();
+    fs.forget(dir, 1);
     fs.set_label(Some(
         hadris_fat::exfat::VolumeLabel::new("Relabeled").unwrap(),
     ))
@@ -134,7 +131,7 @@ fn the_macos_kernel_reads_what_hadris_writes() {
         );
     }
     assert_eq!(fs.read_to_vec("/from kernel/renamed big.bin").unwrap(), big);
-    assert!(fs.resolve("/moved.txt").is_err());
+    assert!(fs.resolve_path("/moved.txt").is_err());
     let (_, findings) = common::check_dev(&mut common::device(kernel.clone(), 512), 4096);
     assert!(
         findings
@@ -144,7 +141,7 @@ fn the_macos_kernel_reads_what_hadris_writes() {
     );
     let root = fs.root();
     let node = common::write(&mut fs, root, "after kernel.txt", b"again");
-    fs.forget(node);
+    fs.forget(node, 1);
     fs.sync().unwrap();
     fsck(&common::image(fs), "after the macOS kernel");
 }

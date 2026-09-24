@@ -10,9 +10,12 @@ use hadris_block::r#async::OpenVolume;
 use hadris_block::detect::{BlockFormat, FatVariant};
 use hadris_fat::{FatKind, FormatOptions};
 use hadris_fs::MountError;
-use hadris_fs::r#async::DriverExt;
+use hadris_fs::r#async::{FileSystem, Volume};
 use hadris_fs::{ErrorKind, OpenOptions};
 use hadris_storage::{BlockIndex, BlockSize, MemDevice};
+
+mod common;
+use common::asynch::{get, put};
 
 type Device = MemDevice<Vec<u8>>;
 
@@ -122,8 +125,8 @@ fn async_opens_detected_exfat() {
             .into_inner();
         let mut volume = OpenVolume::open(dev).await.unwrap();
         assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::ExFat));
-        volume.write_file("/a.txt", b"exfat").await.unwrap();
-        assert_eq!(volume.read_to_vec("/A.TXT").await.unwrap(), b"exfat");
+        put(&mut volume, "/a.txt", b"exfat").await.unwrap();
+        assert_eq!(get(&mut volume, "/A.TXT").await.unwrap(), b"exfat");
         volume.sync().await.unwrap();
 
         let mut image = vec![0_u8; 512];
@@ -208,26 +211,32 @@ fn async_fat_content_mutation_traversal_and_recovery() {
         let mut fs = volume.into_fat().ok().unwrap();
 
         let payload: Vec<u8> = (0..1537).map(|index| (index % 251) as u8).collect();
-        fs.create_dir_all("/NESTED").await.unwrap();
-        fs.write_file("/NESTED/PAYLOAD.BIN", &payload)
+        let vol = Volume::new(fs);
+        vol.create_dir_all("/NESTED").await.unwrap();
+        put(&mut *vol.lock().await, "/NESTED/PAYLOAD.BIN", &payload)
             .await
             .unwrap();
-        assert_eq!(fs.read_to_vec("NESTED/PAYLOAD.BIN").await.unwrap(), payload);
+        assert_eq!(
+            get(&mut *vol.lock().await, "NESTED/PAYLOAD.BIN")
+                .await
+                .unwrap(),
+            payload
+        );
 
-        let mut file = fs
-            .open("/NESTED/PAYLOAD.BIN", OpenOptions::write())
+        let mut file = vol
+            .open("/NESTED/PAYLOAD.BIN", OpenOptions::new().write())
             .await
             .unwrap();
         file.set_len(513).await.unwrap();
         file.close().await.unwrap();
+        assert!(vol.metadata("/NESTED").await.unwrap().file_type().is_dir());
+        fs = vol.into_inner().await.unwrap();
         assert_eq!(
-            fs.read_to_vec("/NESTED/PAYLOAD.BIN").await.unwrap(),
+            get(&mut fs, "/NESTED/PAYLOAD.BIN").await.unwrap(),
             payload[..513]
         );
-
-        assert!(fs.metadata("/NESTED").await.unwrap().file_type().is_dir());
         assert_eq!(
-            fs.read_to_vec("/MISSING.BIN").await.unwrap_err().kind(),
+            get(&mut fs, "/MISSING.BIN").await.unwrap_err().kind(),
             ErrorKind::NotFound
         );
         fs.sync().await.unwrap();
@@ -235,7 +244,7 @@ fn async_fat_content_mutation_traversal_and_recovery() {
         let dev = fs.into_inner();
         let mut fs = hadris_fat::r#async::FatFs::open(dev).await.unwrap();
         assert_eq!(
-            fs.read_to_vec("/NESTED/PAYLOAD.BIN").await.unwrap(),
+            get(&mut fs, "/NESTED/PAYLOAD.BIN").await.unwrap(),
             payload[..513]
         );
     });
@@ -336,7 +345,13 @@ fn async_partition_table_opens_fat_through_a_gpt_view() {
         let volume = OpenVolume::open(partition).await.unwrap();
         assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::Fat12));
         let mut fs = volume.into_fat().ok().unwrap();
-        assert!(fs.read_dir("/").await.unwrap().next_entry().await.is_none());
+        let root = fs.root();
+        assert!(
+            fs.readdir(root, hadris_fs::DirCursor::START)
+                .await
+                .unwrap()
+                .is_none()
+        );
     });
 }
 
@@ -391,10 +406,7 @@ fn async_opens_ntfs_and_passes_the_contract() {
             .await
             .unwrap();
         assert_eq!(volume.format(), BlockFormat::Ntfs);
-        assert_eq!(
-            volume.read_to_vec("/HELLO.TXT").await.unwrap(),
-            b"hello ntfs"
-        );
+        assert_eq!(get(&mut volume, "/HELLO.TXT").await.unwrap(), b"hello ntfs");
         hadris_fs::r#async::contract::check_read_only(&mut volume)
             .await
             .unwrap();

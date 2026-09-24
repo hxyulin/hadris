@@ -1,6 +1,7 @@
 //! Format-agnostic test infrastructure shared by every suite.
 
 pub mod command;
+pub mod files;
 pub mod mount;
 pub mod path;
 pub mod qemu;

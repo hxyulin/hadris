@@ -427,7 +427,7 @@ impl FileTimes {
 }
 
 /// A source of the current time for timestamps a filesystem writes.
-pub trait Clock {
+pub trait Clock: Send + Sync {
     /// Returns the current time.
     fn now(&self) -> DateTime;
 }

@@ -68,20 +68,8 @@ MINIMAL_FEATURES = {
 PARITY_ALLOWED: dict[str, list[tuple[str, str]]] = {
     "hadris-fs": [
         (r"^sync only: fn hadris_fs::(extract_to_host|import_from_host)$", "host helpers are sync and std only"),
-        (r"^sync only: .*\b(Spin|StdMutex)\b", "blocking locks cannot be held across .await"),
-        (r"^async only: .*\bAsyncMutex\b", "the async lock of the async mode"),
-        (r"^sync only: .*(Iterator for hadris_fs::Dir|hadris_fs::Dir::(next|Item)$)", "async Dir has next_entry; no Iterator exists for it"),
-        (r"^sync only: impl<A: hadris_fs::Access> (alloc|core)::io::", "std::io impls on File are blocking"),
-        (r"^sync only: fn hadris_fs::Volume::spin$", "blocking locks cannot be held across .await"),
-        (r"^sync only: .*\bhadris_fs::(Local\b|Volume::local$)", "Local is not Send, so async has none"),
-        (r"^sync only: type hadris_fs::lock::Lock::Guard$", "async locks return an opaque Send guard"),
-        (r"^sync only: .*\b(alloc::rc::Rc|Rc<)", "Rc is not Send, so async has no Rc impls"),
-    ],
-    "hadris-fat": [
-        (
-            r"^(sync|async) only: impl<.*> hadris_fs::api::driver::FsDriver for hadris_fat::(FatFs<D, T, C, P>|exfat::ExFatFs<D, T, C>)$",
-            "async also bounds the node table's values by Send",
-        ),
+        (r"^sync only: .*(Iterator for hadris_fs::ReadDir|hadris_fs::ReadDir::(next|Item)$)", "async ReadDir has next_entry; no Iterator exists for it"),
+        (r"^sync only: impl<F: hadris_fs::FileSystem> (alloc|core)::io::", "std::io impls on File are blocking"),
     ],
     "hadris-io": [
         (r"^local only: .*\bFromEmbedded\b", "embedded-io-async futures are not Send"),

@@ -3,6 +3,7 @@
 
 #[path = "common/exfat.rs"]
 mod common;
+use hadris_fs::sync::FileSystem;
 
 use common::{Found, Geometry, le32, put32};
 use hadris_fat::exfat::Detail;
@@ -62,7 +63,7 @@ fn findings_do_not_depend_on_the_window() {
             &format!("f{i}"),
             &common::payload(3000, i as u8),
         );
-        fs.forget(node);
+        fs.forget(node, 1);
     }
     fs.sync().unwrap();
     let image = common::image(fs);
@@ -262,13 +263,13 @@ fn deep_trees_are_reported() {
     for i in 0..66 {
         let next = common::mkdir(&mut fs, dir, &format!("d{i}"));
         if dir != fs.root() {
-            fs.forget(dir);
+            fs.forget(dir, 1);
         }
         dir = next;
     }
     let node = common::write(&mut fs, dir, "bottom", b"deep");
-    fs.forget(node);
-    fs.forget(dir);
+    fs.forget(node, 1);
+    fs.forget(dir, 1);
     fs.sync().unwrap();
     let image = common::image(fs);
     let found = kinds(&image);

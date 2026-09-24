@@ -11,8 +11,8 @@
 //! identical, and an entry whose data reads without error yields exactly
 //! its declared length.
 
-use hadris_io::Cursor;
 use hadris_io::sync::Read;
+use hadris_io::Cursor;
 use libfuzzer_sys::fuzz_target;
 
 use hadris_cpio::sync::CpioReader;

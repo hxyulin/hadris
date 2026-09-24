@@ -40,7 +40,7 @@ struct Fields {
 ///
 /// ```rust,ignore
 /// let mut writer = CpioWriter::new(out, &CpioOptions::default());
-/// writer.append("init", &SetMetadata::new().with_mode(Mode::new(0o755)), NewEntry::File(&content))?;
+/// writer.append("init", &SetMetadata::new().with_mode(Permissions::new(0o755)), NewEntry::File(&content))?;
 /// let out = writer.finish()?;
 /// ```
 pub struct CpioWriter<W> {

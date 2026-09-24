@@ -2,8 +2,8 @@
 //! structures that must fail with an error, never a panic.
 
 use hadris_fs::Error;
-use hadris_fs::sync::DriverExt;
-use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NameBuf, NodeId};
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NodeId};
 use hadris_ntfs::Detail;
 use hadris_ntfs::raw;
 use hadris_ntfs::sync::NtfsFs;
@@ -12,6 +12,9 @@ use hadris_storage::{BlockSize, MemDevice};
 #[path = "support/image.rs"]
 mod image;
 use image::*;
+#[path = "support/paths.rs"]
+mod paths;
+use paths::PathOps;
 
 fn device(image: Vec<u8>) -> MemDevice<Vec<u8>> {
     MemDevice::new(image, BlockSize::new(512).unwrap())
@@ -28,14 +31,15 @@ fn open_err(image: Vec<u8>) -> Error<core::convert::Infallible> {
     }
 }
 fn list(fs: &mut NtfsFs<MemDevice<Vec<u8>>>, path: &str) -> Vec<String> {
-    fs.read_dir(path)
+    fs.entries(path)
         .unwrap()
-        .map(|entry| entry.unwrap().name().to_str().unwrap().to_string())
+        .iter()
+        .map(|entry| entry.name().to_str().unwrap().to_string())
         .collect()
 }
 
 fn name(s: &str) -> &Name {
-    Name::new(s).unwrap()
+    Name::new(s)
 }
 
 #[test]
@@ -50,8 +54,7 @@ fn crafted_image_mounts_and_walks() {
     assert_eq!(fs.cluster_size(), 512);
     assert_eq!(fs.mft_record_size(), 1024);
     let mut label = [0u8; 64];
-    let len = fs.label(&mut label).unwrap();
-    assert_eq!(&label[..len], b"HADRIS");
+    assert_eq!(fs.label(&mut label).unwrap(), Some("HADRIS"));
 }
 
 #[test]
@@ -60,7 +63,7 @@ fn contract_holds_in_every_mode_and_tier() {
     let mut fs = open(image.clone());
     hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
     let vol = hadris_fs::sync::Volume::new(open(image.clone()));
-    hadris_fs::sync::contract::check_read_only(&mut &vol).unwrap();
+    hadris_fs::sync::contract::check_read_only(&mut *vol.lock()).unwrap();
     let mut fs = open(allocation_image(1024, &[0x01], None));
     hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
 
@@ -75,7 +78,7 @@ fn contract_holds_in_every_mode_and_tier() {
             .await
             .unwrap();
         let vol = hadris_fs::r#async::Volume::new(fs);
-        hadris_fs::r#async::contract::check_read_only(&mut &vol)
+        hadris_fs::r#async::contract::check_read_only(&mut *vol.lock().await)
             .await
             .unwrap();
     });
@@ -159,7 +162,7 @@ fn metadata_reports_times_attributes_and_links() {
     assert_eq!(meta.file_type(), FileType::File);
     assert_eq!(meta.len(), 10);
     assert_eq!(meta.nlink(), 1);
-    let times = meta.times();
+    let times = meta;
     assert_eq!(times.created().unwrap().unix_seconds(), 1_577_836_800);
     assert_eq!(times.modified().unwrap().unix_seconds(), 1_577_836_801);
     assert_eq!(times.changed().unwrap().unix_seconds(), 1_577_836_802);
@@ -197,7 +200,7 @@ fn named_streams_are_listed_and_read() {
 #[test]
 fn stats_count_free_clusters() {
     let mut fs = open(base_image());
-    let stats = fs.stats().unwrap();
+    let stats = fs.statfs().unwrap();
     assert_eq!(stats.total_blocks(), (IMAGE_LEN / SECTOR) as u64);
     assert_eq!(stats.free_blocks(), (IMAGE_LEN / SECTOR) as u64 - 160);
     assert_eq!(stats.block_size(), 512);
@@ -222,31 +225,21 @@ fn cursors_resume_across_index_blocks() {
     let mut fs = open(allocation_image(1024, &[0x03], None));
     let root = fs.root();
     let sub = fs.lookup(root, name("SUBDIR")).unwrap();
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
+    let mut cursor = DirCursor::START;
     let mut stored = Vec::new();
-    while let Some(entry) = fs.read_dir_entry(sub, &mut cursor, &mut buf).unwrap() {
+    while let Some(entry) = fs.readdir(sub, cursor).unwrap() {
+        cursor = entry.next_cursor();
         stored.push((cursor, entry.node()));
     }
     assert_eq!(stored.len(), 3);
-    let mut resumed = stored[1].0;
-    let next = fs
-        .read_dir_entry(sub, &mut resumed, &mut buf)
-        .unwrap()
-        .unwrap();
+    let resumed = stored[1].0;
+    let next = fs.readdir(sub, resumed).unwrap().unwrap();
     assert_eq!(next.node(), stored[2].1);
-    assert_eq!(buf.as_bytes(), b"UNUSED.TXT");
-    assert!(
-        fs.read_dir_entry(sub, &mut resumed, &mut buf)
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        fs.read_dir_entry(sub, &mut resumed, &mut buf)
-            .unwrap()
-            .is_none()
-    );
-    assert!(resumed.into_raw() <= DirCursor::MAX_RAW);
+    assert_eq!(next.name().as_bytes(), b"UNUSED.TXT");
+    let end = next.next_cursor();
+    assert!(fs.readdir(sub, end).unwrap().is_none());
+    assert!(fs.readdir(sub, end).unwrap().is_none());
+    assert!(end.into_raw() <= DirCursor::MAX_RAW);
 }
 
 #[test]
@@ -392,11 +385,11 @@ fn uninitialized_tails_and_sparse_runs_read_as_zeros() {
     let root = fs.root();
     let bin = fs.lookup(root, name("BIN.DAT")).unwrap();
     let mut buf = [0xEEu8; 8];
-    assert_eq!(fs.read_at(bin, 0, &mut buf).unwrap(), 8);
+    assert_eq!(fs.read(bin, 0, &mut buf).unwrap(), 8);
     assert_eq!(&buf, b"bin\0\0\0\0\0");
-    assert_eq!(fs.read_at(bin, 1 << 40, &mut buf).unwrap(), 8);
+    assert_eq!(fs.read(bin, 1 << 40, &mut buf).unwrap(), 8);
     assert_eq!(buf, [0; 8]);
-    assert_eq!(fs.node_metadata(bin).unwrap().len(), 1 << 50);
+    assert_eq!(fs.stat(bin).unwrap().len(), 1 << 50);
 }
 
 #[test]
@@ -423,12 +416,11 @@ fn corrupt_index_blocks_fail() {
         let mut fs = open(image);
         let root = fs.root();
         let sub = fs.lookup(root, name("SUBDIR")).unwrap();
-        let mut cursor = DirCursor::start();
-        let mut buf = NameBuf::new();
+        let mut cursor = DirCursor::START;
         let mut failed = false;
         for _ in 0..8 {
-            match fs.read_dir_entry(sub, &mut cursor, &mut buf) {
-                Ok(Some(_)) => {}
+            match fs.readdir(sub, cursor) {
+                Ok(Some(entry)) => cursor = entry.next_cursor(),
                 Ok(None) => break,
                 Err(err) => {
                     assert!(
@@ -448,21 +440,17 @@ fn corrupt_index_blocks_fail() {
 fn forged_ids_are_invalid_handles() {
     let mut fs = open(base_image());
     for raw_id in [u64::MAX, 1 << 40, reference(16) + (1 << 48), reference(25)] {
-        let err = fs.node_metadata(NodeId::new(raw_id)).unwrap_err();
+        let err = fs.stat(NodeId::new(raw_id).unwrap()).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidHandle, "{raw_id:#x}");
     }
     let root = fs.root();
     let hello = fs.lookup(root, name("HELLO.TXT")).unwrap();
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
     assert_eq!(
-        fs.read_dir_entry(hello, &mut cursor, &mut buf)
-            .unwrap_err()
-            .kind(),
+        fs.readdir(hello, DirCursor::START).unwrap_err().kind(),
         ErrorKind::NotADirectory
     );
     assert_eq!(
-        fs.read_at(root, 0, &mut [0u8; 4]).unwrap_err().kind(),
+        fs.read(root, 0, &mut [0u8; 4]).unwrap_err().kind(),
         ErrorKind::IsADirectory
     );
 }
@@ -477,7 +465,7 @@ fn attribute_lists_join_extension_records() {
     let root = fs.root();
     let bin = fs.lookup(root, name("BIN.DAT")).unwrap();
     let mut buf = [0u8; 100];
-    assert_eq!(fs.read_at(bin, 1000, &mut buf).unwrap(), 100);
+    assert_eq!(fs.read(bin, 1000, &mut buf).unwrap(), 100);
     assert_eq!(&buf[..], &content[1000..1100]);
     let mut streams = Vec::new();
     fs.streams(bin, |name, len| streams.push((name.to_string(), len)))
@@ -487,11 +475,10 @@ fn attribute_lists_join_extension_records() {
     assert_eq!(&buf[..n], b"alternate");
     hadris_fs::sync::contract::check_read_only(&mut fs).unwrap();
     block_on(async {
-        use hadris_fs::r#async::DriverExt as _;
         let mut fs = hadris_ntfs::r#async::NtfsFs::open(device(image))
             .await
             .unwrap();
-        assert_eq!(fs.read_to_vec("/BIN.DAT").await.unwrap(), content);
+        assert_eq!(read_async(&mut fs, "/BIN.DAT").await, content);
     });
 }
 
@@ -502,10 +489,10 @@ fn attribute_list_gaps_fail() {
     let root = fs.root();
     let bin = fs.lookup(root, name("BIN.DAT")).unwrap();
     let mut buf = [0u8; 1024];
-    assert_eq!(fs.read_at(bin, 0, &mut buf).unwrap(), 1024);
+    assert_eq!(fs.read(bin, 0, &mut buf).unwrap(), 1024);
     assert_eq!(&buf[..], &content[..1024]);
     assert_eq!(
-        fs.read_at(bin, 1024, &mut buf).unwrap_err().kind(),
+        fs.read(bin, 1024, &mut buf).unwrap_err().kind(),
         ErrorKind::Corrupt
     );
 }
@@ -613,28 +600,45 @@ fn large_streams_read_across_runs() {
     let root = fs.root();
     let bin = fs.lookup(root, name("BIN.DAT")).unwrap();
     let mut buf = [0u8; 700];
-    assert_eq!(fs.read_at(bin, 400, &mut buf).unwrap(), 700);
+    assert_eq!(fs.read(bin, 400, &mut buf).unwrap(), 700);
     assert_eq!(&buf[..], &expected[400..1100]);
 }
 
 #[test]
 fn async_modes_walk_and_reject_corruption() {
-    use hadris_fs::r#async::DriverExt as _;
+    use hadris_fs::r#async::FileSystem as _;
     block_on(async {
         let mut fs = hadris_ntfs::r#async::NtfsFs::open(device(base_image()))
             .await
             .unwrap();
-        assert_eq!(fs.read_to_vec("/HELLO.TXT").await.unwrap(), b"hello ntfs");
+        assert_eq!(read_async(&mut fs, "/HELLO.TXT").await, b"hello ntfs");
         let mut fs =
             hadris_ntfs::r#async::NtfsFs::open(device(allocation_image(u32::MAX, &[1], None)))
                 .await
                 .unwrap();
         let root = fs.root();
         let sub = fs.lookup(root, name("SUBDIR")).await.unwrap();
-        let mut cursor = DirCursor::start();
-        let mut buf = NameBuf::new();
-        assert!(fs.read_dir_entry(sub, &mut cursor, &mut buf).await.is_err());
+        assert!(fs.readdir(sub, DirCursor::START).await.is_err());
     });
+}
+
+async fn read_async<F: hadris_fs::r#async::FileSystem>(fs: &mut F, path: &str) -> Vec<u8> {
+    let node = fs
+        .resolve(path.as_bytes(), hadris_fs::Resolve::Lexical)
+        .await
+        .unwrap();
+    fs.open(node, hadris_fs::OpenMode::Read).await.unwrap();
+    let mut out = Vec::new();
+    let mut chunk = [0u8; 512];
+    loop {
+        match fs.read(node, out.len() as u64, &mut chunk).await.unwrap() {
+            0 => break,
+            n => out.extend_from_slice(&chunk[..n]),
+        }
+    }
+    fs.close(node).await.unwrap();
+    fs.forget(node, 1);
+    out
 }
 
 fn block_on<F: core::future::Future>(future: F) -> F::Output {

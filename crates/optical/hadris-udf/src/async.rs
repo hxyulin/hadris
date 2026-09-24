@@ -7,9 +7,7 @@ macro_rules! io_transform {
 use hadris_fs::r#async as fs;
 use hadris_storage::r#async as storage;
 
-macro_rules! impl_udf_driver {
-    ($($t:tt)*) => { hadris_fs::impl_fs_driver!(async, $($t)*); };
-}
+use hadris_fs::r#async::FileSystem;
 
 #[path = "read.rs"]
 mod read;

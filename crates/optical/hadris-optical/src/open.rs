@@ -1,13 +1,23 @@
 use hadris_fs::{
     Capabilities, DirCursor, DirEntry, ErrorKind, FsResult, FsStats, Metadata, MountError, Name,
-    NameBuf, NodeId,
+    NodeId, OpenMode, RenameMode, Resolve, SetAttr,
 };
 use hadris_iso::Namespace;
 
-use super::{BlockDevice, IsoImage, IsoView, UdfFs, detect};
+use super::{BlockDevice, FileSystem, IsoImage, IsoView, UdfFs, detect};
 use crate::detect::OpticalFormats;
 use crate::error::Error;
 use crate::{Detail, OpenPolicy, OpticalFormat};
+
+/// Runs `$e` on whichever driver the image opened, bound to `$fs`.
+macro_rules! each {
+    ($inner:expr, $fs:ident => $e:expr) => {
+        match $inner {
+            Inner::Iso($fs) => $e,
+            Inner::Udf($fs) => $e,
+        }
+    };
+}
 
 fn unknown<E>() -> Error<E> {
     Error::new(ErrorKind::NotRecognized, "no ISO 9660 or UDF volume")
@@ -24,15 +34,15 @@ enum Inner<D> {
 
 /// An optical image opened by detection: an ISO 9660 view or a UDF volume.
 ///
-/// It implements `hadris_fs::FsDriver` read-only by delegating to the
+/// It implements `hadris_fs` `FileSystem` read-only by delegating to the
 /// driver it opened, so generic code lists and reads either the same way.
 /// ISO 9660 opens with [`Namespace::Preferred`]; open `hadris_iso`
 /// directly to pick another tree. [`as_iso`](Self::as_iso) and
 /// [`as_udf`](Self::as_udf) reach the drivers' native API.
 ///
 /// ```rust,ignore
-/// let mut image = OpenOpticalImage::open(dev, OpenPolicy::PreferUdf)?;
-/// let data = hadris_fs::sync::DriverExt::read_to_vec(&mut image, "/README.TXT")?;
+/// let vol = Volume::new(OpenOpticalImage::open(dev, OpenPolicy::PreferUdf)?);
+/// let mut readme = vol.open("/README.TXT", OpenOptions::new().read())?;
 /// ```
 pub struct OpenOpticalImage<D> {
     inner: Inner<D>,
@@ -152,93 +162,113 @@ impl<D: BlockDevice> OpenOpticalImage<D> {
             Inner::Udf(udf) => udf.into_inner(),
         }
     }
+}
 
-    /// The opened driver's capabilities; both are read-only.
-    pub fn capabilities(&self) -> Capabilities {
-        match &self.inner {
-            Inner::Iso(view) => view.capabilities(),
-            Inner::Udf(udf) => udf.capabilities(),
-        }
+impl<D: BlockDevice> FileSystem for OpenOpticalImage<D> {
+    type DeviceError = D::Error;
+
+    fn capabilities(&self) -> Capabilities {
+        each!(&self.inner, fs => fs.capabilities())
     }
 
-    /// The root directory.
-    pub fn root(&self) -> NodeId {
-        match &self.inner {
-            Inner::Iso(view) => view.root(),
-            Inner::Udf(udf) => udf.root(),
-        }
+    fn root(&self) -> NodeId {
+        each!(&self.inner, fs => fs.root())
     }
 
-    /// Finds `name` in `dir`.
-    pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
-        match &mut self.inner {
-            Inner::Iso(view) => view.lookup(dir, name).await,
-            Inner::Udf(udf) => udf.lookup(dir, name).await,
-        }
+    async fn statfs(&mut self) -> FsResult<FsStats, D::Error> {
+        each!(&mut self.inner, fs => fs.statfs().await)
     }
 
-    /// Metadata of a node.
-    pub async fn node_metadata(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
-        match &mut self.inner {
-            Inner::Iso(view) => view.node_metadata(node).await,
-            Inner::Udf(udf) => udf.node_metadata(node).await,
-        }
+    async fn label<'b>(&mut self, buf: &'b mut [u8]) -> FsResult<Option<&'b str>, D::Error> {
+        each!(&mut self.inner, fs => fs.label(buf).await)
     }
 
-    /// Writes the entry after `cursor` into `name` and advances `cursor`.
-    pub async fn read_dir_entry(
+    async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
+        each!(&mut self.inner, fs => fs.lookup(dir, name).await)
+    }
+
+    fn forget(&mut self, node: NodeId, count: u64) {
+        each!(&mut self.inner, fs => fs.forget(node, count))
+    }
+
+    async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
+        each!(&mut self.inner, fs => fs.parent(dir).await)
+    }
+
+    async fn resolve(&mut self, path: &[u8], how: Resolve) -> FsResult<NodeId, D::Error> {
+        each!(&mut self.inner, fs => fs.resolve(path, how).await)
+    }
+
+    async fn stat(&mut self, node: NodeId) -> FsResult<Metadata, D::Error> {
+        each!(&mut self.inner, fs => fs.stat(node).await)
+    }
+
+    async fn readdir(&mut self, dir: NodeId, from: DirCursor) -> FsResult<Option<DirEntry>, D::Error> {
+        each!(&mut self.inner, fs => fs.readdir(dir, from).await)
+    }
+
+    async fn readlink<'b>(&mut self, node: NodeId, buf: &'b mut [u8]) -> FsResult<&'b [u8], D::Error> {
+        each!(&mut self.inner, fs => fs.readlink(node, buf).await)
+    }
+
+    async fn open(&mut self, node: NodeId, mode: OpenMode) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.open(node, mode).await)
+    }
+
+    async fn close(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.close(node).await)
+    }
+
+    async fn read(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
+        each!(&mut self.inner, fs => fs.read(node, offset, buf).await)
+    }
+
+    async fn setattr(&mut self, node: NodeId, changes: &SetAttr) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.setattr(node, changes).await)
+    }
+
+    async fn write(&mut self, node: NodeId, offset: u64, buf: &[u8]) -> FsResult<usize, D::Error> {
+        each!(&mut self.inner, fs => fs.write(node, offset, buf).await)
+    }
+
+    async fn truncate(&mut self, node: NodeId, len: u64) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.truncate(node, len).await)
+    }
+
+    async fn fsync(&mut self, node: NodeId) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.fsync(node).await)
+    }
+
+    async fn create(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
+        each!(&mut self.inner, fs => fs.create(dir, name, attrs).await)
+    }
+
+    async fn mkdir(&mut self, dir: NodeId, name: &Name, attrs: &SetAttr) -> FsResult<NodeId, D::Error> {
+        each!(&mut self.inner, fs => fs.mkdir(dir, name, attrs).await)
+    }
+
+    async fn unlink(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.unlink(dir, name).await)
+    }
+
+    async fn rmdir(&mut self, dir: NodeId, name: &Name) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.rmdir(dir, name).await)
+    }
+
+    async fn rename(
         &mut self,
-        dir: NodeId,
-        cursor: &mut DirCursor,
-        name: &mut NameBuf,
-    ) -> FsResult<Option<DirEntry>, D::Error> {
-        match &mut self.inner {
-            Inner::Iso(view) => view.read_dir_entry(dir, cursor, name).await,
-            Inner::Udf(udf) => udf.read_dir_entry(dir, cursor, name).await,
-        }
+        from_dir: NodeId,
+        from: &Name,
+        to_dir: NodeId,
+        to: &Name,
+        mode: RenameMode,
+    ) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.rename(from_dir, from, to_dir, to, mode).await)
     }
 
-    /// Reads from a file at `offset`.
-    pub async fn read_at(&mut self, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        match &mut self.inner {
-            Inner::Iso(view) => view.read_at(node, offset, buf).await,
-            Inner::Udf(udf) => udf.read_at(node, offset, buf).await,
-        }
-    }
-
-    /// Size and free space of the volume.
-    pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
-        match &mut self.inner {
-            Inner::Iso(view) => view.stats().await,
-            Inner::Udf(udf) => udf.stats().await,
-        }
-    }
-
-    /// Does nothing: ISO 9660 and UDF node ids are stable.
-    pub fn forget(&mut self, node: NodeId) {
-        match &mut self.inner {
-            Inner::Iso(view) => view.forget(node),
-            Inner::Udf(udf) => udf.forget(node),
-        }
-    }
-
-    /// The directory containing `dir`.
-    pub async fn parent(&mut self, dir: NodeId) -> FsResult<NodeId, D::Error> {
-        match &mut self.inner {
-            Inner::Iso(view) => view.parent(dir).await,
-            Inner::Udf(udf) => udf.parent(dir).await,
-        }
-    }
-
-    /// Writes a symlink's target into `buf`.
-    pub async fn read_link(&mut self, link: NodeId, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        match &mut self.inner {
-            Inner::Iso(view) => view.read_link(link, buf).await,
-            Inner::Udf(udf) => udf.read_link(link, buf).await,
-        }
+    async fn sync(&mut self) -> FsResult<(), D::Error> {
+        each!(&mut self.inner, fs => fs.sync().await)
     }
 }
 
 }
-
-impl_optical_driver!(impl[D: BlockDevice] OpenOpticalImage<D>, error = D::Error, read_only; also = [parent, read_link]);

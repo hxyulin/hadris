@@ -20,12 +20,6 @@ impl<E> From<crate::OpenOptionsError> for Error<E> {
     }
 }
 
-impl<E> From<crate::path::NormalizeError> for Error<E> {
-    fn from(err: crate::path::NormalizeError) -> Self {
-        Error::new(err.kind(), err.description())
-    }
-}
-
 /// Error of mounting or formatting a filesystem that takes its device by
 /// value: the [`Error`] and the device, given back instead of dropped.
 ///
@@ -307,9 +301,6 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::LimitExceeded);
         let err: Error<Ata> = crate::OpenOptionsError::RequiresWrite.into();
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
-        let err: Error<Ata> = crate::path::NormalizeError::EscapesRoot.into();
-        assert_eq!(err.kind(), ErrorKind::InvalidInput);
-        assert_eq!(err.message(), "parent component escapes the virtual root");
         let err: Error<Ata> = crate::TableFull::new(3u8).into();
         assert_eq!(err.kind(), ErrorKind::LimitExceeded);
     }

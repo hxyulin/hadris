@@ -5,7 +5,8 @@
 //! cargo run -p hadris-iso --example read_iso -- image.iso
 //! ```
 
-use hadris_fs::{DirCursor, NameBuf};
+use hadris_fs::DirCursor;
+use hadris_fs::sync::FileSystem;
 use hadris_iso::Namespace;
 use hadris_iso::sync::IsoImage;
 
@@ -40,15 +41,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut view = iso.view(Namespace::Preferred)?;
     println!("Root of the {:?} tree:", view.namespace());
     let root = view.root();
-    let mut cursor = DirCursor::start();
-    let mut name = NameBuf::new();
-    while let Some(entry) = view.read_dir_entry(root, &mut cursor, &mut name)? {
-        let meta = view.node_metadata(entry.node())?;
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = view.readdir(root, cursor)? {
+        cursor = entry.next_cursor();
+        let meta = entry.metadata();
         println!(
             "  {:?} {:>10} {}",
             meta.file_type(),
             meta.len(),
-            String::from_utf8_lossy(name.as_bytes())
+            String::from_utf8_lossy(entry.name().as_bytes())
         );
     }
     Ok(())

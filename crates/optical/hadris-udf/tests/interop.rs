@@ -7,8 +7,8 @@ mod common;
 use std::path::Path;
 use std::process::Command;
 
+use common::Paths;
 use common::{image, pattern};
-use hadris_fs::sync::DriverExt;
 use hadris_fs::tree::{Content, Tree};
 use hadris_udf::sync::UdfFs;
 use hadris_udf::{UdfOptions, UdfRevision};
@@ -141,11 +141,7 @@ fn mkudffs_volumes_read_back() {
         assert_eq!(udf.logical_volume_id(), "MKUDFFS");
         assert_eq!(udf.block_size(), block);
         assert_eq!(udf.revision().to_string(), revision);
-        let listed: Vec<_> = udf
-            .read_dir("/")
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap();
+        let listed = udf.names("/").unwrap();
         assert!(listed.len() <= 1, "{revision}/{block}: {listed:?}");
     }
 }

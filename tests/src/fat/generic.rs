@@ -2,8 +2,9 @@
 //! trait, and the Hadris FAT driver mounted through it.
 //!
 //! The adapter drives the node API: it resolves the parent directory and
-//! passes the last component to `create`, `remove` and `rename`, so the path
-//! layer cannot normalise names such as `.` away before the driver sees them.
+//! passes the last component to `create`, `mkdir`, `unlink`, `rmdir` and
+//! `rename`, so the path layer cannot normalise names such as `.` away
+//! before the driver sees them.
 
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -12,10 +13,10 @@ use std::path::{Path, PathBuf};
 
 use hadris_fat::sync::{FatFs, format as format_fat};
 use hadris_fat::{FatKind, FormatOptions, VolumeLabel};
-use hadris_fs::sync::{FileSystem, StdMutex, Volume};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::{
-    Attributes, DirCursor, FileType, FsResult, Name, NameBuf, NewNode, NodeId, RemoveKind,
-    RenameFlags, SetMetadata,
+    Attributes, DirCursor, ErrorKind, FileType, FsResult, Name, NodeId, OpenMode, RenameMode,
+    Resolve, SetAttr,
 };
 use hadris_storage::host::FileDevice;
 
@@ -41,7 +42,7 @@ pub trait Mount {
     fn mount(&self, image: &Path) -> Result<Self::Fs, String>;
 
     /// The volume label as the model records it: trimmed, empty when absent.
-    fn label(&self, fs: &Self::Fs) -> Result<String, String>;
+    fn label(&self, fs: &mut Self::Fs) -> Result<String, String>;
 }
 
 /// A [`FatAdapter`] over any [`FileSystem`]. Every operation mounts the
@@ -70,11 +71,11 @@ where
     <M::Fs as FileSystem>::DeviceError: Display,
 {
     fn apply(&mut self, operation: &Operation) -> Result<(), String> {
-        let fs = self.mount.mount(&self.image)?;
+        let mut fs = self.mount.mount(&self.image)?;
         let mut pins = Vec::new();
-        let result = apply(&fs, operation, &mut pins);
+        let result = apply(&mut fs, operation, &mut pins);
         for node in pins {
-            fs.forget(node);
+            fs.forget(node, 1);
         }
         let synced = fs.sync().map_err(|error| error.to_string());
         result?;
@@ -82,27 +83,24 @@ where
     }
 
     fn snapshot(&mut self) -> Result<FsState, String> {
-        let fs = self.mount.mount(&self.image)?;
+        let mut fs = self.mount.mount(&self.image)?;
         let mut state = FsState {
-            label: self.mount.label(&fs)?,
+            label: self.mount.label(&mut fs)?,
             entries: BTreeMap::new(),
         };
-        snapshot_dir(&fs, fs.root(), "/", &mut state.entries).map_err(|error| error.to_string())?;
+        let root = fs.root();
+        snapshot_dir(&mut fs, root, "/", &mut state.entries).map_err(|error| error.to_string())?;
         Ok(state)
     }
 }
 
-fn name(text: &str) -> Result<&Name, String> {
-    Name::new(text).map_err(|error| format!("{text:?}: {error:?}"))
-}
-
 /// Resolves `path` and records the pin.
-fn resolve<F: FileSystem>(fs: &F, path: &str, pins: &mut Vec<NodeId>) -> Result<NodeId, String>
+fn resolve<F: FileSystem>(fs: &mut F, path: &str, pins: &mut Vec<NodeId>) -> Result<NodeId, String>
 where
     F::DeviceError: Display,
 {
     let node = fs
-        .resolve(path)
+        .resolve(path.as_bytes(), Resolve::Lexical)
         .map_err(|error| format!("{path}: {error}"))?;
     pins.push(node);
     Ok(node)
@@ -110,7 +108,7 @@ where
 
 /// The parent directory of `path`, pinned, and the last component.
 fn parent<'p, F: FileSystem>(
-    fs: &F,
+    fs: &mut F,
     path: &'p str,
     pins: &mut Vec<NodeId>,
 ) -> Result<(NodeId, &'p Name), String>
@@ -118,17 +116,29 @@ where
     F::DeviceError: Display,
 {
     let (dir, last) = split_parent(path)?;
-    Ok((resolve(fs, dir, pins)?, name(last)?))
+    Ok((resolve(fs, dir, pins)?, Name::new(last)))
+}
+
+/// Opens `node` for writing, runs `job` and closes it again.
+fn written<F: FileSystem>(
+    fs: &mut F,
+    node: NodeId,
+    job: impl FnOnce(&mut F) -> FsResult<(), F::DeviceError>,
+) -> FsResult<(), F::DeviceError> {
+    fs.open(node, OpenMode::Write)?;
+    let done = job(fs);
+    let closed = fs.close(node);
+    done.and(closed)
 }
 
 fn write_all<F: FileSystem>(
-    fs: &F,
+    fs: &mut F,
     node: NodeId,
     mut offset: u64,
     mut data: &[u8],
 ) -> FsResult<(), F::DeviceError> {
     while !data.is_empty() {
-        let written = fs.write_at(node, offset, data)?;
+        let written = fs.write(node, offset, data)?;
         if written == 0 {
             return Err(hadris_fs::ErrorKind::NoSpace.into());
         }
@@ -138,48 +148,52 @@ fn write_all<F: FileSystem>(
     Ok(())
 }
 
-fn apply<F: FileSystem>(fs: &F, operation: &Operation, pins: &mut Vec<NodeId>) -> Result<(), String>
+fn apply<F: FileSystem>(
+    fs: &mut F,
+    operation: &Operation,
+    pins: &mut Vec<NodeId>,
+) -> Result<(), String>
 where
     F::DeviceError: Display,
 {
     let err = |error: hadris_fs::Error<F::DeviceError>| error.to_string();
-    let meta = SetMetadata::new();
+    let none = SetAttr::new();
     match operation {
         Operation::CreateDir { path } => {
             let (dir, last) = parent(fs, path, pins)?;
-            pins.push(fs.create(dir, last, NewNode::Dir, &meta).map_err(err)?);
+            pins.push(fs.mkdir(dir, last, &none).map_err(err)?);
         }
         Operation::CreateFile { path, data } => {
             let (dir, last) = parent(fs, path, pins)?;
-            let node = fs.create(dir, last, NewNode::File, &meta).map_err(err)?;
+            let node = fs.create(dir, last, &none).map_err(err)?;
             pins.push(node);
-            write_all(fs, node, 0, data).map_err(err)?;
+            written(fs, node, |fs| write_all(fs, node, 0, data)).map_err(err)?;
         }
         Operation::ReplaceFile { path, data } => {
             let node = resolve(fs, path, pins)?;
-            fs.set_len(node, 0).map_err(err)?;
-            write_all(fs, node, 0, data).map_err(err)?;
+            written(fs, node, |fs| {
+                fs.truncate(node, 0)?;
+                write_all(fs, node, 0, data)
+            })
+            .map_err(err)?;
         }
         Operation::AppendFile { path, data } => {
             let node = resolve(fs, path, pins)?;
-            let len = fs.node_metadata(node).map_err(err)?.len();
-            write_all(fs, node, len, data).map_err(err)?;
+            written(fs, node, |fs| {
+                let len = fs.stat(node)?.len();
+                write_all(fs, node, len, data)
+            })
+            .map_err(err)?;
         }
         Operation::TruncateFile { path, len } => {
             let node = resolve(fs, path, pins)?;
-            fs.set_len(node, *len as u64).map_err(err)?;
+            written(fs, node, |fs| fs.truncate(node, *len as u64)).map_err(err)?;
         }
         Operation::Rename { from, to } => {
             let (from_dir, from_name) = parent(fs, from, pins)?;
             let (to_dir, to_name) = parent(fs, to, pins)?;
-            fs.rename(
-                from_dir,
-                from_name,
-                to_dir,
-                to_name,
-                RenameFlags::NO_REPLACE,
-            )
-            .map_err(err)?;
+            fs.rename(from_dir, from_name, to_dir, to_name, RenameMode::NoReplace)
+                .map_err(err)?;
         }
         Operation::SetAttrs { path, attrs } => {
             let node = resolve(fs, path, pins)?;
@@ -189,48 +203,51 @@ where
                     attributes |= flag;
                 }
             }
-            fs.set_metadata(node, &SetMetadata::new().with_attributes(attributes))
+            fs.setattr(node, &SetAttr::new().with_attributes(attributes))
                 .map_err(err)?;
         }
         Operation::Delete { path } => {
             let (dir, last) = parent(fs, path, pins)?;
-            fs.remove(dir, last, RemoveKind::Any).map_err(err)?;
+            match fs.unlink(dir, last) {
+                Err(error) if error.kind() == ErrorKind::IsADirectory => fs.rmdir(dir, last),
+                other => other,
+            }
+            .map_err(err)?;
         }
     }
     Ok(())
 }
 
 fn snapshot_dir<F: FileSystem>(
-    fs: &F,
+    fs: &mut F,
     dir: NodeId,
     path: &str,
     entries: &mut BTreeMap<String, EntryState>,
 ) -> FsResult<(), F::DeviceError> {
     let mut children = Vec::new();
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
-    while let Some(entry) = fs.read_dir_entry(dir, &mut cursor, &mut buf)? {
-        let text = String::from_utf8_lossy(buf.as_bytes()).into_owned();
-        children.push((text, entry.file_type()));
+    let mut cursor = DirCursor::START;
+    while let Some(entry) = fs.readdir(dir, cursor)? {
+        cursor = entry.next_cursor();
+        children.push((entry.name().as_bytes().to_vec(), entry.file_type()));
     }
-    for (text, file_type) in children {
-        let child_path = join_path(path, &text);
-        let node = fs.lookup(dir, Name::new(&text).map_err(|error| error.kind())?)?;
+    for (bytes, file_type) in children {
+        let child_path = join_path(path, &String::from_utf8_lossy(&bytes));
+        let node = fs.lookup(dir, Name::new(&bytes))?;
         let result = snapshot_node(fs, node, file_type, &child_path, entries);
-        fs.forget(node);
+        fs.forget(node, 1);
         result?;
     }
     Ok(())
 }
 
 fn snapshot_node<F: FileSystem>(
-    fs: &F,
+    fs: &mut F,
     node: NodeId,
     file_type: FileType,
     path: &str,
     entries: &mut BTreeMap<String, EntryState>,
 ) -> FsResult<(), F::DeviceError> {
-    let meta = fs.node_metadata(node)?;
+    let meta = fs.stat(node)?;
     let mut attrs = 0;
     for (bit, flag) in ATTRIBUTES {
         if meta.attributes().contains(flag) {
@@ -242,13 +259,20 @@ fn snapshot_node<F: FileSystem>(
     } else {
         let mut contents = vec![0u8; meta.len() as usize];
         let mut done = 0;
-        while done < contents.len() {
-            let n = fs.read_at(node, done as u64, &mut contents[done..])?;
-            if n == 0 {
-                break;
+        fs.open(node, OpenMode::Read)?;
+        let read = loop {
+            if done == contents.len() {
+                break Ok(());
             }
-            done += n;
-        }
+            match fs.read(node, done as u64, &mut contents[done..]) {
+                Ok(0) => break Ok(()),
+                Ok(n) => done += n,
+                Err(error) => break Err(error),
+            }
+        };
+        let closed = fs.close(node);
+        read?;
+        closed?;
         contents.truncate(done);
         EntryData::File(contents)
     };
@@ -261,13 +285,25 @@ fn snapshot_node<F: FileSystem>(
 
 pub const NAME: &str = "Hadris";
 
-/// The Hadris FAT driver, `FatFs`, on the image file, shared through a
-/// `Volume`.
+/// The Hadris FAT driver, `FatFs`, on the image file.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct HadrisFat;
 
+/// The volume label through the trait, as UTF-8 with trailing spaces
+/// removed, or empty when absent.
+pub fn label_of<F: FileSystem>(fs: &mut F) -> Result<String, String>
+where
+    F::DeviceError: Display,
+{
+    let mut buf = [0u8; 384];
+    let label = fs.label(&mut buf).map_err(|error| error.to_string())?;
+    Ok(label
+        .map(|label| label.trim_end().to_string())
+        .unwrap_or_default())
+}
+
 impl Mount for HadrisFat {
-    type Fs = Volume<FatFs<FileDevice>, StdMutex>;
+    type Fs = FatFs<FileDevice>;
 
     fn mount(&self, image: &Path) -> Result<Self::Fs, String> {
         let file = OpenOptions::new()
@@ -276,15 +312,11 @@ impl Mount for HadrisFat {
             .open(image)
             .and_then(FileDevice::new)
             .map_err(|error| error.to_string())?;
-        let fs = FatFs::open(file).map_err(|error| error.to_string())?;
-        Ok(Volume::new(fs))
+        FatFs::open(file).map_err(|error| error.to_string())
     }
 
-    fn label(&self, fs: &Self::Fs) -> Result<String, String> {
-        let label = fs.lock().label().map_err(|error| error.to_string())?;
-        Ok(label
-            .map(|label| label.as_str().to_string())
-            .unwrap_or_default())
+    fn label(&self, fs: &mut Self::Fs) -> Result<String, String> {
+        label_of(fs)
     }
 }
 

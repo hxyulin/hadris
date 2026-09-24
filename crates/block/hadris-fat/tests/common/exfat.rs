@@ -5,12 +5,15 @@ use std::process::Command;
 
 use hadris_fat::exfat::sync::{ExFatFs, format};
 use hadris_fat::exfat::{Detail, FormatOptions, MountOptions, VolumeLabel};
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::{
-    CheckReport, DirCursor, Finding, HeapTable, Location, Name, NameBuf, NewNode, NodeId,
-    SetMetadata, Severity,
+    CheckReport, DirCursor, Finding, HeapTable, Location, Name, NodeId, SetAttr, Severity,
 };
+
+#[path = "paths.rs"]
+pub mod paths;
 use hadris_storage::{BlockSize, MemDevice};
+pub use paths::sync::{FsPaths, VolumePaths};
 
 pub type Device = MemDevice<Vec<u8>>;
 pub type Fs = ExFatFs<Device, HeapTable>;
@@ -52,14 +55,7 @@ pub fn image(fs: Fs) -> Vec<u8> {
 }
 
 pub fn write(fs: &mut Fs, dir: NodeId, text: &str, data: &[u8]) -> NodeId {
-    let node = fs
-        .create(
-            dir,
-            Name::new(text).unwrap(),
-            NewNode::File,
-            &SetMetadata::new(),
-        )
-        .unwrap();
+    let node = fs.create(dir, Name::new(text), &SetAttr::new()).unwrap();
     append(fs, node, 0, data);
     node
 }
@@ -74,34 +70,21 @@ pub fn write_any<
     text: &str,
     data: &[u8],
 ) -> NodeId {
-    let node = fs
-        .create(
-            dir,
-            Name::new(text).unwrap(),
-            NewNode::File,
-            &SetMetadata::new(),
-        )
-        .unwrap();
-    assert_eq!(fs.write_at(node, 0, data).unwrap(), data.len());
+    let node = fs.create(dir, Name::new(text), &SetAttr::new()).unwrap();
+    assert_eq!(fs.write(node, 0, data).unwrap(), data.len());
     node
 }
 
 pub fn append(fs: &mut Fs, node: NodeId, mut at: u64, mut data: &[u8]) {
     while !data.is_empty() {
-        let n = fs.write_at(node, at, data).unwrap();
+        let n = fs.write(node, at, data).unwrap();
         at += n as u64;
         data = &data[n..];
     }
 }
 
 pub fn mkdir(fs: &mut Fs, dir: NodeId, text: &str) -> NodeId {
-    fs.create(
-        dir,
-        Name::new(text).unwrap(),
-        NewNode::Dir,
-        &SetMetadata::new(),
-    )
-    .unwrap()
+    fs.mkdir(dir, Name::new(text), &SetAttr::new()).unwrap()
 }
 
 pub fn chain(fs: &mut Fs, node: NodeId) -> Vec<u32> {
@@ -113,18 +96,14 @@ pub fn chain(fs: &mut Fs, node: NodeId) -> Vec<u32> {
 
 /// The names in the directory at `path`, in directory order.
 pub fn names(fs: &mut Fs, path: &str) -> Vec<String> {
-    let dir = fs.resolve(path).unwrap();
-    let mut cursor = DirCursor::start();
-    let mut buf = NameBuf::new();
+    let dir = fs.resolve_path(path).unwrap();
+    let mut cursor = DirCursor::START;
     let mut out = Vec::new();
-    while fs
-        .read_dir_entry(dir, &mut cursor, &mut buf)
-        .unwrap()
-        .is_some()
-    {
-        out.push(buf.as_name().unwrap().to_str().unwrap().to_owned());
+    while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
+        out.push(entry.name().to_str().unwrap().to_owned());
+        cursor = entry.next_cursor();
     }
-    fs.forget(dir);
+    fs.forget(dir, 1);
     out
 }
 
@@ -197,24 +176,24 @@ pub fn build() -> Vec<u8> {
         ("empty.dat", b""),
     ] {
         let node = write(&mut fs, root, text, data);
-        fs.forget(node);
+        fs.forget(node, 1);
     }
     let frag = write(&mut fs, root, "frag.bin", &payload(100, 2));
     let spacer = write(&mut fs, root, "spacer.bin", &payload(100, 3));
-    fs.forget(spacer);
+    fs.forget(spacer, 1);
     append(&mut fs, frag, 100, &payload(40_000, 4));
-    fs.forget(frag);
+    fs.forget(frag, 1);
     let nested = mkdir(&mut fs, root, "Nested Dir");
     let inner = mkdir(&mut fs, nested, "inner");
     for i in 0..300 {
         let text = format!("file number {i:03} with a longer name.txt");
         let node = write(&mut fs, inner, &text, text.as_bytes());
-        fs.forget(node);
+        fs.forget(node, 1);
     }
     let deep = write(&mut fs, inner, "deep.bin", &payload(70_000, 5));
-    fs.forget(deep);
-    fs.forget(inner);
-    fs.forget(nested);
+    fs.forget(deep, 1);
+    fs.forget(inner, 1);
+    fs.forget(nested, 1);
     fs.sync().unwrap();
     image(fs)
 }

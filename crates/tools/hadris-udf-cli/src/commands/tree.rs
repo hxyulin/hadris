@@ -26,7 +26,7 @@ fn print_tree(
         } else {
             "\u{251c}\u{2500}\u{2500} "
         };
-        let name = String::from_utf8_lossy(item.name_bytes()).into_owned();
+        let name = String::from_utf8_lossy(item.name().as_bytes()).into_owned();
         let is_dir = item.file_type().is_dir();
         println!("{prefix}{connector}{name}{}", if is_dir { "/" } else { "" });
         if is_dir {

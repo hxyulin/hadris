@@ -9,14 +9,17 @@
 //! mode (`sync::IsoImage`, `r#async::IsoImage`). An
 //! image has up to four trees: the primary tree, Rock Ridge names and
 //! metadata over it, a Joliet tree and an ISO 9660:1999 enhanced tree.
-//! `view` picks one as an `IsoView`, which implements the `hadris_fs`
-//! `FsDriver` trait, so the path helpers, `Volume` and handles of
-//! `hadris-fs` work on it. Reading needs no allocator.
+//! `view` picks one as an `IsoView`, which implements the read-only
+//! `hadris_fs` `FileSystem` trait, so `Volume` and its handles work on it.
+//! Reading needs no allocator.
 //!
 //! ```rust
 //! # #[cfg(all(feature = "sync", feature = "std"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use hadris_fs::sync::DriverExt;
+//! use std::io::Read;
+//!
+//! use hadris_fs::OpenOptions;
+//! use hadris_fs::sync::Volume;
 //! use hadris_fs::tree::{Content, Tree};
 //! use hadris_iso::sync::{IsoImage, plan, write};
 //! use hadris_iso::{IsoOptions, Namespace};
@@ -30,9 +33,12 @@
 //! let report = write(&mut dev, &tree, &options)?;
 //! assert_eq!(report.size_bytes(), size);
 //!
-//! let mut iso = IsoImage::open(dev)?;
-//! let mut view = iso.view(Namespace::Preferred)?;
-//! assert_eq!(view.read_to_vec("/boot/grub/grub.cfg")?, b"set timeout=3");
+//! let iso = IsoImage::open(dev)?;
+//! let vol = Volume::new(iso.into_view(Namespace::Preferred)?);
+//! let mut text = String::new();
+//! vol.open("/boot/grub/grub.cfg", OpenOptions::new().read())?
+//!     .read_to_string(&mut text)?;
+//! assert_eq!(text, "set timeout=3");
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "std")))]
@@ -125,9 +131,7 @@ pub mod sync {
     use hadris_part::sync as part;
     use hadris_storage::sync as storage;
 
-    macro_rules! impl_iso_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(sync, $($t)*); };
-    }
+    use hadris_fs::sync::FileSystem;
 
     #[path = "image.rs"]
     mod image;

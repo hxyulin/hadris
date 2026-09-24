@@ -3,10 +3,12 @@
 
 use std::fs;
 
-use hadris_fs::sync::{DriverExt, FsDriver, TreeExt};
+use hadris_fs::Resolve;
+use hadris_fs::sync::{FileSystem, TreeExt};
 use hadris_fs::tree::{Content, Tree};
 use hadris_iso::raw::{DirectoryRecord, SuspEntries};
 use hadris_iso::{IsoOptions, Namespace, RockRidge, VolumeIdentifiers};
+use hadris_tests::harness::files::read_path;
 use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
@@ -175,21 +177,22 @@ fn hard_links_share_a_node_id() {
     for (producer, bytes) in images {
         let mut iso = open(bytes);
         let mut view = iso.view(Namespace::RockRidge).unwrap();
-        let a = view.resolve("/a.txt").unwrap();
-        let b = view.resolve("/sub/b.txt").unwrap();
-        let other = view.resolve("/other.txt").unwrap();
+        let a = view.resolve(b"/a.txt", Resolve::Lexical).unwrap();
+        let b = view.resolve(b"/sub/b.txt", Resolve::Lexical).unwrap();
+        let other = view.resolve(b"/other.txt", Resolve::Lexical).unwrap();
         assert_eq!(a, b, "{producer}");
         assert_ne!(a, other, "{producer}");
-        assert_eq!(view.metadata("/sub/b.txt").unwrap().nlink(), 2);
-        assert_eq!(view.read_to_vec("/sub/b.txt").unwrap(), b"data\n");
-        let sub = view.resolve("/sub").unwrap();
-        let mut cursor = hadris_fs::DirCursor::start();
-        let mut name = hadris_fs::NameBuf::new();
+        assert_eq!(view.stat(b).unwrap().nlink(), 2);
+        assert_eq!(read_path(&mut view, "/sub/b.txt").unwrap(), b"data\n");
+        let sub = view.resolve(b"/sub", Resolve::Lexical).unwrap();
         let entry = view
-            .read_dir_entry(sub, &mut cursor, &mut name)
+            .readdir(sub, hadris_fs::DirCursor::START)
             .unwrap()
             .unwrap();
         assert_eq!(entry.node(), a, "{producer}");
+        for node in [a, b, other, sub] {
+            view.forget(node, 1);
+        }
 
         let imported = Tree::from_filesystem(&mut view).unwrap();
         assert_eq!(imported.get("sub/b.txt").unwrap().links(), 2, "{producer}");

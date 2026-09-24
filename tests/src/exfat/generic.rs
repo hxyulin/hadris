@@ -6,21 +6,20 @@ use std::path::Path;
 
 use hadris_fat::exfat::sync::{ExFatFs, format as format_exfat};
 use hadris_fat::exfat::{FormatOptions, VolumeLabel};
-use hadris_fs::sync::{StdMutex, Volume};
 use hadris_storage::host::FileDevice;
 
 use super::ExFatCase;
 use crate::fat::LABEL;
-use crate::fat::generic::{FsAdapter, Mount};
+use crate::fat::generic::{FsAdapter, Mount, label_of};
 
 pub const NAME: &str = "Hadris";
 
-/// `ExFatFs` on the image file, shared through a `Volume`.
+/// `ExFatFs` on the image file.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct HadrisExFat;
 
 impl Mount for HadrisExFat {
-    type Fs = Volume<ExFatFs<FileDevice>, StdMutex>;
+    type Fs = ExFatFs<FileDevice>;
 
     fn mount(&self, image: &Path) -> Result<Self::Fs, String> {
         let file = OpenOptions::new()
@@ -29,13 +28,11 @@ impl Mount for HadrisExFat {
             .open(image)
             .and_then(FileDevice::new)
             .map_err(|error| error.to_string())?;
-        let fs = ExFatFs::open(file).map_err(|error| error.to_string())?;
-        Ok(Volume::new(fs))
+        ExFatFs::open(file).map_err(|error| error.to_string())
     }
 
-    fn label(&self, fs: &Self::Fs) -> Result<String, String> {
-        let label = fs.lock().label().map_err(|error| error.to_string())?;
-        Ok(label.map(|label| label.to_string()).unwrap_or_default())
+    fn label(&self, fs: &mut Self::Fs) -> Result<String, String> {
+        label_of(fs)
     }
 }
 

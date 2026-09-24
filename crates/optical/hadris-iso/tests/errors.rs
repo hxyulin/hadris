@@ -3,8 +3,9 @@
 
 mod common;
 
+use common::Paths;
 use common::{image, sample};
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::tree::{Content, Tree, WarningKind};
 use hadris_fs::{ErrorKind, NodeId};
 use hadris_iso::sync::IsoImage;
@@ -241,11 +242,11 @@ fn malformed_images_are_refused() {
 
     let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
     let mut view = iso.view(Namespace::Primary).unwrap();
-    let err = view.node_metadata(NodeId::new(17 * 2048 + 3)).unwrap_err();
+    let err = view.stat(NodeId::new(17 * 2048 + 3).unwrap()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidHandle);
-    let err = view.node_metadata(NodeId::new(1 << 40)).unwrap_err();
+    let err = view.stat(NodeId::new(1 << 40).unwrap()).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::InvalidHandle);
-    let readme = view.resolve("/README.TXT").unwrap();
+    let readme = view.resolve_path("/README.TXT").unwrap();
     let record = view.raw_record(readme).unwrap();
     assert_eq!(record.name(), b"README.TXT;1");
 
@@ -286,8 +287,8 @@ fn damaged_records_behind_listed_ids_are_corrupt() {
     let good = image(&tree, &IsoOptions::default()).into_inner();
     let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
     let mut view = iso.view(Namespace::Primary).unwrap();
-    let docs = view.resolve("/DOCS").unwrap();
-    let big = view.resolve("/DOCS/BIG.BIN").unwrap();
+    let docs = view.resolve_path("/DOCS").unwrap();
+    let big = view.resolve_path("/DOCS/BIG.BIN").unwrap();
     let data = view.raw_record(big).unwrap().header().extent.get();
     let root = view.root().get() as usize;
     let record = (root..root + 2048)
@@ -307,20 +308,17 @@ fn damaged_records_behind_listed_ids_are_corrupt() {
     let mut iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
     let mut view = iso.view(Namespace::Primary).unwrap();
     let listed = view
-        .lookup(view.root(), hadris_fs::Name::new(b"DOCS").unwrap())
+        .lookup(view.root(), hadris_fs::Name::new(b"DOCS"))
         .unwrap();
     assert_eq!(listed.get(), u64::from(data + 1) * 2048);
-    assert_eq!(
-        view.node_metadata(listed).unwrap_err().kind(),
-        ErrorKind::Corrupt
-    );
+    assert_eq!(view.stat(listed).unwrap_err().kind(), ErrorKind::Corrupt);
 
     let mut bad = good;
     point(&mut bad, u32::MAX);
     let mut iso = IsoImage::open(MemDevice::new(bad, common::SECTOR)).unwrap();
     let mut view = iso.view(Namespace::Primary).unwrap();
     let err = view
-        .lookup(view.root(), hadris_fs::Name::new(b"DOCS").unwrap())
+        .lookup(view.root(), hadris_fs::Name::new(b"DOCS"))
         .unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Corrupt);
 }
@@ -350,7 +348,7 @@ fn directories_past_the_end_of_a_truncated_image_are_corrupt() {
     let docs = iso
         .view(Namespace::Primary)
         .unwrap()
-        .resolve("/DOCS")
+        .resolve_path("/DOCS")
         .unwrap();
 
     let mut truncated = good;
@@ -358,16 +356,11 @@ fn directories_past_the_end_of_a_truncated_image_are_corrupt() {
     let mut iso = IsoImage::open(MemDevice::new(truncated, common::SECTOR)).unwrap();
     let mut view = iso.view(Namespace::Primary).unwrap();
     let root = view.root();
-    let listed = view
-        .lookup(root, hadris_fs::Name::new(b"DOCS").unwrap())
-        .unwrap();
+    let listed = view.lookup(root, hadris_fs::Name::new(b"DOCS")).unwrap();
     assert_eq!(listed, docs);
+    assert_eq!(view.stat(listed).unwrap_err().kind(), ErrorKind::Corrupt);
     assert_eq!(
-        view.node_metadata(listed).unwrap_err().kind(),
-        ErrorKind::Corrupt
-    );
-    assert_eq!(
-        view.node_metadata(NodeId::new(1 << 40)).unwrap_err().kind(),
+        view.stat(NodeId::new(1 << 40).unwrap()).unwrap_err().kind(),
         ErrorKind::InvalidHandle
     );
 }
@@ -382,7 +375,7 @@ fn directory_cycles_are_corrupt() {
     let mut iso = IsoImage::open(MemDevice::new(good.clone(), common::SECTOR)).unwrap();
     let mut view = iso.view(Namespace::Primary).unwrap();
     let root = view.root().get() as u32 / 2048;
-    let a = view.resolve("/A").unwrap().get() as usize;
+    let a = view.resolve_path("/A").unwrap().get() as usize;
     let record = (a..a + 2048)
         .find(|&at| good[at] >= 34 && good[at + 32] == 1 && good[at + 33] == b'B')
         .unwrap();

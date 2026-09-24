@@ -2,24 +2,25 @@
 
 mod common;
 
+use common::Paths;
 use common::{SECTOR, image, open, pattern, sample, with_metadata};
-use hadris_fs::sync::{DriverExt, FsDriver};
+use hadris_fs::sync::FileSystem;
 use hadris_fs::tree::{Content, Tree, WarningKind};
-use hadris_fs::{ErrorKind, FileType, Mode, NameBuf, SystemClock};
+use hadris_fs::{DirCursor, ErrorKind, FileType, Permissions, Resolve, SystemClock};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::{UdfOptions, UdfRevision};
 
 fn names(
-    fs: &mut impl FsDriver<DeviceError = core::convert::Infallible>,
+    fs: &mut impl FileSystem<DeviceError = core::convert::Infallible>,
     path: &str,
 ) -> Vec<(String, FileType)> {
-    let dir = fs.resolve(path).unwrap();
-    let mut cursor = hadris_fs::DirCursor::start();
-    let mut name = NameBuf::new();
+    let dir = fs.resolve_path(path).unwrap();
+    let mut cursor = DirCursor::START;
     let mut out = Vec::new();
-    while let Some(entry) = fs.read_dir_entry(dir, &mut cursor, &mut name).unwrap() {
+    while let Some(entry) = fs.readdir(dir, cursor).unwrap() {
+        cursor = entry.next_cursor();
         out.push((
-            String::from_utf8(name.as_bytes().to_vec()).unwrap(),
+            String::from_utf8(entry.name().as_bytes().to_vec()).unwrap(),
             entry.file_type(),
         ));
     }
@@ -79,31 +80,31 @@ fn every_tree_reads_back() {
         assert!(names(&mut udf, "/emptydir").is_empty());
 
         let mut target = [0u8; 64];
-        let abs = udf.resolve("/abs").unwrap();
-        let n = udf.read_link(abs, &mut target).unwrap();
+        let abs = udf.resolve_path("/abs").unwrap();
+        let n = udf.readlink(abs, &mut target).unwrap().len();
         assert_eq!(&target[..n], b"/docs/sub/deep.txt");
-        assert_eq!(udf.node_metadata(abs).unwrap().len(), n as u64);
-        let rel = udf.resolve("/docs/rel").unwrap();
-        let n = udf.read_link(rel, &mut target).unwrap();
+        assert_eq!(udf.stat(abs).unwrap().len(), n as u64);
+        let rel = udf.resolve_path("/docs/rel").unwrap();
+        let n = udf.readlink(rel, &mut target).unwrap().len();
         assert_eq!(&target[..n], b"../readme.txt");
         assert_eq!(
-            udf.read_at(rel, 0, &mut target).unwrap_err().kind(),
+            udf.read(rel, 0, &mut target).unwrap_err().kind(),
             ErrorKind::Symlink
         );
 
-        let readme = udf.resolve("/readme.txt").unwrap();
-        let link = udf.resolve("/docs/link.txt").unwrap();
+        let readme = udf.resolve_path("/readme.txt").unwrap();
+        let link = udf.resolve_path("/docs/link.txt").unwrap();
         assert_eq!(readme, link);
-        assert_eq!(udf.node_metadata(readme).unwrap().nlink(), 2);
-        let docs = udf.resolve("/docs").unwrap();
-        assert_eq!(udf.node_metadata(docs).unwrap().nlink(), 3);
-        let sub = udf.resolve("/docs/sub").unwrap();
+        assert_eq!(udf.stat(readme).unwrap().nlink(), 2);
+        let docs = udf.resolve_path("/docs").unwrap();
+        assert_eq!(udf.stat(docs).unwrap().nlink(), 3);
+        let sub = udf.resolve_path("/docs/sub").unwrap();
         assert_eq!(udf.parent(sub).unwrap(), docs);
         assert_eq!(udf.parent(docs).unwrap(), udf.root());
         assert_eq!(udf.parent(udf.root()).unwrap(), udf.root());
 
         let mut extents = Vec::new();
-        let big = udf.resolve("/docs/big.bin").unwrap();
+        let big = udf.resolve_path("/docs/big.bin").unwrap();
         udf.extents(big, |extent| extents.push(extent)).unwrap();
         assert_eq!(extents.len(), 1);
         assert_eq!(extents[0].len(), 70_000);
@@ -136,23 +137,23 @@ fn metadata_reads_back() {
     );
     let mut udf = open(image(&tree, &options));
     let meta = udf.metadata("/readme.txt").unwrap();
-    assert_eq!(meta.permissions(), Some(Mode::new(0o4751)));
-    assert_eq!(meta.owner(), Some((1000, 100)));
-    let times = meta.times();
+    assert_eq!(meta.permissions(), Permissions::new(0o4751));
+    assert_eq!(meta.owner(), Some(hadris_fs::Owner::new(1000, 100)));
+    let times = meta;
     assert_eq!(times.modified().unwrap().unix_seconds(), 1_700_000_000);
     assert_eq!(times.accessed().unwrap().unix_seconds(), 1_700_000_100);
     assert_eq!(times.changed().unwrap().unix_seconds(), 1_700_000_200);
     assert_eq!(times.created(), None);
     assert_eq!(
         udf.metadata("/docs").unwrap().permissions(),
-        Some(Mode::new(0o750))
+        Permissions::new(0o750)
     );
 
     let plain = udf.metadata("/emptydir").unwrap();
-    assert_eq!(plain.permissions(), Some(Mode::new(0o777)));
+    assert_eq!(plain.permissions(), Permissions::new(0o777));
     assert_eq!(plain.owner(), None);
     assert_eq!(
-        plain.times().modified(),
+        plain.modified(),
         Some(
             hadris_fs::NoClock::TIME
                 .with_utc_offset_minutes(Some(0))
@@ -221,6 +222,9 @@ fn small_device_blocks_and_growing_devices_work() {
 
 #[test]
 fn async_modes_write_and_read_the_same_volume() {
+    use hadris_fs::OpenMode;
+    use hadris_fs::r#async::FileSystem as _;
+
     let tree = sample();
     let options = UdfOptions::default().with_revision(UdfRevision::V2_01);
     let expected = image(&tree, &options);
@@ -238,16 +242,14 @@ fn async_modes_write_and_read_the_same_volume() {
             .await
             .map_err(|_| ())
             .unwrap();
-        let node = hadris_fs::r#async::FsDriver::resolve(&mut udf, "/docs/big.bin")
+        let node = udf
+            .resolve(b"/docs/big.bin", Resolve::Lexical)
             .await
             .unwrap();
         let mut buf = vec![0u8; 70_000];
         let mut done = 0;
         while done < buf.len() {
-            done += udf
-                .read_at(node, done as u64, &mut buf[done..])
-                .await
-                .unwrap();
+            done += udf.read(node, done as u64, &mut buf[done..]).await.unwrap();
         }
         assert_eq!(buf, pattern(70_000, 1));
 
@@ -260,12 +262,15 @@ fn async_modes_write_and_read_the_same_volume() {
             .await
             .map_err(|_| ())
             .unwrap();
-        assert_eq!(
-            hadris_fs::r#async::DriverExt::read_to_vec(&mut udf, "/docs/sub/deep.txt")
-                .await
-                .unwrap(),
-            b"deep"
-        );
+        let node = udf
+            .resolve(b"/docs/sub/deep.txt", Resolve::Lexical)
+            .await
+            .unwrap();
+        udf.open(node, OpenMode::Read).await.unwrap();
+        let mut buf = [0u8; 16];
+        let n = udf.read(node, 0, &mut buf).await.unwrap();
+        udf.close(node).await.unwrap();
+        assert_eq!(&buf[..n], b"deep");
     });
 }
 

@@ -7,10 +7,8 @@ use core::future::Future;
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 
-use hadris_fs::r#async::FsDriver;
-use hadris_fs::{
-    DirCursor, ErrorKind, Name, NameBuf, NewNode, RemoveKind, RenameFlags, SetMetadata,
-};
+use hadris_fs::r#async::FileSystem;
+use hadris_fs::{DirCursor, ErrorKind, Name, RenameMode, SetAttr};
 use hadris_io::Error;
 use hadris_io::ErrorType;
 use hadris_storage::r#async::BlockDevice;
@@ -103,26 +101,26 @@ fn payload(len: usize, seed: u8) -> Vec<u8> {
 }
 
 fn text(value: &str) -> &Name {
-    Name::new(value).unwrap()
+    Name::new(value)
 }
 
 /// One step of a random workload, which may be dropped part way through.
-pub async fn step<F: FsDriver>(fs: &mut F, kind: u64, i: u64) -> Result<(), ErrorKind> {
+pub async fn step<F: FileSystem>(fs: &mut F, kind: u64, i: u64) -> Result<(), ErrorKind> {
     let root = fs.root();
-    let meta = SetMetadata::new();
+    let meta = SetAttr::new();
     let dir_name = format!("directory {}", i % 3);
     let file = format!("file number {}.bin", i % 5);
     let dir = match fs.lookup(root, text(&dir_name)).await {
         Ok(dir) => dir,
         Err(_) if kind == 0 => fs
-            .create(root, text(&dir_name), NewNode::Dir, &meta)
+            .mkdir(root, text(&dir_name), &meta)
             .await
             .map_err(|err| err.kind())?,
         Err(err) => return Err(err.kind()),
     };
     let result = match kind {
         0 => {
-            let node = match fs.create(dir, text(&file), NewNode::File, &meta).await {
+            let node = match fs.create(dir, text(&file), &meta).await {
                 Ok(node) => node,
                 Err(_) => fs
                     .lookup(dir, text(&file))
@@ -130,15 +128,12 @@ pub async fn step<F: FsDriver>(fs: &mut F, kind: u64, i: u64) -> Result<(), Erro
                     .map_err(|err| err.kind())?,
             };
             let data = payload(3000 + (i as usize % 7) * 1500, i as u8);
-            let written = fs.write_at(node, 0, &data).await.map(|_| ());
-            let published = fs.publish_node(node).await;
-            fs.forget(node);
+            let written = fs.write(node, 0, &data).await.map(|_| ());
+            let published = fs.close(node).await;
+            fs.forget(node, 1);
             written.and(published).map_err(|err| err.kind())
         }
-        1 => fs
-            .remove(dir, text(&file), RemoveKind::File)
-            .await
-            .map_err(|err| err.kind()),
+        1 => fs.unlink(dir, text(&file)).await.map_err(|err| err.kind()),
         2 => {
             let to_name = format!("directory {}", (i + 1) % 3);
             match fs.lookup(root, text(&to_name)).await {
@@ -149,10 +144,10 @@ pub async fn step<F: FsDriver>(fs: &mut F, kind: u64, i: u64) -> Result<(), Erro
                             text(&file),
                             to,
                             text(&format!("renamed {}.bin", i % 4)),
-                            RenameFlags::empty(),
+                            RenameMode::Replace,
                         )
                         .await;
-                    fs.forget(to);
+                    fs.forget(to, 1);
                     moved.map_err(|err| err.kind())
                 }
                 Err(err) => Err(err.kind()),
@@ -160,35 +155,30 @@ pub async fn step<F: FsDriver>(fs: &mut F, kind: u64, i: u64) -> Result<(), Erro
         }
         3 => match fs.lookup(dir, text(&file)).await {
             Ok(node) => {
-                let set = fs.set_len(node, i * 1777 % 20_000).await;
-                let published = fs.publish_node(node).await;
-                fs.forget(node);
+                let set = fs.truncate(node, i * 1777 % 20_000).await;
+                let published = fs.close(node).await;
+                fs.forget(node, 1);
                 set.and(published).map_err(|err| err.kind())
             }
             Err(err) => Err(err.kind()),
         },
         _ => {
-            let mut cursor = DirCursor::start();
-            let mut name = NameBuf::new();
+            let mut cursor = DirCursor::START;
             let mut names = Vec::new();
-            while fs
-                .read_dir_entry(dir, &mut cursor, &mut name)
-                .await
-                .map_err(|err| err.kind())?
-                .is_some()
-            {
-                names.push(name.as_name().unwrap().to_str().unwrap().to_owned());
+            while let Some(entry) = fs.readdir(dir, cursor).await.map_err(|err| err.kind())? {
+                names.push(entry.name().to_str().unwrap().to_owned());
+                cursor = entry.next_cursor();
             }
             for entry in &names {
-                fs.remove(dir, text(entry), RemoveKind::File)
+                fs.unlink(dir, text(entry))
                     .await
                     .map_err(|err| err.kind())?;
             }
-            fs.remove(root, text(&dir_name), RemoveKind::Dir)
+            fs.rmdir(root, text(&dir_name))
                 .await
                 .map_err(|err| err.kind())
         }
     };
-    fs.forget(dir);
+    fs.forget(dir, 1);
     result
 }

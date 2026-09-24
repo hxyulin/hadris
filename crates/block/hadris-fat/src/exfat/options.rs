@@ -179,7 +179,7 @@ impl fmt::Debug for VolumeLabel {
 ///     .with_cluster_size(32 * 1024)
 ///     .with_volume_id(0x1234_5678);
 /// let mut fs = format(dev, options)?;
-/// assert_eq!(fs.label()?.unwrap().to_string(), "Photos");
+/// assert_eq!(fs.volume_label()?.unwrap().to_string(), "Photos");
 /// # Ok(())
 /// # }
 /// # #[cfg(not(all(feature = "sync", feature = "write", feature = "std")))]

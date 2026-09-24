@@ -16,10 +16,10 @@ use hadris_fat::{FatKind, exfat};
 use hadris_storage::host::FileDevice;
 use output::Output;
 
-use hadris_fs::sync::{DriverExt, FsDriver, extract_to_host, import_from_host};
+use hadris_fs::sync::{FileSystem, extract_to_host, import_from_host};
 use hadris_fs::tree::{FromFsOptions, NodeKind, Tree, TreeNode};
 use hadris_fs::{
-    Attributes, DirCursor, FileType, Finding, HeapTable, Metadata, NameBuf, NodeId, OpenOptions,
+    Attributes, DirCursor, FileType, Finding, HeapTable, Metadata, NodeId, OpenMode, Resolve,
     SystemClock,
 };
 
@@ -264,14 +264,14 @@ fn fat_boot(sector: &[u8; 512], kind: FatKind) -> FatBoot {
 fn volume_label(volume: &mut Volume, sector: &[u8; 512]) -> Result<String> {
     const MESSAGE: &str = "Failed to read root directory from image (image may be truncated)";
     match volume {
-        Volume::Fat(fs) => match fs.label().context(MESSAGE)? {
+        Volume::Fat(fs) => match fs.volume_label().context(MESSAGE)? {
             Some(label) if !label.as_str().is_empty() && label.as_str() != "NO NAME" => {
                 Ok(label.as_str().to_string())
             }
             _ => Ok(fat_boot(sector, fs.kind()).label),
         },
         Volume::ExFat(fs) => Ok(fs
-            .label()
+            .volume_label()
             .context(MESSAGE)?
             .map(|label| String::from_utf16_lossy(label.as_utf16()))
             .unwrap_or_default()),
@@ -289,7 +289,7 @@ fn cmd_info(image: &Path) -> Result<()> {
     let sector = boot_sector(image)?;
     let mut volume = open(image)?;
     let label = volume_label(&mut volume, &sector)?;
-    let stats = with_fs!(&mut volume, fs => fs.stats()).context("Failed to read the volume")?;
+    let stats = with_fs!(&mut volume, fs => fs.statfs()).context("Failed to read the volume")?;
 
     match &volume {
         Volume::Fat(fs) => {
@@ -341,7 +341,12 @@ fn percent(part: u64, total: u64) -> f64 {
 }
 
 /// Files and directories below `path`, counting `path` as a directory.
-fn count_tree<D: FsDriver>(fs: &mut D, path: &str, files: &mut u64, dirs: &mut u64) -> Result<()> {
+fn count_tree<D: FileSystem>(
+    fs: &mut D,
+    path: &str,
+    files: &mut u64,
+    dirs: &mut u64,
+) -> Result<()> {
     *dirs += 1;
     for (name, meta) in list_dir(fs, path)? {
         match meta.file_type() {
@@ -373,7 +378,7 @@ fn cmd_stat(image: &Path) -> Result<()> {
     let sector = boot_sector(image)?;
     let mut volume = open(image)?;
     let label = volume_label(&mut volume, &sector)?;
-    let stats = with_fs!(&mut volume, fs => fs.stats()).context("Failed to gather statistics")?;
+    let stats = with_fs!(&mut volume, fs => fs.statfs()).context("Failed to gather statistics")?;
     let (mut files, mut directories) = (0, 0);
     with_fs!(&mut volume, fs => count_tree(fs, "/", &mut files, &mut directories))
         .context("Failed to scan the filesystem")?;
@@ -425,29 +430,35 @@ fn join(dir: &str, name: &str) -> String {
     }
 }
 
+/// Resolves `path` and pins the node.
+fn resolve<D: FileSystem>(fs: &mut D, path: &str) -> Result<NodeId> {
+    fs.resolve(path.as_bytes(), Resolve::Lexical)
+        .with_context(|| format!("Failed to open: {path}"))
+}
+
 /// The entries of the directory at `path` with their metadata, in directory
 /// order.
-fn list_dir<D: FsDriver>(fs: &mut D, path: &str) -> Result<Vec<(String, Metadata)>> {
-    let mut names = Vec::new();
-    for item in fs
-        .read_dir(path)
-        .with_context(|| format!("Failed to open directory: {path}"))?
-    {
-        let item = item.context("Failed to read directory entry")?;
-        let name = item
-            .name_str()
-            .context("Directory entry name is not valid UTF-8")?;
-        names.push(name.to_string());
-    }
-    names
-        .into_iter()
-        .map(|name| {
-            let meta = fs
-                .metadata(&join(path, &name))
-                .with_context(|| format!("Failed to read metadata of {name}"))?;
-            Ok((name, meta))
-        })
-        .collect()
+fn list_dir<D: FileSystem>(fs: &mut D, path: &str) -> Result<Vec<(String, Metadata)>> {
+    let dir = resolve(fs, path)?;
+    let mut entries = Vec::new();
+    let mut cursor = DirCursor::START;
+    let listed = loop {
+        match fs.readdir(dir, cursor) {
+            Ok(Some(entry)) => {
+                cursor = entry.next_cursor();
+                match std::str::from_utf8(entry.name().as_bytes()) {
+                    Ok(name) => entries.push((name.to_string(), *entry.metadata())),
+                    Err(_) => {
+                        break Err(anyhow::anyhow!("Directory entry name is not valid UTF-8"));
+                    }
+                }
+            }
+            Ok(None) => break Ok(entries),
+            Err(err) => break Err(err).context("Failed to read directory entry"),
+        }
+    };
+    fs.forget(dir, 1);
+    listed
 }
 
 fn attribute_flags(attrs: Attributes) -> String {
@@ -462,7 +473,7 @@ fn attribute_flags(attrs: Attributes) -> String {
     .collect()
 }
 
-fn cmd_ls<D: FsDriver>(fs: &mut D, path: &str, long: bool) -> Result<()> {
+fn cmd_ls<D: FileSystem>(fs: &mut D, path: &str, long: bool) -> Result<()> {
     for (name, meta) in list_dir(fs, path)? {
         let is_dir = meta.file_type().is_dir();
         if long {
@@ -486,12 +497,12 @@ fn cmd_ls<D: FsDriver>(fs: &mut D, path: &str, long: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_tree<D: FsDriver>(fs: &mut D, path: &str, max_depth: Option<usize>) -> Result<()> {
+fn cmd_tree<D: FileSystem>(fs: &mut D, path: &str, max_depth: Option<usize>) -> Result<()> {
     println!("{path}");
     print_tree(fs, path, "", max_depth, 0)
 }
 
-fn print_tree<D: FsDriver>(
+fn print_tree<D: FileSystem>(
     fs: &mut D,
     path: &str,
     prefix: &str,
@@ -530,7 +541,7 @@ fn print_tree<D: FsDriver>(
 }
 
 /// Every file below `path`, with its path and size.
-fn walk_files<D: FsDriver>(fs: &mut D, path: &str, out: &mut Vec<(String, u64)>) -> Result<()> {
+fn walk_files<D: FileSystem>(fs: &mut D, path: &str, out: &mut Vec<(String, u64)>) -> Result<()> {
     for (name, meta) in list_dir(fs, path)? {
         let child = join(path, &name);
         match meta.file_type() {
@@ -544,8 +555,7 @@ fn walk_files<D: FsDriver>(fs: &mut D, path: &str, out: &mut Vec<(String, u64)>)
 /// The clusters of the file or directory at `path`.
 fn cluster_chain(volume: &mut Volume, path: &str) -> Result<Vec<u32>> {
     let mut chain = Vec::new();
-    let node = with_fs!(&mut *volume, fs => fs.resolve(path))
-        .with_context(|| format!("Failed to open: {path}"))?;
+    let node = with_fs!(&mut *volume, fs => resolve(&mut **fs, path))?;
     let result = match volume {
         Volume::Fat(fs) => fs
             .cluster_chain(node, |cluster| chain.push(cluster))
@@ -554,7 +564,7 @@ fn cluster_chain(volume: &mut Volume, path: &str) -> Result<Vec<u32>> {
             .cluster_chain(node, |cluster| chain.push(cluster))
             .map(drop),
     };
-    with_fs!(&mut *volume, fs => fs.forget(node));
+    with_fs!(&mut *volume, fs => fs.forget(node, 1));
     result.with_context(|| format!("Failed to read cluster chain of {path}"))?;
     Ok(chain)
 }
@@ -630,7 +640,7 @@ fn cmd_fragmentation(image: &Path, top: usize) -> Result<()> {
 fn cmd_verify(image: &Path, verbose: bool) -> Result<()> {
     let mut volume = open(image)?;
     let stats =
-        with_fs!(&mut volume, fs => fs.stats()).context("Failed to read the allocation table")?;
+        with_fs!(&mut volume, fs => fs.statfs()).context("Failed to read the allocation table")?;
     let findings = check_image(image, &volume, stats.total_blocks() + 2)
         .context("Failed to verify filesystem")?;
 
@@ -674,8 +684,13 @@ fn print_chain(chain: &[u32], offset: usize) {
 
 fn cmd_chain(image: &Path, file_path: &str) -> Result<()> {
     let mut volume = open(image)?;
-    let meta = with_fs!(&mut volume, fs => fs.metadata(file_path))
-        .with_context(|| format!("Failed to open: {file_path}"))?;
+    let meta = with_fs!(&mut volume, fs => {
+        let node = resolve(&mut **fs, file_path)?;
+        let meta = fs.stat(node);
+        fs.forget(node, 1);
+        meta
+    })
+    .with_context(|| format!("Failed to read metadata of {file_path}"))?;
     let chain = cluster_chain(&mut volume, file_path)?;
     if chain.is_empty() {
         println!("File '{file_path}' has no cluster chain (empty file)");
@@ -702,19 +717,39 @@ fn cmd_chain(image: &Path, file_path: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_cat<D: FsDriver>(fs: &mut D, path: &str) -> Result<()> {
-    let mut file = fs
-        .open(path, OpenOptions::read())
-        .with_context(|| format!("Failed to open file: {path}"))?;
+fn cmd_cat<D: FileSystem>(fs: &mut D, path: &str) -> Result<()> {
+    let node = resolve(fs, path)?;
+    let copied = copy_to_stdout(fs, node);
+    fs.forget(node, 1);
+    copied.with_context(|| format!("Failed to read file: {path}"))
+}
+
+fn copy_to_stdout<D: FileSystem>(fs: &mut D, node: NodeId) -> Result<()> {
+    fs.open(node, OpenMode::Read)?;
     let mut stdout = std::io::stdout().lock();
-    std::io::copy(&mut file, &mut stdout).context("Failed to write file to stdout")?;
-    stdout.flush()?;
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut offset = 0u64;
+    let copied = loop {
+        match fs.read(node, offset, &mut buf) {
+            Ok(0) => break stdout.flush().context("Failed to write file to stdout"),
+            Ok(n) => {
+                if let Err(err) = stdout.write_all(&buf[..n]) {
+                    break Err(err).context("Failed to write file to stdout");
+                }
+                offset += n as u64;
+            }
+            Err(err) => break Err(err.into()),
+        }
+    };
+    let closed = fs.close(node);
+    copied?;
+    closed?;
     Ok(())
 }
 
 /// Extracts `path` (the root when `None`) below `output`. The root is merged
 /// into `output`; anything else lands at `output/<stored name>`.
-fn cmd_extract<D: FsDriver>(fs: &mut D, output: &Path, path: Option<&str>) -> Result<()> {
+fn cmd_extract<D: FileSystem>(fs: &mut D, output: &Path, path: Option<&str>) -> Result<()> {
     let from = path.unwrap_or("/");
     let destination = match stored_name(fs, from)? {
         None => output.to_path_buf(),
@@ -731,16 +766,14 @@ fn cmd_extract<D: FsDriver>(fs: &mut D, output: &Path, path: Option<&str>) -> Re
 
 /// The name `path` is stored under in its directory, or `None` for the root.
 /// Fails on names that are not one plain host path component.
-fn stored_name<D: FsDriver>(fs: &mut D, path: &str) -> Result<Option<String>> {
-    let node = fs
-        .resolve(path)
-        .with_context(|| format!("Failed to open: {path}"))?;
+fn stored_name<D: FileSystem>(fs: &mut D, path: &str) -> Result<Option<String>> {
+    let node = resolve(fs, path)?;
     if node == fs.root() {
-        fs.forget(node);
+        fs.forget(node, 1);
         return Ok(None);
     }
     let found = find_name(fs, path, node);
-    fs.forget(node);
+    fs.forget(node, 1);
     let name = found?;
     if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
         bail!("Refusing to extract {path}: its stored name {name:?} is not a plain file name");
@@ -749,24 +782,21 @@ fn stored_name<D: FsDriver>(fs: &mut D, path: &str) -> Result<Option<String>> {
 }
 
 /// Scans the parent of `path` for the entry listed with id `node`.
-fn find_name<D: FsDriver>(fs: &mut D, path: &str, node: NodeId) -> Result<String> {
-    let parent = fs
-        .resolve(&format!("{path}/.."))
-        .with_context(|| format!("Failed to open the parent of {path}"))?;
-    let mut cursor = DirCursor::start();
-    let mut name = NameBuf::new();
+fn find_name<D: FileSystem>(fs: &mut D, path: &str, node: NodeId) -> Result<String> {
+    let parent = resolve(fs, &format!("{path}/.."))?;
+    let mut cursor = DirCursor::START;
     let found = loop {
-        match fs.read_dir_entry(parent, &mut cursor, &mut name) {
-            Ok(Some(entry)) if entry.node() == node => break Ok(()),
-            Ok(Some(_)) => {}
+        match fs.readdir(parent, cursor) {
+            Ok(Some(entry)) if entry.node() == node => break Ok(entry),
+            Ok(Some(entry)) => cursor = entry.next_cursor(),
             Ok(None) => break Err(anyhow::anyhow!("{path} is not listed in its directory")),
             Err(err) => break Err(err).context("Failed to read directory entry"),
         }
     };
-    fs.forget(parent);
-    found?;
-    let name =
-        std::str::from_utf8(name.as_bytes()).context("Directory entry name is not valid UTF-8")?;
+    fs.forget(parent, 1);
+    let entry = found?;
+    let name = std::str::from_utf8(entry.name().as_bytes())
+        .context("Directory entry name is not valid UTF-8")?;
     Ok(name.to_string())
 }
 

@@ -3,25 +3,27 @@
 //! A read-only NTFS reader that needs no allocator.
 //!
 //! `NtfsFs` opens a volume on a `hadris_storage` block device, in each mode
-//! (`sync::NtfsFs`, `r#async::NtfsFs`). It implements
-//! the `hadris_fs` `FsDriver` trait read-only, so the path helpers,
-//! `Volume` and handles of `hadris-fs` work on it. Node ids are file
-//! references and need no node table.
+//! (`sync::NtfsFs`, `r#async::NtfsFs`). It implements the `hadris_fs`
+//! `FileSystem` trait read-only, so `Volume` and its handles work on it.
+//! Node ids are file references and need no node table.
 //!
 //! ```rust,no_run
 //! # #[cfg(all(feature = "sync", feature = "std"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use hadris_fs::sync::DriverExt;
+//! use std::io::Read;
+//!
+//! use hadris_fs::OpenOptions;
+//! use hadris_fs::sync::Volume;
 //! use hadris_ntfs::sync::NtfsFs;
 //!
 //! let image = hadris_storage::host::FileDevice::open("disk.img")?;
-//! let mut ntfs = NtfsFs::open(image)?;
-//! for entry in ntfs.read_dir("/")? {
+//! let vol = Volume::new(NtfsFs::open(image)?);
+//! for entry in vol.read_dir("/")? {
 //!     let entry = entry?;
 //!     println!("{:?}", entry.name());
 //! }
-//! let readme = ntfs.read_to_vec("/docs/readme.txt")?;
-//! # let _ = readme;
+//! let mut readme = Vec::new();
+//! vol.open("/docs/readme.txt", OpenOptions::new().read())?.read_to_end(&mut readme)?;
 //! # Ok(())
 //! # }
 //! # #[cfg(not(all(feature = "sync", feature = "std")))]
@@ -29,7 +31,7 @@
 //! ```
 //!
 //! Beyond the trait, `NtfsFs` reads named data streams
-//! (`streams`, `read_stream_at`) and the volume label.
+//! (`streams`, `read_stream_at`).
 //!
 //! ## Supported scope
 //!
@@ -47,7 +49,7 @@
 //! streams (they fail with
 //! [`ErrorKind::Unsupported`](hadris_fs::ErrorKind::Unsupported)), interpret
 //! reparse points, read security descriptors, or descend the index B-tree
-//! by key. NTFS is a preview in Hadris 3.0: the `FsDriver` implementation
+//! by key. NTFS is a preview in Hadris 3.0: the `FileSystem` implementation
 //! follows the frozen trait, the native methods may still change. The
 //! on-disk layouts are in [`raw`].
 //!
@@ -96,11 +98,8 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
+    use hadris_fs::sync::FileSystem;
     use hadris_storage::sync as storage;
-
-    macro_rules! impl_ntfs_driver {
-        ($($t:tt)*) => { hadris_fs::impl_fs_driver!(sync, $($t)*); };
-    }
 
     #[path = "fs.rs"]
     mod fs;

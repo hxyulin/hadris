@@ -1,7 +1,7 @@
 use std::fs;
 
-use hadris_fs::sync::{FsDriver, extract_to_host};
-use hadris_fs::{DirCursor, NameBuf, NodeId};
+use hadris_fs::sync::{FileSystem, extract_to_host};
+use hadris_fs::{DirCursor, NodeId, Resolve};
 
 use super::super::args::ExtractArgs;
 use super::{Result, Udf, open};
@@ -31,14 +31,14 @@ pub fn extract(args: ExtractArgs) -> Result<()> {
 /// root. Fails on names that are not one plain host path component.
 fn stored_name(udf: &mut Udf, path: &str) -> Result<Option<String>> {
     let node = udf
-        .resolve(path)
+        .resolve(path.as_bytes(), Resolve::Lexical)
         .map_err(|err| format!("Not found: {path}: {err}"))?;
     if node == udf.root() {
-        udf.forget(node);
+        udf.forget(node, 1);
         return Ok(None);
     }
     let found = find_name(udf, path, node);
-    udf.forget(node);
+    udf.forget(node, 1);
     let name = found?;
     if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
         return Err(format!(
@@ -51,19 +51,18 @@ fn stored_name(udf: &mut Udf, path: &str) -> Result<Option<String>> {
 
 /// Scans the parent of `path` for the entry listed with id `node`.
 fn find_name(udf: &mut Udf, path: &str, node: NodeId) -> Result<String> {
-    let parent = udf.resolve(&format!("{path}/.."))?;
-    let mut cursor = DirCursor::start();
-    let mut name = NameBuf::new();
+    let parent = udf.resolve(format!("{path}/..").as_bytes(), Resolve::Lexical)?;
+    let mut cursor = DirCursor::START;
     let found = loop {
-        match udf.read_dir_entry(parent, &mut cursor, &mut name) {
+        match udf.readdir(parent, cursor) {
             Ok(Some(entry)) if entry.node() == node => {
-                break Ok(String::from_utf8_lossy(name.as_bytes()).into_owned());
+                break Ok(String::from_utf8_lossy(entry.name().as_bytes()).into_owned());
             }
-            Ok(Some(_)) => {}
+            Ok(Some(entry)) => cursor = entry.next_cursor(),
             Ok(None) => break Err(format!("{path} is not listed in its directory").into()),
             Err(err) => break Err(err.into()),
         }
     };
-    udf.forget(parent);
+    udf.forget(parent, 1);
     found
 }

@@ -37,14 +37,14 @@
 //! ```rust,no_run
 //! # #[cfg(all(feature = "iso", feature = "std", feature = "sync"))]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use hadris::fs::sync::DriverExt;
+//! use hadris::fs::sync::{FileSystem, Volume};
 //! use hadris::iso::Namespace;
 //! use hadris::iso::sync::IsoImage;
 //!
 //! let file = hadris::storage::host::FileDevice::open("image.iso")?;
-//! let mut iso = IsoImage::open(file)?;
-//! let mut view = iso.view(Namespace::Preferred)?;
-//! for entry in view.read_dir("/")? {
+//! let view = IsoImage::open(file)?.into_view(Namespace::Preferred)?;
+//! let vol = Volume::new(view);
+//! for entry in vol.read_dir("/")? {
 //!     println!("{:?}", entry?.name());
 //! }
 //! # Ok(())
@@ -63,8 +63,8 @@ pub use hadris_io as io;
 /// Block devices, adapters, slices and the block cache.
 pub use hadris_storage as storage;
 
-/// The shared filesystem vocabulary, errors, driver traits, handles and
-/// input tree.
+/// The shared filesystem vocabulary, errors, the `FileSystem` trait,
+/// `Volume` with its handles, and the input tree.
 pub use hadris_fs as fs;
 
 /// The error of writers and code that mixes devices, with the path that

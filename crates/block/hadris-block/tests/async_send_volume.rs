@@ -11,10 +11,13 @@ use hadris_block::detect::{BlockFormat, FatVariant, PartitionTableKind};
 use hadris_block::part::r#async::open;
 use hadris_block::part::{Disk, Mbr, MbrEntry, MbrType, Partition};
 use hadris_fat::{FatKind, FormatOptions};
-use hadris_fs::r#async::DriverExt;
+use hadris_fs::r#async::FileSystem;
 use hadris_fs::{Error, ErrorKind, MountError};
 use hadris_storage::r#async::BlockDevice;
 use hadris_storage::{BlockSize, MemDevice};
+
+mod common;
+use common::asynch::{get, put};
 
 type Device = MemDevice<Vec<u8>>;
 
@@ -92,8 +95,8 @@ fn opens_fat_through_an_mbr_partition() {
         let volume = OpenVolume::open(partition).await.unwrap();
         assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::Fat12));
         let mut fs = volume.into_fat().ok().unwrap();
-        fs.write_file("/HELLO.TXT", b"hello").await.unwrap();
-        assert_eq!(fs.read_to_vec("/HELLO.TXT").await.unwrap(), b"hello");
+        put(&mut fs, "/HELLO.TXT", b"hello").await.unwrap();
+        assert_eq!(get(&mut fs, "/HELLO.TXT").await.unwrap(), b"hello");
         fs.sync().await.unwrap();
         assert_eq!(fs.into_inner().offset(), 512);
     });
@@ -111,8 +114,8 @@ fn opens_exfat() {
         let volume = OpenVolume::open(dev).await.unwrap();
         assert_eq!(volume.format(), BlockFormat::Fat(FatVariant::ExFat));
         let mut fs = volume.into_exfat().ok().unwrap();
-        fs.write_file("/a.txt", b"exfat").await.unwrap();
-        assert_eq!(fs.read_to_vec("/a.txt").await.unwrap(), b"exfat");
+        put(&mut fs, "/a.txt", b"exfat").await.unwrap();
+        assert_eq!(get(&mut fs, "/a.txt").await.unwrap(), b"exfat");
         fs.sync().await.unwrap();
     });
 }

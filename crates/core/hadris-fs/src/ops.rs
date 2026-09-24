@@ -1,46 +1,61 @@
 use core::fmt;
 
-use crate::{ErrorKind, FileType};
+use crate::ErrorKind;
 
-bitflags::bitflags! {
-    /// Options for renaming a node.
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-    pub struct RenameFlags: u32 {
-        /// Fail with [`ErrorKind::AlreadyExists`] instead of replacing the target.
-        const NO_REPLACE = 1 << 0;
-    }
-}
-
-/// What `remove` expects to find under the name it removes.
-///
-/// The driver checks the type it reads anyway, so `unlink` and `rmdir`
-/// need no lookup first.
+/// How the node-level `open` opens a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum RemoveKind {
-    /// Anything but a directory, as `unlink`. A directory fails with
-    /// [`ErrorKind::IsADirectory`].
-    File,
-    /// An empty directory, as `rmdir`. Anything else fails with
-    /// [`ErrorKind::NotADirectory`].
-    Dir,
-    /// A file or an empty directory.
-    Any,
+pub enum OpenMode {
+    /// For reading.
+    Read,
+    /// For reading and writing. Fails with [`ErrorKind::ReadOnly`] on a
+    /// read-only mount.
+    Write,
 }
 
-impl RemoveKind {
-    /// Checks a node of `file_type` against the expected kind.
-    pub const fn check(self, file_type: FileType) -> Result<(), ErrorKind> {
-        match (self, file_type.is_dir()) {
-            (Self::File, true) => Err(ErrorKind::IsADirectory),
-            (Self::Dir, false) => Err(ErrorKind::NotADirectory),
-            _ => Ok(()),
-        }
-    }
+/// What `rename` does when the target name exists.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum RenameMode {
+    /// Replace the target, as `rename(2)` does. A directory replaces only an
+    /// empty directory, and a file only a file.
+    #[default]
+    Replace,
+    /// Fail with [`ErrorKind::AlreadyExists`], as `RENAME_NOREPLACE` does.
+    NoReplace,
+}
+
+/// How a path becomes a node.
+///
+/// A value, never a cargo feature, so two volumes in one program can
+/// resolve differently.
+///
+/// | | `Lexical` | `Follow` | `NoFollow` |
+/// |---|---|---|---|
+/// | `..` | Removes the previous component of the text | Goes to the real parent | Same as `Follow` |
+/// | `/a/missing/../b` | `/b` | `NotFound` | `NotFound` |
+/// | Trailing `/` on a file | Ignored | `NotADirectory` | `NotADirectory` |
+/// | Symlinks mid-path | `NotADirectory` | Followed, 40 at most | Followed |
+/// | Symlink as the last component | Returned | Followed | Returned |
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Resolve {
+    /// `..` removes the previous component of the path text, and symlinks
+    /// are never followed. Works on every filesystem with one `lookup` per
+    /// component.
+    #[default]
+    Lexical,
+    /// POSIX: every component must exist, `..` is the real parent, and
+    /// symlinks are followed, 40 at most ([`ErrorKind::Symlink`] after,
+    /// like `ELOOP`).
+    Follow,
+    /// POSIX, but a symlink in the last component is returned, as `lstat`
+    /// and `O_NOFOLLOW` see it.
+    NoFollow,
 }
 
 bitflags::bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
     struct OpenFlags: u8 {
         const READ = 1 << 0;
         const WRITE = 1 << 1;
@@ -59,6 +74,8 @@ pub enum OpenOptionsError {
     RequiresWrite,
     /// Append and truncate were both requested.
     AppendWithTruncate,
+    /// Neither read nor write access was requested.
+    NoAccess,
 }
 
 impl OpenOptionsError {
@@ -66,6 +83,7 @@ impl OpenOptionsError {
         match self {
             Self::RequiresWrite => "append, truncate and create require write access",
             Self::AppendWithTruncate => "append and truncate are mutually exclusive",
+            Self::NoAccess => "neither read nor write access was requested",
         }
     }
 
@@ -89,35 +107,35 @@ impl fmt::Display for OpenOptionsError {
 
 impl core::error::Error for OpenOptionsError {}
 
-/// How to open a file.
+/// How to open a file by path.
 ///
-/// Start from [`read`](Self::read), [`write`](Self::write) or
-/// [`read_write`](Self::read_write) and add modifiers:
+/// Start from [`new`](Self::new), which opens nothing, and add access and
+/// modifiers:
 ///
 /// ```
 /// use hadris_fs::OpenOptions;
 ///
-/// let log = OpenOptions::write().create().append();
+/// let log = OpenOptions::new().write().create().append();
 /// assert!(log.validate().is_ok());
-/// assert!(OpenOptions::read().truncate().validate().is_err());
+/// assert!(OpenOptions::new().read().truncate().validate().is_err());
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct OpenOptions(OpenFlags);
 
 impl OpenOptions {
-    /// Opens an existing file for reading.
-    pub const fn read() -> Self {
-        Self(OpenFlags::READ)
+    /// Options that request nothing yet.
+    pub const fn new() -> Self {
+        Self(OpenFlags::empty())
     }
 
-    /// Opens an existing file for writing.
-    pub const fn write() -> Self {
-        Self(OpenFlags::WRITE)
+    /// Requests read access.
+    pub const fn read(self) -> Self {
+        Self(self.0.union(OpenFlags::READ))
     }
 
-    /// Opens an existing file for reading and writing.
-    pub const fn read_write() -> Self {
-        Self(OpenFlags::READ.union(OpenFlags::WRITE))
+    /// Requests write access.
+    pub const fn write(self) -> Self {
+        Self(self.0.union(OpenFlags::WRITE))
     }
 
     /// Writes always go to the end of the file.
@@ -172,8 +190,12 @@ impl OpenOptions {
         self.0.contains(OpenFlags::CREATE_NEW)
     }
 
-    /// Rejects contradictory combinations.
+    /// Rejects contradictory combinations and options that request no
+    /// access.
     pub const fn validate(&self) -> Result<(), OpenOptionsError> {
+        if !self.is_read() && !self.is_write() {
+            return Err(OpenOptionsError::NoAccess);
+        }
         let needs_write = self.0.intersects(
             OpenFlags::APPEND
                 .union(OpenFlags::TRUNCATE)
@@ -224,49 +246,22 @@ impl DeviceNumber {
     }
 }
 
-/// The kind of node to create.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum NewNode<'a> {
-    /// An empty regular file.
-    File,
-    /// An empty directory.
-    Dir,
-    /// A symbolic link to the given target. The target is a path, so it may
-    /// contain `/`.
-    Symlink(&'a [u8]),
-    /// A device node.
-    Device(DeviceKind, DeviceNumber),
-}
-
-impl NewNode<'_> {
-    /// Returns the type of the node this creates.
-    pub const fn file_type(&self) -> FileType {
-        match self {
-            Self::File => FileType::File,
-            Self::Dir => FileType::Dir,
-            Self::Symlink(_) => FileType::Symlink,
-            Self::Device(DeviceKind::Char, _) => FileType::CharDevice,
-            Self::Device(DeviceKind::Block, _) => FileType::BlockDevice,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn open_options_valid_combinations() {
+        let new = OpenOptions::new;
         for opts in [
-            OpenOptions::read(),
-            OpenOptions::write(),
-            OpenOptions::read_write(),
-            OpenOptions::write().create().append(),
-            OpenOptions::write().create().truncate(),
-            OpenOptions::write().create_new(),
-            OpenOptions::write().create().create_new(),
-            OpenOptions::read_write().append(),
+            new().read(),
+            new().write(),
+            new().read().write(),
+            new().write().create().append(),
+            new().write().create().truncate(),
+            new().write().create_new(),
+            new().write().create().create_new(),
+            new().read().write().append(),
         ] {
             assert_eq!(opts.validate(), Ok(()), "{opts:?}");
         }
@@ -274,24 +269,26 @@ mod tests {
 
     #[test]
     fn open_options_contradictions() {
+        let new = OpenOptions::new;
+        assert_eq!(new().validate(), Err(OpenOptionsError::NoAccess));
         assert_eq!(
-            OpenOptions::read().truncate().validate(),
+            new().read().truncate().validate(),
             Err(OpenOptionsError::RequiresWrite)
         );
         assert_eq!(
-            OpenOptions::read().append().validate(),
+            new().read().append().validate(),
             Err(OpenOptionsError::RequiresWrite)
         );
         assert_eq!(
-            OpenOptions::read().create().validate(),
+            new().read().create().validate(),
             Err(OpenOptionsError::RequiresWrite)
         );
         assert_eq!(
-            OpenOptions::read().create_new().validate(),
+            new().read().create_new().validate(),
             Err(OpenOptionsError::RequiresWrite)
         );
         assert_eq!(
-            OpenOptions::write().append().truncate().validate(),
+            new().write().append().truncate().validate(),
             Err(OpenOptionsError::AppendWithTruncate)
         );
         assert_eq!(
@@ -302,30 +299,15 @@ mod tests {
 
     #[test]
     fn open_options_getters() {
-        let opts = OpenOptions::read_write().create();
+        let opts = OpenOptions::new().read().write().create();
         assert!(opts.is_read() && opts.is_write() && opts.is_create());
         assert!(!opts.is_append() && !opts.is_truncate() && !opts.is_create_new());
     }
 
     #[test]
-    fn remove_kind_checks_the_type() {
-        assert_eq!(
-            RemoveKind::File.check(FileType::Dir),
-            Err(ErrorKind::IsADirectory)
-        );
-        assert_eq!(RemoveKind::File.check(FileType::Symlink), Ok(()));
-        assert_eq!(
-            RemoveKind::Dir.check(FileType::File),
-            Err(ErrorKind::NotADirectory)
-        );
-        assert_eq!(RemoveKind::Any.check(FileType::Dir), Ok(()));
-    }
-
-    #[test]
-    fn new_node_file_type() {
-        let dev = NewNode::Device(DeviceKind::Char, DeviceNumber::new(5, 1));
-        assert_eq!(dev.file_type(), FileType::CharDevice);
-        assert_eq!(NewNode::Symlink(b"../a").file_type(), FileType::Symlink);
+    fn defaults() {
+        assert_eq!(Resolve::default(), Resolve::Lexical);
+        assert_eq!(RenameMode::default(), RenameMode::Replace);
         assert_eq!(DeviceNumber::new(5, 1).minor(), 1);
     }
 }

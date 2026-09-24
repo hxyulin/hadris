@@ -24,10 +24,11 @@ fn from_filesystem_reads_every_tier() {
         NodeKind::Symlink(b"etc")
     ));
 
-    let shared = Volume::local(fixture());
-    let tree = Tree::from_filesystem(&shared).unwrap();
+    let shared = Volume::new(fixture());
+    let tree = Tree::from_filesystem(&mut *shared.lock()).unwrap();
     assert!(tree.get("etc/up").is_some());
     assert!(tree.warnings().is_empty());
+    assert_eq!(shared.into_inner().unwrap().open_files(), 0);
 }
 
 #[test]

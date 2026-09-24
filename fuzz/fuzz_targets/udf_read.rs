@@ -9,7 +9,8 @@
 
 use std::collections::HashSet;
 
-use hadris_fs::{DirCursor, FileType, NameBuf, NodeId};
+use hadris_fs::sync::FileSystem;
+use hadris_fs::{DirCursor, FileType, NodeId};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::sync::UdfFs;
 use libfuzzer_sys::fuzz_target;
@@ -28,7 +29,7 @@ fn read_pass(fs: &mut Fs, node: NodeId) -> (Vec<u8>, bool) {
     let mut buf = [0u8; 64 * 1024];
     let mut out = Vec::new();
     loop {
-        match fs.read_at(node, out.len() as u64, &mut buf) {
+        match fs.read(node, out.len() as u64, &mut buf) {
             Ok(0) => return (out, false),
             Err(_) => return (out, true),
             Ok(n) => {
@@ -45,7 +46,8 @@ fn read_pass(fs: &mut Fs, node: NodeId) -> (Vec<u8>, bool) {
 /// sibling or ancestor directories) has a path count that grows like
 /// branching^depth, so a flat work budget bounds the entries processed.
 fn walk(fs: &mut Fs) {
-    let _ = fs.stats();
+    let _ = fs.statfs();
+    let _ = fs.label(&mut [0u8; 384]);
     let mut budget: u32 = 200_000;
     let mut stack = vec![(fs.root(), 0u32)];
     'walk: while let Some((dir, depth)) = stack.pop() {
@@ -55,21 +57,19 @@ fn walk(fs: &mut Fs) {
         let _ = fs.parent(dir);
         let mut lookups = 0usize;
         let mut seen: HashSet<Vec<u8>> = HashSet::new();
-        let mut cursor = DirCursor::start();
-        let mut name = NameBuf::new();
+        let mut cursor = DirCursor::START;
         loop {
             if budget == 0 {
                 break 'walk;
             }
             budget -= 1;
-            let entry = match fs.read_dir_entry(dir, &mut cursor, &mut name) {
+            let entry = match fs.readdir(dir, cursor) {
                 Ok(Some(entry)) => entry,
                 Ok(None) | Err(_) => break,
             };
+            cursor = entry.next_cursor();
             let node = entry.node();
-            let Some(child) = name.as_name() else {
-                continue;
-            };
+            let child = entry.name();
             let bytes = child.as_bytes().to_vec();
             if seen.insert(bytes.clone()) && lookups < MAX_LOOKUPS_PER_DIR {
                 lookups += 1;
@@ -77,21 +77,27 @@ fn walk(fs: &mut Fs) {
                     panic!("ORACLE: lookup({bytes:?}) failed to re-resolve a listed entry");
                 };
                 assert_eq!(found, node, "ORACLE: lookup({bytes:?}) found another node");
-                fs.forget(found);
+                fs.forget(found, 1);
             }
-            let _ = fs.node_metadata(node);
+            let _ = fs.stat(node);
             let _ = fs.extents(node, |_| {});
             match entry.file_type() {
                 FileType::Dir => stack.push((node, depth + 1)),
                 FileType::Symlink => {
                     let mut target = [0u8; 4096];
-                    let _ = fs.read_link(node, &mut target);
+                    let _ = fs.readlink(node, &mut target);
                 }
                 _ => {
                     let first = read_pass(fs, node);
                     let second = read_pass(fs, node);
-                    assert_eq!(first.1, second.1, "ORACLE: repeated reads of {bytes:?} disagree on success");
-                    assert!(first.0 == second.0, "ORACLE: repeated reads of {bytes:?} returned different bytes");
+                    assert_eq!(
+                        first.1, second.1,
+                        "ORACLE: repeated reads of {bytes:?} disagree on success"
+                    );
+                    assert!(
+                        first.0 == second.0,
+                        "ORACLE: repeated reads of {bytes:?} returned different bytes"
+                    );
                 }
             }
         }
@@ -104,7 +110,12 @@ fn drive(data: &[u8]) {
     let Ok(mut fs) = UdfFs::open(MemDevice::new(bytes, BlockSize::new(512).unwrap())) else {
         return;
     };
-    let _ = (fs.volume_id(), fs.logical_volume_id(), fs.revision(), fs.partitions());
+    let _ = (
+        fs.volume_id(),
+        fs.logical_volume_id(),
+        fs.revision(),
+        fs.partitions(),
+    );
     walk(&mut fs);
 }
 

@@ -37,8 +37,8 @@ Problems that are understood but not fixed yet are listed in
 
 ![Hadris architecture: applications use the umbrella crate over block, optical, and archive formats backed by shared I/O, paths, and storage](website/static/img/architecture.svg)
 
-Every filesystem driver implements the `FsDriver` trait of `hadris-fs`, so
-the path helpers, file handles and generic code work on any of them. Each
+Every filesystem driver implements the `FileSystem` trait of `hadris-fs`,
+so `Volume`, its file handles and generic code work on any of them. Each
 format keeps a native API for what the trait does not model: formatting,
 checking, FAT attributes, ISO namespaces and boot catalogs, NTFS streams.
 Image writers share one input tree instead of a trait. The category facades
@@ -75,7 +75,7 @@ organizational only: published package names such as `hadris-fat` are unchanged.
 ### Core Libraries
 
 - **[hadris-io](crates/core/hadris-io)** - No-std I/O abstraction layer (`Read`, `Write`, `Seek`)
-- **[hadris-fs](crates/core/hadris-fs)** - Shared filesystem vocabulary (names, times, metadata, error kinds), the `FsDriver` and `FileSystem` traits, `Volume`, handles, path helpers, and the input tree of the image writers
+- **[hadris-fs](crates/core/hadris-fs)** - Shared filesystem vocabulary (names, times, metadata, error kinds), the `FileSystem` trait, `Volume` and its handles, `copy_tree`, and the input tree of the image writers
 - **[hadris-common](crates/core/hadris-common)** - Internal endian-aware integer types for on-disk layouts; not for direct use
 - **[hadris-storage](crates/core/hadris-storage)** - Format-neutral block devices, geometry, slices, a block cache, and seekable-stream adapters
 - **[hadris-macros](crates/core/hadris-macros)** - Proc macros for dual sync/async code generation

@@ -1,5 +1,4 @@
-//! The in-memory test driver passes the contract kit in every mode and
-//! tier.
+//! The in-memory test driver passes the contract kit in every mode.
 
 #![cfg(all(feature = "contract", feature = "std"))]
 
@@ -7,19 +6,21 @@ mod common;
 
 #[cfg(feature = "sync")]
 #[test]
-fn sync_raw_and_shared_tiers() {
+fn sync_mode() {
     use common::sync::MemFs;
     use hadris_fs::sync::{Volume, contract};
 
-    contract::check(&mut MemFs::new()).unwrap();
+    let mut fs = MemFs::new();
+    contract::check(&mut fs).unwrap();
+    assert_eq!((fs.open_nodes(), fs.open_files()), (1, 0));
     let vol = Volume::new(MemFs::new());
-    contract::check(&mut &vol).unwrap();
-    assert_eq!(vol.into_inner().open_nodes(), 1);
+    contract::check(&mut *vol.lock()).unwrap();
+    contract::check(&mut Box::new(MemFs::new())).unwrap();
 }
 
 #[cfg(feature = "async")]
 #[test]
-fn async_modes() {
+fn async_mode() {
     use common::block_on;
 
     block_on(async {
@@ -27,7 +28,10 @@ fn async_modes() {
         hadris_fs::r#async::contract::check(&mut fs).await.unwrap();
         assert_eq!(fs.open_nodes(), 1);
         let vol = hadris_fs::r#async::Volume::new(common::asynch::MemFs::new());
-        hadris_fs::r#async::contract::check(&mut &vol)
+        hadris_fs::r#async::contract::check(&mut *vol.lock().await)
+            .await
+            .unwrap();
+        hadris_fs::r#async::contract::check_read_only(&mut common::asynch::fixture().read_only())
             .await
             .unwrap();
     });

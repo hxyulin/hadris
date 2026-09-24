@@ -1,116 +1,243 @@
 use super::*;
 
+/// Links `Follow` and `NoFollow` follow before failing with
+/// [`ErrorKind::Symlink`].
+const MAX_LINKS: u32 = 40;
+
+/// Bytes of path plus link text `Follow` and `NoFollow` hold.
+const LINK_BUFFER: usize = 1024;
+
+/// The components of `path`, skipping empty ones.
+fn components(path: &[u8]) -> impl Iterator<Item = &[u8]> + Clone {
+    path.split(|&b| b == b'/').filter(|c| !c.is_empty())
+}
+
+/// Whether a later `..` in `rest` removes the component just before it.
+fn cancelled<'a>(rest: impl Iterator<Item = &'a [u8]>) -> bool {
+    let mut depth = 0usize;
+    for component in rest {
+        match component {
+            b"." => {}
+            b".." if depth == 0 => return true,
+            b".." => depth -= 1,
+            _ => depth += 1,
+        }
+    }
+    false
+}
+
+/// Splits `path` into its parent path and last name. The last name must be
+/// a plain name: a path that is empty, the root, or ends in `.` or `..`
+/// fails with [`ErrorKind::InvalidInput`].
+#[cfg(feature = "alloc")]
+pub(super) fn split_parent(path: &[u8]) -> Result<(&[u8], &Name), ErrorKind> {
+    let mut end = path.len();
+    while end > 0 && path[end - 1] == b'/' {
+        end -= 1;
+    }
+    let start = path[..end]
+        .iter()
+        .rposition(|&b| b == b'/')
+        .map_or(0, |i| i + 1);
+    let name = &path[start..end];
+    if matches!(name, b"" | b"." | b"..") {
+        return Err(ErrorKind::InvalidInput);
+    }
+    Ok((&path[..start], Name::new(name)))
+}
+
 io_transform! {
 
-pub(super) async fn resolve_parent<'p, D: FsDriver + ?Sized>(
-    fs: &mut D,
-    path: &'p str,
-) -> FsResult<(NodeId, &'p Name), D::DeviceError> {
-    let (parent, name) = VPath::new(path).split_file().ok_or(ErrorKind::InvalidInput)?;
-    let name = Name::new(name)?;
-    Ok((fs.resolve(parent.as_str()).await?, name))
-}
-
-async fn pinned_metadata<D: FsDriver + ?Sized>(
-    fs: &mut D,
-    node: NodeId,
-) -> FsResult<Metadata, D::DeviceError> {
-    let meta = fs.node_metadata(node).await;
-    fs.forget(node);
-    meta
-}
-
-pub(super) async fn open_node<D: FsDriver + ?Sized>(
-    fs: &mut D,
-    path: &str,
-    opts: OpenOptions,
-) -> FsResult<NodeId, D::DeviceError> {
-    opts.validate().map_err(|err| Error::from(err.kind()))?;
-    if opts.is_write() && !fs.capabilities().is_writable() {
-        return Err(ErrorKind::ReadOnly.into());
-    }
-    let node = if opts.is_create() || opts.is_create_new() {
-        let (dir, name) = resolve_parent(fs, path).await?;
-        let node = match fs.lookup(dir, name).await {
-            Ok(node) if opts.is_create_new() => {
-                fs.forget(node);
-                Err(ErrorKind::AlreadyExists.into())
-            }
-            Ok(node) => Ok(node),
-            Err(err) if err.kind() == ErrorKind::NotFound => {
-                fs.create(dir, name, NewNode::File, &SetMetadata::new()).await
-            }
-            Err(err) => Err(err),
-        };
-        fs.forget(dir);
-        node?
-    } else {
-        fs.resolve(path).await?
-    };
-    let checked = match fs.node_metadata(node).await {
-        Ok(meta) if meta.file_type().is_dir() => Err(ErrorKind::IsADirectory.into()),
-        Ok(meta) if meta.file_type().is_symlink() => Err(ErrorKind::Symlink.into()),
-        Ok(meta) if opts.is_truncate() && meta.len() > 0 => fs.set_len(node, 0).await,
-        Ok(_) => Ok(()),
-        Err(err) => Err(err),
-    };
-    match checked {
-        Ok(()) => Ok(node),
-        Err(err) => {
-            fs.forget(node);
-            Err(err)
-        }
+/// The default of [`FileSystem::resolve`].
+pub(super) async fn resolve<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    path: &[u8],
+    how: Resolve,
+) -> FsResult<NodeId, F::DeviceError> {
+    match how {
+        Resolve::Lexical => lexical(fs, path).await,
+        Resolve::Follow => posix(fs, path, true).await,
+        Resolve::NoFollow => posix(fs, path, false).await,
     }
 }
 
-async fn exists<D: FsDriver + ?Sized>(fs: &mut D, path: &str) -> FsResult<bool, D::DeviceError> {
-    match fs.resolve(path).await {
-        Ok(node) => {
-            fs.forget(node);
-            Ok(true)
-        }
-        Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
-        Err(err) => Err(err),
-    }
-}
-
-pub(super) async fn create_dir_all<D: FsDriver + ?Sized>(fs: &mut D, path: &str) -> FsResult<(), D::DeviceError> {
+async fn lexical<F: FileSystem + ?Sized>(fs: &mut F, path: &[u8]) -> FsResult<NodeId, F::DeviceError> {
     let mut current: Option<NodeId> = None;
-    let mut result = Ok(());
-    for component in VPath::new(path).components() {
-        let name = match component {
-            Component::Normal(name) => match Name::new(name) {
-                Ok(name) => name,
-                Err(err) => {
-                    result = Err(err.into());
-                    break;
-                }
-            },
-            Component::Root | Component::Current => continue,
-            _ => {
-                result = Err(ErrorKind::InvalidInput.into());
-                break;
-            }
-        };
-        let dir = current.unwrap_or(fs.root());
-        let node = match fs.lookup(dir, name).await {
-            Err(err) if err.kind() == ErrorKind::NotFound => {
-                fs.create(dir, name, NewNode::Dir, &SetMetadata::new()).await
-            }
-            other => other,
-        };
-        if let Some(prev) = current.take() {
-            fs.forget(prev);
+    let mut rest = components(path);
+    while let Some(component) = rest.next() {
+        if matches!(component, b"." | b"..") || cancelled(rest.clone()) {
+            continue;
         }
-        let node = match node {
-            Ok(node) => node,
-            Err(err) => {
-                result = Err(err);
-                break;
+        let dir = current.unwrap_or(fs.root());
+        let found = fs.lookup(dir, Name::new(component)).await;
+        if let Some(prev) = current.take() {
+            fs.forget(prev, 1);
+        }
+        current = Some(found?);
+    }
+    Ok(current.unwrap_or(fs.root()))
+}
+
+/// POSIX resolution without an allocator: link targets are spliced into a
+/// fixed buffer, and a path that outgrows it fails with
+/// [`ErrorKind::LimitExceeded`]. `follow_last` says whether a symlink in the
+/// last component is followed.
+async fn posix<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    path: &[u8],
+    follow_last: bool,
+) -> FsResult<NodeId, F::DeviceError> {
+    let mut buf = [0u8; LINK_BUFFER];
+    let mut spliced: Option<usize> = None;
+    let mut pos = 0;
+    let mut links = 0;
+    let mut current = fs.root();
+    let mut want_dir = false;
+    macro_rules! check {
+        ($e:expr) => {
+            match $e {
+                Ok(v) => v,
+                Err(err) => {
+                    fs.forget(current, 1);
+                    return Err(err);
+                }
             }
         };
-        current = Some(node);
-        match fs.node_metadata(node).await {
+    }
+    macro_rules! fail {
+        ($err:expr) => {{
+            fs.forget(current, 1);
+            return Err($err.into());
+        }};
+    }
+    loop {
+        let pending = match spliced {
+            Some(start) => &buf[start..],
+            None => path,
+        };
+        while pending.get(pos) == Some(&b'/') {
+            pos += 1;
+        }
+        if pos == pending.len() {
+            break;
+        }
+        let end = pending[pos..]
+            .iter()
+            .position(|&c| c == b'/')
+            .map_or(pending.len(), |i| pos + i);
+        let (from, rest_len) = (pos, pending.len() - end);
+        want_dir = rest_len > 0;
+        pos = end;
+        let component = &pending[from..end];
+        if component == b"." {
+            let meta = check!(fs.stat(current).await);
+            if !meta.file_type().is_dir() {
+                fail!(ErrorKind::NotADirectory);
+            }
+            continue;
+        }
+        if component == b".." {
+            let up = check!(fs.parent(current).await);
+            fs.forget(current, 1);
+            current = up;
+            continue;
+        }
+        let child = check!(fs.lookup(current, Name::new(component)).await);
+        let meta = match fs.stat(child).await {
+            Ok(meta) => meta,
+            Err(err) => {
+                fs.forget(child, 1);
+                fail!(err)
+            }
+        };
+        if meta.file_type() != FileType::Symlink || (rest_len == 0 && !follow_last) {
+            fs.forget(current, 1);
+            current = child;
+            continue;
+        }
+        links += 1;
+        if links > MAX_LINKS {
+            fs.forget(child, 1);
+            fail!(ErrorKind::Symlink)
+        }
+        let sep = usize::from(rest_len > 0);
+        let Some(room) = LINK_BUFFER.checked_sub(rest_len + sep) else {
+            fs.forget(child, 1);
+            fail!(ErrorKind::LimitExceeded)
+        };
+        if spliced.is_none() {
+            buf[LINK_BUFFER - rest_len..].copy_from_slice(&path[end..]);
+        }
+        let read = fs.readlink(child, &mut buf[..room]).await.map(|target| target.len());
+        fs.forget(child, 1);
+        let len = check!(read);
+        let start = room - len;
+        buf.copy_within(..len, start);
+        if sep == 1 {
+            buf[room] = b'/';
+        }
+        if buf.get(start) == Some(&b'/') {
+            fs.forget(current, 1);
+            current = fs.root();
+        }
+        spliced = Some(start);
+        pos = 0;
+    }
+    if want_dir {
+        let meta = check!(fs.stat(current).await);
+        if !meta.file_type().is_dir() {
+            fail!(ErrorKind::NotADirectory);
+        }
+    }
+    Ok(current)
+}
+
+/// Resolves the parent of `path` with `how` and returns it pinned, with the
+/// last name.
+#[cfg(feature = "alloc")]
+pub(super) async fn resolve_parent<'p, F: FileSystem + ?Sized>(
+    fs: &mut F,
+    path: &'p [u8],
+    how: Resolve,
+) -> FsResult<(NodeId, &'p Name), F::DeviceError> {
+    let (parent, name) = split_parent(path)?;
+    Ok((fs.resolve(parent, how).await?, name))
+}
+
+/// Creates the directory `path` and every missing parent, resolving `..`
+/// as `how` does.
+#[cfg(feature = "alloc")]
+pub(super) async fn create_dir_all<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    path: &[u8],
+    how: Resolve,
+) -> FsResult<(), F::DeviceError> {
+    let mut current = fs.root();
+    let mut rest = components(path);
+    let mut result = Ok(());
+    while let Some(component) = rest.next() {
+        if component == b"." {
+            continue;
+        }
+        let next = if component == b".." {
+            if how == Resolve::Lexical {
+                continue;
+            }
+            fs.parent(current).await
+        } else if how == Resolve::Lexical && cancelled(rest.clone()) {
+            continue;
+        } else {
+            let name = Name::new(component);
+            match fs.lookup(current, name).await {
+                Err(err) if err.kind() == ErrorKind::NotFound => {
+                    fs.mkdir(current, name, &SetAttr::new()).await
+                }
+                other => other,
+            }
+        };
+        fs.forget(current, 1);
+        current = next?;
+        match fs.stat(current).await {
             Ok(meta) if meta.file_type().is_dir() => {}
             Ok(_) => {
                 result = Err(ErrorKind::NotADirectory.into());
@@ -122,314 +249,56 @@ pub(super) async fn create_dir_all<D: FsDriver + ?Sized>(fs: &mut D, path: &str)
             }
         }
     }
-    if let Some(node) = current {
-        fs.forget(node);
-    }
+    fs.forget(current, 1);
     result
 }
 
+/// Writes all of `buf` to `node` at `offset`.
 #[cfg(feature = "alloc")]
-async fn read_to_vec<D: FsDriver + ?Sized>(
-    fs: &mut D,
-    path: &str,
-) -> FsResult<alloc::vec::Vec<u8>, D::DeviceError> {
-    let mut file = OpenFile::open(fs, path, OpenOptions::read()).await?;
-    let mut out = alloc::vec::Vec::new();
-    let mut chunk = [0u8; 4096];
-    let result = loop {
-        match file.read(fs, &mut chunk).await {
-            Ok(0) => break Ok(out),
-            Ok(n) => out.extend_from_slice(&chunk[..n]),
-            Err(err) => break Err(err),
+pub(super) async fn write_all_at<F: FileSystem + ?Sized>(
+    fs: &mut F,
+    node: NodeId,
+    mut offset: u64,
+    mut buf: &[u8],
+) -> FsResult<(), F::DeviceError> {
+    while !buf.is_empty() {
+        let n = fs.write(node, offset, buf).await?;
+        if n == 0 {
+            return Err(ErrorKind::NoSpace.into());
         }
-    };
-    let closed = file.close(fs, Ok(())).await;
-    let out = result?;
-    closed?;
-    Ok(out)
+        buf = &buf[n..];
+        offset += n as u64;
+    }
+    Ok(())
 }
 
-async fn write_file<D: FsDriver + ?Sized>(fs: &mut D, path: &str, data: &[u8]) -> FsResult<(), D::DeviceError> {
-    let mut file = OpenFile::open(fs, path, OpenOptions::write().create().truncate()).await?;
-    let mut rest = data;
-    let mut result = Ok(());
-    while !rest.is_empty() {
-        match file.write(fs, rest).await {
-            Ok(0) => {
-                result = Err(ErrorKind::NoSpace.into());
-                break;
-            }
-            Ok(n) => rest = &rest[n..],
-            Err(err) => {
-                result = Err(err);
-                break;
-            }
-        }
-    }
-    file.close(fs, result).await
 }
 
-/// Removes the node at `path`, which must be of `kind`.
-async fn remove_path<D: FsDriver + ?Sized>(
-    fs: &mut D,
-    path: &str,
-    kind: RemoveKind,
-) -> FsResult<(), D::DeviceError> {
-    let (dir, name) = resolve_parent(fs, path).await?;
-    let result = fs.remove(dir, name, kind).await;
-    fs.forget(dir);
-    result
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Directories `remove_dir_all` descends before [`ErrorKind::LimitExceeded`].
-const MAX_DEPTH: usize = 64;
-
-/// Finds the name of `child` in `dir`.
-async fn name_of<D: FsDriver + ?Sized>(
-    fs: &mut D,
-    dir: NodeId,
-    child: NodeId,
-    name: &mut NameBuf,
-) -> FsResult<(), D::DeviceError> {
-    let mut cursor = DirCursor::start();
-    while let Some(entry) = fs.read_dir_entry(dir, &mut cursor, name).await? {
-        if entry.node() == child {
-            return Ok(());
-        }
-    }
-    Err(ErrorKind::NotFound.into())
-}
-
-/// Empties the directory at `top`, depth first, with a fixed stack.
-async fn empty_dir<D: FsDriver + ?Sized>(fs: &mut D, top: NodeId) -> FsResult<(), D::DeviceError> {
-    let mut stack = [top; MAX_DEPTH];
-    let mut depth = 1;
-    let mut name = NameBuf::new();
-    let result = loop {
-        let dir = stack[depth - 1];
-        let mut cursor = DirCursor::start();
-        let entry = match fs.read_dir_entry(dir, &mut cursor, &mut name).await {
-            Ok(entry) => entry,
-            Err(err) => break Err(err),
-        };
-        match entry {
-            Some(entry) if entry.file_type().is_dir() => {
-                if depth == MAX_DEPTH {
-                    break Err(ErrorKind::LimitExceeded.into());
-                }
-                let Some(child) = name.as_name() else {
-                    break Err(ErrorKind::Corrupt.into());
-                };
-                match fs.lookup(dir, child).await {
-                    Ok(node) => {
-                        stack[depth] = node;
-                        depth += 1;
-                    }
-                    Err(err) => break Err(err),
-                }
-            }
-            Some(_) => {
-                let Some(child) = name.as_name() else {
-                    break Err(ErrorKind::Corrupt.into());
-                };
-                if let Err(err) = fs.remove(dir, child, RemoveKind::File).await {
-                    break Err(err);
-                }
-            }
-            None if depth == 1 => break Ok(()),
-            None => {
-                depth -= 1;
-                let parent = stack[depth - 1];
-                let found = name_of(fs, parent, dir, &mut name).await;
-                fs.forget(dir);
-                let removed = match (found, name.as_name()) {
-                    (Ok(()), Some(child)) => fs.remove(parent, child, RemoveKind::Dir).await,
-                    (Ok(()), None) => Err(ErrorKind::Corrupt.into()),
-                    (Err(err), _) => Err(err),
-                };
-                if let Err(err) = removed {
-                    break Err(err);
-                }
-            }
-        }
-    };
-    for node in &stack[1..depth] {
-        fs.forget(*node);
-    }
-    result
-}
-
-async fn remove_dir_all<D: FsDriver + ?Sized>(fs: &mut D, path: &str) -> FsResult<(), D::DeviceError> {
-    let node = fs.resolve(path).await?;
-    let meta = fs.node_metadata(node).await;
-    let emptied = match meta {
-        Ok(meta) if !meta.file_type().is_dir() => Err(ErrorKind::NotADirectory.into()),
-        Ok(_) if node == fs.root() => Err(ErrorKind::InvalidInput.into()),
-        Ok(_) => empty_dir(fs, node).await,
-        Err(err) => Err(err),
-    };
-    fs.forget(node);
-    emptied?;
-    remove_path(fs, path, RemoveKind::Dir).await
-}
-
-async fn rename<D: FsDriver + ?Sized>(fs: &mut D, from: &str, to: &str) -> FsResult<(), D::DeviceError> {
-    let (from_dir, from_name) = resolve_parent(fs, from).await?;
-    let result = match resolve_parent(fs, to).await {
-        Ok((to_dir, to_name)) => {
-            let result = fs
-                .rename(from_dir, from_name, to_dir, to_name, RenameFlags::empty())
-                .await;
-            fs.forget(to_dir);
-            result
-        }
-        Err(err) => Err(err),
-    };
-    fs.forget(from_dir);
-    result
-}
-
-/// Path helpers for the raw tier, on `&mut self`.
-///
-/// Implemented for every [`FsDriver`]. Paths resolve with the driver's
-/// policy ([`Lexical`] unless wrapped in [`WithResolver`]).
-pub trait DriverExt: FsDriver {
-    /// Resolves paths with `resolver` instead of [`Lexical`].
-    fn with_resolver<R: Resolver>(self, resolver: R) -> WithResolver<Self, R>
-    where
-        Self: Sized,
-    {
-        WithResolver::new(self, resolver)
-    }
-
-    /// Metadata of the node at `path`.
-    async fn metadata(&mut self, path: &str) -> FsResult<Metadata, Self::DeviceError> {
-        let node = self.resolve(path).await?;
-        pinned_metadata(self, node).await
-    }
-
-    /// Whether `path` exists.
-    async fn exists(&mut self, path: &str) -> FsResult<bool, Self::DeviceError> {
-        exists(self, path).await
-    }
-
-    /// Opens `path`. The file borrows the driver until it is dropped; use
-    /// [`OpenFile`] for several files at once without a [`Volume`].
-    async fn open(&mut self, path: &str, opts: OpenOptions) -> FsResult<File<&mut Self>, Self::DeviceError> {
-        File::open(self, path, opts).await
-    }
-
-    /// Opens the directory at `path`, borrowing the driver.
-    async fn read_dir(&mut self, path: &str) -> FsResult<Dir<&mut Self>, Self::DeviceError> {
-        Dir::open(self, path).await
-    }
-
-    /// Reads a whole file.
     #[cfg(feature = "alloc")]
-    async fn read_to_vec(&mut self, path: &str) -> FsResult<alloc::vec::Vec<u8>, Self::DeviceError> {
-        read_to_vec(self, path).await
+    #[test]
+    fn split_parent_takes_the_last_name() {
+        assert_eq!(
+            split_parent(b"/a/b.txt").map(|(p, n)| (p, n.as_bytes())),
+            Ok((&b"/a/"[..], &b"b.txt"[..]))
+        );
+        assert_eq!(
+            split_parent(b"a//").map(|(p, n)| (p, n.as_bytes())),
+            Ok((&b""[..], &b"a"[..]))
+        );
+        for bad in [&b""[..], b"/", b"//", b"/a/..", b"a/."] {
+            assert_eq!(split_parent(bad).err(), Some(ErrorKind::InvalidInput));
+        }
     }
 
-    /// Creates or truncates `path` and writes `data`.
-    async fn write_file(&mut self, path: &str, data: &[u8]) -> FsResult<(), Self::DeviceError> {
-        write_file(self, path, data).await
+    #[test]
+    fn lexical_cancellation() {
+        assert!(cancelled(components(b"..")));
+        assert!(!cancelled(components(b"x/..")));
+        assert!(cancelled(components(b"x/../..")));
+        assert!(!cancelled(components(b"./x")));
     }
-
-    /// Creates `path` and every missing parent.
-    async fn create_dir_all(&mut self, path: &str) -> FsResult<(), Self::DeviceError> {
-        create_dir_all(self, path).await
-    }
-
-    /// Removes the file (or symlink) at `path`.
-    async fn remove_file(&mut self, path: &str) -> FsResult<(), Self::DeviceError> {
-        remove_path(self, path, RemoveKind::File).await
-    }
-
-    /// Removes the empty directory at `path`.
-    async fn remove_dir(&mut self, path: &str) -> FsResult<(), Self::DeviceError> {
-        remove_path(self, path, RemoveKind::Dir).await
-    }
-
-    /// Removes the directory at `path` and everything in it. Without
-    /// allocation, so directories nested more than 64 deep fail with
-    /// [`ErrorKind::LimitExceeded`] after removing what they can.
-    async fn remove_dir_all(&mut self, path: &str) -> FsResult<(), Self::DeviceError> {
-        remove_dir_all(self, path).await
-    }
-
-    /// Moves `from` to `to`, keeping the node's identity.
-    async fn rename_path(&mut self, from: &str, to: &str) -> FsResult<(), Self::DeviceError> {
-        rename(self, from, to).await
-    }
-}
-
-impl<D: FsDriver + ?Sized> DriverExt for D {}
-
-/// Path helpers for the shared and owned tiers, on `&self`.
-///
-/// Implemented for every [`FileSystem`]. The names do not overlap with the
-/// node methods, so both traits can be in scope.
-pub trait PathExt: FileSystem {
-    /// Metadata of the node at `path`.
-    async fn metadata(&self, path: &str) -> FsResult<Metadata, Self::DeviceError> {
-        let mut fs = self;
-        let node = FsDriver::resolve(&mut fs, path).await?;
-        pinned_metadata(&mut fs, node).await
-    }
-
-    /// Whether `path` exists.
-    async fn exists(&self, path: &str) -> FsResult<bool, Self::DeviceError> {
-        exists(&mut &*self, path).await
-    }
-
-    /// Opens `path`. The file borrows `self`; use [`File::open`] with an
-    /// `Arc` or `Rc` for an owned handle.
-    async fn open(&self, path: &str, opts: OpenOptions) -> FsResult<File<&Self>, Self::DeviceError> {
-        File::open(self, path, opts).await
-    }
-
-    /// Opens the directory at `path`.
-    async fn read_dir(&self, path: &str) -> FsResult<Dir<&Self>, Self::DeviceError> {
-        Dir::open(self, path).await
-    }
-
-    /// Reads a whole file.
-    #[cfg(feature = "alloc")]
-    async fn read_to_vec(&self, path: &str) -> FsResult<alloc::vec::Vec<u8>, Self::DeviceError> {
-        read_to_vec(&mut &*self, path).await
-    }
-
-    /// Creates or truncates `path` and writes `data`.
-    async fn write_file(&self, path: &str, data: &[u8]) -> FsResult<(), Self::DeviceError> {
-        write_file(&mut &*self, path, data).await
-    }
-
-    /// Creates `path` and every missing parent.
-    async fn create_dir_all(&self, path: &str) -> FsResult<(), Self::DeviceError> {
-        create_dir_all(&mut &*self, path).await
-    }
-
-    /// Removes the file (or symlink) at `path`.
-    async fn remove_file(&self, path: &str) -> FsResult<(), Self::DeviceError> {
-        remove_path(&mut &*self, path, RemoveKind::File).await
-    }
-
-    /// Removes the empty directory at `path`.
-    async fn remove_dir(&self, path: &str) -> FsResult<(), Self::DeviceError> {
-        remove_path(&mut &*self, path, RemoveKind::Dir).await
-    }
-
-    /// Removes the directory at `path` and everything in it.
-    async fn remove_dir_all(&self, path: &str) -> FsResult<(), Self::DeviceError> {
-        remove_dir_all(&mut &*self, path).await
-    }
-
-    /// Moves `from` to `to`, keeping the node's identity.
-    async fn rename_path(&self, from: &str, to: &str) -> FsResult<(), Self::DeviceError> {
-        rename(&mut &*self, from, to).await
-    }
-}
-
-impl<F: FileSystem + ?Sized> PathExt for F {}
-
 }
