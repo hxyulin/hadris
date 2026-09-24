@@ -3,33 +3,86 @@ pub use hadris_optical::cd
 pub use hadris_optical::iso
 pub use hadris_optical::udf
 pub mod hadris_optical::async
-#[non_exhaustive] pub enum hadris_optical::async::OpenOpticalImage<'a, S> where S: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek
-pub hadris_optical::async::OpenOpticalImage::Iso9660(hadris_iso::async::image::IsoImage<hadris_optical::async::StreamBlocks<&'a mut S>>)
-pub hadris_optical::async::OpenOpticalImage::Udf(hadris_udf::async::read::UdfFs<hadris_optical::async::StreamBlocks<&'a mut S>>)
-impl<'a, S> hadris_optical::async::OpenOpticalImage<'a, S> where S: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek
-pub fn hadris_optical::async::OpenOpticalImage<'a, S>::as_iso9660(&self) -> core::option::Option<&hadris_iso::async::image::IsoImage<hadris_optical::async::StreamBlocks<&'a mut S>>>
-pub fn hadris_optical::async::OpenOpticalImage<'a, S>::as_iso9660_mut(&mut self) -> core::option::Option<&mut hadris_iso::async::image::IsoImage<hadris_optical::async::StreamBlocks<&'a mut S>>>
-pub fn hadris_optical::async::OpenOpticalImage<'a, S>::as_udf(&self) -> core::option::Option<&hadris_udf::async::read::UdfFs<hadris_optical::async::StreamBlocks<&'a mut S>>>
-pub fn hadris_optical::async::OpenOpticalImage<'a, S>::as_udf_mut(&mut self) -> core::option::Option<&mut hadris_udf::async::read::UdfFs<hadris_optical::async::StreamBlocks<&'a mut S>>>
-pub const fn hadris_optical::async::OpenOpticalImage<'a, S>::format(&self) -> hadris_optical::OpticalFormat
-pub fn hadris_optical::async::OpenOpticalImage<'a, S>::into_inner(self) -> &'a mut S
-pub async fn hadris_optical::async::OpenOpticalImage<'a, S>::open(&'a mut S, hadris_optical::OpenPolicy) -> hadris_optical::Result<Self>
-pub async fn hadris_optical::async::OpenOpticalImage<'a, S>::open_detected(&'a mut S, hadris_optical::detect::OpticalFormats, hadris_optical::OpenPolicy) -> hadris_optical::Result<Self>
-pub struct hadris_optical::async::StreamBlocks<S>
-impl<S: hadris_io::legacy::async::api::Seek> hadris_optical::async::StreamBlocks<S>
-pub fn hadris_optical::async::StreamBlocks<S>::into_inner(self) -> S
-pub async fn hadris_optical::async::StreamBlocks<S>::new(S) -> core::result::Result<Self, hadris_io::legacy::error::Error>
-impl<S: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek> hadris_storage::async::api::BlockDevice for hadris_optical::async::StreamBlocks<S>
-pub fn hadris_optical::async::StreamBlocks<S>::block_count(&self) -> u64
-pub fn hadris_optical::async::StreamBlocks<S>::block_size(&self) -> hadris_storage::geometry::BlockSize
-pub async fn hadris_optical::async::StreamBlocks<S>::read_blocks(&mut self, hadris_storage::geometry::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-impl<S> hadris_io::error::ErrorType for hadris_optical::async::StreamBlocks<S>
-pub type hadris_optical::async::StreamBlocks<S>::Error = hadris_io::legacy::error::Error
+pub struct hadris_optical::async::OpenOpticalImage<D>
+impl<D: hadris_storage::async::api::BlockDevice> hadris_optical::async::OpenOpticalImage<D>
+pub fn hadris_optical::async::OpenOpticalImage<D>::as_iso(&self) -> core::option::Option<&hadris_iso::async::image::IsoView<D>>
+pub fn hadris_optical::async::OpenOpticalImage<D>::as_iso_mut(&mut self) -> core::option::Option<&mut hadris_iso::async::image::IsoView<D>>
+pub fn hadris_optical::async::OpenOpticalImage<D>::as_udf(&self) -> core::option::Option<&hadris_udf::async::read::UdfFs<D>>
+pub fn hadris_optical::async::OpenOpticalImage<D>::as_udf_mut(&mut self) -> core::option::Option<&mut hadris_udf::async::read::UdfFs<D>>
+pub fn hadris_optical::async::OpenOpticalImage<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
+pub fn hadris_optical::async::OpenOpticalImage<D>::forget(&mut self, hadris_fs::node::NodeId)
+pub fn hadris_optical::async::OpenOpticalImage<D>::format(&self) -> hadris_optical::OpticalFormat
+pub fn hadris_optical::async::OpenOpticalImage<D>::into_inner(self) -> D
+pub fn hadris_optical::async::OpenOpticalImage<D>::into_iso(self) -> core::result::Result<hadris_iso::async::image::IsoView<D>, Self>
+pub fn hadris_optical::async::OpenOpticalImage<D>::into_udf(self) -> core::result::Result<hadris_udf::async::read::UdfFs<D>, Self>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::open(D, hadris_optical::OpenPolicy) -> core::result::Result<Self, hadris_optical::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::open_detected(D, hadris_optical::detect::OpticalFormats, hadris_optical::OpenPolicy) -> core::result::Result<Self, hadris_optical::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_fs::error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::async::OpenOpticalImage<D>::root(&self) -> hadris_fs::node::NodeId
+pub async fn hadris_optical::async::OpenOpticalImage<D>::stats(&mut self) -> hadris_fs::error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+impl<D: hadris_storage::async::api::BlockDevice> core::fmt::Debug for hadris_optical::async::OpenOpticalImage<D>
+pub fn hadris_optical::async::OpenOpticalImage<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D: hadris_storage::async::api::BlockDevice> hadris_fs::async::api::driver::FsDriver for hadris_optical::async::OpenOpticalImage<D>
+pub type hadris_optical::async::OpenOpticalImage<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
+pub fn hadris_optical::async::OpenOpticalImage<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
+pub fn hadris_optical::async::OpenOpticalImage<D>::forget(&mut self, hadris_fs::node::NodeId)
+pub async fn hadris_optical::async::OpenOpticalImage<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_fs::error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async::OpenOpticalImage<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::async::OpenOpticalImage<D>::root(&self) -> hadris_fs::node::NodeId
+pub async fn hadris_optical::async::OpenOpticalImage<D>::stats(&mut self) -> hadris_fs::error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+pub mod hadris_optical::async_send
+pub struct hadris_optical::async_send::OpenOpticalImage<D>
+impl<D: hadris_storage::async_send::api::BlockDevice> hadris_optical::async_send::OpenOpticalImage<D>
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::as_iso(&self) -> core::option::Option<&hadris_iso::async_send::image::IsoView<D>>
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::as_iso_mut(&mut self) -> core::option::Option<&mut hadris_iso::async_send::image::IsoView<D>>
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::as_udf(&self) -> core::option::Option<&hadris_udf::async_send::read::UdfFs<D>>
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::as_udf_mut(&mut self) -> core::option::Option<&mut hadris_udf::async_send::read::UdfFs<D>>
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::forget(&mut self, hadris_fs::node::NodeId)
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::format(&self) -> hadris_optical::OpticalFormat
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::into_inner(self) -> D
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::into_iso(self) -> core::result::Result<hadris_iso::async_send::image::IsoView<D>, Self>
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::into_udf(self) -> core::result::Result<hadris_udf::async_send::read::UdfFs<D>, Self>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::open(D, hadris_optical::OpenPolicy) -> core::result::Result<Self, hadris_optical::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::open_detected(D, hadris_optical::detect::OpticalFormats, hadris_optical::OpenPolicy) -> core::result::Result<Self, hadris_optical::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_fs::error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::root(&self) -> hadris_fs::node::NodeId
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::stats(&mut self) -> hadris_fs::error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+impl<D: hadris_storage::async_send::api::BlockDevice> core::fmt::Debug for hadris_optical::async_send::OpenOpticalImage<D>
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D: hadris_storage::async_send::api::BlockDevice> hadris_fs::async_send::api::driver::FsDriver for hadris_optical::async_send::OpenOpticalImage<D>
+pub type hadris_optical::async_send::OpenOpticalImage<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::forget(&mut self, hadris_fs::node::NodeId)
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_fs::error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::async_send::OpenOpticalImage<D>::root(&self) -> hadris_fs::node::NodeId
+pub async fn hadris_optical::async_send::OpenOpticalImage<D>::stats(&mut self) -> hadris_fs::error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
 pub mod hadris_optical::detect
 pub mod hadris_optical::detect::async
-pub async fn hadris_optical::detect::async::detect<R>(&mut R) -> hadris_io::legacy::error::Result<core::option::Option<hadris_optical::detect::OpticalFormats>> where R: hadris_io::legacy::async::api::Read + hadris_io::legacy::async::api::Seek
+pub async fn hadris_optical::detect::async::detect<D: hadris_storage::async::api::BlockDevice + ?core::marker::Sized>(&mut D) -> core::result::Result<core::option::Option<hadris_optical::detect::OpticalFormats>, <D as hadris_io::error::ErrorType>::Error>
+pub mod hadris_optical::detect::async_send
+pub async fn hadris_optical::detect::async_send::detect<D: hadris_storage::async_send::api::BlockDevice + ?core::marker::Sized>(&mut D) -> core::result::Result<core::option::Option<hadris_optical::detect::OpticalFormats>, <D as hadris_io::error::ErrorType>::Error>
 pub mod hadris_optical::detect::sync
-pub fn hadris_optical::detect::sync::detect<R>(&mut R) -> hadris_io::legacy::error::Result<core::option::Option<hadris_optical::detect::OpticalFormats>> where R: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek
+pub fn hadris_optical::detect::sync::detect<D: hadris_storage::sync::api::BlockDevice + ?core::marker::Sized>(&mut D) -> core::result::Result<core::option::Option<hadris_optical::detect::OpticalFormats>, <D as hadris_io::error::ErrorType>::Error>
 #[non_exhaustive] pub enum hadris_optical::detect::UdfVrs
 pub hadris_optical::detect::UdfVrs::Nsr02
 pub hadris_optical::detect::UdfVrs::Nsr03
@@ -40,39 +93,48 @@ pub const fn hadris_optical::detect::OpticalFormats::is_bridge(self) -> bool
 pub const fn hadris_optical::detect::OpticalFormats::is_empty(self) -> bool
 pub const fn hadris_optical::detect::OpticalFormats::udf(self) -> core::option::Option<hadris_optical::detect::UdfVrs>
 pub mod hadris_optical::sync
-#[non_exhaustive] pub enum hadris_optical::sync::OpenOpticalImage<'a, S> where S: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek
-pub hadris_optical::sync::OpenOpticalImage::Iso9660(hadris_iso::sync::image::IsoImage<hadris_optical::sync::StreamBlocks<&'a mut S>>)
-pub hadris_optical::sync::OpenOpticalImage::Udf(hadris_udf::sync::read::UdfFs<hadris_optical::sync::StreamBlocks<&'a mut S>>)
-impl<'a, S> hadris_optical::sync::OpenOpticalImage<'a, S> where S: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek
-pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::as_iso9660(&self) -> core::option::Option<&hadris_iso::sync::image::IsoImage<hadris_optical::sync::StreamBlocks<&'a mut S>>>
-pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::as_iso9660_mut(&mut self) -> core::option::Option<&mut hadris_iso::sync::image::IsoImage<hadris_optical::sync::StreamBlocks<&'a mut S>>>
-pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::as_udf(&self) -> core::option::Option<&hadris_udf::sync::read::UdfFs<hadris_optical::sync::StreamBlocks<&'a mut S>>>
-pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::as_udf_mut(&mut self) -> core::option::Option<&mut hadris_udf::sync::read::UdfFs<hadris_optical::sync::StreamBlocks<&'a mut S>>>
-pub const fn hadris_optical::sync::OpenOpticalImage<'a, S>::format(&self) -> hadris_optical::OpticalFormat
-pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::into_inner(self) -> &'a mut S
-pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::open(&'a mut S, hadris_optical::OpenPolicy) -> hadris_optical::Result<Self>
-pub fn hadris_optical::sync::OpenOpticalImage<'a, S>::open_detected(&'a mut S, hadris_optical::detect::OpticalFormats, hadris_optical::OpenPolicy) -> hadris_optical::Result<Self>
-pub struct hadris_optical::sync::StreamBlocks<S>
-impl<S: hadris_io::legacy::sync::api::Seek> hadris_optical::sync::StreamBlocks<S>
-pub fn hadris_optical::sync::StreamBlocks<S>::into_inner(self) -> S
-pub fn hadris_optical::sync::StreamBlocks<S>::new(S) -> core::result::Result<Self, hadris_io::legacy::error::Error>
-impl<S: hadris_io::legacy::sync::api::Read + hadris_io::legacy::sync::api::Seek> hadris_storage::sync::api::BlockDevice for hadris_optical::sync::StreamBlocks<S>
-pub fn hadris_optical::sync::StreamBlocks<S>::block_count(&self) -> u64
-pub fn hadris_optical::sync::StreamBlocks<S>::block_size(&self) -> hadris_storage::geometry::BlockSize
-pub fn hadris_optical::sync::StreamBlocks<S>::read_blocks(&mut self, hadris_storage::geometry::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-impl<S> hadris_io::error::ErrorType for hadris_optical::sync::StreamBlocks<S>
-pub type hadris_optical::sync::StreamBlocks<S>::Error = hadris_io::legacy::error::Error
-#[non_exhaustive] pub enum hadris_optical::Error
-pub hadris_optical::Error::Io(hadris_io::legacy::error::Error)
-pub hadris_optical::Error::Iso(hadris_iso::error::Error<hadris_io::legacy::error::Error>)
-pub hadris_optical::Error::RequestedFormatUnavailable(hadris_optical::OpticalFormat)
-pub hadris_optical::Error::Udf(hadris_udf::error::Error<hadris_io::legacy::error::Error>)
-pub hadris_optical::Error::UnknownFormat
-impl core::convert::From<hadris_io::legacy::error::Error> for hadris_optical::Error
-pub fn hadris_optical::Error::from(hadris_io::legacy::error::Error) -> Self
-impl core::error::Error for hadris_optical::Error
-impl core::fmt::Display for hadris_optical::Error
-pub fn hadris_optical::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_optical::sync::OpenOpticalImage<D>
+impl<D: hadris_storage::sync::api::BlockDevice> hadris_optical::sync::OpenOpticalImage<D>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::as_iso(&self) -> core::option::Option<&hadris_iso::sync::image::IsoView<D>>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::as_iso_mut(&mut self) -> core::option::Option<&mut hadris_iso::sync::image::IsoView<D>>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::as_udf(&self) -> core::option::Option<&hadris_udf::sync::read::UdfFs<D>>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::as_udf_mut(&mut self) -> core::option::Option<&mut hadris_udf::sync::read::UdfFs<D>>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
+pub fn hadris_optical::sync::OpenOpticalImage<D>::forget(&mut self, hadris_fs::node::NodeId)
+pub fn hadris_optical::sync::OpenOpticalImage<D>::format(&self) -> hadris_optical::OpticalFormat
+pub fn hadris_optical::sync::OpenOpticalImage<D>::into_inner(self) -> D
+pub fn hadris_optical::sync::OpenOpticalImage<D>::into_iso(self) -> core::result::Result<hadris_iso::sync::image::IsoView<D>, Self>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::into_udf(self) -> core::result::Result<hadris_udf::sync::read::UdfFs<D>, Self>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::open(D, hadris_optical::OpenPolicy) -> core::result::Result<Self, hadris_optical::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::open_detected(D, hadris_optical::detect::OpticalFormats, hadris_optical::OpenPolicy) -> core::result::Result<Self, hadris_optical::OpenError<D, <D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_fs::error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::root(&self) -> hadris_fs::node::NodeId
+pub fn hadris_optical::sync::OpenOpticalImage<D>::stats(&mut self) -> hadris_fs::error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+impl<D: hadris_storage::sync::api::BlockDevice> core::fmt::Debug for hadris_optical::sync::OpenOpticalImage<D>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D: hadris_storage::sync::api::BlockDevice> hadris_fs::sync::api::driver::FsDriver for hadris_optical::sync::OpenOpticalImage<D>
+pub type hadris_optical::sync::OpenOpticalImage<D>::DeviceError = <D as hadris_io::error::ErrorType>::Error
+pub fn hadris_optical::sync::OpenOpticalImage<D>::capabilities(&self) -> hadris_fs::caps::Capabilities
+pub fn hadris_optical::sync::OpenOpticalImage<D>::forget(&mut self, hadris_fs::node::NodeId)
+pub fn hadris_optical::sync::OpenOpticalImage<D>::lookup(&mut self, hadris_fs::node::NodeId, &hadris_fs::name::Name) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::node_metadata(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::meta::Metadata, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::parent(&mut self, hadris_fs::node::NodeId) -> hadris_fs::error::FsResult<hadris_fs::node::NodeId, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::read_at(&mut self, hadris_fs::node::NodeId, u64, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::read_dir_entry(&mut self, hadris_fs::node::NodeId, &mut hadris_fs::dir::DirCursor, &mut hadris_fs::name::NameBuf) -> hadris_fs::error::FsResult<core::option::Option<hadris_fs::dir::DirEntry>, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::read_link(&mut self, hadris_fs::node::NodeId, &mut [u8]) -> hadris_fs::error::FsResult<usize, <D as hadris_io::error::ErrorType>::Error>
+pub fn hadris_optical::sync::OpenOpticalImage<D>::root(&self) -> hadris_fs::node::NodeId
+pub fn hadris_optical::sync::OpenOpticalImage<D>::stats(&mut self) -> hadris_fs::error::FsResult<hadris_fs::caps::FsStats, <D as hadris_io::error::ErrorType>::Error>
+#[non_exhaustive] pub enum hadris_optical::Detail
+pub hadris_optical::Detail::FormatUnavailable(hadris_optical::OpticalFormat)
+pub hadris_optical::Detail::Mount(hadris_optical::OpticalFormat)
+pub hadris_optical::Detail::UnknownFormat
+impl core::fmt::Display for hadris_optical::Detail
+pub fn hadris_optical::Detail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub enum hadris_optical::OpenPolicy
 pub hadris_optical::OpenPolicy::Iso9660
 pub hadris_optical::OpenPolicy::PreferIso9660
@@ -81,4 +143,47 @@ pub hadris_optical::OpenPolicy::Udf
 #[non_exhaustive] pub enum hadris_optical::OpticalFormat
 pub hadris_optical::OpticalFormat::Iso9660
 pub hadris_optical::OpticalFormat::Udf
-pub type hadris_optical::Result<T> = core::result::Result<T, hadris_optical::Error>
+pub struct hadris_optical::Error<E>
+impl<E> hadris_optical::Error<E>
+pub const fn hadris_optical::Error<E>::detail(&self) -> core::option::Option<hadris_optical::Detail>
+pub const fn hadris_optical::Error<E>::device_error(&self) -> core::option::Option<&E>
+pub fn hadris_optical::Error<E>::into_device_error(self) -> core::option::Option<E>
+pub const fn hadris_optical::Error<E>::kind(&self) -> hadris_fs::error::ErrorKind
+pub fn hadris_optical::Error<E>::map_device<F>(self, impl core::ops::function::FnOnce(E) -> F) -> hadris_optical::Error<F>
+impl<D, E> core::convert::From<hadris_optical::OpenError<D, E>> for hadris_optical::Error<E>
+pub fn hadris_optical::Error<E>::from(hadris_optical::OpenError<D, E>) -> Self
+impl<E: core::cmp::Eq> core::cmp::Eq for hadris_optical::Error<E>
+impl<E: core::cmp::PartialEq> core::cmp::PartialEq for hadris_optical::Error<E>
+pub fn hadris_optical::Error<E>::eq(&self, &Self) -> bool
+impl<E: core::error::Error + 'static> core::error::Error for hadris_optical::Error<E>
+pub fn hadris_optical::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_optical::Error<E>> for core::io::error::Error
+pub fn core::io::error::Error::from(hadris_optical::Error<E>) -> Self
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_optical::Error<E>> for hadris_fs::error::AnyError
+pub fn hadris_fs::error::AnyError::from(hadris_optical::Error<E>) -> Self
+impl<E: core::fmt::Display> core::fmt::Display for hadris_optical::Error<E>
+pub fn hadris_optical::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_optical::Error<E>> for hadris_fs::error::Error<E>
+pub fn hadris_fs::error::Error<E>::from(hadris_optical::Error<E>) -> Self
+pub struct hadris_optical::OpenError<D, E>
+impl<D, E> hadris_optical::OpenError<D, E>
+pub fn hadris_optical::OpenError<D, E>::device(&self) -> &D
+pub fn hadris_optical::OpenError<D, E>::error(&self) -> &hadris_optical::Error<E>
+pub fn hadris_optical::OpenError<D, E>::into_device(self) -> D
+pub fn hadris_optical::OpenError<D, E>::into_error(self) -> hadris_optical::Error<E>
+pub fn hadris_optical::OpenError<D, E>::into_parts(self) -> (hadris_optical::Error<E>, D)
+pub fn hadris_optical::OpenError<D, E>::kind(&self) -> hadris_fs::error::ErrorKind
+impl<D, E: core::error::Error + 'static> core::error::Error for hadris_optical::OpenError<D, E>
+pub fn hadris_optical::OpenError<D, E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_optical::OpenError<D, E>> for core::io::error::Error
+pub fn core::io::error::Error::from(hadris_optical::OpenError<D, E>) -> Self
+impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_optical::OpenError<D, E>> for hadris_fs::error::AnyError
+pub fn hadris_fs::error::AnyError::from(hadris_optical::OpenError<D, E>) -> Self
+impl<D, E: core::fmt::Debug> core::fmt::Debug for hadris_optical::OpenError<D, E>
+pub fn hadris_optical::OpenError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D, E: core::fmt::Display> core::fmt::Display for hadris_optical::OpenError<D, E>
+pub fn hadris_optical::OpenError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D, E> core::convert::From<hadris_optical::OpenError<D, E>> for hadris_fs::error::Error<E>
+pub fn hadris_fs::error::Error<E>::from(hadris_optical::OpenError<D, E>) -> Self
+impl<D, E> core::convert::From<hadris_optical::OpenError<D, E>> for hadris_optical::Error<E>
+pub fn hadris_optical::Error<E>::from(hadris_optical::OpenError<D, E>) -> Self
