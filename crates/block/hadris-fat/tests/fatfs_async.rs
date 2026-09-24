@@ -348,3 +348,62 @@ fn format_in_the_async_modes() {
     assert_eq!(fs.read_to_vec("/async.txt").unwrap(), b"async");
     common::fsck(&image, "async format");
 }
+
+fn assert_below<F: core::future::Future>(what: &str, future: F, limit: usize) {
+    let size = size_of_val(&future);
+    assert!(size < limit, "{what} future is {size} bytes, limit {limit}");
+}
+
+/// Mount futures hold one block buffer, and directory operations hold no
+/// block-sized buffer or extra copies of a long name or an entry set.
+#[test]
+fn async_futures_stay_small() {
+    use hadris_fat::r#async::FatFs;
+    use hadris_fat::exfat::r#async::ExFatFs;
+    use hadris_fs::FixedTable;
+    use hadris_storage::{BlockSize, MemDevice};
+
+    const BLOCK: usize = 4096;
+    let case = CASES[0];
+    let name = Name::new("a long file name.txt").unwrap();
+    let flags = RenameFlags::empty();
+    let meta = SetMetadata::new();
+    let empty = || MemDevice::new(Vec::new(), BlockSize::new(512).unwrap());
+
+    let options = hadris_fat::MountOptions::new().with_table(FixedTable::<1>::new());
+    assert_below("FatFs mount", FatFs::open_with(empty(), options), 2 * BLOCK);
+    let mut fat = block_on(FatFs::open(common::device(case, common::build(case)))).unwrap();
+    let root = fat.root();
+    assert_below(
+        "FatFs rename",
+        fat.rename(root, name, root, name, flags),
+        3456,
+    );
+    assert_below(
+        "FatFs create",
+        fat.create(root, name, NewNode::File, &meta),
+        2240,
+    );
+
+    let options = hadris_fat::exfat::MountOptions::new().with_table(FixedTable::<1>::new());
+    assert_below(
+        "ExFatFs mount",
+        ExFatFs::open_with(empty(), options),
+        3 * BLOCK,
+    );
+    let dev = MemDevice::new(vec![0u8; 4 << 20], BlockSize::new(512).unwrap());
+    let formatted =
+        hadris_fat::exfat::r#async::format(dev, hadris_fat::exfat::FormatOptions::new());
+    let mut exfat = block_on(formatted).unwrap();
+    let root = exfat.root();
+    assert_below(
+        "ExFatFs rename",
+        exfat.rename(root, name, root, name, flags),
+        2 * BLOCK,
+    );
+    assert_below(
+        "ExFatFs create",
+        exfat.create(root, name, NewNode::File, &meta),
+        4480,
+    );
+}
