@@ -1382,12 +1382,23 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
 
     /// Writes every pending size and modification time and the FAT32
     /// FSInfo free count, then flushes the device.
+    ///
+    /// A node whose short entry cannot be read any more does not stop the
+    /// others: its pending size is dropped, the rest is written, and `sync`
+    /// then fails with [`ErrorKind::Corrupt`].
     pub async fn sync(&mut self) -> FsResult<(), D::Error> {
         if !self.read_only {
             self.recover().await?;
         }
+        let mut corrupt = None;
         while let Some(id) = self.nodes.find(&mut |_, node| node.dirty) {
-            self.flush_node(id).await?;
+            match self.flush_node(id).await {
+                Err(err) if err.kind() == ErrorKind::Corrupt => {
+                    self.clean(id);
+                    corrupt = Some(err);
+                }
+                other => other?,
+            }
         }
         if self.fs_info_dirty
             && let Some(at) = self.fs_info
@@ -1398,7 +1409,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             self.write(at + FSINFO_FREE_COUNT, &info).await?;
             self.fs_info_dirty = false;
         }
-        self.flush_device().await
+        self.flush_device().await?;
+        corrupt.map_or(Ok(()), Err)
     }
 
     fn now(&self) -> DateTime {

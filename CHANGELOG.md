@@ -1016,6 +1016,23 @@ Each published package owns its version and may be released independently.
   land. A growing write that was dropped has its chain cut back to the
   file's size. The free count follows each change of the active FAT, so
   it stays exact across interruptions.
+- **hadris-fat (V3):** `ExFatFs` entry sets survive interrupted
+  operations. The entries of a set that lie in one device block are
+  written or cleared with one device write, so a set within one block is
+  never half written; across a block boundary new sets are written File
+  entry last and removed sets lose it first. The driver remembers the set
+  it was writing and the clusters an unfinished operation held, and the
+  next writing operation or `sync` removes a new set that did not land
+  whole, completes a removal, reseals an updated set (checksum and name
+  hash), frees clusters that were never linked or were unlinked but not
+  freed, and cuts back a chain a dropped write had grown. A dropped
+  `create`, `write_at` or `remove` left orphaned secondary entries or a
+  bad `SetChecksum`, after which `sync` failed with `Corrupt` and
+  `fsck.exfat` rejected the volume.
+- **hadris-fat (V3):** `sync` of `FatFs` and `ExFatFs` writes every other
+  pending node, and flushes the device, when one node's entry can no
+  longer be read; it then fails with `Corrupt` once and drops that node's
+  pending size, instead of failing before the rest on every call.
 - **hadris-iso:** Write Rock Ridge relocation placeholders compatible with
   libarchive/bsdtar and use only recognized relocation container names. Reject
   relocation when a root `rr_moved` directory would be mistaken for the container
