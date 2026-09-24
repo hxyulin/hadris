@@ -791,7 +791,7 @@ pub const fn hadris_udf::Bridge::iso_descriptors(&self) -> u32
 pub const fn hadris_udf::Bridge::new(u32) -> Self
 pub struct hadris_udf::Error<E>
 impl<E> hadris_udf::Error<E>
-pub fn hadris_udf::Error<E>::content_error(&self) -> core::option::Option<&hadris_fs::error::AnyError>
+pub fn hadris_udf::Error<E>::content_error(&self) -> core::option::Option<&hadris_fs::error::PathError>
 pub const fn hadris_udf::Error<E>::detail(&self) -> core::option::Option<hadris_udf::Detail>
 pub const fn hadris_udf::Error<E>::device_error(&self) -> core::option::Option<&E>
 pub fn hadris_udf::Error<E>::into_device_error(self) -> core::option::Option<E>
@@ -804,8 +804,8 @@ impl<E: core::error::Error + 'static> core::error::Error for hadris_udf::Error<E
 pub fn hadris_udf::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_udf::Error<E>> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_udf::Error<E>) -> Self
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_udf::Error<E>> for hadris_fs::error::AnyError
-pub fn hadris_fs::error::AnyError::from(hadris_udf::Error<E>) -> Self
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_udf::Error<E>> for hadris_fs::error::PathError
+pub fn hadris_fs::error::PathError::from(hadris_udf::Error<E>) -> Self
 impl<E: core::fmt::Display> core::fmt::Display for hadris_udf::Error<E>
 pub fn hadris_udf::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<hadris_fs::tree::TreeError> for hadris_udf::Error<E>

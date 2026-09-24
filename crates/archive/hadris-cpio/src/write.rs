@@ -418,7 +418,7 @@ impl<W: Write> CpioWriter<W> {
 }
 
 /// The byte sum of the first `len` bytes of `reader`.
-async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<u32, hadris_fs::AnyError> {
+async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<u32, hadris_fs::PathError> {
     let mut sum = 0u32;
     let mut offset = 0u64;
     while offset < len {

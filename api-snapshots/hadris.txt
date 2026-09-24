@@ -6,6 +6,7 @@ pub use hadris::ErrorKind
 pub use hadris::FsResult
 pub use hadris::Location
 pub use hadris::MountError
+pub use hadris::PathError
 pub use hadris::block
 pub use hadris::cd
 pub use hadris::cpio

@@ -43,7 +43,7 @@ for entry in volume.read_dir("/")? {
   `hadris-storage` `Slice`.
 - Every failure is an `Error<E>` with a shared `ErrorKind`, a `Detail` and
   the device's own error, and a failed open gives the device back in an
-  `OpenError`. Both convert into `hadris_fs::Error`, `AnyError` with
+  `OpenError`. Both convert into `hadris_fs::Error`, `PathError` with
   `alloc`, and `std::io::Error` with `std`.
 
 NTFS is a preview: `OpenVolume` always opens it through `FsDriver`, and
@@ -55,7 +55,7 @@ the `unstable-ntfs` feature adds the `ntfs` re-export and `as_ntfs`,
 | Feature | Default | Purpose |
 |---------|---------|---------|
 | `std` | yes | Implies `alloc`; `std::io::Error` conversions and `std::fs::File` devices |
-| `alloc` | via `std` | `AnyError` conversions |
+| `alloc` | via `std` | `PathError` conversions |
 | `sync` | yes | The blocking API in `sync` |
 | `async` | no | The asynchronous API in `r#async` |
 | `async-send` | no | The asynchronous API with `Send` futures in `async_send`; enables `async` |

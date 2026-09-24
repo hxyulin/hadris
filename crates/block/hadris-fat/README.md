@@ -92,7 +92,7 @@ let fs = FatFs::open_with(MemDevice::new(image, BlockSize::new(512).unwrap()), o
 
 A failed `open`, `open_with` or `format` returns a `hadris_fs::MountError`, which
 gives the device back through `into_device` or `into_parts`. `?` converts
-it into `hadris_fs::Error`, `AnyError` or `std::io::Error`, dropping the
+it into `hadris_fs::Error`, `PathError` or `std::io::Error`, dropping the
 device.
 
 Writes go to the device at once, except the size and modification time of

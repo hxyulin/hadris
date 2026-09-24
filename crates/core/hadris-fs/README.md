@@ -10,7 +10,7 @@ The vocabulary is mode-independent and performs no I/O:
 - `Metadata`, `SetMetadata`, `Mode` and `Attributes`
 - `Capabilities` and `FsStats`
 - `ErrorKind`, the error categories shared by every crate, with `ErrorKind::errno()` and `Errno`
-- `Error<E>`, the error of every device and filesystem operation, re-exported from `hadris-io`: a kind, a static message, an optional `Location` and `DetailCode`, and the device's own error `E` without allocation; and `AnyError` (`alloc`), which erases `E` for code that mixes devices
+- `Error<E>`, the error of every device and filesystem operation, re-exported from `hadris-io`: a kind, a static message, an optional `Location` and `DetailCode`, and the device's own error `E` without allocation; and `PathError` (`alloc`), which erases `E` and names the tree or host path that failed, for writers and code that mixes devices
 - `DirCursor` and `DirEntry` for resumable directory reads
 - `OpenOptions`, `RenameFlags`, `RemoveKind` and `NewNode`
 - `path`: allocation-free lexical virtual paths (formerly `hadris-path`)
@@ -46,7 +46,7 @@ generated from one source:
   whose `Tree::from_filesystem` builds a tree from any mounted filesystem
   (`alloc`)
 - `copy_tree` (`alloc`), which copies a file or directory tree between any
-  two filesystems on any tier and returns `AnyError`, and in the sync API
+  two filesystems on any tier and returns `PathError`, and in the sync API
   with `std`, `extract_to_host` and `import_from_host`, which copy between a
   filesystem and a host directory and refuse entry names or host symlinks
   that would leave the target directory
@@ -89,7 +89,7 @@ assert!(OpenOptions::write().create().append().validate().is_ok());
 
 | Feature | Default | Purpose |
 |---|---:|---|
-| `alloc` | No | `OwnedName`, `AnyError`, `read_to_vec`, `copy_tree`, `Box`/`Rc`/`Arc` impls, owned path normalization, and `tree` with `ContentReader` and `TreeExt` |
+| `alloc` | No | `OwnedName`, `PathError`, `read_to_vec`, `copy_tree`, `Box`/`Rc`/`Arc` impls, owned path normalization, and `tree` with `ContentReader` and `TreeExt` |
 | `std` | No | Implies `alloc`; adds `SystemClock`, `StdMutex`, `std::io` on handles, the sync host helpers, `Content::path`, `Tree::from_fs` and conversions to `std::io::Error` |
 | `sync` | No | Blocking driver traits, `Volume`, resolvers, helpers and handles in `sync` |
 | `async` | No | The same API with `async fn` in `r#async`; `AsyncMutex` with `alloc` |

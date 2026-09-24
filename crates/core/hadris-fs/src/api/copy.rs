@@ -1,5 +1,5 @@
 use super::*;
-use crate::AnyError;
+use crate::PathError;
 use alloc::vec::Vec;
 
 io_transform! {
@@ -113,7 +113,7 @@ async fn copy_file<S, D>(
     dst: &mut D,
     to: NodeId,
     meta: &SetMetadata,
-) -> Result<(), AnyError>
+) -> Result<(), PathError>
 where
     S: FsDriver + ?Sized,
     D: FsDriver + ?Sized,
@@ -141,7 +141,7 @@ async fn copy_node<S, D>(
     dst: &mut D,
     dir: NodeId,
     name: &Name,
-) -> Result<Option<Frame>, AnyError>
+) -> Result<Option<Frame>, PathError>
 where
     S: FsDriver + ?Sized,
     D: FsDriver + ?Sized,
@@ -170,7 +170,7 @@ where
     }
 }
 
-async fn walk<S, D>(src: &mut S, dst: &mut D, stack: &mut Vec<Frame>) -> Result<(), AnyError>
+async fn walk<S, D>(src: &mut S, dst: &mut D, stack: &mut Vec<Frame>) -> Result<(), PathError>
 where
     S: FsDriver + ?Sized,
     D: FsDriver + ?Sized,
@@ -208,7 +208,7 @@ where
     Ok(())
 }
 
-async fn copy_dir<S, D>(src: &mut S, node: NodeId, dst: &mut D, to: &str) -> Result<(), AnyError>
+async fn copy_dir<S, D>(src: &mut S, node: NodeId, dst: &mut D, to: &str) -> Result<(), PathError>
 where
     S: FsDriver + ?Sized,
     D: FsDriver + ?Sized,
@@ -234,7 +234,7 @@ where
     result
 }
 
-async fn copy_one<S, D>(src: &mut S, node: NodeId, dst: &mut D, to: &str) -> Result<(), AnyError>
+async fn copy_one<S, D>(src: &mut S, node: NodeId, dst: &mut D, to: &str) -> Result<(), PathError>
 where
     S: FsDriver + ?Sized,
     D: FsDriver + ?Sized,
@@ -250,7 +250,7 @@ where
 ///
 /// Both sides are any [`Access`]: `&mut fs` for a raw driver, `&vol` for a
 /// shared one, or an `Arc`. Errors from either device come back as
-/// [`AnyError`].
+/// [`PathError`].
 ///
 /// A directory is merged into `to`, which is created with its parents when
 /// missing. Existing files are overwritten; an existing node of another type,
@@ -273,7 +273,7 @@ pub async fn copy_tree<S: Access, T: Access>(
     from: &str,
     dst: T,
     to: &str,
-) -> Result<(), AnyError> {
+) -> Result<(), PathError> {
     let mut src = src.into_driver();
     let mut dst = dst.into_driver();
     let node = src.resolve(from).await?;

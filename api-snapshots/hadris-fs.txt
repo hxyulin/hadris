@@ -77,9 +77,9 @@ pub struct hadris_fs::async::ContentReader<'a>
 impl<'a> hadris_fs::async::ContentReader<'a>
 pub fn hadris_fs::async::ContentReader<'a>::is_empty(&self) -> bool
 pub fn hadris_fs::async::ContentReader<'a>::len(&self) -> u64
-pub async fn hadris_fs::async::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::AnyError>
-pub async fn hadris_fs::async::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::AnyError>
-pub async fn hadris_fs::async::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::AnyError>
+pub async fn hadris_fs::async::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::PathError>
+pub async fn hadris_fs::async::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::PathError>
+pub async fn hadris_fs::async::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::PathError>
 impl core::fmt::Debug for hadris_fs::async::ContentReader<'_>
 pub fn hadris_fs::async::ContentReader<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::async::Dir<A: hadris_fs::async::Access>
@@ -613,7 +613,7 @@ pub trait hadris_fs::async::TreeExt: core::marker::Sized
 pub async fn hadris_fs::async::TreeExt::from_filesystem<A: hadris_fs::async::Access + hadris_io::async::MaybeSend>(A) -> hadris_io::fs_error::FsResult<Self, <A as hadris_fs::async::Access>::DeviceError>
 impl hadris_fs::async::TreeExt for hadris_fs::tree::Tree
 pub async fn hadris_fs::tree::Tree::from_filesystem<A: hadris_fs::async::Access + hadris_io::async::MaybeSend>(A) -> hadris_io::fs_error::FsResult<Self, <A as hadris_fs::async::Access>::DeviceError>
-pub async fn hadris_fs::async::copy_tree<S: hadris_fs::async::Access, T: hadris_fs::async::Access>(S, &str, T, &str) -> core::result::Result<(), hadris_fs::AnyError>
+pub async fn hadris_fs::async::copy_tree<S: hadris_fs::async::Access, T: hadris_fs::async::Access>(S, &str, T, &str) -> core::result::Result<(), hadris_fs::PathError>
 pub mod hadris_fs::async_send
 pub mod hadris_fs::async_send::contract
 pub async fn hadris_fs::async_send::contract::check<Fs: hadris_fs::async_send::FsDriver + ?core::marker::Sized>(&mut Fs) -> core::result::Result<(), hadris_fs::ContractViolation>
@@ -675,9 +675,9 @@ pub struct hadris_fs::async_send::ContentReader<'a>
 impl<'a> hadris_fs::async_send::ContentReader<'a>
 pub fn hadris_fs::async_send::ContentReader<'a>::is_empty(&self) -> bool
 pub fn hadris_fs::async_send::ContentReader<'a>::len(&self) -> u64
-pub async fn hadris_fs::async_send::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::AnyError>
-pub async fn hadris_fs::async_send::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::AnyError>
-pub async fn hadris_fs::async_send::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::AnyError>
+pub async fn hadris_fs::async_send::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::PathError>
+pub async fn hadris_fs::async_send::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::PathError>
+pub async fn hadris_fs::async_send::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::PathError>
 impl core::fmt::Debug for hadris_fs::async_send::ContentReader<'_>
 pub fn hadris_fs::async_send::ContentReader<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::async_send::Dir<A: hadris_fs::async_send::Access>
@@ -1178,24 +1178,24 @@ pub trait hadris_fs::async_send::TreeExt: core::marker::Sized + core::marker::Se
 pub fn hadris_fs::async_send::TreeExt::from_filesystem<A: hadris_fs::async_send::Access + hadris_io::async_send::MaybeSend>(A) -> impl core::future::future::Future<Output = hadris_io::fs_error::FsResult<Self, <A as hadris_fs::async_send::Access>::DeviceError>> + core::marker::Send
 impl hadris_fs::async_send::TreeExt for hadris_fs::tree::Tree
 pub async fn hadris_fs::tree::Tree::from_filesystem<A: hadris_fs::async_send::Access + hadris_io::async_send::MaybeSend>(A) -> hadris_io::fs_error::FsResult<Self, <A as hadris_fs::async_send::Access>::DeviceError>
-pub async fn hadris_fs::async_send::copy_tree<S: hadris_fs::async_send::Access, T: hadris_fs::async_send::Access>(S, &str, T, &str) -> core::result::Result<(), hadris_fs::AnyError>
+pub async fn hadris_fs::async_send::copy_tree<S: hadris_fs::async_send::Access, T: hadris_fs::async_send::Access>(S, &str, T, &str) -> core::result::Result<(), hadris_fs::PathError>
 pub mod hadris_fs::path
 #[non_exhaustive] pub enum hadris_fs::path::Component<'a>
 pub hadris_fs::path::Component::Current
 pub hadris_fs::path::Component::Normal(&'a str)
 pub hadris_fs::path::Component::Parent
 pub hadris_fs::path::Component::Root
-#[non_exhaustive] pub enum hadris_fs::path::PathError
-pub hadris_fs::path::PathError::EscapesRoot
-impl hadris_fs::path::PathError
-pub const fn hadris_fs::path::PathError::kind(self) -> hadris_io::kind::ErrorKind
-impl core::convert::From<hadris_fs::path::PathError> for hadris_io::kind::ErrorKind
-pub fn hadris_io::kind::ErrorKind::from(hadris_fs::path::PathError) -> Self
-impl core::error::Error for hadris_fs::path::PathError
-impl core::fmt::Display for hadris_fs::path::PathError
-pub fn hadris_fs::path::PathError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_fs::path::PathError> for hadris_io::fs_error::Error<E>
-pub fn hadris_io::fs_error::Error<E>::from(hadris_fs::path::PathError) -> Self
+#[non_exhaustive] pub enum hadris_fs::path::NormalizeError
+pub hadris_fs::path::NormalizeError::EscapesRoot
+impl hadris_fs::path::NormalizeError
+pub const fn hadris_fs::path::NormalizeError::kind(self) -> hadris_io::kind::ErrorKind
+impl core::convert::From<hadris_fs::path::NormalizeError> for hadris_io::kind::ErrorKind
+pub fn hadris_io::kind::ErrorKind::from(hadris_fs::path::NormalizeError) -> Self
+impl core::error::Error for hadris_fs::path::NormalizeError
+impl core::fmt::Display for hadris_fs::path::NormalizeError
+pub fn hadris_fs::path::NormalizeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_fs::path::NormalizeError> for hadris_io::fs_error::Error<E>
+pub fn hadris_io::fs_error::Error<E>::from(hadris_fs::path::NormalizeError) -> Self
 #[non_exhaustive] pub enum hadris_fs::path::Separators
 pub hadris_fs::path::Separators::Slash
 pub hadris_fs::path::Separators::SlashOrBackslash
@@ -1205,7 +1205,7 @@ pub type hadris_fs::path::Components<'a>::Item = hadris_fs::path::Component<'a>
 pub fn hadris_fs::path::Components<'a>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct hadris_fs::path::VPath<'a>
 impl hadris_fs::path::VPath<'_>
-pub fn hadris_fs::path::VPath<'_>::normalize(self) -> core::result::Result<alloc::string::String, hadris_fs::path::PathError>
+pub fn hadris_fs::path::VPath<'_>::normalize(self) -> core::result::Result<alloc::string::String, hadris_fs::path::NormalizeError>
 impl<'a> hadris_fs::path::VPath<'a>
 pub const fn hadris_fs::path::VPath<'a>::as_str(self) -> &'a str
 pub fn hadris_fs::path::VPath<'a>::components(self) -> hadris_fs::path::Components<'a>
@@ -1299,9 +1299,9 @@ pub struct hadris_fs::sync::ContentReader<'a>
 impl<'a> hadris_fs::sync::ContentReader<'a>
 pub fn hadris_fs::sync::ContentReader<'a>::is_empty(&self) -> bool
 pub fn hadris_fs::sync::ContentReader<'a>::len(&self) -> u64
-pub fn hadris_fs::sync::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::AnyError>
-pub fn hadris_fs::sync::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::AnyError>
-pub fn hadris_fs::sync::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::AnyError>
+pub fn hadris_fs::sync::ContentReader<'a>::open(&'a hadris_fs::tree::Content) -> core::result::Result<Self, hadris_fs::PathError>
+pub fn hadris_fs::sync::ContentReader<'a>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<usize, hadris_fs::PathError>
+pub fn hadris_fs::sync::ContentReader<'a>::read_exact_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_fs::PathError>
 impl core::fmt::Debug for hadris_fs::sync::ContentReader<'_>
 pub fn hadris_fs::sync::ContentReader<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::sync::Dir<A: hadris_fs::sync::Access>
@@ -1853,7 +1853,7 @@ pub trait hadris_fs::sync::TreeExt: core::marker::Sized
 pub fn hadris_fs::sync::TreeExt::from_filesystem<A: hadris_fs::sync::Access + hadris_io::sync::MaybeSend>(A) -> hadris_io::fs_error::FsResult<Self, <A as hadris_fs::sync::Access>::DeviceError>
 impl hadris_fs::sync::TreeExt for hadris_fs::tree::Tree
 pub fn hadris_fs::tree::Tree::from_filesystem<A: hadris_fs::sync::Access + hadris_io::sync::MaybeSend>(A) -> hadris_io::fs_error::FsResult<Self, <A as hadris_fs::sync::Access>::DeviceError>
-pub fn hadris_fs::sync::copy_tree<S: hadris_fs::sync::Access, T: hadris_fs::sync::Access>(S, &str, T, &str) -> core::result::Result<(), hadris_fs::AnyError>
+pub fn hadris_fs::sync::copy_tree<S: hadris_fs::sync::Access, T: hadris_fs::sync::Access>(S, &str, T, &str) -> core::result::Result<(), hadris_fs::PathError>
 pub fn hadris_fs::sync::extract_to_host<S: hadris_fs::sync::Access>(S, &str, impl core::convert::AsRef<std::path::Path>) -> core::io::error::Result<()>
 pub fn hadris_fs::sync::import_from_host<T: hadris_fs::sync::Access>(impl core::convert::AsRef<std::path::Path>, T, &str) -> core::io::error::Result<()>
 pub mod hadris_fs::tree
@@ -1932,8 +1932,8 @@ impl hadris_fs::tree::TreeError
 pub const fn hadris_fs::tree::TreeError::kind(&self) -> hadris_io::kind::ErrorKind
 impl core::convert::From<hadris_fs::tree::TreeError> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_fs::tree::TreeError) -> Self
-impl core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::AnyError
-pub fn hadris_fs::AnyError::from(hadris_fs::tree::TreeError) -> Self
+impl core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::PathError
+pub fn hadris_fs::PathError::from(hadris_fs::tree::TreeError) -> Self
 impl core::convert::From<hadris_fs::tree::TreeError> for hadris_io::kind::ErrorKind
 pub fn hadris_io::kind::ErrorKind::from(hadris_fs::tree::TreeError) -> Self
 impl core::error::Error for hadris_fs::tree::TreeError
@@ -2042,28 +2042,6 @@ pub hadris_fs::RemoveKind::Dir
 pub hadris_fs::RemoveKind::File
 impl hadris_fs::RemoveKind
 pub const fn hadris_fs::RemoveKind::check(self, hadris_fs::FileType) -> core::result::Result<(), hadris_io::kind::ErrorKind>
-pub struct hadris_fs::AnyError
-impl hadris_fs::AnyError
-pub fn hadris_fs::AnyError::context(&self) -> &hadris_io::fs_error::Error<core::convert::Infallible>
-pub fn hadris_fs::AnyError::detail(&self) -> core::option::Option<hadris_io::fs_error::DetailCode>
-pub fn hadris_fs::AnyError::downcast_device<E: core::error::Error + 'static>(&self) -> core::option::Option<&E>
-pub fn hadris_fs::AnyError::kind(&self) -> hadris_io::kind::ErrorKind
-pub fn hadris_fs::AnyError::location(&self) -> core::option::Option<hadris_io::fs_error::Location>
-pub fn hadris_fs::AnyError::message(&self) -> &'static str
-impl core::convert::From<hadris_fs::AnyError> for core::io::error::Error
-pub fn core::io::error::Error::from(hadris_fs::AnyError) -> Self
-impl core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::AnyError
-pub fn hadris_fs::AnyError::from(hadris_fs::tree::TreeError) -> Self
-impl core::convert::From<hadris_io::kind::ErrorKind> for hadris_fs::AnyError
-pub fn hadris_fs::AnyError::from(hadris_io::kind::ErrorKind) -> Self
-impl core::error::Error for hadris_fs::AnyError
-pub fn hadris_fs::AnyError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl core::fmt::Display for hadris_fs::AnyError
-pub fn hadris_fs::AnyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_fs::MountError<D, E>> for hadris_fs::AnyError
-pub fn hadris_fs::AnyError::from(hadris_fs::MountError<D, E>) -> Self
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_io::fs_error::Error<E>> for hadris_fs::AnyError
-pub fn hadris_fs::AnyError::from(hadris_io::fs_error::Error<E>) -> Self
 pub struct hadris_fs::Attributes(_)
 impl hadris_fs::Attributes
 pub const hadris_fs::Attributes::ARCHIVE: Self
@@ -2349,8 +2327,8 @@ impl<D, E: core::error::Error + 'static> core::error::Error for hadris_fs::Mount
 pub fn hadris_fs::MountError<D, E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_fs::MountError<D, E>> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_fs::MountError<D, E>) -> Self
-impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_fs::MountError<D, E>> for hadris_fs::AnyError
-pub fn hadris_fs::AnyError::from(hadris_fs::MountError<D, E>) -> Self
+impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_fs::MountError<D, E>> for hadris_fs::PathError
+pub fn hadris_fs::PathError::from(hadris_fs::MountError<D, E>) -> Self
 impl<D, E: core::fmt::Debug> core::fmt::Debug for hadris_fs::MountError<D, E>
 pub fn hadris_fs::MountError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<D, E: core::fmt::Display> core::fmt::Display for hadris_fs::MountError<D, E>
@@ -2449,6 +2427,33 @@ pub fn hadris_fs::OwnedName::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::
 impl core::ops::deref::Deref for hadris_fs::OwnedName
 pub type hadris_fs::OwnedName::Target = hadris_fs::Name
 pub fn hadris_fs::OwnedName::deref(&self) -> &hadris_fs::Name
+pub struct hadris_fs::PathError
+impl hadris_fs::PathError
+pub fn hadris_fs::PathError::context(&self) -> &hadris_io::fs_error::Error<core::convert::Infallible>
+pub fn hadris_fs::PathError::detail(&self) -> core::option::Option<hadris_io::fs_error::DetailCode>
+pub fn hadris_fs::PathError::downcast_device<E: core::error::Error + 'static>(&self) -> core::option::Option<&E>
+pub fn hadris_fs::PathError::host_path(&self) -> core::option::Option<&std::path::Path>
+pub fn hadris_fs::PathError::kind(&self) -> hadris_io::kind::ErrorKind
+pub fn hadris_fs::PathError::location(&self) -> core::option::Option<hadris_io::fs_error::Location>
+pub fn hadris_fs::PathError::message(&self) -> &'static str
+pub fn hadris_fs::PathError::new(hadris_io::kind::ErrorKind, &'static str) -> Self
+pub fn hadris_fs::PathError::path(&self) -> core::option::Option<&str>
+pub fn hadris_fs::PathError::with_host_path(self, impl core::convert::Into<std::path::PathBuf>) -> Self
+pub fn hadris_fs::PathError::with_path(self, impl core::convert::Into<alloc::string::String>) -> Self
+impl core::convert::From<hadris_fs::PathError> for core::io::error::Error
+pub fn core::io::error::Error::from(hadris_fs::PathError) -> Self
+impl core::convert::From<hadris_fs::tree::TreeError> for hadris_fs::PathError
+pub fn hadris_fs::PathError::from(hadris_fs::tree::TreeError) -> Self
+impl core::convert::From<hadris_io::kind::ErrorKind> for hadris_fs::PathError
+pub fn hadris_fs::PathError::from(hadris_io::kind::ErrorKind) -> Self
+impl core::error::Error for hadris_fs::PathError
+pub fn hadris_fs::PathError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl core::fmt::Display for hadris_fs::PathError
+pub fn hadris_fs::PathError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_fs::MountError<D, E>> for hadris_fs::PathError
+pub fn hadris_fs::PathError::from(hadris_fs::MountError<D, E>) -> Self
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_io::fs_error::Error<E>> for hadris_fs::PathError
+pub fn hadris_fs::PathError::from(hadris_io::fs_error::Error<E>) -> Self
 pub struct hadris_fs::RenameFlags(_)
 impl hadris_fs::RenameFlags
 pub const hadris_fs::RenameFlags::NO_REPLACE: Self

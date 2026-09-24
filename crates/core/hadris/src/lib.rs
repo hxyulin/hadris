@@ -14,7 +14,8 @@
 //!   input tree. Always present.
 //! - [`Error`], [`ErrorKind`], [`Location`], [`DetailCode`], [`Errno`],
 //!   [`FsResult`] and [`MountError`] at the root: the one error type every
-//!   device and filesystem operation returns.
+//!   device and filesystem operation returns, and with `alloc`
+//!   `PathError`, which adds the path that failed.
 //! - `fat`, `part`, `iso`, `udf`, `cd`, `cpio`: one format crate each.
 //! - `block` and `optical`: detection and opening of whatever volume or
 //!   image a device holds.
@@ -66,6 +67,11 @@ pub use hadris_storage as storage;
 /// input tree.
 pub use hadris_fs as fs;
 
+/// The error of writers and code that mixes devices, with the path that
+/// failed.
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use hadris_fs::PathError;
 pub use hadris_fs::{DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
 
 /// FAT12, FAT16, FAT32 and exFAT.

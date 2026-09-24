@@ -121,7 +121,7 @@ pub struct Error<E> {
     detail: Option<Detail>,
     device: Option<E>,
     #[cfg(feature = "alloc")]
-    content: Option<hadris_fs::AnyError>,
+    content: Option<hadris_fs::PathError>,
 }
 
 impl<E> Error<E> {
@@ -144,7 +144,7 @@ impl<E> Error<E> {
     }
 
     #[cfg(feature = "alloc")]
-    pub(crate) fn content(err: hadris_fs::AnyError) -> Self {
+    pub(crate) fn content(err: hadris_fs::PathError) -> Self {
         Self {
             kind: err.kind(),
             detail: Some(Detail::Content),
@@ -176,7 +176,7 @@ impl<E> Error<E> {
     /// The error of reading a file's content from the tree, for
     /// [`Detail::Content`].
     #[cfg(feature = "alloc")]
-    pub fn content_error(&self) -> Option<&hadris_fs::AnyError> {
+    pub fn content_error(&self) -> Option<&hadris_fs::PathError> {
         self.content.as_ref()
     }
 
@@ -242,7 +242,7 @@ impl<E> From<Error<E>> for hadris_fs::Error<E> {
 }
 
 #[cfg(feature = "alloc")]
-impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for hadris_fs::AnyError {
+impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for hadris_fs::PathError {
     fn from(err: Error<E>) -> Self {
         match err.content {
             Some(content) => content,

@@ -153,7 +153,7 @@ async fn zero<D: BlockDevice>(out: &mut D, from: u64, to: u64, buf: &mut [u8]) -
 
 /// The sum of the image's 32-bit words from byte 64, as a boot information
 /// table records it.
-async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<u32, hadris_fs::AnyError> {
+async fn checksum(reader: &mut ContentReader<'_>, len: u64, buf: &mut [u8]) -> Result<u32, hadris_fs::PathError> {
     let words_end = 64 + (len - 64) / 4 * 4;
     let mut sum = 0u32;
     let mut offset = 64;

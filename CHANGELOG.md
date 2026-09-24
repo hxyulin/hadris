@@ -461,6 +461,20 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fs (V3):** `AnyError` is now `PathError`, the error of writers,
+  tree edits, `copy_tree` and code that mixes devices. It keeps the whole
+  context of an `Error` (kind, message, location, detail), the path that
+  failed within the tree or volume (`with_path`, `path`) and, with `std`,
+  the host path (`with_host_path`, `host_path`), and boxes the device or
+  source error as its `source()`. `Display` appends the path. Every
+  `Error<E>` and `MountError<D, E>` converts with `?`. Reading a host file
+  as tree content fails with the host path set. Converting into
+  `std::io::Error` returns an `io::Error` source as itself and otherwise
+  keeps the `PathError` as the payload.
+- **hadris-fs (V3):** The lexical path error of `path::VPath::normalize` is
+  `path::NormalizeError`, formerly `path::PathError`.
+- **hadris (V3):** `PathError` is re-exported at the crate root with
+  `alloc`.
 - **hadris-storage (V3):** `BlockDevice::read_blocks`, `write_blocks` and
   `flush` return `hadris_io::Error<Self::Error>`. A device failure is
   `Error::device`, a refused write is kind `ReadOnly`, and a request an
@@ -476,7 +490,7 @@ Each published package owns its version and may be released independently.
   a device error is only the `source()`, so chain printers show each text
   once. Converting an error without a device error into `std::io::Error`
   keeps it as the payload, an `Error<Infallible>`, instead of the bare
-  `ErrorKind`. `AnyError` keeps the message, location and detail too.
+  `ErrorKind`.
 - **hadris-block, hadris-optical (V3):** `detect` returns
   `hadris_fs::FsResult`, since block reads return `hadris_fs::Error`.
 - **hadris-storage (V3):** `Cache` keeps its blocks on an LRU list and its

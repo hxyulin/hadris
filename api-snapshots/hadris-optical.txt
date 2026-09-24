@@ -159,8 +159,8 @@ impl<E: core::error::Error + 'static> core::error::Error for hadris_optical::Err
 pub fn hadris_optical::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_optical::Error<E>> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_optical::Error<E>) -> Self
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_optical::Error<E>> for hadris_fs::error::AnyError
-pub fn hadris_fs::error::AnyError::from(hadris_optical::Error<E>) -> Self
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_optical::Error<E>> for hadris_fs::error::PathError
+pub fn hadris_fs::error::PathError::from(hadris_optical::Error<E>) -> Self
 impl<E: core::fmt::Display> core::fmt::Display for hadris_optical::Error<E>
 pub fn hadris_optical::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<hadris_io::fs_error::Error<E>> for hadris_optical::Error<E>
@@ -179,8 +179,8 @@ impl<D, E: core::error::Error + 'static> core::error::Error for hadris_optical::
 pub fn hadris_optical::OpenError<D, E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_optical::OpenError<D, E>> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_optical::OpenError<D, E>) -> Self
-impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_optical::OpenError<D, E>> for hadris_fs::error::AnyError
-pub fn hadris_fs::error::AnyError::from(hadris_optical::OpenError<D, E>) -> Self
+impl<D, E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_optical::OpenError<D, E>> for hadris_fs::error::PathError
+pub fn hadris_fs::error::PathError::from(hadris_optical::OpenError<D, E>) -> Self
 impl<D, E: core::fmt::Debug> core::fmt::Debug for hadris_optical::OpenError<D, E>
 pub fn hadris_optical::OpenError<D, E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<D, E: core::fmt::Display> core::fmt::Display for hadris_optical::OpenError<D, E>
