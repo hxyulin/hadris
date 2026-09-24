@@ -172,7 +172,8 @@ data where it is. Unchanged files are never copied.
 ECMA-119 allows eight directory levels. With Rock Ridge, deeper directories
 move into a relocation directory (`rr_moved` unless
 `RockRidge::with_relocation` names another) and appear in their real place
-to Rock Ridge readers; the name must not be taken at the root.
+to Rock Ridge readers. A root directory with that name is reused and keeps
+its own entries; a root file with that name fails.
 `Relocation::Reject` fails instead. Joliet and enhanced trees keep the real
 hierarchy.
 

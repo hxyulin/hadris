@@ -45,8 +45,9 @@ pub enum Detail {
     /// The boot catalog path clashes with an entry of the tree or has no
     /// parent directory.
     CatalogPath,
-    /// The Rock Ridge relocation directory clashes with an entry of the
-    /// root, or relocation is refused and the tree is too deep.
+    /// The Rock Ridge relocation directory's name is taken by a root entry
+    /// that is not a directory, or relocation is refused and the tree is
+    /// too deep.
     Relocation,
     /// A volume identifier does not fit its field.
     Identifier,

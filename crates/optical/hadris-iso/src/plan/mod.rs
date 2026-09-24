@@ -610,29 +610,44 @@ impl<C: Clock> Planner<'_, C> {
         if moved.is_empty() {
             return Ok(());
         }
-        let root = self.tree.root();
-        if root.child(&rr_name).is_some() || rr_name.is_empty() || rr_name.contains('/') {
+        if rr_name.is_empty() || rr_name.contains('/') {
             return Err(invalid(Detail::Relocation));
         }
-        let id = self.dirs.len();
+        let existing = self.dirs[0]
+            .dirs
+            .iter()
+            .copied()
+            .find(|&dir| self.dirs[dir].name == rr_name);
+        let id = match existing {
+            Some(id) => id,
+            None if self.tree.root().child(&rr_name).is_some() => {
+                return Err(invalid(Detail::Relocation));
+            }
+            None => {
+                let id = self.dirs.len();
+                self.dirs.push(PDir {
+                    name: rr_name.clone(),
+                    iso_name: rr_name.clone(),
+                    path: join("/", &rr_name),
+                    meta: SetMetadata::new(),
+                    parent: 0,
+                    dirs: Vec::new(),
+                    files: Vec::new(),
+                    moved_to: None,
+                    placeholders: Vec::new(),
+                    physical: Vec::new(),
+                    serial: 0,
+                });
+                self.rr_moved = Some(id);
+                id
+            }
+        };
+        self.dirs[0].physical.retain(|&dir| dir != id);
+        self.dirs[0].physical.insert(0, id);
         for &dir in &moved {
             self.dirs[dir].moved_to = Some(id);
         }
-        self.dirs.push(PDir {
-            name: rr_name.clone(),
-            iso_name: rr_name.clone(),
-            path: join("/", &rr_name),
-            meta: SetMetadata::new(),
-            parent: 0,
-            dirs: Vec::new(),
-            files: Vec::new(),
-            moved_to: None,
-            placeholders: Vec::new(),
-            physical: moved,
-            serial: 0,
-        });
-        self.dirs[0].physical.insert(0, id);
-        self.rr_moved = Some(id);
+        self.dirs[id].physical.extend(moved);
         Ok(())
     }
 

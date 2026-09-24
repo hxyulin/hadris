@@ -121,6 +121,57 @@ fn every_tree_reads_back() {
     );
 }
 
+fn names<D: FsDriver>(view: &mut D, path: &str) -> Vec<String> {
+    let dir = view.resolve(path).unwrap();
+    let mut cursor = hadris_fs::DirCursor::start();
+    let mut name = NameBuf::new();
+    let mut names = Vec::new();
+    while view
+        .read_dir_entry(dir, &mut cursor, &mut name)
+        .unwrap()
+        .is_some()
+    {
+        names.push(String::from_utf8(name.as_bytes().to_vec()).unwrap());
+    }
+    names.sort();
+    names
+}
+
+#[test]
+fn relocation_reuses_a_root_directory_of_that_name() {
+    let mut tree = sample(true, true);
+    tree.add_file("rr_moved/user.txt", Content::bytes("user"))
+        .unwrap();
+    tree.add_file("rr_moved/RRD000001/inner.txt", Content::bytes("inner"))
+        .unwrap();
+    let mut iso = IsoImage::open(image(&tree, &full())).unwrap();
+    for ns in [Namespace::RockRidge, Namespace::Joliet] {
+        let mut view = iso.view(ns).unwrap();
+        assert_eq!(
+            view.read_to_vec("/a/b/c/d/e/f/g/h/i/deep.txt").unwrap(),
+            b"deep",
+            "{ns:?}"
+        );
+        assert_eq!(
+            view.read_to_vec("/rr_moved/user.txt").unwrap(),
+            b"user",
+            "{ns:?}"
+        );
+        assert_eq!(
+            view.read_to_vec("/rr_moved/RRD000001/inner.txt").unwrap(),
+            b"inner",
+            "{ns:?}"
+        );
+        assert_eq!(
+            names(&mut view, "/rr_moved"),
+            ["RRD000001", "user.txt"],
+            "{ns:?}"
+        );
+    }
+    let mut primary = iso.view(Namespace::Primary).unwrap();
+    assert_eq!(names(&mut primary, "/RR_MOVED").len(), 3);
+}
+
 #[test]
 fn listings_resume_and_skip_dots() {
     let tree = sample(false, false);
