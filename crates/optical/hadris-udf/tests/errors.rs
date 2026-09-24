@@ -9,7 +9,7 @@ use hadris_fs::tree::{Content, Tree};
 use hadris_fs::{ErrorKind, Extent, FileTimes, NodeId, SetMetadata};
 use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::sync::UdfFs;
-use hadris_udf::{Bridge, Detail, UdfOptions};
+use hadris_udf::{Bridge, Detail, UdfOptions, UdfRevision};
 
 fn good() -> Vec<u8> {
     image(&sample(), &UdfOptions::default())
@@ -72,12 +72,44 @@ fn malformed_volumes_are_refused() {
 }
 
 #[test]
+fn damaged_entries_behind_listed_ids_are_corrupt() {
+    let good = good();
+    let mut udf = open(good.clone());
+    let node = udf.resolve("/readme.txt").unwrap();
+    let block = ((node.get() - 1) & 0xFFFF_FFFF) as u32;
+    let sector = (0..good.len() / 2048)
+        .find(|&sector| {
+            hadris_udf::raw::Tag::read(&good[sector * 2048..]).is_some_and(|tag| {
+                tag.is_checksum_valid()
+                    && matches!(tag.identifier.get(), 261 | 266)
+                    && tag.location.get() == block
+            })
+        })
+        .unwrap();
+    let mut bad = good;
+    bad[sector * 2048 + 100] ^= 0xFF;
+    let mut udf = open(bad);
+    let listed = udf.resolve("/readme.txt").unwrap();
+    assert_eq!(listed, node);
+    assert_eq!(
+        udf.node_metadata(listed).unwrap_err().kind(),
+        ErrorKind::Corrupt
+    );
+}
+
+#[test]
 fn forged_node_ids_are_invalid_handles() {
     let mut udf = open(good());
-    for raw in [0, 1, 12345, u64::MAX, (5u64 << 32) + 2] {
+    for raw in [0, 12345, u64::MAX, (5u64 << 32) + 2] {
         let err = udf.node_metadata(NodeId::new(raw)).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidHandle, "{raw}");
     }
+    let err = udf.node_metadata(NodeId::new(1)).unwrap_err();
+    assert_eq!(
+        err.kind(),
+        ErrorKind::Corrupt,
+        "an id inside a partition is read as an entry"
+    );
     let file = udf.resolve("/readme.txt").unwrap();
     assert_eq!(
         udf.lookup(file, hadris_fs::Name::new("x").unwrap())
@@ -140,6 +172,20 @@ fn the_writer_refuses_what_it_cannot_store() {
         (err.kind(), err.detail()),
         (ErrorKind::InvalidInput, Some(Detail::Identifier))
     );
+
+    for revision in [UdfRevision::V2_50, UdfRevision::V2_60] {
+        let options = UdfOptions::default().with_revision(revision);
+        let err = hadris_udf::sync::plan(&tree, &options).unwrap_err();
+        assert_eq!(
+            (err.kind(), err.detail()),
+            (ErrorKind::Unsupported, Some(Detail::PartitionMap)),
+            "UDF {revision} needs a metadata partition"
+        );
+        let mut dev = MemDevice::new(vec![0u8; 1 << 20], SECTOR);
+        let err = hadris_udf::sync::write(&mut dev, &tree, &options).unwrap_err();
+        assert_eq!(err.detail(), Some(Detail::PartitionMap));
+        assert!(dev.get_ref().iter().all(|&byte| byte == 0));
+    }
 
     let mut long = Tree::new();
     long.add_file(&"n".repeat(255), Content::empty()).unwrap();

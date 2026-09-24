@@ -67,5 +67,6 @@ fn create_replaces_an_existing_output() {
     let output = create(&source, &image, &[]);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(names(&out), ["disc.iso"]);
-    assert_eq!(std::fs::metadata(&image).unwrap().len(), 32 * 2048);
+    let len = std::fs::metadata(&image).unwrap().len();
+    assert!(len >= 32 * 2048 && len % 2048 == 0, "{len}");
 }

@@ -78,7 +78,7 @@ fn seven_zip_extracts_hadris_volumes() {
         return;
     };
     let dir = tempfile::tempdir().unwrap();
-    for revision in [UdfRevision::V1_02, UdfRevision::V2_60] {
+    for revision in [UdfRevision::V1_02, UdfRevision::V2_01] {
         let path = write(dir.path(), revision);
         let out_dir = dir.path().join(format!("out-{revision}"));
         let out = Command::new(seven)

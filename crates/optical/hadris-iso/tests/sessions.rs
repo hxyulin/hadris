@@ -143,6 +143,72 @@ fn new_boot_options_replace_the_catalog() {
     assert_eq!(view.read_to_vec("/docs/big.bin").unwrap(), pattern(100_000));
 }
 
+/// A kept catalog follows the tree path of its boot images (osdev-5).
+#[test]
+fn kept_catalogs_follow_replaced_boot_images() {
+    let tree = sample(true, true);
+    for mode in [SessionMode::Append, SessionMode::Rewrite] {
+        let mut session = Session::open(grown(image(&tree, &options()))).unwrap();
+        let replaced = vec![0x5Au8; 4096];
+        *session.tree_mut().content_mut("boot/boot.img").unwrap() =
+            Content::bytes(replaced.clone());
+        let opts = session.options();
+        let report = session.write(&opts, mode).unwrap();
+        let moved = report.extent_of("boot/boot.img").unwrap();
+        let mut iso = IsoImage::open(session.into_inner()).unwrap();
+        let catalog = iso.boot_catalog().unwrap().unwrap();
+        let entries: Vec<_> = catalog.entries().iter().map(|e| e.load_block()).collect();
+        assert_eq!(u64::from(entries[0]) * 2048, moved.offset(), "{mode:?}");
+        assert_eq!(
+            u64::from(entries[1]) * 2048,
+            report.extent_of("boot/efi.img").unwrap().offset()
+        );
+        let mut loaded = vec![0u8; 4096];
+        iso.read_bytes(moved.offset(), &mut loaded).unwrap();
+        assert_eq!(loaded, replaced);
+        let mut view = iso.view(Namespace::RockRidge).unwrap();
+        let listed = view.read_to_vec("/boot/boot.cat").unwrap();
+        assert_eq!(
+            u32::from_le_bytes(listed[40..44].try_into().unwrap()),
+            entries[0]
+        );
+    }
+
+    let mut session = Session::open(grown(image(&tree, &options()))).unwrap();
+    session.tree_mut().remove("boot/efi.img").unwrap();
+    let opts = session.options();
+    let before = session.volume_blocks();
+    let err = session.write(&opts, SessionMode::Rewrite).unwrap_err();
+    assert_eq!(
+        (err.kind(), err.detail()),
+        (
+            hadris_fs::ErrorKind::InvalidInput,
+            Some(hadris_iso::Detail::BootImage)
+        )
+    );
+    assert_eq!(session.volume_blocks(), before);
+}
+
+/// An appended session leaves the system area alone and says so when the
+/// options ask for hybrid boot (osdev-7).
+#[test]
+fn appended_sessions_report_ignored_hybrid_options() {
+    let tree = sample(false, false);
+    let mut session = Session::open(grown(image(&tree, &IsoOptions::default()))).unwrap();
+    let opts = session.options().with_hybrid(HybridBoot::mbr());
+    let report = session.write(&opts, SessionMode::Append).unwrap();
+    assert!(
+        report
+            .warnings()
+            .iter()
+            .any(|w| w.message().contains("hybrid boot options")),
+        "{:?}",
+        report.warnings()
+    );
+    let bytes = session.into_inner().into_inner();
+    assert!(bytes[..512].iter().all(|&byte| byte == 0));
+}
+
 #[test]
 fn async_sessions_match_sync_ones() {
     let tree = sample(false, true);

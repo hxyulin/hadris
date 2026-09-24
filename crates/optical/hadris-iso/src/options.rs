@@ -271,13 +271,18 @@ impl BootEntry {
     }
 
     /// Sets the emulation. The image is used as given: for diskette and
-    /// hard-disk emulation it must already hold the disk.
+    /// hard-disk emulation it must already hold the disk. A diskette image
+    /// must be exactly the diskette's size, or writing fails with
+    /// [`Detail::BootImage`](crate::Detail::BootImage).
     pub fn with_emulation(self, emulation: Emulation) -> Self {
         Self { emulation, ..self }
     }
 
     /// Sets how many 512-byte sectors firmware loads. The default is 1 for
-    /// an emulated disk and the whole image, up to 65535, otherwise.
+    /// an emulated disk and the whole image, up to 65535, otherwise. Zero
+    /// fails with [`Detail::BootImage`](crate::Detail::BootImage); a load
+    /// size past the end of a no-emulation image is written as given and
+    /// reported as a warning.
     pub fn with_load_size(self, sectors: u16) -> Self {
         Self {
             load_size: Some(sectors),
@@ -429,7 +434,9 @@ impl HybridBoot {
         Self::with_scheme(PartitionScheme::Hybrid, PartitionFlags::BOOTABLE)
     }
 
-    /// Sets the boot code in the MBR, at most 446 bytes.
+    /// Sets the boot code in the MBR, at most 446 bytes. Longer code fails
+    /// the write with [`ErrorKind::LimitExceeded`](hadris_fs::ErrorKind::LimitExceeded)
+    /// and [`Detail::HybridBoot`](crate::Detail::HybridBoot).
     pub fn with_bootstrap(self, code: impl Into<Vec<u8>>) -> Self {
         Self {
             bootstrap: Some(code.into()),
@@ -445,7 +452,8 @@ impl HybridBoot {
 
     /// Exposes the file at tree path `image` as the EFI system partition of
     /// a GPT or hybrid table. Without it, the image of the only UEFI boot
-    /// entry is used, if there is exactly one.
+    /// entry is used, if there is exactly one; with several, the table gets
+    /// no EFI system partition and the report warns.
     pub fn with_efi_partition(self, image: impl Into<String>) -> Self {
         Self {
             efi_partition: Some(image.into()),
@@ -682,12 +690,15 @@ pub enum SessionMode {
     /// tree and new file data, reusing the extents of unchanged files. The
     /// descriptors at logical sector 16 are replaced by a copy of the new
     /// set, so readers without a table of contents see the new session; the
-    /// system area and its partition tables are left as they are.
+    /// system area and its partition tables are left as they are, even
+    /// when the options have hybrid boot. The session starts after the old
+    /// volume and after every partition and backup GPT of the image.
     Append,
     /// The same image updated in place, for rewritable media and image
     /// files: new directories, path tables and file data after the old
-    /// volume, and the descriptors at sector 16 replaced. Hybrid boot data
-    /// is kept, and GPT and MBR partitions that covered the old volume are
-    /// extended, with the backup GPT moved to the new end.
+    /// volume and every partition, and the descriptors at sector 16
+    /// replaced. Hybrid boot data is kept, and GPT and MBR partitions that
+    /// ended with the old volume are extended unless that would overlap
+    /// another partition, with the backup GPT moved to the new end.
     Rewrite,
 }

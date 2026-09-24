@@ -970,6 +970,57 @@ Each published package owns its version and may be released independently.
 - **hadris-cd-cli:** `verify` accepts a Rock Ridge image whose deep
   directories were relocated: the relocation directory, which only the ISO
   side holds, is no longer reported as a mismatch.
+- **hadris-iso (V3):** Level 1 and 2 file identifiers without an extension
+  keep the separator (`README.;1`), as ECMA-119 7.5.1 requires, and names
+  split at their last dot (`x.tar.gz` becomes `X_TAR.GZ`). Joliet names
+  replace the characters Joliet forbids (`* / : ; ? \` and controls) with
+  `_`, and the `Report` warns when a Joliet name is cut to 64 characters,
+  loses characters outside the BMP or forbidden ones, or differs from a
+  sibling only in case.
+- **hadris-iso (V3):** Every directory record of a file larger than 4 GiB
+  carries its Rock Ridge entries (`PX`, `TF`, `NM`), as libisofs writes
+  them. Only the first did, so `bsdtar` refused the image and xorriso
+  showed the file with mode `0000` under its primary name.
+- **hadris-iso (V3):** Images and sessions end in 150 zero blocks counted
+  in the volume space size, as xorriso and `mkisofs -pad` write by
+  default. `isoinfo` refused images shorter than 48 blocks ("Short read on
+  old image").
+- **hadris-iso (V3):** `HybridBoot::with_bootstrap` code over 446 bytes
+  fails with `ErrorKind::LimitExceeded` and `Detail::HybridBoot` instead of
+  being cut. El Torito entries are checked before writing: a load size of
+  zero and a diskette image that is not exactly its diskette's size fail
+  with `Detail::BootImage`, as `mkisofs` refuses them; a no-emulation load
+  size past the image is written and reported as a warning. A GPT or
+  hybrid table with several UEFI entries and no
+  `HybridBoot::with_efi_partition` warns that it has no EFI system
+  partition.
+- **hadris-iso, hadris-udf (V3):** A damaged record or entry reached
+  through a node id the driver listed fails with `ErrorKind::Corrupt`
+  instead of `InvalidHandle`. `InvalidHandle` is kept for ids no record can
+  have: for ISO zero, odd or past the volume and the device, for UDF
+  outside every partition. A directory record or file identifier that
+  points outside the image fails the listing as corrupt.
+- **hadris-udf (V3):** The writer refuses UDF 2.50 and 2.60 with
+  `ErrorKind::Unsupported` and `Detail::PartitionMap`: those revisions
+  require a metadata partition (UDF 2.50 2.2.10), which it does not write.
+  It labelled type 1 volumes 2.50 or 2.60 before, which conforming readers
+  may refuse.
+- **hadris-iso (V3):** `Session` keeps its boot catalog in step with the
+  tree: an entry whose boot image was replaced points at the new content,
+  patched in the kept catalog, and removing a boot image the catalog loads
+  fails with `Detail::BootImage` instead of leaving the old loader
+  bootable. Sessions start after every partition and backup GPT, so
+  partitions `xorriso -append_partition` put after the ISO data are no
+  longer overwritten by `Append` or refused by `Rewrite` with a misleading
+  `Detail::HybridBoot`; a partition that cannot grow without overlapping
+  another keeps its size and is reported. `Append` warns when the options
+  have hybrid boot it does not apply, and the `Session::write` and
+  `SessionMode` docs say which mode writes the system area.
+- **hadris-iso (V3):** In the Rock Ridge view, the names of a hard link
+  share one node id: the first record in path table order with the same
+  `PX` serial number, or without one, the same data extent. They had one
+  id per name while reporting two links, so `Tree::from_filesystem` and
+  FUSE adapters split them into separate files.
 
 ## [2.4.0] - 2026-09-08
 

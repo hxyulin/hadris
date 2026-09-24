@@ -44,8 +44,9 @@ impl Report {
         self.warnings.push(warning);
     }
 
-    /// The image length in 2048-byte blocks, including a backup GPT and,
-    /// for a session, the sessions before it.
+    /// The image length in 2048-byte blocks, including the 150 zero blocks
+    /// after the data (as xorriso and `mkisofs -pad` write), a backup GPT
+    /// and, for a session, the sessions before it.
     pub fn total_blocks(&self) -> u64 {
         self.total_blocks
     }

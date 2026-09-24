@@ -51,7 +51,7 @@ End:            UDF anchor at N-256 and 256 blocks after it
 ## Features
 
 - **ISO 9660** with Joliet (Windows long filenames) and Rock Ridge (POSIX)
-- **Selectable mastered UDF revisions** from 1.02 through 2.60
+- **Selectable mastered UDF revisions** from 1.02 through 2.01
 - **El-Torito** bootable images (BIOS and UEFI)
 - **Hybrid MBR+GPT** for USB booting
 

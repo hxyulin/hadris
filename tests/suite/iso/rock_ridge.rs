@@ -3,9 +3,10 @@
 
 use std::fs;
 
+use hadris_fs::sync::{DriverExt, FsDriver, TreeExt};
 use hadris_fs::tree::{Content, Tree};
 use hadris_iso::raw::{DirectoryRecord, SuspEntries};
-use hadris_iso::{IsoOptions, RockRidge, VolumeIdentifiers};
+use hadris_iso::{IsoOptions, Namespace, RockRidge, VolumeIdentifiers};
 use hadris_tests::iso::hadris::write_tree;
 use hadris_tests::iso::xorriso;
 use tempfile::TempDir;
@@ -145,5 +146,57 @@ fn test_hadris_rockridge_roundtrip() {
         );
         let output = xorriso::inspect(&iso_path, &["-ls", "/"]);
         println!("xorriso ls /: {}", String::from_utf8_lossy(&output.stdout));
+    }
+}
+
+/// The names of a Rock Ridge hard link share one node id, so importing
+/// the image keeps them linked (integrate-2). Checked on an image Hadris
+/// writes (shared `PX` serial) and one xorriso writes with `--hardlinks`.
+#[test]
+fn hard_links_share_a_node_id() {
+    let mut tree = Tree::new();
+    tree.add_file("a.txt", Content::bytes("data\n")).unwrap();
+    tree.add_file("other.txt", Content::bytes("other\n"))
+        .unwrap();
+    tree.add_hard_link("sub/b.txt", "a.txt").unwrap();
+    let options = IsoOptions::default().with_rock_ridge(RockRidge::default());
+    let mut images = vec![("hadris", write_tree(&tree, &options).unwrap())];
+    let temp = TempDir::new().unwrap();
+    if xorriso::require() {
+        let source = temp.path().join("source");
+        fs::create_dir_all(source.join("sub")).unwrap();
+        fs::write(source.join("a.txt"), "data\n").unwrap();
+        fs::write(source.join("other.txt"), "other\n").unwrap();
+        fs::hard_link(source.join("a.txt"), source.join("sub/b.txt")).unwrap();
+        let image = temp.path().join("xorriso.iso");
+        xorriso::mkisofs(&source, &image, "LINKS", &["-R", "--hardlinks"]).unwrap();
+        images.push(("xorriso", fs::read(image).unwrap()));
+    }
+    for (producer, bytes) in images {
+        let mut iso = open(bytes);
+        let mut view = iso.view(Namespace::RockRidge).unwrap();
+        let a = view.resolve("/a.txt").unwrap();
+        let b = view.resolve("/sub/b.txt").unwrap();
+        let other = view.resolve("/other.txt").unwrap();
+        assert_eq!(a, b, "{producer}");
+        assert_ne!(a, other, "{producer}");
+        assert_eq!(view.metadata("/sub/b.txt").unwrap().nlink(), 2);
+        assert_eq!(view.read_to_vec("/sub/b.txt").unwrap(), b"data\n");
+        let sub = view.resolve("/sub").unwrap();
+        let mut cursor = hadris_fs::DirCursor::start();
+        let mut name = hadris_fs::NameBuf::new();
+        let entry = view
+            .read_dir_entry(sub, &mut cursor, &mut name)
+            .unwrap()
+            .unwrap();
+        assert_eq!(entry.node(), a, "{producer}");
+
+        let imported = Tree::from_filesystem(&mut view).unwrap();
+        assert_eq!(imported.get("sub/b.txt").unwrap().links(), 2, "{producer}");
+        assert_eq!(
+            imported.get("a.txt").unwrap().id(),
+            imported.get("sub/b.txt").unwrap().id(),
+            "{producer}"
+        );
     }
 }

@@ -246,9 +246,15 @@ impl<D: BlockDevice> IsoImage<D> {
 ///
 /// Node ids are byte offsets of directory records: a directory's is its
 /// `.` record, so a relocated directory has one id, and a file's is its
-/// first record in its parent. Every id is stable, so [`forget`](Self::forget)
-/// does nothing. The view is read-only; write methods fail with
-/// [`ErrorKind::ReadOnly`].
+/// first record in its parent. In the Rock Ridge view the names of a hard
+/// link share one id, that of the first record in path table order with
+/// the same `PX` serial number (or, without one, the same data): listing a
+/// file with more than one link scans the directories before it. Every id
+/// is stable, so [`forget`](Self::forget)
+/// does nothing. An id no record can have (zero, odd, or past the volume
+/// and the device) fails with [`ErrorKind::InvalidHandle`]; any other id is
+/// read as a record, and a damaged one fails with [`ErrorKind::Corrupt`].
+/// The view is read-only; write methods fail with [`ErrorKind::ReadOnly`].
 ///
 /// Names drop the `;1` version. In the primary and enhanced trees a lookup
 /// that finds no exact name retries ignoring ASCII case.
@@ -302,6 +308,15 @@ enum PathTableQuery {
     Number(u64),
 }
 
+/// What the names of one hard-linked file share.
+#[derive(Clone, Copy)]
+enum LinkKey {
+    /// The Rock Ridge `PX` serial number.
+    Serial(u32),
+    /// The byte offset of the data.
+    Extent(u64),
+}
+
 /// A listed entry: its id, type and name length.
 struct Listed {
     node: NodeId,
@@ -309,15 +324,16 @@ struct Listed {
     len: usize,
 }
 
-/// A node id that does not name a valid record is an invalid handle, unless
-/// it lies inside the volume but past the end of the device: the image is
-/// truncated.
-fn handle<E>(err: Error<E>, node: NodeId, info: &Info) -> hadris_fs::Error<E> {
-    let volume_end = u64::from(info.volume_blocks) * u64::from(info.block_size);
-    match (err.kind(), err.detail()) {
-        (ErrorKind::Io, _) => err.into(),
-        (_, Some(Detail::OutsideImage)) if node.get() < volume_end => err.into(),
-        _ => ErrorKind::InvalidHandle.into(),
+/// A node id no record can have (zero, odd, or past both the volume and
+/// the device) is an invalid handle. Any other id is read as a record, so a
+/// damaged record, or one past the end of a truncated image, is corrupt.
+fn handle<E>(err: Error<E>, node: NodeId, view: &View) -> hadris_fs::Error<E> {
+    let volume_end = u64::from(view.info.volume_blocks) * u64::from(view.info.block_size);
+    let id = node.get();
+    if err.kind() == ErrorKind::Io || (id != 0 && id % 2 == 0 && id < volume_end.max(view.len)) {
+        err.into()
+    } else {
+        ErrorKind::InvalidHandle.into()
     }
 }
 
@@ -369,7 +385,7 @@ impl View {
 
     /// The directory a node names: its `.` record, or a directory record.
     async fn dir_of<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Dir, D::Error> {
-        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, &self.info))?;
+        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         if !record.header().is_directory() {
             return Err(ErrorKind::NotADirectory.into());
         }
@@ -478,6 +494,79 @@ impl View {
         })
     }
 
+    /// The id of the non-directory record at `offset`. A Rock Ridge file
+    /// with more than one link gets the id of the first record of the same
+    /// file in path table order, so all its names share one id: records
+    /// with its `PX` serial number, or without one, at its data extent.
+    async fn link_id<D: BlockDevice>(
+        &self,
+        dev: &mut D,
+        offset: u64,
+        record: &DirectoryRecord,
+        info: &RockRidgeInfo,
+        skip: u8,
+    ) -> Result<u64, Error<D::Error>> {
+        if info.links().unwrap_or(1) <= 1 {
+            return Ok(offset);
+        }
+        let key = match info.serial().filter(|&serial| serial != 0) {
+            Some(serial) => LinkKey::Serial(serial),
+            None if record.header().data_len.get() > 0 && info.file_type().is_none_or(|t| t == FileType::File) => {
+                match self.extent_start(record) {
+                    Some(start) => LinkKey::Extent(start),
+                    None => return Ok(offset),
+                }
+            }
+            None => return Ok(offset),
+        };
+        Ok(self.first_link(dev, key, skip).await?.unwrap_or(offset))
+    }
+
+    /// The first record in path table order of the hard-linked file `key`
+    /// names.
+    async fn first_link<D: BlockDevice>(&self, dev: &mut D, key: LinkKey, skip: u8) -> Result<Option<u64>, Error<D::Error>> {
+        let (table, size) = self.root.path_table;
+        let base = u64::from(table) * self.bs();
+        let mut pos = 0u64;
+        while pos + 8 <= u64::from(size) {
+            let mut header = [0u8; 8];
+            read_bytes(dev, self.len, base + pos, &mut header).await?;
+            let header: raw::PathTableHeader = bytemuck::cast(header);
+            pos += header.record_len() as u64;
+            let start = (u64::from(header.extent_le()) + u64::from(header.extended_attr_record)) * self.bs();
+            let dot = self.record_at(dev, start).await?;
+            let dir = Dir {
+                start,
+                size: dot.header().data_len.get(),
+            };
+            let mut at = 0;
+            let mut block = Block::new();
+            while let Some(found) = self.next_record(dev, dir, &mut at, &mut block).await? {
+                let record = found.record;
+                self.skip_continuations(dev, dir, &mut at, &mut block, &record).await?;
+                if record.is_dot() || record.header().is_directory() {
+                    continue;
+                }
+                let mut scan = Scan::new();
+                self.scan(dev, &record, skip, &mut scan).await?;
+                let info = scan.info;
+                if info.links().unwrap_or(1) <= 1 || info.is_relocated() || info.child_link().is_some() {
+                    continue;
+                }
+                let same = match key {
+                    LinkKey::Serial(serial) => info.serial() == Some(serial),
+                    LinkKey::Extent(extent) => {
+                        record.header().data_len.get() > 0 && self.extent_start(&record) == Some(extent)
+                    }
+                };
+                if same {
+                    return Ok(Some(found.offset));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// The name, type and id a record lists under, or `None` for records
     /// the listing hides.
     async fn list<D: BlockDevice>(
@@ -492,8 +581,10 @@ impl View {
             return Ok(None);
         }
         let is_dir = header.is_directory();
+        let end = self.len.max(u64::from(self.info.volume_blocks) * self.bs());
         let dir_id = |start: Option<u64>| match start {
-            Some(start) if start != 0 => Ok(NodeId::new(start)),
+            Some(start) if start != 0 && start < end => Ok(NodeId::new(start)),
+            Some(start) if start != 0 => Err(Error::corrupt(Detail::OutsideImage)),
             _ => Err(Error::corrupt(Detail::DirectoryRecord)),
         };
         if let Some(skip) = self.rock_ridge() {
@@ -516,7 +607,8 @@ impl View {
             let (node, file_type) = if is_dir {
                 (dir_id(self.extent_start(record))?, FileType::Dir)
             } else {
-                (NodeId::new(found.offset), info.file_type().unwrap_or(FileType::File))
+                let node = self.link_id(dev, found.offset, record, &info, skip).await?;
+                (NodeId::new(node), info.file_type().unwrap_or(FileType::File))
             };
             return Ok(Some(Listed { node, file_type, len }));
         }
@@ -607,7 +699,7 @@ impl View {
     }
 
     async fn node_metadata<D: BlockDevice>(&self, dev: &mut D, node: NodeId) -> FsResult<Metadata, D::Error> {
-        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, &self.info))?;
+        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         let header = *record.header();
         let mut times = FileTimes::new().with_modified(header.date_time.to_datetime());
         let rr = match self.rock_ridge() {
@@ -678,7 +770,7 @@ impl View {
     }
 
     async fn read_at<D: BlockDevice>(&self, dev: &mut D, node: NodeId, offset: u64, buf: &mut [u8]) -> FsResult<usize, D::Error> {
-        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, &self.info))?;
+        let record = self.record_at(dev, node.get()).await.map_err(|err| handle(err, node, self))?;
         if record.header().is_directory() {
             return Err(ErrorKind::IsADirectory.into());
         }
@@ -767,7 +859,7 @@ impl View {
         let Some(skip) = self.rock_ridge() else {
             return Err(ErrorKind::InvalidInput.into());
         };
-        let record = self.record_at(dev, link.get()).await.map_err(|err| handle(err, link, &self.info))?;
+        let record = self.record_at(dev, link.get()).await.map_err(|err| handle(err, link, self))?;
         let mut scan = Scan::new().with_link(buf);
         self.scan(dev, &record, skip, &mut scan).await?;
         if !scan.info.is_symlink() {

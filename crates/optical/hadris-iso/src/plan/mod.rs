@@ -58,6 +58,10 @@ const PART_BLOCK: BlockSize = match BlockSize::new(512) {
     None => panic!("512 is not zero"),
 };
 const BACKUP_GPT_SECTORS: u64 = 33;
+/// Zero blocks after the data, counted in the volume, as `mkisofs -pad`
+/// and xorriso write by default. Readers such as `isoinfo` read ahead
+/// past the last structure and fail on shorter images.
+pub(crate) const PADDING_BLOCKS: u64 = 150;
 const ISO_DATA_START_512: u64 = 64;
 
 /// What the writer learned about a file's content before planning.
@@ -305,6 +309,7 @@ pub(crate) fn plan<C: Clock>(
         dir_refs: BTreeMap::new(),
     };
     planner.gather()?;
+    planner.check_boot()?;
     planner.insert_catalog()?;
     planner.check_depth()?;
     planner.relocate()?;
@@ -412,6 +417,68 @@ impl<C: Clock> Planner<'_, C> {
         self.dirs
             .iter_mut()
             .for_each(|dir| dir.physical = dir.dirs.clone());
+        Ok(())
+    }
+
+    /// Checks the boot options against the tree before anything is laid
+    /// out: boot images exist and fit their emulation, a load size is not
+    /// zero, and the MBR boot code fits. Warns about load sizes past the
+    /// image and a hybrid table that gets no EFI system partition.
+    fn check_boot(&mut self) -> PlanResult<()> {
+        if let Some(code) = self.opts.hybrid().and_then(HybridBoot::bootstrap)
+            && code.len() > 446
+        {
+            return Err(Error::new(ErrorKind::LimitExceeded, Detail::HybridBoot));
+        }
+        let Some(el_torito) = self.opts.el_torito() else {
+            return Ok(());
+        };
+        for entry in el_torito.entries() {
+            let node = self
+                .tree
+                .get(entry.image())
+                .filter(|node| matches!(node.kind(), NodeKind::File(_)))
+                .ok_or(invalid(Detail::BootImage))?;
+            let len = self.contents.get(&node.id()).map_or(0, |info| info.len);
+            let floppy = match entry.emulation() {
+                crate::Emulation::Floppy12 => Some(1_228_800),
+                crate::Emulation::Floppy144 => Some(1_474_560),
+                crate::Emulation::Floppy288 => Some(2_949_120),
+                _ => None,
+            };
+            if floppy.is_some_and(|size| size != len) || entry.load_size() == Some(0) {
+                return Err(invalid(Detail::BootImage));
+            }
+            if entry.emulation() == crate::Emulation::NoEmulation
+                && let Some(load) = entry.load_size()
+                && u64::from(load) > len.div_ceil(512)
+            {
+                self.warnings.push(Warning::new(
+                    normalize(entry.image()),
+                    WarningKind::IgnoredMetadata,
+                    alloc::format!(
+                        "the load size of {load} sectors runs past the {len}-byte boot image; firmware loads the bytes after it too"
+                    ),
+                ));
+            }
+        }
+        if let Some(hybrid) = self.opts.hybrid()
+            && hybrid.scheme() != PartitionScheme::Mbr
+            && hybrid.efi_partition().is_none()
+        {
+            let mut uefi = el_torito
+                .entries()
+                .iter()
+                .skip(1)
+                .filter(|entry| entry.platform() == Platform::Efi);
+            if let (Some(first), Some(_)) = (uefi.next(), uefi.next()) {
+                self.warnings.push(Warning::new(
+                    normalize(first.image()),
+                    WarningKind::Skipped,
+                    "several UEFI boot entries and no HybridBoot::with_efi_partition: the partition table has no EFI system partition",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -869,11 +936,7 @@ impl<C: Clock> Planner<'_, C> {
                 let len = u32::try_from(len).map_err(|_| too_large())?;
                 records.push(PendingRecord {
                     name: name.clone(),
-                    split: if index == 0 {
-                        split.clone()
-                    } else {
-                        SplitSu::default()
-                    },
+                    split: split.clone(),
                     extent: (block, len),
                     flags,
                     time,
@@ -1041,7 +1104,12 @@ impl<C: Clock> Planner<'_, C> {
             _ => self.base.keep_catalog,
         };
 
-        let end = cursor.div_ceil(SECTOR);
+        let data_end = cursor.div_ceil(SECTOR);
+        regions.push(Region::Bytes {
+            block: data_end,
+            data: vec![0; PADDING_BLOCKS as usize * SECTOR_SIZE],
+        });
+        let end = data_end + PADDING_BLOCKS;
         let hybrid = if self.base.system_area {
             self.opts.hybrid()
         } else {
@@ -1484,8 +1552,7 @@ impl<C: Clock> Planner<'_, C> {
         if hybrid.scheme() != PartitionScheme::Gpt
             && let Some(code) = hybrid.bootstrap()
         {
-            disk.set_bootstrap(&code[..code.len().min(446)])
-                .map_err(part_error)?;
+            disk.set_bootstrap(code).map_err(part_error)?;
         }
         Ok(disk)
     }
@@ -1587,7 +1654,58 @@ impl<C: Clock> Planner<'_, C> {
                 ));
             }
         }
+        if self
+            .trees
+            .iter()
+            .any(|(tree, _)| matches!(tree, TreeKind::Joliet(_)))
+        {
+            self.joliet_warnings(&mut warnings);
+        }
         Report::new(total, extents, warnings)
+    }
+
+    /// Warns about names the Joliet tree changes, and about names that
+    /// differ from a sibling's only in case, which case-insensitive readers
+    /// cannot tell apart.
+    fn joliet_warnings(&self, warnings: &mut Vec<Warning>) {
+        for (index, dir) in self.dirs.iter().enumerate() {
+            if Some(index) == self.rr_moved {
+                continue;
+            }
+            let children = dir
+                .dirs
+                .iter()
+                .map(|&child| (&self.dirs[child].name, &self.dirs[child].path))
+                .chain(
+                    dir.files
+                        .iter()
+                        .map(|&file| &self.files[file])
+                        .filter(|f| !matches!(f.kind, FileKind::Catalog { .. }))
+                        .map(|f| (&f.name, &f.path)),
+                );
+            let mut folded = BTreeMap::new();
+            for (name, path) in children {
+                if let Some(reason) = names::joliet_change(name) {
+                    warnings.push(Warning::new(path.clone(), WarningKind::Renamed, reason));
+                }
+                let key = String::from_utf16_lossy(
+                    &names::convert_joliet(name)
+                        .chunks_exact(2)
+                        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                        .collect::<Vec<_>>(),
+                )
+                .to_lowercase();
+                if let Some(first) = folded.insert(key, path) {
+                    warnings.push(Warning::new(
+                        path.clone(),
+                        WarningKind::Renamed,
+                        alloc::format!(
+                            "the Joliet name differs from {first} only in case; case-insensitive readers see one of them"
+                        ),
+                    ));
+                }
+            }
+        }
     }
 }
 
