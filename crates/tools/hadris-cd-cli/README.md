@@ -35,7 +35,7 @@ cargo build --release -p hadris-cd-cli
 |---|---|
 | `create` | Build an ISO/UDF bridge image from a host directory |
 | `info` | Inspect image layout and namespace metadata |
-| `verify` | Open both namespaces and compare shared content |
+| `verify` (alias `check`) | Open both namespaces and compare their trees and file contents |
 
 Run `hadris-cd <command> --help` for format, boot, and output options.
 

@@ -2,7 +2,7 @@ use std::fs::File;
 
 use hadris_fs::FileType;
 use hadris_iso::Namespace;
-use hadris_iso::raw::VolumeDescriptor;
+use hadris_iso::raw::{PathTableHeader, VolumeDescriptor};
 use hadris_iso::sync::IsoImage;
 
 use super::super::args::VerifyArgs;
@@ -210,17 +210,16 @@ fn check_path_table(
         return issues;
     }
 
+    let header_len = size_of::<PathTableHeader>();
     let mut records = Vec::new();
     let mut pos = 0;
-    while pos + 8 <= table.len() {
-        let len = usize::from(table[pos]);
-        if len == 0 {
+    while pos + header_len <= table.len() {
+        let header: PathTableHeader = bytemuck::pod_read_unaligned(&table[pos..pos + header_len]);
+        if header.len == 0 {
             break;
         }
-        let extent = u32::from_le_bytes(table[pos + 2..pos + 6].try_into().unwrap());
-        let parent = u16::from_le_bytes([table[pos + 6], table[pos + 7]]);
-        records.push((extent, usize::from(parent)));
-        pos += (8 + len + 1) & !1;
+        records.push((header.extent_le(), usize::from(header.parent_le())));
+        pos += header.record_len();
     }
     if pos > table.len() {
         issues.push(VerifyIssue::error(

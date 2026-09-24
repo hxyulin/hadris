@@ -1,124 +1,76 @@
-use std::ffi::OsStr;
 use std::fs;
-use std::io;
-use std::path::{Component, Path, PathBuf};
 
-use hadris_fs::FileType;
-use hadris_fs::sync::DriverExt;
+use hadris_fs::sync::{FsDriver, extract_to_host};
+use hadris_fs::{DirCursor, NameBuf, NodeId};
 
 use super::super::args::ExtractArgs;
 
-use super::{Result, View, join, list_dir, open, view_for};
+use super::{Result, View, open, view_for};
 
-/// Extract files from an ISO image
+/// Extract files from an ISO image. The root is merged into the output
+/// directory; any other path lands at `<output>/<name>`.
 pub fn extract(args: ExtractArgs) -> Result<()> {
     let mut iso = open(&args.input)?;
-    let start = args.path.as_deref().unwrap_or("/");
-    let mut view = view_for(&mut iso, start)?;
+    let from = args.path.as_deref().unwrap_or("/");
+    let mut view = view_for(&mut iso, from)?;
 
-    fs::create_dir_all(&args.output)?;
-    let mut extracted_count = 0;
-    extract_dir(
-        &mut view,
-        start,
-        &args.output,
-        args.verbose,
-        &mut extracted_count,
-    )?;
-
-    println!(
-        "Extracted {} files to {}",
-        extracted_count,
-        args.output.display()
-    );
-    Ok(())
-}
-
-fn extract_dir(
-    view: &mut View<'_>,
-    path: &str,
-    output_path: &Path,
-    verbose: bool,
-    count: &mut usize,
-) -> Result<()> {
-    for entry in list_dir(view, path)? {
-        let source = join(path, &entry.name);
-        let entry_path = safe_entry_path(output_path, &entry.name)?;
-        match entry.meta.file_type() {
-            FileType::Dir => {
-                fs::create_dir_all(&entry_path)?;
-                if verbose {
-                    println!("Creating directory: {}", entry_path.display());
-                }
-                extract_dir(view, &source, &entry_path, verbose, count)?;
-            }
-            FileType::File => {
-                if verbose {
-                    println!(
-                        "Extracting: {} ({} bytes)",
-                        entry_path.display(),
-                        entry.meta.len()
-                    );
-                }
-                fs::write(&entry_path, view.read_to_vec(&source)?)?;
-                *count += 1;
-            }
-            FileType::Symlink => extract_symlink(view, &entry, &entry_path, verbose)?,
-            other => eprintln!("Skipping {source}: cannot extract a {other:?}"),
+    let destination = match stored_name(&mut view, from)? {
+        None => args.output.clone(),
+        Some(name) => {
+            fs::create_dir_all(&args.output)?;
+            args.output.join(name)
         }
-    }
-
-    Ok(())
-}
-
-#[cfg(unix)]
-fn extract_symlink(
-    view: &mut View<'_>,
-    entry: &super::Entry,
-    entry_path: &Path,
-    verbose: bool,
-) -> Result<()> {
-    use std::os::unix::ffi::OsStrExt;
-
-    let mut target = vec![0u8; 4096];
-    let len = view.read_link(entry.node, &mut target)?;
-    target.truncate(len);
-    if verbose {
+    };
+    if args.verbose {
         println!(
-            "Linking: {} -> {}",
-            entry_path.display(),
-            String::from_utf8_lossy(&target)
+            "Extracting {from} from the {:?} tree to {}",
+            view.namespace(),
+            destination.display()
         );
     }
-    std::os::unix::fs::symlink(OsStr::from_bytes(&target), entry_path)?;
+    extract_to_host(&mut view, from, &destination)
+        .map_err(|err| format!("Failed to extract {from}: {err}"))?;
+    println!("Extracted {from} to {}", destination.display());
     Ok(())
 }
 
-#[cfg(not(unix))]
-fn extract_symlink(
-    _view: &mut View<'_>,
-    _entry: &super::Entry,
-    entry_path: &Path,
-    _verbose: bool,
-) -> Result<()> {
-    eprintln!(
-        "Skipping {}: symlinks are not supported here",
-        entry_path.display()
-    );
-    Ok(())
-}
-
-fn safe_entry_path(output_path: &Path, name: &str) -> Result<PathBuf> {
-    let path = Path::new(name);
-    let mut components = path.components();
-    match (components.next(), components.next()) {
-        (Some(Component::Normal(component)), None) if component == OsStr::new(name) => {
-            Ok(output_path.join(path))
-        }
-        _ => Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("unsafe filename in ISO image: {name:?}"),
-        )
-        .into()),
+/// The name `path` is listed under in its directory, or `None` for the
+/// root. Fails on names that are not one plain host path component.
+fn stored_name(view: &mut View<'_>, path: &str) -> Result<Option<String>> {
+    let node = view
+        .resolve(path)
+        .map_err(|err| format!("Not found: {path}: {err}"))?;
+    if node == view.root() {
+        view.forget(node);
+        return Ok(None);
     }
+    let found = find_name(view, path, node);
+    view.forget(node);
+    let name = found?;
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+        return Err(format!(
+            "Refusing to extract {path}: its name {name:?} is not a plain file name"
+        )
+        .into());
+    }
+    Ok(Some(name))
+}
+
+/// Scans the parent of `path` for the entry listed with id `node`.
+fn find_name(view: &mut View<'_>, path: &str, node: NodeId) -> Result<String> {
+    let parent = view.resolve(&format!("{path}/.."))?;
+    let mut cursor = DirCursor::start();
+    let mut name = NameBuf::new();
+    let found = loop {
+        match view.read_dir_entry(parent, &mut cursor, &mut name) {
+            Ok(Some(entry)) if entry.node() == node => {
+                break Ok(String::from_utf8_lossy(name.as_bytes()).into_owned());
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => break Err(format!("{path} is not listed in its directory").into()),
+            Err(err) => break Err(err.into()),
+        }
+    };
+    view.forget(parent);
+    found
 }

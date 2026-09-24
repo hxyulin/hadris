@@ -491,6 +491,7 @@ dependencies = [
 name = "hadris-iso-cli"
 version = "2.4.0"
 dependencies = [
+ "bytemuck",
  "clap",
  "hadris-fs",
  "hadris-iso",
@@ -572,6 +573,7 @@ dependencies = [
  "hadris-fs",
  "hadris-udf",
  "libc",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

@@ -60,12 +60,12 @@ hadris-iso mkisofs -o output.iso ./directory
 | Command | Description |
 |---------|-------------|
 | `info` | Display volume descriptor and filesystem information |
-| `ls` | List directory contents |
+| `ls` (alias `list`) | List directory contents |
 | `tree` | Display directory tree |
 | `cat` | Print file contents to stdout |
-| `extract` | Extract files from the ISO |
+| `extract` | Extract one path (to `<output>/<name>`) or the whole image (into `<output>`, default `.`) |
 | `create` | Create a new ISO image |
-| `verify` | Verify ISO image integrity |
+| `verify` (alias `check`) | Verify ISO image integrity; exits with an error when it finds errors |
 | `mkisofs` | xorriso-compatible mkisofs mode (alias: `xorriso`) |
 
 ## Supported Features
@@ -83,6 +83,10 @@ hadris-iso mkisofs -o output.iso ./directory
 - `create --dry-run` prints the planned image size
 - `verify --strict` also checks the path table, extent bounds and Rock
   Ridge fields
+- `extract` copies symlinks (on Unix), file modes and modification times
+  through `hadris_fs::sync::extract_to_host`, and refuses names that would
+  leave the output directory; device nodes, FIFOs and sockets stop the
+  extraction with an error
 
 ## Examples
 

@@ -5,9 +5,11 @@ use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
 use hadris_cd::{CdOptions, UdfOptions};
-use hadris_fs::FileType;
+use std::hash::Hasher;
+
 use hadris_fs::sync::{DriverExt, FsDriver};
 use hadris_fs::tree::{FromFsOptions, OnError, Tree, WarningKind};
+use hadris_fs::{FileType, OpenOptions};
 use hadris_iso::sync::IsoImage;
 use hadris_iso::{
     BootEntry, BootInfo, ElTorito, HybridBoot, JolietLevel, Namespace, Platform, RockRidge,
@@ -37,6 +39,7 @@ enum Command {
     /// Report the filesystems and volume metadata present in an image
     Info(ImageArgs),
     /// Compare the complete ISO and UDF namespace trees
+    #[command(alias = "check")]
     Verify(ImageArgs),
 }
 
@@ -105,10 +108,11 @@ impl FromStr for RevisionArg {
     }
 }
 
+/// A directory, or a file's length and a hash of its contents.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Node {
     Directory,
-    File(Vec<u8>),
+    File(u64, u64),
 }
 
 #[cfg(unix)]
@@ -313,8 +317,19 @@ where
                 collect(fs, &path, nodes)?;
             }
             FileType::File => {
-                let data = fs.read_to_vec(&format!("/{path}"))?;
-                nodes.insert(path, Node::File(data));
+                let mut file = fs.open(&format!("/{path}"), OpenOptions::read())?;
+                let mut hasher = std::hash::DefaultHasher::new();
+                let mut buf = vec![0u8; 64 * 1024];
+                let mut len = 0u64;
+                loop {
+                    let n = std::io::Read::read(&mut file, &mut buf)?;
+                    if n == 0 {
+                        break;
+                    }
+                    hasher.write(&buf[..n]);
+                    len += n as u64;
+                }
+                nodes.insert(path, Node::File(len, hasher.finish()));
             }
             _ => {}
         }

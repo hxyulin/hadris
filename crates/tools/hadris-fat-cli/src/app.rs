@@ -169,8 +169,8 @@ type ExFat = ExFatFs<File, HeapTable, SystemClock>;
 
 /// A mounted FAT12/16/32 or exFAT volume.
 enum Volume {
-    Fat(Fat),
-    ExFat(ExFat),
+    Fat(Box<Fat>),
+    ExFat(Box<ExFat>),
 }
 
 /// Runs `$body` with `$fs` bound to `&mut` the driver of a `&mut Volume`.
@@ -210,14 +210,14 @@ fn open(path: &Path) -> Result<Volume> {
             .with_clock(SystemClock)
             .with_read_only();
         let fs = ExFatFs::open_with(file, options).context("Failed to parse exFAT filesystem")?;
-        Ok(Volume::ExFat(fs))
+        Ok(Volume::ExFat(Box::new(fs)))
     } else {
         let options = hadris_fat::MountOptions::new()
             .with_table(HeapTable::new())
             .with_clock(SystemClock)
             .with_read_only();
         let fs = FatFs::open_with(file, options).context("Failed to parse FAT filesystem")?;
-        Ok(Volume::Fat(fs))
+        Ok(Volume::Fat(Box::new(fs)))
     }
 }
 
@@ -829,7 +829,7 @@ fn format_image(file: File, fat_type: KindArg, label: &str) -> Result<Volume> {
             .with_clock(SystemClock);
         let fs = ExFatFs::open_with(formatted.into_inner(), options)
             .context("Failed to mount the formatted image")?;
-        return Ok(Volume::ExFat(fs));
+        return Ok(Volume::ExFat(Box::new(fs)));
     }
     let label = hadris_fat::VolumeLabel::new(label)
         .map_err(|kind| anyhow::anyhow!("Invalid volume label {label:?}: {kind}"))?;
@@ -850,7 +850,7 @@ fn format_image(file: File, fat_type: KindArg, label: &str) -> Result<Volume> {
         .with_clock(SystemClock);
     let fs = FatFs::open_with(formatted.into_inner(), options)
         .context("Failed to mount the formatted image")?;
-    Ok(Volume::Fat(fs))
+    Ok(Volume::Fat(Box::new(fs)))
 }
 
 fn cmd_create(

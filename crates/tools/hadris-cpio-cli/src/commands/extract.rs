@@ -9,10 +9,12 @@ use hadris_io::sync::Read;
 
 use super::open_reader;
 
-/// Where `name` goes below `output`. Leading `/` and `.` components are
-/// dropped; `..`, drive prefixes and paths through an existing symlink are
-/// refused, so an archive cannot write outside `output`.
-fn destination(output: &Path, name: &str) -> Result<PathBuf> {
+/// Where `name` goes below `output`, or `None` for a name that is the
+/// output directory itself, such as `.` or `./`. Leading `/` and `.`
+/// components are dropped; `..`, drive prefixes and paths through an
+/// existing symlink are refused, so an archive cannot write outside
+/// `output`.
+fn destination(output: &Path, name: &str) -> Result<Option<PathBuf>> {
     let mut dest = output.to_path_buf();
     let mut any = false;
     for component in Path::new(name).components() {
@@ -28,10 +30,7 @@ fn destination(output: &Path, name: &str) -> Result<PathBuf> {
             _ => bail!("refusing to extract outside the output directory: {name}"),
         }
     }
-    if !any {
-        bail!("refusing to extract an entry without a name: {name}");
-    }
-    Ok(dest)
+    Ok(any.then_some(dest))
 }
 
 fn replace(dest: &Path) {
@@ -74,7 +73,13 @@ pub fn extract(archive: PathBuf, output: PathBuf) -> Result<()> {
             .name_str()
             .context("Entry name is not UTF-8")?
             .to_string();
-        let dest = destination(&output, &name)?;
+        let Some(dest) = destination(&output, &name)? else {
+            if entry.file_type() != FileType::Dir {
+                bail!("refusing to extract an entry without a name: {name}");
+            }
+            count += 1;
+            continue;
+        };
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -159,11 +164,13 @@ mod tests {
     #[test]
     fn names_stay_inside_the_output() {
         let out = Path::new("/out");
-        assert_eq!(destination(out, "a/b").unwrap(), Path::new("/out/a/b"));
-        assert_eq!(destination(out, "/etc/x").unwrap(), Path::new("/out/etc/x"));
-        assert_eq!(destination(out, "./a").unwrap(), Path::new("/out/a"));
+        let at = |name| destination(out, name).unwrap().unwrap();
+        assert_eq!(at("a/b"), Path::new("/out/a/b"));
+        assert_eq!(at("/etc/x"), Path::new("/out/etc/x"));
+        assert_eq!(at("./a"), Path::new("/out/a"));
         assert!(destination(out, "../x").is_err());
         assert!(destination(out, "a/../../x").is_err());
-        assert!(destination(out, ".").is_err());
+        assert_eq!(destination(out, ".").unwrap(), None);
+        assert_eq!(destination(out, "./").unwrap(), None);
     }
 }

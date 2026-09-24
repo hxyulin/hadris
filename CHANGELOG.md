@@ -440,6 +440,21 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-iso-cli, hadris-udf-cli, hadris-cpio-cli, hadris-cd-cli (V3):**
+  The commands that do the same job share names and flags: `ls` has the
+  alias `list` and `verify` the alias `check` in every CLI, and `extract
+  --output` defaults to `.`. `extract --path` in the ISO and UDF CLIs
+  writes a path other than the root to `<output>/<name>` as the FAT CLI
+  does, through `extract_to_host` (the UDF CLI failed on a single file,
+  and the ISO CLI merged the directory's contents into `--output`); ISO
+  device nodes now stop the extraction with an error instead of a warning.
+  `cat` streams through a `hadris-fs` `File` instead of reading the whole
+  file first. `hadris-iso verify --strict` reads the path table through
+  `raw::PathTableHeader`. `hadris-udf verify` walks the tree and reads
+  every file, failing on errors, and `ls -a` adds `.` and `..` as in the
+  ISO CLI. `hadris-cd verify` hashes file contents while it streams them
+  instead of holding both trees in memory. `hadris-cpio extract` accepts
+  the `.` entry that `find . | cpio -o` writes.
 - **hadris-fat-cli (V3):** Supports exFAT. Every command detects exFAT
   from the boot sector through `exfat::raw::BootSector` and runs on
   `ExFatFs`: `info` shows the revision, sector and cluster size, FAT count

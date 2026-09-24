@@ -15,6 +15,7 @@ pub enum Command {
     /// Display information about an ISO image
     Info(InfoArgs),
     /// List directory contents
+    #[command(alias = "list")]
     Ls(LsArgs),
     /// Display directory tree
     Tree(TreeArgs),
@@ -23,6 +24,7 @@ pub enum Command {
     /// Create a new ISO image
     Create(CreateArgs),
     /// Verify ISO image integrity
+    #[command(alias = "check")]
     Verify(VerifyArgs),
     /// xorriso-compatible mkisofs mode
     #[command(name = "mkisofs", alias = "xorriso")]
@@ -78,7 +80,8 @@ pub struct ExtractArgs {
     /// Output directory for extracted files
     #[arg(short, long, default_value = ".")]
     pub output: PathBuf,
-    /// Path within ISO to extract (default: extract all)
+    /// Path within ISO to extract (default: extract all); a path other than
+    /// the root is written to `<output>/<name>`
     #[arg(short, long)]
     pub path: Option<String>,
     /// Verbose output
