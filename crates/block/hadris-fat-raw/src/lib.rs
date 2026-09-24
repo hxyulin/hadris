@@ -19,6 +19,8 @@
 //!   [`fold_unicode`] as `fn(u16) -> u16` folds;
 //! - [`date`] for FAT timestamps and [`layout`] for planning a volume and
 //!   encoding its boot sector;
+//! - [`Detail`] and [`exfat::Detail`], the codes that say what is wrong with a
+//!   volume, in errors and in check findings;
 //! - [`exfat`], the exFAT layouts and codecs.
 //!
 //! With the `sync`, `async` or `async-send` feature, `io` and `exfat::io`
@@ -59,6 +61,7 @@
 mod boot;
 mod bpb;
 mod chain;
+mod detail;
 mod dirent;
 mod entry;
 mod slot;
@@ -78,6 +81,7 @@ pub use boot::{
 };
 pub use bpb::{BpbExt32Flags, RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
 pub use chain::ChainGuard;
+pub use detail::Detail;
 pub use dirent::{
     ATTR_ARCHIVE, ATTR_DIRECTORY, ATTR_HIDDEN, ATTR_LONG_NAME, ATTR_LONG_NAME_MASK, ATTR_READ_ONLY,
     ATTR_SYSTEM, ATTR_VOLUME_ID, ENTRY_END, ENTRY_FREE, ENTRY_KANJI_E5, ENTRY_SIZE, LFN_LAST_ENTRY,

@@ -97,6 +97,38 @@ pub fn hadris_fat_raw::exfat::io::Upcase::new() -> Self
 pub const fn hadris_fat_raw::exfat::io::Upcase::stored_checksum(&self) -> u32
 impl core::default::Default for hadris_fat_raw::exfat::io::Upcase
 pub fn hadris_fat_raw::exfat::io::Upcase::default() -> Self
+#[non_exhaustive] pub enum hadris_fat_raw::exfat::Detail
+pub hadris_fat_raw::exfat::Detail::BackupBootRegion
+pub hadris_fat_raw::exfat::Detail::BadCluster
+pub hadris_fat_raw::exfat::Detail::BadName
+pub hadris_fat_raw::exfat::Detail::Bitmap
+pub hadris_fat_raw::exfat::Detail::BootChecksum
+pub hadris_fat_raw::exfat::Detail::BootSector = 1
+pub hadris_fat_raw::exfat::Detail::BrokenChain
+pub hadris_fat_raw::exfat::Detail::CrossLink
+pub hadris_fat_raw::exfat::Detail::CyclicChain
+pub hadris_fat_raw::exfat::Detail::DirectorySize
+pub hadris_fat_raw::exfat::Detail::Dirty
+pub hadris_fat_raw::exfat::Detail::EntrySet
+pub hadris_fat_raw::exfat::Detail::FatEntries
+pub hadris_fat_raw::exfat::Detail::InvalidCluster
+pub hadris_fat_raw::exfat::Detail::LostClusters
+pub hadris_fat_raw::exfat::Detail::NameHash
+pub hadris_fat_raw::exfat::Detail::PercentInUse
+pub hadris_fat_raw::exfat::Detail::RootEntry
+pub hadris_fat_raw::exfat::Detail::SetChecksum
+pub hadris_fat_raw::exfat::Detail::SizeMismatch
+pub hadris_fat_raw::exfat::Detail::TooDeep
+pub hadris_fat_raw::exfat::Detail::UpcaseTable
+pub hadris_fat_raw::exfat::Detail::ValidDataLength
+impl hadris_fat_raw::exfat::Detail
+pub const fn hadris_fat_raw::exfat::Detail::code(self) -> hadris_io::fs_error::DetailCode
+pub fn hadris_fat_raw::exfat::Detail::from_code(hadris_io::fs_error::DetailCode) -> core::option::Option<Self>
+pub fn hadris_fat_raw::exfat::Detail::of<E>(&hadris_io::fs_error::Error<E>) -> core::option::Option<Self>
+impl core::convert::From<hadris_fat_raw::exfat::Detail> for hadris_io::fs_error::DetailCode
+pub fn hadris_io::fs_error::DetailCode::from(hadris_fat_raw::exfat::Detail) -> Self
+impl core::fmt::Display for hadris_fat_raw::exfat::Detail
+pub fn hadris_fat_raw::exfat::Detail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[repr(C)] pub struct hadris_fat_raw::exfat::BitmapEntry
 pub hadris_fat_raw::exfat::BitmapEntry::bitmap_flags: u8
 pub hadris_fat_raw::exfat::BitmapEntry::data_length: hadris_common::types::number::U64<hadris_common::types::endian::LittleEndian>
@@ -511,6 +543,35 @@ pub const fn hadris_fat_raw::BootError::kind(&self) -> hadris_io::kind::ErrorKin
 pub enum hadris_fat_raw::ChainError
 pub hadris_fat_raw::ChainError::Bad
 pub hadris_fat_raw::ChainError::OutOfBounds(u32)
+#[non_exhaustive] pub enum hadris_fat_raw::Detail
+pub hadris_fat_raw::Detail::BackupBootSector
+pub hadris_fat_raw::Detail::BadCluster
+pub hadris_fat_raw::Detail::BadName
+pub hadris_fat_raw::Detail::BootSector = 1
+pub hadris_fat_raw::Detail::BrokenChain
+pub hadris_fat_raw::Detail::CrossLink
+pub hadris_fat_raw::Detail::CyclicChain
+pub hadris_fat_raw::Detail::DirectorySize
+pub hadris_fat_raw::Detail::Dirty
+pub hadris_fat_raw::Detail::DotEntries
+pub hadris_fat_raw::Detail::FatCopiesDiffer
+pub hadris_fat_raw::Detail::FreeCount
+pub hadris_fat_raw::Detail::FsInfo
+pub hadris_fat_raw::Detail::InvalidCluster
+pub hadris_fat_raw::Detail::Label
+pub hadris_fat_raw::Detail::LfnChecksum
+pub hadris_fat_raw::Detail::LostClusters
+pub hadris_fat_raw::Detail::OrphanLfn
+pub hadris_fat_raw::Detail::ReservedEntries
+pub hadris_fat_raw::Detail::SizeMismatch
+impl hadris_fat_raw::Detail
+pub const fn hadris_fat_raw::Detail::code(self) -> hadris_io::fs_error::DetailCode
+pub fn hadris_fat_raw::Detail::from_code(hadris_io::fs_error::DetailCode) -> core::option::Option<Self>
+pub fn hadris_fat_raw::Detail::of<E>(&hadris_io::fs_error::Error<E>) -> core::option::Option<Self>
+impl core::convert::From<hadris_fat_raw::Detail> for hadris_io::fs_error::DetailCode
+pub fn hadris_io::fs_error::DetailCode::from(hadris_fat_raw::Detail) -> Self
+impl core::fmt::Display for hadris_fat_raw::Detail
+pub fn hadris_fat_raw::Detail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub enum hadris_fat_raw::FatKind
 pub hadris_fat_raw::FatKind::Fat12
 pub hadris_fat_raw::FatKind::Fat16

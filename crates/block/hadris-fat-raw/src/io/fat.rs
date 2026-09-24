@@ -1,12 +1,13 @@
-use hadris_fs::{DateTime, ErrorKind, FsResult};
+use hadris_fs::{DateTime, Error, ErrorKind, FsResult};
 
 use super::block::{load, put, read_bytes, store, write_bytes, write_zeros};
 use super::storage::BlockDevice;
 use crate::boot::{BOOT_SECTOR_LEN, Geometry, check_fs_info, parse_boot};
 use crate::bpb::RawFsInfo;
 use crate::date;
+use crate::detail::Detail;
 use crate::dirent::{ATTR_VOLUME_ID, ENTRY_FREE, ENTRY_SIZE};
-use crate::entry::{FIRST_DATA_CLUSTER, FatKind};
+use crate::entry::{ChainError, FIRST_DATA_CLUSTER, FatKind};
 use crate::io::{BlockBuf, ChainPos, ClusterGroup, DirStart, DirWalk, Fat, Held};
 use crate::layout::{self, BACKUP_BOOT_SECTOR, BootFields, FS_INFO_SECTOR, Layout, ROOT_CLUSTER};
 use crate::slot::{MAX_DIR_ENTRIES, ShortEntry, Slot};
@@ -60,10 +61,10 @@ pub async fn read_geometry<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) ->
     }
     let mut sector = [0u8; BOOT_SECTOR_LEN];
     read_bytes(dev, block, 0, &mut sector).await?;
-    let geo = parse_boot(&sector).map_err(|err| err.kind())?;
+    let geo = parse_boot(&sector).map_err(Detail::boot)?;
     let device_len = dev.block_count().saturating_mul(block.size as u64);
     if geo.data_end() > device_len {
-        return Err(ErrorKind::Corrupt.into());
+        return Err(Error::new(ErrorKind::Corrupt, "volume is larger than the device").with_detail(Detail::BootSector.code()));
     }
     Ok(geo)
 }
@@ -128,7 +129,11 @@ pub async fn get_copy<D: BlockDevice>(
 /// [`ErrorKind::Corrupt`].
 pub async fn next<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, fat: &Fat, cluster: u32) -> FsResult<Option<u32>, D::Error> {
     let stored = get(dev, block, fat, cluster).await?;
-    Ok(fat.geo.kind().next(stored, fat.geo.max_cluster()).map_err(|_| ErrorKind::Corrupt)?)
+    match fat.geo.kind().next(stored, fat.geo.max_cluster()) {
+        Ok(next) => Ok(next),
+        Err(ChainError::Bad) => Err(Detail::BadCluster.corrupt()),
+        Err(ChainError::OutOfBounds(_)) => Err(Detail::BrokenChain.corrupt()),
+    }
 }
 
 /// Stores `value` as the FAT entry of `cluster`, in the active copy first,
@@ -233,7 +238,7 @@ pub async fn walk<D: BlockDevice>(
     while at.index < want {
         match next(dev, block, fat, at.cluster).await? {
             Some(next) if at.advance(next) => {}
-            Some(_) => return Err(ErrorKind::Corrupt.into()),
+            Some(_) => return Err(Detail::CyclicChain.corrupt()),
             None => break,
         }
     }
@@ -257,7 +262,7 @@ pub async fn run<D: BlockDevice>(
         match next(dev, block, fat, at.cluster).await? {
             Some(next) if next == at.cluster + 1 => {
                 if !at.advance(next) {
-                    return Err(ErrorKind::Corrupt.into());
+                    return Err(Detail::CyclicChain.corrupt());
                 }
                 n = (n + cluster_size).min(max);
             }
@@ -439,7 +444,7 @@ pub async fn free_chain<D: BlockDevice>(
         let mut group = ClusterGroup::new(base);
         let next = loop {
             if group.has(cluster) {
-                break Err(ErrorKind::Corrupt.into());
+                break Err(Detail::CyclicChain.corrupt());
             }
             let next = next(dev, block, fat, cluster).await;
             if next.is_ok() {

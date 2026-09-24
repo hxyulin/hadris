@@ -507,7 +507,12 @@ fn rejects_what_it_cannot_mount() {
         ErrorKind::Corrupt
     );
     let short = common::device(case, image[..512].to_vec());
-    assert_eq!(FatFs::open(short).unwrap_err().kind(), ErrorKind::Corrupt);
+    let err = FatFs::open(short).unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Corrupt);
+    assert_eq!(
+        hadris_fat::Detail::of(err.error()),
+        Some(hadris_fat::Detail::BootSector)
+    );
 }
 
 #[test]
@@ -557,8 +562,12 @@ fn mount_errors_convert_with_the_question_mark() {
         io(blank()).unwrap_err().kind(),
         std::io::ErrorKind::InvalidData
     );
-    let err = boxed(blank()).unwrap_err();
-    assert_eq!(err.to_string(), ErrorKind::NotRecognized.to_string());
+    let err = plain(blank()).unwrap_err();
+    assert_eq!(
+        hadris_fat::Detail::of(&err),
+        Some(hadris_fat::Detail::BootSector)
+    );
+    assert_eq!(boxed(blank()).unwrap_err().to_string(), err.to_string());
     assert!(format!("{:?}", FatFs::open(blank()).unwrap_err()).starts_with("MountError"));
 }
 

@@ -6,6 +6,7 @@
 mod common;
 
 use common::{Geometry, Tool, clean, fsck, fsck_with, le32, put32};
+use hadris_fat::exfat::Detail;
 use hadris_fat::exfat::sync::ExFatFs;
 use hadris_fs::sync::{DriverExt, FsDriver};
 use hadris_fs::{DirCursor, ErrorKind, FileType, NameBuf};
@@ -14,8 +15,12 @@ type Patch = Box<dyn Fn(&mut Vec<u8>)>;
 type Damage = fn(&mut [u8]);
 
 fn mount_err(image: Vec<u8>) -> ErrorKind {
+    mount_detail(image).0
+}
+
+fn mount_detail(image: Vec<u8>) -> (ErrorKind, Option<Detail>) {
     let err = ExFatFs::open(common::device(image, 512)).unwrap_err();
-    err.error().kind()
+    (err.kind(), Detail::of(err.error()))
 }
 
 #[test]
@@ -52,12 +57,20 @@ fn mount_rejects_bad_boot_sectors() {
             "name" => ErrorKind::NotRecognized,
             _ => ErrorKind::Corrupt,
         };
-        assert_eq!(mount_err(image), want, "{what}");
+        let detail = match what {
+            "no bitmap" => Detail::Bitmap,
+            _ => Detail::BootSector,
+        };
+        assert_eq!(mount_detail(image), (want, Some(detail)), "{what}");
     }
     let mut image = base.clone();
     let at = geo.root_entries(&image, 0x82)[0];
     put32(&mut image, at + 20, 0);
-    assert_eq!(mount_err(image), ErrorKind::Corrupt, "up-case table");
+    assert_eq!(
+        mount_detail(image),
+        (ErrorKind::Corrupt, Some(Detail::UpcaseTable)),
+        "up-case table"
+    );
     let err = ExFatFs::open(common::device(vec![0u8; 1 << 20], 512)).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NotRecognized);
     assert_eq!(

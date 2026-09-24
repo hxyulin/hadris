@@ -2042,6 +2042,10 @@ pub hadris_fs::RemoveKind::Dir
 pub hadris_fs::RemoveKind::File
 impl hadris_fs::RemoveKind
 pub const fn hadris_fs::RemoveKind::check(self, hadris_fs::FileType) -> core::result::Result<(), hadris_io::kind::ErrorKind>
+#[non_exhaustive] pub enum hadris_fs::Severity
+pub hadris_fs::Severity::Error
+pub hadris_fs::Severity::Notice
+pub hadris_fs::Severity::Warning
 pub struct hadris_fs::Attributes(_)
 impl hadris_fs::Attributes
 pub const hadris_fs::Attributes::ARCHIVE: Self
@@ -2143,6 +2147,12 @@ pub const fn hadris_fs::Capabilities::with_timestamp_resolution_ns(self, u32) ->
 pub const fn hadris_fs::Capabilities::with_writable(self) -> Self
 impl core::default::Default for hadris_fs::Capabilities
 pub fn hadris_fs::Capabilities::default() -> Self
+pub struct hadris_fs::CheckReport
+impl hadris_fs::CheckReport
+pub const fn hadris_fs::CheckReport::findings(&self) -> u64
+pub const fn hadris_fs::CheckReport::is_clean(&self) -> bool
+pub const fn hadris_fs::CheckReport::new(u64, u32) -> Self
+pub const fn hadris_fs::CheckReport::passes(&self) -> u32
 pub struct hadris_fs::CivilDate
 impl hadris_fs::CivilDate
 pub const fn hadris_fs::CivilDate::day(&self) -> u8
@@ -2224,6 +2234,21 @@ pub fn hadris_fs::FileTimes::with_accessed(self, impl core::convert::Into<core::
 pub fn hadris_fs::FileTimes::with_changed(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
 pub fn hadris_fs::FileTimes::with_created(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
 pub fn hadris_fs::FileTimes::with_modified(self, impl core::convert::Into<core::option::Option<hadris_fs::DateTime>>) -> Self
+pub struct hadris_fs::Finding<'a>
+impl<'a> hadris_fs::Finding<'a>
+pub const fn hadris_fs::Finding<'a>::detail(&self) -> hadris_io::fs_error::DetailCode
+pub const fn hadris_fs::Finding<'a>::location(&self) -> core::option::Option<hadris_io::fs_error::Location>
+pub const fn hadris_fs::Finding<'a>::message(&self) -> &'static str
+pub const fn hadris_fs::Finding<'a>::new(&'static str, hadris_io::fs_error::DetailCode) -> Self
+pub const fn hadris_fs::Finding<'a>::path(&self) -> core::option::Option<&'a [u8]>
+pub const fn hadris_fs::Finding<'a>::severity(&self) -> hadris_fs::Severity
+pub const fn hadris_fs::Finding<'a>::with_location(self, hadris_io::fs_error::Location) -> Self
+pub const fn hadris_fs::Finding<'a>::with_path(self, &'a [u8]) -> Self
+pub const fn hadris_fs::Finding<'a>::with_severity(self, hadris_fs::Severity) -> Self
+impl core::fmt::Debug for hadris_fs::Finding<'_>
+pub fn hadris_fs::Finding<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for hadris_fs::Finding<'_>
+pub fn hadris_fs::Finding<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_fs::FixedTable<const N: usize, V>
 impl<const N: usize, V> hadris_fs::FixedTable<N, V>
 pub const fn hadris_fs::FixedTable<N, V>::capacity(&self) -> usize
