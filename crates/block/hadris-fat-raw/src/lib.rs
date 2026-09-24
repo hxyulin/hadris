@@ -21,6 +21,10 @@
 //!   encoding its boot sector;
 //! - [`exfat`], the exFAT layouts and codecs.
 //!
+//! With the `sync`, `async` or `async-send` feature, `io` adds the FAT
+//! device primitives the `hadris-fat` driver is built on, generic over a
+//! `hadris-storage` block device and still allocation-free.
+//!
 //! The layouts mirror the specifications: they may gain items, and the
 //! existing ones follow the specifications and stay exhaustive.
 //!
@@ -42,10 +46,14 @@
 //!
 //! | Feature | Default | Description |
 //! |---------|---------|-------------|
-//! | `defmt` | No      | `defmt::Format` for [`FatKind`] |
+//! | `sync` | No | The device primitives in `io::sync` |
+//! | `async` | No | The device primitives in `io::r#async` |
+//! | `async-send` | No | The device primitives with `Send` futures in `io::async_send` |
+//! | `defmt` | No | `defmt::Format` for [`FatKind`] |
 
 #![cfg_attr(not(test), no_std)]
 #![deny(missing_docs)]
+#![allow(clippy::duplicate_mod)]
 
 mod boot;
 mod bpb;
@@ -56,6 +64,8 @@ mod slot;
 
 pub mod date;
 pub mod exfat;
+#[cfg(any(feature = "sync", feature = "async"))]
+pub mod io;
 pub mod layout;
 pub mod lfn;
 pub mod name;

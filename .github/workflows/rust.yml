@@ -203,6 +203,18 @@ jobs:
           - crate: hadris-fat-raw
             tier: defmt
             features: "defmt"
+          - crate: hadris-fat-raw
+            tier: no-std-sync
+            features: "sync"
+          - crate: hadris-fat-raw
+            tier: no-std-async
+            features: "async"
+          - crate: hadris-fat-raw
+            tier: no-std-async-send
+            features: "async-send"
+          - crate: hadris-fat-raw
+            tier: all-modes
+            features: "sync,async,async-send"
 
           # hadris-fat
           - crate: hadris-fat
@@ -494,7 +506,7 @@ jobs:
         run: |
           cargo test --workspace --all-features --tests --exclude hadris-fat --exclude hadris-fat-raw
           cargo test -p hadris-fat --features "std,alloc,sync,async,async-send,write" --tests
-          cargo test -p hadris-fat-raw --tests
+          cargo test -p hadris-fat-raw --features "sync,async,async-send" --tests
       - name: Run block opening integration tests
         run: cargo test -p hadris-block --all-features --test open_volume --test async_volume --test async_send_volume
       - name: Run optical detection integration tests

@@ -1,13 +1,10 @@
 use hadris_fs::{Clock, DateTime, ErrorKind, FixedTable, FsResult, MountError};
 
-use super::block_io::{BlockBuf, MAX_BLOCK_SIZE, write_bytes};
+use super::block_io::new_block;
 use super::fatfs::FatFs;
+use super::rawio;
 use super::storage::BlockDevice;
-use hadris_fat_raw::layout::{
-    self, BACKUP_BOOT_SECTOR, BootFields, FS_INFO_SECTOR, Layout, LayoutError, ROOT_CLUSTER,
-    Request,
-};
-use hadris_fat_raw::{ATTR_VOLUME_ID, FatKind, ShortEntry, date};
+use hadris_fat_raw::layout::{self, BootFields, LayoutError, Request};
 
 use crate::{FormatOptions, MountOptions};
 
@@ -61,9 +58,7 @@ async fn write_volume<D: BlockDevice, C: Clock>(
     options: &FormatOptions<C>,
 ) -> FsResult<(), D::Error> {
     let block_size = dev.block_size().get() as usize;
-    if block_size > MAX_BLOCK_SIZE {
-        return Err(ErrorKind::Unsupported.into());
-    }
+    let mut block = new_block(block_size)?;
     if !matches!(options.media, 0xF0 | 0xF8..=0xFF) {
         return Err(ErrorKind::InvalidInput.into());
     }
@@ -94,57 +89,9 @@ async fn write_volume<D: BlockDevice, C: Clock>(
     if let Some(label) = options.label {
         fields = fields.with_label(*label.as_bytes());
     }
-    let mut block = BlockBuf::new(block_size);
-    write_layout(dev, &mut block, &layout, &fields, now).await?;
+    rawio::mkfs(dev, &mut block, &layout, &fields, now).await?;
     dev.flush().await?;
     Ok(())
-}
-
-async fn write_layout<D: BlockDevice>(
-    dev: &mut D,
-    block: &mut BlockBuf,
-    layout: &Layout,
-    fields: &BootFields,
-    now: DateTime,
-) -> FsResult<(), D::Error> {
-    let sector = layout.sector_size() as u64;
-    let data_start = layout.data_start();
-    let root = if layout.kind() == FatKind::Fat32 {
-        data_start
-    } else {
-        layout.root_start()
-    };
-    let root_end = if layout.kind() == FatKind::Fat32 {
-        data_start + layout.cluster_size() as u64
-    } else {
-        data_start
-    };
-    write_bytes(dev, block, 0, None, root_end as usize).await?;
-
-    let (entries, len) = layout::reserved_fat_entries(layout.kind(), fields.media());
-    for copy in 0..layout.fat_count() as u64 {
-        let at = layout.fat_start() + copy * layout.fat_sectors() as u64 * sector;
-        write_bytes(dev, block, at, Some(&entries[..len]), len).await?;
-    }
-    if let Some(label) = fields.label() {
-        let mut entry = ShortEntry::new(label, ATTR_VOLUME_ID);
-        let (date, time, tenths) = date::encode(now);
-        entry.set_created(date, time, tenths);
-        entry.set_modified(date, time);
-        entry.set_accessed_date(date);
-        write_bytes(dev, block, root, Some(&entry.encode()), 32).await?;
-    }
-
-    let boot = layout::encode_boot_sector(layout, fields);
-    if layout.kind() == FatKind::Fat32 {
-        let free = layout.clusters() - 1;
-        let info = layout::encode_fs_info(free, ROOT_CLUSTER + 1);
-        let backup = BACKUP_BOOT_SECTOR as u64 * sector;
-        write_bytes(dev, block, backup, Some(&boot), boot.len()).await?;
-        write_bytes(dev, block, backup + sector, Some(&info), info.len()).await?;
-        write_bytes(dev, block, FS_INFO_SECTOR as u64 * sector, Some(&info), info.len()).await?;
-    }
-    write_bytes(dev, block, 0, Some(&boot), boot.len()).await
 }
 
 }

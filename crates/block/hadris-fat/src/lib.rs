@@ -153,8 +153,6 @@ extern crate alloc;
 
 mod code_page;
 mod findings;
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
-mod hint;
 mod options;
 /// The on-disk layer, the `hadris-fat-raw` crate: the boot sector, BPB,
 /// FSInfo and directory entry layouts with their constants, and the
@@ -177,6 +175,7 @@ pub mod sync {
         ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
     }
 
+    use hadris_fat_raw::io::sync as rawio;
     use hadris_storage::sync as storage;
 
     macro_rules! impl_fat_driver {
@@ -204,6 +203,7 @@ pub mod r#async {
         ($($item:tt)*) => { $($item)* };
     }
 
+    use hadris_fat_raw::io::r#async as rawio;
     use hadris_storage::r#async as storage;
 
     macro_rules! impl_fat_driver {

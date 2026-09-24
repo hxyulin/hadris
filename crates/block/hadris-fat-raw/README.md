@@ -33,6 +33,24 @@ needs an allocator:
 The layouts mirror the specifications. They may gain items; the existing
 ones follow the specifications and stay exhaustive.
 
+With a mode feature, `io` adds the FAT device primitives the `FatFs` driver
+is built on, in `io::sync`, `io::r#async` and `io::async_send`, generated
+from one source. They are generic over a `hadris-storage` block device and
+borrow a caller-lent `BlockBuf` of one device block, so they still need no
+allocator:
+
+- `read_geometry` and `read_fat` read the boot and FSInfo sectors into a
+  `Fat`, which tracks the free count and allocation hint
+- `get`, `set` and `mirror` read and write FAT entries on every copy, the
+  active copy first, recording an entry until every copy has it
+- `next`, `walk` and `run` follow chains; `allocate`, `allocate_run` and
+  `free_chain` take and free clusters a device block of entries at a time,
+  recording their progress in a `Held` so a driver can finish an
+  interrupted one
+- `slot_offset` with a `DirWalk` that keeps its chain position,
+  `read_slot`, `write_slots` and `clear_slots` for directories
+- `mkfs` writes a volume that `layout::plan` planned
+
 ## Usage
 
 ```rust
@@ -53,6 +71,9 @@ assert_eq!(entry.lfn_checksum(), lfn_checksum(b"README  TXT"));
 
 | Feature | Description | Default |
 |---------|-------------|---------|
+| `sync` | The device primitives in `io::sync` | - |
+| `async` | The device primitives in `io::r#async` | - |
+| `async-send` | The device primitives with `Send` futures in `io::async_send` | - |
 | `defmt` | `defmt::Format` for `FatKind` | - |
 
 ## Documentation

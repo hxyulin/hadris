@@ -22,6 +22,18 @@ Each published package owns its version and may be released independently.
   `exfat` holds the exFAT layouts, `parse_boot`, `boot_checksum`,
   `set_checksum`, `seal`, `name_hash`, `NameUnits`, `encode_time`,
   `decode_time` and the up-case table decoder.
+- **hadris-fat-raw (V3):** `io`, the FAT device primitives the `FatFs`
+  driver is built on, in `io::sync`, `io::r#async` and `io::async_send`
+  behind the `sync`, `async` and `async-send` features. They borrow a
+  caller-lent `BlockBuf` of one device block and a `Fat` that tracks the
+  free count, the allocation hint and FAT entries an interrupted write left
+  unmirrored: `read_geometry`, `read_fat`, `get`, `get_copy`, `set` (active
+  copy first), `mirror`, `next`, `walk`, `run`, `allocate`, `allocate_run`
+  and `free_chain` (a device block of entries at a time, recording
+  progress in a `Held`), `count_free`, `write_fs_info`, `slot_offset` with
+  a `DirWalk` that keeps its chain position, `read_slot`, `write_slots`,
+  `clear_slots` and `mkfs`, plus `load`, `store`, `read_bytes`,
+  `write_bytes` and `write_zeros`.
 - **hadris-storage (V3):** `BlockDevice` gains `max_block_count` (how many
   blocks a device holds once written past its end, `block_count` by
   default), `disk_offset` (the byte offset of block 0 on the disk a device

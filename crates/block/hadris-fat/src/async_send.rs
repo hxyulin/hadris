@@ -3,6 +3,7 @@ macro_rules! io_transform {
     ($($item:tt)*) => { hadris_macros::send_async! { $($item)* } };
 }
 
+use hadris_fat_raw::io::async_send as rawio;
 use hadris_storage::async_send as storage;
 
 macro_rules! impl_fat_driver {

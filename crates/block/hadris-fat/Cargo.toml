@@ -19,10 +19,16 @@ features = ["std", "sync", "async", "async-send", "write"]
 
 [features]
 default = ["std", "sync", "write"]
-sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync"]
-async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async"]
+sync = ["hadris-io/sync", "hadris-fs/sync", "hadris-storage/sync", "hadris-fat-raw/sync"]
+async = ["hadris-io/async", "hadris-fs/async", "hadris-storage/async", "hadris-fat-raw/async"]
 # The asynchronous API a third time, with `Send` futures, in `async_send`.
-async-send = ["async", "hadris-io/async-send", "hadris-fs/async-send", "hadris-storage/async-send"]
+async-send = [
+  "async",
+  "hadris-io/async-send",
+  "hadris-fs/async-send",
+  "hadris-storage/async-send",
+  "hadris-fat-raw/async-send",
+]
 alloc = ["hadris-io/alloc", "hadris-fs/alloc", "hadris-storage/alloc"]
 std = [
   "alloc",

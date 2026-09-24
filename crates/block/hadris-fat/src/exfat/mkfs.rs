@@ -2,7 +2,7 @@ use hadris_common::types::endian::LittleEndian;
 use hadris_common::types::number::{U16, U32, U64};
 use hadris_fs::{Clock, DateTime, ErrorKind, FixedTable, FsResult, MountError};
 
-use super::block_io::{BlockBuf, MAX_BLOCK_SIZE, write_bytes};
+use super::block_io::{new_block, write_bytes};
 use super::fs::ExFatFs;
 use super::storage::BlockDevice;
 use hadris_fat_raw::exfat::{self as raw, BootSector, ENTRY_SIZE, RawEntry};
@@ -245,13 +245,10 @@ async fn write_volume<D: BlockDevice, C: Clock>(
     options: &FormatOptions<C>,
 ) -> FsResult<(), D::Error> {
     let block_size = dev.block_size().get() as usize;
-    if block_size > MAX_BLOCK_SIZE {
-        return Err(ErrorKind::Unsupported.into());
-    }
+    let mut block = new_block(block_size)?;
     let device_bytes = dev.block_count().saturating_mul(block_size as u64);
     let layout = plan(device_bytes, block_size as u32, options)?;
     let serial = options.volume_id.unwrap_or_else(|| volume_id(options.clock.now()));
-    let mut block = BlockBuf::new(block_size);
     let block = &mut block;
     let sector = layout.sector();
     let region = raw::BOOT_REGION_SECTORS * sector;
