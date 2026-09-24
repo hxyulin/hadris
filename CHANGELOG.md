@@ -885,6 +885,10 @@ Each published package owns its version and may be released independently.
 
 ### Fixed
 
+- **hadris-iso (V3):** Joliet and enhanced volume descriptors pad their
+  escape sequence field with zeros, as ECMA-119 8.5.6 requires, instead of
+  spaces. libarchive (`bsdtar`) refused every image with an enhanced tree,
+  including every `hadris-cd` image, and listed it as an empty archive.
 - **hadris-macros:** `send_async!` no longer panics on a trait without a
   body or an `async fn` with neither a body nor a semicolon, and no longer
   takes the next item's body for a trait alias. It passes such tokens

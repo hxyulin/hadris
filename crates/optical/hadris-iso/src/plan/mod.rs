@@ -1335,7 +1335,7 @@ impl<C: Clock> Planner<'_, C> {
                         let mut s: SupplementaryVolumeDescriptor = bytemuck::cast(d);
                         s.header = VolumeDescriptorHeader::new(raw::DescriptorType::Supplementary);
                         s.header.version = 2;
-                        s.escape_sequences = [b' '; 32];
+                        s.escape_sequences = [0; 32];
                         s.file_structure_version = 2;
                         out.extend_from_slice(bytemuck::bytes_of(&s));
                     } else {
