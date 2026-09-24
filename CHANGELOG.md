@@ -980,6 +980,10 @@ Each published package owns its version and may be released independently.
   node, free the clusters the node's Vendor Allocation entries (and other
   benign secondary entries with an allocation) hold. They were left
   allocated, and `check` reported them as lost.
+- **hadris-cd (V3):** The volume space size of the ISO 9660 volume
+  descriptors of a bridge image covers the whole image. It left out the
+  UDF structures and trailing anchor after the ISO 9660 image, so readers
+  that trust it saw a volume shorter than the image.
 - **hadris-iso (V3):** Primary and enhanced tree identifiers map each
   character of a name to one byte, so `café.txt` becomes `CAF_.TXT;1`
   instead of `CAF__.TXT;1`, and Level 1 and 2 limits count characters.

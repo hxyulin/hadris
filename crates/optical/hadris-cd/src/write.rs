@@ -9,6 +9,7 @@ use super::storage::BlockDevice;
 use crate::error::Error;
 use crate::options::CdOptions;
 use crate::report::Report;
+use hadris_storage::{BlockIndex, WriteError};
 
 /// Blocks the UDF volume keeps after the last file, before its trailing
 /// anchor, as 2.x did.
@@ -64,6 +65,8 @@ pub async fn plan<C: Clock + Clone>(tree: &Tree, opts: &CdOptions<C>) -> Result<
 /// The ISO 9660 image is written first, from block 0 in ascending order,
 /// with its directories after the UDF metadata; then the UDF structures,
 /// pointing at the ISO 9660 file extents, and the last block of the image.
+/// Last, the volume space size of each ISO 9660 volume descriptor is set to
+/// the whole image, UDF structures included.
 /// The device must hold [`Report::size_bytes`] (see [`plan`]); a device
 /// that grows on write, such as a host file, needs no sizing. Errors of
 /// either writer keep their kind and detail ([`Detail`](crate::Detail)).
@@ -75,7 +78,31 @@ pub async fn write<D: BlockDevice, C: Clock + Clone>(mut out: D, tree: &Tree, op
     let (stored, files_end) = crate::tree::stored(tree, &iso)?;
     let files_end = files_end.max(udf.allocated_end());
     let udf = super::udf::write(&mut out, &stored, &udf_opts.with_min_blocks(total(&iso, files_end))).await?;
-    Ok(Report::new(iso, udf))
+    let report = Report::new(iso, udf);
+    cover(&mut out, opts.iso(), report.total_blocks()).await?;
+    Ok(report)
+}
+
+/// Sets the volume space size of the ISO 9660 volume descriptors to
+/// `blocks`, the whole image, so the ISO 9660 volume also covers the UDF
+/// structures after its own end (ECMA-119 8.4.8).
+async fn cover<D: BlockDevice, C: Clock>(out: &mut D, opts: &IsoOptions<C>, blocks: u64) -> Result<(), Error<D::Error>> {
+    let blocks = u32::try_from(blocks).unwrap_or(u32::MAX);
+    let per_sector = 2048 / u64::from(out.block_size().get());
+    let mut sector = [0u8; 2048];
+    for index in 16..16 + u64::from(iso_descriptors(opts)) {
+        let first = BlockIndex::new(index * per_sector);
+        out.read_blocks(first, &mut sector)
+            .await
+            .map_err(|err| hadris_iso::Error::from(WriteError::Device(err)))?;
+        if !matches!(sector[0], 1 | 2) || &sector[1..6] != b"CD001" {
+            continue;
+        }
+        sector[80..84].copy_from_slice(&blocks.to_le_bytes());
+        sector[84..88].copy_from_slice(&blocks.to_be_bytes());
+        out.write_blocks(first, &sector).await.map_err(hadris_iso::Error::from)?;
+    }
+    Ok(())
 }
 
 }

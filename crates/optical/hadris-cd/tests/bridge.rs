@@ -266,3 +266,34 @@ fn writer_errors_keep_their_detail() {
     let err = hadris_cd::sync::plan(&long, &options).unwrap_err();
     assert_eq!(err.kind(), ErrorKind::NameTooLong);
 }
+
+#[test]
+fn iso_volume_space_covers_the_udf_tail() {
+    let tree = fixture();
+    let iso = options(UdfRevision::V2_01)
+        .iso()
+        .clone()
+        .with_joliet(hadris_cd::iso::JolietLevel::L3);
+    let options = options(UdfRevision::V2_01).with_iso(iso);
+    let bytes = create(&tree, &options);
+    let blocks = (bytes.len() / SECTOR) as u32;
+    let mut descriptors = 0;
+    for sector in 16.. {
+        let at = sector * SECTOR;
+        match bytes[at] {
+            255 => break,
+            1 | 2 => {
+                let field = &bytes[at + 80..at + 88];
+                assert_eq!(field[..4], blocks.to_le_bytes(), "sector {sector}");
+                assert_eq!(field[4..], blocks.to_be_bytes(), "sector {sector}");
+                descriptors += 1;
+            }
+            _ => {}
+        }
+    }
+    assert!(descriptors >= 2);
+    let dev = MemDevice::new(bytes.as_slice(), BlockSize::new(2048).unwrap());
+    let iso = hadris_cd::iso::sync::IsoImage::open(dev).unwrap();
+    assert_eq!(iso.volume_blocks(), blocks);
+    verify(&bytes);
+}
