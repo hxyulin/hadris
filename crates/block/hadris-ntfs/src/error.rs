@@ -185,7 +185,7 @@ impl<E> From<Error<E>> for hadris_fs::Error<E> {
 }
 
 #[cfg(feature = "alloc")]
-impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for hadris_fs::AnyError {
+impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for hadris_fs::PathError {
     fn from(err: Error<E>) -> Self {
         hadris_fs::Error::from(err).into()
     }

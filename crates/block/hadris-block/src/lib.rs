@@ -43,7 +43,7 @@
 //! | Feature | Default | Description |
 //! |---|---|---|
 //! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and `std::fs::File` devices |
-//! | `alloc` | via `std` | `AnyError` conversions |
+//! | `alloc` | via `std` | `PathError` conversions |
 //! | `sync` | Yes | The blocking API in `sync` |
 //! | `async` | No | The asynchronous API in `r#async` |
 //! | `async-send` | No | The asynchronous API with `Send` futures in `async_send` |

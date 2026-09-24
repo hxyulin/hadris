@@ -20,8 +20,8 @@ impl<E> From<crate::OpenOptionsError> for Error<E> {
     }
 }
 
-impl<E> From<crate::path::PathError> for Error<E> {
-    fn from(err: crate::path::PathError) -> Self {
+impl<E> From<crate::path::NormalizeError> for Error<E> {
+    fn from(err: crate::path::NormalizeError) -> Self {
         Error::new(err.kind(), err.description())
     }
 }
@@ -114,20 +114,62 @@ impl<D, E: core::error::Error + Send + Sync + 'static> From<MountError<D, E>> fo
     }
 }
 
-/// An error with the device type erased, for code that mixes volumes on
-/// different devices.
+/// An error that says which path failed, with the device error erased.
 ///
-/// Keeps the whole context of the [`Error`] (kind, message, location and
-/// detail) and the boxed device error. Every [`Error<E>`] converts with `?`.
+/// Returned by code that needs paths or mixes devices: writers, tree edits,
+/// `copy_tree` and host helpers. It keeps the whole context of the
+/// [`Error`] (kind, message, location and detail), the path within the tree
+/// or volume, with `std` the host path, and the device or source error,
+/// boxed, as its [`source`](core::error::Error::source). Every
+/// [`Error<E>`] and [`MountError<D, E>`] converts with `?`.
+///
+/// ```rust
+/// use hadris_fs::{Error, ErrorKind, PathError};
+///
+/// fn copy() -> Result<(), PathError> {
+///     let failed: Result<(), Error<std::io::Error>> =
+///         Err(Error::new(ErrorKind::NoSpace, "volume full"));
+///     failed.map_err(|err| PathError::from(err).with_path("/boot/kernel"))?;
+///     Ok(())
+/// }
+///
+/// let err = copy().unwrap_err();
+/// assert_eq!(err.kind(), ErrorKind::NoSpace);
+/// assert_eq!(err.path(), Some("/boot/kernel"));
+/// assert_eq!(err.to_string(), "volume full: /boot/kernel");
+/// ```
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
-pub struct AnyError {
+pub struct PathError {
     context: Error<core::convert::Infallible>,
-    device: Option<alloc::boxed::Box<dyn core::error::Error + Send + Sync>>,
+    path: Option<alloc::string::String>,
+    #[cfg(feature = "std")]
+    host: Option<std::path::PathBuf>,
+    source: Option<alloc::boxed::Box<dyn core::error::Error + Send + Sync>>,
 }
 
 #[cfg(feature = "alloc")]
-impl AnyError {
+impl PathError {
+    /// An error of `kind` with no path and no source.
+    pub fn new(kind: ErrorKind, message: &'static str) -> Self {
+        Error::<core::convert::Infallible>::new(kind, message).into()
+    }
+
+    /// Records the path within the tree or volume that failed.
+    #[must_use]
+    pub fn with_path(mut self, path: impl Into<alloc::string::String>) -> Self {
+        self.path = Some(path.into());
+        self
+    }
+
+    /// Records the host path that failed.
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn with_host_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.host = Some(path.into());
+        self
+    }
+
     /// What went wrong.
     pub fn kind(&self) -> ErrorKind {
         self.context.kind()
@@ -138,7 +180,7 @@ impl AnyError {
         self.context.message()
     }
 
-    /// Where the failure happened, when known.
+    /// Where on the device the failure happened, when known.
     pub fn location(&self) -> Option<Location> {
         self.context.location()
     }
@@ -148,23 +190,37 @@ impl AnyError {
         self.context.detail()
     }
 
-    /// The error without its device error.
+    /// The error without its path and source.
     pub fn context(&self) -> &Error<core::convert::Infallible> {
         &self.context
     }
 
-    /// The device error, if the device failed and its type is `E`.
+    /// The path within the tree or volume, when known.
+    pub fn path(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
+
+    /// The host path, when known.
+    #[cfg(feature = "std")]
+    pub fn host_path(&self) -> Option<&std::path::Path> {
+        self.host.as_deref()
+    }
+
+    /// The device or source error, if it has type `E`.
     pub fn downcast_device<E: core::error::Error + 'static>(&self) -> Option<&E> {
-        self.device.as_deref()?.downcast_ref()
+        self.source.as_deref()?.downcast_ref()
     }
 }
 
 #[cfg(feature = "alloc")]
-impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for AnyError {
+impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for PathError {
     fn from(err: Error<E>) -> Self {
         Self {
             context: err.without_device(),
-            device: err
+            path: None,
+            #[cfg(feature = "std")]
+            host: None,
+            source: err
                 .into_device_error()
                 .map(|err| alloc::boxed::Box::new(err) as _),
         }
@@ -172,46 +228,58 @@ impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for AnyError 
 }
 
 #[cfg(feature = "alloc")]
-impl<D, E: core::error::Error + Send + Sync + 'static> From<MountError<D, E>> for AnyError {
+impl<D, E: core::error::Error + Send + Sync + 'static> From<MountError<D, E>> for PathError {
     fn from(err: MountError<D, E>) -> Self {
         err.error.into()
     }
 }
 
 #[cfg(feature = "alloc")]
-impl From<ErrorKind> for AnyError {
+impl From<ErrorKind> for PathError {
     fn from(kind: ErrorKind) -> Self {
-        Self {
-            context: kind.into(),
-            device: None,
-        }
+        Error::<core::convert::Infallible>::from(kind).into()
     }
 }
 
+/// The host path is shown when there is no tree path.
 #[cfg(feature = "alloc")]
-impl fmt::Display for AnyError {
+impl fmt::Display for PathError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.context.fmt(f)
+        self.context.fmt(f)?;
+        if let Some(path) = &self.path {
+            return write!(f, ": {path}");
+        }
+        #[cfg(feature = "std")]
+        if let Some(host) = &self.host {
+            return write!(f, ": {}", host.display());
+        }
+        Ok(())
     }
 }
 
 #[cfg(feature = "alloc")]
-impl core::error::Error for AnyError {
+impl core::error::Error for PathError {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        self.device.as_deref().map(|err| err as _)
+        self.source.as_deref().map(|err| err as _)
     }
 }
 
-/// An `std::io::Error` device error comes back as itself.
+/// A source error that is an `std::io::Error` comes back as itself;
+/// otherwise the `PathError` is the payload.
 #[cfg(feature = "std")]
-impl From<AnyError> for std::io::Error {
-    fn from(err: AnyError) -> Self {
-        match err.device {
-            Some(device) => match device.downcast::<std::io::Error>() {
-                Ok(io) => *io,
-                Err(other) => std::io::Error::other(other),
-            },
-            None => std::io::Error::new(err.context.kind().into(), err.context),
+impl From<PathError> for std::io::Error {
+    fn from(mut err: PathError) -> Self {
+        match err
+            .source
+            .take()
+            .map(|source| source.downcast::<std::io::Error>())
+        {
+            Some(Ok(io)) => *io,
+            Some(Err(other)) => {
+                err.source = Some(other);
+                std::io::Error::new(err.kind().into(), err)
+            }
+            None => std::io::Error::new(err.kind().into(), err),
         }
     }
 }
@@ -239,7 +307,7 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::LimitExceeded);
         let err: Error<Ata> = crate::OpenOptionsError::RequiresWrite.into();
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
-        let err: Error<Ata> = crate::path::PathError::EscapesRoot.into();
+        let err: Error<Ata> = crate::path::NormalizeError::EscapesRoot.into();
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
         assert_eq!(err.message(), "parent component escapes the virtual root");
         let err: Error<Ata> = crate::TableFull::new(3u8).into();
@@ -259,8 +327,8 @@ mod tests {
 
     #[cfg(feature = "alloc")]
     #[test]
-    fn any_error_mixes_devices() {
-        fn copy() -> Result<(), AnyError> {
+    fn path_errors_mix_devices() {
+        fn copy() -> Result<(), PathError> {
             let ok: FsResult<(), Ata> = Ok(());
             ok?;
             let failed: FsResult<(), core::convert::Infallible> = Err(ErrorKind::NoSpace.into());
@@ -268,21 +336,36 @@ mod tests {
             Ok(())
         }
         assert_eq!(copy().unwrap_err().kind(), ErrorKind::NoSpace);
-        let err = AnyError::from(
+        let err = PathError::from(
             Error::device(Ata::Timeout, "read failed").with_location(Location::Block(3)),
-        );
+        )
+        .with_path("/a/b");
         assert_eq!(err.downcast_device::<Ata>(), Some(&Ata::Timeout));
         assert_eq!(err.location(), Some(Location::Block(3)));
-        assert_eq!(alloc::format!("{err}"), "read failed at block 3");
+        assert_eq!(alloc::format!("{err}"), "read failed at block 3: /a/b");
+        let source = core::error::Error::source(&err).unwrap();
+        assert_eq!(alloc::format!("{source}"), "timeout");
     }
 
     #[cfg(feature = "std")]
     #[test]
-    fn any_error_gives_std_errors_back() {
-        let err = AnyError::from(Error::device(std::io::Error::from_raw_os_error(30), "m"));
+    fn path_errors_give_std_errors_back() {
+        let err = PathError::from(Error::device(std::io::Error::from_raw_os_error(30), "m"));
         let io: std::io::Error = err.into();
         assert_eq!(io.raw_os_error(), Some(30));
-        let io: std::io::Error = AnyError::from(ErrorKind::ReadOnly).into();
+
+        let err = PathError::from(ErrorKind::ReadOnly).with_host_path("/tmp/x");
+        assert_eq!(err.host_path(), Some(std::path::Path::new("/tmp/x")));
+        assert_eq!(alloc::format!("{err}"), "read-only: /tmp/x");
+        let io: std::io::Error = err.into();
         assert_eq!(io.kind(), std::io::ErrorKind::ReadOnlyFilesystem);
+        let inner = io.get_ref().unwrap().downcast_ref::<PathError>().unwrap();
+        assert_eq!(inner.host_path(), Some(std::path::Path::new("/tmp/x")));
+
+        let err = PathError::from(Error::device(Ata::Timeout, "m")).with_path("/f");
+        let io: std::io::Error = err.into();
+        assert_eq!(io.kind(), std::io::ErrorKind::Other);
+        let inner = io.get_ref().unwrap().downcast_ref::<PathError>().unwrap();
+        assert_eq!(inner.downcast_device::<Ata>(), Some(&Ata::Timeout));
     }
 }

@@ -1019,7 +1019,7 @@ pub fn hadris_iso::ElTorito::with_catalog_path(self, impl core::convert::Into<al
 pub fn hadris_iso::ElTorito::with_entry(self, hadris_iso::BootEntry) -> Self
 pub struct hadris_iso::Error<E>
 impl<E> hadris_iso::Error<E>
-pub fn hadris_iso::Error<E>::content_error(&self) -> core::option::Option<&hadris_fs::error::AnyError>
+pub fn hadris_iso::Error<E>::content_error(&self) -> core::option::Option<&hadris_fs::error::PathError>
 pub const fn hadris_iso::Error<E>::detail(&self) -> core::option::Option<hadris_iso::Detail>
 pub const fn hadris_iso::Error<E>::device_error(&self) -> core::option::Option<&E>
 pub fn hadris_iso::Error<E>::into_device_error(self) -> core::option::Option<E>
@@ -1032,8 +1032,8 @@ impl<E: core::error::Error + 'static> core::error::Error for hadris_iso::Error<E
 pub fn hadris_iso::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_iso::Error<E>> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_iso::Error<E>) -> Self
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_iso::Error<E>> for hadris_fs::error::AnyError
-pub fn hadris_fs::error::AnyError::from(hadris_iso::Error<E>) -> Self
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_iso::Error<E>> for hadris_fs::error::PathError
+pub fn hadris_fs::error::PathError::from(hadris_iso::Error<E>) -> Self
 impl<E: core::fmt::Display> core::fmt::Display for hadris_iso::Error<E>
 pub fn hadris_iso::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<hadris_fs::tree::TreeError> for hadris_iso::Error<E>

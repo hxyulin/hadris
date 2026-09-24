@@ -1,6 +1,6 @@
 use core::fmt;
 
-use hadris_fs::{AnyError, ErrorKind};
+use hadris_fs::{ErrorKind, PathError};
 
 /// Which writer failed and why, beyond the [`ErrorKind`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,7 +30,7 @@ impl fmt::Display for Detail {
 /// UDF error it wraps. Callers match on [`kind`](Self::kind). Two errors
 /// are equal when their kinds and device errors are.
 ///
-/// `?` converts it into [`hadris_fs::Error<E>`], [`AnyError`] and, with
+/// `?` converts it into [`hadris_fs::Error<E>`], [`PathError`] and, with
 /// `std`, [`std::io::Error`], returning an `io::Error` device error as
 /// itself.
 #[derive(Debug)]
@@ -38,7 +38,7 @@ pub struct Error<E> {
     kind: ErrorKind,
     detail: Option<Detail>,
     device: Option<E>,
-    content: Option<AnyError>,
+    content: Option<PathError>,
 }
 
 impl<E> Error<E> {
@@ -72,7 +72,7 @@ impl<E> Error<E> {
     }
 
     /// The error of reading a file's content from the tree.
-    pub fn content_error(&self) -> Option<&AnyError> {
+    pub fn content_error(&self) -> Option<&PathError> {
         self.content.as_ref()
     }
 
@@ -157,7 +157,7 @@ impl<E> From<Error<E>> for hadris_fs::Error<E> {
     }
 }
 
-impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for AnyError {
+impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for PathError {
     fn from(err: Error<E>) -> Self {
         match err.content {
             Some(content) => content,

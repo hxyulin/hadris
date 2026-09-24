@@ -42,7 +42,7 @@ impl fmt::Display for Detail {
 /// errors are equal when their kinds and device errors are.
 ///
 /// `?` converts it into [`hadris_fs::Error<E>`], and with `alloc` into
-/// [`hadris_fs::AnyError`] and with `std` into [`std::io::Error`],
+/// [`hadris_fs::PathError`] and with `std` into [`std::io::Error`],
 /// returning an `io::Error` device error as itself.
 #[derive(Debug)]
 pub struct Error<E> {
@@ -151,7 +151,7 @@ impl<E> From<Error<E>> for hadris_fs::Error<E> {
 }
 
 #[cfg(feature = "alloc")]
-impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for hadris_fs::AnyError {
+impl<E: core::error::Error + Send + Sync + 'static> From<Error<E>> for hadris_fs::PathError {
     fn from(err: Error<E>) -> Self {
         hadris_fs::Error::from(err).into()
     }
@@ -266,7 +266,7 @@ impl<D, E> From<OpenError<D, E>> for hadris_fs::Error<E> {
 
 #[cfg(feature = "alloc")]
 impl<D, E: core::error::Error + Send + Sync + 'static> From<OpenError<D, E>>
-    for hadris_fs::AnyError
+    for hadris_fs::PathError
 {
     fn from(err: OpenError<D, E>) -> Self {
         err.error.into()

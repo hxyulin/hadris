@@ -14,7 +14,7 @@ use hadris_fs::sync::{
     DriverExt, FsDriver, PathExt, TreeExt, Volume, copy_tree, extract_to_host, import_from_host,
 };
 use hadris_fs::tree::Tree;
-use hadris_fs::{AnyError, ErrorKind, NewNode};
+use hadris_fs::{ErrorKind, NewNode, PathError};
 
 fn link_target(fs: &mut MemFs, path: &str) -> Vec<u8> {
     let node = fs.resolve(path).unwrap();
@@ -93,7 +93,7 @@ fn conflicts_and_failures_release_pins() {
     assert_eq!(err.kind(), ErrorKind::ReadOnly);
 
     src.fail_next(MemError::Timeout { lba: 9 });
-    let err: AnyError = copy_tree(&mut src, "/etc", &mut dst, "/copy").unwrap_err();
+    let err: PathError = copy_tree(&mut src, "/etc", &mut dst, "/copy").unwrap_err();
     assert_eq!(err.kind(), ErrorKind::Io);
     assert_eq!(
         err.downcast_device::<MemError>(),

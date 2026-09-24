@@ -159,7 +159,7 @@ mod send {
     fn spawn_copy<S: FileSystem + 'static, T: FileSystem + 'static>(
         src: Arc<S>,
         dst: Arc<T>,
-    ) -> std::thread::JoinHandle<Result<(), hadris_fs::AnyError>> {
+    ) -> std::thread::JoinHandle<Result<(), hadris_fs::PathError>> {
         std::thread::spawn(move || block_on(copy_tree(src, "/", dst, "/mirror")))
     }
 

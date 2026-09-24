@@ -1,5 +1,5 @@
 use super::*;
-use crate::AnyError;
+use crate::PathError;
 use crate::tree::{Content, Repr, Tree, Warning, WarningKind};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -20,7 +20,7 @@ pub struct ContentReader<'a> {
 
 impl<'a> ContentReader<'a> {
     /// Opens `content`: a host file is opened and measured now.
-    pub async fn open(content: &'a Content) -> Result<Self, AnyError> {
+    pub async fn open(content: &'a Content) -> Result<Self, PathError> {
         let len = match &content.0 {
             Repr::Bytes(bytes) => bytes.len() as u64,
             #[cfg(feature = "sync")]
@@ -29,8 +29,8 @@ impl<'a> ContentReader<'a> {
             Repr::Async(source) => async_content_len(source).await?,
             #[cfg(feature = "std")]
             Repr::Path { path, .. } => {
-                let file = std::fs::File::open(path).map_err(host_error)?;
-                let len = hadris_storage::file_len(&file).map_err(host_error)?;
+                let file = std::fs::File::open(path).map_err(|err| host_error(err, path))?;
+                let len = hadris_storage::file_len(&file).map_err(|err| host_error(err, path))?;
                 return Ok(Self { content, len, file: Some(file) });
             }
             Repr::Stored(_) => return Err(ErrorKind::Unsupported.into()),
@@ -54,7 +54,7 @@ impl<'a> ContentReader<'a> {
     }
 
     /// Reads from `offset`. Returns 0 at or past the end.
-    pub async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, AnyError> {
+    pub async fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, PathError> {
         if offset >= self.len || buf.is_empty() {
             return Ok(0);
         }
@@ -71,11 +71,12 @@ impl<'a> ContentReader<'a> {
             #[cfg(feature = "async-send")]
             Repr::Async(source) => async_content_read(source, offset, buf).await,
             #[cfg(feature = "std")]
-            Repr::Path { .. } => {
+            Repr::Path { path, .. } => {
                 use std::io::{Read as _, Seek as _};
                 let file = self.file.as_mut().ok_or(ErrorKind::InvalidInput)?;
-                file.seek(std::io::SeekFrom::Start(offset)).map_err(host_error)?;
-                file.read(buf).map_err(host_error)
+                file.seek(std::io::SeekFrom::Start(offset))
+                    .and_then(|_| file.read(buf))
+                    .map_err(|err| host_error(err, path))
             }
             Repr::Stored(_) => Err(ErrorKind::Unsupported.into()),
         }
@@ -83,7 +84,7 @@ impl<'a> ContentReader<'a> {
 
     /// Fills `buf` from `offset`, failing with [`ErrorKind::Corrupt`] when
     /// the content ends first.
-    pub async fn read_exact_at(&mut self, mut offset: u64, mut buf: &mut [u8]) -> Result<(), AnyError> {
+    pub async fn read_exact_at(&mut self, mut offset: u64, mut buf: &mut [u8]) -> Result<(), PathError> {
         while !buf.is_empty() {
             match self.read_at(offset, buf).await? {
                 0 => return Err(ErrorKind::Corrupt.into()),
@@ -240,15 +241,15 @@ fn set_metadata_of(meta: &Metadata) -> SetMetadata {
 }
 
 #[cfg(feature = "std")]
-fn host_error(err: std::io::Error) -> AnyError {
-    AnyError::from(Error::device(err, "reading a host file failed"))
+fn host_error(err: std::io::Error, path: &std::path::Path) -> PathError {
+    PathError::from(Error::device(err, "reading a host file failed")).with_host_path(path)
 }
 
 async_only! {
     #[cfg(feature = "async-send")]
     async fn async_content_len(
         source: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
-    ) -> Result<u64, AnyError> {
+    ) -> Result<u64, PathError> {
         Ok(source.lock().await.len())
     }
 
@@ -257,7 +258,7 @@ async_only! {
         source: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
         offset: u64,
         buf: &mut [u8],
-    ) -> Result<usize, AnyError> {
+    ) -> Result<usize, PathError> {
         source.lock().await.read_at(offset, buf).await
     }
 }
@@ -266,7 +267,7 @@ sync_only! {
     #[cfg(feature = "async-send")]
     fn async_content_len(
         _: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
-    ) -> Result<u64, AnyError> {
+    ) -> Result<u64, PathError> {
         Err(ErrorKind::Unsupported.into())
     }
 
@@ -275,7 +276,7 @@ sync_only! {
         _: &async_lock::Mutex<alloc::boxed::Box<dyn crate::tree::AsyncSource>>,
         _: u64,
         _: &mut [u8],
-    ) -> Result<usize, AnyError> {
+    ) -> Result<usize, PathError> {
         Err(ErrorKind::Unsupported.into())
     }
 }

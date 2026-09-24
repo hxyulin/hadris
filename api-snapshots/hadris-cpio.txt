@@ -261,7 +261,7 @@ pub const fn hadris_cpio::CpioOptions::new() -> Self
 pub const fn hadris_cpio::CpioOptions::with_format(self, hadris_cpio::Format) -> Self
 pub struct hadris_cpio::Error<E>
 impl<E> hadris_cpio::Error<E>
-pub fn hadris_cpio::Error<E>::content_error(&self) -> core::option::Option<&hadris_fs::error::AnyError>
+pub fn hadris_cpio::Error<E>::content_error(&self) -> core::option::Option<&hadris_fs::error::PathError>
 pub const fn hadris_cpio::Error<E>::detail(&self) -> core::option::Option<hadris_cpio::Detail>
 pub const fn hadris_cpio::Error<E>::device_error(&self) -> core::option::Option<&E>
 pub fn hadris_cpio::Error<E>::into_device_error(self) -> core::option::Option<E>
@@ -274,8 +274,8 @@ impl<E: core::error::Error + 'static> core::error::Error for hadris_cpio::Error<
 pub fn hadris_cpio::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_cpio::Error<E>> for core::io::error::Error
 pub fn core::io::error::Error::from(hadris_cpio::Error<E>) -> Self
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_cpio::Error<E>> for hadris_fs::error::AnyError
-pub fn hadris_fs::error::AnyError::from(hadris_cpio::Error<E>) -> Self
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_cpio::Error<E>> for hadris_fs::error::PathError
+pub fn hadris_fs::error::PathError::from(hadris_cpio::Error<E>) -> Self
 impl<E: core::fmt::Display> core::fmt::Display for hadris_cpio::Error<E>
 pub fn hadris_cpio::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::convert::From<hadris_cpio::Error<E>> for hadris_io::fs_error::Error<E>

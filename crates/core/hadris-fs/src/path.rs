@@ -212,12 +212,12 @@ impl<'a> Iterator for Components<'a> {
 /// An invalid lexical path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum PathError {
+pub enum NormalizeError {
     /// A parent component would escape the virtual root.
     EscapesRoot,
 }
 
-impl PathError {
+impl NormalizeError {
     pub(crate) const fn description(self) -> &'static str {
         match self {
             Self::EscapesRoot => "parent component escapes the virtual root",
@@ -230,24 +230,24 @@ impl PathError {
     }
 }
 
-impl From<PathError> for crate::ErrorKind {
-    fn from(err: PathError) -> Self {
+impl From<NormalizeError> for crate::ErrorKind {
+    fn from(err: NormalizeError) -> Self {
         err.kind()
     }
 }
 
-impl core::fmt::Display for PathError {
+impl core::fmt::Display for NormalizeError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(self.description())
     }
 }
 
-impl core::error::Error for PathError {}
+impl core::error::Error for NormalizeError {}
 
 #[cfg(feature = "alloc")]
 impl VPath<'_> {
     /// Normalizes separators and lexical `.`/`..` components.
-    pub fn normalize(self) -> Result<alloc::string::String, PathError> {
+    pub fn normalize(self) -> Result<alloc::string::String, NormalizeError> {
         use alloc::string::String;
         use alloc::vec::Vec;
 
@@ -258,7 +258,7 @@ impl VPath<'_> {
                 Component::Root | Component::Current => {}
                 Component::Normal(value) => stack.push(value),
                 Component::Parent => {
-                    stack.pop().ok_or(PathError::EscapesRoot)?;
+                    stack.pop().ok_or(NormalizeError::EscapesRoot)?;
                 }
             }
         }
@@ -345,7 +345,10 @@ mod tests {
     #[test]
     fn normalization_rejects_root_escape() {
         assert_eq!(VPath::new("a/./b/../c").normalize().unwrap(), "a/c");
-        assert_eq!(VPath::new("../a").normalize(), Err(PathError::EscapesRoot));
+        assert_eq!(
+            VPath::new("../a").normalize(),
+            Err(NormalizeError::EscapesRoot)
+        );
         assert!(split_path("a/../file").is_none());
     }
 

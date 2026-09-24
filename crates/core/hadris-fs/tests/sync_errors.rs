@@ -8,7 +8,7 @@ mod common;
 use common::MemError;
 use common::sync::{MemFs, fixture};
 use hadris_fs::sync::{DriverExt, PathExt, Volume};
-use hadris_fs::{AnyError, ErrorKind, OpenOptions};
+use hadris_fs::{ErrorKind, OpenOptions, PathError};
 
 #[test]
 fn kernels_get_their_device_error_back() {
@@ -71,7 +71,7 @@ fn code_mixing_devices_uses_any_error() {
         src: &mut S,
         dst: &mut T,
         path: &str,
-    ) -> Result<(), AnyError> {
+    ) -> Result<(), PathError> {
         let data = src.read_to_vec(path)?;
         dst.write_file(path, &data)?;
         Ok(())

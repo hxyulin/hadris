@@ -13,8 +13,9 @@
 //! [`Error<E>`] is the error of every filesystem operation, re-exported from
 //! `hadris-io` with [`ErrorKind`], [`Location`], [`DetailCode`] and
 //! [`Errno`], so block devices return the same type. `E` is the device's own
-//! error, so it survives without allocation; [`AnyError`] erases it for code
-//! that mixes devices. A driver that takes its device
+//! error, so it survives without allocation. [`PathError`] (`alloc`) erases
+//! it and adds the path that failed, for writers and code that mixes
+//! devices. A driver that takes its device
 //! by value fails to mount or format with [`MountError`], which gives the
 //! device back.
 //!
@@ -22,7 +23,7 @@
 //!
 //! | Feature | Default | Purpose |
 //! |---|---:|---|
-//! | `alloc` | No | [`OwnedName`], [`AnyError`], [`HeapTable`], `copy_tree`, owned path normalization, and the writer input [`tree`] with `ContentReader` and `TreeExt` in each mode |
+//! | `alloc` | No | [`OwnedName`], [`PathError`], [`HeapTable`], `copy_tree`, owned path normalization, and the writer input [`tree`] with `ContentReader` and `TreeExt` in each mode |
 //! | `std` | No | Implies `alloc`; adds [`SystemClock`], `extract_to_host` and `import_from_host` in `sync`, `Content::path` and `Tree::from_fs`, and conversions to `std::io::Error` |
 //! | `sync` | No | The blocking driver layer in `sync` |
 //! | `async` | No | The same API with `async fn` in `r#async` |
@@ -66,7 +67,7 @@ pub use caps::{Capabilities, CaseSensitivity, FsStats, NameCharset};
 pub use contract::ContractViolation;
 pub use dir::{DirCursor, DirEntry, DirItem};
 #[cfg(feature = "alloc")]
-pub use error::AnyError;
+pub use error::PathError;
 pub use error::{DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
 pub use extent::Extent;
 pub use fuse::FuseOnError;

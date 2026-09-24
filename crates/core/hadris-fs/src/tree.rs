@@ -45,7 +45,7 @@ pub use crate::Extent;
 #[cfg(feature = "sync")]
 pub(crate) trait BlockingSource: Send {
     fn len(&self) -> u64;
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, crate::AnyError>;
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, crate::PathError>;
 }
 
 #[cfg(feature = "sync")]
@@ -54,9 +54,10 @@ impl<S: hadris_io::sync::ByteSource + Send> BlockingSource for S {
         hadris_io::sync::ByteSource::len(self)
     }
 
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, crate::AnyError> {
-        hadris_io::sync::ByteSource::read_at(self, offset, buf)
-            .map_err(|err| crate::AnyError::from(Error::device(err, "reading file content failed")))
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, crate::PathError> {
+        hadris_io::sync::ByteSource::read_at(self, offset, buf).map_err(|err| {
+            crate::PathError::from(Error::device(err, "reading file content failed"))
+        })
     }
 }
 
@@ -64,7 +65,7 @@ impl<S: hadris_io::sync::ByteSource + Send> BlockingSource for S {
 #[cfg(feature = "async-send")]
 pub(crate) type ReadFuture<'a> = core::pin::Pin<
     alloc::boxed::Box<
-        dyn core::future::Future<Output = Result<usize, crate::AnyError>> + Send + 'a,
+        dyn core::future::Future<Output = Result<usize, crate::PathError>> + Send + 'a,
     >,
 >;
 
@@ -86,7 +87,7 @@ impl<S: hadris_io::async_send::ByteSource> AsyncSource for S {
             hadris_io::async_send::ByteSource::read_at(self, offset, buf)
                 .await
                 .map_err(|err| {
-                    crate::AnyError::from(Error::device(err, "reading file content failed"))
+                    crate::PathError::from(Error::device(err, "reading file content failed"))
                 })
         })
     }
@@ -287,7 +288,7 @@ impl<E> From<TreeError> for Error<E> {
     }
 }
 
-impl From<TreeError> for crate::AnyError {
+impl From<TreeError> for crate::PathError {
     fn from(err: TreeError) -> Self {
         err.kind.into()
     }
