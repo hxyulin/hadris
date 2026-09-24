@@ -483,6 +483,9 @@ pub struct ExFatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock> {
     pub(super) block: BlockBuf,
     pub(super) bitmap: Extent,
     bitmap_hint: (u32, u32),
+    /// The Allocation Bitmap of the FAT that is not active, on a TexFAT
+    /// volume that has one.
+    mirror_bitmap: Option<Extent>,
     pub(super) upcase: Upcase,
     free_clusters: Option<u32>,
     next_free: u32,
@@ -507,7 +510,8 @@ impl<D, T: NodeTable, C: Clock> fmt::Debug for ExFatFs<D, T, C> {
 io_transform! {
 
 /// Reads the boot sector and the root's bitmap and up-case entries.
-async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, Extent, Upcase), D::Error> {
+#[allow(clippy::type_complexity)]
+async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, [Option<Extent>; 2], Upcase), D::Error> {
     let size = dev.block_size().get() as usize;
     if size > MAX_BLOCK_SIZE {
         return Err(ErrorKind::Unsupported.into());
@@ -523,10 +527,15 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, Ext
         return Err(ErrorKind::Corrupt.into());
     }
     let mut probe = Probe { dev, block: &mut block, geo };
-    let (bitmap, upcase_entry) = probe.system_entries().await?;
-    let bitmap = probe.extent(bitmap.0, bitmap.1).await?;
-    if bitmap.len < (geo.cluster_count as u64).div_ceil(8) {
-        return Err(ErrorKind::Corrupt.into());
+    let (entries, upcase_entry) = probe.system_entries().await?;
+    let mut bitmaps = [None; 2];
+    for (entry, bitmap) in entries.into_iter().zip(&mut bitmaps) {
+        let Some((first, len)) = entry else { continue };
+        let extent = probe.extent(first, len).await?;
+        if extent.len < (geo.cluster_count as u64).div_ceil(8) {
+            return Err(ErrorKind::Corrupt.into());
+        }
+        *bitmap = Some(extent);
     }
     let (first, len, stored_checksum) = upcase_entry;
     if !(2..=MAX_UPCASE_LEN).contains(&len) {
@@ -534,7 +543,7 @@ async fn mount<D: BlockDevice>(dev: &mut D) -> FsResult<(Geometry, BlockBuf, Ext
     }
     let extent = probe.extent(first, len).await?;
     let upcase = probe.index_upcase(extent, stored_checksum).await?;
-    Ok((geo, block, bitmap, upcase))
+    Ok((geo, block, bitmaps, upcase))
 }
 
 }
@@ -555,13 +564,15 @@ impl<D: BlockDevice> Probe<'_, D> {
         Ok(u32::from_le_bytes(bytes))
     }
 
-    /// The first Allocation Bitmap and the Up-case Table entries of the
-    /// root directory.
+    /// The first Allocation Bitmap entry of the active FAT, that of the
+    /// other FAT of a TexFAT volume, and the first Up-case Table entry of
+    /// the root directory.
     #[allow(clippy::type_complexity)]
-    async fn system_entries(&mut self) -> FsResult<((u32, u64), (u32, u64, u32)), D::Error> {
+    async fn system_entries(&mut self) -> FsResult<([Option<(u32, u64)>; 2], (u32, u64, u32)), D::Error> {
         let cluster_size = self.geo.cluster_size();
         let mut cluster = self.geo.root;
         let mut bitmap = None;
+        let mut mirror = None;
         let mut upcase = None;
         for _ in 0..self.geo.cluster_count {
             let base = self.geo.cluster_offset(cluster).ok_or(ErrorKind::Corrupt)?;
@@ -571,16 +582,19 @@ impl<D: BlockDevice> Probe<'_, D> {
                 read_bytes(self.dev, self.block, base + at, &mut entry).await?;
                 match entry[0] {
                     raw::ENTRY_END => break,
-                    raw::ENTRY_BITMAP if entry[1] & 1 == 0 && bitmap.is_none() => {
+                    raw::ENTRY_BITMAP if entry[1] & 1 == self.geo.active && bitmap.is_none() => {
                         bitmap = Some((le32(&entry, 20), le64(&entry, 24)));
+                    }
+                    raw::ENTRY_BITMAP if self.geo.mirror_fat.is_some() && entry[1] & 1 != self.geo.active && mirror.is_none() => {
+                        mirror = Some((le32(&entry, 20), le64(&entry, 24)));
                     }
                     raw::ENTRY_UPCASE if upcase.is_none() => {
                         upcase = Some((le32(&entry, 20), le64(&entry, 24), le32(&entry, 4)));
                     }
                     _ => {}
                 }
-                if let (Some(bitmap), Some(upcase)) = (bitmap, upcase) {
-                    return Ok((bitmap, upcase));
+                if let (Some(_), Some(upcase), true) = (bitmap, upcase, mirror.is_some() || self.geo.mirror_fat.is_none()) {
+                    return Ok(([bitmap, mirror], upcase));
                 }
                 at += ENTRY_SIZE as u64;
             }
@@ -594,7 +608,7 @@ impl<D: BlockDevice> Probe<'_, D> {
             }
         }
         match (bitmap, upcase) {
-            (Some(bitmap), Some(upcase)) => Ok((bitmap, upcase)),
+            (Some(_), Some(upcase)) => Ok(([bitmap, mirror], upcase)),
             _ => Err(ErrorKind::Corrupt.into()),
         }
     }
@@ -691,8 +705,9 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// exFAT boot sector, describes a volume larger than the device, or the
     /// root directory lacks an Allocation Bitmap or Up-case Table entry
     /// whose chain holds it; and with [`ErrorKind::Unsupported`] when the
-    /// device's blocks are larger than 4096 bytes. TexFAT volumes with two
-    /// FATs are refused as corrupt. The [`MountError`] gives `dev` back.
+    /// device's blocks are larger than 4096 bytes. On a TexFAT volume with
+    /// two FATs the FAT and Allocation Bitmap that `ActiveFat` selects are
+    /// read, and every change is written to both FATs and both bitmaps. The [`MountError`] gives `dev` back.
     pub async fn open(dev: D) -> Result<Self, MountError<D, D::Error>> {
         Self::open_with(dev, MountOptions::new()).await
     }
@@ -703,9 +718,12 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// and clock types. Fails as [`open`](ExFatFs::open) does.
     pub async fn open_with(mut dev: D, options: MountOptions<T, C>) -> Result<Self, MountError<D, D::Error>> {
         let MountOptions { read_only, table, clock } = options;
-        let (geo, block, bitmap, upcase) = match mount(&mut dev).await {
+        let (geo, block, [bitmap, mirror_bitmap], upcase) = match mount(&mut dev).await {
             Ok(mounted) => mounted,
             Err(error) => return Err(MountError::new(error, dev)),
+        };
+        let Some(bitmap) = bitmap else {
+            return Err(MountError::new(ErrorKind::Corrupt.into(), dev));
         };
         let dirty = if geo.flags & raw::VOLUME_DIRTY != 0 { Dirty::Inherited } else { Dirty::Clean };
         Ok(Self {
@@ -715,6 +733,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             block,
             bitmap,
             bitmap_hint: (0, 0),
+            mirror_bitmap,
             upcase,
             free_clusters: None,
             next_free: raw::FIRST_CLUSTER,
@@ -2307,6 +2326,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// Stores `value` as the FAT entry of `cluster`.
     pub(super) async fn set_fat(&mut self, cluster: u32, value: u32) -> FsResult<(), D::Error> {
         self.check_cluster(cluster)?;
+        if let Some(mirror) = self.geo.mirror_fat {
+            self.write(mirror + cluster as u64 * 4, &value.to_le_bytes()).await?;
+        }
         self.write(self.geo.fat_start + cluster as u64 * 4, &value.to_le_bytes()).await
     }
 
@@ -2373,6 +2395,16 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             return Ok(());
         }
         byte[0] ^= bit;
+        if let Some(mirror) = self.mirror_bitmap {
+            let alloc = Alloc { first: mirror.first, contiguous: mirror.contiguous };
+            let (_, cluster) = self.locate_cluster(alloc, (0, 0), index >> (self.geo.cluster_shift + 3)).await?;
+            let within = (index as u64 / 8) & (self.geo.cluster_size() - 1);
+            let mut other = [0u8; 1];
+            let other_at = self.cluster_at(cluster)? + within;
+            self.read(other_at, &mut other).await?;
+            other[0] = (other[0] & !bit) | (byte[0] & bit);
+            self.write(other_at, &other).await?;
+        }
         self.write(at, &byte).await?;
         self.allocation_changed = true;
         self.free_clusters = match (self.free_clusters, used) {

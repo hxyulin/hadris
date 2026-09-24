@@ -26,6 +26,7 @@ struct Layout {
     fat_length: u32,
     heap_offset: u32,
     cluster_count: u32,
+    fats: u8,
     bitmap_clusters: u32,
     upcase_clusters: u32,
 }
@@ -48,8 +49,12 @@ impl Layout {
         (self.cluster_count as u64).div_ceil(8)
     }
 
+    fn bitmap_first(&self, index: u8) -> u32 {
+        raw::FIRST_CLUSTER + self.bitmap_clusters * index as u32
+    }
+
     fn upcase_first(&self) -> u32 {
-        raw::FIRST_CLUSTER + self.bitmap_clusters
+        self.bitmap_first(self.fats)
     }
 
     fn root(&self) -> u32 {
@@ -58,7 +63,7 @@ impl Layout {
 
     /// Clusters the empty volume uses.
     fn used(&self) -> u32 {
-        self.bitmap_clusters + self.upcase_clusters + 1
+        self.bitmap_clusters * self.fats as u32 + self.upcase_clusters + 1
     }
 }
 
@@ -78,7 +83,8 @@ fn plan(
         512 | 1024 | 2048 | 4096 => block_size,
         _ => 512,
     }) as u64;
-    if !matches!(sector, 512 | 1024 | 2048 | 4096) {
+    let fats = options.fat_count;
+    if !matches!(sector, 512 | 1024 | 2048 | 4096) || !matches!(fats, 1 | 2) {
         return Err(ErrorKind::InvalidInput);
     }
     let sector_shift = shift_of(sector).ok_or(ErrorKind::InvalidInput)?;
@@ -114,7 +120,7 @@ fn plan(
     let mut count = (volume_sectors >> per_cluster).min(raw::MAX_CLUSTER_COUNT as u64);
     let (fat_length, heap_offset) = loop {
         let fat_length = ((count + 2) * 4).div_ceil(sector);
-        let heap_offset = (fat_offset + fat_length).next_multiple_of(align_sectors);
+        let heap_offset = (fat_offset + fat_length * fats as u64).next_multiple_of(align_sectors);
         let fits = volume_sectors.saturating_sub(heap_offset) >> per_cluster;
         if fits >= count {
             break (fat_length, heap_offset);
@@ -127,7 +133,7 @@ fn plan(
     let count = count as u32;
     let bitmap_clusters = (count as u64).div_ceil(8).div_ceil(cluster) as u32;
     let upcase_clusters = (raw::RECOMMENDED_UPCASE_TABLE.len() as u64).div_ceil(cluster) as u32;
-    if count < bitmap_clusters + upcase_clusters + 2 {
+    if count < bitmap_clusters * fats as u32 + upcase_clusters + 2 {
         return Err(ErrorKind::NoSpace);
     }
     Ok(Layout {
@@ -138,6 +144,7 @@ fn plan(
         fat_length,
         heap_offset,
         cluster_count: count,
+        fats,
         bitmap_clusters,
         upcase_clusters,
     })
@@ -163,7 +170,7 @@ fn boot_sector(layout: &Layout, options: &FormatOptions<impl Clock>, serial: u32
     boot.file_system_revision = U16::<LittleEndian>::new(0x0100);
     boot.bytes_per_sector_shift = layout.sector_shift;
     boot.sectors_per_cluster_shift = layout.cluster_shift - layout.sector_shift;
-    boot.number_of_fats = 1;
+    boot.number_of_fats = layout.fats;
     boot.drive_select = 0x80;
     boot.percent_in_use = (layout.used() as u64 * 100 / layout.cluster_count as u64) as u8;
     boot.boot_code = [0xF4; 390];
@@ -172,9 +179,9 @@ fn boot_sector(layout: &Layout, options: &FormatOptions<impl Clock>, serial: u32
 }
 
 /// The root directory's first entries: the label, when there is one, the
-/// Allocation Bitmap and the Up-case Table.
-fn root_entries(layout: &Layout, options: &FormatOptions<impl Clock>) -> ([RawEntry; 3], usize) {
-    let mut entries = [[0u8; ENTRY_SIZE]; 3];
+/// Allocation Bitmaps and the Up-case Table.
+fn root_entries(layout: &Layout, options: &FormatOptions<impl Clock>) -> ([RawEntry; 4], usize) {
+    let mut entries = [[0u8; ENTRY_SIZE]; 4];
     let mut count = 0;
     if let Some(label) = &options.label {
         let entry = &mut entries[count];
@@ -185,11 +192,14 @@ fn root_entries(layout: &Layout, options: &FormatOptions<impl Clock>) -> ([RawEn
         }
         count += 1;
     }
-    let bitmap = &mut entries[count];
-    bitmap[0] = raw::ENTRY_BITMAP;
-    bitmap[20..24].copy_from_slice(&raw::FIRST_CLUSTER.to_le_bytes());
-    bitmap[24..32].copy_from_slice(&layout.bitmap_len().to_le_bytes());
-    count += 1;
+    for index in 0..layout.fats {
+        let bitmap = &mut entries[count];
+        bitmap[0] = raw::ENTRY_BITMAP;
+        bitmap[1] = index;
+        bitmap[20..24].copy_from_slice(&layout.bitmap_first(index).to_le_bytes());
+        bitmap[24..32].copy_from_slice(&layout.bitmap_len().to_le_bytes());
+        count += 1;
+    }
     let upcase = &mut entries[count];
     upcase[0] = raw::ENTRY_UPCASE;
     upcase[4..8].copy_from_slice(&raw::RECOMMENDED_UPCASE_CHECKSUM.to_le_bytes());
@@ -206,7 +216,7 @@ io_transform! {
 ///
 /// The volume uses every whole sector of the device; pass a
 /// `hadris_storage` `Slice` to format a partition. Written are both boot
-/// regions, the FAT, the allocation bitmap, the recommended up-case table
+/// regions, the FATs, the allocation bitmaps, the recommended up-case table
 /// and the root directory with its label, bitmap and up-case entries; the
 /// rest of the cluster heap is left as it is. The boot sector is written
 /// last, and the device is flushed before the volume is mounted; use
@@ -248,36 +258,43 @@ async fn write_volume<D: BlockDevice, C: Clock>(
     let zero_len = |len: u64| usize::try_from(len).map_err(|_| ErrorKind::LimitExceeded);
 
     write_bytes(dev, block, 0, None, zero_len(2 * region)?).await?;
-    let fat_start = (layout.fat_offset as u64) << layout.sector_shift;
-    write_bytes(dev, block, fat_start, None, zero_len((layout.fat_length as u64) << layout.sector_shift)?).await?;
-    let mut fat = [0u8; 8];
-    fat[..4].copy_from_slice(&raw::FAT_MEDIA.to_le_bytes());
-    fat[4..].copy_from_slice(&raw::FAT_END.to_le_bytes());
-    write_bytes(dev, block, fat_start, Some(&fat), 8).await?;
-    for (first, clusters) in [
-        (raw::FIRST_CLUSTER, layout.bitmap_clusters),
-        (layout.upcase_first(), layout.upcase_clusters),
-        (layout.root(), 1),
-    ] {
-        for cluster in first..first + clusters {
-            let next = if cluster + 1 == first + clusters { raw::FAT_END } else { cluster + 1 };
-            write_bytes(dev, block, fat_start + cluster as u64 * 4, Some(&next.to_le_bytes()), 4).await?;
+    let fat_len = (layout.fat_length as u64) << layout.sector_shift;
+    for copy in 0..layout.fats as u64 {
+        let fat_start = ((layout.fat_offset as u64) << layout.sector_shift) + fat_len * copy;
+        write_bytes(dev, block, fat_start, None, zero_len(fat_len)?).await?;
+        let mut fat = [0u8; 8];
+        fat[..4].copy_from_slice(&raw::FAT_MEDIA.to_le_bytes());
+        fat[4..].copy_from_slice(&raw::FAT_END.to_le_bytes());
+        write_bytes(dev, block, fat_start, Some(&fat), 8).await?;
+        for (first, clusters) in [
+            (raw::FIRST_CLUSTER, layout.bitmap_clusters * layout.fats as u32),
+            (layout.upcase_first(), layout.upcase_clusters),
+            (layout.root(), 1),
+        ] {
+            for cluster in first..first + clusters {
+                let last = cluster + 1 == first + clusters
+                    || (first == raw::FIRST_CLUSTER && (cluster + 1 - first) % layout.bitmap_clusters == 0);
+                let next = if last { raw::FAT_END } else { cluster + 1 };
+                write_bytes(dev, block, fat_start + cluster as u64 * 4, Some(&next.to_le_bytes()), 4).await?;
+            }
         }
     }
 
-    let bitmap_at = layout.cluster_at(raw::FIRST_CLUSTER);
-    write_bytes(dev, block, bitmap_at, None, zero_len(layout.bitmap_clusters as u64 * layout.cluster())?).await?;
     let used = layout.used() as usize;
-    let mut chunk = [0u8; CHUNK];
-    let mut done = 0;
-    while done * 8 < used {
-        let n = (used - done * 8).div_ceil(8).min(CHUNK);
-        for (index, byte) in chunk[..n].iter_mut().enumerate() {
-            let bits = (used - (done + index) * 8).min(8);
-            *byte = if bits == 8 { 0xFF } else { (1u8 << bits) - 1 };
+    for copy in 0..layout.fats {
+        let bitmap_at = layout.cluster_at(layout.bitmap_first(copy));
+        write_bytes(dev, block, bitmap_at, None, zero_len(layout.bitmap_clusters as u64 * layout.cluster())?).await?;
+        let mut chunk = [0u8; CHUNK];
+        let mut done = 0;
+        while done * 8 < used {
+            let n = (used - done * 8).div_ceil(8).min(CHUNK);
+            for (index, byte) in chunk[..n].iter_mut().enumerate() {
+                let bits = (used - (done + index) * 8).min(8);
+                *byte = if bits == 8 { 0xFF } else { (1u8 << bits) - 1 };
+            }
+            write_bytes(dev, block, bitmap_at + done as u64, Some(&chunk[..n]), n).await?;
+            done += n;
         }
-        write_bytes(dev, block, bitmap_at + done as u64, Some(&chunk[..n]), n).await?;
-        done += n;
     }
     let table = raw::RECOMMENDED_UPCASE_TABLE;
     let upcase_at = layout.cluster_at(layout.upcase_first());

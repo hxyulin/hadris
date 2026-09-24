@@ -71,6 +71,8 @@ fn options_are_checked() {
         FormatOptions::new().with_cluster_size(256),
         FormatOptions::new().with_cluster_size(64 << 20),
         FormatOptions::new().with_alignment(100),
+        FormatOptions::new().with_fat_count(0),
+        FormatOptions::new().with_fat_count(3),
     ] {
         let err = format(dev(), options).unwrap_err();
         assert_eq!(err.error().kind(), ErrorKind::InvalidInput);

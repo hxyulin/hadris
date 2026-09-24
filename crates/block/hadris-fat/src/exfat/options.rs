@@ -196,13 +196,15 @@ pub struct FormatOptions<C = NoClock> {
     pub(crate) cluster_size: Option<u32>,
     pub(crate) alignment: Option<u32>,
     pub(crate) partition_offset: u64,
+    pub(crate) fat_count: u8,
     pub(crate) clock: C,
 }
 
 #[cfg(feature = "write")]
 impl FormatOptions {
     /// The defaults: sizes chosen from the device, no label, a serial
-    /// derived from the clock, no partition offset and [`NoClock`].
+    /// derived from the clock, no partition offset, one FAT and
+    /// [`NoClock`].
     pub const fn new() -> Self {
         Self {
             label: None,
@@ -211,6 +213,7 @@ impl FormatOptions {
             cluster_size: None,
             alignment: None,
             partition_offset: 0,
+            fat_count: 1,
             clock: NoClock,
         }
     }
@@ -264,6 +267,13 @@ impl<C> FormatOptions<C> {
         self
     }
 
+    /// Sets the number of FATs: 1, or 2 for a TexFAT volume, which also
+    /// gets a second Allocation Bitmap. Both copies are kept equal.
+    pub fn with_fat_count(mut self, count: u8) -> Self {
+        self.fat_count = count;
+        self
+    }
+
     /// Uses `clock` for the volume serial number and the returned
     /// `ExFatFs`.
     pub fn with_clock<K: Clock>(self, clock: K) -> FormatOptions<K> {
@@ -274,6 +284,7 @@ impl<C> FormatOptions<C> {
             cluster_size: self.cluster_size,
             alignment: self.alignment,
             partition_offset: self.partition_offset,
+            fat_count: self.fat_count,
             clock,
         }
     }

@@ -1076,3 +1076,112 @@ fn unpinned_ids_write_through() {
     assert_eq!(fs.open_nodes(), 1);
     let _ = le32;
 }
+
+/// Both FATs and both Allocation Bitmaps of a TexFAT volume.
+fn texfat_copies(image: &[u8]) -> ([&[u8]; 2], [Vec<u8>; 2]) {
+    let geo = Geometry::of(image);
+    let sector = 1usize << image[108];
+    let fat_len = le32(image, 84) as usize * sector;
+    let fats = [
+        &image[geo.fat..geo.fat + fat_len],
+        &image[geo.fat + fat_len..geo.fat + 2 * fat_len],
+    ];
+    let entries = geo.root_entries(image, 0x81);
+    assert_eq!(entries.len(), 2);
+    let bitmaps: Vec<Vec<u8>> = entries
+        .iter()
+        .map(|&at| {
+            let len = common::le64(image, at + 24) as usize;
+            let mut bits = Vec::new();
+            for cluster in geo.chain(image, le32(image, at + 20)) {
+                bits.extend_from_slice(&image[geo.at(cluster)..geo.at(cluster) + geo.cluster]);
+            }
+            bits.truncate(len);
+            bits
+        })
+        .collect();
+    assert_eq!([image[entries[0] + 1], image[entries[1] + 1]], [0, 1]);
+    (fats, bitmaps.try_into().unwrap())
+}
+
+fn texfat_workload(fs: &mut Fs, tag: &str) {
+    let root = fs.root();
+    let dir = common::mkdir(fs, root, &format!("dir {tag}"));
+    for index in 0..40 {
+        let node = common::write(
+            fs,
+            dir,
+            &format!("{tag} {index}"),
+            &common::payload(index * 700, index as u8),
+        );
+        fs.forget(node);
+    }
+    let doomed = fs.resolve(&format!("/dir {tag}/{tag} 7")).unwrap();
+    fs.remove(
+        dir,
+        Name::new(&format!("{tag} 7")).unwrap(),
+        RemoveKind::File,
+    )
+    .unwrap();
+    fs.forget(doomed);
+    fs.forget(dir);
+    fs.sync().unwrap();
+}
+
+/// exfatprogs refuses a FAT count of 2, so only macOS `fsck_exfat` checks
+/// the image.
+#[test]
+fn texfat_keeps_both_fats_and_bitmaps() {
+    let options = hadris_fat::exfat::FormatOptions::new()
+        .with_fat_count(2)
+        .with_cluster_size(4096);
+    let mut fs = common::formatted(16 << 20, options);
+    clean(&mut fs, "formatted");
+    texfat_workload(&mut fs, "a");
+    clean(&mut fs, "after writes");
+    let mut image = common::image(fs);
+    assert_eq!(image[110], 2);
+    let (fats, bitmaps) = texfat_copies(&image);
+    assert_eq!(fats[0], fats[1]);
+    assert_eq!(bitmaps[0], bitmaps[1]);
+    common::fsck_with(&image, "texfat", &[common::Tool::MacOs]);
+
+    image[106] |= 1;
+    let mut fs = common::mount(&image);
+    assert_eq!(
+        common::read(&mut fs, "/dir a/a 39"),
+        common::payload(39 * 700, 39)
+    );
+    texfat_workload(&mut fs, "b");
+    clean(&mut fs, "second FAT active");
+    let image = common::image(fs);
+    assert_eq!(image[106] & 1, 1, "ActiveFat is kept");
+    let (fats, bitmaps) = texfat_copies(&image);
+    assert_eq!(fats[0], fats[1]);
+    assert_eq!(bitmaps[0], bitmaps[1]);
+}
+
+#[test]
+fn texfat_with_one_bitmap_mounts() {
+    let options = hadris_fat::exfat::FormatOptions::new().with_fat_count(2);
+    let fs = common::formatted(8 << 20, options);
+    let mut image = common::image(fs);
+    let geo = Geometry::of(&image);
+    let second = geo.root_entries(&image, 0x81)[1];
+    image[second] &= 0x7F;
+    let mut fs = common::mount(&image);
+    texfat_workload(&mut fs, "c");
+    assert_eq!(
+        common::read(&mut fs, "/dir c/c 3"),
+        common::payload(2100, 3)
+    );
+    image[106] |= 1;
+    assert_eq!(
+        ExFatFs::open(common::device(image, 512))
+            .unwrap_err()
+            .error()
+            .kind(),
+        ErrorKind::Corrupt,
+        "the active FAT has no bitmap"
+    );
+}

@@ -188,6 +188,10 @@ pub fn le32(image: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(image[at..at + 4].try_into().unwrap())
 }
 
+pub fn le64(image: &[u8], at: usize) -> u64 {
+    u64::from_le_bytes(image[at..at + 8].try_into().unwrap())
+}
+
 pub fn put32(image: &mut [u8], at: usize, value: u32) {
     image[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }

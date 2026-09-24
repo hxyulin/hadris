@@ -61,8 +61,9 @@ struct Checker<'a, D, T: NodeTable, C: Clock, F> {
     lost: (u32, u32),
     /// A run of free clusters in use not yet reported.
     free_in_use: (u32, u32),
-    /// Root entries seen: bitmap, up-case table, label.
-    seen: [bool; 3],
+    /// Root entries seen: bitmap, up-case table, label, and the bitmap of
+    /// the second FAT.
+    seen: [bool; 4],
 }
 
 io_transform! {
@@ -90,7 +91,8 @@ pub async fn check<D: BlockDevice, T: NodeTable, C: Clock>(
 /// and no bad cluster, fits its `DataLength` and shares no cluster with
 /// another. The allocation bitmap is compared with the allocations: marked
 /// clusters no allocation reaches are lost, and clusters in use that it
-/// marks free are reported too.
+/// marks free are reported too. On a TexFAT volume the FAT and bitmap
+/// that `ActiveFat` selects are checked.
 ///
 /// `bitmap` holds one bit per cluster. The directory tree is walked once
 /// for each `bitmap.len() * 8` clusters, so a bitmap of
@@ -121,7 +123,7 @@ pub async fn check_with<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding
         sink: on_finding,
         lost: (0, 0),
         free_in_use: (0, 0),
-        seen: [false; 3],
+        seen: [false; 4],
     };
     checker.check().await?;
     Ok(checker.report)
@@ -150,7 +152,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
             self.hi = lo.saturating_add(window).min(max + 1);
             self.bits.fill(0);
             self.report.passes += 1;
-            self.seen = [false; 3];
+            self.seen = [false; 4];
             self.walk_tree().await?;
             self.scan_window().await?;
             self.first_pass = false;
@@ -407,10 +409,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, F: FnMut(Finding)> Checker<'_, D, T
             }
             match kind {
                 raw::ENTRY_BITMAP | raw::ENTRY_UPCASE | raw::ENTRY_LABEL => {
-                    let which = (kind - raw::ENTRY_BITMAP) as usize;
-                    let bad_label = kind == raw::ENTRY_LABEL && entry[1] as usize > raw::MAX_LABEL_UNITS;
                     let second_bitmap = kind == raw::ENTRY_BITMAP && entry[1] & 1 != 0;
-                    if !is_root || self.seen[which] || bad_label || second_bitmap {
+                    let which = if second_bitmap { 3 } else { (kind - raw::ENTRY_BITMAP) as usize };
+                    let bad_label = kind == raw::ENTRY_LABEL && entry[1] as usize > raw::MAX_LABEL_UNITS;
+                    let one_fat = second_bitmap && self.fs.geo.mirror_fat.is_none();
+                    if !is_root || self.seen[which] || bad_label || one_fat {
                         self.once(Finding::RootEntry { entry: at });
                     }
                     self.seen[which] = true;

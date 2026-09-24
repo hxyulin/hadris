@@ -33,8 +33,10 @@
 //! fragmented allocation bitmaps and up-case tables, entry sets that cross
 //! clusters and benign secondary entries, which it keeps across renames. It
 //! writes FAT chains, grows directories, and keeps `VolumeDirty` and
-//! `PercentInUse` as the specification recommends. TexFAT (two FATs) and
-//! repair are not supported.
+//! `PercentInUse` as the specification recommends. On TexFAT volumes, which
+//! have two FATs and two allocation bitmaps, it follows `ActiveFat` and
+//! keeps both copies equal; TexFAT transactions and repair are not
+//! supported.
 
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
 mod codec;

@@ -27,7 +27,7 @@ fn mount_rejects_bad_boot_sectors() {
         ("must be zero", Box::new(|i| i[20] = 1)),
         ("sector shift", Box::new(|i| i[108] = 8)),
         ("cluster shift", Box::new(|i| i[109] = 20)),
-        ("two FATs", Box::new(|i| i[110] = 2)),
+        ("three FATs", Box::new(|i| i[110] = 3)),
         ("revision", Box::new(|i| i[105] = 2)),
         ("no clusters", Box::new(|i| put32(i, 92, 0))),
         ("root", Box::new(|i| put32(i, 96, 1))),

@@ -20,7 +20,12 @@ pub(crate) struct Geometry {
     pub(crate) sector_shift: u8,
     pub(crate) cluster_shift: u8,
     pub(crate) volume_len: u64,
+    /// Byte offset of the active FAT.
     pub(crate) fat_start: u64,
+    /// Byte offset of the second FAT of a TexFAT volume that is not active.
+    pub(crate) mirror_fat: Option<u64>,
+    /// The Allocation Bitmap entries use this BitmapIdentifier.
+    pub(crate) active: u8,
     pub(crate) heap_start: u64,
     pub(crate) cluster_count: u32,
     pub(crate) root: u32,
@@ -84,7 +89,8 @@ pub(crate) fn parse_boot(boot: &BootSector) -> Result<Geometry, &'static str> {
     if boot.sectors_per_cluster_shift > 25 - sector_shift {
         return Err("SectorsPerClusterShift");
     }
-    if boot.number_of_fats != 1 {
+    let fats = boot.number_of_fats as u64;
+    if fats != 1 && fats != 2 {
         return Err("NumberOfFats");
     }
     let sector = 1u64 << sector_shift;
@@ -96,7 +102,7 @@ pub(crate) fn parse_boot(boot: &BootSector) -> Result<Geometry, &'static str> {
     if volume_len < (1 << 20) >> sector_shift || volume_len.checked_mul(sector).is_none() {
         return Err("VolumeLength");
     }
-    if fat_offset < 24 || fat_offset + fat_length > heap_offset {
+    if fat_offset < 24 || fat_offset + fat_length * fats > heap_offset {
         return Err("FatOffset");
     }
     if (count as u64 + 2) * 4 > fat_length * sector {
@@ -112,16 +118,21 @@ pub(crate) fn parse_boot(boot: &BootSector) -> Result<Geometry, &'static str> {
     {
         return Err("ClusterCount");
     }
+    let flags = boot.volume_flags.get();
+    let active = (fats == 2 && flags & raw::VOLUME_ACTIVE_FAT != 0) as u64;
+    let fat_at = |index: u64| (fat_offset + fat_length * index) * sector;
     let geometry = Geometry {
         sector_shift,
         cluster_shift,
         volume_len: volume_len * sector,
-        fat_start: fat_offset * sector,
+        fat_start: fat_at(active),
+        mirror_fat: (fats == 2).then(|| fat_at(1 - active)),
+        active: active as u8,
         heap_start: heap_offset * sector,
         cluster_count: count,
         root: boot.first_cluster_of_root_directory.get(),
         serial: boot.volume_serial_number.get(),
-        flags: boot.volume_flags.get(),
+        flags,
         percent_in_use: boot.percent_in_use,
     };
     if !geometry.is_cluster(geometry.root) {
