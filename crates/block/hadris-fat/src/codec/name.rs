@@ -3,6 +3,9 @@
 /// The case folding lookups use: the one-character uppercase mapping, or the
 /// character itself when its uppercase form has several characters.
 pub(crate) fn fold(ch: char) -> char {
+    if ch.is_ascii() {
+        return ch.to_ascii_uppercase();
+    }
     let mut upper = ch.to_uppercase();
     match (upper.next(), upper.next()) {
         (Some(single), None) => single,

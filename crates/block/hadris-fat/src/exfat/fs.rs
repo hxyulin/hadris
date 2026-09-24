@@ -7,7 +7,7 @@ use hadris_fs::{
     SetMetadata,
 };
 
-use super::block_io::{BlockBuf, MAX_BLOCK_SIZE, read_bytes, write_bytes};
+use super::block_io::{BlockBuf, ClusterGroup, MAX_BLOCK_SIZE, load, read_bytes, write_bytes};
 use super::storage::BlockDevice;
 use crate::codec::name as names;
 use crate::exfat::codec::{
@@ -437,14 +437,18 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 ///
 /// Names are UTF-16, up to 255 code units, and compare through the
 /// volume's up-case table, so lookups ignore case as the volume defines
-/// it. New names may not hold control characters or `"*/:<>?\|`, be `.`
+/// it. A lookup passes over entry sets whose `NameHash` differs from the
+/// name's, so a set with a wrong `NameHash`, which `check` reports, is not
+/// found by name. New names may not hold control characters or `"*/:<>?\|`, be `.`
 /// or `..`, or end in a dot or space. `parent` finds the directory of a
 /// node from the node table, or by searching the tree from the root when
 /// it is not known; exFAT has no `..` entries.
 ///
 /// The driver keeps one device block of at most 4096 bytes, an index of
 /// the up-case table and three decoded pages of it, a little over 8 KiB
-/// plus the node table.
+/// plus the node table. Runs of clusters that follow one another on disk
+/// are read and written in one device call, and growing or freeing an
+/// allocation writes the FAT and the bitmap a device block at a time.
 ///
 /// # Writing
 ///
@@ -493,6 +497,11 @@ pub struct ExFatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock> {
     dirty: Dirty,
     read_only: bool,
     clock: C,
+    /// Some pinned node is not at the slot its id names, because it was
+    /// renamed or removed. Until the table empties, `pinned_at` searches it.
+    moved: bool,
+    /// A known `(index, cluster)` of the root directory's chain.
+    root_hint: (u32, u32),
 }
 
 impl<D, T: NodeTable, C: Clock> fmt::Debug for ExFatFs<D, T, C> {
@@ -791,6 +800,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             dirty,
             read_only: read_only || backup || !upcase_valid,
             clock,
+            moved: false,
+            root_hint: (0, 0),
         })
     }
 
@@ -925,7 +936,14 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             return Ok(None);
         };
         let mut walk = Walk::new(start);
-        let Some((at, set)) = self.next_set(&mut walk, &mut slot).await? else {
+        if !start.alloc.contiguous {
+            (walk.index, walk.cluster) = self.dir_hint(dir);
+        }
+        let next = self.next_set(&mut walk, &mut slot).await?;
+        if walk.cluster != 0 {
+            self.set_dir_hint(dir, (walk.index, walk.cluster));
+        }
+        let Some((at, set)) = next else {
             *cursor = DirCursor::from_raw(slot as u64);
             return Ok(None);
         };
@@ -957,15 +975,17 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             let out = &mut buf[done..done + n];
             if pos >= state.valid {
                 out.fill(0);
+                done += n;
             } else {
-                let valid = ((state.valid - pos) as usize).min(n);
+                let valid = (state.valid - pos).min((count - done) as u64) as usize;
                 index = self.locate_cluster(state.alloc(), hint, (pos / cluster_size) as u32).await?;
-                hint = index;
                 let at = self.cluster_at(index.1)? + within;
-                read_bytes(&mut self.dev, &mut self.block, at, &mut out[..valid]).await?;
-                out[valid..].fill(0);
+                let (n, last) = self.run(state.alloc(), index, n.min(valid), valid).await?;
+                index = last;
+                hint = index;
+                read_bytes(&mut self.dev, &mut self.block, at, &mut buf[done..done + n]).await?;
+                done += n;
             }
-            done += n;
         }
         if index.1 != 0
             && let Some(state) = self.nodes.get_mut(node)
@@ -1055,6 +1075,29 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
         if self.nodes.unpin(node) == Some(0) && self.nodes.get(node).is_some_and(|n| n.unlinked) {
             self.nodes.remove(node);
+        }
+        if self.nodes.is_empty() {
+            self.moved = false;
+        }
+    }
+
+    /// Where the last listing of `dir` left its chain, `(0, 0)` when unknown.
+    fn dir_hint(&self, dir: NodeId) -> (u32, u32) {
+        if dir == ROOT {
+            return self.root_hint;
+        }
+        self.nodes.get(dir).map_or((0, 0), |node| node.hint)
+    }
+
+    /// Records a position in the chain of `dir`, which only ever grows, for
+    /// the next `read_dir_entry` to start from.
+    fn set_dir_hint(&mut self, dir: NodeId, hint: (u32, u32)) {
+        if dir == ROOT {
+            self.root_hint = hint;
+        } else if let Some(node) = self.nodes.get_mut(dir)
+            && node.dir
+        {
+            node.hint = hint;
         }
     }
 
@@ -1418,6 +1461,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if self.nodes.pins(id) == 0 {
             self.nodes.remove(id);
         } else if let Some(node) = self.nodes.get_mut(id) {
+            self.moved = true;
             node.unlinked = true;
             node.entry = u64::MAX;
             node.first = 0;
@@ -1469,15 +1513,37 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     pub(super) async fn put(&mut self, offset: u64, data: Option<&[u8]>, len: u64) -> FsResult<(), D::Error> {
+        self.begin_write().await?;
+        let len = usize::try_from(len).map_err(|_| ErrorKind::LimitExceeded)?;
+        let result = write_bytes(&mut self.dev, &mut self.block, offset, data, len).await;
+        self.note_refusal(&result);
+        result
+    }
+
+    /// Fails on a read-only volume, and sets `VolumeDirty` before the first
+    /// write.
+    async fn begin_write(&mut self) -> FsResult<(), D::Error> {
         self.writable()?;
         if self.dirty == Dirty::Clean {
             self.write_flags((self.geo.flags | raw::VOLUME_DIRTY) & !raw::VOLUME_CLEAR_TO_ZERO).await?;
             self.dirty = Dirty::Marked;
         }
-        let len = usize::try_from(len).map_err(|_| ErrorKind::LimitExceeded)?;
-        let result = write_bytes(&mut self.dev, &mut self.block, offset, data, len).await;
+        Ok(())
+    }
+
+    /// Writes the buffered block back as device block `index`. Call
+    /// [`begin_write`](Self::begin_write) before loading it.
+    async fn write_block(&mut self, index: u64) -> FsResult<(), D::Error> {
+        self.block.cached = None;
+        let result = self
+            .dev
+            .write_blocks(hadris_storage::BlockIndex::new(index), &self.block.data[..self.block.size])
+            .await
+            .map_err(Error::from);
         self.note_refusal(&result);
-        result
+        result?;
+        self.block.cached = Some(index);
+        Ok(())
     }
 
     async fn write(&mut self, offset: u64, data: &[u8]) -> FsResult<(), D::Error> {
@@ -1648,7 +1714,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         self.geo.cluster_offset(cluster).ok_or(ErrorKind::Corrupt)
     }
 
+    /// The pinned node whose File entry is at `offset`. Unless a pinned
+    /// node has moved, that is the tier-0 id of the slot, found by key.
     fn pinned_at(&self, offset: u64) -> Option<NodeId> {
+        if !self.moved {
+            let id = NodeId::new(offset / ENTRY_SIZE as u64);
+            return self.nodes.get(id).is_some_and(|node| node.entry == offset).then_some(id);
+        }
         self.nodes.find(&mut |_, node| node.entry == offset)
     }
 
@@ -1905,18 +1977,46 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         Ok(true)
     }
 
-    /// Finds the entry set named `query`, up to case.
+    /// Finds the entry set named `query`, up to case. Sets whose stream
+    /// entry records another name length or hash are passed over unread.
     async fn find(&mut self, start: DirStart, query: &Units) -> FsResult<Option<Located>, D::Error> {
         let upcased = self.upcased(query).await?;
+        let hash = codec::name_hash(upcased.as_slice());
         let mut walk = Walk::new(start);
         let mut slot = 0;
-        while let Some((at, set)) = self.next_set(&mut walk, &mut slot).await? {
-            if self.named(&set, &upcased).await? {
-                let exact = set.name.as_slice() == query.as_slice();
-                return Ok(Some(Located { set, slot: at, exact }));
+        while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
+            let at = slot;
+            slot += 1;
+            let mut entry = [0u8; ENTRY_SIZE];
+            self.read(offset, &mut entry).await?;
+            match entry[0] {
+                raw::ENTRY_END => break,
+                raw::ENTRY_FILE if self.may_be_named(&mut walk, at, &upcased, hash).await? => {
+                    let Some(set) = self.read_set(&mut walk, at, entry, offset).await? else {
+                        continue;
+                    };
+                    if self.named(&set, &upcased).await? {
+                        let exact = set.name.as_slice() == query.as_slice();
+                        return Ok(Some(Located { set, slot: at, exact }));
+                    }
+                    slot = at + set.count as u32;
+                }
+                _ => {}
             }
         }
         Ok(None)
+    }
+
+    /// Whether the set whose File entry is slot `slot` may be named
+    /// `upcased`: false only when its stream entry records another name
+    /// length or name hash.
+    async fn may_be_named(&mut self, walk: &mut Walk, slot: u32, upcased: &Units, hash: u16) -> FsResult<bool, D::Error> {
+        let Some(at) = self.slot_offset(walk, slot + 1).await? else {
+            return Ok(true);
+        };
+        let mut stream = [0u8; ENTRY_SIZE];
+        self.read(at, &mut stream).await?;
+        Ok(stream[0] != raw::ENTRY_STREAM || (stream[3] as usize == upcased.len && le16(&stream, 4) == hash))
     }
 
     async fn find_label(&mut self) -> FsResult<Option<(u64, RawEntry)>, D::Error> {
@@ -2014,6 +2114,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if needed as usize > MAX_SET {
             return Err(ErrorKind::NameTooLong.into());
         }
+        let hash = check.map(|query| codec::name_hash(query.as_slice()));
         let mut walk = Walk::new(dir);
         let mut slot = 0u32;
         let mut end = false;
@@ -2033,6 +2134,8 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 true
             } else if entry[0] == raw::ENTRY_FILE {
                 if let Some(query) = check
+                    && let Some(hash) = hash
+                    && self.may_be_named(&mut walk, slot, query, hash).await?
                     && let Some(set) = self.read_set(&mut walk, slot, entry, offset).await?
                 {
                     if self.named(&set, query).await? {
@@ -2310,6 +2413,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             if let Some(state) = self.nodes.get_mut(id) {
                 state.entry = offset;
                 state.parent = to_entry;
+                self.moved = true;
             }
             self.clean(id);
         }
@@ -2529,6 +2633,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     async fn allocate_chain(&mut self, count: u32, zero: bool) -> FsResult<u32, D::Error> {
+        if !zero && count > 1 {
+            return self.allocate_run(count).await;
+        }
         let (mut first, mut last) = (0, 0);
         for _ in 0..count {
             match self.append_cluster(last, zero).await {
@@ -2569,17 +2676,189 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Frees the chain at `first`: every bitmap bit, following the FAT.
+    /// The bits of consecutive clusters of the chain that share a device
+    /// block of the bitmap are cleared with one write.
     async fn free_chain(&mut self, first: u32) -> FsResult<(), D::Error> {
-        let mut cluster = self.check_cluster(first)?;
-        for _ in 0..self.geo.cluster_count {
-            let next = self.next_cluster(cluster).await?;
-            self.set_bit(cluster, false).await?;
-            match next {
+        let cluster = self.check_cluster(first)?;
+        self.mark_chain(cluster, self.geo.cluster_count, false).await
+    }
+
+    /// Sets or clears the bitmap bits of the chain at `cluster`, at most
+    /// `limit` clusters of it, and fails with [`ErrorKind::Corrupt`] when
+    /// it is longer. Clusters whose bits share a device block of each
+    /// bitmap take one write.
+    async fn mark_chain(&mut self, mut cluster: u32, limit: u32, used: bool) -> FsResult<(), D::Error> {
+        let mut steps = 0;
+        loop {
+            let mut group = ClusterGroup::new(cluster);
+            let place = self.bit_place(cluster).await?;
+            let next = loop {
+                if steps == limit {
+                    break Err(ErrorKind::Corrupt.into());
+                }
+                steps += 1;
+                let next = if used && steps == limit { Ok(None) } else { self.next_cluster(cluster).await };
+                if next.is_ok() {
+                    group.add(cluster);
+                }
+                match next {
+                    Ok(Some(next)) if group.spans(next) && !group.has(next) && self.bit_place(next).await? == place => {
+                        cluster = next;
+                    }
+                    other => break other,
+                }
+            };
+            if group.count > 0 {
+                self.patch_bits(&group, place, used).await?;
+            }
+            match next? {
                 Some(next) => cluster = next,
                 None => return Ok(()),
             }
         }
-        Err(ErrorKind::Corrupt.into())
+    }
+
+    /// Allocates a chain of `count` unzeroed clusters, the first `count`
+    /// free ones from `next_free` on, and returns its first cluster. The
+    /// FAT entries are written a device block at a time from the chain's
+    /// end back to its start, then the bitmap bits a block at a time.
+    /// Nothing is left allocated on failure.
+    async fn allocate_run(&mut self, count: u32) -> FsResult<u32, D::Error> {
+        let total = self.geo.cluster_count;
+        let from = self.next_free.clamp(raw::FIRST_CLUSTER, self.geo.max_cluster()) - raw::FIRST_CLUSTER;
+        let at = |step: u32| raw::FIRST_CLUSTER + (from + step) % total;
+        let mut found = 0;
+        let mut last = None;
+        for step in 0..total {
+            if !self.bit(at(step)).await? {
+                found += 1;
+                if found == count {
+                    last = Some(step);
+                    break;
+                }
+            }
+        }
+        let Some(last) = last else {
+            self.free_clusters = Some(found);
+            return Err(ErrorKind::NoSpace.into());
+        };
+        let mut head = raw::FAT_END;
+        let mut top = last + 1;
+        while top > 0 {
+            let high = at(top - 1);
+            let mut group = ClusterGroup::new(high.saturating_sub(ClusterGroup::SPAN - 1));
+            while top > 0 {
+                let cluster = at(top - 1);
+                if cluster > high || !self.same_fat_block(cluster, high) {
+                    break;
+                }
+                if !self.bit(cluster).await? {
+                    group.add(cluster);
+                }
+                top -= 1;
+            }
+            if group.count > 0 {
+                self.patch_fat(&group, head).await?;
+                head = group.lowest();
+            }
+        }
+        if let Err(err) = self.mark_chain(head, count, true).await {
+            let _ = self.mark_chain(head, count, false).await;
+            return Err(err);
+        }
+        let tail = at(last);
+        self.next_free = if tail == self.geo.max_cluster() { raw::FIRST_CLUSTER } else { tail + 1 };
+        Ok(head)
+    }
+
+    /// Whether the bitmap marks `cluster` used.
+    async fn bit(&mut self, cluster: u32) -> FsResult<bool, D::Error> {
+        let index = cluster - raw::FIRST_CLUSTER;
+        let mut byte = [0u8; 1];
+        self.bitmap_bytes(index as u64 / 8, &mut byte).await?;
+        Ok(byte[0] & (1 << (index % 8)) != 0)
+    }
+
+    /// Where the bitmap bits around `cluster` are: for the bitmap and the
+    /// mirror bitmap, the device block holding its bit and the offset
+    /// bitmap byte 0 would have if the bitmap were contiguous up to it.
+    /// Clusters with the same place have their bits in one device block.
+    async fn bit_place(&mut self, cluster: u32) -> FsResult<[(u64, u64); 2], D::Error> {
+        let size = self.block.size as u64;
+        let byte = (self.check_cluster(cluster)? - raw::FIRST_CLUSTER) as u64 / 8;
+        let at = self.bitmap_offset(byte).await?;
+        let mut place = [(at / size, at - byte), (0, 0)];
+        if let Some(mirror) = self.mirror_bitmap {
+            let alloc = Alloc { first: mirror.first, contiguous: mirror.contiguous };
+            let (_, other) = self.locate_cluster(alloc, (0, 0), (byte >> self.geo.cluster_shift) as u32).await?;
+            let at = self.cluster_at(other)? + (byte & (self.geo.cluster_size() - 1));
+            place[1] = (at / size, at - byte);
+        }
+        Ok(place)
+    }
+
+    /// Sets or clears the bitmap bits of `group`, which share `place`: the
+    /// mirror bitmap first, as `set_bit` does.
+    async fn patch_bits(&mut self, group: &ClusterGroup, place: [(u64, u64); 2], used: bool) -> FsResult<(), D::Error> {
+        self.begin_write().await?;
+        let size = self.block.size as u64;
+        let mut flips = 0;
+        let order = if self.mirror_bitmap.is_some() { &[1, 0][..] } else { &[0][..] };
+        for &which in order {
+            let (block, origin) = place[which];
+            load(&mut self.dev, &mut self.block, block).await?;
+            for cluster in group.descending() {
+                let bit = cluster - raw::FIRST_CLUSTER;
+                let byte = (origin + bit as u64 / 8 - block * size) as usize;
+                let mask = 1 << (bit % 8);
+                if which == 0 && (self.block.data[byte] & mask != 0) != used {
+                    flips += 1;
+                }
+                if used {
+                    self.block.data[byte] |= mask;
+                } else {
+                    self.block.data[byte] &= !mask;
+                }
+            }
+            self.write_block(block).await?;
+        }
+        self.allocation_changed = true;
+        self.free_clusters = match (self.free_clusters, used) {
+            (Some(free), true) => free.checked_sub(flips),
+            (Some(free), false) => Some((free + flips).min(self.geo.cluster_count)),
+            (None, _) => None,
+        };
+        Ok(())
+    }
+
+    /// Whether the FAT entries of `a` and `b` lie in one device block of
+    /// every FAT written.
+    fn same_fat_block(&self, a: u32, b: u32) -> bool {
+        let size = self.block.size as u64;
+        [Some(self.geo.fat_start), self.geo.mirror_fat]
+            .into_iter()
+            .flatten()
+            .all(|base| (base + a as u64 * 4) / size == (base + b as u64 * 4) / size)
+    }
+
+    /// Writes the FAT entries of `group`, which share a device block of
+    /// every FAT, linking them in ascending order with the highest pointing
+    /// to `next`: the mirror FAT first, as `set_fat` does.
+    async fn patch_fat(&mut self, group: &ClusterGroup, next: u32) -> FsResult<(), D::Error> {
+        self.begin_write().await?;
+        let size = self.block.size as u64;
+        for base in [self.geo.mirror_fat, Some(self.geo.fat_start)].into_iter().flatten() {
+            let block = (base + group.lowest() as u64 * 4) / size;
+            load(&mut self.dev, &mut self.block, block).await?;
+            let mut value = next;
+            for cluster in group.descending() {
+                let at = (base + cluster as u64 * 4 - block * size) as usize;
+                self.block.data[at..at + 4].copy_from_slice(&value.to_le_bytes());
+                value = cluster;
+            }
+            self.write_block(block).await?;
+        }
+        Ok(())
     }
 
     /// Frees an allocation of `len` bytes.
@@ -2657,11 +2936,39 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             let within = at % cluster_size;
             let n = (cluster_size - within).min(len - done);
             let offset = self.cluster_at(hint.1)? + within;
+            let max = usize::try_from(len - done).unwrap_or(usize::MAX);
+            let (n, last) = self.run(alloc, hint, n as usize, max).await?;
+            hint = last;
+            let n = n as u64;
             let chunk = data.map(|data| &data[done as usize..(done + n) as usize]);
             self.put(offset, chunk, n).await?;
             done += n;
         }
         Ok(hint)
+    }
+
+    /// Extends `n` bytes that start in cluster `at` of an allocation over
+    /// the clusters that follow it on disk and in the allocation, up to
+    /// `max` bytes, so they take one device call. Returns the length and
+    /// the `(index, cluster)` of the run's last cluster.
+    async fn run(&mut self, alloc: Alloc, at: (u32, u32), mut n: usize, max: usize) -> FsResult<(usize, (u32, u32)), D::Error> {
+        let cluster_size = self.geo.cluster_size() as usize;
+        let mut last = at;
+        while n < max {
+            let next = if alloc.contiguous {
+                Some(last.1 + 1).filter(|&next| self.geo.is_cluster(next))
+            } else {
+                self.next_cluster(last.1).await?
+            };
+            match next {
+                Some(next) if next == last.1 + 1 => {
+                    last = (last.0 + 1, next);
+                    n = n.saturating_add(cluster_size).min(max);
+                }
+                _ => break,
+            }
+        }
+        Ok((n, last))
     }
 }
 

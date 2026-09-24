@@ -346,10 +346,13 @@ impl<D: BlockDevice> BlockDevice for Slice<D> {
 ///
 /// Writes stay in memory until [`flush`](BlockDevice::flush), eviction or
 /// [`finish`](Self::finish). Dropping the cache discards unflushed writes.
+/// Flush writes each run of consecutive dirty blocks in one device call.
 ///
 /// The first write goes straight to the device, so a device that refuses
 /// writes says so on that call rather than at a later flush. Requests outside
-/// the device bypass the cache and fail with the device's own error.
+/// the device bypass the cache and fail with the device's own error. Requests
+/// of at least `capacity` blocks also go straight to the device, since caching
+/// them would evict everything else; reads still see cached dirty blocks.
 #[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct Cache<D> {
@@ -394,7 +397,7 @@ impl<D: BlockDevice> Cache<D> {
         let slot = match self.state.victim() {
             Some(slot) => {
                 if let Some(evicted) = self.state.dirty_index(slot) {
-                    self.inner.write_blocks(BlockIndex::new(evicted), self.state.data(slot)).await?;
+                    self.write_back(evicted).await?;
                 }
                 slot
             }
@@ -406,6 +409,13 @@ impl<D: BlockDevice> Cache<D> {
         }
         self.state.assign(slot, index);
         Ok(slot)
+    }
+
+    async fn write_back(&mut self, index: u64) -> Result<(), WriteError<D::Error>> {
+        let slot = self.state.peek(index).unwrap_or_default();
+        self.inner.write_blocks(BlockIndex::new(index), self.state.data(slot)).await?;
+        self.state.clean_range(index, 1);
+        Ok(())
     }
 
     fn in_range(&self, first: BlockIndex, len: usize) -> bool {
@@ -433,16 +443,38 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
             return self.inner.read_blocks(first, buf).await;
         }
         let size = self.inner.block_size().get() as usize;
-        for (i, chunk) in buf.chunks_exact_mut(size).enumerate() {
-            let slot = match self.slot_for(first.get() + i as u64, true).await {
-                Ok(slot) => slot,
-                Err(WriteError::Device(err)) => return Err(err),
-                Err(_) => {
-                    self.inner.read_blocks(BlockIndex::new(first.get() + i as u64), chunk).await?;
-                    continue;
-                }
-            };
-            chunk.copy_from_slice(self.state.data(slot));
+        let count = buf.len() / size;
+        if count >= self.state.capacity() {
+            self.inner.read_blocks(first, buf).await?;
+            for index in self.state.dirty_in(first.get(), count) {
+                let at = (index - first.get()) as usize * size;
+                let slot = self.state.peek(index).unwrap_or_default();
+                buf[at..at + size].copy_from_slice(self.state.data(slot));
+            }
+            return Ok(());
+        }
+        let mut i = 0;
+        while i < count {
+            let index = first.get() + i as u64;
+            if let Some(slot) = self.state.lookup(index) {
+                buf[i * size..(i + 1) * size].copy_from_slice(self.state.data(slot));
+                i += 1;
+                continue;
+            }
+            let mut end = i + 1;
+            while end < count && self.state.peek(first.get() + end as u64).is_none() {
+                end += 1;
+            }
+            self.inner.read_blocks(BlockIndex::new(index), &mut buf[i * size..end * size]).await?;
+            for k in i..end {
+                let slot = match self.slot_for(first.get() + k as u64, false).await {
+                    Ok(slot) => slot,
+                    Err(WriteError::Device(err)) => return Err(err),
+                    Err(_) => continue,
+                };
+                self.state.data_mut(slot).copy_from_slice(&buf[k * size..(k + 1) * size]);
+            }
+            i = end;
         }
         Ok(())
     }
@@ -452,13 +484,14 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
         first: BlockIndex,
         buf: &[u8],
     ) -> Result<(), WriteError<Self::Error>> {
-        if !self.written || !self.in_range(first, buf.len()) {
+        let size = self.inner.block_size().get() as usize;
+        let count = buf.len() / size;
+        if !self.written || !self.in_range(first, buf.len()) || count >= self.state.capacity() {
             self.inner.write_blocks(first, buf).await?;
             self.written = true;
-            self.state.invalidate(first.get(), buf.len() / self.inner.block_size().get() as usize);
+            self.state.invalidate(first.get(), count);
             return Ok(());
         }
-        let size = self.inner.block_size().get() as usize;
         for (i, chunk) in buf.chunks_exact(size).enumerate() {
             let slot = self.slot_for(first.get() + i as u64, false).await?;
             self.state.data_mut(slot).copy_from_slice(chunk);
@@ -468,10 +501,11 @@ impl<D: BlockDevice> BlockDevice for Cache<D> {
     }
 
     async fn flush(&mut self) -> Result<(), WriteError<Self::Error>> {
-        while let Some(slot) = self.state.next_dirty() {
-            let Some(index) = self.state.dirty_index(slot) else { break };
-            self.inner.write_blocks(BlockIndex::new(index), self.state.data(slot)).await?;
-            self.state.clean(slot);
+        while let Some(start) = self.state.first_dirty() {
+            let len = self.state.dirty_run(start);
+            let run = self.state.gather(start, len);
+            self.inner.write_blocks(BlockIndex::new(start), run).await?;
+            self.state.clean_range(start, len);
         }
         self.inner.flush().await
     }

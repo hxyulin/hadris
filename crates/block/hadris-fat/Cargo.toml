@@ -102,3 +102,11 @@ required-features = ["std", "sync", "write"]
 [[test]]
 name = "exfat_native"
 required-features = ["std", "sync", "write"]
+
+[[test]]
+name = "fatfs_scale"
+required-features = ["std", "sync", "async-send", "write"]
+
+[[test]]
+name = "exfat_scale"
+required-features = ["std", "sync", "async-send", "write"]
