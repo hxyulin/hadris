@@ -4,11 +4,6 @@ Open problems on the `next` (3.0) branch that are understood but not fixed yet. 
 
 Requirement IDs (`FILE-CLOSE-01`, `NF-CRASH-01`) refer to [`docs/v3/actions.md`](docs/v3/actions.md).
 
-## Host devices
-
-- **Device size on FreeBSD and Windows.** Opening a raw disk (`/dev/ada0`, `\\.\PhysicalDrive0`) takes its size by seeking to the end. That works on Linux; macOS uses the disk ioctls. On FreeBSD and Windows the size can come back as 0, and the image then looks empty. Workaround: open an image file, or pass a partition window with an explicit size. Plan: `DIOCGMEDIASIZE` on FreeBSD and `IOCTL_DISK_GET_LENGTH_INFO` on Windows, with a clear error instead of size 0 on any other platform. (IO-HOST-01)
-- **A device used as file content in a tree reads as empty.** `Content::path` takes the length from file metadata, which is 0 for a device. Plan: use the same device size lookup as opening a device. (IO-HOST-01)
-
 ## FAT and exFAT
 
 - **Recovery after power loss is partial.** Operations interrupted by cancellation or a failed write are finished or rolled back by the next write or `sync`. After a real power cut, lost clusters can remain until a check and repair tool runs. An exFAT entry set that spans two device blocks can be left with orphan entries or a bad checksum, because the recovery state is kept in memory and not rebuilt at mount. TexFAT volumes can end with the mirror bitmap out of step. (NF-CRASH-01)
