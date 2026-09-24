@@ -440,6 +440,16 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat-cli (V3):** Supports exFAT. Every command detects exFAT
+  from the boot sector through `exfat::raw::BootSector` and runs on
+  `ExFatFs`: `info` shows the revision, sector and cluster size, FAT count
+  and dirty flag, `ls`, `tree`, `cat`, `extract`, `stat`, `chain`,
+  `fragmentation` and `verify` work as on FAT, and `create --fat-type
+  exfat` formats with `exfat::sync::format`. `create` reads the source
+  with `Tree::from_fs` before it formats. `verify` exits with an error when
+  `check_with` reports findings (it exited 0 before), `extract --output`
+  defaults to `.`, `ls` has the alias `list`, `verify` the alias `check`,
+  and `--volume-label` the alias `--volume-name`.
 - **hadris-fat (V3):** The `unstable-exfat` feature is gone: `exfat` is
   in every build and covered by semver. Its API is new; see Added and
   Removed.

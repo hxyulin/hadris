@@ -1,6 +1,8 @@
 # Hadris FAT CLI
 
-Command-line utility for FAT filesystem analysis and management.
+Command-line utility for FAT12, FAT16, FAT32 and exFAT analysis and management.
+Every command detects exFAT from the boot sector, so the same commands work on
+both.
 
 ## Installation
 
@@ -37,10 +39,12 @@ hadris-fat tree disk.img
 # Print and extract files
 hadris-fat cat disk.img /README.TXT
 hadris-fat extract disk.img --output ./out
+hadris-fat extract disk.img -o ./out -p /SUBDIR
 
 # Recursively create an image from a directory
 hadris-fat create ./contents --output disk.img
 hadris-fat create ./contents -o disk.img --fat-type fat32 --size 134217728 -V MY_DISK
+hadris-fat create ./contents -o card.img --fat-type exfat -V Photos
 
 # Analyze fragmentation
 hadris-fat fragmentation disk.img
@@ -58,21 +62,23 @@ hadris-fat verify disk.img
 |---------|-------------|
 | `info` | Display boot sector and volume information |
 | `stat` | Show detailed filesystem statistics |
-| `ls` | List directory contents |
+| `ls` (alias `list`) | List directory contents |
 | `tree` | Display directory tree |
 | `cat` | Print a file to stdout |
-| `extract` | Extract one path or the complete image |
-| `create` | Recursively create a FAT12/16/32 image from a directory |
+| `extract` | Extract one path (to `<output>/<name>`) or the complete image (into `<output>`, default `.`) |
+| `create` | Recursively create a FAT12/16/32 or exFAT image from a directory |
 | `fragmentation` | Analyze filesystem fragmentation |
 | `chain` | Show cluster chain for a file |
-| `verify` | Check filesystem integrity without changing the image (`hadris_fat::sync::check_with`) |
+| `verify` (alias `check`) | Check filesystem integrity without changing the image; exits with an error when it finds problems |
 
 ## Known Limitations
 
 - Host symbolic links and other special file types are rejected during creation.
-- Volume labels passed to `create` must be at most 11 ASCII characters; they
-  are stored in uppercase.
-- ExFAT images are not exposed through this CLI.
+- FAT12/16/32 volume labels passed to `create` must be at most 11 ASCII
+  characters; they are stored in uppercase. exFAT labels may have up to 11
+  UTF-16 code units and keep their case.
+- `create --fat-type exfat` writes FAT chains; TexFAT volumes are read and
+  checked but not created.
 
 ## Examples
 
@@ -91,14 +97,17 @@ hadris-fat ls disk.img /
 
 ## Supported Features
 
-- FAT12, FAT16, FAT32 filesystems
+- FAT12, FAT16, FAT32 and exFAT filesystems
 - Long filename (LFN/VFAT) display
 - Directory traversal and tree view
 - Fragmentation and cluster-chain analysis
 - Filesystem verification
 
-The commands are built on the `hadris_fat::sync::FatFs` driver and the
-`hadris-fs` path and host helpers. Read commands mount images read-only.
+The commands are built on the `hadris_fat::sync::FatFs` and
+`hadris_fat::exfat::sync::ExFatFs` drivers, `check_with`, `format`, the `raw`
+boot sector layouts, and the `hadris-fs` path and host helpers
+(`extract_to_host`, `import_from_host`, `Tree::from_fs`). Read commands mount
+images read-only.
 
 ## Documentation
 

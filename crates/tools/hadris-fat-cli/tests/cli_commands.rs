@@ -37,6 +37,14 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_args(&[])
+    }
+
+    fn exfat() -> Self {
+        Self::with_args(&["--fat-type", "exfat"])
+    }
+
+    fn with_args(extra: &[&str]) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("source");
         std::fs::create_dir_all(source.join("Sub/deep")).unwrap();
@@ -46,7 +54,9 @@ impl Fixture {
         std::fs::write(source.join("Sub/Inner.TXT"), b"inner").unwrap();
         std::fs::write(source.join("Sub/deep/data.bin"), vec![7u8; 10_000]).unwrap();
         let image = temp.path().join("disk.img");
-        let output = run(&["create", text(&source), "--output", text(&image)]);
+        let mut args = vec!["create", text(&source), "--output", text(&image)];
+        args.extend_from_slice(extra);
+        let output = run(&args);
         assert!(output.status.success(), "{output:?}");
         Self { temp, image }
     }
@@ -62,8 +72,11 @@ impl Fixture {
 
 #[test]
 fn listing_commands() {
-    let fx = Fixture::new();
+    listing(&Fixture::new());
+    listing(&Fixture::exfat());
+}
 
+fn listing(fx: &Fixture) {
     assert_eq!(
         stdout_of(&["ls", fx.image()]),
         "Sub/\na\nb\ntop.txt\n",
@@ -92,13 +105,25 @@ fn listing_commands() {
 #[test]
 fn report_commands() {
     let fx = Fixture::new();
+    reports(&fx);
+    let info = stdout_of(&["info", fx.image()]);
+    assert!(info.contains("FAT Type:        Fat12"), "{info}");
 
+    let fx = Fixture::exfat();
+    reports(&fx);
+    let info = stdout_of(&["info", fx.image()]);
+    assert!(info.contains("FS Revision:     1.00"), "{info}");
+}
+
+fn reports(fx: &Fixture) {
     let info = stdout_of(&["info", fx.image()]);
     assert!(info.contains("Volume Label:    HADRIS"), "{info}");
     let stat = stdout_of(&["stat", fx.image()]);
     assert!(stat.contains("Files:             5"), "{stat}");
     let verify = stdout_of(&["verify", "--verbose", fx.image()]);
     assert!(verify.contains("Result: PASS"), "{verify}");
+    let check = stdout_of(&["check", fx.image()]);
+    assert!(check.contains("Result: PASS"), "{check}");
 
     let chain = stdout_of(&["chain", fx.image(), "/Sub/deep/data.bin"]);
     assert!(chain.contains("File size: 10000 bytes"), "{chain}");
@@ -115,8 +140,11 @@ fn report_commands() {
 
 #[test]
 fn extract_uses_the_stored_name() {
-    let fx = Fixture::new();
+    extract_stored_name(&Fixture::new());
+    extract_stored_name(&Fixture::exfat());
+}
 
+fn extract_stored_name(fx: &Fixture) {
     let out = fx.dir("file");
     stdout_of(&[
         "extract",
@@ -162,4 +190,28 @@ fn extract_stays_inside_the_output_directory() {
 
     let output = run(&["extract", fx.image(), "-o", text(&out), "-p", "/missing"]);
     assert!(!output.status.success());
+}
+
+#[test]
+fn cat_and_list_alias_on_exfat() {
+    let fx = Fixture::exfat();
+    assert_eq!(stdout_of(&["cat", fx.image(), "/sub/inner.txt"]), "inner");
+    assert_eq!(stdout_of(&["list", fx.image()]), "Sub/\na\nb\ntop.txt\n");
+}
+
+#[test]
+fn verify_fails_on_a_damaged_image() {
+    let fx = Fixture::new();
+    let mut bytes = std::fs::read(&fx.image).unwrap();
+    // Mark every cluster of the first FAT used past the reserved entries,
+    // which leaves lost clusters and a FAT copy mismatch.
+    let fat = 512 * usize::from(u16::from_le_bytes([bytes[14], bytes[15]]));
+    for byte in &mut bytes[fat + 3..fat + 512] {
+        *byte = 0xFF;
+    }
+    std::fs::write(&fx.image, bytes).unwrap();
+    let output = run(&["verify", fx.image()]);
+    assert!(!output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Result: FAIL"), "{stdout}");
 }
