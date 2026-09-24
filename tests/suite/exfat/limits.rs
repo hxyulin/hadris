@@ -94,6 +94,7 @@ fn hadris_directory_growth_to_a_full_volume() {
         name: "exfat-1m",
         size: 1024 * 1024,
         cluster: 4096,
+        fats: 1,
     };
     if let Err(error) = run_exercise(case, "grow", exercise_directory_growth) {
         panic!("{}: {error}", case.name);

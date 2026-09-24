@@ -53,6 +53,7 @@ pub fn format(path: &Path, case: ExFatCase) -> Result<(), String> {
     let options = FormatOptions::new()
         .with_label(label)
         .with_cluster_size(case.cluster)
+        .with_fat_count(case.fats)
         .with_volume_id(0x4841_4452);
     let fs = format_exfat(file, options).map_err(|error| error.to_string())?;
     if fs.cluster_size() != case.cluster {

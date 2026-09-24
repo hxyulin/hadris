@@ -30,14 +30,15 @@ fn checkers() -> Option<(Option<Exfatprogs>, bool)> {
     Some((exfatprogs, macos))
 }
 
+/// exfatprogs refuses TexFAT volumes, which have two FATs.
 fn fsck_all(image: &Path, exfatprogs: Option<Exfatprogs>, macos: bool) -> Result<(), String> {
-    if let Some(tools) = exfatprogs {
+    let bytes = std::fs::read(image).map_err(|error| error.to_string())?;
+    if let Some(tools) = exfatprogs.filter(|_| bytes[110] == 1) {
         tools
             .fsck(image)
             .map_err(|error| format!("fsck.exfat: {error}"))?;
     }
-    let sector_shift = std::fs::read(image).map_err(|error| error.to_string())?[108];
-    if macos && sector_shift == 9 {
+    if macos && bytes[108] == 9 {
         native::fsck_macos(image).map_err(|error| format!("fsck_exfat: {error}"))?;
     }
     Ok(())
@@ -106,7 +107,7 @@ fn hadris_writes_natively_formatted_volumes() {
     let operations = curated_operations();
     let mut failures = Vec::new();
     if let Some(tools) = exfatprogs {
-        for case in EXFAT_CASES {
+        for case in EXFAT_CASES.into_iter().filter(|case| case.fats == 1) {
             let outcome = (|| {
                 let workspace = Workspace::new(FORMAT, &format!("{}-mkfs-", case.name))?;
                 let image = workspace.path.join("mkfs.img");

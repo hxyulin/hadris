@@ -9,6 +9,9 @@
 //! hash, name or layout, duplicate names, directories whose sizes are not
 //! whole clusters, chains that loop, leave the heap, end early or run on,
 //! cross-links, and a bitmap that differs from the clusters the tree uses.
+//! On a TexFAT volume, with two FATs and two Allocation Bitmaps, the FAT
+//! and bitmap that ActiveFat selects describe the volume; the others only
+//! need valid first entries and a whole allocation.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -33,7 +36,12 @@ struct Geometry {
     sector: usize,
     cluster: usize,
     volume_len: usize,
+    /// Where the FAT that ActiveFat selects starts.
     fat_start: usize,
+    /// Where each FAT starts; two on a TexFAT volume.
+    fats: Vec<usize>,
+    /// The ActiveFat bit, which also names the active Allocation Bitmap.
+    active: u8,
     heap_start: usize,
     cluster_count: u32,
     root: u32,
@@ -79,8 +87,9 @@ fn parse_geometry(bytes: &[u8]) -> Result<Geometry, String> {
     if !(9..=12).contains(&sector_shift) || cluster_shift > 25 {
         return Err(format!("bad shifts {sector_shift}/{cluster_shift}"));
     }
-    if slice(bytes, 110, 1)?[0] != 1 {
-        return Err("NumberOfFats is not 1".into());
+    let fat_count = slice(bytes, 110, 1)?[0] as usize;
+    if fat_count != 1 && fat_count != 2 {
+        return Err(format!("NumberOfFats is {fat_count}"));
     }
     if u16_at(bytes, 104)? != 0x0100 {
         return Err("FileSystemRevision is not 1.00".into());
@@ -97,7 +106,7 @@ fn parse_geometry(bytes: &[u8]) -> Result<Geometry, String> {
             bytes.len()
         ));
     }
-    if fat_offset < 24 || fat_offset + fat_len > heap_offset {
+    if fat_offset < 24 || fat_offset + fat_len * fat_count > heap_offset {
         return Err("FAT region overlaps the boot region or the heap".into());
     }
     if (cluster_count as usize + 2) * 4 > fat_len * sector {
@@ -113,15 +122,22 @@ fn parse_geometry(bytes: &[u8]) -> Result<Geometry, String> {
             "FirstClusterOfRootDirectory {root} is outside the heap"
         ));
     }
+    let flags = u16_at(bytes, 106)?;
+    let active = if fat_count == 2 { (flags & 1) as u8 } else { 0 };
+    let fats: Vec<usize> = (0..fat_count)
+        .map(|index| (fat_offset + fat_len * index) * sector)
+        .collect();
     Ok(Geometry {
         sector,
         cluster,
         volume_len,
-        fat_start: fat_offset * sector,
+        fat_start: fats[active as usize],
+        fats,
+        active,
         heap_start: heap_offset * sector,
         cluster_count,
         root,
-        flags: u16_at(bytes, 106)?,
+        flags,
         percent: slice(bytes, 112, 1)?[0],
     })
 }
@@ -607,8 +623,10 @@ fn check(bytes: &[u8]) -> Result<(Summary, FsState), String> {
         claimed: BTreeMap::new(),
         upcase: Vec::new(),
     };
-    if oracle.fat(0)? != FAT_MEDIA || oracle.fat(1)? != FAT_END {
-        return Err("FAT entries 0 and 1 are not F8FFFFFF and FFFFFFFF".into());
+    for &start in &oracle.geo.fats {
+        if u32_at(bytes, start)? != FAT_MEDIA || u32_at(bytes, start + 4)? != FAT_END {
+            return Err("FAT entries 0 and 1 are not F8FFFFFF and FFFFFFFF".into());
+        }
     }
     let root = oracle.root_chain()?;
     let root_bytes = oracle.read(&root, root.len() * oracle.geo.cluster)?;
@@ -648,31 +666,49 @@ fn check(bytes: &[u8]) -> Result<(Summary, FsState), String> {
             ));
         }
     }
-    let [bitmap] = system.bitmap.as_slice() else {
+    let fat_count = oracle.geo.fats.len();
+    if system.bitmap.len() != fat_count {
         return Err(format!(
-            "{} Allocation Bitmap entries in the root",
+            "{} Allocation Bitmap entries in the root for {fat_count} FATs",
             system.bitmap.len()
         ));
-    };
-    if bitmap[1] & 1 != 0 {
-        return Err("the Allocation Bitmap entry is marked as the second bitmap".into());
     }
-    let bitmap_len = u64_at(bitmap, 24)?;
-    if bitmap_len < (oracle.geo.cluster_count as u64).div_ceil(8) {
-        return Err("the allocation bitmap is shorter than ClusterCount".into());
+    let mut bits = Vec::new();
+    for (index, bitmap) in system.bitmap.iter().enumerate() {
+        let identifier = bitmap[1] & 1;
+        if bitmap[1] & 0xFE != 0 || identifier as usize >= fat_count {
+            return Err(format!(
+                "Allocation Bitmap entry {index} has BitmapFlags {:#x}",
+                bitmap[1]
+            ));
+        }
+        if system.bitmap[..index]
+            .iter()
+            .any(|other| other[1] & 1 == identifier)
+        {
+            return Err(format!(
+                "two Allocation Bitmaps have identifier {identifier}"
+            ));
+        }
+        let bitmap_len = u64_at(bitmap, 24)?;
+        if bitmap_len < (oracle.geo.cluster_count as u64).div_ceil(8) {
+            return Err("the allocation bitmap is shorter than ClusterCount".into());
+        }
+        let clusters = oracle.allocation(
+            u32_at(bitmap, 20)?,
+            bitmap_len,
+            false,
+            "the allocation bitmap",
+        )?;
+        if identifier == oracle.geo.active {
+            bits = oracle.read(&clusters, bitmap_len as usize)?;
+        }
     }
-    let clusters = oracle.allocation(
-        u32_at(bitmap, 20)?,
-        bitmap_len,
-        false,
-        "the allocation bitmap",
-    )?;
-    let bits = oracle.read(&clusters, bitmap_len as usize)?;
 
     let mut entries = BTreeMap::new();
     let mut all = SystemEntries::default();
     oracle.read_directory(&root_bytes, "/", &mut entries, &mut all)?;
-    if all.bitmap.len() != 1 || all.upcase.len() != 1 || all.label.len() > 1 {
+    if all.bitmap.len() != fat_count || all.upcase.len() != 1 || all.label.len() > 1 {
         return Err("the root holds a system entry more than once".into());
     }
     let label = match all.label.first() {
