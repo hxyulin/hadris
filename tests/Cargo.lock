@@ -120,8 +120,6 @@ dependencies = [
 name = "hadris-common"
 version = "2.4.0"
 dependencies = [
- "hadris-fs",
- "hadris-io",
  "zerocopy",
 ]
 
