@@ -76,7 +76,7 @@ points for kernels, firmware, and other storage libraries:
 | `hadris-io` | Sync and async byte-stream traits and adapters |
 | `hadris-storage` | Logical-block geometry, device traits, and bounded views |
 | `hadris-fs` | Shared filesystem vocabulary and allocation-free lexical paths |
-| `hadris-common` | Internal endian, fixed-capacity text, and disk-format primitives; not for direct use |
+| `hadris-common` | Internal endian integers for the FAT and NTFS layouts; not for direct use |
 | `hadris-macros` | Internal dual sync/async code-generation support |
 
 ## Experimental APIs

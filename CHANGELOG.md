@@ -10,6 +10,69 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-udf (V3):** Rewritten on `hadris-storage` block devices, with
+  the same API in `sync`, `r#async` and `async_send`. `UdfFs::open` reads
+  a volume without an allocator: it finds an anchor at block 256, N-256 or
+  N-1 for logical blocks of 512 to 4096 bytes, checks the recognition
+  sequence, keeps the prevailing descriptors of the main sequence or, when
+  it is damaged, the reserve sequence, follows descriptor pointers, and
+  maps up to eight type 1 partitions. `UdfFs` implements the read-only
+  `FsDriver` through `impl_fs_driver!` (with `parent` and `read_link`), so
+  the `hadris-fs` path helpers, `Volume`, handles and `extract_to_host`
+  work on it. Node ids are ICB locations, so hard links share one id and
+  no node table is needed. File entries and extended file entries are read
+  with short, long, extended and embedded allocation descriptors,
+  continuation extents and unrecorded extents; metadata has the three
+  times (four with extended entries), permissions, owner and link count;
+  symlink path components become `/`-joined targets. `volume_id`,
+  `logical_volume_id`, `revision`, `block_size`, `partitions`
+  (`Partition`), `extents` and `read_bytes` are native, and `raw` holds
+  the on-disk layouts with little-endian field types. Virtual, sparable
+  and metadata partitions fail with `Unsupported`. `write(dev, &tree,
+  &options)` and `plan(&tree, &options)` (`alloc`) lay out a
+  `hadris_fs::tree::Tree` as `UdfOptions` says (volume identifier,
+  `UdfRevision`, `with_min_blocks`, `Bridge` and an injected `Clock`) and
+  return a `Report` of the size, each file's extent, `allocated_end` and
+  `Warning`s. Blocks are written once, in ascending order, to any block
+  device whose block size divides 2048, without `std`. Symlinks, hard
+  links, permissions, owners and times are stored; creation times, DOS
+  attributes and device nodes are reported. `Bridge` makes the volume share
+  an ISO 9660 image, recording its recognition sequence after the ISO
+  descriptors and pointing at `Content::stored` extents. `Error<E>`
+  carries an `ErrorKind`, a `Detail` (`#[non_exhaustive]`) and the device
+  error, converts into `hadris_fs::Error<E>`, `AnyError` and
+  `std::io::Error`, and opening fails with `MountError`.
+- **hadris-cd (V3):** `write(dev, &tree, &CdOptions)` and `plan` in
+  `sync`, `r#async` and `async_send` write a hybrid image from one
+  `hadris_fs::tree::Tree`: the UDF metadata is planned first, the ISO 9660
+  image is written after it with `hadris_iso`, and the UDF bridge volume
+  points at the file extents of the ISO `Report`, so nothing is read back.
+  `CdOptions` holds an `IsoOptions` and a `UdfOptions` (`with_iso`,
+  `with_udf`, `with_clock`), both crates are re-exported as `iso` and
+  `udf`, and `Report` holds both reports. Symlinks, hard links and
+  metadata come from the tree. `Error<E>` keeps the kind and device error
+  of the writer that failed with `Detail::Iso` or `Detail::Udf`.
+- **hadris-cpio (V3):** Rewritten on `hadris_io` V3 streams, with the same
+  API in `sync`, `r#async` and `async_send`. `CpioReader` reads `newc`,
+  `newc` with checksums, `odc` and old binary archives in either byte
+  order, without an allocator. `next_entry` returns an `Entry` that borrows
+  the reader and implements `Read`; data left unread is skipped by the next
+  call, with `070702` checksums verified either way. An archive may end at
+  an entry boundary without a trailer unless
+  `ReaderOptions::with_strict_trailer` is set, and `continue_after_trailer`
+  reads concatenated archives such as microcode before an initramfs.
+  `CpioWriter` (`alloc`) streams `newc`, `newc` with checksums or `odc`
+  entries: `append` takes a `NewEntry` (file `Content`, directory,
+  symlink, device, FIFO, socket) with a `SetMetadata`, `append_hard_links`
+  writes a hard link group, `write_tree` writes a `hadris_fs::tree::Tree`,
+  and `finish` writes the trailer. `write(out, &tree, &CpioOptions)` does
+  it in one call and returns a `Report` whose warnings list metadata cpio
+  cannot store. Field widths are checked before an entry is written
+  (`FileTooLarge`, `NameTooLong`, `LimitExceeded`). `Error<E>` carries an
+  `ErrorKind`, a `Detail` and the stream error, and converts into
+  `hadris_fs::Error<E>`, `AnyError` and `std::io::Error`. The header
+  layouts are in `raw` (`NewcFields`, `NewcHeader`, `OdcFields`,
+  `OdcHeader`, `BinaryHeader`).
 - **hadris-iso (V3):** Rewritten on `hadris-storage` block devices, with
   the same API in `sync`, `r#async` and `async_send`. `IsoImage::open`
   reads the descriptor set without an allocator and reports the trees the
@@ -289,6 +352,51 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-udf (V3):** The whole API is new; see Added and Removed.
+  Features are `std`, `alloc`, `sync`, `async` and `async-send`, and no
+  feature changes what an item does. Volumes are byte for byte those of
+  2.4 with the same clock, except for fixes: UDF 2.00 and later write
+  descriptor version 3 and the file's unique id in identifier ICBs, the
+  integrity descriptor counts files and directories, a directory's link
+  count includes its subdirectories, the root is its own parent, and an
+  identifier's tag location is the block that holds it. The volume is
+  written from block 0 to its end, so a growing host file gets its full
+  length. A volume identifier over 126 bytes fails instead of being cut;
+  the 32-byte fields still take a prefix, now cut at a character.
+  `hadris-common` is no longer a dependency.
+- **hadris-cd (V3):** The whole API is new; see Added and Removed. Images
+  are those of 2.4 with the same clock except for the UDF fixes above and
+  a correct next unique id in the integrity descriptor; the image length
+  is at least the ISO image plus the trailing anchor. Features are `std`,
+  `sync`, `async` and `async-send`; the crate needs an allocator but not
+  `std`.
+- **hadris-cpio (V3):** Features are `std`, `alloc`, `sync`, `async` and
+  `async-send`; no feature changes what an item does. Archives without
+  hard links are byte for byte those of 2.4. Hard link groups carry the
+  data on the last name, and every name has the group's link count and
+  metadata, as GNU cpio writes them. `hadris-common` is no longer a
+  dependency.
+- **hadris-optical (V3):** Opens UDF through `hadris_udf` `UdfFs` over the
+  transitional `StreamBlocks` adapter; `Error::Udf` holds a
+  `hadris_udf::Error`. `async-send` and the mode features reach
+  `hadris-udf` and `hadris-cd`, and `read` and `write` no longer forward to
+  `hadris-udf`.
+- **hadris-udf-cli (V3):** Reads through `UdfFs` and the `hadris-fs` path
+  helpers: `ls -l` shows symlinks, `cat` takes any path, `extract` uses
+  `extract_to_host` (so hostile names cannot escape the target), and
+  `info` lists the partitions. `create` builds a `Tree` from the source
+  directory with its symlinks, hard links and metadata, stamps it with the
+  current time and prints the writer's warnings.
+- **hadris-cd-cli (V3):** `create` stores symbolic links (Rock Ridge and
+  UDF) instead of refusing them, writes to the output file directly, and
+  prints the writers' warnings; `info` and `verify` read UDF through
+  `UdfFs`.
+- **hadris-cpio-cli (V3):** `-` reads the archive from standard input and
+  `create -o -` writes to standard output. `create` has
+  `--format newc|crc|odc` (`--crc` still works) and `--verbose`, and stores
+  device nodes and hard links from the source directory. `extract`
+  restores hard link groups and refuses names with `..` components or that
+  lead through an existing symlink.
 - **hadris-iso (V3):** The whole API is new; see Added and Removed.
   Features are `std`, `alloc`, `sync`, `async` and `async-send`, and no
   feature changes what an item does. Images written without Rock Ridge
@@ -495,6 +603,38 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-udf (V3):** The V2 API: `UdfVolume` over `hadris_io` streams
+  with `UdfVolumeInfo`, `UdfDir`, `UdfDirEntry`, `read_file`,
+  `read_directory` and `root_dir`, `UdfWriter` and its public descriptor
+  writers (`write_vrs`, `write_avdp`, `write_pvd`, `write_lvid(close:
+  bool)`, `write_fids` and the rest), `UdfWriteOptions`,
+  `UdfCreateOutput`, `SimpleFile`, `SimpleDir`, `FileSource`,
+  `UdfFileInfo`, `UdfDirInfo`, `UdfFileExtent`, the `descriptor`, `dir`
+  and `file` modules with their layouts (now in `raw`), the uncompiled
+  `modify.rs`, the V2 `Error` and `Result`, the `read`, `write` and
+  `unstable-streaming` features and the root re-export of `sync`. Use
+  `UdfFs`, `write` and `plan` in a mode module, `UdfOptions`,
+  `hadris_fs::tree::Tree`, and the layouts in `raw`.
+- **hadris-cd (V3):** `OpticalImageWriter` (`new`, `finish`, `create`),
+  `OpticalImageOptions` with its `iso_only` and `udf_only` switches and
+  `sector_size`, the crate's own `IsoOptions` and `UdfOptions` structs,
+  `FileTree`, `Directory`, `FileEntry`, `FileData`, `FileExtent`,
+  `LayoutManager`, `LayoutInfo`, the V2 `Error` and `Result`. Use
+  `write` and `plan` in a mode module with `CdOptions`; an ISO-only or
+  UDF-only image is `hadris_iso` or `hadris_udf` `write`.
+- **hadris-cpio (V3):** The V2 API: `CpioArchiveReader`, `CpioEntry`,
+  `CpioEntryOwned`, `CpioEntryHeader`, `CpioArchiveWriter`,
+  `CpioWriteOptions`, `FileTree`, `FileNode`, `FromFsError`,
+  `mode::FileType` and `make_mode`, `RawNewcHeader` and its 14-argument
+  `build`, `CpioMagic`, the V2 `Error` and `Result`, the `read` and
+  `write` features, and the root re-export of `sync`. Use `CpioReader`,
+  `CpioWriter` and `write` in a mode module, `CpioOptions`,
+  `hadris_fs::tree::Tree`, and the layouts in `raw`.
+- **hadris-common (V3):** The `extent` module (`Extent`, `FileType`) and
+  the `layout` module (`FileLayout`, `DirectoryLayout`, `AllocationMap`),
+  which only the V2 optical writers used, and the `alloc`, `std`, `sync`
+  and `async` features with the `hadris-io` and `hadris-fs` dependencies.
+  The crate now holds only the endian integers.
 - **hadris-iso (V3):** The V2 API: `IsoImage` over `hadris_io` streams
   with `IsoDir`, `DirEntry`, `DirectoryRef`, `RootDir`, `IsoFileReader`,
   the allocation-free `IsoReader`, `IsoRoot`, `IsoDirEntry` and

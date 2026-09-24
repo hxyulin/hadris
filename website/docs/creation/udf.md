@@ -4,119 +4,74 @@ title: Create UDF filesystems
 
 # Create UDF filesystems
 
-`hadris-udf` creates mastered, read-only Type-1 UDF images on a seekable target.
-The high-level tree API is appropriate for standalone images; `hadris-cd`
-should be used when authoring a shared ISO/UDF bridge image.
+`hadris-udf` writes mastered, read-only type 1 UDF volumes from a
+`hadris_fs::tree::Tree`. Use `hadris-cd` for a shared ISO/UDF bridge image.
 
 ## Dependency
 
 ```toml
 [dependencies]
-hadris-io = "2.4.0"
-hadris-udf = { version = "2.4.0", features = ["write", "sync"] }
+hadris-fs = { version = "2.4.0", features = ["std", "sync"] }
+hadris-udf = "2.4.0"
 ```
 
-## Create a directory tree
+## Create a volume
 
-`SimpleDir` and `SimpleFile` own their payloads. Sort the tree when deterministic
-directory ordering matters.
-
-```rust
-use std::fs::OpenOptions;
-
-use hadris_io::StdIo;
-use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
+```rust,no_run
+use hadris_fs::tree::{Content, Tree};
+use hadris_udf::UdfOptions;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut root = SimpleDir::root();
-    root.add_file(SimpleFile::new(
-        "README.txt",
-        b"Hello from a UDF image\n".to_vec(),
-    ));
+    let mut tree = Tree::new();
+    tree.add_file("README.txt", Content::bytes("Hello from a UDF image\n"))?;
+    tree.add_file("docs/guide.txt", Content::bytes("UDF guide\n"))?;
 
-    let mut docs = SimpleDir::new("docs");
-    docs.add_file(SimpleFile::new("guide.txt", b"UDF guide\n".to_vec()));
-    root.add_dir(docs);
-    root.sort();
-
-    let target = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open("volume.udf")?;
-
-    let output = UdfWriter::create(StdIo::new(target), &root, UdfWriteOptions::default())?;
-    println!("wrote {} sectors", output.sectors_written);
-    let _target = output.into_inner();
+    let mut target = std::fs::File::create("volume.udf")?;
+    let report = hadris_udf::sync::write(&mut target, &tree, &UdfOptions::default())?;
+    println!("wrote {} blocks", report.total_blocks());
     Ok(())
 }
 ```
 
-The output reports the number of 2048-byte sectors used and returns the target.
-Unlike FAT formatting, the standalone UDF writer lays out and grows an ordinary
-file as it writes, so it does not need to be pre-sized.
+A host file grows as the writer writes it. For a fixed-size device such as a
+`MemDevice`, size it with `hadris_udf::sync::plan(&tree, &options)` first.
+`Tree::from_fs` imports a host directory without reading the files until the
+image is written.
 
 ## Select a mastered revision
 
 ```rust
-use hadris_udf::UdfRevision;
-use hadris_udf::write::UdfWriteOptions;
+use hadris_udf::{UdfOptions, UdfRevision};
 
-let options = UdfWriteOptions {
-    volume_id: "ARCHIVE_2026".into(),
-    revision: UdfRevision::V2_01,
-    ..UdfWriteOptions::default()
-};
+let options = UdfOptions::default()
+    .with_volume_id("ARCHIVE_2026")
+    .with_revision(UdfRevision::V2_01);
 ```
 
-The revision describes a mastered/read-only Type-1 image. It does not enable
-packet writing, VAT, sparing, metadata partitions, or pseudo-overwrite. Choose
-the oldest revision that provides the compatibility your consumers need, and
-validate it with the tools used by those consumers.
+The revision describes a mastered, read-only image. It does not enable packet
+writing, VAT, sparing, metadata partitions or pseudo-overwrite. Choose the
+oldest revision that gives your consumers what they need, and validate with
+their tools.
 
-## Unicode names and limits
+## Names, metadata and limits
 
-Filenames are encoded with OSTA Compressed Unicode (CS0). Hadris selects 8-bit
-compression for names representable in one byte per character and 16-bit
-compression otherwise. A filename whose encoded FID identifier exceeds 255
-bytes is rejected rather than truncated.
-
-The high-level API currently owns every file payload in memory. Very large
-payloads and live streaming are outside this convenience surface.
-
-## Create an in-memory image
-
-Preallocate enough space when the target is a bounded cursor:
-
-```rust
-use std::io::Cursor;
-use hadris_io::StdIo;
-use hadris_udf::write::{SimpleDir, SimpleFile, UdfWriteOptions, UdfWriter};
-
-let mut root = SimpleDir::root();
-root.add_file(SimpleFile::new("hello.txt", b"hello\n".to_vec()));
-
-let mut storage = vec![0_u8; 8 * 1024 * 1024];
-let cursor = StdIo::new(Cursor::new(storage.as_mut_slice()));
-let output = UdfWriter::create(cursor, &root, UdfWriteOptions::default())?;
-assert!(output.sectors_written > 0);
-# Ok::<(), hadris_udf::Error>(())
-```
+Names are encoded as OSTA Compressed Unicode: 8-bit when every character is
+below U+0100, 16-bit otherwise. A name over 254 encoded bytes fails with
+`NameTooLong`. Symlinks and hard links are stored; device nodes, creation
+times and DOS attributes are left out and listed in `Report::warnings`. The
+default `NoClock` dates entries without times 1980-01-01, so the same tree
+gives the same bytes; `with_clock(SystemClock)` uses the current time.
 
 ## Author an ISO/UDF bridge
 
-Do not independently concatenate ISO and UDF images. A bridge must coordinate
-descriptor locations, directory ICBs, and payload extents. Use the bridge crate
-or CLI:
+Do not concatenate separate ISO and UDF images. A bridge coordinates
+descriptor locations, directory ICBs and payload extents. Use the `hadris-cd`
+crate or CLI:
 
 ```bash
-hadris-cd create image-root bridge.iso
+hadris-cd create image-root -o bridge.iso
 hadris-cd verify bridge.iso
 ```
-
-The verifier compares both namespace trees and confirms that shared files are
-readable through ISO and UDF.
 
 ## Validate the result
 
@@ -126,6 +81,6 @@ udfinfo volume.udf
 hadris-udf info volume.udf
 ```
 
-For interoperability work, also create reference images with `mkudffs` and
-confirm that Hadris can read them. Validation should cover every UDF revision
-your application accepts.
+7-Zip does not open volumes that contain symlinks. For interoperability
+work, also create reference images with `mkudffs` and confirm that Hadris
+reads them.

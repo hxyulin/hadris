@@ -6,41 +6,38 @@ title: Read and extract UDF
 
 ```toml
 [dependencies]
-hadris-io = "2.4.0"
+hadris-fs = { version = "2.4.0", features = ["std", "sync"] }
 hadris-udf = "2.4.0"
 ```
 
-The UDF reader exposes owned directory metadata and reads a selected file into
-a byte vector.
+`UdfFs` opens a volume on any `hadris_storage` block device, such as a host
+file, and implements the `hadris-fs` driver traits, so the path helpers,
+handles and host helpers work on it.
 
 ```rust,no_run
-use hadris_io::StdIo;
-use hadris_udf::UdfVolume;
-use std::{fs, fs::File};
+use hadris_fs::sync::DriverExt;
+use hadris_udf::sync::UdfFs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let volume = UdfVolume::open(StdIo::new(File::open("disc.udf")?))?;
-    println!("volume: {}", volume.info().volume_id);
+    let mut udf = UdfFs::open(std::fs::File::open("disc.udf")?)?;
+    println!("volume: {}", udf.logical_volume_id());
 
-    let root = volume.root_dir()?;
-    for entry in root.entries() {
-        let kind = if entry.is_dir() { "dir " } else { "file" };
-        println!("{kind} {:>10} {}", entry.size, entry.name());
+    for entry in udf.read_dir("/")? {
+        let entry = entry?;
+        let kind = if entry.file_type().is_dir() { "dir " } else { "file" };
+        println!("{kind} {}", String::from_utf8_lossy(entry.name_bytes()));
     }
 
-    let entry = root.find("README.TXT").ok_or("README.TXT not found")?;
-    let contents = volume.read_file(entry)?;
-    fs::write("README.TXT", contents)?;
-
+    std::fs::write("README.TXT", udf.read_to_vec("/README.TXT")?)?;
+    hadris_fs::sync::extract_to_host(&mut udf, "/", "out")?;
     Ok(())
 }
 ```
 
-`read_file` rejects directory entries and validates the file's allocation
-descriptors before returning data. Do not join an untrusted on-disk filename
-directly to an extraction directory; reject absolute paths and parent
-components first.
+`extract_to_host` refuses names with separators or `..` components and never
+writes through an existing host symlink, so an untrusted image cannot escape
+the target directory.
 
 For an unknown ISO/UDF image, open through `hadris-optical` so bridge-image
-selection is explicit. The `hadris-udf` CLI provides recursive listing and
-extraction for hosted workflows.
+selection is explicit. The `hadris-udf` CLI provides listing and extraction
+for hosted workflows.

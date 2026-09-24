@@ -14,7 +14,7 @@ gate).
 | `ntfs_read` | `NtfsFs::open` + recursive read      | boot sector, MFT records, attributes, index walks |
 | `part_read` | `sync::read` + `scan`, edits, `write` and re-read | MBR, EBR chains, GPT with the backup fallback, hybrid MBR, table edits |
 | `iso_read`  | `IsoImage::open` + recursive read    | volume descriptors, directory records, RRIP, multi-extent reads |
-| `udf_read`  | `UdfVolume::open` + recursive read   | anchor/VDS/FSD, File Entry, allocation descriptors, FIDs |
+| `udf_read`  | `UdfFs::open` + node API walk        | anchor/VDS/FSD, File Entry, allocation descriptors, FIDs |
 | `fat_ops`   | `format` + fuzz-driven create/write/delete/rename/write-at/set-len ops on `FatFs` | FAT write path vs a shadow model, `check` after sync, verified after remount |
 
 **The invariant:** feeding *arbitrary bytes* into a reader must only ever return
