@@ -7,8 +7,8 @@ crates under crates/{core,block,optical,archive}/*/src and reports:
 - every `pub enum` without `#[non_exhaustive]`
 - every `pub struct` with at least one `pub` field without `#[non_exhaustive]`
 
-Skipped: modules named `raw` (file `raw.rs`, directory `raw/`, or inline
-`mod raw { .. }`), `#[cfg(test)]` inline modules, files named `tests.rs`,
+Skipped: the `hadris-<fmt>-raw` crates and modules named `raw` (file
+`raw.rs`, directory `raw/`, or inline `mod raw { .. }`), `#[cfg(test)]` inline modules, files named `tests.rs`,
 `macro_rules!` bodies, and items marked `#[repr(C..)]` or
 `#[repr(transparent)]` (on-disk layouts, R4).
 
@@ -177,7 +177,7 @@ def source_files(root: Path) -> list[tuple[str, Path, bool]]:
     for group in GROUPS:
         for crate in sorted((root / "crates" / group).glob("*/")):
             src = crate / "src"
-            if not src.is_dir():
+            if not src.is_dir() or crate.name.endswith("-raw"):
                 continue
             lib = src / "lib.rs"
             previews = preview_modules(lib.read_text(encoding="utf-8")) if lib.is_file() else set()

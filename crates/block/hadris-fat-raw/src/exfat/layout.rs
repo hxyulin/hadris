@@ -1,7 +1,4 @@
 //! Raw exFAT on-disk layouts and constants.
-//!
-//! The items mirror the exFAT 1.00 specification. The module may gain items;
-//! the existing ones follow the specification and stay exhaustive.
 
 use hadris_common::types::{
     endian::LittleEndian,
@@ -241,7 +238,7 @@ pub struct StreamEntry {
 ///
 /// @hadris-spec EXFAT:7.7
 /// @hadris-compliance full
-/// @hadris-tests exfat_write::long_names_up_to_255_units, codec::tests::names_are_checked
+/// @hadris-tests exfat_write::long_names_up_to_255_units, exfat::codec::tests::names_are_checked
 /// @hadris-fuzz exfat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

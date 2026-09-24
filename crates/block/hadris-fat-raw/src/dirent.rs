@@ -51,7 +51,7 @@ pub const LFN_UNITS_PER_ENTRY: usize = 13;
 /// @hadris-spec FAT:DirEntry
 /// @hadris-compliance partial
 /// @hadris-note Name/attributes/timestamps/cluster/size and NT case flags (`DIR_NTRes`) are read and written; extended access-time granularity is not modeled.
-/// @hadris-tests dirent::tests::decodes_short_fields, fatfs_write::short_names_and_case_bits, raw::dirent::tests::layouts_match_the_specification
+/// @hadris-tests slot::tests::decodes_short_fields, fatfs_write::short_names_and_case_bits, dirent::tests::layouts_match_the_specification
 /// @hadris-fuzz fat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -88,7 +88,7 @@ impl RawDirEntry {
     /// The checksum of [`name`](Self::name) that each long-name entry of
     /// this entry stores in `LDIR_Chksum`.
     pub const fn lfn_checksum(&self) -> u8 {
-        crate::codec::lfn::checksum(&self.name)
+        crate::lfn::checksum(&self.name)
     }
 }
 
@@ -97,7 +97,7 @@ impl RawDirEntry {
 /// @hadris-spec FAT:LFN
 /// @hadris-compliance partial
 /// @hadris-note Sequence, attributes, checksum, terminator and filler are read and written; names are UTF-16 only, with no legacy ANSI fallback.
-/// @hadris-tests lfn::tests::checksum_matches_reference, lfn::tests::encoded_orders_entries_last_first, lfn::tests::assembler_rejects_broken_sequences, fatfs_write::long_names_up_to_255_units, raw::dirent::tests::layouts_match_the_specification
+/// @hadris-tests lfn::tests::checksum_matches_reference, lfn::tests::encoded_orders_entries_last_first, lfn::tests::assembler_rejects_broken_sequences, fatfs_write::long_names_up_to_255_units, dirent::tests::layouts_match_the_specification
 /// @hadris-fuzz fat_read
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

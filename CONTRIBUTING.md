@@ -206,7 +206,7 @@ their requirements in `[workspace.dependencies]` aligned.
 
 When several unpublished versions depend on one another, publish in dependency
 order: `hadris-macros`/`hadris-io`/`hadris-fs`; then
-`hadris-common`/`hadris-storage`/`hadris-part`; then format crates; then category
+`hadris-common`/`hadris-storage`/`hadris-part`/`hadris-fat-raw`; then format crates; then category
 facades and `hadris-cd`; then the `hadris` umbrella and CLI packages. Cargo
 validates dependent packages against crates.io, so each prerequisite version
 must be available before packaging the next layer.
@@ -235,7 +235,7 @@ crates.io publication.
 
   ```bash
   cargo +nightly miri test -p hadris-common --lib
-  cargo +nightly miri test -p hadris-fat --lib codec::
+  cargo +nightly miri test -p hadris-fat-raw --lib
   cargo +nightly miri test -p hadris-iso --lib -- raw:: name:: rock_ridge::
   cargo +nightly miri test -p hadris-part --lib
   cargo +nightly miri test -p hadris-ntfs --lib

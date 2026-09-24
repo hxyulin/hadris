@@ -10,6 +10,18 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-fat-raw (V3):** New crate, version 0.1.0: the on-disk layer of
+  FAT12/16/32 and exFAT, `no_std` and allocation-free, with its own
+  version. It holds the boot sector, BPB, FSInfo and directory entry
+  layouts and the codecs `hadris-fat` used privately: `parse_boot` into a
+  `Geometry` (with `RootLocation`, the active FAT, mirroring and the FSInfo
+  sector), `FatKind` entry encoding and link classification, `ChainGuard`
+  cycle detection, `Slot`, `ShortEntry` and `LongEntry`, `lfn_checksum`
+  and the `lfn`, `short_name`, `name`, `date` and `layout` modules, and
+  `fold_ascii` and `fold_unicode`, name folds of type `fn(u16) -> u16`.
+  `exfat` holds the exFAT layouts, `parse_boot`, `boot_checksum`,
+  `set_checksum`, `seal`, `name_hash`, `NameUnits`, `encode_time`,
+  `decode_time` and the up-case table decoder.
 - **hadris-storage (V3):** `BlockDevice` gains `max_block_count` (how many
   blocks a device holds once written past its end, `block_count` by
   default), `disk_offset` (the byte offset of block 0 on the disk a device
@@ -489,6 +501,9 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-fat (V3):** `hadris_fat::raw` is the `hadris-fat-raw` crate and
+  `hadris_fat::exfat::raw` its `exfat` module. The layouts keep their
+  names; `FatKind` is re-exported from there.
 - **hadris-fat (V3):** `FatFs` and `ExFatFs` mount a device that is not
   `writable` read-only, as if `MountOptions::with_read_only` were set.
 - **hadris-part (V3):** `open` returns a `hadris_storage::Partition` of the

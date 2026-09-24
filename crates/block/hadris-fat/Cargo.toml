@@ -34,10 +34,11 @@ std = [
 write = []
 # Derives `defmt::Format` on `FatKind` and `Finding` so they can be logged
 # through `defmt::info!` etc. without going through `Debug`.
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "hadris-fat-raw/defmt"]
 
 [dependencies]
 hadris-common = { workspace = true, features = ["bytemuck"] }
+hadris-fat-raw = { workspace = true }
 hadris-io = { workspace = true }
 hadris-fs = { workspace = true }
 hadris-storage = { workspace = true }

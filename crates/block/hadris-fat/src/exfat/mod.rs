@@ -36,16 +36,35 @@
 //! keeps both copies equal; TexFAT transactions and repair are not
 //! supported.
 
-#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
-mod codec;
 mod findings;
 mod options;
-/// Raw on-disk exFAT boot sector and directory entry layouts.
+/// The exFAT part of the on-disk layer, `hadris_fat_raw::exfat`: the boot
+/// sector and directory entry layouts with their constants, and the codecs.
 ///
-/// The items mirror the exFAT specification and stay exhaustive.
-pub mod raw;
+/// The layouts mirror the exFAT specification and stay exhaustive.
+pub use hadris_fat_raw::exfat as raw;
 
 pub use findings::{CheckReport, Finding, FindingKind};
+
+/// Reads a little-endian `u16` at `at`.
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+pub(crate) fn le16(bytes: &[u8], at: usize) -> u16 {
+    u16::from_le_bytes([bytes[at], bytes[at + 1]])
+}
+
+/// Reads a little-endian `u32` at `at`.
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+pub(crate) fn le32(bytes: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+}
+
+/// Reads a little-endian `u64` at `at`.
+#[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
+pub(crate) fn le64(bytes: &[u8], at: usize) -> u64 {
+    let mut value = [0u8; 8];
+    value.copy_from_slice(&bytes[at..at + 8]);
+    u64::from_le_bytes(value)
+}
 #[cfg(feature = "write")]
 pub use options::FormatOptions;
 pub use options::{MountOptions, VolumeLabel};

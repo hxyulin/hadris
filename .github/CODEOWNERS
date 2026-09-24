@@ -17,6 +17,7 @@
 /crates/optical/hadris-iso/ @hxyulin
 /crates/tools/hadris-iso-cli/ @hxyulin
 /crates/block/hadris-fat/ @hxyulin
+/crates/block/hadris-fat-raw/ @hxyulin
 /crates/tools/hadris-fat-cli/ @hxyulin
 /crates/optical/hadris-udf/ @hxyulin
 /crates/tools/hadris-udf-cli/ @hxyulin

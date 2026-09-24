@@ -1,61 +1,186 @@
 //! BIOS parameter block validation and volume geometry.
 
-use super::entry::{
+use hadris_fs::ErrorKind;
+
+use crate::bpb::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
+use crate::entry::{
     FAT12_MAX_CLUSTERS, FAT16_MAX_CLUSTERS, FAT32_MAX_CLUSTERS, FIRST_DATA_CLUSTER, FatKind,
 };
-use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
 
-pub(crate) const FSINFO_LEAD_SIG: u32 = 0x4161_5252;
-pub(crate) const FSINFO_STRUC_SIG: u32 = 0x6141_7272;
-pub(crate) const FSINFO_TRAIL_SIG: u32 = 0xAA55_0000;
-pub(crate) const BOOT_SIGNATURE: u16 = 0xAA55;
+/// `FSI_LeadSig` of the FSInfo sector.
+pub const FSINFO_LEAD_SIG: u32 = 0x4161_5252;
+/// `FSI_StrucSig` of the FSInfo sector.
+pub const FSINFO_STRUC_SIG: u32 = 0x6141_7272;
+/// `FSI_TrailSig` of the FSInfo sector.
+pub const FSINFO_TRAIL_SIG: u32 = 0xAA55_0000;
+/// The signature word at bytes 510 and 511 of the boot sector.
+pub const BOOT_SIGNATURE: u16 = 0xAA55;
+/// Bytes of a boot sector [`parse_boot`] reads.
+pub const BOOT_SECTOR_LEN: usize = 512;
+
+const BPB_LEN: usize = size_of::<RawBpb>();
+const FAT32_MIRRORING_DISABLED: u16 = 0x80;
+const FAT32_ACTIVE_FAT: u16 = 0x0F;
 
 /// Why a boot sector or FSInfo sector was rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BootError {
+#[non_exhaustive]
+pub enum BootError {
+    /// The sector and cluster sizes are not ones FAT allows, so the sector
+    /// holds no FAT BIOS parameter block; the text names the field.
+    NotFat(&'static str),
     /// A field violates the specification; the text names it.
     Corrupt(&'static str),
     /// The boot sector does not end in `0xAA55`.
     Signature(u16),
     /// The FAT32 root cluster is not a data cluster.
-    RootCluster { cluster: u32, max: u32 },
+    RootCluster {
+        /// The cluster the boot sector names.
+        cluster: u32,
+        /// The highest data cluster.
+        max: u32,
+    },
     /// An FSInfo signature is wrong.
     FsInfoSignature {
+        /// The name of the field.
         field: &'static str,
+        /// The value the specification requires.
         expected: u32,
+        /// The value found.
         found: u32,
     },
 }
 
-/// Where the root directory lives.
+impl BootError {
+    /// [`ErrorKind::NotRecognized`] for [`NotFat`](Self::NotFat),
+    /// [`ErrorKind::Corrupt`] for the rest.
+    pub const fn kind(&self) -> ErrorKind {
+        match self {
+            Self::NotFat(_) => ErrorKind::NotRecognized,
+            _ => ErrorKind::Corrupt,
+        }
+    }
+}
+
+/// Where the root directory lives. FAT has these two forms only, so the
+/// enum is exhaustive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RootDir {
+pub enum RootLocation {
     /// FAT12/16: a fixed region of `size` bytes at byte `start`.
-    Fixed { start: u64, size: u64 },
-    /// FAT32: an ordinary cluster chain.
+    Fixed {
+        /// Byte offset of the region.
+        start: u64,
+        /// Its length in bytes.
+        size: u64,
+    },
+    /// FAT32: an ordinary cluster chain from this cluster.
     Cluster(u32),
 }
 
-/// Byte layout of a FAT volume, derived from a validated boot sector.
+/// Byte layout of a FAT volume, from a boot sector [`parse_boot`] accepted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Geometry {
-    pub(crate) kind: FatKind,
-    pub(crate) sector_size: u32,
-    pub(crate) cluster_size: u32,
-    pub(crate) fat_start: u64,
-    /// Bytes in one FAT copy.
-    pub(crate) fat_size: u64,
-    pub(crate) fat_count: u8,
-    pub(crate) root: RootDir,
-    pub(crate) data_start: u64,
-    /// The highest valid cluster number; clusters start at 2.
-    pub(crate) max_cluster: u32,
+pub struct Geometry {
+    kind: FatKind,
+    sector_size: u32,
+    cluster_size: u32,
+    reserved_sectors: u16,
+    fat_start: u64,
+    fat_size: u64,
+    fat_count: u8,
+    active_fat: u8,
+    mirrored: bool,
+    root: RootLocation,
+    data_start: u64,
+    max_cluster: u32,
+    fs_info_sector: Option<u16>,
 }
 
 impl Geometry {
+    /// The FAT variant.
+    pub const fn kind(&self) -> FatKind {
+        self.kind
+    }
+
+    /// Bytes per sector: 512, 1024, 2048 or 4096.
+    pub const fn sector_size(&self) -> u32 {
+        self.sector_size
+    }
+
+    /// Bytes per cluster, at most 32 KiB.
+    pub const fn cluster_size(&self) -> u32 {
+        self.cluster_size
+    }
+
+    /// Sectors before the first FAT.
+    pub const fn reserved_sectors(&self) -> u16 {
+        self.reserved_sectors
+    }
+
+    /// Byte offset of the first FAT copy.
+    pub const fn fat_start(&self) -> u64 {
+        self.fat_start
+    }
+
+    /// Bytes in one FAT copy.
+    pub const fn fat_size(&self) -> u64 {
+        self.fat_size
+    }
+
+    /// The number of FAT copies, 1 or 2.
+    pub const fn fat_count(&self) -> u8 {
+        self.fat_count
+    }
+
+    /// The copy that is read: 0 unless FAT32 mirroring is disabled.
+    pub const fn active_fat(&self) -> u8 {
+        self.active_fat
+    }
+
+    /// Whether every FAT copy is written, not only the active one.
+    pub const fn mirrored(&self) -> bool {
+        self.mirrored
+    }
+
+    /// The number of copies that are written: every copy when
+    /// [`mirrored`](Self::mirrored), else the active one.
+    pub const fn copies(&self) -> u8 {
+        if self.mirrored { self.fat_count } else { 1 }
+    }
+
+    /// Byte offset of FAT copy `copy`.
+    pub const fn fat_copy(&self, copy: u8) -> u64 {
+        self.fat_start + copy as u64 * self.fat_size
+    }
+
+    /// Where the root directory lives.
+    pub const fn root(&self) -> RootLocation {
+        self.root
+    }
+
+    /// Byte offset of cluster 2, the first data cluster.
+    pub const fn data_start(&self) -> u64 {
+        self.data_start
+    }
+
+    /// Byte offset just past the last data cluster.
+    pub const fn data_end(&self) -> u64 {
+        self.data_start + (self.max_cluster - 1) as u64 * self.cluster_size as u64
+    }
+
+    /// The highest valid cluster number; clusters start at 2.
+    pub const fn max_cluster(&self) -> u32 {
+        self.max_cluster
+    }
+
+    /// The FAT32 FSInfo sector, when the boot sector names one within the
+    /// reserved sectors.
+    pub const fn fs_info_sector(&self) -> Option<u16> {
+        self.fs_info_sector
+    }
+
     /// Byte offset of `cluster`'s first byte, or `None` when `cluster` is
     /// not a data cluster.
-    pub(crate) const fn cluster_offset(&self, cluster: u32) -> Option<u64> {
+    pub const fn cluster_offset(&self, cluster: u32) -> Option<u64> {
         if cluster < FIRST_DATA_CLUSTER || cluster > self.max_cluster {
             return None;
         }
@@ -63,9 +188,59 @@ impl Geometry {
     }
 }
 
+/// Checks a boot sector and returns the volume's geometry.
+///
+/// The BIOS parameter block must hold sector and cluster sizes FAT allows,
+/// or the error is [`BootError::NotFat`]. The rest must describe a valid
+/// FAT12, FAT16 or FAT32 layout whose FAT holds an entry for every cluster.
+/// The variant follows from the cluster count, except that a volume with a
+/// FAT32 layout and fewer than 65525 clusters is FAT32, as Linux and macOS
+/// read it. The volume's size is not compared with a device.
+pub fn parse_boot(sector: &[u8; BOOT_SECTOR_LEN]) -> Result<Geometry, BootError> {
+    let bpb: RawBpb = bytemuck::pod_read_unaligned(&sector[..BPB_LEN]);
+    check_bpb(&bpb).map_err(|err| match err {
+        BootError::Corrupt(field) => BootError::NotFat(field),
+        other => other,
+    })?;
+    let geo = if is_fat32(&bpb) {
+        let ext: RawBpbExt32 =
+            bytemuck::pod_read_unaligned(&sector[BPB_LEN..BPB_LEN + size_of::<RawBpbExt32>()]);
+        check_ext32(&bpb, &ext)?;
+        let mut geo = geometry32(&bpb, &ext)?;
+        let flags = u16::from_le_bytes(ext.ext_flags);
+        geo.mirrored = flags & FAT32_MIRRORING_DISABLED == 0;
+        geo.active_fat = if geo.mirrored {
+            0
+        } else {
+            (flags & FAT32_ACTIVE_FAT) as u8
+        };
+        let info = ext.fs_info_sector.get();
+        geo.fs_info_sector = (info != 0 && info < geo.reserved_sectors).then_some(info);
+        geo
+    } else {
+        let ext: RawBpbExt16 =
+            bytemuck::pod_read_unaligned(&sector[BPB_LEN..BPB_LEN + size_of::<RawBpbExt16>()]);
+        check_ext16(&bpb, &ext)?;
+        geometry16(&bpb)?
+    };
+    if geo.max_cluster < FIRST_DATA_CLUSTER {
+        return Err(BootError::Corrupt("volume has no data cluster"));
+    }
+    if geo.active_fat >= geo.fat_count {
+        return Err(BootError::Corrupt(
+            "BPB_ExtFlags names a FAT that does not exist",
+        ));
+    }
+    let kind = geo.kind;
+    if kind.entry_offset(geo.max_cluster as u64) + kind.entry_len() as u64 > geo.fat_size {
+        return Err(BootError::Corrupt("FAT is too small for the cluster count"));
+    }
+    Ok(geo)
+}
+
 /// Checks the fields common to every FAT variant: sector size, sectors per
 /// cluster and cluster size.
-pub(crate) fn check_bpb(bpb: &RawBpb) -> Result<(), BootError> {
+fn check_bpb(bpb: &RawBpb) -> Result<(), BootError> {
     let sector_size = bpb.bytes_per_sector.get() as u32;
     if !matches!(sector_size, 512 | 1024 | 2048 | 4096) {
         return Err(BootError::Corrupt(
@@ -87,7 +262,7 @@ pub(crate) fn check_bpb(bpb: &RawBpb) -> Result<(), BootError> {
 
 /// Whether the BPB describes a FAT32 layout: no fixed root directory and no
 /// 16-bit FAT size.
-pub(crate) fn is_fat32(bpb: &RawBpb) -> bool {
+fn is_fat32(bpb: &RawBpb) -> bool {
     bpb.root_entry_count == [0, 0] && bpb.sectors_per_fat_16 == [0, 0]
 }
 
@@ -99,7 +274,7 @@ fn check_fat_count(bpb: &RawBpb) -> Result<(), BootError> {
 }
 
 /// Checks the FAT12/16 extended boot record.
-pub(crate) fn check_ext16(bpb: &RawBpb, ext: &RawBpbExt16) -> Result<(), BootError> {
+fn check_ext16(bpb: &RawBpb, ext: &RawBpbExt16) -> Result<(), BootError> {
     let signature = u16::from_le_bytes(ext.signature_word);
     if signature != BOOT_SIGNATURE {
         return Err(BootError::Signature(signature));
@@ -108,7 +283,7 @@ pub(crate) fn check_ext16(bpb: &RawBpb, ext: &RawBpbExt16) -> Result<(), BootErr
 }
 
 /// Checks the FAT32 extended boot record.
-pub(crate) fn check_ext32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<(), BootError> {
+fn check_ext32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<(), BootError> {
     let signature = ext.signature_word.get();
     if signature != BOOT_SIGNATURE {
         return Err(BootError::Signature(signature));
@@ -120,7 +295,7 @@ pub(crate) fn check_ext32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<(), BootErr
 }
 
 /// Checks the three FSInfo signatures.
-pub(crate) fn check_fs_info(info: &RawFsInfo) -> Result<(), BootError> {
+pub fn check_fs_info(info: &RawFsInfo) -> Result<(), BootError> {
     let signatures = [
         (
             "FSI_LeadSig",
@@ -167,7 +342,7 @@ fn clusters(bpb: &RawBpb, metadata_sectors: u64) -> Result<u64, BootError> {
 /// clusters. A layout with more clusters than FAT16 addresses, or without a
 /// root directory, is rejected, since by count it would be FAT32. Expects
 /// [`check_bpb`] and [`check_ext16`] to have passed.
-pub(crate) fn geometry16(bpb: &RawBpb) -> Result<Geometry, BootError> {
+fn geometry16(bpb: &RawBpb) -> Result<Geometry, BootError> {
     let sector_size = bpb.bytes_per_sector.get() as u64;
     let reserved = bpb.reserved_sector_count.get() as u64;
     let fat_sectors = u16::from_le_bytes(bpb.sectors_per_fat_16) as u64;
@@ -200,7 +375,11 @@ pub(crate) fn geometry16(bpb: &RawBpb) -> Result<Geometry, BootError> {
         fat_start,
         fat_size: fat_sectors * sector_size,
         fat_count: bpb.fat_count,
-        root: RootDir::Fixed {
+        active_fat: 0,
+        mirrored: true,
+        reserved_sectors: reserved as u16,
+        fs_info_sector: None,
+        root: RootLocation::Fixed {
             start: root_start,
             size: root_size,
         },
@@ -214,7 +393,7 @@ pub(crate) fn geometry16(bpb: &RawBpb) -> Result<Geometry, BootError> {
 /// count would be FAT16, is read as FAT32, as Linux and macOS do: `mkfs.fat
 /// -F 32` makes such volumes. Expects [`check_bpb`] and [`check_ext32`] to
 /// have passed.
-pub(crate) fn geometry32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<Geometry, BootError> {
+fn geometry32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<Geometry, BootError> {
     let sector_size = bpb.bytes_per_sector.get() as u64;
     let reserved = bpb.reserved_sector_count.get() as u64;
     let fat_sectors = ext.sectors_per_fat_32.get() as u64;
@@ -240,7 +419,11 @@ pub(crate) fn geometry32(bpb: &RawBpb, ext: &RawBpbExt32) -> Result<Geometry, Bo
         fat_start,
         fat_size: fat_sectors * sector_size,
         fat_count: bpb.fat_count,
-        root: RootDir::Cluster(root),
+        active_fat: 0,
+        mirrored: true,
+        reserved_sectors: reserved as u16,
+        fs_info_sector: None,
+        root: RootLocation::Cluster(root),
         data_start: fat_start + bpb.fat_count as u64 * fat_sectors * sector_size,
         max_cluster,
     })
@@ -305,7 +488,7 @@ mod tests {
         assert_eq!(geo.fat_size, 9 * 512);
         assert_eq!(
             geo.root,
-            RootDir::Fixed {
+            RootLocation::Fixed {
                 start: 19 * 512,
                 size: 224 * 32
             }
@@ -338,7 +521,7 @@ mod tests {
         assert_eq!(check_ext32(&bpb, &ext), Ok(()));
         let geo = geometry32(&bpb, &ext).unwrap();
         assert_eq!(geo.kind, FatKind::Fat32);
-        assert_eq!(geo.root, RootDir::Cluster(2));
+        assert_eq!(geo.root, RootLocation::Cluster(2));
         assert_eq!(geo.data_start, (32 + 2048) * 512);
         assert_eq!(geo.max_cluster, ((1 << 20) - 32 - 2048) / 8 + 1);
 

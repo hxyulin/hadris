@@ -2,8 +2,7 @@ use core::fmt;
 
 use hadris_fs::{Clock, ErrorKind, FixedTable, NoClock, NodeTable};
 
-use super::codec::valid_unit;
-use super::raw::MAX_LABEL_UNITS;
+use hadris_fat_raw::exfat::{MAX_LABEL_UNITS, valid_unit};
 
 /// How `ExFatFs` mounts a volume: read-only or not, the node table and the
 /// clock.
@@ -141,7 +140,7 @@ impl fmt::Display for VolumeLabel {
     /// Writes the label, with unpaired surrogates as U+FFFD.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use fmt::Write;
-        for ch in crate::codec::name::utf16_chars(self.as_utf16().iter().copied()) {
+        for ch in crate::raw::name::utf16_chars(self.as_utf16().iter().copied()) {
             f.write_char(ch)?;
         }
         Ok(())

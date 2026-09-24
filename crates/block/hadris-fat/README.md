@@ -258,6 +258,16 @@ hadris-fat = "2.4.0"  # Uses default features
 - Automatic short-name generation for 8.3 compatibility
 - Directory-entry runs may span FAT cluster-chain boundaries
 
+## The Raw Layer
+
+The on-disk layouts and the I/O-free codecs the drivers use live in the
+[`hadris-fat-raw`](../hadris-fat-raw) crate, re-exported as
+`hadris_fat::raw` (and its exFAT part as `hadris_fat::exfat::raw`): boot
+sector parsing into a `Geometry`, FAT entry encoding, directory slots,
+long and short names, timestamps, the format layout planner and the exFAT
+checksums and up-case decoder. It is for tools and firmware that the
+drivers do not fit, and it has its own version.
+
 ## No-std Compatibility
 
 - `FatFs`, `format` and `check` need neither `std` nor `alloc` in any mode

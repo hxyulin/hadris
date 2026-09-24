@@ -4,9 +4,9 @@
 use hadris_common::types::endian::LittleEndian;
 use hadris_common::types::number::{U16, U32};
 
-use super::boot::{BOOT_SIGNATURE, FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG};
-use super::entry::{FAT12_MAX_CLUSTERS, FAT16_MAX_CLUSTERS, FAT32_MAX_CLUSTERS, FatKind};
-use crate::raw::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
+use crate::boot::{BOOT_SIGNATURE, FSINFO_LEAD_SIG, FSINFO_STRUC_SIG, FSINFO_TRAIL_SIG};
+use crate::bpb::{RawBpb, RawBpbExt16, RawBpbExt32, RawFsInfo};
+use crate::entry::{FAT12_MAX_CLUSTERS, FAT16_MAX_CLUSTERS, FAT32_MAX_CLUSTERS, FatKind};
 
 const MIB: u64 = 1024 * 1024;
 const MAX_CLUSTER_BYTES: u32 = 32 * 1024;
@@ -18,7 +18,8 @@ const AUTO_FAT32_FROM: u64 = 512 * MIB;
 
 /// Why no layout fits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LayoutError {
+#[non_exhaustive]
+pub enum LayoutError {
     /// The volume is too small for the variant.
     TooSmall,
     /// The volume is too large for the variant.
@@ -27,59 +28,155 @@ pub(crate) enum LayoutError {
     Invalid(&'static str),
 }
 
-/// What the caller asks for. `None` fields are chosen by [`plan`].
+/// What the caller asks for. Fields left unset are chosen by [`plan`].
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Request {
-    pub(crate) kind: Option<FatKind>,
-    pub(crate) sector_size: u32,
-    pub(crate) total_sectors: u64,
-    pub(crate) cluster_size: Option<u32>,
-    pub(crate) reserved_sectors: Option<u16>,
-    pub(crate) fat_count: u8,
-    pub(crate) root_entries: u16,
+pub struct Request {
+    kind: Option<FatKind>,
+    sector_size: u32,
+    total_sectors: u64,
+    cluster_size: Option<u32>,
+    reserved_sectors: Option<u16>,
+    fat_count: u8,
+    root_entries: u16,
 }
 
-/// A volume layout in sectors.
+impl Request {
+    /// A volume of `total_sectors` sectors of `sector_size` bytes, with two
+    /// FATs and 512 root entries on FAT12/16.
+    pub const fn new(sector_size: u32, total_sectors: u64) -> Self {
+        Self {
+            kind: None,
+            sector_size,
+            total_sectors,
+            cluster_size: None,
+            reserved_sectors: None,
+            fat_count: 2,
+            root_entries: 512,
+        }
+    }
+
+    /// Lays out `kind` instead of choosing it from the size.
+    pub const fn with_kind(mut self, kind: FatKind) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+
+    /// Uses clusters of `bytes` instead of choosing their size.
+    pub const fn with_cluster_size(mut self, bytes: u32) -> Self {
+        self.cluster_size = Some(bytes);
+        self
+    }
+
+    /// Reserves `sectors` before the first FAT instead of 1 (FAT12/16) or
+    /// 32 (FAT32).
+    pub const fn with_reserved_sectors(mut self, sectors: u16) -> Self {
+        self.reserved_sectors = Some(sectors);
+        self
+    }
+
+    /// Sets the number of FAT copies, 1 or 2.
+    pub const fn with_fat_count(mut self, count: u8) -> Self {
+        self.fat_count = count;
+        self
+    }
+
+    /// Sets the entries of a FAT12/16 root directory, rounded up to whole
+    /// sectors. FAT32 ignores it.
+    pub const fn with_root_entries(mut self, entries: u16) -> Self {
+        self.root_entries = entries;
+        self
+    }
+}
+
+/// A volume layout in sectors, as [`plan`] chose it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Layout {
-    pub(crate) kind: FatKind,
-    pub(crate) sector_size: u32,
-    pub(crate) cluster_sectors: u32,
-    pub(crate) reserved_sectors: u16,
-    pub(crate) fat_count: u8,
-    /// Entries of the fixed root directory; 0 on FAT32.
-    pub(crate) root_entries: u16,
-    pub(crate) total_sectors: u32,
-    pub(crate) fat_sectors: u32,
-    pub(crate) clusters: u32,
+pub struct Layout {
+    kind: FatKind,
+    sector_size: u32,
+    cluster_sectors: u32,
+    reserved_sectors: u16,
+    fat_count: u8,
+    root_entries: u16,
+    total_sectors: u32,
+    fat_sectors: u32,
+    clusters: u32,
 }
 
 impl Layout {
-    pub(crate) fn root_sectors(&self) -> u32 {
+    /// The FAT variant.
+    pub const fn kind(&self) -> FatKind {
+        self.kind
+    }
+
+    /// Bytes per sector.
+    pub const fn sector_size(&self) -> u32 {
+        self.sector_size
+    }
+
+    /// Sectors per cluster.
+    pub const fn cluster_sectors(&self) -> u32 {
+        self.cluster_sectors
+    }
+
+    /// Sectors before the first FAT.
+    pub const fn reserved_sectors(&self) -> u16 {
+        self.reserved_sectors
+    }
+
+    /// The number of FAT copies.
+    pub const fn fat_count(&self) -> u8 {
+        self.fat_count
+    }
+
+    /// Entries of the fixed root directory; 0 on FAT32.
+    pub const fn root_entries(&self) -> u16 {
+        self.root_entries
+    }
+
+    /// Sectors in the volume.
+    pub const fn total_sectors(&self) -> u32 {
+        self.total_sectors
+    }
+
+    /// Sectors in one FAT copy.
+    pub const fn fat_sectors(&self) -> u32 {
+        self.fat_sectors
+    }
+
+    /// Data clusters.
+    pub const fn clusters(&self) -> u32 {
+        self.clusters
+    }
+
+    /// Sectors of the fixed root directory; 0 on FAT32.
+    pub fn root_sectors(&self) -> u32 {
         (self.root_entries as u32 * 32).div_ceil(self.sector_size)
     }
 
-    pub(crate) fn fat_start(&self) -> u64 {
+    /// Byte offset of the first FAT copy.
+    pub fn fat_start(&self) -> u64 {
         self.reserved_sectors as u64 * self.sector_size as u64
     }
 
     /// Byte offset of the fixed root directory, or of the data region on
     /// FAT32.
-    pub(crate) fn root_start(&self) -> u64 {
+    pub fn root_start(&self) -> u64 {
         self.fat_start() + self.fat_count as u64 * self.fat_sectors as u64 * self.sector_size as u64
     }
 
-    pub(crate) fn data_start(&self) -> u64 {
+    /// Byte offset of cluster 2.
+    pub fn data_start(&self) -> u64 {
         self.root_start() + self.root_sectors() as u64 * self.sector_size as u64
     }
 
-    pub(crate) fn cluster_size(&self) -> u32 {
+    /// Bytes per cluster.
+    pub fn cluster_size(&self) -> u32 {
         self.cluster_sectors * self.sector_size
     }
 }
 
 /// The inclusive range of cluster counts of `kind`.
-pub(crate) fn cluster_range(kind: FatKind) -> (u32, u32) {
+pub fn cluster_range(kind: FatKind) -> (u32, u32) {
     match kind {
         FatKind::Fat12 => (1, FAT12_MAX_CLUSTERS),
         FatKind::Fat16 => (FAT12_MAX_CLUSTERS + 1, FAT16_MAX_CLUSTERS),
@@ -89,7 +186,7 @@ pub(crate) fn cluster_range(kind: FatKind) -> (u32, u32) {
 
 /// Sectors per cluster for a volume of `bytes` with 512-byte sectors, after
 /// the Microsoft defaults.
-pub(crate) fn default_cluster_sectors(kind: FatKind, bytes: u64) -> u32 {
+pub fn default_cluster_sectors(kind: FatKind, bytes: u64) -> u32 {
     let mib = bytes / MIB;
     let table: &[(u64, u32)] = match kind {
         FatKind::Fat12 => &[(2, 1), (4, 2), (8, 4), (16, 8)],
@@ -125,7 +222,7 @@ pub(crate) fn default_cluster_sectors(kind: FatKind, bytes: u64) -> u32 {
 /// Sectors per FAT and cluster count when `available` sectors hold the FATs
 /// and the data region: the smallest FAT that covers every cluster left
 /// beside it.
-pub(crate) fn fat_sectors(
+pub fn fat_sectors(
     kind: FatKind,
     available: u32,
     cluster_sectors: u32,
@@ -157,7 +254,7 @@ pub(crate) fn fat_sectors(
 /// given, so the cluster count fits the variant. A chosen cluster size
 /// starts from [`default_cluster_sectors`] and doubles or halves until it
 /// fits.
-pub(crate) fn plan(request: &Request) -> Result<Layout, LayoutError> {
+pub fn plan(request: &Request) -> Result<Layout, LayoutError> {
     let sector_size = request.sector_size;
     if !matches!(sector_size, 512 | 1024 | 2048 | 4096) {
         return Err(LayoutError::Invalid("sector size"));
@@ -261,12 +358,12 @@ pub(crate) fn plan(request: &Request) -> Result<Layout, LayoutError> {
 }
 
 /// The FSInfo sector's number on FAT32 volumes.
-pub(crate) const FS_INFO_SECTOR: u16 = 1;
+pub const FS_INFO_SECTOR: u16 = 1;
 /// The backup boot sector's number on FAT32 volumes; the backup FSInfo
 /// sector follows it.
-pub(crate) const BACKUP_BOOT_SECTOR: u16 = 6;
+pub const BACKUP_BOOT_SECTOR: u16 = 6;
 /// The FAT32 root directory's cluster.
-pub(crate) const ROOT_CLUSTER: u32 = 2;
+pub const ROOT_CLUSTER: u32 = 2;
 /// `int 18h` to try the next boot device, then halt, for a volume that is
 /// booted by mistake.
 const BOOT_STUB: [u8; 5] = [0xCD, 0x18, 0xF4, 0xEB, 0xFD];
@@ -274,16 +371,76 @@ const NO_LABEL: [u8; 11] = *b"NO NAME    ";
 
 /// Boot sector fields that do not follow from the layout.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct BootFields {
-    pub(crate) oem_name: [u8; 8],
-    pub(crate) media: u8,
-    pub(crate) hidden_sectors: u32,
-    pub(crate) volume_id: u32,
-    pub(crate) label: Option<[u8; 11]>,
+pub struct BootFields {
+    oem_name: [u8; 8],
+    media: u8,
+    hidden_sectors: u32,
+    volume_id: u32,
+    label: Option<[u8; 11]>,
+}
+
+impl BootFields {
+    /// OEM name `HADRISFT`, media `0xF8`, no hidden sectors, volume id 0
+    /// and no label, which the boot sector stores as `NO NAME`.
+    pub const fn new() -> Self {
+        Self {
+            oem_name: *b"HADRISFT",
+            media: 0xF8,
+            hidden_sectors: 0,
+            volume_id: 0,
+            label: None,
+        }
+    }
+
+    /// Sets `BS_OEMName`.
+    pub const fn with_oem_name(mut self, name: [u8; 8]) -> Self {
+        self.oem_name = name;
+        self
+    }
+
+    /// Sets `BPB_Media`, which the first FAT entry repeats.
+    pub const fn with_media(mut self, media: u8) -> Self {
+        self.media = media;
+        self
+    }
+
+    /// Sets `BPB_HiddSec`, the sectors before the volume on its disk.
+    pub const fn with_hidden_sectors(mut self, sectors: u32) -> Self {
+        self.hidden_sectors = sectors;
+        self
+    }
+
+    /// Sets `BS_VolID`.
+    pub const fn with_volume_id(mut self, id: u32) -> Self {
+        self.volume_id = id;
+        self
+    }
+
+    /// Sets `BS_VolLab`, 11 bytes padded with spaces.
+    pub const fn with_label(mut self, label: [u8; 11]) -> Self {
+        self.label = Some(label);
+        self
+    }
+
+    /// `BPB_Media`.
+    pub const fn media(&self) -> u8 {
+        self.media
+    }
+
+    /// `BS_VolLab`, when set.
+    pub const fn label(&self) -> Option<[u8; 11]> {
+        self.label
+    }
+}
+
+impl Default for BootFields {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// The first 512 bytes of the boot sector.
-pub(crate) fn encode_boot_sector(layout: &Layout, fields: &BootFields) -> [u8; 512] {
+pub fn encode_boot_sector(layout: &Layout, fields: &BootFields) -> [u8; 512] {
     let fat32 = layout.kind == FatKind::Fat32;
     let small_total = u16::try_from(layout.total_sectors).ok().filter(|_| !fat32);
     let code_start = if fat32 { 0x5A } else { 0x3E };
@@ -355,7 +512,7 @@ pub(crate) fn encode_boot_sector(layout: &Layout, fields: &BootFields) -> [u8; 5
 }
 
 /// The FAT32 FSInfo sector with `free` clusters and the search hint `next`.
-pub(crate) fn encode_fs_info(free: u32, next: u32) -> [u8; 512] {
+pub fn encode_fs_info(free: u32, next: u32) -> [u8; 512] {
     let info = RawFsInfo {
         signature: FSINFO_LEAD_SIG.to_le_bytes(),
         reserved1: [0; 480],
@@ -373,7 +530,7 @@ pub(crate) fn encode_fs_info(free: u32, next: u32) -> [u8; 512] {
 /// The reserved entries at the start of each FAT: the media byte, an
 /// end-of-chain entry and, on FAT32, the root directory's cluster. Returns
 /// the bytes and how many of them to write.
-pub(crate) fn reserved_fat_entries(kind: FatKind, media: u8) -> ([u8; 12], usize) {
+pub fn reserved_fat_entries(kind: FatKind, media: u8) -> ([u8; 12], usize) {
     let mask = kind.mask();
     let mut entries = [0u8; 12];
     let mut values = [(0u64, (mask & !0xFF) | media as u32), (1, mask), (2, 0)];
@@ -534,27 +691,23 @@ mod tests {
             label: Some(*b"LABEL      "),
         };
         let sector = encode_boot_sector(layout, &fields);
-        let bpb: RawBpb = bytemuck::pod_read_unaligned(&sector[..size_of::<RawBpb>()]);
         let ext = &sector[size_of::<RawBpb>()..];
-        super::super::boot::check_bpb(&bpb).unwrap();
-        let geometry = if layout.kind == FatKind::Fat32 {
+        if layout.kind == FatKind::Fat32 {
             let ext: RawBpbExt32 = bytemuck::pod_read_unaligned(ext);
-            super::super::boot::check_ext32(&bpb, &ext).unwrap();
             assert_eq!(ext.volume_label, *b"LABEL      ");
-            super::super::boot::geometry32(&bpb, &ext).unwrap()
         } else {
             let ext: RawBpbExt16 = bytemuck::pod_read_unaligned(ext);
-            super::super::boot::check_ext16(&bpb, &ext).unwrap();
             assert_eq!(u32::from_le_bytes(ext.volume_id), 0x1234_5678);
-            super::super::boot::geometry16(&bpb).unwrap()
-        };
-        assert_eq!(geometry.kind, layout.kind);
-        assert_eq!(geometry.data_start, layout.data_start());
-        assert_eq!(geometry.max_cluster, layout.clusters + 1);
-        assert_eq!(geometry.cluster_size, layout.cluster_size());
+        }
+        let geometry = crate::boot::parse_boot(&sector).unwrap();
+        assert_eq!(geometry.kind(), layout.kind);
+        assert_eq!(geometry.data_start(), layout.data_start());
+        assert_eq!(geometry.max_cluster(), layout.clusters + 1);
+        assert_eq!(geometry.cluster_size(), layout.cluster_size());
         assert!(
-            layout.kind.entry_offset(geometry.max_cluster as u64) + layout.kind.entry_len() as u64
-                <= geometry.fat_size
+            layout.kind.entry_offset(geometry.max_cluster() as u64)
+                + layout.kind.entry_len() as u64
+                <= geometry.fat_size()
         );
     }
 

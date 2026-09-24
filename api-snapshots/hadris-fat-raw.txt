@@ -1,0 +1,498 @@
+pub mod hadris_fat_raw
+pub mod hadris_fat_raw::date
+pub const hadris_fat_raw::date::MAX: (u16, u16, u8)
+pub const hadris_fat_raw::date::MIN: (u16, u16, u8)
+pub fn hadris_fat_raw::date::decode(u16, u16, u8) -> core::option::Option<hadris_fs::time::DateTime>
+pub fn hadris_fat_raw::date::encode(hadris_fs::time::DateTime) -> (u16, u16, u8)
+pub const fn hadris_fat_raw::date::pack(u16, u8, u8, u8, u8, u8) -> (u16, u16)
+pub mod hadris_fat_raw::exfat
+#[repr(C)] pub struct hadris_fat_raw::exfat::BitmapEntry
+pub hadris_fat_raw::exfat::BitmapEntry::bitmap_flags: u8
+pub hadris_fat_raw::exfat::BitmapEntry::data_length: hadris_common::types::number::U64<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BitmapEntry::entry_type: u8
+pub hadris_fat_raw::exfat::BitmapEntry::first_cluster: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BitmapEntry::reserved: [u8; 18]
+impl bytemuck::pod::Pod for hadris_fat_raw::exfat::BitmapEntry
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::exfat::BitmapEntry
+#[repr(C)] pub struct hadris_fat_raw::exfat::BootSector
+pub hadris_fat_raw::exfat::BootSector::boot_code: [u8; 390]
+pub hadris_fat_raw::exfat::BootSector::boot_signature: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BootSector::bytes_per_sector_shift: u8
+pub hadris_fat_raw::exfat::BootSector::cluster_count: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BootSector::cluster_heap_offset: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BootSector::drive_select: u8
+pub hadris_fat_raw::exfat::BootSector::fat_length: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BootSector::fat_offset: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BootSector::file_system_name: [u8; 8]
+pub hadris_fat_raw::exfat::BootSector::file_system_revision: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BootSector::first_cluster_of_root_directory: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BootSector::jump_boot: [u8; 3]
+pub hadris_fat_raw::exfat::BootSector::must_be_zero: [u8; 53]
+pub hadris_fat_raw::exfat::BootSector::number_of_fats: u8
+pub hadris_fat_raw::exfat::BootSector::partition_offset: hadris_common::types::number::U64<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BootSector::percent_in_use: u8
+pub hadris_fat_raw::exfat::BootSector::reserved: [u8; 7]
+pub hadris_fat_raw::exfat::BootSector::sectors_per_cluster_shift: u8
+pub hadris_fat_raw::exfat::BootSector::volume_flags: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BootSector::volume_length: hadris_common::types::number::U64<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::BootSector::volume_serial_number: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+impl bytemuck::pod::Pod for hadris_fat_raw::exfat::BootSector
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::exfat::BootSector
+#[repr(C)] pub struct hadris_fat_raw::exfat::FileEntry
+pub hadris_fat_raw::exfat::FileEntry::create_10ms_increment: u8
+pub hadris_fat_raw::exfat::FileEntry::create_timestamp: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::FileEntry::create_utc_offset: u8
+pub hadris_fat_raw::exfat::FileEntry::entry_type: u8
+pub hadris_fat_raw::exfat::FileEntry::file_attributes: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::FileEntry::last_accessed_timestamp: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::FileEntry::last_accessed_utc_offset: u8
+pub hadris_fat_raw::exfat::FileEntry::last_modified_10ms_increment: u8
+pub hadris_fat_raw::exfat::FileEntry::last_modified_timestamp: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::FileEntry::last_modified_utc_offset: u8
+pub hadris_fat_raw::exfat::FileEntry::reserved1: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::FileEntry::reserved2: [u8; 7]
+pub hadris_fat_raw::exfat::FileEntry::secondary_count: u8
+pub hadris_fat_raw::exfat::FileEntry::set_checksum: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+impl bytemuck::pod::Pod for hadris_fat_raw::exfat::FileEntry
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::exfat::FileEntry
+pub struct hadris_fat_raw::exfat::Geometry
+impl hadris_fat_raw::exfat::Geometry
+pub const fn hadris_fat_raw::exfat::Geometry::active(&self) -> u8
+pub const fn hadris_fat_raw::exfat::Geometry::cluster_count(&self) -> u32
+pub fn hadris_fat_raw::exfat::Geometry::cluster_of(&self, u64) -> core::option::Option<u32>
+pub fn hadris_fat_raw::exfat::Geometry::cluster_offset(&self, u32) -> core::option::Option<u64>
+pub const fn hadris_fat_raw::exfat::Geometry::cluster_shift(&self) -> u8
+pub const fn hadris_fat_raw::exfat::Geometry::cluster_size(&self) -> u64
+pub const fn hadris_fat_raw::exfat::Geometry::fat_start(&self) -> u64
+pub const fn hadris_fat_raw::exfat::Geometry::flags(&self) -> u16
+pub const fn hadris_fat_raw::exfat::Geometry::heap_start(&self) -> u64
+pub const fn hadris_fat_raw::exfat::Geometry::is_cluster(&self, u32) -> bool
+pub const fn hadris_fat_raw::exfat::Geometry::max_cluster(&self) -> u32
+pub const fn hadris_fat_raw::exfat::Geometry::mirror_fat(&self) -> core::option::Option<u64>
+pub const fn hadris_fat_raw::exfat::Geometry::percent_in_use(&self) -> u8
+pub const fn hadris_fat_raw::exfat::Geometry::root(&self) -> u32
+pub const fn hadris_fat_raw::exfat::Geometry::sector_shift(&self) -> u8
+pub const fn hadris_fat_raw::exfat::Geometry::sector_size(&self) -> u64
+pub const fn hadris_fat_raw::exfat::Geometry::serial(&self) -> u32
+pub const fn hadris_fat_raw::exfat::Geometry::volume_len(&self) -> u64
+#[repr(C)] pub struct hadris_fat_raw::exfat::LabelEntry
+pub hadris_fat_raw::exfat::LabelEntry::character_count: u8
+pub hadris_fat_raw::exfat::LabelEntry::entry_type: u8
+pub hadris_fat_raw::exfat::LabelEntry::reserved: [u8; 8]
+pub hadris_fat_raw::exfat::LabelEntry::volume_label: [hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>; 11]
+impl bytemuck::pod::Pod for hadris_fat_raw::exfat::LabelEntry
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::exfat::LabelEntry
+#[repr(C)] pub struct hadris_fat_raw::exfat::NameEntry
+pub hadris_fat_raw::exfat::NameEntry::entry_type: u8
+pub hadris_fat_raw::exfat::NameEntry::file_name: [hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>; 15]
+pub hadris_fat_raw::exfat::NameEntry::general_secondary_flags: u8
+impl bytemuck::pod::Pod for hadris_fat_raw::exfat::NameEntry
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::exfat::NameEntry
+pub struct hadris_fat_raw::exfat::NameUnits
+impl hadris_fat_raw::exfat::NameUnits
+pub fn hadris_fat_raw::exfat::NameUnits::as_mut_slice(&mut self) -> &mut [u16]
+pub fn hadris_fat_raw::exfat::NameUnits::as_slice(&self) -> &[u16]
+pub fn hadris_fat_raw::exfat::NameUnits::encode(&str) -> core::result::Result<Self, hadris_io::kind::ErrorKind>
+pub fn hadris_fat_raw::exfat::NameUnits::entries(&self) -> usize
+pub const fn hadris_fat_raw::exfat::NameUnits::is_empty(&self) -> bool
+pub const fn hadris_fat_raw::exfat::NameUnits::len(&self) -> usize
+pub const fn hadris_fat_raw::exfat::NameUnits::new() -> Self
+pub fn hadris_fat_raw::exfat::NameUnits::push(&mut self, u16) -> bool
+pub fn hadris_fat_raw::exfat::NameUnits::query(&str) -> core::option::Option<Self>
+impl core::default::Default for hadris_fat_raw::exfat::NameUnits
+pub fn hadris_fat_raw::exfat::NameUnits::default() -> Self
+pub struct hadris_fat_raw::exfat::PageStart
+#[repr(C)] pub struct hadris_fat_raw::exfat::StreamEntry
+pub hadris_fat_raw::exfat::StreamEntry::data_length: hadris_common::types::number::U64<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::StreamEntry::entry_type: u8
+pub hadris_fat_raw::exfat::StreamEntry::first_cluster: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::StreamEntry::general_secondary_flags: u8
+pub hadris_fat_raw::exfat::StreamEntry::name_hash: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::StreamEntry::name_length: u8
+pub hadris_fat_raw::exfat::StreamEntry::reserved1: u8
+pub hadris_fat_raw::exfat::StreamEntry::reserved2: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::StreamEntry::reserved3: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::StreamEntry::valid_data_length: hadris_common::types::number::U64<hadris_common::types::endian::LittleEndian>
+impl bytemuck::pod::Pod for hadris_fat_raw::exfat::StreamEntry
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::exfat::StreamEntry
+pub struct hadris_fat_raw::exfat::UpcaseDecoder
+impl hadris_fat_raw::exfat::UpcaseDecoder
+pub const fn hadris_fat_raw::exfat::UpcaseDecoder::code(&self) -> u32
+pub fn hadris_fat_raw::exfat::UpcaseDecoder::drain(&mut self, &mut impl core::ops::function::FnMut(u32, u16, hadris_fat_raw::exfat::PageStart))
+pub fn hadris_fat_raw::exfat::UpcaseDecoder::feed(&mut self, u16, &mut impl core::ops::function::FnMut(u32, u16, hadris_fat_raw::exfat::PageStart))
+pub const fn hadris_fat_raw::exfat::UpcaseDecoder::next(&self) -> u32
+pub const fn hadris_fat_raw::exfat::UpcaseDecoder::resume(hadris_fat_raw::exfat::PageStart, u32) -> Self
+#[repr(C)] pub struct hadris_fat_raw::exfat::UpcaseEntry
+pub hadris_fat_raw::exfat::UpcaseEntry::data_length: hadris_common::types::number::U64<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::UpcaseEntry::entry_type: u8
+pub hadris_fat_raw::exfat::UpcaseEntry::first_cluster: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::exfat::UpcaseEntry::reserved1: [u8; 3]
+pub hadris_fat_raw::exfat::UpcaseEntry::reserved2: [u8; 12]
+pub hadris_fat_raw::exfat::UpcaseEntry::table_checksum: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+impl bytemuck::pod::Pod for hadris_fat_raw::exfat::UpcaseEntry
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::exfat::UpcaseEntry
+pub const hadris_fat_raw::exfat::ALLOCATION_POSSIBLE: u8
+pub const hadris_fat_raw::exfat::ATTR_ARCHIVE: u16
+pub const hadris_fat_raw::exfat::ATTR_DIRECTORY: u16
+pub const hadris_fat_raw::exfat::ATTR_HIDDEN: u16
+pub const hadris_fat_raw::exfat::ATTR_READ_ONLY: u16
+pub const hadris_fat_raw::exfat::ATTR_SYSTEM: u16
+pub const hadris_fat_raw::exfat::BOOT_REGION_SECTORS: u64
+pub const hadris_fat_raw::exfat::BOOT_SIGNATURE: u16
+pub const hadris_fat_raw::exfat::CATEGORY_SECONDARY: u8
+pub const hadris_fat_raw::exfat::CHECKSUM_SKIPPED: [usize; 3]
+pub const hadris_fat_raw::exfat::ENTRY_BITMAP: u8
+pub const hadris_fat_raw::exfat::ENTRY_END: u8
+pub const hadris_fat_raw::exfat::ENTRY_FILE: u8
+pub const hadris_fat_raw::exfat::ENTRY_GUID: u8
+pub const hadris_fat_raw::exfat::ENTRY_LABEL: u8
+pub const hadris_fat_raw::exfat::ENTRY_NAME: u8
+pub const hadris_fat_raw::exfat::ENTRY_PADDING: u8
+pub const hadris_fat_raw::exfat::ENTRY_SIZE: usize
+pub const hadris_fat_raw::exfat::ENTRY_STREAM: u8
+pub const hadris_fat_raw::exfat::ENTRY_UPCASE: u8
+pub const hadris_fat_raw::exfat::ENTRY_VENDOR_ALLOCATION: u8
+pub const hadris_fat_raw::exfat::ENTRY_VENDOR_EXTENSION: u8
+pub const hadris_fat_raw::exfat::EXTENDED_BOOT_SIGNATURE: u32
+pub const hadris_fat_raw::exfat::FAT_BAD: u32
+pub const hadris_fat_raw::exfat::FAT_END: u32
+pub const hadris_fat_raw::exfat::FAT_MEDIA: u32
+pub const hadris_fat_raw::exfat::FILE_SYSTEM_NAME: [u8; 8]
+pub const hadris_fat_raw::exfat::FIRST_CLUSTER: u32
+pub const hadris_fat_raw::exfat::IMPORTANCE_BENIGN: u8
+pub const hadris_fat_raw::exfat::IN_USE: u8
+pub const hadris_fat_raw::exfat::JUMP_BOOT: [u8; 3]
+pub const hadris_fat_raw::exfat::MAX_CLUSTER_COUNT: u32
+pub const hadris_fat_raw::exfat::MAX_DIRECTORY_SIZE: u64
+pub const hadris_fat_raw::exfat::MAX_LABEL_UNITS: usize
+pub const hadris_fat_raw::exfat::MAX_NAME_UNITS: usize
+pub const hadris_fat_raw::exfat::MAX_SET: usize
+pub const hadris_fat_raw::exfat::NAME_UNITS_PER_ENTRY: usize
+pub const hadris_fat_raw::exfat::NO_FAT_CHAIN: u8
+pub const hadris_fat_raw::exfat::RECOMMENDED_UPCASE_CHECKSUM: u32
+pub const hadris_fat_raw::exfat::RECOMMENDED_UPCASE_TABLE: &[u8; 5836]
+pub const hadris_fat_raw::exfat::UTC_OFFSET_VALID: u8
+pub const hadris_fat_raw::exfat::VOLUME_ACTIVE_FAT: u16
+pub const hadris_fat_raw::exfat::VOLUME_CLEAR_TO_ZERO: u16
+pub const hadris_fat_raw::exfat::VOLUME_DIRTY: u16
+pub const hadris_fat_raw::exfat::VOLUME_MEDIA_FAILURE: u16
+pub fn hadris_fat_raw::exfat::boot_checksum(u32, u64, &[u8]) -> u32
+pub fn hadris_fat_raw::exfat::decode_time(u32, u8, u8) -> core::option::Option<hadris_fs::time::DateTime>
+pub fn hadris_fat_raw::exfat::encode_time(hadris_fs::time::DateTime) -> (u32, u8, u8)
+pub fn hadris_fat_raw::exfat::hash_unit(u16, u16) -> u16
+pub const fn hadris_fat_raw::exfat::mandatory_upcase(u16) -> u16
+pub fn hadris_fat_raw::exfat::name_hash(&[u16]) -> u16
+pub fn hadris_fat_raw::exfat::parse_boot(&hadris_fat_raw::exfat::BootSector) -> core::result::Result<hadris_fat_raw::exfat::Geometry, &'static str>
+pub fn hadris_fat_raw::exfat::seal(&mut [hadris_fat_raw::exfat::RawEntry])
+pub fn hadris_fat_raw::exfat::set_checksum(&[hadris_fat_raw::exfat::RawEntry]) -> u16
+pub fn hadris_fat_raw::exfat::table_checksum(u32, &[u8]) -> u32
+pub fn hadris_fat_raw::exfat::valid_unit(u16) -> bool
+pub type hadris_fat_raw::exfat::RawEntry = [u8; 32]
+pub mod hadris_fat_raw::layout
+#[non_exhaustive] pub enum hadris_fat_raw::layout::LayoutError
+pub hadris_fat_raw::layout::LayoutError::Invalid(&'static str)
+pub hadris_fat_raw::layout::LayoutError::TooLarge
+pub hadris_fat_raw::layout::LayoutError::TooSmall
+pub struct hadris_fat_raw::layout::BootFields
+impl hadris_fat_raw::layout::BootFields
+pub const fn hadris_fat_raw::layout::BootFields::label(&self) -> core::option::Option<[u8; 11]>
+pub const fn hadris_fat_raw::layout::BootFields::media(&self) -> u8
+pub const fn hadris_fat_raw::layout::BootFields::new() -> Self
+pub const fn hadris_fat_raw::layout::BootFields::with_hidden_sectors(self, u32) -> Self
+pub const fn hadris_fat_raw::layout::BootFields::with_label(self, [u8; 11]) -> Self
+pub const fn hadris_fat_raw::layout::BootFields::with_media(self, u8) -> Self
+pub const fn hadris_fat_raw::layout::BootFields::with_oem_name(self, [u8; 8]) -> Self
+pub const fn hadris_fat_raw::layout::BootFields::with_volume_id(self, u32) -> Self
+impl core::default::Default for hadris_fat_raw::layout::BootFields
+pub fn hadris_fat_raw::layout::BootFields::default() -> Self
+pub struct hadris_fat_raw::layout::Layout
+impl hadris_fat_raw::layout::Layout
+pub const fn hadris_fat_raw::layout::Layout::cluster_sectors(&self) -> u32
+pub fn hadris_fat_raw::layout::Layout::cluster_size(&self) -> u32
+pub const fn hadris_fat_raw::layout::Layout::clusters(&self) -> u32
+pub fn hadris_fat_raw::layout::Layout::data_start(&self) -> u64
+pub const fn hadris_fat_raw::layout::Layout::fat_count(&self) -> u8
+pub const fn hadris_fat_raw::layout::Layout::fat_sectors(&self) -> u32
+pub fn hadris_fat_raw::layout::Layout::fat_start(&self) -> u64
+pub const fn hadris_fat_raw::layout::Layout::kind(&self) -> hadris_fat_raw::FatKind
+pub const fn hadris_fat_raw::layout::Layout::reserved_sectors(&self) -> u16
+pub const fn hadris_fat_raw::layout::Layout::root_entries(&self) -> u16
+pub fn hadris_fat_raw::layout::Layout::root_sectors(&self) -> u32
+pub fn hadris_fat_raw::layout::Layout::root_start(&self) -> u64
+pub const fn hadris_fat_raw::layout::Layout::sector_size(&self) -> u32
+pub const fn hadris_fat_raw::layout::Layout::total_sectors(&self) -> u32
+pub struct hadris_fat_raw::layout::Request
+impl hadris_fat_raw::layout::Request
+pub const fn hadris_fat_raw::layout::Request::new(u32, u64) -> Self
+pub const fn hadris_fat_raw::layout::Request::with_cluster_size(self, u32) -> Self
+pub const fn hadris_fat_raw::layout::Request::with_fat_count(self, u8) -> Self
+pub const fn hadris_fat_raw::layout::Request::with_kind(self, hadris_fat_raw::FatKind) -> Self
+pub const fn hadris_fat_raw::layout::Request::with_reserved_sectors(self, u16) -> Self
+pub const fn hadris_fat_raw::layout::Request::with_root_entries(self, u16) -> Self
+pub const hadris_fat_raw::layout::BACKUP_BOOT_SECTOR: u16
+pub const hadris_fat_raw::layout::FS_INFO_SECTOR: u16
+pub const hadris_fat_raw::layout::ROOT_CLUSTER: u32
+pub fn hadris_fat_raw::layout::cluster_range(hadris_fat_raw::FatKind) -> (u32, u32)
+pub fn hadris_fat_raw::layout::default_cluster_sectors(hadris_fat_raw::FatKind, u64) -> u32
+pub fn hadris_fat_raw::layout::encode_boot_sector(&hadris_fat_raw::layout::Layout, &hadris_fat_raw::layout::BootFields) -> [u8; 512]
+pub fn hadris_fat_raw::layout::encode_fs_info(u32, u32) -> [u8; 512]
+pub fn hadris_fat_raw::layout::fat_sectors(hadris_fat_raw::FatKind, u32, u32, u32, u32) -> core::option::Option<(u32, u32)>
+pub fn hadris_fat_raw::layout::plan(&hadris_fat_raw::layout::Request) -> core::result::Result<hadris_fat_raw::layout::Layout, hadris_fat_raw::layout::LayoutError>
+pub fn hadris_fat_raw::layout::reserved_fat_entries(hadris_fat_raw::FatKind, u8) -> ([u8; 12], usize)
+pub mod hadris_fat_raw::lfn
+pub struct hadris_fat_raw::lfn::Assembler
+impl hadris_fat_raw::lfn::Assembler
+pub fn hadris_fat_raw::lfn::Assembler::finish(&mut self, u8) -> core::option::Option<&[u16]>
+pub const fn hadris_fat_raw::lfn::Assembler::new() -> Self
+pub fn hadris_fat_raw::lfn::Assembler::push(&mut self, &hadris_fat_raw::LongEntry)
+pub fn hadris_fat_raw::lfn::Assembler::reset(&mut self)
+impl core::default::Default for hadris_fat_raw::lfn::Assembler
+pub fn hadris_fat_raw::lfn::Assembler::default() -> Self
+pub struct hadris_fat_raw::lfn::Encoded<'a>
+impl<'a> hadris_fat_raw::lfn::Encoded<'a>
+pub fn hadris_fat_raw::lfn::Encoded<'a>::entries(&self) -> usize
+pub fn hadris_fat_raw::lfn::Encoded<'a>::entry(&self, usize) -> (u8, [u16; 13])
+pub fn hadris_fat_raw::lfn::Encoded<'a>::new(&'a str) -> core::option::Option<Self>
+pub const hadris_fat_raw::lfn::MAX_ENTRIES: usize
+pub const hadris_fat_raw::lfn::MAX_UNITS: usize
+pub const fn hadris_fat_raw::lfn::checksum(&[u8; 11]) -> u8
+pub fn hadris_fat_raw::lfn::pack(&[u16; 13]) -> ([u8; 10], [u8; 12], [u8; 4])
+pub fn hadris_fat_raw::lfn::unpack(&[u8; 10], &[u8; 12], &[u8; 4]) -> ([u16; 13], usize)
+pub mod hadris_fat_raw::name
+pub fn hadris_fat_raw::name::eq_ignore_case(impl core::iter::traits::collect::IntoIterator<Item = char>, impl core::iter::traits::collect::IntoIterator<Item = char>) -> bool
+pub fn hadris_fat_raw::name::fold(char) -> char
+pub const fn hadris_fat_raw::name::fold_ascii(u16) -> u16
+pub fn hadris_fat_raw::name::fold_unicode(u16) -> u16
+pub fn hadris_fat_raw::name::utf16_chars(impl core::iter::traits::collect::IntoIterator<Item = u16>) -> impl core::iter::traits::iterator::Iterator<Item = char>
+pub fn hadris_fat_raw::name::utf16_to_utf8(impl core::iter::traits::collect::IntoIterator<Item = u16>, &mut [u8]) -> core::option::Option<usize>
+pub mod hadris_fat_raw::short_name
+pub const hadris_fat_raw::short_name::ALLOWED_SYMBOLS: &[u8]
+pub const hadris_fat_raw::short_name::DISPLAY_CHARS: usize
+pub const hadris_fat_raw::short_name::DISPLAY_MAX: usize
+pub fn hadris_fat_raw::short_name::case_bits(&str) -> core::option::Option<u8>
+pub fn hadris_fat_raw::short_name::display(&[u8; 11], u8, impl core::ops::function::Fn(u8) -> char, &mut [u8; 45]) -> usize
+pub fn hadris_fat_raw::short_name::from_disk(&mut [u8; 11])
+pub fn hadris_fat_raw::short_name::generate(&str, u8, impl core::ops::function::Fn(char) -> core::option::Option<u8>) -> core::option::Option<[u8; 11]>
+pub fn hadris_fat_raw::short_name::is_valid_long_name(&str) -> bool
+pub fn hadris_fat_raw::short_name::to_disk(&mut [u8; 11])
+#[non_exhaustive] pub enum hadris_fat_raw::BootError
+pub hadris_fat_raw::BootError::Corrupt(&'static str)
+pub hadris_fat_raw::BootError::FsInfoSignature
+pub hadris_fat_raw::BootError::FsInfoSignature::expected: u32
+pub hadris_fat_raw::BootError::FsInfoSignature::field: &'static str
+pub hadris_fat_raw::BootError::FsInfoSignature::found: u32
+pub hadris_fat_raw::BootError::NotFat(&'static str)
+pub hadris_fat_raw::BootError::RootCluster
+pub hadris_fat_raw::BootError::RootCluster::cluster: u32
+pub hadris_fat_raw::BootError::RootCluster::max: u32
+pub hadris_fat_raw::BootError::Signature(u16)
+impl hadris_fat_raw::BootError
+pub const fn hadris_fat_raw::BootError::kind(&self) -> hadris_io::kind::ErrorKind
+pub enum hadris_fat_raw::ChainError
+pub hadris_fat_raw::ChainError::Bad
+pub hadris_fat_raw::ChainError::OutOfBounds(u32)
+#[non_exhaustive] pub enum hadris_fat_raw::FatKind
+pub hadris_fat_raw::FatKind::Fat12
+pub hadris_fat_raw::FatKind::Fat16
+pub hadris_fat_raw::FatKind::Fat32
+impl hadris_fat_raw::FatKind
+pub const fn hadris_fat_raw::FatKind::bad_cluster(self) -> u32
+pub fn hadris_fat_raw::FatKind::decode(self, u64, &[u8]) -> u32
+pub fn hadris_fat_raw::FatKind::encode(self, u64, u32, &mut [u8])
+pub const fn hadris_fat_raw::FatKind::end_of_chain(self) -> u32
+pub const fn hadris_fat_raw::FatKind::entry_bits(self) -> u64
+pub const fn hadris_fat_raw::FatKind::entry_len(self) -> usize
+pub const fn hadris_fat_raw::FatKind::entry_offset(self, u64) -> u64
+pub const fn hadris_fat_raw::FatKind::is_bad(self, u32) -> bool
+pub const fn hadris_fat_raw::FatKind::is_end_of_chain(self, u32) -> bool
+pub const fn hadris_fat_raw::FatKind::mask(self) -> u32
+pub const fn hadris_fat_raw::FatKind::next(self, u32, u32) -> core::result::Result<core::option::Option<u32>, hadris_fat_raw::ChainError>
+pub const fn hadris_fat_raw::FatKind::reserved_entries_valid(self, u8, u32, u32) -> bool
+pub enum hadris_fat_raw::RootLocation
+pub hadris_fat_raw::RootLocation::Cluster(u32)
+pub hadris_fat_raw::RootLocation::Fixed
+pub hadris_fat_raw::RootLocation::Fixed::size: u64
+pub hadris_fat_raw::RootLocation::Fixed::start: u64
+pub enum hadris_fat_raw::Slot
+pub hadris_fat_raw::Slot::End
+pub hadris_fat_raw::Slot::Free
+pub hadris_fat_raw::Slot::Long(hadris_fat_raw::LongEntry)
+pub hadris_fat_raw::Slot::Short(hadris_fat_raw::ShortEntry)
+impl hadris_fat_raw::Slot
+pub fn hadris_fat_raw::Slot::parse(&[u8; 32]) -> Self
+#[repr(transparent)] pub struct hadris_fat_raw::BpbExt32Flags(_)
+pub struct hadris_fat_raw::ChainGuard
+impl hadris_fat_raw::ChainGuard
+pub const fn hadris_fat_raw::ChainGuard::new(u32) -> Self
+pub fn hadris_fat_raw::ChainGuard::step(&mut self, u32) -> bool
+pub struct hadris_fat_raw::Geometry
+impl hadris_fat_raw::Geometry
+pub const fn hadris_fat_raw::Geometry::active_fat(&self) -> u8
+pub const fn hadris_fat_raw::Geometry::cluster_offset(&self, u32) -> core::option::Option<u64>
+pub const fn hadris_fat_raw::Geometry::cluster_size(&self) -> u32
+pub const fn hadris_fat_raw::Geometry::copies(&self) -> u8
+pub const fn hadris_fat_raw::Geometry::data_end(&self) -> u64
+pub const fn hadris_fat_raw::Geometry::data_start(&self) -> u64
+pub const fn hadris_fat_raw::Geometry::fat_copy(&self, u8) -> u64
+pub const fn hadris_fat_raw::Geometry::fat_count(&self) -> u8
+pub const fn hadris_fat_raw::Geometry::fat_size(&self) -> u64
+pub const fn hadris_fat_raw::Geometry::fat_start(&self) -> u64
+pub const fn hadris_fat_raw::Geometry::fs_info_sector(&self) -> core::option::Option<u16>
+pub const fn hadris_fat_raw::Geometry::kind(&self) -> hadris_fat_raw::FatKind
+pub const fn hadris_fat_raw::Geometry::max_cluster(&self) -> u32
+pub const fn hadris_fat_raw::Geometry::mirrored(&self) -> bool
+pub const fn hadris_fat_raw::Geometry::reserved_sectors(&self) -> u16
+pub const fn hadris_fat_raw::Geometry::root(&self) -> hadris_fat_raw::RootLocation
+pub const fn hadris_fat_raw::Geometry::sector_size(&self) -> u32
+pub struct hadris_fat_raw::LongEntry
+impl hadris_fat_raw::LongEntry
+pub const fn hadris_fat_raw::LongEntry::checksum(&self) -> u8
+pub fn hadris_fat_raw::LongEntry::encode(&self) -> [u8; 32]
+pub fn hadris_fat_raw::LongEntry::new(u8, u8, &[u16; 13]) -> Self
+pub const fn hadris_fat_raw::LongEntry::sequence(&self) -> u8
+pub fn hadris_fat_raw::LongEntry::units(&self) -> ([u16; 13], usize)
+#[repr(C)] pub struct hadris_fat_raw::RawBpb
+pub hadris_fat_raw::RawBpb::bytes_per_sector: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawBpb::fat_count: u8
+pub hadris_fat_raw::RawBpb::hidden_sector_count: [u8; 4]
+pub hadris_fat_raw::RawBpb::jump: [u8; 3]
+pub hadris_fat_raw::RawBpb::media_type: u8
+pub hadris_fat_raw::RawBpb::num_heads: [u8; 2]
+pub hadris_fat_raw::RawBpb::oem_name: [u8; 8]
+pub hadris_fat_raw::RawBpb::reserved_sector_count: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawBpb::root_entry_count: [u8; 2]
+pub hadris_fat_raw::RawBpb::sectors_per_cluster: u8
+pub hadris_fat_raw::RawBpb::sectors_per_fat_16: [u8; 2]
+pub hadris_fat_raw::RawBpb::sectors_per_track: [u8; 2]
+pub hadris_fat_raw::RawBpb::total_sectors_16: [u8; 2]
+pub hadris_fat_raw::RawBpb::total_sectors_32: [u8; 4]
+impl bytemuck::anybitpattern::AnyBitPattern for hadris_fat_raw::RawBpb
+impl bytemuck::no_uninit::NoUninit for hadris_fat_raw::RawBpb
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::RawBpb
+#[repr(C)] pub struct hadris_fat_raw::RawBpbExt16
+pub hadris_fat_raw::RawBpbExt16::drive_number: u8
+pub hadris_fat_raw::RawBpbExt16::ext_boot_signature: u8
+pub hadris_fat_raw::RawBpbExt16::fs_type: [u8; 8]
+pub hadris_fat_raw::RawBpbExt16::padding1: [u8; 448]
+pub hadris_fat_raw::RawBpbExt16::reserved1: u8
+pub hadris_fat_raw::RawBpbExt16::signature_word: [u8; 2]
+pub hadris_fat_raw::RawBpbExt16::volume_id: [u8; 4]
+pub hadris_fat_raw::RawBpbExt16::volume_label: [u8; 11]
+impl bytemuck::pod::Pod for hadris_fat_raw::RawBpbExt16
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::RawBpbExt16
+#[repr(C)] pub struct hadris_fat_raw::RawBpbExt32
+pub hadris_fat_raw::RawBpbExt32::boot_sector: [u8; 2]
+pub hadris_fat_raw::RawBpbExt32::drive_number: u8
+pub hadris_fat_raw::RawBpbExt32::ext_boot_signature: u8
+pub hadris_fat_raw::RawBpbExt32::ext_flags: [u8; 2]
+pub hadris_fat_raw::RawBpbExt32::fs_info_sector: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawBpbExt32::fs_type: [u8; 8]
+pub hadris_fat_raw::RawBpbExt32::padding1: [u8; 420]
+pub hadris_fat_raw::RawBpbExt32::reserved: [u8; 12]
+pub hadris_fat_raw::RawBpbExt32::reserved1: u8
+pub hadris_fat_raw::RawBpbExt32::root_cluster: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawBpbExt32::sectors_per_fat_32: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawBpbExt32::signature_word: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawBpbExt32::version: [u8; 2]
+pub hadris_fat_raw::RawBpbExt32::volume_id: [u8; 4]
+pub hadris_fat_raw::RawBpbExt32::volume_label: [u8; 11]
+impl bytemuck::anybitpattern::AnyBitPattern for hadris_fat_raw::RawBpbExt32
+impl bytemuck::no_uninit::NoUninit for hadris_fat_raw::RawBpbExt32
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::RawBpbExt32
+#[repr(C)] pub struct hadris_fat_raw::RawDirEntry
+pub hadris_fat_raw::RawDirEntry::accessed_date: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawDirEntry::attributes: u8
+pub hadris_fat_raw::RawDirEntry::created_date: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawDirEntry::created_tenths: u8
+pub hadris_fat_raw::RawDirEntry::created_time: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawDirEntry::first_cluster_high: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawDirEntry::first_cluster_low: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawDirEntry::modified_date: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawDirEntry::modified_time: hadris_common::types::number::U16<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawDirEntry::name: [u8; 11]
+pub hadris_fat_raw::RawDirEntry::nt_reserved: u8
+pub hadris_fat_raw::RawDirEntry::size: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+impl hadris_fat_raw::RawDirEntry
+pub const fn hadris_fat_raw::RawDirEntry::lfn_checksum(&self) -> u8
+impl bytemuck::pod::Pod for hadris_fat_raw::RawDirEntry
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::RawDirEntry
+#[repr(C, packed(1))] pub struct hadris_fat_raw::RawFsInfo
+pub hadris_fat_raw::RawFsInfo::free_count: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawFsInfo::next_free: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+pub hadris_fat_raw::RawFsInfo::reserved1: [u8; 480]
+pub hadris_fat_raw::RawFsInfo::reserved2: [u8; 12]
+pub hadris_fat_raw::RawFsInfo::signature: [u8; 4]
+pub hadris_fat_raw::RawFsInfo::structure_signature: [u8; 4]
+pub hadris_fat_raw::RawFsInfo::trail_signature: hadris_common::types::number::U32<hadris_common::types::endian::LittleEndian>
+impl bytemuck::anybitpattern::AnyBitPattern for hadris_fat_raw::RawFsInfo
+impl bytemuck::no_uninit::NoUninit for hadris_fat_raw::RawFsInfo
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::RawFsInfo
+#[repr(C)] pub struct hadris_fat_raw::RawLfnEntry
+pub hadris_fat_raw::RawLfnEntry::attributes: u8
+pub hadris_fat_raw::RawLfnEntry::checksum: u8
+pub hadris_fat_raw::RawLfnEntry::first_cluster_low: [u8; 2]
+pub hadris_fat_raw::RawLfnEntry::kind: u8
+pub hadris_fat_raw::RawLfnEntry::name1: [u8; 10]
+pub hadris_fat_raw::RawLfnEntry::name2: [u8; 12]
+pub hadris_fat_raw::RawLfnEntry::name3: [u8; 4]
+pub hadris_fat_raw::RawLfnEntry::sequence: u8
+impl bytemuck::pod::Pod for hadris_fat_raw::RawLfnEntry
+impl bytemuck::zeroable::Zeroable for hadris_fat_raw::RawLfnEntry
+pub struct hadris_fat_raw::ShortEntry
+impl hadris_fat_raw::ShortEntry
+pub const fn hadris_fat_raw::ShortEntry::accessed_date(&self) -> u16
+pub const fn hadris_fat_raw::ShortEntry::attributes(&self) -> u8
+pub const fn hadris_fat_raw::ShortEntry::created(&self) -> (u16, u16, u8)
+pub fn hadris_fat_raw::ShortEntry::encode(&self) -> [u8; 32]
+pub const fn hadris_fat_raw::ShortEntry::first_cluster(&self, hadris_fat_raw::FatKind) -> u32
+pub const fn hadris_fat_raw::ShortEntry::is_dir(&self) -> bool
+pub const fn hadris_fat_raw::ShortEntry::is_dot(&self) -> bool
+pub fn hadris_fat_raw::ShortEntry::is_dot_dot(&self) -> bool
+pub const fn hadris_fat_raw::ShortEntry::is_label(&self) -> bool
+pub const fn hadris_fat_raw::ShortEntry::is_visible(&self) -> bool
+pub const fn hadris_fat_raw::ShortEntry::lfn_checksum(&self) -> u8
+pub const fn hadris_fat_raw::ShortEntry::modified(&self) -> (u16, u16)
+pub const fn hadris_fat_raw::ShortEntry::name(&self) -> [u8; 11]
+pub const fn hadris_fat_raw::ShortEntry::new([u8; 11], u8) -> Self
+pub const fn hadris_fat_raw::ShortEntry::nt_case(&self) -> u8
+pub const fn hadris_fat_raw::ShortEntry::set_accessed_date(&mut self, u16)
+pub const fn hadris_fat_raw::ShortEntry::set_attributes(&mut self, u8)
+pub const fn hadris_fat_raw::ShortEntry::set_created(&mut self, u16, u16, u8)
+pub const fn hadris_fat_raw::ShortEntry::set_first_cluster(&mut self, hadris_fat_raw::FatKind, u32)
+pub const fn hadris_fat_raw::ShortEntry::set_modified(&mut self, u16, u16)
+pub const fn hadris_fat_raw::ShortEntry::set_name(&mut self, [u8; 11])
+pub const fn hadris_fat_raw::ShortEntry::set_nt_case(&mut self, u8)
+pub const fn hadris_fat_raw::ShortEntry::set_size(&mut self, u32)
+pub const fn hadris_fat_raw::ShortEntry::size(&self) -> u32
+pub const hadris_fat_raw::ATTR_ARCHIVE: u8
+pub const hadris_fat_raw::ATTR_DIRECTORY: u8
+pub const hadris_fat_raw::ATTR_HIDDEN: u8
+pub const hadris_fat_raw::ATTR_LONG_NAME: u8
+pub const hadris_fat_raw::ATTR_LONG_NAME_MASK: u8
+pub const hadris_fat_raw::ATTR_READ_ONLY: u8
+pub const hadris_fat_raw::ATTR_SYSTEM: u8
+pub const hadris_fat_raw::ATTR_VOLUME_ID: u8
+pub const hadris_fat_raw::BOOT_SECTOR_LEN: usize
+pub const hadris_fat_raw::BOOT_SIGNATURE: u16
+pub const hadris_fat_raw::ENTRY_END: u8
+pub const hadris_fat_raw::ENTRY_FREE: u8
+pub const hadris_fat_raw::ENTRY_KANJI_E5: u8
+pub const hadris_fat_raw::ENTRY_SIZE: usize
+pub const hadris_fat_raw::FAT12_MAX_CLUSTERS: u32
+pub const hadris_fat_raw::FAT16_MAX_CLUSTERS: u32
+pub const hadris_fat_raw::FAT32_MAX_CLUSTERS: u32
+pub const hadris_fat_raw::FIRST_DATA_CLUSTER: u32
+pub const hadris_fat_raw::FSINFO_LEAD_SIG: u32
+pub const hadris_fat_raw::FSINFO_STRUC_SIG: u32
+pub const hadris_fat_raw::FSINFO_TRAIL_SIG: u32
+pub const hadris_fat_raw::LFN_LAST_ENTRY: u8
+pub const hadris_fat_raw::LFN_SEQUENCE_MASK: u8
+pub const hadris_fat_raw::LFN_UNITS_PER_ENTRY: usize
+pub const hadris_fat_raw::MAX_DIR_ENTRIES: u32
+pub const hadris_fat_raw::NT_LOWER_BASE: u8
+pub const hadris_fat_raw::NT_LOWER_EXTENSION: u8
+pub fn hadris_fat_raw::check_fs_info(&hadris_fat_raw::RawFsInfo) -> core::result::Result<(), hadris_fat_raw::BootError>
+pub const fn hadris_fat_raw::fold_ascii(u16) -> u16
+pub fn hadris_fat_raw::fold_unicode(u16) -> u16
+pub const fn hadris_fat_raw::lfn_checksum(&[u8; 11]) -> u8
+pub fn hadris_fat_raw::parse_boot(&[u8; 512]) -> core::result::Result<hadris_fat_raw::Geometry, hadris_fat_raw::BootError>

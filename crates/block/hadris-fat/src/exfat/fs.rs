@@ -9,13 +9,13 @@ use hadris_fs::{
 
 use super::block_io::{BlockBuf, ClusterGroup, MAX_BLOCK_SIZE, load, read_bytes, write_bytes};
 use super::storage::BlockDevice;
-use crate::codec::cycle::Hint;
-use crate::codec::name as names;
-use crate::exfat::codec::{
-    self, Geometry, MAX_SET, PageStart, RawEntry, Units, UpcaseDecoder, le16, le32, le64,
+use hadris_fat_raw::exfat::{
+    self as raw, ENTRY_SIZE, Geometry, MAX_SET, NameUnits, PageStart, RawEntry, UpcaseDecoder,
 };
-use crate::exfat::raw::{self, ENTRY_SIZE};
-use crate::exfat::{MountOptions, VolumeLabel};
+use hadris_fat_raw::name as names;
+
+use crate::exfat::{MountOptions, VolumeLabel, le16, le32, le64};
+use crate::hint::Hint;
 
 #[path = "check.rs"]
 mod fsck;
@@ -265,7 +265,7 @@ pub(super) fn parse_set(entries: &[RawEntry]) -> bool {
     {
         return false;
     }
-    codec::set_checksum(set) == le16(primary, 2)
+    raw::set_checksum(set) == le16(primary, 2)
 }
 
 /// A named entry set found by a directory scan.
@@ -432,24 +432,20 @@ impl Upcase {
     /// points as the specification requires.
     pub(super) fn is_valid(&self) -> bool {
         self.checksum == self.stored_checksum
-            && (0..128u16).all(|code| self.page0[code as usize] == codec::mandatory_upcase(code))
+            && (0..128u16).all(|code| self.page0[code as usize] == raw::mandatory_upcase(code))
     }
 }
 
 fn metadata(node: &Node, set: &Set) -> Metadata {
     let primary = &set.raw[0];
     let times = FileTimes::new()
-        .with_created(codec::decode_time(
-            le32(primary, 8),
-            primary[20],
-            primary[22],
-        ))
-        .with_modified(codec::decode_time(
+        .with_created(raw::decode_time(le32(primary, 8), primary[20], primary[22]))
+        .with_modified(raw::decode_time(
             le32(primary, 12),
             primary[21],
             primary[23],
         ))
-        .with_accessed(codec::decode_time(le32(primary, 16), 0, primary[24]));
+        .with_accessed(raw::decode_time(le32(primary, 16), 0, primary[24]));
     let mut attributes = Attributes::empty();
     for (bit, flag) in ATTR_MAPPED {
         if set.attributes() & bit != 0 {
@@ -480,7 +476,7 @@ fn set_attributes(primary: &mut RawEntry, attributes: Attributes) {
 }
 
 fn stamp(primary: &mut RawEntry, which: usize, time: DateTime) {
-    let (stamp, increment, offset) = codec::encode_time(time);
+    let (stamp, increment, offset) = raw::encode_time(time);
     let (at, increment_at, offset_at) =
         [(8, Some(20), 22), (12, Some(21), 23), (16, None, 24)][which];
     primary[at..at + 4].copy_from_slice(&stamp.to_le_bytes());
@@ -513,7 +509,7 @@ fn set_stream(stream: &mut RawEntry, alloc: Alloc, len: u64, valid: u64) {
 fn build_set(
     primary: &RawEntry,
     stream: &RawEntry,
-    name: &Units,
+    name: &NameUnits,
     hash: u16,
     extras: &[RawEntry],
     set: &mut [RawEntry; MAX_SET],
@@ -528,7 +524,7 @@ fn build_set(
     set[0][1] = (count - 1) as u8;
     set[1] = *stream;
     set[1][0] = raw::ENTRY_STREAM;
-    set[1][3] = name.len as u8;
+    set[1][3] = name.len() as u8;
     set[1][4..6].copy_from_slice(&hash.to_le_bytes());
     for (index, chunk) in name
         .as_slice()
@@ -542,7 +538,7 @@ fn build_set(
         }
     }
     set[2 + name.entries()..count].copy_from_slice(extras);
-    codec::seal(&mut set[..count]);
+    raw::seal(&mut set[..count]);
     Ok(count)
 }
 
@@ -631,6 +627,8 @@ fn entry_name(name: &Name, invalid: ErrorKind) -> Result<&str, ErrorKind> {
 pub struct ExFatFs<D, T: NodeTable = FixedTable<64>, C: Clock = NoClock> {
     pub(super) dev: D,
     pub(super) geo: Geometry,
+    /// `VolumeFlags` as last written.
+    flags: u16,
     nodes: T::With<Node>,
     pub(super) block: BlockBuf,
     pub(super) bitmap: Extent,
@@ -660,7 +658,7 @@ impl<D, T: NodeTable, C: Clock> fmt::Debug for ExFatFs<D, T, C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExFatFs")
             .field("cluster_size", &self.geo.cluster_size())
-            .field("clusters", &self.geo.cluster_count)
+            .field("clusters", &self.geo.cluster_count())
             .field("open_nodes", &(self.nodes.len() + 1))
             .field("free_clusters", &self.free_clusters)
             .field("read_only", &self.read_only)
@@ -676,7 +674,7 @@ async fn boot_region<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, base: u6
     let mut sector = [0u8; BOOT_SECTOR_LEN];
     read_bytes(dev, block, base, &mut sector).await?;
     let boot: raw::BootSector = bytemuck::pod_read_unaligned(&sector);
-    let Ok(geo) = codec::parse_boot(&boot) else {
+    let Ok(geo) = raw::parse_boot(&boot) else {
         return Ok(None);
     };
     let size = geo.sector_size();
@@ -685,7 +683,7 @@ async fn boot_region<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf, base: u6
     let mut at = 0;
     while at < (raw::BOOT_REGION_SECTORS - 1) * size {
         read_bytes(dev, block, base + at, &mut chunk).await?;
-        sum = codec::boot_checksum(sum, at.min(1), &chunk);
+        sum = raw::boot_checksum(sum, at.min(1), &chunk);
         at += chunk.len() as u64;
     }
     while at < raw::BOOT_REGION_SECTORS * size {
@@ -716,7 +714,7 @@ async fn boot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<(Ge
         if base + (raw::BOOT_REGION_SECTORS << shift) > dev.block_count().saturating_mul(size as u64) {
             break;
         }
-        geo = boot_region(dev, block, base).await?.filter(|geo| geo.sector_shift == shift);
+        geo = boot_region(dev, block, base).await?.filter(|geo| geo.sector_shift() == shift);
         backup = geo.is_some();
     }
     let Some(geo) = geo else {
@@ -728,8 +726,8 @@ async fn boot<D: BlockDevice>(dev: &mut D, block: &mut BlockBuf) -> FsResult<(Ge
         });
     };
     let device_len = dev.block_count().saturating_mul(size as u64);
-    let heap_end = geo.heap_start + ((geo.cluster_count as u64) << geo.cluster_shift);
-    if geo.volume_len > device_len || heap_end > geo.volume_len {
+    let heap_end = geo.heap_start() + ((geo.cluster_count() as u64) << geo.cluster_shift());
+    if geo.volume_len() > device_len || heap_end > geo.volume_len() {
         return Err(ErrorKind::Corrupt.into());
     }
     Ok((geo, backup))
@@ -749,7 +747,7 @@ async fn system_structures<D: BlockDevice>(
     for (entry, bitmap) in entries.into_iter().zip(&mut bitmaps) {
         let Some((first, len)) = entry else { continue };
         let extent = probe.extent(first, len).await?;
-        if extent.len < (geo.cluster_count as u64).div_ceil(8) {
+        if extent.len < (geo.cluster_count() as u64).div_ceil(8) {
             return Err(ErrorKind::Corrupt.into());
         }
         *bitmap = Some(extent);
@@ -777,7 +775,7 @@ io_transform! {
 impl<D: BlockDevice> Probe<'_, D> {
     async fn fat(&mut self, cluster: u32) -> FsResult<u32, D::Error> {
         let mut bytes = [0u8; 4];
-        read_bytes(self.dev, self.block, self.geo.fat_start + cluster as u64 * 4, &mut bytes).await?;
+        read_bytes(self.dev, self.block, self.geo.fat_start() + cluster as u64 * 4, &mut bytes).await?;
         Ok(u32::from_le_bytes(bytes))
     }
 
@@ -787,11 +785,11 @@ impl<D: BlockDevice> Probe<'_, D> {
     #[allow(clippy::type_complexity)]
     async fn system_entries(&mut self) -> FsResult<([Option<(u32, u64)>; 2], (u32, u64, u32)), D::Error> {
         let cluster_size = self.geo.cluster_size();
-        let mut cluster = self.geo.root;
+        let mut cluster = self.geo.root();
         let mut bitmap = None;
         let mut mirror = None;
         let mut upcase = None;
-        for _ in 0..self.geo.cluster_count {
+        for _ in 0..self.geo.cluster_count() {
             let base = self.geo.cluster_offset(cluster).ok_or(ErrorKind::Corrupt)?;
             let mut at = 0;
             while at < cluster_size {
@@ -799,10 +797,10 @@ impl<D: BlockDevice> Probe<'_, D> {
                 read_bytes(self.dev, self.block, base + at, &mut entry).await?;
                 match entry[0] {
                     raw::ENTRY_END => break,
-                    raw::ENTRY_BITMAP if entry[1] & 1 == self.geo.active && bitmap.is_none() => {
+                    raw::ENTRY_BITMAP if entry[1] & 1 == self.geo.active() && bitmap.is_none() => {
                         bitmap = Some((le32(&entry, 20), le64(&entry, 24)));
                     }
-                    raw::ENTRY_BITMAP if self.geo.mirror_fat.is_some() && entry[1] & 1 != self.geo.active && mirror.is_none() => {
+                    raw::ENTRY_BITMAP if self.geo.mirror_fat().is_some() && entry[1] & 1 != self.geo.active() && mirror.is_none() => {
                         mirror = Some((le32(&entry, 20), le64(&entry, 24)));
                     }
                     raw::ENTRY_UPCASE if upcase.is_none() => {
@@ -810,7 +808,7 @@ impl<D: BlockDevice> Probe<'_, D> {
                     }
                     _ => {}
                 }
-                if let (Some(_), Some(upcase), true) = (bitmap, upcase, mirror.is_some() || self.geo.mirror_fat.is_none()) {
+                if let (Some(_), Some(upcase), true) = (bitmap, upcase, mirror.is_some() || self.geo.mirror_fat().is_none()) {
                     return Ok(([bitmap, mirror], upcase));
                 }
                 at += ENTRY_SIZE as u64;
@@ -834,7 +832,7 @@ impl<D: BlockDevice> Probe<'_, D> {
     /// is contiguous.
     async fn extent(&mut self, first: u32, len: u64) -> FsResult<Extent, D::Error> {
         let clusters = len.div_ceil(self.geo.cluster_size());
-        if !self.geo.is_cluster(first) || clusters == 0 || clusters > self.geo.cluster_count as u64 {
+        if !self.geo.is_cluster(first) || clusters == 0 || clusters > self.geo.cluster_count() as u64 {
             return Err(ErrorKind::Corrupt.into());
         }
         let mut contiguous = true;
@@ -877,7 +875,7 @@ impl<D: BlockDevice> Probe<'_, D> {
             let base = self.geo.cluster_offset(cluster).ok_or(ErrorKind::Corrupt)?;
             let n = (chunk.len() as u64).min(cluster_size - within).min(extent.len - pos) as usize;
             read_bytes(self.dev, self.block, base + within, &mut chunk[..n]).await?;
-            upcase.checksum = codec::table_checksum(upcase.checksum, &chunk[..n]);
+            upcase.checksum = raw::table_checksum(upcase.checksum, &chunk[..n]);
             for pair in chunk[..n].chunks_exact(2) {
                 let unit = u16::from_le_bytes([pair[0], pair[1]]);
                 let Upcase { starts, identity, page0, .. } = &mut *upcase;
@@ -953,10 +951,11 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             return Err(MountError::new(ErrorKind::Corrupt.into(), dev));
         };
         let upcase_valid = upcase.is_valid();
-        let dirty = if geo.flags & raw::VOLUME_DIRTY != 0 { Dirty::Inherited } else { Dirty::Clean };
+        let dirty = if geo.flags() & raw::VOLUME_DIRTY != 0 { Dirty::Inherited } else { Dirty::Clean };
         Ok(Self {
             dev,
             geo,
+            flags: geo.flags(),
             nodes: table.empty(),
             block,
             bitmap,
@@ -1003,7 +1002,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
 
     /// The volume serial number.
     pub fn volume_id(&self) -> u32 {
-        self.geo.serial
+        self.geo.serial()
     }
 
     /// The cluster size in bytes.
@@ -1076,7 +1075,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// the up-case table.
     pub async fn lookup(&mut self, dir: NodeId, name: &Name) -> FsResult<NodeId, D::Error> {
         let (start, dir_entry) = self.dir_info(dir).await?;
-        let Some(query) = name.to_str().ok().and_then(Units::query) else {
+        let Some(query) = name.to_str().ok().and_then(NameUnits::query) else {
             return Err(ErrorKind::NotFound.into());
         };
         let mut found = Located::new();
@@ -1208,7 +1207,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// allocation bitmap, which is then kept up to date.
     pub async fn stats(&mut self) -> FsResult<FsStats, D::Error> {
         let free = self.free_count().await?;
-        Ok(FsStats::new(self.geo.cluster_count as u64, free as u64, self.geo.cluster_size() as u32))
+        Ok(FsStats::new(self.geo.cluster_count() as u64, free as u64, self.geo.cluster_size() as u32))
     }
 
     /// Passes the clusters of `node`'s allocation to `visit` in order and
@@ -1227,7 +1226,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
         let mut cluster = self.check_cluster(alloc.first)?;
         if alloc.contiguous {
-            let count = len.div_ceil(self.geo.cluster_size()).min(self.geo.cluster_count as u64) as u32;
+            let count = len.div_ceil(self.geo.cluster_size()).min(self.geo.cluster_count() as u64) as u32;
             for step in 0..count {
                 visit(self.check_cluster(cluster + step)?);
             }
@@ -1237,7 +1236,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         loop {
             visit(cluster);
             count += 1;
-            if count > self.geo.cluster_count {
+            if count > self.geo.cluster_count() {
                 return Err(ErrorKind::Corrupt.into());
             }
             match self.next_cluster(cluster).await? {
@@ -1331,7 +1330,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         };
         let (start, dir_entry) = self.dir_info(dir).await?;
         let text = entry_name(name, ErrorKind::InvalidInput)?;
-        let units = Units::encode(text)?;
+        let units = NameUnits::encode(text)?;
         let hash = self.name_hash(&units).await?;
         let plan = self.plan(start, Some((&units, hash)), 2 + units.entries() as u32, None).await?;
         let placeholder = Node {
@@ -1370,7 +1369,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         self.prepare().await?;
         let (start, _) = self.dir_info(dir).await?;
         let query = entry_name(name, ErrorKind::NotFound)?;
-        let query = Units::query(query).ok_or(ErrorKind::NotFound)?;
+        let query = NameUnits::query(query).ok_or(ErrorKind::NotFound)?;
         let mut found = Located::new();
         if !self.find(start, &query, &mut found).await? {
             return Err(ErrorKind::NotFound.into());
@@ -1429,9 +1428,9 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let (to_start, to_entry) = self.dir_info(to_dir).await?;
         let from_text = entry_name(from, ErrorKind::NotFound)?;
         let to_text = entry_name(to, ErrorKind::InvalidInput)?;
-        let units = Units::encode(to_text)?;
+        let units = NameUnits::encode(to_text)?;
         let hash = self.name_hash(&units).await?;
-        let from_query = Units::query(from_text).ok_or(ErrorKind::NotFound)?;
+        let from_query = NameUnits::query(from_text).ok_or(ErrorKind::NotFound)?;
         let mut src = Located::new();
         if !self.find(from_start, &from_query, &mut src).await? {
             return Err(ErrorKind::NotFound.into());
@@ -1590,7 +1589,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 stamp(&mut set.raw[0], which, time);
             }
         }
-        codec::seal(&mut set.raw[..set.count]);
+        raw::seal(&mut set.raw[..set.count]);
         self.write_set(&set, 2, SetWrite::Update).await?;
         if let Some(id) = id {
             self.clean(id);
@@ -1645,14 +1644,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         }
         if self.allocation_changed {
             let free = self.free_count().await?;
-            let used = (self.geo.cluster_count - free) as u64;
-            let percent = (used * 100 / self.geo.cluster_count as u64) as u8;
+            let used = (self.geo.cluster_count() - free) as u64;
+            let percent = (used * 100 / self.geo.cluster_count() as u64) as u8;
             self.write(PERCENT_AT, &[percent]).await?;
-            self.geo.percent_in_use = percent;
             self.allocation_changed = false;
         }
         if self.dirty == Dirty::Marked {
-            self.write_flags(self.geo.flags & !raw::VOLUME_DIRTY).await?;
+            self.write_flags(self.flags & !raw::VOLUME_DIRTY).await?;
             self.dirty = Dirty::Clean;
         }
         self.flush_device().await
@@ -1760,7 +1758,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
                 }
                 let units = (len - (index - 2) * raw::NAME_UNITS_PER_ENTRY).min(raw::NAME_UNITS_PER_ENTRY);
                 for unit in 0..units {
-                    hash = codec::hash_unit(hash, self.upcase_unit(le16(&entry, 2 + unit * 2)).await?);
+                    hash = raw::hash_unit(hash, self.upcase_unit(le16(&entry, 2 + unit * 2)).await?);
                 }
             } else if entry[0] & raw::CATEGORY_SECONDARY == 0 || entry[0] & raw::IN_USE == 0 {
                 return Ok(None);
@@ -1772,7 +1770,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// The checksum of the set being written, with `primary` and `stream`
     /// in place of its first two entries.
     async fn pending_checksum(&mut self, count: usize, primary: &RawEntry, stream: &RawEntry) -> FsResult<u16, D::Error> {
-        let mut sum = codec::set_checksum(&[*primary, *stream]);
+        let mut sum = raw::set_checksum(&[*primary, *stream]);
         for index in 2..count {
             let mut entry = [0u8; ENTRY_SIZE];
             self.read(self.pending_at(index), &mut entry).await?;
@@ -1883,7 +1881,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// range. `keep` stays pending once the chain ends.
     async fn reclaim(&mut self, head: u32, keep: u32) -> FsResult<(), D::Error> {
         let mut cluster = head;
-        for _ in 0..self.geo.cluster_count {
+        for _ in 0..self.geo.cluster_count() {
             if !self.geo.is_cluster(cluster) || !self.bit(cluster).await? {
                 break;
             }
@@ -1955,7 +1953,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let result = write_bytes(&mut self.dev, &mut self.block, VOLUME_FLAGS_AT, Some(&flags.to_le_bytes()), 2).await;
         self.note_refusal(&result);
         result?;
-        self.geo.flags = flags;
+        self.flags = flags;
         Ok(())
     }
 
@@ -1980,7 +1978,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     async fn begin_write(&mut self) -> FsResult<(), D::Error> {
         self.writable()?;
         if self.dirty == Dirty::Clean {
-            self.write_flags((self.geo.flags | raw::VOLUME_DIRTY) & !raw::VOLUME_CLEAR_TO_ZERO).await?;
+            self.write_flags((self.flags | raw::VOLUME_DIRTY) & !raw::VOLUME_CLEAR_TO_ZERO).await?;
             self.dirty = Dirty::Marked;
         }
         Ok(())
@@ -2028,7 +2026,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             let attributes = le16(&set.raw[0], 4) | raw::ATTR_ARCHIVE;
             set.raw[0][4..6].copy_from_slice(&attributes.to_le_bytes());
         }
-        codec::seal(&mut set.raw[..set.count]);
+        raw::seal(&mut set.raw[..set.count]);
     }
 
     /// Writes a file's allocation, sizes and modification time to its entry
@@ -2183,7 +2181,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
 
     pub(super) fn root_start(&self) -> DirStart {
         DirStart {
-            alloc: Alloc { first: self.geo.root, contiguous: false },
+            alloc: Alloc { first: self.geo.root(), contiguous: false },
             size: u64::MAX,
         }
     }
@@ -2288,7 +2286,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             let mut ok = true;
             for index in 1..count {
                 at += ENTRY_SIZE as u64;
-                if at % self.geo.cluster_size() == self.geo.heap_start % self.geo.cluster_size() {
+                if at % self.geo.cluster_size() == self.geo.heap_start() % self.geo.cluster_size() {
                     let cluster = self.geo.cluster_of(at - 1).ok_or(ErrorKind::Corrupt)?;
                     let next = if contiguous {
                         Some(cluster + 1).filter(|&next| self.geo.is_cluster(next))
@@ -2324,7 +2322,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if start.alloc.first == 0 || bytes >= start.size || bytes >= raw::MAX_DIRECTORY_SIZE {
             return Ok(None);
         }
-        let want = (bytes >> self.geo.cluster_shift) as u32;
+        let want = (bytes >> self.geo.cluster_shift()) as u32;
         let within = bytes & (self.geo.cluster_size() - 1);
         let cluster = if start.alloc.contiguous {
             self.check_cluster(start.alloc.first.checked_add(want).ok_or(ErrorKind::Corrupt)?)?
@@ -2421,10 +2419,10 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         decoder.drain(&mut emit);
         let extent = self.upcase.extent;
         let mut hint = Hint::NONE;
-        while decoder.code < code + 256 && (decoder.next as u64) * 2 + 1 < extent.len {
-            let pos = decoder.next as u64 * 2;
+        while decoder.code() < code + 256 && (decoder.next() as u64) * 2 + 1 < extent.len {
+            let pos = decoder.next() as u64 * 2;
             let alloc = Alloc { first: extent.first, contiguous: extent.contiguous };
-            hint = self.locate_cluster(alloc, hint, (pos >> self.geo.cluster_shift) as u32).await?;
+            hint = self.locate_cluster(alloc, hint, (pos >> self.geo.cluster_shift()) as u32).await?;
             let at = self.cluster_at(hint.cluster)? + (pos & (self.geo.cluster_size() - 1));
             let mut pair = [0u8; 2];
             self.read(at, &mut pair).await?;
@@ -2435,17 +2433,17 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// The `NameHash` of `name`, up-cased through the volume's table.
-    async fn name_hash(&mut self, name: &Units) -> FsResult<u16, D::Error> {
+    async fn name_hash(&mut self, name: &NameUnits) -> FsResult<u16, D::Error> {
         let mut hash = 0;
         for &unit in name.as_slice() {
-            hash = codec::hash_unit(hash, self.upcase_unit(unit).await?);
+            hash = raw::hash_unit(hash, self.upcase_unit(unit).await?);
         }
         Ok(hash)
     }
 
     /// Whether `set` is named `name` up to case.
-    async fn named(&mut self, set: &Set, name: &Units) -> FsResult<bool, D::Error> {
-        if set.name_len() != name.len {
+    async fn named(&mut self, set: &Set, name: &NameUnits) -> FsResult<bool, D::Error> {
+        if set.name_len() != name.len() {
             return Ok(false);
         }
         for (unit, &other) in set.name_units().zip(name.as_slice()) {
@@ -2459,7 +2457,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// Finds the entry set named `query`, up to case, fills `found` and
     /// returns true when there is one. Sets whose stream entry records
     /// another name length or hash are passed over unread.
-    async fn find(&mut self, start: DirStart, query: &Units, found: &mut Located) -> FsResult<bool, D::Error> {
+    async fn find(&mut self, start: DirStart, query: &NameUnits, found: &mut Located) -> FsResult<bool, D::Error> {
         let hash = self.name_hash(query).await?;
         let mut walk = Walk::new(start);
         let mut slot = 0;
@@ -2490,13 +2488,13 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// Whether the set whose File entry is slot `slot` may be named
     /// `name`: false only when its stream entry records another name
     /// length or name hash. `hash` is the `NameHash` of `name`.
-    async fn may_be_named(&mut self, walk: &mut Walk, slot: u32, name: &Units, hash: u16) -> FsResult<bool, D::Error> {
+    async fn may_be_named(&mut self, walk: &mut Walk, slot: u32, name: &NameUnits, hash: u16) -> FsResult<bool, D::Error> {
         let Some(at) = self.slot_offset(walk, slot + 1).await? else {
             return Ok(true);
         };
         let mut stream = [0u8; ENTRY_SIZE];
         self.read(at, &mut stream).await?;
-        Ok(stream[0] != raw::ENTRY_STREAM || (stream[3] as usize == name.len && le16(&stream, 4) == hash))
+        Ok(stream[0] != raw::ENTRY_STREAM || (stream[3] as usize == name.len() && le16(&stream, 4) == hash))
     }
 
     async fn find_label(&mut self) -> FsResult<Option<(u64, RawEntry)>, D::Error> {
@@ -2588,7 +2586,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     async fn plan(
         &mut self,
         dir: DirStart,
-        check: Option<(&Units, u16)>,
+        check: Option<(&NameUnits, u16)>,
         needed: u32,
         reuse: Option<&Set>,
     ) -> FsResult<Plan, D::Error> {
@@ -2738,7 +2736,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let mut set = Set::new();
         self.set_at(dir_entry, &mut set).await?;
         set_stream(&mut set.raw[1], alloc, len, len);
-        codec::seal(&mut set.raw[..set.count]);
+        raw::seal(&mut set.raw[..set.count]);
         self.write_set(&set, 2, SetWrite::Update).await?;
         self.pending = None;
         if let Some(id) = self.pinned_at(dir_entry)
@@ -2772,7 +2770,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
             while let Some(next) = self.next_cluster(cluster).await? {
                 cluster = next;
                 steps += 1;
-                if steps > self.geo.cluster_count {
+                if steps > self.geo.cluster_count() {
                     return Err(ErrorKind::Corrupt.into());
                 }
             }
@@ -2794,7 +2792,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         &mut self,
         dir: DirStart,
         dir_entry: u64,
-        name: &Units,
+        name: &NameUnits,
         hash: u16,
         plan: &Plan,
         is_dir: bool,
@@ -2868,7 +2866,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     }
 
     /// Renames in place to a name that differs only in case.
-    async fn rewrite_name(&mut self, set: &Set, node: &Node, id: Option<NodeId>, name: &Units, hash: u16) -> FsResult<(), D::Error> {
+    async fn rewrite_name(&mut self, set: &Set, node: &Node, id: Option<NodeId>, name: &NameUnits, hash: u16) -> FsResult<(), D::Error> {
         let (primary, stream) = self.moved_entries(set, node);
         let mut new = *set;
         let count = build_set(&primary, &stream, name, hash, set.extras(), &mut new.raw)?;
@@ -2893,7 +2891,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         to: DirStart,
         to_entry: u64,
         plan: &Plan,
-        name: &Units,
+        name: &NameUnits,
         hash: u16,
     ) -> FsResult<(), D::Error> {
         let (primary, stream) = self.moved_entries(set, node);
@@ -2957,7 +2955,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         to: DirStart,
         to_entry: u64,
         target: &Located,
-        name: &Units,
+        name: &NameUnits,
         hash: u16,
     ) -> FsResult<(), D::Error> {
         let target_id = self.pinned_at(target.set.offset);
@@ -3004,16 +3002,16 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// Stores `value` as the FAT entry of `cluster`.
     pub(super) async fn set_fat(&mut self, cluster: u32, value: u32) -> FsResult<(), D::Error> {
         self.check_cluster(cluster)?;
-        if let Some(mirror) = self.geo.mirror_fat {
+        if let Some(mirror) = self.geo.mirror_fat() {
             self.write(mirror + cluster as u64 * 4, &value.to_le_bytes()).await?;
         }
-        self.write(self.geo.fat_start + cluster as u64 * 4, &value.to_le_bytes()).await
+        self.write(self.geo.fat_start() + cluster as u64 * 4, &value.to_le_bytes()).await
     }
 
     /// The stored FAT entry of `cluster`.
     pub(super) async fn fat_entry(&mut self, cluster: u32) -> FsResult<u32, D::Error> {
         let mut bytes = [0u8; 4];
-        self.read(self.geo.fat_start + cluster as u64 * 4, &mut bytes).await?;
+        self.read(self.geo.fat_start() + cluster as u64 * 4, &mut bytes).await?;
         Ok(u32::from_le_bytes(bytes))
     }
 
@@ -3054,7 +3052,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     async fn bitmap_offset(&mut self, pos: u64) -> FsResult<u64, D::Error> {
         let extent = self.bitmap;
         let alloc = Alloc { first: extent.first, contiguous: extent.contiguous };
-        let hint = self.locate_cluster(alloc, self.bitmap_hint, (pos >> self.geo.cluster_shift) as u32).await?;
+        let hint = self.locate_cluster(alloc, self.bitmap_hint, (pos >> self.geo.cluster_shift()) as u32).await?;
         self.bitmap_hint = hint;
         Ok(self.cluster_at(hint.cluster)? + (pos & (self.geo.cluster_size() - 1)))
     }
@@ -3081,7 +3079,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         byte[0] ^= bit;
         if let Some(mirror) = self.mirror_bitmap {
             let alloc = Alloc { first: mirror.first, contiguous: mirror.contiguous };
-            let cluster = self.locate_cluster(alloc, Hint::NONE, index >> (self.geo.cluster_shift + 3)).await?.cluster;
+            let cluster = self.locate_cluster(alloc, Hint::NONE, index >> (self.geo.cluster_shift() + 3)).await?.cluster;
             let within = (index as u64 / 8) & (self.geo.cluster_size() - 1);
             let mut other = [0u8; 1];
             let other_at = self.cluster_at(cluster)? + within;
@@ -3093,7 +3091,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         self.allocation_changed = true;
         self.free_clusters = match (self.free_clusters, used) {
             (Some(free), true) => free.checked_sub(1),
-            (Some(free), false) => Some((free + 1).min(self.geo.cluster_count)),
+            (Some(free), false) => Some((free + 1).min(self.geo.cluster_count())),
             (None, _) => None,
         };
         Ok(())
@@ -3103,7 +3101,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         if let Some(free) = self.free_clusters {
             return Ok(free);
         }
-        let count = self.geo.cluster_count;
+        let count = self.geo.cluster_count();
         let mut used = 0u32;
         let mut pos = 0u64;
         let mut chunk = [0u8; 64];
@@ -3126,7 +3124,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// Takes a free cluster: its FAT entry ends a chain and its bitmap bit
     /// is set.
     async fn allocate(&mut self) -> FsResult<u32, D::Error> {
-        let count = self.geo.cluster_count;
+        let count = self.geo.cluster_count();
         let from = self.next_free.clamp(raw::FIRST_CLUSTER, self.geo.max_cluster()) - raw::FIRST_CLUSTER;
         let mut scanned = 0u32;
         let mut chunk = [0u8; 64];
@@ -3221,7 +3219,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// one write.
     async fn free_chain(&mut self, first: u32) -> FsResult<(), D::Error> {
         let cluster = self.check_cluster(first)?;
-        self.mark_chain(cluster, self.geo.cluster_count, false).await?;
+        self.mark_chain(cluster, self.geo.cluster_count(), false).await?;
         self.pending = None;
         Ok(())
     }
@@ -3276,7 +3274,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// end back to its start, then the bitmap bits a block at a time. The
     /// chain is recorded in the pending allocation before any bit is set.
     async fn allocate_run(&mut self, count: u32) -> FsResult<u32, D::Error> {
-        let total = self.geo.cluster_count;
+        let total = self.geo.cluster_count();
         let from = self.next_free.clamp(raw::FIRST_CLUSTER, self.geo.max_cluster()) - raw::FIRST_CLUSTER;
         let at = |step: u32| raw::FIRST_CLUSTER + (from + step) % total;
         let mut found = 0;
@@ -3342,7 +3340,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         let mut place = [(at / size, at - byte), (0, 0)];
         if let Some(mirror) = self.mirror_bitmap {
             let alloc = Alloc { first: mirror.first, contiguous: mirror.contiguous };
-            let other = self.locate_cluster(alloc, Hint::NONE, (byte >> self.geo.cluster_shift) as u32).await?.cluster;
+            let other = self.locate_cluster(alloc, Hint::NONE, (byte >> self.geo.cluster_shift()) as u32).await?.cluster;
             let at = self.cluster_at(other)? + (byte & (self.geo.cluster_size() - 1));
             place[1] = (at / size, at - byte);
         }
@@ -3377,7 +3375,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
         self.allocation_changed = true;
         self.free_clusters = match (self.free_clusters, used) {
             (Some(free), true) => free.checked_sub(flips),
-            (Some(free), false) => Some((free + flips).min(self.geo.cluster_count)),
+            (Some(free), false) => Some((free + flips).min(self.geo.cluster_count())),
             (None, _) => None,
         };
         Ok(())
@@ -3387,7 +3385,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     /// every FAT written.
     fn same_fat_block(&self, a: u32, b: u32) -> bool {
         let size = self.block.size as u64;
-        [Some(self.geo.fat_start), self.geo.mirror_fat]
+        [Some(self.geo.fat_start()), self.geo.mirror_fat()]
             .into_iter()
             .flatten()
             .all(|base| (base + a as u64 * 4) / size == (base + b as u64 * 4) / size)
@@ -3399,7 +3397,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock> ExFatFs<D, T, C> {
     async fn patch_fat(&mut self, group: &ClusterGroup, next: u32) -> FsResult<(), D::Error> {
         self.begin_write().await?;
         let size = self.block.size as u64;
-        for base in [self.geo.mirror_fat, Some(self.geo.fat_start)].into_iter().flatten() {
+        for base in [self.geo.mirror_fat(), Some(self.geo.fat_start())].into_iter().flatten() {
             let block = (base + group.lowest() as u64 * 4) / size;
             load(&mut self.dev, &mut self.block, block).await?;
             let mut value = next;
