@@ -200,43 +200,15 @@ fn dump_iso(data: &[u8]) -> Vec<String> {
 }
 
 fn dump_udf(data: &[u8]) -> Vec<String> {
-    use hadris_udf::UdfVolume;
+    use hadris_storage::{BlockSize, MemDevice};
+    use hadris_udf::sync::UdfFs;
 
-    let mut lines = Vec::new();
-    let Ok(fs) = UdfVolume::open(Cursor::new(data)) else {
-        return lines;
-    };
-    let Ok(root) = fs.root_dir() else {
-        return lines;
-    };
-    let mut budget = ENTRY_BUDGET;
-    let mut stack = vec![(root, String::from("/"), 0u32)];
-    while let Some((dir, path, depth)) = stack.pop() {
-        if depth > DEPTH_CAP {
-            continue;
-        }
-        for entry in dir.entries() {
-            if budget == 0 {
-                return lines;
-            }
-            budget -= 1;
-            if entry.is_parent() || entry.name().is_empty() {
-                continue;
-            }
-            let child_path = format!("{path}{}", entry.name());
-            if entry.is_dir() {
-                lines.push(format!("dir {child_path}"));
-                if let Ok(child) = fs.read_directory(&entry.icb) {
-                    stack.push((child, format!("{child_path}/"), depth + 1));
-                }
-            } else {
-                let content = fs.read_file(entry).unwrap_or_default();
-                let head = &content[..content.len().min(CONTENT_CAP)];
-                lines.push(file_line(entry.size, head, &child_path));
-            }
-        }
+    let mut bytes = data.to_vec();
+    bytes.resize(bytes.len().next_multiple_of(512), 0);
+    match UdfFs::open(MemDevice::new(bytes, BlockSize::new(512).unwrap())) {
+        Ok(mut fs) => dump_driver(&mut fs),
+        Err(_) => Vec::new(),
     }
-    lines
 }
 
 fn dump_cpio(data: &[u8]) -> Vec<String> {
