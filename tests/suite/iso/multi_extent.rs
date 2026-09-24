@@ -163,7 +163,7 @@ impl hadris_io::sync::ByteSource for Zeros {
 /// sparse.
 struct SparseFile(File);
 
-const ZEROS: [u8; 64 * 1024] = [0; 64 * 1024];
+static ZEROS: [u8; 64 * 1024] = [0; 64 * 1024];
 
 impl hadris_io::ErrorType for SparseFile {
     type Error = std::io::Error;
