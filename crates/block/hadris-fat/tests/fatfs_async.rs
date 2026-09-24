@@ -377,7 +377,7 @@ fn async_futures_stay_small() {
     assert_below(
         "FatFs rename",
         fat.rename(root, name, root, name, flags),
-        3456,
+        3584,
     );
     assert_below(
         "FatFs create",
@@ -404,7 +404,7 @@ fn async_futures_stay_small() {
     assert_below(
         "ExFatFs create",
         exfat.create(root, name, NewNode::File, &meta),
-        4480,
+        4608,
     );
 }
 

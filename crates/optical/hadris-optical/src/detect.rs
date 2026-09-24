@@ -131,7 +131,7 @@ pub mod sync {
     /// Devices whose blocks are larger than 4096 bytes give `None`.
     pub fn detect<D: BlockDevice + ?Sized>(
         dev: &mut D,
-    ) -> Result<Option<OpticalFormats>, D::Error> {
+    ) -> hadris_fs::FsResult<Option<OpticalFormats>, D::Error> {
         scan!(dev)
     }
 }
@@ -153,7 +153,7 @@ pub mod r#async {
     /// Devices whose blocks are larger than 4096 bytes give `None`.
     pub async fn detect<D: BlockDevice + ?Sized>(
         dev: &mut D,
-    ) -> Result<Option<OpticalFormats>, D::Error> {
+    ) -> hadris_fs::FsResult<Option<OpticalFormats>, D::Error> {
         scan!(dev, await)
     }
 }
@@ -176,7 +176,7 @@ pub mod async_send {
     /// Devices whose blocks are larger than 4096 bytes give `None`.
     pub async fn detect<D: BlockDevice + ?Sized>(
         dev: &mut D,
-    ) -> Result<Option<OpticalFormats>, D::Error> {
+    ) -> hadris_fs::FsResult<Option<OpticalFormats>, D::Error> {
         scan!(dev, await)
     }
 }

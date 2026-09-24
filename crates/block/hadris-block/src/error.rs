@@ -74,15 +74,6 @@ impl<E> Error<E> {
     }
 
     #[cfg(any(feature = "sync", feature = "async"))]
-    pub(crate) fn device(err: E) -> Self {
-        Self {
-            kind: ErrorKind::Io,
-            detail: None,
-            device: Some(err),
-        }
-    }
-
-    #[cfg(any(feature = "sync", feature = "async"))]
     pub(crate) fn mount(err: hadris_fs::Error<E>, format: BlockFormat) -> Self {
         Self {
             kind: err.kind(),
@@ -153,11 +144,21 @@ impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
     }
 }
 
+impl<E> From<hadris_fs::Error<E>> for Error<E> {
+    fn from(err: hadris_fs::Error<E>) -> Self {
+        Self {
+            kind: err.kind(),
+            detail: None,
+            device: err.into_device_error(),
+        }
+    }
+}
+
 /// Keeps the kind and the device error.
 impl<E> From<Error<E>> for hadris_fs::Error<E> {
     fn from(err: Error<E>) -> Self {
         match err.device {
-            Some(device) => hadris_fs::Error::from_device(device),
+            Some(device) => hadris_fs::Error::device(device, "device failed"),
             None => err.kind.into(),
         }
     }

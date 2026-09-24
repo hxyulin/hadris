@@ -1,9 +1,9 @@
 use core::fmt;
 
 use hadris_fs::{
-    Attributes, Capabilities, CaseSensitivity, Clock, DateTime, DirCursor, DirEntry, Error,
-    ErrorKind, FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name,
-    NameBuf, NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RemoveKind, RenameFlags,
+    Attributes, Capabilities, CaseSensitivity, Clock, DateTime, DirCursor, DirEntry, ErrorKind,
+    FileTimes, FileType, FixedTable, FsResult, FsStats, Metadata, MountError, Name, NameBuf,
+    NameCharset, NameError, NewNode, NoClock, NodeId, NodeTable, RemoveKind, RenameFlags,
     SetMetadata,
 };
 use hadris_storage::BlockIndex;
@@ -1642,7 +1642,7 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
         if self.read_only {
             return Ok(());
         }
-        let result = self.dev.flush().await.map_err(Error::from);
+        let result = self.dev.flush().await;
         if let Err(err) = &result
             && err.kind() == ErrorKind::ReadOnly
         {
@@ -2642,7 +2642,6 @@ impl<D: BlockDevice, T: NodeTable, C: Clock, P: CodePage> FatFs<D, T, C, P> {
             }
             let block = &self.block.data[..self.block.size];
             if let Err(err) = self.dev.write_blocks(BlockIndex::new(index), block).await {
-                let err = Error::from(err);
                 if err.kind() == ErrorKind::ReadOnly {
                     self.read_only = true;
                 }

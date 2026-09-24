@@ -186,7 +186,9 @@ pub mod sync {
     ///
     /// Devices too small to hold a boot sector, and devices whose blocks are
     /// larger than 4096 bytes, give `None`.
-    pub fn detect<D: BlockDevice + ?Sized>(dev: &mut D) -> Result<Option<BlockFormat>, D::Error> {
+    pub fn detect<D: BlockDevice + ?Sized>(
+        dev: &mut D,
+    ) -> hadris_fs::FsResult<Option<BlockFormat>, D::Error> {
         probe!(dev)
     }
 }
@@ -205,7 +207,7 @@ pub mod r#async {
     /// larger than 4096 bytes, give `None`.
     pub async fn detect<D: BlockDevice + ?Sized>(
         dev: &mut D,
-    ) -> Result<Option<BlockFormat>, D::Error> {
+    ) -> hadris_fs::FsResult<Option<BlockFormat>, D::Error> {
         probe!(dev, await)
     }
 }
@@ -225,7 +227,7 @@ pub mod async_send {
     /// larger than 4096 bytes, give `None`.
     pub async fn detect<D: BlockDevice + ?Sized>(
         dev: &mut D,
-    ) -> Result<Option<BlockFormat>, D::Error> {
+    ) -> hadris_fs::FsResult<Option<BlockFormat>, D::Error> {
         probe!(dev, await)
     }
 }

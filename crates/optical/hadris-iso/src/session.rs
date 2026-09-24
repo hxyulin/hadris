@@ -9,7 +9,7 @@ use hadris_fs::{
 };
 use hadris_io::ErrorType;
 use hadris_part::{Disk, Gpt, GptEntry, Hybrid, HybridMbr, PartitionKind, PartitionTable};
-use hadris_storage::{BlockIndex, BlockSize, StorageError};
+use hadris_storage::{BlockIndex, BlockSize};
 
 use super::image::IsoImage;
 use super::storage::BlockDevice;
@@ -68,7 +68,7 @@ struct Sectors<'a, D> {
 }
 
 impl<D: BlockDevice> ErrorType for Sectors<'_, D> {
-    type Error = StorageError<D::Error>;
+    type Error = D::Error;
 }
 
 io_transform! {
@@ -82,18 +82,17 @@ impl<D: BlockDevice> BlockDevice for Sectors<'_, D> {
         self.len / 512
     }
 
-    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error> {
-        let offset = first.get().checked_mul(512).ok_or(StorageError::OutOfRange)?;
+    async fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), hadris_fs::Error<Self::Error>> {
+        let past_end = || {
+            hadris_fs::Error::new(ErrorKind::InvalidInput, "block request past the end of the device")
+                .with_location(hadris_fs::Location::Block(first.get()))
+        };
+        let offset = first.get().checked_mul(512).ok_or_else(past_end)?;
         if offset.saturating_add(buf.len() as u64) > self.len {
-            return Err(StorageError::OutOfRange);
+            return Err(past_end());
         }
         let len = self.len;
-        super::image::read_bytes(self.dev, len, offset, buf).await.map_err(|err| {
-            match err.into_device_error() {
-                Some(err) => StorageError::Device(err),
-                None => StorageError::OutOfRange,
-            }
-        })
+        Ok(super::image::read_bytes(self.dev, len, offset, buf).await?)
     }
 }
 

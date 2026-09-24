@@ -124,13 +124,13 @@ async fn read_bytes<D: BlockDevice>(
             let whole = left - left % bs as usize;
             dev.read_blocks(block, &mut buf[done..done + whole])
                 .await
-                .map_err(Error::device)?;
+                .map_err(Error::from)?;
             done += whole;
             pos += whole as u64;
         } else {
             let mut scratch = [0u8; MAX_BLOCK];
             let scratch = &mut scratch[..bs as usize];
-            dev.read_blocks(block, scratch).await.map_err(Error::device)?;
+            dev.read_blocks(block, scratch).await.map_err(Error::from)?;
             let take = (bs as usize - within).min(left);
             buf[done..done + take].copy_from_slice(&scratch[within..within + take]);
             done += take;

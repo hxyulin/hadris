@@ -6,7 +6,7 @@ use hadris_fs::{DirCursor, ErrorKind, FileType, Name, NameBuf, NodeId};
 use hadris_ntfs::Error;
 use hadris_ntfs::raw;
 use hadris_ntfs::sync::NtfsFs;
-use hadris_storage::{BlockSize, MemDevice, OutOfRange};
+use hadris_storage::{BlockSize, MemDevice};
 
 #[path = "support/image.rs"]
 mod image;
@@ -20,7 +20,7 @@ fn open(image: Vec<u8>) -> NtfsFs<MemDevice<Vec<u8>>> {
     NtfsFs::open(device(image)).expect("crafted image must mount")
 }
 
-fn open_err(image: Vec<u8>) -> Error<OutOfRange> {
+fn open_err(image: Vec<u8>) -> Error<core::convert::Infallible> {
     match NtfsFs::open(device(image)) {
         Ok(_) => panic!("the image mounted"),
         Err(err) => Error::from(hadris_fs::Error::from(err)),

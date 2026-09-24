@@ -12,6 +12,9 @@
 //! - [`io`], [`storage`] and [`fs`]: I/O traits, block devices and
 //!   adapters, and the shared filesystem vocabulary, traits, handles and
 //!   input tree. Always present.
+//! - [`Error`], [`ErrorKind`], [`Location`], [`DetailCode`], [`Errno`],
+//!   [`FsResult`] and [`MountError`] at the root: the one error type every
+//!   device and filesystem operation returns.
 //! - `fat`, `part`, `iso`, `udf`, `cd`, `cpio`: one format crate each.
 //! - `block` and `optical`: detection and opening of whatever volume or
 //!   image a device holds.
@@ -62,6 +65,8 @@ pub use hadris_storage as storage;
 /// The shared filesystem vocabulary, errors, driver traits, handles and
 /// input tree.
 pub use hadris_fs as fs;
+
+pub use hadris_fs::{DetailCode, Errno, Error, ErrorKind, FsResult, Location, MountError};
 
 /// FAT12, FAT16, FAT32 and exFAT.
 #[cfg(feature = "fat")]

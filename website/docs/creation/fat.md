@@ -97,7 +97,7 @@ use hadris_storage::{BlockSize, MemDevice};
 let dev = MemDevice::new(vec![0_u8; 4 * 1024 * 1024], BlockSize::new(512).unwrap());
 let fs = format(dev, FormatOptions::new())?;
 let bytes: Vec<u8> = fs.into_inner().into_inner();
-# Ok::<(), hadris_fs::Error<hadris_storage::OutOfRange>>(())
+# Ok::<(), hadris_fs::Error<core::convert::Infallible>>(())
 ```
 
 The same `format` exists in `hadris_fat::r#async` and `hadris_fat::async_send`

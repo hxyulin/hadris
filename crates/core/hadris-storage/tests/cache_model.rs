@@ -79,13 +79,13 @@ struct Counting {
 }
 
 impl hadris_io::ErrorType for Counting {
-    type Error = hadris_storage::OutOfRange;
+    type Error = core::convert::Infallible;
 }
 
 #[cfg(feature = "sync")]
 mod sync {
     use super::*;
-    use hadris_storage::WriteError;
+    use hadris_io::Error;
     use hadris_storage::sync::{BlockDevice, Cache};
 
     impl BlockDevice for Counting {
@@ -97,7 +97,11 @@ mod sync {
             self.inner.block_count()
         }
 
-        fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Self::Error> {
+        fn read_blocks(
+            &mut self,
+            first: BlockIndex,
+            buf: &mut [u8],
+        ) -> Result<(), Error<Self::Error>> {
             self.reads += 1;
             self.inner.read_blocks(first, buf)
         }
@@ -106,7 +110,7 @@ mod sync {
             &mut self,
             first: BlockIndex,
             buf: &[u8],
-        ) -> Result<(), WriteError<Self::Error>> {
+        ) -> Result<(), Error<Self::Error>> {
             self.writes += 1;
             self.inner.write_blocks(first, buf)
         }

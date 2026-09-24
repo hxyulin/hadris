@@ -11,6 +11,9 @@ use hadris_io::sync::MaybeSend;
 mod api;
 pub use api::*;
 
+#[cfg(feature = "std")]
+type FileResult = Result<(), hadris_io::Error<std::io::Error>>;
+
 /// Windows refuses `FlushFileBuffers` on a handle without write access.
 #[cfg(feature = "std")]
 fn is_read_only_handle(err: &std::io::Error) -> bool {
@@ -19,8 +22,8 @@ fn is_read_only_handle(err: &std::io::Error) -> bool {
 
 /// A host file is a block device with 512-byte blocks.
 ///
-/// Errors are the `std::io::Error` itself, so `raw_os_error()` survives. A
-/// file opened read-only fails writes with the OS error. The block count
+/// Device errors are the `std::io::Error` itself, so `raw_os_error()`
+/// survives. A file opened read-only fails writes with the OS error. The block count
 /// comes from [`file_len`](crate::file_len), so disk devices are measured
 /// too; it is 0 when the size cannot be determined.
 #[cfg(feature = "std")]
@@ -33,31 +36,34 @@ impl BlockDevice for std::fs::File {
         crate::file_len(self).map_or(0, |len| len / 512)
     }
 
-    fn read_blocks(&mut self, first: crate::BlockIndex, buf: &mut [u8]) -> std::io::Result<()> {
+    fn read_blocks(&mut self, first: crate::BlockIndex, buf: &mut [u8]) -> FileResult {
         let offset = crate::device::byte_offset(self.block_size(), first)?;
-        std::io::Seek::seek(self, std::io::SeekFrom::Start(offset))?;
-        std::io::Read::read_exact(self, buf)
+        std::io::Seek::seek(self, std::io::SeekFrom::Start(offset))
+            .and_then(|_| std::io::Read::read_exact(self, buf))
+            .map_err(|err| {
+                hadris_io::Error::device(err, "reading the file failed")
+                    .with_location(hadris_io::Location::Block(first.get()))
+            })
     }
 
-    fn write_blocks(
-        &mut self,
-        first: crate::BlockIndex,
-        buf: &[u8],
-    ) -> Result<(), crate::WriteError<std::io::Error>> {
-        let offset =
-            crate::device::byte_offset(self.block_size(), first).map_err(std::io::Error::from)?;
-        std::io::Seek::seek(self, std::io::SeekFrom::Start(offset))?;
-        Ok(std::io::Write::write_all(self, buf)?)
+    fn write_blocks(&mut self, first: crate::BlockIndex, buf: &[u8]) -> FileResult {
+        let offset = crate::device::byte_offset(self.block_size(), first)?;
+        std::io::Seek::seek(self, std::io::SeekFrom::Start(offset))
+            .and_then(|_| std::io::Write::write_all(self, buf))
+            .map_err(|err| {
+                hadris_io::Error::device(err, "writing the file failed")
+                    .with_location(hadris_io::Location::Block(first.get()))
+            })
     }
 
     /// Calls `sync_data`, so a flush reaches stable storage. On Windows a
     /// file opened read-only has nothing to write and succeeds without
     /// syncing.
-    fn flush(&mut self) -> Result<(), crate::WriteError<std::io::Error>> {
+    fn flush(&mut self) -> FileResult {
         match self.sync_data() {
             Ok(()) => Ok(()),
             Err(err) if is_read_only_handle(&err) => Ok(()),
-            Err(err) => Err(err.into()),
+            Err(err) => Err(hadris_io::Error::device(err, "syncing the file failed")),
         }
     }
 }
@@ -65,10 +71,17 @@ impl BlockDevice for std::fs::File {
 #[cfg(all(test, feature = "std"))]
 mod device_tests {
     use hadris_io::sync::{Read as _, Seek as _, Write as _};
-    use hadris_io::{ErrorType, SeekFrom, StdIo};
+    use hadris_io::{Error, ErrorKind, ErrorType, Location, SeekFrom, StdIo};
 
     use crate::sync::{BlockDevice, ByteView, Cache, Slice, StreamDevice};
-    use crate::{BlockIndex, BlockSize, MemDevice, OutOfRange, ReadOnly, StorageError, WriteError};
+    use crate::{BlockIndex, BlockSize, MemDevice, ReadOnly};
+
+    fn kind<T, E>(result: Result<T, Error<E>>) -> ErrorKind {
+        match result {
+            Ok(_) => panic!("expected an error"),
+            Err(err) => err.kind(),
+        }
+    }
 
     const B4: BlockSize = match BlockSize::new(4) {
         Some(size) => size,
@@ -91,21 +104,22 @@ mod device_tests {
         device.write_blocks(BlockIndex::new(3), &[9; 4]).unwrap();
         assert_eq!(&device.get_ref()[12..18], &[9, 9, 9, 9, 16, 17]);
 
+        let err = device
+            .read_blocks(BlockIndex::new(3), &mut buf)
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert_eq!(err.location(), Some(Location::Block(3)));
         assert_eq!(
-            device.read_blocks(BlockIndex::new(3), &mut buf),
-            Err(OutOfRange)
+            kind(device.read_blocks(BlockIndex::new(0), &mut buf[..3])),
+            ErrorKind::InvalidInput
         );
         assert_eq!(
-            device.read_blocks(BlockIndex::new(0), &mut buf[..3]),
-            Err(OutOfRange)
+            kind(device.read_blocks(BlockIndex::new(u64::MAX), &mut buf)),
+            ErrorKind::InvalidInput
         );
         assert_eq!(
-            device.read_blocks(BlockIndex::new(u64::MAX), &mut buf),
-            Err(OutOfRange)
-        );
-        assert_eq!(
-            device.write_blocks(BlockIndex::new(4), &[0; 4]),
-            Err(WriteError::Device(OutOfRange))
+            kind(device.write_blocks(BlockIndex::new(4), &[0; 4])),
+            ErrorKind::InvalidInput
         );
     }
 
@@ -114,8 +128,8 @@ mod device_tests {
         let bytes = counting(8);
         let mut device = MemDevice::new(&bytes[..], B4);
         assert_eq!(
-            device.write_blocks(BlockIndex::new(0), &[0; 4]),
-            Err(WriteError::ReadOnly)
+            kind(device.write_blocks(BlockIndex::new(0), &[0; 4])),
+            ErrorKind::ReadOnly
         );
     }
 
@@ -123,7 +137,7 @@ mod device_tests {
     struct Rom<'a>(&'a [u8]);
 
     impl ErrorType for Rom<'_> {
-        type Error = OutOfRange;
+        type Error = core::convert::Infallible;
     }
 
     impl BlockDevice for Rom<'_> {
@@ -135,9 +149,14 @@ mod device_tests {
             self.0.len() as u64 / 4
         }
 
-        fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), OutOfRange> {
+        fn read_blocks(
+            &mut self,
+            first: BlockIndex,
+            buf: &mut [u8],
+        ) -> Result<(), Error<Self::Error>> {
             let at = first.get() as usize * 4;
-            buf.copy_from_slice(self.0.get(at..at + buf.len()).ok_or(OutOfRange)?);
+            let bytes = self.0.get(at..at + buf.len());
+            buf.copy_from_slice(bytes.ok_or(Error::new(ErrorKind::InvalidInput, "past the end"))?);
             Ok(())
         }
     }
@@ -147,8 +166,8 @@ mod device_tests {
         let bytes = counting(8);
         let mut rom = Rom(&bytes);
         assert_eq!(
-            rom.write_blocks(BlockIndex::new(0), &[0; 4]),
-            Err(WriteError::ReadOnly)
+            kind(rom.write_blocks(BlockIndex::new(0), &[0; 4])),
+            ErrorKind::ReadOnly
         );
         assert_eq!(rom.flush(), Ok(()));
     }
@@ -163,13 +182,12 @@ mod device_tests {
         let mut buf = [0_u8; 4];
         slice.read_blocks(BlockIndex::new(1), &mut buf).unwrap();
         assert_eq!(buf, [8, 9, 10, 11]);
+        let err = slice.read_blocks(BlockIndex::new(2), &mut buf).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert_eq!(err.location(), Some(Location::Block(2)));
         assert_eq!(
-            slice.read_blocks(BlockIndex::new(2), &mut buf),
-            Err(StorageError::OutOfRange)
-        );
-        assert_eq!(
-            slice.write_blocks(BlockIndex::new(2), &buf),
-            Err(WriteError::Device(StorageError::OutOfRange))
+            kind(slice.write_blocks(BlockIndex::new(2), &buf)),
+            ErrorKind::InvalidInput
         );
 
         slice.write_blocks(BlockIndex::new(0), &[0xAA; 4]).unwrap();
@@ -185,10 +203,10 @@ mod device_tests {
         let mut buf = [0_u8; 8];
         device.read_blocks(BlockIndex::new(0), &mut buf).unwrap();
         assert_eq!(buf, [0, 1, 2, 3, 7, 7, 7, 7]);
-        assert!(matches!(
-            device.write_blocks(BlockIndex::new(2), &[0; 4]),
-            Err(WriteError::Device(StorageError::OutOfRange))
-        ));
+        assert_eq!(
+            kind(device.write_blocks(BlockIndex::new(2), &[0; 4])),
+            ErrorKind::InvalidInput
+        );
 
         let bytes = counting(8);
         let stream = ReadOnly::new(hadris_io::Cursor::new(&bytes));
@@ -198,20 +216,22 @@ mod device_tests {
             .unwrap();
         assert_eq!(&buf[..4], &[4, 5, 6, 7]);
         assert_eq!(
-            device.write_blocks(BlockIndex::new(0), &[0; 4]),
-            Err(WriteError::ReadOnly)
+            kind(device.write_blocks(BlockIndex::new(0), &[0; 4])),
+            ErrorKind::ReadOnly
         );
     }
 
     #[test]
-    fn stream_device_keeps_std_errors() {
+    fn stream_device_reports_short_streams_at_their_block() {
         let stream = StdIo::new(std::io::Cursor::new(counting(8)));
         let mut device = StreamDevice::with_block_count(stream, B4, 4);
-        let err: std::io::Error = device
+        let err = device
             .read_blocks(BlockIndex::new(3), &mut [0; 4])
-            .unwrap_err()
-            .into();
-        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert_eq!(err.location(), Some(Location::Block(3)));
+        let err: std::io::Error = err.into();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     }
 
     #[test]
@@ -239,8 +259,8 @@ mod device_tests {
         cache.read_blocks(BlockIndex::new(0), &mut all).unwrap();
         assert_eq!(&all[..8], &[1, 1, 1, 1, 2, 2, 2, 2]);
         assert_eq!(
-            cache.read_blocks(BlockIndex::new(4), &mut buf),
-            Err(OutOfRange)
+            kind(cache.read_blocks(BlockIndex::new(4), &mut buf)),
+            ErrorKind::InvalidInput
         );
 
         let device = cache.finish().unwrap();
@@ -252,8 +272,8 @@ mod device_tests {
         let bytes = counting(8);
         let mut cache = Cache::new(MemDevice::new(&bytes[..], B4), 4);
         assert_eq!(
-            cache.write_blocks(BlockIndex::new(0), &[0; 4]),
-            Err(WriteError::ReadOnly)
+            kind(cache.write_blocks(BlockIndex::new(0), &[0; 4])),
+            ErrorKind::ReadOnly
         );
         assert!(!cache.is_dirty());
     }
@@ -275,8 +295,10 @@ mod device_tests {
             ]
         );
 
-        assert_eq!(view.read_at(12, &mut buf), Err(StorageError::UnexpectedEof));
-        assert_eq!(view.write_at(15, &[0; 2]), Err(StorageError::OutOfRange));
+        let err = view.read_at(12, &mut buf).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert_eq!(err.location(), Some(Location::Byte(12)));
+        assert_eq!(kind(view.write_at(15, &[0; 2])), ErrorKind::InvalidInput);
     }
 
     #[test]
@@ -290,12 +312,15 @@ mod device_tests {
 
         view.seek(SeekFrom::End(-3)).unwrap();
         assert_eq!(view.write(&[1, 2, 3, 4]).unwrap(), 3);
-        assert_eq!(view.write_all(&[5]), Err(hadris_io::ExactError::WriteZero));
+        assert!(matches!(
+            view.write_all(&[5]),
+            Err(hadris_io::ExactError::WriteZero)
+        ));
         assert_eq!(&view.get_ref().get_ref()[5..], &[1, 2, 3]);
 
         let bytes = counting(8);
         let mut view = ByteView::new(MemDevice::new(&bytes[..], B4));
-        assert_eq!(view.write(&[1]), Err(StorageError::ReadOnly));
+        assert_eq!(kind(view.write(&[1])), ErrorKind::ReadOnly);
     }
 
     #[test]
@@ -327,10 +352,11 @@ mod device_tests {
 
         let mut read_only = std::fs::File::open(&path).unwrap();
         read_only.flush().unwrap();
-        match read_only.write_blocks(BlockIndex::new(0), &block) {
-            Err(WriteError::Device(err)) => assert!(err.raw_os_error().is_some()),
-            other => panic!("expected an OS error, got {other:?}"),
-        }
+        let err = read_only
+            .write_blocks(BlockIndex::new(0), &block)
+            .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Io);
+        assert!(err.device_error().unwrap().raw_os_error().is_some());
         std::fs::remove_file(&path).unwrap();
     }
 

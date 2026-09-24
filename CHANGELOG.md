@@ -10,6 +10,23 @@ Each published package owns its version and may be released independently.
 
 ### Added
 
+- **hadris-io (V3):** `Error<E>`, `ErrorKind`, `Location`, `DetailCode`,
+  `Errno` and `FsResult` live here, the lowest crate, so block devices and
+  filesystems return one error type; `hadris-fs` and the `hadris` root
+  re-export them. `Error<E>` carries a kind, a static `message()`, an
+  optional `location()` (byte, block, cluster or a byte of a name), an
+  optional `detail()` code (a `u16` within a static domain, for a format
+  crate's `Detail::of`) and the device's own error. The context is `Copy`
+  and needs no allocation, and `Error<E>` is `Clone` and `Copy` when `E`
+  is. Build one with `Error::new(kind, message)` or
+  `Error::device(err, message)`, then `with_location` and `with_detail`.
+- **hadris-io (V3):** `ErrorKind::NotRecognized`, for bytes that are not
+  the format at all, apart from `Corrupt`.
+- **hadris-io (V3):** `ErrorKind::errno()` returns a symbolic `Errno`, one
+  per kind, and `Errno::linux()` its number. `Unsupported` is `EOPNOTSUPP`,
+  `Corrupt` is `EUCLEAN` and `InvalidHandle` is `ESTALE`.
+- **hadris (V3):** `Error`, `ErrorKind`, `Location`, `DetailCode`, `Errno`,
+  `FsResult` and `MountError` are re-exported at the crate root.
 - **Examples (V3):** A `volume-list` example detects a FAT12/16/32, exFAT
   or NTFS image, opens it with `hadris-block`'s `OpenVolume` and prints its
   tree through one function generic over `FsDriver`. `examples/README.md`
@@ -444,6 +461,24 @@ Each published package owns its version and may be released independently.
 
 ### Changed
 
+- **hadris-storage (V3):** `BlockDevice::read_blocks`, `write_blocks` and
+  `flush` return `hadris_io::Error<Self::Error>`. A device failure is
+  `Error::device`, a refused write is kind `ReadOnly`, and a request an
+  adapter refuses itself, such as one past the end of a `Slice` or a
+  `MemDevice`, is kind `InvalidInput` with the block as its location.
+  Adapters keep the device's error type: `Slice<D>` and `StreamDevice<T>`
+  report `D::Error` and `T::Error`, `Cache<D>` reports `D::Error`,
+  `ByteView<D>` reports `Error<D::Error>` from `read_at`, `write_at` and its
+  stream traits, and `MemDevice` reports `Infallible`. A short stream under
+  a `StreamDevice` fails with kind `InvalidInput`.
+- **hadris-fs (V3):** `Error<E>`, `ErrorKind` and `FsResult` are
+  re-exported from `hadris-io`. `Display` shows the message and location;
+  a device error is only the `source()`, so chain printers show each text
+  once. Converting an error without a device error into `std::io::Error`
+  keeps it as the payload, an `Error<Infallible>`, instead of the bare
+  `ErrorKind`. `AnyError` keeps the message, location and detail too.
+- **hadris-block, hadris-optical (V3):** `detect` returns
+  `hadris_fs::FsResult`, since block reads return `hadris_fs::Error`.
 - **hadris-storage (V3):** `Cache` keeps its blocks on an LRU list and its
   dirty blocks in an ordered set, so a miss, an eviction and a flush no
   longer scan every slot (a 64 MiB FAT32 copy through a 65536-block cache
@@ -821,6 +856,10 @@ Each published package owns its version and may be released independently.
 
 ### Removed
 
+- **hadris-storage (V3):** `WriteError`, `StorageError` and `OutOfRange`.
+  Every block operation returns `hadris_io::Error`; see Changed.
+- **hadris-fs (V3):** `Error::from_device`; use `Error::device(err,
+  message)`.
 - **hadris-fat (V3):** The exFAT preview API: `ExFatVolume`, `ExFatInfo`,
   `ExFatDir`, `ExFatDirIter`, `ExFatFileEntry`, `ExFatFileReader`,
   `ExFatFileWriter`, `ExFatFormatOptions`, `ExFatLayoutParams`,

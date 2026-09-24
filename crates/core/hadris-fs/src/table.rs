@@ -114,7 +114,7 @@ impl<V> From<TableFull<V>> for ErrorKind {
 
 impl<V, E> From<TableFull<V>> for Error<E> {
     fn from(_: TableFull<V>) -> Self {
-        ErrorKind::LimitExceeded.into()
+        Error::new(ErrorKind::LimitExceeded, "node table is full")
     }
 }
 

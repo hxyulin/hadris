@@ -350,6 +350,13 @@ let file = std::fs::File::options().read(true).write(true).open("disk.img")?;
 let fs = FatFs::mount(host::FileDevice::new(file)?, host::mount_options())?;
 ```
 
+**The Hadris error lives here** ([Q10](#7-open-questions)). `Error<E>`,
+`ErrorKind`, `Location`, `DetailCode`, `Errno` and `FsResult` (4.6) are
+defined in `hadris-io`, the lowest crate, because block devices return
+`Error<E>` (4.2) and `hadris-fs` depends on `hadris-storage`. `hadris-fs`
+and the `hadris` root re-export them, so users write `hadris_fs::Error` or
+`hadris::Error`.
+
 **Errors are the device's own.** The earlier draft erased every device error
 into one `hadris_io::Error`. That lost the device error without `alloc`,
 which is exactly the kernel case, and it made a std user unwrap a Hadris
@@ -376,7 +383,7 @@ pub trait BlockDevice {
     type Error: core::error::Error + Send + Sync + 'static;
     fn block_size(&self) -> u32;
     fn block_count(&self) -> u64;
-    async fn read_blocks(&mut self, first: u64, buf: &mut [u8]) -> Result<(), Self::Error>;
+    async fn read_blocks(&mut self, first: u64, buf: &mut [u8]) -> Result<(), Error<Self::Error>>;
 
     // Defaulted, so a read-only device implements only the lines above.
     fn max_block_count(&self) -> u64 { self.block_count() }
@@ -392,7 +399,7 @@ pub trait BlockDevice {
 has neither and is what the embedded async API takes.
 
 - One trait with defaulted writes, not separate read and write device traits. A read-only device must still mount (IO-RO-01), and in 3.x `UdfFs<D: BlockDevice>` gains writes with no new bound (NF-STABLE-02).
-- `write_blocks` and `flush` return the crate-wide `Error<E>` (4.6), not a separate `WriteError<E>` (post-pass decision B, S5). A device that refuses a write returns kind `ReadOnly`; any other failure is `Error::device(e, message)`. `flush` returns `Error<E>` too, because a write-back device writes there.
+- `read_blocks`, `write_blocks` and `flush` return the crate-wide `Error<E>` (4.6), not a separate `WriteError<E>` (post-pass decision B, S5; [Q11](#7-open-questions) for reads). A device that refuses a write returns kind `ReadOnly`; a device failure is `Error::device(e, message)`. `flush` returns `Error<E>` too, because a write-back device writes there.
 - `max_block_count` lets a writer grow its output: `Vec<u8>` and `host::FileDevice` report more than `block_count` and grow when written past the end (IO-GROW-01). Writers check the planned size against it before writing anything.
 - `disk_offset` is the byte offset of block 0 within the disk the device is a window of. `Partition` adds its start. Formatting records it as the FAT hidden sectors or the exFAT partition offset (VOL-FORMAT-03).
 
@@ -422,10 +429,11 @@ Provided devices and adapters:
 | `ByteView<D>` | Byte-granular `read_at` and `write_at` with read-modify-write for partial blocks. Used by format crates for records that straddle blocks. Without `alloc` its scratch buffer caps the block size at 4096. |
 
 Adapters keep `D::Error` as their error type. `StorageError`, `OutOfRange` and
-`WriteError` are gone (S5): refusals on the write path are `Error<E>` values
-with a kind. How an adapter reports a read it refuses itself, such as a
-request past the end of a `Partition`, is [Q11](#7-open-questions), since
-`read_blocks` returns the plain device error.
+`WriteError` are gone (S5): a request an adapter refuses itself, such as a
+read or write past the end of a `Partition` or a `MemDevice`, is an
+`Error<E>` of kind `InvalidInput` with the block as its `Location`, and
+never reaches the device (Q11). `MemDevice` and `Vec<u8>` have the device
+error `Infallible`.
 
 A filesystem sector can be larger than the device block (FAT 4096-byte
 sectors on a 512-byte image) but not smaller unless the device is a
@@ -436,8 +444,9 @@ blocks of 512 to 4096 bytes (ISO: 512 to 2048) and refuses others with
 cpio stays on `Read` and `Write` streams, since it must work on pipes.
 
 `hadris-storage` stays a separate crate below `hadris-fs`, so a device
-implementation depends on devices only. Because `write_blocks` returns
-`Error<E>`, that type sits at or below this crate ([Q10](#7-open-questions)).
+implementation depends on devices only. Because the block methods return
+`Error<E>`, that type is defined in `hadris-io`, below this crate
+([Q10](#7-open-questions)).
 
 ### 4.3 `hadris-fs`: shared vocabulary and traits
 
@@ -721,33 +730,39 @@ cap ([Q8](#7-open-questions)).
 Every operation in every crate returns one type, generic over the device's
 error:
 
+Defined in `hadris-io` and re-exported by `hadris-fs` and `hadris` (Q10):
+
 ```rust
 #[derive(Clone, Copy)]                 // when E is
-pub struct Error<E> {
-    kind: ErrorKind,
-    message: &'static str,
-    location: Option<Location>,
-    detail: u16,
-    device: Option<E>,
-}
+pub struct Error<E> { .. }             // kind, message, location, detail code, device error
 
 impl<E> Error<E> {
-    pub fn new(kind: ErrorKind, message: &'static str) -> Self;
-    pub fn device(error: E, message: &'static str) -> Self;     // kind Io
+    pub const fn new(kind: ErrorKind, message: &'static str) -> Self;
+    pub const fn device(error: E, message: &'static str) -> Self;   // kind Io
     pub fn with_location(self, location: Location) -> Self;
-    pub fn with_detail(self, code: u16) -> Self;
+    pub fn with_detail(self, detail: DetailCode) -> Self;
     pub fn kind(&self) -> ErrorKind;
     pub fn message(&self) -> &'static str;
     pub fn location(&self) -> Option<Location>;
-    pub fn detail_code(&self) -> Option<u16>;
+    pub fn detail(&self) -> Option<DetailCode>;
     pub fn device_error(&self) -> Option<&E>;
     pub fn into_device_error(self) -> Option<E>;
+    pub fn map_device<F>(self, f: impl FnOnce(E) -> F) -> Error<F>;
+    pub fn without_device<F>(&self) -> Error<F>;
 }
 
 pub type FsResult<T, E> = Result<T, Error<E>>;
 
 #[non_exhaustive]
 pub enum Location { Byte(u64), Block(u64), Cluster(u64), NameByte(u32) }
+
+pub struct DetailCode { .. }           // a u16 within a static domain
+impl DetailCode {
+    pub const fn new(domain: &'static str, code: u16) -> Self;
+    pub fn domain(self) -> &'static str;
+    pub fn code(self) -> u16;
+    pub fn code_in(self, domain: &str) -> Option<u16>;
+}
 
 pub struct MountError<D, E> { .. }     // the Error<E> and the device given back
 impl<D, E> MountError<D, E> {
@@ -781,9 +796,9 @@ pub enum ErrorKind {
 }
 ```
 
-- The context is `Copy` and needs no allocation: a static message, an optional location and a detail code, so nothing is dropped at crate boundaries. Each crate has a `#[non_exhaustive] enum Detail` read back with `Detail::of(&err)`. Detail codes are shared with `check` findings (4.15), so the finding for a bad boot sector carries the code mount fails with. The per-crate `Error` wrappers are removed.
+- The context is `Copy` and needs no allocation: a static message, an optional location and a detail code, so nothing is dropped at crate boundaries. The detail code is a `u16` within a static domain (the crate name), so `Detail::of` of one crate never misreads another crate's code. Each crate has a `#[non_exhaustive] enum Detail` read back with `Detail::of(&err)`. Two errors are equal when their kinds and device errors are; the context never takes part. Detail codes are shared with `check` findings (4.15), so the finding for a bad boot sector carries the code mount fails with. The per-crate `Error` wrappers are removed.
 - `NotRecognized` separates "not this format" from `Corrupt`, so `detect` and `open` can tell a foreign device from a damaged one.
-- `ErrorKind::errno()` returns a symbolic `Errno` (one per kind); `Errno::linux()` gives the number. `Unsupported` is `EOPNOTSUPP`, never `ENOSYS`. One kind maps to one errno, so FAT chmod refusals give `EOPNOTSUPP` where Linux vfat gives `EPERM`. `Errno::darwin()` for macFUSE is additive.
+- `ErrorKind::errno()` returns a symbolic `Errno` (one per kind); `Errno::linux()` gives the number. `Unsupported` is `EOPNOTSUPP`, never `ENOSYS`; `NotRecognized` and `InvalidInput` are `EINVAL`, `Corrupt` is `EUCLEAN` (Linux `EFSCORRUPTED`), `LimitExceeded` is `EOVERFLOW` and `InvalidHandle` is `ESTALE`. One kind maps to one errno, so FAT chmod refusals give `EOPNOTSUPP` where Linux vfat gives `EPERM`. `Errno::darwin()` for macFUSE is additive.
 - An error either shows its source's text in `Display` or returns it from `source()`, never both, so `anyhow`'s `{:#}` prints each message once.
 - **Kernels** keep their own error without `alloc`. The errno mapping is `err.kind().errno()`, or a `match` on `(err.kind(), err.device_error())`. Filesystem failures have no device error.
 - **std users** use `?` into `std::io::Error` or `Box<dyn Error>`. A device error that is already an `io::Error` comes back as itself, found by a downcast that does not allocate, so `raw_os_error()` survives. Any other device error becomes the source of an `io::Error` with kind `Other` and can be downcast back out. Filesystem failures map their kind (`NotFound` to `NotFound`, `ReadOnly` to `ReadOnlyFilesystem`, and so on).
@@ -1412,7 +1427,7 @@ image as `ImageFormat::IsoUdfBridge`, then `Iso`, then `Udf`.
 - Errors are `Error<E>` with an `ntfs::Detail`; `NtfsError` is gone. `raw::*` is no longer glob re-exported. `attr` types with raw `u8`/`u32` codes move to `raw`; the public API uses enums.
 - Native API for streams: `streams(node)` lists named data streams, and `read_stream_at(node, name, offset, buf)` reads one.
 - `mount` seeks to the boot sector instead of reading from the current position (falls out of `BlockDevice`).
-- `detect` in the umbrella reports `ImageFormat::Ntfs`. The record layer is exposed under `unstable-ntfs` (4.15). Whether `open` and `AnyFs` reach NTFS while it is unstable is [Q12](#7-open-questions).
+- `detect` in the umbrella reports `ImageFormat::Ntfs`. The record layer is exposed under `unstable-ntfs` (4.15). `open` and `AnyFs` do not reach NTFS in 3.0 ([Q12](#7-open-questions)).
 
 **Feature work.** `$MFTMirr` fallback, compressed streams, reparse points
 (exposed as symlinks where they are symlinks or junctions), keyed B-tree
@@ -1501,8 +1516,8 @@ Removed (S2). Detection and opening move into the umbrella crate (5.9):
 
 - `detect(&mut dev) -> FsResult<Detection, D::Error>` reads a few blocks and never writes. `Detection` (`first`, `iter`) lists every format found, most specific first, with no allocation: a hybrid ISO is `Iso` then `Gpt` or `Mbr`, a bridge image `IsoUdfBridge`, `Iso`, `Udf`. Each `Candidate` has its `ImageFormat` and, when its first structures are damaged, the error mount would give (`damage()`, kind `Corrupt` with the format's detail code), so "damaged" never reads as "not this format" (D5).
 - `ImageFormat` is one non-exhaustive enum for block, partition, optical and archive images: `Fat(FatKind)`, `ExFat`, `Iso`, `Udf`, `IsoUdfBridge`, `Cpio(Format)`, `Mbr`, `Gpt`, `Ntfs`. `FatVariant` and `BlockFormat::Fat(FatVariant::ExFat)` are gone (D4).
-- `open(dev, MountOptions) -> Result<AnyFs<D>, MountError<D, D::Error>>` (`alloc`) mounts the first filesystem `detect` finds with the caller's options. A device holding only a partition table or an archive fails with `NotRecognized`, giving the device back.
-- `AnyFs<D>` is a non-exhaustive enum (`Fat`, `ExFat`, `Iso`, `Udf`) that implements `FileSystem` and reaches format extras by `match`. It is an enum, not a `Box<dyn FileSystem>`, because the async trait is not dyn-compatible. It replaces the `OpenVolume` and `OpenOpticalImage` structs and their `as_*` accessors.
+- `open(dev, MountOptions) -> Result<AnyFs<D>, MountError<D, D::Error>>` (`alloc`) mounts the first filesystem `detect` finds with the caller's options. A device holding only a partition table or an archive fails with `NotRecognized`, giving the device back. So does an NTFS volume, with the message `"ntfs"`, while `detect` still lists it (Q12).
+- `AnyFs<D>` is a non-exhaustive enum (`Fat`, `ExFat`, `Iso`, `Udf`; `Ntfs` is added once NTFS is stable, Q12) that implements `FileSystem` and reaches format extras by `match`. It is an enum, not a `Box<dyn FileSystem>`, because the async trait is not dyn-compatible. It replaces the `OpenVolume` and `OpenOpticalImage` structs and their `as_*` accessors.
 
 ### 5.9 `hadris` (umbrella)
 
@@ -1649,27 +1664,24 @@ embedded API with exFAT read-only in 3.0. Async-only with a `block_on` sync
 wrapper was measured and rejected (4.15). The API prototype then replaced
 `host::Error` with the crate-wide `PathError` (pass 2).
 
-**Q10. Where `Error<E>` lives.** Open. Decision B makes
-`BlockDevice::write_blocks` and `flush` return `Error<E>`, and `hadris-fs`
-depends on `hadris-storage`, so `Error<E>`, `ErrorKind` and `Location` must
-be defined at or below `hadris-storage`. The obvious home is `hadris-io` (the
-lowest crate), re-exported from `hadris-storage`, `hadris-fs` and the
-umbrella as `hadris_fs::Error`. The alternative is to merge `hadris-storage`
-into `hadris-fs`. To settle in redesign step R2.
+**Q10. Where `Error<E>` lives.** Resolved 2026-09-24 by the user.
+`Error<E>`, `ErrorKind` and `Location`, with the detail-code plumbing
+(`DetailCode`), `Errno` and `FsResult`, live in `hadris-io`, the lowest
+crate. `hadris-fs` and the umbrella `hadris` re-export them. Decision B makes
+the block methods return `Error<E>` and `hadris-fs` depends on
+`hadris-storage`, so the type had to sit at or below `hadris-storage`;
+merging `hadris-storage` into `hadris-fs` was the rejected alternative.
 
-**Q11. Read refusals by adapters.** Open. `read_blocks` returns the plain
-`Self::Error`, and adapters keep `D::Error` (4.2), so a `Partition` or
-`MemDevice` has no way to report a read it refuses itself (a request past its
-end) once `StorageError` and `OutOfRange` are gone. Options: `read_blocks`
-also returns `Error<E>`, as the write path does; adapters get their own small
-error type again; or the drivers never issue such reads and adapters treat
-them as caller bugs with a documented, non-panicking result. To settle in
-redesign step R3.
+**Q11. Read refusals by adapters.** Resolved 2026-09-24 by the user.
+`BlockDevice::read_blocks` returns `Error<Self::Error>` like `write_blocks`
+and `flush`. A read an adapter refuses itself (past the end of a
+`Partition` or a memory device) is an `ErrorKind` with a `Location`, so
+`StorageError` and `OutOfRange` are gone. The rejected options were a small
+adapter error type again, and treating such reads as caller bugs.
 
-**Q12. NTFS in `open`.** Open. `detect` reports `ImageFormat::Ntfs`, but
-`AnyFs` has no NTFS variant, and R3 forbids a variant that exists only with
-`unstable-ntfs`. Step 11's `OpenVolume` always opened NTFS for the same
-reason. Options: an `AnyFs::Ntfs` variant in every build, whose payload type
-is stable while its native API stays behind the feature; or `open` fails with
-`Unsupported` for NTFS until NTFS stabilises, and the variant is added then
-(`AnyFs` is non-exhaustive).
+**Q12. NTFS in `open`.** Resolved 2026-09-24 by the user. `AnyFs` gets no
+NTFS variant in 3.0: `open` fails with `NotRecognized` and the message
+`"ntfs"` on an NTFS volume, while `detect` still lists `ImageFormat::Ntfs`.
+`AnyFs` is non-exhaustive, so the variant is added in the 3.x minor that
+stabilises NTFS. A variant present in every build with a stable payload was
+the rejected alternative.

@@ -9,8 +9,8 @@ The vocabulary is mode-independent and performs no I/O:
 - `DateTime`, `FileTimes` and `Clock`, with civil-time conversions for on-disk encodings
 - `Metadata`, `SetMetadata`, `Mode` and `Attributes`
 - `Capabilities` and `FsStats`
-- `ErrorKind`, the error categories shared by every crate
-- `Error<E>`, the error of every filesystem operation, which keeps the device's own error `E` without allocation, and `AnyError` (`alloc`), which erases it for code that mixes devices
+- `ErrorKind`, the error categories shared by every crate, with `ErrorKind::errno()` and `Errno`
+- `Error<E>`, the error of every device and filesystem operation, re-exported from `hadris-io`: a kind, a static message, an optional `Location` and `DetailCode`, and the device's own error `E` without allocation; and `AnyError` (`alloc`), which erases `E` for code that mixes devices
 - `DirCursor` and `DirEntry` for resumable directory reads
 - `OpenOptions`, `RenameFlags`, `RemoveKind` and `NewNode`
 - `path`: allocation-free lexical virtual paths (formerly `hadris-path`)

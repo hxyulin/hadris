@@ -1,4 +1,6 @@
-use crate::{BlockIndex, BlockSize, OutOfRange};
+use hadris_io::{Error, ErrorKind, Location};
+
+use crate::{BlockIndex, BlockSize};
 
 /// Byte storage backing a [`MemDevice`].
 ///
@@ -101,11 +103,11 @@ impl<B: MemBuffer> MemDevice<B> {
     }
 
     #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
-    pub(crate) fn range(
+    pub(crate) fn range<E>(
         &self,
         first: BlockIndex,
         len: usize,
-    ) -> Result<core::ops::Range<usize>, OutOfRange> {
+    ) -> Result<core::ops::Range<usize>, Error<E>> {
         check_blocks(self.block_size, self.block_count(), first, len)?;
         let start = (first.get() * u64::from(self.block_size.get())) as usize;
         Ok(start..start + len)
@@ -115,7 +117,7 @@ impl<B: MemBuffer> MemDevice<B> {
 /// Marks a stream as read-only for `StreamDevice`.
 ///
 /// A `StreamDevice` over `ReadOnly<T>` needs only `T: Read + Seek` and answers
-/// writes with [`WriteError::ReadOnly`](crate::WriteError::ReadOnly).
+/// writes with [`ErrorKind::ReadOnly`].
 #[derive(Debug, Clone, Default)]
 pub struct ReadOnly<T>(pub(crate) T);
 
@@ -142,33 +144,44 @@ impl<T> ReadOnly<T> {
 }
 
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
-pub(crate) fn check_blocks(
+pub(crate) fn check_blocks<E>(
     block_size: BlockSize,
     block_count: u64,
     first: BlockIndex,
     len: usize,
-) -> Result<u64, OutOfRange> {
+) -> Result<u64, Error<E>> {
     let size = u64::from(block_size.get());
     if len as u64 % size != 0 {
-        return Err(OutOfRange);
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "buffer is not a whole number of blocks",
+        ));
     }
     let count = len as u64 / size;
     match first.get().checked_add(count) {
         Some(end) if end <= block_count => Ok(count),
-        _ => Err(OutOfRange),
+        _ => Err(out_of_range(first)),
     }
 }
 
+pub(crate) fn out_of_range<E>(first: BlockIndex) -> Error<E> {
+    Error::new(
+        ErrorKind::InvalidInput,
+        "block request past the end of the device",
+    )
+    .with_location(Location::Block(first.get()))
+}
+
 #[cfg_attr(not(any(feature = "sync", feature = "async")), allow(dead_code))]
-pub(crate) fn byte_offset(block_size: BlockSize, first: BlockIndex) -> Result<u64, OutOfRange> {
+pub(crate) fn byte_offset<E>(block_size: BlockSize, first: BlockIndex) -> Result<u64, Error<E>> {
     first
         .get()
         .checked_mul(u64::from(block_size.get()))
-        .ok_or(OutOfRange)
+        .ok_or_else(|| out_of_range(first))
 }
 
 impl<B> hadris_io::ErrorType for MemDevice<B> {
-    type Error = OutOfRange;
+    type Error = core::convert::Infallible;
 }
 
 impl<T: hadris_io::ErrorType> hadris_io::ErrorType for ReadOnly<T> {

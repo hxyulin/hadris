@@ -51,7 +51,7 @@ impl<D: BlockDevice> OpenOpticalImage<D> {
                 Error::new(ErrorKind::Unsupported, Detail::UnknownFormat),
                 dev,
             )),
-            Err(err) => Err(OpenError::new(Error::device(err), dev)),
+            Err(err) => Err(OpenError::new(err.into(), dev)),
         }
     }
 

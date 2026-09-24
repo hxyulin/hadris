@@ -132,7 +132,10 @@ fn block_zero_without_a_signature_has_no_table() {
     assert_eq!(err.detail(), Some(Detail::NoTable));
 
     let mut short = device(vec![0; 100]);
-    assert_eq!(read(&mut short).unwrap_err().kind(), ErrorKind::Io);
+    assert_eq!(
+        read(&mut short).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
 }
 
 #[test]
@@ -445,8 +448,8 @@ fn errors_convert_to_io_errors_with_their_detail() {
 
     let err = read(&mut device(vec![0; 10])).unwrap_err();
     let fs: hadris_fs::Error<_> = err.into();
-    assert_eq!(fs.kind(), ErrorKind::Io);
-    assert!(fs.device_error().is_some());
+    assert_eq!(fs.kind(), ErrorKind::InvalidInput);
+    assert!(fs.device_error().is_none());
 }
 
 #[test]

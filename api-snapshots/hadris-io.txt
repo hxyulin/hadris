@@ -273,6 +273,57 @@ pub fn alloc::boxed::Box<T>::flush(&mut self) -> core::result::Result<(), Self::
 pub fn alloc::boxed::Box<T>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
 pub fn alloc::boxed::Box<T>::write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::ExactError<Self::Error>>
 pub macro hadris_io::try_io_result_option!
+#[non_exhaustive] pub enum hadris_io::Errno
+pub hadris_io::Errno::EBUSY
+pub hadris_io::Errno::EEXIST
+pub hadris_io::Errno::EFBIG
+pub hadris_io::Errno::EINVAL
+pub hadris_io::Errno::EIO
+pub hadris_io::Errno::EISDIR
+pub hadris_io::Errno::ELOOP
+pub hadris_io::Errno::ENAMETOOLONG
+pub hadris_io::Errno::ENOENT
+pub hadris_io::Errno::ENOSPC
+pub hadris_io::Errno::ENOTDIR
+pub hadris_io::Errno::ENOTEMPTY
+pub hadris_io::Errno::EOPNOTSUPP
+pub hadris_io::Errno::EOVERFLOW
+pub hadris_io::Errno::EROFS
+pub hadris_io::Errno::ESTALE
+pub hadris_io::Errno::EUCLEAN
+impl hadris_io::Errno
+pub const fn hadris_io::Errno::linux(self) -> i32
+pub const fn hadris_io::Errno::name(self) -> &'static str
+impl core::fmt::Display for hadris_io::Errno
+pub fn hadris_io::Errno::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum hadris_io::ErrorKind
+pub hadris_io::ErrorKind::AlreadyExists
+pub hadris_io::ErrorKind::Busy
+pub hadris_io::ErrorKind::Corrupt
+pub hadris_io::ErrorKind::DirectoryNotEmpty
+pub hadris_io::ErrorKind::FileTooLarge
+pub hadris_io::ErrorKind::InvalidHandle
+pub hadris_io::ErrorKind::InvalidInput
+pub hadris_io::ErrorKind::Io
+pub hadris_io::ErrorKind::IsADirectory
+pub hadris_io::ErrorKind::LimitExceeded
+pub hadris_io::ErrorKind::NameTooLong
+pub hadris_io::ErrorKind::NoSpace
+pub hadris_io::ErrorKind::NotADirectory
+pub hadris_io::ErrorKind::NotFound
+pub hadris_io::ErrorKind::NotRecognized
+pub hadris_io::ErrorKind::ReadOnly
+pub hadris_io::ErrorKind::Symlink
+pub hadris_io::ErrorKind::Unsupported
+impl hadris_io::ErrorKind
+pub const fn hadris_io::ErrorKind::errno(self) -> hadris_io::Errno
+impl core::convert::From<hadris_io::ErrorKind> for core::io::error::ErrorKind
+pub fn core::io::error::ErrorKind::from(hadris_io::ErrorKind) -> Self
+impl core::error::Error for hadris_io::ErrorKind
+impl core::fmt::Display for hadris_io::ErrorKind
+pub fn hadris_io::ErrorKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_io::ErrorKind> for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::from(hadris_io::ErrorKind) -> Self
 #[non_exhaustive] pub enum hadris_io::ExactError<E>
 pub hadris_io::ExactError::Io(E)
 pub hadris_io::ExactError::UnexpectedEof
@@ -283,6 +334,17 @@ impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> 
 pub fn core::io::error::Error::from(hadris_io::ExactError<E>) -> Self
 impl<E: core::fmt::Display> core::fmt::Display for hadris_io::ExactError<E>
 pub fn hadris_io::ExactError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_io::ExactError<E>> for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::from(hadris_io::ExactError<E>) -> Self
+impl<E> core::convert::From<hadris_io::ExactError<hadris_io::Error<E>>> for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::from(hadris_io::ExactError<hadris_io::Error<E>>) -> Self
+#[non_exhaustive] pub enum hadris_io::Location
+pub hadris_io::Location::Block(u64)
+pub hadris_io::Location::Byte(u64)
+pub hadris_io::Location::Cluster(u64)
+pub hadris_io::Location::NameByte(u32)
+impl core::fmt::Display for hadris_io::Location
+pub fn hadris_io::Location::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub enum hadris_io::SeekFrom
 pub hadris_io::SeekFrom::Current(i64)
 pub hadris_io::SeekFrom::End(i64)
@@ -326,6 +388,45 @@ impl hadris_io::sync::Seek for hadris_io::Cursor<'_>
 pub fn hadris_io::Cursor<'_>::rewind(&mut self) -> core::result::Result<(), Self::Error>
 pub fn hadris_io::Cursor<'_>::seek(&mut self, hadris_io::SeekFrom) -> core::result::Result<u64, Self::Error>
 pub fn hadris_io::Cursor<'_>::stream_position(&mut self) -> core::result::Result<u64, Self::Error>
+pub struct hadris_io::DetailCode
+impl hadris_io::DetailCode
+pub const fn hadris_io::DetailCode::code(self) -> u16
+pub fn hadris_io::DetailCode::code_in(self, &str) -> core::option::Option<u16>
+pub const fn hadris_io::DetailCode::domain(self) -> &'static str
+pub const fn hadris_io::DetailCode::new(&'static str, u16) -> Self
+impl core::fmt::Display for hadris_io::DetailCode
+pub fn hadris_io::DetailCode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct hadris_io::Error<E>
+impl<E> hadris_io::Error<E>
+pub const fn hadris_io::Error<E>::detail(&self) -> core::option::Option<hadris_io::DetailCode>
+pub const fn hadris_io::Error<E>::device(E, &'static str) -> Self
+pub const fn hadris_io::Error<E>::device_error(&self) -> core::option::Option<&E>
+pub fn hadris_io::Error<E>::into_device_error(self) -> core::option::Option<E>
+pub const fn hadris_io::Error<E>::kind(&self) -> hadris_io::ErrorKind
+pub const fn hadris_io::Error<E>::location(&self) -> core::option::Option<hadris_io::Location>
+pub fn hadris_io::Error<E>::map_device<F>(self, impl core::ops::function::FnOnce(E) -> F) -> hadris_io::Error<F>
+pub const fn hadris_io::Error<E>::message(&self) -> &'static str
+pub const fn hadris_io::Error<E>::new(hadris_io::ErrorKind, &'static str) -> Self
+pub fn hadris_io::Error<E>::with_detail(self, hadris_io::DetailCode) -> Self
+pub fn hadris_io::Error<E>::with_location(self, hadris_io::Location) -> Self
+pub fn hadris_io::Error<E>::without_device<F>(&self) -> hadris_io::Error<F>
+impl<E: core::cmp::Eq> core::cmp::Eq for hadris_io::Error<E>
+impl<E: core::cmp::PartialEq> core::cmp::PartialEq for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::eq(&self, &Self) -> bool
+impl<E: core::error::Error + 'static> core::error::Error for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_io::Error<E>> for core::io::error::Error
+pub fn core::io::error::Error::from(hadris_io::Error<E>) -> Self
+impl<E: core::fmt::Debug> core::fmt::Debug for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::convert::From<hadris_io::ErrorKind> for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::from(hadris_io::ErrorKind) -> Self
+impl<E> core::convert::From<hadris_io::ExactError<E>> for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::from(hadris_io::ExactError<E>) -> Self
+impl<E> core::convert::From<hadris_io::ExactError<hadris_io::Error<E>>> for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::from(hadris_io::ExactError<hadris_io::Error<E>>) -> Self
+impl<E> core::fmt::Display for hadris_io::Error<E>
+pub fn hadris_io::Error<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct hadris_io::FromEmbedded<T>(_)
 impl<T> hadris_io::FromEmbedded<T>
 pub fn hadris_io::FromEmbedded<T>::get_mut(&mut self) -> &mut T
@@ -433,3 +534,4 @@ pub type hadris_io::async_send::SeekSource<T>::Error = <T as hadris_io::ErrorTyp
 impl<T: hadris_io::ErrorType> hadris_io::ErrorType for hadris_io::sync::SeekSource<T>
 pub type hadris_io::sync::SeekSource<T>::Error = <T as hadris_io::ErrorType>::Error
 pub fn hadris_io::into_std_error<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static>(E) -> core::io::error::Error
+pub type hadris_io::FsResult<T, E> = core::result::Result<T, hadris_io::Error<E>>

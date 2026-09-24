@@ -142,9 +142,11 @@ in the same way.
 
 `hadris_fat::sync::FatFs` mounts any `hadris_storage::sync::BlockDevice`.
 A device reports its block size and count and reads whole blocks; a read-only
-device leaves `write_blocks` to its default, which answers
-`WriteError::ReadOnly`. Its error type implements `core::error::Error`, so
-`FatFs` can carry it inside `hadris_fs::Error`. No allocator is needed.
+device leaves `write_blocks` to its default, which answers kind
+`ReadOnly`. Every method returns `hadris_io::Error` over the device's own
+error type, which implements `core::error::Error`; `Error::device` wraps a
+device failure with a static message, and `FatFs` passes it on unchanged.
+No allocator is needed.
 
 ```toml
 [dependencies]
@@ -156,7 +158,7 @@ hadris-storage = { version = "2.4.0", default-features = false, features = ["syn
 ```rust,no_run
 use core::fmt;
 
-use hadris_io::ErrorType;
+use hadris_io::{Error, ErrorType, Location};
 use hadris_storage::sync::BlockDevice;
 use hadris_storage::{BlockIndex, BlockSize};
 
@@ -188,10 +190,11 @@ impl BlockDevice for FirmwareDisk {
         self.blocks
     }
 
-    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), FirmwareError> {
+    fn read_blocks(&mut self, first: BlockIndex, buf: &mut [u8]) -> Result<(), Error<FirmwareError>> {
         // Read `buf.len() / 512` blocks starting at `first` from the device.
-        let _ = (first, buf);
-        Err(FirmwareError)
+        let _ = buf;
+        Err(Error::device(FirmwareError, "reading a block failed")
+            .with_location(Location::Block(first.get())))
     }
 }
 
@@ -207,8 +210,9 @@ through `hadris_storage::sync::StreamDevice`, and `std::fs::File` and
 
 Report the device's real block size and count, read and write whole blocks
 only, and fail requests past the end rather than wrapping. A device that
-cannot write leaves `write_blocks` to its default, which returns
-`WriteError::ReadOnly`; drivers report that as `ErrorKind::ReadOnly`.
+cannot write leaves `write_blocks` to its default, which returns kind
+`ReadOnly`, and drivers pass that on. A request past the end fails with
+kind `InvalidInput`.
 `flush` must make earlier writes durable, because `sync` and `sync_node`
 rely on it.
 

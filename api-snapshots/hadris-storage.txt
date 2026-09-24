@@ -8,10 +8,10 @@ pub fn hadris_storage::async::ByteView<D>::into_inner(self) -> D
 pub fn hadris_storage::async::ByteView<D>::is_empty(&self) -> bool
 pub fn hadris_storage::async::ByteView<D>::len(&self) -> u64
 pub fn hadris_storage::async::ByteView<D>::new(D) -> Self
-pub async fn hadris_storage::async::ByteView<D>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_storage::async::ByteView<D>::write_at(&mut self, u64, &[u8]) -> core::result::Result<(), hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_storage::async::ByteView<D>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_storage::async::ByteView<D>::write_at(&mut self, u64, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 impl<D: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_storage::async::ByteView<D>
-pub type hadris_storage::async::ByteView<D>::Error = hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>
+pub type hadris_storage::async::ByteView<D>::Error = hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>
 impl<D: hadris_storage::async::BlockDevice> hadris_io::async::api::Read for hadris_storage::async::ByteView<D>
 pub async fn hadris_storage::async::ByteView<D>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<D: hadris_storage::async::BlockDevice> hadris_io::async::api::Seek for hadris_storage::async::ByteView<D>
@@ -21,7 +21,7 @@ pub async fn hadris_storage::async::ByteView<D>::flush(&mut self) -> core::resul
 pub async fn hadris_storage::async::ByteView<D>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
 pub struct hadris_storage::async::Cache<D>
 impl<D: hadris_storage::async::BlockDevice> hadris_storage::async::Cache<D>
-pub async fn hadris_storage::async::Cache<D>::finish(self) -> core::result::Result<D, hadris_storage::WriteError<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_storage::async::Cache<D>::finish(self) -> core::result::Result<D, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_storage::async::Cache<D>::get_ref(&self) -> &D
 pub fn hadris_storage::async::Cache<D>::into_inner(self) -> D
 pub fn hadris_storage::async::Cache<D>::is_dirty(&self) -> bool
@@ -31,9 +31,9 @@ pub type hadris_storage::async::Cache<D>::Error = <D as hadris_io::error::ErrorT
 impl<D: hadris_storage::async::BlockDevice> hadris_storage::async::BlockDevice for hadris_storage::async::Cache<D>
 pub fn hadris_storage::async::Cache<D>::block_count(&self) -> u64
 pub fn hadris_storage::async::Cache<D>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub struct hadris_storage::async::Slice<D>
 impl<D: hadris_storage::async::BlockDevice> hadris_storage::async::Slice<D>
 pub fn hadris_storage::async::Slice<D>::first(&self) -> hadris_storage::BlockIndex
@@ -42,13 +42,13 @@ pub fn hadris_storage::async::Slice<D>::get_ref(&self) -> &D
 pub fn hadris_storage::async::Slice<D>::into_inner(self) -> D
 pub fn hadris_storage::async::Slice<D>::new(D, hadris_storage::BlockIndex, u64) -> core::result::Result<Self, D>
 impl<D: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_storage::async::Slice<D>
-pub type hadris_storage::async::Slice<D>::Error = hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>
+pub type hadris_storage::async::Slice<D>::Error = <D as hadris_io::error::ErrorType>::Error
 impl<D: hadris_storage::async::BlockDevice> hadris_storage::async::BlockDevice for hadris_storage::async::Slice<D>
 pub fn hadris_storage::async::Slice<D>::block_count(&self) -> u64
 pub fn hadris_storage::async::Slice<D>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub struct hadris_storage::async::StreamDevice<T>
 impl<T: hadris_io::async::api::Seek> hadris_storage::async::StreamDevice<T>
 pub async fn hadris_storage::async::StreamDevice<T>::new(T, hadris_storage::BlockSize) -> core::result::Result<Self, <T as hadris_io::error::ErrorType>::Error>
@@ -60,62 +60,62 @@ pub fn hadris_storage::async::StreamDevice<T>::with_block_count(T, hadris_storag
 impl<T: hadris_io::async::api::Read + hadris_io::async::api::Seek + hadris_storage::async::StreamWrite> hadris_storage::async::BlockDevice for hadris_storage::async::StreamDevice<T>
 pub fn hadris_storage::async::StreamDevice<T>::block_count(&self) -> u64
 pub fn hadris_storage::async::StreamDevice<T>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_storage::async::StreamDevice<T>
-pub type hadris_storage::async::StreamDevice<T>::Error = hadris_storage::StorageError<<T as hadris_io::error::ErrorType>::Error>
+pub type hadris_storage::async::StreamDevice<T>::Error = <T as hadris_io::error::ErrorType>::Error
 pub trait hadris_storage::async::BlockDevice: hadris_io::error::ErrorType
 pub fn hadris_storage::async::BlockDevice::block_count(&self) -> u64
 pub fn hadris_storage::async::BlockDevice::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async::BlockDevice::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async::BlockDevice::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async::BlockDevice::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async::BlockDevice::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::BlockDevice::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::BlockDevice::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<B: hadris_storage::MemBuffer + hadris_io::async::MaybeSend> hadris_storage::async::BlockDevice for hadris_storage::MemDevice<B>
 pub fn hadris_storage::MemDevice<B>::block_count(&self) -> u64
 pub fn hadris_storage::MemDevice<B>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::MemDevice<B>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_storage::OutOfRange>
-pub async fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_storage::OutOfRange>>
+pub async fn hadris_storage::MemDevice<B>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
+pub async fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
 impl<D: hadris_storage::async::BlockDevice + ?core::marker::Sized> hadris_storage::async::BlockDevice for &mut D
 pub fn &mut D::block_count(&self) -> u64
 pub fn &mut D::block_size(&self) -> hadris_storage::BlockSize
-pub async fn &mut D::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn &mut D::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn &mut D::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn &mut D::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn &mut D::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn &mut D::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<D: hadris_storage::async::BlockDevice + ?core::marker::Sized> hadris_storage::async::BlockDevice for alloc::boxed::Box<D>
 pub fn alloc::boxed::Box<D>::block_count(&self) -> u64
 pub fn alloc::boxed::Box<D>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn alloc::boxed::Box<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn alloc::boxed::Box<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn alloc::boxed::Box<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn alloc::boxed::Box<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn alloc::boxed::Box<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn alloc::boxed::Box<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<D: hadris_storage::async::BlockDevice> hadris_storage::async::BlockDevice for hadris_storage::async::Cache<D>
 pub fn hadris_storage::async::Cache<D>::block_count(&self) -> u64
 pub fn hadris_storage::async::Cache<D>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<D: hadris_storage::async::BlockDevice> hadris_storage::async::BlockDevice for hadris_storage::async::Slice<D>
 pub fn hadris_storage::async::Slice<D>::block_count(&self) -> u64
 pub fn hadris_storage::async::Slice<D>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::async::api::Read + hadris_io::async::api::Seek + hadris_storage::async::StreamWrite> hadris_storage::async::BlockDevice for hadris_storage::async::StreamDevice<T>
 pub fn hadris_storage::async::StreamDevice<T>::block_count(&self) -> u64
 pub fn hadris_storage::async::StreamDevice<T>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub trait hadris_storage::async::StreamWrite: hadris_io::error::ErrorType + hadris_storage::async::api::sealed::Sealed
-pub async fn hadris_storage::async::StreamWrite::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async::StreamWrite::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<Self::Error>>>
+pub async fn hadris_storage::async::StreamWrite::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async::StreamWrite::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::async::api::Write + ?core::marker::Sized> hadris_storage::async::StreamWrite for T
-pub async fn T::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<<T as hadris_io::error::ErrorType>::Error>>
-pub async fn T::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<<T as hadris_io::error::ErrorType>::Error>>>
+pub async fn T::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<<T as hadris_io::error::ErrorType>::Error>>
+pub async fn T::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<T as hadris_io::error::ErrorType>::Error>>
 impl<T: hadris_io::error::ErrorType + hadris_io::async::MaybeSend> hadris_storage::async::StreamWrite for hadris_storage::ReadOnly<T>
-pub async fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<Self::Error>>>
+pub async fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub mod hadris_storage::async_send
 pub struct hadris_storage::async_send::ByteView<D>
 impl<D: hadris_storage::async_send::BlockDevice> hadris_storage::async_send::ByteView<D>
@@ -125,10 +125,10 @@ pub fn hadris_storage::async_send::ByteView<D>::into_inner(self) -> D
 pub fn hadris_storage::async_send::ByteView<D>::is_empty(&self) -> bool
 pub fn hadris_storage::async_send::ByteView<D>::len(&self) -> u64
 pub fn hadris_storage::async_send::ByteView<D>::new(D) -> Self
-pub async fn hadris_storage::async_send::ByteView<D>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>>
-pub async fn hadris_storage::async_send::ByteView<D>::write_at(&mut self, u64, &[u8]) -> core::result::Result<(), hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_storage::async_send::ByteView<D>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_storage::async_send::ByteView<D>::write_at(&mut self, u64, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 impl<D: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_storage::async_send::ByteView<D>
-pub type hadris_storage::async_send::ByteView<D>::Error = hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>
+pub type hadris_storage::async_send::ByteView<D>::Error = hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>
 impl<D: hadris_storage::async_send::BlockDevice> hadris_io::async_send::api::Read for hadris_storage::async_send::ByteView<D>
 pub async fn hadris_storage::async_send::ByteView<D>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<D: hadris_storage::async_send::BlockDevice> hadris_io::async_send::api::Seek for hadris_storage::async_send::ByteView<D>
@@ -138,7 +138,7 @@ pub async fn hadris_storage::async_send::ByteView<D>::flush(&mut self) -> core::
 pub async fn hadris_storage::async_send::ByteView<D>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
 pub struct hadris_storage::async_send::Cache<D>
 impl<D: hadris_storage::async_send::BlockDevice> hadris_storage::async_send::Cache<D>
-pub async fn hadris_storage::async_send::Cache<D>::finish(self) -> core::result::Result<D, hadris_storage::WriteError<<D as hadris_io::error::ErrorType>::Error>>
+pub async fn hadris_storage::async_send::Cache<D>::finish(self) -> core::result::Result<D, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_storage::async_send::Cache<D>::get_ref(&self) -> &D
 pub fn hadris_storage::async_send::Cache<D>::into_inner(self) -> D
 pub fn hadris_storage::async_send::Cache<D>::is_dirty(&self) -> bool
@@ -148,9 +148,9 @@ pub type hadris_storage::async_send::Cache<D>::Error = <D as hadris_io::error::E
 impl<D: hadris_storage::async_send::BlockDevice> hadris_storage::async_send::BlockDevice for hadris_storage::async_send::Cache<D>
 pub fn hadris_storage::async_send::Cache<D>::block_count(&self) -> u64
 pub fn hadris_storage::async_send::Cache<D>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async_send::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async_send::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async_send::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async_send::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub struct hadris_storage::async_send::Slice<D>
 impl<D: hadris_storage::async_send::BlockDevice> hadris_storage::async_send::Slice<D>
 pub fn hadris_storage::async_send::Slice<D>::first(&self) -> hadris_storage::BlockIndex
@@ -159,13 +159,13 @@ pub fn hadris_storage::async_send::Slice<D>::get_ref(&self) -> &D
 pub fn hadris_storage::async_send::Slice<D>::into_inner(self) -> D
 pub fn hadris_storage::async_send::Slice<D>::new(D, hadris_storage::BlockIndex, u64) -> core::result::Result<Self, D>
 impl<D: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_storage::async_send::Slice<D>
-pub type hadris_storage::async_send::Slice<D>::Error = hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>
+pub type hadris_storage::async_send::Slice<D>::Error = <D as hadris_io::error::ErrorType>::Error
 impl<D: hadris_storage::async_send::BlockDevice> hadris_storage::async_send::BlockDevice for hadris_storage::async_send::Slice<D>
 pub fn hadris_storage::async_send::Slice<D>::block_count(&self) -> u64
 pub fn hadris_storage::async_send::Slice<D>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async_send::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async_send::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async_send::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async_send::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub struct hadris_storage::async_send::StreamDevice<T>
 impl<T: hadris_io::async_send::api::Seek> hadris_storage::async_send::StreamDevice<T>
 pub async fn hadris_storage::async_send::StreamDevice<T>::new(T, hadris_storage::BlockSize) -> core::result::Result<Self, <T as hadris_io::error::ErrorType>::Error>
@@ -177,62 +177,62 @@ pub fn hadris_storage::async_send::StreamDevice<T>::with_block_count(T, hadris_s
 impl<T: hadris_io::async_send::api::Read + hadris_io::async_send::api::Seek + hadris_storage::async_send::StreamWrite> hadris_storage::async_send::BlockDevice for hadris_storage::async_send::StreamDevice<T>
 pub fn hadris_storage::async_send::StreamDevice<T>::block_count(&self) -> u64
 pub fn hadris_storage::async_send::StreamDevice<T>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async_send::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async_send::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async_send::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async_send::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_storage::async_send::StreamDevice<T>
-pub type hadris_storage::async_send::StreamDevice<T>::Error = hadris_storage::StorageError<<T as hadris_io::error::ErrorType>::Error>
+pub type hadris_storage::async_send::StreamDevice<T>::Error = <T as hadris_io::error::ErrorType>::Error
 pub trait hadris_storage::async_send::BlockDevice: hadris_io::error::ErrorType + core::marker::Send
 pub fn hadris_storage::async_send::BlockDevice::block_count(&self) -> u64
 pub fn hadris_storage::async_send::BlockDevice::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::async_send::BlockDevice::flush(&mut self) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_storage::WriteError<Self::Error>>> + core::marker::Send
-pub fn hadris_storage::async_send::BlockDevice::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> impl core::future::future::Future<Output = core::result::Result<(), Self::Error>> + core::marker::Send
-pub fn hadris_storage::async_send::BlockDevice::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_storage::WriteError<Self::Error>>> + core::marker::Send
+pub fn hadris_storage::async_send::BlockDevice::flush(&mut self) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>> + core::marker::Send
+pub fn hadris_storage::async_send::BlockDevice::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>> + core::marker::Send
+pub fn hadris_storage::async_send::BlockDevice::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>> + core::marker::Send
 impl<B: hadris_storage::MemBuffer + hadris_io::async_send::MaybeSend> hadris_storage::async_send::BlockDevice for hadris_storage::MemDevice<B>
 pub fn hadris_storage::MemDevice<B>::block_count(&self) -> u64
 pub fn hadris_storage::MemDevice<B>::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::MemDevice<B>::flush(&mut self) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_storage::WriteError<Self::Error>>> + core::marker::Send
-pub async fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_storage::OutOfRange>
-pub async fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_storage::OutOfRange>>
+pub fn hadris_storage::MemDevice<B>::flush(&mut self) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>> + core::marker::Send
+pub async fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
+pub async fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
 impl<D: hadris_storage::async_send::BlockDevice + ?core::marker::Sized> hadris_storage::async_send::BlockDevice for &mut D
 pub fn &mut D::block_count(&self) -> u64
 pub fn &mut D::block_size(&self) -> hadris_storage::BlockSize
-pub async fn &mut D::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn &mut D::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn &mut D::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn &mut D::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn &mut D::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn &mut D::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<D: hadris_storage::async_send::BlockDevice + ?core::marker::Sized> hadris_storage::async_send::BlockDevice for alloc::boxed::Box<D>
 pub fn alloc::boxed::Box<D>::block_count(&self) -> u64
 pub fn alloc::boxed::Box<D>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn alloc::boxed::Box<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn alloc::boxed::Box<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn alloc::boxed::Box<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn alloc::boxed::Box<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn alloc::boxed::Box<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn alloc::boxed::Box<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<D: hadris_storage::async_send::BlockDevice> hadris_storage::async_send::BlockDevice for hadris_storage::async_send::Cache<D>
 pub fn hadris_storage::async_send::Cache<D>::block_count(&self) -> u64
 pub fn hadris_storage::async_send::Cache<D>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async_send::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async_send::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async_send::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async_send::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<D: hadris_storage::async_send::BlockDevice> hadris_storage::async_send::BlockDevice for hadris_storage::async_send::Slice<D>
 pub fn hadris_storage::async_send::Slice<D>::block_count(&self) -> u64
 pub fn hadris_storage::async_send::Slice<D>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async_send::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async_send::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async_send::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async_send::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::async_send::api::Read + hadris_io::async_send::api::Seek + hadris_storage::async_send::StreamWrite> hadris_storage::async_send::BlockDevice for hadris_storage::async_send::StreamDevice<T>
 pub fn hadris_storage::async_send::StreamDevice<T>::block_count(&self) -> u64
 pub fn hadris_storage::async_send::StreamDevice<T>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::async_send::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::async_send::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub async fn hadris_storage::async_send::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub async fn hadris_storage::async_send::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::async_send::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub trait hadris_storage::async_send::StreamWrite: hadris_io::error::ErrorType + hadris_storage::async_send::api::sealed::Sealed + core::marker::Send
-pub fn hadris_storage::async_send::StreamWrite::stream_flush(&mut self) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_storage::WriteError<Self::Error>>> + core::marker::Send
-pub fn hadris_storage::async_send::StreamWrite::stream_write_all(&mut self, &[u8]) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<Self::Error>>>> + core::marker::Send
+pub fn hadris_storage::async_send::StreamWrite::stream_flush(&mut self) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>> + core::marker::Send
+pub fn hadris_storage::async_send::StreamWrite::stream_write_all(&mut self, &[u8]) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>> + core::marker::Send
 impl<T: hadris_io::async_send::api::Write + ?core::marker::Sized> hadris_storage::async_send::StreamWrite for T
-pub async fn T::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<<T as hadris_io::error::ErrorType>::Error>>
-pub async fn T::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<<T as hadris_io::error::ErrorType>::Error>>>
+pub async fn T::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<<T as hadris_io::error::ErrorType>::Error>>
+pub async fn T::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<T as hadris_io::error::ErrorType>::Error>>
 impl<T: hadris_io::error::ErrorType + hadris_io::async_send::MaybeSend> hadris_storage::async_send::StreamWrite for hadris_storage::ReadOnly<T>
-pub async fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<Self::Error>>>
+pub async fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub mod hadris_storage::sync
 pub struct hadris_storage::sync::ByteView<D>
 impl<D: hadris_storage::sync::BlockDevice> hadris_storage::sync::ByteView<D>
@@ -242,10 +242,10 @@ pub fn hadris_storage::sync::ByteView<D>::into_inner(self) -> D
 pub fn hadris_storage::sync::ByteView<D>::is_empty(&self) -> bool
 pub fn hadris_storage::sync::ByteView<D>::len(&self) -> u64
 pub fn hadris_storage::sync::ByteView<D>::new(D) -> Self
-pub fn hadris_storage::sync::ByteView<D>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>>
-pub fn hadris_storage::sync::ByteView<D>::write_at(&mut self, u64, &[u8]) -> core::result::Result<(), hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_storage::sync::ByteView<D>::read_at(&mut self, u64, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_storage::sync::ByteView<D>::write_at(&mut self, u64, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 impl<D: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_storage::sync::ByteView<D>
-pub type hadris_storage::sync::ByteView<D>::Error = hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>
+pub type hadris_storage::sync::ByteView<D>::Error = hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>
 impl<D: hadris_storage::sync::BlockDevice> hadris_io::sync::api::Read for hadris_storage::sync::ByteView<D>
 pub fn hadris_storage::sync::ByteView<D>::read(&mut self, &mut [u8]) -> core::result::Result<usize, Self::Error>
 impl<D: hadris_storage::sync::BlockDevice> hadris_io::sync::api::Seek for hadris_storage::sync::ByteView<D>
@@ -255,7 +255,7 @@ pub fn hadris_storage::sync::ByteView<D>::flush(&mut self) -> core::result::Resu
 pub fn hadris_storage::sync::ByteView<D>::write(&mut self, &[u8]) -> core::result::Result<usize, Self::Error>
 pub struct hadris_storage::sync::Cache<D>
 impl<D: hadris_storage::sync::BlockDevice> hadris_storage::sync::Cache<D>
-pub fn hadris_storage::sync::Cache<D>::finish(self) -> core::result::Result<D, hadris_storage::WriteError<<D as hadris_io::error::ErrorType>::Error>>
+pub fn hadris_storage::sync::Cache<D>::finish(self) -> core::result::Result<D, hadris_io::fs_error::Error<<D as hadris_io::error::ErrorType>::Error>>
 pub fn hadris_storage::sync::Cache<D>::get_ref(&self) -> &D
 pub fn hadris_storage::sync::Cache<D>::into_inner(self) -> D
 pub fn hadris_storage::sync::Cache<D>::is_dirty(&self) -> bool
@@ -265,9 +265,9 @@ pub type hadris_storage::sync::Cache<D>::Error = <D as hadris_io::error::ErrorTy
 impl<D: hadris_storage::sync::BlockDevice> hadris_storage::sync::BlockDevice for hadris_storage::sync::Cache<D>
 pub fn hadris_storage::sync::Cache<D>::block_count(&self) -> u64
 pub fn hadris_storage::sync::Cache<D>::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::sync::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::sync::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub fn hadris_storage::sync::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub fn hadris_storage::sync::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub struct hadris_storage::sync::Slice<D>
 impl<D: hadris_storage::sync::BlockDevice> hadris_storage::sync::Slice<D>
 pub fn hadris_storage::sync::Slice<D>::first(&self) -> hadris_storage::BlockIndex
@@ -276,13 +276,13 @@ pub fn hadris_storage::sync::Slice<D>::get_ref(&self) -> &D
 pub fn hadris_storage::sync::Slice<D>::into_inner(self) -> D
 pub fn hadris_storage::sync::Slice<D>::new(D, hadris_storage::BlockIndex, u64) -> core::result::Result<Self, D>
 impl<D: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_storage::sync::Slice<D>
-pub type hadris_storage::sync::Slice<D>::Error = hadris_storage::StorageError<<D as hadris_io::error::ErrorType>::Error>
+pub type hadris_storage::sync::Slice<D>::Error = <D as hadris_io::error::ErrorType>::Error
 impl<D: hadris_storage::sync::BlockDevice> hadris_storage::sync::BlockDevice for hadris_storage::sync::Slice<D>
 pub fn hadris_storage::sync::Slice<D>::block_count(&self) -> u64
 pub fn hadris_storage::sync::Slice<D>::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::sync::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::sync::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub fn hadris_storage::sync::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub fn hadris_storage::sync::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub struct hadris_storage::sync::StreamDevice<T>
 impl<T: hadris_io::sync::api::Seek> hadris_storage::sync::StreamDevice<T>
 pub fn hadris_storage::sync::StreamDevice<T>::new(T, hadris_storage::BlockSize) -> core::result::Result<Self, <T as hadris_io::error::ErrorType>::Error>
@@ -292,111 +292,70 @@ pub fn hadris_storage::sync::StreamDevice<T>::get_ref(&self) -> &T
 pub fn hadris_storage::sync::StreamDevice<T>::into_inner(self) -> T
 pub fn hadris_storage::sync::StreamDevice<T>::with_block_count(T, hadris_storage::BlockSize, u64) -> Self
 impl<T: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_storage::sync::StreamDevice<T>
-pub type hadris_storage::sync::StreamDevice<T>::Error = hadris_storage::StorageError<<T as hadris_io::error::ErrorType>::Error>
+pub type hadris_storage::sync::StreamDevice<T>::Error = <T as hadris_io::error::ErrorType>::Error
 impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek + hadris_storage::sync::StreamWrite> hadris_storage::sync::BlockDevice for hadris_storage::sync::StreamDevice<T>
 pub fn hadris_storage::sync::StreamDevice<T>::block_count(&self) -> u64
 pub fn hadris_storage::sync::StreamDevice<T>::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::sync::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::sync::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub fn hadris_storage::sync::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub fn hadris_storage::sync::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub trait hadris_storage::sync::BlockDevice: hadris_io::error::ErrorType
 pub fn hadris_storage::sync::BlockDevice::block_count(&self) -> u64
 pub fn hadris_storage::sync::BlockDevice::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::sync::BlockDevice::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::sync::BlockDevice::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub fn hadris_storage::sync::BlockDevice::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub fn hadris_storage::sync::BlockDevice::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::BlockDevice::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::BlockDevice::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl hadris_storage::sync::BlockDevice for std::fs::File
 pub fn std::fs::File::block_count(&self) -> u64
 pub fn std::fs::File::block_size(&self) -> hadris_storage::BlockSize
-pub fn std::fs::File::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<core::io::error::Error>>
-pub fn std::fs::File::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::io::error::Result<()>
-pub fn std::fs::File::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<core::io::error::Error>>
+pub fn std::fs::File::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<core::io::error::Error>>
+pub fn std::fs::File::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::io::error::Error>>
+pub fn std::fs::File::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::io::error::Error>>
 impl<B: hadris_storage::MemBuffer + hadris_io::sync::MaybeSend> hadris_storage::sync::BlockDevice for hadris_storage::MemDevice<B>
 pub fn hadris_storage::MemDevice<B>::block_count(&self) -> u64
 pub fn hadris_storage::MemDevice<B>::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::MemDevice<B>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_storage::OutOfRange>
-pub fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_storage::OutOfRange>>
+pub fn hadris_storage::MemDevice<B>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
+pub fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
 impl<D: hadris_storage::sync::BlockDevice + ?core::marker::Sized> hadris_storage::sync::BlockDevice for &mut D
 pub fn &mut D::block_count(&self) -> u64
 pub fn &mut D::block_size(&self) -> hadris_storage::BlockSize
-pub fn &mut D::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn &mut D::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub fn &mut D::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub fn &mut D::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn &mut D::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn &mut D::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<D: hadris_storage::sync::BlockDevice + ?core::marker::Sized> hadris_storage::sync::BlockDevice for alloc::boxed::Box<D>
 pub fn alloc::boxed::Box<D>::block_count(&self) -> u64
 pub fn alloc::boxed::Box<D>::block_size(&self) -> hadris_storage::BlockSize
-pub fn alloc::boxed::Box<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn alloc::boxed::Box<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub fn alloc::boxed::Box<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub fn alloc::boxed::Box<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn alloc::boxed::Box<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn alloc::boxed::Box<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<D: hadris_storage::sync::BlockDevice> hadris_storage::sync::BlockDevice for hadris_storage::sync::Cache<D>
 pub fn hadris_storage::sync::Cache<D>::block_count(&self) -> u64
 pub fn hadris_storage::sync::Cache<D>::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::sync::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::sync::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub fn hadris_storage::sync::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub fn hadris_storage::sync::Cache<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::Cache<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::Cache<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<D: hadris_storage::sync::BlockDevice> hadris_storage::sync::BlockDevice for hadris_storage::sync::Slice<D>
 pub fn hadris_storage::sync::Slice<D>::block_count(&self) -> u64
 pub fn hadris_storage::sync::Slice<D>::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::sync::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::sync::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub fn hadris_storage::sync::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub fn hadris_storage::sync::Slice<D>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::Slice<D>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::Slice<D>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::sync::api::Read + hadris_io::sync::api::Seek + hadris_storage::sync::StreamWrite> hadris_storage::sync::BlockDevice for hadris_storage::sync::StreamDevice<T>
 pub fn hadris_storage::sync::StreamDevice<T>::block_count(&self) -> u64
 pub fn hadris_storage::sync::StreamDevice<T>::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::sync::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::sync::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), Self::Error>
-pub fn hadris_storage::sync::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
+pub fn hadris_storage::sync::StreamDevice<T>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::StreamDevice<T>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::StreamDevice<T>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 pub trait hadris_storage::sync::StreamWrite: hadris_io::error::ErrorType + hadris_storage::sync::api::sealed::Sealed
-pub fn hadris_storage::sync::StreamWrite::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::sync::StreamWrite::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<Self::Error>>>
+pub fn hadris_storage::sync::StreamWrite::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::sync::StreamWrite::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::error::ErrorType + hadris_io::sync::MaybeSend> hadris_storage::sync::StreamWrite for hadris_storage::ReadOnly<T>
-pub fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<Self::Error>>>
+pub fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::sync::api::Write + ?core::marker::Sized> hadris_storage::sync::StreamWrite for T
-pub fn T::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<<T as hadris_io::error::ErrorType>::Error>>
-pub fn T::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<<T as hadris_io::error::ErrorType>::Error>>>
-#[non_exhaustive] pub enum hadris_storage::StorageError<E>
-pub hadris_storage::StorageError::BlockTooLarge
-pub hadris_storage::StorageError::Device(E)
-pub hadris_storage::StorageError::OutOfRange
-pub hadris_storage::StorageError::ReadOnly
-pub hadris_storage::StorageError::UnexpectedEof
-pub hadris_storage::StorageError::WriteZero
-impl<E> hadris_storage::StorageError<E>
-pub fn hadris_storage::StorageError<E>::device_error(&self) -> core::option::Option<&E>
-pub fn hadris_storage::StorageError<E>::into_device_error(self) -> core::option::Option<E>
-impl<E: core::error::Error + 'static> core::error::Error for hadris_storage::StorageError<E>
-pub fn hadris_storage::StorageError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_storage::StorageError<E>> for core::io::error::Error
-pub fn core::io::error::Error::from(hadris_storage::StorageError<E>) -> Self
-impl<E: core::fmt::Display> core::fmt::Display for hadris_storage::StorageError<E>
-pub fn hadris_storage::StorageError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_io::error::ExactError<E>> for hadris_storage::StorageError<E>
-pub fn hadris_storage::StorageError<E>::from(hadris_io::error::ExactError<E>) -> Self
-impl<E> core::convert::From<hadris_storage::OutOfRange> for hadris_storage::StorageError<E>
-pub fn hadris_storage::StorageError<E>::from(hadris_storage::OutOfRange) -> Self
-impl<E> core::convert::From<hadris_storage::WriteError<E>> for hadris_storage::StorageError<E>
-pub fn hadris_storage::StorageError<E>::from(hadris_storage::WriteError<E>) -> Self
-impl<E> core::convert::From<hadris_storage::WriteError<hadris_storage::StorageError<E>>> for hadris_storage::StorageError<E>
-pub fn hadris_storage::StorageError<E>::from(hadris_storage::WriteError<hadris_storage::StorageError<E>>) -> Self
-#[non_exhaustive] pub enum hadris_storage::WriteError<E>
-pub hadris_storage::WriteError::Device(E)
-pub hadris_storage::WriteError::ReadOnly
-impl<E> hadris_storage::WriteError<E>
-pub fn hadris_storage::WriteError<E>::map_device<F>(self, impl core::ops::function::FnOnce(E) -> F) -> hadris_storage::WriteError<F>
-impl<E: core::error::Error + 'static> core::error::Error for hadris_storage::WriteError<E>
-pub fn hadris_storage::WriteError<E>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-impl<E: core::error::Error + core::marker::Send + core::marker::Sync + 'static> core::convert::From<hadris_storage::WriteError<E>> for core::io::error::Error
-pub fn core::io::error::Error::from(hadris_storage::WriteError<E>) -> Self
-impl<E: core::fmt::Display> core::fmt::Display for hadris_storage::WriteError<E>
-pub fn hadris_storage::WriteError<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<E> for hadris_storage::WriteError<E>
-pub fn hadris_storage::WriteError<E>::from(E) -> Self
-impl<E> core::convert::From<hadris_storage::WriteError<E>> for hadris_storage::StorageError<E>
-pub fn hadris_storage::StorageError<E>::from(hadris_storage::WriteError<E>) -> Self
-impl<E> core::convert::From<hadris_storage::WriteError<hadris_storage::StorageError<E>>> for hadris_storage::StorageError<E>
-pub fn hadris_storage::StorageError<E>::from(hadris_storage::WriteError<hadris_storage::StorageError<E>>) -> Self
+pub fn T::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<<T as hadris_io::error::ErrorType>::Error>>
+pub fn T::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<<T as hadris_io::error::ErrorType>::Error>>
 pub struct hadris_storage::BlockCount(_)
 impl hadris_storage::BlockCount
 pub const fn hadris_storage::BlockCount::get(self) -> u64
@@ -433,31 +392,23 @@ pub fn hadris_storage::MemDevice<B>::new(B, hadris_storage::BlockSize) -> Self
 impl<B: hadris_storage::MemBuffer + hadris_io::async::MaybeSend> hadris_storage::async::BlockDevice for hadris_storage::MemDevice<B>
 pub fn hadris_storage::MemDevice<B>::block_count(&self) -> u64
 pub fn hadris_storage::MemDevice<B>::block_size(&self) -> hadris_storage::BlockSize
-pub async fn hadris_storage::MemDevice<B>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_storage::OutOfRange>
-pub async fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_storage::OutOfRange>>
+pub async fn hadris_storage::MemDevice<B>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
+pub async fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
 impl<B: hadris_storage::MemBuffer + hadris_io::async_send::MaybeSend> hadris_storage::async_send::BlockDevice for hadris_storage::MemDevice<B>
 pub fn hadris_storage::MemDevice<B>::block_count(&self) -> u64
 pub fn hadris_storage::MemDevice<B>::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::MemDevice<B>::flush(&mut self) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_storage::WriteError<Self::Error>>> + core::marker::Send
-pub async fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_storage::OutOfRange>
-pub async fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_storage::OutOfRange>>
+pub fn hadris_storage::MemDevice<B>::flush(&mut self) -> impl core::future::future::Future<Output = core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>> + core::marker::Send
+pub async fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
+pub async fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
 impl<B: hadris_storage::MemBuffer + hadris_io::sync::MaybeSend> hadris_storage::sync::BlockDevice for hadris_storage::MemDevice<B>
 pub fn hadris_storage::MemDevice<B>::block_count(&self) -> u64
 pub fn hadris_storage::MemDevice<B>::block_size(&self) -> hadris_storage::BlockSize
-pub fn hadris_storage::MemDevice<B>::flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_storage::OutOfRange>
-pub fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_storage::OutOfRange>>
+pub fn hadris_storage::MemDevice<B>::flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::MemDevice<B>::read_blocks(&mut self, hadris_storage::BlockIndex, &mut [u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
+pub fn hadris_storage::MemDevice<B>::write_blocks(&mut self, hadris_storage::BlockIndex, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<core::convert::Infallible>>
 impl<B> hadris_io::error::ErrorType for hadris_storage::MemDevice<B>
-pub type hadris_storage::MemDevice<B>::Error = hadris_storage::OutOfRange
-pub struct hadris_storage::OutOfRange
-impl core::convert::From<hadris_storage::OutOfRange> for core::io::error::Error
-pub fn core::io::error::Error::from(hadris_storage::OutOfRange) -> Self
-impl core::error::Error for hadris_storage::OutOfRange
-impl core::fmt::Display for hadris_storage::OutOfRange
-pub fn hadris_storage::OutOfRange::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::convert::From<hadris_storage::OutOfRange> for hadris_storage::StorageError<E>
-pub fn hadris_storage::StorageError<E>::from(hadris_storage::OutOfRange) -> Self
+pub type hadris_storage::MemDevice<B>::Error = never
 pub struct hadris_storage::ReadOnly<T>(_)
 impl<T> hadris_storage::ReadOnly<T>
 pub fn hadris_storage::ReadOnly<T>::get_mut(&mut self) -> &mut T
@@ -473,14 +424,14 @@ pub async fn hadris_storage::ReadOnly<T>::read(&mut self, &mut [u8]) -> core::re
 impl<T: hadris_io::async_send::api::Seek> hadris_io::async_send::api::Seek for hadris_storage::ReadOnly<T>
 pub async fn hadris_storage::ReadOnly<T>::seek(&mut self, hadris_io::SeekFrom) -> core::result::Result<u64, Self::Error>
 impl<T: hadris_io::error::ErrorType + hadris_io::async::MaybeSend> hadris_storage::async::StreamWrite for hadris_storage::ReadOnly<T>
-pub async fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<Self::Error>>>
+pub async fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::error::ErrorType + hadris_io::async_send::MaybeSend> hadris_storage::async_send::StreamWrite for hadris_storage::ReadOnly<T>
-pub async fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub async fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<Self::Error>>>
+pub async fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub async fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::error::ErrorType + hadris_io::sync::MaybeSend> hadris_storage::sync::StreamWrite for hadris_storage::ReadOnly<T>
-pub fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_storage::WriteError<Self::Error>>
-pub fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_storage::WriteError<hadris_io::error::ExactError<Self::Error>>>
+pub fn hadris_storage::ReadOnly<T>::stream_flush(&mut self) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
+pub fn hadris_storage::ReadOnly<T>::stream_write_all(&mut self, &[u8]) -> core::result::Result<(), hadris_io::fs_error::Error<Self::Error>>
 impl<T: hadris_io::error::ErrorType> hadris_io::error::ErrorType for hadris_storage::ReadOnly<T>
 pub type hadris_storage::ReadOnly<T>::Error = <T as hadris_io::error::ErrorType>::Error
 impl<T: hadris_io::sync::api::Read> hadris_io::sync::api::Read for hadris_storage::ReadOnly<T>

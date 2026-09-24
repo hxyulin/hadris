@@ -126,8 +126,9 @@ fn cyclic_directories_are_corrupt() {
         let err = extract_to_host(&mut src, "/", scratch.0.join(case.to_string())).unwrap_err();
         let kind = err
             .get_ref()
-            .and_then(|inner| inner.downcast_ref::<ErrorKind>());
-        assert_eq!(kind, Some(&ErrorKind::Corrupt), "{dir} -> {target}: {err}");
+            .and_then(|inner| inner.downcast_ref::<hadris_fs::Error<core::convert::Infallible>>())
+            .map(hadris_fs::Error::kind);
+        assert_eq!(kind, Some(ErrorKind::Corrupt), "{dir} -> {target}: {err}");
         assert_eq!((src.open_nodes(), dst.open_nodes()), (1, 1));
     }
 }

@@ -10,7 +10,7 @@ use hadris_storage::{BlockSize, MemDevice};
 use hadris_udf::{UdfOptions, UdfRevision};
 
 fn names(
-    fs: &mut impl FsDriver<DeviceError = hadris_storage::OutOfRange>,
+    fs: &mut impl FsDriver<DeviceError = core::convert::Infallible>,
     path: &str,
 ) -> Vec<(String, FileType)> {
     let dir = fs.resolve(path).unwrap();

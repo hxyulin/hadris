@@ -41,7 +41,10 @@ and writes whole logical blocks of an explicit size. It does not assume
 512-byte sectors. `std::fs::File` is a device with 512-byte blocks,
 `MemDevice` wraps bytes in memory, `StreamDevice` turns any seekable stream
 into a device with the block size you give it, and `Cache` adds a write-back
-block cache. A device refuses writes by returning `WriteError::ReadOnly`.
+block cache. Every block operation returns `hadris_io::Error<E>` over the
+device's own error `E`: a device refuses writes with kind `ReadOnly`, and an
+adapter refuses a request past its end with kind `InvalidInput` and the
+block it concerns.
 
 The format crates validate their own sector and filesystem geometry on top of
 the device's block size.

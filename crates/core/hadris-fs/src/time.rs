@@ -23,6 +23,15 @@ pub enum DateTimeError {
 }
 
 impl DateTimeError {
+    pub(crate) const fn description(self) -> &'static str {
+        match self {
+            Self::InvalidNanoseconds => "nanoseconds must be below one second",
+            Self::InvalidOffset => "UTC offset must be within 23:59 hours",
+            Self::InvalidCivil => "civil date or time field out of range",
+            Self::OutOfRange => "date and time out of supported range",
+        }
+    }
+
     /// Returns the matching error kind.
     pub const fn kind(self) -> ErrorKind {
         match self {
@@ -40,12 +49,7 @@ impl From<DateTimeError> for ErrorKind {
 
 impl fmt::Display for DateTimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::InvalidNanoseconds => "nanoseconds must be below one second",
-            Self::InvalidOffset => "UTC offset must be within 23:59 hours",
-            Self::InvalidCivil => "civil date or time field out of range",
-            Self::OutOfRange => "date and time out of supported range",
-        })
+        f.write_str(self.description())
     }
 }
 

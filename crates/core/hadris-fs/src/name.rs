@@ -22,6 +22,17 @@ pub enum NameError {
 }
 
 impl NameError {
+    pub(crate) const fn description(self) -> &'static str {
+        match self {
+            Self::Empty => "name is empty",
+            Self::CurrentDir => "name is `.`",
+            Self::ParentDir => "name is `..`",
+            Self::Separator => "name contains `/`",
+            Self::Nul => "name contains a NUL byte",
+            Self::TooLong => "name is too long for the buffer",
+        }
+    }
+
     /// Returns the matching error kind.
     pub const fn kind(self) -> ErrorKind {
         match self {
@@ -39,14 +50,7 @@ impl From<NameError> for ErrorKind {
 
 impl fmt::Display for NameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Empty => "name is empty",
-            Self::CurrentDir => "name is `.`",
-            Self::ParentDir => "name is `..`",
-            Self::Separator => "name contains `/`",
-            Self::Nul => "name contains a NUL byte",
-            Self::TooLong => "name is too long for the buffer",
-        })
+        f.write_str(self.description())
     }
 }
 

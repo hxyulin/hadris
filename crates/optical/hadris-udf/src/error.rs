@@ -121,16 +121,6 @@ impl<E> Error<E> {
         }
     }
 
-    pub(crate) const fn device(err: E) -> Self {
-        Self {
-            kind: ErrorKind::Io,
-            detail: None,
-            device: Some(err),
-            #[cfg(feature = "alloc")]
-            content: None,
-        }
-    }
-
     pub(crate) const fn corrupt(detail: Detail) -> Self {
         Self::new(ErrorKind::Corrupt, detail)
     }
@@ -228,16 +218,10 @@ impl<E> From<hadris_fs::tree::TreeError> for Error<E> {
     }
 }
 
-impl<E> From<hadris_storage::WriteError<E>> for Error<E> {
-    fn from(err: hadris_storage::WriteError<E>) -> Self {
-        hadris_fs::Error::from(err).into()
-    }
-}
-
 impl<E> From<Error<E>> for hadris_fs::Error<E> {
     fn from(err: Error<E>) -> Self {
         match err.device {
-            Some(device) => hadris_fs::Error::from_device(device),
+            Some(device) => hadris_fs::Error::device(device, "device failed"),
             None => err.kind.into(),
         }
     }

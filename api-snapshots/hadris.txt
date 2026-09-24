@@ -1,4 +1,11 @@
 pub mod hadris
+pub use hadris::DetailCode
+pub use hadris::Errno
+pub use hadris::Error
+pub use hadris::ErrorKind
+pub use hadris::FsResult
+pub use hadris::Location
+pub use hadris::MountError
 pub use hadris::block
 pub use hadris::cd
 pub use hadris::cpio
